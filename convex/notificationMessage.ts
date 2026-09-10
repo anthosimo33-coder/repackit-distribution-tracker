@@ -617,6 +617,16 @@ export interface DigestSections {
   payCycles: { creatorName: string }[];
   warmupLate: { handle: string; missedDays: number }[];
   /**
+   * Comptes dont la chauffe est TERMINÉE et qui attendent une validation admin.
+   *
+   * Signalés parce qu'ils sont dans un angle mort : le compte a fini, la
+   * créatrice ne peut rien faire de plus, et rien ne pousse l'information —
+   * seul un badge dans une liste la portait. Sous le gate strict (#98) le
+   * compte n'est pas publiable tant que l'admin ne l'a pas repassé en actif,
+   * donc chaque jour de délai annule un jour de chauffe gagné.
+   */
+  warmupReady: { handle: string; creatorName: string }[];
+  /**
    * Échecs de renouvellement que Whop VA relancer, survenus dans la journée.
    * Contrepartie de l'arbitrage « immédiat seulement si non relançable » : ils
    * ne disparaissent pas, ils changent de canal. Rattachés à la bascule
@@ -637,6 +647,16 @@ export interface DigestSections {
    * le montant — contrainte de confidentialité du canal.
    */
   talentSoldeDu: { creatorName: string; moisDus: number }[];
+  /**
+   * Publications publiées que le relevé de vues n'a JAMAIS mesurées.
+   *
+   * Signalées parce que la fenêtre se referme : le relevé ne balaie que les
+   * comptes actifs des 30 derniers jours, et au-delà la publication devient
+   * définitivement immesurable — elle ne paiera rien et n'entrera dans aucune
+   * moyenne. C'est le seul signal du digest qui porte une ÉCHÉANCE : passé le
+   * délai, il n'y a plus rien à rattraper.
+   */
+  jamaisMesurees: { compte: string; joursDepuisPubli: number }[];
 }
 
 export function buildDigestMessage(params: {
@@ -650,17 +670,21 @@ export function buildDigestMessage(params: {
     overdueMissions,
     payCycles,
     warmupLate,
+    warmupReady,
     retryableRenewalFailures,
     chauffeSansTalent,
     talentSoldeDu,
+    jamaisMesurees,
   } = sections;
   if (
     overdueMissions.length === 0 &&
     payCycles.length === 0 &&
     warmupLate.length === 0 &&
+    warmupReady.length === 0 &&
     retryableRenewalFailures.length === 0 &&
     chauffeSansTalent.length === 0 &&
-    talentSoldeDu.length === 0
+    talentSoldeDu.length === 0 &&
+    jamaisMesurees.length === 0
   ) {
     return null;
   }
@@ -706,6 +730,19 @@ export function buildDigestMessage(params: {
     );
   }
 
+  if (warmupReady.length > 0) {
+    const n = warmupReady.length;
+    // Placé APRÈS les retards : « en retard » appelle une relance de la
+    // créatrice, « terminé » appelle une action de l'admin. Deux gestes
+    // différents, deux blocs distincts.
+    blocks.push(
+      `✅ <b>${n} ${plural(n, "warmup")} ${plural(n, "terminé")} — à valider</b>\n` +
+        bulletList(
+          warmupReady.map((w) => `${w.handle} (${w.creatorName})`),
+        ),
+    );
+  }
+
   if (retryableRenewalFailures.length > 0) {
     const n = retryableRenewalFailures.length;
     blocks.push(
@@ -742,8 +779,61 @@ export function buildDigestMessage(params: {
     );
   }
 
+  if (jamaisMesurees.length > 0) {
+    const n = jamaisMesurees.length;
+    blocks.push(
+      `📉 <b>${n} ${plural(n, "publication")} sans aucun relevé de vues</b>\n` +
+        bulletList(
+          jamaisMesurees.map(
+            (p) =>
+              `${p.compte} — publiée il y a ${p.joursDepuisPubli} ${plural(p.joursDepuisPubli, "jour")}${
+                p.joursDepuisPubli >= 30 ? " (hors fenêtre, perdue)" : ""
+              }`,
+          ),
+        ),
+    );
+  }
+
   blocks.push(link("Ouvrir le dashboard", dashboardUrl(appBaseUrl, projectSlug)));
   return blocks.join("\n\n");
+}
+
+// ─── Relevé de vues en panne ─────────────────────────────────────────────────
+
+/**
+ * Alerte du relevé nocturne. N'est construite QUE lorsque plus de la moitié des
+ * comptes du projet ont échoué : à ce niveau ce n'est plus un aléa (vidéo
+ * supprimée, compte passé privé) mais une panne — jeton expiré, plateforme qui
+ * bloque, quota Apify épuisé.
+ *
+ * Les comptes sont NOMMÉS (plafonnés) plutôt que comptés : « 9 comptes sur 11 »
+ * ne dit pas s'il faut regarder le token d'un projet ou une plateforme entière,
+ * la liste si.
+ */
+export function buildSyncFailureMessage(params: {
+  failed: readonly string[];
+  attempted: number;
+  appBaseUrl: string;
+  projectSlug: string;
+  maxListed?: number;
+}): string {
+  const { failed, attempted, appBaseUrl, projectSlug } = params;
+  const max = params.maxListed ?? 10;
+  const listed = failed.slice(0, max);
+  const reste = failed.length - listed.length;
+  return [
+    "🚨 <b>Relevé de vues en panne</b>",
+    "",
+    `<b>${failed.length}</b> ${plural(failed.length, "compte")} sur ${attempted} ` +
+      `${plural(attempted, "relevé")} cette nuit ${failed.length > 1 ? "n'ont" : "n'a"} rien remonté.`,
+    "",
+    bulletList(listed.map((c) => escapeTelegram(c))),
+    ...(reste > 0 ? [`…et ${reste} ${plural(reste, "autre")}.`] : []),
+    "",
+    "Pistes : jeton Apify expiré ou quota épuisé, plateforme qui bloque, comptes passés privés.",
+    "",
+    link("Ouvrir le dashboard", dashboardUrl(appBaseUrl, projectSlug)),
+  ].join("\n");
 }
 
 // ─── Test manuel depuis l'écran admin ────────────────────────────────────────

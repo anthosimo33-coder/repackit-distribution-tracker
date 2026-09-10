@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  WARMUP_TARGET_DAYS,
+  WARMUP_TARGET_DAYS_FALLBACK,
+  warmupTargetDaysOf,
   defaultTargetDays,
   platformKey,
   todayKey,
@@ -21,18 +22,39 @@ const DAY = 86_400_000;
 const START = 1_700_000_000_000;
 const at = (days: number) => START + days * DAY;
 
-describe("WARMUP_TARGET_DAYS — barème unique", () => {
-  it("youtube=7, tiktok=7, instagram=14", () => {
-    expect(WARMUP_TARGET_DAYS).toEqual({
+// Barèmes des deux projets RÉELS : les tests parlent de la prod, pas d'un jeu
+// inventé. RepackIt garde 7/14/7 ; Snytch chauffe 3 jours sur ses deux
+// plateformes (règle produit portée par projects.warmupTargetDays).
+const REPACKIT = { tiktok: 7, instagram: 14, youtube: 7 };
+const SNYTCH = { tiktok: 3, instagram: 3, youtube: 3 };
+
+describe("Barème : dernier recours et barème de projet", () => {
+  it("dernier recours — youtube=7, tiktok=7, instagram=14", () => {
+    expect(WARMUP_TARGET_DAYS_FALLBACK).toEqual({
       youtube: 7,
       tiktok: 7,
       instagram: 14,
     });
   });
-  it("defaultTargetDays mappe la plateforme capitalisée", () => {
-    expect(defaultTargetDays("TikTok")).toBe(7);
-    expect(defaultTargetDays("YouTube")).toBe(7);
-    expect(defaultTargetDays("Instagram")).toBe(14);
+  it("defaultTargetDays lit LE BARÈME REÇU, pas un global", () => {
+    expect(defaultTargetDays("TikTok", REPACKIT)).toBe(7);
+    expect(defaultTargetDays("YouTube", REPACKIT)).toBe(7);
+    expect(defaultTargetDays("Instagram", REPACKIT)).toBe(14);
+  });
+
+  it("projet sans barème → dernier recours", () => {
+    expect(warmupTargetDaysOf({})).toEqual(WARMUP_TARGET_DAYS_FALLBACK);
+    expect(warmupTargetDaysOf({ warmupTargetDays: null })).toEqual(
+      WARMUP_TARGET_DAYS_FALLBACK,
+    );
+  });
+
+  it("SNYTCH — 3 jours TikTok ET Instagram, contre 7 et 14 chez RepackIt", () => {
+    const d = warmupTargetDaysOf({ warmupTargetDays: SNYTCH });
+    expect(defaultTargetDays("TikTok", d)).toBe(3);
+    expect(defaultTargetDays("Instagram", d)).toBe(3);
+    expect(defaultTargetDays("TikTok", REPACKIT)).toBe(7);
+    expect(defaultTargetDays("Instagram", REPACKIT)).toBe(14);
   });
   it("platformKey", () => {
     expect(platformKey("TikTok")).toBe("tiktok");
@@ -43,8 +65,8 @@ describe("WARMUP_TARGET_DAYS — barème unique", () => {
 
 describe("todayKey", () => {
   it("YYYY-MM-DD UTC", () => {
-    expect(todayKey(START)).toBe("2023-11-14");
-    expect(todayKey(at(1))).toBe("2023-11-15");
+    expect(todayKey(START, null)).toBe("2023-11-14");
+    expect(todayKey(at(1), null)).toBe("2023-11-15");
   });
 });
 
@@ -91,13 +113,13 @@ describe("warmupProgress (fondé sur les CHECKS réels)", () => {
 
 describe("effectiveTargetDays / checksCompleted", () => {
   it("durée = surcharge protocole sinon barème plateforme", () => {
-    expect(effectiveTargetDays({ plateforme: "TikTok" })).toBe(7);
-    expect(effectiveTargetDays({ plateforme: "Instagram" })).toBe(14);
+    expect(effectiveTargetDays({ plateforme: "TikTok" }, REPACKIT)).toBe(7);
+    expect(effectiveTargetDays({ plateforme: "Instagram" }, REPACKIT)).toBe(14);
     expect(
-      effectiveTargetDays({
-        plateforme: "TikTok",
-        warmupProtocol: { targetDays: 5 },
-      }),
+      effectiveTargetDays(
+        { plateforme: "TikTok", warmupProtocol: { targetDays: 5 } },
+        REPACKIT,
+      ),
     ).toBe(5);
   });
   it("checksCompleted = nb de checks distincts", () => {
@@ -117,43 +139,46 @@ describe("isWarmupComplete (par checks réels, pas calendaire)", () => {
       plateforme: "TikTok" as const,
       warmupProtocol: { dailyChecks: Array.from({ length: n }, (_, i) => `d${i}`) },
     });
-    expect(isWarmupComplete(c(6))).toBe(false);
-    expect(isWarmupComplete(c(7))).toBe(true);
-    expect(isWarmupComplete(c(8))).toBe(true);
+    expect(isWarmupComplete(c(6), REPACKIT)).toBe(false);
+    expect(isWarmupComplete(c(7), REPACKIT)).toBe(true);
+    expect(isWarmupComplete(c(8), REPACKIT)).toBe(true);
   });
   it("Instagram terminé à 14 checks", () => {
     const checks = (n: number) =>
       Array.from({ length: n }, (_, i) => `d${i}`);
     expect(
-      isWarmupComplete({
-        plateforme: "Instagram",
-        warmupProtocol: { dailyChecks: checks(13) },
-      }),
+      isWarmupComplete(
+        { plateforme: "Instagram", warmupProtocol: { dailyChecks: checks(13) } },
+        REPACKIT,
+      ),
     ).toBe(false);
     expect(
-      isWarmupComplete({
-        plateforme: "Instagram",
-        warmupProtocol: { dailyChecks: checks(14) },
-      }),
+      isWarmupComplete(
+        { plateforme: "Instagram", warmupProtocol: { dailyChecks: checks(14) } },
+        REPACKIT,
+      ),
     ).toBe(true);
   });
   it("rater un jour n'avance pas : J1 puis (saut) J3 = 2 checks, pas terminé", () => {
     // 2 checks à des dates non consécutives → checksCompleted=2 < 7.
     expect(
-      isWarmupComplete({
-        plateforme: "TikTok",
-        warmupProtocol: { dailyChecks: ["2023-11-14", "2023-11-16"] },
-      }),
+      isWarmupComplete(
+        {
+          plateforme: "TikTok",
+          warmupProtocol: { dailyChecks: ["2023-11-14", "2023-11-16"] },
+        },
+        REPACKIT,
+      ),
     ).toBe(false);
   });
 });
 
 describe("isAccountAvailable", () => {
   it("actif → disponible ; legacy actif=true → disponible", () => {
-    expect(isAccountAvailable({ plateforme: "TikTok", status: "actif" })).toBe(
+    expect(isAccountAvailable({ plateforme: "TikTok", status: "actif" }, REPACKIT)).toBe(
       true,
     );
-    expect(isAccountAvailable({ plateforme: "TikTok", actif: true })).toBe(true);
+    expect(isAccountAvailable({ plateforme: "TikTok", actif: true }, REPACKIT)).toBe(true);
   });
   it("warmup → disponible seulement si terminé (checks)", () => {
     const warm = (n: number) => ({
@@ -161,14 +186,14 @@ describe("isAccountAvailable", () => {
       status: "warmup" as const,
       warmupProtocol: { dailyChecks: Array.from({ length: n }, (_, i) => `d${i}`) },
     });
-    expect(isAccountAvailable(warm(6))).toBe(false);
-    expect(isAccountAvailable(warm(7))).toBe(true);
+    expect(isAccountAvailable(warm(6), REPACKIT)).toBe(false);
+    expect(isAccountAvailable(warm(7), REPACKIT)).toBe(true);
   });
   it("shadowban / archived → indisponible", () => {
     expect(
-      isAccountAvailable({ plateforme: "TikTok", status: "shadowban" }),
+      isAccountAvailable({ plateforme: "TikTok", status: "shadowban" }, REPACKIT),
     ).toBe(false);
-    expect(isAccountAvailable({ plateforme: "TikTok", actif: false })).toBe(
+    expect(isAccountAvailable({ plateforme: "TikTok", actif: false }, REPACKIT)).toBe(
       false,
     );
   });
@@ -182,21 +207,24 @@ describe("isAccountAvailable", () => {
       warmupProtocol: {
         dailyChecks: Array.from({ length: 7 }, (_, i) => `d${i}`),
       },
+        REPACKIT,
     };
     it("warmup terminé → indisponible en strict (dispo en lenient)", () => {
-      expect(isAccountAvailable(warmDone)).toBe(true); // lenient (défaut)
-      expect(isAccountAvailable(warmDone, { strict: true })).toBe(false);
+      expect(isAccountAvailable(warmDone, REPACKIT)).toBe(true); // lenient (défaut)
+      expect(isAccountAvailable(warmDone, REPACKIT, { strict: true })).toBe(false);
     });
     it("actif → disponible même en strict", () => {
       expect(
         isAccountAvailable(
           { plateforme: "TikTok", status: "actif" },
+          REPACKIT,
           { strict: true },
         ),
       ).toBe(true);
       expect(
         isAccountAvailable(
           { plateforme: "TikTok", actif: true },
+          REPACKIT,
           { strict: true },
         ),
       ).toBe(true);
@@ -207,24 +235,26 @@ describe("isAccountAvailable", () => {
         status: "warmup" as const,
         warmupProtocol: { dailyChecks: ["d0", "d1"] },
       };
-      expect(isAccountAvailable(warmInProgress)).toBe(false);
-      expect(isAccountAvailable(warmInProgress, { strict: true })).toBe(false);
+      expect(isAccountAvailable(warmInProgress, REPACKIT)).toBe(false);
+      expect(isAccountAvailable(warmInProgress, REPACKIT, { strict: true })).toBe(false);
     });
   });
 });
 
 describe("mustCheckToday", () => {
-  const TODAY = todayKey(START); // "2023-11-14"
+  const TODAY = todayKey(START, null); // "2023-11-14"
   it("dû si warmup non terminé ET pas coché aujourd'hui", () => {
     expect(
-      mustCheckToday({ plateforme: "TikTok", warmupProtocol: { dailyChecks: [] } }, START),
+      mustCheckToday({ plateforme: "TikTok", warmupProtocol: { dailyChecks: [] } }, REPACKIT, START, null),
     ).toBe(true);
   });
   it("non dû si déjà coché aujourd'hui", () => {
     expect(
       mustCheckToday(
         { plateforme: "TikTok", warmupProtocol: { dailyChecks: [TODAY] } },
+        REPACKIT,
         START,
+        null,
       ),
     ).toBe(false);
   });
@@ -233,7 +263,9 @@ describe("mustCheckToday", () => {
     expect(
       mustCheckToday(
         { plateforme: "TikTok", warmupProtocol: { dailyChecks: ["2023-11-13"] } },
+        REPACKIT,
         START,
+        null,
       ),
     ).toBe(true);
   });
@@ -246,7 +278,9 @@ describe("mustCheckToday", () => {
             dailyChecks: ["d0", "d1", "d2", "d3", "d4", "d5", "d6"],
           },
         },
+        REPACKIT,
         START,
+        null,
       ),
     ).toBe(false);
   });
@@ -254,9 +288,9 @@ describe("mustCheckToday", () => {
 
 describe("checkedToday", () => {
   it("vrai si todayKey présent", () => {
-    expect(checkedToday(["2023-11-14"], START)).toBe(true);
-    expect(checkedToday(["2023-11-13"], START)).toBe(false);
-    expect(checkedToday([], START)).toBe(false);
+    expect(checkedToday(["2023-11-14"], START, null)).toBe(true);
+    expect(checkedToday(["2023-11-13"], START, null)).toBe(false);
+    expect(checkedToday([], START, null)).toBe(false);
   });
 });
 
@@ -285,5 +319,81 @@ describe("lastCheck", () => {
     expect(lastCheck(["2023-11-14", "2023-11-16", "2023-11-15"])).toBe(
       "2023-11-16",
     );
+  });
+});
+
+// ─── Chantier FUSEAUX — le check du soir d'une créatrice américaine ──────────
+
+/**
+ * LE défaut que ce chantier corrige, rejoué sur les fonctions RÉELLES.
+ *
+ * Scénario vécu en prod : une créatrice à New York coche son warmup le soir. À
+ * 21 h chez elle, la journée UTC du LENDEMAIN a déjà commencé — son check
+ * partait donc sur J+1, et le check du lendemain matin était refusé (« le check
+ * du jour est déjà fait »). Elle perdait un jour de chauffe à chaque fois.
+ *
+ * ⚠️ Les instants sont écrits en UTC explicite : une ISO nue serait relue dans
+ * le fuseau du runner et le test mentirait. Ce bloc est vert sous n'importe
+ * quel TZ (vérifié sous UTC, Europe/Paris, America/New_York, Asia/Kolkata).
+ */
+describe("Check du soir — fuseau de la créatrice", () => {
+  const NY = "America/New_York";
+  const LA = "America/Los_Angeles";
+  /** Mardi 2 sept 2026, 21:00 à New York (EDT) = mercredi 3, 01:00 UTC. */
+  const MARDI_21H_NY = Date.parse("2026-09-03T01:00:00Z");
+  /** Mercredi 3 sept 2026, 09:00 à New York = 13:00 UTC — le lendemain matin. */
+  const MERCREDI_9H_NY = Date.parse("2026-09-03T13:00:00Z");
+
+  it("le check de 21 h est daté du JOUR VÉCU, pas du lendemain UTC", () => {
+    expect(todayKey(MARDI_21H_NY, NY)).toBe("2026-09-02");
+    // Sans fuseau (comportement d'avant), il partait sur le 3 :
+    expect(todayKey(MARDI_21H_NY, null)).toBe("2026-09-03");
+  });
+
+  it("RÉGRESSION — le lendemain matin n'est plus refusé", () => {
+    // Elle a coché mardi soir : son historique porte le 2.
+    const apresLeSoir = [todayKey(MARDI_21H_NY, NY)];
+    // Mercredi 9 h, le check du jour NE DOIT PAS être considéré comme fait.
+    expect(checkedToday(apresLeSoir, MERCREDI_9H_NY, NY)).toBe(false);
+    // ...alors qu'avec l'ancienne clé UTC, il l'était — c'est le jour perdu.
+    const ancienHistorique = [todayKey(MARDI_21H_NY, null)];
+    expect(checkedToday(ancienHistorique, MERCREDI_9H_NY, null)).toBe(true);
+  });
+
+  it("le check reste refusé DEUX FOIS dans la même journée locale", () => {
+    const checks = [todayKey(MARDI_21H_NY, NY)];
+    // Mardi 22 h, une heure plus tard : toujours le même jour chez elle.
+    const mardi22h = Date.parse("2026-09-03T02:00:00Z");
+    expect(checkedToday(checks, mardi22h, NY)).toBe(true);
+  });
+
+  it("mustCheckToday suit la même horloge", () => {
+    const compte = {
+      plateforme: "TikTok" as const,
+      warmupProtocol: { targetDays: 3, dailyChecks: [todayKey(MARDI_21H_NY, NY)] },
+    };
+    expect(mustCheckToday(compte, SNYTCH, MARDI_21H_NY, NY)).toBe(false);
+    expect(mustCheckToday(compte, SNYTCH, MERCREDI_9H_NY, NY)).toBe(true);
+  });
+
+  it("Los Angeles perd encore plus large — 17 h locales suffisent à basculer", () => {
+    // 2 sept 17:00 PDT (UTC−7) = 3 sept 00:00 UTC : déjà « demain » en UTC.
+    const at = Date.parse("2026-09-03T00:00:00Z");
+    expect(todayKey(at, LA)).toBe("2026-09-02");
+    expect(todayKey(at, null)).toBe("2026-09-03");
+  });
+
+  it("une créatrice française n'est PAS affectée par le correctif", () => {
+    // 2 sept 21 h à Paris = 19:00 UTC : même jour des deux côtés, avant comme
+    // après. Le chantier ne doit rien déplacer pour l'équipe ni pour Kelly.
+    const at = Date.parse("2026-09-02T19:00:00Z");
+    expect(todayKey(at, "Europe/Paris")).toBe("2026-09-02");
+    expect(todayKey(at, null)).toBe("2026-09-02");
+  });
+
+  it("fuseau inconnu ⇒ comportement STRICTEMENT inchangé (UTC, pas Paris)", () => {
+    for (const at of [MARDI_21H_NY, MERCREDI_9H_NY, Date.parse("2026-01-15T23:30:00Z")]) {
+      expect(todayKey(at, null)).toBe(new Date(at).toISOString().slice(0, 10));
+    }
   });
 });

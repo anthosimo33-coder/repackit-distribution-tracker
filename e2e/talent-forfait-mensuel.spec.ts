@@ -49,10 +49,19 @@ async function talentActif(
     },
   });
   expect(res.tokens?.token).toBeTruthy();
+  // DEUX écritures depuis le découpage des droits : le forfait est un champ de
+  // RÉMUNÉRATION (`creators.pay_terms`), l'activation reste dans `updateCreator`.
+  // Le passer à `updateCreator` échoue au VALIDATEUR, pas au typage — l'étalement
+  // conditionnel désarme le contrôle de propriété excédentaire de TypeScript.
+  if (forfait !== null) {
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
+      id: creatorId,
+      monthlyRetainer: forfait,
+    });
+  }
   await admin.mutation(api.creators.updateCreator, {
     id: creatorId,
     status: "active",
-    ...(forfait !== null ? { monthlyRetainer: forfait } : {}),
   });
   return creatorId;
 }

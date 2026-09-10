@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
+import { toDisplayAmount, conversionNote } from "@/lib/currency-display";
 import { computeChurn } from "@/lib/churn";
+import { acquisitionCostPerClient } from "@/lib/retention-cost";
+import { formatDayShort } from "@/lib/analytics-window";
+import type { AnalyticsWindow, DataRange } from "@/lib/analytics-window";
 import {
   HubCardHeader,
   HubNotice,
@@ -24,6 +28,7 @@ import {
   pct,
   WHOP_WEBHOOK_FIX_MS,
   ANALYSIS_WINDOW_DAYS,
+  pctFromFraction,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
@@ -69,10 +74,33 @@ function frDateTime(ms: number | null): string {
 export function RetentionTab({
   churn,
   attribution,
+  clientWindow,
+  dataRange,
   now,
 }: {
   churn: ChurnData;
-  attribution: AttributionData | undefined;
+  /**
+   * NON fenêtrée. Tout ce que cet onglet compare porte sur toute la profondeur ;
+   * `acquisitionCostPerClient` refuse d'ailleurs une attribution fenêtrée.
+   */
+  attribution:
+    | (AttributionData & {
+        /**
+         * Présent UNIQUEMENT sur l'attribution fenêtrée. Déclaré ici pour que le
+         * jour où quelqu'un la rebranche sur cet onglet, la garde le voie et
+         * rende un tiret plutôt qu'un quotient de deux populations.
+         */
+        costWindow?: AnalyticsWindow | null;
+      })
+    | undefined;
+  /**
+   * Période de la COHORTE servie par `churn` — les clients comptés sont ceux
+   * acquis dedans. Doit coïncider avec la fenêtre des coûts, sinon le coût par
+   * client rend un tiret plutôt qu'un quotient de deux populations.
+   */
+  clientWindow: AnalyticsWindow | null;
+  /** Profondeur réellement collectée — sert à prouver qu'une fenêtre couvre tout. */
+  dataRange: DataRange | null;
   now: number;
 }) {
   const result = useMemo(
@@ -132,27 +160,38 @@ export function RetentionTab({
     : !concluant
       ? `${formatNumber(renewals.resolvedDueCount)} échéance(s) tranchée(s), seuil ${MIN_RESOLVED_DUE}`
       : renewals.projectedPerClientResolved !== null
-        ? `taux ${pct(renewals.renewalRateResolved)} · ${formatNumber(renewals.resolvedDueCount)} échéances observées`
-        : `taux ${pct(renewals.renewalRateResolved)} — 1/(1−t) diverge, borne basse affichée`;
+        ? `taux ${pctFromFraction(renewals.renewalRateResolved)} · ${formatNumber(renewals.resolvedDueCount)} échéances observées`
+        : `taux ${pctFromFraction(renewals.renewalRateResolved)} — 1/(1−t) diverge, borne basse affichée`;
 
   // Coût d'acquisition : MÊME dénominateur que le revenu par client (les clients
   // payants Whop), et converti dans la devise du revenu — le comparer brut
   // reviendrait à opposer des dollars à des euros.
-  const acqCostPayCur =
-    attribution?.costs.promo != null && attribution.costs.promoBonus != null && renewals
-      ? renewals.payingMembers > 0
-        ? Math.round(
-            ((attribution.costs.promo + attribution.costs.promoBonus) /
-              renewals.payingMembers) *
-              100,
-          ) / 100
-        : null
-      : null;
-  const fx = attribution?.fxRateToRevenue ?? null;
-  const acqCostRevCur =
-    acqCostPayCur !== null && fx !== null
-      ? Math.round(acqCostPayCur * fx * 100) / 100
-      : null;
+  // Passage OBLIGÉ par lib/retention-cost : le calcul refuse de diviser un coût
+  // fenêtré par les clients payants Whop, qui ne le sont jamais. Écrit à la main
+  // ici, il l'a fait pendant une journée en prod (#167).
+  const acqCostPayCur = renewals
+    ? acquisitionCostPerClient(
+        {
+          promo: attribution?.costs.promo ?? null,
+          promoBonus: attribution?.costs.promoBonus ?? null,
+          window: attribution?.costWindow ?? null,
+        },
+        renewals.payingMembers,
+        dataRange ?? null,
+        clientWindow,
+      )
+    : null;
+  // Passage par le module partagé (cf ConvertedAmount) plutôt qu'une
+  // multiplication locale. Deux raisons : un seul site du hub formate un montant
+  // de paie, et surtout ce calcul lisait `fxRateToRevenue` BRUT — si paie et
+  // revenu venaient à partager la même devise, il aurait appliqué le taux du
+  // projet au lieu de 1. `effectiveFxRate`, derrière le module, tranche ce cas.
+  const acqCost = toDisplayAmount(acqCostPayCur, {
+    payCurrency: attribution?.payCurrency,
+    revenueCurrency: churn?.currency,
+    fxRateToRevenue: attribution?.fxRateToRevenue,
+  });
+  const acqCostRevCur = acqCost !== null && acqCost.converted ? acqCost.value : null;
   const ratioOf = (v: number | null | undefined): number | null =>
     v != null && acqCostRevCur !== null && acqCostRevCur > 0
       ? Math.round((v / acqCostRevCur) * 100) / 100
@@ -169,18 +208,48 @@ export function RetentionTab({
       />
     );
   }
+  // Une cohorte VIDE n'est pas une absence de synchro : le dire, sinon on part
+  // vérifier Whop pour rien.
   if (churn.memberships.length === 0) {
     return (
       <HubEmptyState
         icon={UsersIcon}
-        title="En attente des abonnements Whop"
-        description="Aucun abonnement n'a encore été synchronisé depuis Whop. La carte s'alimentera dès la première synchro des memberships (cron horaire ou Actualiser)."
+        title={
+          churn.cohortFrom
+            ? "Aucun client acquis sur cette période"
+            : "En attente des abonnements Whop"
+        }
+        description={
+          churn.cohortFrom
+            ? `Personne n'a payé pour la première fois entre le ${formatDayShort(churn.cohortFrom)} et le ${formatDayShort(churn.cohortTo ?? churn.cohortFrom)}. Élargissez la période : les abonnements existent, ils ont simplement démarré ailleurs.`
+            : "Aucun abonnement n'a encore été synchronisé depuis Whop. La carte s'alimentera dès la première synchro des memberships (cron horaire ou Actualiser)."
+        }
       />
     );
   }
 
   return (
     <div className="space-y-6">
+      {/* De QUI parle cet onglet. « 40 clients » sans dire lesquels se lit comme
+          un total — et la rétention d'une cohorte jeune n'a rien à voir avec
+          celle de toute la base. */}
+      {churn.cohortFrom ? (
+        <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+          <strong>
+            Cohorte du {formatDayShort(churn.cohortFrom)} au{" "}
+            {formatDayShort(churn.cohortTo ?? churn.cohortFrom)}
+          </strong>{" "}
+          : {formatNumber(churn.memberships.length)} abonnement(s) dont le{" "}
+          <strong>premier encaissement</strong> tombe dans cette période, suivis{" "}
+          <strong>jusqu&apos;à aujourd&apos;hui</strong> — renouvellements
+          postérieurs compris. Les abonnements qui n&apos;ont JAMAIS encaissé
+          (essais, paiements refusés) n&apos;appartiennent à aucune cohorte : ils
+          sortent du compte, ce qui déplace aussi le taux de résiliation. Et une
+          cohorte récente a mécaniquement moins d&apos;historique qu&apos;une
+          ancienne : sa durée de vie et son revenu par client sont des planchers,
+          pas des verdicts.
+        </HubNotice>
+      ) : null}
       {/* Avertissement — échantillon (premiers renouvellements ~2 août) */}
       {!result.sampleSufficient ? (
         <HubNotice>
@@ -253,12 +322,12 @@ export function RetentionTab({
               hint={
                 renewals.renewalShare === null
                   ? "aucun revenu classé"
-                  : `${pct(renewals.renewalShare)} du revenu classé · ${formatNumber(renewals.renewalCount)} paiements`
+                  : `${pctFromFraction(renewals.renewalShare)} du revenu classé · ${formatNumber(renewals.renewalCount)} paiements`
               }
             />
             <KpiTile
               label="Maturité des cohortes"
-              value={renewals.matureShare === null ? "—" : pct(renewals.matureShare)}
+              value={renewals.matureShare === null ? "—" : pctFromFraction(renewals.matureShare)}
               delta={null}
               hint={`${formatNumber(renewals.due.notYetDue)} client(s) encore dans leur 1re période`}
             />
@@ -290,7 +359,7 @@ export function RetentionTab({
                   value={
                     renewals.renewalRateResolved === null
                       ? "—"
-                      : pct(renewals.renewalRateResolved)
+                      : pctFromFraction(renewals.renewalRateResolved)
                   }
                   delta={null}
                   hint={`${formatNumber(renewals.due.renewed)} renouvelées / ${formatNumber(renewals.resolvedDueCount)} tranchées`}
@@ -300,7 +369,7 @@ export function RetentionTab({
                   value={
                     renewals.renewalRateWorstCase === null
                       ? "—"
-                      : pct(renewals.renewalRateWorstCase)
+                      : pctFromFraction(renewals.renewalRateWorstCase)
                   }
                   delta={null}
                   hint={`si les ${formatNumber(renewals.due.pending)} en attente échouaient toutes`}
@@ -396,8 +465,7 @@ export function RetentionTab({
                         Coût d&apos;acquisition
                         <span className="text-slate-400">
                           {" "}
-                          ({formatMoney(acqCostPayCur ?? 0, attribution?.payCurrency)}{" "}
-                          converti)
+                          ({conversionNote(acqCost)})
                         </span>
                       </TableCell>
                       <TableCell className="text-right text-xs tabular-nums">
@@ -497,10 +565,10 @@ export function RetentionTab({
                           )}
                         </TableCell>
                         <TableCell className="text-right text-xs tabular-nums">
-                          {o.rateResolved === null ? "—" : pct(o.rateResolved)}
+                          {o.rateResolved === null ? "—" : pctFromFraction(o.rateResolved)}
                         </TableCell>
                         <TableCell className="text-right text-xs font-medium tabular-nums">
-                          {o.rateWorstCase === null ? "—" : pct(o.rateWorstCase)}
+                          {o.rateWorstCase === null ? "—" : pctFromFraction(o.rateWorstCase)}
                         </TableCell>
                         <TableCell className="text-xs text-slate-600">
                           {o.topFailureCause ?? (

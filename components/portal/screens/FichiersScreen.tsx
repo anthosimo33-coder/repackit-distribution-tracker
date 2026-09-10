@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FilmIcon, ImageIcon, FilesIcon, InboxIcon } from "lucide-react";
 import { isSnytchProject, classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * « Dépôt de contenu » — écran créateur SNYTCH UNIQUEMENT. Le créateur dépose
@@ -24,10 +25,12 @@ import { formatDate } from "@/lib/format";
  * son Drive) — pas de chemin de données admin (cohérent avec le périmètre).
  */
 
-const KIND_LABEL: Record<"video" | "photo" | "other", string> = {
-  video: "Vidéo",
-  photo: "Photo",
-  other: "Fichier",
+// Table de CLÉS i18n, pas de libellés : la valeur stockée (`kind`) ne bouge
+// pas, seule sa traduction est résolue au rendu.
+const KIND_LABEL_KEY: Record<"video" | "photo" | "other", string> = {
+  video: "fichiers.kind.video",
+  photo: "fichiers.kind.photo",
+  other: "fichiers.kind.other",
 };
 
 /**
@@ -65,6 +68,7 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 export default function FichiersScreen() {
+  const loc = useIntlLocale();
   const { current } = useCreatorProject();
   const va = useViewAs();
   const snytch = isSnytchProject(current.slug);
@@ -154,8 +158,8 @@ export default function FichiersScreen() {
                       {f.fileName}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {KIND_LABEL[kind]} · {formatBytes(f.sizeBytes)} ·{" "}
-                      {formatDate(f.uploadedAt)}
+                      {KIND_LABEL_KEY[kind]} · {formatBytes(f.sizeBytes, loc)} ·{" "}
+                      {formatDate(f.uploadedAt, loc)}
                     </p>
                   </div>
                 </li>

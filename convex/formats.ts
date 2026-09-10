@@ -1,8 +1,8 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsTalentQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   talentQuery,
 } from "./functions";
 import {
@@ -19,7 +19,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * jamais publiées) ; leur URL est résolue SERVEUR dans les queries (cf
  * publications → imageUrl). Les hooks sont embarqués en TEXTE (auto-suffisant).
  *
- * Ce module était 100 % adminQuery/adminMutation. Une seule exception depuis le
+ * Ce module était 100 % administration. Une seule exception depuis le
  * chantier talent : `getMyTalentBrief`, dont la sortie est réduite par une
  * allowlist (cf convex/talentBriefFields.ts) — un format porte des textes de
  * script et une grille de paie, il ne sort jamais entier hors de l'admin.
@@ -153,7 +153,7 @@ async function deleteOrphanBlobs(
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
-export const listFormats = adminQuery({
+export const listFormats = permissionQuery("scripts.manage")({
   args: {},
   handler: async (ctx) => {
     const formats = await ctx.db
@@ -167,17 +167,50 @@ export const listFormats = adminQuery({
       return a.name.localeCompare(b.name, "fr", { sensitivity: "base" });
     });
     // Liste : pas besoin de résoudre les URLs (la page détail le fait).
-    return sorted;
+    //
+    // PROJECTION EXPLICITE, et surtout PAS le document brut : un format porte une
+    // GRILLE DE RÉMUNÉRATION (`rateModel`). La servir ici la mettrait dans le
+    // navigateur de tous les écrans qui listent des formats — aucun ne l'affiche.
+    // Elle a sa propre lecture, `getFormatRateModel`, gardée par `pricing.manage`.
+    return sorted.map((f) => ({
+      _id: f._id,
+      _creationTime: f._creationTime,
+      projectId: f.projectId,
+      name: f.name,
+      type: f.type,
+      brief: f.brief,
+      hooks: f.hooks,
+      guidelines: f.guidelines,
+      exampleVideos: f.exampleVideos,
+      status: f.status,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
+    }));
   },
 });
 
-export const getFormat = adminQuery({
+export const getFormat = permissionQuery("scripts.manage")({
   args: { id: v.id("formats") },
   handler: async (ctx, { id }) => {
     const format = await ctx.db.get(id);
     if (!format || format.projectId !== ctx.projectId) return null;
     const resolved = await withResolvedExamples(ctx, format);
-    return { ...resolved, isReferenced: await isFormatReferenced(ctx, id) };
+    // Même raison que listFormats : `rateModel` ne sort pas d'ici.
+    return {
+      _id: resolved._id,
+      _creationTime: resolved._creationTime,
+      projectId: resolved.projectId,
+      name: resolved.name,
+      type: resolved.type,
+      brief: resolved.brief,
+      hooks: resolved.hooks,
+      guidelines: resolved.guidelines,
+      exampleVideos: resolved.exampleVideos,
+      status: resolved.status,
+      createdAt: resolved.createdAt,
+      updatedAt: resolved.updatedAt,
+      isReferenced: await isFormatReferenced(ctx, id),
+    };
   },
 });
 
@@ -241,7 +274,7 @@ export const getTalentBriefAsAdmin = adminViewAsTalentQuery({
 
 // ─── Mutations ─────────────────────────────────────────────────────────────
 
-function validateRate(rate: Doc<"formats">["rateModel"]) {
+function validateRate(rate: NonNullable<Doc<"formats">["rateModel"]>) {
   if (!Number.isFinite(rate.basePerPost) || rate.basePerPost < 0) {
     throw new ConvexError("Le tarif de base doit être un nombre ≥ 0.");
   }
@@ -258,7 +291,47 @@ function validateRate(rate: Doc<"formats">["rateModel"]) {
   }
 }
 
-export const createFormat = adminMutation({
+// ─── GRILLE DE RÉMUNÉRATION D'UN FORMAT — bloc `pricing.manage` ─────────────
+//
+// `rateModel` décide de ce que rapporte chaque vidéo produite sur ce format :
+// `assignments.assignFormat` en fait une COPIE FIGÉE (`rateSnapshot`) au moment
+// de l'attribution. Le modifier ne rejoue pas le passé, mais il fixe le prix de
+// tout ce qui sera assigné ensuite — c'est un geste de barème, pas d'édition de
+// brief. D'où sa sortie de `createFormat`/`updateFormat`.
+
+/** La grille d'UN format. `null` si le format est introuvable ou hors projet. */
+export const getFormatRateModel = permissionQuery("pricing.manage")({
+  args: { id: v.id("formats") },
+  handler: async (ctx, { id }) => {
+    const format = await ctx.db.get(id);
+    if (!format || format.projectId !== ctx.projectId) return null;
+    return format.rateModel ?? null;
+  },
+});
+
+/**
+ * Pose la grille d'un format. Remplace l'ensemble (fixe + bonus aux vues +
+ * paliers de prime) : une grille partielle n'a pas de sens, et un patch champ à
+ * champ laisserait un ancien palier survivre à une refonte du barème.
+ *
+ * ⚠️ N'affecte QUE les attributions FUTURES. Les assignations existantes portent
+ * leur `rateSnapshot`, figé à l'attribution et jamais réécrit (cf. convex/pricing
+ * et la dérive de snapshot). Changer une grille ne re-tarifie rien de ce qui a
+ * déjà été confié — c'est voulu, et c'est ce qui rend le geste réversible.
+ */
+export const setFormatRateModel = permissionMutation("pricing.manage")({
+  args: { id: v.id("formats"), rateModel: rateModelValidator },
+  handler: async (ctx, { id, rateModel }) => {
+    const format = await ctx.db.get(id);
+    if (!format || format.projectId !== ctx.projectId) {
+      throw new ConvexError("Format introuvable.");
+    }
+    validateRate(rateModel);
+    await ctx.db.patch(id, { rateModel, updatedAt: Date.now() });
+  },
+});
+
+export const createFormat = permissionMutation("scripts.manage")({
   args: {
     name: v.string(),
     type: typeValidator,
@@ -266,13 +339,16 @@ export const createFormat = adminMutation({
     hooks: v.optional(v.array(v.string())),
     guidelines: v.optional(guidelinesValidator),
     exampleVideos: v.optional(exampleVideosValidator),
-    rateModel: v.optional(rateModelValidator),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
     if (name.length === 0) throw new ConvexError("Le nom du format est requis.");
-    const rateModel = args.rateModel ?? { basePerPost: 0 };
-    validateRate(rateModel);
+    // Un format NAÎT SANS GRILLE — champ absent, pas `{ basePerPost: 0 }`. La
+    // nuance est ce qui protège la paie : `assignFormat` refuse d'assigner un
+    // format dont la grille n'a jamais été renseignée, alors qu'un zéro EXPLICITE
+    // (posé par `setFormatRateModel`) reste assignable. Sans elle, un format créé
+    // puis assigné avant que quelqu'un ait décidé du tarif figerait des missions
+    // à 0 € et la créatrice travaillerait gratuitement.
     const now = Date.now();
     return await ctx.db.insert("formats", {
       projectId: ctx.projectId,
@@ -282,7 +358,6 @@ export const createFormat = adminMutation({
       hooks: args.hooks ?? [],
       guidelines: args.guidelines ?? { do: [], dont: [] },
       exampleVideos: args.exampleVideos ?? [],
-      rateModel,
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -290,7 +365,7 @@ export const createFormat = adminMutation({
   },
 });
 
-export const updateFormat = adminMutation({
+export const updateFormat = permissionMutation("scripts.manage")({
   args: {
     id: v.id("formats"),
     name: v.optional(v.string()),
@@ -299,7 +374,6 @@ export const updateFormat = adminMutation({
     hooks: v.optional(v.array(v.string())),
     guidelines: v.optional(guidelinesValidator),
     exampleVideos: v.optional(exampleVideosValidator),
-    rateModel: v.optional(rateModelValidator),
     status: v.optional(statusValidator),
   },
   handler: async (ctx, args) => {
@@ -317,10 +391,6 @@ export const updateFormat = adminMutation({
     if (args.brief !== undefined) patch.brief = args.brief;
     if (args.hooks !== undefined) patch.hooks = args.hooks;
     if (args.guidelines !== undefined) patch.guidelines = args.guidelines;
-    if (args.rateModel !== undefined) {
-      validateRate(args.rateModel);
-      patch.rateModel = args.rateModel;
-    }
     if (args.status !== undefined) patch.status = args.status;
 
     if (args.exampleVideos !== undefined) {
@@ -338,7 +408,7 @@ export const updateFormat = adminMutation({
   },
 });
 
-export const deleteFormat = adminMutation({
+export const deleteFormat = permissionMutation("scripts.manage")({
   args: { id: v.id("formats") },
   handler: async (ctx, { id }) => {
     const format = await ctx.db.get(id);

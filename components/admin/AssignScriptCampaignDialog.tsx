@@ -37,9 +37,14 @@ import {
   type PostWindow,
 } from "@/convex/postWindow";
 import { convexErrorMessage } from "@/lib/convex-error";
+import {
+  PER_CREATOR,
+  displayedPricingChoice,
+  pricingForCreator,
+} from "@/lib/assign-pricing";
 import { Loader2Icon, VideoIcon } from "lucide-react";
-import { SCRIPT_TIERS, tierLabel } from "@/lib/script-tier";
 import { AssignmentPlanningCalendar } from "@/components/admin/AssignmentPlanningCalendar";
+import { useLabel } from "@/lib/use-label";
 import {
   ChosenComboPicker,
   EMPTY_CHOSEN,
@@ -55,7 +60,6 @@ import {
  * pricingSnapshot ; les anciens champs tarif de base / bonus aux vues sont retirés.
  */
 
-const TIER_ALL = "__all__";
 const NONE = "__none__";
 const PLATFORMS = ["TikTok", "YouTube", "Instagram"] as const;
 type Platform = (typeof PLATFORMS)[number];
@@ -107,6 +111,7 @@ export function AssignScriptCampaignDialog({
   open,
   onOpenChange,
   replaySource,
+  strike,
 }: {
   campaignId: Id<"scriptCampaigns">;
   campaignName: string;
@@ -118,7 +123,19 @@ export function AssignScriptCampaignDialog({
    * normale (auto par défaut, « choisie » from scratch possible).
    */
   replaySource?: ReplaySource;
+  /**
+   * Pré-remplissage « Programmer la frappe » (dashboard, porte ouverte) :
+   * créatrice sélectionnée, créneau et date de post posés d'avance. Le reste de
+   * la modale (choix du compte, combo auto) garde son comportement normal —
+   * on pré-remplit une intention, on ne la verrouille pas.
+   */
+  strike?: {
+    creatorId: Id<"creators">;
+    plage: PostWindow;
+    postDate: number;
+  };
 }) {
+  const tLabel = useLabel();
   const creators = useProjectQuery(
     api.assignments.listAssignableCreators,
     open ? {} : "skip",
@@ -131,7 +148,13 @@ export function AssignScriptCampaignDialog({
       : "skip",
   );
   const assign = useProjectMutation(api.scripts.assignScriptCampaign);
-  const pricings = useProjectQuery(api.pricing.listPricings, open ? {} : "skip");
+  // Lecture ÉTROITE (id + nom), gardée par `assignments.manage` : assigner exige
+  // un barème, donc le droit d'assigner doit suffire à en choisir un. Les TERMES
+  // du barème restent sous `pricing.manage`.
+  const pricings = useProjectQuery(
+    api.pricing.listPricingsForAssignment,
+    open ? {} : "skip",
+  );
   // Pièces jointes optionnelles — MÊMES bibliothèques que l'attachement manuel :
   // dossiers d'assets (page Assets) + inspirations vidéo (« vidéos à reproduire »).
   // Chargées dans les DEUX modes (elles s'attachent à toutes les assignations).
@@ -181,8 +204,11 @@ export function AssignScriptCampaignDialog({
   const [remunerated, setRemunerated] = useState<boolean | null>(null);
   const [qualifTouched, setQualifTouched] = useState(false);
   const [due, setDue] = useState(defaultDue());
-  const [tier, setTier] = useState<string>(TIER_ALL);
+  // Choix EXPLICITE du barème. Tant qu'il n'a pas été touché, c'est le barème de
+  // la créatrice qui s'applique (cf pricingChoice) — le manager n'a plus à se
+  // rappeler quelle grille va avec qui, et ce qu'il voit reste modifiable.
   const [pricingId, setPricingId] = useState<string>(NONE);
+  const [pricingTouched, setPricingTouched] = useState(false);
   const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   // Sélections de pièces jointes (dossiers d'assets + inspirations vidéo).
@@ -224,8 +250,8 @@ export function AssignScriptCampaignDialog({
       setVideos(String(DEFAULT_VIDEOS));
       setSlotDates(Array(DEFAULT_VIDEOS).fill(null));
       setDue(defaultDue());
-      setTier(TIER_ALL);
       setPricingId(NONE);
+      setPricingTouched(false);
       setOverlayText("");
       setSelectedFolderIds(new Set());
       setSelectedVideoIds(new Set());
@@ -236,6 +262,12 @@ export function AssignScriptCampaignDialog({
       // Combo : pré-rempli en « Combinaison choisie » si on rejoue une source,
       // sinon « auto » (comportement historique). Le pré-remplissage porte les
       // brickIds figés de la source (le picker signale supprimée/désactivée).
+      if (strike) {
+        setCreatorId(strike.creatorId as string);
+        setPlage(strike.plage);
+        setVideos("1");
+        setSlotDates([strike.postDate]);
+      }
       setComboMode(replaySource ? "chosen" : "auto");
       setChosenBricks(
         replaySource
@@ -312,7 +344,6 @@ export function AssignScriptCampaignDialog({
           campaignId,
           creatorId: creatorId as Id<"creators">,
           platforms: targets.map((t) => t.platform),
-          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
         }
       : "skip",
   );
@@ -336,7 +367,7 @@ export function AssignScriptCampaignDialog({
       toast.error("Échéance invalide.");
       return;
     }
-    if (pricingId === NONE) {
+    if (pricingForSingle === NONE) {
       toast.error("Le barème de paie est requis.");
       return;
     }
@@ -356,8 +387,7 @@ export function AssignScriptCampaignDialog({
         targets,
         videosPerCreator,
         dueDate: dueMs,
-        tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
-        pricingId: pricingId as Id<"pricings">,
+        pricingId: pricingForSingle as Id<"pricings">,
         overlayText: overlayText.trim() || undefined,
         assetFolderIds:
           selectedFolderIds.size > 0
@@ -432,6 +462,34 @@ export function AssignScriptCampaignDialog({
     0,
   );
 
+  // ── LE BARÈME SUIT LA CRÉATRICE ───────────────────────────────────────────
+  // `pricingId` n'est plus lu directement : tant que le sélecteur n'a pas été
+  // touché, le barème affiché est celui de la fiche (résolu serveur : sa grille
+  // perso, sinon le défaut du projet). C'est une VALEUR PAR DÉFAUT, pas un
+  // verrou — le manager peut toujours en choisir un autre pour ce lot.
+  const creatorPricingId =
+    (creators ?? []).find((c) => c._id === creatorId)?.pricingId ?? null;
+  // Les deux règles vivent dans lib/assign-pricing (testées) : `NONE` est la
+  // sentinelle du sélecteur, `null` l'absence côté logique — on traduit ici, et
+  // nulle part ailleurs.
+  const pricingChoice =
+    displayedPricingChoice({
+      touched: pricingTouched,
+      chosen: pricingId === NONE ? null : pricingId,
+      mode,
+      creatorPricingId,
+    }) ?? NONE;
+  /** Résout le choix pour UNE créatrice (son barème, ou celui imposé au lot). */
+  const resolvePricing = (own: string | null) =>
+    pricingForCreator(pricingChoice === NONE ? null : pricingChoice, own) ??
+    NONE;
+  const pricingForSingle = resolvePricing(creatorPricingId);
+  // Sélectionnées SANS barème : en masse, elles échoueraient une par une à
+  // l'envoi. On les nomme AVANT, dans le préflight.
+  const sansBareme = selectedRows.filter(
+    (r) => resolvePricing(r.creator.pricingId) === NONE,
+  );
+
   function toggleCreator(id: string) {
     setSelectedCreators((prev) => {
       const next = new Set(prev);
@@ -492,7 +550,13 @@ export function AssignScriptCampaignDialog({
     if (!Number.isFinite(new Date(`${due}T23:59:59`).getTime())) {
       return "Échéance invalide.";
     }
-    if (pricingId === NONE) return "Le barème de paie est requis.";
+    if (pricingChoice === NONE) return "Le barème de paie est requis.";
+    if (sansBareme.length > 0) {
+      return `Sans barème sur leur fiche : ${sansBareme
+        .map((r) => r.creator.name)
+        .slice(0, 3)
+        .join(", ")}${sansBareme.length > 3 ? "…" : ""}. Pose-leur une grille (écran Barèmes) ou choisis un barème pour ce lot.`;
+    }
     if (comboMode === "chosen" && !imposedCombo) {
       return "Choisis les 3 briques du combo (hook, flux, description).";
     }
@@ -512,6 +576,10 @@ export function AssignScriptCampaignDialog({
       id: r.creator._id,
       name: r.creator.name,
       targets: r.targets,
+      // Résolu ICI, une fois par créatrice : « barème de chacune » n'est pas
+      // envoyable au serveur, et le résoudre dans la boucle laisserait la
+      // question ouverte jusqu'au dernier moment.
+      pricingId: resolvePricing(r.creator.pricingId),
     }));
     if (batch.length === 0) return;
     setSubmitting(true);
@@ -528,8 +596,7 @@ export function AssignScriptCampaignDialog({
           targets: b.targets,
           videosPerCreator: videosNum,
           dueDate: dueMs,
-          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
-          pricingId: pricingId as Id<"pricings">,
+          pricingId: b.pricingId as Id<"pricings">,
           overlayText: overlayText.trim() || undefined,
           assetFolderIds:
             selectedFolderIds.size > 0
@@ -640,7 +707,6 @@ export function AssignScriptCampaignDialog({
           targets,
           videosPerCreator: videosNum,
           postDates: postDatesPayload,
-          tier: tier === TIER_ALL ? undefined : (tier as "S" | "A"),
           excludedComboKeys: rejetes.length > 0 ? rejetes : undefined,
         }
       : "skip",
@@ -649,7 +715,7 @@ export function AssignScriptCampaignDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Modale ÉLARGIE : beaucoup de champs (créateur, dates, planification,
-          tier, barème, overlay, assets, vidéos exemples). max-w-3xl évite la
+          barème, overlay, assets, vidéos exemples). max-w-3xl évite la
           troncation horizontale ; le contenu scrolle verticalement (max-h). */}
       <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
@@ -1061,7 +1127,7 @@ export function AssignScriptCampaignDialog({
                     className="h-7 text-xs"
                     onClick={() => setPlage(actif ? null : p.window)}
                   >
-                    {p.label}
+                    {tLabel(p.labelKey)}
                   </Button>
                 );
               })}
@@ -1152,6 +1218,15 @@ export function AssignScriptCampaignDialog({
                   </Button>
                 )}
               </div>
+              {/* Fenêtre EFFECTIVE du projet, telle que le serveur vient de
+                  l'appliquer au tirage ci-dessous (elle est rendue par la même
+                  query). Sans elle, « cooldown » ne dit pas de combien, et le
+                  réglage se règle à l'aveugle. */}
+              <p className="text-xs text-slate-500" data-testid="apercu-cooldown">
+                {apercu.cooldownDays === 0
+                  ? "Cooldown désactivé sur ce projet — seule l’unicité à vie s’applique."
+                  : `Cooldown du projet : ${apercu.cooldownDays} jour${apercu.cooldownDays > 1 ? "s" : ""}.`}
+              </p>
               {apercu.shortage && (
                 <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-800">
                   ⚠️ Le stock ne couvre pas les {videosNum} vidéos demandées :
@@ -1205,44 +1280,37 @@ export function AssignScriptCampaignDialog({
             </div>
           )}
 
-          {/* Filtre tier de hook (AUTO uniquement — sans objet quand le hook est
-              explicitement choisi) + barème de paie (pricing OBLIGATOIRE). */}
-          <div className={comboMode === "auto" ? "grid grid-cols-2 gap-4" : ""}>
-            {comboMode === "auto" && (
-            <div className="space-y-1.5">
-              <Label htmlFor="tier">Tier de hook</Label>
-              <Select value={tier} onValueChange={(v) => v && setTier(v)}>
-                <SelectTrigger id="tier">
-                  <SelectValue>
-                    {tier === TIER_ALL ? "Tous" : tierLabel(tier)}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={TIER_ALL}>Tous</SelectItem>
-                  {SCRIPT_TIERS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {tierLabel(t)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            )}
+          {/* Barème de paie (pricing OBLIGATOIRE). */}
+          <div>
             <div className="space-y-1.5">
               <Label htmlFor="pricing">Pricing (barème de paie)</Label>
               <Select
-                value={pricingId}
-                onValueChange={(v) => v && setPricingId(v)}
+                value={pricingChoice}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  // Toucher le sélecteur COUPE la reprise automatique : à partir
+                  // d'ici, c'est le choix du manager qui tient, même s'il change
+                  // de créatrice ensuite.
+                  setPricingTouched(true);
+                  setPricingId(v);
+                }}
               >
                 <SelectTrigger id="pricing" aria-label="Pricing">
                   <SelectValue>
-                    {pricingId === NONE
-                      ? "Choisis un barème"
-                      : ((pricings ?? []).find((p) => p._id === pricingId)
-                          ?.name ?? "Pricing")}
+                    {pricingChoice === PER_CREATOR
+                      ? "Barème de chaque créatrice"
+                      : pricingChoice === NONE
+                        ? "Choisis un barème"
+                        : ((pricings ?? []).find((p) => p._id === pricingChoice)
+                            ?.name ?? "Pricing")}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
+                  {mode === "bulk" && (
+                    <SelectItem value={PER_CREATOR}>
+                      Barème de chaque créatrice
+                    </SelectItem>
+                  )}
                   {(pricings ?? []).map((p) => (
                     <SelectItem key={p._id} value={p._id}>
                       {p.name}
@@ -1254,10 +1322,25 @@ export function AssignScriptCampaignDialog({
                 <p className="text-xs text-amber-600">
                   Aucun barème de paie — crées-en un dans Pricing d&apos;abord.
                 </p>
+              ) : mode === "single" && pricingForSingle === NONE ? (
+                <p className="text-xs text-amber-600">
+                  {creatorId === NONE
+                    ? "Le barème de paie est requis."
+                    : "Cette créatrice n'a aucune grille sur sa fiche — choisis un barème, ou pose-lui une grille dans Barèmes."}
+                </p>
+              ) : mode === "bulk" && sansBareme.length > 0 ? (
+                <p className="text-xs text-amber-600">
+                  Sans grille sur leur fiche :{" "}
+                  {sansBareme.map((r) => r.creator.name).join(", ")}.
+                </p>
               ) : (
-                pricingId === NONE && (
-                  <p className="text-xs text-amber-600">
-                    Le barème de paie est requis.
+                /* D'où vient la valeur affichée — sinon un barème apparaît tout
+                   seul dans le champ et rien ne dit qui l'a mis. */
+                !pricingTouched && (
+                  <p className="text-xs text-slate-500">
+                    {mode === "bulk"
+                      ? "Chaque créatrice est payée sur sa propre grille. Choisis un barème pour l'imposer à tout le lot."
+                      : "Grille de la créatrice, pré-sélectionnée. Modifiable pour ce lot."}
                   </p>
                 )
               )}
@@ -1400,7 +1483,7 @@ export function AssignScriptCampaignDialog({
               onClick={handleSubmit}
               disabled={
                 submitting ||
-                pricingId === NONE ||
+                pricingForSingle === NONE ||
                 !slotsComplete ||
                 (comboMode === "chosen" && !chosenComboValid)
               }

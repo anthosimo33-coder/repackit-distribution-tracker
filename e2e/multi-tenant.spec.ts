@@ -111,6 +111,6 @@ test.describe("Multi-tenant — isolation projet", () => {
 
     expect(onA.allowed).toBe(true);
     expect(onB.allowed).toBe(false);
-    expect(onB.error).toMatch(/refusé/i);
+    expect(onB.error).toMatch(/ERR_PROJECT_ACCESS_DENIED/);
   });
 });

@@ -8,6 +8,9 @@ import { defineConfig } from "vitest/config";
 // uniquement le dossier e2e.
 export default defineConfig({
   test: {
-    include: ["lib/**/*.test.ts"],
+    // `scripts/` rejoint le périmètre : le détecteur i18n est devenu un outil à
+    // part entière, avec ses propres pièges, et il a laissé passer trois trous
+    // successifs. Ses primitives sont désormais testées comme le reste.
+    include: ["lib/**/*.test.ts", "scripts/**/*.test.mjs"],
   },
 });

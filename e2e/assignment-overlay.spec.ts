@@ -36,17 +36,16 @@ test.describe("Texte overlay d'un assignment", () => {
     const campaignId = await admin.mutation(api.scripts.createCampaign, {
       name: `[E2E_TEST] Overlay ${ts}`,
     });
-    const addBrick = (kind: "hook" | "flux" | "cta", label: string, tier?: "S") =>
+    const addBrick = (kind: "hook" | "flux" | "cta", label: string) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content: `${label} contenu`,
-        ...(tier ? { tier } : {}),
       });
     // 2 hooks → 2 combos (permet 2 assignments distincts pour le même créateur).
-    await addBrick("hook", "H1", "S");
-    await addBrick("hook", "H2", "S");
+    await addBrick("hook", "H1");
+    await addBrick("hook", "H2");
     await addBrick("flux", "F");
     await addBrick("cta", "C");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {

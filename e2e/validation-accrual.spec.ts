@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -35,7 +36,7 @@ test.describe("Accrual & matérialisation à la publication", () => {
     const projectId = creator.projectId;
     const u1 = `https://www.tiktok.com/@e2e/video/${ts}1`;
 
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format Val ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },
@@ -183,7 +184,7 @@ test.describe("Accrual & matérialisation à la publication", () => {
       email: `e2e-creator-validation-ui-${ts}@repackit.test`,
       password: "creator-validation-ui-123",
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format ValUI ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },

@@ -23,6 +23,7 @@ import {
 import { RestartWarmupButton } from "./RestartWarmupButton";
 import { countryLabel } from "@/lib/countries";
 import { cn } from "@/lib/utils";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Header de la vue détail compte : retour /comptes, handle + plateforme +
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
  * supprimer, partagé avec la table /comptes).
  */
 export function CompteDetailHeader({ compte }: { compte: Compte }) {
+  const tLabel = useLabel();
   const [editOpen, setEditOpen] = useState(false);
   const projectPath = useProjectPath();
   const router = useRouter();
@@ -76,7 +78,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
             {effStatus === "shadowban" && (
               <TriangleAlertIcon className="size-3.5" />
             )}
-            {badge.label}
+            {tLabel(badge.labelKey, badge.params)}
           </span>
           {compte.targetCountry && (
             <span

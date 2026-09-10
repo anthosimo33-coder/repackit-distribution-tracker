@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import {
   AlertTriangleIcon,
+  ChevronDownIcon,
   ClockIcon,
   InfoIcon,
   TrendingDownIcon,
@@ -42,10 +43,12 @@ export function dash(
   return value === null || value === undefined ? "—" : format(value);
 }
 
-/** Pourcentage (1 décimale) tolérant au null. */
-export function pct(value: number | null | undefined): string {
-  return value === null || value === undefined ? "—" : `${formatNumber(value)} %`;
-}
+/**
+ * Les helpers de pourcentage vivent dans lib/percent — testables là-bas. Ils
+ * sont réexportés ici parce que tout le hub les importe depuis HubPrimitives.
+ */
+export { pct, pctFromFraction } from "@/lib/percent";
+
 
 /** Facteur multiplicatif (× la moyenne) tolérant au null. */
 export function factor(value: number | null | undefined): string {
@@ -326,6 +329,107 @@ export function HubNotice({
   );
 }
 
+// ─── La PILE d'avertissements ───────────────────────────────────────────────
+
+/** Gravité d'un avertissement : rouge s'il change la lecture, ambre sinon. */
+export type HubNoticeTon = "alerte" | "info";
+
+/**
+ * UN avertissement, sous une forme que la pile peut replier.
+ *
+ * `court` n'est pas un doublon de `titre` : c'est ce qui doit tenir dans la
+ * ligne repliée. « Panne d'ingestion » d'un côté, la phrase datée complète de
+ * l'autre.
+ */
+export interface HubNoticeItem {
+  id: string;
+  ton: HubNoticeTon;
+  /** Deux ou trois mots, pour la ligne repliée. */
+  court: string;
+  /** La phrase d'ouverture, en gras, quand l'avertissement est déplié. */
+  titre: ReactNode;
+  corps: ReactNode;
+}
+
+const TON_CLASSES: Record<HubNoticeTon, string> = {
+  alerte: "border-red-200 bg-red-50/70 text-red-900",
+  info: "",
+};
+
+/**
+ * LA PILE — parce que cinq bandeaux empilés ne sont plus des avertissements.
+ *
+ * L'écran d'ensemble en accumulait cinq : une panne, un changement de périmètre,
+ * un litige, un contrôle en écart, une note de devise. Chacun est justifié —
+ * ensemble ils forment un mur de texte rouge devant le premier chiffre, et un
+ * mur ne se lit pas, il se contourne. Le défaut n'est pas leur contenu, c'est
+ * leur nombre : la place qu'ils prennent est inverse de l'attention qu'ils
+ * reçoivent.
+ *
+ * ⚠️ CE QUI N'EST PAS REPLIÉ : le FAIT qu'un avertissement s'applique. La ligne
+ * fermée nomme chacun d'eux (« Panne d'ingestion », « Litige bancaire »…) et
+ * garde la couleur du plus grave. Ce qui se replie est l'EXPLICATION, longue par
+ * nature. Personne ne peut lire ces courbes sans savoir qu'une panne les
+ * traverse ; il peut seulement choisir quand en lire le détail.
+ *
+ * Un seul avertissement se rend TEL QUEL : replier une ligne unique ajouterait
+ * un clic sans rien économiser.
+ */
+export function HubNoticeStack({
+  items,
+  className,
+}: {
+  items: readonly (HubNoticeItem | null | false | undefined)[];
+  className?: string;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const liste = items.filter((i): i is HubNoticeItem => Boolean(i));
+  if (liste.length === 0) return null;
+
+  const rendu = (i: HubNoticeItem) => (
+    <HubNotice key={i.id} className={TON_CLASSES[i.ton]}>
+      <strong>{i.titre}</strong> {i.corps}
+    </HubNotice>
+  );
+
+  if (liste.length === 1) return <div className={className}>{rendu(liste[0])}</div>;
+
+  const alerte = liste.some((i) => i.ton === "alerte");
+  return (
+    <div className={cn("space-y-2", className)}>
+      <button
+        type="button"
+        onClick={() => setOuvert((o) => !o)}
+        aria-expanded={ouvert}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors",
+          alerte
+            ? "border-red-200 bg-red-50/70 text-red-900 hover:bg-red-50"
+            : "border-amber-200 bg-amber-50/60 text-amber-900 hover:bg-amber-50",
+        )}
+      >
+        <AlertTriangleIcon className="size-3.5 shrink-0" />
+        <span className="font-semibold">
+          {liste.length} remarques avant de lire ces chiffres
+        </span>
+        <span className="min-w-0 flex-1 truncate opacity-80">
+          {liste.map((i) => i.court).join(" · ")}
+        </span>
+        <span className="shrink-0 font-medium underline-offset-2 hover:underline">
+          {ouvert ? "Masquer" : "Lire"}
+        </span>
+        <ChevronDownIcon
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            ouvert && "rotate-180",
+          )}
+        />
+      </button>
+      {ouvert && <div className="space-y-2">{liste.map(rendu)}</div>}
+    </div>
+  );
+}
+
 // ─── Marqueurs de rupture (séries non comparables au-delà d'une date) ────────
 
 /** Réparation du webhook Whop de confirmation de paiement — 28/07/2026 au soir. */
@@ -346,23 +450,132 @@ export function spansWebhookFix(nowMs: number): boolean {
  * date ne mesurent pas un tunnel de paiement mais le temps pour trouver un bouton
  * de secours : non comparables. N'affiche rien si la fenêtre ne traverse pas la date.
  */
-export function WebhookFixNotice({
-  now,
-  className,
-}: {
-  now: number;
-  className?: string;
-}) {
+export function webhookFixItem(now: number): HubNoticeItem | null {
   if (!spansWebhookFix(now)) return null;
-  return (
-    <HubNotice className={cn("border-red-200 bg-red-50/70 text-red-900", className)}>
-      <strong>Webhook de confirmation réparé le 28/07 au soir.</strong> Avant cette
-      date, aucun paiement n&apos;accordait l&apos;accès automatiquement — les clients
-      devaient faire « Restore purchases ». Les délais et taux de complétion qui
-      traversent cette date ne mesurent pas un tunnel de paiement : ils ne sont
-      comparables à rien.
-    </HubNotice>
-  );
+  return {
+    id: "webhook-fix",
+    ton: "alerte",
+    court: "Webhook réparé le 28/07",
+    titre: "Webhook de confirmation réparé le 28/07 au soir.",
+    corps: (
+      <>
+        Avant cette date, aucun paiement n&apos;accordait l&apos;accès
+        automatiquement — les clients devaient faire « Restore purchases ». Les
+        délais et taux de complétion qui traversent cette date ne mesurent pas un
+        tunnel de paiement : ils ne sont comparables à rien.
+      </>
+    ),
+  };
+}
+
+/**
+ * PANNE D'INGESTION POSTHOG — 07/09/2026 19:00 UTC → 08/09 09:53 UTC.
+ *
+ * PostHog a coupé l'ingestion du compte pour dépassement de quota. Ce n'est PAS
+ * un event qui est tombé : c'est tout le flux, y compris les pages vues émises
+ * depuis le navigateur, qui ne passent par aucun code à nous. Les
+ * enregistrements de session, coupés depuis le 31/08 avec
+ * `quotaLimited: ["recordings"]`, sont repartis neuf minutes après la reprise —
+ * deux flux, même compte, même instant.
+ *
+ * ⚠️ LA FENÊTRE N'EST PAS D'UN SEUL TENANT, et ces bornes-ci sont celles des
+ * séries À LA MINUTE, pas des seaux horaires par lesquels on avait commencé :
+ *
+ *   07/09 19:00 → 08/09 00:00   coupé
+ *   08/09 00:00 → 01:30         ÎLOT DE TRAFIC NORMAL (~1 500 events)
+ *   08/09 01:31 → 09:44         coupé
+ *   08/09 09:45 → 09:46         deux minutes, puis six minutes de vide
+ *   08/09 09:53                 reprise définitive
+ *
+ * La reprise n'est pas un hasard : la période de facturation PostHog redémarre
+ * le 08/09 à 09:45:09 UTC, la minute exacte des premiers events revenus.
+ *
+ * CE QUE ÇA FAIT AUX CHIFFRES. Tout ce qui vient de PostHog est CREUX sur ces
+ * heures : visiteurs, inscriptions, parcours, paywalls, cohortes. Whop, lui,
+ * n'a rien perdu — d'où l'écart signalé par le contrôle croisé. Sur
+ * `subscription_completed`, le dernier event avant la coupure date du 07/09
+ * 17:55:59 et le premier après du 08/09 09:54:29 : les 20 paiements encaissés
+ * entre les deux (12 nouveaux abonnements, 8 renouvellements) n'ont laissé
+ * AUCUN event. Le revenu et les clients payants restent justes.
+ *
+ * ⚠️ CES EVENTS SONT PERDUS, PAS EN RETARD. L'envoi serveur est un appel unique
+ * vers l'endpoint de capture, sans file ni réessai, et l'erreur est avalée pour
+ * qu'un incident analytics ne fasse jamais échouer un paiement. Reprendre ces
+ * achats se fait depuis Whop, jamais depuis PostHog.
+ *
+ * Une ingestion refusée pour quota répond exactement comme une ingestion
+ * réussie : rien ne le signalait côté client. Deux sondes le disent désormais —
+ * `quotaLimited` toutes les 15 minutes, et la consommation contre le plafond
+ * produit par produit (alerte à 80 %).
+ */
+export const POSTHOG_OUTAGE_START_MS = Date.UTC(2026, 8, 7, 19, 0, 0);
+export const POSTHOG_OUTAGE_END_MS = Date.UTC(2026, 8, 8, 9, 53, 0);
+
+/**
+ * ÉLARGISSEMENT DU PÉRIMÈTRE DE `paywall_shown` — 09/09/2026.
+ *
+ * Deux changements le même jour : `paywall_shown` porte enfin `paywall_id` (il
+ * n'avait que `paywall_type`, une taxonomie où l'onboarding et la fin de scan
+ * tombaient sur la même valeur), et l'écran de déblocage `/unlock` — ses deux
+ * surfaces `see_who` et `event_locked` — l'émet désormais alors qu'il ne
+ * produisait que `paywall_viewed`.
+ *
+ * ⚠️ LE VOLUME FAIT DONC UNE MARCHE, et ce n'est PAS une hausse d'exposition :
+ * c'est le périmètre qui s'élargit. Deux courbes de part et d'autre de cette
+ * date ne se comparent qu'à `paywall_id` fixé.
+ */
+export const PAYWALL_SCOPE_CHANGE_MS = Date.UTC(2026, 8, 9, 0, 0, 0);
+
+/** La fenêtre d'analyse (90 j finissant à `nowMs`) englobe-t-elle cet instant ? */
+export function spansMoment(nowMs: number, momentMs: number): boolean {
+  const start = nowMs - ANALYSIS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  return start <= momentMs && momentMs <= nowMs;
+}
+
+/**
+ * Avertissement de panne d'ingestion. N'affiche rien si la fenêtre ne traverse
+ * pas la panne — même contrat que `WebhookFixNotice`.
+ */
+export function posthogOutageItem(now: number): HubNoticeItem | null {
+  if (!spansMoment(now, POSTHOG_OUTAGE_START_MS)) return null;
+  return {
+    id: "posthog-outage",
+    ton: "alerte",
+    court: "Panne d'ingestion 07-08/09",
+    titre:
+      "Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (heure de Paris).",
+    corps: (
+      <>
+        Dépassement de quota côté PostHog : tout le flux est tombé, y compris les
+        pages vues du navigateur. Visiteurs, inscriptions, parcours et paywalls
+        sont CREUX sur ces heures — <strong>20 paiements</strong>{" "}
+        encaissés n&apos;y ont laissé aucun event, et ils sont perdus, pas en
+        retard. Une exception : entre 02:00 et 03:30, le trafic est passé
+        normalement. Le revenu et les clients payants, eux, viennent de Whop :
+        ils sont justes.
+      </>
+    ),
+  };
+}
+
+export function paywallScopeItem(now: number): HubNoticeItem | null {
+  if (!spansMoment(now, PAYWALL_SCOPE_CHANGE_MS)) return null;
+  return {
+    id: "paywall-scope",
+    ton: "info",
+    court: "Périmètre paywall élargi le 09/09",
+    titre: "Périmètre de « paywall vu » élargi le 09/09.",
+    corps: (
+      <>
+        <code>paywall_shown</code> porte désormais <code>paywall_id</code>, et
+        l&apos;écran de déblocage (<code>see_who</code>, <code>event_locked</code>)
+        l&apos;émet enfin. Le volume fait une marche à cette date : ce n&apos;est
+        pas une hausse d&apos;exposition, c&apos;est le périmètre qui
+        s&apos;élargit. Deux courbes de part et d&apos;autre ne se comparent
+        qu&apos;à <code>paywall_id</code> fixé.
+      </>
+    ),
+  };
 }
 
 // ─── Sparkline + KPI ─────────────────────────────────────────────────────────
@@ -410,9 +623,27 @@ export function Sparkline({
   );
 }
 
-/** Variation vs période précédente (flèche + valeur, « — » si non calculable). */
-export function DeltaBadge({ delta }: { delta: Delta | null }) {
-  if (delta === null || delta.direction === "flat") {
+/**
+ * Variation vs période précédente.
+ *
+ * `null` = AUCUNE comparaison possible (pas de période précédente entièrement
+ * couverte) → on n'affiche RIEN. Avant, `null` rendait « stable », affiché sur
+ * neuf tuiles qui ne comparaient rien : le badge décorait au lieu d'informer.
+ * « stable » est désormais réservé à une vraie variation nulle.
+ *
+ * `invert` : pour une grandeur dont la HAUSSE est une mauvaise nouvelle (un
+ * coût). La flèche garde le sens de la variation, seule la couleur s'inverse —
+ * peindre une hausse de coût en vert serait un contresens.
+ */
+export function DeltaBadge({
+  delta,
+  invert = false,
+}: {
+  delta: Delta | null;
+  invert?: boolean;
+}) {
+  if (delta === null) return null;
+  if (delta.direction === "flat") {
     return <span className="text-xs text-slate-400">stable</span>;
   }
   const up = delta.direction === "up";
@@ -421,7 +652,7 @@ export function DeltaBadge({ delta }: { delta: Delta | null }) {
     <span
       className={cn(
         "inline-flex items-center gap-1 text-xs font-medium tabular-nums",
-        up ? "text-emerald-600" : "text-red-600",
+        (invert ? !up : up) ? "text-emerald-600" : "text-red-600",
       )}
     >
       <Icon className="size-3" />

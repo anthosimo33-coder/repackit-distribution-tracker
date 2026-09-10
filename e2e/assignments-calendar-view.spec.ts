@@ -4,7 +4,9 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { minuitParis } from "./helpers/paris-day";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -13,11 +15,9 @@ if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(convexUrl);
 
 const DAY = 86_400_000;
-const todayMidnight = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
+/** Minuit PARIS d'aujourd'hui — cf e2e/helpers/paris-day (le calendrier
+ *  découpe ses journées à Paris, pas dans le fuseau du runner). */
+const todayMidnight = () => minuitParis();
 
 /**
  * Brique C — la page Assignments bascule Liste/Calendrier, avec des filtres
@@ -38,7 +38,7 @@ test.describe("Admin — vue calendrier de publication", () => {
       email: `e2e-creator-calview-${ts}@repackit.test`,
       password: "creator-calview-12345",
     });
-    const fid = (await admin.mutation(api.formats.createFormat, {
+    const fid = (await createFormatWithRate(admin, {
       name: `[E2E_TEST] CalView Fmt ${ts}`,
       type: "short",
       rateModel: { basePerPost: 30 },

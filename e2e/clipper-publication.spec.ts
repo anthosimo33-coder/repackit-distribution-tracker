@@ -4,8 +4,9 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
-import { formatUtcDayFr, utcDayKey } from "../convex/accountPhase";
+import { formatUtcDay, utcDayKey } from "../convex/accountPhase";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -78,9 +79,11 @@ async function clipsPretsAPublier(opts: {
     handle,
     validatedAt: ts - (opts.ancreJours ?? 20) * JOUR,
   });
-  const formatId = await convex.mutation(api.formats.createFormat, {
+  const formatId = await createFormatWithRate(convex, {
     name: `[E2E_TEST] Clip ${quoi} ${ts}`,
     type: "short",
+    // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
     rateModel: { basePerPost: 0 },
   });
   await convex.mutation(api.assignments.assignFormat, {
@@ -163,14 +166,14 @@ test.describe("Publication d'un clip — la date", () => {
     await expect(
       page.getByText(
         new RegExp(
-          `date lue dans le lien\\s*:\\s*${formatUtcDayFr(JOUR_DU_POST)}`,
+          `date lue dans le lien\\s*:\\s*${formatUtcDay(JOUR_DU_POST, "fr")}`,
           "i",
         ),
       ),
     ).toBeVisible();
     // Le compteur a suivi la date lue, pas la date du jour.
     await expect(
-      page.getByText(new RegExp(`pour le ${formatUtcDayFr(JOUR_DU_POST)}`, "i")),
+      page.getByText(new RegExp(`pour le ${formatUtcDay(JOUR_DU_POST, "fr")}`, "i")),
     ).toBeVisible();
 
     // (1 bis) Elle reste MODIFIABLE : on la ramène à aujourd'hui à la main.
@@ -252,7 +255,7 @@ test.describe("Publication d'un clip — le serveur", () => {
     // pas aujourd'hui. Sans la date, le clippeur croirait ses créneaux du jour pris.
     await expect(publier(ids[2], 3, hier)).rejects.toThrow(
       new RegExp(
-        `quota atteint pour le ${formatUtcDayFr(hier)}`.replace(/\s+/g, "\\s+"),
+        `quota atteint pour le ${formatUtcDay(hier, "fr")}`.replace(/\s+/g, "\\s+"),
         "i",
       ),
     );
@@ -287,8 +290,10 @@ test.describe("Publication d'un clip — le serveur", () => {
     // ⚠️ Le clippeur n'a AUCUN moyen de franchir cette borne : `allowBackdate`
     // n'existe que sur le chemin admin (régularisation). Ici la date déclarée
     // pilote le comptage du quota (TD-020) — la relâcher fausserait le quota.
+    // Assertion par CODE et non par texte : le message peut être reformulé ou
+    // traduit sans que cette borne cesse d'être testée.
     await expect(publier(ts - 40 * JOUR)).rejects.toThrow(
-      /précède la création/i,
+      /ERR_PUBLISHED_AT_BEFORE_CREATION/,
     );
   });
 
@@ -324,7 +329,7 @@ test.describe("Publication d'un clip — le serveur", () => {
       }),
     ).rejects.toThrow(
       new RegExp(
-        `phase de chauffe le ${formatUtcDayFr(hier)}`.replace(/\s+/g, "\\s+"),
+        `phase de chauffe le ${formatUtcDay(hier, "fr")}`.replace(/\s+/g, "\\s+"),
         "i",
       ),
     );

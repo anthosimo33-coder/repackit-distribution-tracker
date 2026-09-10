@@ -11,6 +11,8 @@ import { CheckIcon, XIcon } from "lucide-react";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { VideoExample, type FormatExample } from "./VideoExample";
 import { rateSummary, type RateModel } from "@/lib/format-rate";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * P6/P7 — rendu du brief d'un format TEL QUE LE CRÉATEUR LE VERRA. Composant
@@ -28,7 +30,10 @@ export type FormatBrief = {
   hooks: string[];
   guidelines: { do: string[]; dont: string[] };
   exampleVideos: FormatExample[];
-  rateModel: RateModel;
+  /** ABSENTE ⇔ jamais renseignée (cf. schema.formats). La section rému n'est
+   *  alors pas rendue : afficher « 0 » ferait passer une décision non prise pour
+   *  une décision prise. */
+  rateModel?: RateModel | null;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -50,7 +55,9 @@ export function FormatBriefPreview({
    *  current.payCurrency). Absente → montants sans symbole. */
   currency?: string | null;
 }) {
-  const rate = rateSummary(format.rateModel, currency);
+  const tf = useTranslations("format");
+  const loc = useIntlLocale();
+  const rate = format.rateModel ? rateSummary(format.rateModel, currency, loc) : null;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
@@ -65,7 +72,7 @@ export function FormatBriefPreview({
       {format.brief.trim().length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Brief</CardTitle>
+            <CardTitle className="text-base">{tf("brief")}</CardTitle>
           </CardHeader>
           <CardContent>
             <SimpleMarkdown content={format.brief} />
@@ -76,7 +83,7 @@ export function FormatBriefPreview({
       {format.hooks.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Hooks à utiliser</CardTitle>
+            <CardTitle className="text-base">{tf("hooks")}</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-2">
@@ -99,8 +106,7 @@ export function FormatBriefPreview({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base text-emerald-700">
-                <CheckIcon className="size-4" /> À faire
-              </CardTitle>
+                <CheckIcon className="size-4" />{tf("todo")}</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="space-y-1.5 text-sm text-slate-700">
@@ -119,8 +125,7 @@ export function FormatBriefPreview({
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base text-rose-700">
-                <XIcon className="size-4" /> À éviter
-              </CardTitle>
+                <XIcon className="size-4" />{tf("avoid")}</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="space-y-1.5 text-sm text-slate-700">
@@ -142,7 +147,7 @@ export function FormatBriefPreview({
       {format.exampleVideos.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Vidéos exemples</CardTitle>
+            <CardTitle className="text-base">{tf("examples")}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             {format.exampleVideos.map((ex, i) => (
@@ -152,10 +157,10 @@ export function FormatBriefPreview({
         </Card>
       )}
 
-      {showRate && (
+      {showRate && rate !== null && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Rémunération</CardTitle>
+            <CardTitle className="text-base">{tf("pay")}</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-1 text-sm text-slate-800">
@@ -164,7 +169,7 @@ export function FormatBriefPreview({
                   key={i}
                   className={i === 0 ? "font-semibold text-slate-900" : ""}
                 >
-                  {line}
+                  {tf(line.key as Parameters<typeof tf>[0], line.params)}
                 </li>
               ))}
             </ul>

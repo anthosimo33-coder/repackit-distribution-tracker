@@ -1,4 +1,8 @@
-import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const filtersValidator = v.object({
@@ -38,7 +42,7 @@ const mediaTypeScopeValidator = v.union(
 // client par TrackerListSection avant filtrage.
 const CURRENT_SCHEMA_VERSION = 4;
 
-export const createPreset = adminMutation({
+export const createPreset = permissionMutation("library.manage")({
   args: {
     name: v.string(),
     mediaTypeScope: mediaTypeScopeValidator,
@@ -73,7 +77,7 @@ export const createPreset = adminMutation({
   },
 });
 
-export const deletePreset = adminMutation({
+export const deletePreset = permissionMutation("library.manage")({
   args: { id: v.id("filterPresets") },
   handler: async (ctx, args) => {
     const preset = await ctx.db.get(args.id);
@@ -82,7 +86,7 @@ export const deletePreset = adminMutation({
   },
 });
 
-export const listPresets = adminQuery({
+export const listPresets = permissionQuery("library.manage")({
   args: {
     // mediaTypeScope optional : si fourni, filtre serveur via
     // by_project_mediaTypeScope ; sinon tous les presets du projet.

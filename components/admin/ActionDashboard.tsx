@@ -6,16 +6,17 @@ import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangleIcon,
   ArrowRightIcon,
-  BellIcon,
   CalendarClockIcon,
   CheckCircle2Icon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  DoorOpenIcon,
   FlameIcon,
-  SnowflakeIcon,
+  GraduationCapIcon,
   Loader2Icon,
-  MessageSquareWarningIcon,
-  UploadCloudIcon,
   UserPlusIcon,
   WalletIcon,
+  ZapOffIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -26,41 +27,83 @@ import { useProject, useProjectPath } from "@/components/project/ProjectProvider
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { creatorStatusBadge } from "@/lib/creator-status";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatNumber } from "@/lib/format";
-import { formatMoney } from "@/lib/format-rate";
-import {
-  isCycleUnpaid,
-  isOverdueMission,
-  isWarmupLate,
-} from "@/lib/ops-digest";
+import { formatNumber, formatPercent } from "@/lib/format";
+import { isWarmupLate } from "@/lib/ops-digest";
 import { resolveCreatorKind } from "@/convex/roles";
-import {
-  isChauffeSansTalent,
-  joursAvantSortieDeChauffe,
-} from "@/convex/clipperReadiness";
 import {
   getEffectiveStatus,
   getEffectiveWarmupDuration,
 } from "@/lib/compte-status";
-import { creatorStatusBadge } from "@/lib/creator-status";
+import {
+  verdictOf,
+  likeRateTone,
+  saveRateTone,
+  accountStateOf,
+  rateOf,
+  type PostSignal,
+  type Verdict,
+  type RateTone,
+  type AccountState,
+} from "@/convex/decisions";
+import { savesAvailability } from "@/convex/decisionThresholds";
+import { type ConversionDisplayRow } from "@/convex/conversionAttribution";
+import { formatMoney } from "@/lib/format-rate";
+import { usePermissions } from "@/components/project/use-permissions";
+import { POST_WINDOW_PRESETS } from "@/convex/postWindow";
+import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
+import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 
 const DAY_MS = 86_400_000;
-const WORKLIST_LIMIT = 6;
-const ACTIVITY_LIMIT = 8;
-/** Un refus est « stagnant » si le créateur n'a pas re-soumis depuis N jours. */
-const STAGNANT_REJECTION_DAYS = 3;
+
+type DashboardDecisions = FunctionReturnType<
+  typeof api.dashboardDecisions.decisionDashboard
+>;
+type Post48h = DashboardDecisions["posts48h"][number];
+
+/** Créneau pré-rempli de « Programmer la frappe » : le soir, 21 h-23 h. */
+const SOIR = POST_WINDOW_PRESETS.find((p) => p.id === "soir")!.window;
+
+/**
+ * Minuit LOCAL du lendemain — même convention que le calendrier d'assignation
+ * (les postDate de prod sont toutes à minuit heure du poste admin, UTC+1).
+ */
+function tomorrowMidnightLocal(now: number): number {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
 
 /**
  * Dashboard d'accueil orienté ACTION — agrège des queries DÉJÀ existantes
- * (listAssignments, listComptes, listPayments, listCreators) côté client. Aucune
- * nouvelle logique métier ni fonction Convex : chaque carte/section ne fait que
- * filtrer/compter l'existant (cf lib/warmup, lib/compte-status). Toutes les
- * cartes sont cliquables et mènent à la page concernée.
+ * (listAssignments, listComptes, listCreators) côté client : chaque carte ne
+ * fait que filtrer/compter l'existant (cf lib/warmup, lib/compte-status).
+ * Toutes les cartes sont cliquables et mènent à la page concernée.
+ *
+ * ⚠️ EXCEPTION ASSUMÉE — les deux blocs FINANCIERS sont agrégés SERVEUR :
+ *   - carte « à payer »  → `payments.getDueTotal` (un nombre) ;
+ *   - section « Ce que ça a rapporté » → `conversionSync.readConversionAllTime`
+ *     rend désormais les lignes DÉJÀ mises en forme.
+ * Ils lisaient auparavant `listPayments` et les lignes brutes d'attribution,
+ * c'est-à-dire que tous les cycles de paie du projet et toutes les refs
+ * mesurées arrivaient dans le navigateur pour afficher un total et une liste.
+ * Ne PAS les ramener côté client : un écran qui n'affiche pas une donnée ne
+ * doit pas la recevoir (cf AUDIT_ROLE_MANAGER.md, F1/F2).
  */
 
 function relativeAge(ts: number, now: number): string {
@@ -80,244 +123,151 @@ export function ActionDashboard() {
   // « Maintenant » figé au mount (lazy init pur — cf react-hooks/purity, même
   // pattern que MetricChart). Suffisant pour un instantané de dashboard.
   const [now] = useState(() => Date.now());
-  const assignments = useProjectQuery(api.assignments.listAssignments, {});
-  const comptes = useProjectQuery(api.comptes.listComptes, {});
-  const payments = useProjectQuery(api.payments.listPayments, {});
-  const creators = useProjectQuery(api.creators.listCreators, {});
+  // ⚠️ TOUTES CES LECTURES SONT GARDÉES PAR UN BLOC, et le Dashboard est l'écran
+  // où TOUT LE MONDE atterrit. Appelées sans condition, celles dont le manager
+  // n'a pas le bloc LÈVENT — et c'est sa page d'accueil qui tombe, donc son
+  // impression que « l'app ne marche pas ». #156 avait posé `skipUnless` sur les
+  // deux lectures d'ARGENT ; les quatre autres portent des blocs COCHÉS PAR
+  // DÉFAUT, ce qui a suffi à masquer le défaut tant qu'aucun manager n'avait été
+  // configuré autrement. Décocher une seule case le réveillait.
+  const droits = usePermissions();
+  const voitAssignments = droits.has("assignments.manage");
+  const voitComptes = droits.has("accounts.manage");
+  const voitCreateurs = droits.has("creators.read");
+  const voitDecisions = droits.has("content.analytics");
+  const assignments = useProjectQuery(
+    api.assignments.listAssignments,
+    droits.skipUnless("assignments.manage", {}),
+  );
+  const comptes = useProjectQuery(
+    api.comptes.listComptes,
+    droits.skipUnless("accounts.manage", {}),
+  );
+  // Carte 3 — le TOTAL DÛ, agrégé serveur. Le dashboard lisait `listPayments`
+  // et sommait côté client : tous les cycles de paie du projet traversaient le
+  // réseau (montants par créatrice, lignes, ventilation du barème, coordonnées
+  // bancaires) pour n'afficher qu'un nombre. Même ensemble, même ordre, même
+  // arithmétique — cf convex/payments.getDueTotal.
+  const due = useProjectQuery(
+    api.payments.getDueTotal,
+    droits.skipUnless("payments.manage", {}),
+  );
+  const creators = useProjectQuery(
+    api.creators.listCreators,
+    droits.skipUnless("creators.read", {}),
+  );
 
-  // Actions INLINE de la file : relancer un créateur (email du chantier B) et
-  // marquer un cycle payé (MÊME mutation unitaire que /paiements et que le
-  // marquage en masse du chantier A — aucune logique de paie dupliquée ici).
-  const nudge = useProjectMutation(api.assignments.nudgeAssignment);
-  const markCyclePaid = useProjectMutation(api.payments.markCyclePaid);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  // Les deux sections décisionnelles lisent UNE query d'assemblage ; toute la
+  // logique (seuils, détections) vit dans les modules purs testés.
+  const decisions = useProjectQuery(
+    api.dashboardDecisions.decisionDashboard,
+    droits.skipUnless("content.analytics", {}),
+  );
+  // Conversion par créatrice (ref snytch.co) — la veille, collectée à 23h50.
+  const conversion = useProjectQuery(
+    api.conversionSync.readConversionAllTime,
+    droits.skipUnless("business.read", {}),
+  );
 
-  async function handleNudge(id: Id<"assignments">, creatorName: string) {
-    setBusyKey(id);
-    try {
-      const res = await nudge({ assignmentId: id });
-      if (res.sent) toast.success(`${creatorName} relancé par email.`);
-      else toast.info(`${creatorName} a déjà été relancé il y a moins de 24 h.`);
-    } catch (e) {
-      toast.error(convexErrorMessage(e, "Relance impossible"));
-    } finally {
-      setBusyKey(null);
-    }
-  }
+  // Dialogues des trois actions : graduer (modale existante), désactiver un
+  // hook mort (confirmation), programmer une frappe (modale d'assignation
+  // pré-remplie créatrice + Soir 21-23h + demain).
+  const [graduating, setGraduating] = useState<Id<"scriptBricks"> | null>(null);
+  const [deactivating, setDeactivating] = useState<{
+    brickId: Id<"scriptBricks">;
+    content: string;
+  } | null>(null);
+  const [strikeCreator, setStrikeCreator] = useState<Id<"creators"> | null>(
+    null,
+  );
 
-  async function handlePayCycle(
-    key: string,
-    creatorId: Id<"creators">,
-    cycleIndex: number,
-    creatorName: string,
-  ) {
-    setBusyKey(key);
-    try {
-      await markCyclePaid({ creatorId, cycleIndex });
-      toast.success(`${creatorName} — cycle marqué payé.`);
-    } catch (e) {
-      toast.error(convexErrorMessage(e, "Paiement impossible"));
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
+  // « On attend » ne veut dire quelque chose que pour une lecture qu'on a le
+  // droit de faire : une query SKIPPÉE reste `undefined` pour toujours, et la
+  // tester sans son bloc fige l'écran sur son squelette — un dashboard qui ne
+  // charge jamais, ce qui se lit comme une panne plutôt que comme une
+  // restriction.
+  const attend = (accorde: boolean, valeur: unknown) =>
+    accorde && valeur === undefined;
   const loading =
-    assignments === undefined ||
-    comptes === undefined ||
-    payments === undefined ||
-    creators === undefined;
+    attend(voitAssignments, assignments) ||
+    attend(voitComptes, comptes) ||
+    attend(droits.has("payments.manage"), due) ||
+    attend(voitCreateurs, creators) ||
+    attend(voitDecisions, decisions);
 
   const data = useMemo(() => {
     if (
-      assignments === undefined ||
-      comptes === undefined ||
-      payments === undefined ||
-      creators === undefined
+      attend(voitAssignments, assignments) ||
+      attend(voitComptes, comptes) ||
+      attend(droits.has("payments.manage"), due) ||
+      attend(voitCreateurs, creators)
     ) {
       return null;
     }
-    // Carte 1 + worklist — vidéos en attente de revue (plus anciennes en tête).
-    const submitted = assignments
+    // Carte 1 — vidéos en attente de revue.
+    const submitted = (assignments ?? [])
       .filter((a) => a.status === "video_submitted")
       .sort((a, b) => a.createdAt - b.createdAt);
 
-    // Population du propriétaire de chaque compte. Sert aux DEUX signaux
-    // ci-dessous, qui se partagent les comptes sans jamais se recouvrir.
+    // Carte 2 — comptes en warmup avec des jours manqués. Prédicat PARTAGÉ avec
+    // le digest quotidien (lib/ops-digest) ; les comptes de CLIPPEUR en sortent
+    // (pas de checks quotidiens — même correction que côté digest).
     const creatorById = new Map((creators ?? []).map((c) => [c._id, c]));
     const estCompteDeClippeur = (creatorId: Id<"creators"> | undefined) =>
       creatorId !== undefined &&
       resolveCreatorKind(creatorById.get(creatorId)?.kind) === "clipper";
-    // Talents appariés par clippeur — dénominateur du signal de chauffe.
-    const talentsParClippeur = new Map<string, number>();
-    for (const c of creators ?? []) {
-      if (resolveCreatorKind(c.kind) !== "talent" || !c.clipperId) continue;
-      talentsParClippeur.set(
-        c.clipperId,
-        (talentsParClippeur.get(c.clipperId) ?? 0) + 1,
-      );
-    }
-
-    // Carte 2 — comptes en warmup avec des jours manqués. Le prédicat est
-    // PARTAGÉ avec le digest quotidien (lib/ops-digest, jumeau serveur
-    // convex/opsDigest apparié par test) : le message du matin et cet écran
-    // doivent compter la même chose.
-    //
-    // ⚠️ Les comptes de CLIPPEUR en sortent : ils n'ont pas de checks quotidiens
-    // (leur modèle est dérivé d'une date, arbitrage D3), le compteur de checks
-    // manqués les faisait donc remonter « en retard » dès J+1, tous les jours.
-    // Même correction que côté digest, au même moment, pour que les deux
-    // continuent de compter la même chose.
-    const warmupLate = comptes.filter((c) =>
+    const warmupLate = (comptes ?? []).filter((c) =>
       estCompteDeClippeur(c.creatorId)
         ? false
         : isWarmupLate(
-        {
-          effectiveStatus: getEffectiveStatus(c),
-          warmupStartedAt: c.warmupStartedAt,
-          dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
-          targetDays: getEffectiveWarmupDuration(c),
-        },
-        now,
-      ),
+            {
+              effectiveStatus: getEffectiveStatus(c),
+              warmupStartedAt: c.warmupStartedAt,
+              dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
+              targetDays: c.targetDays,
+            },
+            now,
+          ),
     );
 
-    // Carte 3 — total DÛ = tous les cycles non payés, exactement le même
-    // ensemble que le total de /paiements (les deux lisent listPayments).
+    // Carte 2 bis — warmups TERMINÉS qui attendent une validation admin. Sous
+    // le gate strict (#98) ces comptes ne publient pas tant qu'ils ne sont pas
+    // repassés en « actif » : chaque jour de délai annule un jour de chauffe
+    // gagné, et jusqu'ici seul un badge dans la liste le signalait.
     //
-    // L'ancien calcul filtrait `p.period === currentPeriod(now)`, soit une clé
-    // MENSUELLE "YYYY-MM" héritée de payments.periodOf. Depuis les cycles J+30,
-    // une ligne de cycle porte `cyclePeriodKey(cycleStart)` = "YYYY-MM-DD" : la
-    // comparaison ne matchait JAMAIS et la carte affichait 0 en permanence. Il
-    // n'existe plus de « mois » en paie (chaque créateur est ancré sur son
-    // firstPostAt) — d'où le libellé « Dû » et non « Dû ce mois ».
-    const dueTotal = payments
-      .filter((p) => p.status !== "paid")
-      .reduce((s, p) => s + p.totalDue, 0);
+    // `warmupDone` est SERVI par le serveur (listComptes) — on ne le recalcule
+    // pas ici, pour la même raison que la durée.
+    const warmupReady = (comptes ?? []).filter(
+      (c) => getEffectiveStatus(c) === "warmup" && c.warmupDone,
+    );
 
-    // Carte 4 — assignments actionnables dont la deadline tombe sous 7 j.
-    const deadlines7 = assignments.filter((a) => {
-      if (a.status !== "todo" && a.status !== "in_progress") return false;
-      const d = a.dueDate - now;
-      return d >= 0 && d <= 7 * DAY_MS;
-    });
-
-    // Activité créateurs — join créateurs × comptes (par creatorId), agrégats
-    // perf déjà calculés par listComptes (perf.vuesCumulees / perf.nbPublies).
-    const comptesByCreator = new Map<string, typeof comptes>();
-    for (const c of comptes) {
-      if (!c.creatorId) continue;
-      const arr = comptesByCreator.get(c.creatorId) ?? [];
-      arr.push(c);
-      comptesByCreator.set(c.creatorId, arr);
-    }
-    const creatorActivity = creators
-      .filter((cr) => cr.status !== "churned")
-      .map((cr) => {
-        const accts = comptesByCreator.get(cr._id) ?? [];
-        return {
-          creator: cr,
-          vues: accts.reduce((s, a) => s + a.perf.vuesCumulees, 0),
-          posts: accts.reduce((s, a) => s + a.perf.nbPublies, 0),
-          warmupCount: accts.filter((a) => getEffectiveStatus(a) === "warmup")
-            .length,
-          nbComptes: accts.length,
-        };
-      })
-      .sort((a, b) => b.vues - a.vues);
-
-    // ── File « à traiter » étendue (chantier D) ─────────────────────────────
-    // Tout est dérivé des MÊMES queries déjà chargées : aucune query en plus.
-
-    // Comptes GÉRÉS par l'équipe : vidéo validée, en attente de publication.
-    // La vidéo existe et ne rapporte rien tant qu'elle n'est pas en ligne.
-    const toPublish = assignments
-      .filter((a) => a.status === "to_publish" && a.managedByAdmin === true)
-      .sort((a, b) => a.dueDate - b.dueDate);
-
-    // Cycles dus non payés (argent dû aux créateurs). Notion « non payé », qui
-    // inclut le cycle EN COURS — le digest quotidien emploie la notion plus
-    // étroite `isCycleDue` (cycle refermé), cf lib/ops-digest.
-    const unpaidCycles = payments
-      .filter(isCycleUnpaid)
-      .sort((a, b) => b.totalDue - a.totalDue);
-
-    // Missions en retard : échéance dépassée, balle au créateur. Prédicat
-    // PARTAGÉ avec le digest quotidien (cf warmupLate ci-dessus).
-    const overdueMissions = assignments
-      .filter((a) => isOverdueMission(a, now))
-      .sort((a, b) => a.dueDate - b.dueDate);
-
-    // Refus qui STAGNENT : refusés il y a >= N jours sans re-soumission (le
-    // statut serait repassé à video_submitted). videoRejectedAt absent = refus
-    // antérieur au chantier D → non remonté (cf schema).
-    const stagnantRejections = assignments
-      .filter(
-        (a) =>
-          a.status === "video_rejected" &&
-          a.videoRejectedAt !== undefined &&
-          now - a.videoRejectedAt >= STAGNANT_REJECTION_DAYS * DAY_MS,
-      )
-      .sort((a, b) => (a.videoRejectedAt ?? 0) - (b.videoRejectedAt ?? 0));
-
-    // Comptes de clippeur EN CHAUFFE dont le clippeur n'a aucun talent apparié.
-    // Signalé PENDANT : une fois la chauffe finie, les trois jours sont perdus.
-    const chauffeSansTalent = comptes
-      .filter((c) => {
-        if (!estCompteDeClippeur(c.creatorId)) return false;
-        const talentCount = talentsParClippeur.get(c.creatorId!) ?? 0;
-        return isChauffeSansTalent(
-          { validatedAt: c.validatedAt, talentCount },
-          now,
-        );
-      })
-      .sort(
-        (a, b) =>
-          (joursAvantSortieDeChauffe(a.validatedAt, now) ?? 0) -
-          (joursAvantSortieDeChauffe(b.validatedAt, now) ?? 0),
-      );
+    // Carte 3 — total DÛ = tous les cycles non payés. Calculé SERVEUR sur le
+    // même ensemble et dans le même ordre que le total de /paiements (les deux
+    // passent par `collectProjectPaymentRows`).
+    // `null` quand le bloc n'est pas accordé : la carte n'est alors pas rendue.
+    const dueTotal = due?.dueTotal ?? null;
 
     return {
       submitted,
       warmupLate,
-      chauffeSansTalent,
+      warmupReady,
       dueTotal,
-      deadlines7,
-      creatorActivity,
-      totalCreators: creators.length,
-      toPublish,
-      unpaidCycles,
-      overdueMissions,
-      stagnantRejections,
+      totalCreators: (creators ?? []).length,
     };
-  }, [assignments, comptes, payments, creators, now]);
+  }, [assignments, comptes, due, creators, now]);
 
   if (loading || data === null) return <ActionSkeleton />;
 
-  const {
-    submitted,
-    warmupLate,
-    chauffeSansTalent,
-    dueTotal,
-    deadlines7,
-    creatorActivity,
-    totalCreators,
-    toPublish,
-    unpaidCycles,
-    overdueMissions,
-    stagnantRejections,
-  } = data;
-
-  const worklistCount =
-    toPublish.length +
-    submitted.length +
-    unpaidCycles.length +
-    overdueMissions.length +
-    stagnantRejections.length;
+  const { submitted, warmupLate, warmupReady, dueTotal, totalCreators } = data;
 
   // État vide : ni créateur ni soumission → message d'accueil (pas des cartes à
   // zéro qui semblent cassées).
-  if (totalCreators === 0 && submitted.length === 0) {
+  //
+  // ⚠️ Conditionné au bloc `creators.read` : sans lui, `totalCreators` vaut 0
+  // parce qu'on n'a pas LE DROIT de compter, pas parce qu'il n'y a personne.
+  // « Invite tes premiers créateurs » serait alors un mensonge, et il enverrait
+  // la personne sur un écran qu'elle ne peut pas ouvrir.
+  if (voitCreateurs && totalCreators === 0 && submitted.length === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center gap-4 py-20 text-center">
@@ -347,312 +297,651 @@ export function ActionDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Rangée de 4 cartes-action cliquables. */}
+      {/* Rangée de cartes-action cliquables — une par geste qui ATTEND
+          quelqu'un. « Deadlines 7 j » n'en était pas une : une échéance à venir
+          ne demande rien aujourd'hui, et son compteur restait haut en
+          permanence (63 sur ce projet), ce qui n'oriente vers aucune décision.
+          Le planning se lit dans Assignments, qui est fait pour ça. */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <ActionCard
-          href={projectPath("/validation")}
-          icon={CheckCircle2Icon}
-          label="À valider"
-          value={String(submitted.length)}
-          hint="soumissions en attente"
-          accent
-        />
-        <ActionCard
-          href={projectPath("/comptes")}
-          icon={FlameIcon}
-          label="Warmups en retard"
-          value={String(warmupLate.length)}
-          hint="comptes avec jours manqués"
-          warn={warmupLate.length > 0}
-        />
-        <ActionCard
-          href={projectPath("/paiements")}
-          icon={WalletIcon}
-          label="Dû"
-          value={formatMoney(dueTotal, payCurrency)}
-          hint="cycles non payés"
-        />
-        <ActionCard
-          href={projectPath("/assignments")}
-          icon={CalendarClockIcon}
-          label="Deadlines 7 j"
-          value={String(deadlines7.length)}
-          hint="assignments à rendre"
-          warn={deadlines7.length > 0}
-        />
+        {/* Une carte n'est rendue QUE si son bloc l'est. Sans ça elle
+            afficherait « 0 » là où la vraie réponse est « tu n'as pas ce
+            droit », et mènerait à un écran refusé. Même traitement que la carte
+            d'argent, posé en #156. */}
+        {voitAssignments && (
+          <ActionCard
+            href={projectPath("/validation")}
+            icon={CheckCircle2Icon}
+            label="À valider"
+            value={String(submitted.length)}
+            hint="soumissions en attente"
+            accent
+          />
+        )}
+        {voitComptes && (
+          <ActionCard
+            href={projectPath("/comptes")}
+            icon={FlameIcon}
+            label="Warmups en retard"
+            value={String(warmupLate.length)}
+            hint="comptes avec jours manqués"
+            warn={warmupLate.length > 0}
+          />
+        )}
+        {voitComptes && (
+          <ActionCard
+            href={projectPath("/comptes")}
+            icon={CheckCircle2Icon}
+            label="Warmups à valider"
+            value={String(warmupReady.length)}
+            hint="chauffe finie, en attente"
+            accent={warmupReady.length > 0}
+          />
+        )}
+        {/* Carte d'ARGENT : rendue seulement avec le bloc. La query est skippée
+            en amont, donc `dueTotal` est `null` ici — et la carte mènerait de
+            toute façon à un écran refusé. */}
+        {dueTotal !== null && (
+          <ActionCard
+            href={projectPath("/paiements")}
+            icon={WalletIcon}
+            label="Dû"
+            value={formatMoney(dueTotal, payCurrency)}
+            hint="cycles non payés"
+          />
+        )}
       </div>
 
       {/*
-        File de travail — PLEINE LARGEUR : c'est le cœur du dashboard à 30+
-        créateurs. Groupes ordonnés du plus coûteux au moins coûteux :
-        1. à publier (la vidéo existe et ne rapporte rien tant qu'elle est hors
-           ligne), 2. à valider (le créateur attend l'admin, ça bloque la
-        chaîne), 3. cycles dus (argent dû), 4. missions en retard (production
-        en retard), 5. refus qui stagnent (créateur bloqué sur un retour).
+        « À décider » — le cœur de la refonte : une ligne par DÉCISION, jamais
+        une tâche d'exécution (celles-ci vivent dans leurs pages, atteignables
+        par les 4 cartes du haut). Détections servies par decisionDashboard,
+        seuils dans convex/decisionThresholds.ts.
       */}
-      <Section title="À traiter maintenant">
-        {worklistCount === 0 &&
-        warmupLate.length === 0 &&
-        chauffeSansTalent.length === 0 ? (
-          <EmptyRow
-            icon={CheckCircle2Icon}
-            label="Rien à traiter, tout est à jour."
+      {decisions !== undefined && (
+        <Section title="À décider">
+          <DecideList
+            decisions={decisions}
+            onStrike={(creatorId) => setStrikeCreator(creatorId)}
+            onGraduate={(brickId) => setGraduating(brickId)}
+            onDeactivate={(brickId, content) =>
+              setDeactivating({ brickId, content })
+            }
           />
-        ) : (
-          <div className="space-y-1">
-            {toPublish.length > 0 && (
-              <>
-                <GroupHeader
-                  icon={UploadCloudIcon}
-                  label="À publier (comptes gérés)"
-                  count={toPublish.length}
-                  tone="text-violet-700"
-                />
-                <div className="divide-y divide-slate-100">
-                  {toPublish.slice(0, WORKLIST_LIMIT).map((a) => (
-                    <WorklistRow
-                      key={a._id}
-                      title={a.creatorName}
-                      subtitle={`${missionLabelOf(a)} · vidéo validée, en attente de mise en ligne`}
-                      href={projectPath("/validation")}
-                      hrefLabel="Publier"
-                      primary
-                    />
-                  ))}
-                </div>
-              </>
-            )}
+        </Section>
+      )}
 
-            {submitted.length > 0 && (
-              <>
-                {/* Libellé volontairement distinct de la carte « À valider »
-                    (collision de texte exact côté tests + ambiguïté à l'écran). */}
-                <GroupHeader
-                  icon={CheckCircle2Icon}
-                  label="Vidéos à valider"
-                  count={submitted.length}
-                  tone="text-primary"
-                />
-                <div className="divide-y divide-slate-100">
-                  {submitted.slice(0, WORKLIST_LIMIT).map((a) => (
-                    <WorklistRow
-                      key={a._id}
-                      title={a.creatorName}
-                      subtitle={`${missionLabelOf(a)} · soumise ${relativeAge(a.createdAt, now)}`}
-                      href={projectPath("/validation")}
-                      hrefLabel="Valider"
-                      primary
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {unpaidCycles.length > 0 && (
-              <>
-                <GroupHeader
-                  icon={WalletIcon}
-                  label="Cycles dus"
-                  count={unpaidCycles.length}
-                  tone="text-emerald-700"
-                />
-                <div className="divide-y divide-slate-100">
-                  {unpaidCycles.slice(0, WORKLIST_LIMIT).map((p) => (
-                    <WorklistRow
-                      key={p.key}
-                      title={p.creatorName}
-                      subtitle={`${formatMoney(p.totalDue, payCurrency)} en attente de paiement`}
-                      href={projectPath("/paiements")}
-                      hrefLabel="Voir"
-                      action={
-                        // Rows orphelines exclues (créateur supprimé) : même
-                        // limite qu'au chantier A, markCyclePaid ne peut pas
-                        // les traiter.
-                        p.key.startsWith("orphan:") ? undefined : (
-                          <InlineAction
-                            icon={WalletIcon}
-                            label="Marquer payé"
-                            busy={busyKey === p.key}
-                            onClick={() =>
-                              handlePayCycle(
-                                p.key,
-                                p.creatorId,
-                                p.cycleIndex,
-                                p.creatorName,
-                              )
-                            }
-                          />
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {overdueMissions.length > 0 && (
-              <>
-                <GroupHeader
-                  icon={AlertTriangleIcon}
-                  label="Missions en retard"
-                  count={overdueMissions.length}
-                  tone="text-rose-700"
-                />
-                <div className="divide-y divide-slate-100">
-                  {overdueMissions.slice(0, WORKLIST_LIMIT).map((a) => (
-                    <WorklistRow
-                      key={a._id}
-                      title={a.creatorName}
-                      subtitle={`${missionLabelOf(a)} · attendue ${relativeAge(a.dueDate, now)}`}
-                      href={projectPath("/assignments")}
-                      hrefLabel="Voir"
-                      action={
-                        <InlineAction
-                          icon={BellIcon}
-                          label="Relancer"
-                          busy={busyKey === a._id}
-                          onClick={() => handleNudge(a._id, a.creatorName)}
-                        />
-                      }
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {stagnantRejections.length > 0 && (
-              <>
-                <GroupHeader
-                  icon={MessageSquareWarningIcon}
-                  label="Refus sans re-soumission"
-                  count={stagnantRejections.length}
-                  tone="text-amber-700"
-                />
-                <div className="divide-y divide-slate-100">
-                  {stagnantRejections.slice(0, WORKLIST_LIMIT).map((a) => (
-                    <WorklistRow
-                      key={a._id}
-                      title={a.creatorName}
-                      subtitle={`${missionLabelOf(a)} · refusée ${relativeAge(a.videoRejectedAt ?? a.createdAt, now)}`}
-                      href={projectPath("/assignments")}
-                      hrefLabel="Voir"
-                      action={
-                        <InlineAction
-                          icon={BellIcon}
-                          label="Relancer"
-                          busy={busyKey === a._id}
-                          onClick={() => handleNudge(a._id, a.creatorName)}
-                        />
-                      }
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {chauffeSansTalent.length > 0 && (
-              <Link
-                href={projectPath("/createurs")}
-                className="flex items-center justify-between gap-3 border-t border-slate-100 py-2.5 transition-colors hover:bg-slate-50"
-              >
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <SnowflakeIcon className="size-4 text-sky-600" />
-                  <span>
-                    <span className="font-medium">
-                      {chauffeSansTalent.length}
-                    </span>{" "}
-                    compte{chauffeSansTalent.length > 1 ? "s" : ""} en chauffe
-                    sans talent apparié — à apparier avant la sortie
-                  </span>
-                </div>
-                <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
-              </Link>
-            )}
-
-            {warmupLate.length > 0 && (
-              <Link
-                href={projectPath("/comptes")}
-                className="flex items-center justify-between gap-3 border-t border-slate-100 py-2.5 transition-colors hover:bg-slate-50"
-              >
-                <div className="flex items-center gap-2 text-sm text-slate-700">
-                  <FlameIcon className="size-4 text-amber-600" />
-                  <span>
-                    <span className="font-medium">{warmupLate.length}</span>{" "}
-                    warmup{warmupLate.length > 1 ? "s" : ""} en retard à
-                    relancer
-                  </span>
-                </div>
-                <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
-              </Link>
-            )}
-          </div>
-        )}
-      </Section>
-
-      <div className="grid grid-cols-1 gap-6">
-        {/* Activité créateurs — agrégats existants (perf par compte). */}
+      {/* « Posts des dernières 48 h » — remplace les cumuls à vie : le rythme
+          réel, groupé par créatrice, delta 24 h en évidence. Le cumul reste
+          accessible via « Voir tout ». */}
+      {decisions !== undefined && (
         <Section
-          title="Activité créateurs"
+          title="Posts des dernières 48 h"
           action={
-            creatorActivity.length > 0
+            voitCreateurs
               ? { label: "Voir tout", href: projectPath("/createurs") }
               : undefined
           }
         >
-          {creatorActivity.length === 0 ? (
-            <EmptyRow icon={UserPlusIcon} label="Aucun créateur actif." />
-          ) : (
-            <div className="divide-y divide-slate-100">
-              {creatorActivity.slice(0, ACTIVITY_LIMIT).map(({ creator, vues, posts, warmupCount }) => {
-                const badge = creatorStatusBadge(creator.status);
-                return (
-                  <Link
-                    key={creator._id}
-                    href={projectPath(`/createurs/${creator._id}`)}
-                    className="flex items-center justify-between gap-3 py-2.5 transition-colors hover:bg-slate-50"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-slate-900">
-                          {creator.name}
-                        </span>
-                        <Badge variant="outline" className={badge.className}>
-                          {badge.label}
-                        </Badge>
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500">
-                        {posts} post{posts > 1 ? "s" : ""}
-                        {warmupCount > 0 && (
-                          <span className="text-amber-600">
-                            {" · "}
-                            {warmupCount} en warmup
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="text-sm font-semibold tabular-nums text-slate-900">
-                        {formatNumber(vues)}
-                      </div>
-                      <div className="text-xs text-slate-400">vues</div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <Recent48h
+            posts={decisions.posts48h}
+            alarms={decisions.alarms}
+            now={now}
+          />
         </Section>
-      </div>
+      )}
+
+      {/* « Ce que ça a rapporté » — visiteurs et ventes attribués par la ref
+          snytch.co/<créatrice>, la veille. L'attribution repose ENTIÈREMENT sur
+          le chemin court (pas de referrer in-app TikTok) : une créatrice sans
+          ref est un état à part, jamais un zéro. */}
+      {droits.has("business.read") && (
+        <Section title="Ce que ça a rapporté">
+          <ConversionSection data={conversion} />
+        </Section>
+      )}
+
+      <GraduateHookDialog
+        brickId={graduating}
+        open={graduating !== null}
+        onOpenChange={(o) => !o && setGraduating(null)}
+      />
+      <DeactivateHookDialog
+        target={deactivating}
+        onOpenChange={(o) => !o && setDeactivating(null)}
+      />
+      {/* « Programmer la frappe » : la modale d'assignation EXISTANTE, sur la
+          campagne des ouvertures prouvées, pré-remplie créatrice + Soir 21-23h
+          + demain. Le bouton est masqué si la campagne n'existe pas. */}
+      {decisions?.provenCampaign != null && strikeCreator !== null && (
+        <AssignScriptCampaignDialog
+          open
+          onOpenChange={(o) => !o && setStrikeCreator(null)}
+          campaignId={decisions.provenCampaign.id}
+          campaignName={decisions.provenCampaign.name}
+          strike={{
+            creatorId: strikeCreator,
+            plage: SOIR,
+            postDate: tomorrowMidnightLocal(now),
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/** Libellé lisible d'une mission : format nommé, sinon campagne, sinon générique. */
-function missionLabelOf(a: {
-  formatName: string | null;
-  scriptCampaignName: string | null;
-}): string {
-  return a.formatName ?? a.scriptCampaignName ?? "Mission";
+// ─── Section « À décider » ───────────────────────────────────────────────────
+
+function DecideList({
+  decisions,
+  onStrike,
+  onGraduate,
+  onDeactivate,
+}: {
+  decisions: DashboardDecisions;
+  onStrike: (creatorId: Id<"creators">) => void;
+  onGraduate: (brickId: Id<"scriptBricks">) => void;
+  onDeactivate: (brickId: Id<"scriptBricks">, content: string) => void;
+}) {
+  const { openDoors, graduations, deadHooks, alarms, provenCampaign } = decisions;
+  const total =
+    openDoors.length + graduations.length + deadHooks.length + alarms.length;
+
+  if (total === 0) {
+    return (
+      <EmptyRow
+        icon={CheckCircle2Icon}
+        label="Rien à décider ce soir. Prochain relevé après le sync de 23h30."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {openDoors.length > 0 && (
+        <>
+          <GroupHeader
+            icon={DoorOpenIcon}
+            label="Portes ouvertes"
+            count={openDoors.length}
+            tone="text-violet-700"
+          />
+          <div className="divide-y divide-slate-100">
+            {openDoors.map((d) => (
+              <WorklistRow
+                key={d.post.publicationId}
+                title={`${d.post.compte}${d.post.creatorName ? ` — ${d.post.creatorName}` : ""}`}
+                subtitle={[
+                  `${formatNumber(d.post.vues)} vues`,
+                  `${formatPercent(d.likeRate)} likes`,
+                  `${formatNumber(d.post.saves ?? 0)} saves`,
+                  `+${formatNumber(d.post.followersDelta ?? 0)} abonnés`,
+                ].join(" · ")}
+                action={
+                  d.post.creatorId !== null && provenCampaign !== null ? (
+                    <InlineAction
+                      icon={DoorOpenIcon}
+                      label="Programmer la frappe"
+                      busy={false}
+                      onClick={() => onStrike(d.post.creatorId as Id<"creators">)}
+                    />
+                  ) : undefined
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {graduations.length > 0 && (
+        <>
+          <GroupHeader
+            icon={GraduationCapIcon}
+            label="À graduer"
+            count={graduations.length}
+            tone="text-primary"
+          />
+          <div className="divide-y divide-slate-100">
+            {graduations.map((g) => (
+              <WorklistRow
+                key={g.brickId}
+                title={g.content}
+                subtitle={[
+                  `meilleur run ${formatNumber(g.best.vues)} vues`,
+                  `${formatPercent(rateOf(g.best.likes, g.best.vues) ?? 0)} likes`,
+                  g.best.saves !== null
+                    ? `${formatPercent(rateOf(g.best.saves, g.best.vues) ?? 0)} saves`
+                    : "saves —",
+                  `${g.runs} run${g.runs > 1 ? "s" : ""}`,
+                ].join(" · ")}
+                action={
+                  <InlineAction
+                    icon={GraduationCapIcon}
+                    label="Graduer"
+                    busy={false}
+                    onClick={() => onGraduate(g.brickId)}
+                  />
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {deadHooks.length > 0 && (
+        <>
+          <GroupHeader
+            icon={ZapOffIcon}
+            label="Hooks morts"
+            count={deadHooks.length}
+            tone="text-slate-500"
+          />
+          <div className="divide-y divide-slate-100">
+            {deadHooks.map((h) => (
+              <WorklistRow
+                key={h.brickId}
+                title={h.content}
+                subtitle={`${h.runs} runs publiés, meilleur ${formatNumber(h.bestViews)} vues — aucun ne prend (${h.campaignName})`}
+                action={
+                  <InlineAction
+                    icon={ZapOffIcon}
+                    label="Désactiver"
+                    busy={false}
+                    onClick={() => onDeactivate(h.brickId, h.content)}
+                  />
+                }
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {alarms.length > 0 && (
+        <>
+          <GroupHeader
+            icon={AlertTriangleIcon}
+            label="Alarmes compte"
+            count={alarms.length}
+            tone="text-rose-700"
+          />
+          <div className="divide-y divide-slate-100">
+            {alarms.map((a) => (
+              <WorklistRow
+                key={a.compte}
+                title={`${a.compte}${a.creatorName ? ` — ${a.creatorName}` : ""}`}
+                subtitle={`${a.streak} posts consécutifs sous les seuils — stop promos, warmup prouvé pendant 5-7 jours`}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Confirmation de DÉSACTIVATION d'un hook mort. Même mutation que la bascule de
+ * la page campagne (updateBrick) : aucune logique nouvelle, juste une porte de
+ * confirmation — le geste retire le hook de toutes les rotations futures.
+ */
+function DeactivateHookDialog({
+  target,
+  onOpenChange,
+}: {
+  target: { brickId: Id<"scriptBricks">; content: string } | null;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const update = useProjectMutation(api.scripts.updateBrick);
+  const [busy, setBusy] = useState(false);
+
+  async function onConfirm() {
+    if (!target) return;
+    setBusy(true);
+    try {
+      await update({ id: target.brickId, active: false });
+      toast.success("Hook désactivé — il sort des rotations.");
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Désactivation impossible"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={target !== null} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Désactiver ce hook</DialogTitle>
+          <DialogDescription>
+            Il sort des rotations automatiques ; ses runs passés et leurs
+            statistiques restent intacts. Réactivable depuis la page campagne.
+          </DialogDescription>
+        </DialogHeader>
+        {target && (
+          <blockquote className="rounded-md border-l-2 border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-800">
+            {target.content}
+          </blockquote>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Annuler
+          </Button>
+          <Button onClick={onConfirm} disabled={busy}>
+            {busy ? (
+              <Loader2Icon className="size-4 animate-spin" />
+            ) : (
+              <ZapOffIcon className="size-4" />
+            )}
+            Désactiver
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Section « Posts des dernières 48 h » ────────────────────────────────────
+
+function Recent48h({
+  posts,
+  alarms,
+  now,
+}: {
+  posts: Post48h[];
+  alarms: DashboardDecisions["alarms"];
+  now: number;
+}) {
+  // Repli par créatrice — état LOCAL, défaut déplié (l'écran sert à lire, le
+  // repli sert à ranger les créatrices déjà vues ce soir).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const alarmedComptes = useMemo(
+    () => new Set(alarms.map((a) => a.compte)),
+    [alarms],
+  );
+
+  const groups = useMemo(() => {
+    const byCreator = new Map<string, { label: string; posts: Post48h[] }>();
+    for (const p of posts) {
+      // Un post sans créatrice rattachée est groupé par COMPTE : l'information
+      // reste visible au lieu de disparaître dans un bucket fourre-tout.
+      const key = p.creatorId ?? `compte:${p.compte}`;
+      const g = byCreator.get(key) ?? {
+        label: p.creatorName ?? p.compte,
+        posts: [],
+      };
+      g.posts.push(p);
+      byCreator.set(key, g);
+    }
+    return [...byCreator.entries()].sort(
+      (a, b) =>
+        b[1].posts.reduce((s, p) => s + p.vues, 0) -
+        a[1].posts.reduce((s, p) => s + p.vues, 0),
+    );
+  }, [posts]);
+
+  if (posts.length === 0) {
+    return (
+      <EmptyRow
+        icon={CalendarClockIcon}
+        label="Aucun post publié dans les dernières 48 h."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {groups.map(([key, g]) => {
+        const vues48 = g.posts.reduce((s, p) => s + p.vues, 0);
+        // Delta d'abonnés PAR COMPTE (dédupliqué) puis sommé ; tous null →
+        // « collecte… » (il faut deux relevés nocturnes, cf computeFollowersDelta).
+        const parCompte = new Map<string, number | null>();
+        for (const p of g.posts) parCompte.set(p.compte, p.followersDelta);
+        const deltas = [...parCompte.values()].filter(
+          (d): d is number => d !== null,
+        );
+        const followers = deltas.length > 0
+          ? deltas.reduce((s, d) => s + d, 0)
+          : null;
+        const alarmed = [...parCompte.keys()].some((c) => alarmedComptes.has(c));
+        const state = accountStateOf(g.posts, alarmed);
+        const isCollapsed = collapsed.has(key);
+
+        return (
+          <div key={key} className="border-t border-slate-100 first:border-t-0">
+            <button
+              type="button"
+              onClick={() =>
+                setCollapsed((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
+                  return next;
+                })
+              }
+              className="flex w-full items-center gap-2 py-2.5 text-left transition-colors hover:bg-slate-50"
+            >
+              {isCollapsed ? (
+                <ChevronRightIcon className="size-4 shrink-0 text-slate-400" />
+              ) : (
+                <ChevronDownIcon className="size-4 shrink-0 text-slate-400" />
+              )}
+              <span className="truncate text-sm font-medium text-slate-900">
+                {g.label}
+              </span>
+              <AccountStateBadge state={state} />
+              <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-500">
+                {g.posts.length} post{g.posts.length > 1 ? "s" : ""} ·{" "}
+                {(g.posts.length / 2).toFixed(1).replace(".", ",")}/j ·{" "}
+                {formatNumber(vues48)} vues ·{" "}
+                {followers !== null ? (
+                  <span className={followers >= 0 ? "text-emerald-700" : "text-rose-700"}>
+                    {followers >= 0 ? "+" : ""}
+                    {formatNumber(followers)} abonnés
+                  </span>
+                ) : (
+                  <span
+                    className="italic text-slate-400"
+                    title="Le delta d'abonnés demande deux relevés nocturnes — en cours de collecte."
+                  >
+                    abonnés : collecte…
+                  </span>
+                )}
+              </span>
+            </button>
+            {!isCollapsed && (
+              <div className="divide-y divide-slate-50 pb-1 pl-6">
+                {g.posts.map((p) => (
+                  <PostRow key={p.publicationId} post={p} now={now} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** "16/08" — jour Paris d'un relevé, pour dater une valeur qui n'est pas d'aujourd'hui. */
+function shortParisDay(ms: number): string {
+  return new Date(ms).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    timeZone: "Europe/Paris",
+  });
+}
+
+function PostRow({ post: p, now }: { post: Post48h; now: number }) {
+  const likeRate = rateOf(p.likes, p.vues);
+  const savesState = savesAvailability(p.saves, p.plateforme);
+  const saveRate = savesState === "measured" ? rateOf(p.saves, p.vues) : null;
+  // Le relevé qui porte les chiffres affichés n'est pas forcément d'aujourd'hui
+  // (le sync tourne à 23h30). On le DATE plutôt que de masquer la valeur : une
+  // donnée datée vaut mieux qu'un tiret. Rien à dater si le relevé est du jour.
+  const sourceDay =
+    p.snapshotAt !== null && shortParisDay(p.snapshotAt) !== shortParisDay(now)
+      ? shortParisDay(p.snapshotAt)
+      : null;
+
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-sm text-slate-900">
+            {p.label || "(sans titre)"}
+          </span>
+          <TypeBadge type={p.type} />
+        </div>
+        <div className="truncate text-xs text-slate-400">
+          {p.compte} · {relativeAge(p.postedAt, now)}
+        </div>
+      </div>
+      <Metric
+        value={formatNumber(p.vues)}
+        label={sourceDay ? `vues · au ${sourceDay}` : "vues"}
+        title={sourceDay ? `Dernier relevé le ${sourceDay} à 23h30 — le prochain sync met à jour.` : undefined}
+      />
+      {/* LA colonne du tableau : un post qui monte vs un post qui s'éteint. */}
+      <div className="w-20 shrink-0 text-right">
+        {p.delta24h !== null ? (
+          <div className="text-sm font-semibold tabular-nums text-slate-900">
+            +{formatNumber(p.delta24h)}
+          </div>
+        ) : (
+          <div
+            className="text-sm italic text-slate-400"
+            title="Pas encore deux relevés espacés — delta au prochain sync de 23h30."
+          >
+            —
+          </div>
+        )}
+        <div className="text-[10px] text-slate-400">Δ 24 h</div>
+      </div>
+      <RateCell rate={likeRate} tone={likeRateTone(likeRate)} label="likes" />
+      {savesState === "collecting" ? (
+        // RÉSERVÉ aux posts qui n'ont AUCUN relevé portant des saves. Un post
+        // dont le dernier relevé date d'hier affiche sa valeur DATÉE (ci-dessous),
+        // pas cet état.
+        <div className="w-16 shrink-0 text-right">
+          <div
+            className="text-xs italic text-slate-400"
+            title="Aucun relevé avec saves pour ce post — en cours de collecte."
+          >
+            collecte…
+          </div>
+          <div className="text-[10px] text-slate-400">saves</div>
+        </div>
+      ) : (
+        <RateCell
+          rate={saveRate}
+          tone={savesState === "unavailable" ? "unknown" : saveRateTone(saveRate)}
+          label={sourceDay && savesState === "measured" ? `saves · au ${sourceDay}` : "saves"}
+          title={
+            savesState === "measured" && p.saves !== null
+              ? `${formatNumber(p.saves)} save${p.saves > 1 ? "s" : ""}${sourceDay ? ` au ${sourceDay}` : ""}`
+              : undefined
+          }
+        />
+      )}
+      <VerdictBadge verdict={verdictOf(p, now)} />
+    </div>
+  );
+}
+
+function Metric({
+  value,
+  label,
+  title,
+}: {
+  value: string;
+  label: string;
+  title?: string;
+}) {
+  return (
+    <div className="w-16 shrink-0 text-right" title={title}>
+      <div className="text-xs tabular-nums text-slate-600">{value}</div>
+      <div className="text-[10px] text-slate-400">{label}</div>
+    </div>
+  );
+}
+
+const RATE_TONE_CLASS: Record<RateTone, string> = {
+  bad: "text-rose-600",
+  neutral: "text-slate-600",
+  good: "text-emerald-600",
+  unknown: "text-slate-400",
+};
+
+function RateCell({
+  rate,
+  tone,
+  label,
+  title,
+}: {
+  rate: number | null;
+  tone: RateTone;
+  label: string;
+  title?: string;
+}) {
+  return (
+    <div className="w-16 shrink-0 text-right" title={title}>
+      <div className={cn("text-xs tabular-nums", RATE_TONE_CLASS[tone])}>
+        {rate === null ? "—" : formatPercent(rate)}
+      </div>
+      <div className="text-[10px] text-slate-400">{label}</div>
+    </div>
+  );
+}
+
+const VERDICT_DISPLAY: Record<Verdict, { label: string; className: string }> = {
+  pending: { label: "en attente", className: "text-slate-400 italic" },
+  "open-door": { label: "porte ouverte", className: "text-violet-700 font-medium" },
+  rising: { label: "monte", className: "text-emerald-700 font-medium" },
+  fading: { label: "s'éteint", className: "text-slate-400" },
+  below: { label: "sous les seuils", className: "text-rose-600" },
+};
+
+function VerdictBadge({ verdict }: { verdict: Verdict }) {
+  const d = VERDICT_DISPLAY[verdict];
+  return (
+    <span className={cn("w-24 shrink-0 text-right text-xs", d.className)}>
+      {d.label}
+    </span>
+  );
+}
+
+const TYPE_DISPLAY: Record<string, { label: string; className: string }> = {
+  prouve: { label: "prouvé", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  lab: { label: "LAB", className: "border-sky-200 bg-sky-50 text-sky-700" },
+  warmup: { label: "warmup", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  promo: { label: "promo", className: "border-violet-200 bg-violet-50 text-violet-700" },
+};
+
+function TypeBadge({ type }: { type: string }) {
+  const d = TYPE_DISPLAY[type] ?? TYPE_DISPLAY.promo;
+  return (
+    <Badge variant="outline" className={cn("shrink-0 text-[10px]", d.className)}>
+      {d.label}
+    </Badge>
+  );
+}
+
+const ACCOUNT_STATE_DISPLAY: Record<
+  AccountState,
+  { label: string; className: string }
+> = {
+  window: { label: "Fenêtre active", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  cruise: { label: "Croisière", className: "border-slate-200 bg-slate-50 text-slate-600" },
+  alarm: { label: "Alarme", className: "border-rose-200 bg-rose-50 text-rose-700" },
+};
+
+function AccountStateBadge({ state }: { state: AccountState }) {
+  const d = ACCOUNT_STATE_DISPLAY[state];
+  return (
+    <Badge variant="outline" className={cn("shrink-0", d.className)}>
+      {d.label}
+    </Badge>
+  );
 }
 
 /** En-tête d'un groupe de la file (libellé + compteur, teinté par urgence). */
@@ -721,8 +1010,9 @@ function WorklistRow({
 }: {
   title: string;
   subtitle: string;
-  href: string;
-  hrefLabel: string;
+  /** Lien de navigation — optionnel : une ligne de DÉCISION n'a qu'une action. */
+  href?: string;
+  hrefLabel?: string;
   action?: React.ReactNode;
   primary?: boolean;
 }) {
@@ -736,17 +1026,19 @@ function WorklistRow({
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {action}
-        <Link
-          href={href}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-            primary
-              ? "bg-primary text-primary-foreground hover:bg-primary/90"
-              : "border border-slate-200 text-slate-700 hover:bg-slate-50",
-          )}
-        >
-          {hrefLabel}
-        </Link>
+        {href !== undefined && hrefLabel !== undefined && (
+          <Link
+            href={href}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              primary
+                ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                : "border border-slate-200 text-slate-700 hover:bg-slate-50",
+            )}
+          >
+            {hrefLabel}
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -857,5 +1149,292 @@ function ActionSkeleton() {
         <Skeleton className="h-64" />
       </div>
     </div>
+  );
+}
+
+// ─── Section « Ce que ça a rapporté » (conversion par créatrice) ─────────────
+
+type ConversionData = FunctionReturnType<
+  typeof api.conversionSync.readConversionAllTime
+>;
+
+/** Horodatage → "30/08 à 12h30" (Paris) — la fraîcheur d'une colonne se lit à
+ *  l'heure, pas à la journée. */
+function frDateTime(ms: number): string {
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .format(new Date(ms))
+    .replace(", ", " à ");
+}
+
+/** "YYYY-MM-DD" → "18/07/2026". */
+function frDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function ConversionSection({ data }: { data: ConversionData | undefined }) {
+  const projectPath = useProjectPath();
+  if (data === undefined) return <Skeleton className="h-24" />;
+  if (data === null) {
+    return (
+      <EmptyRow
+        icon={CalendarClockIcon}
+        label="Pas encore de données — première collecte après le sync de 23h30."
+      />
+    );
+  }
+
+  // Tout est DÉJÀ mis en forme par le serveur (convex/conversionSync) : lignes
+  // affichées, totaux, conflits de refs, plages et attributions douteuses. Le
+  // composant ne dérive plus rien — il n'a donc plus besoin des lignes brutes
+  // par ref, ni de la liste des créatrices, ni de celle des influenceuses.
+  const d = data.display;
+  const conflicts = data.conflicts;
+  const spanByRef = new Map(Object.entries(data.spans));
+  const suspectRefs = new Set(data.suspectRefs);
+
+  return (
+    <div className="space-y-1">
+      {conflicts.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+          <strong>
+            {conflicts.length} ref{conflicts.length > 1 ? "s" : ""} portée
+            {conflicts.length > 1 ? "s" : ""} par plusieurs personnes.
+          </strong>{" "}
+          Chacune affiche les MÊMES chiffres, et le total ne le montre pas —
+          il somme les refs, pas les lignes.{" "}
+          {conflicts
+            .map((c) => `« ${c.ref} » : ${c.holders.join(", ")}`)
+            .join(" · ")}
+        </div>
+      )}
+      <div className="text-xs text-slate-400">
+        Depuis le {frDate(data.firstDate)} — {data.collectedDays} jour
+        {data.collectedDays > 1 ? "s" : ""} collecté
+        {data.collectedDays > 1 ? "s" : ""} · attribution par ref snytch.co
+      </div>
+      {/* DEUX CADENCES dans le même tableau, écrites plutôt que sues. Les
+          visiteurs viennent d'un relevé PostHog quotidien de 23 h ; les ventes
+          sont lues en direct sur Whop, synchronisé toutes les heures. Sans cette
+          ligne, une colonne arrêtée à la veille et une colonne à l'heure se
+          lisent comme si elles décrivaient le même instant. */}
+      <div className="text-xs text-slate-400">
+        <span className="text-slate-500">Visiteurs et inscrits</span>{" "}
+        {data.visitorsThroughDate === null
+          ? "en attente du premier relevé PostHog"
+          : `arrêtés au ${frDate(data.visitorsThroughDate)} (relevé quotidien de 23h)`}{" "}
+        ·{" "}
+        <span className="text-slate-500">ventes et revenu</span>{" "}
+        {data.salesSyncMs === null
+          ? "en attente de la synchro Whop"
+          : `à jour, synchro Whop du ${frDateTime(data.salesSyncMs)}`}
+      </div>
+      <div className="divide-y divide-slate-100">
+        {d.rows.map((row) => (
+          <ConversionRow
+            key={
+              row.kind === "creator" || row.kind === "no-ref"
+                ? `cr:${row.creatorId}`
+                : `ref:${row.ref}`
+            }
+            row={row}
+            span={row.kind === "no-ref" ? undefined : spanByRef.get(row.ref)}
+            suspect={row.kind !== "no-ref" && suspectRefs.has(row.ref)}
+            href={
+              row.kind === "no-ref"
+                ? projectPath(`/createurs/${row.creatorId}`)
+                : undefined
+            }
+          />
+        ))}
+        {d.unattributed !== null && (
+          <div className="flex items-center gap-3 py-2">
+            <div className="min-w-0 flex-1 text-sm text-slate-500">
+              Sans source
+              <div className="text-xs text-slate-400">
+                trafic et ventes non attribués à une ref
+              </div>
+            </div>
+            <ConversionCells
+              visitors={d.unattributed.visitors}
+              signups={d.unattributed.signups}
+              sales={d.unattributed.sales}
+              revenue={d.unattributed.revenue}
+              currency={d.unattributed.currency}
+            />
+          </div>
+        )}
+        {/* DEUX totaux. Un seul, sous une liste où presque personne n'a de
+            chiffre, laisserait croire à une attribution qui n'existe pas : en
+            all-time l'essentiel du revenu n'est rattaché à aucune ref. Le
+            « Total » reste la somme de TOUT, donc réconciliable avec Whop. */}
+        <div className="flex items-center gap-3 py-2">
+          <div className="min-w-0 flex-1 text-sm font-medium text-slate-700">
+            Total attribué
+            <div className="text-xs text-slate-400">
+              refs rattachées à quelqu&apos;un — créatrice ou influenceuse
+            </div>
+          </div>
+          <ConversionCells
+            visitors={d.attributed.visitors}
+            signups={d.attributed.signups}
+            sales={d.attributed.sales}
+            revenue={d.attributed.revenue}
+            currency={d.attributed.currency}
+          />
+        </div>
+        <div className="flex items-center gap-3 py-2">
+          <div className="min-w-0 flex-1 text-sm font-semibold text-slate-900">
+            Total
+            <div className="text-xs font-normal text-slate-400">
+              orphelines et sans source comprises
+            </div>
+          </div>
+          <ConversionCells
+            visitors={d.total.visitors}
+            signups={d.total.signups}
+            sales={d.total.sales}
+            revenue={d.total.revenue}
+            currency={d.total.currency}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConversionRow({
+  row,
+  href,
+  span,
+  suspect,
+}: {
+  row: ConversionDisplayRow;
+  href?: string;
+  /** Plage réelle des données de cette ref — « 146 visiteurs » sur 2 jours ou
+   *  sur 41 ne se lit pas pareil en all-time. */
+  span?: { first: string; last: string };
+  /** Données antérieures à l'existence de la créatrice → attribution douteuse. */
+  suspect?: boolean;
+}) {
+  if (row.kind === "no-ref") {
+    // PAS un zéro : sans ref dans la bio, l'attribution est aveugle sur elle.
+    // Le lien mène à sa fiche, où la ref se configure.
+    return (
+      <div className="flex items-center gap-3 py-2">
+        <div className="min-w-0 flex-1">
+          <span className="text-sm text-slate-500">{row.creatorName}</span>
+        </div>
+        {href !== undefined ? (
+          <Link
+            href={href}
+            className="text-xs italic text-amber-700 hover:underline"
+            title="L'attribution repose entièrement sur le chemin court snytch.co/<ref> — configurer la ref sur sa fiche."
+          >
+            pas de ref configurée
+          </Link>
+        ) : (
+          <span className="text-xs italic text-amber-700">
+            pas de ref configurée
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="min-w-0 flex-1">
+        <span className="truncate text-sm font-medium text-slate-900">
+          {row.kind === "creator"
+            ? row.creatorName
+            : row.kind === "influencer"
+              ? row.name
+              : row.ref}
+        </span>
+        <span className="ml-1.5 text-xs text-slate-400">/{row.ref}</span>
+        {/* Une créatrice PARTIE garde son historique à son nom — le badge dit la
+            différence, avec le vocabulaire de la fiche et de la table Créateurs
+            (lib/creator-status), pas un marqueur inventé ici. */}
+        {row.kind === "creator" && row.status === "churned" && (
+          <Badge
+            variant="outline"
+            className={`ml-1.5 align-middle text-[10px] ${creatorStatusBadge("churned").className}`}
+          >
+            {creatorStatusBadge("churned").label}
+          </Badge>
+        )}
+        {row.kind === "influencer" && (
+          <div className="text-xs text-slate-400">influenceuse</div>
+        )}
+        {row.kind === "ref-only" && (
+          <div className="text-xs text-slate-400">
+            ref rattachée à personne
+          </div>
+        )}
+        {span !== undefined && (
+          <div className="text-xs text-slate-400">
+            {span.first === span.last
+              ? `le ${frDate(span.first)}`
+              : `du ${frDate(span.first)} au ${frDate(span.last)}`}
+          </div>
+        )}
+        {suspect === true && (
+          <div
+            className="text-xs italic text-amber-700"
+            title="Cette ref porte des conversions ANTÉRIEURES à l'arrivée de la créatrice : le slug a pu servir à quelqu'un d'autre avant elle. La date de pose d'une ref n'étant pas stockée, l'attribution all-time ne peut pas trancher."
+          >
+            données antérieures à son arrivée — attribution à vérifier
+          </div>
+        )}
+      </div>
+      <ConversionCells
+        visitors={row.visitors}
+        signups={row.signups}
+        sales={row.sales}
+        revenue={row.revenue}
+        currency={row.currency}
+      />
+    </div>
+  );
+}
+
+/** Cellules chiffrées — « — » = source jamais collectée ce jour, pas un zéro. */
+function ConversionCells({
+  visitors,
+  signups,
+  sales,
+  revenue,
+  currency,
+}: {
+  visitors: number | null;
+  signups: number | null;
+  sales: number | null;
+  revenue: number | null;
+  currency: string | null;
+}) {
+  return (
+    <>
+      <Metric
+        value={visitors === null ? "—" : formatNumber(visitors)}
+        label="visiteurs"
+      />
+      <Metric
+        value={signups === null ? "—" : formatNumber(signups)}
+        label="signups"
+      />
+      <Metric value={sales === null ? "—" : formatNumber(sales)} label="ventes" />
+      <div className="w-20 shrink-0 text-right">
+        <div className="text-sm font-semibold tabular-nums text-slate-900">
+          {revenue === null ? "—" : formatMoney(revenue, currency ?? undefined)}
+        </div>
+        <div className="text-[10px] text-slate-400">revenu</div>
+      </div>
+    </>
   );
 }

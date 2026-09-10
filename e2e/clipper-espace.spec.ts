@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { api } from "../convex/_generated/api";
 import { createE2eClient } from "./helpers/authed-client";
-import { formatUtcDayFr } from "../convex/accountPhase";
+import { formatUtcDay } from "../convex/accountPhase";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -82,7 +82,7 @@ test.describe("Espace clippeur — /clip", () => {
       timeout: 15_000,
     });
     await expect(
-      page.getByText(new RegExp(`0 publication sur 2 pour le ${formatUtcDayFr(ts)}`, "i")),
+      page.getByText(new RegExp(`0 publication sur 2 pour le ${formatUtcDay(ts, "fr")}`, "i")),
     ).toBeVisible();
     await expect(page.getByText(/2 publications possibles aujourd'hui/i)).toBeVisible();
 

@@ -49,3 +49,61 @@ export function formatDayMonthFr(ts: number): string {
     timeZone: "Europe/Paris",
   });
 }
+
+/**
+ * Clé de MOIS CALENDAIRE "YYYY-MM" en Europe/Paris.
+ *
+ * ⚠️ À NE PAS confondre avec `periodOf` (convex/payments.ts), qui découpe en
+ * **UTC** et dont la valeur est PERSISTÉE (`payments.period`,
+ * `bonusUnlocks.attributionPeriod`, `assignments`/pricing). Ces deux clés ne
+ * sont PAS interchangeables :
+ *
+ *  - `periodOf` = période de PAIE. Sa valeur est écrite en base et sert de
+ *    jointure ; la changer déplacerait de l'argent d'une période à l'autre sur
+ *    des lignes déjà émises. Elle reste en UTC, définitivement.
+ *  - `monthKeyParis` = mois tel qu'un humain le LIT sur un écran de revenu /
+ *    rentabilité, et tel que Whop le découpe (heure locale). Jamais persistée.
+ *
+ * Pourquoi ce module existe : le revenu Whop était bucketisé avec `periodOf`,
+ * donc en UTC, alors que le reste du hub Analytics compte déjà ses JOURS en
+ * Europe/Paris (`analyticsHub.parisDay`). Les deux axes du même écran ne
+ * tombaient donc pas sur le même mois. Relevé en prod le 2026-09-02 : 11
+ * paiements du 31/08 22:03→23:43 UTC sont le 1er septembre à Paris (00:03→01:43),
+ * dont 7 encaissés — 85,93 € de brut et 80,26 € de net rangés en août par l'app
+ * et en septembre par Whop.
+ *
+ * Même construction que `analyticsHub.parisDay` (en-CA → "YYYY-MM-DD"), dont on
+ * ne garde que l'année et le mois : un seul mécanisme de fuseau à auditer.
+ */
+export function monthKeyParis(ts: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" })
+    .format(new Date(ts))
+    .slice(0, 7);
+}
+
+/**
+ * PREMIER INSTANT DU MOIS SUIVANT, en heure de Paris — la borne haute d'un mois
+ * clé `monthKeyParis`, en millisecondes.
+ *
+ * ⚠️ TROUVÉE PAR DICHOTOMIE, pas par arithmétique. Ajouter « 31 jours » à un
+ * début de mois traverse les changements d'heure et rate la borne d'une heure
+ * deux fois par an ; et l'offset de Paris n'est pas une constante. On cherche
+ * donc l'instant exact où `monthKeyParis` change de valeur, ce qui reste juste
+ * quel que soit le fuseau ou la règle d'été.
+ *
+ * Un mois ne dépassant jamais 31 jours, 45 jours de fenêtre suffisent, et
+ * cinquante itérations amènent la précision sous la milliseconde.
+ */
+export function parisMonthEndMs(monthKey: string): number {
+  const [y, m] = monthKey.split("-").map(Number);
+  // Repère sûr DANS le mois visé, quel que soit le fuseau (midi UTC le 15).
+  const dedans = Date.UTC(y, m - 1, 15, 12, 0, 0);
+  let bas = dedans;
+  let haut = dedans + 45 * 86_400_000;
+  for (let i = 0; i < 50; i++) {
+    const milieu = Math.floor((bas + haut) / 2);
+    if (monthKeyParis(milieu) === monthKey) bas = milieu;
+    else haut = milieu;
+  }
+  return haut;
+}

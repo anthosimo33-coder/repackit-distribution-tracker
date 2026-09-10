@@ -40,6 +40,7 @@ export function useClipperProject(): ClipperProjectValue {
   const value = useContext(ClipperProjectContext);
   if (value === null) {
     throw new Error(
+      // i18n-exempt: erreur de DÉVELOPPEMENT (contrat de montage React), jamais rendue à un utilisateur
       "useClipperProject doit être appelé sous <ClipperProjectProvider> (layout /clip).",
     );
   }

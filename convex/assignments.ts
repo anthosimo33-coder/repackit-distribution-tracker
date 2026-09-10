@@ -1,6 +1,4 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsClipperQuery,
   adminViewAsQuery,
   clipperMutation,
@@ -8,6 +6,8 @@ import {
   creatorMutation,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import {
   CLIPPER_ASSIGNMENT_FIELDS,
@@ -16,8 +16,14 @@ import {
 import { withResolvedExamples } from "./formats";
 import { formatDayMonthFr } from "./dateFr";
 import { normalizeRemunere } from "./remunerate";
-import { isFormatAllowedOnPlatform } from "./publications";
-import { tierLabel } from "./scriptTier";
+import { isValidPostWindow } from "./postWindow";
+import { detectPostUrlPlatform, isAccountOnlyUrl } from "./postUrlShape";
+import {
+  isFormatAllowedOnPlatform,
+  publicationPayContext,
+  lockedMessage,
+  retrackPublication,
+} from "./publications";
 import { SNYTCH_SLUG } from "./projects";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
@@ -37,14 +43,17 @@ import {
   syncBonusUnlocks,
 } from "./pricing";
 import { markRushPublishedForAssignment } from "./rushes";
-import { isAccountAvailable } from "./warmup";
+import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { isSnytchProject } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
+import { buildZoneMap } from "./creatorDay";
+import { creatorZoneOnly } from "./creatorTimezone";
+import { ERR, err } from "./errorCodes";
 import {
   accountPhaseAt,
   postsPerDayAt,
-  quotaRefusalMessage,
+  quotaRefusal,
   utcDayRange,
 } from "./accountPhase";
 import {
@@ -58,12 +67,13 @@ import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { resolveCreatorPricing } from "./creatorPricing";
 
 /**
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
  * les fonctions creator (creatorQuery/creatorMutation) ne renvoient/touchent
  * QUE les rows du creator courant (ctx.creatorId). Les fonctions admin
- * (adminQuery/adminMutation) sont inaccessibles au rôle creator.
+ * (gardées par bloc) sont inaccessibles au rôle creator.
  */
 
 type Plateforme = "TikTok" | "Instagram" | "YouTube";
@@ -80,15 +90,6 @@ export const targetInputValidator = v.object({
   accountId: v.id("comptes"),
 });
 
-/** Détection plateforme depuis l'URL (réplique serveur minimale, règle A6 —
- *  lib/inspiration-url ne peut pas être importée dans convex/). */
-function detectPlatform(url: string): Plateforme | undefined {
-  const u = url.toLowerCase();
-  if (u.includes("tiktok.com")) return "TikTok";
-  if (u.includes("instagram.com")) return "Instagram";
-  if (u.includes("youtube.com") || u.includes("youtu.be")) return "YouTube";
-  return undefined;
-}
 
 /**
  * Chantier C — valide les CIBLES d'un assignment à la création : 1 à 3 cibles,
@@ -103,7 +104,7 @@ export async function validateTargets(
   targets: { platform: Plateforme; accountId: Id<"comptes"> }[],
 ): Promise<void> {
   if (targets.length < 1 || targets.length > 3) {
-    throw new ConvexError("Un assignment porte 1 à 3 cibles (plateformes).");
+    throw err(ERR.TARGETS_COUNT, "Un assignment porte 1 à 3 cibles (plateformes).");
   }
   // Gate STRICT pour Snytch : un compte n'est ciblable que s'il est "actif"
   // (validé admin). Hors Snytch : régime lenient historique (warmup terminé
@@ -112,9 +113,7 @@ export async function validateTargets(
   const seen = new Set<Plateforme>();
   for (const t of targets) {
     if (seen.has(t.platform)) {
-      throw new ConvexError(
-        `Une seule cible par plateforme (${t.platform} en double).`,
-      );
+      throw err(ERR.TARGET_PLATFORM_DUPLICATE, `Une seule cible par plateforme (${t.platform} en double).`, { platform: t.platform });
     }
     seen.add(t.platform);
     const compte = await ctx.db.get(t.accountId);
@@ -123,16 +122,22 @@ export async function validateTargets(
       compte.projectId !== projectId ||
       compte.creatorId !== creatorId
     ) {
-      throw new ConvexError("Compte cible introuvable pour ce créateur.");
+      throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
     }
     if (compte.plateforme !== t.platform) {
-      throw new ConvexError(
-        `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`,
-      );
+      throw err(ERR.ACCOUNT_WRONG_PLATFORM, `Le compte ${compte.handle} n'est pas un compte ${t.platform}.`, { handle: compte.handle, platform: t.platform });
     }
-    if (!isAccountAvailable(compte, { strict })) {
-      throw new ConvexError(
+    if (
+      !isAccountAvailable(
+        compte,
+        warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {}),
+        { strict },
+      )
+    ) {
+      throw err(
+        ERR.ACCOUNT_UNAVAILABLE,
         `Le compte ${compte.handle} n'est pas disponible (warmup en cours ou compte non validé).`,
+        { handle: compte.handle },
       );
     }
   }
@@ -164,12 +169,13 @@ export async function resolveManagedTargets(
       compte.projectId !== projectId ||
       compte.creatorId !== creatorId
     ) {
-      throw new ConvexError("Compte cible introuvable pour ce créateur.");
+      throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
     }
     if (compte.managedByAdmin) managedCount++;
   }
   if (managedCount > 0 && managedCount < targets.length) {
-    throw new ConvexError(
+    throw err(
+      ERR.TARGETS_MIXED_OWNERSHIP,
       "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes créateur.",
     );
   }
@@ -182,9 +188,36 @@ export async function resolveManagedTargets(
  * Créateurs assignables : onboardés (userId posé) et au travail (status
  * active ou onboarding). Exclut invited (pas de compte), paused, churned.
  */
-export const listAssignableCreators = adminQuery({
+/**
+ * BARÈME PRÉ-SÉLECTIONNÉ d'une créatrice — le sien (`bonusPricingId`) sinon la
+ * grille par défaut du projet, EXACTEMENT la résolution de
+ * `effectiveBonusPricing`. Ces deux lectures doivent rester la même : si l'écran
+ * proposait un barème et que la paie en lisait un autre, personne ne verrait
+ * l'écart avant le versement.
+ *
+ * Un barème ARCHIVÉ ne sort JAMAIS : le sélecteur d'assignation ne liste que les
+ * barèmes actifs (`listPricingsForAssignment`), et pré-remplir une valeur absente
+ * de la liste afficherait un choix vide au lieu d'un choix.
+ *
+ * Ce que ça expose au détenteur de `assignments.manage` : un id et un NOM de
+ * barème — jamais un montant. Même surface que `listPricingsForAssignment`, qui
+ * porte déjà ce droit.
+ */
+async function pricingResolver(ctx: QueryCtx, projectId: Id<"projects">) {
+  const project = await ctx.db.get(projectId);
+  const defaultId = project?.defaultBonusPricingId ?? null;
+  const pricings = await ctx.db
+    .query("pricings")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return (creator: Doc<"creators">) =>
+    resolveCreatorPricing(creator, defaultId, pricings);
+}
+
+export const listAssignableCreators = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
+    const pricingOf = await pricingResolver(ctx, ctx.projectId);
     const creators = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -196,7 +229,10 @@ export const listAssignableCreators = adminQuery({
           (c.status === "active" || c.status === "onboarding"),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "fr"))
-      .map((c) => ({ _id: c._id, name: c.name, status: c.status }));
+      // Le barème part AVEC la créatrice : la modale d'assignation le
+      // pré-sélectionne, au lieu de laisser le manager le retrouver de mémoire à
+      // chaque script.
+      .map((c) => ({ _id: c._id, name: c.name, status: c.status, ...pricingOf(c) }));
   },
 });
 
@@ -213,10 +249,13 @@ export const listAssignableCreators = adminQuery({
  * compte disponible sur les plateformes choisies est signalé INÉLIGIBLE côté UI
  * plutôt que de le laisser échouer à l'assignation.
  */
-export const listAssignableCreatorsWithAccounts = adminQuery({
+export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const strict = await isSnytchProject(ctx, ctx.projectId);
+    // Barème du projet, résolu une fois : la disponibilité d'un compte pour
+    // publication en dépend, et c'est le gate le plus lourd de conséquence.
+    const days = warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {});
     const creators = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -228,6 +267,7 @@ export const listAssignableCreatorsWithAccounts = adminQuery({
           (c.status === "active" || c.status === "onboarding"),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    const pricingOf = await pricingResolver(ctx, ctx.projectId);
     const out = [];
     for (const c of assignable) {
       const comptes = await ctx.db
@@ -240,8 +280,12 @@ export const listAssignableCreatorsWithAccounts = adminQuery({
         _id: c._id,
         name: c.name,
         status: c.status,
+        // Idem mode unitaire : en masse, chaque créatrice garde SON barème (les
+        // grilles diffèrent par pays et par deal — en imposer une seule à tout
+        // un lot serait faux pour la plupart).
+        ...pricingOf(c),
         accounts: comptes
-          .filter((a) => isAccountAvailable(a, { strict }))
+          .filter((a) => isAccountAvailable(a, days, { strict }))
           .map((a) => ({
             _id: a._id,
             handle: a.handle,
@@ -293,7 +337,7 @@ export function normalizeInstructions(raw: string | undefined): string | undefin
   return t.length > INSTRUCTIONS_MAX_LENGTH ? t.slice(0, INSTRUCTIONS_MAX_LENGTH) : t;
 }
 
-export const assignFormat = adminMutation({
+export const assignFormat = permissionMutation("assignments.manage")({
   args: {
     formatId: v.id("formats"),
     creatorId: v.id("creators"),
@@ -309,37 +353,37 @@ export const assignFormat = adminMutation({
   handler: async (ctx, args) => {
     const format = await ctx.db.get(args.formatId);
     if (!format || format.projectId !== ctx.projectId) {
-      throw new ConvexError("Format introuvable.");
+      throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
     }
     if (format.status === "archived") {
-      throw new ConvexError("Format archivé : réactive-le pour l'assigner.");
+      throw err(ERR.FORMAT_ARCHIVED, "Format archivé : réactive-le pour l'assigner.");
     }
     if (
       !Number.isInteger(args.postsPerCreator) ||
       args.postsPerCreator < 1 ||
       args.postsPerCreator > 50
     ) {
-      throw new ConvexError("Nombre de vidéos invalide (1–50).");
+      throw err(ERR.VIDEO_COUNT_INVALID, "Nombre de vidéos invalide (1–50).");
     }
     const creator = await ctx.db.get(args.creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     if (
       creator.userId === undefined ||
       (creator.status !== "active" && creator.status !== "onboarding")
     ) {
-      throw new ConvexError(
-        `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
-      );
+      throw err(ERR.CREATOR_NOT_ASSIGNABLE, `Créateur non assignable (${creator.name} : non onboardé ou inactif).`, { name: creator.name });
     }
     await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
     // Compat format/plateforme (non-custom) pour CHAQUE cible.
     if (format.type !== "custom") {
       for (const t of args.targets) {
         if (!isFormatAllowedOnPlatform(format.type, t.platform)) {
-          throw new ConvexError(
+          throw err(
+            ERR.FORMAT_PLATFORM_MISMATCH,
             `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
+            { name: format.name, type: format.type, platform: t.platform },
           );
         }
       }
@@ -362,6 +406,28 @@ export const assignFormat = adminMutation({
     const pricingSnapshot = args.pricingId
       ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
       : undefined;
+    // ─── GARDE DE PAIE — un format sans grille ne s'assigne pas ──────────────
+    // `rateSnapshot` est figé ICI et jamais réécrit : ce qui est copié à cet
+    // instant est ce qui sera versé. Un format dont la grille n'a JAMAIS été
+    // renseignée (champ absent, cf. schema) produirait donc des missions à 0 €,
+    // découvertes au moment de payer — c'est-à-dire trop tard.
+    //
+    // Deux cas NE sont pas bloqués, et c'est délibéré :
+    //   - une grille posée EXPLICITEMENT à 0 (format volontairement gratuit) ;
+    //   - un `pricingId` fourni : l'argent vient alors du `pricingSnapshot`, et
+    //     `rateSnapshot` n'est qu'un placeholder neutre — même convention que
+    //     `assignScriptCampaign`.
+    const rateSnapshot =
+      format.rateModel ??
+      (pricingSnapshot !== undefined ? { basePerPost: 0 } : undefined);
+    if (rateSnapshot === undefined) {
+      throw err(
+        ERR.FORMAT_RATE_NOT_SET,
+        `La grille de rémunération du format « ${format.name} » n'a jamais été renseignée. ` +
+          "Renseigne-la avant d'assigner, sinon la mission serait figée à 0.",
+        { format: format.name },
+      );
+    }
     const overlayText = normalizeOverlayText(args.overlayText);
     const now = Date.now();
     let created = 0;
@@ -376,7 +442,7 @@ export const assignFormat = adminMutation({
         status: managed ? "to_publish" : "todo",
         // Dénormalisation D1 (undefined si non géré → 0 bruit sur les rows normales).
         managedByAdmin: managed ? true : undefined,
-        rateSnapshot: format.rateModel,
+        rateSnapshot,
         pricingSnapshot,
         overlayText,
         createdAt: now,
@@ -400,7 +466,7 @@ export const assignFormat = adminMutation({
  * Édite le texte overlay d'un assignment EXISTANT (ajout/modif/effacement).
  * Admin only, scopé projet. overlayText absent/vide → efface l'overlay (undefined).
  */
-export const setAssignmentOverlayText = adminMutation({
+export const setAssignmentOverlayText = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     overlayText: v.optional(v.string()),
@@ -408,7 +474,7 @@ export const setAssignmentOverlayText = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await ctx.db.patch(args.id, {
       overlayText: normalizeOverlayText(args.overlayText),
@@ -424,7 +490,7 @@ export const setAssignmentOverlayText = adminMutation({
  * absent/vide → efface (undefined → aucun bloc côté créatrice). Même patron que
  * setAssignmentOverlayText.
  */
-export const setAssignmentInstructions = adminMutation({
+export const setAssignmentInstructions = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     instructions: v.optional(v.string()),
@@ -432,7 +498,7 @@ export const setAssignmentInstructions = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await ctx.db.patch(args.id, {
       instructions: normalizeInstructions(args.instructions),
@@ -447,7 +513,7 @@ export const setAssignmentInstructions = adminMutation({
  * Distincte de dueDate (production) : les deux coexistent. Permet de replanifier
  * après coup depuis la page Assignments (édition simple par ligne).
  */
-export const setAssignmentPostDate = adminMutation({
+export const setAssignmentPostDate = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     postDate: v.optional(v.number()),
@@ -455,9 +521,45 @@ export const setAssignmentPostDate = adminMutation({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await ctx.db.patch(args.id, { postDate: args.postDate });
+    return { ok: true };
+  },
+});
+
+/**
+ * Édite le CRÉNEAU horaire (postWindow) d'un assignment EXISTANT — admin only.
+ *
+ * Jumelle de setAssignmentPostDate : celle-ci pose le JOUR, celle-là l'HEURE. Une
+ * assignation planifiée avant #56 n'a pas de créneau ; l'admin doit pouvoir en
+ * poser un après coup sans replanifier la date.
+ *
+ * `postWindow` absent → efface le créneau (retour au comportement sans heure).
+ * Valeur invalide → refus explicite : une plage inversée passerait le typage mais
+ * afficherait « entre 23h et 21h » à la créatrice.
+ *
+ * N'affecte NI le statut calendrier NI le cooldown : les deux raisonnent au JOUR,
+ * sur postDate, qui n'est pas touchée ici.
+ */
+export const setAssignmentPostWindow = permissionMutation("assignments.manage")({
+  args: {
+    id: v.id("assignments"),
+    postWindow: v.optional(
+      v.object({ startMin: v.number(), endMin: v.number() }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    if (args.postWindow !== undefined && !isValidPostWindow(args.postWindow)) {
+      throw new ConvexError(
+        "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.",
+      );
+    }
+    await ctx.db.patch(args.id, { postWindow: args.postWindow });
     return { ok: true };
   },
 });
@@ -538,13 +640,13 @@ async function requireProjectAssignment(
 ): Promise<Doc<"assignments">> {
   const a = await ctx.db.get(id);
   if (!a || a.projectId !== projectId) {
-    throw new ConvexError("Assignment introuvable.");
+    throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
   }
   return a;
 }
 
 /** Attache une vidéo modèle (lien) à un assignment. Admin only, scopé projet. */
-export const addModelVideoToAssignment = adminMutation({
+export const addModelVideoToAssignment = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     url: v.string(),
@@ -582,7 +684,7 @@ export const addModelVideoToAssignment = adminMutation({
 });
 
 /** Retire une vidéo modèle d'un assignment (à l'unité). Admin only, scopé projet. */
-export const removeModelVideoFromAssignment = adminMutation({
+export const removeModelVideoFromAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments"), videoId: v.string() },
   handler: async (ctx, args) => {
     const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
@@ -623,7 +725,7 @@ export async function validateProjectFolderIds(
     seen.add(fid);
     const folder = await ctx.db.get(fid);
     if (!folder || folder.projectId !== projectId) {
-      throw new ConvexError("Dossier d'assets introuvable.");
+      throw err(ERR.ASSET_FOLDER_NOT_FOUND, "Dossier d'assets introuvable.");
     }
     valid.push(fid);
   }
@@ -636,7 +738,7 @@ export async function validateProjectFolderIds(
  * only, scopé projet : chaque dossier doit appartenir au projet de l'assignment.
  * Dédoublonne et UNSET le legacy assetFolderId (la source devient assetFolderIds).
  */
-export const setAssetFolders = adminMutation({
+export const setAssetFolders = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     folderIds: v.array(v.id("assetFolders")),
@@ -709,12 +811,12 @@ export const DELETABLE_STATUSES = new Set<string>([
  * Idempotent : ré-abandonner ne fait rien. Bornée aux mêmes statuts que le
  * hard-delete — on n'abandonne jamais un post publié ou payé.
  */
-export const cancelAssignment = adminMutation({
+export const cancelAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
     if (!DELETABLE_STATUSES.has(a.status)) {
@@ -769,7 +871,7 @@ export async function purgeAndDeleteAssignment(
  *
  * IDEMPOTENT : id déjà supprimé / hors projet → no-op (`alreadyGone`), jamais de crash.
  */
-export const deleteAssignment = adminMutation({
+export const deleteAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
@@ -804,7 +906,45 @@ export const deleteAssignment = adminMutation({
  */
 export { representativePostedAt };
 
-export const listAssignments = adminQuery({
+/**
+ * Le combo d'une assignation SANS son texte monté.
+ *
+ * La vue liste a besoin des IDENTIFIANTS du combo (campagne + briques : les
+ * modales « modifier le combo » et « éditer le texte » les consomment), pas de
+ * son texte. Or `assembledScript` pesait 240 Kio sur les 860 Kio de la page
+ * Assignments de Snytch — 28 % du payload, rechargé à chaque visite, pour 478
+ * lignes dont on ouvre le script d'une seule.
+ *
+ * Le texte reste servi tel quel par `getAssignmentScript`, à la demande.
+ */
+function scriptComboSansTexte(combo: Doc<"assignments">["scriptCombo"]) {
+  if (combo === undefined) return undefined;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- retrait par déstructuration
+  const { assembledScript, ...reste } = combo;
+  return reste;
+}
+
+/**
+ * TEXTE MONTÉ d'une assignation, à la demande.
+ *
+ * Compagnon de `listAssignments`, qui ne le sert plus (cf
+ * `scriptComboSansTexte`). Une seule assignation, donc une seule lecture : c'est
+ * ce que coûte l'ouverture d'une modale, contre 478 textes à chaque affichage
+ * de la page.
+ */
+export const getAssignmentScript = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }): Promise<{ assembledScript: string } | null> => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return null;
+    // Le premier des DEUX porteurs de texte : combo monté (production normale)
+    // ou script libre (défi). Aucun écran n'a à connaître la différence.
+    const texte = a.scriptCombo?.assembledScript ?? a.freeScript;
+    return texte === undefined ? null : { assembledScript: texte };
+  },
+});
+
+export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const assignments = await ctx.db
@@ -850,6 +990,11 @@ export const listAssignments = adminQuery({
           .collect(),
       ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
+    // FUSEAU par créatrice — c'est chez ELLE que la journée se termine, donc
+    // c'est chez elle que « en retard » se décide (cf convex/calendarStatus).
+    // Résolu ici en UNE passe (buildZoneMap est pur) : le faire ligne par ligne
+    // coûterait un aller-retour par assignation.
+    const zoneMap = buildZoneMap(creators, comptes);
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
     // Pays CIBLÉ par compte (label informatif) → drapeau FR/US par post au
@@ -891,7 +1036,7 @@ export const listAssignments = adminQuery({
           const hook = brickMap.get(a.scriptCombo.hookBrickId);
           const flux = brickMap.get(a.scriptCombo.fluxBrickId);
           const cta = brickMap.get(a.scriptCombo.ctaBrickId);
-          comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+          comboSummary = `${hook?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
         }
         // Chantier C — cibles enrichies (handle + pays + URL par plateforme).
         const targets = (a.targets ?? []).map((t) => ({
@@ -907,8 +1052,76 @@ export const listAssignments = adminQuery({
         }));
         const linkedAssetFolderIds = effectiveAssetFolderIds(a);
         return {
-          ...a,
+          // PROJECTION EXPLICITE — surtout PAS `...a`. Le payload est le MÊME
+          // qu'avant, champ pour champ : l'objectif n'est pas de retirer une
+          // donnée (`rateSnapshot` reste servi — décision assumée, le tarif
+          // unitaire d'une vidéo fait partie du geste d'assignation) mais de
+          // rendre CONSCIENT l'ajout du prochain champ. Avec un spread, tout
+          // champ ajouté à la table `assignments` partait au navigateur sans
+          // que personne ne l'ait décidé — et la table en porte déjà trois de
+          // rémunération. Cf docs/CHAMPS-SENSIBLES.md.
+          //
+          // ⚠️ `targets` n'est PAS repris de `a` : la version enrichie
+          // (handle + pays + URL par plateforme) est posée plus bas.
+          _id: a._id,
+          _creationTime: a._creationTime,
+          projectId: a.projectId,
+          creatorId: a.creatorId,
+          creatorNameSnapshot: a.creatorNameSnapshot,
+          formatId: a.formatId,
+          // ⚠️ SANS `assembledScript` — cf `scriptCombo` ci-dessous. Le TEXTE du
+          // script ne descend PAS dans la liste : il n'y est jamais affiché, et
+          // il pesait 240 Kio sur les 860 Kio de la page (28 %), rechargés à
+          // chaque visite pour 478 lignes dont on en ouvre une. Il se lit à la
+          // demande, par `getAssignmentScript`.
+          scriptCombo: scriptComboSansTexte(a.scriptCombo),
+          /** Y a-t-il un script monté ? (le texte, lui, se demande à part) */
+          hasAssembledScript:
+            (a.scriptCombo?.assembledScript ?? a.freeScript) != null,
+          comboKey: a.comboKey,
+          comboImposed: a.comboImposed,
+          replayedFrom: a.replayedFrom,
+          replayVerbatim: a.replayVerbatim,
+          accountId: a.accountId,
+          dueDate: a.dueDate,
+          postDate: a.postDate,
+          postWindow: a.postWindow,
+          contentType: a.contentType,
+          remunerated: a.remunerated,
+          managedByAdmin: a.managedByAdmin,
+          status: a.status,
+          submittedVideoStorageId: a.submittedVideoStorageId,
+          submittedVideoMimeType: a.submittedVideoMimeType,
+          submittedVideoStreamUid: a.submittedVideoStreamUid,
+          submittedVideoStreamStatus: a.submittedVideoStreamStatus,
+          videoReviewFeedback: a.videoReviewFeedback,
+          deadlineReminderSentAt: a.deadlineReminderSentAt,
+          videoRejectedAt: a.videoRejectedAt,
+          lastNudgeAt: a.lastNudgeAt,
+          publishedUrl: a.publishedUrl,
+          publishedAt: a.publishedAt,
+          publishedBy: a.publishedBy,
+          submittedUrl: a.submittedUrl,
+          submittedAt: a.submittedAt,
+          submittedPlatform: a.submittedPlatform,
+          publicationId: a.publicationId,
+          adminFeedback: a.adminFeedback,
+          modelVideos: a.modelVideos,
+          assetFolderIds: a.assetFolderIds,
+          assetFolderId: a.assetFolderId,
+          overlayText: a.overlayText,
+          instructions: a.instructions,
+          // ── Rémunération — servie DÉLIBÉRÉMENT (cf en-tête) ──────────────
+          rateSnapshot: a.rateSnapshot,
+          pricingSnapshot: a.pricingSnapshot,
+          clipRateSnapshot: a.clipRateSnapshot,
+          challengeId: a.challengeId,
+          challengeRemovedAt: a.challengeRemovedAt,
+          createdAt: a.createdAt,
           creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+          // Fuseau de la créatrice — l'écran en a besoin pour juger « en retard »
+          // sur SA journée. `null` = inconnu ⇒ l'écran retombe sur Paris.
+          creatorTimezone: zoneMap.get(a.creatorId) ?? null,
           formatName: a.formatId ? (formatMap.get(a.formatId) ?? "—") : null,
           targets,
           origin: (a.scriptCombo ? "script" : "format") as "script" | "format",
@@ -936,7 +1149,7 @@ export const listAssignments = adminQuery({
 });
 
 /** Compteur d'assignments "video_submitted" — badge sidebar de la file de revue. */
-export const countVideoSubmitted = adminQuery({
+export const countVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
@@ -1034,9 +1247,7 @@ async function materializeTargetPublication(
   const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
   if (isScript) {
     if (!a.scriptCombo || a.comboKey === undefined) {
-      throw new ConvexError(
-        "Combo de script manquant — matérialisation impossible.",
-      );
+      throw err(ERR.SCRIPT_COMBO_MISSING, "Combo de script manquant — matérialisation impossible.");
     }
     return await ctx.runMutation(internal.publications.createFromAssignment, {
       projectId,
@@ -1056,8 +1267,24 @@ async function materializeTargetPublication(
       ...qualification,
     });
   }
+  // SCRIPT LIBRE (défi) — ni combinaison à tracer, ni format à lire. La
+  // publication est matérialisée quand même : c'est elle qui porte les vues, et
+  // sans elle une vidéo de défi publiée ne compterait NI au score NI à la paie.
+  // Elle n'a simplement pas de `scriptCombo` — il n'y a pas de briques à
+  // attribuer, et en inventer une fausserait les analytics par combinaison.
+  if (a.freeScript !== undefined && a.formatId === undefined) {
+    return await ctx.runMutation(internal.publications.createFromAssignment, {
+      projectId,
+      mediaType: "short",
+      plateforme: target.platform,
+      compte,
+      datePubli,
+      postUrl: url,
+      ...qualification,
+    });
+  }
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-  if (!format) throw new ConvexError("Format introuvable.");
+  if (!format) throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
   if (format.type === "custom") return null; // custom = pas de publication trackée.
   return await ctx.runMutation(internal.publications.createFromAssignment, {
     projectId,
@@ -1074,12 +1301,12 @@ async function materializeTargetPublication(
 
 /** video_submitted → to_publish. Approuve la vidéo ; le paiement attend la
  *  publication (published). Idempotent. */
-export const reviewVideoApprove = adminMutation({
+export const reviewVideoApprove = permissionMutation("review.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
     if (a.status !== "video_submitted") {
@@ -1104,12 +1331,12 @@ export const reviewVideoApprove = adminMutation({
 });
 
 /** video_submitted → video_rejected (feedback obligatoire, visible créateur). */
-export const reviewVideoReject = adminMutation({
+export const reviewVideoReject = permissionMutation("review.manage")({
   args: { id: v.id("assignments"), feedback: v.string() },
   handler: async (ctx, { id, feedback }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status !== "video_submitted") {
       throw new ConvexError("Seules les vidéos en revue peuvent être refusées.");
@@ -1156,7 +1383,7 @@ export const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  * Ne relance QUE les missions où la balle est dans le camp du créateur
  * (UNFINISHED_STATUSES, partagé avec le cron de rappel).
  */
-export const nudgeAssignment = adminMutation({
+export const nudgeAssignment = permissionMutation("assignments.manage")({
   args: { assignmentId: v.id("assignments") },
   handler: async (ctx, { assignmentId }) => {
     const a = await ctx.db.get(assignmentId);
@@ -1188,7 +1415,37 @@ export const nudgeAssignment = adminMutation({
  * File de revue vidéo : assignments en video_submitted, avec le MP4 résolu en URL
  * signée (lecture in-app admin). Origin script → nom de campagne visible ADMIN.
  */
-export const listVideoSubmitted = adminQuery({
+/**
+ * ORDRE DE LA FILE DE VALIDATION — par date de PUBLICATION prévue, pas par date
+ * de création.
+ *
+ * Le tri était `createdAt` croissant. Or une assignation de LOT crée ses N lignes
+ * dans la même transaction : elles portent le MÊME `createdAt` à la milliseconde
+ * près, et le tri ne départageait rien. Cinq vidéos soumises ensemble arrivaient
+ * donc dans un ordre arbitraire, sans que rien à l'écran ne dise laquelle devait
+ * sortir le lendemain.
+ *
+ * SANS `postDate` → EN DERNIER, jamais en tête. Une mission sans date de
+ * publication n'est pas urgente, elle est non planifiée ; la remonter au-dessus
+ * d'un post prévu demain inverserait exactement la question qu'on veut trancher.
+ * (27 % du parc n'a pas de postDate — ce n'est pas un cas de bord.)
+ *
+ * Départages : `dueDate` (échéance de production) puis `createdAt`, pour que
+ * l'ordre soit TOTAL — deux rendus successifs de la même file donnent la même
+ * liste.
+ */
+function compareByPostDate(
+  a: Doc<"assignments">,
+  b: Doc<"assignments">,
+): number {
+  const pa = a.postDate ?? Number.POSITIVE_INFINITY;
+  const pb = b.postDate ?? Number.POSITIVE_INFINITY;
+  if (pa !== pb) return pa - pb;
+  if (a.dueDate !== b.dueDate) return a.dueDate - b.dueDate;
+  return a.createdAt - b.createdAt;
+}
+
+export const listVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const subs = await ctx.db
@@ -1197,7 +1454,7 @@ export const listVideoSubmitted = adminQuery({
         q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
       )
       .collect();
-    const [creators, formats, campaigns, comptes, scriptBricks] =
+    const [creators, formats, campaigns, comptes, scriptBricks, challenges] =
       await Promise.all([
         ctx.db
           .query("creators")
@@ -1219,25 +1476,30 @@ export const listVideoSubmitted = adminQuery({
           .query("scriptBricks")
           .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
           .collect(),
+        ctx.db
+          .query("challenges")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect(),
       ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
     const formatMap = new Map(formats.map((f) => [f._id, f.name]));
     const campaignMap = new Map(campaigns.map((c) => [c._id, c.name]));
+    const challengeMap = new Map(challenges.map((c) => [c._id, c.name]));
     const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
     const brickMap = new Map(scriptBricks.map((b) => [b._id, b]));
     return Promise.all(
       subs
-        .sort((a, b) => a.createdAt - b.createdAt)
+        .sort(compareByPostDate)
         .map(async (a) => {
           const combo = a.scriptCombo;
-          // Résumé combo (Tier · Flux · CTA) — contexte ADMIN, comme la modale
+          // Résumé combo (Hook · Flux · CTA) — contexte ADMIN, comme la modale
           // « Voir le script » côté Assignments. Null hors origine script.
           let comboSummary: string | null = null;
           if (combo) {
             const hook = brickMap.get(combo.hookBrickId);
             const flux = brickMap.get(combo.fluxBrickId);
             const cta = brickMap.get(combo.ctaBrickId);
-            comboSummary = `${tierLabel(hook?.tier)} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+            comboSummary = `${hook?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
           }
           return {
             _id: a._id,
@@ -1248,6 +1510,14 @@ export const listVideoSubmitted = adminQuery({
                 ? (formatMap.get(a.formatId) ?? "—")
                 : "—",
             origin: (combo ? "script" : "format") as "script" | "format",
+            // DÉFI — sans ce champ, une soumission de défi arriverait dans la
+            // file exactement comme une vidéo ordinaire, sous le nom de la
+            // campagne dont son script est tiré. L'admin ne saurait pas que ce
+            // qu'il valide compte dans un classement en cours, ni lequel.
+            challengeName:
+              a.challengeId !== undefined
+                ? (challengeMap.get(a.challengeId) ?? "Défi")
+                : null,
             // Chantier C — cibles (plateforme + compte) : « 1 vidéo → N posts ».
             targets: (a.targets ?? []).map((t) => ({
               platform: t.platform,
@@ -1256,6 +1526,12 @@ export const listVideoSubmitted = adminQuery({
                 : null,
             })),
             dueDate: a.dueDate,
+            // Date de PUBLICATION planifiée — c'est elle qui dit ce qui doit
+            // sortir demain. `dueDate` ne peut pas jouer ce rôle : un lot
+            // d'assignation partage UNE échéance de production, si bien que cinq
+            // vidéos soumises ensemble affichaient cinq fois la même date.
+            postDate: a.postDate ?? null,
+            postWindow: a.postWindow ?? null,
             videoStorageId: a.submittedVideoStorageId ?? null,
             videoUrl: a.submittedVideoStorageId
               ? await ctx.storage.getUrl(a.submittedVideoStorageId)
@@ -1272,7 +1548,7 @@ export const listVideoSubmitted = adminQuery({
             // SCRIPT MONTÉ FIGÉ (labels:false, sans titres ##) : on l'AFFICHE
             // tel quel pour comparer vidéo ↔ script attendu. JAMAIS re-dérivé —
             // cohérent avec AssignmentScriptDialog. Null hors origine script.
-            assembledScript: combo?.assembledScript ?? null,
+            assembledScript: combo?.assembledScript ?? a.freeScript ?? null,
             comboSummary,
           };
         }),
@@ -1281,7 +1557,7 @@ export const listVideoSubmitted = adminQuery({
 });
 
 /** « Publiées récemment » (admin) : assignments en published, URL + créateur. */
-export const listPublished = adminQuery({
+export const listPublished = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
     const pubs = await ctx.db
@@ -1336,75 +1612,6 @@ export const listPublished = adminQuery({
   },
 });
 
-/**
- * COMPTES GÉRÉS — assignments en to_publish à publier PAR L'ÉQUIPE (l'admin colle
- * le lien via confirmPublicationAsAdmin). Sous-ensemble MANAGÉ de to_publish :
- * créés direct en to_publish (D2, aucune vidéo à valider) → absents de « Vidéos à
- * valider ». Enrichi comme listPublished (créateur, format, cibles + handle) +
- * le script monté (à produire/publier par l'équipe).
- */
-export const listManagedToPublish = adminQuery({
-  args: {},
-  handler: async (ctx) => {
-    const rows = await ctx.db
-      .query("assignments")
-      .withIndex("by_project_status", (q) =>
-        q.eq("projectId", ctx.projectId).eq("status", "to_publish"),
-      )
-      .collect();
-    const managed = rows.filter((a) => a.managedByAdmin);
-    const [creators, formats, comptes] = await Promise.all([
-      ctx.db
-        .query("creators")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("formats")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-    ]);
-    const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
-    const formatMap = new Map(formats.map((f) => [f._id, f.name]));
-    const compteMap = new Map(comptes.map((c) => [c._id, c.handle]));
-    return managed
-      .sort((a, b) => a.dueDate - b.dueDate)
-      .map((a) => ({
-        _id: a._id,
-        creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
-        label: a.scriptCombo
-          ? "Script"
-          : a.formatId
-            ? (formatMap.get(a.formatId) ?? "—")
-            : "—",
-        dueDate: a.dueDate,
-        assembledScript: a.scriptCombo?.assembledScript ?? null,
-        targets: (a.targets ?? []).map((t) => ({
-          platform: t.platform,
-          accountHandle: t.accountId
-            ? (compteMap.get(t.accountId) ?? null)
-            : null,
-        })),
-      }));
-  },
-});
-
-/**
- * BACKFILL one-shot (internal) — comptes gérés. Corrige les assignments ORPHELINS
- * créés AVANT le fix du chemin script (assignScriptCampaign insérait `todo` sans
- * flag même sur un compte géré). Pour chaque assignment NON encore agi (todo /
- * in_progress) dont TOUTES les cibles pointent un compte managedByAdmin : pose
- * managedByAdmin:true + status:"to_publish" → il rejoint la file admin « Comptes
- * gérés — à publier » ET sort des actionnables créatrice. Restreint aux non-agis
- * (video_submitted et au-delà = la créatrice a déjà produit → intouché).
- * IDEMPOTENT (rows déjà managed ignorées ; une fois to_publish, plus todo/in_progress).
- * Mix géré/non-géré (créé avant l'homogénéité) → SKIPPÉ + compté, à traiter à la main.
- *
- * Runnable : `npx convex run assignments:backfillManagedAssignments` (dev puis --prod).
- */
 export const backfillManagedAssignments = internalMutation({
   args: {},
   handler: async (
@@ -1633,7 +1840,7 @@ export const migrateAssignmentsToTargets = internalMutation({
  * enrichis des vues du dernier snapshot (préremplissage) et du bonus déjà
  * crédité s'il existe.
  */
-export const listValidatedForBonus = adminQuery({
+export const listValidatedForBonus = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) => {
     const validated = (
@@ -1710,12 +1917,12 @@ export const listValidatedForBonus = adminQuery({
  * seul bonus par assignment : recalculer REMPLACE la ligne (cf
  * upsertBonusLineItem), jamais d'ajout → idempotent.
  */
-export const computeViewBonus = adminMutation({
+export const computeViewBonus = permissionMutation("payments.manage")({
   args: { id: v.id("assignments"), views: v.number() },
   handler: async (ctx, { id, views }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.status !== "published") {
       throw new ConvexError("Le bonus se calcule sur un assignment publié.");
@@ -1757,7 +1964,7 @@ export const computeViewBonus = adminMutation({
 
 /**
  * Enrichit un assignment pour le CRÉATEUR. ISOLATION : on retire `scriptCombo`
- * et `comboKey` (décomposition/brick ids/tier/perf) — le créateur ne reçoit QUE
+ * et `comboKey` (décomposition/brick ids/perf) — le créateur ne reçoit QUE
  * le script monté (`assembledScript`) et le NOM DE CAMPAGNE (via missionLabelFor),
  * jamais les briques ni le tier. Le nom de campagne est le libellé de la mission
  * côté créateur (ex. « Format 3 - POV Demo »), pour qu'elle sache quel format
@@ -1853,7 +2060,7 @@ type ScriptZones = { videoBlocks: VideoBlock[]; descriptionScript: string };
  * 4-briques (corps), ou cta vide — renvoie null : la fiche retombe alors sur la
  * carte unique « Vidéo à tourner » (le texte figé RESTE la source de vérité, cf.
  * scriptAssembly). Gate Snytch : rien n'est calculé/renvoyé hors Snytch. Aucune
- * brique/id/tier/campagne n'est exposé — UNIQUEMENT le texte, comme assembledScript.
+ * brique/id/campagne n'est exposé — UNIQUEMENT le texte, comme assembledScript.
  */
 async function splitScriptZones(
   ctx: QueryCtx,
@@ -1887,10 +2094,45 @@ async function splitScriptZones(
   };
 }
 
+/** Une consigne de tournage attachée à un bloc du script. */
+type ScriptInstruction = { slot: "hook" | "flux" | "cta"; text: string };
+
+/**
+ * CONSIGNES des briques du combo, dans l'ordre de montage — ce que l'admin a
+ * écrit sous chaque bloc (« l'élément précis qui justifie la vérification »).
+ *
+ * Lues LIVE sur les briques, VOLONTAIREMENT : corriger une consigne fausse doit
+ * réparer les missions déjà assignées. C'est l'inverse du TEXTE du script, figé
+ * dans `assembledScript` — la consigne n'entre ni dans ce texte, ni dans la
+ * garde anti-divergence de splitScriptZones, ni dans le comboKey.
+ *
+ * AUCUNE gate projet ici (contrairement aux zones de destination, propres à
+ * Snytch) : un créateur dont la fiche retombe sur la carte unique doit voir ses
+ * consignes lui aussi. Rien de la décomposition n'est exposé — pas d'id, pas de
+ * label de brique, pas de campagne : le SLOT et le TEXTE, rien d'autre.
+ */
+async function scriptInstructionsOf(
+  ctx: QueryCtx,
+  combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
+): Promise<ScriptInstruction[]> {
+  const bricks = await Promise.all([
+    ctx.db.get(combo.hookBrickId),
+    ctx.db.get(combo.fluxBrickId),
+    ctx.db.get(combo.ctaBrickId),
+  ]);
+  const slots = ["hook", "flux", "cta"] as const;
+  const out: ScriptInstruction[] = [];
+  bricks.forEach((b, i) => {
+    const text = b?.instruction?.trim();
+    if (text) out.push({ slot: slots[i], text });
+  });
+  return out;
+}
+
 /**
  * Libellé de mission RÉEXPOSÉ au créateur — le SEUL élément du `scriptCombo`
  * qu'il reçoit. Script → NOM DE CAMPAGNE (ex. « Format 3 - POV Demo ») ; format
- * → nom + type du format. La décomposition (bricks/tier/comboKey) et les données
+ * → nom + type du format. La décomposition (bricks/comboKey) et les données
  * de perf restent STRICTEMENT côté admin : on ne lit ici que le `name` de la
  * campagne. `formatType` est null pour un script (le type de contenu est porté
  * par le nom de campagne, pas par un champ dédié). Fallback « Vidéo à tourner »
@@ -1948,7 +2190,7 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
     ...safe,
     targets,
     ...label,
-    assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
+    assembledScript: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
   };
 }
 
@@ -2169,7 +2411,15 @@ async function assignmentsForCreator(
   // (enrichForCreator retire scriptCombo → campagne indistinguable après). Le map
   // préserve l'ordre.
   const ordered = interleaveByGroupServer(assignments, creatorId, Date.now());
-  return Promise.all(ordered.map((a) => enrichForCreator(ctx, a)));
+  // SON fuseau, résolu UNE fois : c'est lui qui décide si sa journée est finie,
+  // donc si une mission est « en retard » sur son calendrier. Résolu serveur
+  // parce que le navigateur ne connaît que le fuseau de l'appareil — souvent le
+  // bon, mais pas quand elle voyage, et jamais en vue admin « voir son espace ».
+  const timeZone = await creatorZoneOnly(ctx, creatorId);
+  const rows = await Promise.all(
+    ordered.map((a) => enrichForCreator(ctx, a)),
+  );
+  return rows.map((r) => ({ ...r, creatorTimezone: timeZone }));
 }
 
 /** Mes assignments UNIQUEMENT (filtre serveur par creatorId), triés deadline. */
@@ -2210,9 +2460,9 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
   return {
     ...safe,
     targets,
-    // Le TEXTE monté, jamais la décomposition (briques/ids/tier/campagne) : elle
+    // Le TEXTE monté, jamais la décomposition (briques/ids/campagne) : elle
     // sert à l'anti-coordination et aux analytics, pas au montage.
-    assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
+    assembledScript: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
   };
 }
 
@@ -2257,12 +2507,16 @@ async function clipDetailFor(
   const scriptZones = a.scriptCombo
     ? await splitScriptZones(ctx, a, a.scriptCombo)
     : null;
+  const scriptInstructions = a.scriptCombo
+    ? await scriptInstructionsOf(ctx, a.scriptCombo)
+    : [];
   return {
     ...base,
     submittedVideoUrl,
     submittedVideoMimeType: a.submittedVideoMimeType ?? "video/mp4",
     assets,
     scriptZones,
+    scriptInstructions,
   };
 }
 
@@ -2293,8 +2547,8 @@ export const getClipDetailAsAdmin = adminViewAsClipperQuery({
 /**
  * Fiche assignment côté créateur. null si pas la mienne. ISOLATION : `scriptCombo`
  * et `comboKey` sont RETIRÉS de l'objet renvoyé — pour un assignment script, le
- * créateur reçoit le script monté (`assembledScript`) et la rému, JAMAIS la
- * décomposition (briques/ids/tiers/campagne).
+ * créateur reçoit le script monté (`assembledScript`), les consignes de ses
+ * blocs et la rému, JAMAIS la décomposition (briques/ids/campagne).
  */
 /**
  * Fiche assignment d'un créateur DONNÉ (helper de lecture partagé). MÊME corps
@@ -2330,12 +2584,31 @@ async function assignmentDetailFor(
   const label = await missionLabelFor(ctx, a);
   if (a.scriptCombo) {
     const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo);
+    const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
     return {
       assignment: safe,
       ...label,
       format: null,
       assembledScript: a.scriptCombo.assembledScript,
       scriptZones,
+      scriptInstructions,
+      targets,
+      submittedVideoUrl,
+      submittedVideoMimeType,
+      assets,
+    };
+  }
+  // SCRIPT LIBRE (défi) — pas de combo, donc pas de zones ni d'instructions de
+  // brique : juste le texte. Il passe par le MÊME champ `assembledScript`, sinon
+  // chaque écran devrait apprendre un second nom pour la même chose.
+  if (a.freeScript) {
+    return {
+      assignment: safe,
+      ...label,
+      format: null,
+      assembledScript: a.freeScript,
+      scriptZones: null as ScriptZones | null,
+      scriptInstructions: [] as ScriptInstruction[],
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -2350,6 +2623,7 @@ async function assignmentDetailFor(
     format: brief,
     assembledScript: null as string | null,
     scriptZones: null as ScriptZones | null,
+    scriptInstructions: [] as ScriptInstruction[],
     targets,
     submittedVideoUrl,
     submittedVideoMimeType,
@@ -2391,7 +2665,7 @@ async function requireOwnAssignment(
 ): Promise<Doc<"assignments">> {
   const a = await ctx.db.get(id);
   if (!a || a.creatorId !== creatorId) {
-    throw new ConvexError("Assignment introuvable.");
+    throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
   }
   return a;
 }
@@ -2402,7 +2676,7 @@ async function startAssignmentCore(
   a: Doc<"assignments">,
 ): Promise<void> {
   if (a.status !== "todo") {
-    throw new ConvexError("Cet assignment est déjà démarré.");
+    throw err(ERR.ASSIGNMENT_ALREADY_STARTED, "Cet assignment est déjà démarré.");
   }
   await ctx.db.patch(a._id, { status: "in_progress" });
 }
@@ -2454,7 +2728,7 @@ async function submitVideoCore(
       a.status !== "in_progress" &&
       a.status !== "video_rejected"
     ) {
-      throw new ConvexError("Soumission vidéo impossible dans cet état.");
+      throw err(ERR.VIDEO_SUBMIT_WRONG_STATE, "Soumission vidéo impossible dans cet état.");
     }
     // Remplacement : l'ancienne vidéo (refusée) est purgée du storage, et sa
     // copie Cloudflare Stream supprimée (best-effort, hygiène de coût).
@@ -2577,7 +2851,7 @@ async function assertClipperDailyQuota(
     const quota = postsPerDayAt(compte.validatedAt, at);
     if (quota === 0) {
       // Non validé, ou phase de chauffe : rien ne sort, inutile de compter.
-      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
+      throw quotaRefusal(compte.handle, phase, quota, at);
     }
 
     // Chargées une seule fois pour toutes les cibles : elles partagent la même
@@ -2586,9 +2860,35 @@ async function assertClipperDailyQuota(
     // compteur de l'écran clippeur, pour qu'ils ne puissent pas se contredire.
     sameDay ??= await publicationsInRange(ctx, ctx.projectId, start, end);
     if (countOnHandle(sameDay, compte.handle) >= quota) {
-      throw new ConvexError(quotaRefusalMessage(compte.handle, phase, quota, at));
+      throw quotaRefusal(compte.handle, phase, quota, at);
     }
   }
+}
+
+/**
+ * Forme d'un lien de post, pour UNE plateforme. Rend le lien nettoyé, ou lève.
+ *
+ * Extrait de `confirmPublicationCore` parce qu'un SECOND chemin l'exige : la
+ * correction d'un lien après coup (`correctPublishedUrl`). Deux copies de ces
+ * trois contrôles, c'est la garantie qu'un jour l'une acceptera ce que l'autre
+ * refuse — et le contrôle qui saute en premier est toujours le lien de profil,
+ * celui qui crée un post dont aucune vue ne sera jamais relevée.
+ */
+function assertPostUrlShape(url: string, platform: Plateforme): string {
+  const trimmed = url.trim();
+  if (!/^https?:\/\/.+/i.test(trimmed)) {
+    throw err(ERR.POST_URL_INVALID, `URL du post invalide pour ${platform} (lien http(s) attendu).`, { platform });
+  }
+  if (detectPostUrlPlatform(trimmed) !== platform) {
+    throw err(ERR.POST_URL_WRONG_PLATFORM, `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`, { platform });
+  }
+  // Lien de PROFIL collé à la place du lien de post : la plateforme est bonne,
+  // donc rien ne l'arrêtait — et la publication créée n'avait aucune vidéo
+  // derrière, donc aucune vue à relever, jamais (cf convex/postUrlShape.ts).
+  if (isAccountOnlyUrl(trimmed, platform)) {
+    throw err(ERR.POST_URL_IS_ACCOUNT, `L'URL fournie pour ${platform} est un lien de profil, pas un lien de publication.`, { platform });
+  }
+  return trimmed;
 }
 
 async function confirmPublicationCore(
@@ -2622,13 +2922,11 @@ async function confirmPublicationCore(
   // L'admin en SECOURS (fromAnyStatus) court-circuite : le post existe déjà hors
   // app, coller le lien passe l'assignation directement en `published` (patch final).
   if (a.status !== "to_publish" && !opts.fromAnyStatus) {
-    throw new ConvexError(
-      "Publication possible seulement après validation de ta vidéo.",
-    );
+    throw err(ERR.PUBLISH_BEFORE_APPROVAL, "Publication possible seulement après validation de ta vidéo.");
   }
   const targets = a.targets ?? [];
   if (targets.length === 0) {
-    throw new ConvexError("Aucune cible sur cet assignment.");
+    throw err(ERR.ASSIGNMENT_NO_TARGET, "Aucune cible sur cet assignment.");
   }
 
   // Garde warmup au moment de publier (symétrique de validateTargets) : un
@@ -2643,10 +2941,16 @@ async function confirmPublicationCore(
     if (
       compte &&
       compte.status === "warmup" &&
-      !isAccountAvailable(compte, { strict })
+      !isAccountAvailable(
+        compte,
+        warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {}),
+        { strict },
+      )
     ) {
-      throw new ConvexError(
+      throw err(
+        ERR.ACCOUNT_NOT_APPROVED_TO_PUBLISH,
         `Le compte ${compte.handle} n'est pas validé pour publier (échauffement en cours ou compte à revalider par l'admin).`,
+        { handle: compte.handle },
       );
     }
   }
@@ -2654,35 +2958,24 @@ async function confirmPublicationCore(
   // Index des URLs par plateforme + validation de chaque lien (format + plateforme).
   const urlByPlatform = new Map<Plateforme, string>();
   for (const { platform, url } of urls) {
-    const trimmed = url.trim();
-    if (!/^https?:\/\/.+/i.test(trimmed)) {
-      throw new ConvexError(
-        `URL du post invalide pour ${platform} (lien http(s) attendu).`,
-      );
-    }
-    if (detectPlatform(trimmed) !== platform) {
-      throw new ConvexError(
-        `L'URL fournie pour ${platform} ne correspond pas à cette plateforme.`,
-      );
-    }
-    urlByPlatform.set(platform, trimmed);
+    urlByPlatform.set(platform, assertPostUrlShape(url, platform));
   }
 
   // TOUTES les cibles doivent avoir une URL (publication groupée, même jour).
   const format = a.formatId ? await ctx.db.get(a.formatId) : null;
   for (const t of targets) {
     if (!urlByPlatform.has(t.platform)) {
-      throw new ConvexError(
-        `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`,
-      );
+      throw err(ERR.POST_URL_MISSING, `URL manquante pour ${t.platform} — toutes les plateformes sont obligatoires.`, { platform: t.platform });
     }
     if (
       format &&
       format.type !== "custom" &&
       !isFormatAllowedOnPlatform(format.type, t.platform)
     ) {
-      throw new ConvexError(
+      throw err(
+        ERR.FORMAT_PLATFORM_MISMATCH,
         `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${t.platform}.`,
+        { name: format.name, type: format.type, platform: t.platform },
       );
     }
   }
@@ -2894,15 +3187,19 @@ function assertPublishedAtInRange(
 ): void {
   if (publishedAt === undefined) return;
   if (publishedAt > Date.now()) {
-    throw new ConvexError(
-      "La date de publication ne peut pas être dans le futur.",
-    );
+    throw err(ERR.PUBLISHED_AT_IN_FUTURE, "La date de publication ne peut pas être dans le futur.");
   }
   if (publishedAt < a.createdAt && !opts.allowBeforeCreation) {
-    throw new ConvexError(
-      `La date de publication (${formatDateTimeFr(publishedAt)}) précède la ` +
+    // Charge STRUCTURÉE : le client branche sur le CODE pour proposer la
+    // régularisation. Il branchait auparavant sur la formulation française du
+    // message, ce qui rendait toute traduction (ou reformulation) capable de
+    // casser le flux en silence.
+    throw new ConvexError({
+      code: ERR.PUBLISHED_AT_BEFORE_CREATION,
+      message:
+        `La date de publication (${formatDateTimeFr(publishedAt)}) précède la ` +
         `création de l'assignation (${formatDateTimeFr(a.createdAt)}).`,
-    );
+    });
   }
 }
 
@@ -2939,9 +3236,7 @@ export const confirmClipPublication = clipperMutation({
     // Défense en profondeur : un compte de clippeur n'est jamais tenu par
     // l'équipe, mais si ça arrivait c'est l'admin qui publierait.
     if (a.managedByAdmin) {
-      throw new ConvexError(
-        "Compte géré par l'équipe : la publication est gérée par l'admin.",
-      );
+      throw err(ERR.ACCOUNT_MANAGED_PUBLISH, "Compte géré par l'équipe : la publication est gérée par l'admin.");
     }
     assertPublishedAtInRange(publishedAt, a);
     return confirmPublicationCore(ctx, a, urls, {
@@ -2972,12 +3267,10 @@ export const confirmPublication = creatorMutation({
   }> => {
     const a = await ctx.db.get(id);
     if (!a || a.creatorId !== ctx.creatorId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     if (a.managedByAdmin) {
-      throw new ConvexError(
-        "Compte géré par l'équipe : la publication est gérée par l'admin.",
-      );
+      throw err(ERR.ACCOUNT_MANAGED_PUBLISH, "Compte géré par l'équipe : la publication est gérée par l'admin.");
     }
     return confirmPublicationCore(ctx, a, urls, { confirmedBy: "creator" });
   },
@@ -2999,7 +3292,7 @@ export const confirmPublication = creatorMutation({
  * date de création dans le message, puis confirme) : la borne devient un
  * AVERTISSEMENT franchissable, pas une porte ouverte.
  */
-export const confirmPublicationAsAdmin = adminMutation({
+export const confirmPublicationAsAdmin = permissionMutation("review.manage")({
   args: {
     id: v.id("assignments"),
     urls: v.array(v.object({ platform: plateformeValidator, url: v.string() })),
@@ -3020,7 +3313,7 @@ export const confirmPublicationAsAdmin = adminMutation({
   }> => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     // Remplace le gate managedByAdmin : chaque cible doit exister DANS le projet de
     // l'admin (ce que le flag portait implicitement) — vaut pour compte géré ET
@@ -3029,7 +3322,7 @@ export const confirmPublicationAsAdmin = adminMutation({
       if (!t.accountId) continue;
       const compte = await ctx.db.get(t.accountId);
       if (!compte || compte.projectId !== ctx.projectId) {
-        throw new ConvexError("Compte cible introuvable dans le projet.");
+        throw err(ERR.TARGET_ACCOUNT_NOT_IN_PROJECT, "Compte cible introuvable dans le projet.");
       }
     }
     // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment
@@ -3047,6 +3340,106 @@ export const confirmPublicationAsAdmin = adminMutation({
       // publié hors app) → passage direct en `published`, pas de gate to_publish.
       fromAnyStatus: true,
     });
+  },
+});
+
+/**
+ * CORRIGER LE LIEN DE SUIVI d'une cible DÉJÀ publiée — « elle s'est trompée de
+ * vidéo ».
+ *
+ * Le cas réel : la créatrice colle le lien d'une autre de ses vidéos. Le suivi
+ * s'accroche alors à un post qui n'a rien à voir, et tout ce qui en découle est
+ * faux ensemble — vues (423 000 au lieu de 35 000), médiane de la brique,
+ * analytics de campagne, RPM, et le CPM de sa paie. Rien dans l'app ne
+ * permettait de le réparer : `confirmPublication` est idempotent (« déjà
+ * publiée → conservée telle quelle »), et l'édition tracker ne touchait que la
+ * publication, laissant l'assignation pointer l'ancien lien.
+ *
+ * CE QUE ÇA FAIT, en une transaction :
+ *  1. remplace le lien sur la CIBLE (ce que voit la créatrice) ;
+ *  2. re-cible la PUBLICATION liée : nouveau postUrl, relevés de l'ancienne
+ *     vidéo SUPPRIMÉS, valeurs « latest » recalculées, paliers de bonus
+ *     re-synchronisés (cf. publications.retrackPublication) ;
+ *  3. journalise le geste, avec le nombre de relevés effacés.
+ *
+ * CE QUE ÇA NE FAIT PAS :
+ *  - ça ne déplace ni `datePubli` ni l'ancre de paie. La correction dit QUELLE
+ *    vidéo suivre, pas QUAND elle a été publiée ; bouger la date ferait glisser
+ *    le post dans un autre cycle, éventuellement déjà payé ;
+ *  - ça ne touche à AUCUN montant déjà versé — d'où le verrou ci-dessous.
+ *
+ * VERROU : refusé si le cycle de paie du post est déjà payé. Le montant y est
+ * gelé sur les vues de l'ancienne vidéo ; le corriger après coup ferait diverger
+ * l'écran de ce qui a réellement été viré. Même verrou, même message que la
+ * bascule warmup — un seul endroit décide de ce qui est figé.
+ */
+export const correctPublishedUrl = permissionMutation("review.manage")({
+  args: {
+    id: v.id("assignments"),
+    platform: plateformeValidator,
+    url: v.string(),
+  },
+  handler: async (ctx, { id, platform, url }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    const targets = a.targets ?? [];
+    const target = targets.find((t) => t.platform === platform);
+    if (!target || !target.publishedUrl) {
+      throw err(
+        ERR.POST_URL_MISSING,
+        `Aucun lien publié pour ${platform} — il n'y a rien à corriger.`,
+        { platform },
+      );
+    }
+    const clean = assertPostUrlShape(url, platform);
+    if (clean === target.publishedUrl) {
+      return { ok: true as const, changed: false, deletedSnapshots: 0 };
+    }
+
+    const pub = target.publicationId
+      ? await ctx.db.get(target.publicationId)
+      : null;
+    // Verrou de paie — porté par la PUBLICATION (c'est elle qui alimente le
+    // montant). Une cible sans publication (format custom) n'a pas de vues,
+    // donc rien à figer : le lien reste corrigeable.
+    if (pub) {
+      const payCtx = await publicationPayContext(ctx, pub);
+      if (payCtx.locked) {
+        throw new ConvexError(lockedMessage("le lien de suivi", payCtx));
+      }
+    }
+
+    const before = target.publishedUrl;
+    await ctx.db.patch(id, {
+      targets: targets.map((t) =>
+        t.platform === platform ? { ...t, publishedUrl: clean } : t,
+      ),
+    });
+
+    let deletedSnapshots = 0;
+    let viewsBefore: number | undefined;
+    if (pub) {
+      const r = await retrackPublication(ctx, pub, clean);
+      deletedSnapshots = r.deletedSnapshots;
+      viewsBefore = r.viewsBefore;
+    }
+
+    await ctx.db.insert("publicationUrlChanges", {
+      projectId: ctx.projectId,
+      publicationId: pub?._id,
+      assignmentId: id,
+      platform,
+      beforeUrl: before,
+      afterUrl: clean,
+      deletedSnapshots,
+      viewsBefore,
+      actorUserId: ctx.userId,
+      at: Date.now(),
+    });
+
+    return { ok: true as const, changed: true, deletedSnapshots };
   },
 });
 

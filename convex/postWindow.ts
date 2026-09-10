@@ -24,12 +24,18 @@ export interface PostWindow {
 /** Créneaux du process, proposés en un clic dans la modale d'assignation. */
 export const POST_WINDOW_PRESETS: {
   id: string;
-  label: string;
+  labelKey: string;
+  /**
+   * Libellé COURT, sans la plage horaire. Une clé dédiée plutôt qu'un
+   * `.replace(/ \(.*\)/, "")` sur le libellé complet : découper une chaîne
+   * traduite à la parenthèse marche par chance, pas par construction.
+   */
+  shortKey: string;
   window: PostWindow;
 }[] = [
-  { id: "midi", label: "Midi (11h-13h)", window: { startMin: 11 * 60, endMin: 13 * 60 } },
-  { id: "apresmidi", label: "Après-midi (15h-17h)", window: { startMin: 15 * 60, endMin: 17 * 60 } },
-  { id: "soir", label: "Soir (21h-23h)", window: { startMin: 21 * 60, endMin: 23 * 60 } },
+  { id: "midi", labelKey: "postWindow.midi", shortKey: "postWindow.short.midi", window: { startMin: 11 * 60, endMin: 13 * 60 } },
+  { id: "apresmidi", labelKey: "postWindow.apresmidi", shortKey: "postWindow.short.apresmidi", window: { startMin: 15 * 60, endMin: 17 * 60 } },
+  { id: "soir", labelKey: "postWindow.soir", shortKey: "postWindow.short.soir", window: { startMin: 21 * 60, endMin: 23 * 60 } },
 ];
 
 /**
@@ -73,6 +79,43 @@ export function postWindowSentence(
 ): string {
   const plage = formatPostWindow(w);
   return plage === null
+    // i18n-exempt: postWindowSentence n'est consommée par AUCUN écran (seulement son test) — dette notée
     ? `À publier le ${jourFormate}`
+    // i18n-exempt: postWindowSentence n'est consommée par AUCUN écran (seulement son test) — dette notée
     : `À publier le ${jourFormate} entre ${hhmm(w!.startMin)} et ${hhmm(w!.endMin)}`;
+}
+
+/**
+ * Heure de DÉBUT seule, compacte : "21h". Pour les vignettes du calendrier
+ * admin, où la place ne permet pas le créneau complet — celui-ci reste dans le
+ * survol et dans le panneau de détail.
+ *
+ * `null` si la plage est absente ou invalide : l'appelant n'affiche alors RIEN,
+ * pas un tiret ni un espace réservé (comportement d'avant le champ).
+ */
+export function formatWindowStart(
+  w: PostWindow | null | undefined,
+): string | null {
+  if (!isValidPostWindow(w)) return null;
+  return hhmm(w.startMin);
+}
+
+/**
+ * Comparateur d'ORDRE INTRA-JOUR : une case du calendrier se lit comme une
+ * journée — midi en haut, soir en bas.
+ *
+ * Les assignations SANS créneau passent en dernier : elles n'ont pas d'heure, les
+ * ranger au milieu donnerait un ordre faux plutôt qu'un ordre absent. Entre deux
+ * sans créneau, l'ordre d'entrée est préservé (retour 0, tri stable en JS).
+ */
+export function compareByWindowStart(
+  a: { postWindow?: PostWindow | null },
+  b: { postWindow?: PostWindow | null },
+): number {
+  const sa = isValidPostWindow(a.postWindow) ? a.postWindow.startMin : null;
+  const sb = isValidPostWindow(b.postWindow) ? b.postWindow.startMin : null;
+  if (sa === null && sb === null) return 0;
+  if (sa === null) return 1;
+  if (sb === null) return -1;
+  return sa - sb;
 }

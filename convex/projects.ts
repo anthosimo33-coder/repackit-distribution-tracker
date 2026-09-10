@@ -1,17 +1,30 @@
 import {
-  adminMutation,
-  adminQuery,
   authedQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   publicQuery,
   requireProjectAccess,
   superadminMutation,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
-import { isPortalRole } from "./roles";
+import { portalRoleOf, rolesOf, teamRoleOf } from "./roles";
+import {
+  PERMISSION_ID_LITERALS,
+  grantedPermissions,
+  type PermissionId,
+} from "./permissions";
+import { normalizeRef } from "./conversionAttribution";
+import { warmupTargetDaysOf } from "./warmup";
+import {
+  COMBO_COOLDOWN_DAYS_FALLBACK,
+  assertValidComboCooldownDays,
+  comboCooldownDaysOf,
+} from "./comboCooldown";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { convexErrorText } from "./errorCodes";
 
 /**
  * P2 Multi-tenant — résolution du projet courant.
@@ -167,11 +180,19 @@ export const getProjectForCurrentUser = authedQuery({
     // (membership) mais PAS à l'app interne : le ProjectProvider le renvoie vers SON
     // portail (lib/portal-path). On renvoie le rôle plutôt qu'un booléen — avec trois
     // portails, un `isCreator` ne dit plus où rediriger. La vraie barrière reste
-    // serveur (adminQuery/adminMutation), ce champ n'est que du confort de routage.
+    // serveur (gardes de bloc), ce champ n'est que du confort de routage.
+    //
+    // ⚠️ SEULEMENT SI ELLE N'A QUE ÇA. Une créatrice-manager porte un rôle de
+    // portail ET un rôle d'équipe : renvoyée sur la foi du premier, elle serait
+    // sortie de l'app interne à chaque navigation et ne pourrait JAMAIS faire son
+    // travail de manager. Le champ répond donc « à renvoyer chez elle ? », pas
+    // « a-t-elle un portail ? » — deux questions qui se confondaient tant qu'une
+    // personne n'avait qu'un rôle.
     return {
       status: "ok" as const,
       project: projectForClient(project),
-      portalRole: isPortalRole(membership.role) ? membership.role : null,
+      portalRole:
+        teamRoleOf(membership) === null ? portalRoleOf(membership) : null,
     };
   },
 });
@@ -223,6 +244,73 @@ export const renameProjectBySlug = internalMutation({
  * paie sans symbole) ; fxRateToRevenue:0 → retire (marge combinée non calculée).
  *   npx convex run projects:setProjectCurrencyBySlug '{"slug":"snytch","payCurrency":"usd","fxRateToRevenue":0.92}' --prod
  */
+/**
+ * Déclare les refs d'INFLUENCEUSES d'un projet, DEPUIS LE CLI.
+ *
+ * Ces personnes n'ont pas de fiche `creators` — et ne doivent pas en avoir :
+ * une fiche les ferait entrer dans le moteur de paie, les cycles et le portail
+ * créateur pour une seule ligne d'attribution. Ce champ leur donne un NOM dans
+ * le bloc « Ce que ça a rapporté » sans rien d'autre.
+ *
+ * REMPLACE la liste entière (pas d'ajout incrémental) : c'est ce qui rend
+ * l'appel idempotent et relisible d'un coup d'œil. Une liste vide efface.
+ *
+ * REFUSE une ref déjà portée par une créatrice du projet : une ref est une clé
+ * d'attribution, deux porteurs et les deux lignes affichent les mêmes chiffres
+ * sans que le total le montre.
+ *
+ *   npx convex run projects:setInfluencerRefsBySlug '{"slug":"snytch","refs":[{"ref":"gio","name":"Gio"}]}'
+ */
+export const setInfluencerRefsBySlug = internalMutation({
+  args: {
+    slug: v.string(),
+    refs: v.array(v.object({ ref: v.string(), name: v.string() })),
+  },
+  handler: async (ctx, { slug, refs }) => {
+    const project = (await ctx.db.query("projects").collect()).find(
+      (p) => p.slug === slug,
+    );
+    if (!project) throw new ConvexError(`Projet « ${slug} » introuvable.`);
+
+    const cleaned: { ref: string; name: string }[] = [];
+    for (const r of refs) {
+      const ref = normalizeRef(r.ref);
+      const name = r.name.trim();
+      if (ref === null) throw new ConvexError(`Ref vide pour « ${r.name} ».`);
+      if (name === "") throw new ConvexError(`Nom manquant pour la ref « ${ref} ».`);
+      if (cleaned.some((c) => c.ref === ref)) {
+        throw new ConvexError(`Ref « ${ref} » présente deux fois dans la liste.`);
+      }
+      cleaned.push({ ref, name });
+    }
+
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const c of cleaned) {
+      const taken = creators.find(
+        (cr) => normalizeRef(cr.refSlug ?? null) === c.ref,
+      );
+      if (taken) {
+        throw new ConvexError(
+          `La ref « ${c.ref} » est déjà celle de la créatrice ${taken.name}. Une ref ne peut appartenir qu'à une seule personne.`,
+        );
+      }
+    }
+
+    const before = project.influencerRefs ?? [];
+    await ctx.db.patch(project._id, {
+      influencerRefs: cleaned.length > 0 ? cleaned : undefined,
+    });
+    return {
+      slug,
+      before: before.map((r) => `${r.ref} (${r.name})`),
+      after: cleaned.map((r) => `${r.ref} (${r.name})`),
+    };
+  },
+});
+
 export const setProjectCurrencyBySlug = internalMutation({
   args: {
     slug: v.string(),
@@ -252,7 +340,7 @@ export const setProjectCurrencyBySlug = internalMutation({
  * Réglages de l'espace TALENT d'un projet : quel format sert de brief permanent,
  * et le dépôt de fichiers est-il ouvert.
  *
- * `adminMutation` et non `internalMutation` : ce n'est pas de l'exploitation
+ * Gardée par bloc et non `internalMutation` : ce n'est pas de l'exploitation
  * ponctuelle comme les devises ou le mapping Whop, c'est un réglage qu'un admin
  * de projet ajuste (changer le brief = changer la consigne de tournage). L'écran
  * qui l'appellera arrive avec la revue des rushes ; le passer par un wrapper
@@ -274,7 +362,7 @@ export const setProjectCurrencyBySlug = internalMutation({
  * champs de configuration de plus y seraient sans danger réel, mais la liste
  * blanche n'a de valeur que si on ne l'élargit pas par commodité.
  */
-export const getTalentSettings = adminQuery({
+export const getTalentSettings = permissionQuery("project.settings")({
   args: {},
   handler: async (
     ctx,
@@ -290,7 +378,7 @@ export const getTalentSettings = adminQuery({
   },
 });
 
-export const setTalentSettings = adminMutation({
+export const setTalentSettings = permissionMutation("project.settings")({
   args: {
     talentBriefFormatId: v.optional(v.union(v.id("formats"), v.null())),
     fileDropEnabled: v.optional(v.boolean()),
@@ -436,6 +524,67 @@ export const getMe = authedQuery({
  * #FF5200, payoutDay défaut 5 (borné 1–28). Aucun membership créé : le
  * superadmin a l'accès implicite ; le workspace reste 100 % vide.
  */
+/**
+ * MES DROITS sur un projet — ce que l'ÉCRAN a le droit de demander.
+ *
+ * Pourquoi cette query existe. Depuis le découpage financier, certains écrans
+ * appellent des fonctions gardées par un bloc que l'appelant ne porte pas
+ * forcément (la fiche créatrice et ses conditions de rémunération). Sans un
+ * moyen de SAVOIR, le client n'a que deux options : appeler et se prendre une
+ * erreur — un écran cassé pour un droit manquant — ou ne jamais appeler, et
+ * l'écran serait amputé pour tout le monde. Il lui faut la liste.
+ *
+ * ⚠️ Elle ne renvoie que les droits EFFECTIFS : les valeurs stockées hors
+ * catalogue sont écartées, exactement comme au contrôle d'accès
+ * (`grantedPermissions`). Un écran qui verrait « challenges.manage » — bloc
+ * retiré depuis — croirait pouvoir afficher quelque chose que le serveur
+ * refuserait ensuite. La liste que lit le client doit être la MÊME que celle qui
+ * décide, sans quoi elle ment poliment.
+ *
+ * ⚠️ Et ce n'est PAS une barrière : masquer un bouton n'a jamais protégé une
+ * donnée. La barrière reste `requirePermission`, à chaque requête. Ceci ne sert
+ * qu'à ne pas afficher un écran cassé.
+ *
+ * `admin` et `superadmin` reçoivent TOUT le catalogue : ils peuvent tout, et
+ * l'écran doit se comporter pour eux exactement comme avant.
+ */
+export const getMyPermissions = authedQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const user = await ctx.db.get(ctx.userId);
+    if (user?.role === "superadmin") {
+      return { role: "superadmin" as const, permissions: [...PERMISSION_ID_LITERALS] };
+    }
+    const membership = await ctx.db
+      .query("memberships")
+      .withIndex("by_user_project", (q) =>
+        q.eq("userId", ctx.userId).eq("projectId", projectId),
+      )
+      .first();
+    if (membership === null) {
+      return { role: null, permissions: [] as PermissionId[] };
+    }
+    // MÊME ORDRE QUE LA CASCADE de `requirePermission` (admin, puis manager,
+    // puis refus) : cet écran doit annoncer EXACTEMENT ce que le serveur
+    // accordera. Une liste qui diverge de la garde ment poliment.
+    const roles = rolesOf(membership);
+    if (roles.has("admin")) {
+      return { role: "admin" as const, permissions: [...PERMISSION_ID_LITERALS] };
+    }
+    if (!roles.has("manager")) {
+      // Rôle de portail seul : aucun droit d'administration, et c'est structurel.
+      return {
+        role: portalRoleOf(membership),
+        permissions: [] as PermissionId[],
+      };
+    }
+    return {
+      role: "manager" as const,
+      permissions: [...grantedPermissions(membership.permissions)],
+    };
+  },
+});
+
 export const createProject = superadminMutation({
   args: {
     name: v.string(),
@@ -533,7 +682,7 @@ export const e2eEnsureProjectForEmail = e2eMutation({
       await ctx.db.insert("memberships", {
         userId: user._id,
         projectId,
-        role: args.role ?? "admin",
+        roles: [args.role ?? "admin"],
       });
     }
     return { projectId };
@@ -574,7 +723,7 @@ export const e2eEnsureMemberUser = e2eMutation({
       await ctx.db.insert("memberships", {
         userId,
         projectId: args.projectId,
-        role: args.role ?? "creator",
+        roles: [args.role ?? "creator"],
       });
     }
     return { userId };
@@ -604,7 +753,7 @@ export const e2eAssertAccess = e2eMutation({
     } catch (e) {
       return {
         allowed: false,
-        error: e instanceof ConvexError ? String(e.data) : "error",
+        error: convexErrorText(e),
       };
     }
   },
@@ -718,5 +867,128 @@ export const e2eDeleteProject = e2eMutation({
     for (const m of memberships) await ctx.db.delete(m._id);
     await ctx.db.delete(project._id);
     return { deleted: true };
+  },
+});
+
+
+/**
+ * DURÉE DE WARMUP DU PROJET — lecture et écriture par l'admin.
+ *
+ * Une plateforme à `null` n'est PAS définie par ce projet : elle retombe sur le
+ * dernier recours (`warmupTargetDaysOf`). C'est la différence entre « Snytch
+ * chauffe 3 jours sur TikTok » et « Snytch ne fait pas de YouTube » — deux faits
+ * distincts, qu'un simple nombre ne saurait pas dire.
+ *
+ * Le barème NE TOUCHE PAS aux warmups en cours : la durée est figée sur
+ * `comptes.warmupProtocol.targetDays` au démarrage. Changer ce réglage n'a
+ * d'effet que sur les chauffes à venir — c'est dit à l'écran, pour qu'on ne
+ * l'attende pas en vain.
+ */
+export const getWarmupSettings = permissionQuery("project.settings")({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    defined: { tiktok: number | null; instagram: number | null; youtube: number | null };
+    effective: { tiktok: number; instagram: number; youtube: number };
+  }> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const d = project?.warmupTargetDays ?? {};
+    return {
+      defined: {
+        tiktok: d.tiktok ?? null,
+        instagram: d.instagram ?? null,
+        youtube: d.youtube ?? null,
+      },
+      effective: warmupTargetDaysOf(project ?? {}),
+    };
+  },
+});
+
+const WARMUP_DAYS_MIN = 1;
+const WARMUP_DAYS_MAX = 60;
+
+export const setWarmupSettings = permissionMutation("project.settings")({
+  args: {
+    tiktok: v.union(v.number(), v.null()),
+    instagram: v.union(v.number(), v.null()),
+    youtube: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, args): Promise<{ updated: true }> => {
+    const clean = (v2: number | null, label: string): number | undefined => {
+      if (v2 === null) return undefined;
+      if (!Number.isInteger(v2) || v2 < WARMUP_DAYS_MIN || v2 > WARMUP_DAYS_MAX) {
+        throw new ConvexError(
+          `Durée ${label} invalide : un entier entre ${WARMUP_DAYS_MIN} et ${WARMUP_DAYS_MAX} jours.`,
+        );
+      }
+      return v2;
+    };
+    const next = {
+      tiktok: clean(args.tiktok, "TikTok"),
+      instagram: clean(args.instagram, "Instagram"),
+      youtube: clean(args.youtube, "YouTube"),
+    };
+    // Les trois vides ⇒ on retire le champ : le projet cesse de définir un
+    // barème, plutôt que d'en stocker un vide qui voudrait dire la même chose
+    // avec une ligne de plus en base.
+    const aucune =
+      next.tiktok === undefined &&
+      next.instagram === undefined &&
+      next.youtube === undefined;
+    await ctx.db.patch(ctx.projectId, {
+      warmupTargetDays: aucune ? undefined : next,
+    });
+    return { updated: true };
+  },
+});
+
+/**
+ * COOLDOWN DE COMBO DU PROJET — lecture et écriture par l'admin.
+ *
+ * Un champ vide n'est PAS un zéro : vide = « ce projet ne définit rien » et la
+ * durée retombe sur le dernier recours ; `0` = « cooldown désactivé », une
+ * décision explicite. Même distinction que le barème de warmup, et pour la même
+ * raison : un nombre seul ne sait pas dire lequel des deux on veut.
+ *
+ * NE TOUCHE PAS aux combos déjà attribués — ils sont figés sur leur assignation
+ * et ne sont jamais rejugés. Le réglage n'agit que sur les tirages à venir.
+ */
+export const getComboCooldownSettings = permissionQuery("project.settings")({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    /** Valeur posée par le projet. null = aucune (repli sur le défaut). */
+    defined: number | null;
+    /** Durée réellement appliquée par le tirage. */
+    effective: number;
+    /** Le défaut, pour l'afficher sous un champ vide. */
+    fallback: number;
+  }> => {
+    const project = await ctx.db.get(ctx.projectId);
+    return {
+      defined: project?.comboCooldownDays ?? null,
+      effective: comboCooldownDaysOf(project ?? {}),
+      fallback: COMBO_COOLDOWN_DAYS_FALLBACK,
+    };
+  },
+});
+
+export const setComboCooldownDays = permissionMutation("project.settings")({
+  args: { days: v.union(v.number(), v.null()) },
+  handler: async (ctx, { days }): Promise<{ updated: true }> => {
+    // La validation vit dans le module pur (bornes + message), pas ici : c'est
+    // elle que les tests vitest exercent.
+    let clean: number | undefined;
+    try {
+      clean = assertValidComboCooldownDays(days);
+    } catch (e) {
+      throw new ConvexError(
+        e instanceof Error ? e.message : "Durée de cooldown invalide.",
+      );
+    }
+    await ctx.db.patch(ctx.projectId, { comboCooldownDays: clean });
+    return { updated: true };
   },
 });

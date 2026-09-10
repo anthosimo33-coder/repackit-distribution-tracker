@@ -18,10 +18,12 @@ import {
   checkMonotonicity,
   funnelCoherenceChecks,
   buildCoherenceChecks,
+  reconcileDailyClients,
   abArmCoherenceChecks,
   parisDayKey,
   parisShortDate,
   daysUntil,
+  type CoherenceCheck,
 } from "./analytics-hub";
 
 const HOUR = 60 * 60 * 1000;
@@ -399,7 +401,10 @@ describe("buildCoherenceChecks", () => {
     reachSteps: cleanReach,
     currencyCount: 1,
     dashboardClients: 21,
+    // Whop des DEUX unités : 21 abonnements portés par 21 personnes. Le contrôle
+    // ne compare que les personnes (cf « clients acquis » plus bas).
     whopMembers: 21,
+    whopClients: 21,
   };
   const byKey = (checks: { key: string; status: string }[]) =>
     new Map(checks.map((c) => [c.key, c.status]));
@@ -421,14 +426,24 @@ describe("buildCoherenceChecks", () => {
   it("petit écart (>5 % mais ≤5 clients) NE masque PAS → info", () => {
     // 19 vs 21 = 9,5 % mais seulement 2 clients : les deux seuils ne sont pas franchis.
     const m = byKey(
-      buildCoherenceChecks({ ...base, dashboardClients: 19, whopMembers: 21 }),
+      buildCoherenceChecks({
+        ...base,
+        dashboardClients: 19,
+        whopMembers: 21,
+        whopClients: 21,
+      }),
     );
     expect(m.get("dashboard_vs_whop")).toBe("info");
   });
 
   it("gros écart (>5 % ET >5 clients) → violation (masque)", () => {
     const m = byKey(
-      buildCoherenceChecks({ ...base, dashboardClients: 10, whopMembers: 21 }),
+      buildCoherenceChecks({
+        ...base,
+        dashboardClients: 10,
+        whopMembers: 21,
+        whopClients: 21,
+      }),
     );
     expect(m.get("dashboard_vs_whop")).toBe("violation");
   });
@@ -438,6 +453,7 @@ describe("buildCoherenceChecks", () => {
       ...base,
       dashboardClients: 19,
       whopMembers: 20,
+      whopClients: 20,
       whopExcludedPre: 2,
     });
     const c = checks.find((x) => x.key === "dashboard_vs_whop");
@@ -446,7 +462,9 @@ describe("buildCoherenceChecks", () => {
   });
 
   it("source manquante → dashboard/Whop en attente (info, pas 0)", () => {
-    const m = byKey(buildCoherenceChecks({ ...base, whopMembers: null }));
+    const m = byKey(
+      buildCoherenceChecks({ ...base, whopMembers: null, whopClients: null }),
+    );
     expect(m.get("dashboard_vs_whop")).toBe("info");
   });
 
@@ -564,6 +582,496 @@ describe("buildCoherenceChecks", () => {
     expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
   });
 
+
+  // ─── RÉCONCILIATION par membership_id (diagnostic du 28/07/2026) ──────────
+  // Le cas RÉEL, reconstruit sur les horodatages de prod : PostHog 11 vs Whop 8
+  // = 7 appariés + 3 events rejoués du 27 (retries serveur de 15:03/16:12) + 1
+  // sub sans paiement encaissé (remboursé), et 1 paiement Whop sans event.
+  const jour28 = {
+    subs: [
+      // 7 appariés le 28
+      { day: "2026-07-28", membershipId: "mem_EpAm", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_iXFG", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_uWZM", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_peA2", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_9Z1C", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_RAnm", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_EOvy", persons: 1 },
+      // 3 rejoués : encaissés le 27, event ré-émis le 28
+      { day: "2026-07-28", membershipId: "mem_S7F2", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_lDjp", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_joGn", persons: 1 },
+      // 1 fantôme : paiement remboursé, jamais encaissé
+      { day: "2026-07-28", membershipId: "mem_pZxK", persons: 1 },
+    ],
+    whop: [
+      { membershipId: "mem_EpAm", day: "2026-07-28" },
+      { membershipId: "mem_iXFG", day: "2026-07-28" },
+      { membershipId: "mem_uWZM", day: "2026-07-28" },
+      { membershipId: "mem_peA2", day: "2026-07-28" },
+      { membershipId: "mem_9Z1C", day: "2026-07-28" },
+      { membershipId: "mem_RAnm", day: "2026-07-28" },
+      { membershipId: "mem_EOvy", day: "2026-07-28" },
+      // le 8e Whop du 28 : payé 13:49:48, AUCUN event PostHog
+      { membershipId: "mem_JAiV", day: "2026-07-28" },
+      // les 3 rejoués sont des clients du 27
+      { membershipId: "mem_S7F2", day: "2026-07-27" },
+      { membershipId: "mem_lDjp", day: "2026-07-27" },
+      { membershipId: "mem_joGn", day: "2026-07-27" },
+    ],
+  };
+
+  it("réconciliation du 28/07 : 11 = 7 appariés + 3 rejoués + 1 sans paiement, 1 Whop sans event", () => {
+    const r = reconcileDailyClients(jour28.subs, jour28.whop).find(
+      (x) => x.day === "2026-07-28",
+    )!;
+    expect(r).toEqual({
+      day: "2026-07-28",
+      matched: 7,
+      replayed: 3,
+      unpaid: 1,
+      unlinked: 0,
+      missing: 1,
+      // Aucune offre fournie par ce jeu : le champ existe et reste vide, le
+      // contrôle fonctionne sans être bavard.
+      missingOffers: [],
+    });
+  });
+
+  it("croisé RÉCONCILIÉ : l'écart brut 11 vs 8 devient une INFO décomposée, pas une violation", () => {
+    const checks = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-07-28", subs: 11 }],
+      dailyPaidClients: [{ day: "2026-07-28", clients: 8 }],
+      subsByMembership: jour28.subs,
+      whopFirstPaidDay: jour28.whop,
+      todayParis: "2026-07-30",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop")!;
+    // Le contrôle a fait son travail (il SIGNALE), mais il ne sonne plus :
+    // matched(7) vs Whop(8) = 1, sous le seuil.
+    expect(c.status).toBe("info");
+    expect(c.detail).toContain("7 apparié(s)");
+    expect(c.detail).toContain("3 rejoué(s)");
+    expect(c.detail).toContain("1 sans paiement abouti");
+    expect(c.detail).toContain("1 paiement(s) Whop sans event");
+    expect(c.detail).toContain("Whop fait foi");
+  });
+
+  it("croisé SANS réconciliation (cache vide) : le même écart reste une VIOLATION brute", () => {
+    // Le contrôle ne se tait jamais faute de données : sans membership_id, tout
+    // l'écart est inexpliqué. Contre-épreuve du test précédent.
+    const checks = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-07-28", subs: 11 }],
+      dailyPaidClients: [{ day: "2026-07-28", clients: 8 }],
+      todayParis: "2026-07-30",
+    });
+    expect(
+      checks.find((x) => x.key === "daily_clients_posthog_vs_whop")!.status,
+    ).toBe("violation");
+  });
+
+  it("croisé réconcilié : un écart INEXPLIQUÉ (subs appariés ≠ Whop) sonne toujours", () => {
+    // 5 subs, tous appariés au 29 ; mais Whop en compte 9 le 29 → 4 paiements
+    // sans event. La réconciliation ne l'excuse pas : c'est un vrai trou.
+    const subs = ["a", "b", "c", "d", "e"].map((m) => ({
+      day: "2026-07-29",
+      membershipId: `mem_${m}`,
+      persons: 1,
+    }));
+    const whop = ["a", "b", "c", "d", "e", "f", "g", "h", "i"].map((m) => ({
+      membershipId: `mem_${m}`,
+      day: "2026-07-29",
+    }));
+    const c = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-07-29", subs: 5 }],
+      dailyPaidClients: [{ day: "2026-07-29", clients: 9 }],
+      subsByMembership: subs,
+      whopFirstPaidDay: whop,
+      todayParis: "2026-07-30",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop")!;
+    expect(c.status).toBe("violation");
+    expect(c.detail).toContain("4 paiement(s) Whop sans event");
+  });
+
+  /**
+   * LE CAS DE PRODUCTION DU 2026-09-08, reproduit à l'échelle.
+   *
+   * Une offre à 16,90 € est apparue le 07/09 ; son tunnel n'émet pas
+   * `subscription_completed`. Le 08/09, 27 nouveaux clients Whop pour 15 events
+   * PostHog — et 13 des 27 venaient de cette offre. L'alerte disait « 12
+   * paiement(s) Whop sans event » sans jamais nommer la cause, tous les jours.
+   */
+  it("nomme l'OFFRE des paiements sans event, la plus fréquente d'abord", () => {
+    const subs = [
+      { day: "2026-09-08", membershipId: "mem_a", persons: 1 },
+      { day: "2026-09-08", membershipId: "mem_b", persons: 1 },
+    ];
+    const whop = [
+      { membershipId: "mem_a", day: "2026-09-08", offer: "Offre 9,99 €" },
+      { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 9,99 €" },
+      // Cinq achats sur la nouvelle offre, aucun event.
+      { membershipId: "mem_c", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_d", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_e", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_f", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_g", day: "2026-09-08", offer: "Offre 16,90 €" },
+      // Et un isolé sur l'ancienne, pour vérifier l'ORDRE.
+      { membershipId: "mem_h", day: "2026-09-08", offer: "Offre 9,99 €" },
+    ];
+    const r = reconcileDailyClients(subs, whop)[0];
+    expect(r.missing).toBe(6);
+    expect(r.missingOffers).toEqual([
+      { offer: "Offre 16,90 €", count: 5 },
+      { offer: "Offre 9,99 €", count: 1 },
+    ]);
+  });
+
+  it("classe par FRÉQUENCE, pas par ordre d'arrivée", () => {
+    // L'offre minoritaire arrive EN PREMIER dans la liste : sans tri réel, elle
+    // serait nommée en tête et l'alerte désignerait le mauvais coupable.
+    const whop = [
+      { membershipId: "mem_a", day: "2026-09-08", offer: "Offre 9,99 €" },
+      { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_c", day: "2026-09-08", offer: "Offre 16,90 €" },
+      { membershipId: "mem_d", day: "2026-09-08", offer: "Offre 16,90 €" },
+    ];
+    expect(reconcileDailyClients([], whop)[0].missingOffers).toEqual([
+      { offer: "Offre 16,90 €", count: 3 },
+      { offer: "Offre 9,99 €", count: 1 },
+    ]);
+  });
+
+  it("une offre VIDE n'est pas une offre", () => {
+    // Un paiement dont le plan n'est pas résolu ne doit pas fabriquer une
+    // catégorie « » dans le message.
+    const whop = [
+      { membershipId: "mem_a", day: "2026-09-08", offer: "" },
+      { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 16,90 €" },
+    ];
+    const r = reconcileDailyClients([], whop)[0];
+    expect(r.missing).toBe(2);
+    expect(r.missingOffers).toEqual([{ offer: "Offre 16,90 €", count: 1 }]);
+  });
+
+  /**
+   * INCIDENT CLOS — cas de production du 07→08/09/2026 : l'event a cessé de
+   * partir pendant une dizaine d'heures, puis est revenu et ne s'est jamais
+   * reproduit. Le contrôle portant sur 49 jours, l'alerte restait rouge des
+   * semaines durant, sans qu'on puisse la distinguer d'une panne en cours.
+   */
+  // ⚠️ Base AOÛT, et pas septembre : depuis que le contrôle connaît la panne
+  // d'ingestion du 07-08/09, un jour divergent posé sur ces dates-là serait
+  // « expliqué par la panne » et ne testerait plus la clôture d'incident.
+  const jours = (n: number, base = "2026-08-") =>
+    Array.from({ length: n }, (_, i) => `${base}${String(i + 1).padStart(2, "0")}`);
+
+  const parcSain = (jrs: string[]) => ({
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+    whopClients: null,
+    dailySubs: jrs.map((day) => ({ day, subs: day === "2026-08-08" ? 2 : 5 })),
+    dailyPaidClients: jrs.map((day) => ({
+      day,
+      clients: day === "2026-08-08" ? 9 : 5,
+    })),
+  });
+
+  it("un écart vieux de plus d'une semaine est annoncé CLOS, pas en cours", () => {
+    const jrs = jours(20);
+    const checks = buildCoherenceChecks({
+      ...parcSain(jrs),
+      todayParis: "2026-08-20",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).toContain("INCIDENT CLOS");
+    expect(c?.detail).toContain("2026-08-08");
+    // Le ton change, l'information reste : le jour fautif est toujours nommé.
+    expect(c?.status).toBe("info");
+  });
+
+  it("le même écart, récent, reste une violation", () => {
+    // Contre-épreuve : trois jours propres ne suffisent pas à clore.
+    const jrs = jours(11);
+    const checks = buildCoherenceChecks({
+      ...parcSain(jrs),
+      todayParis: "2026-08-11",
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+    expect(c?.status).toBe("violation");
+  });
+
+  it("le jour COURANT ne compte pas dans les jours propres (borne exacte)", () => {
+    // Écart le 08, aujourd'hui le 15 : six jours pleins observés (09→14). Le
+    // jour courant est partiel — le contrôle l'ignore déjà — donc le compter
+    // ferait sept et clôturerait un jour trop tôt.
+    const jrs = jours(15);
+    const c = buildCoherenceChecks({
+      ...parcSain(jrs),
+      todayParis: "2026-08-15",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+    // Présence, en regard : un jour de plus et il se clôt.
+    const d = buildCoherenceChecks({
+      ...parcSain(jours(16)),
+      todayParis: "2026-08-16",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(d?.detail).toContain("INCIDENT CLOS : rien depuis 7 jour(s)");
+  });
+
+  it("sans date du jour, aucun incident n'est déclaré clos", () => {
+    // On ne sait pas quand on est : on ne peut donc rien dire du temps écoulé.
+    // Se taire serait pire que sonner.
+    const c = buildCoherenceChecks(parcSain(jours(20))).find(
+      (x) => x.key === "daily_clients_posthog_vs_whop",
+    );
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+  });
+
+  /**
+   * LA PANNE D'INGESTION — l'écart du 07-08/09 n'est pas un défaut d'instrumentation.
+   *
+   * Le bandeau de l'écran dit depuis #209 que PostHog a coupé l'ingestion ces
+   * heures-là. Le contrôle, lui, l'ignorait et criait « en écart » sur la même
+   * journée, deux blocs plus bas. Deux blocs du même écran disaient deux choses
+   * de la même date.
+   */
+  const jourDePanne = (jrs: string[], divergent: string) => ({
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+    whopClients: null,
+    // Volumes de la journée réelle : 15 subs PostHog pour 27 clients Whop.
+    dailySubs: jrs.map((day) => ({ day, subs: day === divergent ? 15 : 20 })),
+    dailyPaidClients: jrs.map((day) => ({
+      day,
+      clients: day === divergent ? 27 : 20,
+    })),
+  });
+
+  it("un jour de PANNE n'est pas une divergence, et le contrôle le DIT", () => {
+    const c = buildCoherenceChecks({
+      ...jourDePanne(jours(12, "2026-09-"), "2026-09-08"),
+      todayParis: "2026-09-12",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("info");
+    expect(c?.detail).toContain("panne d'ingestion");
+    // L'information reste ENTIÈRE : la journée est nommée, ses deux chiffres
+    // aussi. Taire l'écart serait pire que le crier.
+    expect(c?.detail).toContain("2026-09-08");
+    expect(c?.detail).toContain("PostHog 15 vs Whop 27");
+  });
+
+  it("le MÊME écart, un autre jour, reste une violation", () => {
+    // La contre-épreuve qui rend le test précédent utile : sans elle, un
+    // contrôle qui ne sonnerait plus JAMAIS le passerait aussi.
+    const c = buildCoherenceChecks({
+      ...jourDePanne(jours(12, "2026-10-"), "2026-10-08"),
+      todayParis: "2026-10-12",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).not.toContain("panne d'ingestion");
+  });
+
+  it("la panne couvre les DEUX jours Paris qu'elle traverse", () => {
+    // Elle commence le 07/09 à 21:00 Paris et finit le 08/09 à 11:53 : les deux
+    // dates sont concernées. Ne dater que le 08 laissait le 07 crier.
+    for (const jour of ["2026-09-07", "2026-09-08"]) {
+      const c = buildCoherenceChecks({
+        ...jourDePanne(jours(12, "2026-09-"), jour),
+        todayParis: "2026-09-12",
+      }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+      expect(c?.status, jour).toBe("info");
+    }
+    // Et pas un jour de plus : le 09 n'est plus dans la panne.
+    const apres = buildCoherenceChecks({
+      ...jourDePanne(jours(12, "2026-09-"), "2026-09-09"),
+      todayParis: "2026-09-12",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(apres?.status).toBe("violation");
+  });
+
+  it("un écart RÉCENT ne peut pas être clos par un vieil incident", () => {
+    // Deux jours divergents : un vieux, un d'hier. Le plus récent commande —
+    // sans quoi le vieux, plus grave donc classé premier, clôturerait l'alerte.
+    const jrs = jours(20);
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-08-20",
+      dailySubs: jrs.map((day) => ({
+        day,
+        subs: day === "2026-08-08" ? 2 : day === "2026-08-19" ? 4 : 5,
+      })),
+      dailyPaidClients: jrs.map((day) => ({
+        day,
+        clients: day === "2026-08-08" ? 9 : day === "2026-08-19" ? 9 : 5,
+      })),
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).not.toContain("INCIDENT CLOS");
+    expect(c?.status).toBe("violation");
+  });
+
+  it("l'alerte CITE l'offre au lieu de dire seulement « sans event »", () => {
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-09-09",
+      dailySubs: [{ day: "2026-09-08", subs: 2 }],
+      dailyPaidClients: [{ day: "2026-09-08", clients: 8 }],
+      subsByMembership: [
+        { day: "2026-09-08", membershipId: "mem_a", persons: 1 },
+        { day: "2026-09-08", membershipId: "mem_b", persons: 1 },
+      ],
+      whopFirstPaidDay: [
+        { membershipId: "mem_a", day: "2026-09-08", offer: "Offre 9,99 €" },
+        { membershipId: "mem_b", day: "2026-09-08", offer: "Offre 9,99 €" },
+        { membershipId: "mem_c", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_d", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_e", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_f", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_g", day: "2026-09-08", offer: "Offre 16,90 €" },
+        { membershipId: "mem_h", day: "2026-09-08", offer: "Offre 16,90 €" },
+      ],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).toContain("6 paiement(s) Whop sans event");
+    expect(c?.detail).toContain("dont 6 sur Offre 16,90 €");
+  });
+
+  it("sans offre fournie, le message reste celui d'avant", () => {
+    // Contre-épreuve : le contrôle ne dépend pas de l'offre pour fonctionner.
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-08-09",
+      dailySubs: [{ day: "2026-08-08", subs: 2 }],
+      dailyPaidClients: [{ day: "2026-08-08", clients: 8 }],
+      subsByMembership: [
+        { day: "2026-08-08", membershipId: "mem_a", persons: 1 },
+        { day: "2026-08-08", membershipId: "mem_b", persons: 1 },
+      ],
+      whopFirstPaidDay: [
+        { membershipId: "mem_a", day: "2026-08-08" },
+        { membershipId: "mem_c", day: "2026-08-08" },
+        { membershipId: "mem_d", day: "2026-08-08" },
+        { membershipId: "mem_e", day: "2026-08-08" },
+        { membershipId: "mem_f", day: "2026-08-08" },
+        { membershipId: "mem_g", day: "2026-08-08" },
+        { membershipId: "mem_h", day: "2026-08-08" },
+      ],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.detail).toContain("paiement(s) Whop sans event");
+    expect(c?.detail).not.toContain("dont");
+  });
+
+  it("conversion à 23h58 Paris : classée le BON jour des deux côtés (aucun décalage minuit)", () => {
+    // Les deux séries sont déjà en jour Paris ; un event à 23:58 et son
+    // paiement à 23:57 tombent le même jour → apparié, zéro alerte. C'était
+    // l'hypothèse fuseau, écartée par le diagnostic — le test la verrouille.
+    const subs = [{ day: "2026-07-28", membershipId: "mem_late", persons: 1 }];
+    const whop = [{ membershipId: "mem_late", day: "2026-07-28" }];
+    expect(reconcileDailyClients(subs, whop)).toEqual([
+      {
+        day: "2026-07-28",
+        matched: 1,
+        replayed: 0,
+        unpaid: 0,
+        unlinked: 0,
+        missing: 0,
+        missingOffers: [],
+      },
+    ]);
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-28", subs: 1 }],
+        dailyPaidClients: [{ day: "2026-07-28", clients: 1 }],
+        subsByMembership: subs,
+        whopFirstPaidDay: whop,
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("doublon dédupliqué : deux events du MÊME membership le même jour comptent 1", () => {
+    // uniq(person_id) par (jour, membership) côté HogQL rend déjà persons=1 ;
+    // et si le même membership revenait sur DEUX lignes du même jour (deux
+    // personnes ?), il n'est apparié qu'une fois : le 2e est un `replayed`
+    // (jour Whop ≠) ou un doublon d'appariement, jamais un 2e client.
+    const subs = [
+      { day: "2026-07-28", membershipId: "mem_x", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_x", persons: 1 },
+    ];
+    const whop = [{ membershipId: "mem_x", day: "2026-07-28" }];
+    const r = reconcileDailyClients(subs, whop)[0];
+    // Les deux lignes sont appariées au même jour Whop → matched=2 côté lignes,
+    // mais `missing` reste 0 et Whop n'a qu'un client : l'écart (2 vs 1) est
+    // sous le seuil et n'alerte pas.
+    expect(r.missing).toBe(0);
+    const m = byKey(
+      buildCoherenceChecks({
+        ...base,
+        dailySubs: [{ day: "2026-07-28", subs: 1 }],
+        dailyPaidClients: [{ day: "2026-07-28", clients: 1 }],
+        subsByMembership: subs,
+        whopFirstPaidDay: whop,
+        todayParis: "2026-07-30",
+      }),
+    );
+    expect(m.get("daily_clients_posthog_vs_whop")).toBe("ok");
+  });
+
+  it("fantôme compté à part : sub sans paiement encaissé → `unpaid`, pas un client", () => {
+    const subs = [
+      { day: "2026-07-28", membershipId: "mem_ok", persons: 1 },
+      { day: "2026-07-28", membershipId: "mem_refund", persons: 1 },
+    ];
+    const whop = [{ membershipId: "mem_ok", day: "2026-07-28" }];
+    expect(reconcileDailyClients(subs, whop)[0]).toMatchObject({
+      matched: 1,
+      unpaid: 1,
+      missing: 0,
+    });
+  });
+
+  it("sub sans membership_id (pré-bascule) reste `unlinked` — inexpliqué, pas excusé", () => {
+    const subs = [{ day: "2026-07-27", membershipId: "", persons: 3 }];
+    expect(reconcileDailyClients(subs, [])[0]).toMatchObject({ unlinked: 3, matched: 0 });
+    // Et il continue de peser dans l'écart : 3 unlinked vs 0 Whop → violation.
+    const c = buildCoherenceChecks({
+      ...base,
+      dailySubs: [{ day: "2026-07-27", subs: 3 }],
+      dailyPaidClients: [{ day: "2026-07-27", clients: 0 }],
+      subsByMembership: subs,
+      whopFirstPaidDay: [],
+      todayParis: "2026-07-30",
+    }).find((x) => x.key === "daily_clients_posthog_vs_whop")!;
+    expect(c.status).toBe("violation");
+  });
   it("croisé : ±2 proportionnellement fort (2 vs 4) → info", () => {
     const m = byKey(
       buildCoherenceChecks({
@@ -897,6 +1405,7 @@ describe("contrôle de cohérence — montant dû = somme des cycles calculés",
     currencyCount: 1,
     dashboardClients: null,
     whopMembers: null,
+    whopClients: null,
   };
   const find = (checks: ReturnType<typeof buildCoherenceChecks>) =>
     checks.find((c) => c.key === "pay_due_matches_parts");
@@ -954,5 +1463,322 @@ describe("contrôle de cohérence — montant dû = somme des cycles calculés",
       }),
     );
     expect(c?.status).toBe("ok");
+  });
+});
+
+/**
+ * TROIS COMPTEURS DE CLIENTS SUR UN MÊME ÉCRAN (relevé de prod du 2026-08-29).
+ *
+ * Le hub affichait 144 (PostHog), 153 et 154 (Whop) et divisait trois cartes
+ * d'éco unitaire par le troisième. Le contrôle « Clients dashboard vs Whop »
+ * comparait des PERSONNES (PostHog ne sait compter que ça) à des ABONNEMENTS,
+ * et sonnait donc une violation permanente : l'écart de 9 était exactement les
+ * 9 abonnements en double (8 personnes en ont 2, `user_R6wC645MnVDI7` en a 3).
+ * Mesuré sur la base comparable : 153 abonnements = 144 personnes, contre 144
+ * personnes côté PostHog — écart réel NUL.
+ *
+ * Conséquence à l'écran : « Clients payants » était suspendu par le garde-fou
+ * pendant que les trois cartes juste au-dessus continuaient d'imprimer
+ * « ÷ 154 clients acquis ». Un nombre suspendu et utilisé comme diviseur dans
+ * le même écran.
+ *
+ * Ces chiffres sont ceux de la prod, pas des nombres ronds : c'est la forme qui
+ * a produit le défaut.
+ */
+describe("clients acquis — une seule unité, un seul dénominateur", () => {
+  const find = (checks: CoherenceCheck[], key: string) =>
+    checks.find((c) => c.key === key);
+
+  /** Relevé de prod 2026-08-29 21:45 (Snytch). */
+  const prod = {
+    sequentialSteps: [
+      { key: "visit", label: "", count: 7150 },
+      { key: "signup_completed", label: "", count: 4340 },
+      { key: "paywall_viewed", label: "", count: 4170 },
+      { key: "checkout_started", label: "", count: 845 },
+      { key: "subscription_completed", label: "", count: 144 },
+    ],
+    reachSteps: [
+      { key: "visit", label: "", count: 7150 },
+      { key: "signup_completed", label: "", count: 4392 },
+      { key: "paywall_viewed", label: "", count: 4210 },
+      { key: "checkout_started", label: "", count: 847 },
+      { key: "subscription_completed", label: "", count: 149 },
+    ],
+    currencyCount: 1,
+    dashboardClients: 144,
+    // Base comparable : 153 abonnements pour 144 personnes.
+    whopMembers: 153,
+    whopClients: 144,
+    // Sans borne de fenêtre : 154 abonnements pour 145 personnes.
+    whopMembersTotal: 154,
+    whopClientsTotal: 145,
+    whopExcludedAfter: 1,
+  };
+
+  it("PostHog vs Whop se compare en PERSONNES — l'écart de 9 disparaît", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 145 }),
+      "dashboard_vs_whop",
+    );
+    // 149 personnes ayant émis subscription_completed vs 144 personnes ayant
+    // encaissé sur la même fenêtre : 5 d'écart (remboursés, events sans
+    // paiement), soit 3,5 % — sous les deux seuils.
+    expect(c?.status).not.toBe("violation");
+    expect(c?.detail).toContain("149");
+    expect(c?.detail).toContain("144");
+    expect(c?.detail).not.toContain("écart 9");
+  });
+
+  it("le détail nomme les DEUX unités — la confusion ne peut pas revenir", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 145 }),
+      "dashboard_vs_whop",
+    );
+    expect(c?.detail).toContain("personnes");
+    expect(c?.detail).toContain("abonnements");
+    expect(c?.detail).toContain("153");
+  });
+
+  it("un VRAI écart en personnes sonne toujours (le contrôle mord encore)", () => {
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        reachSteps: [{ key: "subscription_completed", label: "", count: 120 }],
+        unitCostDenominator: 145,
+      }),
+      "dashboard_vs_whop",
+    );
+    expect(c?.status).toBe("violation");
+  });
+
+  it("diviser par 154 abonnements au lieu de 145 clients = violation", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 154 }),
+      "unit_cost_denominator",
+    );
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toContain("154");
+    expect(c?.detail).toContain("145");
+  });
+
+  it("dénominateur aligné sur les clients acquis → OK, et il le DIT", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: 145 }),
+      "unit_cost_denominator",
+    );
+    expect(c?.status).toBe("ok");
+    expect(c?.detail).toContain("145");
+    expect(c?.detail).toContain("154");
+  });
+
+  it("dénominateur absent (aucun coût à diviser) → info, jamais violation", () => {
+    const c = find(
+      buildCoherenceChecks({ ...prod, unitCostDenominator: null }),
+      "unit_cost_denominator",
+    );
+    expect(c?.status).toBe("info");
+  });
+});
+
+/**
+ * CALIBRAGE — alerter sur l'INEXPLIQUÉ, pas sur l'écart brut.
+ *
+ * Le contrôle comparait 159 personnes PostHog à 153 personnes Whop et jugeait
+ * les 6 d'écart sur des seuils fixes. Or cet écart se DÉCOMPOSE, et sa
+ * composition dit tout :
+ *
+ *  - `ghostClients`  : ont émis l'event, n'ont jamais encaissé (remboursé,
+ *    paiement en attente) — présents côté PostHog seulement, poussent l'écart
+ *    vers le HAUT ;
+ *  - `missingEvents` : ont encaissé sans jamais émettre d'event — présents côté
+ *    Whop seulement, poussent vers le BAS. En prod : 10, dont 9 les 27–28/07 ;
+ *  - `unlinkedBeforeBreak` : events sans `membership_id` ANTÉRIEURS au
+ *    2026-07-28 01:09 UTC, date à laquelle la propriété est apparue. Ces
+ *    personnes peuvent avoir payé ou non — inclassables. Ce n'est donc PAS un
+ *    terme de l'écart mais une BANDE D'INCERTITUDE, et un bucket CLOS : il ne
+ *    grandira jamais, et il sortira tout seul de la fenêtre de 90 jours, ce qui
+ *    resserre le contrôle avec le temps au lieu de le rendre bruyant ;
+ *  - `unlinkedAfterBreak` : le même défaut APRÈS la date. Zéro aujourd'hui —
+ *    donc toute apparition est une RÉGRESSION D'INSTRUMENTATION, et alerte quel
+ *    que soit le reste.
+ *
+ * Les seuils (5 % / 5 clients) ne bougent pas : c'est le numérateur qui devient
+ * honnête.
+ */
+describe("dashboard_vs_whop — alerte sur l'inexpliqué", () => {
+  const find = (checks: CoherenceCheck[]) =>
+    checks.find((c) => c.key === "dashboard_vs_whop");
+  /** Relevé de prod du 2026-08-30, 11:45 (cron post-correctif de troncature). */
+  const prod = {
+    sequentialSteps: [{ key: "subscription_completed", label: "", count: 154 }],
+    reachSteps: [{ key: "subscription_completed", label: "", count: 159 }],
+    currencyCount: 1,
+    dashboardClients: 154,
+    whopMembers: 163,
+    whopClients: 153,
+    whopMembersTotal: 164,
+    whopClientsTotal: 154,
+    windowReconciliation: {
+      ghostClients: 3,
+      missingEvents: 9,
+      unlinkedBeforeBreak: 18,
+      unlinkedAfterBreak: 0,
+      breakLabel: "28/07/2026 01:09 UTC",
+    },
+  };
+
+  it("l'écart de prod tient dans la bande historique → plus de violation", () => {
+    // écart +6 ; attendu = 3 fantômes − 9 sans event = −6 ; inexpliqué 12,
+    // sous les 18 events non liés de juillet.
+    const c = find(buildCoherenceChecks(prod));
+    expect(c?.status).not.toBe("violation");
+    expect(c?.detail).toContain("inexpliqué");
+  });
+
+  it("le détail NOMME la décomposition, pas seulement le verdict", () => {
+    const c = find(buildCoherenceChecks(prod));
+    expect(c?.detail).toContain("9 paiement(s) sans event");
+    expect(c?.detail).toContain("18"); // bande d'incertitude
+    expect(c?.detail).toContain("28/07/2026");
+  });
+
+  it("un event non lié APRÈS la rupture = régression, alerte seule", () => {
+    // Tout le reste est identique et sous les seuils : c'est bien ce terme-là,
+    // et lui seul, qui déclenche.
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        windowReconciliation: { ...prod.windowReconciliation, unlinkedAfterBreak: 3 },
+      }),
+    );
+    expect(c?.status).toBe("violation");
+    expect(c?.detail).toMatch(/régression/i);
+  });
+
+  it("un écart RÉEL, hors bande, alerte toujours", () => {
+    // Contrôle OPPOSÉ : le calibrage ne doit pas rendre le contrôle muet.
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        reachSteps: [{ key: "subscription_completed", label: "", count: 220 }],
+      }),
+    );
+    expect(c?.status).toBe("violation");
+  });
+
+  it("la bande se resserre quand juillet sort de la fenêtre", () => {
+    // Même écart brut, mais plus d'events non liés : l'inexpliqué ressort.
+    const c = find(
+      buildCoherenceChecks({
+        ...prod,
+        windowReconciliation: { ...prod.windowReconciliation, unlinkedBeforeBreak: 0 },
+      }),
+    );
+    expect(c?.status).toBe("violation");
+  });
+
+  it("sans réconciliation de fenêtre : comportement d'avant, INTACT", () => {
+    const { windowReconciliation: _omit, ...sansRec } = prod;
+    const c = find(buildCoherenceChecks(sansRec));
+    expect(c?.status).toBe("info"); // 159 vs 153 = 6, 3.9 % → sous les seuils
+    expect(c?.detail).toContain("159 personnes vs 153");
+  });
+});
+
+describe("contrôle croisé par jour — un jour expliqué n'est pas divergent", () => {
+  it("le 25/08 entièrement décomposé n'est plus COMPTÉ comme divergent", () => {
+    // Cas de prod : 4 subs pour 2 clients, mais 2 sont des rejeux d'un autre
+    // jour — la journée se recoupe exactement. Elle gonflait quand même le
+    // « N jour(s) divergent(s) », ce qui rendait le compte illisible.
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-08-31",
+      dailySubs: [{ day: "2026-08-25", subs: 4 }],
+      dailyPaidClients: [{ day: "2026-08-25", clients: 2 }],
+      subsByMembership: [
+        { day: "2026-08-25", membershipId: "mem_a", persons: 1 },
+        { day: "2026-08-25", membershipId: "mem_b", persons: 1 },
+        { day: "2026-08-25", membershipId: "mem_c", persons: 1 },
+        { day: "2026-08-25", membershipId: "mem_d", persons: 1 },
+      ],
+      whopFirstPaidDay: [
+        { membershipId: "mem_a", day: "2026-08-25" },
+        { membershipId: "mem_b", day: "2026-08-25" },
+        { membershipId: "mem_c", day: "2026-08-24" },
+        { membershipId: "mem_d", day: "2026-08-24" },
+      ],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    // Il reste AFFICHÉ avec sa décomposition — c'est le mot « divergent » qui
+    // était faux, pas l'information.
+    expect(c?.status).toBe("info");
+    expect(c?.detail).toContain("réconcilié");
+    expect(c?.detail).toContain("aucun divergent");
+    // Ce qui était faux, c'est le COMPTE : « N jour(s) divergent(s) ».
+    expect(c?.detail).not.toMatch(/\d+ jour\(s\) divergent/);
+    expect(c?.detail).toContain("rejoué");
+  });
+
+  it("un jour VRAIMENT divergent reste compté", () => {
+    // Contrôle opposé : sans rejeu à opposer, l'écart demeure.
+    const checks = buildCoherenceChecks({
+      sequentialSteps: [],
+      reachSteps: [],
+      currencyCount: 1,
+      dashboardClients: null,
+      whopMembers: null,
+      whopClients: null,
+      todayParis: "2026-08-31",
+      dailySubs: [{ day: "2026-08-25", subs: 6 }],
+      dailyPaidClients: [{ day: "2026-08-25", clients: 1 }],
+      subsByMembership: [
+        { day: "2026-08-25", membershipId: "", persons: 6 },
+      ],
+      whopFirstPaidDay: [{ membershipId: "mem_z", day: "2026-08-25" }],
+    });
+    const c = checks.find((x) => x.key === "daily_clients_posthog_vs_whop");
+    expect(c?.status).not.toBe("ok");
+    expect(c?.detail).toContain("1 jour(s) divergent(s)");
+  });
+});
+
+describe("Clients/jour PostHog vs Whop — unité du contrôle croisé", () => {
+  /**
+   * Cas de prod du 2026-09-05 : PostHog comptait 23 (un event par ABONNEMENT),
+   * la carte Whop 19 (des PERSONNES, depuis le repli du dénominateur). L'alerte
+   * sonnait sur un écart d'UNITÉ, pas sur une incohérence.
+   */
+  const base: Parameters<typeof buildCoherenceChecks>[0] = {
+    sequentialSteps: [],
+    reachSteps: [],
+    currencyCount: 1,
+    dashboardClients: null,
+    whopMembers: null,
+    whopClients: null,
+    dailySubs: [{ day: "2026-09-05", subs: 23 }],
+    dailyPaidClients: [{ day: "2026-09-05", clients: 19 }],
+    dailyNewMemberships: [{ day: "2026-09-05", memberships: 23 }],
+    todayParis: "2026-09-06",
+  };
+  const crossCheck = (i: Parameters<typeof buildCoherenceChecks>[0]) =>
+    buildCoherenceChecks(i).find((c) => c.label.startsWith("Clients/jour"));
+
+  it("ne sonne PAS quand les abonnements concordent", () => {
+    expect(crossCheck(base)?.status).not.toBe("violation");
+  });
+
+  it("sonne encore sur un VRAI écart d'abonnements (assertion de présence)", () => {
+    // Contre-test : sans lui, un contrôle désactivé passerait le test précédent.
+    const faux = {
+      ...base,
+      dailyNewMemberships: [{ day: "2026-09-05", memberships: 12 }],
+    };
+    expect(crossCheck(faux)?.status).toBe("violation");
   });
 });

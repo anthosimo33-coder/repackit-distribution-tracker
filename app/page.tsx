@@ -7,22 +7,31 @@ import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 import { portalPathForRole } from "@/lib/portal-path";
+import { isTeamRole } from "@/convex/roles";
+import { useTranslations } from "next-intl";
 
 /**
  * Multi-tenant + rôles — `/` route par RÔLE (api.creators.getMyPortal) :
- *   - admin / superadmin → dashboard scopé `/admin/<slug>/dashboard` ;
+ *   - rôle d'ÉQUIPE (admin, manager) ou superadmin → dashboard scopé
+ *     `/admin/<slug>/dashboard` ;
  *   - rôle de PORTAIL (créateur partenaire, talent, clippeur) → son portail,
  *     résolu par la table de décision UNIQUE `lib/portal-path` ;
  *   - aucun projet / rôle → état vide.
  * Rendu sous <Authenticated> (AppShell), hors ProjectProvider : useQuery brut.
+ *
+ * ⚠️ `isTeamRole` et non `=== "admin"` : le manager travaille dans la MÊME app
+ * interne que l'admin (ce qu'il peut y faire est décidé bloc par bloc, côté
+ * serveur). Testé en dur, il tombait dans l'état vide et n'avait aucun moyen
+ * d'atteindre son espace autrement qu'avec l'URL en favori.
  */
 export default function RootRedirectPage() {
+  const tnp = useTranslations("portal.noProject");
   const router = useRouter();
   const portal = useQuery(api.creators.getMyPortal, {});
 
   useEffect(() => {
     if (!portal) return;
-    if (portal.role === "admin") {
+    if (isTeamRole(portal.role)) {
       if (portal.slug) router.replace(projectPath(portal.slug, "/dashboard"));
       return;
     }
@@ -34,12 +43,9 @@ export default function RootRedirectPage() {
     return (
       <div className="flex h-screen items-center justify-center px-6 text-center">
         <div className="max-w-sm space-y-2">
-          <p className="text-sm font-medium text-slate-900">
-            Aucun projet accessible
-          </p>
+          <p className="text-sm font-medium text-slate-900">{tnp("title")}</p>
           <p className="text-sm text-slate-500">
-            Ton compte n&apos;est rattaché à aucun projet. Demande à un
-            administrateur de t&apos;ajouter à un projet.
+            {tnp("body")}
           </p>
         </div>
       </div>

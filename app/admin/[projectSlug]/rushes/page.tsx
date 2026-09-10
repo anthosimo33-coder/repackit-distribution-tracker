@@ -26,6 +26,7 @@ import { formatDate } from "@/lib/format";
 import type { RushStatus } from "@/convex/rushStatus";
 import { AssignScriptToRushDialog } from "@/components/rushes/AssignScriptToRushDialog";
 import { TalentSettingsCard } from "@/components/rushes/TalentSettingsCard";
+import { usePermissions } from "@/components/project/use-permissions";
 
 /**
  * REVUE DES RUSHES (admin) — décider de chaque prise déposée par un talent :
@@ -263,6 +264,7 @@ function RushCard({ rush }: { rush: RushRow }) {
 }
 
 export default function RushesPage() {
+  const droitsNav = usePermissions();
   const rushes = useProjectQuery(api.rushes.listRushesForReview, {});
   const waiting = (rushes ?? []).filter((r) => r.status === "deposited");
   const treated = (rushes ?? []).filter((r) => r.status !== "deposited");
@@ -280,7 +282,9 @@ export default function RushesPage() {
         </p>
       </header>
 
-      <TalentSettingsCard />
+      {/* Réglages de l'espace TALENT = réglage de PROJET. Le manager trie les
+          Rushes sans décider de la configuration de l'espace. */}
+      {droitsNav.has("project.settings") && <TalentSettingsCard />}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">

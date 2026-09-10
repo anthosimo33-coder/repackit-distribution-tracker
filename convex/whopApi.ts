@@ -60,6 +60,23 @@ export interface NormalizedWhopPayment {
    * et le taux de renouvellement ne peut pas trancher.
    */
   retryable?: boolean;
+  /**
+   * PAYS DE FACTURATION, valeur BRUTE de `billing_address.country`.
+   *
+   * Whop est marchand de référence : il collecte l'adresse pour la TVA. Le champ
+   * est typé `string | null` côté API et son FORMAT n'est pas documenté — ni
+   * exemple, ni contrainte. On le stocke donc tel quel, sans normaliser ni
+   * traduire : un code ISO et un nom complet doivent rester distinguables, c'est
+   * exactement ce qu'on cherche à mesurer avant d'en faire un écran.
+   *
+   * ⚠️ Porté par le PAIEMENT, pas par le client : `user`, `member` et
+   * `membership` n'exposent aucun pays. Un client dont l'unique paiement n'a pas
+   * d'adresse reste donc sans pays, et deux paiements d'un même client peuvent
+   * théoriquement diverger.
+   *
+   * À ne pas confondre avec `shipping_address.country`, qui existe aussi.
+   */
+  billingCountry?: string;
   /** Pseudo Whop du client (username, sinon nom) — identifie un litige à traiter. */
   memberName?: string;
   /** Échéance de réponse au litige EN COURS (needs_response_by) — ms. Urgent. */
@@ -188,6 +205,14 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
     getStr(asRecord(r.user)?.username) ??
     getStr(asRecord(r.user)?.name) ??
     getStr(asRecord(r.member)?.username);
+  // FACTURATION et non livraison : `shipping_address` porte les mêmes
+  // sous-champs, et facturer en France en livrant en Belgique ne doit pas
+  // déplacer le client. `getStr` écarte au passage le null et la chaîne vide.
+  // `getStr` écarte le null et la chaîne vide, mais pas une chaîne d'espaces :
+  // « pays :   » se lirait comme un pays. On tranche ici, pas dans `getStr`,
+  // qui sert à une dizaine d'autres champs.
+  const billingCountry =
+    getStr(asRecord(r.billing_address)?.country)?.trim() || undefined;
   const { dueAt: disputeDueAt, reason: disputeReason } = extractOpenDispute(r);
 
   return {
@@ -205,6 +230,7 @@ export function normalizeWhopPayment(raw: unknown): NormalizedWhopPayment | null
     billingReason,
     failureMessage,
     retryable,
+    billingCountry,
     memberName,
     disputeDueAt,
     disputeReason,
@@ -332,6 +358,8 @@ export interface NormalizedWhopMembership {
   abForced?: boolean;
   /** Personne PostHog (`metadata.distinctId`, sinon `userToken`) — repli de jointure. */
   distinctId?: string;
+  /** REF d'attribution créatrice (`metadata.ref`) — cf creatorConversions. */
+  ref?: string;
 }
 
 export interface FetchWhopMembershipsResult {
@@ -385,6 +413,10 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
   const abExperiment = getStr(md?.abExperiment);
   const abForced = typeof md?.abForced === "boolean" ? md.abForced : undefined;
   const distinctId = getStr(md?.distinctId) ?? getStr(md?.userToken);
+  // `metadata.creatorRef` — la clé réellement posée par le site au checkout
+  // (confirmée sur l'API le 18/08 : présente, à null tant qu'aucune vente
+  // n'a transité par un chemin court). `ref` gardé en repli.
+  const ref = getStr(md?.creatorRef) ?? getStr(md?.ref);
   return {
     whopMembershipId: id,
     whopUserId,
@@ -398,6 +430,7 @@ export function normalizeWhopMembership(raw: unknown): NormalizedWhopMembership 
     abExperiment,
     abForced,
     distinctId,
+    ref,
   };
 }
 

@@ -1,6 +1,9 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { adminQuery } from "./functions";
+import { buildZoneMap } from "./creatorDay";
+import {
+  permissionQuery,
+} from "./functions";
 import {
   calendarStatus,
   onTimeTally,
@@ -63,6 +66,14 @@ export async function creatorPublicationStats(
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
   const nomDe = new Map(creators.map((c) => [c._id, c.name]));
+  // FUSEAUX — le taux à l'heure d'une créatrice se compte sur SES journées.
+  // Un projet couvre Paris, New York et Los Angeles à la fois : appliquer Paris
+  // à tout le monde comptait « en retard » chaque post publié le soir à l'ouest.
+  const comptes = await ctx.db
+    .query("comptes")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const zoneDe = buildZoneMap(creators, comptes);
 
   const parCreateur = new Map<Id<"creators">, Planifie[]>();
   for (const a of assignments) {
@@ -72,10 +83,14 @@ export async function creatorPublicationStats(
   }
   const out: CreatorPublicationStats[] = [];
   for (const [creatorId, posts] of parCreateur) {
+    const timeZone = zoneDe.get(creatorId) ?? null;
     out.push({
       creatorId,
       creatorName: nomDe.get(creatorId) ?? "—",
-      tally: onTimeTally(posts, now),
+      tally: onTimeTally(
+        posts.map((p) => ({ ...p, timeZone })),
+        now,
+      ),
     });
   }
   return out.sort((a, b) =>
@@ -228,7 +243,7 @@ async function missionLabelDe(
  * Écran — taux à l'heure par créatrice. Même source que les notifications, donc
  * le message du soir et le tableau ne peuvent pas annoncer deux chiffres.
  */
-export const getCreatorPublicationStats = adminQuery({
+export const getCreatorPublicationStats = permissionQuery("content.analytics")({
   args: {},
   handler: async (ctx) =>
     creatorPublicationStats(ctx, ctx.projectId, Date.now()),
@@ -242,7 +257,7 @@ export const getCreatorPublicationStats = adminQuery({
  * serait pire qu'aucun aperçu. C'est aussi ce qui rend le VERROU testable — les
  * manqués des jours précédents ne doivent jamais y apparaître.
  */
-export const previewEveningReport = adminQuery({
+export const previewEveningReport = permissionQuery("content.analytics")({
   args: {},
   handler: async (ctx) =>
     eveningUnpublishedReports(ctx, ctx.projectId, Date.now()),

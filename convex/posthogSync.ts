@@ -3,7 +3,10 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -54,11 +57,139 @@ import {
  */
 
 /** Profondeur d'historique des requêtes d'agrégat (jours). */
-const WINDOW_DAYS = 90;
+export const WINDOW_DAYS = 90;
 /** Largeur de la grille de rétention (S+0 → S+8). */
 const RETENTION_WEEKS = 9;
 /** Borne des segments listés (sources, variants, langues) — anti-explosion d'UI. */
 const SEGMENT_LIMIT = 20;
+/**
+ * Limite PROPRE à `abOffers` : ses lignes sont (bras × offre), et une ligne
+ * tronquée ne se voit pas — elle emporte ses conversions avec elle. Douze lignes
+ * en prod le 06/09 après trois changements d'offre ; à 20 on aurait déjà été à
+ * portée du plafond au changement suivant.
+ */
+const OFFER_SEGMENT_LIMIT = 60;
+/**
+ * Borne PROPRE aux pays. 20 suffit pour des langues ou des bras d'A/B ; pour des
+ * pays c'est une troncature de fait — et `SEGMENT_LIMIT` est partagé par six
+ * requêtes, le monter reviendrait à en changer six pour une. La borne reste
+ * basse devant le plafond du document Convex (~1 Mo) : 60 lignes de funnel
+ * pèsent quelques kilo-octets, là où une série (jour × pays) sur 90 jours en
+ * ferait 4 500 et taperait dans le plafond — le plus gros cache actuel,
+ * `abPersonArms`, pèse déjà 780 Ko.
+ */
+const COUNTRY_LIMIT = 60;
+/**
+ * Profondeur de la série JOUR × PAYS du détail dépliable — 30 jours et non 90.
+ *
+ * C'est la seule série du hub dont la cardinalité est un PRODUIT : un document
+ * `posthogCache` est un JSON unique, plafonné ~1 Mo par Convex. Mesuré sur le
+ * payload plat : 12 547 octets pour 60 pays, soit ~210 octets la ligne. À ~15
+ * pays actifs par jour, 30 jours font ~450 lignes ≈ 95 Ko — large. Les 90 jours
+ * de la fenêtre générale en feraient trois fois plus pour un tableau qui n'en
+ * affiche jamais autant : « Détail par jour » ne montre que la période choisie.
+ */
+const DAY_DETAIL_DAYS = 30;
+
+/**
+ * Segment PAYS — le CODE ISO d'abord, le NOM en repli.
+ *
+ * `Intl.DisplayNames` ne sait traduire qu'un code : sans lui, les pays de
+ * connexion s'affichent en anglais (« Belgium », « Switzerland ») à côté des
+ * pays de facturation en français, sur le même écran. Deux langues côte à côte
+ * font douter du reste.
+ *
+ * Le repli sur le nom rend la bascule SANS RISQUE : si `$geoip_country_code`
+ * n'est pas peuplé, l'expression retombe exactement sur le comportement
+ * d'aujourd'hui. Rien ne peut se vider. La sonde du contrat dit seulement lequel
+ * des deux a servi, et `countryLabel` laisse passer intact ce qu'il ne sait pas
+ * traduire — un nom anglais reste un nom anglais.
+ */
+const COUNTRY_SEGMENT = `coalesce(
+    nullIf(toString(properties['$geoip_country_code']), ''),
+    nullIf(toString(properties['$geoip_country_name']), ''),
+    '(inconnu)'
+  )`;
+
+/**
+ * DOUBLE ÉMISSION client + serveur — déduplication de LECTURE.
+ *
+ * Depuis le lot d'instrumentation serveur de l'app (semaine du 02/08/2026),
+ * `target_added` part DEUX FOIS pour un seul ajout de cible : une copie serveur
+ * (`server_side='true'`, porteuse de `slot_type`) puis une copie client ~0,1 s
+ * après. Les deux ne partagent PAS d'`$insert_id` (la copie serveur n'en a pas)
+ * → la déduplication native de PostHog ne joue pas. Mesuré en prod le 22/08 :
+ * 339 events post-rupture pour 173 copies serveur et 166 copies client, chaque
+ * copie client ayant son jumeau serveur. Conséquence : tout compteur de
+ * MAGNITUDE valait le double (la carte affichait 1,85 cible/client pour 0,93).
+ *
+ * `dedupedCount` garde la copie SERVEUR quand elle existe pour cette personne,
+ * et retombe sur le comptage brut sinon — ce qui préserve l'historique
+ * ANTÉRIEUR au 02/08 (100 % client, aucune copie serveur) et survivra au jour
+ * où l'app retirera la copie client.
+ *
+ * ⚠️ NE PAS l'appliquer à un test de PRÉSENCE (`countIf(...) > 0`) : il est
+ * insensible au doublon, et le filtrer ne ferait que perdre de l'historique.
+ * ⚠️ NE PAS l'appliquer à `target_removed` : sa copie serveur est INCOMPLÈTE
+ * (18 serveur pour 48 client sur la semaine du 16/08) — dédupliquer y
+ * supprimerait des faits réels.
+ */
+const SERVER_COPY = `toString(properties.server_side) = 'true'`;
+
+/**
+ * Compte les occurrences d'un event en neutralisant la double émission.
+ * `extra` ajoute une condition (ex. une borne de fenêtre) aux deux branches.
+ */
+function dedupedCount(event: string, extra = ""): string {
+  const srv = `event = '${event}' AND ${SERVER_COPY}${extra}`;
+  const all = `event = '${event}'${extra}`;
+  return `if(countIf(${srv}) > 0, countIf(${srv}), countIf(${all}))`;
+}
+
+/**
+ * Idem pour un tableau d'horodatages (`groupArrayIf`) : la branche serveur si
+ * elle existe pour cette personne, le tableau brut sinon.
+ */
+function dedupedTimestamps(event: string, extra = ""): string {
+  const srv = `event = '${event}' AND ${SERVER_COPY}${extra}`;
+  const all = `event = '${event}'${extra}`;
+  return `if(countIf(${srv}) > 0, groupArrayIf(timestamp, ${srv}), groupArrayIf(timestamp, ${all}))`;
+}
+
+/**
+ * Prédicat de fenêtre PAR DÉFAUT : les 90 jours glissants du cron. Écrit ici une
+ * seule fois pour que `buildQueries()` sans argument rende exactement le SQL
+ * d'avant le paramétrage — un cron qui changerait de fenêtre par effet de bord
+ * réécrirait tout le cache.
+ */
+export const DEFAULT_WINDOW = `timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`;
+
+/**
+ * EXPÉRIENCE COURANTE — les requêtes d'A/B test se bornent à l'`experiment_id`
+ * le plus récent, pas à « toute émission d'`experiment_variant` sur 90 jours ».
+ * Sans cette borne, une personne passée de `paywall_ab_2026_08` à `…_v2` (les
+ * bras sont RE-TIRÉS à chaque nouvelle expérience) comptait comme instable :
+ * mesuré en prod le 22/08, 52 personnes écartées dont ~24 par ce seul artefact.
+ * Le début de fenêtre affiché par la carte devient celui de l'expérience EN
+ * COURS (2026-08-08 10:18:56) au lieu de celui de la précédente (03/08 15:02). *
+ * ⚠️ CETTE CTE NE SUIT PAS LE SÉLECTEUR DE PÉRIODE, délibérément. Elle répond à
+ * « quelle expérience tourne, et depuis quand » — deux faits qui ne dépendent
+ * pas de la période qu'on regarde. La borner à sept jours ferait désigner comme
+ * « expérience courante » celle qui a émis en dernier DANS ces sept jours, et
+ * `ab_start` deviendrait le début de la fenêtre au lieu du début du test : tous
+ * les compteurs « depuis le début du test » se recaleraient sur une date fausse.
+ */
+const AB_EXPERIMENT_CTE = `(SELECT argMax(toString(properties.experiment_id), timestamp) FROM events
+      WHERE isNotNull(properties.experiment_id)
+        AND ${DEFAULT_WINDOW}) AS ab_exp,
+     (SELECT min(timestamp) FROM events
+      WHERE toString(properties.experiment_id) = ab_exp
+        AND ${DEFAULT_WINDOW}) AS ab_start`;
+
+/** Vrai si l'event porte un bras DE L'EXPÉRIENCE COURANTE. */
+const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properties.experiment_id) = ab_exp`;
+
+
 
 /** Clés d'agrégat stockées dans posthogCache (une row par (projet, key)). */
 export const POSTHOG_CACHE_KEYS = {
@@ -67,6 +198,9 @@ export const POSTHOG_CACHE_KEYS = {
   funnelSequential: "funnel:sequential",
   funnelSource: "funnel:source",
   funnelLanguage: "funnel:language",
+  funnelCountry: "funnel:country",
+  serverSideSplit: "serverSideSplit",
+  countryDaily: "countryDaily",
   timeToValue: "timeToValue",
   paywall: "paywall",
   paywallById: "paywallById",
@@ -90,11 +224,28 @@ export const POSTHOG_CACHE_KEYS = {
   activation: "activation",
   abVariants: "abVariants",
   abArms: "abArms",
+  abOffers: "abOffers",
+  abPurchases: "abPurchases",
   abPersonArms: "abPersonArms",
+  abFlippers: "abFlippers",
   freePlan: "freePlan",
+  // ─── Réconciliation clients PostHog ↔ Whop par membership_id ──────────────
+  subsByMembership: "subsByMembership",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
+
+/**
+ * Un `subscription_completed` NON-renouvellement par (jour Paris, membership_id)
+ * — la matière du contrôle croisé « Clients/jour PostHog vs Whop ». Depuis le
+ * 28/07 l'event porte `membership_id` : on peut donc APPARIER chaque sub au
+ * jour du 1er paiement Whop du même membership au lieu de comparer deux
+ * agrégats que rien ne relie. `membership_id` vide = event antérieur à la
+ * bascule d'instrumentation (ou schéma non respecté) → inappariable.
+ */
+export interface SubsByMembershipPayload {
+  rows: { day: string; membershipId: string; persons: number }[];
+}
 
 export interface OverviewPayload {
   daily: {
@@ -174,9 +325,161 @@ export interface AbArmsPayload {
      * comme un bras qui recrute mal.
      */
     excludedFlippers: number;
+    /**
+     * Sous-total des flippers vus sur PLUSIEURS `$device_id` : c'est la fusion
+     * d'identités PostHog (un même humain sur deux navigateurs, chacun tiré de
+     * son côté), attendue et non actionnable côté app.
+     */
+    excludedFlippersMultiDevice: number;
+    /**
+     * Sous-total des flippers vus sur UN SEUL `$device_id` : là, l'app a
+     * re-tiré le bras d'une personne déjà assignée. C'est le SEUL signal d'un
+     * défaut applicatif — un total agrégé ne permet pas de le distinguer.
+     */
+    excludedFlippersSameDevice: number;
   }[];
-  /** Début de la fenêtre = 1re émission d'experiment_variant (ms). */
+  /**
+   * Début de la fenêtre = 1re émission de l'`experiment_id` COURANT (ms). Ce
+   * n'est PAS la 1re émission d'`experiment_variant` tous tests confondus : une
+   * expérience précédente décalerait la borne vers le passé et ferait entrer sa
+   * cohorte dans les colonnes de celle-ci.
+   */
   startMs: number | null;
+}
+
+/**
+ * `distinct_id` des personnes à bras INSTABLE, pour appliquer la garde
+ * anti-flipper sur les DEUX voies de rattachement (cf convex/abAttribution.ts).
+ * Liste plate : le test est une APPARTENANCE, pas une jointure.
+ */
+export interface AbFlippersPayload {
+  distinctIds: string[];
+}
+
+/**
+ * TEST A/B par (BRAS × OFFRE SERVIE) — la dimension qui manquait à `abArms`.
+ *
+ * ⚠️ POURQUOI CE SECOND AGRÉGAT PLUTÔT QU'UNE COLONNE DE PLUS SUR `abArms`.
+ * `abArms.exposed` compte les personnes ASSIGNÉES, et une assignation n'a pas
+ * d'offre : plus de la moitié des assignés ne verront jamais de paywall. Ajouter
+ * l'offre à ce GROUP BY aurait éclaté le dénominateur de l'intention de traiter
+ * entre une vraie offre et un « pas d'offre » fourre-tout. L'offre n'existe qu'à
+ * partir de `paywall_viewed` : cet agrégat part donc des VUES de paywall, et la
+ * carte des bras reste ce qu'elle est.
+ *
+ * ⚠️ POURQUOI PAS UNE FENÊTRE DE DATES. Le besoin (« on vient de changer l'offre
+ * du bras A, il faut savoir la fenêtre ») se règle mieux par l'offre RÉELLEMENT
+ * SERVIE que par des bornes saisies à la main : les bornes se périment au
+ * changement suivant, l'offre servie non. Mesuré en prod le 06/09 : l'expérience
+ * courante a servi CINQ offres depuis le 08/08 (bascule mensuel → hebdo des deux
+ * bras le 18/08, puis bras soft repassé au mensuel le 06/09), que la carte
+ * agrégeait en deux lignes.
+ */
+export interface AbOffersPayload {
+  rows: {
+    variant: string;
+    /** `plan_preselected`. Vide = l'app ne l'a pas émis (trou d'instrumentation). */
+    plan: string;
+    /** Prix affiché, tel qu'émis. Vide = non émis. '16.9' et '16.99' sont DEUX offres. */
+    price: string;
+    /**
+     * Faux = personne ÉCARTÉE de l'attribution (bras instable, ou DEUX offres
+     * vues). Ces lignes portent un plan et un prix vides et ne sont jamais
+     * comparées : elles existent pour que l'exclusion soit VISIBLE, comme
+     * `excludedFlippers` sur la carte des bras.
+     */
+    attributed: boolean;
+    /** Personnes ayant vu cette offre (dénominateur de tous les taux ci-dessous). */
+    paywallViewers: number;
+    checkouts: number;
+    /** Nouveaux clients (1er abonnement APRÈS le début du test). */
+    paid: number;
+    /** Personnes payantes dont l'abonnement PRÉCÈDE le test (renouvellements). */
+    renewals: number;
+    /** Première et dernière vue de paywall sur cette offre — LA fenêtre. */
+    firstMs: number | null;
+    lastMs: number | null;
+  }[];
+}
+
+/**
+ * Recale une charge `abOffers` lue du cache. Même raison que `normalizeAbArms` :
+ * entre le déploiement et le prochain cron, le cache porte la forme précédente,
+ * et un `undefined` deviendrait NaN à l'écran.
+ */
+export function normalizeAbOffers(payload: AbOffersPayload): AbOffersPayload {
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  const ms = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  return {
+    rows: (payload.rows ?? []).map((r) => ({
+      variant: typeof r.variant === "string" ? r.variant : "",
+      plan: typeof r.plan === "string" ? r.plan : "",
+      price: typeof r.price === "string" ? r.price : "",
+      attributed: r.attributed !== false,
+      paywallViewers: num(r.paywallViewers),
+      checkouts: num(r.checkouts),
+      paid: num(r.paid),
+      renewals: num(r.renewals),
+      firstMs: ms(r.firstMs),
+      lastMs: ms(r.lastMs),
+    })),
+  };
+}
+
+/**
+ * TEST A/B par (BRAS × PLAN RÉELLEMENT ACHETÉ).
+ *
+ * ⚠️ CE QUE `abOffers` NE PEUT PAS DIRE. `plan_preselected` est le plan
+ * PRÉ-COCHÉ à l'ouverture du paywall — pas l'offre. Chaque bras présente un
+ * MENU : le bras B vend 9,99 €/semaine ou 29,99 €/mois, le bras A 16,90 €/mois
+ * ou 49,90 €/an. Ce que la personne achète pour de bon ne se lit que sur
+ * `subscription_completed`, et c'est ce qui détermine le revenu : mesuré en prod
+ * le 06/09, le bras B fait 147 hebdomadaires, 10 mensuels et 1 offre ponctuelle
+ * de 3 mois — trois prix que la présélection montrait comme un seul.
+ *
+ * `whopPlanId` est là pour que le PRIX vienne de Whop (PlanEconomics.price) et
+ * non d'une constante : une table de prix écrite en dur a déjà dérivé deux fois
+ * en un mois sans que rien ne le signale.
+ */
+export interface AbPurchasesPayload {
+  rows: {
+    variant: string;
+    /** Slug lisible (`snytch_trio_weekly`). Vide = l'app ne l'a pas émis. */
+    plan: string;
+    /** Identifiant Whop (`plan_…`) — la clé de jointure vers le prix réel. */
+    whopPlanId: string;
+    /** NOUVEAUX clients du bras ayant acheté ce plan. */
+    clients: number;
+    /**
+     * Total des nouveaux clients du bras, répété sur chaque ligne (lu une fois).
+     * Il ne vaut PAS la somme de la colonne `clients` : une personne qui a
+     * acheté deux plans compte dans deux lignes.
+     */
+    armClients: number;
+    /** Combien, parmi eux, ont acheté PLUSIEURS plans — l'écart est là, pas ailleurs. */
+    armMultiPlan: number;
+  }[];
+}
+
+/** Recale une charge `abPurchases` lue du cache (cf `normalizeAbArms`). */
+export function normalizeAbPurchases(
+  payload: AbPurchasesPayload,
+): AbPurchasesPayload {
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? v : 0;
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  return {
+    rows: (payload.rows ?? []).map((r) => ({
+      variant: str(r.variant),
+      plan: str(r.plan),
+      whopPlanId: str(r.whopPlanId),
+      clients: num(r.clients),
+      armClients: num(r.armClients),
+      armMultiPlan: num(r.armMultiPlan),
+    })),
+  };
 }
 
 /**
@@ -205,6 +508,8 @@ export function normalizeAbArms(payload: AbArmsPayload): AbArmsPayload {
       clientTargets: num(r.clientTargets),
       armTargets: num(r.armTargets),
       excludedFlippers: num(r.excludedFlippers),
+      excludedFlippersMultiDevice: num(r.excludedFlippersMultiDevice),
+      excludedFlippersSameDevice: num(r.excludedFlippersSameDevice),
     })),
   };
 }
@@ -360,15 +665,16 @@ export interface AbVariantsPayload {
 
 /** B3 — plan gratuit : usage réel, passage au payant, délai gratuit→checkout. */
 export interface FreePlanPayload {
+  /**
+   * Personnes ayant REÇU la semaine offerte (`free_tier_started`). Ce n'est PAS
+   * « ont choisi le gratuit » : l'event marque un octroi, émis aussi sur le
+   * chemin des payants (cf QUERIES.freePlan).
+   */
   signups: number;
   /** A fait ≥ 1 action produit (recherche / scan / cible). */
   used: number;
   /** Passés au payant (subscription_completed). */
   convertedPaid: number;
-  /** Avaient ouvert le checkout AVANT le gratuit. */
-  checkoutBefore: number;
-  /** Délai médian gratuit→checkout (ms, SIGNÉ : négatif = checkout avant). null si aucun. */
-  medFreeToCheckoutMs: number | null;
 }
 
 /**
@@ -485,10 +791,13 @@ export const INSTRUMENTATION_PROP_PROBES: {
   ...CONTRACT_PROPERTIES.map((p) => ({
     key: p.name,
     onEvent: p.onEvent,
+    // `cond` explicite quand le gabarit ne suffit pas : propriété de PERSONNE,
+    // ou nom qui exige la notation entre crochets (préfixe `$`).
     cond:
-      p.onEvent === "*"
+      p.cond ??
+      (p.onEvent === "*"
         ? `isNotNull(properties.${p.name})`
-        : `event = '${p.onEvent}' AND isNotNull(properties.${p.name})`,
+        : `event = '${p.onEvent}' AND isNotNull(properties.${p.name})`),
     notYetEmitted: p.notYetEmitted === true,
   })),
 ];
@@ -507,7 +816,74 @@ const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
  * exclus » resterait honnête si on y ajoutait les sessions forcées, il mentirait
  * sur ce qu'il compte.
  */
-export function buildQueries(notCounted: string, internalMarker: string) {
+/**
+ * `window` remplace le prédicat temporel de TOUTES les requêtes (37 sites, un
+ * seul motif). Passé `undefined`, le SQL est celui du cron, à l'octet près.
+ *
+ * ⚠️ La fenêtre est un PRÉDICAT COMPLET, pas une borne : les requêtes à plage
+ * libre ont besoin d'une borne HAUTE, que les 90 jours glissants n'avaient pas.
+ * Injecter seulement un début aurait laissé passer tout ce qui suit la fin de
+ * la période demandée.
+ */
+export function buildQueries(
+  notCounted: string,
+  internalMarker: string,
+  window: string = DEFAULT_WINDOW,
+  /**
+   * La MÊME fenêtre, exprimée sur la colonne `t_first_sub` (la date du premier
+   * abonnement). Obligatoire dès que `window` n'est pas le défaut : la déduire
+   * par substitution de texte dans le prédicat serait une chirurgie qui casse en
+   * silence le jour où le prédicat change de forme.
+   */
+  windowOnFirstSub?: string,
+) {
+  const WINDOW = window;
+  const fenetree = window !== DEFAULT_WINDOW;
+
+  /**
+   * ⚠️ LES REQUÊTES D'A/B TEST NE SE FENÊTRENT PAS COMME LES AUTRES.
+   *
+   * Leur balayage extérieur doit RESTER sur 90 jours : c'est lui qui fournit
+   * `t_first_sub`, le tout premier abonnement d'une personne, seule chose qui
+   * sépare un nouveau client d'un renouvellement. Mesuré en prod le 06/09 sur
+   * une fenêtre de sept jours : 58 personnes sur 203 ont leur premier
+   * abonnement HORS de la fenêtre. Rétrécir le balayage les aurait toutes
+   * comptées comme des clients de la semaine — une surestimation de 29 %.
+   *
+   * Ce qui suit la fenêtre, ce sont les COMPTEURS :
+   *  - `AB_MEASURE` borne les expositions (paywalls, checkouts, abonnements) ;
+   *  - `AB_ACQUIRED` borne la DATE D'ACQUISITION, pas l'activité : « nouveaux
+   *    clients de la période » = ceux dont le premier abonnement TOMBE dedans,
+   *    pas ceux qui ont un abonnement actif dedans.
+   */
+  const AB_MEASURE = fenetree
+    ? `timestamp >= ab_start AND ${window}`
+    : `timestamp >= ab_start`;
+  if (fenetree && !windowOnFirstSub) {
+    throw new Error(
+      "buildQueries : une fenêtre personnalisée exige windowOnFirstSub, sinon les renouvellements passent pour des nouveaux clients.",
+    );
+  }
+  const AB_ACQUIRED = fenetree
+    ? `t_first_sub >= ab_start AND ${windowOnFirstSub}`
+    : `t_first_sub >= ab_start`;
+  /**
+   * Personne ASSIGNÉE et présente DANS la période. C'est le dénominateur des
+   * taux « par assigné » : le laisser sur 90 jours pendant que les numérateurs
+   * suivent la fenêtre écraserait tous les taux — le défaut exact qui vient
+   * d'être corrigé sur le coût d'acquisition de l'onglet Rétention.
+   *
+   * La STABILITÉ du bras, elle, continue de se juger sur 90 jours : avoir
+   * changé de bras est un fait historique, pas une activité de la période.
+   */
+  const AB_ARMED_IN = fenetree ? `${AB_ARMED} AND ${window}` : AB_ARMED;
+  const AB_PAYWALL = `event = 'paywall_viewed' AND ${AB_MEASURE}`;
+  const AB_BOUGHT = `event = 'subscription_completed' AND ${AB_MEASURE} AND toString(properties.plan) != ''`;
+  // Construit DEHORS du littéral de requête : une backtick imbriquée refermerait
+  // le template et le SQL deviendrait du TypeScript invalide (déjà vu deux fois
+  // sur ce fichier, dont une dans un simple commentaire SQL).
+  const AB_TARGET_TS = dedupedTimestamps("target_added", ` AND ${AB_MEASURE}`);
+
   return {
   /**
    * Série quotidienne : visiteurs uniques, inscriptions, abonnements. Bucketisée
@@ -541,9 +917,33 @@ SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = 'subscription_completed'
               AND ifNull(toString(properties.is_renewal), '') != 'true') AS subs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
 GROUP BY d
-ORDER BY d`,
+ORDER BY d
+LIMIT 10000`,
+  // Subs par (jour Paris, membership_id) — la clé qui rend l'écart EXPLICABLE.
+  // Personnes distinctes par membership : un retry serveur qui ré-émet l'event
+  // pour le même membership compte 1 ici et se réconcilie ensuite au jour de
+  // son paiement Whop (module pur lib/analytics-hub).
+  //
+  // ⚠️ Le `LIMIT` explicite n'est pas décoratif. Sans lui, PostHog tronque
+  // SILENCIEUSEMENT à 100 lignes, et l'`ORDER BY d` étant ascendant, ce sont les
+  // jours RÉCENTS qui tombent. Relevé en prod le 2026-08-29 : exactement 100
+  // lignes, dernier jour 2026-08-24 — la réconciliation ne voyait plus aucun sub
+  // depuis le 25/08 et rangeait TOUS les clients Whop en « paiement sans event »
+  // (2 le 25/08, 6 le 26, 8 le 27, 16 le 28), fabriquant un jour divergent de
+  // plus chaque jour. Le piège est tenu par lib/posthog-person-counters.test.ts.
+  subsByMembership: `
+SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
+       ifNull(toString(properties.membership_id), '') AS membership_id,
+       uniq(person_id) AS persons
+FROM events
+WHERE event = 'subscription_completed'
+  AND ifNull(toString(properties.is_renewal), '') != 'true'
+  AND ${WINDOW}${notCounted}
+GROUP BY d, membership_id
+ORDER BY d
+LIMIT 10000`,
 
   /**
    * Funnel GLOBAL — atteinte d'étape (personnes distinctes ayant réalisé chaque
@@ -553,7 +953,7 @@ ORDER BY d`,
   funnelGlobal: `
 SELECT 'global' AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}`,
+WHERE ${WINDOW}${notCounted}`,
 
   /**
    * Funnel SÉQUENTIEL (chemin de monétisation) — sous-ensemble STRICT : l'étape k
@@ -578,14 +978,14 @@ FROM (
     countIf(event = 'checkout_started') > 0 AS b_checkout,
     countIf(event = 'subscription_completed') > 0 AS b_sub
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${WINDOW}${notCounted}
   GROUP BY person_id
 )`,
 
   funnelSource: `
 SELECT ${segExpr("person.properties.source")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
@@ -593,10 +993,94 @@ LIMIT ${SEGMENT_LIMIT}`,
   funnelLanguage: `
 SELECT ${segExpr("person.properties.language")} AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * Funnel par PAYS DU VISITEUR — l'entonnoir complet, coupé par géographie.
+   *
+   * Lu sur la propriété d'EVENT (`properties['$geoip_country_name']`, posée par
+   * GeoIP à l'INGESTION), et surtout PAS sur la personne. La distinction n'est
+   * pas cosmétique : `funnelSource` et `funnelLanguage` segmentent sur
+   * `person.properties` et rendent 100 % et 84 % d'« inconnu » sur les visiteurs,
+   * parce que l'app pose ces propriétés à l'INSCRIPTION — après les pageviews.
+   * Sondé avant d'écrire cette requête (#132) : 550 516 events portent le pays,
+   * dont 304 sur `subscription_completed` pour 161 personnes, soit ~2 events par
+   * personne (double instrumentation client + serveur) — la couverture tient
+   * jusqu'en bas du funnel.
+   *
+   * Chaque étape est donc attribuée au pays de SON event. Une personne qui
+   * change de pays entre sa visite et son achat compte dans les deux — c'est le
+   * sens voulu (« d'où vient le trafic »), pas un défaut.
+   *
+   * Notation entre crochets : le nom commence par `$`, l'accès par point est
+   * ambigu en HogQL.
+   */
+  funnelCountry: `
+SELECT ${COUNTRY_SEGMENT} AS seg,${FUNNEL_COLUMNS}
+FROM events
+WHERE ${WINDOW}${notCounted}
+  AND NOT (${SERVER_COPY})
+GROUP BY seg
+ORDER BY visit DESC
+LIMIT ${COUNTRY_LIMIT}`,
+
+  /**
+   * RÉPARTITION CLIENT / SERVEUR par étape du funnel — le contrôle qui rend le
+   * filtre géo lisible, et vérifiable.
+   *
+   * GeoIP géolocalise l'IP de l'appel. Un event émis par le BACKEND porte donc
+   * l'IP du datacenter, pas celle du visiteur : relevé en prod le 30/08, avant
+   * filtre, l'Indonésie affichait 58 visiteurs pour 4 243 inscrits et 160
+   * clients sur 161 — 86 % de toutes les inscriptions du site sur une ligne à 58
+   * visiteurs.
+   *
+   * On compte les PERSONNES et pas seulement les events, parce que c'est la
+   * question qui décide : si une étape n'était émise QUE côté serveur, la
+   * filtrer VIDERAIT sa colonne pour tous les pays. `persons_client` répond
+   * directement ; un compteur d'events ne l'aurait pas fait, le funnel comptant
+   * des personnes.
+   */
+  /**
+   * Trafic par JOUR et par PAYS — les sous-lignes du détail dépliable.
+   *
+   * Trois colonnes seulement, et c'est délibéré : ce sont les trois étapes dont
+   * la couverture client est de 100 % (relevé du 30/08 : visiteurs, paywall et
+   * checkouts à 100 %, inscriptions à 32,5 %, clients à 8,5 %). Les colonnes
+   * argent ne sont pas ventilables par pays du tout — Whop ne porte aucun pays.
+   *
+   * Copies serveur exclues, pour la même raison que `funnelCountry` : elles
+   * portent l'IP du datacenter. Sans ce filtre, l'Indonésie absorbait 86 % des
+   * inscriptions du site sur une ligne à 58 visiteurs.
+   */
+  countryDaily: `
+SELECT formatDateTime(toStartOfDay(timestamp, 'Europe/Paris'), '%Y-%m-%d') AS d,
+       ${COUNTRY_SEGMENT} AS pays,
+       uniqIf(person_id, event = '$pageview') AS visitors,
+       uniqIf(person_id, event = 'signup_completed') AS signups,
+       uniqIf(person_id, event = 'checkout_started') AS checkouts
+FROM events
+WHERE event IN ('$pageview', 'signup_completed', 'checkout_started')
+  AND timestamp >= now() - INTERVAL ${DAY_DETAIL_DAYS} DAY${notCounted}
+  AND NOT (${SERVER_COPY})
+GROUP BY d, pays
+ORDER BY d DESC, visitors DESC
+LIMIT 10000`,
+
+  serverSideSplit: `
+SELECT event,
+       uniq(person_id) AS persons_total,
+       uniqIf(person_id, NOT (${SERVER_COPY})) AS persons_client,
+       count() AS events_total,
+       countIf(${SERVER_COPY}) AS events_server
+FROM events
+WHERE event IN ('$pageview', 'signup_completed', 'paywall_viewed', 'checkout_started', 'subscription_completed')
+  AND ${WINDOW}${notCounted}
+GROUP BY event
+ORDER BY events_total DESC
+LIMIT 100`,
 
   /**
    * Délais médians/p90 (en secondes) entre les jalons d'activation, par personne.
@@ -637,7 +1121,7 @@ FROM (
       countIf(event = 'first_alert_received') AS has_alert,
       countIf(event = 'subscription_completed') AS has_sub
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+    WHERE ${WINDOW}${notCounted}
     GROUP BY person_id
   )
 )`,
@@ -655,7 +1139,7 @@ FROM (
     countIf(event = 'subscription_completed') AS subscribed,
     countIf(event = 'paywall_viewed') AS viewed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${WINDOW}${notCounted}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -685,11 +1169,16 @@ FROM (
     countIf(event = 'paywall_viewed') AS viewed,
     (SELECT min(timestamp) FROM events
       WHERE isNotNull(properties.paywall_id)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS started
+        AND ${WINDOW}) AS started
   FROM events
-  WHERE timestamp >= (SELECT min(timestamp) FROM events
+  -- La BORNE HAUTE manquait : l'ancrage sur la 1re émission de paywall_id ne
+  -- pose qu'un plancher. Sur les 90 jours glissants c'était sans effet (rien
+  -- n'existe après « maintenant »), mais sur une plage libre tout ce qui suit
+  -- la fin de la période entrait dans le compte.
+  WHERE ${WINDOW}
+    AND timestamp >= (SELECT min(timestamp) FROM events
       WHERE isNotNull(properties.paywall_id)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+        AND ${WINDOW})${notCounted}
     AND event IN ('paywall_viewed', 'subscription_completed')
   GROUP BY person_id
 )
@@ -733,44 +1222,161 @@ LIMIT ${SEGMENT_LIMIT}`,
    * est borné à la fenêtre du test par `timestamp >= ab_start`.
    */
   abArms: `
-WITH (SELECT min(timestamp) FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY) AS ab_start
+WITH ${AB_EXPERIMENT_CTE}
 SELECT bras AS variant, uniqIf(person_id, stable) AS exposed,
   uniqIf(person_id, stable AND n_paywalls > 0) AS paywall_viewers,
   uniqIf(person_id, stable AND n_checkouts > 0) AS checkouts,
-  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub >= ab_start) AS paid,
+  uniqIf(person_id, stable AND n_subs > 0 AND ${AB_ACQUIRED}) AS paid,
+  -- t_first_sub < ab_start reste HORS fenêtre, volontairement : être un
+  -- renouvellement est un fait historique, pas une activité de la période. La
+  -- période, elle, filtre déjà n_subs via AB_MEASURE.
   uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub < ab_start) AS renewals,
-  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub >= ab_start AND n_checkouts = 0) AS paid_without_checkout,
-  sum(if(stable AND n_subs > 0 AND t_first_sub >= ab_start, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
+  uniqIf(person_id, stable AND n_subs > 0 AND ${AB_ACQUIRED} AND n_checkouts = 0) AS paid_without_checkout,
+  sum(if(stable AND n_subs > 0 AND ${AB_ACQUIRED}, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
   sum(if(stable, length(target_ts), 0)) AS arm_targets,
   -- Écartées faute de bras stable. Rangées sous leur DERNIER bras (argMaxIf) :
   -- c'est celui que la carte leur aurait attribué, donc la ligne qu'elles
-  -- auraient faussée.
+  -- auraient faussée. Ventilées par NOMBRE D'APPAREILS : un bras qui diverge
+  -- entre deux $device_id est une fusion d'identités PostHog (attendue) ; sur un
+  -- SEUL appareil, c'est l'app qui re-tire le bras — le seul signal actionnable.
   uniqIf(person_id, NOT stable) AS excluded_flippers,
+  uniqIf(person_id, NOT stable AND n_devices > 1) AS excluded_flippers_multi_device,
+  uniqIf(person_id, NOT stable AND n_devices <= 1) AS excluded_flippers_same_device,
   min(started) AS started
 FROM (
   SELECT person_id,
-    argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras,
-    -- Un seul bras vu sur toute la fenêtre = tirage tenu.
-    uniqIf(toString(properties.experiment_variant), isNotNull(properties.experiment_variant)) = 1 AS stable,
-    countIf(event = 'paywall_viewed' AND timestamp >= ab_start) AS n_paywalls,
-    countIf(event = 'checkout_started' AND timestamp >= ab_start) AS n_checkouts,
-    countIf(event = 'subscription_completed' AND timestamp >= ab_start) AS n_subs,
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+    -- Un seul bras vu sur L'EXPÉRIENCE COURANTE = tirage tenu. Sans la borne
+    -- par experiment_id, un passage v1 → v2 (bras re-tirés) comptait comme
+    -- une bascule : ~24 des 52 exclusions mesurées le 22/08 étaient cet artefact.
+    uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
+    uniq(toString(properties.$device_id)) AS n_devices,
+    countIf(event = 'paywall_viewed' AND ${AB_MEASURE}) AS n_paywalls,
+    countIf(event = 'checkout_started' AND ${AB_MEASURE}) AS n_checkouts,
+    countIf(event = 'subscription_completed' AND ${AB_MEASURE}) AS n_subs,
     -- 1er abonnement sur TOUTE la fenêtre 90 j (pas seulement depuis le test) :
     -- c'est ce qui sépare un nouveau client d'un renouvellement. minIf sans
     -- correspondance rend l'epoch 0, jamais null → toujours gardé par n_subs > 0.
     minIf(timestamp, event = 'subscription_completed') AS t_first_sub,
-    groupArrayIf(timestamp, event = 'target_added' AND timestamp >= ab_start) AS target_ts,
+    -- Cibles DÉDUPLIQUÉES : la double émission client+serveur doublait
+    -- client_targets et arm_targets (1,85 cible/client affiché pour 0,93 réel).
+    ${AB_TARGET_TS} AS target_ts,
     ab_start AS started
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${DEFAULT_WINDOW}${notCounted}
   GROUP BY person_id
+  HAVING countIf(${AB_ARMED_IN}) > 0
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
 GROUP BY variant
 ORDER BY exposed DESC
 LIMIT ${SEGMENT_LIMIT}`,
+
+  /**
+   * TEST A/B par (BRAS × OFFRE SERVIE) — cf AbOffersPayload.
+   *
+   * Part des VUES DE PAYWALL, pas des assignations : l'offre n'existe pas avant.
+   * Une personne qui a vu DEUX offres (elle traversait un changement de prix) est
+   * inattribuable, exactement comme une personne à deux bras — et pour la même
+   * raison : la comparaison ne tient que si chaque personne a subi UN traitement.
+   * Elle n'est pas jetée en silence, elle sort en ligne `attribuee = 0`.
+   *
+   * `plan` et `prix` viennent de DEUX argMaxIf sur la même condition et la même
+   * clé de tri : ils désignent donc le même event. La stabilité, elle, est
+   * mesurée sur la clé COMBINÉE — un même prix sous deux plans reste un
+   * changement d'offre.
+   */
+  abOffers: `
+WITH ${AB_EXPERIMENT_CTE}
+SELECT bras AS variant,
+  if(attribuee, plan, '') AS plan_out,
+  if(attribuee, prix, '') AS prix_out,
+  attribuee,
+  count() AS paywall_viewers,
+  countIf(n_checkouts > 0) AS checkouts,
+  countIf(n_subs > 0 AND ${AB_ACQUIRED}) AS paid,
+  -- Hors fenêtre volontairement (cf abArms) : historique, pas activité.
+  countIf(n_subs > 0 AND t_first_sub < ab_start) AS renewals,
+  min(t_first_paywall) AS first_seen,
+  max(t_last_paywall) AS last_seen
+FROM (
+  SELECT person_id,
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+    argMaxIf(toString(properties.plan_preselected), timestamp, ${AB_PAYWALL}) AS plan,
+    argMaxIf(toString(properties.price), timestamp, ${AB_PAYWALL}) AS prix,
+    uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1
+      AND uniqIf(concat(toString(properties.plan_preselected), '@', toString(properties.price)), ${AB_PAYWALL}) = 1
+      AS attribuee,
+    minIf(timestamp, ${AB_PAYWALL}) AS t_first_paywall,
+    maxIf(timestamp, ${AB_PAYWALL}) AS t_last_paywall,
+    countIf(event = 'checkout_started' AND ${AB_MEASURE}) AS n_checkouts,
+    countIf(event = 'subscription_completed' AND ${AB_MEASURE}) AS n_subs,
+    -- 1er abonnement sur TOUTE la fenêtre : c'est ce qui sépare un nouveau
+    -- client d'un renouvellement (cf abArms).
+    minIf(timestamp, event = 'subscription_completed') AS t_first_sub
+  FROM events
+  WHERE ${DEFAULT_WINDOW}${notCounted}
+  GROUP BY person_id
+  HAVING countIf(${AB_ARMED_IN}) > 0 AND countIf(${AB_PAYWALL}) > 0
+)
+WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
+GROUP BY variant, plan_out, prix_out, attribuee
+ORDER BY variant, last_seen DESC
+LIMIT ${OFFER_SEGMENT_LIMIT}`,
+
+  /**
+   * TEST A/B par (BRAS × PLAN ACHETÉ) — cf AbPurchasesPayload.
+   *
+   * Ne compte que les NOUVEAUX clients (1er abonnement après le début du test),
+   * même définition que la colonne « Clients » de la carte des bras, et le MÊME
+   * filtre de bras stable : sans lui, les deux tableaux compteraient deux
+   * populations et leur écart passerait pour un défaut de mesure.
+   *
+   * `groupUniqArrayIf` + `arrayJoin` : une personne qui a acheté deux plans sort
+   * sur DEUX lignes. C'est voulu — le mélange de plans est l'information — mais
+   * ça interdit de sommer la colonne pour retrouver les clients du bras, d'où
+   * `arm_clients` et `arm_multi_plan` rendus à côté.
+   */
+  abPurchases: `
+WITH ${AB_EXPERIMENT_CTE}
+SELECT bras AS variant,
+  splitByChar('|', arrayJoin(paires))[1] AS plan_achete,
+  splitByChar('|', arrayJoin(paires))[2] AS whop_plan_id,
+  uniq(person_id) AS clients,
+  any(arm_clients) AS arm_clients,
+  any(arm_multi) AS arm_multi
+FROM (
+  SELECT person_id, bras, paires,
+    -- Totaux du bras, calculés AVANT l'éclatement par plan : après arrayJoin,
+    -- une personne à deux plans serait comptée deux fois.
+    count() OVER (PARTITION BY bras) AS arm_clients,
+    countIf(length(plans) > 1) OVER (PARTITION BY bras) AS arm_multi
+  FROM (
+    SELECT person_id,
+      argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+      uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
+      -- Le slug et l'identifiant Whop sont appariés DANS LA MÊME valeur : deux
+      -- groupUniqArray séparés rendent des tableaux dédupliqués dont les index
+      -- ne correspondent plus. Vérifié sur la prod, ça donnait le plan_id de
+      -- l'hebdomadaire au mensuel — donc son prix.
+      groupUniqArrayIf(
+        concat(toString(properties.plan), '|', toString(properties.plan_id)),
+        ${AB_BOUGHT}) AS paires,
+      groupUniqArrayIf(toString(properties.plan), ${AB_BOUGHT}) AS plans,
+      countIf(event = 'subscription_completed' AND ${AB_MEASURE}) AS n_subs,
+      minIf(timestamp, event = 'subscription_completed') AS t_first_sub
+    FROM events
+    WHERE ${DEFAULT_WINDOW}${notCounted}
+    GROUP BY person_id
+    HAVING countIf(${AB_ARMED_IN}) > 0
+  )
+  WHERE stable AND n_subs > 0 AND ${AB_ACQUIRED}
+    AND isNotNull(bras) AND bras != '' AND bras != 'NULL'
+)
+GROUP BY variant, plan_achete, whop_plan_id
+ORDER BY variant, clients DESC
+LIMIT ${OFFER_SEGMENT_LIMIT}`,
+
 
   /**
    * `distinct_id → bras` pour le REPLI de rattachement (cf AbPersonArmsPayload).
@@ -783,24 +1389,50 @@ LIMIT ${SEGMENT_LIMIT}`,
    * refusent de dire.
    */
   abPersonArms: `
+WITH ${AB_EXPERIMENT_CTE}
 SELECT distinct_id, bras AS variant FROM (
   SELECT distinct_id,
-    argMaxIf(toString(properties.experiment_variant), timestamp, isNotNull(properties.experiment_variant)) AS bras
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras
   FROM events
-  WHERE timestamp >= (SELECT min(timestamp) FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY)${notCounted}
+  WHERE timestamp >= ab_start${notCounted}
     AND NOT (person_id IN (
       SELECT person_id FROM events
-      WHERE isNotNull(properties.experiment_variant)
-        AND timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY
+      WHERE ${AB_ARMED}
+        AND ${WINDOW}
       GROUP BY person_id
       HAVING uniq(toString(properties.experiment_variant)) > 1
     ))
   GROUP BY distinct_id
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
-LIMIT 1000`,
+LIMIT 10000`,
+
+  /**
+   * `distinct_id` des personnes à bras INSTABLE — la garde anti-flipper rendue
+   * EXPLICITE, en test POSITIF.
+   *
+   * Sans elle, la seule matérialisation de la garde était l'ABSENCE d'une ligne
+   * dans `abPersonArms` : elle ne pouvait donc mordre que sur la voie de repli,
+   * et `metadata.abVariant ?? repli` la court-circuitait (cf convex/abAttribution.ts).
+   * Une absence est de surcroît AMBIGUË — flipper écarté, jamais assigné, ou
+   * payload tronqué ? Ici la présence dans la liste est un fait, pas une déduction.
+   *
+   * Volume borné (prod 22/08 : 130 distinct_id pour 28 personnes) — une liste
+   * plate suffit, et le `LIMIT` explicite évite la troncature silencieuse à 100.
+   */
+  abFlippers: `
+WITH ${AB_EXPERIMENT_CTE}
+SELECT distinct_id FROM events
+WHERE ${WINDOW}${notCounted}
+  AND person_id IN (
+    SELECT person_id FROM events
+    WHERE ${AB_ARMED}
+      AND ${WINDOW}
+    GROUP BY person_id
+    HAVING uniq(toString(properties.experiment_variant)) > 1
+  )
+GROUP BY distinct_id
+LIMIT 10000`,
 
   /** Sources → inscrits / abonnés (une personne compte une fois par source). */
   sources: `
@@ -810,7 +1442,7 @@ FROM (
     countIf(event = 'signup_completed') AS signed,
     countIf(event = 'subscription_completed') AS subbed
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${WINDOW}${notCounted}
   GROUP BY person_id, seg
 )
 GROUP BY seg
@@ -844,15 +1476,18 @@ FROM (
       minIf(timestamp, event = 'signup_completed') AS t_signup,
       max(timestamp) AS t_last,
       countIf(event IN ('squad_created', 'squad_joined')) AS squads,
-      countIf(event = 'target_added') AS targets
+      -- Seuil targets > 1 : la double émission faisait basculer en
+      -- « multi_target » toute personne n'ayant qu'UNE cible réelle.
+      ${dedupedCount("target_added")} AS targets
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+    WHERE ${WINDOW}${notCounted}
     GROUP BY person_id
     HAVING countIf(event = 'signup_completed') > 0
   )
 )
 GROUP BY cohort, segment
-ORDER BY cohort DESC`,
+ORDER BY cohort DESC
+LIMIT 10000`,
 
   /**
    * Prédicteurs d'abonnement : pour chaque comportement, effectif et convertis,
@@ -878,11 +1513,12 @@ FROM (
     countIf(event = 'subscription_completed') AS subbed,
     countIf(event IN ('squad_created', 'squad_joined')) AS squads,
     countIf(event = 'first_alert_received') AS alerts,
-    countIf(event = 'target_added') AS targets,
+    -- Seuil targets >= 2 : idem, la double émission le franchissait toute seule.
+    ${dedupedCount("target_added")} AS targets,
     countIf(event = 'push_enabled') AS push,
     countIf(event = 'referral_link_shared') AS referrals
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${WINDOW}${notCounted}
   GROUP BY person_id
   HAVING countIf(event = 'signup_completed') > 0
 )`,
@@ -895,7 +1531,7 @@ SELECT
 ${INSTRUMENTATION_EVENT_COLUMNS},
 ${INSTRUMENTATION_PROP_COLUMNS}
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}`,
+WHERE ${WINDOW}${notCounted}`,
 
   /**
    * Fiabilité du checkout, par appareil (webview vs natif). Une personne = un
@@ -935,7 +1571,7 @@ FROM (
       countIf(event = 'payment_failed') AS failed_c,
       dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay_c
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+    WHERE ${WINDOW}${notCounted}
       AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started', 'payment_failed')
     GROUP BY person_id
     HAVING countIf(event = 'checkout_started') > 0
@@ -954,7 +1590,7 @@ ORDER BY checkouts DESC`,
 SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
        uniq(person_id) AS n
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
   AND event = 'payment_failed'
 GROUP BY cause
 ORDER BY n DESC
@@ -965,7 +1601,7 @@ LIMIT ${SEGMENT_LIMIT}`,
 SELECT coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
   AND event = 'handle_search_result'
 GROUP BY result
 ORDER BY persons DESC
@@ -983,7 +1619,7 @@ SELECT coalesce(nullIf(toString(properties.reason), ''), '(sans reason)') AS rea
        coalesce(nullIf(toString(properties.result), ''), '(sans result)') AS result,
        count() AS runs
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
   AND event = 'scan_completed'
 GROUP BY reason, mode, result
 ORDER BY runs DESC
@@ -1004,7 +1640,7 @@ FROM (
     SELECT toFloatOrZero(toString(properties.follower_count)) AS fc,
            toFloatOrNull(toString(properties.duration_ms)) AS dur
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+    WHERE ${WINDOW}${notCounted}
       AND event = 'scan_completed'
   )
   WHERE dur IS NOT NULL
@@ -1030,7 +1666,7 @@ SELECT
   round(sum(toFloatOrZero(toString(properties.cost_usd))), 4) AS sum_cost,
   round(avgIf(toFloatOrZero(toString(properties.cost_usd)), toFloatOrNull(toString(properties.cost_usd)) IS NOT NULL), 5) AS avg_cost
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
   AND event = 'scan_completed'
 GROUP BY kind
 ORDER BY runs DESC`,
@@ -1043,7 +1679,7 @@ SELECT coalesce(
        ) AS page,
        uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
   AND event = '$rageclick'
 GROUP BY page
 ORDER BY persons DESC
@@ -1057,7 +1693,7 @@ LIMIT ${SEGMENT_LIMIT}`,
   frictionByStep: `
 SELECT ${segExpr("properties.onboarding_step")} AS step, uniq(person_id) AS persons
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+WHERE ${WINDOW}${notCounted}
   AND event = '$rageclick'
   AND coalesce(nullIf(toString(properties['$pathname']), ''), toString(properties['$current_url'])) LIKE '%/onboarding%'
 GROUP BY step
@@ -1092,7 +1728,7 @@ FROM (
     countIf(event = 'first_alert_received') AS has_alert,
     countIf(event = 'username_entered') AS has_username
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${WINDOW}${notCounted}
   GROUP BY person_id
 )
 GROUP BY segment, recent
@@ -1119,9 +1755,10 @@ FROM (
       countIf(event = 'paywall_viewed') AS viewed,
       countIf(event = 'checkout_started') AS checkout,
       countIf(event = 'subscription_completed') AS paid,
-      countIf(event = 'target_added') AS targets
+      -- client_targets est une SOMME : la double émission la doublait.
+      ${dedupedCount("target_added")} AS targets
     FROM events
-    WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+    WHERE ${WINDOW}${notCounted}
       AND event IN ('paywall_viewed', 'checkout_started', 'subscription_completed', 'target_added')
     GROUP BY person_id
     HAVING countIf(event = 'paywall_viewed') > 0
@@ -1132,27 +1769,38 @@ ORDER BY exposed DESC
 LIMIT ${SEGMENT_LIMIT}`,
 
   /**
-   * B3 — plan gratuit : usage réel (≥1 action produit), passage au payant, et
-   * délai gratuit→checkout (signé : négatif = le checkout précédait le gratuit).
+   * B3 — plan gratuit : population ayant REÇU la semaine offerte, usage réel
+   * (≥ 1 action produit) et passage au payant.
+   *
+   * ⚠️ CE QUE `free_tier_started` DIT, ET CE QU'IL NE DIT PAS. L'event marque
+   * un OCTROI (plan `snytch_free_week`), pas un CHOIX : côté serveur il part
+   * ~1 s après `onboarding_completed` pour toute personne du bras soft qui
+   * termine l'onboarding — y compris celles qui paient 3 s plus tard (mesuré le
+   * 22/08 : 22 payants soft sur 22 l'émettent). On ne peut donc PAS en tirer
+   * « la personne a préféré le gratuit ».
+   *
+   * Deux colonnes ont été RETIRÉES pour cette raison, et ne doivent pas être
+   * réintroduites : `checkout_before` (« avait ouvert le checkout avant le
+   * gratuit ») et `med_free_to_checkout_s` (délai signé gratuit→checkout,
+   * médiane mesurée −21 s, 83 % de valeurs négatives). Elles ne mesuraient pas
+   * un comportement mais l'ORDRE D'ÉMISSION de l'instrumentation : l'octroi part
+   * sur le chemin de RETOUR du checkout, donc après lui, mécaniquement. Il
+   * faudrait un event émis au CHOIX explicite du plan gratuit pour répondre à
+   * « porte de sortie ou porte de découverte ? » — il n'existe pas encore (cf
+   * `free_tier_chosen`, déclaré `notYetEmitted` dans convex/analyticsContract).
    */
   freePlan: `
 SELECT
   count() AS signups,
   countIf(used > 0) AS used,
-  countIf(paid > 0) AS converted_paid,
-  countIf(checkout_before > 0) AS checkout_before,
-  countIf(has_checkout > 0) AS n_delay,
-  quantileIf(0.5)(free_to_checkout, has_checkout > 0) AS med_free_to_checkout_s
+  countIf(paid > 0) AS converted_paid
 FROM (
   SELECT person_id,
-    countIf(event = 'checkout_started') AS has_checkout,
     countIf(event = 'subscription_completed') AS paid,
-    countIf(event IN ('handle_search_result', 'scan_completed', 'target_added')) AS used,
-    if(countIf(event = 'checkout_started') > 0 AND minIf(timestamp, event = 'checkout_started') < minIf(timestamp, event = 'free_tier_started'), 1, 0) AS checkout_before,
-    if(countIf(event = 'checkout_started') > 0, dateDiff('second', minIf(timestamp, event = 'free_tier_started'), minIf(timestamp, event = 'checkout_started')), NULL) AS free_to_checkout
+    countIf(event IN ('handle_search_result', 'scan_completed', 'target_added')) AS used
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
-    AND event IN ('free_tier_started', 'checkout_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
+  WHERE ${WINDOW}${notCounted}
+    AND event IN ('free_tier_started', 'subscription_completed', 'handle_search_result', 'scan_completed', 'target_added')
   GROUP BY person_id
   HAVING countIf(event = 'free_tier_started') > 0
 )`,
@@ -1197,7 +1845,7 @@ FROM (
        dateDiff('second', minIf(timestamp, event = 'subscription_completed'), minIf(timestamp, event = 'handle_search_result')),
        NULL) AS delay_s
   FROM events
-  WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY${notCounted}
+  WHERE ${WINDOW}${notCounted}
     AND event IN ('subscription_completed', 'handle_search_result', 'subscription_cancelled')
   GROUP BY person_id
   HAVING countIf(event = 'subscription_completed') > 0
@@ -1211,7 +1859,7 @@ FROM (
 SELECT uniqIf(person_id, ${internalMarker}) AS internal,
        uniq(person_id) AS total
 FROM events
-WHERE timestamp >= now() - INTERVAL ${WINDOW_DAYS} DAY`,
+WHERE ${WINDOW}`,
   } as const;
 }
 
@@ -1374,7 +2022,7 @@ async function collect<T>(
 }
 
 /** Lignes de funnel (seg + 7 étapes) → segments. */
-function shapeFunnel(rows: unknown[][]): FunnelPayload {
+export function shapeFunnel(rows: unknown[][]): FunnelPayload {
   return {
     segments: rows.map((r) => ({
       key: cellStr(r, 0),
@@ -1384,7 +2032,7 @@ function shapeFunnel(rows: unknown[][]): FunnelPayload {
 }
 
 /** Lignes (seg, n, converted) → lignes de conversion. */
-function shapeConversion(rows: unknown[][]): ConversionPayload {
+export function shapeConversion(rows: unknown[][]): ConversionPayload {
   return {
     rows: rows.map((r) => ({
       key: cellStr(r, 0),
@@ -1395,6 +2043,166 @@ function shapeConversion(rows: unknown[][]): ConversionPayload {
 }
 
 // ─── C1 — Shapes du contrat élargi ───────────────────────────────────────────
+
+/**
+ * Une étape du funnel, vue sous l'angle client / serveur. `personsClient` est le
+ * chiffre qui décide : c'est lui qui dit si filtrer les copies serveur VIDERAIT
+ * une colonne du funnel géographique.
+ */
+export interface ServerSideSplitRow {
+  event: string;
+  personsTotal: number;
+  personsClient: number;
+  eventsTotal: number;
+  eventsServer: number;
+}
+export interface ServerSideSplitPayload {
+  rows: ServerSideSplitRow[];
+}
+
+/** Une ligne (jour Paris, pays) — seulement les étapes à couverture client 100 %. */
+export interface CountryDailyRow {
+  day: string;
+  country: string;
+  visitors: number;
+  signups: number;
+  checkouts: number;
+}
+export interface CountryDailyPayload {
+  rows: CountryDailyRow[];
+}
+
+function shapeCountryDaily(rows: unknown[][]): CountryDailyPayload {
+  return {
+    rows: rows.map((r) => ({
+      day: cellStr(r, 0),
+      country: cellStr(r, 1),
+      visitors: cellNum(r, 2),
+      signups: cellNum(r, 3),
+      checkouts: cellNum(r, 4),
+    })),
+  };
+}
+
+/**
+ * Mise en forme d'`activation`. Nommée et exportée comme les autres : le chemin
+ * À LA DEMANDE (convex/analyticsWindowed) doit produire EXACTEMENT la même
+ * charge que le cron, sinon le même onglet afficherait deux formes selon qu'une
+ * période est choisie ou non.
+ */
+export function shapeAbArms(rows: unknown[][]): AbArmsPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      exposed: cellNum(r, 1),
+      paywallViewers: cellNum(r, 2),
+      checkouts: cellNum(r, 3),
+      paid: cellNum(r, 4),
+      renewals: cellNum(r, 5),
+      paidWithoutCheckout: cellNum(r, 6),
+      clientTargets: cellNum(r, 7),
+      armTargets: cellNum(r, 8),
+      excludedFlippers: cellNum(r, 9),
+      excludedFlippersMultiDevice: cellNum(r, 10),
+      excludedFlippersSameDevice: cellNum(r, 11),
+    })),
+    startMs: rows.length > 0 ? cellTimeMs(rows[0], 12) : null,
+  };
+}
+
+export function shapeAbOffers(rows: unknown[][]): AbOffersPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      plan: cellStr(r, 1),
+      price: cellStr(r, 2),
+      // HogQL rend le booléen en 0/1 : cellNum puis comparaison, pas
+      // Boolean(cellStr(...)) — la chaîne "0" est vraie en JS.
+      attributed: cellNum(r, 3) === 1,
+      paywallViewers: cellNum(r, 4),
+      checkouts: cellNum(r, 5),
+      paid: cellNum(r, 6),
+      renewals: cellNum(r, 7),
+      firstMs: cellTimeMs(r, 8),
+      lastMs: cellTimeMs(r, 9),
+    })),
+  };
+}
+
+export function shapeAbPurchases(rows: unknown[][]): AbPurchasesPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      plan: cellStr(r, 1),
+      whopPlanId: cellStr(r, 2),
+      clients: cellNum(r, 3),
+      armClients: cellNum(r, 4),
+      armMultiPlan: cellNum(r, 5),
+    })),
+  };
+}
+
+export function shapeFreePlan(rows: unknown[][]): FreePlanPayload {
+  const r = rows[0] ?? [];
+  return {
+    signups: cellNum(r, 0),
+    used: cellNum(r, 1),
+    convertedPaid: cellNum(r, 2),
+  };
+}
+
+export function shapeAbVariants(rows: unknown[][]): AbVariantsPayload {
+  return {
+    rows: rows.map((r) => ({
+      variant: cellStr(r, 0),
+      exposed: cellNum(r, 1),
+      checkouts: cellNum(r, 2),
+      paid: cellNum(r, 3),
+      clientTargets: cellNum(r, 4),
+    })),
+  };
+}
+
+export function shapeScanCost(rows: unknown[][]): ScanCostPayload {
+  return {
+    rows: rows.map((r) => {
+      const withCost = cellNum(r, 2);
+      return {
+        kind: cellStr(r, 0),
+        runs: cellNum(r, 1),
+        withCost,
+        sumCostUsd: cellNum(r, 3),
+        // avg n'a de sens que si des scans portent un cost_usd.
+        avgCostUsd: withCost > 0 ? cellNum(r, 4) : null,
+      };
+    }),
+  };
+}
+
+export function shapeActivation(rows: unknown[][]): ActivationPayload {
+  return {
+    rows: rows.map((r) => ({
+      segment: cellStr(r, 0),
+      recent: cellNum(r, 1),
+      persons: cellNum(r, 2),
+      targetAdded: cellNum(r, 3),
+      firstAlert: cellNum(r, 4),
+      usernameEntered: cellNum(r, 5),
+    })),
+  };
+}
+
+export function shapeServerSideSplit(rows: unknown[][]): ServerSideSplitPayload {
+  return {
+    rows: rows.map((r) => ({
+      event: cellStr(r, 0),
+      personsTotal: cellNum(r, 1),
+      personsClient: cellNum(r, 2),
+      eventsTotal: cellNum(r, 3),
+      eventsServer: cellNum(r, 4),
+    })),
+  };
+}
 
 /** Ligne unique → état par event du contrat + présence des propriétés sondées. */
 function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
@@ -1422,7 +2230,7 @@ function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
   return { events, props };
 }
 
-function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliabilityPayload {
+export function shapeCheckoutReliability(rows: unknown[][]): CheckoutReliabilityPayload {
   return {
     rows: rows.map((r) => {
       const paid = cellNum(r, 2);
@@ -1505,6 +2313,19 @@ export const runHourlySync = internalAction({
           }),
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.subsByMembership,
+          apiKey,
+          target,
+          QUERIES.subsByMembership,
+          (rows): SubsByMembershipPayload => ({
+            rows: rows.map((r) => ({
+              day: cellStr(r, 0),
+              membershipId: cellStr(r, 1),
+              persons: cellNum(r, 2),
+            })),
+          }),
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.funnelGlobal,
           apiKey,
           target,
@@ -1524,6 +2345,27 @@ export const runHourlySync = internalAction({
           target,
           QUERIES.funnelSource,
           shapeFunnel,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.funnelCountry,
+          apiKey,
+          target,
+          QUERIES.funnelCountry,
+          shapeFunnel,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.serverSideSplit,
+          apiKey,
+          target,
+          QUERIES.serverSideSplit,
+          shapeServerSideSplit,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.countryDaily,
+          apiKey,
+          target,
+          QUERIES.countryDaily,
+          shapeCountryDaily,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.funnelLanguage,
@@ -1580,21 +2422,21 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.abArms,
-          (rows): AbArmsPayload => ({
-            rows: rows.map((r) => ({
-              variant: cellStr(r, 0),
-              exposed: cellNum(r, 1),
-              paywallViewers: cellNum(r, 2),
-              checkouts: cellNum(r, 3),
-              paid: cellNum(r, 4),
-              renewals: cellNum(r, 5),
-              paidWithoutCheckout: cellNum(r, 6),
-              clientTargets: cellNum(r, 7),
-              armTargets: cellNum(r, 8),
-              excludedFlippers: cellNum(r, 9),
-            })),
-            startMs: rows.length > 0 ? cellTimeMs(rows[0], 10) : null,
-          }),
+          shapeAbArms,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.abPurchases,
+          apiKey,
+          target,
+          QUERIES.abPurchases,
+          shapeAbPurchases,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.abOffers,
+          apiKey,
+          target,
+          QUERIES.abOffers,
+          shapeAbOffers,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.abPersonArms,
@@ -1606,6 +2448,15 @@ export const runHourlySync = internalAction({
               distinctId: cellStr(r, 0),
               variant: cellStr(r, 1),
             })),
+          }),
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.abFlippers,
+          apiKey,
+          target,
+          QUERIES.abFlippers,
+          (rows): AbFlippersPayload => ({
+            distinctIds: rows.map((r) => cellStr(r, 0)).filter((d) => d !== ""),
           }),
         ),
         await collect(
@@ -1739,19 +2590,7 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.scanCost,
-          (rows): ScanCostPayload => ({
-            rows: rows.map((r) => {
-              const withCost = cellNum(r, 2);
-              return {
-                kind: cellStr(r, 0),
-                runs: cellNum(r, 1),
-                withCost,
-                sumCostUsd: cellNum(r, 3),
-                // avg n'a de sens que si des scans portent un cost_usd.
-                avgCostUsd: withCost > 0 ? cellNum(r, 4) : null,
-              };
-            }),
-          }),
+          shapeScanCost,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.friction,
@@ -1776,49 +2615,21 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.activation,
-          (rows): ActivationPayload => ({
-            rows: rows.map((r) => ({
-              segment: cellStr(r, 0),
-              recent: cellNum(r, 1),
-              persons: cellNum(r, 2),
-              targetAdded: cellNum(r, 3),
-              firstAlert: cellNum(r, 4),
-              usernameEntered: cellNum(r, 5),
-            })),
-          }),
+          shapeActivation,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.abVariants,
           apiKey,
           target,
           QUERIES.abVariants,
-          (rows): AbVariantsPayload => ({
-            rows: rows.map((r) => ({
-              variant: cellStr(r, 0),
-              exposed: cellNum(r, 1),
-              checkouts: cellNum(r, 2),
-              paid: cellNum(r, 3),
-              clientTargets: cellNum(r, 4),
-            })),
-          }),
+          shapeAbVariants,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.freePlan,
           apiKey,
           target,
           QUERIES.freePlan,
-          (rows): FreePlanPayload => {
-            const r = rows[0] ?? [];
-            const nDelay = cellNum(r, 4);
-            return {
-              signups: cellNum(r, 0),
-              used: cellNum(r, 1),
-              convertedPaid: cellNum(r, 2),
-              checkoutBefore: cellNum(r, 3),
-              // délai en SECONDES (signé) → ms. Pas de free-user avec checkout ⇒ null.
-              medFreeToCheckoutMs: nDelay > 0 ? cellNum(r, 5) * 1000 : null,
-            };
-          },
+          shapeFreePlan,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.firstSearchAfterPay,
@@ -1881,7 +2692,7 @@ export const runHourlySync = internalAction({
  * Bouton « Actualiser » — replanifie la sync POUR CE PROJET. Court-circuit si le
  * projet n'a pas de config PostHog (aucun appel API).
  */
-export const requestPosthogSync = adminMutation({
+export const requestPosthogSync = permissionMutation("business.read")({
   args: {},
   handler: async (ctx): Promise<{ scheduled: boolean; reason?: string }> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1941,13 +2752,23 @@ export interface ProductAnalytics {
     sequential: FunnelPayload;
     source: FunnelPayload;
     language: FunnelPayload;
+    /** Funnel par PAYS du visiteur (propriété d'event GeoIP, copies serveur exclues). */
+    country: FunnelPayload;
   };
+  /** Répartition client/serveur par étape — rend le filtre géo vérifiable. */
+  serverSideSplit: ServerSideSplitPayload;
+  /** Trafic par (jour, pays) sur 30 jours — sous-lignes du détail dépliable. */
+  countryDaily: CountryDailyPayload;
   timeToValue: TimeToValuePayload;
   paywall: ConversionPayload;
   /** Conversion par paywall_id (vide/'(inconnu)' tant que paywall_id n'est pas émis). */
   paywallById: ConversionPayload;
   /** Test A/B par bras (sessions forcées exclues). */
   abArms: AbArmsPayload;
+  /** Test A/B par (bras × offre servie) — cf AbOffersPayload. */
+  abOffers: AbOffersPayload;
+  /** Test A/B par (bras × plan réellement acheté) — cf AbPurchasesPayload. */
+  abPurchases: AbPurchasesPayload;
   sources: ConversionPayload;
   cohorts: CohortsPayload;
   predictors: PredictorsPayload;
@@ -1988,7 +2809,7 @@ const EMPTY_INTERNAL_EXCLUDED: InternalExcludedPayload = {
  * rendu). Un projet non configuré rend `configured:false` et des payloads vides
  * → chaque carte bascule sur son état vide sans jamais afficher un 0 trompeur.
  */
-export const getProductAnalytics = adminQuery({
+export const getProductAnalytics = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ProductAnalytics> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -2002,11 +2823,16 @@ export const getProductAnalytics = adminQuery({
         sequential: EMPTY_FUNNEL,
         source: EMPTY_FUNNEL,
         language: EMPTY_FUNNEL,
+        country: EMPTY_FUNNEL,
       },
+      serverSideSplit: { rows: [] },
+      countryDaily: { rows: [] },
       timeToValue: { steps: [] },
       paywall: EMPTY_CONVERSION,
       paywallById: EMPTY_CONVERSION,
       abArms: { rows: [], startMs: null },
+      abOffers: { rows: [] },
+      abPurchases: { rows: [] },
       sources: EMPTY_CONVERSION,
       cohorts: { segments: [] },
       predictors: { total: 0, totalConverted: 0, behaviors: [] },
@@ -2026,8 +2852,6 @@ export const getProductAnalytics = adminQuery({
         signups: 0,
         used: 0,
         convertedPaid: 0,
-        checkoutBefore: 0,
-        medFreeToCheckoutMs: null,
       },
       firstSearchAfterPay: {
         paid: 0,
@@ -2065,7 +2889,10 @@ export const getProductAnalytics = adminQuery({
         sequential: read(POSTHOG_CACHE_KEYS.funnelSequential, EMPTY_FUNNEL),
         source: read(POSTHOG_CACHE_KEYS.funnelSource, EMPTY_FUNNEL),
         language: read(POSTHOG_CACHE_KEYS.funnelLanguage, EMPTY_FUNNEL),
+        country: read(POSTHOG_CACHE_KEYS.funnelCountry, EMPTY_FUNNEL),
       },
+      serverSideSplit: read(POSTHOG_CACHE_KEYS.serverSideSplit, { rows: [] }),
+      countryDaily: read(POSTHOG_CACHE_KEYS.countryDaily, { rows: [] }),
       timeToValue: read(POSTHOG_CACHE_KEYS.timeToValue, empty.timeToValue),
       paywall: read(POSTHOG_CACHE_KEYS.paywall, EMPTY_CONVERSION),
       paywallById: read(POSTHOG_CACHE_KEYS.paywallById, EMPTY_CONVERSION),
@@ -2078,6 +2905,12 @@ export const getProductAnalytics = adminQuery({
           rows: [],
           startMs: null,
         }),
+      ),
+      abOffers: normalizeAbOffers(
+        read<AbOffersPayload>(POSTHOG_CACHE_KEYS.abOffers, { rows: [] }),
+      ),
+      abPurchases: normalizeAbPurchases(
+        read<AbPurchasesPayload>(POSTHOG_CACHE_KEYS.abPurchases, { rows: [] }),
       ),
       sources: read(POSTHOG_CACHE_KEYS.sources, EMPTY_CONVERSION),
       cohorts: read(POSTHOG_CACHE_KEYS.cohorts, empty.cohorts),

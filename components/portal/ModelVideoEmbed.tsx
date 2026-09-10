@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { ExternalLinkIcon, PlayIcon } from "lucide-react";
@@ -31,6 +32,8 @@ import { VideoExample } from "@/components/formats/VideoExample";
 type ModelVideo = { url: string; title?: string; note?: string };
 
 export function ModelVideoEmbed({ video }: { video: ModelVideo }) {
+  const tm = useTranslations("portal");
+  const t = useTranslations("portal");
   const detected = detectInspirationType(video.url);
   const platform = detected?.plateforme ?? null; // TikTok | Instagram | YouTube | null
   const needsServer = platform === "TikTok" || platform === "Instagram";
@@ -106,14 +109,14 @@ export function ModelVideoEmbed({ video }: { video: ModelVideo }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label={`Lire la vidéo ${video.title ?? ""}`.trim()}
+        aria-label={tm("modelVideo.playAria", { title: video.title ?? "" }).trim()}
         className={`group relative block overflow-hidden rounded-lg border border-slate-200 bg-slate-900 ${frameClass}`}
       >
         {thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbnailUrl}
-            alt={video.title ?? "Vidéo à reproduire"}
+            alt={video.title ?? t("modelVideo.title")}
             className="size-full object-cover opacity-90 transition-opacity group-hover:opacity-100"
           />
         ) : (

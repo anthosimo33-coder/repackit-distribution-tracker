@@ -9,7 +9,10 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useClipperProject } from "@/components/clip/ClipperProjectProvider";
 import { useClipperBase, useMyClip } from "@/components/clip/clipper-data";
 import { useReadOnly } from "@/components/portal/ViewAsContext";
-import { ScriptDestinationZones } from "@/components/scripts/ScriptDestinationZones";
+import {
+  ScriptDestinationZones,
+  ScriptInstructionList,
+} from "@/components/scripts/ScriptDestinationZones";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { ClipPublishForm } from "@/components/clip/ClipPublishForm";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
@@ -18,9 +21,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { ASSIGNMENT_STATUS, type AssignmentStatus } from "@/lib/assignment-status";
 import { formatDate } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 /**
  * FICHE D'UN CLIP — le script à monter, les consignes, le dépôt du montage, et
@@ -34,6 +40,10 @@ import { formatDate } from "@/lib/format";
  * exactement ce qui a de la valeur.
  */
 export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
+  const showError = useConvexError();
+  const tc = useTranslations("clip");
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
   const { projectId } = useClipperProject();
   const readOnly = useReadOnly();
   const base = useClipperBase();
@@ -46,12 +56,12 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
     return (
       <Card>
         <CardContent className="space-y-3 py-8 text-center">
-          <p className="text-sm text-slate-500">Ce clip est introuvable.</p>
+          <p className="text-sm text-slate-500">{tc("notFound")}</p>
           <Link
             href={base}
             className="inline-flex h-8 items-center rounded-md border border-slate-200 px-3 text-sm text-slate-700 hover:bg-slate-50"
           >
-            Retour à mes clips
+            {tc("backToClips")}
           </Link>
         </CardContent>
       </Card>
@@ -73,7 +83,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
     try {
       await start({ projectId, id: clipId });
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Impossible de démarrer ce clip"));
+      toast.error(showError(e, tc("startFailed")));
     }
   }
 
@@ -85,9 +95,9 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         storageId: v.storageId,
         mimeType: v.mimeType,
       });
-      toast.success("Montage envoyé — un admin le relit avant publication.");
+      toast.success(tc("sent"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de l'envoi"));
+      toast.error(showError(e, tc("sendFailed")));
     }
   }
 
@@ -99,17 +109,17 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           className="-ml-2 inline-flex items-center rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900"
         >
           <ArrowLeftIcon className="mr-1 size-4" />
-          Mes clips
+          {tc("myClips")}
         </Link>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className={badge?.className}>
-          {badge?.label ?? statut}
+          {badge ? tLabel(badge.labelKey) : statut}
         </Badge>
         {clip.dueDate !== undefined && (
           <span className="text-xs text-slate-500">
-            à rendre le {formatDate(clip.dueDate)}
+            {tc("dueOn", { date: formatDate(clip.dueDate, loc) })}
           </span>
         )}
       </div>
@@ -117,8 +127,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
       {/* Dit UNE fois ce qui manque, plutôt que trois emplacements vides. */}
       {readOnly && (
         <p className="text-xs text-slate-500">
-          Observation — les gestes du clippeur (démarrer, envoyer le montage,
-          publier) ne sont pas rendus ici.
+          {tc("roNotice")}
         </p>
       )}
 
@@ -127,11 +136,11 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           coller. */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Où ça sort</CardTitle>
+          <CardTitle className="text-base">{tc("whereItGoes")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
           {clip.targets.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucune cible.</p>
+            <p className="text-sm text-slate-500">{tc("noTarget")}</p>
           ) : (
             clip.targets.map((t) => (
               <div
@@ -153,10 +162,10 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
                     rel="noopener noreferrer"
                     className="text-xs text-primary underline"
                   >
-                    Voir le post
+                    {tc("seePost")}
                   </a>
                 ) : (
-                  <span className="text-xs text-slate-400">pas encore publié</span>
+                  <span className="text-xs text-slate-400">{tc("notPublishedYet")}</span>
                 )}
               </div>
             ))
@@ -171,7 +180,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base text-amber-900">
               <TypeIcon className="size-4 text-amber-500" />
-              Texte à incruster
+              {tc("overlayText")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -182,20 +191,23 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         </Card>
       )}
 
-      {/* SCRIPT MONTÉ. Le clippeur reçoit le TEXTE, jamais la décomposition
-          (briques, tier, campagne) : elle sert à l'anti-coordination. */}
+      {/* SCRIPT MONTÉ. Le clippeur reçoit le TEXTE et les consignes de ses
+          blocs, jamais la décomposition (briques, campagne) : elle sert à
+          l'anti-coordination. */}
       {clip.scriptZones ? (
         <ScriptDestinationZones
           videoBlocks={clip.scriptZones.videoBlocks}
           descriptionScript={clip.scriptZones.descriptionScript}
+          instructions={clip.scriptInstructions}
         />
       ) : clip.assembledScript ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Script à monter</CardTitle>
+            <CardTitle className="text-base">{tc("scriptToEdit")}</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <SimpleMarkdown content={clip.assembledScript} />
+            <ScriptInstructionList items={clip.scriptInstructions} />
           </CardContent>
         </Card>
       ) : null}
@@ -205,7 +217,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base text-indigo-900">
               <ClipboardListIcon className="size-4 text-indigo-500" />
-              Consignes
+              {tc("instructions")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -219,7 +231,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
       {clip.modelVideos && clip.modelVideos.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Vidéos à reproduire</CardTitle>
+            <CardTitle className="text-base">{tc("modelVideos")}</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
             {clip.modelVideos.map((mv) => (
@@ -238,7 +250,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
         <Card className="border-rose-200 bg-rose-50/60">
           <CardHeader>
             <CardTitle className="text-base text-rose-900">
-              Montage à refaire
+              {tc("redoTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -251,7 +263,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
 
       {statut === "todo" && !readOnly && (
         <Button onClick={handleStart} className="w-full">
-          Je commence
+          {tc("start")}
         </Button>
       )}
 
@@ -260,18 +272,17 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           <CardHeader>
             <CardTitle className="text-base">
               {statut === "video_rejected"
-                ? "Renvoyer le montage"
-                : "Envoyer le montage"}
+                ? tc("resend")
+                : tc("send")}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <VideoUploader
               onUploaded={handleUploaded}
-              title="Glisse ton montage ici"
+              title={tc("dropHere")}
             />
             <p className="text-xs text-slate-500">
-              Ta vidéo NON publiée. Un admin la relit ; une fois validée, tu
-              pourras coller le lien du post.
+              {tc("unpublishedNotice")}
             </p>
           </CardContent>
         </Card>
@@ -280,7 +291,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
       {statut === "to_publish" && !readOnly && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Publier</CardTitle>
+            <CardTitle className="text-base">{tc("publish")}</CardTitle>
           </CardHeader>
           <CardContent>
             <ClipPublishForm
@@ -297,7 +308,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
       {statut === "video_submitted" && (
         <Card>
           <CardContent className="py-6 text-center text-sm text-slate-500">
-            Montage envoyé — en attente de relecture.
+            {tc("awaitingReview")}
           </CardContent>
         </Card>
       )}
@@ -305,7 +316,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
       {clip.submittedVideoUrl && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Mon montage</CardTitle>
+            <CardTitle className="text-base">{tc("myEdit")}</CardTitle>
           </CardHeader>
           <CardContent>
             <video

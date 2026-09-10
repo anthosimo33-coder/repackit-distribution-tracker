@@ -32,15 +32,19 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
   const [busy, setBusy] = useState(false);
 
+  // Instant figé au montage : `Date.now()` en plein rendu est impur.
+  const [now] = useState(() => Date.now());
   const status = getEffectiveStatus(compte);
   const isWarmup = status === "warmup";
   const dailyChecks = compte.warmupProtocol?.dailyChecks ?? [];
-  const targetDays = getEffectiveWarmupDuration({
-    plateforme: compte.plateforme as Plateforme,
-    warmupProtocol: compte.warmupProtocol,
-  });
+  // Durée SERVIE par le serveur (barème du projet + surcharge du compte).
+  // Aucun recalcul côté écran : ce serait une seconde source de vérité.
+  const targetDays = compte.targetDays;
   const progress = isWarmup ? warmupProgress(dailyChecks.length, targetDays) : null;
-  const doneToday = checkedToday(dailyChecks);
+  // Fuseau de la CRÉATRICE rattachée, servi par listComptes. L'admin coche pour
+  // elle : c'est son horloge à elle qui décide de « aujourd'hui », pas celle du
+  // navigateur de l'équipe (c'est ce que fait aussi markWarmupCheckAsAdmin).
+  const doneToday = checkedToday(dailyChecks, now, compte.creatorTimezone);
   const warmupDone = isWarmupCompleteForCompte(compte);
 
   async function handleCheck() {

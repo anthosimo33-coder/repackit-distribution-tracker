@@ -25,6 +25,7 @@ export function BrandMark({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src="/brand/jarvis-logo.png"
+        // i18n-exempt: nom de l'outil (D2), pas un libellé traduisible
         alt="Jarvis Creator Studio"
         className="size-full object-cover"
       />

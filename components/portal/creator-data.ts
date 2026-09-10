@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useLocale } from "next-intl";
 import { useViewAs } from "./ViewAsContext";
 
 /**
@@ -193,6 +194,21 @@ export function useMyProfile(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/** Contrats PDF déposés par l'admin sur SA fiche. View-as →
+ *  listContractsAsAdmin (même lecture serveur, scopée creator∈projet). */
+export function useMyContracts(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.creatorContracts.listMyContracts,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.creatorContracts.listContractsAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 /** Progression (échelle des paliers + victoires + célébrations). View-as →
  *  getProgressionAsAdmin (adminViewAsQuery : admin+projet+creator∈projet). */
 export function useMyProgression(projectId: Id<"projects">) {
@@ -234,16 +250,85 @@ export function useMyGuide(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
-/** Modules « Comment ça marche » v2 (published, triés par order). View-as →
- *  listModulesAsAdmin (adminViewAsQuery, même contenu que le créateur). */
+/** Modules « Comment ça marche » v2 (published, triés par order) DANS LA LANGUE
+ *  RENDUE. View-as → listModulesAsAdmin (adminViewAsQuery, même contenu que le
+ *  créateur).
+ *
+ *  La langue passée est celle du provider next-intl COURANT — donc, en mode
+ *  « voir l'espace d'un créateur », celle de la personne observée (provider
+ *  imbriqué) et non celle de l'admin. C'est la même valeur qui a choisi tous les
+ *  autres mots de l'écran : le guide ne peut pas diverger du reste de la page.
+ *
+ *  Le serveur rend `servedLocale` à côté de `requestedLocale` — c'est l'écran
+ *  qui décide quoi en faire (cf GuideScreen : le bandeau de repli). */
 export function useMyGuideModules(projectId: Id<"projects">) {
   const va = useViewAs();
+  const locale = useLocale();
   const mine = useQuery(
     api.guideModules.listMyModules,
-    va ? "skip" : { projectId },
+    va ? "skip" : { projectId, locale },
   );
   const asAdmin = useQuery(
     api.guideModules.listModulesAsAdmin,
+    va ? { projectId, creatorId: va.creatorId, locale } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
+
+/**
+ * Module warm-up du guide (celui qu'ouvre le bouton de l'écran comptes).
+ *
+ * ⚠️ POURQUOI CE HOOK EXISTE. Le bouton appelait `getMyWarmupModule` en direct.
+ * C'est une `creatorQuery` : en observation, l'appelant est l'ADMIN, la garde de
+ * rôle rejetait, et l'exception non rattrapée tuait la page entière — écran mort
+ * du navigateur, pas une erreur applicative. Tous les autres écrans réutilisés
+ * passent par ce fichier ; celui-là avait été écrit sans, et c'est exactement le
+ * défaut que cette indirection existe pour empêcher.
+ *
+ * Le guide est PER-PROJET : les deux variantes servent le même contenu, seul le
+ * gate diffère (créateur du projet / admin du projet).
+ */
+export function useMyWarmupModule(
+  projectId: Id<"projects">,
+  locale: string,
+  /**
+   * `false` sur les écrans INTERNES, qui ont leur propre query admin.
+   *
+   * ⚠️ Un hook ne peut pas être appelé conditionnellement : sans ce drapeau,
+   * l'écran admin exécutait quand même la creatorQuery et la faisait rejeter —
+   * le MÊME défaut qu'en observation, en miroir. Les deux queries sont donc
+   * `"skip"` quand le hook est désactivé.
+   */
+  enabled = true,
+) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.guideModules.getMyWarmupModule,
+    enabled && !va ? { projectId, locale } : "skip",
+  );
+  const asAdmin = useQuery(
+    api.guideModules.getWarmupModuleForAdmin,
+    enabled && va ? { projectId, locale } : "skip",
+  );
+  if (!enabled) return undefined;
+  return va ? asAdmin : mine;
+}
+
+/**
+ * DÉFIS ouverts où la créatrice est nommément inscrite.
+ *
+ * View-as admin → `getChallengesAsAdmin` (adminViewAsQuery, scopé serveur) :
+ * l'observation rend EXACTEMENT le même DTO, donc l'écran ne branche sur rien.
+ */
+export function useMyChallenges(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.challengePortal.getMyChallenges,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.challengePortal.getChallengesAsAdmin,
     va ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;

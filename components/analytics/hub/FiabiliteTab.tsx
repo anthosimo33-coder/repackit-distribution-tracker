@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/format";
 import { buildCoherenceChecks, type CoherenceStatus } from "@/lib/analytics-hub";
+import { coherenceInputsFrom } from "@/lib/coherence-inputs";
 import { HubCardHeader, KpiTile, dash } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ReliabilityData } from "./types";
@@ -32,6 +33,27 @@ const SOURCE_LABELS: Record<string, string> = {
   whop: "Whop",
   scraping: "Vues (scraping)",
 };
+
+/**
+ * RUPTURES DE SÉRIE connues et datées — à lire avant de comparer deux périodes
+ * qui traversent l'une de ces dates. Documentées, PAS corrigées : la date est
+ * connue, le biais est borné à une seule transition, et un rétro-calcul serait
+ * plus fragile que la note. Même logique que la rupture J+X du 17/08.
+ */
+const SERIES_BREAKS: { since: string; what: string; effect: string }[] = [
+  {
+    since: "17/08/2026",
+    what: "Relevé de vues passé à 23h30 Paris (au lieu de 07h/08h UTC)",
+    effect:
+      "les colonnes J+X portent depuis ~47,5 h de vues au lieu de ~34 h : une comparaison J+1 qui traverse cette date compare deux choses différentes.",
+  },
+  {
+    since: "17/08/2026 23h32",
+    what: "Premier relevé d'abonnés par compte (delta d'abonnés du dashboard)",
+    effect:
+      "aucun historique avant : le delta n'existe qu'à partir de la 2e nuit (18/08), et sa fenêtre s'élargit d'un jour par nuit jusqu'à 4 jours (le 21/08) avant de se stabiliser. Un « +N abonnés » lu entre le 18 et le 21/08 couvre donc 1 à 3 jours, pas 4. Pas de rétro-calcul.",
+  },
+];
 
 /** Ce qui n'est pas mesurable, avec la raison. Curé — un trou caché fait décider sur du vide. */
 const NOT_MEASURABLE: { what: string; why: string }[] = [
@@ -71,24 +93,7 @@ export function FiabiliteTab({
 }) {
   const checks = useMemo(() => {
     const c = reliability.coherence;
-    return buildCoherenceChecks({
-      sequentialSteps: c.sequentialSteps.map((s) => ({
-        key: s.key,
-        label: s.key,
-        count: s.count,
-      })),
-      reachSteps: c.reachSteps.map((s) => ({ key: s.key, label: s.key, count: s.count })),
-      currencyCount: c.currencyCount,
-      dashboardClients: c.dashboardClients,
-      whopMembers: c.whopMembers,
-      whopExcludedPre: c.whopExcludedPre,
-      whopExcludedAfter: c.whopExcludedAfter,
-      dailyClientsSum: c.dailyClientsSum,
-      dailySignupsSum: c.dailySignupsSum,
-      dailySubs: c.dailySubs,
-      dailyPaidClients: c.dailyPaidClients,
-      todayParis: c.todayParis,
-    });
+    return buildCoherenceChecks(coherenceInputsFrom(c));
   }, [reliability.coherence]);
 
   return (
@@ -229,6 +234,44 @@ export function FiabiliteTab({
                 ))}
               </TableBody>
             </Table>
+            {/* Règle de lecture du contrôle croisé — issue du diagnostic du 28/07/2026
+                (11 vs 8) : les deux séries étaient déjà en jour Paris ; l'écart
+                venait d'events REJOUÉS un autre jour et d'un paiement remboursé,
+                pas d'un décalage de minuit. Décomposition relevée ce jour-là :
+                6 appariés + 3 rejoués du 27/07 + 3 remboursés + 1 sans
+                membership_id, moins 2 (trois de ces abonnements appartiennent à
+                UNE personne), face à 6 appariés + 2 paiements sans event. */}
+            <p className="text-xs text-slate-500">
+              <span className="font-medium text-slate-700">
+                Clients/jour PostHog vs Whop
+              </span>{" "}
+              — Whop fait foi pour les ventes (il encaisse). Depuis le 28/07,
+              chaque abonnement PostHog porte son identifiant Whop : un écart
+              se décompose en events rejoués un autre jour, abonnements sans
+              paiement abouti, ou paiements sans event. L&apos;alerte ne sonne
+              que sur ce qui reste inexpliqué (≥ 3 = écart, 2 = à surveiller) ;
+              un ±1 autour de minuit est attendu.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Ruptures de série — datées, documentées, non corrigées. */}
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Ruptures de série connues"
+              subtitle="À lire avant de comparer deux périodes qui traversent l'une de ces dates. Documentées, pas corrigées : la date est connue, le biais est borné à une transition."
+            />
+            <ul className="space-y-2 text-xs text-slate-600">
+              {SERIES_BREAKS.map((b) => (
+                <li key={b.since + b.what}>
+                  <span className="font-medium text-slate-800">
+                    depuis le {b.since}
+                  </span>{" "}
+                  — {b.what}. {b.effect}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
 

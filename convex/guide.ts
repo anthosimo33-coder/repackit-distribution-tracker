@@ -1,4 +1,8 @@
-import { adminMutation, adminQuery, creatorQuery } from "./functions";
+import {
+  creatorQuery,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -56,13 +60,13 @@ export const getMyGuide = creatorQuery({
 });
 
 /** Lecture admin (page d'édition). */
-export const getGuideForAdmin = adminQuery({
+export const getGuideForAdmin = permissionQuery("guide.manage")({
   args: {},
   handler: async (ctx) => readGuide(ctx, ctx.projectId),
 });
 
 /** Upsert du guide (admin). Au plus un row par projet. */
-export const updateProjectGuide = adminMutation({
+export const updateProjectGuide = permissionMutation("guide.manage")({
   args: { content: v.string() },
   handler: async (ctx, { content }) => {
     const existing = await ctx.db

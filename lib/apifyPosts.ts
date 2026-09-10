@@ -13,12 +13,34 @@
  * amont via `publications.plateforme` (on ne devine rien depuis l'URL ici).
  */
 
-/** "123" → 123 ; nombre fini → lui-même ; tout le reste → null. */
+import {
+  parseSaves,
+  parseAuthorProfile,
+  hasAnyCount,
+  type AuthorProfile,
+} from "../convex/apifyItem";
+
+/**
+ * "123" → 123 ; nombre fini POSITIF OU NUL → lui-même ; tout le reste → null.
+ *
+ * UN NÉGATIF EST UN CODE D'ABSENCE, PAS UN COMPTEUR. L'actor Instagram renvoie
+ * `likesCount: -1` quand le compte masque ses likes ; stocké tel quel, il
+ * s'affichait « -1 like », faussait les sommes et rendait le taux d'engagement
+ * NÉGATIF. Aucun compteur qui passe par ici n'admet de négatif légitime (vues,
+ * likes, commentaires, saves, abonnés/abonnements/likes cumulés). Le seul
+ * compteur du domaine qui en admettrait un — `subsGained`, une perte d'abonnés
+ * — est une saisie manuelle et ne passe PAS par cette fonction.
+ *
+ * `null` veut dire « non collecté », comme pour une valeur absente : c'est
+ * l'appelant qui décide quoi en faire, et il le décide déjà (cf `parseSaves`).
+ */
 export function toCount(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) && n >= 0 ? n : null;
   }
   return null;
 }
@@ -83,6 +105,25 @@ export interface ApifyPostStat {
   comments: number | null;
   /** Légende = titre du post (text TikTok ; caption Instagram) ; null si vide. */
   title: string | null;
+  /**
+   * SAVES (`collectCount`, TikTok uniquement) ; `null` = NON COLLECTÉ.
+   *
+   * Instagram et YouTube n'exposent aucune métrique de saves : sur ces
+   * plateformes `null` est la réponse DÉFINITIVE, pas un défaut de collecte.
+   * Ne jamais replier sur 0 — les règles du playbook distinguent « non mesuré »
+   * de « mesuré à zéro » (cf convex/graduation.ts).
+   */
+  saves: number | null;
+  /**
+   * Compteurs du COMPTE auteur (`authorMeta`), servis GRATUITEMENT avec chaque
+   * item vidéo TikTok — donc sans run supplémentaire. `null` si absents.
+   *
+   * Portés PAR POST plutôt qu'indexés par handle : le rattachement au compte
+   * applicatif se fait via la publication. Le handle de l'URL TikTok
+   * (« kellyleydie ») ne coïncide pas avec celui saisi en base
+   * (« @kelly.leydie ») — un appariement par chaîne serait faux.
+   */
+  author: AuthorProfile | null;
 }
 
 export interface ParsedApifyViews {
@@ -131,7 +172,21 @@ export function parseTikTokViews(
     const likes = toCount((item as { diggCount?: unknown }).diggCount);
     const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
-    stats[key] = { views, likes, comments, title };
+    // `collectCount` était reçu et jeté : la lecture vit maintenant dans le
+    // helper partagé avec RADAR (convex/apifyItem.ts).
+    const profil = parseAuthorProfile(item);
+    stats[key] = {
+      views,
+      likes,
+      comments,
+      title,
+      // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
+      // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
+      saves: parseSaves(item),
+      // Une photo de profil n'est pas un compteur, mais elle vaut à elle
+      // seule d'être remontée (cf. la réplique dans convex/apifyApi.ts).
+      author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
+    };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -168,7 +223,9 @@ export function parseInstagramViews(
     const likes = toCount((item as { likesCount?: unknown }).likesCount);
     const comments = toCount((item as { commentsCount?: unknown }).commentsCount);
     const title = cleanCaption((item as { caption?: unknown }).caption);
-    stats[key] = { views, likes, comments, title };
+    // Instagram n'expose AUCUNE métrique de saves — `null` est définitif ici,
+    // pas un défaut de collecte à rattraper plus tard.
+    stats[key] = { views, likes, comments, title, saves: null, author: null };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };

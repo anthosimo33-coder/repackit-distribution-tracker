@@ -1,9 +1,10 @@
 import {
-  adminMutation,
-  adminQuery,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
+import { collectAvailability } from "./collectAvailability";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -11,6 +12,15 @@ import { periodOf } from "./payments";
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
 import { isRemunerated, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
+import {
+  aggregatePayWindow,
+  payWindowEndsAt,
+  payWindowIsClosed,
+  retainedViews,
+  type RetainedViews,
+} from "./payWindow";
+import { ERR, err } from "./errorCodes";
+import { resolveCreatorKind } from "./roles";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -40,6 +50,12 @@ export type PricingSnapshot = {
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
+  /**
+   * SEUIL DE VUES QUI CONDITIONNE LE FIXE — 0 ou absent = aucune condition.
+   * Réplique de lib/pricing-engine (règle A6) : le commentaire de fond y vit.
+   * ABSOLU, jamais pro-raté, et il ne touche QUE le fixe.
+   */
+  seuilVuesFixe?: number;
   // legacy v1 (ignorés par le moteur v2 ; conservés sur les snapshots existants).
   seuilBonusVues: number;
   montantBonus: number;
@@ -49,6 +65,12 @@ type PayoutItem = {
   assignmentId: string;
   snapshot: PricingSnapshot;
   totalViews: number;
+  /**
+   * VUES DE LA PÉRIODE (fin de période, sans la fenêtre J+30) — SEUL le seuil du
+   * fixe les lit ; le CPM garde `totalViews`. Réplique A6 : le raisonnement vit
+   * dans lib/pricing-engine.
+   */
+  periodViews?: number;
 };
 
 export type PerPricing = {
@@ -61,6 +83,16 @@ export type PerPricing = {
   fixePerVideo: number;
   fixed: number;
   cpm: number;
+  /** Seuil conditionnant le fixe (0 = aucun). */
+  seuilVuesFixe: number;
+  /** Vues CUMULÉES du groupe — l'assiette comparée au seuil. */
+  groupViews: number;
+  /**
+   * Le fixe est-il ANNULÉ par la condition ? `true` ⇒ `fixed` vaut 0 alors que
+   * `montantFixe` annonce toujours le contrat : l'écran doit pouvoir dire
+   * « 0 sur 700 — seuil non atteint », pas afficher un contrat à zéro.
+   */
+  fixeBloque: boolean;
 };
 
 export interface MonthlyPayout {
@@ -71,8 +103,11 @@ export interface MonthlyPayout {
   perAssignment: {
     assignmentId: string;
     pricingId: string;
+    /** Assiette AVANT plafond (vues payables retenues). */
     totalViews: number;
     cpm: number;
+    /** Vues réellement FACTURÉES — cf lib/pricing-engine.PerAssignment. */
+    billedViews: number;
   }[];
 }
 
@@ -143,7 +178,16 @@ export function promoVideoCost(
  * du groupe. Cf lib/pricing-engine.ts pour le raisonnement complet.
  */
 function payoutGroupKey(s: PricingSnapshot): string {
-  return [s.pricingId, s.montantFixe, s.nbVideosCible, s.tauxCPM].join("|");
+  // ⚠️ LE SEUIL EN FAIT PARTIE. Sans lui, deux générations de snapshot qui ne
+  // diffèrent QUE par la condition tomberaient dans le même groupe, donc dans le
+  // même budget fixe — et la condition de l'une déciderait pour l'autre.
+  return [
+    s.pricingId,
+    s.montantFixe,
+    s.nbVideosCible,
+    s.tauxCPM,
+    s.seuilVuesFixe ?? 0,
+  ].join("|");
 }
 
 /** RÉPLIQUE de lib/pricing-engine.computeMonthlyPayout (DOIT rester identique). */
@@ -164,8 +208,32 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     // tous ses membres par construction (cf payoutGroupKey) → indépendant de
     // l'ordre. Le reste se lit par ITEM, sur SON snapshot, comme le CPM.
     const groupSnapshot = groupItems[0].snapshot;
-    const budgetFixe = groupSnapshot.montantFixe;
     const videoCount = groupItems.length;
+
+    // ─── CONDITION DE VUES SUR LE FIXE ─────────────────────────────────────
+    // L'assiette est la somme des vues du groupe — LES MÊMES vues que celles qui
+    // paient le CPM (`payableViews` côté serveur). Un second sens du mot
+    // « vues » rendrait la jauge de la créatrice incompréhensible : elle lirait
+    // un total ici et un autre sur sa vidéo.
+    //
+    // Le seuil est ABSOLU. Le pro rata a été écarté : à 30 vidéos sur 60 il
+    // ramènerait la barre à 50 000, et un forfait qui s'adapte à la
+    // sous-livraison n'est plus une condition.
+    //
+    // Non atteint ⇒ le BUDGET tombe à zéro, et tout le reste en découle sans
+    // autre exception : parts fixes nulles, plafond 150 $ appliqué au seul CPM,
+    // aucune vue « achetée » sur un barème au fixe seul. Une branche ajoutée
+    // plus bas aurait dû répéter chacune de ces conséquences.
+    const seuilVuesFixe = Math.max(0, groupSnapshot.seuilVuesFixe ?? 0);
+    // Les vues DE LA PÉRIODE (cf PayoutItem.periodViews), pas l'assiette du CPM.
+    const groupViews = groupItems.reduce(
+      (s, it) => s + Math.max(0, it.periodViews ?? it.totalViews),
+      0,
+    );
+    // Écrit `seuil > vues` et non `vues < seuil` : le détecteur i18n prend le
+    // `<` pour une ouverture de balise et signale un faux littéral en dur.
+    const fixeBloque = seuilVuesFixe > 0 && seuilVuesFixe > groupViews;
+    const budgetFixe = fixeBloque ? 0 : groupSnapshot.montantFixe;
     // Plafond 150 $/vidéo (RÉPLIQUE lib/pricing-engine) : dépassement rogné sur le
     // CPM d'abord, puis la part fixe (pathologique). Sans dépassement = inchangé.
     let remainingFixe = budgetFixe;
@@ -183,11 +251,21 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       fixedOverflow += excess - cpmOverflow;
       const cappedCpm = round2(cpm - cpmOverflow);
       groupCpm = round2(groupCpm + cappedCpm);
+      const views = Math.max(0, it.totalViews);
+      // CPM : vues en deçà du seuil de plafond. FIXE SEUL : achat forfaitaire, donc
+      // toutes les vues (sauf budget fixe épuisé → aucune). Cf lib/pricing-engine.
+      const billableViews =
+        it.snapshot.tauxCPM > 0
+          ? Math.max(0, (MAX_PAY_PER_VIDEO_EUR - fixedShare) / it.snapshot.tauxCPM) * 1000
+          : fixedShare > 0
+            ? views
+            : 0;
       perAssignment.push({
         assignmentId: it.assignmentId,
         pricingId: it.snapshot.pricingId,
-        totalViews: Math.max(0, it.totalViews),
+        totalViews: views,
         cpm: cappedCpm,
+        billedViews: Math.round(Math.min(views, billableViews)),
       });
     }
     const fixed = round2(round2(fixedRaw) - fixedOverflow);
@@ -200,10 +278,15 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       firstAssignmentId: groupItems[0].assignmentId,
       videoCount,
       nbVideosCible: groupSnapshot.nbVideosCible,
-      montantFixe: budgetFixe,
+      // Le CONTRAT, pas le budget effectif : bloqué, l'écran doit lire
+      // « 0 sur 700 », jamais « 0 sur 0 ».
+      montantFixe: groupSnapshot.montantFixe,
       fixePerVideo: round2(fixePerVideo(groupSnapshot)),
       fixed,
       cpm: groupCpm,
+      seuilVuesFixe,
+      groupViews,
+      fixeBloque,
     });
     fixedTotal = round2(fixedTotal + fixed);
     cpmTotal = round2(cpmTotal + groupCpm);
@@ -301,24 +384,54 @@ export function assignmentPublishedAt(a: Doc<"assignments">): number {
  * UNIQUE des vues d'une vidéo, réutilisée par le CPM/cumul (paie) ET par le suivi
  * vidéos créatrice → aucune divergence de vues.
  *
- *  - `totalViews` : Σ de TOUTES les vues (warmup INCLUS) → AFFICHAGE/suivi (un
- *    post warmup reste tracké normalement, ses vues restent visibles).
- *  - `payableViews` : Σ des vues des posts RÉMUNÉRÉS (isRemunerated) → fixe + CPM.
- *  - `bonusTierViews` : Σ des vues RÉMUNÉRÉES **et** en PROMO (isBonusTierPost) →
- *    cumul des PALIERS de bonus, et RIEN d'autre. Sous-ensemble de payableViews :
- *    un post warmup rémunéré (cas Kelly) est payé au fixe/CPM mais ne fait pas
- *    avancer les paliers. Cf convex/viewCounters (point de décision unique).
+ *  - `totalViews` : Σ de TOUTES les vues MESURÉES (warmup INCLUS) →
+ *    AFFICHAGE/suivi (un post warmup reste tracké normalement, ses vues restent
+ *    visibles). JAMAIS plafonné : on garde la mesure.
+ *  - `payableViews` : Σ des vues RETENUES des posts RÉMUNÉRÉS (isRemunerated) →
+ *    fixe + CPM. PLAFONNÉ à J+30 (cf convex/payWindow).
+ *  - `bonusTierViews` : Σ des vues RETENUES des posts RÉMUNÉRÉS **et** en PROMO
+ *    (isBonusTierPost) → cumul des PALIERS de bonus, et RIEN d'autre.
+ *    Sous-ensemble de payableViews : un post warmup rémunéré (cas Kelly) est payé
+ *    au fixe/CPM mais ne fait pas avancer les paliers. Cf convex/viewCounters
+ *    (point de décision unique). PLAFONNÉ, comme toute assiette d'argent.
+ *  - `promoViews` : Σ des vues MESURÉES des posts en promo → taux de conversion.
+ *    JAMAIS plafonné : un taux de conversion mesure la réalité, pas la paie.
  *  - `hasPayablePost` : la vidéo compte-t-elle pour le FIXE (false = tout-warmup).
+ *    INDÉPENDANT des vues → une vidéo plafonnée garde sa part fixe, elle ne
+ *    devient JAMAIS une vidéo à zéro.
  *  - `hasMetrics` : suivi actif vs en cours de calcul (côté créatrice).
+ *  - `payWindowClosed` / `viewsOutsideWindow` : de quoi DIRE le plafond à
+ *    l'écran (cf convex/creatorVideos → portail « Mes vidéos »). Une baisse
+ *    silencieuse serait illisible.
  *
- * Sans aucun post warmup, payableViews === bonusTierViews === totalViews et
- * hasPayablePost === true → la paie est INCHANGÉE. Cf
+ * ⚠️ UNE LECTURE D'INDEX EN PLUS PAR POST (`by_publication_and_capturedAt`,
+ * bornée, `.first()`) : le relevé de fenêtre n'est PAS dénormalisé sur la
+ * publication. C'est délibéré — une valeur dénormalisée de plus à maintenir
+ * (comme `vuesLatest`) dériverait au premier re-run de sync, et le plafond doit
+ * être RÉTROACTIF sur tout l'historique sans migration.
+ *
+ * Sans aucun post warmup et fenêtres ouvertes, payableViews === bonusTierViews
+ * === totalViews et hasPayablePost === true → la paie est INCHANGÉE. Cf
  * lib/pricing-engine.payableAssignmentViews (A6).
  */
-export async function assignmentViewsAndMetrics(
-  ctx: QueryCtx | MutationCtx,
-  a: Doc<"assignments">,
-): Promise<{
+/**
+ * Cache des vues d'un assignment, PARTAGÉ à l'échelle d'UNE query.
+ *
+ * `assignmentViewsAndMetrics` fait DEUX opérations Convex par publication (un
+ * `db.get` + une requête indexée sur `metricSnapshots`), et les mêmes vidéos sont
+ * traversées plusieurs fois dans la même query : une fois pour la ligne affichée,
+ * une fois dans le breakdown de paie de sa (créatrice, mois). Sur la prod du
+ * 2026-09-06, `getAttribution` et `getReliability` ont commencé à ÉCHOUER —
+ * « Your request timed out performing too many system operations » — parce que ce
+ * coût croît linéairement avec le nombre de publications (~20 de plus par jour).
+ *
+ * Le cache ne change AUCUN résultat : la clé est l'assignment, et `now` n'entre
+ * dans aucun montant (cf. la signature). Il est volontairement passé de l'appelant
+ * plutôt que global : une query le crée, l'utilise, le jette — jamais d'état qui
+ * survit à une transaction.
+ */
+/** Vues et métriques d'UN assignment — cf assignmentViewsAndMetrics. */
+export interface AssignmentViews {
   totalViews: number;
   payableViews: number;
   /** Vues RÉMUNÉRÉES et en PROMO — SEULE base du cumul de paliers. */
@@ -329,42 +442,156 @@ export async function assignmentViewsAndMetrics(
   /** Au moins un post en phase promo (détection des jours solo, même à 0 vue). */
   hasPromoPost: boolean;
   hasMetrics: boolean;
-}> {
+  /**
+   * Posts RÉMUNÉRÉS dont AUCUNE vue n'a pu être mesurée.
+   *
+   * SIGNALÉ, JAMAIS BLOQUANT — arbitrage produit : une vidéo non mesurée ne
+   * retient pas le cycle de paie, elle se signale pour que qui valide le sache.
+   * Ce compteur ne modifie donc aucun montant ; il rend visible ce qui est payé
+   * sur une ignorance plutôt que sur une mesure.
+   */
+  unmeasuredPayablePosts: number;
+  /** Au moins un post RÉMUNÉRÉ dont la fenêtre de paie est close (et mesurée). */
+  payWindowClosed: boolean;
+  /** Σ des vues RÉMUNÉRÉES acquises hors fenêtre (mesurées − retenues). */
+  viewsOutsideWindow: number;
+}
+
+/**
+ * Mémoire de calcul d'UNE query de paie.
+ *
+ * `views` évite de recalculer deux fois la même assignation (une créatrice a
+ * plusieurs cycles, chacun rejouait ses vidéos).
+ *
+ * `pubs` répond à un coût distinct, et plus lourd : `assignmentViewsAndMetrics`
+ * faisait un `db.get` PAR PUBLICATION. Sur un projet à ~450 publications
+ * publiées, c'est ~450 lectures unitaires là où l'index `by_project` en ramène
+ * l'intégralité en UNE. Le budget qui saute n'est pas celui des octets (0,8 Mo
+ * en prod) mais celui du NOMBRE d'opérations — c'est lui que Convex refuse
+ * (« too many system operations »). Absent = on relit une par une, comme avant.
+ */
+export type AssignmentViewsCache = {
+  views: Map<string, AssignmentViews>;
+  pubs?: Map<string, Doc<"publications">>;
+};
+
+/** Cache vide, éventuellement pré-chargé des publications du projet. */
+export function newViewsCache(
+  pubs?: Map<string, Doc<"publications">>,
+): AssignmentViewsCache {
+  return { views: new Map(), pubs };
+}
+
+/**
+ * Toutes les publications d'un projet, indexées par id, en UNE lecture.
+ *
+ * À réserver aux appelants qui parcourent tout le projet (paie, analytics) :
+ * pour une seule assignation, un `db.get` reste moins cher.
+ */
+export async function loadProjectPublications(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<Map<string, Doc<"publications">>> {
+  const rows = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return new Map(rows.map((p) => [p._id as string, p]));
+}
+
+export async function assignmentViewsAndMetrics(
+  ctx: QueryCtx | MutationCtx,
+  a: Doc<"assignments">,
+  /** Instant de référence — ne change AUCUN montant, seulement l'état affiché. */
+  now: number = Date.now(),
+  /** Cache d'UNE query (cf AssignmentViewsCache). Absent = comportement d'avant. */
+  cache?: AssignmentViewsCache,
+): Promise<AssignmentViews> {
+  const cached = cache?.views.get(a._id as string);
+  if (cached) return cached;
   const pubIds = [
     ...(a.targets ?? []).map((t) => t.publicationId),
     a.publicationId,
   ].filter((p): p is Id<"publications"> => p !== undefined);
-  const pubs: PublicationViews[] = [];
+  /** Vues MESURÉES (suivi) et RETENUES (paie) — jamais confondues. */
+  const pubs: (RemunerationFlags & { measured: number; retained: number })[] = [];
+  /** Un item par post, pour l'AFFICHAGE du plafond (cf aggregatePayWindow). */
+  const windows: { retained: RetainedViews; isPaid: boolean }[] = [];
   let hasMetrics = false;
+  let unmeasuredPayable = 0;
   const seen = new Set<string>();
   for (const pid of pubIds) {
     if (seen.has(pid)) continue;
     seen.add(pid);
-    const pub = await ctx.db.get(pid);
+    // Publication préchargée si l'appelant a fourni la table du projet ; sinon
+    // lecture unitaire, exactement comme avant.
+    const pub = cache?.pubs?.get(pid as string) ?? (await ctx.db.get(pid));
     if (!pub) continue;
-    pubs.push({
-      views: pub.vuesLatest ?? 0,
+    const measured = pub.vuesLatest ?? 0;
+    // DERNIER relevé de la fenêtre de paie. La borne est un instant, donc elle
+    // se lit directement dans l'index sur capturedAt — inutile de charger la
+    // série pour filtrer sur daysSincePublication (cf payWindowEndsAt).
+    //
+    // ⚠️ INTERROGÉ SEULEMENT SI LA FENÊTRE EST CLOSE. `retainedViews` rend la
+    // main AVANT de regarder ce relevé quand la fenêtre est encore ouverte :
+    // l'assiette vaut alors les vues mesurées, quel que soit le relevé. On
+    // payait donc une lecture indexée PAR PUBLICATION pour un résultat jeté —
+    // et sur Snytch au 08/09/2026, 384 publications sur 449 (86 %) sont dans ce
+    // cas. Le `now` est le MÊME que celui passé à `retainedViews` juste après :
+    // les deux doivent lire la même fenêtre, sinon on se met à sauter des
+    // lectures dont le calcul, lui, aurait besoin.
+    const windowSnapshot = payWindowIsClosed(pub.datePubli, now)
+      ? await ctx.db
+          .query("metricSnapshots")
+          .withIndex("by_publication_and_capturedAt", (q) =>
+            q
+              .eq("publicationId", pid)
+              .lt("capturedAt", payWindowEndsAt(pub.datePubli)),
+          )
+          .order("desc")
+          .first()
+      : null;
+    const retained = retainedViews({
+      datePubli: pub.datePubli,
+      measuredViews: measured,
+      windowSnapshot,
+      now,
+    });
+    const flags = {
       isWarmup: pub.isWarmup === true,
       remunere: pub.remunere,
-    });
+    };
+    // Non mesuré ET rémunéré = payé sur une ignorance. On le compte pour le
+    // dire ; le montant, lui, ne bouge pas (cf `unmeasuredPayablePosts`).
+    if (isRemunerated(flags) && collectAvailability(pub) !== "measured") {
+      unmeasuredPayable += 1;
+    }
+    pubs.push({ ...flags, measured, retained: retained.views });
+    windows.push({ retained, isPaid: isRemunerated(flags) });
     // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
     if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
-  const totalViews = pubs.reduce((s, p) => s + p.views, 0);
+  // AFFICHAGE : vues MESURÉES, jamais plafonnées (le suivi continue).
+  const totalViews = pubs.reduce((s, p) => s + p.measured, 0);
   // promo = non-warmup (isPromoPost, point unique) — DISTINCT de payable : un post
-  // warmup rémunéré (cas Kelly) est payable mais HORS promo.
+  // warmup rémunéré (cas Kelly) est payable mais HORS promo. MESURÉES aussi : un
+  // taux de conversion se calcule sur les vues réelles, pas sur l'assiette.
   const promoViews = pubs.reduce(
-    (s, p) => s + (isPromoPost(p) ? Math.max(0, p.views) : 0),
+    (s, p) => s + (isPromoPost(p) ? Math.max(0, p.measured) : 0),
     0,
   );
   const hasPromoPost = pubs.some((p) => isPromoPost(p));
   // Paliers : rémunéré ET promo (isBonusTierPost, point de décision unique).
+  // ARGENT ⇒ vues RETENUES.
   const bonusTierViews = pubs.reduce(
-    (s, p) => s + (isBonusTierPost(p) ? Math.max(0, p.views) : 0),
+    (s, p) => s + (isBonusTierPost(p) ? Math.max(0, p.retained) : 0),
     0,
   );
-  const { payableViews, hasPayablePost } = payableAssignmentViews(pubs);
-  return {
+  const { payableViews, hasPayablePost } = payableAssignmentViews(
+    pubs.map((p) => ({ ...p, views: p.retained })),
+  );
+  const payWindow = aggregatePayWindow(windows);
+  const out = {
     totalViews,
     payableViews,
     bonusTierViews,
@@ -372,7 +599,66 @@ export async function assignmentViewsAndMetrics(
     hasPayablePost,
     hasPromoPost,
     hasMetrics,
+    unmeasuredPayablePosts: unmeasuredPayable,
+    payWindowClosed: payWindow.closed,
+    viewsOutsideWindow: payWindow.viewsOutsideWindow,
   };
+  cache?.views.set(a._id as string, out);
+  return out;
+}
+
+/**
+ * VUES PAYABLES D'UNE ASSIGNATION À UN INSTANT DONNÉ — l'assiette du SEUIL.
+ *
+ * ⚠️ CE N'EST PAS `payableViews`. Celle-là applique la fenêtre de paie J+30 :
+ * une vidéo publiée l'avant-veille de la clôture continue d'y gagner des vues
+ * pendant un mois. Pour une CONDITION portant sur ce que le mois a produit,
+ * c'est faux — un mois clos basculerait des semaines plus tard.
+ *
+ * Ici, une seule borne : le dernier relevé pris AVANT `asOfMs`. Aucun relevé
+ * avant cette borne ⇒ zéro pour ce post, et c'est juste : à la fin du mois, une
+ * vidéo qu'on n'avait pas encore mesurée n'avait pas encore de vues à porter au
+ * crédit du mois.
+ *
+ * Le filtre PAYABLE, lui, est le MÊME (`payableAssignmentViews`) : deux
+ * définitions du mot « payable » finiraient par diverger, et c'est de l'argent.
+ *
+ * ⚠️ HORS DU CACHE d'`assignmentViewsAndMetrics`, volontairement : son résultat
+ * dépend de `asOfMs`, et une même assignation est évaluée sur plusieurs périodes
+ * dans la même query (rentabilité par mois). Un cache par assignation seule
+ * rendrait la valeur d'un autre mois.
+ */
+export async function payableViewsAsOf(
+  ctx: QueryCtx | MutationCtx,
+  a: Doc<"assignments">,
+  asOfMs: number,
+  cache?: AssignmentViewsCache,
+): Promise<number> {
+  const pubIds = [
+    ...(a.targets ?? []).map((t) => t.publicationId),
+    a.publicationId,
+  ].filter((p): p is Id<"publications"> => p !== undefined);
+  const pubs: (RemunerationFlags & { views: number })[] = [];
+  const seen = new Set<string>();
+  for (const pid of pubIds) {
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const pub = cache?.pubs?.get(pid as string) ?? (await ctx.db.get(pid));
+    if (!pub) continue;
+    const snap = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_publication_and_capturedAt", (q) =>
+        q.eq("publicationId", pid).lte("capturedAt", asOfMs),
+      )
+      .order("desc")
+      .first();
+    pubs.push({
+      isWarmup: pub.isWarmup === true,
+      remunere: pub.remunere,
+      views: Math.max(0, snap?.vues ?? 0),
+    });
+  }
+  return payableAssignmentViews(pubs).payableViews;
 }
 
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */
@@ -400,6 +686,14 @@ export async function creatorCumulViews(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
+  /**
+   * Cache de vues d'UNE query (cf AssignmentViewsCache). Un appelant qui boucle
+   * sur TOUTES les créatrices — `getNatureRewards` — relisait sinon, pour chaque
+   * assignation, ses publications ET son dernier relevé de fenêtre. C'est cette
+   * query qui a fini par ÉCHOUER en prod le 2026-09-08 (« too many system
+   * operations »). Absent = comportement d'avant, à l'identique.
+   */
+  viewsCache?: AssignmentViewsCache,
 ): Promise<number> {
   const assignments = (
     await ctx.db
@@ -414,7 +708,9 @@ export async function creatorCumulViews(
   );
   let cumul = 0;
   for (const a of assignments) {
-    cumul += (await assignmentViewsAndMetrics(ctx, a)).bonusTierViews;
+    cumul += (
+      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache)
+    ).bonusTierViews;
   }
   return cumul;
 }
@@ -472,6 +768,42 @@ export interface NatureDueEntry {
  * DUE mais non chiffrable. L'appelant l'exclut du total ET le signale — un coût
  * manquant qui disparaîtrait en silence ferait lire le total comme complet.
  */
+/**
+ * Récompenses en NATURE dues au titre d'une VICTOIRE DE DÉFI.
+ *
+ * Même contrat que `natureRewardsDue` (paliers) : une prime en nature ne crédite
+ * AUCUN euro à la créatrice — elle ne passe pas par `totalDue` — mais elle nous
+ * COÛTE, et ce coût doit entrer dans le coût complet du moteur. Sans ça, un défi
+ * récompensé par un iPhone serait une dépense réelle invisible du calcul de
+ * marge.
+ *
+ * Une victoire ANNULÉE ne coûte plus rien : l'objet n'est pas dû. Une prime sans
+ * `coutReel` renseigné est rendue avec `null` — DUE mais non chiffrable ;
+ * l'appelant l'exclut du total ET le signale, exactement comme pour les paliers.
+ * Un 0 se lirait « gratuit ».
+ */
+export async function challengeNatureRewardsDue(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<NatureDueEntry[]> {
+  const wins = await ctx.db
+    .query("challengeWins")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return wins
+    .filter((w) => w.reward.type === "nature" && w.cancelledAt === undefined)
+    .map((w) => ({
+      creatorId: w.creatorId,
+      // `seuilVues` n'a pas de sens pour un défi : on porte le score AU MOMENT
+      // de la victoire, qui joue le même rôle (« gagné à tant de vues »).
+      seuilVues: w.scoreAtWin,
+      libelle: w.reward.libelle ?? null,
+      coutReel:
+        typeof w.reward.coutReel === "number" ? w.reward.coutReel : null,
+      unlockedAt: w.wonAt,
+    }));
+}
+
 export async function natureRewardsDue(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
@@ -650,6 +982,236 @@ export interface PricingBreakdown extends MonthlyPayout {
    *  somme = bonusTierCashTotal, `total` inchangé). Vide sur un breakdown gelé
    *  (lineItems agrégées) → la vue retombe sur la ligne agrégée. */
   bonusTierCashUnlocks: { seuilVues: number; montant: number }[];
+  /** Primes CASH des victoires de défi attribuées à cette période (persistées). */
+  challengeTotal: number;
+  /**
+   * DÉTAIL par victoire — UNE ENTRÉE PAR PRIME, jamais agrégée.
+   *
+   * C'est la différence délibérée avec `bonusTierCashUnlocks`, dont la ligne
+   * gelée est agrégée et dont le commentaire d'origine reconnaît qu'« aucun
+   * détail par palier n'est récupérable » : `unlockIsFrozen` doit alors
+   * raisonner par FENÊTRE pour deviner si un palier est déjà payé. Ici chaque
+   * prime porte son défi et son id de victoire, donc l'annulation reste
+   * vérifiable ligne à ligne.
+   */
+  challengeWins: {
+    winId: string;
+    challengeName: string;
+    montant: number;
+  }[];
+  /**
+   * Vidéos RÉMUNÉRÉES de la période dont aucune vue n'a pu être mesurée.
+   *
+   * SIGNALÉ, JAMAIS BLOQUANT (arbitrage produit) : le cycle se paie
+   * normalement, `total` est intouché. Ce compteur sert uniquement à ce que
+   * l'écran de paiement puisse dire « N vidéo(s) payée(s) sans mesure » avant
+   * qu'on valide, au lieu de laisser croire qu'elles ont fait zéro vue.
+   *
+   * Vaut 0 sur un breakdown GELÉ (lineItems agrégées d'un cycle déjà payé) :
+   * l'information n'y est pas récupérable, et un cycle payé ne se rediscute pas.
+   */
+  unmeasuredPayablePosts: number;
+  /**
+   * COÛT ENGAGÉ — ce que la période coûterait si les conditions de vues étaient
+   * remplies. Égal à `total` dès qu'aucun barème n'est bloqué, c'est-à-dire
+   * partout sauf sur une période sous son seuil.
+   *
+   * ⚠️ CE N'EST PAS UN DÛ. Personne n'est payé là-dessus : `total` reste le
+   * montant dû, et lui seul devient une ligne de paie. Cette valeur sert au
+   * PILOTAGE — marge et RPM d'un mois EN COURS. Sans elle, un mois dont le seuil
+   * n'est pas encore franchi s'affiche à coût nul et la marge du mois paraît
+   * excellente jusqu'à la seconde où elle s'effondre. Le RPM d'un mois ouvert
+   * doit se lire en supposant qu'on paiera ; à la clôture, c'est `total` qui
+   * fait foi.
+   */
+  engage: {
+    total: number;
+    /** Vues facturées du scénario engagé — le dénominateur qui va avec. */
+    billedViews: number;
+  };
+}
+
+/**
+ * Primes CASH des victoires de défi d'un créateur, fenêtrées par un prédicat
+ * fourni (mois calendaire OU cycle J+30 — les deux modes de paie coexistent).
+ *
+ * ── Guard B, repris tel quel de `bonusUnlocks` ──────────────────────────────
+ * Le cash d'une période vient UNIQUEMENT des victoires PERSISTÉES : on ne
+ * réévalue JAMAIS un score au moment de payer. Le score a pu bouger depuis (une
+ * vidéo retirée du défi, une autre créatrice passée devant) ; la prime, elle,
+ * est due sur ce qui a été acté. C'est la même raison qui a fait écarter la
+ * ré-évaluation live des paliers.
+ *
+ * ── Les victoires ANNULÉES sortent, sans disparaître ────────────────────────
+ * `cancelledAt` défini ⇒ la prime n'est plus due, donc plus sommée ici. La row
+ * reste en base avec son motif : le grand livre garde la trace de ce qui a été
+ * annulé et pourquoi. Une suppression aurait effacé la question.
+ */
+/**
+ * Les lectures PAR CRÉATRICE que TOUS ses cycles partagent.
+ *
+ * POURQUOI CE TYPE EXISTE. `computeCyclePricingBreakdown` est appelée une fois
+ * PAR CYCLE, et elle re-collectait à chaque appel les MÊMES trois ensembles :
+ * toutes les assignations de la créatrice, tous ses paliers débloqués, toutes
+ * ses victoires de défi — puis un `db.get` par victoire pour le nom du défi.
+ * Rien de tout cela ne dépend du cycle : le fenêtrage se fait ENSUITE, en
+ * mémoire. Une créatrice à cinq cycles payait donc cinq fois la même lecture,
+ * et un appelant qui boucle sur toutes les créatrices multipliait encore.
+ *
+ * Coût mesuré en prod le 2026-09-08 : `analyticsHub:getReliability` lisait
+ * 4 371 documents en 16,5 s et ÉCHOUAIT (« Your request timed out performing
+ * too many system operations ») ; `payments:getDueTotal` 2 173 documents en
+ * 14 s ; `payments:projectLeaderboard` 12,8 s. Ces trois-là passent par ce
+ * chemin.
+ *
+ * Même idiome que `AssignmentViewsCache` : optionnel, préparé par l'appelant,
+ * absent = comportement d'avant à l'identique.
+ */
+export type CreatorPayrollSources = {
+  assignments: Doc<"assignments">[];
+  bonusUnlocks: Doc<"bonusUnlocks">[];
+  challengeWins: Doc<"challengeWins">[];
+  /** Nom du défi par id — résolu une fois, pas une fois par victoire ET par cycle. */
+  challengeNames: Map<string, string>;
+};
+
+/**
+ * Charge les sources d'UNE créatrice. `knownAssignments` évite une relecture à
+ * l'appelant qui les a déjà (cf `cyclePaymentsForCreator`, qui les collecte
+ * pour re-fenêtrer ses lineItems legacy).
+ */
+export async function loadCreatorPayrollSources(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  knownAssignments?: Doc<"assignments">[],
+): Promise<CreatorPayrollSources> {
+  const assignments =
+    knownAssignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
+  const bonusUnlocks = (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((u) => u.projectId === projectId);
+  const challengeWins = (
+    await ctx.db
+      .query("challengeWins")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((w) => w.projectId === projectId);
+  // Un `get` par DÉFI distinct, pas par victoire : deux primes du même défi ne
+  // valent pas deux lectures, et surtout pas deux lectures par cycle.
+  const challengeNames = new Map<string, string>();
+  for (const id of new Set(challengeWins.map((w) => w.challengeId))) {
+    const challenge = await ctx.db.get(id);
+    if (challenge) challengeNames.set(id as string, challenge.name);
+  }
+  return { assignments, bonusUnlocks, challengeWins, challengeNames };
+}
+
+async function challengeCashWins(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  inWindow: (win: Doc<"challengeWins">) => boolean,
+  sources?: CreatorPayrollSources,
+): Promise<PricingBreakdown["challengeWins"]> {
+  const all =
+    sources?.challengeWins ??
+    (
+      await ctx.db
+        .query("challengeWins")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((w) => w.projectId === projectId);
+  const wins = all.filter(
+    (w) =>
+      w.projectId === projectId &&
+      w.reward.type === "cash" &&
+      w.cancelledAt === undefined &&
+      inWindow(w),
+  );
+  const out: PricingBreakdown["challengeWins"] = [];
+  for (const w of wins) {
+    // Nom LU au moment du calcul et FIGÉ au gel : renommer un défi ensuite ne
+    // réécrit pas une feuille de paie déjà émise.
+    const name = sources
+      ? sources.challengeNames.get(w.challengeId as string)
+      : (await ctx.db.get(w.challengeId))?.name;
+    out.push({
+      winId: w._id,
+      challengeName: name ?? "Défi",
+      montant: w.reward.amount ?? 0,
+    });
+  }
+  return out.sort((a, b) => a.challengeName.localeCompare(b.challengeName, "fr"));
+}
+
+/**
+ * Coût d'UNE vidéo lu depuis un breakdown de paie — POINT DE DÉCISION UNIQUE du
+ * « on sait / on ne sait pas ».
+ *
+ * Le hub d'analytics cherche la vidéo dans le breakdown de sa (créatrice, mois).
+ * Trois situations s'y confondaient, et la troisième éteignait des cartes :
+ *
+ *  1. `hasPricingSnapshot = false` — assignation LEGACY, sans barème figé. Le coût
+ *     est réellement INCONNU → `null`. (Aucune en prod le 2026-09-05, mais le cas
+ *     reste possible sur l'historique.)
+ *  2. la vidéo (ou au moins son groupe de barème) est DANS le breakdown → coût
+ *     calculé, comportement inchangé.
+ *  3. barème figé, mais la vidéo est ABSENTE du breakdown parce qu'elle n'a AUCUN
+ *     post rémunéré (`hasPayablePost = false`). Elle en a été retirée par DÉCISION
+ *     — `remunere = false` posé à la main. Son coût n'est pas inconnu : il vaut
+ *     ZÉRO. Elle ne consomme pas non plus de budget fixe, puisque le moteur ne la
+ *     compte pas dans son groupe.
+ *
+ * Le cas 3 rendait `null` et contaminait tout : `getAttribution` pose
+ * `costs.promo = null` dès qu'UNE vidéo promo manque, ce qui éteint « Coût
+ * d'acquisition », « RPM coût » et « Écart » d'un coup. Constaté en prod le
+ * 2026-09-05 : deux vidéos de Veljko (02 et 03/09, 4 posts promo passés à
+ * `remunere = false` entre le 03 et le 05) suffisaient à vider les trois cartes.
+ *
+ * Reste `null` le cas vraiment anormal : barème figé, posts rémunérés, et pourtant
+ * absente du breakdown. Là, on ne sait effectivement pas — et il faut le voir.
+ */
+export function assignmentCostFromBreakdown(input: {
+  /** Un barème est-il FIGÉ sur l'assignation ? false = legacy. */
+  hasPricingSnapshot: boolean;
+  /** Part fixe/vidéo du groupe ; `null` si le groupe est absent du breakdown. */
+  fixePerVideo: number | null;
+  /** CPM plafonné de la vidéo ; `null` si la vidéo est absente du breakdown. */
+  cpm: number | null;
+  /** La vidéo a-t-elle au moins un post RÉMUNÉRÉ ? */
+  hasPayablePost: boolean;
+  /** Vues des posts rémunérés (assiette du CPM). */
+  payableViews: number;
+  /** Vues rémunérées ET en promo (cf viewCounters.paliers). */
+  promoPaidViews: number;
+}): { cost: number | null; promoCost: number | null } {
+  if (!input.hasPricingSnapshot) return { cost: null, promoCost: null };
+  if (input.fixePerVideo !== null || input.cpm !== null) {
+    const fixed = input.fixePerVideo ?? 0;
+    const cpm = input.cpm ?? 0;
+    return {
+      cost: round2(fixed + cpm),
+      promoCost: promoVideoCost(
+        fixed,
+        cpm,
+        input.payableViews,
+        input.promoPaidViews,
+      ),
+    };
+  }
+  // Retirée de la paie par décision : coût CONNU, et il vaut zéro.
+  if (!input.hasPayablePost) return { cost: 0, promoCost: 0 };
+  return { cost: null, promoCost: null };
 }
 
 /**
@@ -660,49 +1222,118 @@ export interface PricingBreakdown extends MonthlyPayout {
  * `attributionPeriod === period` (Guard B — JAMAIS ré-évalué live ; le $
  * d'une période vient uniquement des unlocks persistés). Guard B (legacy) :
  * exclut les assignments déjà couverts par une lineItem legacy.
+ *
+ * `periodKeyOf` — comment un instant est ramené à un mois. Défaut `periodOf`
+ * (UTC), qui est la période de PAIE et la seule valeur PERSISTÉE : tous les
+ * appels de la paie gardent donc EXACTEMENT le comportement d'avant. Le seul
+ * appelant qui l'écrase est la carte Rentabilité (convex/profitability.ts), qui
+ * lit un mois CALENDAIRE Europe/Paris — il faut alors que la fenêtre du coût soit
+ * la même que celle du revenu Whop et des vues, sinon une vidéo publiée le 1er à
+ * 00:03 Paris se retrouve avec ses vues d'un côté et son coût de l'autre.
+ * ⚠️ NE JAMAIS passer autre chose que `periodOf` depuis un chemin qui ÉCRIT
+ * (accrual, gel au paiement) : la clé y sert de jointure avec `payments.period`.
  */
+/**
+ * Le scénario ENGAGÉ — le même calcul, conditions de vues neutralisées.
+ *
+ * Une SECONDE passe du moteur plutôt qu'un calcul parallèle : le plafond
+ * 150 $/vidéo dépend de la part fixe, donc « ce que ça coûterait » ne se déduit
+ * pas du résultat bloqué. Elle n'est payée que si un groupe est effectivement
+ * bloqué — sinon l'engagé EST le dû, et on rend les mêmes nombres.
+ */
+export function engageOf(items: PayoutItem[], base: MonthlyPayout): {
+  total: number;
+  billedViews: number;
+} {
+  const billed = (b: MonthlyPayout) =>
+    b.perAssignment.reduce((s, a) => s + a.billedViews, 0);
+  if (!base.perPricing.some((g) => g.fixeBloque)) {
+    return { total: base.total, billedViews: billed(base) };
+  }
+  const sansSeuil = computeMonthlyPayout(
+    items.map((it) => ({
+      ...it,
+      snapshot: { ...it.snapshot, seuilVuesFixe: undefined },
+    })),
+  );
+  return { total: sansSeuil.total, billedViews: billed(sansSeuil) };
+}
+
 export async function computeLivePricingBreakdown(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
   period: string,
   legacyAssignmentIds: Set<string>,
+  periodKeyOf: (ts: number) => string = periodOf,
+  /** Cache de vues d'UNE query — cf AssignmentViewsCache. */
+  viewsCache?: AssignmentViewsCache,
+  /**
+   * Lectures par créatrice partagées par TOUTES ses périodes (cf
+   * CreatorPayrollSources). Absent = on relit, comme avant.
+   */
+  sources?: CreatorPayrollSources,
+  /**
+   * FIN DE LA PÉRIODE (ms) — sert UNIQUEMENT au seuil de vues du fixe, et n'est
+   * lue que si un barème de la période en porte un. Absente ⇒ le seuil retombe
+   * sur l'assiette du CPM, c'est-à-dire le comportement d'avant la condition.
+   */
+  periodEndMs?: number,
 ): Promise<PricingBreakdown> {
-  const assignments = (
-    await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allAssignments =
+    sources?.assignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
+  const assignments = allAssignments.filter(
     (a) =>
       a.projectId === projectId &&
       a.pricingSnapshot !== undefined &&
       (a.status === "published" || a.status === "paid") &&
-      periodOf(assignmentPublishedAt(a)) === period &&
+      periodKeyOf(assignmentPublishedAt(a)) === period &&
       !legacyAssignmentIds.has(a._id),
   );
+  // Le seuil coûte une lecture indexée PAR PUBLICATION : on ne la paie que si un
+  // barème de la période en porte un. Aucun des barèmes existants n'en a, donc
+  // aucune lecture de plus pour eux.
+  const seuilPresent =
+    periodEndMs !== undefined &&
+    assignments.some((a) => (a.pricingSnapshot?.seuilVuesFixe ?? 0) > 0);
   const items: PayoutItem[] = [];
+  let unmeasuredPayablePosts = 0;
   for (const a of assignments) {
-    const { payableViews, hasPayablePost } = await assignmentViewsAndMetrics(
-      ctx,
-      a,
-    );
+    const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
+      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
+    // Comptées seulement sur les vidéos RETENUES pour la paie : signaler une
+    // vidéo warmup non mesurée n'aurait aucun sens, elle n'est pas payée.
+    unmeasuredPayablePosts += nonMesures;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
       totalViews: payableViews,
+      ...(seuilPresent
+        ? {
+            periodViews: await payableViewsAsOf(ctx, a, periodEndMs!, viewsCache),
+          }
+        : {}),
     });
   }
   const base = computeMonthlyPayout(items);
-  const cashUnlocks = (
-    await ctx.db
-      .query("bonusUnlocks")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allUnlocks =
+    sources?.bonusUnlocks ??
+    (
+      await ctx.db
+        .query("bonusUnlocks")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((u) => u.projectId === projectId);
+  const cashUnlocks = allUnlocks.filter(
     (u) =>
       u.projectId === projectId &&
       u.rewardType === "cash" &&
@@ -716,11 +1347,29 @@ export async function computeLivePricingBreakdown(
   const bonusTierCashUnlocks = cashUnlocks
     .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
     .sort((a, b) => a.seuilVues - b.seuilVues);
+  // PRIMES DE DÉFI — fenêtrées sur `attributionPeriod`, comme les paliers.
+  const challengeWins = await challengeCashWins(
+    ctx,
+    projectId,
+    creatorId,
+    (w) => w.attributionPeriod === period,
+    sources,
+  );
+  const challengeTotal = round2(
+    challengeWins.reduce((s, w) => s + w.montant, 0),
+  );
   return {
     ...base,
     bonusTierCashTotal,
     bonusTierCashUnlocks,
-    total: round2(base.total + bonusTierCashTotal),
+    challengeTotal,
+    challengeWins,
+    unmeasuredPayablePosts,
+    engage: engageOf(items, base),
+    // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
+    // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
+    // vidéos de défi forment leur propre groupe de paie.
+    total: round2(base.total + bonusTierCashTotal + challengeTotal),
   };
 }
 
@@ -742,13 +1391,23 @@ export async function computeCyclePricingBreakdown(
   firstPostAt: number,
   cycleIndex: number,
   legacyAssignmentIds: Set<string>,
+  /** Cache de vues d'UNE query — cf AssignmentViewsCache. */
+  viewsCache?: AssignmentViewsCache,
+  /**
+   * Lectures par créatrice partagées par TOUS ses cycles (cf
+   * CreatorPayrollSources). Absent = on relit, comme avant.
+   */
+  sources?: CreatorPayrollSources,
 ): Promise<PricingBreakdown> {
-  const assignments = (
-    await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allAssignments =
+    sources?.assignments ??
+    (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((a) => a.projectId === projectId);
+  const assignments = allAssignments.filter(
     (a) =>
       a.projectId === projectId &&
       a.pricingSnapshot !== undefined &&
@@ -757,27 +1416,42 @@ export async function computeCyclePricingBreakdown(
       !legacyAssignmentIds.has(a._id),
   );
   const items: PayoutItem[] = [];
+  let unmeasuredPayablePosts = 0;
+  // FIN DU CYCLE — la borne du seuil de vues. Elle est connue ici sans rien
+  // demander à l'appelant : un cycle EST une fenêtre. Lecture payée seulement si
+  // un barème du cycle porte une condition.
+  const cycleEnd = cycleWindow(firstPostAt, cycleIndex).cycleEnd;
+  const seuilPresent = assignments.some(
+    (a) => (a.pricingSnapshot?.seuilVuesFixe ?? 0) > 0,
+  );
   for (const a of assignments) {
-    const { payableViews, hasPayablePost } = await assignmentViewsAndMetrics(
-      ctx,
-      a,
-    );
+    const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
+      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
+    // Comptées seulement sur les vidéos RETENUES pour la paie : signaler une
+    // vidéo warmup non mesurée n'aurait aucun sens, elle n'est pas payée.
+    unmeasuredPayablePosts += nonMesures;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
       totalViews: payableViews,
+      ...(seuilPresent
+        ? { periodViews: await payableViewsAsOf(ctx, a, cycleEnd, viewsCache) }
+        : {}),
     });
   }
   const base = computeMonthlyPayout(items);
-  const cashUnlocks = (
-    await ctx.db
-      .query("bonusUnlocks")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter(
+  const allUnlocks =
+    sources?.bonusUnlocks ??
+    (
+      await ctx.db
+        .query("bonusUnlocks")
+        .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+        .collect()
+    ).filter((u) => u.projectId === projectId);
+  const cashUnlocks = allUnlocks.filter(
     (u) =>
       u.projectId === projectId &&
       u.rewardType === "cash" &&
@@ -791,11 +1465,31 @@ export async function computeCyclePricingBreakdown(
   const bonusTierCashUnlocks = cashUnlocks
     .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
     .sort((a, b) => a.seuilVues - b.seuilVues);
+  // PRIMES DE DÉFI — fenêtrées sur le CYCLE de la VICTOIRE (`wonAt`), comme les
+  // paliers le sont sur `unlockedAt`. La prime est due au moment où la victoire
+  // est actée, pas à la deadline du défi : un défi qui court à cheval sur deux
+  // cycles paie dans celui où la barre a été franchie, et une prime ne se perd
+  // pas parce qu'un cycle s'est clos entre-temps.
+  const challengeWins = await challengeCashWins(
+    ctx,
+    projectId,
+    creatorId,
+    (w) => cycleIndexOf(firstPostAt, w.wonAt) === cycleIndex,
+    sources,
+  );
+  const challengeTotal = round2(
+    challengeWins.reduce((s, w) => s + w.montant, 0),
+  );
   return {
     ...base,
     bonusTierCashTotal,
     bonusTierCashUnlocks,
-    total: round2(base.total + bonusTierCashTotal),
+    challengeTotal,
+    challengeWins,
+    unmeasuredPayablePosts,
+    engage: engageOf(items, base),
+    // ⚠️ S'AJOUTE (cf. computeLivePricingBreakdown) : fixe et CPM intouchés.
+    total: round2(base.total + bonusTierCashTotal + challengeTotal),
   };
 }
 
@@ -811,16 +1505,21 @@ export async function buildPricingSnapshot(
 ): Promise<PricingSnapshot> {
   const pricing = await ctx.db.get(pricingId);
   if (!pricing || pricing.projectId !== projectId) {
-    throw new ConvexError("Pricing introuvable dans le projet.");
+    throw err(ERR.PRICING_NOT_IN_PROJECT, "Pricing introuvable dans le projet.");
   }
   if (pricing.status !== "active") {
-    throw new ConvexError("Pricing archivé : réactive-le pour l'attribuer.");
+    throw err(ERR.PRICING_ARCHIVED, "Pricing archivé : réactive-le pour l'attribuer.");
   }
   return {
     pricingId: pricing._id,
     montantFixe: pricing.montantFixe,
     nbVideosCible: pricing.nbVideosCible,
     tauxCPM: pricing.tauxCPM,
+    // FIGÉ comme le reste : changer la condition d'un barème ne réécrit aucune
+    // vidéo déjà assignée (même règle que montantFixe et tauxCPM).
+    ...(pricing.seuilVuesFixe !== undefined && pricing.seuilVuesFixe > 0
+      ? { seuilVuesFixe: pricing.seuilVuesFixe }
+      : {}),
     // legacy v1 sur le snapshot (ignorés par le moteur v2) — défaut 0.
     seuilBonusVues: pricing.seuilBonusVues ?? 0,
     montantBonus: pricing.montantBonus ?? 0,
@@ -834,8 +1533,27 @@ type PricingInput = {
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
+  /** Seuil de vues conditionnant le fixe. 0 = aucune condition. */
+  seuilVuesFixe?: number;
   bonusTiers?: BonusTier[];
+  bonusTemplateId?: Id<"bonusTemplates"> | null;
 };
+
+/**
+ * Normalise la PROVENANCE de l'échelle pour l'écriture, en distinguant trois
+ * intentions que la spread écraserait en une seule :
+ *   - clé absente      → ne pas toucher au champ (patch partiel) ;
+ *   - clé à `null`     → couper le lien au modèle (patch avec `undefined`, ce
+ *                        qui SUPPRIME le champ côté Convex) ;
+ *   - clé renseignée   → poser le lien.
+ * Sans cette distinction, une simple modification de nom effacerait la
+ * provenance, et l'écran cesserait de signaler qu'une échelle a divergé.
+ */
+function pricingWriteFields(args: PricingInput) {
+  const { bonusTemplateId, ...rest } = args;
+  if (!("bonusTemplateId" in args)) return rest;
+  return { ...rest, bonusTemplateId: bonusTemplateId ?? undefined };
+}
 
 function validatePricingFields(args: PricingInput): PricingInput {
   const name = args.name.trim();
@@ -851,7 +1569,40 @@ function validatePricingFields(args: PricingInput): PricingInput {
       throw new ConvexError(`${label} doit être un nombre ≥ 0.`);
     }
   }
-  for (const t of args.bonusTiers ?? []) {
+  // SEUIL DE VUES DU FIXE — entier ≥ 0, et 0 vaut « aucune condition ». On
+  // NORMALISE le 0 en `undefined` pour qu'un barème sans condition ne porte pas
+  // un champ à zéro : `seuilVuesFixe: 0` et l'absence doivent être le même état
+  // en base, sinon la clé de regroupement du moteur les distinguerait un jour.
+  if (args.seuilVuesFixe !== undefined) {
+    if (!Number.isFinite(args.seuilVuesFixe) || args.seuilVuesFixe < 0) {
+      throw new ConvexError("seuilVuesFixe doit être un nombre ≥ 0.");
+    }
+    if (args.seuilVuesFixe > 0 && args.montantFixe <= 0) {
+      throw new ConvexError(
+        "Un seuil de vues ne conditionne que le FIXE : ce barème n'en a pas. " +
+          "Renseigne un montant fixe, ou laisse le seuil vide.",
+      );
+    }
+  }
+  validateBonusTiers(args.bonusTiers ?? []);
+  return {
+    ...args,
+    name,
+    seuilVuesFixe:
+      args.seuilVuesFixe !== undefined && args.seuilVuesFixe > 0
+        ? Math.round(args.seuilVuesFixe)
+        : undefined,
+  };
+}
+
+/**
+ * Validation d'une ÉCHELLE de paliers. Partagée par les barèmes et par les
+ * MODÈLES d'échelle : un modèle est destiné à être recopié dans un barème, donc
+ * il doit passer exactement les mêmes contrôles à la saisie — sinon on stocke
+ * dans la bibliothèque une échelle que le barème refusera plus tard.
+ */
+function validateBonusTiers(tiers: BonusTier[]): void {
+  for (const t of tiers) {
     if (!Number.isFinite(t.seuilVues) || t.seuilVues < 0) {
       throw new ConvexError("Le seuil de vues d'un palier doit être ≥ 0.");
     }
@@ -875,7 +1626,6 @@ function validatePricingFields(args: PricingInput): PricingInput {
       );
     }
   }
-  return { ...args, name };
 }
 
 /** Le pricing est-il attribué à au moins un assignment du projet ? */
@@ -906,13 +1656,18 @@ const PRICING_ARGS = {
   montantFixe: v.number(),
   nbVideosCible: v.number(),
   tauxCPM: v.number(),
+  seuilVuesFixe: v.optional(v.number()),
   bonusTiers: v.optional(v.array(BONUS_TIER_VALIDATOR)),
+  // Provenance de l'échelle — traçabilité seule (cf schema). `null` la coupe
+  // explicitement : une échelle repartie de zéro ne doit pas continuer à se
+  // comparer à un modèle dont elle ne descend plus.
+  bonusTemplateId: v.optional(v.union(v.id("bonusTemplates"), v.null())),
 };
 
-export const createPricing = adminMutation({
+export const createPricing = permissionMutation("pricing.manage")({
   args: PRICING_ARGS,
   handler: async (ctx, args) => {
-    const fields = validatePricingFields(args);
+    const fields = pricingWriteFields(validatePricingFields(args));
     const pricingId = await ctx.db.insert("pricings", {
       projectId: ctx.projectId,
       ...fields,
@@ -923,22 +1678,23 @@ export const createPricing = adminMutation({
   },
 });
 
-export const updatePricing = adminMutation({
+export const updatePricing = permissionMutation("pricing.manage")({
   args: { id: v.id("pricings"), ...PRICING_ARGS },
   handler: async (ctx, { id, ...args }) => {
     const pricing = await ctx.db.get(id);
     if (!pricing || pricing.projectId !== ctx.projectId) {
       throw new ConvexError("Pricing introuvable.");
     }
-    const fields = validatePricingFields(args);
+    const fields = pricingWriteFields(validatePricingFields(args));
     // Snapshot figé sur les assignments → modifier n'affecte QUE les futures
-    // attributions (jamais les vidéos déjà attribuées).
+    // attributions (jamais les vidéos déjà attribuées). Les PALIERS, eux, sont
+    // lus en direct : les toucher ici change bien la grille des créatrices.
     await ctx.db.patch(id, fields);
     return { ok: true };
   },
 });
 
-export const archivePricing = adminMutation({
+export const archivePricing = permissionMutation("pricing.manage")({
   args: { id: v.id("pricings"), archived: v.boolean() },
   handler: async (ctx, { id, archived }) => {
     const pricing = await ctx.db.get(id);
@@ -950,7 +1706,7 @@ export const archivePricing = adminMutation({
   },
 });
 
-export const deletePricing = adminMutation({
+export const deletePricing = permissionMutation("pricing.manage")({
   args: { id: v.id("pricings") },
   handler: async (ctx, { id }) => {
     const pricing = await ctx.db.get(id);
@@ -968,17 +1724,275 @@ export const deletePricing = adminMutation({
 });
 
 /** Pricings du projet (admin). includeArchived=false → actifs seuls. */
-export const listPricings = adminQuery({
+/**
+ * BARÈMES SÉLECTIONNABLES À L'ASSIGNATION — bloc `assignments.manage`.
+ *
+ * POURQUOI CETTE QUERY EXISTE. `assignScriptCampaign` EXIGE un `pricingId` : sans
+ * barème, on n'assigne pas. Or lister les barèmes vivait sous `pricing.manage`,
+ * un bloc que le manager n'a pas — il ne pouvait donc pas accomplir le geste
+ * central de son rôle. Masquer le sélecteur n'aurait rien réglé : ça aurait rendu
+ * l'échec silencieux au lieu de bruyant.
+ *
+ * ⚠️ ELLE NE REND QUE `_id` ET `name` — aucun montant, aucun taux, aucun palier.
+ * C'est exactement ce que le sélecteur affiche, et c'est plus étroit que la
+ * frontière ne l'exige : le manager CHOISIT un barème par son nom, il n'en voit
+ * pas les termes, et il ne peut toujours ni en créer, ni en modifier, ni en
+ * archiver — tout cela reste sous `pricing.manage`.
+ *
+ * Actifs seulement : proposer un barème archivé serait offrir une impasse, le
+ * serveur le refuse ensuite (`buildPricingSnapshot`).
+ */
+export const listPricingsForAssignment = permissionQuery("assignments.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db
+      .query("pricings")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    return all
+      .filter((p) => p.status === "active")
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((p) => ({ _id: p._id, name: p.name }));
+  },
+});
+
+/**
+ * EFFECTIFS D'USAGE d'un barème — deux nombres, deux questions différentes :
+ *
+ *  - `assignmentCount` : vidéos dont le snapshot FIGÉ porte ce pricingId. C'est
+ *    ce qui rend une suppression impossible, et l'écran l'affiche comme MOTIF de
+ *    désactivation du bouton plutôt que de proposer un geste que le serveur
+ *    refusera (`deletePricing`).
+ *  - `bonusCreatorCount` : créatrices dont la grille de bonus EFFECTIVE est ce
+ *    barème — la sienne en propre, ou par héritage du défaut projet. C'est le
+ *    nombre qui compte avant de toucher aux paliers, parce que les paliers sont
+ *    lus EN DIRECT (aucun snapshot ne les fige, cf effectiveBonusPricing).
+ *
+ * Un seul balayage des assignations et un seul des créatrices, hors de toute
+ * boucle par barème.
+ */
+export const listPricings = permissionQuery("pricing.manage")({
   args: { includeArchived: v.optional(v.boolean()) },
   handler: async (ctx, { includeArchived }) => {
     const all = await ctx.db
       .query("pricings")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+
+    const assignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignmentCounts = new Map<string, number>();
+    for (const a of assignments) {
+      const id = a.pricingSnapshot?.pricingId;
+      if (id) assignmentCounts.set(id, (assignmentCounts.get(id) ?? 0) + 1);
+    }
+
+    const project = await ctx.db.get(ctx.projectId);
+    const defaultBonusId = project?.defaultBonusPricingId ?? null;
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const bonusCounts = new Map<string, number>();
+    for (const c of creators) {
+      // Même résolution que effectiveBonusPricing : la grille perso PRIME, sinon
+      // le défaut du projet. Les compter autrement ferait mentir l'avertissement
+      // affiché avant d'écrire une échelle.
+      const id = c.bonusPricingId ?? defaultBonusId;
+      if (id) bonusCounts.set(id, (bonusCounts.get(id) ?? 0) + 1);
+    }
+
     const rows = includeArchived
       ? all
       : all.filter((p) => p.status === "active");
+    return rows
+      .sort((a, b) => a.name.localeCompare(b.name))
+      // Champs ÉNUMÉRÉS, jamais `...p` : un spread ferait sortir tout champ
+      // ajouté plus tard au document sans que personne l'ait décidé.
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        status: p.status,
+        createdAt: p.createdAt,
+        montantFixe: p.montantFixe,
+        nbVideosCible: p.nbVideosCible,
+        tauxCPM: p.tauxCPM,
+        // 0 plutôt qu'`undefined` : l'écran teste `> 0`, et deux formes pour
+        // « aucune condition » finiraient par diverger à l'affichage.
+        seuilVuesFixe: p.seuilVuesFixe ?? 0,
+        bonusTiers: p.bonusTiers,
+        // legacy v1 — `tiersOf` en a besoin pour rendre le seuil unique des
+        // barèmes d'avant les paliers.
+        seuilBonusVues: p.seuilBonusVues,
+        montantBonus: p.montantBonus,
+        bonusTemplateId: p.bonusTemplateId,
+        assignmentCount: assignmentCounts.get(p._id) ?? 0,
+        bonusCreatorCount: bonusCounts.get(p._id) ?? 0,
+        isDefaultBonus: p._id === defaultBonusId,
+      }));
+  },
+});
+
+// ─── Bibliothèque de MODÈLES d'échelle de bonus ──────────────────────────────
+//
+// Les mêmes six paliers étaient recopiés à la main dans chaque barème. Un modèle
+// se saisit une fois et se pique dans n'importe quel barème.
+//
+// ⚠️ LE MODÈLE NE PAIE JAMAIS. Appliquer un modèle RECOPIE ses paliers dans le
+// barème ; c'est le barème qui reste la source de la paie, et la clé
+// d'idempotence des unlocks (creatorId, pricingId, seuilVues) ne bouge pas d'un
+// pouce. Deux conséquences assumées :
+//   - modifier un modèle ne change RIEN tant qu'on ne le réapplique pas ;
+//   - supprimer un modèle ne peut coûter aucun dollar à personne.
+// C'est le prix payé pour ne pas toucher à la table qui décide qui a débloqué
+// quel bonus.
+
+export const listBonusTemplates = permissionQuery("pricing.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query("bonusTemplates")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
     return rows.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+const TEMPLATE_ARGS = {
+  name: v.string(),
+  tiers: v.array(BONUS_TIER_VALIDATOR),
+};
+
+function validateTemplate(args: { name: string; tiers: BonusTier[] }) {
+  const name = args.name.trim();
+  if (name.length === 0) throw new ConvexError("Le nom du modèle est requis.");
+  if (args.tiers.length === 0) {
+    throw new ConvexError("Un modèle sans palier n'a rien à recopier.");
+  }
+  // Mêmes contrôles qu'un barème : un modèle qui ne passerait pas la validation
+  // d'un pricing serait une échelle piégée, refusée seulement à l'application.
+  validateBonusTiers(args.tiers);
+  const seuils = args.tiers.map((t) => t.seuilVues);
+  if (new Set(seuils).size !== seuils.length) {
+    throw new ConvexError("Deux paliers ne peuvent pas partager le même seuil.");
+  }
+  // Trié à l'écriture : une échelle se lit de bas en haut, et le tri retire une
+  // source de fausse divergence entre deux modèles identiques mal saisis.
+  return {
+    name,
+    tiers: [...args.tiers].sort((a, b) => a.seuilVues - b.seuilVues),
+  };
+}
+
+export const createBonusTemplate = permissionMutation("pricing.manage")({
+  args: TEMPLATE_ARGS,
+  handler: async (ctx, args) => {
+    const fields = validateTemplate(args);
+    const templateId = await ctx.db.insert("bonusTemplates", {
+      projectId: ctx.projectId,
+      ...fields,
+      createdAt: Date.now(),
+    });
+    return { templateId };
+  },
+});
+
+export const updateBonusTemplate = permissionMutation("pricing.manage")({
+  args: { id: v.id("bonusTemplates"), ...TEMPLATE_ARGS },
+  handler: async (ctx, { id, ...args }) => {
+    const tpl = await ctx.db.get(id);
+    if (!tpl || tpl.projectId !== ctx.projectId) {
+      throw new ConvexError("Modèle introuvable.");
+    }
+    // Aucune propagation ici, volontairement : la réapplication est un geste
+    // séparé, qui annonce d'abord combien de créatrices elle touche.
+    await ctx.db.patch(id, validateTemplate(args));
+    return { ok: true };
+  },
+});
+
+export const deleteBonusTemplate = permissionMutation("pricing.manage")({
+  args: { id: v.id("bonusTemplates") },
+  handler: async (ctx, { id }) => {
+    const tpl = await ctx.db.get(id);
+    if (!tpl || tpl.projectId !== ctx.projectId) {
+      throw new ConvexError("Modèle introuvable.");
+    }
+    // Pas de garde d'usage : un modèle ne paie rien. Les barèmes qui en
+    // descendent gardent leurs paliers intacts — ils perdent seulement la
+    // mention de provenance, que l'écran traite comme « aucun modèle ».
+    await ctx.db.delete(id);
+    return { ok: true };
+  },
+});
+
+/**
+ * APPLIQUE un modèle à des barèmes : recopie ses paliers dans chacun et note la
+ * provenance.
+ *
+ * ⚠️ CE GESTE CHANGE LA PAIE. Les paliers sont lus EN DIRECT (aucun snapshot ne
+ * les fige) : après cet appel, les créatrices dont la grille effective est l'un
+ * de ces barèmes voient l'échelle du modèle, et les paliers qu'elles ont déjà
+ * franchis se matérialisent immédiatement — même contrat que
+ * `setDefaultBonusPricing`, à qui on emprunte la synchronisation. Les unlocks
+ * passés sont IMMUABLES et figés à leur déblocage : abaisser un seuil en ajoute,
+ * le relever n'en retire aucun.
+ *
+ * Renvoie ce qui a été touché, pour que l'écran l'affiche au lieu de le deviner.
+ */
+export const applyBonusTemplate = permissionMutation("pricing.manage")({
+  args: {
+    templateId: v.id("bonusTemplates"),
+    pricingIds: v.array(v.id("pricings")),
+  },
+  handler: async (ctx, { templateId, pricingIds }) => {
+    const tpl = await ctx.db.get(templateId);
+    if (!tpl || tpl.projectId !== ctx.projectId) {
+      throw new ConvexError("Modèle introuvable.");
+    }
+    if (pricingIds.length === 0) {
+      throw new ConvexError("Choisis au moins un barème.");
+    }
+    // Validation d'abord, écriture ensuite : un id étranger au projet dans le
+    // lot ne doit pas laisser la moitié des barèmes réécrits.
+    const targets = [];
+    for (const id of pricingIds) {
+      const pricing = await ctx.db.get(id);
+      if (!pricing || pricing.projectId !== ctx.projectId) {
+        throw err(ERR.PRICING_NOT_IN_PROJECT, "Barème introuvable dans le projet.");
+      }
+      targets.push(pricing);
+    }
+    for (const pricing of targets) {
+      await ctx.db.patch(pricing._id, {
+        bonusTiers: tpl.tiers,
+        bonusTemplateId: templateId,
+      });
+    }
+
+    // Créatrices dont la grille EFFECTIVE est l'un des barèmes touchés : grille
+    // perso pointant dessus, ou héritage du défaut projet si celui-ci en est.
+    const touched = new Set<string>(targets.map((p) => p._id));
+    const project = await ctx.db.get(ctx.projectId);
+    const defaultIsTouched =
+      project?.defaultBonusPricingId !== undefined &&
+      touched.has(project.defaultBonusPricingId);
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let creatorsSynced = 0;
+    for (const c of creators) {
+      const concerned = c.bonusPricingId
+        ? touched.has(c.bonusPricingId)
+        : defaultIsTouched;
+      if (!concerned) continue;
+      await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+      creatorsSynced += 1;
+    }
+    return { pricings: targets.length, creatorsSynced };
   },
 });
 
@@ -994,7 +2008,7 @@ export const listPricings = adminQuery({
  * Renvoie, PAR pricing, les générations de snapshot divergentes avec leur
  * effectif et un échantillon d'assignations (pour le détail au clic).
  */
-export const listPricingSnapshotDrift = adminQuery({
+export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
   args: {},
   handler: async (ctx) => {
     const pricings = await ctx.db
@@ -1153,7 +2167,7 @@ export const getMyBonusStatus = creatorQuery({
 });
 
 /** ADMIN — statut bonus d'UN créateur du projet (panneau récompenses). */
-export const getCreatorBonusStatus = adminQuery({
+export const getCreatorBonusStatus = permissionQuery("pricing.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
@@ -1163,7 +2177,7 @@ export const getCreatorBonusStatus = adminQuery({
 });
 
 /** ADMIN — grille de bonus par DÉFAUT du projet (id ou null). */
-export const getDefaultBonusPricingId = adminQuery({
+export const getDefaultBonusPricingId = permissionQuery("pricing.manage")({
   args: {},
   handler: async (ctx): Promise<Id<"pricings"> | null> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1182,13 +2196,13 @@ export const getDefaultBonusPricingId = adminQuery({
  * grille (clé d'idempotence = creatorId+pricingId+seuil) — même propriété qu'un
  * changement de grille perso ; à réserver aux (rares) reconfigurations assumées.
  */
-export const setDefaultBonusPricing = adminMutation({
+export const setDefaultBonusPricing = permissionMutation("pricing.manage")({
   args: { pricingId: v.union(v.id("pricings"), v.null()) },
   handler: async (ctx, { pricingId }): Promise<{ synced: number }> => {
     if (pricingId !== null) {
       const pricing = await ctx.db.get(pricingId);
       if (!pricing || pricing.projectId !== ctx.projectId) {
-        throw new ConvexError("Pricing introuvable dans le projet.");
+        throw err(ERR.PRICING_NOT_IN_PROJECT, "Pricing introuvable dans le projet.");
       }
     }
     await ctx.db.patch(ctx.projectId, {
@@ -1206,6 +2220,140 @@ export const setDefaultBonusPricing = adminMutation({
       synced += 1;
     }
     return { synced };
+  },
+});
+
+/**
+ * ADMIN — QUI est sur quelle grille, vu depuis l'écran Barèmes.
+ *
+ * Rend TOUTES les fiches de PARTENAIRE assignables du projet, avec leur grille
+ * PERSO (`bonusPricingId`, ce qui est écrit sur la fiche) ET leur grille
+ * EFFECTIVE (perso sinon défaut du projet) — la distinction n'est pas cosmétique :
+ * décocher une créatrice qui HÉRITE du défaut ne fait rien, décocher une
+ * créatrice à grille perso la renvoie sur le défaut. Sans les deux valeurs,
+ * l'écran ne peut pas dire laquelle des deux il s'apprête à faire.
+ *
+ * Talents et clippeurs sont ABSENTS, et c'est le même arbitrage que sur la fiche
+ * (BonusGridSection) : ils sont payés au clip ou au forfait de cycle
+ * (`clipRate` / `monthlyRetainer`), champs STRICTEMENT DISJOINTS du barème.
+ *
+ * Gardé par `creators.pay_terms` : la grille d'une créatrice est une condition de
+ * rémunération, où qu'on la lise. Le nom du barème sort, jamais ses montants.
+ */
+export const listCreatorPricingGrids = permissionQuery("creators.pay_terms")({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    const defaultId = project?.defaultBonusPricingId ?? null;
+    const pricings = await ctx.db
+      .query("pricings")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const nameOf = new Map(pricings.map((p) => [p._id, p.name]));
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    return creators
+      .filter(
+        (c) =>
+          resolveCreatorKind(c.kind) === "partner" &&
+          c.status !== "churned" &&
+          c.status !== "paused",
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"))
+      .map((c) => {
+        const effectiveId = c.bonusPricingId ?? defaultId;
+        return {
+          _id: c._id,
+          name: c.name,
+          status: c.status,
+          // Écrit sur la fiche (null = elle hérite).
+          pricingId: c.bonusPricingId ?? null,
+          // Ce qui s'applique réellement aujourd'hui.
+          effectivePricingId: effectiveId,
+          effectivePricingName: effectiveId
+            ? (nameOf.get(effectiveId) ?? null)
+            : null,
+          inherited: c.bonusPricingId === undefined && effectiveId !== null,
+        };
+      });
+  },
+});
+
+/**
+ * ADMIN — pose la grille d'un LOT de créatrices depuis l'écran Barèmes.
+ *
+ * `creatorIds` est l'ENSEMBLE VOULU pour cette grille, pas un ajout : une
+ * créatrice qui y était par sa grille perso et qui n'est plus dans la liste est
+ * RETIRÉE (sa fiche repasse « aucune grille » et elle hérite du défaut du
+ * projet). C'est ce qui permet à l'écran de rendre une case à cocher honnête —
+ * un « ajout seul » afficherait des cases qu'on ne peut pas décocher.
+ *
+ * ⚠️ N'EFFACE JAMAIS la grille de quelqu'un qui est sur une AUTRE grille : seules
+ * les fiches pointant sur `pricingId` sont candidates au retrait.
+ *
+ * Comme `updateCreatorPayTerms`, chaque changement rejoue `syncBonusUnlocks` :
+ * les paliers déjà atteints sous la nouvelle grille sont matérialisés tout de
+ * suite (idempotent), sinon ils n'apparaîtraient qu'au prochain cumul.
+ */
+export const setPricingCreators = permissionMutation("creators.pay_terms")({
+  args: {
+    pricingId: v.id("pricings"),
+    creatorIds: v.array(v.id("creators")),
+  },
+  handler: async (
+    ctx,
+    { pricingId, creatorIds },
+  ): Promise<{ added: number; removed: number }> => {
+    const pricing = await ctx.db.get(pricingId);
+    if (!pricing || pricing.projectId !== ctx.projectId) {
+      throw err(ERR.PRICING_NOT_IN_PROJECT, "Barème introuvable dans le projet.");
+    }
+    const wanted = new Set<string>(creatorIds);
+    // Les cibles sont VÉRIFIÉES une à une (projet + population) avant toute
+    // écriture : un id d'un autre projet doit faire échouer l'appel, pas être
+    // ignoré en silence — sinon l'écran affiche « enregistré » pour une
+    // créatrice qui n'a pas bougé.
+    for (const id of creatorIds) {
+      const c = await ctx.db.get(id);
+      if (!c || c.projectId !== ctx.projectId) {
+        throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
+      }
+      if (resolveCreatorKind(c.kind) !== "partner") {
+        throw err(
+          ERR.CREATOR_NOT_IN_PROJECT,
+          `${c.name} n'est pas un créateur partenaire : sa rémunération ne passe pas par un barème.`,
+          { name: c.name },
+        );
+      }
+      if (pricing.status === "archived" && c.bonusPricingId !== pricingId) {
+        throw err(
+          ERR.PRICING_ARCHIVED,
+          "Barème archivé : réactive-le avant d'y mettre des créatrices.",
+        );
+      }
+    }
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let added = 0;
+    let removed = 0;
+    for (const c of creators) {
+      const surCetteGrille = c.bonusPricingId === pricingId;
+      if (wanted.has(c._id)) {
+        if (surCetteGrille) continue;
+        await ctx.db.patch(c._id, { bonusPricingId: pricingId });
+        await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+        added += 1;
+      } else if (surCetteGrille) {
+        await ctx.db.patch(c._id, { bonusPricingId: undefined });
+        await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+        removed += 1;
+      }
+    }
+    return { added, removed };
   },
 });
 

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
+import { usePermissions } from "@/components/project/use-permissions";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -95,8 +96,29 @@ export function NouveauModal({
   // Anti-shadowban — override de doublon IG/YouTube (checkbox StepPublication).
   const [confirmOverride, setConfirmOverride] = useState(false);
 
-  const allHooks = useProjectQuery(api.hooks.listHooks, {});
-  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
+  // ⚠️ CE MODAL EST MONTÉ EN PERMANENCE par le layout de l'app interne
+  // (SidebarLayout → NouveauModalController), ouvert ou non. Ses deux lectures
+  // partaient donc sur CHAQUE écran, pour tout le monde — et comme elles sont
+  // gardées par un bloc, elles LÈVENT pour un manager qui ne l'a pas. Ce n'était
+  // pas le modal qui tombait : c'était la coquille entière, sur toutes les
+  // pages, avec un timing variable (d'où une panne qui se reproduisait mal).
+  //
+  // Deux conditions, et les deux sont nécessaires :
+  //   - `open` : ne rien charger pour un modal fermé (c'est aussi, accessoirement,
+  //     la bibliothèque de hooks et la liste des comptes qu'on cessait d'envoyer
+  //     au navigateur à chaque navigation) ;
+  //   - le BLOC : même ouvert, une personne sans le droit ne doit pas déclencher
+  //     un appel qui lèvera. Le modal reste alors sur son état de chargement —
+  //     un écran incomplet, jamais une app cassée.
+  const droits = usePermissions();
+  const allHooks = useProjectQuery(
+    api.hooks.listHooks,
+    open ? droits.skipUnless("library.manage", {}) : "skip",
+  );
+  const comptesData = useProjectQuery(
+    api.comptes.listComptes,
+    open ? droits.skipUnless("accounts.manage", { actifOnly: true }) : "skip",
+  );
   // Préfixe d'ID par mediaType (C### / S### / SR###). Skip tant que le format
   // n'est pas choisi (étape 1). Compteur distinct par format côté serveur.
   const nextCarouselId = useProjectQuery(

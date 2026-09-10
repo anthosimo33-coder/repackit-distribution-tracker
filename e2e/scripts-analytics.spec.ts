@@ -22,38 +22,26 @@ function median(values: number[]): number | null {
   return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
 }
 
-/** Campagne 3 hooks (S/A/B) × 2 flux × 2 cta = 12 combos (refonte 3 briques). */
+/** Campagne 3 hooks × 2 flux × 2 cta = 12 combos (refonte 3 briques). */
 async function makeCampaign(ts: number) {
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Analytics ${ts}`,
   });
-  const add = (
-    kind: "hook" | "flux" | "cta",
-    label: string,
-    tier?: "S" | "A" | "B",
-  ) =>
+  const add = (kind: "hook" | "flux" | "cta", label: string) =>
     admin.mutation(api.scripts.createBrick, {
       campaignId,
       kind,
       label,
       content: `${label} contenu`,
-      ...(tier ? { tier } : {}),
     });
-  const hookS = await add("hook", "H-S", "S");
-  const hookA = await add("hook", "H-A", "A");
-  // 3e hook créé en "B" LEGACY : prouve que perfByTier le replie sur « Autre »
-  // (A). Son tier EFFECTIF d'agrégation est donc "A".
-  const hookB = await add("hook", "H-B", "B");
+  await add("hook", "H-1");
+  await add("hook", "H-2");
+  await add("hook", "H-3");
   await add("flux", "F1");
   await add("flux", "F2");
   await add("cta", "T1");
   await add("cta", "T2");
-  const tierByHook: Record<string, "S" | "A"> = {
-    [hookS]: "S",
-    [hookA]: "A",
-    [hookB]: "A", // ex-"B" → « Autre »
-  };
-  return { campaignId, tierByHook };
+  return { campaignId };
 }
 
 test.describe("S3 — analytics par variable de script", () => {
@@ -66,7 +54,7 @@ test.describe("S3 — analytics par variable de script", () => {
       password: "analytics-12345",
     });
     const projectId = creator.projectId;
-    const { campaignId, tierByHook } = await makeCampaign(ts);
+    const { campaignId } = await makeCampaign(ts);
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {
       name: `[E2E_TEST] Pricing ${ts}`,
       montantFixe: 100,
@@ -80,7 +68,7 @@ test.describe("S3 — analytics par variable de script", () => {
       platform: "TikTok",
       handle: `@e2ean${ts}`,
     });
-    // 9 vidéos → round-robin par hook → 3 par tier.
+    // 9 vidéos → round-robin par hook → 3 par hook.
     const r = await admin.mutation(api.scripts.assignScriptCampaign, {
       campaignId,
       creatorId: creator.creatorId,
@@ -102,7 +90,6 @@ test.describe("S3 — analytics par variable de script", () => {
 
     // Valide chaque post → matérialise une publication PORTANT le combo.
     type Post = {
-      tier: "S" | "A";
       hookBrickId: string;
       fluxBrickId: string;
       ctaBrickId: string;
@@ -138,7 +125,6 @@ test.describe("S3 — analytics par variable de script", () => {
       // La publication d'un script matérialise bien une publication.
       expect(res.publicationIds[0]).toBeTruthy();
       posts.push({
-        tier: tierByHook[combo.hookBrickId],
         hookBrickId: combo.hookBrickId,
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
@@ -169,40 +155,13 @@ test.describe("S3 — analytics par variable de script", () => {
       });
     }
 
-    // ── perfByTier J+7 : 2 tiers (Argent/Autre), médianes correctes, tout "en
-    // test" (< 50). « Autre » (A) cumule hookA + l'ex-"B" replié.
-    const tier7 = await admin.query(api.scriptAnalytics.perfByTier, {
-      campaignId,
-      window: "j7",
-    });
-    expect(tier7.map((x) => x.tier).sort()).toEqual(["A", "S"]);
-    for (const t of ["S", "A"] as const) {
-      const inTier = posts.filter((p) => p.tier === t);
-      const row = tier7.find((x) => x.tier === t)!;
-      expect(row.viewsMedian).toBe(median(inTier.map((p) => p.vues7)));
-      expect(row.postCount).toBe(inTier.length); // S=3, A=6 (3 + ex-B 3)
-      expect(row.status).toBe("en_test"); // jamais "jugeable" sous 50
-    }
-
-    // ── Fenêtre J+3 ≠ J+7 (recalcule sur l'autre snapshot).
-    const tier3 = await admin.query(api.scriptAnalytics.perfByTier, {
+    // ── Fenêtre : J+3 et J+7 ne lisent pas le même snapshot. Contrôle porté
+    // par les BRIQUES depuis le retrait du tier (la dimension d'agrégation des
+    // hooks, c'est désormais la brique elle-même).
+    const brick3 = await admin.query(api.scriptAnalytics.perfByBrick, {
       campaignId,
       window: "j3",
     });
-    for (const t of ["S", "A"] as const) {
-      const expected = median(
-        posts.filter((p) => p.tier === t).map((p) => p.vues3),
-      );
-      expect(tier3.find((x) => x.tier === t)!.viewsMedian).toBe(expected);
-    }
-    // Au moins un tier a une médiane différente entre J+3 et J+7.
-    expect(
-      (["S", "A"] as const).some(
-        (t) =>
-          tier3.find((x) => x.tier === t)!.viewsMedian !==
-          tier7.find((x) => x.tier === t)!.viewsMedian,
-      ),
-    ).toBe(true);
 
     // ── perfByBrick J+7 : la brique hook de chaque tier a postCount 3 + médiane.
     const brick7 = await admin.query(api.scriptAnalytics.perfByBrick, {
@@ -218,6 +177,41 @@ test.describe("S3 — analytics par variable de script", () => {
       );
       expect(hookRow.viewsMedian).toBe(expected);
       expect(hookRow.status).toBe("en_test");
+      // Même brique, autre fenêtre → autre médiane (les snapshots J+3 valent
+      // 100×i, les J+7 valent 1000×i : aucune chance d'égalité fortuite).
+      const hookRow3 = brick3.find((b) => b.brickId === p.hookBrickId)!;
+      expect(hookRow3.viewsMedian).toBe(
+        median(
+          posts
+            .filter((x) => x.hookBrickId === p.hookBrickId)
+            .map((x) => x.vues3),
+        ),
+      );
+      expect(hookRow3.viewsMedian).not.toBe(hookRow.viewsMedian);
+    }
+
+    // ── SÉRIE run par run (courbe miniature de la liste des briques) ─────────
+    // L'attendu est reconstruit depuis le DRILL-DOWN, qui rend les mêmes posts
+    // dans un AUTRE ordre (vues décroissantes) : le test trie lui-même par date
+    // et ne relit donc pas l'ordre qu'il vérifie.
+    for (const hookId of new Set(posts.map((p) => p.hookBrickId))) {
+      const drill = await admin.query(api.scriptAnalytics.postsForBrick, {
+        campaignId,
+        brickId: hookId as Id<"scriptBricks">,
+        window: "j7",
+      });
+      const attendu = [...drill]
+        .sort((a, b) => a.datePubli - b.datePubli)
+        .map((x) => x.vues)
+        .slice(-8);
+      const serie = brick7.find((b) => b.brickId === hookId)!.lastRunViews;
+      expect(serie).toEqual(attendu);
+      // Contrôle de FORME : trois runs distincts (vues7 = 1000×i), donc une
+      // série de 3 valeurs différentes — une implémentation qui rendrait trois
+      // fois la même vue, ou une série vide, passerait l'égalité ci-dessus si
+      // le drill-down était lu de travers.
+      expect(serie).toHaveLength(3);
+      expect(new Set(serie).size).toBe(3);
     }
 
     // ── perfByCombo J+7 : 1 post/combo (anti-coord) → tous en test, aucun signal.
@@ -237,13 +231,6 @@ test.describe("S3 — analytics par variable de script", () => {
     }
 
     // ── ISOLATION (Scope 3) : le créateur n'accède à AUCUNE stat de combo.
-    await expect(
-      creator.client.query(api.scriptAnalytics.perfByTier, {
-        projectId,
-        campaignId,
-        window: "j7",
-      }),
-    ).rejects.toThrow();
     await expect(
       creator.client.query(api.scriptAnalytics.perfByBrick, {
         projectId,

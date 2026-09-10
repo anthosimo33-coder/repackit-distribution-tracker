@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  WARMUP_DURATION_BY_PLATFORM,
+  WARMUP_DURATION_FALLBACK,
   getWarmupDuration,
   isSelectableForPublication,
   getEffectiveStatus,
@@ -12,10 +12,11 @@ import {
 /** n checks distincts (dates factices, seul le compte importe pour la complétion). */
 const checks = (n: number) => Array.from({ length: n }, (_, i) => `d${i}`);
 
-describe("WARMUP_DURATION_BY_PLATFORM", () => {
-  // Barème unifié sur lib/warmup : TikTok/YouTube portés à 7 (était 3).
+describe("WARMUP_DURATION_FALLBACK", () => {
+  // Barème de DERNIER RECOURS, pas « le barème de l'app » : chaque projet a le
+  // sien (projects.warmupTargetDays). Snytch vaut 3/3, pas ces valeurs.
   it("TikTok=7, Instagram=14, YouTube=7", () => {
-    expect(WARMUP_DURATION_BY_PLATFORM).toEqual({
+    expect(WARMUP_DURATION_FALLBACK).toEqual({
       TikTok: 7,
       Instagram: 14,
       YouTube: 7,
@@ -110,7 +111,8 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
       warmupStartedAt: 1,
       warmupProtocol: { targetDays: 14, dailyChecks: checks(2) },
     });
-    expect(b.label).toBe("Warmup J+2/14");
+    expect(b.labelKey).toBe("status.compte.warmupProgress");
+    expect(b.params).toEqual({ done: 2, target: 14 });
     expect(b.className).toContain("amber");
   });
   it("aucun check → 'Warmup J+0/N'", () => {
@@ -119,7 +121,8 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
       plateforme: "TikTok",
       warmupStartedAt: 1,
     });
-    expect(b.label).toBe("Warmup J+0/7");
+    expect(b.labelKey).toBe("status.compte.warmupProgress");
+    expect(b.params).toEqual({ done: 0, target: 7 });
   });
   it("respecte targetDays surchargé (override admin)", () => {
     const b = getStatusBadge({
@@ -128,7 +131,8 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
       warmupStartedAt: 1,
       warmupProtocol: { targetDays: 5, dailyChecks: checks(2) },
     });
-    expect(b.label).toBe("Warmup J+2/5");
+    expect(b.labelKey).toBe("status.compte.warmupProgress");
+    expect(b.params).toEqual({ done: 2, target: 5 });
   });
   it("warmup terminé (assez de checks) → 'À valider' bleu", () => {
     const b = getStatusBadge({
@@ -137,13 +141,13 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
       warmupStartedAt: 1,
       warmupProtocol: { dailyChecks: checks(7) },
     });
-    expect(b.label).toBe("À valider");
+    expect(b.labelKey).toBe("status.compte.aValider");
     expect(b.className).toContain("blue");
   });
   it("statuts simples", () => {
-    expect(getStatusBadge({ status: "actif", plateforme: "TikTok" }).label).toBe(
-      "Actif",
-    );
+    expect(
+      getStatusBadge({ status: "actif", plateforme: "TikTok" }).labelKey,
+    ).toBe("status.compte.actif");
     expect(
       getStatusBadge({ status: "shadowban", plateforme: "TikTok" }).className,
     ).toContain("rose");
@@ -152,11 +156,11 @@ describe("getStatusBadge (décompte par CHECKS réels)", () => {
     ).toContain("slate");
   });
   it("rows legacy sans status → dérivé de actif", () => {
-    expect(getStatusBadge({ actif: true, plateforme: "TikTok" }).label).toBe(
-      "Actif",
-    );
-    expect(getStatusBadge({ actif: false, plateforme: "TikTok" }).label).toBe(
-      "Archivé",
-    );
+    expect(
+      getStatusBadge({ actif: true, plateforme: "TikTok" }).labelKey,
+    ).toBe("status.compte.actif");
+    expect(
+      getStatusBadge({ actif: false, plateforme: "TikTok" }).labelKey,
+    ).toBe("status.compte.archive");
   });
 });

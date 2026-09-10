@@ -12,6 +12,12 @@
  * 50 (un appel par lot), JAMAIS un appel par vidéo.
  */
 
+import {
+  parseChannelStats,
+  youtubeHandleFrom,
+  type ChannelStats,
+} from "./youtubeChannel";
+
 const YOUTUBE_VIDEOS_ENDPOINT = "https://www.googleapis.com/youtube/v3/videos";
 const MAX_IDS_PER_CALL = 50;
 
@@ -212,4 +218,53 @@ async function readApiError(res: Response): Promise<string> {
     // corps non-JSON
   }
   return res.statusText || `HTTP ${res.status}`;
+}
+
+const YOUTUBE_CHANNELS_ENDPOINT =
+  "https://www.googleapis.com/youtube/v3/channels";
+
+/**
+ * Compteurs d'ABONNÉS des chaînes YouTube, un appel par handle.
+ *
+ * `channels.list` n'accepte qu'UN `forHandle` par appel (contrairement à `id`,
+ * qui en prend 50). À l'échelle du projet — quelques chaînes — c'est quelques
+ * unités de quota sur 10 000 par jour : négligeable, et ça évite d'avoir à
+ * résoudre les identifiants de chaîne depuis les URLs de vidéos.
+ *
+ * Une chaîne introuvable ou en erreur est SAUTÉE, jamais bloquante : le relevé
+ * des vues est le cœur du cron, les abonnés en sont un supplément.
+ */
+export async function fetchYouTubeChannelStats(
+  handles: readonly string[],
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{
+  stats: Record<string, ChannelStats>;
+  errors: { handle: string; message: string }[];
+}> {
+  const out: {
+    stats: Record<string, ChannelStats>;
+    errors: { handle: string; message: string }[];
+  } = { stats: {}, errors: [] };
+
+  for (const raw of new Set(handles)) {
+    const handle = youtubeHandleFrom(raw);
+    if (!handle) continue;
+    const url = `${YOUTUBE_CHANNELS_ENDPOINT}?part=statistics&forHandle=${encodeURIComponent(handle)}&key=${encodeURIComponent(apiKey)}`;
+    try {
+      const res = await fetchImpl(url);
+      if (!res.ok) {
+        out.errors.push({ handle, message: `HTTP ${res.status}` });
+        continue;
+      }
+      const parsed = parseChannelStats(handle, await res.json());
+      if (parsed) out.stats[handle] = parsed;
+    } catch (e) {
+      out.errors.push({
+        handle,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return out;
 }

@@ -1,4 +1,6 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -6,16 +8,27 @@ import {
   assignmentPublishedAt,
   assignmentViewsAndMetrics,
   computeLivePricingBreakdown,
+  loadCreatorPayrollSources,
+  loadProjectPublications,
+  newViewsCache,
+  type CreatorPayrollSources,
   creatorCumulViews,
   effectiveBonusPricing,
+  challengeNatureRewardsDue,
   natureRewardsDue,
-  promoVideoCost,
+  assignmentCostFromBreakdown,
   type PricingBreakdown,
 } from "./pricing";
-import { cyclePaymentsForCreator, periodOf } from "./payments";
+import { cyclePaymentsForCreator } from "./payments";
+// TOUT mois calendaire de ce module est en Europe/Paris, comme ses jours
+// (`parisDay`) et comme Whop. `periodOf` (UTC) n'y a plus aucun appelant : il ne
+// sert qu'aux clés PERSISTÉES de la paie legacy (cf convex/payments.ts).
+import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import {
   summarizeWhopRevenue,
   whopNetContribution,
+  whopNetInSummaryCurrency,
+  projectFx,
   whopCollectedAmount,
   splitRevenueByOrigin,
   renewalsByPlan,
@@ -30,11 +43,20 @@ import {
   type InternalExcludedPayload,
   type AbPersonArmsPayload,
   type AbArmsPayload,
+  type AbFlippersPayload,
+  type SubsByMembershipPayload,
 } from "./posthogSync";
 import {
-  internalAccountsFor,
-  isInternalWhopMembership,
-} from "./internalAccounts";
+  resolveArm,
+  armDivergence,
+  type ArmLookup,
+} from "./abAttribution";
+// `internalAccountsFor` n'est plus appelé ici : la config A4 arrive désormais
+// par collectProjectWhopPayments (point de passage unique).
+import { isInternalWhopMembership } from "./internalAccounts";
+import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { countPersons, dailyNewPersons } from "./whopClients";
+import { normalizeRef } from "./conversionAttribution";
 import {
   computeViewCounters,
   VIEW_COUNTER_USAGE,
@@ -209,6 +231,18 @@ export interface AttributionResult {
     /** Bonus paliers cash TOTAL (niveau créatrice) — 100 % dans `total`. */
     bonusTotal: number;
     /**
+     * Primes CASH de victoire de DÉFI attribuées — dans `total` ET dans
+     * `promoBonus`. Un défi impose un barème à fixe NUL : la prime EST le coût de
+     * l'opération, l'omettre rendait un défi gratuit à l'écran.
+     */
+    challengeTotal: number;
+    /**
+     * Bonus de paliers + primes de défi, DATÉS (jour Europe/Paris). Σ =
+     * `promoBonus`. Sert au FENÊTRAGE du coût d'acquisition : un total ne se
+     * découpe pas, une série datée oui.
+     */
+    promoBonusByDay: { day: string; amount: number }[];
+    /**
      * Récompenses en NATURE déjà DUES (paliers franchis), valorisées à leur coût
      * réel figé. Incluses dans `total`, JAMAIS dans `promo`/`promoBonus` : un
      * iPhone ou une voiture n'est pas un coût par client, c'est un engagement
@@ -230,7 +264,7 @@ export interface AttributionResult {
  * créatrice. Plus AUCUNE attribution par fenêtre 24 h (supprimée) : le seul
  * rapprochement honnête sans lien tracké est le jour solo.
  */
-export const getAttribution = adminQuery({
+export const getAttribution = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<AttributionResult> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -283,8 +317,29 @@ export const getAttribution = adminQuery({
       }
     }
 
-    // Coût : un breakdown par (créatrice, mois), mémoïsé — le moteur est la
-    // SEULE source du chiffre (aucun recalcul ici).
+    const viewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
+    // Lectures PAR CRÉATRICE (assignations, paliers, victoires de défi) : elles
+    // ne dépendent pas du mois, donc une seule fois par créatrice pour TOUS ses
+    // mois — sans ça, `computeLivePricingBreakdown` les relisait à chaque
+    // (créatrice, mois). Cf CreatorPayrollSources.
+    const sourcesByCreator = new Map<string, CreatorPayrollSources>();
+    const sourcesFor = async (
+      creatorId: Id<"creators">,
+    ): Promise<CreatorPayrollSources> => {
+      const cached = sourcesByCreator.get(creatorId as string);
+      if (cached) return cached;
+      const loaded = await loadCreatorPayrollSources(
+        ctx,
+        ctx.projectId,
+        creatorId,
+      );
+      sourcesByCreator.set(creatorId as string, loaded);
+      return loaded;
+    };
+    // Coût : un breakdown par (créatrice, mois EUROPE/PARIS), mémoïsé — le moteur
+    // est la SEULE source du chiffre (aucun recalcul ici).
     const breakdowns = new Map<string, PricingBreakdown>();
     const breakdownFor = async (
       creatorId: Id<"creators">,
@@ -299,16 +354,49 @@ export const getAttribution = adminQuery({
         creatorId,
         period,
         new Set(),
+        // Même clé de mois que le reste du hub (jours en Paris, revenu en Paris) :
+        // sans ça, une vidéo publiée le 1er à 00:03 Paris met son coût dans le mois
+        // précédent, sous une ligne dont les vues et le revenu sont, eux, du mois
+        // courant. Aucun argent en jeu ici : ce breakdown ne sert QU'À afficher,
+        // jamais à payer (le paiement passe par markCyclePaid → cycles J+30).
+        monthKeyParis,
+        viewsCache,
+        await sourcesFor(creatorId),
+        // Borne du seuil de vues du fixe — la même fin de mois Paris que la clé
+        // ci-dessus, sinon la condition se jugerait sur une autre fenêtre que
+        // celle qui range les vidéos.
+        parisMonthEndMs(period),
       );
       breakdowns.set(key, b);
       return b;
     };
 
+    // ── Budget d'opérations Convex ────────────────────────────────────────────
+    // Cette query ÉCHOUAIT en prod le 2026-09-06 (« too many system operations »),
+    // et avec elle l'écran entier — toutes les cartes à « — ». Deux redondances
+    // pures, aucune n'ayant d'effet sur un chiffre :
+    //   1. chaque publication était lue DEUX fois par `ctx.db.get` — une fois dans
+    //      assignmentViewsAndMetrics, une fois ici pour ses métadonnées. Un seul
+    //      `collect` indexé par projet remplace les N lectures unitaires.
+    //   2. les vues d'un assignment étaient calculées DEUX fois — pour sa ligne,
+    //      puis à nouveau dans le breakdown de paie de sa (créatrice, mois). Le
+    //      cache ci-dessous les partage sur toute la durée de la query.
+    // Le coût croît avec le nombre de publications (~20/jour) : sans ça, l'écran
+    // se recasse tout seul dans quelques jours.
+    const pubById = new Map(
+      (
+        await ctx.db
+          .query("publications")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((p) => [p._id as string, p]),
+    );
+
     const rows: AttributionRow[] = [];
     for (const a of assignments) {
       const publishedAt = assignmentPublishedAt(a);
-      const period = periodOf(publishedAt);
-      const views = await assignmentViewsAndMetrics(ctx, a);
+      const period = monthKeyParis(publishedAt);
+      const views = await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
 
       // Métadonnées des posts de la vidéo (langue/plateformes/nombre).
       const pubIds = [
@@ -322,14 +410,18 @@ export const getAttribution = adminQuery({
       for (const pid of pubIds) {
         if (seen.has(pid)) continue;
         seen.add(pid);
-        const pub = await ctx.db.get(pid);
+        const pub = pubById.get(pid as string);
         if (!pub) continue;
         postCount += 1;
         if (!platforms.includes(pub.plateforme)) platforms.push(pub.plateforme);
         if (langue === null) langue = pub.langue;
       }
 
-      // Coût réel de la vidéo : fixe/vidéo de son pricing + son CPM.
+      // Coût réel de la vidéo : fixe/vidéo de son pricing + son CPM. Le « on sait
+      // / on ne sait pas » est tranché par assignmentCostFromBreakdown (pure,
+      // testée) : une vidéo retirée de la paie à la main coûte ZÉRO, elle n'est
+      // pas de coût inconnu — la confondre avec le cas legacy éteignait trois
+      // cartes de la Vue d'ensemble d'un coup.
       let cost: number | null = null;
       let promoCost: number | null = null;
       if (a.pricingSnapshot) {
@@ -340,17 +432,14 @@ export const getAttribution = adminQuery({
         const perPricing = b.perPricing.find(
           (p) => p.pricingId === (a.pricingSnapshot!.pricingId as string),
         );
-        if (perAssignment || perPricing) {
-          const fixed = perPricing?.fixePerVideo ?? 0;
-          const cpm = perAssignment?.cpm ?? 0;
-          cost = round2(fixed + cpm);
-          promoCost = promoVideoCost(
-            fixed,
-            cpm,
-            views.payableViews,
-            views.bonusTierViews,
-          );
-        }
+        ({ cost, promoCost } = assignmentCostFromBreakdown({
+          hasPricingSnapshot: true,
+          fixePerVideo: perPricing?.fixePerVideo ?? null,
+          cpm: perAssignment?.cpm ?? null,
+          hasPayablePost: views.hasPayablePost,
+          payableViews: views.payableViews,
+          promoPaidViews: views.bonusTierViews,
+        }));
       }
 
       rows.push({
@@ -402,8 +491,18 @@ export const getAttribution = adminQuery({
     // d'acquisition — réparti au prorata de la part de vues payables qui sont promo
     // (hypothèse assumée, affichée). Le coût COMPLET, lui, prend 100 % du bonus.
     let bonusTotal = 0;
+    // Primes de DÉFI — comptées à part parce qu'elles ne se répartissent pas comme
+    // un palier, mais comptées. Elles étaient jusqu'ici ABSENTES de toutes ces
+    // cartes : ni du coût d'acquisition, ni du coût complet du moteur. Un défi
+    // impose un barème à fixe NUL (cf chantier DÉFIS), donc la vidéo ne coûte rien
+    // par le fixe/CPM — la prime EST le coût, et l'omettre rendait une opération
+    // nominative littéralement gratuite à l'écran. Zéro victoire en prod le
+    // 2026-09-06, donc aucun chiffre ne bouge aujourd'hui ; le trou se refermait
+    // silencieusement au premier défi payé.
+    let challengeTotal = 0;
     for (const b of breakdowns.values()) {
       bonusTotal = round2(bonusTotal + b.bonusTierCashTotal);
+      challengeTotal = round2(challengeTotal + b.challengeTotal);
     }
     const payableCost = rows.reduce((s, r) => s + (r.cost ?? 0), 0);
     const promoRows = rows.filter((r) => r.hasPromoPost);
@@ -435,14 +534,54 @@ export const getAttribution = adminQuery({
     // jour a révoqué le seul palier existant) et les 10 paiements sont tous
     // `accruing`, lineItems vides — aucun bonus n'a donc jamais été débloqué, a
     // fortiori aucun sur des vues warmup. Rien à conserver sous l'ancienne clé.
-    const promoBonus = bonusTotal;
+    // Le bonus promo porte AUSSI les primes de défi : une victoire se gagne sur des
+    // vidéos de promo, sa prime est donc un coût d'acquisition au même titre.
+    const promoBonus = round2(bonusTotal + challengeTotal);
+
+    // ── Bonus et primes DATÉS — pour que le coût d'acquisition soit fenêtrable ──
+    // `bonusTotal`/`challengeTotal` sont des TOTAUX : sur une fenêtre de 7 jours,
+    // ils feraient entrer au numérateur une dépense de juillet. Un total ne se
+    // découpe pas, une série datée oui. Deux `collect` indexés par projet (1 ligne
+    // en prod) — pas de lecture par créatrice : le budget d'opérations de cette
+    // query vient d'être ramené sous la limite, on n'y remet rien de linéaire.
+    const bonusByDay = new Map<string, number>();
+    const addBonus = (at: number, amount: number) => {
+      if (!(amount > 0)) return;
+      const d = parisDay(at);
+      bonusByDay.set(d, round2((bonusByDay.get(d) ?? 0) + amount));
+    };
+    for (const u of await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      if (u.rewardType === "cash") addBonus(u.unlockedAt, u.montant ?? 0);
+    }
+    for (const w of await ctx.db
+      .query("challengeWins")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      // Une victoire ANNULÉE n'est plus due : elle ne doit pas peser sur une
+      // fenêtre alors qu'elle est déjà hors du total.
+      if (w.cancelledAt !== undefined) continue;
+      if (w.reward.type === "cash") addBonus(w.wonAt, w.reward.amount ?? 0);
+    }
+    const promoBonusByDay = [...bonusByDay.entries()]
+      .map(([day, amount]) => ({ day, amount }))
+      .sort((a, b) => (a.day < b.day ? -1 : 1));
 
     // Récompenses en NATURE déjà dues (iPhone, MacBook, voiture…) : une dépense
     // réelle, invisible jusqu'ici parce que `bonusTierCashTotal` ne somme que le
     // cash. Elles entrent dans le coût COMPLET du moteur et nulle part ailleurs —
     // ce n'est pas un coût par client. Sans coût réel renseigné, une récompense
     // est comptée comme MANQUANTE plutôt qu'à 0 (un 0 se lirait « gratuit »).
-    const natureEntries = await natureRewardsDue(ctx, ctx.projectId);
+    // Les primes de DÉFI en nature s'ajoutent aux paliers en nature : même
+    // nature de dépense (un objet qu'on doit livrer), même traitement. Les
+    // séparer en deux compteurs ferait deux fois le même raisonnement, et le
+    // coût complet doit être complet.
+    const natureEntries = [
+      ...(await natureRewardsDue(ctx, ctx.projectId)),
+      ...(await challengeNatureRewardsDue(ctx, ctx.projectId)),
+    ];
     const natureDue = round2(
       natureEntries.reduce((s, n) => s + (n.coutReel ?? 0), 0),
     );
@@ -460,11 +599,13 @@ export const getAttribution = adminQuery({
       payCurrency: project?.payCurrency ?? null,
       fxRateToRevenue: project?.fxRateToRevenue ?? null,
       costs: {
-        total: round2(payableCost + bonusTotal + natureDue),
+        total: round2(payableCost + bonusTotal + challengeTotal + natureDue),
         promo: promoNullCost ? null : promoFixeCpm,
         promoBonus: promoNullCost ? null : promoBonus,
         promoViewShare: Math.round(promoViewShare * 1000) / 1000,
         bonusTotal,
+        challengeTotal,
+        promoBonusByDay,
         natureDue,
         natureDueMissingCost,
       },
@@ -521,7 +662,7 @@ export interface NatureRewardsResult {
  * palier affiché ici et non débloqué là-bas. Un engagement est compté PAR
  * CRÉATRICE : deux créatrices sur la même grille, c'est deux objets à prévoir.
  */
-export const getNatureRewards = adminQuery({
+export const getNatureRewards = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<NatureRewardsResult> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -538,12 +679,23 @@ export const getNatureRewards = adminQuery({
     // Regroupement par PALIER (seuil + libellé) : trois créatrices sur « iPhone 17
     // à 10 M » forment une ligne à trois engagements, pas trois lignes.
     const byTier = new Map<string, NatureRewardRow>();
+    // UN cache de vues pour toute la boucle : `creatorCumulViews` relisait sinon,
+    // créatrice après créatrice, les publications et le dernier relevé de fenêtre
+    // de chaque assignation. C'est ce qui faisait échouer cette query en prod.
+    const viewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
     for (const creator of creators) {
       const eff = await effectiveBonusPricing(ctx, creator);
       if (!eff) continue;
       const natureTiers = eff.tiers.filter((t) => t.rewardType === "nature");
       if (natureTiers.length === 0) continue;
-      const cumul = await creatorCumulViews(ctx, ctx.projectId, creator._id);
+      const cumul = await creatorCumulViews(
+        ctx,
+        ctx.projectId,
+        creator._id,
+        viewsCache,
+      );
       for (const t of natureTiers) {
         const key = `${t.seuilVues}|${t.libelle ?? ""}`;
         const row: NatureRewardRow = byTier.get(key) ?? {
@@ -625,7 +777,7 @@ export interface ViewCountersResult {
  * (convex/viewCounters.isPromoPost) : le jour où `datePromoStart` remplace
  * « non-warmup », seule cette fonction change.
  */
-export const getViewCounters = adminQuery({
+export const getViewCounters = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ViewCountersResult> => {
     const pubs = await ctx.db
@@ -715,8 +867,20 @@ export interface DisputeEntry {
 export interface RevenueBreakdown {
   configured: boolean;
   currency: string | null;
-  /** A5 — true = revenu multi-devise : les totaux ne sont PAS additionnés. */
+  /**
+   * A5 — true = revenu multi-devise NON CONVERTIBLE : les totaux ne sont pas
+   * additionnés. Faux dès que le taux du projet a pu les ramener à une seule
+   * devise (cf convertedFrom).
+   */
   mixedCurrency: boolean;
+  /** Devise convertie vers `currency` au taux du projet, ou null. */
+  convertedFrom: string | null;
+  /** Taux appliqué (1 unité de convertedFrom = ce nombre d'unités de currency). */
+  fxRate: number | null;
+  /** Devises PRÉSENTES (tout statut) — cf whopRevenue.currenciesPresent. */
+  currenciesPresent: string[];
+  /** Plusieurs devises en base, même si une seule encaissée. Ne zéroïse rien. */
+  mixedCurrencyPresent: boolean;
   /** A5 — taux de frais effectif (brut − net) / brut, fraction 0–1. null si mixte. */
   feeRate: number | null;
   periods: RevenuePeriod[];
@@ -774,6 +938,16 @@ export interface RevenueBreakdown {
     divergences: { membershipId: string; metadata: string; posthog: string }[];
     /** Abonnements de la fenêtre sans bras par aucune des deux voies. */
     unattached: number;
+    /**
+     * Abonnements ÉCARTÉS parce que leur personne a changé de bras. Le tableau
+     * par bras les retire déjà de ses colonnes (`excludedFlippers`) : sans cette
+     * exclusion côté revenu, leur argent entrait au numérateur d'un bras dont le
+     * dénominateur les excluait. Compteur VISIBLE — une exclusion silencieuse se
+     * lit comme un bras qui vend mal.
+     */
+    excludedFlippers: number;
+    /** Net correspondant, retiré des colonnes de bras. */
+    excludedFlippersNet: number;
   };
 }
 
@@ -782,7 +956,7 @@ export interface RevenueBreakdown {
  * source). Le partage nouveau/récurrent s'appuie sur le premier paiement observé
  * par `membershipId` — approximation assumée et bornée à l'historique importé.
  */
-export const getRevenueBreakdown = adminQuery({
+export const getRevenueBreakdown = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<RevenueBreakdown> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -800,6 +974,10 @@ export const getRevenueBreakdown = adminQuery({
         configured: false,
         currency: null,
         mixedCurrency: false,
+        convertedFrom: null,
+        fxRate: null,
+        currenciesPresent: [],
+        mixedCurrencyPresent: false,
         feeRate: null,
         periods: [],
         plans: [],
@@ -813,26 +991,25 @@ export const getRevenueBreakdown = adminQuery({
         churnAvailable: false,
         internalExcludedMembers: 0,
         offerChanges,
-        abRevenue: { startMs: null, rows: [], divergences: [], unattached: 0 },
+        abRevenue: {
+          startMs: null,
+          rows: [],
+          divergences: [],
+          unattached: 0,
+          excludedFlippers: 0,
+          excludedFlippersNet: 0,
+        },
       };
     }
 
     // A4 — écarte les abonnements internes (par membershipId, cf internalAccounts)
-    // AVANT toute agrégation ; on en tient le compte pour l'afficher.
-    const internalCfg = internalAccountsFor(project.slug);
-    const internalMembers = new Set<string>();
-    const payments = (
-      await ctx.db
-        .query("whopPayments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter((p) => {
-      if (isInternalWhopMembership(p.membershipId, internalCfg)) {
-        if (p.membershipId) internalMembers.add(p.membershipId);
-        return false;
-      }
-      return true;
-    });
+    // AVANT toute agrégation ; on en tient le compte pour l'afficher. Le filtre
+    // passe par le point de passage unique (convex/whopPaymentsAccess).
+    const {
+      payments,
+      internalMemberIds: internalMembers,
+      cfg: internalCfg,
+    } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug);
 
     // Premier paiement ENCAISSÉ par membre → sépare nouveau vs récurrent.
     const firstSeen = new Map<string, number>();
@@ -846,20 +1023,30 @@ export const getRevenueBreakdown = adminQuery({
 
     const byPeriod = new Map<string, Doc<"whopPayments">[]>();
     for (const p of payments) {
-      const k = periodOf(p.paidAt);
+      const k = monthKeyParis(p.paidAt);
       const list = byPeriod.get(k) ?? [];
       list.push(p);
       byPeriod.set(k, list);
     }
 
+    // Le taux du projet : il rend le total BI-DEVISE additionnable. Sans lui,
+    // TOUS les montants de cet écran retombent à zéro — c'est ce qui s'est
+    // produit en prod le 06/09, revenu, marge et RPM compris.
+    const fx = projectFx(project);
+
     const periods: RevenuePeriod[] = [...byPeriod.entries()]
       .map(([period, list]) => {
+        // Le résumé du MOIS, calculé une fois : il porte la conversion, donc la
+        // devise dans laquelle les trois sous-totaux ci-dessous sont exprimés.
+        // Les sommer en net BRUT pendant que `net` est converti aurait fait un
+        // mois dont les parts ne font pas le tout.
+        const sPeriod = summarizeWhopRevenue(list, fx);
         let newNet = 0;
         let returningNet = 0;
         let unattributedNet = 0;
         const members = new Set<string>();
         for (const p of list) {
-          const net = whopNetContribution(p);
+          const net = whopNetInSummaryCurrency(p, sPeriod);
           if (net <= 0) continue;
           if (!p.membershipId) {
             unattributedNet += net;
@@ -872,7 +1059,7 @@ export const getRevenueBreakdown = adminQuery({
         const round2 = (n: number) => Math.round(n * 100) / 100;
         return {
           period,
-          net: summarizeWhopRevenue(list).net,
+          net: sPeriod.net,
           newNet: round2(newNet),
           returningNet: round2(returningNet),
           unattributedNet: round2(unattributedNet),
@@ -895,7 +1082,7 @@ export const getRevenueBreakdown = adminQuery({
         months: new Set<string>(),
       };
       cur.net += net;
-      if (net > 0) cur.months.add(periodOf(p.paidAt));
+      if (net > 0) cur.months.add(monthKeyParis(p.paidAt));
       perMembership.set(p.membershipId, cur);
     }
 
@@ -938,7 +1125,7 @@ export const getRevenueBreakdown = adminQuery({
     const plans: PlanEconomics[] = [...byPlan.entries()]
       .map(([planId, x]) => {
         const list = paymentsByPlan.get(planId) ?? [];
-        const s = summarizeWhopRevenue(list);
+        const s = summarizeWhopRevenue(list, fx);
         const { price, currency } = modalPrice(list);
         const active = s.paymentCount > 0;
         const label = planLabels.get(planId);
@@ -953,7 +1140,12 @@ export const getRevenueBreakdown = adminQuery({
           members: x.members,
           netTotal: round2(x.netTotal),
           ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
-          netPerPayment: s.paymentCount > 0 ? round2(s.net / s.paymentCount) : null,
+          // Même piège qu'au-dessus : net zéroïsé par la garde A5 ÷ un
+          // paymentCount non zéroïsé = 0,00 affiché au lieu d'un tiret.
+          netPerPayment:
+            s.mixedCurrency || s.paymentCount === 0
+              ? null
+              : round2(s.net / s.paymentCount),
           feeRate: s.feeRate,
           netPerMemberMonth:
             x.memberMonths > 0 ? round2(x.netTotal / x.memberMonths) : null,
@@ -970,12 +1162,18 @@ export const getRevenueBreakdown = adminQuery({
           Number(b.active) - Number(a.active) || b.netTotal - a.netTotal,
       );
 
+    // Le taux du projet rend le total BI-DEVISE additionnable (cf projectFx).
+    // Sans lui, tous les montants de cet écran retombent à zéro.
+    const summary = summarizeWhopRevenue(payments, fx);
+
     // Revenu net par JOUR Europe/Paris (colonne « Détail par jour »). En multi-
-    // devise on ne somme pas : série vide (la carte affiche alors un tiret).
+    // devise NON convertible on ne somme pas : série vide (tiret à l'écran).
+    // Convertible, on somme les nets RAMENÉS à la devise d'affichage — sommer
+    // les nets bruts additionnerait des dollars à des euros.
     const netByDay = new Map<string, number>();
-    if (!summarizeWhopRevenue(payments).mixedCurrency) {
+    if (!summary.mixedCurrency) {
       for (const p of payments) {
-        const net = whopNetContribution(p);
+        const net = whopNetInSummaryCurrency(p, summary);
         if (net <= 0) continue;
         const day = parisDay(p.paidAt);
         netByDay.set(day, round2((netByDay.get(day) ?? 0) + net));
@@ -992,7 +1190,6 @@ export const getRevenueBreakdown = adminQuery({
       0,
     );
 
-    const summary = summarizeWhopRevenue(payments);
 
     // Litiges (chargebacks) EN COURS — argent À RISQUE, déjà EXCLU du net. Le plus
     // URGENT d'abord (échéance de réponse la plus proche ; sans échéance en dernier).
@@ -1043,6 +1240,27 @@ export const getRevenueBreakdown = adminQuery({
     const personArms = new Map(
       armsPayload.rows.map((r) => [r.distinctId, r.variant] as const),
     );
+    // Garde anti-flipper EXPLICITE (test positif). Sans elle, la seule
+    // matérialisation de la garde était l'ABSENCE de la ligne ci-dessus : elle
+    // ne mordait donc que sur le repli, et `abVariant ?? repli` la
+    // court-circuitait dès qu'une metadata Whop existait.
+    const flippersRow = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abFlippers),
+      )
+      .first();
+    let flipperDistinctIds = new Set<string>();
+    if (flippersRow && flippersRow.json !== "") {
+      try {
+        flipperDistinctIds = new Set(
+          (JSON.parse(flippersRow.json) as AbFlippersPayload).distinctIds,
+        );
+      } catch {
+        flipperDistinctIds = new Set();
+      }
+    }
+    const armLookup: ArmLookup = { personArms, flipperDistinctIds };
     // Début du test = celui du CACHE POSTHOG (1re émission d'experiment_variant),
     // la même borne que le tableau par bras. Le déduire du 1er membership portant
     // un abVariant datait le test de sa 1re VENTE : tout abonnement conclu entre
@@ -1086,22 +1304,36 @@ export const getRevenueBreakdown = adminQuery({
     >();
     const abDivergences: { membershipId: string; metadata: string; posthog: string }[] = [];
     let abUnattached = 0;
+    let abExcludedFlippers = 0;
+    let abExcludedFlippersNet = 0;
     for (const m of abMemberships) {
       if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
       if (abStartMs === null || m.createdAt < abStartMs) continue; // hors fenêtre du test
-      if (m.abForced === true) continue; // session de QA : hors revenu comme hors events
-      const fromPosthog = m.distinctId ? personArms.get(m.distinctId) : undefined;
-      const variant = m.abVariant ?? fromPosthog;
-      if (!variant) {
-        abUnattached += 1;
-        continue;
+      // Résolution UNIQUE, gardes AVANT les deux voies (cf convex/abAttribution).
+      const resolved = resolveArm(
+        { abVariant: m.abVariant, abForced: m.abForced, distinctId: m.distinctId },
+        armLookup,
+      );
+      if (resolved.variant === null) {
+        // Une exclusion se COMPTE, sinon elle se lit comme un bras qui vend mal.
+        if (resolved.rejected === "flipper") {
+          abExcludedFlippers += 1;
+          abExcludedFlippersNet = round2(
+            abExcludedFlippersNet +
+              (netByMembership.get(m.whopMembershipId)?.net ?? 0),
+          );
+        } else if (resolved.rejected === "unassigned") {
+          abUnattached += 1;
+        }
+        continue; // "forced" : session de QA, hors revenu comme hors events
       }
-      if (m.abVariant && fromPosthog && m.abVariant !== fromPosthog) {
-        abDivergences.push({
-          membershipId: m.whopMembershipId,
-          metadata: m.abVariant,
-          posthog: fromPosthog,
-        });
+      const variant = resolved.variant;
+      const divergence = armDivergence(
+        { abVariant: m.abVariant, distinctId: m.distinctId },
+        armLookup,
+      );
+      if (divergence) {
+        abDivergences.push({ membershipId: m.whopMembershipId, ...divergence });
       }
       const money = netByMembership.get(m.whopMembershipId) ?? { net: 0, atRisk: 0 };
       const a =
@@ -1123,12 +1355,19 @@ export const getRevenueBreakdown = adminQuery({
         .sort((x, y) => x.variant.localeCompare(y.variant)),
       divergences: abDivergences,
       unattached: abUnattached,
+      excludedFlippers: abExcludedFlippers,
+      excludedFlippersNet: abExcludedFlippersNet,
     };
 
     return {
       configured: true,
       currency: summary.currency,
       mixedCurrency: summary.mixedCurrency,
+      // Ramené à une seule devise au taux du projet : l'écran DOIT le dire.
+      convertedFrom: summary.convertedFrom,
+      fxRate: summary.fxRate,
+      currenciesPresent: summary.currenciesPresent,
+      mixedCurrencyPresent: summary.mixedCurrencyPresent,
       feeRate: summary.feeRate,
       periods,
       plans,
@@ -1350,9 +1589,25 @@ export interface RenewalsPayload {
   failureCauses: { cause: string; count: number }[];
 }
 
-export const getChurn = adminQuery({
-  args: {},
-  handler: async (ctx) => {
+export const getChurn = permissionQuery("business.read")({
+  args: {
+    /**
+     * COHORTE D'ACQUISITION, en jours Europe/Paris inclusifs. Absente = toute
+     * la profondeur.
+     *
+     * ⚠️ LA RÉTENTION NE SE FENÊTRE PAS COMME UNE CONVERSION. Filtrer sur
+     * l'ACTIVITÉ de la période donnerait des cartes qui ne parlent pas de la
+     * même population : « taux de renouvellement » regarderait les échéances
+     * tombées dedans, « revenu par client » un cumul depuis toujours, et le
+     * délai avant résiliation des gens acquis n'importe quand. On retient donc
+     * les CLIENTS ACQUIS dans la période, avec tout ce qui leur est arrivé
+     * depuis : une seule population, une seule question — « comment se
+     * comportent les clients gagnés à ce moment-là ? »
+     */
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+  },
+  handler: async (ctx, { from, to }) => {
     const project = await ctx.db.get(ctx.projectId);
     if (!project?.whop) {
       return {
@@ -1363,23 +1618,24 @@ export const getChurn = adminQuery({
         memberships: [] as MembershipEntry[],
         planLabels: [] as { planId: string; name: string | null }[],
         renewals: null as RenewalsPayload | null,
+        cohortFrom: null as string | null,
+        cohortTo: null as string | null,
+        cohortSize: null as number | null,
       };
     }
-    const internalCfg = internalAccountsFor(project.slug);
-    const [members, payments, plans] = await Promise.all([
+    const [members, collected, plans] = await Promise.all([
       ctx.db
         .query("whopMemberships")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
-      ctx.db
-        .query("whopPayments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
+      collectProjectWhopPayments(ctx, ctx.projectId, project.slug),
       ctx.db
         .query("whopPlans")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
     ]);
+    // A4 via le point de passage unique : `payments` est déjà purgé des internes.
+    const { payments, cfg: internalCfg } = collected;
 
     // Premier paiement encaissé + nombre, par membership (internes exclus).
     const payAgg = new Map<string, { first: number; count: number }>();
@@ -1394,12 +1650,33 @@ export const getChurn = adminQuery({
       payAgg.set(p.membershipId, cur);
     }
 
+    // ─── Cohorte d'acquisition ─────────────────────────────────────────────
+    // Un abonnement appartient à la cohorte si son PREMIER encaissement tombe
+    // dans la fenêtre. Les paiements retenus sont ensuite TOUS les siens, y
+    // compris postérieurs à la fenêtre : c'est le propre d'une cohorte, on suit
+    // les gens dans le temps. Borner aussi les paiements ferait disparaître les
+    // renouvellements — donc précisément ce que cet onglet mesure.
+    const cohorte =
+      from !== undefined && to !== undefined
+        ? new Set(
+            [...payAgg.entries()]
+              .filter(([, a]) => {
+                const j = parisDay(a.first);
+                return j >= from && j <= to;
+              })
+              .map(([id]) => id),
+          )
+        : null;
+    const dansCohorte = (membershipId: string | null | undefined): boolean =>
+      cohorte === null || (!!membershipId && cohorte.has(membershipId));
+
     const intervalByPlan = new Map(
       plans.map((pl) => [pl.planId, intervalToDaysServer(pl.interval ?? null)]),
     );
 
     const memberships: MembershipEntry[] = members
       .filter((m) => !isInternalWhopMembership(m.whopMembershipId, internalCfg))
+      .filter((m) => dansCohorte(m.whopMembershipId))
       .map((m) => {
         const pa = payAgg.get(m.whopMembershipId);
         return {
@@ -1416,11 +1693,19 @@ export const getChurn = adminQuery({
       });
 
     const nonInternalPayments = payments.filter(
-      (p) => !isInternalWhopMembership(p.membershipId, internalCfg),
+      (p) =>
+        !isInternalWhopMembership(p.membershipId, internalCfg) &&
+        dansCohorte(p.membershipId),
     );
-    const summary = summarizeWhopRevenue(nonInternalPayments);
+    const summary = summarizeWhopRevenue(nonInternalPayments, projectFx(project));
+    // En multi-devise, summarizeWhopRevenue met `net` à 0 mais garde
+    // `paymentCount` à sa vraie valeur (un compte est sans dimension) : la
+    // division rendait « 0,00 € », un montant plausible et faux, là où la
+    // grandeur n'est simplement pas calculable. On s'abstient.
     const netPerPayment =
-      summary.paymentCount > 0 ? round2(summary.net / summary.paymentCount) : null;
+      summary.mixedCurrency || summary.paymentCount === 0
+        ? null
+        : round2(summary.net / summary.paymentCount);
     const computedAt =
       members.length > 0 ? Math.max(...members.map((m) => m.updatedAt)) : null;
 
@@ -1432,7 +1717,11 @@ export const getChurn = adminQuery({
     const stats = computeRenewalStats(
       nonInternalPayments,
       members
-        .filter((m) => !isInternalWhopMembership(m.whopMembershipId, internalCfg))
+        .filter(
+          (m) =>
+            !isInternalWhopMembership(m.whopMembershipId, internalCfg) &&
+            dansCohorte(m.whopMembershipId),
+        )
         .map((m) => ({
           whopMembershipId: m.whopMembershipId,
           planId: m.planId,
@@ -1463,6 +1752,13 @@ export const getChurn = adminQuery({
       memberships,
       planLabels: plans.map((pl) => ({ planId: pl.planId, name: pl.name ?? null })),
       renewals,
+      /**
+       * La cohorte réellement appliquée. L'écran DOIT pouvoir dire de qui il
+       * parle : « 40 clients » sans préciser lesquels se lit comme un total.
+       */
+      cohortFrom: cohorte === null ? null : (from ?? null),
+      cohortTo: cohorte === null ? null : (to ?? null),
+      cohortSize: cohorte === null ? null : cohorte.size,
     };
   },
 });
@@ -1533,8 +1829,38 @@ export interface ReliabilityResult {
      * l'instrumentation → base du calcul d'écart (ni latence de cron, ni artefact).
      */
     whopMembers: number | null;
-    /** Total des membres payants Whop (affichage « Clients payants »). */
+    /** Total des membres payants Whop, en ABONNEMENTS. Contexte, jamais diviseur. */
     whopMembersTotal: number | null;
+    /**
+     * LE MÊME ensemble que `whopMembers`, en PERSONNES (`whopUserId` distincts).
+     * Seule unité comparable à PostHog, qui ne compte que des `person_id`.
+     */
+    whopClients: number | null;
+    /**
+     * Clients ACQUIS (personnes), toutes fenêtres — affichage « Clients payants »
+     * ET dénominateur unique des trois cartes d'éco unitaire.
+     */
+    whopClientsTotal: number | null;
+    /**
+     * Abonnements payants dont la personne n'est pas résolue (`whopUserId` pas
+     * encore synchronisé). Chacun compte pour un client à part : le compte
+     * SURESTIME plutôt que de perdre un client. > 0 ⇒ chiffre dégradé, à dire.
+     */
+    whopClientsUnresolved: number;
+    /**
+     * Décomposition de l'écart PostHog↔Whop sur TOUTE la fenêtre — permet
+     * d'alerter sur l'inexpliqué plutôt que sur l'écart brut (cf
+     * lib/analytics-hub, contrôle `dashboard_vs_whop`). null tant que le cache
+     * `subsByMembership` n'est pas alimenté : le contrôle retombe alors sur
+     * l'écart brut, il ne se tait jamais faute de données.
+     */
+    windowReconciliation: {
+      ghostClients: number;
+      missingEvents: number;
+      unlinkedBeforeBreak: number;
+      unlinkedAfterBreak: number;
+      breakLabel: string;
+    } | null;
     /** Exclus car antérieurs à l'instrumentation (cause explicable de l'écart). */
     whopExcludedPre: number;
     /** Exclus car postérieurs au dernier cron (latence, pas incohérence). */
@@ -1543,6 +1869,13 @@ export interface ReliabilityResult {
      *  internes exclus) — série « Clients payants », SOURCE DE VÉRITÉ affichée sur
      *  la courbe + la colonne (remplace PostHog subs, décalé). */
     dailyPaidClients: { day: string; clients: number }[];
+    /**
+     * Nouveaux ABONNEMENTS par jour — même décompte que `dailyPaidClients` mais
+     * dans l'unité des PAIEMENTS. Sert au seul contrôle de cohérence du tableau
+     * par jour : `nouveaux + renouvellements` s'y compare à un nombre de
+     * paiements, donc il lui faut des abonnements, pas des personnes.
+     */
+    dailyNewMemberships: { day: string; memberships: number }[];
     /** RENOUVELLEMENTS encaissés par jour Paris — colonne jumelle de « Nouveaux
      *  clients », qui ne compte QUE les premiers paiements. Source Whop. */
     dailyRenewals: { day: string; renewals: number }[];
@@ -1561,6 +1894,9 @@ export interface ReliabilityResult {
      * `whopMembersTotal` reste le compte de clients ACQUIS (litiges inclus).
      */
     whopSecuredMembers: number | null;
+    /** Le même sous-ensemble sécurisé, en PERSONNES — dénominateur du revenu par
+     *  client, dans la même unité que « clients acquis ». */
+    whopSecuredClients: number | null;
     /** Tentatives de paiement ÉCHOUÉES Whop PAR JOUR Paris (statut "failed",
      *  internes exclus) — colonne « Échecs » du Détail par jour. Une tentative
      *  échouée n'est PAS un client (0 au net) mais doit être visible. */
@@ -1568,6 +1904,12 @@ export interface ReliabilityResult {
     /** subs PostHog par jour Paris — SEULEMENT pour le contrôle croisé PostHog↔Whop
      *  (le funnel garde PostHog ; l'affichage « Clients payants » passe sur Whop). */
     dailySubs: { day: string; subs: number }[];
+    /** subs PostHog par (jour Paris, membership_id) — réconciliation fine du
+     *  contrôle croisé (cf lib/analytics-hub.reconcileDailyClients). */
+    subsByMembership: { day: string; membershipId: string; persons: number }[];
+    /** Jour Paris du 1er paiement encaissé PAR membership Whop (internes exclus)
+     *  — l'autre moitié de la réconciliation. */
+    whopFirstPaidDay: { membershipId: string; day: string }[];
     /** Jour Paris courant — exclu du contrôle croisé (partiel des deux côtés). */
     todayParis: string;
     /**
@@ -1598,7 +1940,343 @@ export interface ReliabilityResult {
  * fraîcheur des sources. La phase C n'a plus qu'à afficher (et composer les
  * checks via le module pur côté client).
  */
-export const getReliability = adminQuery({
+/**
+ * RUPTURE DE SÉRIE — jour Paris à partir duquel `subscription_completed` porte
+ * `membership_id`. Avant, l'event existe mais n'est rattachable à aucun
+ * abonnement : ces personnes sont inclassables, ni « fantômes » ni « appariées ».
+ *
+ * Mesuré en prod : 18 events non liés, tous entre le 24 et le 28/07/2026, aucun
+ * après. Le bucket est CLOS — il ne grandira jamais et sortira de la fenêtre de
+ * 90 jours de lui-même, ce qui resserre le contrôle avec le temps.
+ *
+ * ⚠️ LA BORNE EST AU 29/07, pas au 28. `subsByMembership` est bucketisé par JOUR
+ * PARIS : on ne peut pas distinguer, dans la journée du 28, ce qui précède
+ * 01:09 UTC (03:09 Paris) de ce qui suit. Le seul arrondi sûr range la journée
+ * de transition ENTIÈRE dans le bucket clos. Sans cet arrondi, l'unique event
+ * non lié du 28/07 — antérieur à la bascule selon toute vraisemblance — était
+ * compté comme une régression et suspendait les chiffres EN PERMANENCE
+ * (constaté en rejouant le contrôle sur l'export de prod). Le coût est un angle
+ * mort d'UN jour, dans le passé, et nommé.
+ */
+const MEMBERSHIP_ID_BREAK_DAY = "2026-07-29";
+const MEMBERSHIP_ID_BREAK_LABEL = "28/07/2026 01:09 UTC";
+
+/**
+ * DÉTAIL DÉPLIABLE PAR JOUR — les trois groupes de sous-lignes, sur 30 jours.
+ *
+ * Trois provenances distinctes, réunies ici et NON mélangées :
+ *  - PAYS : cache PostHog `countryDaily` (trafic seul, copies serveur exclues) ;
+ *  - REF  : `creatorConversions` pour le trafic + les paiements Whop LUS EN
+ *    DIRECT pour l'argent — même choix qu'au bloc « Ce que ça a rapporté », où
+ *    faire transiter les ventes par l'agrégat quotidien leur imposait jusqu'à
+ *    47 h de retard ;
+ *  - REVENU : décomposition du net du jour depuis `whopPayments`.
+ *
+ * Les colonnes argent des lignes PAYS ne sont pas calculées : Whop ne stocke
+ * aucun pays. C'est le module pur (lib/day-detail) qui les rend `null`, pour que
+ * l'écran affiche un tiret et jamais un zéro.
+ */
+/**
+ * Étiquette de la ligne « sans source » dans le détail par ref — le trafic et
+ * l'argent qu'aucune ref ne revendique. Volontairement la MÊME formulation que
+ * le bloc « Ce que ça a rapporté », pour qu'un même fait ne porte pas deux noms.
+ */
+const SANS_SOURCE = "sans source";
+
+/**
+ * VENTES PAR PAYS DE FACTURATION — l'agrégat du second tableau de Parcours.
+ *
+ * ⚠️ PAYS DE FACTURATION, pas de connexion. Celui-ci vient de
+ * `whopPayments.billingCountry` (adresse collectée par Whop pour la TVA) ; le
+ * pays PostHog vient de l'adresse IP. Deux notions, DEUX POPULATIONS — payeurs
+ * contre visiteurs — donc deux tableaux et jamais les mêmes cases : côte à côte,
+ * on finirait par diviser des clients par des visiteurs.
+ *
+ * Le pays est porté par le PAIEMENT et non par le client. Un client est rattaché
+ * au pays de son PREMIER paiement encaissé — la même ancre que « client acquis »
+ * partout ailleurs dans le hub, plutôt qu'une seconde définition. Mesuré le
+ * 30/08 : zéro client avec des pays divergents entre ses paiements, donc l'ancre
+ * ne tranche aujourd'hui aucun cas réel.
+ */
+export const getBillingCountries = permissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    if (!project?.whop) {
+      return { rows: [], payments: 0, withCountry: 0, clients: 0, clientsWithCountry: 0 };
+    }
+    const { payments } = await collectProjectWhopPayments(
+      ctx,
+      ctx.projectId,
+      project.slug,
+    );
+    const memberships = await ctx.db
+      .query("whopMemberships")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const userOf = new Map<string, string>();
+    for (const m of memberships) {
+      if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
+    }
+
+    // Pays d'un client = celui de son PREMIER paiement encaissé.
+    const first = new Map<string, { at: number; country?: string }>();
+    for (const p of payments) {
+      if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
+      const u = userOf.get(p.membershipId) ?? `mem:${p.membershipId}`;
+      const prev = first.get(u);
+      if (prev === undefined || p.paidAt < prev.at) {
+        first.set(u, { at: p.paidAt, country: p.billingCountry });
+      }
+    }
+
+    type Row = {
+      country: string | null;
+      clients: number;
+      renewals: number;
+      failures: number;
+      net: number;
+    };
+    const rows = new Map<string, Row>();
+    const touch = (c: string | undefined): Row => {
+      const k = c ?? "";
+      const cur = rows.get(k) ?? {
+        country: c ?? null,
+        clients: 0,
+        renewals: 0,
+        failures: 0,
+        net: 0,
+      };
+      rows.set(k, cur);
+      return cur;
+    };
+    for (const [, f] of first) touch(f.country).clients += 1;
+    for (const p of payments) {
+      const r = touch(p.billingCountry);
+      if (p.status === "failed") {
+        r.failures += 1;
+        continue;
+      }
+      const net = whopNetContribution(p);
+      if (net <= 0) continue;
+      r.net = round2(r.net + net);
+      const u = p.membershipId
+        ? (userOf.get(p.membershipId) ?? `mem:${p.membershipId}`)
+        : null;
+      const estPremier = u !== null && first.get(u)?.at === p.paidAt;
+      if (!estPremier) r.renewals += 1;
+    }
+
+    const withCountry = payments.filter((p) => p.billingCountry).length;
+    const clientsWithCountry = [...first.values()].filter((f) => f.country).length;
+    // Devise du revenu — garde A5 : au-delà d'une devise encaissée, on ne somme
+    // pas (`summarizeWhopRevenue` porte la même règle ailleurs dans le hub).
+    const devises = summarizeWhopRevenue(payments).currenciesPresent;
+    return {
+      rows: [...rows.values()].sort((a, b) => b.net - a.net || b.clients - a.clients),
+      payments: payments.length,
+      withCountry,
+      clients: first.size,
+      clientsWithCountry,
+      currency: devises.length === 1 ? devises[0] : null,
+    };
+  },
+});
+
+export const getDayDetail = permissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+
+    // ── Pays : cache PostHog ───────────────────────────────────────────────
+    const cacheRow = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.countryDaily),
+      )
+      .first();
+    let countries: {
+      day: string;
+      country: string;
+      visitors: number;
+      signups: number;
+      checkouts: number;
+    }[] = [];
+    if (cacheRow && cacheRow.json !== "") {
+      try {
+        countries = (JSON.parse(cacheRow.json) as { rows: typeof countries }).rows ?? [];
+      } catch {
+        countries = []; // cache illisible ⇒ pas de sous-lignes, jamais d'invention
+      }
+    }
+
+    // ── Trafic par (jour, ref) : agrégat quotidien déjà stocké ──────────────
+    const conv = await ctx.db
+      .query("creatorConversions")
+      .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    type RefAcc = {
+      day: string;
+      ref: string;
+      /** null = trafic PAS ENCORE COLLECTÉ ce jour-là (cf lib/day-detail). */
+      visitors: number | null;
+      signups: number | null;
+      clients: number;
+      renewals: number;
+      failures: number;
+      net: number;
+    };
+    const refs = new Map<string, RefAcc>();
+    const touch = (day: string, ref: string): RefAcc => {
+      const k = `${day}|${ref}`;
+      const cur = refs.get(k) ?? {
+        day,
+        ref,
+        // Le trafic démarre à NULL : une ref créée par un paiement Whop n'a pas
+        // de trafic collecté tant que le cron de 23 h n'est pas passé. Un 0
+        // initial aurait affiché « 0 visiteur » pour une journée non collectée.
+        visitors: null,
+        signups: null,
+        clients: 0,
+        renewals: 0,
+        failures: 0,
+        net: 0,
+      };
+      refs.set(k, cur);
+      return cur;
+    };
+    for (const r of conv) {
+      const a = touch(r.date, r.ref ?? SANS_SOURCE);
+      // Une ligne collectée fait passer le trafic de « inconnu » à une MESURE —
+      // y compris quand elle vaut zéro.
+      if (r.visitors !== undefined) a.visitors = (a.visitors ?? 0) + r.visitors;
+      if (r.signups !== undefined) a.signups = (a.signups ?? 0) + r.signups;
+    }
+
+    // ── Argent par (jour, ref) et décomposition du revenu : Whop, EN DIRECT ─
+    const revenue = new Map<
+      string,
+      { day: string; newNet: number; renewalNet: number; refunded: number }
+    >();
+    /**
+     * Argent par (jour, PAYS DE FACTURATION). Groupe SÉPARÉ du trafic par pays
+     * de connexion : deux notions, deux populations. Les réunir sur une même
+     * ligne inviterait à diviser des clients par des visiteurs.
+     */
+    const billing = new Map<
+      string,
+      {
+        day: string;
+        country: string | null;
+        clients: number;
+        renewals: number;
+        failures: number;
+        net: number;
+      }
+    >();
+    const touchBilling = (day: string, country: string | undefined) => {
+      const k = `${day}|${country ?? ""}`;
+      const cur = billing.get(k) ?? {
+        day,
+        country: country ?? null,
+        clients: 0,
+        renewals: 0,
+        failures: 0,
+        net: 0,
+      };
+      billing.set(k, cur);
+      return cur;
+    };
+    if (project?.whop) {
+      const { payments } = await collectProjectWhopPayments(
+        ctx,
+        ctx.projectId,
+        project.slug,
+      );
+      const memberships = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const refOf = new Map<string, string | null>(
+        memberships.map((m) => [m.whopMembershipId, normalizeRef(m.ref ?? null)]),
+      );
+      // 1er paiement encaissé par abonnement : un NOUVEAU client compte le jour
+      // de celui-là, jamais d'un renouvellement (cf getReliability).
+      const firstPaid = new Map<string, number>();
+      for (const p of payments) {
+        if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
+        const prev = firstPaid.get(p.membershipId);
+        if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
+      }
+      for (const p of payments) {
+        const day = parisDay(p.paidAt);
+        const ref = p.membershipId ? (refOf.get(p.membershipId) ?? null) : null;
+        const a = touch(day, ref ?? SANS_SOURCE);
+        if (p.status === "failed") {
+          a.failures += 1;
+          touchBilling(day, p.billingCountry).failures += 1;
+          continue;
+        }
+        const net = whopNetContribution(p);
+        const rev = revenue.get(day) ?? { day, newNet: 0, renewalNet: 0, refunded: 0 };
+        revenue.set(day, rev);
+        const rembourse = Math.max(0, p.refundedAmount ?? 0);
+        if (rembourse > 0) rev.refunded = round2(rev.refunded + rembourse);
+        if (net <= 0) continue;
+        a.net = round2(a.net + net);
+        const estNouveau =
+          p.membershipId !== undefined && firstPaid.get(p.membershipId) === p.paidAt;
+        const b = touchBilling(day, p.billingCountry);
+        b.net = round2(b.net + net);
+        if (estNouveau) {
+          a.clients += 1;
+          b.clients += 1;
+          rev.newNet = round2(rev.newNet + net);
+        } else {
+          a.renewals += 1;
+          b.renewals += 1;
+          rev.renewalNet = round2(rev.renewalNet + net);
+        }
+      }
+    }
+
+    return {
+      countries,
+      refs: [...refs.values()],
+      revenue: [...revenue.values()],
+      billingCountries: [...billing.values()],
+    };
+  },
+});
+
+/**
+ * LIBELLÉ D'UNE OFFRE, pour nommer la cause d'un paiement sans event.
+ *
+ * Le prix d'abord : c'est ce que l'humain reconnaît (« l'offre à 16,90 € »),
+ * l'identifiant ensuite, c'est ce que le développeur cherchera dans son code.
+ * Mise en forme PURE, sans arrondi métier — aucun montant d'ici n'entre dans un
+ * total ; il ne sert qu'à écrire une phrase.
+ *
+ * A6 : défini ici plutôt que dans `lib/` — un module `convex/` ne peut pas
+ * importer `lib/`, et dupliquer une mise en forme dans deux jumeaux à tenir
+ * synchronisés coûterait plus cher que ce que ça rapporte.
+ */
+function whopOfferLabel(p: {
+  grossAmount?: number;
+  currency?: string;
+  planId?: string;
+}): string {
+  const plan = p.planId ?? "";
+  if (p.grossAmount === undefined || !p.currency) return plan;
+  const prix = new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: p.currency.toUpperCase(),
+    currencyDisplay: "narrowSymbol",
+  }).format(p.grossAmount);
+  return plan === "" ? prix : `${prix} · ${plan}`;
+}
+
+export const getReliability = permissionQuery("business.read")({
   args: {},
   handler: async (ctx): Promise<ReliabilityResult> => {
     const project = await ctx.db.get(ctx.projectId);
@@ -1661,6 +2339,14 @@ export const getReliability = adminQuery({
       subs: d.subs,
     }));
     const todayParis = parisDay(Date.now());
+    // Subs par (jour, membership_id) — la CLÉ qui rend l'écart explicable
+    // (retry rejoué un autre jour, sub sans paiement encaissé, paiement sans
+    // event). Cache vide avant le 1er cron post-deploy → le contrôle retombe
+    // sur la comparaison brute, jamais sur une explication inventée.
+    const subsByMembership = read<SubsByMembershipPayload>(
+      POSTHOG_CACHE_KEYS.subsByMembership,
+      { rows: [] },
+    ).rows;
 
     // ─── Montant dû : total affiché vs somme de ses parts ───────────────────
     // On repasse par la MÊME source que l'écran Paiements (cyclePaymentsForCreator)
@@ -1673,12 +2359,18 @@ export const getReliability = adminQuery({
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    // Un seul cache pour TOUTE la boucle : sans lui, cette query échouait sur la
+    // limite d'opérations Convex (prod du 2026-09-06).
+    const cyclesViewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
     for (const cre of allCreators) {
       const cycles = await cyclePaymentsForCreator(
         ctx,
         ctx.projectId,
         cre._id,
         Date.now(),
+        cyclesViewsCache,
       );
       let touched = false;
       for (const cy of cycles) {
@@ -1722,9 +2414,24 @@ export const getReliability = adminQuery({
     let whopExcludedPre = 0;
     let whopExcludedAfter = 0;
     let dailyPaidClients: { day: string; clients: number }[] = [];
+    let dailyNewMemberships: { day: string; memberships: number }[] = [];
+    let whopFirstPaidDay: {
+      membershipId: string;
+      day: string;
+      offer?: string;
+    }[] = [];
     let dailyRenewals: { day: string; renewals: number }[] = [];
     let dailyPaymentCount: { day: string; payments: number }[] = [];
     let whopSecuredMembers: number | null = null;
+    // Les MÊMES ensembles, comptés en PERSONNES. C'est l'unité de référence du
+    // hub : PostHog ne sait produire que des personnes, et un « client » qui
+    // prend deux abonnements reste un client.
+    let whopClients: number | null = null;
+    let whopClientsTotal: number | null = null;
+    let whopSecuredClients: number | null = null;
+    let whopClientsUnresolved = 0;
+    let windowReconciliation: ReliabilityResult["coherence"]["windowReconciliation"] =
+      null;
     let dailyFailedPayments: { day: string; count: number }[] = [];
     let whopInternalExcluded = 0;
     let whopSyncMs: number | null = null;
@@ -1734,55 +2441,69 @@ export const getReliability = adminQuery({
       duplicates: [],
     };
     if (project?.whop) {
-      const payments = await ctx.db
-        .query("whopPayments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      currencyCount = summarizeWhopRevenue(payments).currencies.length;
       // A4 — comptes internes exclus DES DEUX CÔTÉS : ici aussi (pas seulement du
       // revenu), sinon « Clients payants » comptait le compte de test de l'admin.
-      const internalCfg = internalAccountsFor(project.slug);
-      const internalMembers = new Set<string>();
+      const {
+        payments,
+        all: allPayments,
+        internalMemberIds: internalMembers,
+        cfg: internalCfg,
+      } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug);
+      // Contrôle « Aucune addition inter-devises » : il comptait jusqu'ici les
+      // devises ENCAISSÉES (summarizeWhopRevenue.currencies), donc il était
+      // aveugle à une devise n'apparaissant qu'en échec, remboursement ou litige
+      // — exactement les lignes qui traversent les sommes non gardées. On compte
+      // désormais les devises PRÉSENTES, et sur le lot COMPLET : une devise qui
+      // n'existe que sur un compte interne reste une devise présente en base.
+      currencyCount = summarizeWhopRevenue(allPayments).currenciesPresent.length;
+      // Fraîcheur de synchro : sur TOUT le lot, le cron ingère aussi les internes.
+      for (const p of allPayments) {
+        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
+      }
       // Premier paiement encaissé par membership (date de « début » du client).
       const firstPaid = new Map<string, number>();
+      /**
+       * OFFRE du premier paiement, par membership. Sert à NOMMER la cause quand
+       * un paiement n'a pas d'event : le contrôle disait « 11 paiement(s) Whop
+       * sans event » sans jamais dire d'où ils venaient. Le 2026-09-08, ils
+       * venaient à 13 sur 27 d'un plan à 16,90 € apparu la veille, dont le
+       * tunnel n'émettait pas `subscription_completed`.
+       */
+      const offerOf = new Map<string, string>();
       for (const p of payments) {
-        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
         // COMPTE clients : un litige EN COURS reste un client qui a payé →
         // whopCollectedAmount (inclut "disputed"), PAS whopNetContribution (qui
         // exclut le litige du net). Garde « Clients payants » stable et aligné
         // avec PostHog (subscription_completed a bien été émis pour ce client).
         if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
-        if (isInternalWhopMembership(p.membershipId, internalCfg)) {
-          internalMembers.add(p.membershipId);
-          continue;
-        }
         const prev = firstPaid.get(p.membershipId);
-        if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
+        if (prev === undefined || p.paidAt < prev) {
+          firstPaid.set(p.membershipId, p.paidAt);
+          offerOf.set(p.membershipId, whopOfferLabel(p));
+        }
       }
+      // Compté sur TOUS les paiements internes, pas seulement ceux ayant
+      // encaissé : l'ancien test était placé APRÈS la garde
+      // `whopCollectedAmount <= 0`, donc un compte interne n'ayant jamais payé
+      // n'était jamais compté comme exclu — le KPI sous-estimait l'exclusion.
       whopInternalExcluded = internalMembers.size;
-      let comparable = 0;
-      for (const first of firstPaid.values()) {
+      const comparableIds: string[] = [];
+      for (const [membershipId, first] of firstPaid.entries()) {
         if (instrumentationStart !== null && first < instrumentationStart) {
           whopExcludedPre += 1; // antérieur à l'instrumentation (pas de distinctId)
         } else if (posthogSyncMs !== null && first > posthogSyncMs) {
           whopExcludedAfter += 1; // après le dernier cron → latence, pas un écart
         } else {
-          comparable += 1;
+          comparableIds.push(membershipId);
         }
       }
       whopMembersTotal = firstPaid.size;
-      whopMembers = comparable;
-      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants »
-      // (source de vérité). firstPaid = 1er paiement encaissé par membership,
-      // internes déjà exclus → un membership compte le JOUR de son premier paiement.
-      const paidClientsByDay = new Map<string, number>();
-      for (const first of firstPaid.values()) {
-        const day = parisDay(first);
-        paidClientsByDay.set(day, (paidClientsByDay.get(day) ?? 0) + 1);
-      }
-      dailyPaidClients = [...paidClientsByDay.entries()]
-        .map(([day, clients]) => ({ day, clients }))
-        .sort((a, b) => (a.day < b.day ? -1 : 1));
+      whopMembers = comparableIds.length;
+      whopFirstPaidDay = [...firstPaid.entries()].map(([membershipId, ms]) => ({
+        membershipId,
+        day: parisDay(ms),
+        offer: offerOf.get(membershipId) ?? "",
+      }));
 
       // RENOUVELLEMENTS par jour Paris — colonne jumelle de « Nouveaux clients ».
       // `dailyPaidClients` ne compte QUE le premier paiement d'un abonnement : une
@@ -1829,6 +2550,101 @@ export const getReliability = adminQuery({
         .map(([day, count]) => ({ day, count }))
         .sort((a, b) => (a.day < b.day ? -1 : 1));
 
+      // ─── ABONNEMENTS → PERSONNES ────────────────────────────────────────
+      // La jointure qui manquait. Le hub comparait les PERSONNES de PostHog aux
+      // ABONNEMENTS de Whop : relevé du 2026-08-29, 153 abonnements pour 144
+      // personnes face à 144 personnes côté PostHog — « écart 9, 5,9 % », donc
+      // « Clients payants » suspendu en permanence, pour un écart réel NUL. Les
+      // 9 étaient les 9 abonnements en double (8 personnes en ont 2,
+      // `user_R6wC645MnVDI7` en a 3). L'écart ne pouvait que grandir avec le
+      // volume : ce n'était pas une dérive à surveiller, c'était une unité.
+      const memberships = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      const userOf = new Map<string, string>();
+      for (const m of memberships) {
+        if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
+      }
+      // Personnes derrière un lot d'abonnements — règle unique, cf convex/whopClients.
+      const clientsOf = (ids: Iterable<string>): number => countPersons(ids, userOf);
+      // Nouveaux clients payants Whop PAR JOUR Paris = série « Clients payants ».
+      // Comptée en PERSONNES, comme `whopClientsTotal` et comme le dénominateur
+      // des cartes de coût : les deux dérivent du MÊME repliement (convex/
+      // whopClients), donc Σ des jours = whopClientsTotal par construction. La
+      // série était comptée par ABONNEMENT : la sommer sur une fenêtre aurait
+      // affiché « ÷ 351 personnes » sous une courbe qui somme à 375.
+      dailyPaidClients = dailyNewPersons(firstPaid, userOf, parisDay);
+      // Le MÊME décompte en ABONNEMENTS. Il ne sert pas aux tuiles (qui comptent
+      // des personnes) mais au contrôle de cohérence du tableau « Détail par
+      // jour », qui compare `nouveaux + renouvellements` à un nombre de
+      // PAIEMENTS : comparer des personnes à des paiements faisait sonner
+      // l'alerte sur tout jour où quelqu'un ouvre deux abonnements — 14 jours sur
+      // 39 en prod, pour un écart d'unité et non une incohérence.
+      const membershipsByDay = new Map<string, number>();
+      for (const at of firstPaid.values()) {
+        const d = parisDay(at);
+        membershipsByDay.set(d, (membershipsByDay.get(d) ?? 0) + 1);
+      }
+      dailyNewMemberships = [...membershipsByDay.entries()]
+        .map(([day, memberships]) => ({ day, memberships }))
+        .sort((a, b) => (a.day < b.day ? -1 : 1));
+      whopClientsTotal = clientsOf(firstPaid.keys());
+      whopClients = clientsOf(comparableIds);
+      whopSecuredClients = clientsOf(secured);
+      for (const id of firstPaid.keys()) {
+        if (!userOf.has(id)) whopClientsUnresolved += 1;
+      }
+
+      // ─── Décomposition de l'écart PostHog↔Whop sur la fenêtre ─────────────
+      // Le contrôle jugeait l'écart BRUT sur des seuils fixes. Il se décompose,
+      // et sa composition dit tout : des personnes qui ont émis l'event sans
+      // jamais encaisser (elles gonflent), des paiements sans aucun event (ils
+      // creusent), et des events sans membership_id — inclassables, donc une
+      // BANDE D'INCERTITUDE et non un terme.
+      //
+      // La rupture du 2026-07-28 01:09 UTC est la date d'apparition de
+      // `membership_id` sur subscription_completed. Avant : bucket CLOS, qui
+      // sortira tout seul de la fenêtre de 90 jours. Après : zéro aujourd'hui,
+      // donc toute apparition est une RÉGRESSION d'instrumentation — c'est ce
+      // que le contrôle doit attraper, et il ne le pouvait pas jusqu'ici.
+      const emittedMemberships = new Set(
+        subsByMembership.filter((r) => r.membershipId !== "").map((r) => r.membershipId),
+      );
+      // Un FANTÔME est une PERSONNE absente du compte Whop, pas un abonnement
+      // impayé : quelqu'un qui a un abonnement remboursé ET un autre encaissé
+      // reste un client des deux côtés. Compter par abonnement gonflait le terme
+      // (4 au lieu de 2, vérifié sur l'export de prod).
+      const payingUsers = new Set(comparableIds.map((m) => userOf.get(m) ?? `mem:${m}`));
+      const ghostUsers = new Set<string>();
+      for (const m of emittedMemberships) {
+        if (firstPaid.has(m)) continue;
+        const u = userOf.get(m) ?? `mem:${m}`;
+        if (!payingUsers.has(u)) ghostUsers.add(u);
+      }
+      // Symétriquement : une personne dont AUCUN abonnement n'a d'event.
+      const emittedUsers = new Set(
+        [...emittedMemberships].map((m) => userOf.get(m) ?? `mem:${m}`),
+      );
+      const missingUsers = new Set<string>();
+      for (const u of payingUsers) {
+        if (!emittedUsers.has(u)) missingUsers.add(u);
+      }
+      let unlinkedBeforeBreak = 0;
+      let unlinkedAfterBreak = 0;
+      for (const r of subsByMembership) {
+        if (r.membershipId !== "") continue;
+        if (r.day < MEMBERSHIP_ID_BREAK_DAY) unlinkedBeforeBreak += r.persons;
+        else unlinkedAfterBreak += r.persons;
+      }
+      windowReconciliation = {
+        ghostClients: ghostUsers.size,
+        missingEvents: missingUsers.size,
+        unlinkedBeforeBreak,
+        unlinkedAfterBreak,
+        breakLabel: MEMBERSHIP_ID_BREAK_LABEL,
+      };
+
       // Contrôle « N abonnements pour M personnes ». Il ANNOTE « Clients payants »
       // et DOIT donc porter sur la MÊME population : les memberships ayant au
       // moins un paiement encaissé (`firstPaid`), pas tous les memberships non
@@ -1838,10 +2654,7 @@ export const getReliability = adminQuery({
       // intégralement remboursé (donc pas des clients payants).
       // `whopUserId` n'est peuplé qu'à partir de la re-synchro : les memberships
       // sans user sont ignorés (le contrôle s'allume quand la synchro l'a rempli).
-      const memberships = await ctx.db
-        .query("whopMemberships")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
+      // Ce contrôle-ci LISTE les doublons ; `whopClients` ci-dessus les compte.
       const byUser = new Map<string, string[]>();
       let counted = 0;
       for (const m of memberships) {
@@ -1917,14 +2730,22 @@ export const getReliability = adminQuery({
         dailySignupsSum,
         whopMembers,
         whopMembersTotal,
+        whopClients,
+        whopClientsTotal,
+        whopClientsUnresolved,
+        windowReconciliation,
         whopExcludedPre,
         whopExcludedAfter,
         dailyPaidClients,
+        dailyNewMemberships,
         dailyRenewals,
         dailyPaymentCount,
         whopSecuredMembers,
+        whopSecuredClients,
         dailyFailedPayments,
         dailySubs,
+        subsByMembership,
+        whopFirstPaidDay,
         todayParis,
         payDue,
       },

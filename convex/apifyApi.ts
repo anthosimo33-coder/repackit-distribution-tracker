@@ -21,6 +21,14 @@
  *    (quota, actor down, timeout) est LOGUÉ et IGNORÉ — les autres continuent.
  */
 
+import {
+  parseSaves,
+  parseAuthorProfile,
+  parseInstagramProfile,
+  hasAnyCount,
+  type AuthorProfile,
+} from "./apifyItem";
+
 const APIFY_ACTS_BASE = "https://api.apify.com/v2/acts";
 
 /** Actors par défaut (slug `owner~name` pour le path REST). Overridables par env. */
@@ -41,11 +49,27 @@ export type ApifyPlatform = "TikTok" | "Instagram";
 
 // ─── Répliques pures (lib/apifyPosts.ts) ─────────────────────────────────────
 
+/**
+ * "123" → 123 ; nombre fini POSITIF OU NUL → lui-même ; tout le reste → null.
+ *
+ * UN NÉGATIF EST UN CODE D'ABSENCE, PAS UN COMPTEUR. L'actor Instagram renvoie
+ * `likesCount: -1` quand le compte masque ses likes ; stocké tel quel, il
+ * s'affichait « -1 like », faussait les sommes et rendait le taux d'engagement
+ * NÉGATIF. Aucun compteur qui passe par ici n'admet de négatif légitime (vues,
+ * likes, commentaires, saves, abonnés/abonnements/likes cumulés). Le seul
+ * compteur du domaine qui en admettrait un — `subsGained`, une perte d'abonnés
+ * — est une saisie manuelle et ne passe PAS par cette fonction.
+ *
+ * `null` veut dire « non collecté », comme pour une valeur absente : c'est
+ * l'appelant qui décide quoi en faire, et il le décide déjà (cf `parseSaves`).
+ */
 function toCount(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value >= 0 ? value : null;
+  }
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) && n >= 0 ? n : null;
   }
   return null;
 }
@@ -95,6 +119,15 @@ export interface ApifyPostStat {
   likes: number | null;
   comments: number | null;
   title: string | null;
+  /** SAVES (collectCount, TikTok) ; null = non collecté (Instagram/YouTube). */
+  saves: number | null;
+  /**
+   * Compteurs du COMPTE auteur, servis avec l'item vidéo (TikTok). `null` si
+   * absents. Portés PAR POST et non indexés par handle : le rattachement au
+   * compte applicatif se fait via la publication, car le handle de l'URL
+   * (« kellyleydie ») ne coïncide pas avec celui saisi en base (« @kelly.leydie »).
+   */
+  author: AuthorProfile | null;
 }
 
 interface ParsedApifyViews {
@@ -132,7 +165,23 @@ function parseTikTokViews(
     const likes = toCount((item as { diggCount?: unknown }).diggCount);
     const comments = toCount((item as { commentCount?: unknown }).commentCount);
     const title = cleanCaption((item as { text?: unknown }).text);
-    stats[key] = { views, likes, comments, title };
+    // `collectCount` était reçu et jeté : la lecture vit maintenant dans le
+    // helper partagé avec RADAR (convex/apifyItem.ts).
+    const profil = parseAuthorProfile(item);
+    stats[key] = {
+      views,
+      likes,
+      comments,
+      title,
+      // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
+      // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
+      saves: parseSaves(item),
+      // `hasAnyCount` répond « y a-t-il un compteur à historiser ». Une photo
+      // de profil n'en est pas un, et pourtant elle vaut à elle seule d'être
+      // remontée : sans ce second terme, un item qui porterait l'avatar sans
+      // aucun compteur ferait perdre la photo en silence.
+      author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
+    };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -160,7 +209,9 @@ function parseInstagramViews(
     const likes = toCount((item as { likesCount?: unknown }).likesCount);
     const comments = toCount((item as { commentsCount?: unknown }).commentsCount);
     const title = cleanCaption((item as { caption?: unknown }).caption);
-    stats[key] = { views, likes, comments, title };
+    // Instagram n'expose AUCUNE métrique de saves — `null` est définitif ici,
+    // pas un défaut de collecte à rattraper plus tard.
+    stats[key] = { views, likes, comments, title, saves: null, author: null };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
@@ -353,4 +404,75 @@ async function readApiError(res: Response): Promise<string> {
     // corps non-JSON
   }
   return res.statusText || `HTTP ${res.status}`;
+}
+
+/**
+ * Relevé de PROFILS Instagram — UN run pour tous les comptes.
+ *
+ * Contrairement à TikTok, dont les compteurs de compte voyagent avec chaque item
+ * vidéo (donc gratuitement), Instagram exige un run dédié : l'item de post ne
+ * porte pas les compteurs du propriétaire. C'est le +1 run par nuit chiffré et
+ * validé avant implémentation.
+ *
+ * `resultsType: "details"` → un item de PROFIL par URL fournie. Un run en erreur
+ * est signalé sans faire échouer le relevé de vues, qui est le cœur du cron.
+ */
+export async function fetchInstagramProfiles(
+  profileUrls: readonly string[],
+  apiToken: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{
+  /** handle minuscule → compteurs. */
+  profiles: Record<string, AuthorProfile>;
+  runs: number;
+  errors: { status: number | "network"; message: string }[];
+}> {
+  const urls = [...new Set(profileUrls.filter((u) => u.trim() !== ""))];
+  const out: {
+    profiles: Record<string, AuthorProfile>;
+    runs: number;
+    errors: { status: number | "network"; message: string }[];
+  } = { profiles: {}, runs: 0, errors: [] };
+  if (urls.length === 0) return out;
+
+  const actor = process.env.APIFY_INSTAGRAM_ACTOR ?? DEFAULT_INSTAGRAM_ACTOR;
+  const endpoint = `${APIFY_ACTS_BASE}/${actor}/run-sync-get-dataset-items?timeout=${RUN_TIMEOUT_SECS}`;
+
+  // Un SEUL run pour tous les profils : ils tiennent largement sous la borne de
+  // lot, et scinder multiplierait la facture sans rien gagner.
+  for (const batch of chunk(urls, MAX_URLS_PER_RUN)) {
+    out.runs += 1;
+    try {
+      const res = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({
+          directUrls: batch,
+          resultsType: "details",
+          resultsLimit: batch.length,
+        }),
+      });
+      if (!res.ok) {
+        out.errors.push({ status: res.status, message: await readApiError(res) });
+        continue;
+      }
+      const json: unknown = await res.json();
+      const items = Array.isArray(json) ? json : [];
+      for (const item of items) {
+        const p = parseInstagramProfile(item);
+        if (p.handle !== null && hasAnyCount(p)) {
+          out.profiles[p.handle.toLowerCase()] = p;
+        }
+      }
+    } catch (e) {
+      out.errors.push({
+        status: "network",
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return out;
 }

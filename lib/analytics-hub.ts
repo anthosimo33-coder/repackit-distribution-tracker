@@ -48,11 +48,8 @@ export function isConclusive(n: number): boolean {
  */
 
 /** Jour Europe/Paris d'un ts (ms) → "YYYY-MM-DD" (clé de jointure, tri). */
-export function parisDayKey(ts: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(
-    new Date(ts),
-  );
-}
+import { parisDayKey } from "./analytics-window";
+export { parisDayKey };
 
 /**
  * Étiquette d'axe/infobulle : jour Europe/Paris d'un ts → "28 juil.". Ancrée
@@ -219,8 +216,74 @@ export interface CoherenceInputs {
    * Membres payants Whop COMPARABLES : ancrés sur la MÊME fenêtre que le cache
    * PostHog (paiement ≤ dernière synchro) et hors memberships antérieurs à
    * l'instrumentation → un écart n'est plus de la latence de cron ni un artefact.
+   *
+   * C'est un compte d'ABONNEMENTS. Il n'est JAMAIS comparé à PostHog (voir
+   * `whopClients`) : il ne sert qu'à dire, dans le détail, combien d'abonnements
+   * portent les personnes comparées.
    */
   whopMembers: number | null;
+  /**
+   * Le MÊME ensemble que `whopMembers`, compté en PERSONNES (`whopUserId`
+   * distincts). C'est L'UNITÉ DE RÉFÉRENCE du hub, et la seule que PostHog
+   * sache produire : PostHog ne compte que des `person_id`, jamais des
+   * abonnements.
+   *
+   * Mesuré en prod le 2026-08-29 : 153 abonnements pour 144 personnes. Comparer
+   * les 144 personnes de PostHog aux 153 abonnements de Whop affichait « écart
+   * 9, 5,9 % » et suspendait « Clients payants » en permanence, alors que
+   * l'écart réel était NUL — les 9 étaient les 9 abonnements en double (8
+   * personnes en ont 2, une en a 3).
+   */
+  whopClients: number | null;
+  /**
+   * Clients acquis (PERSONNES), sans borne de fenêtre : la référence des cartes
+   * d'éco unitaire. `whopClients` sert au recoupement avec PostHog, celui-ci
+   * sert à diviser des coûts — deux usages, deux fenêtres, une seule unité.
+   */
+  whopClientsTotal?: number | null;
+  /** Les abonnements correspondants (contexte du dénominateur, jamais diviseur). */
+  whopMembersTotal?: number | null;
+  /**
+   * Décomposition de l'écart PostHog↔Whop sur TOUTE la fenêtre — ce qui permet
+   * d'alerter sur l'INEXPLIQUÉ plutôt que sur l'écart brut.
+   *
+   * Absent (cache pas encore alimenté) ⇒ on retombe sur l'écart brut : le
+   * contrôle ne se tait jamais faute de données, il explique quand il peut.
+   */
+  windowReconciliation?: {
+    /** Personnes ayant émis l'event sans jamais encaisser (remboursé, en
+     *  attente). Côté PostHog seulement → poussent l'écart vers le HAUT. */
+    ghostClients: number;
+    /** Personnes ayant encaissé sans jamais émettre d'event. Côté Whop
+     *  seulement → poussent vers le BAS. */
+    missingEvents: number;
+    /**
+     * Events sans `membership_id` ANTÉRIEURS à la rupture de série. Ces
+     * personnes peuvent avoir payé ou non : inclassables. Ce n'est donc PAS un
+     * terme de l'écart mais une BANDE D'INCERTITUDE — et un bucket CLOS, qui
+     * sortira tout seul de la fenêtre de 90 jours. Le contrôle se resserre donc
+     * avec le temps au lieu de devenir bruyant.
+     */
+    unlinkedBeforeBreak: number;
+    /**
+     * Le même défaut APRÈS la rupture. Zéro au moment où ce contrôle est écrit :
+     * toute apparition est une RÉGRESSION D'INSTRUMENTATION et alerte seule,
+     * quel que soit le reste. C'est le vrai apport du calibrage.
+     */
+    unlinkedAfterBreak: number;
+    /** Date de la rupture, écrite dans le détail (ex. « 28/07/2026 01:09 UTC »). */
+    breakLabel: string;
+  };
+  /**
+   * Dénominateur RÉELLEMENT passé aux trois cartes (coût d'acquisition, coût
+   * complet du moteur, revenu net par client). On ne recalcule pas ce que
+   * l'écran devrait afficher : on lui demande ce qu'il affiche, et on le
+   * compare. C'est la seule façon d'attraper un écran qui divise par autre
+   * chose que la référence — le défaut vécu : « Clients payants » suspendu par
+   * le garde-fou pendant que les trois cartes juste au-dessus divisaient
+   * toujours par 154. null ⇒ rien n'est divisé (aucun coût disponible).
+   */
+  unitCostDenominator?: number | null;
   /** Memberships exclus car antérieurs à l'instrumentation (cause explicable). */
   whopExcludedPre?: number;
   /** Memberships exclus car postérieurs au dernier cron (latence, pas incohérence). */
@@ -231,8 +294,24 @@ export interface CoherenceInputs {
   dailySignupsSum?: number | null;
   /** subs PostHog par jour Paris — contrôle CROISÉ avec Whop (par jour, pas Σ). */
   dailySubs?: { day: string; subs: number }[];
+  /** subs PostHog par (jour Paris, membership_id) — réconciliation fine. Absent
+   *  (cache pas encore alimenté) → le contrôle retombe sur le brut. */
+  subsByMembership?: { day: string; membershipId: string; persons: number }[];
+  /** Jour Paris du 1er paiement encaissé par membership Whop. */
+  /** `offer` : libellé de l'offre achetée — sert à NOMMER la cause d'un
+   *  paiement sans event (cf DailyReconciliation.missingOffers). */
+  whopFirstPaidDay?: { membershipId: string; day: string; offer?: string }[];
   /** Nouveaux clients payants Whop par jour Paris — l'autre côté du contrôle croisé. */
   dailyPaidClients?: { day: string; clients: number }[];
+  /**
+   * Nouveaux ABONNEMENTS par jour. C'est CETTE série que le contrôle croisé
+   * doit lire : PostHog émet un `subscription_completed` par ABONNEMENT, et
+   * `dailyPaidClients` compte des PERSONNES depuis que le dénominateur du hub a
+   * été replié. Comparer les deux faisait sonner l'alerte sur l'écart d'unité —
+   * le 2026-09-05, « PostHog 23 vs Whop 19 » était 23 abonnements contre 19
+   * personnes, pas une incohérence de données.
+   */
+  dailyNewMemberships?: { day: string; memberships: number }[];
   // NB : les renouvellements Whop par jour ne sont PLUS une entrée des contrôles.
   // Ils restent dans le payload `coherence` (colonne jumelle de « Nouveaux
   // clients » à l'écran), mais les deux séries croisées ne comptent désormais que
@@ -315,14 +394,66 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   });
 
   // Clients dashboard vs Whop, sur une base COMPARABLE (même fenêtre, memberships
-  // pré-instrumentation exclus). Masquage SEULEMENT si les DEUX seuils sont
-  // franchis (% ET absolu) : sur petits nombres, ±1-2 clients ne suspend rien.
-  if (i.dashboardClients !== null && i.whopMembers !== null) {
-    const diff = Math.abs(i.dashboardClients - i.whopMembers);
-    const pct = Math.round((diff / Math.max(1, i.whopMembers)) * 1000) / 10;
+  // pré-instrumentation exclus) et surtout DANS LA MÊME UNITÉ : des PERSONNES
+  // des deux côtés. PostHog ne sait compter que des `person_id` ; lui opposer un
+  // compte d'ABONNEMENTS transforme chaque personne à deux abonnements en faux
+  // écart, et l'écart ne peut alors que croître avec le volume.
+  //
+  // Côté PostHog on prend l'ATTEINTE BRUTE (personnes ayant émis
+  // subscription_completed), pas le tunnel séquentiel : un client qui paie sans
+  // checkout tracké reste un client, et le manque de tracking amont a déjà son
+  // propre contrôle (`subscription_double_instrumentation`). Le séquentiel ne
+  // sert de repli que s'il est la seule chose disponible — et le détail le dit.
+  //
+  // Masquage SEULEMENT si les DEUX seuils sont franchis (% ET absolu) : sur
+  // petits nombres, ±1-2 clients ne suspend rien.
+  const posthogReach = stepBy(i.reachSteps, "subscription_completed");
+  const posthogClients = posthogReach ?? i.dashboardClients;
+  if (posthogClients !== null && i.whopClients !== null) {
+    const rec = i.windowReconciliation;
+    // Écart SIGNÉ : les deux termes de la décomposition tirent en sens opposés,
+    // les confondre en valeur absolue effacerait justement l'information.
+    const signed = posthogClients - i.whopClients;
+    // Ce que la décomposition PRÉDIT : les fantômes gonflent, les paiements
+    // sans event creusent. Ce qui reste est inexpliqué.
+    const predicted = rec ? rec.ghostClients - rec.missingEvents : 0;
+    const unexplained = rec ? Math.abs(signed - predicted) : Math.abs(signed);
+    // Hors bande = ce que les events non liés de juillet ne peuvent PAS couvrir.
+    const band = rec ? rec.unlinkedBeforeBreak : 0;
+    const diff = Math.max(0, unexplained - band);
+    const pct = Math.round((diff / Math.max(1, i.whopClients)) * 1000) / 10;
+    const regression = rec !== undefined && rec.unlinkedAfterBreak > 0;
     const masks =
-      pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS;
+      regression ||
+      (pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS);
     const causes: string[] = [];
+    if (rec) {
+      if (rec.ghostClients > 0) {
+        causes.push(`${rec.ghostClients} sans encaissement`);
+      }
+      if (rec.missingEvents > 0) {
+        causes.push(`${rec.missingEvents} paiement(s) sans event`);
+      }
+      causes.push(`inexpliqué ${unexplained}`);
+      if (band > 0) {
+        causes.push(
+          `bande ±${band} (events sans membership_id antérieurs au ${rec.breakLabel}, bucket clos)`,
+        );
+      }
+      if (regression) {
+        causes.push(
+          `RÉGRESSION : ${rec.unlinkedAfterBreak} event(s) sans membership_id APRÈS le ${rec.breakLabel}`,
+        );
+      }
+    }
+    if (i.whopMembers !== null && i.whopMembers !== i.whopClients) {
+      causes.push(
+        `${i.whopMembers} abonnements pour ${i.whopClients} personnes`,
+      );
+    }
+    if (posthogReach === null) {
+      causes.push("côté PostHog : tunnel séquentiel (atteinte brute absente)");
+    }
     if (i.whopExcludedPre && i.whopExcludedPre > 0) {
       causes.push(`${i.whopExcludedPre} antérieur(s) à l'instrumentation exclu(s)`);
     }
@@ -330,13 +461,15 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
       causes.push(`${i.whopExcludedAfter} après le dernier cron (latence)`);
     }
     const base =
-      diff === 0
-        ? "écart 0"
-        : `${i.dashboardClients} vs ${i.whopMembers} (écart ${diff}, ${pct} %)`;
+      signed === 0
+        ? `écart 0 — ${posthogClients} personnes des deux côtés`
+        : `${posthogClients} personnes vs ${i.whopClients} (écart ${Math.abs(signed)}${
+            rec ? "" : `, ${pct} %`
+          })`;
     checks.push({
       key: "dashboard_vs_whop",
       label: "Clients dashboard vs Whop",
-      status: masks ? "violation" : diff === 0 ? "ok" : "info",
+      status: masks ? "violation" : diff === 0 && signed === 0 ? "ok" : "info",
       detail: causes.length > 0 ? `${base} · ${causes.join(" · ")}` : base,
     });
   } else {
@@ -346,6 +479,39 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
       status: "info",
       detail: "en attente (PostHog et/ou Whop)",
     });
+  }
+
+  // Le DÉNOMINATEUR des trois cartes d'éco unitaire. Il n'avait aucun contrôle :
+  // le hub affichait 144 (PostHog), 153 et 154 (Whop) sur le même écran, et
+  // divisait par le troisième — celui que rien ne recoupait. On vérifie donc que
+  // l'écran divise par la RÉFÉRENCE (clients acquis, en personnes) et pas par un
+  // compte d'abonnements qui lui ressemble.
+  if (i.whopClientsTotal !== null && i.whopClientsTotal !== undefined) {
+    const denom = i.unitCostDenominator;
+    const contexte =
+      i.whopMembersTotal != null && i.whopMembersTotal !== i.whopClientsTotal
+        ? ` (${i.whopMembersTotal} abonnements)`
+        : "";
+    if (denom === null || denom === undefined) {
+      // Cet écran ne divise rien (onglet Fiabilité) : on affiche la RÉFÉRENCE,
+      // sans prétendre vérifier un diviseur qu'on n'a pas sous les yeux.
+      checks.push({
+        key: "unit_cost_denominator",
+        label: "Dénominateur des coûts unitaires",
+        status: "info",
+        detail: `référence : ${i.whopClientsTotal} clients acquis${contexte} — recoupé sur la Vue d'ensemble, où les cartes divisent`,
+      });
+    } else {
+      const aligned = denom === i.whopClientsTotal;
+      checks.push({
+        key: "unit_cost_denominator",
+        label: "Dénominateur des coûts unitaires = clients acquis",
+        status: aligned ? "ok" : "violation",
+        detail: aligned
+          ? `÷ ${denom} clients acquis${contexte}`
+          : `les cartes divisent par ${denom}, la référence est ${i.whopClientsTotal} clients acquis${contexte}`,
+      });
+    }
   }
 
   // Défaut d'instrumentation : subscription_completed compté DEUX FOIS (client +
@@ -370,7 +536,19 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   // Cohérence CROISÉE PAR JOUR entre deux CARTES qui montrent la même notion
   // (nouveaux abonnés/jour) depuis deux sources : PostHog subs vs Whop clients.
   // Le contrôle par TOTAUX ne voit PAS un écart d'un seul jour (la Σ peut concorder).
-  pushDailyCrossCheck(checks, i.dailySubs, i.dailyPaidClients, i.todayParis);
+  pushDailyCrossCheck(
+    checks,
+    i.dailySubs,
+    // En ABONNEMENTS : même unité que les events PostHog. Repli sur les personnes
+    // si la série n'est pas encore servie (déploiement en cours).
+    i.dailyNewMemberships
+      ? i.dailyNewMemberships.map((d) => ({ day: d.day, clients: d.memberships }))
+      : i.dailyPaidClients,
+    i.todayParis,
+    i.subsByMembership && i.whopFirstPaidDay
+      ? reconcileDailyClients(i.subsByMembership, i.whopFirstPaidDay)
+      : undefined,
+  );
 
   return checks;
 }
@@ -380,10 +558,169 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
  * avec forte proportion (petits jours). Un ±2 sur ~13 (bruit
  * checkout↔encaissement) n'alerte pas.
  */
+/**
+ * PANNE D'INGESTION POSTHOG — 07/09/2026 19:00 UTC → 08/09 09:53 UTC.
+ *
+ * ⚠️ CES BORNES VIVENT ICI, et l'affichage (HubPrimitives) les importe. Elles
+ * étaient d'abord côté composant : le CONTRÔLE DE COHÉRENCE ne pouvait donc pas
+ * les connaître, et il criait chaque jour sur un écart dont la cause est
+ * documentée dans le bandeau juste au-dessus de lui. Deux blocs de l'écran
+ * disaient deux choses de la même journée.
+ *
+ * Le détail minute par minute (l'îlot de trafic du 08/09 00:00–01:30, la reprise
+ * en deux temps) est dans le commentaire de `PosthogOutageNotice`, là où il est
+ * rendu.
+ */
+export const POSTHOG_OUTAGE_START_MS = Date.UTC(2026, 8, 7, 19, 0, 0);
+export const POSTHOG_OUTAGE_END_MS = Date.UTC(2026, 8, 8, 9, 53, 0);
+
+/**
+ * Les JOURS PARIS que la panne traverse. Le contrôle croisé raisonne en jours
+ * Paris ; la panne, elle, est bornée à la minute UTC. On convertit une fois,
+ * ici, plutôt que de recopier deux dates en dur — un décalage d'un fuseau aurait
+ * excusé le mauvais jour.
+ */
+export function posthogOutageDays(): ReadonlySet<string> {
+  const jours = new Set<string>();
+  const UNE_HEURE = 3_600_000;
+  for (let t = POSTHOG_OUTAGE_START_MS; t <= POSTHOG_OUTAGE_END_MS; t += UNE_HEURE) {
+    jours.add(parisDayKey(t));
+  }
+  jours.add(parisDayKey(POSTHOG_OUTAGE_END_MS));
+  return jours;
+}
+
 function significantGap(a: number, b: number): boolean {
   const diff = Math.abs(a - b);
   const rel = Math.max(a, b) > 0 ? diff / Math.max(a, b) : 0;
   return diff >= 2 && (diff >= 3 || rel >= 0.5);
+}
+
+/**
+ * Décomposition d'UN jour du contrôle croisé — ce que valent les subs PostHog
+ * du jour une fois appariées à Whop par `membership_id`.
+ *
+ * `matched`  : sub dont le membership a son 1er paiement encaissé LE MÊME jour ;
+ * `replayed` : sub dont le membership a été encaissé UN AUTRE jour — event
+ *              rejoué (retry serveur, rattrapage d'instrumentation) ; il est
+ *              déjà compté côté Whop à sa vraie date, ce n'est pas un client de
+ *              plus ;
+ * `unpaid`   : sub dont le membership n'a AUCUN paiement encaissé (remboursé,
+ *              échoué après l'event client) — un « fantôme » ;
+ * `unlinked` : sub SANS membership_id (event antérieur à la bascule du 28/07)
+ *              — inappariable, reste dans le brut ;
+ * `missing`  : 1er paiement Whop du jour SANS aucun sub PostHog pour ce
+ *              membership — trou d'instrumentation côté event.
+ */
+export interface DailyReconciliation {
+  day: string;
+  matched: number;
+  replayed: number;
+  unpaid: number;
+  unlinked: number;
+  missing: number;
+  /**
+   * OFFRES des paiements sans event, la plus fréquente d'abord.
+   *
+   * Sans elle, l'alerte disait « 11 paiement(s) Whop sans event » et s'arrêtait
+   * là : un avertissement qu'on relit tous les jours sans savoir quoi en faire.
+   * Or la cause est presque toujours une OFFRE dont le tunnel n'émet pas
+   * l'event — cas de production du 2026-09-08, où 13 des 27 nouveaux clients
+   * venaient d'un plan à 16,90 € apparu la veille, pour un écart de 12.
+   * Nommer l'offre, c'est la différence entre subir l'alerte et savoir quoi
+   * demander au développeur.
+   *
+   * Vide quand l'appelant ne fournit pas l'offre : le contrôle continue de
+   * fonctionner, il est seulement moins bavard.
+   */
+  missingOffers: { offer: string; count: number }[];
+}
+
+/**
+ * Réconcilie subs PostHog et 1ers paiements Whop PAR MEMBERSHIP, jour par jour.
+ *
+ * Le contrôle brut comparait deux agrégats que rien ne relie ; depuis que
+ * l'event porte `membership_id`, on peut classer chaque sub. Le résultat sert à
+ * transformer un « écart 3 » opaque en « 3 retries du 27 + 1 sans paiement −
+ * 1 event manquant », et à ne faire sonner l'alerte que sur l'INEXPLIQUÉ.
+ *
+ * Whop fait foi pour la DATE (jour du 1er encaissement) : un sub rejoué un
+ * autre jour est rangé au jour de son event (là où il gonfle le brut) mais
+ * classé `replayed`, jamais compté comme client de ce jour.
+ */
+export function reconcileDailyClients(
+  subsByMembership: readonly { day: string; membershipId: string; persons: number }[],
+  /** `offer` : libellé de l'offre achetée, facultatif (cf `missingOffers`). */
+  whopFirstPaidDay: readonly {
+    membershipId: string;
+    day: string;
+    offer?: string;
+  }[],
+): DailyReconciliation[] {
+  const whopDay = new Map(whopFirstPaidDay.map((w) => [w.membershipId, w.day]));
+  const byDay = new Map<string, DailyReconciliation>();
+  const touch = (day: string): DailyReconciliation => {
+    const cur = byDay.get(day) ?? {
+      day,
+      matched: 0,
+      replayed: 0,
+      unpaid: 0,
+      unlinked: 0,
+      missing: 0,
+      missingOffers: [],
+    };
+    byDay.set(day, cur);
+    return cur;
+  };
+
+  const seenMemberships = new Set<string>();
+  for (const s of subsByMembership) {
+    const r = touch(s.day);
+    if (s.membershipId === "") {
+      r.unlinked += s.persons;
+      continue;
+    }
+    // Un membership peut apparaître plusieurs jours (retry) : on ne le compte
+    // en `matched` qu'à SON jour Whop, `replayed` ailleurs.
+    seenMemberships.add(s.membershipId);
+    const paidDay = whopDay.get(s.membershipId);
+    if (paidDay === undefined) r.unpaid += 1;
+    else if (paidDay === s.day) r.matched += 1;
+    else r.replayed += 1;
+  }
+  // Les offres sont accumulées à part puis ordonnées : la plus fréquente en
+  // tête, c'est elle qu'on va faire réparer.
+  const offersByDay = new Map<string, Map<string, number>>();
+  for (const w of whopFirstPaidDay) {
+    if (seenMemberships.has(w.membershipId)) continue;
+    touch(w.day).missing += 1;
+    if (w.offer === undefined || w.offer === "") continue;
+    const m = offersByDay.get(w.day) ?? new Map<string, number>();
+    m.set(w.offer, (m.get(w.offer) ?? 0) + 1);
+    offersByDay.set(w.day, m);
+  }
+  for (const [day, m] of offersByDay) {
+    const r = byDay.get(day);
+    if (!r) continue;
+    r.missingOffers = [...m.entries()]
+      .map(([offer, count]) => ({ offer, count }))
+      .sort((a, b) => b.count - a.count || a.offer.localeCompare(b.offer));
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : 1));
+}
+
+/**
+ * « — dont 13 sur Offre 16,90 € » : ce qui transforme une alerte subie en une
+ * demande précise. On ne nomme que les deux offres principales — au-delà, c'est
+ * une liste, pas un diagnostic.
+ */
+function offersSuffix(rec: DailyReconciliation): string {
+  if (rec.missingOffers.length === 0) return "";
+  const top = rec.missingOffers
+    .slice(0, 2)
+    .map((o) => `${o.count} sur ${o.offer}`)
+    .join(", ");
+  return ` — dont ${top}`;
 }
 
 /** Un jour divergent du contrôle croisé. */
@@ -392,62 +729,215 @@ interface DailyMismatch {
   subs: number;
   clients: number;
   diff: number;
+  /** Écart INEXPLIQUÉ après réconciliation (= diff si pas de réconciliation). */
+  unexplained: number;
+  reconciliation?: DailyReconciliation;
 }
 
 /**
  * Contrôle CROISÉ PAR JOUR — PostHog `subs` vs Whop nouveaux clients payants, jour
- * Paris par jour Paris. Les deux mesurent « nouveaux abonnés/jour » ; un écart un
- * jour donné = trou/latence (ex. cache PostHog en retard sur un paiement Whop). On
- * exclut le jour COURANT (partiel des deux côtés).
+ * Paris par jour Paris. Les deux mesurent « nouveaux abonnés/jour » ; on exclut
+ * le jour COURANT (partiel des deux côtés).
  *
  * LES DEUX CÔTÉS COMPTENT DES PREMIERS PAIEMENTS : `QUERIES.overview` filtre
- * `is_renewal` côté PostHog (propriété émise depuis le 28/07 01:09 UTC, vérifiée
- * en prod contre `whopPayments.billingReason`), et `dailyPaidClients` ne retient
- * que le 1er paiement encaissé d'un membership côté Whop. La tolérance « excès
- * absorbé par les renouvellements du jour » a donc été RETIRÉE : elle comparait un
- * compte renouvellements INCLUS à un compte renouvellements EXCLUS, et elle
- * éteignait l'alerte pour un motif qui n'existe plus. Tout écart significatif
- * redevient un écart.
+ * `is_renewal` côté PostHog (propriété émise depuis le 28/07 01:09 UTC), et
+ * `dailyPaidClients` ne retient que le 1er paiement encaissé d'un membership
+ * côté Whop.
  *
- * Résidu ASSUMÉ, mesuré le 08/08 : le chemin temps réel a étiqueté
- * `is_renewal=false` deux renouvellements (06 et 07/08) → au plus 1 faux
- * « nouveau » par jour côté PostHog, sous le seuil de `significantGap`. Si ce
- * résidu devenait quotidien et massif, c'est l'alerte qui doit sonner — pas la
- * tolérance qui doit revenir.
+ * RÈGLE DE LECTURE (diagnostic du 28/07/2026, 11 vs 8) : WHOP FAIT FOI pour les
+ * ventes. Un écart brut se DÉCOMPOSE par `membership_id` quand la réconciliation
+ * est disponible — retries rejoués un autre jour, subs sans paiement encaissé,
+ * paiements sans event — et l'alerte ne sonne que sur ce qui reste INEXPLIQUÉ.
+ * Sans réconciliation (cache pas encore alimenté, events pré-28/07 sans
+ * membership_id), on retombe sur l'écart brut : le contrôle ne se tait jamais
+ * faute de données, il explique quand il peut.
  */
 function pushDailyCrossCheck(
   checks: CoherenceCheck[],
   dailySubs: { day: string; subs: number }[] | undefined,
   dailyClients: { day: string; clients: number }[] | undefined,
   today: string | undefined,
+  reconciliation?: DailyReconciliation[],
 ): void {
   if (!dailySubs || !dailyClients) return;
   const subsBy = new Map(dailySubs.map((d) => [d.day, d.subs]));
   const cliBy = new Map(dailyClients.map((d) => [d.day, d.clients]));
+  const recBy = new Map((reconciliation ?? []).map((r) => [r.day, r]));
   const days = [...new Set([...subsBy.keys(), ...cliBy.keys()])];
   const mismatches: DailyMismatch[] = [];
+  /** Jours dont l'écart brut est ENTIÈREMENT décomposé — affichés, pas comptés. */
+  const reconciled: DailyMismatch[] = [];
+  /**
+   * Jours que la PANNE D'INGESTION traverse. Leur écart est réel et il ne se
+   * décompose pas — les events n'existent pas, ils ne sont ni rejoués ni
+   * fantômes. Mais sa cause est connue, datée, et écrite dans le bandeau au-
+   * dessus : le compter comme une divergence, c'était faire crier l'écran sur
+   * un incident déjà expliqué deux blocs plus haut.
+   */
+  const pannes: DailyMismatch[] = [];
+  const joursDePanne = posthogOutageDays();
+  let explainedDays = 0;
   for (const day of days) {
     if (today && day >= today) continue; // jour courant/futur = partiel → ignoré
     const subs = subsBy.get(day) ?? 0;
     const clients = cliBy.get(day) ?? 0;
-    if (!significantGap(subs, clients)) continue;
-    mismatches.push({ day, subs, clients, diff: Math.abs(subs - clients) });
+    const diff = Math.abs(subs - clients);
+    const rec = recBy.get(day);
+    // Inexpliqué = ce que la réconciliation ne range dans AUCUNE case connue.
+    // Sans réconciliation pour ce jour, tout l'écart est inexpliqué (brut).
+    // `unlinked` reste inexpliqué : un sub sans membership_id n'est pas
+    // classable, on ne l'excuse pas.
+    const unexplained =
+      rec === undefined
+        ? diff
+        : Math.abs(rec.matched + rec.unlinked - clients) ;
+    if (!significantGap(subs, clients)) {
+      if (rec !== undefined && diff > 0 && unexplained < diff) explainedDays += 1;
+      continue;
+    }
+    // DIVERGENT vs RÉCONCILIÉ. Un jour dont l'écart brut est ENTIÈREMENT
+    // décomposé (rejeux d'un autre jour, fantômes) se recoupe : l'appeler
+    // « divergent » était trompeur — cas de prod du 25/08, 4 subs pour 2 clients
+    // dont 2 rejeux, qui gonflait le compte sans rien signaler. Il reste
+    // AFFICHÉ, avec sa décomposition : c'est l'information, pas le mot.
+    const row = { day, subs, clients, diff, unexplained, reconciliation: rec };
+    if (joursDePanne.has(day)) {
+      pannes.push(row);
+    } else if (rec !== undefined && !significantGap(rec.matched + rec.unlinked, clients)) {
+      reconciled.push(row);
+    } else {
+      mismatches.push(row);
+    }
   }
-  mismatches.sort((a, b) => b.diff - a.diff);
+  const bySeverity = (a: DailyMismatch, b: DailyMismatch) =>
+    b.unexplained - a.unexplained || b.diff - a.diff;
+  mismatches.sort(bySeverity);
+  reconciled.sort(bySeverity);
+  pannes.sort(bySeverity);
 
   const key = "daily_clients_posthog_vs_whop";
   const label = "Clients/jour PostHog vs Whop";
-  if (mismatches.length === 0) {
-    checks.push({ key, label, status: "ok", detail: "concordent jour par jour" });
+  if (mismatches.length === 0 && reconciled.length === 0 && pannes.length === 0) {
+    checks.push({
+      key,
+      label,
+      status: "ok",
+      detail:
+        explainedDays > 0
+          ? `concordent jour par jour (${explainedDays} jour(s) réconcilié(s) par membership_id)`
+          : "concordent jour par jour",
+    });
     return;
   }
-  const worst = mismatches[0];
+  const worst = mismatches[0] ?? reconciled[0] ?? pannes[0];
+  const rec = worst.reconciliation;
+  const decomposition =
+    rec === undefined
+      ? ""
+      : ` = ${rec.matched} apparié(s)` +
+        (rec.replayed > 0 ? ` + ${rec.replayed} rejoué(s) d'un autre jour` : "") +
+        (rec.unpaid > 0 ? ` + ${rec.unpaid} sans paiement abouti` : "") +
+        (rec.unlinked > 0 ? ` + ${rec.unlinked} sans membership_id` : "") +
+        (rec.missing > 0
+          ? ` ; ${rec.missing} paiement(s) Whop sans event${offersSuffix(rec)}`
+          : "");
+  // Sévérité sur l'INEXPLIQUÉ, avec la même échelle qu'avant : ≥3 = violation,
+  // ≥2 « significatif » = info. Un écart brut entièrement décomposé (retries,
+  // fantômes) retombe sous le seuil et n'est qu'une information.
+  const inexplique = rec ? Math.abs(rec.matched + rec.unlinked - worst.clients) : worst.diff;
+  // Le mot « divergent » est RÉSERVÉ aux jours qui gardent un résidu inexpliqué.
+  // Les jours entièrement décomposés sont annoncés comme réconciliés — mais avec
+  // la même décomposition, parce que c'est elle qui apprend quelque chose.
+  const suffixePanne =
+    pannes.length > 0
+      ? ` · ${pannes.length} jour(s) traversé(s) par la panne d'ingestion`
+      : "";
+  const entete =
+    mismatches.length > 0
+      ? `${mismatches.length} jour(s) divergent(s)${
+          reconciled.length > 0 ? ` · ${reconciled.length} réconcilié(s)` : ""
+        }${suffixePanne} — pire : `
+      : reconciled.length > 0
+        ? `${reconciled.length} jour(s) réconcilié(s)${suffixePanne}, aucun divergent — dont : `
+        : `${pannes.length} jour(s) traversé(s) par la panne d'ingestion PostHog du 07-08/09, aucun divergent — dont : `;
+  // INCIDENT CLOS — un écart qui ne s'est pas reproduit depuis assez longtemps
+  // n'est plus un problème EN COURS, et le dire change ce qu'on en fait.
+  const clos = incidentClos(mismatches, days, today);
   checks.push({
     key,
     label,
-    status: worst.diff >= 3 ? "violation" : "info",
-    detail: `${mismatches.length} jour(s) divergent(s) — pire : ${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients} (écart ${worst.diff})`,
+    // Un jour de PANNE ne rend jamais le contrôle « en écart » : son écart est
+    // expliqué. Sans ce cas, l'alerte rouge du 08/09 aurait sonné jusqu'à sa
+    // sortie de la fenêtre d'analyse — sept semaines en période « Tout ».
+    status:
+      mismatches.length === 0
+        ? "info"
+        : clos !== null
+          ? "info"
+          : inexplique >= 3
+            ? "violation"
+            : "info",
+    detail:
+      `${entete}${worst.day} PostHog ${worst.subs} vs Whop ${worst.clients}` +
+      (rec ? ` (PostHog ${worst.subs}${decomposition} ; inexpliqué ${worst.unexplained})` : ` (écart ${worst.diff})`) +
+      (joursDePanne.has(worst.day)
+        ? " — journée traversée par la PANNE D'INGESTION PostHog du 07-08/09 :" +
+          " ces events n'ont jamais été émis, l'écart est expliqué"
+        : "") +
+      (clos !== null
+        ? ` — INCIDENT CLOS : rien depuis ${clos} jour(s)`
+        : "") +
+      " — Whop fait foi pour les ventes",
   });
+}
+
+/**
+ * Jours PROPRES écoulés depuis le dernier jour divergent, ou `null` si l'écart
+ * est encore récent (donc potentiellement en cours).
+ *
+ * POURQUOI. Le contrôle porte sur toute la fenêtre analysée — 49 jours en
+ * période « Tout ». Une seule mauvaise journée y reste donc affichée des
+ * semaines, avec le même rouge que si ça cassait à l'instant. Rien ne
+ * distinguait « ça casse maintenant » de « ça a cassé un matin il y a un
+ * mois », et c'est exactement ce qui use une alerte : celui qui la lit finit
+ * par ne plus la lire.
+ *
+ * Cas de production : la nuit du 07 au 08/09/2026, PostHog a coupé l'ingestion
+ * du compte pour dépassement de quota. Sur `subscription_completed`, le dernier
+ * event date du 07/09 17:55:59 UTC et le suivant du 08/09 09:54:29 : les 20
+ * paiements encaissés entre les deux n'ont laissé aucune trace. Repartie seule
+ * au renouvellement de la période de facturation, jamais reproduite — et
+ * pourtant l'alerte sonnait encore chaque jour.
+ *
+ * SEUIL À SEPT JOURS, volontairement long : un incident hebdomadaire (une tâche
+ * du dimanche, un lot de facturation) doit pouvoir se reproduire une fois avant
+ * qu'on le déclare clos. Un incident réellement clos passe donc en `info` avec
+ * son âge ; il reste AFFICHÉ, jamais masqué — c'est le ton qui change, pas
+ * l'information.
+ */
+const JOURS_AVANT_CLOTURE = 7;
+
+function incidentClos(
+  mismatches: readonly DailyMismatch[],
+  days: readonly string[],
+  today: string | undefined,
+): number | null {
+  // La garde sur `today` est EXPLICITE, et redondante avec la comparaison plus
+  // bas (`d < undefined` est toujours faux). Aucune mutation ne peut donc la
+  // distinguer — elle est là pour que l'intention se lise, pas pour corriger un
+  // comportement : sans date du jour on ne sait rien du temps écoulé, et
+  // s'appuyer sur le résultat d'une comparaison avec `undefined` serait un
+  // raisonnement qu'un lecteur devrait refaire.
+  if (mismatches.length === 0 || today === undefined) return null;
+  // `mismatches` est trié par sévérité, pas par date : on cherche le PLUS
+  // RÉCENT, sans quoi un vieil incident grave masquerait un écart d'hier.
+  let dernier = mismatches[0].day;
+  for (const m of mismatches) if (m.day > dernier) dernier = m.day;
+  // Jours réellement observés depuis, jour courant exclu (il est partiel, et le
+  // contrôle l'ignore déjà). Compter des jours calendaires ferait déclarer clos
+  // un incident que rien n'a encore eu l'occasion de contredire.
+  const depuis = days.filter((d) => d > dernier && d < today).length;
+  return depuis >= JOURS_AVANT_CLOTURE ? depuis : null;
 }
 
 /** Compte d'une étape par clé (null si absente). */

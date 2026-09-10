@@ -2,6 +2,11 @@
 
 import type { Id } from "@/convex/_generated/dataModel";
 import {
+  collectAvailabilityLabel,
+  showsMetric,
+  type CollectAvailability,
+} from "@/convex/collectAvailability";
+import {
   Table,
   TableBody,
   TableCell,
@@ -14,6 +19,10 @@ import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { formatNumber, formatPercent, formatDate } from "@/lib/format";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import { engagementRate } from "@/lib/tracker-data";
+import type {
+  QuadrantQualification,
+  QuadrantSnapshot,
+} from "@/convex/quadrant";
 import {
   ArrowDownIcon,
   ArrowUpDownIcon,
@@ -53,7 +62,63 @@ export type TrackerPost = {
    *  producteur listTrackerPosts (dashboard) le renseigne ; le drill-down
    *  scripts (postsForBrick) l'omet → pas de pastille là-bas. */
   isWarmup?: boolean;
+  /** Saves du dernier relevé. `null` = NON COLLECTÉ (jamais « 0 save ») :
+   *  Instagram/YouTube n'exposent pas la métrique et les posts antérieurs à sa
+   *  collecte n'en portent pas. Même optionalité que la campagne : seul
+   *  listTrackerPosts la renseigne. */
+  saves?: number | null;
+  /** Pourquoi les saves manquent, quand elles manquent (cf savesAvailability). */
+  savesAvailability?: "measured" | "collecting" | "unavailable";
+  /**
+   * STATUT DE COLLECTE des vues/likes/commentaires (cf collectAvailability).
+   *
+   * Absent = producteur qui ne le renseigne pas (drill-down scripts) : on
+   * retombe alors sur l'ancien comportement, les chiffres s'affichent tels
+   * quels. Seul `listTrackerPosts` le fournit.
+   */
+  collect?: {
+    availability: CollectAvailability;
+    reason: string | null;
+    failureStreak: number;
+  };
+  /** Qualification éditoriale TRI-ÉTAT (warmup / promo / jamais qualifié).
+   *  Distincte d'`isWarmup` ci-dessus, qui est un booléen et confond donc
+   *  « promo » et « non qualifié ». Seul listTrackerPosts la renseigne. */
+  qualification?: QuadrantQualification;
+  /** Classement « Vues × Intent » écrit par le relevé nocturne. `null`/absent =
+   *  jamais recalculé — c'est une ignorance, pas un post sous les seuils. */
+  quadrant?: QuadrantSnapshot | null;
 };
+
+
+/**
+ * Affiche un chiffre, ou un TIRET quand il n'y a pas de mesure derrière.
+ *
+ * C'est le point unique où l'écran refuse de peindre « 0 » sur une ignorance.
+ * Sept publications Snytch cumulant 78 476 vues réelles se sont affichées
+ * « 0 vue » pendant des semaines faute de cette distinction. Le motif exact
+ * (« visible par son autrice uniquement », « HTTP 429 »…) est porté par
+ * l'attribut `title`, donc au survol, sans alourdir le tableau.
+ *
+ * Sans `collect` (producteurs qui ne le renseignent pas), le comportement est
+ * EXACTEMENT l'ancien : on affiche l'enfant.
+ */
+function Mesure({
+  post,
+  children,
+}: {
+  post: TrackerPost;
+  children: React.ReactNode;
+}) {
+  const c = post.collect;
+  if (c === undefined || showsMetric(c.availability)) return <>{children}</>;
+  const label = collectAvailabilityLabel(c.availability, c.reason ?? undefined);
+  return (
+    <span className="text-muted-foreground" title={label ?? undefined}>
+      —
+    </span>
+  );
+}
 
 export type SortKey = "vues" | "date" | "likes" | "engagement";
 export type SortDir = "asc" | "desc";
@@ -190,16 +255,16 @@ export function PostsList({
                   </div>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  {formatNumber(p.vues)}
+                  <Mesure post={p}>{formatNumber(p.vues)}</Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  {formatNumber(p.likes)}
+                  <Mesure post={p}>{formatNumber(p.likes)}</Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  {formatNumber(p.comments)}
+                  <Mesure post={p}>{formatNumber(p.comments)}</Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  {formatPercent(eng, 2)}
+                  <Mesure post={p}>{formatPercent(eng, 2)}</Mesure>
                 </TableCell>
                 <TableCell className="text-center">
                   {p.postUrl ? (

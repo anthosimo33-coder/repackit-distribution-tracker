@@ -1,9 +1,9 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsTalentQuery,
   authedAction,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   talentMutation,
   talentQuery,
 } from "./functions";
@@ -21,6 +21,7 @@ import { canTransition, isRushExpired, RUSH_STATUSES } from "./rushStatus";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ERR, err } from "./errorCodes";
 
 /**
  * RUSHES — le dépôt du TALENT.
@@ -121,10 +122,10 @@ export const confirmDeposit = talentMutation({
   handler: async (ctx, args): Promise<{ ok: true; rushId: Id<"rushes"> }> => {
     const project = await ctx.db.get(ctx.projectId);
     if (!isFileDropEnabled(project)) {
-      throw new ConvexError("Dépôt indisponible pour ce projet.");
+      throw err(ERR.DEPOSIT_UNAVAILABLE, "Dépôt indisponible pour ce projet.");
     }
     if (args.driveFileId.length === 0) {
-      throw new ConvexError("Référence de fichier manquante.");
+      throw err(ERR.FILE_REF_MISSING, "Référence de fichier manquante.");
     }
 
     const mine = await ctx.db
@@ -206,7 +207,7 @@ export const listRushesAsAdmin = adminViewAsTalentQuery({
  * La purge du binaire est PLANIFIÉE, pas faite ici : une mutation ne fait pas
  * d'I/O réseau, et le refus ne doit pas échouer parce que Drive est indisponible.
  */
-export const rejectRush = adminMutation({
+export const rejectRush = permissionMutation("review.manage")({
   args: { rushId: v.id("rushes"), reason: v.string() },
   handler: async (ctx, { rushId, reason }): Promise<{ ok: true }> => {
     const rush = await ctx.db.get(rushId);
@@ -450,7 +451,7 @@ export interface RushReviewRow {
  * L'appariement est RÉSOLU côté serveur pour que l'écran n'ait pas à recharger
  * les fiches une par une.
  */
-export const listRushesForReview = adminQuery({
+export const listRushesForReview = permissionQuery("review.manage")({
   args: {
     status: v.optional(
       v.union(
@@ -514,7 +515,7 @@ export const listRushesForReview = adminQuery({
 });
 
 /** Badge de sidebar : nombre de rushes en attente de décision. */
-export const countRushesToReview = adminQuery({
+export const countRushesToReview = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx): Promise<number> => {
     const waiting = await ctx.db

@@ -18,7 +18,20 @@
  * #56, où deux tentatives d'y glisser postWindow ont été retirées).
  */
 
-/** Minuit local du jour d'un instant — le repère de comparaison est le JOUR. */
+import { parisDayIndex, plannedDayStart } from "../convex/calendarStatus";
+
+/**
+ * Minuit local du jour d'un instant — le repère de comparaison est le JOUR.
+ *
+ * ⚠️ Réservé à `now` (l'horloge de la créatrice, celle de son navigateur). Le
+ * JOUR PRÉVU, lui, ne se lit JAMAIS ainsi : c'est une étiquette écrite à minuit
+ * Paris, et la lire en heure locale la décale d'un jour pour toute personne à
+ * l'ouest de Paris — jusqu'à Londres. Il passe par `parisDayIndex` /
+ * `plannedDayStart` (cf. convex/calendarStatus).
+ *
+ * Les deux index encodent le mois de la MÊME façon (0-based), donc ils se
+ * comparent — c'est ce qui rend « jour prévu vs aujourd'hui » lisible ici.
+ */
 function dayIndex(ts: number): number {
   const d = new Date(ts);
   return d.getFullYear() * 10000 + d.getMonth() * 100 + d.getDate();
@@ -58,8 +71,8 @@ export function isToCatchUp(item: ScheduleItem, now: number): boolean {
   if (postDate == null) return false;
   if (publishedAt != null) return false;
 
-  const jourPrevu = dayIndex(postDate);
-  const jourCourant = dayIndex(now);
+  const jourPrevu = parisDayIndex(postDate); // ÉTIQUETTE, jamais convertie
+  const jourCourant = dayIndex(now); // son horloge à elle
   if (jourCourant > jourPrevu) return true;
   if (jourCourant < jourPrevu) return false;
 
@@ -116,4 +129,90 @@ export function sortBySchedule<T extends ScheduleItem>(
   now: number,
 ): T[] {
   return [...items].sort((a, b) => compareBySchedule(a, b, now));
+}
+
+/**
+ * REGROUPEMENT PAR JOUR de la liste de missions — ce qui fait qu'« une semaine
+ * se lit d'un coup ».
+ *
+ * Quatre familles, dans l'ordre où elles doivent être lues :
+ *   - `catchup` : le jour prévu est passé (ou le créneau du jour est dépassé),
+ *     rien n'est publié. Même prédicat que le bandeau rouge — `isToCatchUp` est
+ *     appelé, jamais réimplémenté : deux définitions du retard finiraient par
+ *     désigner des missions différentes dans deux endroits de l'écran.
+ *   - `days` : un seau PAR JOUR sur l'horizon demandé, à partir d'aujourd'hui.
+ *     Les jours vides ne sont pas matérialisés (une semaine à trois missions ne
+ *     doit pas afficher quatre sections vides).
+ *   - `later` : au-delà de l'horizon.
+ *   - `undated` : aucune `postDate`. Ces missions-là n'apparaissent NI au
+ *     calendrier NI dans les bandeaux — sans cette famille, elles resteraient
+ *     invisibles partout ailleurs que dans un bloc plafonné.
+ *
+ * PUR (`now` injecté), donc testable. Deux repères, et ils ne sont pas
+ * interchangeables : le jour PRÉVU est une étiquette (lue à Paris), la journée
+ * COURANTE est celle de la créatrice (son navigateur).
+ */
+export interface ScheduleGroups<T> {
+  catchup: T[];
+  days: { dayStart: number; items: T[] }[];
+  later: T[];
+  undated: T[];
+}
+
+/**
+ * Minuit UTC du jour LOCAL d'un instant — borne de seau et clé de tri.
+ *
+ * UTC et non local, pour que les seaux du jour prévu (construits depuis
+ * l'étiquette Paris, cf `plannedDayStart`) et la borne « aujourd'hui » vivent
+ * dans le MÊME repère. Comparer un minuit local à un minuit d'étiquette
+ * décalerait les seaux de quelques heures — donc, certains jours, d'un jour.
+ */
+export function startOfDayUtcFromLocal(ts: number): number {
+  const d = new Date(ts);
+  return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+export function groupBySchedule<T extends ScheduleItem>(
+  items: T[],
+  now: number,
+  horizonDays: number = 7,
+): ScheduleGroups<T> {
+  const out: ScheduleGroups<T> = { catchup: [], days: [], later: [], undated: [] };
+  const byDay = new Map<number, T[]>();
+  const todayStart = startOfDayUtcFromLocal(now);
+  const horizonEnd = todayStart + horizonDays * 86_400_000;
+
+  for (const item of items) {
+    if (item.postDate == null) {
+      out.undated.push(item);
+      continue;
+    }
+    if (isToCatchUp(item, now)) {
+      out.catchup.push(item);
+      continue;
+    }
+    // Seau du jour PRÉVU : son étiquette, pas sa lecture locale.
+    const dayStart = plannedDayStart(item.postDate);
+    // Un jour ANTÉRIEUR à aujourd'hui qui n'est pas « à rattraper » est déjà
+    // publié : il n'a rien à faire dans une liste de missions à faire.
+    if (dayStart < todayStart) continue;
+    if (dayStart >= horizonEnd) {
+      out.later.push(item);
+      continue;
+    }
+    const bucket = byDay.get(dayStart);
+    if (bucket) bucket.push(item);
+    else byDay.set(dayStart, [item]);
+  }
+
+  // Le plus ancien retard EN TÊTE : c'est celui qu'on a le plus laissé traîner.
+  out.catchup.sort((a, b) => (a.postDate ?? 0) - (b.postDate ?? 0));
+  out.later.sort((a, b) => (a.postDate ?? 0) - (b.postDate ?? 0));
+  out.days = [...byDay.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([dayStart, group]) => ({
+      dayStart,
+      items: group.sort((a, b) => (a.postDate ?? 0) - (b.postDate ?? 0)),
+    }));
+  return out;
 }

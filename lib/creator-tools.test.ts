@@ -7,16 +7,16 @@ const CARROUSEL_URL = "https://carrouselstudio.vercel.app/";
 describe("getCreatorTools — outils figés par projet", () => {
   it("snytch → Sous-titres + Carrousel Studio (dans cet ordre)", () => {
     const tools = getCreatorTools("snytch");
-    expect(tools.map((t) => t.label)).toEqual([
-      "Sous-titres",
-      "Carrousel Studio",
+    expect(tools.map((t) => t.labelKey)).toEqual([
+      "tools.subtitles",
+      "tools.carousel",
     ]);
     expect(tools.map((t) => t.url)).toEqual([SUBTITLES_URL, CARROUSEL_URL]);
   });
 
   it("repackit → Sous-titres seul", () => {
     const tools = getCreatorTools("repackit");
-    expect(tools.map((t) => t.label)).toEqual(["Sous-titres"]);
+    expect(tools.map((t) => t.labelKey)).toEqual(["tools.subtitles"]);
     expect(tools[0]?.url).toBe(SUBTITLES_URL);
   });
 

@@ -15,6 +15,10 @@
 export {
   CALENDAR_STATUS_LABEL,
   calendarStatus,
+  formatPlannedDay,
+  isPlannedToday,
+  plannedDayKey,
+  plannedDayStart,
   isPastPost,
   isSameLocalDay,
   lateDays,

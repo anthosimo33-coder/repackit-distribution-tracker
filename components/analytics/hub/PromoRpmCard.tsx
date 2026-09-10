@@ -4,7 +4,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { computePromoRpm } from "@/lib/analytics-hub";
-import { currencySymbol, effectiveFxRate } from "@/lib/currency";
+import { effectiveFxRate } from "@/lib/currency";
+import {
+  toDisplayAmount,
+  convertedValue,
+  conversionNote,
+  rateNote,
+  type CurrencyContext,
+} from "@/lib/currency-display";
 import { cn } from "@/lib/utils";
 import { HubCardHeader } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
@@ -69,12 +76,22 @@ export function PromoRpmCard({
 }) {
   // Revenu net CUMULÉ (toutes périodes) — même base que la tuile « Revenu net
   // encaissé » juste au-dessus. Whop non configuré ⇒ null, jamais 0.
-  const revenueNet = revenue?.configured
-    ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
-    : null;
+  // A5 — même somme cross-périodes que la tuile « Revenu net encaissé », donc
+  // même trou et même garde : bi-devise ⇒ null, jamais un total mélangé.
+  const revenueNet =
+    revenue?.configured && !revenue.mixedCurrency
+      ? Math.round(revenue.periods.reduce((s, p) => s + p.net, 0) * 100) / 100
+      : null;
   const currency = revenue?.currency ?? null; // revenu (€)
   const payCurrency = attribution?.payCurrency ?? null; // paie créatrices ($)
   const fx = effectiveFxRate(payCurrency, currency, attribution?.fxRateToRevenue);
+  // Même passage obligé que les cartes d'éco unitaire : un seul module formate
+  // un montant de paie sur tout le hub (cf ConvertedAmount).
+  const fxCtx: CurrencyContext = {
+    payCurrency,
+    revenueCurrency: currency,
+    fxRateToRevenue: attribution?.fxRateToRevenue,
+  };
 
   const rpm = computePromoRpm({
     revenueNet,
@@ -92,27 +109,19 @@ export function PromoRpmCard({
   // Coût affiché dans la devise du REVENU dès qu'un taux existe (c'est ce qui rend
   // l'écart lisible à l'écran : revenu − coût = écart). Sans taux, il reste dans sa
   // devise de paie et l'écart n'est pas calculé.
-  const costValue =
-    rpm.costConverted !== null
-      ? formatMoney(rpm.costConverted, currency)
-      : rpm.cost !== null
-        ? formatMoney(rpm.cost, payCurrency)
-        : "—";
-  const costHint =
-    rpm.cost === null
-      ? "fixe + CPM des publications promo · hors bonus de paliers"
-      : rpm.costConverted !== null
-        ? `${formatMoney(rpm.cost, payCurrency)} converti · fixe + CPM des publications promo, hors bonus de paliers`
-        : "fixe + CPM des publications promo, hors bonus de paliers · devise non convertie";
+  const costAmount = toDisplayAmount(rpm.cost, fxCtx);
+  const costValue = convertedValue(costAmount);
+  const costHint = [
+    conversionNote(costAmount),
+    "fixe + CPM des publications promo, hors bonus de paliers",
+  ]
+    .filter((x) => x !== "")
+    .join(" · ");
 
-  const symPay = currencySymbol(payCurrency);
-  const symRevenue = currencySymbol(currency);
   const rateLabel =
-    fx !== null && symPay !== "" && symRevenue !== "" && fx !== 1
-      ? `taux du projet : 1 ${symPay} = ${formatNumber(fx)} ${symRevenue}`
-      : fx === 1
-        ? "revenu et paie dans la même devise, aucune conversion"
-        : "aucun taux de change réglé sur le projet : écart non calculé";
+    rateNote(fxCtx) !== ""
+      ? rateNote(fxCtx)
+      : "aucun taux de change réglé sur le projet : écart non calculé";
 
   return (
     <Card>

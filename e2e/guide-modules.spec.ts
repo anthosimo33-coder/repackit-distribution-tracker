@@ -68,7 +68,9 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
       api.guideModules.listMyModules,
       { projectId: creator.projectId },
     );
-    const creatorMine = creatorList.filter((m) => m.title.includes(`${ts}`));
+    const creatorMine = creatorList.modules.filter((m) =>
+      m.title.includes(`${ts}`),
+    );
     expect(creatorMine.map((m) => m._id)).toEqual([m1, m2]);
     // Le brouillon n'apparaît jamais.
     expect(creatorMine.some((m) => m.title.includes("Draft"))).toBe(false);
@@ -82,7 +84,7 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
       await creator.client.query(api.guideModules.listMyModules, {
         projectId: creator.projectId,
       })
-    ).filter((m) => m.title.includes(`${ts}`));
+    ).modules.filter((m) => m.title.includes(`${ts}`));
     expect(reordered.map((m) => m._id)).toEqual([m2, m1]);
 
     // --- Scoping projet : 2e projet B + module published dans B ---
@@ -103,7 +105,7 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
       await creator.client.query(api.guideModules.listMyModules, {
         projectId: creator.projectId,
       })
-    ).filter((m) => m.title.includes(`${ts}`));
+    ).modules.filter((m) => m.title.includes(`${ts}`));
     expect(stillA.some((m) => m._id === mB)).toBe(false);
 
     // Éditer le module de B depuis le contexte projet A → introuvable (no leak).
@@ -127,7 +129,7 @@ test.describe("Guide modules — scoping, published/draft, order, view-as", () =
       projectId: projectA,
       creatorId: creator.creatorId,
     });
-    expect(viewAs.map((m) => m._id)).toEqual([m2, m1]); // published, triés
+    expect(viewAs.modules.map((m) => m._id)).toEqual([m2, m1]); // published, triés
 
     // Une session CRÉATEUR est rejetée du chemin admin view-as ET des mutations admin.
     await expect(

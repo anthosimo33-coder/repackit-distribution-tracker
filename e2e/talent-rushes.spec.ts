@@ -4,6 +4,7 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -155,7 +156,7 @@ test.describe("Espace talent — dépôt de rushes", () => {
     await enableFileDrop();
 
     const hookSecret = `HOOK-SECRET-${ts}`;
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Brief talent ${ts}`,
       type: "short",
       brief: `Filme en extérieur, lumière naturelle. Repère ${ts}.`,
@@ -359,7 +360,7 @@ test.describe("Espace talent — dépôt de rushes", () => {
     await enableFileDrop();
 
     const hookSecret = `HOOK-SECRET-${ts}`;
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Brief écran ${ts}`,
       type: "short",
       brief: `Filme dehors, plan serré. Repère ${ts}.`,
@@ -452,7 +453,6 @@ test.describe("Espace talent — dépôt de rushes", () => {
       name: `[E2E_TEST] Brief premier passage ${ts}`,
       type: "short",
       brief: `Filme dehors, plan serré. ${repere}.`,
-      rateModel: { basePerPost: 0 },
     });
     await convex.mutation(api.projects.setTalentSettings, {
       talentBriefFormatId: formatId,

@@ -25,18 +25,18 @@ export type CreatorVideoFilterKey = "all" | "pending" | "online" | "rejected";
 
 export const CREATOR_VIDEO_FILTERS: {
   key: CreatorVideoFilterKey;
-  label: string;
+  labelKey: string;
   /** null = tout le périmètre (pas de restriction de statut). */
   statuses: CreatorVideoStatus[] | null;
 }[] = [
-  { key: "all", label: "Toutes mes vidéos", statuses: null },
-  { key: "pending", label: "En attente", statuses: ["video_submitted"] },
+  { key: "all", labelKey: "videoFilter.all", statuses: null },
+  { key: "pending", labelKey: "videoFilter.pending", statuses: ["video_submitted"] },
   {
     key: "online",
-    label: "Approuvé et en ligne",
+    labelKey: "videoFilter.approved",
     statuses: ["to_publish", "published", "paid"],
   },
-  { key: "rejected", label: "Rejeté", statuses: ["video_rejected"] },
+  { key: "rejected", labelKey: "videoFilter.rejected", statuses: ["video_rejected"] },
 ];
 
 /** Un statut appartient-il au filtre `key` ? (`all` accepte tout le périmètre.) */

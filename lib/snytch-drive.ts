@@ -12,6 +12,8 @@
  * de réplique convex ; le serveur compare au SNYTCH_SLUG de convex/projects.ts).
  */
 
+import { FORMAT_LOCALE_DEFAULT } from "./format-rate";
+
 /** Slug du projet Snytch — la seule app concernée par le dépôt de fichiers. */
 export const SNYTCH_SLUG = "snytch";
 
@@ -45,18 +47,22 @@ export function parseServiceAccount(raw: string): ServiceAccount {
   try {
     json = JSON.parse(raw);
   } catch {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: JSON invalide.");
   }
   if (!json || typeof json !== "object") {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: objet JSON attendu.");
   }
   const o = json as Record<string, unknown>;
   const clientEmail = o.client_email;
   const privateKeyRaw = o.private_key;
   if (typeof clientEmail !== "string" || clientEmail.length === 0) {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: client_email manquant.");
   }
   if (typeof privateKeyRaw !== "string" || privateKeyRaw.length === 0) {
+    // i18n-exempt: erreur de CONFIGURATION serveur, lue par un développeur dans les logs
     throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON: private_key manquant.");
   }
   const tokenUri =
@@ -82,6 +88,7 @@ export function driveShortId(creatorId: string): string {
  */
 export function creatorFolderName(name: string, creatorId: string): string {
   const clean = name.replace(/\s+/g, " ").trim().slice(0, 60);
+  // i18n-exempt: nom de DOSSIER Google Drive (donnée persistée), pas de l'interface
   const display = clean.length > 0 ? clean : "Créateur";
   return `${display} — ${driveShortId(creatorId)}`;
 }
@@ -129,12 +136,28 @@ export function classifyDriveKind(
   return "other";
 }
 
-/** Formatte une taille en octets → « 1,2 Go » / « 340 Mo » / « 12 Ko » (fr). */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 o";
-  const units = ["o", "Ko", "Mo", "Go", "To"];
+/**
+ * Taille de fichier → « 1,2 Go » en français, « 1.2 GB » en anglais.
+ *
+ * Les unités ne sont PAS les mêmes : le français compte en octets (o, Ko, Mo),
+ * l'anglais en bytes (B, KB, MB). Ce n'est pas une préférence de style, « 340 Mo »
+ * ne veut rien dire pour un anglophone. Elles ne passent pas par un catalogue de
+ * messages : `lib/` est aussi importé hors contexte next-intl, et une table de
+ * 5 symboles ne justifie pas 5 clés.
+ */
+const BYTE_UNITS: Record<string, readonly string[]> = {
+  fr: ["o", "Ko", "Mo", "Go", "To"],
+  en: ["B", "KB", "MB", "GB", "TB"],
+};
+
+export function formatBytes(
+  bytes: number,
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): string {
+  const units = locale.startsWith("fr") ? BYTE_UNITS.fr : BYTE_UNITS.en;
+  if (!Number.isFinite(bytes) || bytes <= 0) return `0 ${units[0]}`;
   const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
   const value = bytes / Math.pow(1024, i);
   const rounded = i === 0 ? Math.round(value) : Math.round(value * 10) / 10;
-  return `${rounded.toLocaleString("fr-FR")} ${units[i]}`;
+  return `${rounded.toLocaleString(locale)} ${units[i]}`;
 }

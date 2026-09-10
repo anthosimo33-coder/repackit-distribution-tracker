@@ -40,6 +40,7 @@ export function useTalentProject(): TalentProjectValue {
   const value = useContext(TalentProjectContext);
   if (value === null) {
     throw new Error(
+      // i18n-exempt: erreur de DÉVELOPPEMENT (contrat de montage React), jamais rendue à un utilisateur
       "useTalentProject doit être appelé sous <TalentProjectProvider> (layout /talent).",
     );
   }

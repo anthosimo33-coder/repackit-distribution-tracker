@@ -77,6 +77,10 @@ test.describe("Reset mot de passe admin (Voie B)", () => {
     // Génère un lien de reset via l'UI, renvoie le token, et REFERME le dialog
     // modal (sinon le backdrop bloque les interactions suivantes).
     async function generateResetToken(): Promise<string> {
+      // La remise à zéro du mot de passe est passée dans l'onglet « Accès &
+      // projets ». Le clic est idempotent : l'onglet peut déjà être actif d'un
+      // appel précédent.
+      await page.getByRole("tab", { name: /Accès/ }).click();
       await page
         .getByRole("button", { name: /réinitialiser le mot de passe/i })
         .click();

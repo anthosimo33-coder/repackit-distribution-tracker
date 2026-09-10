@@ -1,18 +1,20 @@
 import { internalMutation } from "./_generated/server";
 import { passesWarmupMode } from "./warmupMode";
 import {
-  e2eMutation,
-  adminMutation,
-  adminQuery,
   adminViewAsClipperQuery,
   adminViewAsQuery,
-  creatorMutation,
-  creatorQuery,
   clipperMutation,
   clipperQuery,
+  creatorMutation,
+  creatorQuery,
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import {
   defaultTargetDays,
+  warmupTargetDaysOf,
+  type WarmupTargetDays,
   todayKey,
   checkedToday,
   isWarmupComplete,
@@ -20,18 +22,35 @@ import {
   isAccountAvailable,
   effectiveTargetDays,
 } from "./warmup";
+
+/**
+ * Barème de warmup DU PROJET. Unique manière d'obtenir une durée par défaut
+ * côté serveur : `defaultTargetDays` exige ce barème, donc aucun chemin
+ * d'écriture ne peut figer 7 en silence pour un projet qui chauffe 3 jours.
+ */
+async function warmupDaysFor(
+  ctx: { db: { get: (id: Id<"projects">) => Promise<{ warmupTargetDays?: { tiktok: number; instagram: number; youtube: number } } | null> } },
+  projectId: Id<"projects">,
+): Promise<WarmupTargetDays> {
+  return warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {});
+}
 import { isSnytchProject } from "./projects";
 import { resolveCreatorKind } from "./roles";
+import { activateCreatorOnAccountValidated } from "./creatorActivation";
 import { auditCompteHandle } from "./handleHygiene";
 import { postsPerDayAt } from "./accountPhase";
+import { creatorZoneOnly, ensureCreatorZone } from "./creatorTimezone";
+import { buildZoneMap, type CreatorZone } from "./creatorDay";
 import {
   phaseOfClipperAccount,
   sortieDeChauffeAt,
 } from "./clipperReadiness";
 import { countryValidator } from "./countries";
+import { purgeCompteAvatar } from "./compteAvatar";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ERR, err } from "./errorCodes";
 
 const statusValidator = v.union(
   v.literal("warmup"),
@@ -83,17 +102,44 @@ export interface ComptePerf {
 }
 
 /**
- * Agrège la performance par handle de compte depuis les publications du projet.
- * Rapprochement compte↔publication = `publications.compte` (string = handle),
- * convention déjà en place (cf CompteDetailView). Une seule passe, Map en O(n).
+ * CLÉ D'UN COMPTE : (handle, plateforme) — jamais le handle seul.
+ *
+ * C'est la doctrine déjà écrite dans `convex/quadrant.ts` (`accountKey`) et la
+ * clé d'unicité de la table `comptes` : le même pseudo vit sur TikTok et sur
+ * Instagram, et ce sont deux comptes, avec deux audiences.
+ *
+ * `buildPerfMap` l'ignorait et agrégeait sur le handle seul, alors que
+ * `publications` porte un champ `plateforme`. Conséquence, sur Snytch : les deux
+ * lignes de `@ja.deotn` affichaient toutes deux 15 733 vues et 37 posts, alors
+ * que le compte TikTok en a 12 172 pour 19 posts et l'Instagram 3 561 pour 18.
+ * La ligne Instagram annonçait 4,4 fois ses vraies vues. Trois handles étaient
+ * dans ce cas, et la colonne comptait 25 782 vues en double.
+ *
+ * Le handle est replié en MINUSCULES. Deux graphies d'un même compte scindaient
+ * sa mesure — sur Snytch, `@Cintia_secretacc` et `@cintia_secretacc`. Le cas est
+ * aujourd'hui sans effet (leurs graphies coïncident avec deux plateformes
+ * différentes, donc deux comptes bien distincts), mais deux graphies sur la MÊME
+ * plateforme couperaient un compte en deux, en silence.
  */
-function buildPerfMap(pubs: Doc<"publications">[]): Map<string, ComptePerf> {
+export function comptePerfKey(handle: string, plateforme: string): string {
+  return `${plateforme}::${handle.toLowerCase()}`;
+}
+
+/**
+ * Agrège la performance PAR COMPTE (handle × plateforme) depuis les publications
+ * du projet. Rapprochement compte↔publication = `publications.compte` (handle)
+ * ET `publications.plateforme`. Une seule passe, Map en O(n).
+ */
+export function buildPerfMap(
+  pubs: Doc<"publications">[],
+): Map<string, ComptePerf> {
   const map = new Map<string, ComptePerf>();
   for (const p of pubs) {
-    let perf = map.get(p.compte);
+    const key = comptePerfKey(p.compte, p.plateforme);
+    let perf = map.get(key);
     if (!perf) {
       perf = { vuesCumulees: 0, nbPublies: 0, dernierPost: null };
-      map.set(p.compte, perf);
+      map.set(key, perf);
     }
     // vues de PERF hors warmup (TD-019, helper unique) ; nbPublies/dernierPost
     // restent sur TOUS les posts (un post de chauffe est bien publié).
@@ -223,18 +269,18 @@ async function compteUsage(
  * (handle + publications + vues + missions en cours). Le serveur re-vérifie de
  * toute façon dans deleteCompte — cette query n'est qu'un affichage.
  */
-export const getCompteUsage = adminQuery({
+export const getCompteUsage = permissionQuery("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     return compteUsage(ctx, ctx.projectId, compte);
   },
 });
 
-export const listComptes = adminQuery({
+export const listComptes = permissionQuery("accounts.manage")({
   args: {
     actifOnly: v.optional(v.boolean()),
     statusFilter: v.optional(statusValidator),
@@ -284,14 +330,34 @@ export const listComptes = adminQuery({
       }
     }
     const usedHandles = new Set(pubs.map((p) => p.compte));
+    // SOURCE UNIQUE de la durée : elle est résolue ICI (barème du projet +
+    // surcharge du compte) et servie telle quelle. Les écrans la LISENT, ils ne
+    // la recalculent pas — un second calcul côté client redeviendrait une
+    // seconde vérité, exactement ce que ce chantier supprime.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
+    // MÊME PRINCIPE pour le FUSEAU : résolu ici (fiche créatrice, sinon pays de
+    // ses comptes), servi tel quel. Les écrans admin qui comptent des jours
+    // (jours manqués, « en retard ») le LISENT — sans lui, ils recompteraient
+    // dans l'horloge du navigateur de l'équipe, ce qui est le bug d'origine.
+    const zoneMap = buildZoneMap(creators, results);
     return sorted.map((c) => {
       const p = c.personneId ? personneMap.get(c.personneId) : null;
       const creator = c.creatorId ? creatorMap.get(c.creatorId) : null;
+      const warmupLike = {
+        plateforme: c.plateforme,
+        warmupProtocol: c.warmupProtocol,
+      };
       return {
         ...c,
+        targetDays: effectiveTargetDays(warmupLike, days),
+        warmupDone: isWarmupComplete(warmupLike, days),
+        // Fuseau de la créatrice propriétaire (null = à définir). Servi, pas
+        // recalculé : cf le commentaire de `zoneMap` plus haut.
+        creatorTimezone: c.creatorId ? (zoneMap.get(c.creatorId) ?? null) : null,
         personne: p ? { prenom: p.prenom, nom: p.nom } : null,
         creator: creator ? { name: creator.name } : null,
-        perf: perfMap.get(c.handle) ?? EMPTY_PERF,
+        perf:
+          perfMap.get(comptePerfKey(c.handle, c.plateforme)) ?? EMPTY_PERF,
         inUse: usedCompteIds.has(c._id) || usedHandles.has(c.handle),
       };
     });
@@ -305,7 +371,7 @@ export const listComptes = adminQuery({
  * désactivée. Gate STRICT pour Snytch (available = "actif" seulement) ; lenient
  * ailleurs (warmup terminé suffit).
  */
-export const listCreatorAvailableComptes = adminQuery({
+export const listCreatorAvailableComptes = permissionQuery("accounts.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const strict = await isSnytchProject(ctx, ctx.projectId);
@@ -327,12 +393,14 @@ export const listCreatorAvailableComptes = adminQuery({
     const estClippeur =
       owner !== null && resolveCreatorKind(owner.kind) === "clipper";
     const now = Date.now();
+    // Barème du projet, résolu UNE fois pour toute la liste.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     return comptes
       .map((c) => ({
         _id: c._id,
         handle: c.handle,
         plateforme: c.plateforme,
-        available: isAccountAvailable(c, { strict }),
+        available: isAccountAvailable(c, days, { strict }),
         /** Phase du compte, ou `null` hors population clippeur. */
         phase: estClippeur ? phaseOfClipperAccount(c.validatedAt, now) : null,
         /** Quota de posts du jour — 0 = la publication sera refusée. */
@@ -348,7 +416,7 @@ export const listCreatorAvailableComptes = adminQuery({
   },
 });
 
-export const createCompte = adminMutation({
+export const createCompte = permissionMutation("accounts.manage")({
   args: {
     handle: v.string(),
     plateforme: v.union(
@@ -364,6 +432,8 @@ export const createCompte = adminMutation({
     targetCountry: v.optional(countryValidator),
   },
   handler: async (ctx, args) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     // Dedup (handle, plateforme) DANS le projet (by_project_plateforme).
     const samePlatform = await ctx.db
       .query("comptes")
@@ -378,7 +448,7 @@ export const createCompte = adminMutation({
     }
     const status: CompteStatus = args.status ?? "actif";
     if (status === "warmup" && args.warmupStartedAt === undefined) {
-      throw new ConvexError("Date de début warmup requise.");
+      throw err(ERR.WARMUP_START_REQUIRED, "Date de début warmup requise.");
     }
     if (status !== "warmup" && args.warmupStartedAt !== undefined) {
       throw new ConvexError(
@@ -403,7 +473,7 @@ export const createCompte = adminMutation({
           ? {
               keywords: [],
               instructions: "",
-              targetDays: defaultTargetDays(args.plateforme),
+              targetDays: defaultTargetDays(args.plateforme, days),
               dailyChecks: [],
               updatedAt: now,
             }
@@ -414,7 +484,7 @@ export const createCompte = adminMutation({
   },
 });
 
-export const updateCompte = adminMutation({
+export const updateCompte = permissionMutation("accounts.manage")({
   args: {
     id: v.id("comptes"),
     handle: v.optional(v.string()),
@@ -453,10 +523,12 @@ export const updateCompte = adminMutation({
     targetCountry: v.optional(v.union(countryValidator, v.null())),
   },
   handler: async (ctx, args) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     const { id } = args;
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     // Rattachement RÉSULTANT (après application des args) : la garde « géré ⇒
     // créatrice » est évaluée sur l'ÉTAT CIBLE, pas sur l'état courant — sinon
@@ -464,7 +536,7 @@ export const updateCompte = adminMutation({
     if (args.creatorId !== undefined && args.creatorId !== null) {
       const creator = await ctx.db.get(args.creatorId);
       if (!creator || creator.projectId !== ctx.projectId) {
-        throw new ConvexError("Créateur introuvable dans le projet.");
+        throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
       }
     }
     const nextCreatorId =
@@ -474,27 +546,52 @@ export const updateCompte = adminMutation({
     const nextManagedByAdmin =
       args.managedByAdmin ?? compte.managedByAdmin ?? false;
     if (nextManagedByAdmin && nextCreatorId === undefined) {
-      throw new ConvexError(
-        "Un compte géré par l'équipe doit être rattaché à une créatrice.",
-      );
+      throw err(ERR.MANAGED_ACCOUNT_NEEDS_CREATOR, "Un compte géré par l'équipe doit être rattaché à une créatrice.");
     }
 
-    // Garde-fou rename (scopé projet) : publications.compte = handle string.
-    // Bloque le rename tant que des publications du projet l'utilisent.
+    // RENOMMAGE — le handle est réécrit SUR LES PUBLICATIONS, pas refusé.
+    //
+    // `publications.compte` est une chaîne (le handle), pas une clé étrangère :
+    // renommer le compte sans toucher aux publications les rendait orphelines,
+    // et le garde-fou d'origine bloquait donc purement et simplement le
+    // renommage dès qu'un compte avait de l'historique. Sur Snytch, cela
+    // enfermait par exemple `@Cintia_secretacc` dans sa majuscule.
+    //
+    // ⚠️ LA PLATEFORME FAIT PARTIE DE LA CIBLE. Un même pseudo vit sur TikTok ET
+    // sur Instagram (`@ja.deotn`), et ce sont deux comptes : réécrire toutes les
+    // publications d'un handle emporterait celles de l'autre plateforme. On ne
+    // touche donc qu'à `(compte, plateforme)` — la même identité que la clé
+    // d'unicité de la table et que la mesure (cf comptePerfKey).
     if (args.handle !== undefined && args.handle !== compte.handle) {
+      // Refus sur le SEUL motif qui reste : la place est déjà prise.
+      const surLaPlateforme = await ctx.db
+        .query("comptes")
+        .withIndex("by_project_plateforme", (q) =>
+          q.eq("projectId", ctx.projectId).eq("plateforme", compte.plateforme),
+        )
+        .collect();
+      if (
+        surLaPlateforme.some(
+          (c) => c._id !== compte._id && c.handle === args.handle,
+        )
+      ) {
+        throw err(
+          ERR.ACCOUNT_RENAME_LOCKED,
+          `Un compte ${args.handle} existe déjà sur ${compte.plateforme}. Renommer ici fusionnerait deux comptes distincts.`,
+          { count: 0 },
+        );
+      }
       const pubs = await ctx.db
         .query("publications")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect();
-      const used = pubs.filter((p) => p.compte === compte.handle);
-      if (used.length > 0) {
-        throw new ConvexError(
-          `Impossible de renommer ce compte : ${used.length} publication${
-            used.length > 1 ? "s" : ""
-          } l'utilise${
-            used.length > 1 ? "nt" : ""
-          }. Renommer le handle créerait des publications orphelines.`,
-        );
+      for (const pub of pubs) {
+        if (
+          pub.compte === compte.handle &&
+          pub.plateforme === compte.plateforme
+        ) {
+          await ctx.db.patch(pub._id, { compte: args.handle });
+        }
       }
     }
 
@@ -526,7 +623,8 @@ export const updateCompte = adminMutation({
     if (args.plateforme !== undefined && args.plateforme !== compte.plateforme) {
       const usage = await compteUsage(ctx, ctx.projectId, compte);
       if (usage.inUse) {
-        throw new ConvexError(
+        throw err(
+          ERR.ACCOUNT_PLATFORM_LOCKED,
           "Impossible de changer la plateforme d'un compte déjà utilisé — archive-le et le créateur en déclare un nouveau.",
         );
       }
@@ -538,16 +636,14 @@ export const updateCompte = adminMutation({
         )
         .collect();
       if (samePlatform.some((c) => c._id !== id && c.handle === finalHandle)) {
-        throw new ConvexError(
-          `Le compte ${finalHandle} existe déjà sur ${args.plateforme}.`,
-        );
+        throw err(ERR.ACCOUNT_ALREADY_EXISTS, `Le compte ${finalHandle} existe déjà sur ${args.plateforme}.`, { handle: finalHandle, platform: args.plateforme });
       }
       update.plateforme = args.plateforme;
       const proto = compte.warmupProtocol;
       update.warmupProtocol = {
         keywords: proto?.keywords ?? [],
         instructions: proto?.instructions ?? "",
-        targetDays: defaultTargetDays(args.plateforme),
+        targetDays: defaultTargetDays(args.plateforme, days),
         dailyChecks: [],
         updatedAt: Date.now(),
       };
@@ -573,7 +669,7 @@ export const updateCompte = adminMutation({
             ? args.warmupStartedAt
             : compte.warmupStartedAt;
         if (start === undefined || start === null) {
-          throw new ConvexError("Date de début warmup requise.");
+          throw err(ERR.WARMUP_START_REQUIRED, "Date de début warmup requise.");
         }
         update.warmupStartedAt = start;
       } else {
@@ -597,6 +693,23 @@ export const updateCompte = adminMutation({
     }
 
     await ctx.db.patch(id, update);
+
+    // ─── PREMIER COMPTE VALIDÉ ⇒ LA FICHE SORT DE L'ONBOARDING ───────────────
+    // Le sens de l'onboarding est « elle n'a encore rien qui tourne » : dès qu'un
+    // de ses comptes est en service, ce statut ment. On l'écrit ICI, sur la
+    // transition, plutôt que de le dériver à la lecture — le statut est édité à
+    // la main (pause, départ), donc il doit rester une VALEUR, pas un calcul.
+    // Sans effet si la fiche n'est pas en onboarding (cf shouldAutoActivateCreator).
+    // Propriétaire APRÈS le patch : la même mutation peut réassigner le compte
+    // (args.creatorId), et c'est la nouvelle propriétaire qui vient d'avoir un
+    // compte en service, pas l'ancienne.
+    const owner =
+      args.creatorId !== undefined
+        ? (args.creatorId ?? undefined)
+        : compte.creatorId;
+    if (targetStatus === "actif" && owner) {
+      await activateCreatorOnAccountValidated(ctx, owner);
+    }
   },
 });
 
@@ -606,19 +719,26 @@ export const updateCompte = adminMutation({
  * paiement). Sinon REJET (archivage à la place) — jamais de cascade qui
  * orphelinerait des publications/paiements.
  */
-export const deleteCompte = adminMutation({
+export const deleteCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const usage = await compteUsage(ctx, ctx.projectId, compte);
     if (usage.inUse) {
-      throw new ConvexError(
+      throw err(
+        ERR.ACCOUNT_IN_USE,
         `Ce compte est utilisé (${usage.assignments} assignment(s), ${usage.publications} publication(s), ${usage.payments} ligne(s) de paiement) — tu ne peux pas le supprimer, archive-le plutôt.`,
+        {
+          assignments: usage.assignments,
+          publications: usage.publications,
+          payments: usage.payments,
+        },
       );
     }
+    await purgeCompteAvatar(ctx, compte);
     await ctx.db.delete(args.id);
   },
 });
@@ -629,12 +749,12 @@ export const deleteCompte = adminMutation({
  * (countMyWarmupDue) ; warmup GELÉ (warmupStartedAt unset). Données passées
  * (publications/paiements) intactes. Toujours autorisé (vierge ou utilisé).
  */
-export const archiveCompte = adminMutation({
+export const archiveCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     await ctx.db.patch(id, {
       status: "archived",
@@ -664,7 +784,7 @@ export const archiveCompte = adminMutation({
  * SERVEUR parce qu'il a besoin du nom du projet et de la liste des talents, que
  * l'écran des comptes ne charge pas.
  */
-export const listComptesAValider = adminQuery({
+export const listComptesAValider = permissionQuery("accounts.manage")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
@@ -727,12 +847,12 @@ export const listComptesAValider = adminQuery({
  * le premier refus est celui qui compte). Un compte déjà archivé pour une autre
  * raison peut être refusé : c'est une qualification, pas une transition.
  */
-export const refuseCompte = adminMutation({
+export const refuseCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes"), reason: v.string() },
   handler: async (ctx, { id, reason }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const motif = reason.trim();
     if (motif.length === 0) {
@@ -754,12 +874,12 @@ export const refuseCompte = adminMutation({
 });
 
 /** Réactive un compte archivé → "actif" (action ADMIN ; le créateur ne peut pas). */
-export const unarchiveCompte = adminMutation({
+export const unarchiveCompte = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (effectiveStatus(compte) !== "archived") return { ok: true };
     await ctx.db.patch(id, {
@@ -776,6 +896,11 @@ export const unarchiveCompte = adminMutation({
       refusedAt: undefined,
       refusedReason: undefined,
     });
+    // Désarchiver, c'est remettre le compte en service : même conséquence que la
+    // validation initiale sur une fiche restée en onboarding.
+    if (compte.creatorId) {
+      await activateCreatorOnAccountValidated(ctx, compte.creatorId);
+    }
     return { ok: true };
   },
 });
@@ -791,16 +916,18 @@ export const unarchiveCompte = adminMutation({
  * publication possible) tant que les N checks ne sont pas posés. NE TOUCHE NI
  * les publications NI les assignments existants : ça ne fait que ré-échauffer.
  */
-export const restartWarmup = adminMutation({
+export const restartWarmup = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, { id }) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const now = Date.now();
     const proto = compte.warmupProtocol;
-    const targetDays = defaultTargetDays(compte.plateforme);
+    const targetDays = defaultTargetDays(compte.plateforme, days);
     await ctx.db.patch(id, {
       status: "warmup",
       // Legacy synchronisé (TD-017) : un compte en warmup n'est pas "actif".
@@ -841,7 +968,7 @@ function normalizeHandle(h: string): string {
  * comptes (la règle « unique par compte dans le projet » a été retirée — elle
  * bloquait l'admin qui assigne des niches communes aux comptes d'un créateur).
  */
-export const updateWarmupProtocol = adminMutation({
+export const updateWarmupProtocol = permissionMutation("accounts.manage")({
   args: {
     id: v.id("comptes"),
     keywords: v.optional(v.array(v.string())),
@@ -849,14 +976,16 @@ export const updateWarmupProtocol = adminMutation({
     targetDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
+    const days = await warmupDaysFor(ctx, ctx.projectId);
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const current = compte.warmupProtocol ?? {
       keywords: [],
       instructions: "",
-      targetDays: defaultTargetDays(compte.plateforme),
+      targetDays: defaultTargetDays(compte.plateforme, days),
       dailyChecks: [],
       updatedAt: Date.now(),
     };
@@ -952,12 +1081,12 @@ function computeBioPatch(
  * re-confirmer) ; re-sauver le même texte est un no-op ; vider la bio l'efface.
  * Garanti SERVEUR via computeBioPatch (pas seulement l'UI).
  */
-export const setAccountBio = adminMutation({
+export const setAccountBio = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes"), bio: v.string() },
   handler: async (ctx, { id, bio }) => {
     const compte = await ctx.db.get(id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     const patch = computeBioPatch(compte, bio, Date.now());
     if (patch !== null) await ctx.db.patch(id, patch);
@@ -979,10 +1108,10 @@ export const confirmAccountBioApplied = creatorMutation({
       compte.projectId !== ctx.projectId ||
       compte.creatorId !== ctx.creatorId
     ) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (compte.bioToApply === undefined || compte.bioStatus === undefined) {
-      throw new ConvexError("Aucune bio à appliquer sur ce compte.");
+      throw err(ERR.NO_BIO_TO_APPLY, "Aucune bio à appliquer sur ce compte.");
     }
     if (compte.bioStatus === "applied") return; // idempotent
     await ctx.db.patch(id, { bioStatus: "applied", bioAppliedAt: Date.now() });
@@ -1008,31 +1137,78 @@ async function comptesForCreator(
       q.eq("projectId", projectId).eq("creatorId", creatorId),
     )
     .collect();
-  return comptes.sort((a, b) =>
-    a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
-  );
+  // Durée RÉSOLUE côté serveur (cf listComptes) : le portail la lit, il ne la
+  // recalcule pas.
+  const days = await warmupDaysFor(ctx, projectId);
+  const now = Date.now();
+  // Fuseau de la créatrice : `dueToday` doit répondre « aujourd'hui » au sens
+  // où ELLE le vit, sinon le portail réaffiche « à cocher » un jour de trop.
+  const tz = await creatorZoneOnly(ctx, creatorId);
+  // Régime STRICT (Snytch) : un compte en warmup, même terminé, n'est pas
+  // publiable tant que l'admin ne l'a pas repassé actif. Résolu SERVEUR, comme
+  // targetDays / dueToday juste en dessous.
+  const strict = await isSnytchProject(ctx, projectId);
+  return comptes
+    .sort((a, b) => a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }))
+    .map((c) => {
+      const warmupLike = {
+        plateforme: c.plateforme,
+        warmupProtocol: c.warmupProtocol,
+      };
+      return {
+        ...c,
+        targetDays: effectiveTargetDays(warmupLike, days),
+        warmupDone: isWarmupComplete(warmupLike, days),
+        // DISPONIBLE pour publier — MÊME prédicat que `validateTargets` côté
+        // écriture (`isAccountAvailable`, régime strict inclus). Servi plutôt
+        // que redérivé côté client : un calcul parallèle finirait par proposer
+        // un compte que le serveur refuse ensuite, et c'est exactement le
+        // défaut que `dueToday` a été ajouté pour corriger.
+        disponible: isAccountAvailable(c, days, { strict }),
+        // Check dû aujourd'hui : servi lui aussi, pour la même raison — le
+        // portail affichait « à cocher » sur un calcul client parallèle.
+        dueToday:
+          effectiveStatus(c) === "warmup" &&
+          mustCheckToday(warmupLike, days, now, tz),
+        // « Déjà coché aujourd'hui » — servi pour la MÊME raison que dueToday.
+        // Le calculer côté écran le ferait dans le fuseau du NAVIGATEUR : une
+        // créatrice à New York verrait le bouton se réarmer à 20 h locales,
+        // alors que le serveur refuserait le check.
+        doneToday: checkedToday(c.warmupProtocol?.dailyChecks ?? [], now, tz),
+        // Fuseau retenu pour ces calculs (null = à définir).
+        creatorTimezone: tz,
+      };
+    });
 }
 
 // Comptes GÉRÉS exclus : c'est l'équipe qui coche leur warmup, jamais la
 // créatrice → ils ne doivent JAMAIS peser dans ses compteurs / notifs à faire.
-function warmupDueCount(comptes: Doc<"comptes">[], now: number) {
+function warmupDueCount(
+  comptes: Doc<"comptes">[],
+  days: WarmupTargetDays,
+  now: number,
+  tz: CreatorZone,
+) {
   return comptes.filter(
     (c) =>
       !c.managedByAdmin &&
       effectiveStatus(c) === "warmup" &&
-      mustCheckToday(c, now),
+      mustCheckToday(c, days, now, tz),
   ).length;
 }
 
-function warmupInProgressCount(comptes: Doc<"comptes">[]) {
+function warmupInProgressCount(
+  comptes: Doc<"comptes">[],
+  days: WarmupTargetDays,
+) {
   return comptes.filter(
     (c) =>
       !c.managedByAdmin &&
       effectiveStatus(c) === "warmup" &&
-      !isWarmupComplete({
-        plateforme: c.plateforme,
-        warmupProtocol: c.warmupProtocol,
-      }),
+      !isWarmupComplete(
+        { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol },
+        days,
+      ),
   ).length;
 }
 
@@ -1079,7 +1255,7 @@ async function declareCompteCore(
 ): Promise<Id<"comptes">> {
   const handle = normalizeHandle(args.handle);
   if (!handle || handle === "@") {
-    throw new ConvexError("Handle requis.");
+    throw err(ERR.HANDLE_REQUIRED, "Handle requis.");
   }
   const samePlatform = await ctx.db
     .query("comptes")
@@ -1088,9 +1264,7 @@ async function declareCompteCore(
     )
     .collect();
   if (samePlatform.some((c) => c.handle === handle)) {
-    throw new ConvexError(
-      `Le compte ${handle} existe déjà sur ${args.plateforme}.`,
-    );
+    throw err(ERR.ACCOUNT_ALREADY_EXISTS, `Le compte ${handle} existe déjà sur ${args.plateforme}.`, { handle, platform: args.plateforme });
   }
   const now = Date.now();
   return await ctx.db.insert("comptes", {
@@ -1107,7 +1281,10 @@ async function declareCompteCore(
     warmupProtocol: {
       keywords: [],
       instructions: "",
-      targetDays: defaultTargetDays(args.plateforme),
+      targetDays: defaultTargetDays(
+        args.plateforme,
+        await warmupDaysFor(ctx, projectId),
+      ),
       dailyChecks: [],
       updatedAt: now,
     },
@@ -1164,6 +1341,7 @@ async function clipperComptesFor(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   clipperId: Id<"creators">,
+  days: WarmupTargetDays,
 ) {
   const strict = await isSnytchProject(ctx, projectId);
   const comptes = await comptesForCreator(ctx, projectId, clipperId);
@@ -1176,7 +1354,7 @@ async function clipperComptesFor(
     /** L'ancre de phase — absente tant que l'admin n'a pas validé. */
     validatedAt: c.validatedAt ?? null,
     /** Publiable au sens du gate strict #98 (statut, pas quota du jour). */
-    publiable: isAccountAvailable(c, { strict }),
+    publiable: isAccountAvailable(c, days, { strict }),
     refusedAt: c.refusedAt ?? null,
     refusedReason: c.refusedReason ?? null,
   }));
@@ -1185,13 +1363,25 @@ async function clipperComptesFor(
 /** SES comptes (filtre serveur par ctx.creatorId, jamais par un argument). */
 export const listMyClipperComptes = clipperQuery({
   args: {},
-  handler: async (ctx) => clipperComptesFor(ctx, ctx.projectId, ctx.creatorId),
+  handler: async (ctx) =>
+    clipperComptesFor(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+    ),
 });
 
 /** ADMIN observation — comptes du clippeur ciblé (lecture seule, scopé projet). */
 export const listClipperComptesAsAdmin = adminViewAsClipperQuery({
   args: {},
-  handler: async (ctx) => clipperComptesFor(ctx, ctx.projectId, ctx.creatorId),
+  handler: async (ctx) =>
+    clipperComptesFor(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+    ),
 });
 
 /**
@@ -1203,7 +1393,7 @@ export const listClipperComptesAsAdmin = adminViewAsClipperQuery({
  * warmup, soumet, publie). Créé en "warmup" (l'admin cochera puis activera) —
  * même init que declareCompte pour rester en phase avec le gate strict #98.
  */
-export const declareManagedCompte = adminMutation({
+export const declareManagedCompte = permissionMutation("accounts.manage")({
   args: {
     creatorId: v.id("creators"),
     plateforme: plateformeValidator,
@@ -1213,7 +1403,7 @@ export const declareManagedCompte = adminMutation({
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     return declareCompteCore(ctx, ctx.projectId, args, {
       // Appartenance : la créatrice ciblée (comme declareCompte pose ctx.creatorId).
@@ -1228,37 +1418,53 @@ export const declareManagedCompte = adminMutation({
  * Cœur du check warmup du jour — PARTAGÉ par le check CRÉATRICE (markWarmupCheck)
  * et le check ADMIN d'un compte géré (markWarmupCheckAsAdmin). Le compte est déjà
  * AUTORISÉ par l'appelant (appartenance créatrice OU compte géré du projet).
- * REFUSE un 2e check le même jour (UTC) et un warmup déjà terminé — gardes
- * serveur, pas seulement UI. Chantier B : progression par checks RÉELS.
+ * REFUSE un 2e check le même jour et un warmup déjà terminé — gardes serveur,
+ * pas seulement UI. Chantier B : progression par checks RÉELS.
+ *
+ * ⚠️ « LE MÊME JOUR » = le jour de la CRÉATRICE, plus la journée UTC. C'est le
+ * correctif du chantier fuseaux : à 21 h à New York, la journée UTC du lendemain
+ * a déjà commencé — le check partait sur J+1, et celui du lendemain matin était
+ * refusé. La créatrice perdait un jour de warmup à chaque fois qu'elle cochait
+ * le soir. Cf docs/diagnostic-fuseaux.md.
  */
 async function applyWarmupCheck(
   ctx: MutationCtx,
   compte: Doc<"comptes">,
+  days: WarmupTargetDays,
+  tz: CreatorZone,
 ): Promise<{ totalChecks: number }> {
   if (effectiveStatus(compte) !== "warmup") {
-    throw new ConvexError("Ce compte n'est plus en warmup.");
+    throw err(ERR.ACCOUNT_NOT_IN_WARMUP, "Ce compte n'est plus en warmup.");
   }
   const now = Date.now();
   const protocol = compte.warmupProtocol ?? {
     keywords: [],
     instructions: "",
-    targetDays: defaultTargetDays(compte.plateforme),
+    targetDays: defaultTargetDays(compte.plateforme, days),
     dailyChecks: [],
     updatedAt: now,
   };
   if (
-    isWarmupComplete({ plateforme: compte.plateforme, warmupProtocol: protocol })
+    isWarmupComplete(
+      { plateforme: compte.plateforme, warmupProtocol: protocol },
+      days,
+    )
   ) {
-    throw new ConvexError(
-      "Warmup déjà terminé — en attente de validation admin.",
-    );
+    throw err(ERR.WARMUP_ALREADY_DONE, "Warmup déjà terminé — en attente de validation admin.");
   }
-  if (checkedToday(protocol.dailyChecks, now)) {
-    throw new ConvexError("Le check du jour est déjà fait.");
+  if (checkedToday(protocol.dailyChecks, now, tz)) {
+    throw err(ERR.WARMUP_CHECK_ALREADY_DONE, "Le check du jour est déjà fait.");
   }
-  const dailyChecks = [...protocol.dailyChecks, todayKey(now)];
+  const jour = todayKey(now, tz);
+  const dailyChecks = [...protocol.dailyChecks, jour];
+  // TRACE (AT-002) — l'instant et le fuseau, à côté du jour. Jamais relus par la
+  // logique : `dailyChecks` reste seul juge du décompte et de la garde 1/jour.
+  const checkLog = [
+    ...(protocol.checkLog ?? []),
+    { day: jour, at: now, ...(tz ? { tz } : {}) },
+  ];
   await ctx.db.patch(compte._id, {
-    warmupProtocol: { ...protocol, dailyChecks },
+    warmupProtocol: { ...protocol, dailyChecks, checkLog },
   });
   return { totalChecks: dailyChecks.length };
 }
@@ -1277,14 +1483,19 @@ export const markWarmupCheck = creatorMutation({
       compte.projectId !== ctx.projectId ||
       compte.creatorId !== ctx.creatorId
     ) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (compte.managedByAdmin) {
-      throw new ConvexError(
-        "Compte géré par l'équipe : le warmup est coché par l'admin.",
-      );
+      throw err(ERR.ACCOUNT_MANAGED_WARMUP, "Compte géré par l'équipe : le warmup est coché par l'admin.");
     }
-    return applyWarmupCheck(ctx, compte);
+    return applyWarmupCheck(
+      ctx,
+      compte,
+      await warmupDaysFor(ctx, compte.projectId),
+      // GEL au premier check : la déduction depuis le pays cesse d'être
+      // recalculée à chaque lecture, donc de bouger quand on touche aux comptes.
+      await ensureCreatorZone(ctx, ctx.creatorId),
+    );
   },
 });
 
@@ -1295,19 +1506,25 @@ export const markWarmupCheck = creatorMutation({
  * via updateCompte status:"actif" (déjà dispo) → le gate strict #98 reste le
  * VRAI passage warmup → disponible.
  */
-export const markWarmupCheckAsAdmin = adminMutation({
+export const markWarmupCheckAsAdmin = permissionMutation("accounts.manage")({
   args: { id: v.id("comptes") },
   handler: async (ctx, args) => {
     const compte = await ctx.db.get(args.id);
     if (!compte || compte.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte introuvable.");
+      throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
     if (!compte.managedByAdmin) {
-      throw new ConvexError(
-        "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).",
-      );
+      throw err(ERR.ACCOUNT_NOT_MANAGED, "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).");
     }
-    return applyWarmupCheck(ctx, compte);
+    // ⚠️ Le fuseau est celui de la CRÉATRICE rattachée, pas celui de l'admin qui
+    // clique : le compte est chauffé POUR elle, et son historique de checks doit
+    // rester lisible dans une seule horloge — la sienne.
+    return applyWarmupCheck(
+      ctx,
+      compte,
+      await warmupDaysFor(ctx, compte.projectId),
+      compte.creatorId ? await ensureCreatorZone(ctx, compte.creatorId) : null,
+    );
   },
 });
 
@@ -1321,7 +1538,12 @@ export const countMyWarmupDue = creatorQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupDueCount(comptes, Date.now());
+    return warmupDueCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+      await creatorZoneOnly(ctx, ctx.creatorId),
+    );
   },
 });
 
@@ -1330,7 +1552,12 @@ export const countWarmupDueAsAdmin = adminViewAsQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupDueCount(comptes, Date.now());
+    return warmupDueCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+      await creatorZoneOnly(ctx, ctx.creatorId),
+    );
   },
 });
 
@@ -1346,7 +1573,10 @@ export const countMyWarmupInProgress = creatorQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupInProgressCount(comptes);
+    return warmupInProgressCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+    );
   },
 });
 
@@ -1355,7 +1585,10 @@ export const countWarmupInProgressAsAdmin = adminViewAsQuery({
   args: {},
   handler: async (ctx) => {
     const comptes = await comptesForCreator(ctx, ctx.projectId, ctx.creatorId);
-    return warmupInProgressCount(comptes);
+    return warmupInProgressCount(
+      comptes,
+      await warmupDaysFor(ctx, ctx.projectId),
+    );
   },
 });
 
@@ -1388,6 +1621,7 @@ async function onboardingStateForCreator(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
+  days: WarmupTargetDays,
   now: number,
 ): Promise<OnboardingStatePayload> {
   // Feature Snytch-only : hors Snytch on ne charge même pas les comptes.
@@ -1403,6 +1637,8 @@ async function onboardingStateForCreator(
   const comptes = allComptes.filter((c) => !c.managedByAdmin);
   const fullyManaged =
     comptes.length === 0 && allComptes.some((c) => c.managedByAdmin);
+  // Fuseau de la créatrice : « à cocher aujourd'hui » se juge dans SON horloge.
+  const tz = await creatorZoneOnly(ctx, creatorId);
   const accounts = comptes.map((c) => {
     const warmupLike = {
       plateforme: c.plateforme,
@@ -1415,9 +1651,10 @@ async function onboardingStateForCreator(
       plateforme: c.plateforme,
       status,
       checksDone: c.warmupProtocol?.dailyChecks?.length ?? 0,
-      targetDays: effectiveTargetDays(warmupLike),
-      warmupDone: isWarmupComplete(warmupLike),
-      dueToday: status === "warmup" && mustCheckToday(warmupLike, now),
+      targetDays: effectiveTargetDays(warmupLike, days),
+      warmupDone: isWarmupComplete(warmupLike, days),
+      dueToday:
+        status === "warmup" && mustCheckToday(warmupLike, days, now, tz),
       bio: (c.bioStatus ?? "none") as "none" | "to_apply" | "applied",
     };
   });
@@ -1428,14 +1665,26 @@ async function onboardingStateForCreator(
 export const getMyOnboardingState = creatorQuery({
   args: {},
   handler: async (ctx) =>
-    onboardingStateForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    onboardingStateForCreator(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+    ),
 });
 
 /** ADMIN view-as — état d'onboarding du créateur ciblé (lecture seule). */
 export const getOnboardingStateAsAdmin = adminViewAsQuery({
   args: {},
   handler: async (ctx) =>
-    onboardingStateForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    onboardingStateForCreator(
+      ctx,
+      ctx.projectId,
+      ctx.creatorId,
+      await warmupDaysFor(ctx, ctx.projectId),
+      Date.now(),
+    ),
 });
 
 /**
@@ -1469,6 +1718,32 @@ export const migrateComptesStatus = internalMutation({
 });
 
 /**
+ * BACKFILL ONE-SHOT de l'activation automatique (internal — à lancer une fois
+ * post-deploy : `./scripts/convex-prod.sh run comptes:backfillCreatorActivation`).
+ *
+ * L'automatisme ne se déclenche que sur la TRANSITION d'un compte vers "actif" :
+ * les fiches restées en onboarding alors qu'un de leurs comptes tourne déjà
+ * (validé avant ce chantier) n'ont pas d'événement à attendre — c'est ce que ce
+ * backfill rattrape. Idempotent : une fiche déjà "active" (ou en pause, ou
+ * partie) n'est pas touchée, cf shouldAutoActivateCreator.
+ */
+export const backfillCreatorActivation = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await ctx.db.query("comptes").collect();
+    const owners = new Set<Id<"creators">>();
+    for (const c of comptes) {
+      if (c.creatorId && effectiveStatus(c) === "actif") owners.add(c.creatorId);
+    }
+    let activated = 0;
+    for (const creatorId of owners) {
+      if (await activateCreatorOnAccountValidated(ctx, creatorId)) activated++;
+    }
+    return { candidates: owners.size, activated };
+  },
+});
+
+/**
  * Remédiation sécurité — cleanup e2e server-side (cf cleanupTestPublications
  * dans publications.ts). Supprime les comptes marqués [E2E_TEST] dans notes ;
  * fallback archive si des publications référencent encore le handle
@@ -1497,6 +1772,7 @@ export const cleanupTestComptes = e2eMutation({
         });
         archived++;
       } else {
+        await purgeCompteAvatar(ctx, compte);
         await ctx.db.delete(compte._id);
         deleted++;
       }
@@ -1516,11 +1792,14 @@ export const e2eSetWarmupChecks = e2eMutation({
   args: { id: v.id("comptes"), dailyChecks: v.array(v.string()) },
   handler: async (ctx, { id, dailyChecks }) => {
     const compte = await ctx.db.get(id);
-    if (!compte) throw new ConvexError("Compte introuvable.");
+    if (!compte) throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
+    // Même barème que la prod : le chemin e2e ne doit pas figer un défaut
+    // global, sinon un test vert ne prouverait rien du comportement réel.
+    const days = await warmupDaysFor(ctx, compte.projectId);
     const protocol = compte.warmupProtocol ?? {
       keywords: [],
       instructions: "",
-      targetDays: defaultTargetDays(compte.plateforme),
+      targetDays: defaultTargetDays(compte.plateforme, days),
       dailyChecks: [],
       updatedAt: Date.now(),
     };
@@ -1565,5 +1844,25 @@ export const e2eSeedAvailableCompte = e2eMutation({
       actif: true,
       creatorId,
     });
+  },
+});
+
+/**
+ * e2e — pose le barème de warmup d'un projet. L'éditeur admin arrive au lot
+ * suivant ; en attendant, les tests doivent pouvoir exercer un projet qui
+ * chauffe 3 jours, sans quoi ils ne prouveraient rien du comportement réel.
+ */
+export const e2eSetProjectWarmupDays = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    tiktok: v.number(),
+    instagram: v.number(),
+    youtube: v.number(),
+  },
+  handler: async (ctx, { projectId, tiktok, instagram, youtube }) => {
+    await ctx.db.patch(projectId, {
+      warmupTargetDays: { tiktok, instagram, youtube },
+    });
+    return { tiktok, instagram, youtube };
   },
 });

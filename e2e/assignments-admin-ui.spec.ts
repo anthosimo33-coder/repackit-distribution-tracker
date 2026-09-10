@@ -5,6 +5,7 @@ import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -31,7 +32,7 @@ test.describe("Admin — assignation + table", () => {
       password: "creator-asgui-12345",
     });
     const formatName = `[E2E_TEST] AssignUI Fmt ${ts}`;
-    const fid = (await admin.mutation(api.formats.createFormat, {
+    const fid = (await createFormatWithRate(admin, {
       name: formatName,
       type: "short",
       rateModel: { basePerPost: 30 },
@@ -114,7 +115,7 @@ test.describe("Admin — assignation + table", () => {
       password: "creator-delui-12345",
     });
     const formatName = `[E2E_TEST] DelUI Fmt ${ts}`;
-    const fid = (await admin.mutation(api.formats.createFormat, {
+    const fid = (await createFormatWithRate(admin, {
       name: formatName,
       type: "short",
       rateModel: { basePerPost: 30 },

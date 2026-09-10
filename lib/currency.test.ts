@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { sameCurrency, effectiveFxRate, currencySymbol } from "./currency";
+import {
+  sameCurrency,
+  effectiveFxRate,
+  currencySymbol,
+  payAmountInRevenueCurrency,
+} from "./currency";
 
 const norm = (s: string) => s.replace(/[   ]/g, " ");
 
@@ -43,5 +48,41 @@ describe("currencySymbol", () => {
     expect(currencySymbol(null)).toBe("");
     expect(currencySymbol("")).toBe("");
     expect(currencySymbol(undefined)).toBe("");
+  });
+});
+
+describe("payAmountInRevenueCurrency — une seule devise d'affichage", () => {
+  // Le cas de prod qui a motivé le module (taux Snytch du 2026-08-30).
+  it("dollars → euros au taux du projet (le cas 10,62 $ → 9,13 €)", () => {
+    const d = payAmountInRevenueCurrency(10.62, "usd", "eur", 0.86);
+    expect(d.value).toBe(9.13);
+    expect(d.currency).toBe("eur");
+    expect(d.converted).toBe(true);
+    expect(d.sourceValue).toBe(10.62);
+    expect(d.sourceCurrency).toBe("usd");
+  });
+
+  it("sans taux réglé : reste en devise de paie, jamais un euro inventé", () => {
+    const d = payAmountInRevenueCurrency(10.62, "usd", "eur", null);
+    expect(d.value).toBe(10.62);
+    expect(d.currency).toBe("usd");
+    expect(d.converted).toBe(false);
+    expect(d.rate).toBeNull();
+  });
+
+  it("mêmes devises : aucune conversion, et on ne prétend pas en avoir fait une", () => {
+    const d = payAmountInRevenueCurrency(10.62, "eur", "eur", 0.86);
+    expect(d.value).toBe(10.62);
+    expect(d.converted).toBe(false);
+    expect(d.rate).toBe(1);
+  });
+
+  it("un taux nul ou négatif ne convertit pas (il ne s'invente pas de sens)", () => {
+    expect(payAmountInRevenueCurrency(10, "usd", "eur", 0).converted).toBe(false);
+    expect(payAmountInRevenueCurrency(10, "usd", "eur", -1).converted).toBe(false);
+  });
+
+  it("arrondi au centime, jamais une traîne de flottant", () => {
+    expect(payAmountInRevenueCurrency(877.22, "usd", "eur", 0.86).value).toBe(754.41);
   });
 });

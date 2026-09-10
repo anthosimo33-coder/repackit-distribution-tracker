@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -41,7 +42,7 @@ test.describe("Pricing — calcul de paie (fixe + CPM + bonus, snapshot)", () =>
     });
 
     // 2. Format + cible dispo + attribution AVEC pricing (snapshot figé).
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format Pricing ${ts}`,
       type: "short",
       rateModel: { basePerPost: 5 },

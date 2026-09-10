@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,7 +15,12 @@ import { effectiveFxRate } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 import { InfoIcon, TrendingUpIcon } from "lucide-react";
 
-/** "2026-07" → "juillet 2026" (UTC, fr-FR). */
+/**
+ * "2026-07" → "juil. 2026" (fr-FR). La clé vient du serveur, déjà découpée en mois
+ * EUROPE/PARIS (convex/dateFr `monthKeyParis`) : ici on ne fait que rendre une clé
+ * lisible, l'UTC ne sert qu'à neutraliser le fuseau du navigateur sur un 1er du
+ * mois — il ne redécoupe rien.
+ */
 function formatMonth(period: string): string {
   const [y, m] = period.split("-").map(Number);
   if (!y || !m) return period;
@@ -59,18 +65,21 @@ function Metric({
 
 /**
  * Rentabilité par projet (rentabilité P3) — REVENU net Whop vs COÛT créateurs →
- * MARGE (mise en avant) + RPM business, avec un toggle « avec / sans warmup ».
+ * MARGE (mise en avant) + RPM business, avec un toggle « avec / sans les vues non
+ * rémunérées ».
  *
  * Le toggle change UNIQUEMENT le DÉNOMINATEUR (les vues) → il recalcule les vues
- * et le RPM (dilué avec warmup, vrai RPM sans), JAMAIS le revenu Whop ni le coût
+ * et le RPM (dilué avec, vrai RPM sans), JAMAIS le revenu Whop ni le coût
  * (calcul dérivé côté client via lib/profitability). Rendue uniquement si le
  * projet a un mapping Whop. Cumul (cf query : mois calendaires, même moteur de
  * paie que les Paiements).
  */
 export function ProfitabilityCard() {
   const data = useProjectQuery(api.profitability.getProjectProfitability, {});
-  // Défaut = sans warmup → le VRAI RPM business (vues monétisées).
-  const [includeWarmup, setIncludeWarmup] = useState(false);
+  // Défaut = vues RÉMUNÉRÉES seules → le VRAI RPM business. « Non rémunéré » n'est
+  // pas « warmup » : un post retiré de la paie à la main en fait partie, et un post
+  // warmup explicitement payé n'en fait PAS partie (cf lib/profitability ViewsSplit).
+  const [includeUnpaid, setIncludeUnpaid] = useState(false);
 
   if (data === undefined) return <Skeleton className="h-56 w-full" />;
   if (!data.configured) return null;
@@ -82,12 +91,21 @@ export function ProfitabilityCard() {
   const fx = effectiveFxRate(payCurrency, revenueCurrency, data.fxRateToRevenue);
   const withFx = <T extends object>(x: T) => ({ ...x, fxRateToRevenue: fx });
 
-  const total = computeProfitability(withFx(data.total), includeWarmup);
+  const total = computeProfitability(withFx(data.total), includeUnpaid);
   const marginPositive = total.margin !== null && total.margin >= 0;
 
   return (
     <Card>
       <CardContent className="space-y-5 p-5">
+        <MixedCurrencyNotice
+          mixed={data.mixedCurrency}
+          present={data.mixedCurrencyPresent}
+          converted={data.convertedFrom != null}
+          convertedFrom={data.convertedFrom}
+          fxRate={data.fxRate}
+          currency={data.currency}
+          currencies={data.currenciesPresent}
+        />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
             <TrendingUpIcon className="size-4" />
@@ -95,11 +113,11 @@ export function ProfitabilityCard() {
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-600">
             <Switch
-              checked={includeWarmup}
-              onCheckedChange={setIncludeWarmup}
-              aria-label="Inclure les vues des posts warmup"
+              checked={includeUnpaid}
+              onCheckedChange={setIncludeUnpaid}
+              aria-label="Inclure les vues non facturées"
             />
-            Inclure les vues warmup
+            Inclure les vues non facturées
           </label>
         </div>
 
@@ -138,24 +156,31 @@ export function ProfitabilityCard() {
             hint="fixe + CPM + bonus"
           />
           <Metric
-            label={includeWarmup ? "RPM dilué" : "RPM business"}
+            label={includeUnpaid ? "RPM dilué" : "RPM business"}
             value={formatRpm(total.rpm, revenueCurrency)}
             hint={
-              includeWarmup ? "/ 1000 vues (warmup inclus)" : "/ 1000 vues monétisées"
+              includeUnpaid
+                ? "/ 1000 vues (non facturées incluses)"
+                : "/ 1000 vues facturées"
             }
             valueClass="text-slate-900"
           />
           <Metric
             label="Vues"
             value={formatNumber(total.views)}
-            hint={includeWarmup ? "warmup inclus" : "monétisées (hors warmup)"}
+            hint={
+            includeUnpaid ? "toutes les vues suivies" : "facturées seulement"
+          }
           />
         </div>
 
         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
           <InfoIcon className="mt-px size-3.5 shrink-0" />
-          Le toggle warmup ne change que les vues (donc le RPM) — le revenu Whop
-          net et le coût créateurs sont identiques dans les deux cas.
+          Vues FACTURÉES&nbsp;: celles réellement payées — arrêtées à J+30 après
+          publication, et bornées au plafond de 150&nbsp;$/vidéo. Au-delà, une
+          vidéo reste suivie mais ne coûte plus rien, donc elle ne pèse plus au
+          dénominateur. Le toggle ne change que les vues (donc le RPM) — le revenu
+          Whop net et le coût créateurs sont identiques dans les deux cas.
         </p>
 
         {data.months.length > 0 && (
@@ -175,7 +200,7 @@ export function ProfitabilityCard() {
               </thead>
               <tbody>
                 {data.months.map((m) => {
-                  const row = computeProfitability(withFx(m), includeWarmup);
+                  const row = computeProfitability(withFx(m), includeUnpaid);
                   return (
                     <tr
                       key={m.period}

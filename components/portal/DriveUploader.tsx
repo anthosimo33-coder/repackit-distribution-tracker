@@ -15,6 +15,8 @@ import { toast } from "sonner";
 import { ConvexError } from "convex/values";
 import { classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { cn } from "@/lib/utils";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * Dépôt de fichiers — upload navigateur → Google Drive (le gros fichier ne
@@ -142,10 +144,12 @@ async function uploadViaProxy(
       body: file.slice(start, end),
     });
     if (!res.ok) {
+      // i18n-exempt: helper hors composant (pas de hook) ; l'appelant affiche drive.uploadFailed
       throw new Error(`Upload interrompu (HTTP ${res.status}).`);
     }
     const data = (await res.json()) as ProxyChunkResponse;
     if (data.status === "error") {
+      // i18n-exempt: helper hors composant (pas de hook) ; l'appelant affiche drive.uploadFailed
       throw new Error(`Drive a refusé l'upload (HTTP ${data.httpStatus}).`);
     }
     if (data.status === "complete") {
@@ -158,6 +162,7 @@ async function uploadViaProxy(
   }
 
   if (!fileResource?.id) {
+    // i18n-exempt: erreur TECHNIQUE d'un helper hors composant (pas de hook ici) ; l'appelant affiche drive.uploadFailed
     throw new Error("Réponse Drive invalide (id manquant).");
   }
   return {
@@ -176,6 +181,8 @@ export function DriveUploader({
   limits: DriveUploadLimits;
   copy: DriveUploadCopy;
 }) {
+  const tdr = useTranslations("drive");
+  const loc = useIntlLocale();
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -197,8 +204,8 @@ export function DriveUploader({
       if (!session.ok) {
         const msg =
           session.reason === "disabled"
-            ? "Le dépôt de fichiers n'est pas encore activé. Préviens l'administrateur."
-            : "Dépôt de fichiers indisponible pour ce projet.";
+            ? tdr("notEnabled")
+            : tdr("unavailable");
         patch(item.localId, { status: "error", error: msg });
         toast.error(msg);
         return;
@@ -215,7 +222,7 @@ export function DriveUploader({
         thumbnailLink: res.thumbnailLink,
       });
       patch(item.localId, { status: "done", progress: 100 });
-      toast.success(`${item.name} envoyé`);
+      toast.success(tdr("fileSent", { name: item.name }));
     } catch (e) {
       // Surface le message réel (ConvexError métier OU Error d'upload avec le
       // code HTTP) pour un diagnostic utile côté créateur/fondateur.
@@ -224,7 +231,7 @@ export function DriveUploader({
           ? e.data
           : e instanceof Error
             ? e.message
-            : "Échec de l'upload.";
+            : tdr("uploadFailed");
       patch(item.localId, { status: "error", error: msg });
     }
   }
@@ -312,7 +319,7 @@ export function DriveUploader({
       </div>
 
       {items.length > 0 && (
-        <ul className="space-y-2" aria-label="Fichiers en cours d'envoi" aria-busy={active}>
+        <ul className="space-y-2" aria-label={tdr("sending")} aria-busy={active}>
           {items.map((it) => (
             <li
               key={it.localId}
@@ -333,7 +340,7 @@ export function DriveUploader({
                     {it.name}
                   </p>
                   <span className="shrink-0 text-xs tabular-nums text-slate-400">
-                    {formatBytes(it.size)}
+                    {formatBytes(it.size, loc)}
                   </span>
                 </div>
                 {it.status === "uploading" && (
@@ -352,15 +359,13 @@ export function DriveUploader({
                     </div>
                     <p className="flex items-center gap-1 text-xs text-slate-500">
                       <Loader2Icon className="size-3 animate-spin" />
-                      Envoi {it.progress}%
+                      {tdr("progress", { percent: it.progress })}
                     </p>
                   </div>
                 )}
                 {it.status === "done" && (
                   <p className="mt-0.5 flex items-center gap-1 text-xs font-medium text-emerald-600">
-                    <CircleCheckIcon className="size-3.5" />
-                    Envoyé
-                  </p>
+                    <CircleCheckIcon className="size-3.5" />{tdr("sent")}</p>
                 )}
                 {it.status === "error" && (
                   <p className="mt-0.5 text-xs text-red-600">{it.error}</p>
@@ -374,9 +379,7 @@ export function DriveUploader({
                   onClick={() => void uploadOne(it)}
                   className="shrink-0 gap-1"
                 >
-                  <RotateCwIcon className="size-3.5" />
-                  Réessayer
-                </Button>
+                  <RotateCwIcon className="size-3.5" />{tdr("retry")}</Button>
               )}
             </li>
           ))}

@@ -3,7 +3,11 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
+import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -12,8 +16,9 @@ import {
   fetchWhopPlans,
   fetchWhopMemberships,
 } from "./whopApi";
-import { summarizeWhopRevenue } from "./whopRevenue";
-import { periodOf } from "./payments";
+import { projectFx,
+  summarizeWhopRevenue } from "./whopRevenue";
+import { monthKeyParis } from "./dateFr";
 import {
   shouldNotifyDispute,
   shouldNotifyRenewalFailure,
@@ -67,6 +72,8 @@ const whopPaymentArg = v.object({
   billingReason: v.optional(v.string()),
   failureMessage: v.optional(v.string()),
   retryable: v.optional(v.boolean()),
+  /** Pays de FACTURATION (brut, cf whopApi) — jamais celui de la connexion. */
+  billingCountry: v.optional(v.string()),
   memberName: v.optional(v.string()),
   disputeDueAt: v.optional(v.number()),
   disputeReason: v.optional(v.string()),
@@ -248,6 +255,7 @@ export const upsertWhopPayments = internalMutation({
           billingReason: p.billingReason,
           failureMessage: p.failureMessage,
           retryable: p.retryable,
+          billingCountry: p.billingCountry,
           memberName: p.memberName,
           // Litige résolu → l'API ne renvoie plus d'échéance : le champ se VIDE
           // (patch à undefined = suppression), le litige disparaît de la carte.
@@ -273,6 +281,7 @@ export const upsertWhopPayments = internalMutation({
           billingReason: p.billingReason,
           failureMessage: p.failureMessage,
           retryable: p.retryable,
+          billingCountry: p.billingCountry,
           memberName: p.memberName,
           disputeDueAt: p.disputeDueAt,
           disputeReason: p.disputeReason,
@@ -349,6 +358,7 @@ export const upsertWhopMemberships = internalMutation({
         abExperiment: v.optional(v.string()),
         abForced: v.optional(v.boolean()),
         distinctId: v.optional(v.string()),
+        ref: v.optional(v.string()),
       }),
     ),
   },
@@ -375,6 +385,7 @@ export const upsertWhopMemberships = internalMutation({
         abExperiment: m.abExperiment,
         abForced: m.abForced,
         distinctId: m.distinctId,
+        ref: m.ref,
         updatedAt: now,
       };
       if (existing) await ctx.db.patch(existing._id, fields);
@@ -504,9 +515,9 @@ export const runHourlySync = internalAction({
 /**
  * Déclenchement MANUEL (admin) — « Synchroniser le revenu Whop maintenant ».
  * Planifie la sync SCOPÉE au projet courant, sans attendre le cron. Rejeté si le
- * projet n'est pas configuré. Gated adminMutation (créateur rejeté).
+ * projet n'est pas configuré. Gardée par un bloc de permission (créateur rejeté).
  */
-export const requestWhopSync = adminMutation({
+export const requestWhopSync = permissionMutation("business.read")({
   args: {},
   handler: async (
     ctx,
@@ -523,37 +534,50 @@ export const requestWhopSync = adminMutation({
 // ─── Vue lecture — revenu net par projet & période ───────────────────────────
 
 /**
- * Revenu Whop du projet, agrégé PAR MOIS (UTC, aligné sur periodOf). Le NET
+ * Revenu Whop du projet, agrégé PAR MOIS EUROPE/PARIS (`monthKeyParis`), comme
+ * Whop lui-même le découpe et comme le hub compte déjà ses jours. PAS `periodOf`
+ * (UTC, période de PAIE persistée) : sur l'export prod du 2026-09-02, 7
+ * encaissements du 31/08 22:03→23:43 UTC (85,93 € brut, 80,26 € net) tombaient en
+ * août ici et en septembre sur Whop. Le NET
  * (après frais Whop ET remboursements) est le chiffre de pilotage ; brut/frais/
  * remboursements exposés pour la transparence. `configured` = false → le projet
  * n'a pas de mapping Whop (l'UI invite à le configurer). Ne lit QUE les paiements
  * du projet courant (jamais de mélange).
  */
-export const getWhopRevenue = adminQuery({
+export const getWhopRevenue = permissionQuery("business.read")({
   args: {},
   handler: async (ctx) => {
     const project = await ctx.db.get(ctx.projectId);
-    const rows = await ctx.db
-      .query("whopPayments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // A4 — les abonnements internes sont exclus AVANT toute agrégation, via le
+    // point de passage unique. Ce site ne filtrait pas : c'est lui qui affichait
+    // un revenu supérieur à celui du hub pour le même périmètre.
+    const { payments: rows } = await collectProjectWhopPayments(
+      ctx,
+      ctx.projectId,
+      project?.slug ?? "",
+    );
+
+    // Le taux du projet rend le total bi-devise additionnable. Sans lui, la
+    // carte « Revenu Whop » de l'écran Paiements affichait 0,00 sur 231
+    // paiements bien réels (constaté en prod le 06/09).
+    const fx = projectFx(project);
 
     const byMonth = new Map<string, Doc<"whopPayments">[]>();
     for (const r of rows) {
-      const period = periodOf(r.paidAt);
+      const period = monthKeyParis(r.paidAt);
       const arr = byMonth.get(period);
       if (arr) arr.push(r);
       else byMonth.set(period, [r]);
     }
     const months = [...byMonth.entries()]
-      .map(([period, list]) => ({ period, summary: summarizeWhopRevenue(list) }))
+      .map(([period, list]) => ({ period, summary: summarizeWhopRevenue(list, fx) }))
       .sort((a, b) => (a.period < b.period ? 1 : -1)); // plus récent d'abord
 
     return {
       configured: project?.whop !== undefined,
       companyId: project?.whop?.companyId ?? null,
-      currentPeriod: periodOf(Date.now()),
-      total: summarizeWhopRevenue(rows),
+      currentPeriod: monthKeyParis(Date.now()),
+      total: summarizeWhopRevenue(rows, fx),
       months,
     };
   },

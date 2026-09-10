@@ -1,8 +1,14 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
+import { computeDailyViewDeltas } from "./viewsDaily";
+import { savesAvailability } from "./decisionThresholds";
+import { collectAvailability } from "./collectAvailability";
+import { qualificationOf } from "./quadrant";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -13,9 +19,14 @@ import { passesWarmupMode, type WarmupMode } from "./warmupMode";
  *     Alimente la zone 2 (stats globales) + la zone 3 mode Liste + les 4 charts
  *     de comparaison par catégorie (tout dérivé client-side de cette liste, cf
  *     lib/tracker-data). C'est la SEULE source en mode Liste.
+ *     Elle sert AUSSI la carte « Vues × Intent » : les rows portent les saves et
+ *     le classement `quadrant` écrit par le relevé nocturne (convex/quadrantSync),
+ *     donc la carte hérite mécaniquement des mêmes filtres que le reste de la
+ *     page, sans query ni règle d'inclusion supplémentaire.
  *
  *  2. trackerViewsDaily — la série temporelle "vues GAGNÉES par jour" (deltas de
- *     snapshots), pour la courbe du mode Charts UNIQUEMENT. Seul endroit qui lit
+ *     snapshots répartis AU PRORATA du temps couvert, cf convex/viewsDaily.ts),
+ *     pour la courbe du mode Charts UNIQUEMENT. Seul endroit qui lit
  *     metricSnapshots : range-scan BORNÉ sur l'index by_project_capturedAt à la
  *     plage de dates filtrée (jamais un collect global de tout l'historique).
  *
@@ -263,7 +274,7 @@ export function postLabel(p: Doc<"publications">): string {
   return p.hookText;
 }
 
-export const listTrackerPosts = adminQuery({
+export const listTrackerPosts = permissionQuery("content.analytics")({
   args: filterArgs,
   handler: async (ctx, args) => {
     const refs = await buildPublicationAssignmentMap(ctx);
@@ -326,59 +337,99 @@ export const listTrackerPosts = adminQuery({
         // l'utilisateur choisit de les voir ("Tous"/"Warmup seulement"). Le
         // moteur de paie reste inchangé.
         isWarmup: p.isWarmup === true,
+        // QUALIFICATION éditoriale, TRI-ÉTAT — et c'est tout l'objet du champ.
+        // `isWarmup` ci-dessus est volontairement un booléen (la pastille « hors
+        // paie » ne connaît que deux états), mais il écrase la différence entre
+        // « promo, décidé » et « jamais qualifié ». La carte quadrant colore par
+        // qualification : sans ce champ, un post jamais qualifié serait peint
+        // « promo », c'est-à-dire qu'un défaut de saisie prendrait l'apparence
+        // d'une décision. Dérivé ici, au contact du champ brut.
+        qualification: qualificationOf(p.isWarmup),
         // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
+        //
+        // ⚠️ Le `?? 0` reste, et c'est VOULU : les sommes et les moyennes ont
+        // besoin d'un nombre. Ce qui change, c'est qu'on dit désormais à côté
+        // s'il s'agit d'une MESURE ou d'une ignorance (cf `collect` plus bas) —
+        // l'écran affiche un tiret dans le second cas au lieu de peindre « 0 »
+        // sur une vidéo qu'on n'a pas su relever.
         vues: p.vuesLatest ?? 0,
         likes: p.likesLatest ?? 0,
         comments: p.commentsLatest ?? 0,
+        // STATUT DE COLLECTE — mesuré / en attente / en échec, avec le motif.
+        collect: {
+          availability: collectAvailability(p),
+          reason: p.lastCollectFailureReason ?? null,
+          failureStreak: p.collectFailureStreak ?? 0,
+        },
+        // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
+        // pas la métrique et les posts antérieurs à sa collecte n'en portent
+        // pas. Replier sur 0 ferait passer une absence pour un save rate nul,
+        // c'est-à-dire pour une contre-performance (cf savesAvailability, qui
+        // sépare « la plateforme ne le donnera jamais » de « pas encore relevé »).
+        saves: p.savesLatest ?? null,
+        savesAvailability: savesAvailability(p.savesLatest, p.plateforme),
+        // Classement « Vues × Intent » écrit par le relevé nocturne (cf
+        // convex/quadrantSync.ts). `null` = jamais recalculé → la carte l'affiche
+        // « en attente du prochain relevé », pas « sous les seuils ».
+        quadrant: p.quadrant ?? null,
       });
     }
     return rows;
   },
 });
 
-// ─── Vues gagnées par jour (deltas de snapshots) ─────────────────────────────
-// DUPLIQUÉ de lib/tracker-data (computeDailyViewDeltas + dayKeyUTC) car convex/
-// ne peut pas importer lib/ (A6). La version lib/ est testée en vitest ; garder
-// les deux EXACTEMENT synchrones.
+/**
+ * Dates de publication des posts que le filtre WARMUP retire de la lecture.
+ *
+ * La carte « Vues × Intent » ne peut pas les compter elle-même : `listTrackerPosts`
+ * les a déjà retirés quand elle reçoit ses lignes. Sans eux, la carte affiche
+ * « 3 Scale » sans pouvoir dire de quelle population c'est tiré.
+ *
+ * ⚠️ DES DATES, ET PAS UN COMPTE — c'est le correctif. Un compte calculé ici
+ * porte la plage de dates de la PAGE (illimitée par défaut), alors que la carte
+ * raisonne sur SA période (7/14/30 j). Additionner les deux donnait un total
+ * qui n'était celui d'aucune période : 74 posts sur 14 jours + 85 posts de
+ * chauffe de TOUTE l'histoire = « 159 publiés dans la période ». En rendant les
+ * dates, c'est `buildQuadrantView` qui applique la fenêtre — le même `floor`
+ * qu'aux posts visibles, au même endroit.
+ *
+ * `since` est fourni par l'appelant (jamais `Date.now()` ici : une query qui lit
+ * l'horloge n'est plus cachable sur ses arguments) et vaut la plus longue
+ * période offerte par la carte. Au-delà, une date ne peut plus servir.
+ *
+ * MÊME règle d'inclusion que les deux autres queries (`publishedAndMatches`), le
+ * warmup NEUTRALISÉ le temps du comptage. Mode « all » ⇒ rien, sans lire la base.
+ */
+export const trackerWarmupHiddenDates = permissionQuery("content.analytics")({
+  args: { ...filterArgs, since: v.number() },
+  handler: async (ctx, args): Promise<number[]> => {
+    const mode = args.warmup ?? "exclude";
+    if (mode === "all") return [];
 
-function dayKeyUTC(timestamp: number): string {
-  const d = new Date(timestamp);
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+    const refs = await buildPublicationAssignmentMap(ctx);
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
 
-function computeDailyViewDeltas(
-  snaps: { publicationId: string; capturedAt: number; vues: number }[],
-): { date: string; value: number }[] {
-  const byPub = new Map<
-    string,
-    { publicationId: string; capturedAt: number; vues: number }[]
-  >();
-  for (const s of snaps) {
-    const arr = byPub.get(s.publicationId);
-    if (arr) arr.push(s);
-    else byPub.set(s.publicationId, [s]);
-  }
-
-  const dayTotals = new Map<string, number>();
-  for (const arr of byPub.values()) {
-    arr.sort((a, b) => a.capturedAt - b.capturedAt);
-    for (let i = 1; i < arr.length; i++) {
-      const delta = Math.max(0, arr[i].vues - arr[i - 1].vues);
-      if (delta === 0) continue;
-      const key = dayKeyUTC(arr[i].capturedAt);
-      dayTotals.set(key, (dayTotals.get(key) ?? 0) + delta);
+    const dates: number[] = [];
+    for (const p of pubs) {
+      if (p.datePubli < args.since) continue;
+      const sansFiltreWarmup = { ...args, warmup: "all" as const };
+      if (!publishedAndMatches(p, sansFiltreWarmup, (id) => refs.get(id))) continue;
+      if (!matchesWarmupFilter(p.isWarmup === true, mode)) dates.push(p.datePubli);
     }
-  }
+    return dates;
+  },
+});
 
-  return [...dayTotals.entries()]
-    .map(([date, value]) => ({ date, value }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
+// ─── Vues gagnées par jour (deltas de snapshots) ─────────────────────────────
+// L'algorithme (répartition AU PRORATA du temps, jours calendaires Europe/Paris)
+// vit dans le module PUR convex/viewsDaily.ts — importé tel quel ici ET par
+// lib/tracker-data pour le client. Plus de réplique à tenir synchrone : c'est le
+// même code des deux côtés, testé en vitest (lib/views-daily.test.ts).
 
-export const trackerViewsDaily = adminQuery({
+export const trackerViewsDaily = permissionQuery("content.analytics")({
   args: filterArgs,
   handler: async (ctx, args) => {
     const refs = await buildPublicationAssignmentMap(ctx);

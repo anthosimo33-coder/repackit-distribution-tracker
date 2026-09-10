@@ -233,3 +233,92 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
   population. Deux remesures valent mieux qu'une (cf les 7 briques devenues 77).
 - **Reste dû, sans déclencheur connu** : rien. La lecture seule est structurelle
   (aucun `adminViewAsMutation` n'existe, et il ne doit pas en exister).
+
+
+---
+
+## Détectés pendant le passage en ALL-TIME de l'attribution par ref (août 2026)
+
+### TD-026 — Une ref réaffectée réécrit rétroactivement l'attribution
+- **Fichiers** : `convex/schema.ts` (table `creatorConversions`), `convex/conversionAttribution.ts` (`shapeConversionDay`)
+- **Constat** : `creatorConversions` ne stocke QUE la chaîne `ref` ; la créatrice
+  est résolue AU READ via `creators.refSlug`. C'est délibéré et documenté dans le
+  schéma (« configurer une ref après coup rattache tout l'historique ») — utile en
+  vue journée. En ALL-TIME, la même propriété devient un piège : réaffecter un
+  slug transfère silencieusement tout l'historique d'une personne à une autre.
+- **Exposition** : cinq refs orphelines existent en prod (`gio`, `asly`,
+  `paredes`, `sabrina`, `hilary`), dont `gio` porte 9,27 € et 146 visiteurs. Le
+  jour où quelqu'un pose `refSlug: "gio"` sur une créatrice, elle en hérite.
+- **Palliatif en place** : l'écran affiche la plage réelle par ref et avertit
+  quand une ref porte des données antérieures à l'arrivée de la créatrice. Ce
+  contrôle ne crie jamais à tort mais **ne voit pas tout** : la date de POSE d'un
+  refSlug n'est stockée nulle part, donc une ref configurée tardivement sur une
+  créatrice ancienne passe au travers.
+- **Reste dû** : figer le `creatorId` au write. Arbitré comme NON prioritaire —
+  les jours déjà en base n'ont pas de `creatorId` et resteraient résolus au read
+  de toute façon, donc le stockage ne protégerait que le futur tout en cassant une
+  propriété assumée du schéma. À rouvrir si une réaffectation se produit.
+
+### TD-027 — Le départ d'une créatrice orpheline son historique de conversion ✅ RÉSOLU (août 2026)
+- **Fichier** : `convex/conversionSync.ts` (`readConversionAllTime`, filtre `c.status !== "churned"`)
+- **Constat** : la liste des créatrices envoyée à `shapeConversionDay` exclut les
+  `churned`. Leur ref cesse donc d'être revendiquée et bascule en « ref sans
+  créatrice rattachée » — avec son revenu, qui sort du « Total attribué » pour ne
+  rester que dans le « Total ».
+- **Pourquoi ça compte maintenant** : en vue journée, l'effet portait sur un jour
+  et passait inaperçu. En all-time, **chaque départ réécrit le passé** : le
+  travail d'une créatrice partie disparaît de l'attribution, rétroactivement et
+  sans aucun signal.
+- **Aucune créatrice n'est `churned` en prod aujourd'hui** — le défaut est donc
+  latent, et il se déclenchera au premier départ.
+- **Résolution** : le filtre `status !== "churned"` est retiré de la source. Le
+  tri de ce qui reste listé se fait à l'AFFICHAGE, sur la présence de données —
+  une créatrice partie reste listée si elle a produit quelque chose, et
+  seulement alors. Pour une créatrice ACTIVE un zéro est actionnable (son lien
+  ne tourne pas) ; pour une partie il ne le sera jamais, et « pas de ref
+  configurée » serait une consigne à laquelle personne ne peut plus répondre.
+  Son historique, lui, reste à son nom et dans le « Total attribué », marqué du
+  badge « Parti » de `lib/creator-status` — le vocabulaire de la fiche et de la
+  table Créateurs, pas un marqueur inventé sur place.
+- **Ce que la cartographie a montré** : le filtre n'existait qu'à UN endroit
+  (`readConversionAllTime`) et n'était mentionné nulle part dans le commit qui
+  l'a introduit (#72) — une ligne incidente sur un écran journée, où l'effet
+  était invisible. `listCreators` ne filtre pas ; `listAssignableCreators`
+  exclut bien les `churned`, mais c'est une règle d'ÉCRITURE (on n'assigne pas
+  de travail à quelqu'un de parti), sans rapport avec l'affichage.
+- **Effet de bord souhaitable** : le bandeau de conflits de refs voit désormais
+  les fiches parties. Le refus à l'écriture les couvrait déjà
+  (`assertRefSlugFree` n'a pas de filtre de statut), l'écran non.
+- **Mesuré avant correctif**, en simulant Kelly partie sur l'export de prod : sa
+  ligne devenait « (kelly) · ref rattachée à personne » et le « Total attribué »
+  tombait de 92,67 € à 37,08 € — 60 % du revenu attribué évaporé à l'instant où
+  l'on enregistre un départ. Après : 92,67 €, inchangé.
+
+## Détecté pendant le retrait du tier et de la famille d'angle (septembre 2026)
+
+### TD-028 — `scriptBricks.tier` et `scriptBricks.angleFamily` survivent au schéma le temps d'une migration
+- **Fichiers** : `convex/schema.ts` (table `scriptBricks`, deux lignes marquées
+  LEGACY), `convex/scripts.ts` (`stripBrickTaxonomy` / `e2eStripBrickTaxonomy`).
+- **Constat** : les deux champs ne sont plus ni écrits ni lus par une seule ligne
+  de code — écrans, agrégats, moteur de décision et tirage les ont perdus dans la
+  même PR. Ils restent DÉCLARÉS parce qu'un `convex deploy` refuse tout document
+  portant un champ absent du schéma : retirer les lignes avant que la prod ne
+  soit nettoyée casserait le déploiement.
+- **Conséquence** : deux champs morts dans le schéma, et un lecteur du fichier qui
+  doit lire le commentaire pour savoir qu'ils ne veulent plus rien dire.
+- **Fait le 2026-09-07** : migration passée en PROD (`giddy-bass-969`) —
+  `migrated: 319`, puis `migrated: 0` au second passage. Plus une seule brique de
+  production ne porte ces deux champs.
+- **Ce qui reste à faire, et qui BLOQUE le retrait des deux lignes** : le
+  déploiement de DEV dans le cloud (`useful-hummingbird-821`) n'a jamais reçu ce
+  code — `npx convex run scripts:stripBrickTaxonomy` y répond « Could not find
+  function ». Ses briques portent donc encore `tier`/`angleFamily`. Retirer les
+  champs du schéma AVANT de le nettoyer créerait un blocage circulaire : le push
+  échouerait à la validation du schéma, donc la migration n'y arriverait jamais.
+- **Forme du correctif** : sur le déploiement de dev, pousser le code courant
+  (`npx convex dev` une fois), y lancer `npx convex run scripts:stripBrickTaxonomy`
+  jusqu'à `migrated: 0` — ou constater que ce déploiement est mort et l'oublier —
+  puis supprimer les deux lignes du schéma et la migration elle-même.
+- **Ce qui rendrait ça urgent** : rien avant la prochaine évolution de
+  `scriptBricks` — le risque est qu'un futur champ soit modelé sur ces deux-là,
+  ou qu'une requête les relise « puisqu'ils sont là ».

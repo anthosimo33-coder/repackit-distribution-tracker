@@ -1,0 +1,812 @@
+import { internalAction, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import {
+  fetchApifyViewsForPlatform,
+  fetchInstagramProfiles,
+  tiktokPostId,
+  instagramShortcode,
+} from "./apifyApi";
+import {
+  extractYouTubeId,
+  fetchYouTubeViews,
+  fetchYouTubeChannelStats,
+} from "./youtubeApi";
+import {
+  recoverMissingTikTokPosts,
+  splitFallbackBudget,
+  type FallbackTarget,
+} from "./tiktokFallback";
+import { parisHour } from "./calendarStatus";
+import { unmatchableUrlReason } from "./postUrlShape";
+import { isTikTokShortlink } from "./postUrlDate";
+import { deliver, resolveNotifyContext } from "./notifications";
+import { buildSyncFailureMessage } from "./notificationMessage";
+import {
+  NIGHTLY_HOUR_PARIS,
+  NIGHTLY_MINUTE_PARIS,
+  TRACKING_WINDOW_DAYS,
+  selectNightlyPublications,
+  planLots,
+  jitterMs,
+  mergeTallies,
+  failedComptes,
+  shouldAlert,
+  groupByProject,
+  type CompteTally,
+} from "./syncScope";
+
+/**
+ * RELEVÉ DE VUES NOCTURNE — 23h30 Europe/Paris.
+ *
+ * ── Pourquoi 23h30 ───────────────────────────────────────────────────────────
+ * Fin de journée réelle de contenu : les publications du soir (21-23 h) ont eu
+ * le temps de prendre leurs vues, et le snapshot ferme la journée qu'il mesure.
+ * Les relevés du matin (07:00/08:00 UTC) fermaient la journée de la VEILLE avec
+ * 10 heures de retard — c'est ce décalage que la répartition au prorata
+ * (`convex/viewsDaily.ts`) corrige côté lecture, et que cette heure corrige à
+ * la source.
+ *
+ * ⚠️ CONSÉQUENCE ASSUMÉE sur les colonnes J+X. `daysSincePublication` est FIGÉ à
+ * l'écriture du snapshot (`floor((capturedAt − datePubli) / 24 h)`) et la
+ * colonne J+1 exige `daysSince === 1` EXACTEMENT (`TOLERANCE_DAYS.j1 = 0`). Les
+ * publications étant datées à minuit Paris, un relevé à 23h30 le jour J donne
+ * `daysSince = 0`, et c'est celui de J+1 qui porte la colonne « J+1 » — soit
+ * ~47,5 h de vues au lieu de ~34 h avec l'ancien cron du matin. La colonne J+1
+ * (et les suivantes) mesure donc PLUS qu'avant. Décision prise en connaissance
+ * de cause ; re-stamper l'historique ou ancrer J+X sur l'écart réel plutôt que
+ * sur le champ figé est un chantier distinct.
+ *
+ * ── Comment ──────────────────────────────────────────────────────────────────
+ * Cron HORAIRE gardé sur l'heure de Paris (jamais un cron quotidien à heure UTC
+ * fixe, qui glisserait d'une heure au changement d'heure — même remède que
+ * `runEveningReports`).
+ *
+ * PÉRIMÈTRE : comptes ACTIFS seulement (≥ 1 publication sur 30 j), moins les
+ * comptes relevés dans les 2 dernières heures. Politique dans
+ * `convex/syncScope.ts`, testée en vitest.
+ *
+ * CADENCE : les relevés Apify partent SÉQUENTIELLEMENT, un lot à la fois, avec
+ * 30-60 s de temporisation aléatoire entre deux lots. Jamais de parallélisme.
+ * L'enchaînement passe par le SCHEDULER (une action par lot qui replanifie la
+ * suivante) et non par des `sleep` dans une action unique : une action Convex a
+ * une durée maximale, et vingt lots × 45 s la dépasseraient.
+ *
+ * ⚠️ DURÉE DE LA CHAÎNE. Les snapshots sont dédupliqués par jour UTC
+ * (`upsertApifySnapshot`) : la chaîne doit tenir dans la journée UTC où elle
+ * démarre, sans quoi ses derniers lots écriraient dans le bucket du lendemain.
+ * Marge réelle : 23h30 Paris = 22:30 UTC en hiver (le cas serré), soit ~90 min
+ * avant minuit UTC, donc ~120 lots ≈ 3 000 publications. L'ordre de grandeur
+ * actuel est de ~10 lots (~7 min). Si le catalogue franchissait ce seuil, il
+ * faudrait figer `capturedAt` au démarrage du run plutôt que par lot.
+ *
+ * ERREURS : par lot, en try/catch — un lot qui échoue n'arrête pas la chaîne.
+ * Les échecs s'imputent aux COMPTES du lot, et un run dont plus de la moitié des
+ * comptes n'ont rien remonté notifie l'admin du projet concerné. Un run normal
+ * est silencieux.
+ *
+ * Le bouton manuel « Synchroniser » (`requestApifySync` / `requestYouTubeSync`)
+ * est INCHANGÉ : il appelle toujours `runDailySync`, sans périmètre nocturne ni
+ * temporisation. Ce module s'ajoute, il ne remplace pas.
+ */
+
+/**
+ * Budget de REPLI pour UNE nuit, tous lots confondus.
+ *
+ * Le plafond par appel (`MAX_FALLBACK_FETCHES`) borne un lot ; celui-ci borne
+ * la nuit. Sans lui, une panne Apify totale ferait basculer toute la collecte
+ * sur le repli — ~220 lectures depuis l'IP unique de Convex, un volume jamais
+ * testé et le meilleur moyen de perdre le repli au moment où il est vital.
+ * 60 couvre très largement le régime observé (10 posts le 2026-08-31).
+ */
+const FALLBACK_RUN_BUDGET = 60;
+
+const DAY_MS = 86_400_000;
+
+type LotTarget = {
+  publicationId: Id<"publications">;
+  projectId: Id<"projects">;
+  compte: string;
+  /** Clé de post (id TikTok / shortcode Instagram) pour relire le résultat. */
+  key: string;
+  url: string;
+};
+
+const lotTargetValidator = v.object({
+  publicationId: v.id("publications"),
+  projectId: v.id("projects"),
+  compte: v.string(),
+  key: v.string(),
+  url: v.string(),
+});
+
+const lotValidator = v.object({
+  plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
+  source: v.union(v.literal("tiktok"), v.literal("instagram")),
+  targets: v.array(lotTargetValidator),
+});
+
+/** Miroir de `CompteTally` : `projectId` y est optionnel (le module pur sert
+ *  aussi des usages mono-projet), la chaîne nocturne le renseigne toujours. */
+const tallyValidator = v.object({
+  projectId: v.optional(v.string()),
+  compte: v.string(),
+  ok: v.number(),
+  ko: v.number(),
+});
+
+/** Ce qu'un run a décidé de faire — rendu pour les logs d'ops et la
+ *  vérification manuelle (`npx convex run nightlyViewsSync:runNightlySync`). */
+export type NightlyPlan = {
+  started: boolean;
+  reason?: string;
+  /** Lots Apify enchaînés (= runs facturés). */
+  lots: number;
+  /** Comptes YouTube relevés dans la foulée. */
+  youtubeComptes: number;
+};
+
+const APIFY_PLATFORMS = [
+  { plateforme: "TikTok" as const, source: "tiktok" as const },
+  { plateforme: "Instagram" as const, source: "instagram" as const },
+];
+
+/**
+ * Comptage par compte d'un ensemble de cibles : une cible dont la publication
+ * figure dans `releves` compte pour un succès, sinon pour un échec. Les cibles
+ * d'un même compte sont agrégées.
+ */
+function tallyFor(
+  targets: readonly {
+    publicationId: Id<"publications">;
+    projectId: Id<"projects">;
+    compte: string;
+  }[],
+  releves: ReadonlySet<string>,
+): CompteTally[] {
+  return mergeTallies(
+    [],
+    targets.map((t) => {
+      const ok = releves.has(t.publicationId as string);
+      return {
+        projectId: t.projectId as string,
+        compte: t.compte,
+        ok: ok ? 1 : 0,
+        ko: ok ? 0 : 1,
+      };
+    }),
+  );
+}
+
+/**
+ * Point d'entrée du cron HORAIRE. No-op complet hors de l'heure de Paris voulue
+ * — donc 23 exécutions triviales par jour, et une vraie.
+ *
+ * ⚠️ Si l'heure de Paris n'est pas calculable, on ne relève RIEN. Un repli sur
+ * UTC ferait tourner le relevé à la mauvaise heure toute l'année ; une
+ * comparaison qui échoue « vers vrai » le lancerait 24 fois par jour, sur une
+ * API facturée à l'appel. En cas de doute, on se tait.
+ */
+export const runNightlySync = internalAction({
+  args: {},
+  handler: async (ctx): Promise<NightlyPlan> => {
+    const now = Date.now();
+    const heureParis = parisHour(now);
+    if (heureParis === null) {
+      console.error(
+        "[nightly-views] heure de Paris incalculable — relevé NON lancé " +
+          "(un repli sur UTC relèverait à la mauvaise heure).",
+      );
+      return { started: false, reason: "paris-hour-unavailable", lots: 0, youtubeComptes: 0 };
+    }
+    if (heureParis !== NIGHTLY_HOUR_PARIS) {
+      return { started: false, reason: "not-the-hour", lots: 0, youtubeComptes: 0 };
+    }
+
+    const cutoff = now - TRACKING_WINDOW_DAYS * DAY_MS;
+
+    // ── 1. YouTube — d'un bloc, sans temporisation ────────────────────────────
+    // L'API Data v3 est gratuite au quota et groupe 50 vidéos par appel : ni le
+    // coût ni le rate limit ne justifient d'étaler. Elle tourne donc ici, et son
+    // comptage SERT DE GRAINE à la chaîne Apify pour que l'alerte de fin de run
+    // couvre les deux plateformes.
+    const tallyYouTube = await syncYouTube(ctx, cutoff, now);
+
+    // ── 2. Apify — plan de lots ───────────────────────────────────────────────
+    const lots: {
+      plateforme: "TikTok" | "Instagram";
+      source: "tiktok" | "instagram";
+      targets: LotTarget[];
+    }[] = [];
+    for (const { plateforme, source } of APIFY_PLATFORMS) {
+      const pubs = await ctx.runQuery(
+        internal.apifySync.listActiveApifyPublications,
+        { cutoff, plateforme },
+      );
+      const retenues = selectNightlyPublications(pubs, now);
+      const targets: LotTarget[] = [];
+      for (const p of retenues) {
+        const key =
+          plateforme === "TikTok"
+            ? tiktokPostId(p.postUrl)
+            : instagramShortcode(p.postUrl);
+        // URL non rapprochable (shortlink tiktok.com/t/… non résolu, lien de
+        // profil, format inconnu) : le relevé n'a AUCUN identifiant à demander
+        // à Apify. Ce `continue` était MUET — la publication n'était ni relevée
+        // ni comptée en échec, donc affichée à 0 vue indéfiniment, sans que rien
+        // ne le signale. On l'inscrit maintenant comme échec de collecte, avec
+        // son motif : l'écran sait déjà dire « non mesuré — <motif> » plutôt que
+        // de peindre un zéro (cf convex/collectAvailability.ts).
+        if (!key) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: p._id,
+            at: now,
+            reason: unmatchableUrlReason(p.postUrl, plateforme),
+          });
+          // Un lien court non résolu est RATTRAPABLE : la résolution est un
+          // simple aller-retour de redirection, gratuit (aucun run Apify). On
+          // la relance ici — c'est le seul endroit qui repasse chaque nuit sur
+          // les publications restées non rapprochables.
+          if (plateforme === "TikTok" && isTikTokShortlink(p.postUrl)) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.postUrlResolution.resolvePublicationShortlink,
+              { publicationId: p._id },
+            );
+          }
+          continue;
+        }
+        targets.push({
+          publicationId: p._id,
+          projectId: p.projectId,
+          compte: p.compte,
+          key,
+          url: p.postUrl,
+        });
+      }
+      for (const lot of planLots(targets)) {
+        lots.push({ plateforme, source, targets: lot });
+      }
+    }
+
+    // ── 3. Profils des plateformes à appel DÉDIÉ ─────────────────────────────
+    // TikTok est déjà servi par les items vidéo (aucun appel de plus) ; ces
+    // deux-là ne le sont pas. Fait ici, hors de la chaîne de lots : c'est un
+    // relevé par COMPTE, pas par post, et il ne doit pas être répété à chaque lot.
+    await syncDedicatedProfiles(ctx, comptesParPlateforme(lots), now);
+
+    console.info(
+      `[nightly-views] ${NIGHTLY_HOUR_PARIS}h${NIGHTLY_MINUTE_PARIS} Paris — ` +
+        `${lots.length} lot(s) Apify à enchaîner, ` +
+        `${tallyYouTube.length} compte(s) YouTube relevé(s).`,
+    );
+
+    if (lots.length === 0) {
+      await ctx.runAction(internal.nightlyViewsSync.finishNightlyRun, {
+        tally: tallyYouTube,
+        startedAt: now,
+      });
+      return { started: true, reason: "youtube-only", lots: 0, youtubeComptes: tallyYouTube.length };
+    }
+
+    await ctx.scheduler.runAfter(0, internal.nightlyViewsSync.syncApifyLot, {
+      lots,
+      tally: tallyYouTube,
+      startedAt: now,
+      lotIndex: 0,
+      lotTotal: lots.length,
+    });
+    return { started: true, lots: lots.length, youtubeComptes: tallyYouTube.length };
+  },
+});
+
+/**
+ * Relevé YouTube du run nocturne. Réutilise les fonctions internes existantes
+ * (query de périmètre + mutation d'écriture) : seule la SÉLECTION change, pas
+ * l'écriture. Rend le comptage par compte.
+ *
+ * Sans clé API : log + comptage vide. Ce n'est PAS un échec de compte — sinon
+ * un déploiement sans YouTube déclencherait l'alerte toutes les nuits.
+ */
+async function syncYouTube(
+  ctx: ActionCtx,
+  cutoff: number,
+  now: number,
+): Promise<CompteTally[]> {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) {
+    console.info(
+      "[nightly-views] YOUTUBE_API_KEY absente — volet YouTube ignoré (pas un échec).",
+    );
+    return [];
+  }
+
+  const pubs = await ctx.runQuery(
+    internal.youtubeSync.listActiveYouTubePublications,
+    { cutoff },
+  );
+  const targets: {
+    publicationId: Id<"publications">;
+    projectId: Id<"projects">;
+    compte: string;
+    videoId: string;
+  }[] = [];
+  for (const p of selectNightlyPublications(pubs, now)) {
+    const videoId = extractYouTubeId(p.postUrl);
+    if (!videoId) continue;
+    targets.push({
+      publicationId: p._id,
+      projectId: p.projectId,
+      compte: p.compte,
+      videoId,
+    });
+  }
+  if (targets.length === 0) return [];
+
+  const debut = Date.now();
+  try {
+    const { stats } = await fetchYouTubeViews(
+      [...new Set(targets.map((t) => t.videoId))],
+      apiKey,
+    );
+    const releves = new Set<string>();
+    for (const t of targets) {
+      const stat = stats[t.videoId];
+      if (!stat) continue;
+      const r = await ctx.runMutation(
+        internal.youtubeSync.recordYouTubeSnapshot,
+        {
+          publicationId: t.publicationId,
+          vues: stat.views,
+          likes: stat.likes,
+          comments: stat.comments,
+          title: stat.title ?? undefined,
+          capturedAt: now,
+        },
+      );
+      if (r.action !== "skipped") releves.add(t.publicationId as string);
+    }
+    console.info(
+      `[nightly-views] YouTube — ${targets.length} vidéo(s), ` +
+        `${releves.size} relevée(s), ${Date.now() - debut} ms.`,
+    );
+    return tallyFor(targets, releves);
+  } catch (e) {
+    // Panne franche de l'API : TOUS les comptes YouTube du run sont en échec,
+    // c'est exactement ce que l'alerte doit voir.
+    console.error(
+      `[nightly-views] YouTube — relevé en échec après ${Date.now() - debut} ms :`,
+      e,
+    );
+    return tallyFor(targets, new Set());
+  }
+}
+
+/**
+ * UN lot Apify (= 1 run = 1 unité de coût), puis replanification du suivant
+ * après 30-60 s. La chaîne porte son état dans ses arguments : pas de table de
+ * run à maintenir, et un enchaînement qui reprend proprement là où il en est
+ * même si une action est rejouée.
+ *
+ * Le try/catch est au LOT : `fetchApifyViewsForPlatform` avale déjà ses propres
+ * erreurs de lot, celui-ci rattrape l'imprévu (réseau, token révoqué en cours
+ * de run) pour que la chaîne continue coûte que coûte.
+ */
+export const syncApifyLot = internalAction({
+  args: {
+    lots: v.array(lotValidator),
+    tally: v.array(tallyValidator),
+    startedAt: v.number(),
+    lotIndex: v.number(),
+    lotTotal: v.number(),
+    /**
+     * Posts que le REPLI peut encore appeler sur CETTE nuit, tous lots
+     * confondus. Absent au premier lot = budget plein. Décrémenté puis
+     * transmis au lot suivant : sans ce report, chaque lot repartirait à zéro
+     * et une panne Apify complète déclencherait ~220 lectures de pages.
+     */
+    fallbackBudget: v.optional(v.number()),
+  },
+  handler: async (ctx, args): Promise<null> => {
+    const [lot, ...reste] = args.lots;
+    if (lot === undefined) {
+      await ctx.runAction(internal.nightlyViewsSync.finishNightlyRun, {
+        tally: args.tally,
+        startedAt: args.startedAt,
+      });
+      return null;
+    }
+
+    const apiToken = process.env.APIFY_API_TOKEN;
+    const comptes = [...new Set(lot.targets.map((t) => t.compte))];
+    const debut = Date.now();
+
+
+    if (!apiToken) {
+      // Token absent : inutile d'enchaîner 20 lots pour rien.
+      console.error(
+        "[nightly-views] APIFY_API_TOKEN absent — chaîne interrompue. " +
+          "Posez le token : npx convex env set APIFY_API_TOKEN <token>.",
+      );
+      await ctx.runAction(internal.nightlyViewsSync.finishNightlyRun, {
+        tally: mergeTallies(args.tally, tallyFor(lot.targets, new Set())),
+        startedAt: args.startedAt,
+      });
+      return null;
+    }
+
+    // ⚠️ DÉCLARÉS HORS DU `try` — c'est tout le correctif. Tant qu'ils vivaient
+    // DEDANS, un lot qui explosait au niveau Apify emportait la liste de ses
+    // posts manquants avec lui : ni relevé, ni échec enregistré, donc invisible.
+    // Le 31/08, le dernier lot Instagram ne portait qu'une URL, il a échoué, et
+    // ce post est retombé exactement dans le silence que ce chantier ferme.
+    const releves = new Set<string>();
+    const manques: FallbackTarget[] = [];
+    try {
+      const { stats } = await fetchApifyViewsForPlatform(
+        lot.plateforme,
+        lot.targets.map((t) => t.url),
+        apiToken,
+      );
+      // Un seul relevé de profil par COMPTE et par lot : `authorMeta` est
+      // identique sur toutes les vidéos d'un même compte, l'écrire une fois par
+      // post ferait N écritures pour une seule information.
+      const comptesReleves = new Set<string>();
+      // compteId → URL de la photo de profil vue dans ce lot. Une Map, donc un
+      // seul téléchargement par compte même s'il a dix publications relevées.
+      const avatars = new Map<Id<"comptes">, string>();
+      // Posts qu'Apify n'a PAS rendus. Jusqu'ici : `continue`, et plus rien —
+      // d'où 10 publications jamais relevées pendant des semaines, dont une à
+      // 39 000 vues réelles peinte « 0 vue » et payée comme telle.
+      for (const t of lot.targets) {
+        const stat = stats[t.key];
+        if (stat === undefined) {
+          manques.push({ publicationId: t.publicationId, key: t.key, url: t.url });
+          continue;
+        }
+        const capturedAt = Date.now();
+        const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+          publicationId: t.publicationId,
+          vues: stat.views,
+          likes: stat.likes,
+          comments: stat.comments,
+          saves: stat.saves,
+          title: stat.title ?? undefined,
+          capturedAt,
+          source: lot.source,
+        });
+        if (r.action !== "skipped") releves.add(t.publicationId as string);
+
+        // Compteurs du COMPTE, servis avec l'item vidéo : zéro appel Apify de
+        // plus. Rattachés via la PUBLICATION (le handle de l'URL ne coïncide
+        // pas avec celui saisi en base).
+        if (stat.author !== null && !comptesReleves.has(t.compte)) {
+          comptesReleves.add(t.compte);
+          const prof = await ctx.runMutation(
+            internal.apifySync.recordAccountProfile,
+            {
+              publicationId: t.publicationId,
+              capturedAt,
+              followers: stat.author.followers,
+              following: stat.author.following,
+              totalLikes: stat.author.totalLikes,
+              source: lot.source,
+            },
+          );
+          // PHOTO DE PROFIL — même origine, même gratuité : l'avatar voyage sur
+          // l'item vidéo. On ne fait que NOTER le candidat ici ; le
+          // téléchargement se joue une fois, à la fin du lot, hors de la boucle
+          // de relevé (une image lente ne doit pas retarder des vues).
+          if (prof.compteId && stat.author.avatarUrl) {
+            avatars.set(prof.compteId, stat.author.avatarUrl);
+          }
+        }
+      }
+      // Photos de profil, UNE FOIS le lot relevé. L'action ne télécharge que
+      // les avatars dont l'URL a changé et n'échoue jamais : au pire les
+      // visages du jour restent ceux de la veille.
+      if (avatars.size > 0) {
+        await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
+          candidats: [...avatars].map(([compteId, sourceUrl]) => ({
+            compteId,
+            sourceUrl,
+          })),
+        });
+      }
+      console.info(
+        `[nightly-views] lot ${args.lotIndex + 1}/${args.lotTotal} ${lot.plateforme} — ` +
+          `${comptes.length} compte(s), ${releves.size}/${lot.targets.length} relevée(s), ` +
+          `${comptesReleves.size} profil(s), ${avatars.size} avatar(s), ${Date.now() - debut} ms.`,
+      );
+    } catch (e) {
+      // LOT ENTIER EN ERREUR (Apify down, quota, timeout réseau). Ses posts
+      // n'ont RIEN reçu : ils rejoignent les manquants pour que le repli les
+      // tente et, à défaut, que leur échec soit inscrit. Sans ça, une panne
+      // Apify était parfaitement silencieuse — c'est ce qui vient d'arriver.
+      for (const t of lot.targets) {
+        if (releves.has(t.publicationId as string)) continue;
+        if (manques.some((m) => m.publicationId === t.publicationId)) continue;
+        manques.push({
+          publicationId: t.publicationId,
+          key: t.key,
+          url: t.url,
+        });
+      }
+      console.error(
+        `[nightly-views] lot ${args.lotIndex + 1}/${args.lotTotal} ${lot.plateforme} ÉCHEC après ` +
+          `${Date.now() - debut} ms — ${comptes.length} compte(s) impacté(s) :`,
+        e,
+      );
+    }
+
+    // ── REPLI — HORS du try, donc il couvre AUSSI les lots en erreur ─────────
+    // TikTok : on va lire les compteurs sur la page publique du post. Les
+    // rattrapés rejoignent `releves`, donc ils comptent comme relevés dans le
+    // tally — sinon le repli réparerait la donnée tout en déclenchant l'alerte.
+    // Instagram : pas de repli (le payload public est propre à TikTok), mais
+    // l'échec est persisté pareil — c'est la moitié « B » du correctif.
+    //
+    // ⚠️ BUDGET GLOBAL, pas seulement le plafond par lot. Si Apify tombe
+    // entièrement (crédits épuisés), TOUS les lots atterrissent ici et le repli
+    // deviendrait, sans le vouloir, la collecte principale : ~220 requêtes
+    // depuis l'IP unique de Convex, non testé et le meilleur moyen de se faire
+    // bloquer au pire moment. Le budget est décrémenté le long de la chaîne.
+    let budget = args.fallbackBudget ?? FALLBACK_RUN_BUDGET;
+    if (manques.length > 0) {
+      const capturedAt = Date.now();
+      // Décision extraite et testée (cf splitFallbackBudget).
+      const { aTenter, sansAppel, budgetRestant } = splitFallbackBudget(
+        manques,
+        lot.plateforme,
+        budget,
+      );
+      budget = budgetRestant;
+
+      if (aTenter.length > 0) {
+        const r = await recoverMissingTikTokPosts(ctx, aTenter, capturedAt);
+        for (const id of r.recoveredIds) releves.add(id);
+        console.info(
+          `[nightly-views] repli lot ${args.lotIndex + 1} — ${r.recovered} rattrapé(s), ` +
+            `${r.refused} refusé(s), ${r.unreadable} illisible(s), ` +
+            `budget restant ${budget}.`,
+        );
+      }
+      for (const t of sansAppel) {
+        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+          publicationId: t.publicationId,
+          at: capturedAt,
+          reason:
+            lot.plateforme === "TikTok"
+              ? "repli reporté (budget de la nuit épuisé)"
+              : "Apify n'a pas rendu le post (aucun repli sur cette plateforme)",
+        });
+      }
+    }
+    const tallyLot = tallyFor(lot.targets, releves);
+
+    const tally = mergeTallies(args.tally, tallyLot);
+    if (reste.length === 0) {
+      await ctx.runAction(internal.nightlyViewsSync.finishNightlyRun, {
+        tally,
+        startedAt: args.startedAt,
+      });
+      return null;
+    }
+
+    await ctx.scheduler.runAfter(
+      jitterMs(Math.random()),
+      internal.nightlyViewsSync.syncApifyLot,
+      {
+        lots: reste,
+        tally,
+        startedAt: args.startedAt,
+        lotIndex: args.lotIndex + 1,
+        lotTotal: args.lotTotal,
+        fallbackBudget: budget,
+      },
+    );
+    return null;
+  },
+});
+
+/**
+ * Fin de run : un bilan dans les logs, et une alerte PAR PROJET dont plus de la
+ * moitié des comptes n'ont rien remonté.
+ *
+ * L'alerte est par projet et non globale parce que le canal l'est : envoyer à
+ * tous les projets la panne d'un seul serait une fuite d'information entre
+ * clients autant qu'un faux positif.
+ */
+export const finishNightlyRun = internalAction({
+  args: {
+    tally: v.array(tallyValidator),
+    startedAt: v.number(),
+  },
+  handler: async (ctx, { tally, startedAt }): Promise<null> => {
+    const dureeMin = Math.round((Date.now() - startedAt) / 60_000);
+    const enEchec = failedComptes(tally);
+    console.info(
+      `[nightly-views] run terminé en ~${dureeMin} min — ${tally.length} compte(s) tenté(s), ` +
+        `${enEchec.length} sans aucun relevé.`,
+    );
+
+    // QUADRANT « Vues × Intent » — recalculé ICI et nulle part ailleurs : les
+    // vues et les saves qu'il lit viennent d'être écrites, un classement calculé
+    // à un autre moment porterait le même chiffre avec un horodatage trompeur.
+    // Tous les projets, pas seulement ceux du tally : un compte non relevé cette
+    // nuit a quand même vieilli, et la fenêtre de 14 jours a glissé sous lui.
+    //
+    // Encapsulé : un recalcul en échec ne doit pas priver l'admin de l'alerte de
+    // panne de relevé ci-dessous, qui est le vrai sujet de cette action.
+    try {
+      await ctx.runAction(internal.quadrantSync.runQuadrantRecompute, {});
+    } catch (e) {
+      console.error("[nightly-views] recalcul du quadrant en échec :", e);
+    }
+
+    // DÉFIS — les victoires se constatent ICI, pour la MÊME raison que le
+    // quadrant : les vues qu'elles lisent viennent d'être écrites. Une
+    // évaluation menée à un autre moment rendrait le même résultat avec un
+    // horodatage trompeur — et `wonAt` est la preuve du départage.
+    //
+    // `at: startedAt` et non `Date.now()` : la victoire est datée du RELEVÉ, pas
+    // de la minute où la chaîne s'achève. Sans ça, deux gagnantes constatées au
+    // même relevé porteraient des instants différents selon la longueur de la
+    // chaîne, et « à franchissement constaté au même relevé » cesserait d'être
+    // vérifiable dans la donnée.
+    //
+    // Encapsulé, comme le quadrant : un défi en échec ne doit pas priver l'admin
+    // de l'alerte de panne de relevé ci-dessous.
+    try {
+      await ctx.runAction(internal.challengeSync.runChallengeEvaluation, {
+        at: startedAt,
+      });
+    } catch (e) {
+      console.error("[nightly-views] évaluation des défis en échec :", e);
+    }
+
+    for (const [projectId, comptes] of groupByProject(tally)) {
+      if (projectId === "" || !shouldAlert(comptes)) continue;
+      const failed = failedComptes(comptes);
+      console.error(
+        `[nightly-views] projet ${projectId} — ${failed.length}/${comptes.length} compte(s) en échec, alerte envoyée.`,
+      );
+      const nctx = await resolveNotifyContext(
+        ctx,
+        projectId as Id<"projects">,
+        "sync_failures",
+      );
+      if (nctx === null) continue;
+      await deliver(
+        nctx.cfg,
+        "relevé de vues en panne",
+        buildSyncFailureMessage({
+          failed,
+          attempted: comptes.length,
+          appBaseUrl: nctx.cfg.appBaseUrl,
+          projectSlug: nctx.projectSlug,
+        }),
+      );
+    }
+    return null;
+  },
+});
+
+/** Handles concernés par le run, par plateforme, déduits du plan de lots. */
+function comptesParPlateforme(
+  lots: readonly { plateforme: "TikTok" | "Instagram"; targets: readonly LotTarget[] }[],
+): Map<"Instagram", Set<string>> {
+  const out = new Map<"Instagram", Set<string>>();
+  for (const lot of lots) {
+    // TikTok est exclu VOLONTAIREMENT : ses compteurs arrivent avec les vidéos,
+    // un appel dédié serait payé pour rien.
+    if (lot.plateforme !== "Instagram") continue;
+    const set = out.get("Instagram") ?? new Set<string>();
+    for (const t of lot.targets) set.add(t.compte);
+    out.set("Instagram", set);
+  }
+  return out;
+}
+
+/**
+ * Relève les compteurs des comptes dont la plateforme ne les sert pas avec les
+ * posts : Instagram (+1 run Apify) et YouTube (channels.list, gratuit).
+ *
+ * Tout échec est LOGUÉ et avalé : ces compteurs sont un supplément, le cœur du
+ * cron reste le relevé des vues. Une panne d'abonnés ne doit pas priver la nuit
+ * de ses snapshots de posts.
+ */
+async function syncDedicatedProfiles(
+  ctx: ActionCtx,
+  parPlateforme: Map<"Instagram", Set<string>>,
+  now: number,
+): Promise<void> {
+  const handlesInsta = [...(parPlateforme.get("Instagram") ?? [])];
+
+  // YouTube : les comptes ne passent pas par les lots Apify, on les relit.
+  const cutoff = now - TRACKING_WINDOW_DAYS * DAY_MS;
+  const pubsYt = await ctx.runQuery(
+    internal.youtubeSync.listActiveYouTubePublications,
+    { cutoff },
+  );
+  const handlesYt = [
+    ...new Set(
+      selectNightlyPublications(pubsYt, now).map((p) => p.compte),
+    ),
+  ];
+
+  if (handlesInsta.length === 0 && handlesYt.length === 0) return;
+  const comptes = await ctx.runQuery(
+    internal.apifySync.listComptesForProfiles,
+    { handles: [...handlesInsta, ...handlesYt] },
+  );
+
+  // ── Instagram : un run dédié pour tous les profils ────────────────────────
+  const apifyToken = process.env.APIFY_API_TOKEN;
+  const ciblesInsta = comptes.filter(
+    (c) => c.plateforme === "Instagram" && c.url !== null,
+  );
+  if (apifyToken && ciblesInsta.length > 0) {
+    try {
+      const { profiles, runs, errors } = await fetchInstagramProfiles(
+        ciblesInsta.map((c) => c.url as string),
+        apifyToken,
+      );
+      for (const c of ciblesInsta) {
+        // Rattachement par handle NORMALISÉ : côté Instagram le handle de l'app
+        // et celui de l'API coïncident au « @ » et à la casse près (≠ TikTok,
+        // où ils divergent — d'où le rattachement par publication là-bas).
+        const p = profiles[c.handle.replace(/^@/, "").toLowerCase()];
+        if (!p) continue;
+        await ctx.runMutation(internal.apifySync.recordAccountProfileByCompte, {
+          compteId: c._id,
+          capturedAt: now,
+          followers: p.followers,
+          following: p.following,
+          source: "instagram",
+        });
+      }
+      console.info(
+        `[nightly-views] profils Instagram — ${ciblesInsta.length} compte(s), ` +
+          `${Object.keys(profiles).length} relevé(s), ${runs} run(s), ${errors.length} erreur(s).`,
+      );
+    } catch (e) {
+      console.error("[nightly-views] profils Instagram en échec :", e);
+    }
+  }
+
+  // ── YouTube : channels.list, 1 unité de quota par chaîne ──────────────────
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  const ciblesYt = comptes.filter((c) => c.plateforme === "YouTube");
+  if (apiKey && ciblesYt.length > 0) {
+    try {
+      const { stats, errors } = await fetchYouTubeChannelStats(
+        ciblesYt.map((c) => c.url ?? c.handle),
+        apiKey,
+      );
+      const parHandle = new Map(
+        Object.values(stats).map((s) => [s.handle.toLowerCase(), s]),
+      );
+      for (const c of ciblesYt) {
+        const cle = (c.url ?? c.handle).toLowerCase();
+        const s =
+          parHandle.get(`@${c.handle.replace(/^@/, "").toLowerCase()}`) ??
+          [...parHandle.values()].find((v) => cle.includes(v.handle.slice(1).toLowerCase()));
+        if (!s) continue;
+        await ctx.runMutation(internal.apifySync.recordAccountProfileByCompte, {
+          compteId: c._id,
+          capturedAt: now,
+          followers: s.subscribers,
+          source: "youtube",
+        });
+      }
+      console.info(
+        `[nightly-views] profils YouTube — ${ciblesYt.length} chaîne(s), ` +
+          `${Object.keys(stats).length} relevée(s), ${errors.length} erreur(s).`,
+      );
+    } catch (e) {
+      console.error("[nightly-views] profils YouTube en échec :", e);
+    }
+  }
+}

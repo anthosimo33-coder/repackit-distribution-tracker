@@ -32,12 +32,30 @@
  * les mêmes statuts que le serveur, et non plus les siens. C'est une correction,
  * et l'écran calendrier l'annonce en clair.
  *
+ * ─── ⚠️ LA JOURNÉE SE TERMINE CHEZ LA CRÉATRICE, PAS À PARIS ────────────────
+ * Paris reste le fuseau du PLANIFIÉ (`postDate` y est stocké à minuit), mais
+ * plus celui du VERDICT. Une créatrice à New York qui publiait le 8 à 20 h chez
+ * elle était comptée « en retard » : il était 2 h du matin le 9 à Paris. Le
+ * défaut touchait tout le monde à l'ouest de Paris, tous les soirs.
+ *
+ * D'où l'asymétrie, qui est VOULUE et doit le rester :
+ *   - le jour PRÉVU se lit à Paris — c'est une ÉTIQUETTE (« le 8 »), écrite par
+ *     l'équipe à minuit Paris ; la relire ailleurs la décalerait d'un jour ;
+ *   - le jour RÉEL de publication et le jour COURANT se lisent chez ELLE — ce
+ *     sont des INSTANTS, et la question posée est « sa journée est-elle
+ *     finie ? ».
+ *
+ * `timeZone` absent ⇒ Europe/Paris : le comportement d'avant, pour toute
+ * créatrice dont le fuseau est inconnu (aucune supposition faite à sa place).
+ *
  * ⚠️ `timeZone: "Europe/Paris"` avec des parties NUMÉRIQUES est prouvé dans le
  * runtime Convex — c'est le correctif #52, et `convex/dateFr.ts` /
  * `analyticsHub.parisDay` en dépendent. Ce sont les NOMS (mois en toutes lettres)
  * qui ne le sont pas, d'où la table en dur de `accountPhase.formatUtcDayFr`.
  * Règle du dépôt : fuseau oui, noms non.
  */
+
+import { dayIndex } from "./creatorDay";
 
 export type CalendarStatus =
   | "on_time"
@@ -65,6 +83,24 @@ export function parisDayIndex(ms: number): number {
   return y * 10000 + (m - 1) * 100 + d;
 }
 
+/** Fuseau de référence quand celui de la créatrice est INCONNU : celui de
+ *  l'équipe. Ne jamais le remplacer par une déduction — ne pas savoir est un
+ *  état légitime, et supposer un fuseau produit exactement le faux retard que
+ *  ce module vient de corriger. */
+const FUSEAU_EQUIPE = "Europe/Paris";
+
+/**
+ * Index de jour comparable, DANS LE FUSEAU DONNÉ (Paris si inconnu).
+ *
+ * ⚠️ Passe par `creatorDay.dayIndex` et NON par `parisDayIndex` : les deux
+ * n'encodent pas le mois de la même façon (0-based ici, 1-based là-bas), donc
+ * leurs index ne sont PAS comparables entre eux. Tout ce qui se compare dans ce
+ * fichier passe par cette fonction-ci — y compris le jour prévu, lu à Paris.
+ */
+function jourLocal(ms: number, timeZone?: string | null): number {
+  return dayIndex(ms, timeZone ?? FUSEAU_EQUIPE);
+}
+
 /** true si deux instants tombent le MÊME jour calendaire à Paris. */
 export function isSameLocalDay(a: number, b: number): boolean {
   return parisDayIndex(a) === parisDayIndex(b);
@@ -86,6 +122,67 @@ export function representativePostedAt(a: {
   return typeof a.publishedAt === "number" ? a.publishedAt : null;
 }
 
+/**
+ * ─── LE JOUR PRÉVU EST UNE ÉTIQUETTE ────────────────────────────────────────
+ *
+ * `postDate` est un INSTANT (minuit Paris) qui représente un JOUR (« le 5 »).
+ * Le rendre avec l'horloge du lecteur le déplace : minuit à Paris, c'est 19 h la
+ * veille à São Paulo, 18 h la veille à New York — et 23 h la veille à Londres.
+ * Une créatrice à l'ouest de Paris lisait donc « le 4 » là où l'équipe avait
+ * planifié « le 5 », publiait le 4, et se retrouvait hors date.
+ *
+ * Ces trois fonctions sont le SEUL chemin autorisé pour lire un jour prévu côté
+ * écran : la clé de rangement, la borne de journée, et le libellé. Toutes trois
+ * lisent l'étiquette à Paris, donc rendent la même chose pour tout le monde.
+ *
+ * ⚠️ Ne pas confondre avec le VERDICT (`calendarStatus`), qui lui se prend dans
+ * le fuseau de la créatrice : le jour prévu ne se convertit pas, sa journée si.
+ */
+
+/** Clé "YYYY-MM-DD" du jour prévu — rangement de calendrier, identique partout. */
+export function plannedDayKey(postDate: number): string {
+  return PARIS_YMD.format(new Date(postDate));
+}
+
+/** Minuit UTC de l'étiquette : support d'arithmétique en jours ET de rendu. */
+export function plannedDayStart(postDate: number): number {
+  const [y, m, d] = plannedDayKey(postDate).split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+/**
+ * Libellé du jour prévu dans la langue du lecteur, SANS conversion de fuseau.
+ * Les options sont celles d'`Intl.DateTimeFormat` ; `timeZone` est imposé.
+ */
+export function formatPlannedDay(
+  postDate: number,
+  locale: string,
+  options: Intl.DateTimeFormatOptions = {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  },
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    ...options,
+    timeZone: FUSEAU_EQUIPE,
+  }).format(new Date(postDate));
+}
+
+/**
+ * Le jour prévu tombe-t-il sur la journée COURANTE de la créatrice ?
+ *
+ * Les deux moitiés de la question ne se lisent pas dans le même fuseau, et c'est
+ * exactement le point : l'étiquette à Paris, « aujourd'hui » chez elle.
+ */
+export function isPlannedToday(
+  postDate: number,
+  now: number,
+  timeZone?: string | null,
+): boolean {
+  return jourLocal(postDate, FUSEAU_EQUIPE) === jourLocal(now, timeZone);
+}
+
 export function calendarStatus(input: {
   /** Jour de publication PLANIFIÉ (ms), ou absent → hors calendrier. */
   postDate: number | null | undefined;
@@ -93,23 +190,32 @@ export function calendarStatus(input: {
   postedAt: number | null | undefined;
   /** Horloge injectée (ms). */
   now: number;
+  /** Fuseau de la CRÉATRICE — c'est chez elle que la journée se termine.
+   *  Absent/inconnu ⇒ Europe/Paris (cf. en-tête du module). */
+  timeZone?: string | null;
 }): CalendarStatus {
-  const { postDate, postedAt, now } = input;
+  const { postDate, postedAt, now, timeZone } = input;
   if (postDate == null) return "none";
-  const plannedDay = parisDayIndex(postDate);
+  // Le jour PRÉVU est une étiquette écrite à minuit Paris → toujours lu à Paris.
+  const plannedDay = jourLocal(postDate, FUSEAU_EQUIPE);
   if (postedAt != null) {
-    // Publié : à l'heure SEULEMENT si le même jour calendaire (0 tolérance).
-    return parisDayIndex(postedAt) === plannedDay ? "on_time" : "late";
+    // Publié : à l'heure SEULEMENT si le même jour calendaire CHEZ ELLE
+    // (0 tolérance). Publier le 8 à 20 h à New York, c'est le 8.
+    return jourLocal(postedAt, timeZone) === plannedDay ? "on_time" : "late";
   }
-  // Pas encore publié : manqué si le jour prévu est ENTIÈREMENT passé, sinon prévu
-  // (le jour même compte comme « prévu » : la journée n'est pas terminée).
-  return parisDayIndex(now) > plannedDay ? "missed" : "scheduled";
+  // Pas encore publié : manqué quand SA journée est entièrement passée, sinon
+  // prévu (le jour même compte comme « prévu » : elle a encore la soirée).
+  return jourLocal(now, timeZone) > plannedDay ? "missed" : "scheduled";
 }
 
 export const CALENDAR_STATUS_LABEL: Record<CalendarStatus, string> = {
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   on_time: "À l'heure",
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   late: "En retard",
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   missed: "Manqué",
+  // i18n-exempt: table jamais rendue — l'affichage passe par status.calendar.* (calendar-status-meta)
   scheduled: "Prévu",
   none: "—",
 };
@@ -149,7 +255,13 @@ export interface OnTimeTally {
  * Le nombre d'assignations hors calendrier est un contrôle de Fiabilité à part.
  */
 export function onTimeTally(
-  posts: { postDate: number | null | undefined; postedAt: number | null | undefined }[],
+  posts: {
+    postDate: number | null | undefined;
+    postedAt: number | null | undefined;
+    /** Fuseau de la créatrice de CE post — un lot peut en mélanger plusieurs
+     *  (le taux d'un projet couvre Paris, New York et Los Angeles à la fois). */
+    timeZone?: string | null;
+  }[],
   now: number,
 ): OnTimeTally {
   let onTime = 0;
@@ -158,7 +270,12 @@ export function onTimeTally(
   let scheduled = 0;
   let past = 0;
   for (const p of posts) {
-    const s = calendarStatus({ postDate: p.postDate, postedAt: p.postedAt, now });
+    const s = calendarStatus({
+      postDate: p.postDate,
+      postedAt: p.postedAt,
+      now,
+      timeZone: p.timeZone,
+    });
     if (s === "none") continue;
     if (isPastPost(s)) past++;
     if (s === "on_time") onTime++;
@@ -184,23 +301,29 @@ export function onTimeTally(
 export function lateDays(input: {
   postDate: number | null | undefined;
   postedAt: number | null | undefined;
+  /** Fuseau de la créatrice (cf. calendarStatus). */
+  timeZone?: string | null;
 }): number | null {
-  const { postDate, postedAt } = input;
+  const { postDate, postedAt, timeZone } = input;
   if (postDate == null || postedAt == null) return null;
-  const planned = parisDayIndex(postDate);
-  const actual = parisDayIndex(postedAt);
+  const planned = jourLocal(postDate, FUSEAU_EQUIPE);
+  const actual = jourLocal(postedAt, timeZone);
   if (actual <= planned) return null;
   // Différence en JOURS RÉELS : l'index année*10000+mois*100+jour n'est pas
-  // soustrayable (du 31/01 au 01/02 il vaut 71). On repasse par les dates.
+  // soustrayable (du 31/01 au 01/02 il vaut 71). On repasse par des dates —
+  // construites depuis les ÉTIQUETTES de jour, donc comparables même quand les
+  // deux ne viennent pas du même fuseau.
   return Math.round(
-    (utcMidnightOfParisDay(postedAt) - utcMidnightOfParisDay(postDate)) /
+    (utcMidnightOfDayIndex(actual) - utcMidnightOfDayIndex(planned)) /
       86_400_000,
   );
 }
 
-/** Minuit UTC du jour PARIS contenant `ms` — support de soustraction en jours. */
-function utcMidnightOfParisDay(ms: number): number {
-  const [y, m, d] = PARIS_YMD.format(new Date(ms)).split("-").map(Number);
+/** Minuit UTC du jour porté par un index `jourLocal` (mois 1-based). */
+function utcMidnightOfDayIndex(index: number): number {
+  const y = Math.floor(index / 10000);
+  const m = Math.floor((index % 10000) / 100);
+  const d = index % 100;
   return Date.UTC(y, m - 1, d);
 }
 

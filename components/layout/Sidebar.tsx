@@ -1,7 +1,9 @@
 "use client";
 
+import { Children } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
+import { useTranslations } from "next-intl";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   BarChart3Icon,
@@ -19,13 +21,16 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   RadarIcon,
+  TrophyIcon,
   UserPlusIcon,
+  ShieldCheckIcon,
   Users2Icon,
   WalletIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useProject } from "@/components/project/ProjectProvider";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { usePermissions } from "@/components/project/use-permissions";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +39,9 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SidebarItem } from "./SidebarItem";
+import { VersMonEspace } from "./EspaceSwitch";
 import { NewButton } from "./NewButton";
+import { LanguageSelector } from "./LanguageSelector";
 import { ProjectSwitcher } from "@/components/project/ProjectSwitcher";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { cn } from "@/lib/utils";
@@ -69,10 +76,30 @@ export function Sidebar({
   const projectPath = useProjectPath();
   const { project } = useProject();
   const me = useQuery(api.projects.getMe, {});
+  // Droits de la personne — sert UNIQUEMENT à ne pas proposer une porte fermée.
+  // Un admin les reçoit tous, donc son menu est strictement inchangé.
+  const droits = usePermissions();
   // Badge file de validation = nb de vidéos en attente de revue (video_submitted).
-  const submittedCount = useProjectQuery(api.assignments.countVideoSubmitted, {});
   // Prises déposées par les talents et pas encore tranchées (chantier rushes).
-  const rushesCount = useProjectQuery(api.rushes.countRushesToReview, {});
+  //
+  // ⚠️ `skipUnless` N'EST PAS DÉCORATIF ICI. Ces deux compteurs sont gardés par
+  // `review.manage`. Appelés sans condition, ils LÈVENT pour un manager qui n'a
+  // pas ce bloc — et comme la sidebar vit dans le LAYOUT, c'est TOUTE l'app
+  // interne qui tombe, écran par écran, pas seulement la Validation. Décocher
+  // « Validation et Rushes » — une configuration parfaitement légitime, et la
+  // raison d'être des 21 cases — rendait donc le compte inutilisable.
+  //
+  // Même défaut que les quatre écrans corrigés en #156, un cran plus haut : au
+  // lieu d'emporter une page, il emportait la coquille. Trouvé par le parcours
+  // manager de `e2e/manager-journey.spec.ts`, au premier run.
+  const submittedCount = useProjectQuery(
+    api.assignments.countVideoSubmitted,
+    droits.skipUnless("review.manage", {}),
+  );
+  const rushesCount = useProjectQuery(
+    api.rushes.countRushesToReview,
+    droits.skipUnless("review.manage", {}),
+  );
   const collapsed = isMobileDrawer ? false : isCollapsed;
 
   // Remédiation sécurité — déconnexion Convex Auth. push /login explicite :
@@ -83,56 +110,91 @@ export function Sidebar({
     router.push("/login");
   }
 
+  // i18n — le libellé d'un lien EXTERNE (project.sidebarLinks) reste tel quel :
+  // c'est de la DONNÉE saisie par l'admin, pas du texte d'interface.
+  const t = useTranslations("nav");
+
   const item = (href: string) => ({
     href,
     isActive: pathname.startsWith(href),
   });
 
-  // PILOTAGE — le quotidien : piloter validations, assignations et paie.
+  // « /admin/<slug>/paiements » → « /paiements ». Le catalogue déclare les
+  // routes RELATIVES au projet : le slug ne le regarde pas.
+  const routeOf = (href: string) =>
+    href.replace(projectPath(""), "").replace(/^\/?/, "/");
+
+  // ── LES GROUPES DU MENU ─────────────────────────────────────────────────────
+  //
+  // PILOTAGE avait NEUF entrées : la moitié du menu dans un seul tas, où
+  // « Notifications » voisinait avec « Validation » sans qu'aucun rapport les
+  // relie. Un groupe de neuf ne se lit plus, il se parcourt.
+  //
+  // Le découpage suit celui du CATALOGUE DE DROITS (convex/permissions.ts :
+  // Créateurs, Production, Contenu, Argent, Système). Ce n'est pas une
+  // coquetterie : c'est la seule façon pour qu'un manager voie disparaître un
+  // GROUPE ENTIER quand on lui retire une section de droits, au lieu de trous
+  // épars. Le menu et l'écran des droits parlent alors la même langue.
+
+  // PILOTAGE — regarder l'état des choses. Deux entrées, et c'est voulu : c'est
+  // là qu'on arrive, pas là qu'on travaille.
   const pilotageItems = [
     {
       icon: LayoutDashboardIcon,
-      label: "Dashboard",
+      label: t("item.dashboard"),
       ...item(projectPath("/dashboard")),
     },
     {
+      icon: BarChart3Icon,
+      label: t("item.analytics"),
+      ...item(projectPath("/analytics")),
+    },
+  ];
+
+  // PRODUCTION — le flux quotidien d'une vidéo : elle est assignée, tournée,
+  // validée. Les DÉFIS y sont : un défi se pilote au jour le jour (qui
+  // participe, qui a franchi, qui a gagné), il ne se range pas avec les
+  // ressources de production.
+  const productionItems = [
+    {
       icon: ClipboardCheckIcon,
-      label: "Validation",
+      label: t("item.validation"),
       // badge = nb d'assignments soumis en attente de validation (P8).
       badge: submittedCount,
       ...item(projectPath("/validation")),
     },
     {
       icon: FilmIcon,
-      label: "Rushes",
+      label: t("item.rushes"),
       // badge = prises en attente de décision (monter un script / refuser).
       badge: rushesCount,
       ...item(projectPath("/rushes")),
     },
     {
       icon: ClipboardListIcon,
-      label: "Assignments",
+      label: t("item.assignments"),
       ...item(projectPath("/assignments")),
     },
     {
+      icon: TrophyIcon,
+      label: t("item.defis"),
+      ...item(projectPath("/defis")),
+    },
+  ];
+
+  // ARGENT — ce qu'on doit et comment on le calcule. Même nom que la section du
+  // catalogue, et même frontière : aucun de ces deux écrans n'est ouvert par
+  // défaut à un manager.
+  const argentItems = [
+    {
       icon: CoinsIcon,
-      label: "Pricings",
+      label: t("item.pricings"),
       ...item(projectPath("/pricings")),
     },
     {
       icon: WalletIcon,
-      label: "Paiements",
+      label: t("item.paiements"),
       ...item(projectPath("/paiements")),
-    },
-    {
-      icon: BarChart3Icon,
-      label: "Analytics",
-      ...item(projectPath("/analytics")),
-    },
-    {
-      icon: BellIcon,
-      label: "Notifications",
-      ...item(projectPath("/notifications")),
     },
   ];
 
@@ -140,12 +202,12 @@ export function Sidebar({
   const creatorsItems = [
     {
       icon: UserPlusIcon,
-      label: "Créateurs",
+      label: t("item.createurs"),
       ...item(projectPath("/createurs")),
     },
     {
       icon: Users2Icon,
-      label: "Comptes",
+      label: t("item.comptes"),
       ...item(projectPath("/comptes")),
     },
   ];
@@ -154,31 +216,55 @@ export function Sidebar({
   const contenuItems = [
     {
       icon: ClapperboardIcon,
-      label: "Scripts",
+      label: t("item.scripts"),
       ...item(projectPath("/scripts")),
     },
     {
       icon: BookmarkIcon,
-      label: "Inspirations",
+      label: t("item.inspirations"),
       ...item(projectPath("/inspirations")),
     },
     {
       icon: ImagesIcon,
-      label: "Assets",
+      label: t("item.assets"),
       ...item(projectPath("/assets")),
     },
     {
       icon: HelpCircleIcon,
-      label: "Comment ça marche",
+      label: t("item.guide"),
       ...item(projectPath("/guide")),
     },
+  ];
+
+  // ADMINISTRATION — rôles et droits. SUPERADMIN uniquement : `me.isSuperadmin`
+  // vient de `projects.getMe`, déjà lu plus haut pour l'e-mail du pied de page.
+  //
+  // ⚠️ Masquer l'entrée n'est PAS la protection : les fonctions de l'écran
+  // passent par `superadminQuery`/`superadminMutation`, et la page elle-même
+  // rend un refus. On retire le lien pour ne pas proposer une porte fermée, pas
+  // pour fermer la porte.
+  const administrationItems = [
+    {
+      icon: BellIcon,
+      label: t("item.notifications"),
+      ...item(projectPath("/notifications")),
+    },
+    ...(me?.isSuperadmin
+      ? [
+          {
+            icon: ShieldCheckIcon,
+            label: t("item.equipe"),
+            ...item(projectPath("/equipe")),
+          },
+        ]
+      : []),
   ];
 
   // VEILLE — Radar : module séparé de veille TikTok (admin only).
   const veilleItems = [
     {
       icon: RadarIcon,
-      label: "Radar",
+      label: t("item.radar"),
       ...item(projectPath("/radar")),
     },
   ];
@@ -194,6 +280,15 @@ export function Sidebar({
     isActive: false,
     external: true as const,
   }));
+
+  // MASQUAGE — la correspondance écran → bloc vit dans le CATALOGUE
+  // (convex/permissions.ts, champ `routes`), jamais ici : un bloc ajouté demain
+  // avec sa route masque son entrée sans qu'on touche à ce fichier.
+  //
+  // Un item dont AUCUN bloc ne déclare la route reste VISIBLE. C'est voulu :
+  // montrer à tort coûte un refus propre, cacher à tort casse le rôle en silence.
+  const visible = (it: { href: string; external?: true }) =>
+    it.external === true || droits.canSeeRoute(routeOf(it.href));
 
   const renderItem = (it: (typeof pilotageItems)[number]) => (
     <SidebarItem
@@ -222,30 +317,54 @@ export function Sidebar({
         <ProjectSwitcher isCollapsed={collapsed} onNavigate={onNavigate} />
       </div>
 
-      {/* Bouton + Nouveau */}
-      <div className={cn("p-3", collapsed && "px-2")}>
-        <NewButton isCollapsed={collapsed} onNavigate={onNavigate} />
-      </div>
+      {/* Bouton + Nouveau — ouvre le modal de création de publication, qui écrit
+          sous `tracker.manage`. Proposé sans ce bloc, il mène à un formulaire
+          dont les étapes lèvent une à une : on ne propose pas la porte. Comme
+          partout, ce n'est pas la barrière (le serveur refuse `createPublication`
+          de toute façon). */}
+      {droits.has("tracker.manage") && (
+        <div className={cn("p-3", collapsed && "px-2")}>
+          <NewButton isCollapsed={collapsed} onNavigate={onNavigate} />
+        </div>
+      )}
 
       {/* Sections nav */}
-      <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
-        <SidebarSection collapsed={collapsed} label="Pilotage">
-          {pilotageItems.map(renderItem)}
+      {/* `space-y-4` et non 6 : sept en-têtes au lieu de cinq, à blanc constant,
+          poussaient les deux derniers groupes sous la ligne de flottaison. Le
+          gain de lisibilité du découpage se paierait alors en défilement. */}
+      <nav className="flex-1 space-y-4 overflow-y-auto px-3 pb-3">
+        <SidebarSection collapsed={collapsed} label={t("section.pilotage")}>
+          {pilotageItems.filter(visible).map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Créateurs">
-          {creatorsItems.map(renderItem)}
+        <SidebarSection collapsed={collapsed} label={t("section.production")}>
+          {productionItems.filter(visible).map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Contenu">
-          {contenuItems.map(renderItem)}
+        <SidebarSection collapsed={collapsed} label={t("section.createurs")}>
+          {creatorsItems.filter(visible).map(renderItem)}
         </SidebarSection>
-        <SidebarSection collapsed={collapsed} label="Veille">
-          {veilleItems.map(renderItem)}
+        <SidebarSection collapsed={collapsed} label={t("section.contenu")}>
+          {contenuItems.filter(visible).map(renderItem)}
+        </SidebarSection>
+        <SidebarSection collapsed={collapsed} label={t("section.argent")}>
+          {argentItems.filter(visible).map(renderItem)}
+        </SidebarSection>
+        <SidebarSection collapsed={collapsed} label={t("section.veille")}>
+          {veilleItems.filter(visible).map(renderItem)}
+        </SidebarSection>
+        {/* `administrationItems` passe par `visible` comme les autres :
+            « Notifications » a son bloc, l'entrée superadmin n'en a pas et
+            reste donc toujours rendue quand elle est présente. */}
+        <SidebarSection
+          collapsed={collapsed}
+          label={t("section.administration")}
+        >
+          {administrationItems.filter(visible).map(renderItem)}
         </SidebarSection>
 
         {/* Outils — liens externes propres au projet (configurable). Masqué
             quand le projet n'en a aucun. */}
         {externalLinkItems.length > 0 && (
-          <SidebarSection collapsed={collapsed} label="Outils">
+          <SidebarSection collapsed={collapsed} label={t("section.outils")}>
             {externalLinkItems.map((it) => (
               <SidebarItem
                 key={it.href}
@@ -261,6 +380,10 @@ export function Sidebar({
 
       {/* Footer : email user + déconnexion + toggle collapse (desktop) */}
       <div className="space-y-1 border-t border-slate-200 p-2">
+        {/* La porte vers son autre espace — rendue seulement pour qui en a un
+            (cf EspaceSwitch). Placée AVANT l'e-mail : c'est une navigation, pas
+            une information de compte. */}
+        <VersMonEspace collapsed={collapsed} />
         {!collapsed && me?.email && (
           <div
             className="truncate px-2 py-1 text-xs text-slate-400"
@@ -269,6 +392,7 @@ export function Sidebar({
             {me.email}
           </div>
         )}
+        <LanguageSelector collapsed={collapsed} />
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger
@@ -278,14 +402,14 @@ export function Sidebar({
                   size="sm"
                   onClick={handleSignOut}
                   className="w-full justify-center px-0 text-slate-600 hover:text-slate-900"
-                  aria-label="Se déconnecter"
+                  aria-label={t("action.logout")}
                 >
                   <LogOutIcon className="size-4" />
                 </Button>
               }
             />
             <TooltipContent side="right" sideOffset={8}>
-              Se déconnecter
+              {t("action.logout")}
             </TooltipContent>
           </Tooltip>
         ) : (
@@ -294,10 +418,10 @@ export function Sidebar({
             size="sm"
             onClick={handleSignOut}
             className="w-full justify-start gap-2 text-slate-600 hover:text-slate-900"
-            aria-label="Se déconnecter"
+            aria-label={t("action.logout")}
           >
             <LogOutIcon className="size-4" />
-            <span>Se déconnecter</span>
+            <span>{t("action.logout")}</span>
           </Button>
         )}
         {!isMobileDrawer && (
@@ -306,7 +430,7 @@ export function Sidebar({
             size="icon-sm"
             onClick={onToggle}
             className="w-full"
-            aria-label={collapsed ? "Étendre la sidebar" : "Réduire la sidebar"}
+            aria-label={collapsed ? t("action.expandSidebar") : t("action.collapseSidebar")}
           >
             {collapsed ? (
               <ChevronsRightIcon className="size-4" />
@@ -329,6 +453,9 @@ function SidebarSection({
   label: string;
   children: React.ReactNode;
 }) {
+  // Une section dont tous les items sont masqués ne doit pas laisser son
+  // en-tête orphelin — « PILOTAGE » suivi de rien se lit comme un écran cassé.
+  if (Children.count(children) === 0) return null;
   return (
     <div>
       {!collapsed && (

@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -46,7 +47,6 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
       kind: "hook",
       label: "H1",
       content: "H1 contenu",
-      tier: "S",
     });
     await admin.mutation(api.scripts.createBrick, {
       campaignId,
@@ -91,7 +91,7 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
     ).toEqual({ total: 1, available: 0 });
 
     // ── Mission FORMAT publiée → publication + paiement (CONSERVÉS) ──
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] DelFmt ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10 },
@@ -147,7 +147,15 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
 
     // ── UI : confirmation par saisie du nom ──
     await page.goto(adminPath("/createurs"));
-    await page.getByRole("button", { name: `Actions ${creatorName}` }).click();
+    // Le bouton d'actions ne porte PLUS le nom de la créatrice dans son
+    // aria-label : ce nom remontait sur la cellule et `getByRole("cell",
+    // { name })`, qui matche par sous-chaîne, en trouvait trois par ligne. On
+    // vise donc la LIGNE, puis son bouton d'actions.
+    await page
+      .getByRole("row")
+      .filter({ hasText: creatorName })
+      .getByTestId("row-actions")
+      .click();
     await page
       .getByRole("menuitem", { name: /Supprimer le créateur/i })
       .click();

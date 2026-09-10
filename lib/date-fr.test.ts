@@ -6,7 +6,10 @@
 process.env.TZ = "UTC";
 
 import { describe, expect, it } from "vitest";
-import { formatDateFr, formatDayMonthFr } from "../convex/dateFr";
+import { formatDateFr, formatDayMonthFr, monthKeyParis,
+  parisMonthEndMs,
+} from "../convex/dateFr";
+import { periodOf } from "../convex/payments";
 
 /**
  * FUSEAU des dates rendues à un humain par le SERVEUR.
@@ -84,5 +87,106 @@ describe("formatDayMonthFr — libellé de ligne de paie", () => {
     // d'un jour en dur, que les deux cas précédents laisseraient passer.
     expect(formatDayMonthFr(Date.UTC(2026, 4, 10, 21, 59, 59))).toBe("10/05");
     expect(formatDayMonthFr(Date.UTC(2026, 4, 10, 22, 0, 0))).toBe("11/05");
+  });
+});
+
+/**
+ * MOIS CALENDAIRE des écrans de revenu / rentabilité.
+ *
+ * Le revenu Whop était bucketisé par `periodOf` (convex/payments.ts), qui découpe
+ * en UTC. Whop, lui, découpe en heure locale — et le hub Analytics compte déjà ses
+ * JOURS en Europe/Paris (`analyticsHub.parisDay`) : les deux axes du même écran ne
+ * tombaient pas sur le même mois.
+ *
+ * Les timestamps ci-dessous sont des paiements RÉELS de l'export prod du
+ * 2026-09-02 (snytch / biz_e1zcXWKzcgHgt9), pas des ronds de fantaisie : les 7
+ * encaissements du 31/08 22:03→23:43 UTC valent 85,93 € de brut et 80,26 € de net
+ * que l'app rangeait en août et Whop en septembre.
+ */
+describe("monthKeyParis — mois calendaire Europe/Paris", () => {
+  it("range un paiement de fin de mois UTC dans le mois PARIS (été, UTC+2)", () => {
+    // pay sohanebelmehdi, 16,99 € : 31/08 22:03:31 UTC = 01/09 00:03:31 Paris.
+    expect(monthKeyParis(1788213811061)).toBe("2026-09");
+    // pay micronsbiofilmh, 16,99 € : 31/08 22:06:59 UTC = 01/09 00:06:59 Paris.
+    expect(monthKeyParis(1788214019907)).toBe("2026-09");
+    // publications.datePubli posée à MINUIT PARIS : 31/08 22:00:08 UTC, 866 vues.
+    expect(monthKeyParis(1788213608033)).toBe("2026-09");
+  });
+
+  it("laisse un paiement de PLEIN MOIS dans son mois (assertion de présence)", () => {
+    // Sans ce contre-test, une implémentation qui décalerait TOUT d'un mois
+    // passerait le test précédent.
+    expect(monthKeyParis(1787254571095)).toBe("2026-08"); // 20/08 19:36 UTC
+    expect(monthKeyParis(1787235050582)).toBe("2026-08"); // 20/08 14:10 UTC
+  });
+
+  it("tient l'heure d'HIVER (UTC+1), où la bascule est à 23:00 UTC", () => {
+    // 31/01/2026 22:59 UTC = 31/01 23:59 Paris → janvier, pas février.
+    expect(monthKeyParis(Date.UTC(2026, 0, 31, 22, 59))).toBe("2026-01");
+    // 31/01/2026 23:00 UTC = 01/02 00:00 Paris → février.
+    expect(monthKeyParis(Date.UTC(2026, 0, 31, 23, 0))).toBe("2026-02");
+  });
+
+  it("passe l'année sur le réveillon lu à Paris", () => {
+    // 31/12/2026 23:30 UTC = 01/01/2027 00:30 Paris.
+    expect(monthKeyParis(Date.UTC(2026, 11, 31, 23, 30))).toBe("2027-01");
+  });
+
+  it("ne remplace PAS periodOf : les deux clés divergent aux frontières", () => {
+    // Garde-fou explicite. `periodOf` reste en UTC parce que sa valeur est
+    // PERSISTÉE (payments.period, bonusUnlocks.attributionPeriod) ; si un jour
+    // quelqu'un aligne les deux, ce test tombe et rappelle pourquoi.
+    expect(periodOf(1788213811061)).toBe("2026-08");
+    expect(monthKeyParis(1788213811061)).toBe("2026-09");
+    // Hors frontière, elles coïncident — c'est ce qui rend la substitution sûre
+    // partout ailleurs.
+    expect(periodOf(1787254571095)).toBe(monthKeyParis(1787254571095));
+  });
+});
+
+/**
+ * BORNE HAUTE D'UN MOIS PARIS — la fenêtre sur laquelle se juge le seuil de vues
+ * d'un barème conditionné. C'est de l'ARGENT : une borne fausse d'une heure
+ * déplace des vues d'un mois à l'autre, et peut faire basculer une condition.
+ *
+ * ⚠️ ELLE EST CHERCHÉE PAR DICHOTOMIE, pas calculée. Ajouter « 31 jours » à un
+ * début de mois traverse les changements d'heure : les deux cas de bascule
+ * ci-dessous sont exactement ceux qu'une arithmétique naïve rate.
+ */
+describe("parisMonthEndMs", () => {
+  it("est l'instant EXACT où le mois change, à la milliseconde", () => {
+    for (const mois of ["2026-01", "2026-06", "2026-09", "2026-12"]) {
+      const fin = parisMonthEndMs(mois);
+      expect(monthKeyParis(fin - 1), mois).toBe(mois);
+      expect(monthKeyParis(fin), mois).not.toBe(mois);
+    }
+  });
+
+  it("suit l'heure d'été : mars et octobre ne finissent pas au même offset", () => {
+    // Fin mars, Paris est à UTC+2 → 22:00Z. Fin octobre, UTC+1 → 23:00Z. Une
+    // borne posée « à minuit UTC » se serait trompée d'une heure deux fois l'an.
+    expect(new Date(parisMonthEndMs("2026-03")).toISOString()).toBe(
+      "2026-03-31T22:00:00.000Z",
+    );
+    expect(new Date(parisMonthEndMs("2026-10")).toISOString()).toBe(
+      "2026-10-31T23:00:00.000Z",
+    );
+  });
+
+  it("gère le passage d'année", () => {
+    expect(new Date(parisMonthEndMs("2026-12")).toISOString()).toBe(
+      "2026-12-31T23:00:00.000Z",
+    );
+    expect(monthKeyParis(parisMonthEndMs("2026-12"))).toBe("2027-01");
+  });
+
+  it("les mois courts et longs tombent sur le bon dernier jour", () => {
+    // Février 2028 est bissextile : 29 jours.
+    expect(new Date(parisMonthEndMs("2028-02")).toISOString()).toBe(
+      "2028-02-29T23:00:00.000Z",
+    );
+    expect(new Date(parisMonthEndMs("2026-02")).toISOString()).toBe(
+      "2026-02-28T23:00:00.000Z",
+    );
   });
 });

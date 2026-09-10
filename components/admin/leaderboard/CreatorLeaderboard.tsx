@@ -10,6 +10,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * Leaderboard des créateurs d'un projet — podium top 3 + liste (rang 4+), classés
@@ -84,17 +86,16 @@ function CreatorAvatar({
 
 /** Pastille « Toi » pour repérer sa propre ligne. */
 function MePill() {
+  const tlb = useTranslations("leaderboard");
   return (
-    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-      Toi
-    </span>
+    <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">{tlb("me")}</span>
   );
 }
 
 export function LeaderboardSection({
   data,
-  title = "Classement du cycle",
-  subtitle = "Gains du cycle en cours de chaque créateur (fenêtre J+30 personnelle, ancrée sur son premier post).",
+  title,
+  subtitle,
   selfInvite = false,
   currency,
 }: {
@@ -107,6 +108,10 @@ export function LeaderboardSection({
    *  current.payCurrency. Threadée dans le podium + la liste. */
   currency?: string | null;
 }) {
+  const tlb = useTranslations("leaderboard");
+  // Les défauts ne peuvent pas vivre dans la signature : `tlb` est un hook.
+  const heading = title ?? tlb("cycleTitle");
+  const subheading = subtitle ?? tlb("cycleSubtitle");
   const meRanked = data?.some((e) => e.isMe) ?? false;
   const showInvite =
     selfInvite && data !== undefined && data.length > 0 && !meRanked;
@@ -115,9 +120,9 @@ export function LeaderboardSection({
     <section className="space-y-4">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold tracking-tight text-foreground">
-          {title}
+          {heading}
         </h2>
-        <p className="text-sm text-muted-foreground">{subtitle}</p>
+        <p className="text-sm text-muted-foreground">{subheading}</p>
       </div>
       {showInvite && <SelfInviteBanner />}
       {data === undefined ? (
@@ -188,6 +193,7 @@ function PodiumSpot({
   entry: LeaderboardEntry;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   const m = MEDAL[entry.rank as 1 | 2 | 3];
   // Pédestal décroissant 1 > 2 > 3 ; items-end aligne les bases → le 1er culmine.
   const pedestalH =
@@ -237,11 +243,11 @@ function PodiumSpot({
           {entry.name}
         </p>
         <p className="text-sm font-bold tabular-nums text-foreground">
-          {formatMoney(entry.totalDue, currency)}
+          {formatMoney(entry.totalDue, currency, loc)}
         </p>
         {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
         <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
-          {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
+          {formatCycleRange(entry.cycleStart, entry.cycleEnd, loc)}
         </p>
         {entry.isMe && (
           <div className="mt-1">
@@ -271,6 +277,7 @@ function ListRow({
   entry: LeaderboardEntry;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   return (
     <li
       className={cn(
@@ -295,28 +302,28 @@ function ListRow({
           {entry.isMe && <MePill />}
         </div>
         <p className="truncate text-xs text-muted-foreground">
-          {formatCycleRange(entry.cycleStart, entry.cycleEnd)}
+          {formatCycleRange(entry.cycleStart, entry.cycleEnd, loc)}
         </p>
       </div>
       <span className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-        {formatMoney(entry.totalDue, currency)}
+        {formatMoney(entry.totalDue, currency, loc)}
       </span>
     </li>
   );
 }
 
 function SelfInviteBanner() {
+  const tlb = useTranslations("leaderboard");
   return (
     <div className="flex items-center gap-3 rounded-lg bg-primary/5 p-3 ring-1 ring-primary/20">
       <SendIcon className="size-5 shrink-0 text-primary" />
-      <p className="text-sm text-foreground">
-        Publie ton premier post pour entrer au classement.
-      </p>
+      <p className="text-sm text-foreground">{tlb("publishFirst")}</p>
     </div>
   );
 }
 
 function EmptyLeaderboard() {
+  const tlb = useTranslations("leaderboard");
   return (
     <Card>
       <CardContent className="flex flex-col items-center justify-center gap-3 py-12 text-center">
@@ -324,9 +331,7 @@ function EmptyLeaderboard() {
           className="size-12 text-muted-foreground/40"
           strokeWidth={1.5}
         />
-        <p className="text-sm text-muted-foreground">
-          Aucune créatrice n&apos;a encore publié ce cycle.
-        </p>
+        <p className="text-sm text-muted-foreground">{tlb("noneYet")}</p>
       </CardContent>
     </Card>
   );

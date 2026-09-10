@@ -23,6 +23,7 @@ import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import { ManagedCompteDialog } from "@/components/comptes/ManagedCompteDialog";
 import { countryLabel } from "@/lib/countries";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
@@ -36,6 +37,7 @@ export function CreatorComptesSection({
 }: {
   creatorId: Id<"creators">;
 }) {
+  const tLabel = useLabel();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const projectPath = useProjectPath();
   const mine = (comptes ?? []).filter((c) => c.creatorId === creatorId);
@@ -75,10 +77,7 @@ export function CreatorComptesSection({
                 isWarmup && c.warmupStartedAt !== undefined
                   ? warmupProgress(
                       c.warmupProtocol?.dailyChecks?.length ?? 0,
-                      getEffectiveWarmupDuration({
-                        plateforme: c.plateforme as Plateforme,
-                        warmupProtocol: c.warmupProtocol,
-                      }),
+                      c.targetDays,
                     )
                   : null;
               return (
@@ -129,7 +128,7 @@ export function CreatorComptesSection({
                         badge.className,
                       )}
                     >
-                      {badge.label}
+                      {tLabel(badge.labelKey, badge.params)}
                     </span>
                     <CompteAdminActions
                       compte={c}

@@ -4,6 +4,8 @@ import {
   formatPostWindow,
   postWindowSentence,
   POST_WINDOW_PRESETS,
+  formatWindowStart,
+  compareByWindowStart,
 } from "../convex/postWindow";
 
 /**
@@ -76,5 +78,43 @@ describe("postWindowSentence — ce que lit la créatrice", () => {
     // « entre 23h et 21h ».
     const s = postWindowSentence("15/08", { startMin: 1380, endMin: 1260 });
     expect(s).toBe("À publier le 15/08");
+  });
+});
+
+describe("affichage et ordre côté admin", () => {
+  it("formatWindowStart rend l'heure de début compacte", () => {
+    expect(formatWindowStart({ startMin: 21 * 60, endMin: 23 * 60 })).toBe("21h");
+    expect(formatWindowStart({ startMin: 11 * 60 + 30, endMin: 13 * 60 })).toBe("11h30");
+  });
+
+  it("formatWindowStart rend null sans plage — la vignette n'affiche RIEN", () => {
+    expect(formatWindowStart(null)).toBeNull();
+    expect(formatWindowStart(undefined)).toBeNull();
+    expect(formatWindowStart({ startMin: 600, endMin: 600 })).toBeNull();
+  });
+
+  it("tri intra-jour : croissant, et les sans-créneau en DERNIER", () => {
+    const soir = { postWindow: { startMin: 21 * 60, endMin: 23 * 60 }, id: "soir" };
+    const midi = { postWindow: { startMin: 11 * 60, endMin: 13 * 60 }, id: "midi" };
+    const sans = { id: "sans" } as { postWindow?: null; id: string };
+    const apresmidi = { postWindow: { startMin: 15 * 60, endMin: 17 * 60 }, id: "apm" };
+    const ordre = [sans, soir, apresmidi, midi]
+      .sort(compareByWindowStart)
+      .map((x) => x.id);
+    expect(ordre).toEqual(["midi", "apm", "soir", "sans"]);
+  });
+
+  it("deux sans-créneau gardent leur ordre d'entrée", () => {
+    const a = { id: "a", postWindow: null }, b = { id: "b", postWindow: null };
+    expect([a, b].sort(compareByWindowStart).map((x) => x.id)).toEqual(["a", "b"]);
+  });
+
+  it("une plage INVALIDE se trie comme une absence", () => {
+    const casse = { postWindow: { startMin: 1380, endMin: 1260 }, id: "casse" };
+    const midi = { postWindow: { startMin: 660, endMin: 780 }, id: "midi" };
+    expect([casse, midi].sort(compareByWindowStart).map((x) => x.id)).toEqual([
+      "midi",
+      "casse",
+    ]);
   });
 });

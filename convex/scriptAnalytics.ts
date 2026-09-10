@@ -1,9 +1,10 @@
-import { adminQuery } from "./functions";
+import {
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { findMatchingSnapshot, type SnapshotAge } from "./snapshotMatching";
-import { normalizeTier } from "./scriptTier";
 import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 
@@ -13,7 +14,7 @@ import { passesWarmupMode, type WarmupMode } from "./warmupMode";
  * publications de script (raccordées par publications.scriptCombo, cf
  * validateAssignment) PAR BRIQUE, PAR TIER de hook, et PAR COMBO complet.
  *
- * 100 % adminQuery → le créateur n'a AUCUN accès (isolation, cf rappel S2 sur la
+ * 100 % administration → le créateur n'a AUCUN accès (isolation, cf rappel S2 sur la
  * fuite du label paiement). Lecture seule, aucune décision automatique (S4).
  *
  * ⚠️ A6 — réplique des stats de lib/scriptStats.ts (convex/ ne peut pas importer
@@ -88,9 +89,6 @@ const WINDOW = v.union(
   v.literal("latest"),
 );
 
-// 2 tiers (Argent/Autre). Le "B" legacy est replié sur "A" via normalizeTier.
-export const TIERS = ["S", "A"] as const;
-export type Tier = (typeof TIERS)[number];
 // Refonte 3 briques. Un kind inconnu (corps legacy) retombe en fin via `?? 99`.
 const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2 };
 
@@ -249,11 +247,30 @@ function slotOf(s: ViewSample, kind: string): Id<"scriptBricks"> {
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
+/**
+ * Nombre de runs rendus dans la SÉRIE d'une brique (courbe miniature de la
+ * liste). Huit points : assez pour lire une pente, assez peu pour tenir dans
+ * 50 px sans devenir un gribouillis. La MÉDIANE, elle, reste calculée sur TOUS
+ * les runs — la série est un ordre de lecture, pas un échantillon de calcul.
+ */
+export const BRICK_SERIES_MAX = 8;
+
 export interface BrickPerf extends Distribution {
   brickId: Id<"scriptBricks">;
   kind: "hook" | "flux" | "cta";
   label: string;
-  tier: Tier | null;
+  /**
+   * Vues des DERNIERS runs de la brique, du plus ancien au plus récent (au plus
+   * BRICK_SERIES_MAX). Série RUN PAR RUN, jamais jour par jour : la question
+   * posée par la liste est « cette accroche tient-elle d'une vidéo à l'autre ? ».
+   * Une médiane range à égalité un hook régulier et un hook qui a explosé une
+   * fois avant de s'effondrer — la série les sépare.
+   *
+   * GRATUIT : les échantillons de la passe portent déjà `views` et `datePubli`,
+   * on ne relit RIEN de plus (une série par jour, elle, imposerait de rouvrir
+   * les metricSnapshots de chaque post de chaque brique).
+   */
+  lastRunViews: number[];
 }
 
 /**
@@ -270,15 +287,20 @@ export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
     .filter((b) => b.kind !== "corps")
     .map((b) => {
       const kind = b.kind as "hook" | "flux" | "cta";
-      const values = samples
-        .filter((s) => slotOf(s, kind) === b._id)
+      const mine = samples.filter((s) => slotOf(s, kind) === b._id);
+      const values = mine.map((s) => s.views);
+      // Série run par run : ordre de PUBLICATION (les échantillons arrivent dans
+      // l'ordre de lecture des publications, qui n'est pas le leur), puis les
+      // derniers. `slice` sur un tableau plus court rend le tableau entier.
+      const lastRunViews = [...mine]
+        .sort((x, y) => x.datePubli - y.datePubli)
+        .slice(-BRICK_SERIES_MAX)
         .map((s) => s.views);
       return {
         brickId: b._id,
         kind,
         label: b.label,
-        // Tier normalisé (B legacy → A) ; null si la brique n'a pas de tier.
-        tier: b.tier ? normalizeTier(b.tier) : null,
+        lastRunViews,
         ...summarize(values),
       };
     });
@@ -290,7 +312,7 @@ export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
 }
 
 /** perfByBrick — cf aggregateByBrick. */
-export const perfByBrick = adminQuery({
+export const perfByBrick = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<BrickPerf[]> =>
     aggregateByBrick(
@@ -373,7 +395,7 @@ export function postsByBrick(
  * variable. Enrichit ensuite chaque post de son créateur/format via les
  * assignments (même attribution que le tracker). Admin-only.
  */
-export const postsForBrick = adminQuery({
+export const postsForBrick = permissionQuery("content.analytics")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     brickId: v.id("scriptBricks"),
@@ -407,40 +429,8 @@ export const postsForBrick = adminQuery({
   },
 });
 
-export interface TierPerf extends Distribution {
-  tier: Tier;
-}
-
-/**
- * Vues agrégées par tier de hook. Renvoie TOUJOURS les 2 tiers (« Argent » =
- * S, « Autre » = A ; postCount 0 → en_test) pour un rendu stable. Le tier d'une
- * publication = tier du hook de son combo (même si la brique a été désactivée
- * depuis), NORMALISÉ : un hook ex-"B" (legacy, non encore migré) compte dans
- * « Autre » (A). Un hook sans tier est ignoré. Pur sur un CampaignViews chargé.
- */
-export function aggregateByTier(views: CampaignViews): TierPerf[] {
-  const { bricksById, samples } = views;
-  const byTier = new Map<Tier, number[]>(TIERS.map((t) => [t, []]));
-  for (const s of samples) {
-    const hook = bricksById.get(s.hookBrickId as string);
-    if (!hook?.tier) continue; // hook sans tier → non classé
-    byTier.get(normalizeTier(hook.tier))!.push(s.views); // "B" → "A"
-  }
-  return TIERS.map((tier) => ({ tier, ...summarize(byTier.get(tier)!) }));
-}
-
-/** perfByTier — cf aggregateByTier. */
-export const perfByTier = adminQuery({
-  args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
-  handler: async (ctx, { campaignId, window }): Promise<TierPerf[]> =>
-    aggregateByTier(
-      await gatherCampaignViews(ctx, ctx.projectId, campaignId, window),
-    ),
-});
-
 export interface ComboPerf extends Distribution {
   comboKey: string;
-  tier: Tier | null;
   hookLabel: string;
   fluxLabel: string;
   ctaLabel: string;
@@ -476,7 +466,6 @@ export function aggregateByCombo(views: CampaignViews): ComboPerf[] {
   const out: ComboPerf[] = [...byCombo.values()].map((group) => {
     const head = group[0];
     const dist = summarize(group.map((s) => s.views));
-    const hook = bricksById.get(head.hookBrickId as string);
     const signal =
       dist.status === "jugeable" &&
       dist.viewsMedian !== null &&
@@ -484,7 +473,6 @@ export function aggregateByCombo(views: CampaignViews): ComboPerf[] {
       dist.viewsMedian > campaignMedian;
     return {
       comboKey: head.comboKey,
-      tier: (hook?.tier as Tier | undefined) ?? null,
       hookLabel: label(head.hookBrickId),
       fluxLabel: label(head.fluxBrickId),
       ctaLabel: label(head.ctaBrickId),
@@ -496,7 +484,7 @@ export function aggregateByCombo(views: CampaignViews): ComboPerf[] {
 }
 
 /** perfByCombo — cf aggregateByCombo. */
-export const perfByCombo = adminQuery({
+export const perfByCombo = permissionQuery("content.analytics")({
   args: { campaignId: v.id("scriptCampaigns"), window: WINDOW },
   handler: async (ctx, { campaignId, window }): Promise<ComboPerf[]> =>
     aggregateByCombo(

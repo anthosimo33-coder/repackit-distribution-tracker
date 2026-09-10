@@ -27,7 +27,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { COUNTRY_LABELS } from "@/lib/countries";
+import { TREND_COUNTRY_CODES, countryLabel } from "@/lib/countries";
 import {
   RadarVideoGrid,
   type RadarCardVideo,
@@ -110,7 +110,7 @@ export function RadarTrends() {
   }
 
   const countryOptions = useMemo(
-    () => countries ?? Object.keys(COUNTRY_LABELS),
+    () => countries ?? [...TREND_COUNTRY_CODES],
     [countries],
   );
 
@@ -123,12 +123,12 @@ export function RadarTrends() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Select value={country} onValueChange={(v) => v && onCountryChange(v)}>
           <SelectTrigger className="w-52" aria-label="Pays des tendances">
-            <SelectValue>{COUNTRY_LABELS[country] ?? country}</SelectValue>
+            <SelectValue>{countryLabel(country) ?? country}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {countryOptions.map((cc) => (
               <SelectItem key={cc} value={cc}>
-                {COUNTRY_LABELS[cc] ?? cc}
+                {countryLabel(cc) ?? cc}
               </SelectItem>
             ))}
           </SelectContent>

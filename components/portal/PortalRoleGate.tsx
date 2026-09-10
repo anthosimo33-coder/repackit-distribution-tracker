@@ -6,9 +6,10 @@ import { useQuery } from "convex/react";
 import { Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { PortalRole } from "@/convex/roles";
+import { isTeamRole, type PortalRole } from "@/convex/roles";
 import { projectPath } from "@/lib/project-path";
 import { portalPathForRole } from "@/lib/portal-path";
+import { useTranslations } from "next-intl";
 
 /**
  * GARDE DE RÔLE des trois portails (`/app` partenaire, `/talent`, `/clip`) —
@@ -45,13 +46,26 @@ export function usePortalGate(expected: PortalRole): PortalGate {
   const portal = useQuery(api.creators.getMyPortal, {});
   const router = useRouter();
 
-  // Rôle ÉTRANGER à ce portail → on le renvoie chez lui. L'admin part vers l'app
-  // interne (scopée par slug), un autre rôle de portail vers le sien.
+  // Rôle ÉTRANGER à ce portail → on le renvoie chez lui. Un rôle d'ÉQUIPE (admin
+  // OU manager) part vers l'app interne (scopée par slug), un autre rôle de
+  // portail vers le sien.
+  //
+  // ⚠️ `isTeamRole` et non `=== "admin"` : un manager n'est ni l'admin ni un
+  // rôle de portail, donc `portalPathForRole` lui rendait `null` — aucune
+  // redirection, et il restait bloqué sur le shell d'un portail qui n'est pas le
+  // sien. Même défaut que celui de `getMyPortal`, un cran plus loin.
+  //
+  // ⚠️ ET ON REGARDE L'ENSEMBLE, pas le rôle principal. Une créatrice-manager
+  // atterrit côté équipe (l'équipe prime), mais ce portail EST le sien : testé
+  // sur `role`, ce gate la renverrait vers l'app interne dès qu'elle ouvre /app,
+  // pendant que `ProjectProvider` la renverrait vers /app depuis l'app interne.
+  // Les deux gardes se seraient renvoyé la personne l'une à l'autre.
   const role = portal?.role;
+  const aCePortail = portal?.roles?.includes(expected) ?? false;
   const foreignPath =
-    portal === undefined || role === expected || role === "none"
+    portal === undefined || aCePortail || role === "none"
       ? null
-      : role === "admin"
+      : isTeamRole(role)
         ? portal.slug
           ? projectPath(portal.slug, "/dashboard")
           : "/"
@@ -62,13 +76,10 @@ export function usePortalGate(expected: PortalRole): PortalGate {
   }, [foreignPath, router]);
 
   if (portal === undefined || foreignPath !== null) return { state: "pending" };
-  if (portal.role === "none" || portal.role === "admin") {
-    // À ce point le rôle EST celui attendu (tout autre a produit un foreignPath) :
-    // la branche "admin" est là pour que TS écarte la forme de retour admin (sans
-    // projectId) avant le `state: "ok"` ci-dessous, pas parce qu'elle est
-    // atteignable. Elle rend "pending" — jamais le portail.
-    return portal.role === "none" ? { state: "empty" } : { state: "pending" };
-  }
+  if (portal.role === "none") return { state: "empty" };
+  // À ce point le portail EST le sien (tout autre cas a produit un foreignPath).
+  // Le contexte vient de `getMyPortal`, qui le calcule DÈS qu'elle a un rôle de
+  // portail — y compris quand son rôle principal est un rôle d'équipe.
   return {
     state: "ok",
     projectId: portal.projectId ?? null,
@@ -89,16 +100,12 @@ export function PortalPending() {
 
 /** Compte sans projet ni rôle — message identique dans les trois portails. */
 export function PortalEmpty() {
+  const tns = useTranslations("portal.noSpace");
   return (
     <div className="flex h-screen items-center justify-center px-6 text-center">
       <div className="max-w-sm space-y-2">
-        <p className="text-sm font-medium text-slate-900">
-          Aucun espace disponible
-        </p>
-        <p className="text-sm text-slate-500">
-          Ton compte n&apos;est rattaché à aucun projet. Contacte un
-          administrateur.
-        </p>
+        <p className="text-sm font-medium text-slate-900">{tns("title")}</p>
+        <p className="text-sm text-slate-500">{tns("body")}</p>
       </div>
     </div>
   );

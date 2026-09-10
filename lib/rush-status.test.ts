@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import fr from "../messages/fr.json";
+import en from "../messages/en.json";
 import {
   RUSH_STATUSES,
   RUSH_EXPIRY_MS,
@@ -98,6 +100,13 @@ describe("isTerminal / purgesBinary", () => {
   });
 });
 
+/** Résout une clé pointée dans un catalogue de messages. */
+function resolve(key: string, catalog: unknown): string {
+  return key
+    .split(".")
+    .reduce<unknown>((acc, k) => (acc as Record<string, unknown>)?.[k], catalog) as string;
+}
+
 describe("TALENT_STATUS_LABELS — le vocabulaire système ne remonte pas", () => {
   it("chaque état a un libellé", () => {
     for (const s of RUSH_STATUSES) {
@@ -105,16 +114,23 @@ describe("TALENT_STATUS_LABELS — le vocabulaire système ne remonte pas", () =
     }
   });
 
-  it("« assigned » se dit VALIDÉ, jamais « retenu » ni « assigné »", () => {
+  it("« assigned » se dit VALIDÉ / Approved, jamais « retenu » ni « assigné »", () => {
     // « Validé » décrit ce que la personne vit ; « Retenu »/« Assigné » décrit ce
     // que fait le système — et laisse deviner qu'il y a quelque chose à assigner.
-    expect(TALENT_STATUS_LABELS.assigned).toBe("Validé");
+    // La table ne porte plus que des CLÉS : c'est la valeur RENDUE qu'on vérifie,
+    // et dans les DEUX langues — la règle vaut aussi pour un talent anglophone.
+    expect(resolve(TALENT_STATUS_LABELS.assigned, fr)).toBe("Validé");
+    expect(resolve(TALENT_STATUS_LABELS.assigned, en)).toBe("Approved");
   });
 
   it("aucun libellé n'évoque script, compte, clippeur ou assignation", () => {
     const interdits = /script|compte|clipp|assign|rush|talent/i;
-    for (const label of Object.values(TALENT_STATUS_LABELS)) {
-      expect(label).not.toMatch(interdits);
+    for (const key of Object.values(TALENT_STATUS_LABELS)) {
+      // On teste le TEXTE affiché, pas la clé : « status.rush.assigned »
+      // contient « assign » et passerait à côté du défaut qu'on garde ici.
+      for (const cat of [fr, en]) {
+        expect(resolve(key, cat)).not.toMatch(interdits);
+      }
     }
   });
 });

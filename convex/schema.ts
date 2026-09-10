@@ -19,6 +19,85 @@ import { countryValidator } from "./countries";
  *  Reste différé : TD-017 (comptes.actif) — encore lu par lib/compte-status.ts
  *  et ~12 specs e2e.
  */
+/**
+ * UNE LIGNE de paie. Extrait de la table `payments` parce qu'un SECOND endroit
+ * en a besoin : le reçu d'annulation (`undo`), qui garde l'état exact d'avant le
+ * paiement. Deux copies de ce validateur, c'est la certitude qu'un jour l'une
+ * acceptera un `kind` que l'autre refuse — et l'annulation échouerait alors sur
+ * une ligne parfaitement valide.
+ */
+const paymentLineItem = v.object({
+  // Optionnel : un palier de bonus CUMULÉ (bonus_tier) n'est lié à aucun
+  // assignment précis (récompense créateur-niveau).
+  assignmentId: v.optional(v.id("assignments")),
+  // PHRASE FIGÉE au paiement, en français. Historique : ne jamais la
+  // réécrire. Elle reste le REPLI d'affichage des lignes écrites avant
+  // `detail`.
+  label: v.string(),
+  // Données STRUCTURÉES de la ligne, pour recomposer le libellé À
+  // L'AFFICHAGE, dans la langue du lecteur. Une créatrice US voyait
+  // « Fixe — 3 vidéos publiées » sur son écran de paie, et aucune
+  // extraction ne pouvait le corriger : c'est de la donnée, pas de
+  // l'interface. Optionnel → 0 migration ; absent ⇒ on rend `label`.
+  detail: v.optional(
+    v.object({
+      /** kind « fixed » : nombre de vidéos publiées du groupe. */
+      videoCount: v.optional(v.number()),
+      /** kind « cpm » : vues retenues pour le calcul. */
+      views: v.optional(v.number()),
+      /** kind « retainer » : index de cycle, 1-indexé à l'affichage. */
+      cycleIndex: v.optional(v.number()),
+      /** kind « challenge » : nom du défi gagné, figé au paiement. Le
+       *  libellé se recompose autour dans la langue de la lectrice. */
+      challengeName: v.optional(v.string()),
+    }),
+  ),
+  amount: v.number(),
+  // base/bonus = LEGACY (accrual à l'écriture ; bonus = bonus PAR VIDÉO v1).
+  // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier
+  // de bonus CASH sur cumul (v2), GELÉ au paiement — DISJOINT de `bonus`
+  // (aucune période ne peut double-compter les deux).
+  // clip = montant fixe par clip d'un CLIPPEUR (accru à la publication,
+  // 1 ligne par clip et non par cible). retainer = forfait de cycle d'un
+  // TALENT (gelé au paiement du cycle). Les deux sont ADDITIFS : quatre
+  // modèles de rémunération, quatre kinds lisibles dans le grand livre.
+  // Réutiliser `clip` pour un talent ferait mentir l'écran et tout export ;
+  // réutiliser `base` mettrait un forfait dans le seau de l'accrual legacy
+  // par post, et « base = une vidéo publiée » deviendrait faux pour une
+  // population qui ne publie rien.
+  // challenge = PRIME d'une victoire de défi. Un kind À PART, et non un
+  // `bonus_tier` recyclé : une prime de défi n'est pas un palier de
+  // cumul, elle ne se déclenche pas sur les mêmes faits, et le grand
+  // livre doit pouvoir les distinguer six mois plus tard. C'est la règle
+  // que ce même commentaire pose déjà pour `clip` et `retainer`.
+  //
+  // ⚠️ UNE LIGNE PAR VICTOIRE, jamais agrégée — à la différence de
+  // `bonus_tier`, gelé en une ligne unique dont le commentaire d'origine
+  // reconnaît qu'« aucun détail par palier n'est récupérable », ce qui
+  // force `unlockIsFrozen` à raisonner par fenêtre. Ici chaque ligne
+  // nomme son défi : l'annulation reste vérifiable, et l'écran lisible.
+  kind: v.union(
+    v.literal("base"),
+    v.literal("bonus"),
+    v.literal("fixed"),
+    v.literal("cpm"),
+    v.literal("bonus_tier"),
+    v.literal("clip"),
+    v.literal("retainer"),
+    v.literal("challenge"),
+  ),
+  // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
+  // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
+  // les lineItems legacy n'en portent pas.
+  platform: v.optional(
+    v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+  ),
+});
+
 export default defineSchema({
   // ─── Remédiation sécurité — tables Convex Auth ───────────────────────────
   // authSessions / authAccounts / authRefreshTokens / authVerificationCodes /
@@ -39,6 +118,12 @@ export default defineSchema({
     // Optional par sécurité (un user créé par un chemin librairie sans rôle
     // reste valide) — traiter undefined comme "member" côté checks.
     role: v.optional(v.union(v.literal("superadmin"), v.literal("member"))),
+    // ─── LANGUE D'INTERFACE (i18n) ────────────────────────────────────────────
+    // Code de langue ("fr" | "en"). ABSENT ⇒ "fr" : aucune migration, tout
+    // compte existant reste en français. Ce champ FAIT FOI une fois le compte
+    // créé ; il est matérialisé dans le cookie NEXT_LOCALE pour que le rendu
+    // serveur n'ait pas à attendre Convex.
+    locale: v.optional(v.string()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
@@ -85,11 +170,53 @@ export default defineSchema({
     // confirmPublicationCore) reste sur `projects.isSnytchProject` et n'est PAS
     // concerné : les fusionner ferait cesser silencieusement d'être vrai
     // l'invariant « un compte non validé ne peut rien publier » (risque 8 du
-    // diagnostic). Posé via projects.setTalentSettings (adminMutation).
+    // diagnostic). Posé via projects.setTalentSettings (gardée par bloc).
     //
     // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
     // slug côté client — le chantier talent ne change rien à l'écran partenaire.
+    // Durée de warmup DU PROJET, par plateforme (jours). Absent ⇒ barème de
+    // dernier recours (lib/warmup.WARMUP_TARGET_DAYS_FALLBACK).
+    //
+    // POURQUOI PAR PROJET. C'est une règle PRODUIT, pas une constante technique :
+    // Snytch chauffe 3 jours sur TikTok comme sur Instagram, RepackIt 7/14/7. Le
+    // 2026-06-23 (d1265cb), porter TikTok de 3 à 7 « pour l'app » a changé la
+    // règle de Snytch en silence et fait attendre ses créatrices quatre jours de
+    // trop par compte pendant deux mois.
+    //
+    // La durée reste FIGÉE sur comptes.warmupProtocol.targetDays au démarrage :
+    // modifier ce barème n'affecte QUE les warmups à venir.
+    // Chaque plateforme est FACULTATIVE : un projet ne définit que celles de
+    // son périmètre. Snytch ne fait pas de YouTube — lui donner une valeur
+    // serait affirmer une règle qui n'existe pas. Une plateforme non définie
+    // retombe, champ par champ, sur le dernier recours.
+    warmupTargetDays: v.optional(
+      v.object({
+        tiktok: v.optional(v.number()),
+        instagram: v.optional(v.number()),
+        youtube: v.optional(v.number()),
+      }),
+    ),
     fileDropEnabled: v.optional(v.boolean()),
+    // ─── COOLDOWN de combo de script, en jours (règle ÉDITORIALE du projet) ───
+    // Un comboKey programmé (ou publié) à moins de N jours d'une date visée n'est
+    // pas réattribuable à cette date, quel que soit le compte ou la créatrice.
+    // Absent ⇒ dernier recours (convex/comboCooldown.COMBO_COOLDOWN_DAYS_FALLBACK
+    // = 1 jour). `0` est une valeur DÉFINIE : elle désactive le cooldown — d'où
+    // la lecture par `comboCooldownDaysOf` et jamais par `?? FALLBACK` en place.
+    //
+    // MÊME NATURE que `warmupTargetDays` ci-dessus : une règle produit qui se
+    // règle à l'usage, sans PR, et qui n'a pas à être la même d'un projet à
+    // l'autre. Édité par projects.setComboCooldownDays (gardée par bloc, écran
+    // /scripts).
+    //
+    // ⚠️ NE TOUCHE PAS à l'unicité à vie (combo × créatrice × plateforme), qui
+    // vit dans lib/script-combo-uniqueness et n'a aucun réglage : les deux
+    // protections se cumulent. Mettre 0 ici ne réautorise jamais le même script
+    // deux fois chez la même créatrice.
+    //
+    // N'agit que sur les tirages À VENIR : un combo déjà attribué est figé sur
+    // son assignation et n'est jamais rejugé.
+    comboCooldownDays: v.optional(v.number()),
     // ─── BRIEF PERMANENT du talent — quel format lui sert de consigne ─────────
     // Le talent n'a pas d'assignation : son brief est PERMANENT, le même à chaque
     // dépôt (« voilà comment on filme un hook chez nous »). Plutôt qu'un champ
@@ -152,6 +279,25 @@ export default defineSchema({
     // 1 unité de payCurrency = fxRateToRevenue unités de la devise du revenu (ex.
     // 1 $ = 0,92 €). ABSENT ⇒ la marge combinée n'est PAS calculée (ni inventée).
     fxRateToRevenue: v.optional(v.number()),
+    // ─── Refs d'INFLUENCEUSES (chemin court snytch.co) ──────────────────────
+    // Des refs qui appartiennent à quelqu'un de NOMMÉ sans être des créatrices :
+    // elles n'entrent ni dans le moteur de paie, ni dans le portail, ni dans les
+    // assignations. Leur seule existence dans le produit est la ligne
+    // d'attribution du bloc « Ce que ça a rapporté ».
+    //
+    // POURQUOI ICI et pas une fiche `creators` : leur créer une fiche les ferait
+    // apparaître dans les écrans de paie, les cycles et le portail créateur pour
+    // une seule ligne d'attribution. Relevé en prod : `gio`, `asly`, `paredes`,
+    // `sabrina` et `hilary` ont du trafic et des ventes sans aucune fiche, et
+    // l'écran les étiquetait « ref sans créatrice rattachée » — ce qui se lit
+    // comme une donnée à corriger alors que c'est une catégorie normale.
+    //
+    // Une ref ne peut appartenir qu'à UNE personne : le croisement avec
+    // `creators.refSlug` est refusé à l'écriture (cf conversionAttribution.refConflicts).
+    // Posé par projects.setInfluencerRefsBySlug (interne, `npx convex run`).
+    influencerRefs: v.optional(
+      v.array(v.object({ ref: v.string(), name: v.string() })),
+    ),
     // ─── Notifications hors-app (Telegram) — canal PAR PROJET ─────────────────
     // MÊME contrat de secret que `whop` et `posthog` ci-dessus : le JETON du bot
     // n'est JAMAIS stocké ici — `tokenEnvVar` NOMME la variable d'env (Convex env)
@@ -159,7 +305,7 @@ export default defineSchema({
     // un groupe) n'est pas un secret et vit en base — c'est précisément ce qui
     // rend le destinataire modifiable depuis l'écran admin SANS redéploiement.
     // Absent = AUCUNE notification pour ce projet. Édité par
-    // notifications.setNotifySettings (adminMutation, écran /notifications).
+    // notifications.setNotifySettings (gardée par bloc, écran /notifications).
     notify: v.optional(
       v.object({
         // Union d'un seul membre AUJOURD'HUI : le transport est isolé dans
@@ -198,16 +344,161 @@ export default defineSchema({
     // clippeur est rejeté MÉCANIQUEMENT de toutes les fonctions créateur
     // existantes, sans qu'aucune d'elles soit modifiée. Le littéral dérive de
     // `creators.kind` au signup (cf convex/roles.roleForKind + convex/auth.ts).
-    role: v.union(
-      v.literal("admin"),
-      v.literal("creator"),
-      v.literal("talent"),
-      v.literal("clipper"),
+    // "manager" = ADMIN RESTREINT. Littéral AJOUTÉ à côté des autres, jamais
+    // en remplacement : les memberships existants gardent "admin" et donc leurs
+    // accès actuels, d'où ZÉRO migration. Même patron que l'ajout de "talent" et
+    // "clipper" en 2026. Ce que peut un manager est décidé par `permissions`
+    // ci-dessous ; "admin" reste « tout », sans permissions à écrire.
+    //
+    // ⚠️ CHAMP D'HÉRITAGE, EN LECTURE SEULE DEPUIS LE MULTI-RÔLES. La vérité est
+    // `roles` ci-dessous. Ce champ est devenu `optional` pour qu'une écriture
+    // puisse l'EFFACER en posant `roles` : un document ne doit jamais porter les
+    // deux, sans quoi on aurait deux sources de vérité qui divergent en silence.
+    // Les documents d'avant, eux, ne portent que lui — `rolesOf` les lit comme un
+    // ensemble d'un élément, d'où ZÉRO migration ici aussi.
+    // NE PAS écrire ce champ dans du code neuf : passer par `roles`.
+    role: v.optional(
+      v.union(
+        v.literal("admin"),
+        v.literal("manager"),
+        v.literal("creator"),
+        v.literal("talent"),
+        v.literal("clipper"),
+      ),
     ),
+    // ─── LES RÔLES DE CETTE PERSONNE SUR CE PROJET (convex/roles.ts) ──────────
+    // Une personne peut être manager ET créatrice : c'est le modèle de promotion
+    // interne. Une LISTE sur la ligne existante, et pas une seconde ligne de
+    // membership — `memberships` se lit par `.first()` sur `by_user_project` à 22
+    // endroits, et deux lignes y rendraient une ligne ARBITRAIRE. En liste, chaque
+    // comparaison scalaire cesse de compiler : l'oubli ferme la porte au lieu de
+    // produire du hasard (cf l'en-tête de convex/roles.ts).
+    //
+    // ⚠️ Les combinaisons ne sont PAS libres — `roleSetProblem` refuse les trois
+    // cumuls de populations (structurels : `creators.kind` pilote la chauffe et la
+    // paie) ainsi qu'admin + autre chose. La règle vit dans convex/roles.ts, et
+    // toute écriture y passe.
+    //
+    // Une valeur hors liste fermée n'ouvre RIEN (cf. isMembershipRole), et un
+    // ensemble vide n'ouvre rien non plus : le défaut est le refus.
+    roles: v.optional(
+      v.array(
+        v.union(
+          v.literal("admin"),
+          v.literal("manager"),
+          v.literal("creator"),
+          v.literal("talent"),
+          v.literal("clipper"),
+        ),
+      ),
+    ),
+    // ─── DROITS D'UN MANAGER (convex/permissions.ts) ──────────────────────────
+    // Blocs du catalogue accordés à CETTE personne SUR CE PROJET. Le grain est
+    // celui du membership, et ce n'est pas un hasard : un droit vaut pour une
+    // personne × un projet, et ce document est DÉJÀ lu à chaque requête gardée
+    // (requireProjectAdmin) — les droits arrivent donc sans lecture de plus, là
+    // où une table dédiée en ajouterait une sur chacune des 212 fonctions.
+    //
+    // ⚠️ Ignoré pour "admin" (qui a tout) et pour les rôles de portail.
+    // ABSENT ⇒ AUCUN droit : un manager fraîchement créé ne peut rien tant que
+    // rien n'est coché. C'est le défaut voulu — le champ est optional pour que
+    // les documents existants restent valides, pas pour ouvrir une porte.
+    // Une valeur hors catalogue n'autorise RIEN (cf. isPermissionId).
+    permissions: v.optional(v.array(v.string())),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
     .index("by_user_project", ["userId", "projectId"]),
+
+  // ─── TRACE DES CHANGEMENTS DE DROITS — EN AJOUT SEUL ──────────────────────
+  // Une ligne par (personne, bloc, sens). Jamais de patch, jamais de delete :
+  // c'est un journal, pas un état. L'état effectif vit sur `memberships`, et
+  // rejouer ce journal pour le reconstruire serait une lecture de plus à chaque
+  // requête — exactement ce qu'on a refusé en posant `permissions` sur le
+  // membership.
+  //
+  // Écrit par TOUT chemin qui change des droits, y compris les provisionnements
+  // en ligne de commande : un droit accordé hors écran doit laisser la même
+  // trace qu'un droit accordé à l'écran, sinon le journal ment par omission.
+  // ─── TRACE DES DRAPEAUX DE PAIE D'UN POST — EN AJOUT SEUL ─────────────────
+  // Jumelle de `permissionChanges`, et SÉPARÉE d'elle à dessein : le sujet n'est
+  // pas du même type (une publication, pas une personne), les index diffèrent, et
+  // les durées de vie aussi — ce registre-ci se relit avec un CYCLE DE PAIE.
+  //
+  // POURQUOI IL EXISTE. `setPublicationWarmup` et `setPublicationRemuneration`
+  // décident si une vidéo est PAYÉE. Le geste est quotidien, il est désormais
+  // délégable à un manager (bloc `tracker.manage`), et jusqu'ici il ne laissait
+  // aucune trace : on pouvait constater qu'un post n'était plus payé sans pouvoir
+  // dire qui l'avait décidé ni quand.
+  //
+  // Jamais de patch, jamais de delete : c'est un journal, pas un état. L'état
+  // vit sur `publications` (isWarmup / remunere).
+  publicationFlagChanges: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.id("publications"),
+    // "warmup"      — le fait ÉDITORIAL (le post ne mentionne pas l'app) ;
+    // "remunerated" — le fait FINANCIER (ce post est-il payé ?).
+    // Une bascule warmup écrit les DEUX quand elle change aussi la paie : sans
+    // la seconde ligne, il faudrait re-dériver la conséquence pour la lire.
+    flag: v.union(v.literal("warmup"), v.literal("remunerated")),
+    before: v.boolean(),
+    after: v.boolean(),
+    // Qui. Toujours présent : ces mutations sont gardées, donc il y a une session.
+    actorUserId: v.id("users"),
+    at: v.number(),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_project_at", ["projectId", "at"]),
+
+  // ─── Journal des CORRECTIONS de lien de suivi ────────────────────────────
+  // Une ligne par lien de post corrigé après coup par l'admin (la créatrice
+  // s'était trompée de vidéo). Ce n'est pas un confort d'audit : la correction
+  // SUPPRIME les relevés de vues accumulés sur la mauvaise vidéo — un geste
+  // destructeur, sur une donnée qui alimente la paie. Sans journal, personne ne
+  // peut plus expliquer six semaines plus tard pourquoi un post est passé de
+  // 423 000 vues à 35 000 en une nuit.
+  publicationUrlChanges: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.optional(v.id("publications")),
+    assignmentId: v.id("assignments"),
+    platform: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+    /** Les deux liens, VERBATIM. L'ancien reste lisible : c'est lui qui permet
+     *  de retrouver la vidéo réellement suivie par erreur. */
+    beforeUrl: v.string(),
+    afterUrl: v.string(),
+    /** Combien de relevés ont été effacés avec l'ancien lien (0 = aucun encore
+     *  collecté). Le chiffre qui explique la chute des vues. */
+    deletedSnapshots: v.number(),
+    /** Dernières vues connues AVANT correction — ce que l'écran affichait. */
+    viewsBefore: v.optional(v.number()),
+    actorUserId: v.id("users"),
+    at: v.number(),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_project_at", ["projectId", "at"]),
+
+  permissionChanges: defineTable({
+    projectId: v.id("projects"),
+    // La personne DONT les droits changent.
+    subjectUserId: v.id("users"),
+    // Le bloc. `v.string()` et non une union : un bloc retiré du catalogue doit
+    // rester LISIBLE dans l'historique. Un journal qui refuse de relire le passé
+    // parce que le présent a changé n'est pas un journal.
+    permission: v.string(),
+    // true = accordé, false = retiré.
+    granted: v.boolean(),
+    // Qui a fait le geste. ABSENT = hors session (ligne de commande, migration).
+    actorUserId: v.optional(v.id("users")),
+    // Étiquette lisible de l'auteur ("cli", ou l'e-mail de l'admin).
+    actorLabel: v.string(),
+    at: v.number(),
+  })
+    .index("by_project_subject", ["projectId", "subjectUserId"])
+    .index("by_at", ["at"]),
 
   hooks: defineTable({
     // P2 — projectId optional (phase migration) → resserré en required après
@@ -424,6 +715,83 @@ export default defineSchema({
     // des snapshots existants). undefined = aucun snapshot OU row pas encore
     // reprocessée (fallback recalcul depuis datePubli côté lecture).
     latestSnapshotDaysSince: v.optional(v.number()),
+    // ─── ÉCHEC DE COLLECTE — persisté, parce qu'un console.warn ne compte pas ──
+    // Jusqu'ici, un post qu'Apify n'arrivait pas à relever produisait un
+    // `console.warn` agrégé et RIEN d'autre. Conséquence mesurée le 2026-08-31 :
+    // 10 publications Snytch n'avaient jamais été relevées — l'une depuis 26
+    // jours, à 39 000 vues réelles — sans qu'aucune alerte ne parte. L'alerte
+    // existante (`failedComptes`) ne se déclenche que si TOUTES les vidéos d'un
+    // compte échouent ; ces comptes avaient des vidéos qui marchaient.
+    //
+    // Ces trois champs rendent l'échec DURABLE et donc comptable. Absents = la
+    // publication n'a jamais échoué (ou a réussi depuis : la réussite les efface,
+    // cf recordApifySnapshot).
+    /** Instant du dernier échec de collecte (Apify ET repli maison). */
+    lastCollectFailureAt: v.optional(v.number()),
+    /** Échecs CONSÉCUTIFS. Remis à zéro par le premier relevé réussi. */
+    collectFailureStreak: v.optional(v.number()),
+    /**
+     * Motif du dernier échec, en clair et destiné à être LU par un humain
+     * (ex. « visible par son autrice uniquement », « HTTP 429 »). C'est ce qui
+     * permet à l'écran de dire pourquoi, au lieu d'afficher « 0 vue ».
+     */
+    lastCollectFailureReason: v.optional(v.string()),
+    // ─── QUADRANT « Vues × Intent » — classement DÉRIVÉ, recalculé la nuit ────
+    // Même nature que les champs `*Latest` ci-dessus : une valeur dénormalisée
+    // qu'aucune saisie ne produit, écrite par un job et relue telle quelle par
+    // l'écran. Ici le job est le RELEVÉ NOCTURNE (cf convex/quadrantSync.ts,
+    // appelé en fin de chaîne par finishNightlyRun) : le classement se rafraîchit
+    // exactement quand les vues et les saves qu'il lit se rafraîchissent, jamais
+    // entre deux — il n'est donc jamais plus vieux que la donnée qu'il décrit.
+    //
+    // Le calcul lui-même vit dans le module PUR convex/quadrant.ts, importé à
+    // l'identique par le recalcul et par la carte du tracker.
+    //
+    // Absent = jamais recalculé (post créé depuis le dernier relevé, ou projet
+    // dont la nuit n'est pas encore passée) → la carte l'affiche « en attente du
+    // prochain relevé », jamais comme un post sous les seuils. Optional ⇒ 0
+    // migration : aucune lecture existante ne change, et le champ apparaît au
+    // premier run nocturne.
+    //
+    // ⚠️ AUCUN lien avec la paie. `isWarmup` n'entre ici que comme couleur de
+    // point ; ni ce champ ni ses seuils ne sont lus par le moteur de paie, la
+    // graduation LAB ou le moteur de décision.
+    quadrant: v.optional(
+      v.object({
+        computedAt: v.number(),
+        status: v.union(
+          v.literal("classified"),
+          v.literal("pending"),
+          v.literal("not_measured"),
+          v.literal("no_baseline"),
+          v.literal("no_intent"),
+        ),
+        /** Renseigné UNIQUEMENT quand status === "no_intent". */
+        reason: v.optional(
+          v.union(
+            v.literal("saves_unavailable"),
+            v.literal("saves_collecting"),
+            v.literal("no_views"),
+          ),
+        ),
+        /** Médiane du compte sur la fenêtre. Absente = pas de référence. */
+        baselineViews: v.optional(v.number()),
+        /** Taille de l'échantillon derrière la médiane (0 = aucun post éligible). */
+        baselineSample: v.number(),
+        scoreDistribution: v.optional(v.number()),
+        scoreIntent: v.optional(v.number()),
+        /** La case, UNIQUEMENT quand status === "classified". */
+        key: v.optional(
+          v.union(
+            v.literal("scale"),
+            v.literal("intent_faible"),
+            v.literal("distribution_faible"),
+            v.literal("archiver"),
+          ),
+        ),
+        breakoutWindow: v.boolean(),
+      }),
+    ),
     // Tracking auto YouTube — horodatage du dernier relevé réussi par le cron
     // (API Data v3). Présent ⇒ publication YouTube synchronisée automatiquement
     // (indicateur admin "vues synchronisées auto"). undefined pour TikTok/Insta
@@ -498,6 +866,69 @@ export default defineSchema({
     .index("by_capturedAt", ["capturedAt"])
     .index("by_project", ["projectId"])
     .index("by_project_capturedAt", ["projectId", "capturedAt"]),
+
+  // ─── Relevés de PROFIL d'un compte (abonnés & co.) ────────────────────────
+  // Historisé — c'est tout l'objet : un compteur d'abonnés seul ne dit rien, le
+  // DELTA dit si le compte monte. Une ligne par compte et par relevé nocturne.
+  //
+  // Provenance selon la plateforme, et c'est asymétrique :
+  //  - TikTok    : `authorMeta` arrive AVEC chaque vidéo du relevé de posts →
+  //                aucun appel supplémentaire, donc aucun coût Apify en plus.
+  //  - Instagram : demande un run de PROFIL dédié (l'item de post ne porte pas
+  //                les compteurs du compte) → +1 run par nuit.
+  //  - YouTube   : channels.list de l'API Data v3, gratuit dans le quota.
+  //
+  // Tous les compteurs sont OPTIONNELS : selon la plateforme et la forme réelle
+  // du payload, l'un peut manquer. Absent ≠ zéro — un écran qui lit ces valeurs
+  // doit distinguer « pas encore collecté » de « mesuré à zéro ».
+  accountProfileSnapshots: defineTable({
+    projectId: v.id("projects"),
+    compteId: v.id("comptes"),
+    /** Handle au moment du relevé (le compte peut être renommé ensuite). */
+    handle: v.string(),
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("YouTube"),
+    ),
+    capturedAt: v.number(),
+    followers: v.optional(v.number()),
+    following: v.optional(v.number()),
+    /** Likes CUMULÉS du compte (TikTok `heart`). */
+    totalLikes: v.optional(v.number()),
+    source: v.union(
+      v.literal("tiktok"),
+      v.literal("instagram"),
+      v.literal("youtube"),
+    ),
+  })
+    .index("by_compte_capturedAt", ["compteId", "capturedAt"])
+    .index("by_project_capturedAt", ["projectId", "capturedAt"]),
+
+  // ─── Conversion par créatrice (ref du site snytch.co) ────────────────────
+  // AGRÉGATS quotidiens par ref de chemin court (snytch.co/kelly → ref posée
+  // sur la personne PostHog et propagée au checkout Whop). Une ligne par
+  // (projet, jour PARIS, ref) ; `ref` ABSENT = ligne « sans source » (trafic et
+  // ventes non attribués). AUCUNE donnée personnelle : uniquement des compteurs.
+  //
+  // Champ ABSENT = source jamais collectée ce jour (différent d'un 0 mesuré) :
+  // la fusion par source vit dans convex/conversionAttribution.ts
+  // (mergeDayRows), le re-run d'un jour écrase proprement sans doubler.
+  //
+  // Le creatorId n'est PAS stocké : la créatrice est résolue AU READ via
+  // creators.refSlug — configurer une ref après coup rattache tout l'historique.
+  creatorConversions: defineTable({
+    projectId: v.id("projects"),
+    /** Jour calendaire EUROPE/PARIS, "YYYY-MM-DD" (cf convex/viewsDaily). */
+    date: v.string(),
+    ref: v.optional(v.string()),
+    visitors: v.optional(v.number()),
+    signups: v.optional(v.number()),
+    sales: v.optional(v.number()),
+    revenue: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_project_date", ["projectId", "date"]),
 
   comptes: defineTable({
     // P2 — scope projet.
@@ -586,6 +1017,37 @@ export default defineSchema({
         instructions: v.string(),
         targetDays: v.number(),
         dailyChecks: v.array(v.string()),
+        // ─── JOURNAL D'AUDIT des checks — PREUVE, jamais règle (AT-002) ───────
+        // `dailyChecks` reste la SOURCE DE VÉRITÉ du décompte et de la garde
+        // « 1 check par jour ». Ce journal ne fait que conserver, à côté, ce que
+        // la clé de jour perd : l'INSTANT exact et le FUSEAU retenu.
+        //
+        // Pourquoi il existe : une chaîne « 2026-08-31 » peut aussi bien être
+        // « le 30 au soir » que « le 31 au matin ». Quand le bug de fuseau a été
+        // découvert, cette ambiguïté a rendu tout recalcul rétroactif IMPOSSIBLE
+        // — `warmupProtocol.updatedAt` ne bouge pas au check (vérifié sur
+        // l'export de prod du 2026-08-31 : il ne coïncide avec le dernier check
+        // que dans 10 cas sur 25, par pure coïncidence), et Convex ne conserve
+        // pas de date de modification. Le prochain défaut de datation, lui, sera
+        // rejouable.
+        //
+        // ⚠️ AUCUNE logique métier ne doit le lire. S'il devenait un second
+        // prédicat, il faudrait le garder en phase avec `dailyChecks` — et deux
+        // vérités qui doivent rester d'accord finissent toujours par diverger.
+        //
+        // `tz` absent = fuseau de la créatrice inconnu au moment du check (le
+        // calcul est alors en UTC, cf creatorDay.zoneOrNeutral). Optional →
+        // 0 migration : les checks d'avant ce champ n'ont simplement pas de
+        // trace, ce qui est exactement leur situation actuelle.
+        checkLog: v.optional(
+          v.array(
+            v.object({
+              day: v.string(),
+              at: v.number(),
+              tz: v.optional(v.string()),
+            }),
+          ),
+        ),
         updatedAt: v.number(),
       }),
     ),
@@ -623,6 +1085,34 @@ export default defineSchema({
     // Édité uniquement par l'admin (updateCompte). Optional → 0 migration ;
     // absent = « non défini ».
     targetCountry: v.optional(countryValidator),
+    /**
+     * PHOTO DE PROFIL du compte, RECOPIÉE dans le storage — jamais un lien
+     * TikTok servi tel quel.
+     *
+     * Pourquoi un miroir plutôt qu'une URL en cache, comme `inspirations`
+     * le fait pour ses vignettes : les liens du CDN TikTok sont SIGNÉS et
+     * datés (`x-expires`). Une vignette d'inspiration qui casse, on la
+     * remplace ; dix-neuf visages qui deviennent des carrés gris sur l'écran
+     * Créateurs, personne ne va les recoller à la main. Le blob pèse quelques
+     * dizaines de Ko et ne bouge qu'au rythme où la créatrice change de photo.
+     *
+     * `sourceUrl` est le lien D'OÙ VIENT le blob : il sert uniquement à
+     * savoir, au relevé suivant, si la photo a changé — sinon on ne
+     * retélécharge rien. Il n'alimente aucun `<img>`.
+     *
+     * Absent = jamais collectée. Ça vaut pour tout compte non-TikTok (seul
+     * l'item TikTok porte l'avatar sans run supplémentaire) et pour tout
+     * compte qui n'a pas encore de publication relevée — un compte sans post
+     * n'entre pas dans le relevé, donc sa photo n'arrive jamais. L'écran
+     * retombe sur les initiales, et c'est un état normal, pas une panne.
+     */
+    avatar: v.optional(
+      v.object({
+        storageId: v.id("_storage"),
+        sourceUrl: v.string(),
+        fetchedAt: v.number(),
+      }),
+    ),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"])
@@ -784,6 +1274,49 @@ export default defineSchema({
     name: v.string(),
     email: v.string(),
     phone: v.optional(v.string()),
+    // ─── LANGUE D'INTERFACE (i18n) ────────────────────────────────────────────
+    // Posée par l'admin à la création de la fiche. ABSENT ⇒ "fr".
+    // Pourquoi ici EN PLUS de users.locale : l'e-mail d'INVITATION part AVANT
+    // que le compte existe (creators.userId est encore undefined), donc il n'y
+    // a pas d'users.locale à lire. Une fois le compte créé, users.locale hérite
+    // de cette valeur puis fait foi.
+    locale: v.optional(v.string()),
+    // ─── FUSEAU HORAIRE (IANA) — « quel jour est-il pour elle ? » ──────────────
+    // SUR LA CRÉATRICE, et nulle part ailleurs. Volontairement PAS sur le compte :
+    // `comptes.targetCountry` décrit le MARCHÉ VISÉ, pas le domicile de la
+    // personne (une créatrice à Madrid peut animer un compte US), et le warmup
+    // est une routine humaine — elle regarde ses vidéos le soir, chez elle, une
+    // fois par jour, quels que soient ses comptes. Deux horloges concurrentes,
+    // c'est précisément le défaut qu'on élimine (cf docs/diagnostic-fuseaux.md).
+    //
+    // Identifiant IANA ("America/New_York"), JAMAIS un décalage ("UTC-4") : un
+    // décalage ne porte pas de règle de changement d'heure et dérive deux fois
+    // par an — les US et l'Europe ne basculent même pas le même week-end.
+    // Validé à l'écriture par creatorDay.isSupportedTimezone.
+    //
+    // ⚠️ ABSENT ⇒ fuseau INCONNU, et c'est un état LÉGITIME et VISIBLE, jamais
+    // un repli silencieux sur Paris. Une créatrice sans fuseau s'affiche comme
+    // telle dans l'admin ; les calculs de jour retombent sur UTC (le repère
+    // neutre historique), pas sur l'heure de l'équipe. Optional → 0 migration.
+    timezone: v.optional(v.string()),
+    // PROVENANCE du champ ci-dessus, par confiance décroissante :
+    //   "confirmed" — la créatrice l'a validé elle-même (pré-rempli depuis son
+    //                 navigateur à la première connexion, puis confirmé) ;
+    //   "admin"     — saisi à la main sur sa fiche ;
+    //   "inferred"  — déduit du pays de ses comptes en attendant mieux.
+    // Stockée À CÔTÉ de la valeur pour qu'on puisse, dans six mois, regarder une
+    // fiche et savoir si "America/New_York" est un FAIT ou une SUPPOSITION.
+    // L'admin affiche « à confirmer » tant que ce n'est pas "confirmed".
+    // Absent alors que `timezone` est présent ⇒ traité comme "admin" (une valeur
+    // stockée sans provenance a forcément été posée à la main ; la dire
+    // "confirmed" ferait passer une supposition pour un fait).
+    timezoneSource: v.optional(
+      v.union(
+        v.literal("confirmed"),
+        v.literal("admin"),
+        v.literal("inferred"),
+      ),
+    ),
     // ─── POPULATION de la fiche — partenaire / talent / clippeur ───────────────
     // ABSENT = "partner" (créateur partenaire historique) ⇒ 0 migration : toutes
     // les fiches existantes restent des partenaires, au comportement inchangé.
@@ -900,10 +1433,57 @@ export default defineSchema({
     // AUCUNE condition de livraison dans le calcul — le mois est dû, l'admin
     // décide en voyant le nombre de rushes déposés à côté du montant.
     monthlyRetainer: v.optional(v.number()),
+    /**
+     * REF du chemin court snytch.co (« kelly » pour snytch.co/kelly) — la clé
+     * d'attribution de conversion. Optionnelle : sans elle, la créatrice
+     * apparaît « pas de ref configurée » dans la section conversion (jamais un
+     * zéro — l'attribution repose entièrement sur ce chemin, le trafic in-app
+     * TikTok ne transmettant pas de referrer). Normalisée par normalizeRef.
+     */
+    refSlug: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
     .index("by_user", ["userId"]),
+
+  // ─── CONTRATS — le PDF signé entre le projet et la créatrice ───────────────
+  // 1 row = 1 PDF déposé par l'admin sur la fiche d'une créatrice. Le blob vit
+  // dans Convex file storage (pas sur Drive comme les rushes : ces fichiers-là
+  // sont lourds et transitent par le navigateur de la créatrice, un contrat est
+  // léger et ne sort jamais de l'app).
+  //
+  // PAR PROJET SANS LE DIRE : une row `creators` est DÉJÀ scopée projet — une
+  // même personne présente sur deux projets a deux fiches, donc deux contrats
+  // distincts. `projectId` est recopié ici pour pouvoir filtrer sans jointure,
+  // et il doit toujours valoir celui de la fiche.
+  //
+  // UNE LISTE, PAS UN CHAMP. Un avenant ne remplace pas le contrat d'origine :
+  // il s'ajoute. Un `contractStorageId` sur `creators` aurait forcé l'admin à
+  // écraser — et la créatrice à perdre — le document qu'elle avait signé.
+  // L'écran affiche le plus récent en tête ; le plus souvent il n'y en a qu'un.
+  //
+  // ⚠️ Lecture GATÉE `creators.pay_terms` côté admin : un contrat énonce le
+  // tarif négocié, il n'a rien à faire sous les yeux d'un manager à qui on
+  // cache ce même tarif sur la fiche. Côté créatrice, aucune garde à ajouter :
+  // elle ne lit que les siens (scopés par ctx.creatorId).
+  creatorContracts: defineTable({
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+    // Résolu en URL signée SERVEUR (ctx.storage.getUrl) — ni l'admin ni la
+    // créatrice ne manipulent jamais le storageId.
+    storageId: v.id("_storage"),
+    // Nom du fichier tel que déposé. C'est le SEUL libellé : pas de titre saisi
+    // à côté, qui ne ferait que diverger du contenu du PDF.
+    fileName: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+    // Qui a déposé. Traçabilité seule (affichée nulle part aujourd'hui) : sur un
+    // document contractuel, « qui l'a mis là » est la question qu'on se pose six
+    // mois plus tard, et elle ne se reconstitue pas après coup.
+    uploadedBy: v.id("users"),
+  })
+    .index("by_creator", ["creatorId"])
+    .index("by_project", ["projectId"]),
 
   // ─── Dépôt de fichiers Snytch — métadonnées des fichiers déposés ──────────
   // SNYTCH UNIQUEMENT. 1 row = 1 fichier (vidéo ou photo) déposé par un créateur
@@ -1089,18 +1669,32 @@ export default defineSchema({
         }),
       ),
     ),
-    rateModel: v.object({
-      basePerPost: v.number(),
-      viewBonusPer1k: v.optional(v.number()),
-      bounties: v.optional(
-        v.array(
-          v.object({
-            thresholdViews: v.number(),
-            amount: v.number(),
-          }),
+    // ─── GRILLE DE RÉMUNÉRATION — ABSENTE ⇔ JAMAIS RENSEIGNÉE ────────────────
+    // OPTIONNEL depuis que poser la grille est un geste à part
+    // (`setFormatRateModel`, bloc `pricing.manage`). L'absence n'est PAS un
+    // zéro : elle dit que personne n'a encore décidé combien ce format paie, et
+    // `assignFormat` REFUSE d'assigner dans cet état — sans quoi la mission
+    // figerait un `rateSnapshot` à 0 et la créatrice travaillerait gratuitement.
+    // Un format volontairement GRATUIT reste possible : on pose explicitement
+    // `{ basePerPost: 0 }`, et les deux cas cessent de se ressembler.
+    //
+    // Aucune migration : le champ était REQUIS jusqu'ici, donc tout format
+    // existant en porte une et se lit « renseignée ». Seuls les formats créés
+    // après ce changement naissent sans.
+    rateModel: v.optional(
+      v.object({
+        basePerPost: v.number(),
+        viewBonusPer1k: v.optional(v.number()),
+        bounties: v.optional(
+          v.array(
+            v.object({
+              thresholdViews: v.number(),
+              amount: v.number(),
+            }),
+          ),
         ),
-      ),
-    }),
+      }),
+    ),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -1144,6 +1738,20 @@ export default defineSchema({
         editedOnce: v.optional(v.boolean()),
       }),
     ),
+    /**
+     * SCRIPT LIBRE — le texte figé d'une vidéo de DÉFI.
+     *
+     * Un défi n'a plus de campagne ni de briques : son script est un texte, et
+     * il est RECOPIÉ ici à la création de la vidéo. Il est donc figé comme
+     * l'était `scriptCombo.assembledScript` — corriger le script du défi ne
+     * réécrit pas le brief d'une créatrice qui a déjà commencé.
+     *
+     * Exclusif de `scriptCombo` : une assignation porte l'un ou l'autre, jamais
+     * les deux. Les projections serveur rendent le premier des deux sous le même
+     * nom (`assembledScript`), pour qu'aucun écran n'ait à connaître la
+     * différence.
+     */
+    freeScript: v.optional(v.string()),
     // S2 — signature top-level du combo. Refonte : "hook:flux:cta" (3 segments)
     // pour les nouveaux ; "hook:corps:flux:cta" (4 segments) pour l'historique.
     // Espaces de clés DISJOINTS → index by_creator_combo pour l'anti-coordination
@@ -1406,6 +2014,12 @@ export default defineSchema({
         montantFixe: v.number(),
         nbVideosCible: v.number(),
         tauxCPM: v.number(),
+        /**
+         * Seuil de vues conditionnant le fixe, FIGÉ comme le reste du barème.
+         * Absent sur les snapshots d'avant ⇒ aucune condition, comportement
+         * strictement inchangé.
+         */
+        seuilVuesFixe: v.optional(v.number()),
         seuilBonusVues: v.number(),
         montantBonus: v.number(),
       }),
@@ -1423,6 +2037,28 @@ export default defineSchema({
     // `computeLivePricingBreakdown` ne ramasse que les porteurs de
     // `pricingSnapshot` — les trois modèles sont mutuellement exclusifs.
     clipRateSnapshot: v.optional(v.number()),
+    // ─── DÉFI — cette vidéo a été produite DANS LE CADRE d'un défi ────────────
+    // Marqueur posé à la création de l'assignation, jamais réécrit. C'est LUI
+    // qui définit le périmètre du score (« uniquement les vidéos publiées dans
+    // le cadre de ce défi ») : sans ce champ, il faudrait deviner par la date ou
+    // par la campagne, et les deux seraient faux.
+    //
+    // ⚠️ TROIS CONSÉQUENCES, toutes voulues :
+    //  1. Les lignes de défi n'occupent PAS la fenêtre de cooldown du projet
+    //     (cf cooldownAnchorOf) : toutes les participantes reçoivent le MÊME
+    //     script le même jour, c'est le principe. Sans cette exclusion, un défi
+    //     stériliserait son combo pour toute la production normale.
+    //  2. Elles sont créées avec `comboImposed: true`, donc déjà hors de
+    //     l'unicité à vie — une créatrice soumet autant de vidéos qu'elle veut
+    //     sur le même script.
+    //  3. Elles portent le pricing DÉDIÉ du défi (montantFixe 0) : groupe de
+    //     paie séparé, le budget fixe des vidéos ordinaires est intouchable.
+    challengeId: v.optional(v.id("challenges")),
+    // Retirée du défi par l'admin : la vidéo reste PUBLIÉE, PAYÉE et TRACKÉE,
+    // seul son apport au score disparaît. Distinct de `cancelled` (statut) et de
+    // `isWarmup`/`remunere` (paie) : trois retraits de natures différentes, qu'on
+    // ne fait jamais jouer l'un pour l'autre.
+    challengeRemovedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -1430,7 +2066,9 @@ export default defineSchema({
     .index("by_format", ["formatId"])
     .index("by_project_status", ["projectId", "status"])
     // S2 — anti-coordination : (créateur, signature de combo).
-    .index("by_creator_combo", ["creatorId", "comboKey"]),
+    .index("by_creator_combo", ["creatorId", "comboKey"])
+    // Défis — le score lit toutes les vidéos d'un défi, toutes créatrices.
+    .index("by_challenge", ["challengeId"]),
 
   // ─── P7 — « Comment ça marche » (guide projet, éditable admin) ────────────
   // Un seul guide markdown par projet (le SYSTÈME, pas un format). Lu par les
@@ -1457,6 +2095,25 @@ export default defineSchema({
     contentMarkdown: v.string(),
     order: v.number(),
     status: v.union(v.literal("published"), v.literal("draft")),
+    // Langue du module — UN JEU DE MODULES PAR LANGUE (cf
+    // convex/guideModuleLocale.ts), pas de champs bilingues par module : le
+    // guide est de la DONNÉE éditée par l'admin, un module ne peut pas être « à
+    // moitié traduit ». La lecture sert le jeu de la langue du lecteur et se
+    // replie sur le français, jamais l'inverse.
+    //
+    // `optional` + `v.string()` (pas une union de littéraux) : même parti pris
+    // que `users.locale` / `creators.locale` — la liste des langues livrées vit
+    // dans convex/locales.ts, la coupler au schéma obligerait une migration à
+    // chaque langue ajoutée. Absente ⇒ français (état des modules antérieurs au
+    // champ ; `migrations:setGuideModuleLocaleFr` les rend explicites).
+    locale: v.optional(v.string()),
+    // Marqueur de RÔLE d'un module, pour les rares cas où l'app doit en
+    // désigner un précisément. Aujourd'hui un seul : "warmup", que le bouton
+    // de l'écran comptes ouvre sans quitter le tracker.
+    //
+    // Un marqueur plutôt qu'une recherche par titre : le titre appartient à
+    // l'admin, qui peut le renommer sans savoir qu'un écran en dépend.
+    slot: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_project", ["projectId"]),
@@ -1475,6 +2132,21 @@ export default defineSchema({
     montantFixe: v.number(),
     nbVideosCible: v.number(), // >= 1 (imposé serveur, anti division par zéro)
     tauxCPM: v.number(), // $ par 1000 vues
+    /**
+     * SEUIL DE VUES QUI CONDITIONNE LE FIXE — absent ou 0 = aucune condition.
+     *
+     * « 700 $ pour 60 vidéos, à condition de 100 000 vues cumulées sur le mois. »
+     * Sous la barre, le fixe du mois vaut ZÉRO — le seuil est ABSOLU, jamais
+     * pro-raté sur les vidéos livrées : un forfait qui s'adapte à la
+     * sous-livraison n'est plus une condition.
+     *
+     * ⚠️ NE TOUCHE QUE LE FIXE. Le CPM et les paliers de bonus ne bougent pas :
+     * ils paient la vue, pas le forfait.
+     *
+     * Optional ⇒ 0 migration, et les huit barèmes existants sont strictement
+     * inchangés.
+     */
+    seuilVuesFixe: v.optional(v.number()),
     // LEGACY (pricing v1, seuil de bonus UNIQUE par vidéo) — conservés en
     // lecture pour les pricings/snapshots existants ; `tiersOf()` les convertit
     // en 1 palier cash. 0 migration.
@@ -1499,7 +2171,42 @@ export default defineSchema({
         }),
       ),
     ),
+    // MODÈLE d'origine de l'échelle de paliers — TRAÇABILITÉ SEULE. Aucun calcul
+    // ne le lit : les paliers qui font foi restent `bonusTiers` ci-dessus, sur le
+    // pricing. Il sert à dire à l'écran « cette échelle vient du modèle M » et à
+    // signaler qu'elle en a divergé depuis. Un modèle supprimé laisse un id
+    // pendant : l'écran le traite alors comme « aucun modèle », jamais comme une
+    // erreur. Optional ⇒ 0 migration.
+    bonusTemplateId: v.optional(v.id("bonusTemplates")),
     status: v.union(v.literal("active"), v.literal("archived")),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  // ─── Modèles d'échelle de bonus (bibliothèque, par projet) ─────────────────
+  // POURQUOI. Les mêmes six paliers étaient recopiés à la main dans chaque
+  // barème — d'où, en production, un sommet à 100 000 001 vues sur la grille FR
+  // face à 100 000 000 sur l'US. Un modèle se saisit UNE fois et se pique dans
+  // n'importe quel barème.
+  //
+  // ⚠️ AUCUN RÔLE À L'EXÉCUTION. Un modèle n'est jamais lu par le moteur de paie,
+  // ni par effectiveBonusPricing, ni par syncBonusUnlocks : appliquer un modèle
+  // RECOPIE ses paliers dans le barème, et c'est le barème qui paie. La clé
+  // d'idempotence des unlocks reste (creatorId, pricingId, seuilVues) — elle ne
+  // bouge pas. Conséquence assumée : modifier un modèle ne change RIEN tant qu'on
+  // ne le réapplique pas, et la réapplication annonce d'abord combien de
+  // créatrices elle touche. Supprimer un modèle ne doit jamais coûter un dollar.
+  bonusTemplates: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    tiers: v.array(
+      v.object({
+        seuilVues: v.number(),
+        rewardType: v.union(v.literal("cash"), v.literal("nature")),
+        montant: v.optional(v.number()),
+        libelle: v.optional(v.string()),
+        coutReel: v.optional(v.number()),
+      }),
+    ),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
 
@@ -1554,46 +2261,7 @@ export default defineSchema({
     creatorNameSnapshot: v.optional(v.string()),
     // Période d'accrual, "YYYY-MM" (UTC, cf periodOf dans convex/payments.ts).
     period: v.string(),
-    lineItems: v.array(
-      v.object({
-        // Optionnel : un palier de bonus CUMULÉ (bonus_tier) n'est lié à aucun
-        // assignment précis (récompense créateur-niveau).
-        assignmentId: v.optional(v.id("assignments")),
-        label: v.string(),
-        amount: v.number(),
-        // base/bonus = LEGACY (accrual à l'écriture ; bonus = bonus PAR VIDÉO v1).
-        // fixed/cpm = pricing par vidéo, GELÉS au paiement. bonus_tier = palier
-        // de bonus CASH sur cumul (v2), GELÉ au paiement — DISJOINT de `bonus`
-        // (aucune période ne peut double-compter les deux).
-        // clip = montant fixe par clip d'un CLIPPEUR (accru à la publication,
-        // 1 ligne par clip et non par cible). retainer = forfait de cycle d'un
-        // TALENT (gelé au paiement du cycle). Les deux sont ADDITIFS : quatre
-        // modèles de rémunération, quatre kinds lisibles dans le grand livre.
-        // Réutiliser `clip` pour un talent ferait mentir l'écran et tout export ;
-        // réutiliser `base` mettrait un forfait dans le seau de l'accrual legacy
-        // par post, et « base = une vidéo publiée » deviendrait faux pour une
-        // population qui ne publie rien.
-        kind: v.union(
-          v.literal("base"),
-          v.literal("bonus"),
-          v.literal("fixed"),
-          v.literal("cpm"),
-          v.literal("bonus_tier"),
-          v.literal("clip"),
-          v.literal("retainer"),
-        ),
-        // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
-        // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
-        // les lineItems legacy n'en portent pas.
-        platform: v.optional(
-          v.union(
-            v.literal("TikTok"),
-            v.literal("Instagram"),
-            v.literal("YouTube"),
-          ),
-        ),
-      }),
-    ),
+    lineItems: v.array(paymentLineItem),
     totalDue: v.number(),
     status: v.union(
       v.literal("accruing"),
@@ -1602,6 +2270,52 @@ export default defineSchema({
     ),
     scheduledDate: v.optional(v.number()),
     paidAt: v.optional(v.number()),
+    // ─── ACOMPTES — versements PARTIELS sur un cycle encore ouvert ────────────
+    // « Je vire 100 $ maintenant, le reste plus tard. » Chaque versement est une
+    // ligne : le cumul se déduit, l'historique reste lisible (« acompte 10 $ le
+    // 04/10 »), et deux acomptes du même jour ne se confondent pas.
+    //
+    // ⚠️ Un acompte NE FIGE RIEN : le cycle reste `accruing`, son montant
+    // continue de suivre les vues, et le reste dû est TOUJOURS recalculé
+    // (« dû du jour − déjà versé »). C'est l'arbitrage produit : un reste ferme
+    // exigerait de geler le cycle au premier versement, ce qui reviendrait à
+    // payer d'avance des vues pas encore faites.
+    advances: v.optional(
+      v.array(
+        v.object({
+          amount: v.number(),
+          at: v.number(),
+          actorUserId: v.optional(v.id("users")),
+          note: v.optional(v.string()),
+        }),
+      ),
+    ),
+    // ─── REÇU D'ANNULATION — l'état exact d'AVANT le paiement ────────────────
+    // Posé par le marquage payé, CONSOMMÉ par l'annulation. Sa présence est ce
+    // qui autorise l'annulation : une fois consommé, le bouton n'existe plus.
+    // C'est aussi ce qui rend l'annulation FIDÈLE — le paiement ne se contente
+    // pas d'ajouter des lignes, il en DÉPLACE depuis les rows d'autres périodes
+    // (lineItems legacy du cycle) ; sans savoir d'où elles venaient, une
+    // annulation les laisserait orphelines et le total de l'autre période
+    // resterait faux.
+    undo: v.optional(
+      v.object({
+        previousStatus: v.union(v.literal("accruing"), v.literal("scheduled")),
+        previousLineItems: v.array(paymentLineItem),
+        previousTotalDue: v.number(),
+        /** Lignes RETIRÉES d'autres rows au paiement, à leur rendre. */
+        movedFrom: v.array(
+          v.object({
+            paymentId: v.id("payments"),
+            lineItems: v.array(paymentLineItem),
+          }),
+        ),
+        paidAt: v.number(),
+        paidTotal: v.number(),
+      }),
+    ),
+    /** Quand l'annulation a été utilisée (elle ne l'est qu'une fois). */
+    revertedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_project_period", ["projectId", "period"])
@@ -1664,6 +2378,19 @@ export default defineSchema({
     retryable: v.optional(v.boolean()),
     // Pseudo Whop du client (username) — pour identifier un litige à traiter.
     // Optionnel : peuplé à partir de la re-synchro (rows anciennes = absent).
+    /**
+     * PAYS DE FACTURATION, valeur BRUTE de `billing_address.country` (API Whop).
+     * Whop est marchand de référence et collecte l'adresse pour la TVA. Format
+     * NON documenté côté API (`string | null`, sans exemple) : on stocke tel
+     * quel, sans normaliser — un code ISO et un nom complet doivent rester
+     * distinguables. Porté par le PAIEMENT, jamais par le client : ni `user`, ni
+     * `member`, ni `membership` n'exposent de pays.
+     *
+     * ⚠️ Pays de FACTURATION — à ne JAMAIS mélanger avec le pays de CONNEXION
+     * de PostHog (`$geoip_country_name`) : deux notions, deux populations.
+     * Absent = adresse non fournie par Whop pour ce paiement.
+     */
+    billingCountry: v.optional(v.string()),
     memberName: v.optional(v.string()),
     // LITIGE (chargeback) EN COURS : échéance de réponse (needs_response_by, ms) et
     // motif. Le délai restant est URGENT (frais de litige > abonnement). Optionnels :
@@ -1727,6 +2454,11 @@ export default defineSchema({
     abForced: v.optional(v.boolean()),
     // Personne PostHog — voie de REPLI si abVariant manque sur un abonnement.
     distinctId: v.optional(v.string()),
+    // REF d'attribution créatrice (metadata.ref, posée par le site au checkout
+    // — même canal que abVariant). Absente sur les memberships nés avant la
+    // pose de la ref ; le sync horaire PATCHE tous les champs, donc elle se
+    // backfille seule au run suivant.
+    ref: v.optional(v.string()),
     importedAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1760,6 +2492,29 @@ export default defineSchema({
     json: v.string(),
     computedAt: v.number(),
     error: v.optional(v.string()),
+  }).index("by_project_key", ["projectId", "key"]),
+
+  /**
+   * Cache des agrégats PostHog RECALCULÉS SUR UNE PLAGE LIBRE (sélecteur de
+   * période du hub). Table DISTINCTE de `posthogCache`, et c'est délibéré : le
+   * hub lit `posthogCache` avec un `.collect()` de TOUTES ses lignes du projet
+   * (34 lignes, ~1 Mo aujourd'hui). Y ranger une entrée par période consultée
+   * ferait grossir cette lecture-là à chaque plage choisie — on aurait accéléré
+   * un écran en ralentissant les autres.
+   *
+   * POURQUOI CE CACHE EXISTE. `getWindowedAnalytics` lance QUINZE requêtes HogQL
+   * en direct. Mesuré en production le 2026-09-08 : p95 38,6 s, pointe 44,4 s,
+   * et HUIT échecs sur `rate_limited (429)` — PostHog refusant la volée. Le hook
+   * client mémorise déjà les plages vues, mais en mémoire de SESSION : un
+   * rechargement, un autre onglet ou un autre administrateur repayaient tout.
+   *
+   * `key` = « <from>|<to> » (jours parisiens du sélecteur).
+   */
+  posthogWindowCache: defineTable({
+    projectId: v.id("projects"),
+    key: v.string(),
+    json: v.string(),
+    computedAt: v.number(),
   }).index("by_project_key", ["projectId", "key"]),
 
   // ─── S1 — Système de scripts combinatoire ─────────────────────────────────
@@ -1810,10 +2565,12 @@ export default defineSchema({
     ),
     label: v.string(),
     content: v.string(),
-    // Tier de hook. Affichage : "S" → « Argent », "A" → « Autre » (cf
-    // lib/script-tier). "B" = LEGACY toléré dans l'union : migré en "A" par
-    // migrateTierBToA, plus jamais proposé par l'UI. Conservé ici pour que le
-    // deploy ne casse pas tant que des "B" subsistent (migration post-deploy).
+    // LEGACY — TIER de hook (« Argent »/« Autre »), RETIRÉ du produit : plus
+    // jamais écrit, plus jamais lu par aucun écran ni aucun agrégat. Le champ
+    // reste DÉCLARÉ le temps que `scripts:stripBrickTaxonomy` le retire des
+    // documents en base : un `convex deploy` refuse tout document portant un
+    // champ absent du schéma. Retrait de ces deux lignes = PR de resserrage,
+    // une fois la migration passée en prod.
     tier: v.optional(v.union(v.literal("S"), v.literal("A"), v.literal("B"))),
     // SNYTCH — mode d'usage du texte DANS LA VIDÉO (zone 🎬), PAR BRIQUE (hook /
     // flux) : "dire" = à dire à l'oral ; "afficher" = à afficher en texte à
@@ -1826,6 +2583,21 @@ export default defineSchema({
     mode: v.optional(
       v.union(v.literal("dire"), v.literal("afficher"), v.literal("les_deux")),
     ),
+    // LEGACY — FAMILLE D'ANGLE du hook, RETIRÉE du produit en même temps que
+    // `tier` (même raison de survie : la migration doit passer avant le retrait
+    // du champ). Cf. le commentaire de `tier` ci-dessus.
+    angleFamily: v.optional(v.string()),
+    // INSTRUCTION de tournage attachée à la brique — texte LIBRE et OPTIONNEL,
+    // écrit par l'admin, LU PAR LA CRÉATRICE sous le bloc correspondant de sa
+    // fiche (« l'élément précis qui justifie la vérification »). Vaut pour les
+    // trois kinds (hook / flux / cta) : chaque bloc peut porter sa consigne.
+    //
+    // ORTHOGONALE au texte du script : elle n'entre PAS dans `assembledScript`
+    // (donc ni dans la garde anti-divergence de splitScriptZones, ni dans
+    // l'unicité de combo) et se lit LIVE à l'affichage — la corriger met à jour
+    // les missions déjà assignées, ce qui est bien l'intention (« la consigne
+    // était fausse, je la répare »). Absente ou vide = aucun encart affiché.
+    instruction: v.optional(v.string()),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),
@@ -1834,6 +2606,39 @@ export default defineSchema({
     .index("by_campaign_kind", ["campaignId", "kind"])
     // S2 — résumé combo côté admin (charge les bricks du projet pour les labels).
     .index("by_project", ["projectId"]),
+
+  // ─── Journal des GRADUATIONS de hooks ────────────────────────────────────
+  // Une ligne par graduation réussie : quel hook du LAB est parti dans les
+  // ouvertures prouvées, quand, et avec QUELS SCORES. Les scores sont FIGÉS au
+  // moment du geste — c'est tout l'intérêt d'un journal d'audit : six mois plus
+  // tard, les vues du post auront bougé et les seuils auront changé, mais on
+  // doit pouvoir répondre « sur quoi s'est-on appuyé pour graduer celui-là ? ».
+  //
+  // Ne sert PAS à l'idempotence (celle-ci compare les TEXTES présents dans la
+  // campagne cible, cf hookIdentityKey) : un journal peut être purgé sans
+  // rouvrir la porte au doublon.
+  hookGraduations: defineTable({
+    projectId: v.id("projects"),
+    /** Brique d'origine, dans le LAB (désactivée par la graduation). */
+    sourceBrickId: v.id("scriptBricks"),
+    sourceCampaignId: v.id("scriptCampaigns"),
+    /** Copie créée dans les ouvertures prouvées. */
+    targetBrickId: v.id("scriptBricks"),
+    targetCampaignId: v.id("scriptCampaigns"),
+    /** Texte AU MOMENT de la graduation (les briques peuvent être éditées après). */
+    content: v.string(),
+    graduatedAt: v.number(),
+    /** Scores du run qui a justifié la graduation. `saves` absent = non collecté. */
+    scores: v.object({
+      vues: v.number(),
+      likes: v.number(),
+      saves: v.optional(v.number()),
+      /** Nombre de runs observés pour ce hook au moment du geste. */
+      runs: v.number(),
+    }),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_source", ["sourceBrickId"]),
 
   // ─── Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger) ──
   // IMAGES (jpg/png/webp) + VIDÉOS courtes (mp4/mov/webm), hébergées en Convex
@@ -1925,7 +2730,7 @@ export default defineSchema({
   // ─── RADAR — veille TikTok (Brique 1 : comptes favoris + leurs vidéos) ───────
   // Module ADMIN UNIQUEMENT, SILO séparé : aucun lien avec creators/publications/
   // comptes (le tracking créateurs est un autre module). Scopé projet via
-  // adminQuery/adminMutation (un créateur n'atteint AUCUNE fonction Radar). Source
+  // des gardes de bloc (un créateur n'atteint AUCUNE fonction Radar). Source
   // de données : Apify (clockworks/tiktok-scraper) avec un COMPTE Apify DISTINCT
   // (clé APIFY_RADAR_TOKEN) pour isoler les quotas du tracking créateurs.
 
@@ -2106,4 +2911,238 @@ export default defineSchema({
     // n'affiche qu'un échantillon. Un décompte tronqué se lirait comme un total.
     pendingCount: v.number(),
   }).index("by_project_kind", ["projectId", "kind"]),
+
+  // ─── DÉFIS — opérations exceptionnelles, limitées dans le temps ────────────
+  // Un défi est attribué NOMINATIVEMENT (challengeParticipants) à un
+  // sous-ensemble de créatrices, avec son propre matériel et son propre
+  // compteur. Il ne remplace RIEN : les vidéos d'un défi sont des assignations
+  // ordinaires (assignments.challengeId), validées par la même file et payées
+  // par le même cycle. Le défi ajoute une PRIME par-dessus, jamais un régime à
+  // part.
+  //
+  // ⚠️ Le score part de ZÉRO à l'ouverture et ne compte QUE les vidéos publiées
+  // dans le cadre du défi. Aucun report d'historique — cf convex/challengeScore.
+  challenges: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    /** Consigne libre affichée à la créatrice sous le titre. */
+    description: v.optional(v.string()),
+    /**
+     * Objectif de vues — VALEUR LIBRE. Aucune valeur n'est privilégiée dans le
+     * code : ni palier prédéfini, ni seuil « rond » traité à part. Le seul
+     * contrôle est > 0 (une barre à 0 serait franchie par tout le monde à
+     * l'ouverture, y compris par qui n'a rien publié).
+     */
+    targetViews: v.number(),
+    /**
+     * CUMULÉ : somme des vues de ses vidéos du défi.
+     * UNIQUE : sa MEILLEURE vidéo doit atteindre la barre à elle seule.
+     */
+    mode: v.union(v.literal("cumulative"), v.literal("single")),
+    /**
+     * Récompense PAR GAGNANTE — jamais partagée entre elles (200 € × 3 = 600 €).
+     * `cash` : `amount` est dû à CHAQUE gagnante.
+     * `nature` : `libelle` (ex. « iPhone ») + `coutReel` = ce que l'objet nous
+     * COÛTE, jamais son prix public et JAMAIS montré à la créatrice — copie
+     * exacte du précédent bonusUnlocks, y compris l'absence de `coutReel` qui
+     * s'affiche en tiret (un 0 se lirait « gratuit »).
+     */
+    reward: v.object({
+      type: v.union(v.literal("cash"), v.literal("nature")),
+      amount: v.optional(v.number()),
+      libelle: v.optional(v.string()),
+      coutReel: v.optional(v.number()),
+    }),
+    /**
+     * Combien de gagnantes : la première (1), les N premières, ou toutes celles
+     * qui franchissent. Objet discriminé plutôt qu'un nombre avec des sentinelles
+     * (0 = toutes ?) — trois intentions distinctes, trois formes distinctes.
+     */
+    winnerRule: v.union(
+      v.object({ kind: v.literal("first") }),
+      v.object({ kind: v.literal("topN"), n: v.number() }),
+      v.object({ kind: v.literal("all") }),
+    ),
+    /** Passée, plus aucune victoire n'est actée. Rien n'est versé si personne
+     *  n'a franchi. Borne INCLUSIVE (cf challengeScore.newWinnersAt). */
+    deadline: v.number(),
+    /**
+     * `draft` : en préparation, INVISIBLE des créatrices.
+     * `active` : ouvert, visible des participantes, le score tourne.
+     * `closed` : clos à la main par l'admin. La fin « de fait » (deadline
+     * dépassée ou places prises) est DÉRIVÉE, pas stockée — un statut persisté
+     * se désynchronise du jour où plus personne ne fait tourner le job.
+     */
+    status: v.union(
+      v.literal("draft"),
+      v.literal("active"),
+      v.literal("closed"),
+    ),
+    /**
+     * MATÉRIEL — la campagne de scripts dont le défi tire son texte, et les
+     * briques IMPOSÉES. Toutes les participantes reçoivent le MÊME matériel :
+     * le tirage anti-coordination est donc court-circuité (comboImposed), comme
+     * pour « Rejouer ce script ». `hookBrickIds` accepte PLUSIEURS hooks (le
+     * script d'un défi en propose souvent 2-3) ; ils sont servis en ROTATION,
+     * par index de soumission. Un seul hook ⇒ combo unique, cas dégénéré.
+     * Absent = défi sans script (vidéos modèles + instructions seulement).
+     */
+    /**
+     * LE SCRIPT DU DÉFI — un seul texte, écrit d'une traite, le même pour toutes.
+     *
+     * Un défi empruntait une campagne et composait des briques (hooks en
+     * rotation, flux, cta) : l'outillage de la production EN SÉRIE appliqué à
+     * son exact inverse. Un défi est un coup et un texte ; il n'a ni rotation à
+     * organiser, ni anti-coordination à contourner, ni combinaison à tracer.
+     *
+     * Absent = défi sans script (vidéos modèles + instructions seulement) : cas
+     * réel, et la production y est refusée tant qu'il manque.
+     */
+    script: v.optional(v.string()),
+    /**
+     * ⚠️ HÉRITAGE — l'ancien matériel par briques. PLUS JAMAIS ÉCRIT.
+     *
+     * Conservé en LECTURE seule pour les défis créés avant la bascule : leur
+     * script est reconstitué à la volée depuis ces briques (cf `getChallenge`)
+     * et persisté dans `script` à la première sauvegarde. Le champ part au
+     * resserrage, quand plus aucun document ne le porte — le retirer maintenant
+     * ferait échouer la poussée de schéma sur les documents existants.
+     */
+    material: v.optional(
+      v.object({
+        campaignId: v.id("scriptCampaigns"),
+        hookBrickIds: v.array(v.id("scriptBricks")),
+        fluxBrickId: v.id("scriptBricks"),
+        ctaBrickId: v.id("scriptBricks"),
+      }),
+    ),
+    /**
+     * MASQUÉ AUX CRÉATRICES — un défi qu'on ne peut pas supprimer.
+     *
+     * Un défi qui porte des vidéos publiées ou des victoires ne se supprime pas
+     * (ses vidéos sont payées, le lien casserait). Mais on doit pouvoir le faire
+     * DISPARAÎTRE de l'espace des créatrices et de la liste admin. Masquer ne
+     * touche à aucun fait : ni vidéo, ni paie, ni victoire.
+     */
+    hiddenAt: v.optional(v.number()),
+    /** Vidéos MODÈLES (liens) — même forme que assignments.modelVideos. */
+    modelVideos: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          url: v.string(),
+          title: v.optional(v.string()),
+          note: v.optional(v.string()),
+          addedAt: v.number(),
+        }),
+      ),
+    ),
+    /** Consignes de production, recopiées sur chaque assignation du défi. */
+    instructions: v.optional(v.string()),
+    /** Dossiers d'assets liés, recopiés sur chaque assignation du défi. */
+    assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
+    /**
+     * BARÈME des vidéos du défi. Distinct de celui de la production normale, et
+     * c'est le point : `montantFixe` y vaut 0, donc les vidéos du défi forment
+     * leur PROPRE groupe de paie (payoutGroupKey inclut montantFixe/
+     * nbVideosCible/tauxCPM) et ne peuvent pas consommer le budget fixe des
+     * vidéos ordinaires. Elles touchent CPM + paliers + la prime.
+     */
+    pricingId: v.id("pricings"),
+    createdAt: v.number(),
+    /** Horodatage de l'ouverture (draft → active) : borne basse du score. */
+    openedAt: v.optional(v.number()),
+    /**
+     * Clôture MANUELLE par l'admin. Distinct de `deadline` : un défi peut être
+     * clos AVANT son échéance. La fin RÉELLE est donc le premier des deux qui
+     * arrive — c'est cette date qui ouvre la fenêtre de 7 jours pendant laquelle
+     * la créatrice continue de voir le résultat.
+     */
+    closedAt: v.optional(v.number()),
+    /**
+     * CLASSEMENT D'ARRIVÉE — figé une seule fois, quand le défi se termine.
+     *
+     * ⚠️ Sans ce gel, le « classement final » continuerait de bouger après la
+     * fin : les vues d'un post montent encore pendant des semaines, et une
+     * créatrice pourrait remonter d'une place trois jours après la clôture. Un
+     * classement d'arrivée qui change n'est pas un classement d'arrivée.
+     *
+     * Écrit par l'évaluation nocturne (ou la clôture manuelle) au premier
+     * passage où le défi est terminé, puis JAMAIS réécrit. Absent = défi encore
+     * en cours, l'écran rend le classement vivant.
+     */
+    finalRanking: v.optional(
+      v.array(
+        v.object({
+          creatorId: v.id("creators"),
+          name: v.string(),
+          score: v.number(),
+          videoCount: v.number(),
+          rank: v.number(),
+          crossed: v.boolean(),
+        }),
+      ),
+    ),
+    /** Instant du gel du classement d'arrivée. */
+    finalRankingAt: v.optional(v.number()),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_status", ["projectId", "status"]),
+
+  // ─── Qui VOIT le défi — le ciblage nominatif ──────────────────────────────
+  // Table de jointure et non un tableau d'ids sur `challenges` : un défi doit
+  // être visible AVANT qu'une participante ait produit quoi que ce soit, donc la
+  // liste ne peut pas être dérivée des assignations. 1 row = 1 créatrice invitée.
+  // Idempotence : (challengeId, creatorId) unique, imposée serveur.
+  challengeParticipants: defineTable({
+    projectId: v.id("projects"),
+    challengeId: v.id("challenges"),
+    creatorId: v.id("creators"),
+    addedAt: v.number(),
+  })
+    .index("by_challenge", ["challengeId"])
+    .index("by_creator", ["creatorId"])
+    .index("by_challenge_creator", ["challengeId", "creatorId"]),
+
+  // ─── VICTOIRES actées — 1 row = 1 gagnante d'1 défi ───────────────────────
+  // Même nature que `bonusUnlocks` : la récompense est FIGÉE au moment où la
+  // victoire est actée (type/montant/libellé/coût réel), si bien qu'éditer le
+  // défi ensuite ne réécrit pas ce qui est dû.
+  //
+  // ⚠️ UNE VICTOIRE NE SE DÉ-ACQUIERT PAS TOUTE SEULE. Le score peut baisser
+  // (vidéo retirée du défi), la barre peut être dépassée par une autre : rien de
+  // tout cela ne reprend une victoire actée. Seul un geste ADMIN explicite
+  // (`cancelledAt` + motif) le peut, et il est VERROUILLÉ dès que la prime est
+  // versée — même règle que setPublicationWarmup, et pour la même raison :
+  // annuler après versement ferait diverger l'écran de ce qui a été payé.
+  challengeWins: defineTable({
+    projectId: v.id("projects"),
+    challengeId: v.id("challenges"),
+    creatorId: v.id("creators"),
+    /** Instant du RELEVÉ qui a constaté le franchissement (pas Date.now()). */
+    wonAt: v.number(),
+    /** Score AU MOMENT de la victoire — figé, c'est la preuve du départage. */
+    scoreAtWin: v.number(),
+    /** Rang d'attribution, 1-based, dans l'ordre où les places ont été prises. */
+    position: v.number(),
+    /** Récompense FIGÉE (copie du défi au moment de l'acte). */
+    reward: v.object({
+      type: v.union(v.literal("cash"), v.literal("nature")),
+      amount: v.optional(v.number()),
+      libelle: v.optional(v.string()),
+      coutReel: v.optional(v.number()),
+    }),
+    /** Annulation ADMIN : la place est libérée, la prime n'est plus due. */
+    cancelledAt: v.optional(v.number()),
+    /** Motif OBLIGATOIRE à l'annulation (imposé serveur, pas au schéma). */
+    cancelReason: v.optional(v.string()),
+    /** Période "YYYY-MM" où la prime cash est due (cf periodOf). */
+    attributionPeriod: v.string(),
+    /** Marqueur « célébration vue » — UI seule, aucun euro (cf bonusUnlocks). */
+    celebrationSeenAt: v.optional(v.number()),
+  })
+    .index("by_challenge", ["challengeId"])
+    .index("by_creator", ["creatorId"])
+    .index("by_project", ["projectId"])
+    .index("by_challenge_creator", ["challengeId", "creatorId"]),
 });

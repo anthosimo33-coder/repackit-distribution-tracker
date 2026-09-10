@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LOCALES, LOCALE_LABELS, DEFAULT_LOCALE, type Locale } from "@/i18n/locales";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,10 @@ export function InviteCreatorDialog({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [kind, setKind] = useState<CreatorKind>("partner");
+  // Le français est PRÉ-SÉLECTIONNÉ mais n'est pas envoyé : normalizeCreatorLocale
+  // le ramène à `undefined` côté serveur. On ne stocke que la divergence — « fr »
+  // explicite sur toutes les fiches masquerait qui a été invité en anglais.
+  const [locale, setLocale] = useState<Locale>(DEFAULT_LOCALE);
   const [submitting, setSubmitting] = useState(false);
   const [token, setToken] = useState<string | null>(null);
 
@@ -69,6 +74,7 @@ export function InviteCreatorDialog({
     setName("");
     setEmail("");
     setKind("partner");
+    setLocale(DEFAULT_LOCALE);
     setToken(null);
     setSubmitting(false);
   }
@@ -86,6 +92,7 @@ export function InviteCreatorDialog({
         name: name.trim(),
         email: email.trim(),
         kind,
+        locale,
       });
       setToken(result.token);
       toast.success(`${name.trim()} invité — ${KIND_LABELS[kind].singular}`);
@@ -148,6 +155,27 @@ export function InviteCreatorDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">{KIND_HINTS[kind]}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Langue *</Label>
+              <Select
+                value={locale}
+                onValueChange={(v) => v !== null && setLocale(v as Locale)}
+              >
+                <SelectTrigger aria-label="Langue" className="w-full">
+                  <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {LOCALES.map((l) => (
+                    <SelectItem key={l} value={l}>
+                      {LOCALE_LABELS[l]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                Langue de l&apos;e-mail d&apos;invitation et de son espace.
+              </p>
             </div>
             <DialogFooter>
               <Button

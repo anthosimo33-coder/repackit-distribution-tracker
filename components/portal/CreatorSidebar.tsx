@@ -7,6 +7,7 @@ import {
   FilmIcon,
   HelpCircleIcon,
   HomeIcon,
+  ListChecksIcon,
   LogOutIcon,
   UserIcon,
   WalletIcon,
@@ -15,10 +16,13 @@ import {
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { SidebarItem } from "@/components/layout/SidebarItem";
+import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button } from "@/components/ui/button";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
+import { useTranslations } from "next-intl";
+import { useLabel } from "@/lib/use-label";
 
 /**
  * Sidebar DESKTOP du portail créateur (≥ md), réplique du pattern admin :
@@ -32,33 +36,40 @@ import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
  * la navigation interne du portail est inchangée — seul l'agencement passe
  * d'horizontal à vertical.
  */
-const NAV_ITEMS: {
+type NavItem = {
   href: string;
-  label: string;
+  labelKey: string;
   icon: LucideIcon;
   exact: boolean;
-}[] = [
-  { href: "/app", label: "Tableau de bord", icon: HomeIcon, exact: true },
-  { href: "/app/comptes", label: "Mes comptes", icon: AtSignIcon, exact: false },
+};
+
+// `as const` : `labelKey` doit garder son type LITTÉRAL, sinon t() le refuse —
+// les clés de messages sont typées depuis messages/fr.json.
+const NAV_ITEMS = [
+  { href: "/app", labelKey: "sidebar.dashboard", icon: HomeIcon, exact: true },
+  // « Mes missions » : la liste sans plafond, juste sous le tableau de bord (qui,
+  // lui, n'en montre que les 5 premières par bloc).
+  { href: "/app/missions", labelKey: "sidebar.missions", icon: ListChecksIcon, exact: false },
+  { href: "/app/comptes", labelKey: "sidebar.comptes", icon: AtSignIcon, exact: false },
   {
     href: "/app/paiements",
-    label: "Mes paiements",
+    labelKey: "sidebar.paiements",
     icon: WalletIcon,
     exact: false,
   },
-  { href: "/app/profil", label: "Profil", icon: UserIcon, exact: false },
+  { href: "/app/profil", labelKey: "sidebar.profil", icon: UserIcon, exact: false },
   {
     href: "/app/guide",
-    label: "Comment ça marche",
+    labelKey: "sidebar.guide",
     icon: HelpCircleIcon,
     exact: false,
   },
-];
+] as const;
 
 /** Dépôt de contenu — Snytch uniquement (cf lib/snytch-drive), inséré après comptes. */
 const FICHIERS_ITEM = {
   href: "/app/fichiers",
-  label: "Mes fichiers",
+  labelKey: "sidebar.fichiers",
   icon: FilesIcon,
   exact: false,
 } as const;
@@ -66,20 +77,32 @@ const FICHIERS_ITEM = {
 /** Suivi des vidéos publiées — Snytch uniquement, inséré après « Mes fichiers ». */
 const VIDEOS_ITEM = {
   href: "/app/videos",
-  label: "Mes vidéos",
+  labelKey: "sidebar.videos",
   icon: FilmIcon,
   exact: false,
 } as const;
 
 export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
+  const tLabel = useLabel();
+  const t = useTranslations("portal");
   const pathname = usePathname();
   const { current } = useCreatorProject();
   // Outils figés du projet courant (vide → pas de section, cf creator-tools).
   const tools = getCreatorTools(current.slug);
   // « Mes fichiers » + « Mes vidéos » réservés à Snytch (les autres projets n'ont
   // ni Drive ni suivi vidéos exposé).
+  // Découpage par NOM d'item et non par index nu : l'insertion Snytch se faisait
+  // sur `slice(0, 2)` / `slice(2)`, si bien qu'ajouter une entrée en amont
+  // envoyait « Mes fichiers » avant « Mes comptes » sans que rien ne le signale.
+  const afterComptes =
+    NAV_ITEMS.findIndex((it) => it.href === "/app/comptes") + 1;
   const navItems = isSnytchProject(current.slug)
-    ? [...NAV_ITEMS.slice(0, 2), FICHIERS_ITEM, VIDEOS_ITEM, ...NAV_ITEMS.slice(2)]
+    ? [
+        ...NAV_ITEMS.slice(0, afterComptes),
+        FICHIERS_ITEM,
+        VIDEOS_ITEM,
+        ...NAV_ITEMS.slice(afterComptes),
+      ]
     : NAV_ITEMS;
 
   return (
@@ -91,7 +114,7 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
 
       {/* Nav : items existants (verticaux) + catégorie Outils */}
       <nav
-        aria-label="Navigation créateur"
+        aria-label={t("sidebar.aria")}
         className="flex-1 space-y-6 overflow-y-auto px-3 py-4"
       >
         <div className="space-y-1">
@@ -99,7 +122,7 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
             <SidebarItem
               key={it.href}
               icon={it.icon}
-              label={it.label}
+              label={t(it.labelKey)}
               href={it.href}
               isActive={
                 it.exact
@@ -116,14 +139,14 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
         {tools.length > 0 && (
           <div>
             <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Outils
+              {t("tools.title")}
             </div>
             <div className="space-y-1">
               {tools.map((tool) => (
                 <SidebarItem
                   key={tool.url}
                   icon={resolveSidebarLinkIcon(tool.icon)}
-                  label={tool.label}
+                  label={tLabel(tool.labelKey)}
                   href={tool.url}
                   isActive={false}
                   isCollapsed={false}
@@ -135,17 +158,18 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
         )}
       </nav>
 
-      {/* Footer : déconnexion */}
-      <div className="border-t border-slate-200 p-2">
+      {/* Footer : retour à l'app interne (si elle en a une) + déconnexion */}
+      <div className="space-y-1.5 border-t border-slate-200 p-2">
+        <VersEspaceEquipe variant="carte" />
         <Button
           variant="ghost"
           size="sm"
           onClick={onSignOut}
-          aria-label="Se déconnecter"
+          aria-label={t("sidebar.logout")}
           className="w-full justify-start gap-2 text-slate-600 hover:text-slate-900"
         >
           <LogOutIcon className="size-4" />
-          <span>Se déconnecter</span>
+          <span>{t("sidebar.logout")}</span>
         </Button>
       </div>
     </aside>

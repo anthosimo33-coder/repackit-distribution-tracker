@@ -1,4 +1,8 @@
-import { e2eMutation, adminMutation, adminQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { v, ConvexError } from "convex/values";
 
 const MAX_NAME_LENGTH = 80;
@@ -8,7 +12,7 @@ const MAX_NAME_LENGTH = 80;
  * P2 — tout est scopé par ctx.projectId (by_project). shortsCount ne compte
  * que les publications du même projet.
  */
-export const listIcps = adminQuery({
+export const listIcps = permissionQuery("library.manage")({
   args: {},
   handler: async (ctx) => {
     const icps = await ctx.db
@@ -29,7 +33,7 @@ export const listIcps = adminQuery({
   },
 });
 
-export const createIcp = adminMutation({
+export const createIcp = permissionMutation("library.manage")({
   args: {
     nom: v.string(),
     description: v.optional(v.string()),
@@ -70,7 +74,7 @@ export const createIcp = adminMutation({
  * Patch partiel (nom / description / color). Dedupe case-insensitive sur le
  * nom DANS le projet, en excluant soi-même. updatedAt bumpé toujours.
  */
-export const updateIcp = adminMutation({
+export const updateIcp = permissionMutation("library.manage")({
   args: {
     id: v.id("icps"),
     nom: v.optional(v.string()),
@@ -120,7 +124,7 @@ export const updateIcp = adminMutation({
  * Suppression avec cascade unset : les Shorts du projet assignés à cet ICP
  * sont désassignés (icpId → undefined), puis l'ICP est supprimé.
  */
-export const deleteIcp = adminMutation({
+export const deleteIcp = permissionMutation("library.manage")({
   args: { id: v.id("icps") },
   handler: async (ctx, args) => {
     const icp = await ctx.db.get(args.id);

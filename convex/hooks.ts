@@ -1,9 +1,12 @@
-import { e2eMutation, adminQuery } from "./functions";
+import {
+  e2eMutation,
+  permissionQuery,
+} from "./functions";
 import { v } from "convex/values";
 import { coerceSnapshotAge } from "./snapshotMatching";
 import { resolveDisplayMetrics } from "./metricsDisplay";
 
-export const countHooks = adminQuery({
+export const countHooks = permissionQuery("library.manage")({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db
@@ -72,7 +75,7 @@ export const clearHooks = e2eMutation({
   },
 });
 
-export const listHooks = adminQuery({
+export const listHooks = permissionQuery("library.manage")({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     mecanique: v.optional(
@@ -146,7 +149,7 @@ export const listHooks = adminQuery({
 // dans listHooksWithUsage qui scope désormais aux 2 formats carousel|short).
 // getHookVariants utilise le validator inline (cf args plus bas).
 
-export const listHooksWithUsage = adminQuery({
+export const listHooksWithUsage = permissionQuery("library.manage")({
   args: {
     langue: v.optional(v.union(v.literal("FR"), v.literal("EN"))),
     // Multi-select v2 : mecanique et niveau passent en array. undefined ou
@@ -321,7 +324,7 @@ export const listHooksWithUsage = adminQuery({
  * Helpers calculateSaveRate/calculateVerdict ré-implémentés inline (pas
  * d'import cross-tsconfig depuis lib/verdict.ts). Logique identique.
  */
-export const getHookVariants = adminQuery({
+export const getHookVariants = permissionQuery("library.manage")({
   args: {
     hookId: v.id("hooks"),
     // Batch 3 Modif 6 — filtre optional par mediaType. Si défini, ne garde

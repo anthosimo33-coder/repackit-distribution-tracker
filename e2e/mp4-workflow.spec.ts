@@ -6,6 +6,7 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import type { ConvexHttpClient } from "convex/browser";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -48,7 +49,7 @@ test.describe("Workflow MP4 — validation avant publication", () => {
     });
     const projectId = creator.projectId;
 
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format MP4 ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },

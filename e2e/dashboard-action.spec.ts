@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -18,8 +19,8 @@ const DAY = 86_400_000;
  * 1 assignment soumis + 1 todo deadline 5 j), vérifie que :
  *  - le titre « Bonjour » s'affiche (vue action = arrivée par défaut) ;
  *  - les 4 cartes-action sont présentes ;
- *  - la worklist « À traiter maintenant » surface au moins une soumission
- *    (bouton Valider) ;
+ *  - les deux sections DÉCISIONNELLES (« À décider », « Posts des dernières
+ *    48 h ») rendent, et les ANCIENNES sections d'exécution ont bien disparu ;
  *  - les cartes sont cliquables et mènent aux bonnes pages ;
  *  - le toggle bascule vers la vue « tracker » historique.
  * Assertions volontairement robustes (présence + navigation, pas de comptage
@@ -36,7 +37,7 @@ test.describe("Dashboard — vue action", () => {
       email: `e2e-dash-${ts}@repackit.test`,
       password: "creator-dash-12345",
     });
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format Dash ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10 },
@@ -61,7 +62,7 @@ test.describe("Dashboard — vue action", () => {
     );
     expect(mine.length).toBe(2);
     // Le 1er passe en video_submitted (carte À valider + worklist). Le 2e reste
-    // "todo" avec une deadline à 5 j (carte Deadlines).
+    // « todo » : il ne doit plus apparaître nulle part sur cet écran.
     await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
       secret: E2E_SECRET,
       id: mine[0]._id,
@@ -72,28 +73,41 @@ test.describe("Dashboard — vue action", () => {
     await page.goto(adminPath("/dashboard"));
     await expect(page.getByRole("heading", { name: "Bonjour" })).toBeVisible();
 
-    // Les 4 cartes-action.
+    // Les cartes-action : une par geste qui ATTEND quelqu'un.
     await expect(page.getByText("À valider", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Warmups en retard", { exact: true }),
     ).toBeVisible();
     await expect(page.getByText("Dû", { exact: true })).toBeVisible();
-    await expect(page.getByText("Deadlines 7 j", { exact: true })).toBeVisible();
+    // ABSENCE, appariée aux trois présences ci-dessus (même écran, même
+    // instant — le rendu est donc prouvé monté) : « Deadlines 7 j » comptait des
+    // échéances À VENIR, qui ne demandent rien aujourd'hui. Le planning se lit
+    // dans Assignments. L'assignation « todo » semée plus haut y aurait compté.
+    await expect(
+      page.getByText("Deadlines 7 j", { exact: true }),
+    ).toHaveCount(0);
 
-    // Worklist : la soumission seedée surface (au moins un bouton Valider).
+    // Refonte décisionnelle : les DEUX nouvelles sections rendent. Pas
+    // d'assertion sur leur CONTENU (DB partagée : d'autres specs sèment des
+    // posts <48 h, l'état vide n'est pas déterministe ici — le contenu est
+    // couvert par dashboard-decisions.spec.ts côté serveur).
+    await expect(
+      page.getByRole("heading", { name: "À décider" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Posts des dernières 48 h" }),
+    ).toBeVisible();
+    // Assertion d'ABSENCE appariée aux présences ci-dessus (même écran, même
+    // instant — le rendu est prouvé monté) : les sections d'EXÉCUTION ont
+    // disparu, les tâches vivent dans leurs pages via les cartes.
     await expect(
       page.getByRole("heading", { name: "À traiter maintenant" }),
-    ).toBeVisible();
+    ).not.toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Valider", exact: true }).first(),
-    ).toBeVisible();
-
-    // Carte « Deadlines 7 j » cliquable → /assignments.
-    await page.getByRole("link", { name: /Deadlines 7 j/ }).click();
-    await expect(page).toHaveURL(/\/assignments/);
+      page.getByRole("heading", { name: "Activité créateurs" }),
+    ).not.toBeVisible();
 
     // Carte « À valider » cliquable → /validation.
-    await page.goto(adminPath("/dashboard"));
     await page.getByRole("link", { name: /À valider/ }).click();
     await expect(page).toHaveURL(/\/validation/);
 

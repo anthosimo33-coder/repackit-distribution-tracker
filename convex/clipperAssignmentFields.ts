@@ -64,6 +64,13 @@ export const CLIPPER_ASSIGNMENT_FIELDS = [
 /** Champs DÉLIBÉRÉMENT retirés de la sortie clippeur (admin-only / interne /
  *  sans objet dans le flux clip / remplacé par une forme enrichie). */
 export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
+  // DÉFIS — réservés aux créatrices PARTENAIRES. Un clippeur monte les rushes
+  // d'un talent et n'a jamais de vidéo à lui dans un défi ; ces champs ne seront
+  // jamais posés sur une de ses assignations. Classés ici pour que le test
+  // d'exhaustivité les voie classés.
+  "challengeId",
+  "challengeRemovedAt",
+
   // ─── QUALIFICATION STRATÉGIQUE — TAXONOMIE INTERNE, JAMAIS EXPOSÉE ────────
   // Savoir qu'une vidéo est du « warmup » ou qu'elle n'est pas rémunérée est une
   // décision de pilotage. L'exposer dirait à la créatrice quelles vidéos comptent
@@ -73,6 +80,11 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   "contentType",
   "remunerated",
   // Décomposition script / rejeu / traçabilité admin — jamais côté portail.
+  // SCRIPT LIBRE d'un défi — sorti du champ brut, comme `scriptCombo`. Il est
+  // servi à part sous `assembledScript` (cf enrichForClipper) : passer le champ
+  // ici en plus le rendrait DEUX FOIS, et le jour où l'un des deux chemins se
+  // met à filtrer, l'autre ne filtrerait pas.
+  "freeScript",
   "scriptCombo",
   "comboKey",
   "comboImposed",

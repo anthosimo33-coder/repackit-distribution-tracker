@@ -5,7 +5,10 @@ import {
   internalQuery,
   type ActionCtx,
 } from "./_generated/server";
-import { adminMutation, adminQuery } from "./functions";
+import {
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { customAction } from "convex-helpers/server/customFunctions";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
@@ -40,17 +43,23 @@ import {
   isOverdueMission,
   missionDaysLate,
   warmupMissedDays,
+  isNeverMeasured,
 } from "./opsDigest";
 import { effectiveStatus } from "./comptes";
-import { resolveCreatorKind } from "./roles";
+import { hasRole, resolveCreatorKind } from "./roles";
 import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
+import { creatorZoneOnly } from "./creatorTimezone";
 import { eveningUnpublishedReports } from "./publicationLateness";
 import { talentPayRecap } from "./talentPay";
 import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
 } from "./clipperReadiness";
-import { effectiveTargetDays } from "./warmup";
+import {
+  effectiveTargetDays,
+  warmupTargetDaysOf,
+  isWarmupComplete,
+} from "./warmup";
 import { cyclePaymentsForCreator } from "./payments";
 import {
   DIGEST_LOOKBACK_MS,
@@ -198,7 +207,7 @@ export async function resolveNotifyContext(
  * permet à l'écran d'afficher « canal non configuré » de façon actionnable sans
  * jamais exposer le secret à un navigateur.
  */
-export const getNotifySettings = adminQuery({
+export const getNotifySettings = permissionQuery("notifications.manage")({
   args: {},
   handler: async (ctx) => {
     const p = await ctx.db.get(ctx.projectId);
@@ -227,7 +236,7 @@ export const getNotifySettings = adminQuery({
  * obsolète, appel forgé) est écartée plutôt que persistée, sinon elle resterait
  * en base à ne rien activer et brouillerait la lecture.
  */
-export const setNotifySettings = adminMutation({
+export const setNotifySettings = permissionMutation("notifications.manage")({
   args: {
     chatId: v.string(),
     enabledEvents: v.array(v.string()),
@@ -795,9 +804,14 @@ export const getLatePublicationContext = internalQuery({
       postDate: a.postDate ?? null,
       accountHandles: handles,
       isClip: resolveCreatorKind(creator?.kind) === "clipper",
+      // Retard compté DANS SON FUSEAU : sans ça, une créatrice à New York qui
+      // publie le 8 au soir reçoit « 1 jour de retard » parce qu'il est déjà le
+      // 9 à Paris. Le fuseau est résolu depuis sa fiche (ou déduit du pays de
+      // ses comptes) ; inconnu ⇒ Paris, comme avant.
       lateDays: lateDays({
         postDate: a.postDate ?? null,
         postedAt: representativePostedAt(a),
+        timeZone: await creatorZoneOnly(ctx, a.creatorId),
       }),
     };
   },
@@ -1029,14 +1043,19 @@ export const collectDigest = internalQuery({
     }
 
     const warmupLate: { handle: string; missedDays: number }[] = [];
+    // Chauffe TERMINÉE, en attente de validation admin. Sous le gate strict
+    // (#98) ces comptes ne publient pas tant que l'admin ne les repasse pas en
+    // actif : chaque jour de délai annule un jour de chauffe gagné.
+    const warmupReady: { handle: string; creatorName: string }[] = [];
     const chauffeSansTalent: {
       handle: string;
       clipperName: string;
       joursRestants: number;
     }[] = [];
     const veutWarmup = isEventEnabled(enabled, "digest_warmup_late");
+    const veutReady = isEventEnabled(enabled, "digest_warmup_ready");
     const veutChauffe = isEventEnabled(enabled, "digest_clipper_sans_talent");
-    if (veutWarmup || veutChauffe) {
+    if (veutWarmup || veutChauffe || veutReady) {
       const [comptes, creators] = await Promise.all([
         ctx.db
           .query("comptes")
@@ -1048,6 +1067,11 @@ export const collectDigest = internalQuery({
           .collect(),
       ]);
       const creatorMap = new Map(creators.map((c) => [c._id, c]));
+      // Barème de warmup DU PROJET — le digest annonce des retards, il doit
+      // les compter contre la bonne cible.
+      const warmupDays = warmupTargetDaysOf(
+        (await ctx.db.get(projectId)) ?? {},
+      );
       // Talents appariés PAR clippeur — le dénominateur du signal de chauffe.
       const talentsParClippeur = new Map<string, number>();
       for (const c of creators) {
@@ -1083,19 +1107,77 @@ export const collectDigest = internalQuery({
           continue;
         }
 
-        if (!veutWarmup) continue;
+        // Pas de `continue` sur veutWarmup ici : la section « terminés » lit la
+        // même boucle et peut être activée seule. Le filtre par section se fait
+        // juste avant chaque `push`.
         const shape = {
           effectiveStatus: effectiveStatus(c),
           warmupStartedAt: c.warmupStartedAt,
           dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
-          targetDays: effectiveTargetDays(c),
+          targetDays: effectiveTargetDays(c, warmupDays),
         };
+        if (
+          veutReady &&
+          isWarmupComplete(
+            { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol },
+            warmupDays,
+          )
+        ) {
+          warmupReady.push({
+            handle: c.handle,
+            creatorName:
+              (c.creatorId ? creatorMap.get(c.creatorId)?.name : null) ??
+              "sans créateur",
+          });
+        }
+        if (!veutWarmup) continue;
         const missed = warmupMissedDays(shape, now);
         if (missed > 0) warmupLate.push({ handle: c.handle, missedDays: missed });
       }
       warmupLate.sort((a, b) => b.missedDays - a.missedDays);
       // Le plus urgent d'abord : celui qui sort de chauffe le plus tôt.
       chauffeSansTalent.sort((a, b) => a.joursRestants - b.joursRestants);
+    }
+
+    // ── Publications publiées que le relevé n'a JAMAIS vues ────────────────
+    // Le relevé ne balaie que les comptes actifs des 30 derniers jours : une
+    // publication qui sort de cette fenêtre sans avoir jamais été mesurée
+    // devient DÉFINITIVEMENT immesurable — ses vues n'existeront jamais, elle
+    // ne paie rien et n'entre dans aucune moyenne. Le digest est le seul canal
+    // qui puisse la rattraper tant qu'elle est encore dans la fenêtre.
+    //
+    // Un seul balayage indexé des relevés du projet (≈ 7 200 lignes sur
+    // Snytch), pas de lecture par publication.
+    const jamaisMesurees: { compte: string; joursDepuisPubli: number }[] = [];
+    {
+      const releves = await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      const mesurees = new Set<string>(releves.map((r) => r.publicationId));
+      const pubs = await ctx.db
+        .query("publications")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      for (const pub of pubs) {
+        if (
+          isNeverMeasured(
+            {
+              postUrl: pub.postUrl,
+              datePubli: pub.datePubli,
+              snapshots: mesurees.has(pub._id) ? 1 : 0,
+            },
+            now,
+          )
+        ) {
+          jamaisMesurees.push({
+            compte: pub.compte,
+            joursDepuisPubli: Math.floor((now - pub.datePubli) / 86_400_000),
+          });
+        }
+      }
+      // La plus ancienne d'abord : c'est celle dont la fenêtre se referme.
+      jamaisMesurees.sort((a, b) => b.joursDepuisPubli - a.joursDepuisPubli);
     }
 
     // ── Renouvellements échoués que Whop VA relancer ───────────────────────
@@ -1126,11 +1208,13 @@ export const collectDigest = internalQuery({
         payCycles,
         talentSoldeDu: talentSoldeDu.slice(0, DIGEST_SECTION_LIMIT),
         warmupLate: warmupLate.slice(0, DIGEST_SECTION_LIMIT),
+        warmupReady: warmupReady.slice(0, DIGEST_SECTION_LIMIT),
         chauffeSansTalent: chauffeSansTalent.slice(0, DIGEST_SECTION_LIMIT),
         retryableRenewalFailures: retryableRenewalFailures.slice(
           0,
           DIGEST_SECTION_LIMIT,
         ),
+        jamaisMesurees: jamaisMesurees.slice(0, DIGEST_SECTION_LIMIT),
       },
     };
   },
@@ -1342,7 +1426,9 @@ export const requireAdminForNotifyAction = internalQuery({
         q.eq("userId", userId).eq("projectId", projectId),
       )
       .first();
-    return membership?.role === "admin";
+    // ⚠️ MÊME SITE INVISIBLE que dans convex/radar.ts : wrapper d'action local,
+    // hors de la cascade de convex/functions.ts, qui lisait le scalaire.
+    return hasRole(membership, "admin");
   },
 });
 

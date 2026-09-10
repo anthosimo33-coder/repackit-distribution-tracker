@@ -28,20 +28,18 @@ test.describe("S1 — campagnes & bricks combinatoires", () => {
       name: `[E2E_TEST] Camp ${ts}`,
     });
 
-    // 2 hooks (tiers S/A) + 2 flux + 2 cta (refonte 3 briques).
+    // 2 hooks + 2 flux + 2 cta (refonte 3 briques).
     await admin.mutation(api.scripts.createBrick, {
       campaignId,
       kind: "hook",
       label: "H1",
       content: "Hook un",
-      tier: "S",
     });
     await admin.mutation(api.scripts.createBrick, {
       campaignId,
       kind: "hook",
       label: "H2",
       content: "Hook deux",
-      tier: "A",
     });
     for (const [label, content] of [
       ["F1", "Flux un"],
@@ -70,14 +68,6 @@ test.describe("S1 — campagnes & bricks combinatoires", () => {
     let camp = (await admin.query(api.scripts.getCampaign, { id: campaignId }))!;
     expect(camp).toBeTruthy();
     expect(countCombinations(camp.bricks).total).toBe(8);
-    // Tiers présents sur les hooks uniquement.
-    const hooks = camp.bricks.filter((b) => b.kind === "hook");
-    expect(hooks.map((h) => h.tier).sort()).toEqual(["A", "S"]);
-    expect(
-      camp.bricks
-        .filter((b) => b.kind !== "hook")
-        .every((b) => b.tier === undefined),
-    ).toBe(true);
 
     // Aperçu ADMIN (labels ON, défaut) : titres de section + ordre hook→flux→cta.
     const pick = (k: "hook" | "flux" | "cta") =>
@@ -141,7 +131,7 @@ test.describe("S1 — campagnes & bricks combinatoires", () => {
       (b) => b.kind === "hook" && b.content === libHooks[0].text,
     );
     expect(imported).toBeTruthy(); // copie indépendante
-    expect(imported!.tier ?? null).toBeNull(); // taggable plus tard
+    expect(imported!.instruction ?? null).toBeNull(); // consigne à écrire ensuite
     // 3 hooks × 2 flux × 2 cta = 12.
     expect(camp.bricks.filter((b) => b.kind === "hook").length).toBe(3);
     expect(countCombinations(camp.bricks).total).toBe(12);
@@ -162,7 +152,6 @@ test.describe("S1 — campagnes & bricks combinatoires", () => {
           kind,
           label: `${kind}-${i}`,
           content: `${kind} contenu ${i}`,
-          ...(kind === "hook" ? { tier: i === 1 ? "S" : "A" } : {}),
         });
       }
     }

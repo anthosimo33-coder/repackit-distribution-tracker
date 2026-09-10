@@ -34,10 +34,12 @@ import {
   computeGlobalStats,
   DEFAULT_WARMUP_FILTER,
   type CategoryItem,
+  type DailyPoint,
   type WarmupFilter,
   shapeCampaignRows,
   CAMPAIGN_NONE_LABEL,
 } from "@/lib/tracker-data";
+import { QuadrantChart } from "./QuadrantChart";
 import {
   PostsList,
   sortTrackerPosts,
@@ -51,6 +53,7 @@ import {
 } from "@/components/PublicationDetailDialog";
 import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { formatNumber, formatPercent } from "@/lib/format";
+import { MAX_QUADRANT_PERIOD_DAYS } from "@/convex/quadrantSettings";
 import { cn } from "@/lib/utils";
 import { BarChart3Icon, ListIcon } from "lucide-react";
 
@@ -149,6 +152,24 @@ export function TrackerDataView() {
   const daily = useProjectQuery(
     api.trackerData.trackerViewsDaily,
     mode === "charts" ? queryArgs : "skip",
+  );
+
+  // DATES des posts que le filtre warmup retire de la lecture. La carte quadrant
+  // ne peut pas les déduire de ses lignes : elles lui arrivent déjà filtrées.
+  // Des dates et pas un compte — c'est la carte qui leur applique SA période,
+  // sinon on additionne deux fenêtres différentes. Même portée que la courbe
+  // (mode Charts), et pas de lecture du tout quand rien n'est caché (« Tous »).
+  //
+  // La borne est FIGÉE au montage : recalculée à chaque rendu, elle changerait
+  // les arguments de la query en permanence et en annulerait le cache.
+  const [quadrantSince] = useState(
+    () => Date.now() - MAX_QUADRANT_PERIOD_DAYS * 86_400_000,
+  );
+  const warmupHiddenDates = useProjectQuery(
+    api.trackerData.trackerWarmupHiddenDates,
+    mode === "charts" && warmup !== "all"
+      ? { ...queryArgs, since: quadrantSince }
+      : "skip",
   );
 
   // Docs complets (enrichis) pour ouvrir PublicationDetailDialog au clic sur une
@@ -447,6 +468,12 @@ export function TrackerDataView() {
       ) : (
         <ChartsPanel
           daily={daily}
+          posts={posts}
+          warmup={warmup}
+          hiddenWarmupDates={
+            warmup === "all" ? [] : (warmupHiddenDates ?? null)
+          }
+          onSelectPost={openDetail}
           byPlatform={byPlatform}
           byCreator={byCreator}
           byFormat={byFormat}
@@ -569,12 +596,20 @@ type CategoryAggregate = ReturnType<typeof aggregateByCategory>[number];
 
 function ChartsPanel({
   daily,
+  posts,
+  warmup,
+  hiddenWarmupDates,
+  onSelectPost,
   byPlatform,
   byCreator,
   byFormat,
   byCampaign,
 }: {
-  daily: { date: string; value: number }[] | undefined;
+  daily: DailyPoint[] | undefined;
+  posts: TrackerPost[];
+  warmup: WarmupFilter;
+  hiddenWarmupDates: readonly number[] | null;
+  onSelectPost: (id: Id<"publications">) => void;
   byPlatform: CategoryAggregate[];
   byCreator: CategoryAggregate[];
   byFormat: CategoryAggregate[];
@@ -590,8 +625,9 @@ function ChartsPanel({
               Vues gagnées par jour
             </h3>
             <p className="text-xs text-slate-500">
-              Delta des vues entre snapshots consécutifs, agrégé sur les posts
-              filtrés (rythme réel, non cumulé).
+              Delta des vues entre snapshots consécutifs, réparti au prorata du
+              temps couvert et agrégé par jour (Europe/Paris) sur les posts
+              filtrés — rythme réel, non cumulé.
             </p>
           </div>
           {daily === undefined ? (
@@ -633,7 +669,16 @@ function ChartsPanel({
                     fontSize: 12,
                   }}
                   formatter={(v) => [formatNumber(Number(v)), "Vues gagnées"]}
-                  labelFormatter={(l) => fullDay(String(l))}
+                  labelFormatter={(l, payload) => (
+                    <>
+                      {fullDay(String(l))}
+                      {isEstimatedDay(payload) ? (
+                        <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
+                          estimé au prorata entre syncs
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 />
                 <Line
                   type="monotone"
@@ -649,6 +694,17 @@ function ChartsPanel({
           )}
         </CardContent>
       </Card>
+
+      {/* Quadrant « Vues × Intent » — la seule carte DÉCISIONNELLE de la vue :
+          les autres décrivent le volume, celle-ci répond « on reconduit ou
+          pas ». Elle consomme la MÊME liste de posts que les graphes ci-dessus
+          (aucune query en plus), donc les mêmes filtres de page ; ses scores,
+          eux, sont écrits par le relevé nocturne et ne dépendent d'aucun filtre. */}
+      <QuadrantChart
+        posts={posts}
+        hiddenWarmupDates={hiddenWarmupDates}
+        onSelectPost={onSelectPost}
+      />
 
       {/* Graphiques 2-5 — comparaisons par catégorie. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -863,4 +919,18 @@ function shortDay(iso: string): string {
 function fullDay(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y}`;
+}
+
+/**
+ * Le point survolé a-t-il été reconstruit à partir d'un intervalle de sync trop
+ * large (> 30 h, cf ESTIMATED_SPAN_MS) ? Le serveur pose le drapeau par jour ;
+ * on ne fait que le lire dans le payload recharts pour afficher la réserve en
+ * tooltip — un point estimé ne doit pas se lire comme une mesure.
+ */
+function isEstimatedDay(payload: unknown): boolean {
+  if (!Array.isArray(payload)) return false;
+  return payload.some(
+    (entry: { payload?: Partial<DailyPoint> }) =>
+      entry?.payload?.estimated === true,
+  );
 }

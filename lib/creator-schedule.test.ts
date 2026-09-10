@@ -4,8 +4,10 @@
 // raison (cf. les trois horloges du repo).
 process.env.TZ = "Europe/Paris";
 
+import { plannedDayStart } from "../convex/calendarStatus";
 import { describe, expect, it } from "vitest";
 import {
+  groupBySchedule,
   isToCatchUp,
   scheduleBucket,
   sortBySchedule,
@@ -99,5 +101,86 @@ describe("anciens assignments — aucun champ neuf", () => {
     expect(isToCatchUp(item, J(10))).toBe(true);
     expect(scheduleBucket(item, J(10))).toBe("catchup");
     expect(Number.isNaN(sortBySchedule([item], J(10))[0].postDate)).toBe(false);
+  });
+});
+
+describe("groupBySchedule — la semaine d'un coup d'œil", () => {
+  // Forme de PROD : 16 missions actionnables d'une même créatrice (cas Jade,
+  // relevé le 28/08/2026), donc des retards nombreux, un post du jour, un à
+  // venir — pas un jeu idéalisé à une mission par famille.
+  const J_PLUS = (n: number) => new Date(2026, 7, 15 + n, 0, 0).getTime();
+
+  it("répartit retards / jours / plus tard / sans date", () => {
+    const items = [
+      { id: "retard-vieux", postDate: AVANT_HIER },
+      { id: "retard-hier", postDate: HIER },
+      { id: "auj", postDate: AUJ },
+      { id: "auj-2", postDate: AUJ },
+      { id: "demain", postDate: DEMAIN },
+      { id: "j6", postDate: J_PLUS(6) },
+      { id: "j7-hors-horizon", postDate: J_PLUS(7) },
+      { id: "sans-date", postDate: null, dueDate: J(12) },
+    ];
+    const g = groupBySchedule(items, J(10));
+
+    expect(g.catchup.map((x) => x.id)).toEqual(["retard-vieux", "retard-hier"]);
+    // Deux missions le même jour = UN seau à deux éléments, pas deux seaux.
+    expect(g.days.map((d) => d.items.map((x) => x.id))).toEqual([
+      ["auj", "auj-2"],
+      ["demain"],
+      ["j6"],
+    ]);
+    // Horizon de 7 jours : J+7 tombe DEHORS (borne exclue), J+6 dedans.
+    expect(g.later.map((x) => x.id)).toEqual(["j7-hors-horizon"]);
+    expect(g.undated.map((x) => x.id)).toEqual(["sans-date"]);
+  });
+
+  it("les jours SANS mission ne sont pas matérialisés", () => {
+    const g = groupBySchedule([{ id: "a", postDate: J_PLUS(5) }], J(10));
+    expect(g.days).toHaveLength(1);
+    // `dayStart` est désormais minuit UTC de l'ÉTIQUETTE du jour prévu, pas
+    // minuit local : c'est ce qui rend le seau identique pour une créatrice à
+    // Paris et pour une créatrice à New York.
+    expect(g.days[0].dayStart).toBe(plannedDayStart(J_PLUS(5)));
+  });
+
+  it("le seau d'un jour prévu est son ÉTIQUETTE, pas sa lecture locale", () => {
+    // Minuit PARIS du 20 août 2026 — la forme réellement stockée dans postDate.
+    const minuitParis = Date.UTC(2026, 7, 19, 22); // été : Paris = UTC+2
+    const g = groupBySchedule([{ id: "a", postDate: minuitParis }], J(10));
+    // Le seau porte le 20, quel que soit le fuseau du lecteur. Lu en heure
+    // locale à New York, cet instant tombe le 19 à 18 h — et la mission
+    // s'afficherait sous la veille.
+    expect(g.days[0].dayStart).toBe(Date.UTC(2026, 7, 20));
+  });
+
+  it("le retard le plus ANCIEN est en tête", () => {
+    const g = groupBySchedule(
+      [{ id: "hier", postDate: HIER }, { id: "avant", postDate: AVANT_HIER }],
+      J(10),
+    );
+    expect(g.catchup.map((x) => x.id)).toEqual(["avant", "hier"]);
+  });
+
+  it("une mission d'un jour PASSÉ mais publiée ne réapparaît nulle part", () => {
+    // Elle n'est ni « à rattraper » (publiée) ni dans un jour à venir : elle
+    // sort de la liste. Contrôle de PRÉSENCE apparié : la même mission non
+    // publiée, elle, est bien rendue.
+    const publiee = { id: "p", postDate: HIER, publishedAt: J(9) };
+    const g = groupBySchedule([publiee], J(10));
+    expect([...g.catchup, ...g.later, ...g.undated, ...g.days.flatMap((d) => d.items)]).toEqual([]);
+
+    const nonPubliee = { id: "p", postDate: HIER };
+    expect(groupBySchedule([nonPubliee], J(10)).catchup).toHaveLength(1);
+  });
+
+  it("le créneau dépassé bascule la mission DU JOUR en rattrapage", () => {
+    // Même entrée, deux instants : à 22h elle est « aujourd'hui », à 23h30 elle
+    // est « à rattraper ». Deux tests opposés sur la même condition.
+    const item = { id: "soir", postDate: AUJ, postWindow: SOIR };
+    expect(groupBySchedule([item], J(22)).days[0].items).toHaveLength(1);
+    expect(groupBySchedule([item], J(22)).catchup).toHaveLength(0);
+    expect(groupBySchedule([item], J(23, 30)).catchup).toHaveLength(1);
+    expect(groupBySchedule([item], J(23, 30)).days).toHaveLength(0);
   });
 });

@@ -261,11 +261,18 @@ function pickOne(
     lifetime?: Set<string>;
     projectUsages?: ScheduledComboUsage[];
     targetAt: number | null;
+    /** Fenêtre du projet. Explicite : ces cas testent la MÉCANIQUE, pas la
+     *  valeur par défaut (celle-ci a son propre bloc plus bas). */
+    cooldownDays?: number;
   },
 ) {
   const excluded = new Set<string>([
     ...(opts.lifetime ?? []),
-    ...comboKeysInCooldown(opts.projectUsages ?? [], opts.targetAt),
+    ...comboKeysInCooldown(
+      opts.projectUsages ?? [],
+      opts.targetAt,
+      opts.cooldownDays ?? 4,
+    ),
   ]);
   return pickCombosForCreator(combos, excluded, 1)[0] ?? null;
 }
@@ -292,24 +299,24 @@ describe("cooldown projet — le même script ne repart pas ailleurs dans la fen
       { comboKey: comboKeyOf(kelly!), anchorAt: J0 },
     ];
     // J+3 : encore dans la fenêtre → le combo de Kelly est exclu.
-    expect(comboKeysInCooldown(usages, J0 + 3 * JOUR)).toContain(
+    expect(comboKeysInCooldown(usages, J0 + 3 * JOUR, 4)).toContain(
       comboKeyOf(kelly!),
     );
     // J+4 : la fenêtre est passée → il redevient piochable.
-    expect(comboKeysInCooldown(usages, J0 + 4 * JOUR).size).toBe(0);
+    expect(comboKeysInCooldown(usages, J0 + 4 * JOUR, 4).size).toBe(0);
     // Et symétrique : programmer 3 jours AVANT est bloqué aussi, sinon on
     // contournerait la règle en planifiant à rebours.
-    expect(comboKeysInCooldown(usages, J0 - 3 * JOUR)).toContain(
+    expect(comboKeysInCooldown(usages, J0 - 3 * JOUR, 4)).toContain(
       comboKeyOf(kelly!),
     );
-    expect(comboKeysInCooldown(usages, J0 - 4 * JOUR).size).toBe(0);
+    expect(comboKeysInCooldown(usages, J0 - 4 * JOUR, 4).size).toBe(0);
   });
 
   it("l'exclusion à vie par créatrice survit à l'expiration du cooldown", () => {
     const combos = catalogue();
     const dejaVu = comboKeyOf(combos[0]);
     // Le cooldown projet a expiré (J+10) : plus rien ne bloque de ce côté.
-    expect(comboKeysInCooldown([{ comboKey: dejaVu, anchorAt: J0 }], J0 + 10 * JOUR).size).toBe(0);
+    expect(comboKeysInCooldown([{ comboKey: dejaVu, anchorAt: J0 }], J0 + 10 * JOUR, 4).size).toBe(0);
     // Mais Kelly l'a DÉJÀ reçu : l'unicité à vie le lui interdit pour toujours.
     const repioche = pickOne(combos, {
       targetAt: J0 + 10 * JOUR,
@@ -323,9 +330,9 @@ describe("cooldown projet — le même script ne repart pas ailleurs dans la fen
   it("une ligne sans date d'ancrage n'occupe aucune fenêtre", () => {
     const combos = catalogue();
     const k = comboKeyOf(combos[0]);
-    expect(comboKeysInCooldown([{ comboKey: k, anchorAt: null }], J0).size).toBe(0);
+    expect(comboKeysInCooldown([{ comboKey: k, anchorAt: null }], J0, 4).size).toBe(0);
     // Et sans date VISÉE non plus : pas de fenêtre calculable.
-    expect(comboKeysInCooldown([{ comboKey: k, anchorAt: J0 }], null).size).toBe(0);
+    expect(comboKeysInCooldown([{ comboKey: k, anchorAt: J0 }], null, 4).size).toBe(0);
   });
 
   it("pool épuisé : rien n'est rendu, et la 1re libération est datée", () => {
@@ -342,9 +349,9 @@ describe("cooldown projet — le même script ne repart pas ailleurs dans la fen
     // Aucun combo disponible à J+1 → le picker ne rend RIEN (jamais un doublon).
     expect(pickOne(combos, { targetAt: J0 + JOUR, projectUsages: usages })).toBeNull();
     // Et on sait quoi répondre : le combo se libère à J0 + 4 jours.
-    expect(firstFreeSlotAfter(usages, J0 + JOUR)).toBe(J0 + 4 * JOUR);
+    expect(firstFreeSlotAfter(usages, J0 + JOUR, 4)).toBe(J0 + 4 * JOUR);
     // Rien ne bloque hors fenêtre → aucun créneau à attendre.
-    expect(firstFreeSlotAfter(usages, J0 + 10 * JOUR)).toBeNull();
+    expect(firstFreeSlotAfter(usages, J0 + 10 * JOUR, 4)).toBeNull();
   });
 });
 
@@ -404,7 +411,7 @@ describe("aperçu — exclusions manuelles", () => {
     const usages: ScheduledComboUsage[] = [{ comboKey: occupe, anchorAt: J0 }];
     // Exclusion combinée, exactement comme pickForDates côté serveur.
     const exclu = new Set<string>([
-      ...comboKeysInCooldown(usages, J0),
+      ...comboKeysInCooldown(usages, J0, 4),
       comboKeyOf(combos[1]), // rejet manuel
     ]);
     const pris = pickCombosForCreator(combos, exclu, 2).map(comboKeyOf);

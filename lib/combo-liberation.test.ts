@@ -9,8 +9,8 @@ import { comboKeysInCooldown, type ScheduledComboUsage } from "./scriptCombos";
 /**
  * LIBÉRATION d'un script jamais publié.
  *
- * Les deux protections — unicité à vie (créatrice) et cooldown 4 jours (projet)
- * — servent la même chose : ne pas re-servir un contenu DÉJÀ VU. Une assignation
+ * Les deux protections — unicité à vie (créatrice) et cooldown projet — servent
+ * la même chose : ne pas re-servir un contenu DÉJÀ VU. Une assignation
  * abandonnée ou refusée n'a jamais été publiée : rien à protéger.
  *
  * La règle de partage à ne pas casser : c'est l'ABANDON qui libère, jamais le
@@ -22,6 +22,13 @@ const JOUR = 86_400_000;
 
 /** Reproduit le filtrage serveur : les statuts libérants ne consomment rien. */
 const LIBERANTS = new Set(["video_rejected", "cancelled"]);
+/**
+ * Fenêtre EXPLICITE. Ces cas testent ce que LIBÈRE un statut, pas la durée du
+ * cooldown : on la fixe donc à une valeur large (4 j, l'ancienne valeur en dur)
+ * pour que les écarts choisis ci-dessous restent dans la fenêtre. Le défaut du
+ * produit, lui, est vérifié dans lib/combo-cooldown.test.ts.
+ */
+const FENETRE = 4;
 function usagesVivants<T extends { status: string }>(rows: T[]): T[] {
   return rows.filter((r) => !LIBERANTS.has(r.status));
 }
@@ -44,6 +51,7 @@ describe("un combo abandonné redevient tirable", () => {
     const bloques = comboKeysInCooldown(
       usagesVivants(rows) as ScheduledComboUsage[],
       J0,
+      FENETRE,
     );
     expect(bloques.size).toBe(0);
   });
@@ -80,8 +88,11 @@ describe("le simple RETARD ne libère rien", () => {
       // Cooldown : toujours bloqué à la date, même très en retard.
       const cool = [{ status, comboKey: COMBO, anchorAt: J0 }];
       expect(
-        comboKeysInCooldown(usagesVivants(cool) as ScheduledComboUsage[], J0 + 2 * JOUR)
-          .has(COMBO),
+        comboKeysInCooldown(
+          usagesVivants(cool) as ScheduledComboUsage[],
+          J0 + 2 * JOUR,
+          FENETRE,
+        ).has(COMBO),
       ).toBe(true);
     },
   );
@@ -91,17 +102,20 @@ describe("interaction avec l'ancre de cooldown (#55)", () => {
   it("un cancelled à postDate PASSÉE ne compte dans AUCUNE fenêtre", () => {
     // L'ancre est postDate ?? publishedAt : une assignation abandonnée garde sa
     // postDate en base. Sans le filtre de statut, elle continuerait de bloquer
-    // pendant 4 jours autour d'une date où rien n'est jamais sorti.
+    // pendant toute la fenêtre autour d'une date où rien n'est jamais sorti.
     const rows = [{ status: "cancelled", comboKey: COMBO, anchorAt: J0 }];
     const vivants = usagesVivants(rows) as ScheduledComboUsage[];
     for (const cible of [J0 - 3 * JOUR, J0, J0 + 1 * JOUR, J0 + 3 * JOUR]) {
-      expect(comboKeysInCooldown(vivants, cible).size).toBe(0);
+      expect(comboKeysInCooldown(vivants, cible, FENETRE).size).toBe(0);
     }
     // CONTRÔLE DE PRÉSENCE apparié : la même ligne NON abandonnée bloque bien.
     const encoreVivant = [{ status: "to_publish", comboKey: COMBO, anchorAt: J0 }];
     expect(
-      comboKeysInCooldown(usagesVivants(encoreVivant) as ScheduledComboUsage[], J0)
-        .has(COMBO),
+      comboKeysInCooldown(
+        usagesVivants(encoreVivant) as ScheduledComboUsage[],
+        J0,
+        FENETRE,
+      ).has(COMBO),
     ).toBe(true);
   });
 });

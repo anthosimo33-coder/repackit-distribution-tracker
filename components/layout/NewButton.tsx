@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
+import { useTranslations } from "next-intl";
 import {
   usePathname,
   useRouter,
@@ -41,6 +42,7 @@ function NewButtonInner({
   isCollapsed: boolean;
   onNavigate?: () => void;
 }) {
+  const t = useTranslations("nav");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -63,7 +65,7 @@ function NewButtonInner({
       className={cn("h-10 w-full", isCollapsed && "px-0")}
     >
       <PlusIcon className="size-4" />
-      {!isCollapsed && <span>Nouveau</span>}
+      {!isCollapsed && <span>{t("action.new")}</span>}
     </Button>
   );
 
@@ -82,13 +84,14 @@ function NewButtonInner({
 // Fallback rendu pendant que useSearchParams() suspend (premier paint
 // avant hydratation). Bouton no-op pour préserver le layout.
 function NewButtonShell({ isCollapsed }: { isCollapsed: boolean }) {
+  const t = useTranslations("nav");
   return (
     <Button
       disabled
       className={cn("h-10 w-full", isCollapsed && "px-0")}
     >
       <PlusIcon className="size-4" />
-      {!isCollapsed && <span>Nouveau</span>}
+      {!isCollapsed && <span>{t("action.new")}</span>}
     </Button>
   );
 }

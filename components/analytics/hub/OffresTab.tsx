@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -15,6 +16,12 @@ import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import { computeConversion, abArmCoherenceChecks } from "@/lib/analytics-hub";
 import {
+  armComparability,
+  attributedOffers,
+  excludedViewers,
+} from "@/lib/ab-offers";
+import { armPurchases, purchaseCoherenceIssues } from "@/lib/ab-purchases";
+import {
   EXPECTED_ARM_PRICING,
   EXPECTED_PAYWALL_IDS,
 } from "@/convex/analyticsContract";
@@ -24,11 +31,14 @@ import {
   disputeDeadlineLabel,
   dash,
   pct,
-  formatDuration,
+  HubNoticeStack,
+  paywallScopeItem,
+  posthogOutageItem,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
-import type { ProductAnalyticsData, RevenueData } from "./types";
+import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
+import type { AttributionData, ProductAnalyticsData, RevenueData } from "./types";
 
 /**
  * Onglet OFFRES & TESTS (B3) — les TYPES de paywall émis aujourd'hui (gate/upsell,
@@ -41,14 +51,40 @@ import type { ProductAnalyticsData, RevenueData } from "./types";
  * Libellés des bras du test. `soft`/`hard` sont les valeurs émises ; l'écran
  * dit ce que chaque bras SERT, sinon « hard » ne veut rien dire pour qui lit.
  */
+/**
+ * `soft`/`hard` sont les valeurs ÉMISES depuis le 08/08 : les renommer casserait
+ * l'appariement avec l'historique. Mais les mots ne décrivent plus rien — le
+ * 06/09 le bras « souple » a perdu son palier gratuit et est devenu bloquant lui
+ * aussi. L'écran ne nomme donc plus le TRAITEMENT (qui change), il nomme ce qui
+ * ne change pas : le nombre de cibles. Ce que le bras vend est lu dans la donnée,
+ * juste en dessous.
+ */
 const AB_ARM_LABELS: Record<string, string> = {
-  soft: "A — souple (1 cible, plan gratuit)",
-  hard: "B — bloquant (3 cibles, sans gratuit)",
+  soft: "A — 1 cible",
+  hard: "B — 3 cibles",
 };
 
 /** Ratio en % tolérant au 0. */
 function ratePct(num: number, den: number): number | null {
   return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
+}
+
+/**
+ * Fenêtre d'une offre, EN HEURE DE PARIS. Le runtime Convex est en UTC et le
+ * navigateur au fuseau du lecteur : sans l'épinglage, la bascule du 06/09 à
+ * 15h39 se lirait 13h39 chez la moitié des gens (cf convex/dateFr.ts).
+ */
+function offerWindowLabel(firstMs: number | null, lastMs: number | null): string {
+  const day = (ms: number) =>
+    new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(ms));
+  if (firstMs === null) return "—";
+  return lastMs === null ? day(firstMs) : `${day(firstMs)} → ${day(lastMs)}`;
 }
 
 /** Type de scan (coût d'infrastructure) → libellé. */
@@ -85,27 +121,51 @@ const PAYWALL_TYPE_LABELS: Record<string, string> = {
 export function OffresTab({
   analytics,
   revenue,
+  attribution,
+  windowed,
   now,
 }: {
   analytics: ProductAnalyticsData;
   revenue: RevenueData | undefined;
+  /**
+   * Uniquement pour le CONTEXTE DEVISES (payCurrency + taux du projet) : depuis
+   * le 06/09 un bras vend en euros ET en dollars selon la géographie, et
+   * convertir sans le taux du projet inventerait un montant.
+   */
+  attribution: AttributionData | undefined;
+  /** Agrégats RECALCULÉS sur la période (cf useWindowedAnalytics). */
+  windowed: WindowedAnalyticsState;
   now: number;
 }) {
+  // Les sept agrégats PostHog que la période peut changer. Le revenu Whop
+  // (offres, litiges, périodes) vient d'ailleurs et reste sur toute la
+  // profondeur — le fenêtrer demanderait de refaire l'ingestion Whop, pas une
+  // requête HogQL.
+  //
+  // Pendant un recalcul on garde les chiffres précédents, grisés : un écran vide
+  // se lit comme « aucune donnée ».
+  const analyticsW = useMemo(
+    () =>
+      windowed.data
+        ? { ...analytics, ...windowed.data.offres }
+        : analytics,
+    [analytics, windowed.data],
+  );
   const paywallTypes = useMemo(
     () =>
-      analytics.abVariants.rows.map((v) => ({
+      analyticsW.abVariants.rows.map((v) => ({
         ...v,
         completion: ratePct(v.paid, v.checkouts),
         targetsPerClient: v.paid > 0 ? Math.round((v.clientTargets / v.paid) * 10) / 10 : null,
       })),
-    [analytics.abVariants.rows],
+    [analyticsW.abVariants.rows],
   );
-  const free = analytics.freePlan;
+  const free = analyticsW.freePlan;
 
   // Coût d'infrastructure des scans, léger (cible gratuite) vs complet. Le tableau
   // ne se chiffre que si cost_usd est émis ; il sépare toujours les deux tarifs.
   const scanCost = useMemo(() => {
-    const rows = analytics.scanCost.rows;
+    const rows = analyticsW.scanCost.rows;
     const order = ["light", "full", "(autre)"];
     return {
       rows: [...rows].sort(
@@ -114,9 +174,9 @@ export function OffresTab({
       anyRuns: rows.some((r) => r.runs > 0),
       anyCost: rows.some((r) => r.withCost > 0),
     };
-  }, [analytics.scanCost.rows]);
+  }, [analyticsW.scanCost.rows]);
 
-  const paywallRows = analytics.paywallById.rows;
+  const paywallRows = analyticsW.paywallById.rows;
   const paywallReady = paywallRows.some(
     (r) => r.key !== "(inconnu)" && r.key !== "(absent)",
   );
@@ -127,8 +187,8 @@ export function OffresTab({
   // pas sur les 90 jours. Un taux calculé sur une autre fenêtre que celle
   // annoncée est un chiffre faux — on écrit donc la date à l'écran.
   const paywallStart =
-    analytics.paywallById.startMs != null
-      ? new Date(analytics.paywallById.startMs).toLocaleDateString("fr-FR", {
+    analyticsW.paywallById.startMs != null
+      ? new Date(analyticsW.paywallById.startMs).toLocaleDateString("fr-FR", {
           day: "numeric",
           month: "long",
         })
@@ -142,7 +202,7 @@ export function OffresTab({
   // une erreur d'unité (la complétion sortait un ratio dans un formateur de %).
   const arms = useMemo(
     () =>
-      analytics.abArms.rows.map((a) => ({
+      analyticsW.abArms.rows.map((a) => ({
         ...a,
         completion: ratePct(a.paid, a.checkouts),
         // Cibles PAYANTES par client : cibles ajoutées par les clients APRÈS
@@ -153,7 +213,7 @@ export function OffresTab({
             ? Math.round((a.clientTargets / a.paid) * 100) / 100
             : null,
       })),
-    [analytics.abArms.rows],
+    [analyticsW.abArms.rows],
   );
   const armChecks = useMemo(
     () =>
@@ -179,6 +239,21 @@ export function OffresTab({
   /** Personnes écartées du tableau faute de bras stable (cf QUERIES.abArms). */
   const abExcluded = arms.reduce((sum, a) => sum + a.excludedFlippers, 0);
   /**
+   * Ventilation de ces exclusions. Un bras qui diverge entre DEUX `$device_id`
+   * est une fusion d'identités PostHog (un humain, deux navigateurs, deux
+   * tirages) : attendu, non actionnable. Sur un SEUL appareil, l'app a re-tiré
+   * le bras d'une personne déjà assignée — c'est le seul sous-total sur lequel
+   * le produit peut agir, et un total agrégé le noie.
+   */
+  const abExcludedMultiDevice = arms.reduce(
+    (sum, a) => sum + a.excludedFlippersMultiDevice,
+    0,
+  );
+  const abExcludedSameDevice = arms.reduce(
+    (sum, a) => sum + a.excludedFlippersSameDevice,
+    0,
+  );
+  /**
    * MARQUEUR DE RUPTURE — correctif SERVEUR du tirage de bras. Vérifié en prod le
    * 09/08 : dernière bascule à l'identification le 07/08 22:02:46.735 UTC,
    * première identification propre le 08/08 10:24:45.484 UTC. Non datable par
@@ -202,12 +277,62 @@ export function OffresTab({
     (abRev?.rows ?? []).map((r) => [r.variant, r] as const),
   );
   const abStart =
-    analytics.abArms.startMs != null
-      ? new Date(analytics.abArms.startMs).toLocaleDateString("fr-FR", {
+    analyticsW.abArms.startMs != null
+      ? new Date(analyticsW.abArms.startMs).toLocaleDateString("fr-FR", {
           day: "numeric",
           month: "long",
         })
       : null;
+
+  // ─── Offres RÉELLEMENT servies (bras × offre) ─────────────────────────────
+  // Une carte « bras A vs bras B » ment dès que le contenu d'un bras change, et
+  // il a changé trois fois : les deux bras sont passés du mensuel à l'hebdo le
+  // 18/08, puis le bras souple est repassé au mensuel le 06/09. Ce tableau lit
+  // l'offre SERVIE au lieu de la supposer — il n'a rien à remettre à jour au
+  // prochain changement, contrairement à EXPECTED_ARM_PRICING plus bas.
+  // La devise vient du projet (revenu Whop) : `properties.price` est un nombre
+  // nu côté PostHog. `revenue` est chargé après `analytics` — tant qu'il manque,
+  // les montants sortent sans symbole plutôt qu'avec un « € » supposé.
+  const offerCurrency = revenue?.currency ?? null;
+  const offers = useMemo(
+    () => attributedOffers(analyticsW.abOffers.rows, offerCurrency),
+    [analyticsW.abOffers.rows, offerCurrency],
+  );
+  const offerComparability = useMemo(
+    () => armComparability(analyticsW.abOffers.rows, offerCurrency),
+    [analyticsW.abOffers.rows, offerCurrency],
+  );
+  const offerExcluded = useMemo(
+    () => excludedViewers(analyticsW.abOffers.rows),
+    [analyticsW.abOffers.rows],
+  );
+
+  // ─── Ce que les clients ont RÉELLEMENT acheté ─────────────────────────────
+  // Le prix vient de Whop, joint par plan_id : la table de prix du dépôt a
+  // dérivé deux fois en un mois sans que rien ne le signale.
+  const purchases = useMemo(
+    () =>
+      armPurchases(analyticsW.abPurchases.rows, revenue?.plans ?? [], {
+        revenueCurrency: revenue?.currency ?? null,
+        payCurrency: attribution?.payCurrency ?? null,
+        fxRateToRevenue: attribution?.fxRateToRevenue ?? null,
+      }),
+    [
+      analyticsW.abPurchases.rows,
+      revenue?.plans,
+      revenue?.currency,
+      attribution?.payCurrency,
+      attribution?.fxRateToRevenue,
+    ],
+  );
+  const purchaseIssues = useMemo(
+    () =>
+      purchaseCoherenceIssues(
+        purchases,
+        new Map(analyticsW.abArms.rows.map((a) => [a.variant, a.paid] as const)),
+      ),
+    [purchases, analyticsW.abArms.rows],
+  );
 
   // La carte ne se pilote plus par la présence d'`experiment_id` mais par les
   // BRAS réellement assignés : une propriété émise par un seul compte de test ne
@@ -216,6 +341,7 @@ export function OffresTab({
   const plans = useMemo(() => revenue?.plans ?? [], [revenue]);
   const hasHistorical = plans.some((p) => !p.active);
   const currency = revenue?.currency ?? undefined;
+  const mixedCurrency = revenue?.mixedCurrency ?? false;
   const offerChanges = revenue?.offerChanges ?? [];
 
   // Répartition HEBDO vs MENSUEL (le mensuel ne se vend pas : à faire ressortir).
@@ -233,8 +359,15 @@ export function OffresTab({
         acc.mois.net += p.netTotal;
       }
     }
+    // A5 — chaque LIGNE d'offre est rendue avec SA devise (p.currency), mais ce
+    // pied de tableau les additionne. En bi-devise les montants ne veulent rien
+    // dire : on les neutralise, les COMPTES de clients restent justes.
+    if (mixedCurrency) {
+      acc.semaine.net = 0;
+      acc.mois.net = 0;
+    }
     return acc;
-  }, [plans]);
+  }, [plans, mixedCurrency]);
 
   // Litiges (chargebacks) EN COURS + remboursements — argent À RISQUE / rendu, déjà
   // DÉDUIT du revenu net. Les litiges sont triés serveur (le plus urgent d'abord).
@@ -246,6 +379,61 @@ export function OffresTab({
 
   return (
     <div className="space-y-6">
+      {/* Deux ruptures que ces courbes traversent : la panne d'ingestion des
+          07-08/09 (paywalls creux) et l'élargissement du périmètre de
+          `paywall_shown` du 09/09 (marche de volume, pas d'exposition). */}
+      <HubNoticeStack items={[posthogOutageItem(now), paywallScopeItem(now)]} />
+      {windowed.error !== null ? (
+        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+          <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
+          Les chiffres PostHog ci-dessous portent donc sur toute la profondeur.
+        </HubNotice>
+      ) : null}
+      {/* Chiffres servis depuis le cache serveur APRÈS un refus de PostHog
+          (429) : ils sont vrais, mais datés. Le dire — un chiffre périmé qu'on
+          croit frais est pire qu'une erreur franche. */}
+      {windowed.data?.stale === true && windowed.data.cachedAt !== null ? (
+        <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+          <strong>PostHog a refusé le recalcul</strong> (trop de requêtes). Les
+          chiffres de cette période sont ceux calculés le{" "}
+          {new Date(windowed.data.cachedAt).toLocaleString("fr-FR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          .
+        </HubNotice>
+      ) : null}
+      {/* Le REVENU WHOP (offres vendues, litiges, périodes) ne suit PAS la
+          période : il vient de l'ingestion Whop, pas d'une requête HogQL. Le
+          dire une fois, en tête, plutôt que de laisser croire que tout bouge. */}
+      {windowed.data !== undefined ? (
+        <HubNotice className="border-slate-200 bg-slate-50 text-slate-600">
+          La période choisie s&apos;applique aux mesures PostHog (test A/B,
+          paywalls, plan gratuit, coût des scans). Le <strong>revenu Whop</strong>{" "}
+          plus bas — offres vendues, litiges, remboursements — reste sur toute la
+          profondeur.
+        </HubNotice>
+      ) : null}
+      <div
+        className={
+          windowed.loading ? "space-y-6 opacity-50 transition-opacity" : "space-y-6"
+        }
+        aria-busy={windowed.loading}
+      >
+      {/* A5 — chaque ligne d'offre porte SA devise, mais les pieds de tableau
+          les additionnent : le signal doit être en tête d'onglet. */}
+      <MixedCurrencyNotice
+        mixed={revenue?.mixedCurrency}
+        present={revenue?.mixedCurrencyPresent}
+        converted={revenue?.convertedFrom != null}
+        convertedFrom={revenue?.convertedFrom}
+        fxRate={revenue?.fxRate}
+        currency={revenue?.currency}
+        currencies={revenue?.currenciesPresent}
+      />
+
       {/* Litiges & remboursements — EN TÊTE : l'info la plus urgente du revenu. */}
       <Card>
         <CardContent className="space-y-3 p-4">
@@ -550,9 +738,12 @@ export function OffresTab({
                 à sa création — et les deux tirages ne tombaient pas d&apos;accord.
                 Avant cette date, <strong>56 % des personnes mises à l&apos;épreuve</strong>{" "}
                 (10 sur 18 ayant une assignation de part et d&apos;autre de
-                l&apos;inscription) changeaient de bras à l&apos;identification ; après,
-                aucune sur 47. <strong>Les données d&apos;avant ne sont pas comparables
-                à celles d&apos;après.</strong>
+                l&apos;inscription) changeaient de bras à l&apos;identification. Le
+                correctif a éteint CE chemin-là — mais pas toute bascule : des
+                personnes changent encore de bras après la rupture, par le tirage
+                anonyme (colonne « écartées » ci-dessous).{" "}
+                <strong>Les données d&apos;avant ne sont pas comparables à celles
+                d&apos;après.</strong>
               </HubNotice>
               {abExcluded > 0 ? (
                 <p className="text-xs text-slate-500">
@@ -566,7 +757,31 @@ export function OffresTab({
                   vu un paywall et certaines ont converti — on retire de vraies
                   conversions pour ne pas les attribuer au mauvais bras. Détection par
                   la double valeur, jamais par une liste figée (elle grossit) ni par
-                  une fenêtre de date (elle jetterait aussi les cohortes saines).
+                  une fenêtre de date (elle jetterait aussi les cohortes saines).{" "}
+                  {abExcludedSameDevice > 0 ? (
+                    <>
+                      <strong>
+                        Dont {formatNumber(abExcludedSameDevice)} sur un SEUL appareil
+                      </strong>{" "}
+                      : celles-là ne s&apos;expliquent pas par une fusion
+                      d&apos;identités (deux navigateurs, deux tirages) — c&apos;est
+                      l&apos;app qui re-tire le bras d&apos;une personne déjà assignée.
+                      C&apos;est le seul sous-total actionnable côté produit ; les{" "}
+                      {formatNumber(abExcludedMultiDevice)} autres sont attendues.
+                    </>
+                  ) : null}
+                </p>
+              ) : null}
+              {abRev && abRev.excludedFlippers > 0 ? (
+                <p className="text-xs text-slate-500">
+                  <strong>
+                    {formatNumber(abRev.excludedFlippers)} abonnement(s) écarté(s) du
+                    revenu par bras
+                  </strong>{" "}
+                  ({formatMoney(abRev.excludedFlippersNet, revenue?.currency)}) : leur
+                  personne a changé de bras. Le tableau les retirait déjà de ses
+                  colonnes, mais leur argent y entrait encore par la metadata Whop —
+                  numérateur et dénominateur ne portaient pas sur la même population.
                 </p>
               ) : null}
               <p className="text-xs text-slate-500">
@@ -618,19 +833,279 @@ export function OffresTab({
               </p>
             </div>
           )}
+          {offers.length > 0 ? (
+            <div className="space-y-3 border-t border-slate-200 pt-3">
+              <p className="text-sm font-medium text-slate-700">
+                Plan présélectionné au paywall
+              </p>
+              <p className="text-xs text-slate-500">
+                Le plan PRÉ-COCHÉ à l&apos;ouverture, celui qui part au checkout
+                si la personne ne touche à rien — pas l&apos;offre du bras, qui
+                est un menu. Ce que les gens achètent pour de bon est dans le
+                tableau suivant.
+              </p>
+              {!offerComparability.comparable ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>Les bras ne servent plus la même chose.</strong> En ce
+                  moment :{" "}
+                  {offerComparability.current
+                    .map(
+                      (o) =>
+                        `${AB_ARM_LABELS[o.variant] ?? o.variant} → ${o.label}`,
+                    )
+                    .join(" · ")}
+                  . Le test ne mesure donc plus un <strong>prix</strong> : il
+                  mélange le prix et le <strong>rythme de facturation</strong>, et
+                  aucune colonne ne sépare ces deux effets. Les lignes ci-dessous
+                  restent lisibles UNE PAR UNE ; c&apos;est leur comparaison
+                  d&apos;un bras à l&apos;autre qui ne conclut plus.
+                </HubNotice>
+              ) : null}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bras</TableHead>
+                    <TableHead>Plan présélectionné</TableHead>
+                    <TableHead>Période (Paris)</TableHead>
+                    <TableHead className="text-right">Vu le paywall</TableHead>
+                    <TableHead className="text-right">Checkouts</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Conversion</TableHead>
+                    <TableHead className="text-right">
+                      Revenu 1er cycle / 1 000 vus
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {offers.map((o) => (
+                    <TableRow key={`${o.variant}-${o.plan}-${o.price}`}>
+                      <TableCell className="whitespace-nowrap">
+                        {AB_ARM_LABELS[o.variant] ?? o.variant}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-medium">
+                        {o.label}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs text-slate-500">
+                        {offerWindowLabel(o.firstMs, o.lastMs)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(o.paywallViewers)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(o.checkouts)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {formatNumber(o.paid)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {pct(o.conversionPct)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {dash(o.firstCycleRevenuePer1000, (n) =>
+                          formatMoney(n, offerCurrency),
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-slate-500">
+                <strong>Revenu 1er cycle / 1 000 vus</strong> = prix de
+                l&apos;offre × clients ÷ vues du paywall × 1 000. Le PREMIER cycle
+                seulement : annualiser supposerait une rétention qu&apos;aucune de
+                ces colonnes ne mesure. Une ligne hebdomadaire et une ligne
+                mensuelle ne se comparent donc pas sur cette colonne — c&apos;est
+                exactement ce que dit l&apos;avertissement quand il s&apos;allume.
+              </p>
+              {offerExcluded > 0 ? (
+                <p className="text-xs text-slate-500">
+                  <strong>{formatNumber(offerExcluded)} personne(s) écartée(s)</strong>{" "}
+                  de ce tableau : elles ont vu DEUX offres (elles traversaient un
+                  changement de prix) ou changé de bras. Une comparaison ne tient
+                  que si chaque personne a subi UN traitement. Elles sont comptées
+                  ici plutôt que retirées en silence.
+                </p>
+              ) : null}
+              {offers.some((o) => o.interval === null) ? (
+                <p className="text-xs text-slate-500">
+                  Une ou plusieurs lignes sont à <strong>rythme non émis</strong> :
+                  l&apos;app envoie <code>paywall_viewed</code> sans{" "}
+                  <code>plan_preselected</code>. Le prix est connu, le rythme non —
+                  ces vues et leurs conversions sont bien réelles, elles ne peuvent
+                  simplement pas être rangées avec une offre nommée.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {purchases.length > 0 ? (
+            <div className="space-y-3 border-t border-slate-200 pt-3">
+              <p className="text-sm font-medium text-slate-700">
+                Ce que les clients ont réellement acheté
+              </p>
+              <p className="text-xs text-slate-500">
+                Chaque bras vend un MENU, pas un prix : lire le seul plan
+                présélectionné fait croire qu&apos;un bras a un tarif unique. Le
+                plan acheté vient de <code>subscription_completed</code>, son prix
+                de Whop — jointure par <code>plan_id</code>, jamais par le nom du
+                plan.
+              </p>
+              {purchaseIssues.length > 0 ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>Contrôle de cohérence en écart.</strong>{" "}
+                  {purchaseIssues.join(" · ")}. Les deux tableaux devraient
+                  compter la même population : un écart veut dire que l&apos;un
+                  des deux agrégats a changé de définition sans l&apos;autre.
+                </HubNotice>
+              ) : null}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Bras</TableHead>
+                    <TableHead>Plan acheté</TableHead>
+                    <TableHead className="text-right">Prix</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Part du bras</TableHead>
+                    <TableHead className="text-right">Revenu 1er cycle</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {purchases.map((arm) => (
+                    <Fragment key={arm.variant}>
+                      {arm.rows.map((r) => (
+                        <TableRow key={`${arm.variant}-${r.whopPlanId}-${r.plan}`}>
+                          <TableCell className="whitespace-nowrap">
+                            {AB_ARM_LABELS[arm.variant] ?? arm.variant}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {r.label}
+                            {r.interval ? (
+                              <span className="text-slate-400"> · {r.interval}</span>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {dash(r.price, (n) => formatMoney(n, r.currency))}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(r.clients)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {pct(r.sharePct)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {dash(r.firstCycleRevenue, (n) =>
+                              formatMoney(n, r.currency),
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="border-t-2 border-slate-200">
+                        <TableCell className="whitespace-nowrap font-medium">
+                          {AB_ARM_LABELS[arm.variant] ?? arm.variant} — total
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-500">
+                          {arm.armMultiPlan > 0
+                            ? `dont ${formatNumber(arm.armMultiPlan)} client(s) sur plusieurs plans`
+                            : "un seul plan par client"}
+                        </TableCell>
+                        <TableCell />
+                        <TableCell className="text-right font-medium">
+                          {formatNumber(arm.armClients)}
+                        </TableCell>
+                        <TableCell />
+                        <TableCell className="text-right font-medium">
+                          {/* Les sous-totaux PAR DEVISE d'abord : ils ne
+                              dépendent d'aucun taux, donc ils ne vieillissent
+                              pas. Le total converti vient après, marqué. */}
+                          <div className="space-y-0.5">
+                            {arm.revenueByCurrency.map((b) => (
+                              <div key={b.currency}>
+                                {formatMoney(b.amount, b.currency)}
+                              </div>
+                            ))}
+                            {arm.converted ? (
+                              <div className="text-xs font-normal text-slate-500">
+                                {arm.firstCycleRevenue === null
+                                  ? "total non converti"
+                                  : `≈ ${formatMoney(arm.firstCycleRevenue, arm.currency)} au total`}
+                              </div>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+              <p className="text-xs text-slate-500">
+                <strong>Clients</strong> du total = personnes DISTINCTES, pas la
+                somme de la colonne : qui a acheté deux plans compte une fois au
+                total et une fois par ligne. <strong>Revenu 1er cycle</strong> =
+                clients × prix du plan, premier cycle seulement — annualiser
+                supposerait une rétention qu&apos;aucune de ces colonnes ne mesure.
+              </p>
+              {purchases.some((a) => a.clientsWithoutPrice > 0) ? (
+                <p className="text-xs text-slate-500">
+                  {purchases
+                    .filter((a) => a.clientsWithoutPrice > 0)
+                    .map(
+                      (a) =>
+                        `${AB_ARM_LABELS[a.variant] ?? a.variant} : ${formatNumber(a.clientsWithoutPrice)}`,
+                    )
+                    .join(" · ")}{" "}
+                  client(s) <strong>écarté(s) du total</strong> — leur plan
+                  n&apos;a pas de prix chez Whop (offre ponctuelle). Ils ne sont
+                  pas comptés à zéro, ils sont retirés du calcul.
+                </p>
+              ) : null}
+              {purchases.some((a) => a.converted) ? (
+                <p className="text-xs text-slate-500">
+                  <strong>Deux devises, c&apos;est normal</strong> : la grille en
+                  euros est servie aux résidents européens, celle en dollars aux
+                  autres. Les sous-totaux par devise sont exacts ; le{" "}
+                  <strong>≈ total</strong> les ramène à la devise du revenu au
+                  taux du projet, posé à la main et jamais rafraîchi. C&apos;est
+                  un ordre de grandeur, pas une comptabilité.
+                </p>
+              ) : null}
+              {purchases.some((a) => a.unconvertibleCurrencies.length > 0) ? (
+                <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+                  <strong>Total combiné indisponible</strong> :{" "}
+                  {[
+                    ...new Set(
+                      purchases.flatMap((a) => a.unconvertibleCurrencies),
+                    ),
+                  ]
+                    .join(", ")
+                    .toUpperCase()}{" "}
+                  n&apos;est pas couvert par le taux du projet, qui ne vaut que
+                  pour une seule paire de devises. Les sous-totaux restent
+                  justes ; appliquer ce taux à une autre devise donnerait un
+                  montant faux d&apos;apparence crédible.
+                </HubNotice>
+              ) : null}
+            </div>
+          ) : null}
           <div className="space-y-1 text-xs text-slate-500">
             <p className="font-medium text-slate-600">
-              Offre attendue par bras (vérifiée chez Whop) :
+              Ce que chaque bras est censé vendre, dernière vérification humaine
+              le{" "}
+              {EXPECTED_ARM_PRICING.map((a) => a.asOf).sort().slice(-1)[0] ??
+                "—"}{" "}
+              :
             </p>
             {EXPECTED_ARM_PRICING.map((arm) => (
               <p key={arm.variant}>
-                <strong>{arm.label}</strong> :{" "}
-                {arm.freeTier ? "plan gratuit, puis " : "pas de plan gratuit, "}
-                {formatMoney(arm.priceWeekly, currency)} par semaine et{" "}
-                {formatMoney(arm.priceMonthly, currency)} par mois, pour{" "}
+                <strong>{arm.label}</strong> : {arm.offer},{" "}
+                {arm.freeTier ? "avec palier gratuit" : "sans palier gratuit"},{" "}
                 {arm.maxTargets} {arm.maxTargets > 1 ? "cibles" : "cible"}.
               </p>
             ))}
+            <p>
+              Cette ligne est écrite à la main et a déjà été fausse trois semaines
+              sans que rien ne le signale. Ce qui fait foi, ce sont les deux
+              tableaux au-dessus : ils lisent l&apos;offre servie et le plan
+              acheté dans la donnée.
+            </p>
             <p>
               Décision sur le <strong>revenu net par personne assignée</strong>, fenêtre
               de 14 jours.
@@ -929,31 +1404,16 @@ export function OffresTab({
                     {formatNumber(free.convertedPaid)}
                   </TableCell>
                 </TableRow>
-                <TableRow>
-                  <TableCell className="text-xs text-slate-600">
-                    Avaient ouvert le checkout avant
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums text-red-600">
-                    {formatNumber(free.checkoutBefore)}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="text-xs text-slate-600">
-                    Délai médian gratuit → checkout
-                  </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums">
-                    {free.medFreeToCheckoutMs === null
-                      ? "—"
-                      : free.medFreeToCheckoutMs < 0
-                        ? `−${formatDuration(-free.medFreeToCheckoutMs)}`
-                        : formatDuration(free.medFreeToCheckoutMs)}
-                  </TableCell>
-                </TableRow>
               </TableBody>
             </Table>
             <p className="text-xs text-slate-400">
-              Un délai négatif signifie que le checkout était ouvert AVANT le gratuit :
-              ces gens allaient payer.
+              « Ont reçu la semaine offerte » compte un OCTROI, pas un choix :
+              l&apos;event part aussi sur le chemin des payants, ~1 s avant leur
+              paiement. Le délai gratuit → checkout et le compteur « avaient ouvert
+              le checkout avant » ont été retirés pour cette raison — ils mesuraient
+              l&apos;ordre d&apos;émission, pas une décision. Savoir si le gratuit est
+              une porte de sortie ou de découverte demande un event émis au CHOIX du
+              plan gratuit, pas encore émis par l&apos;app.
             </p>
           </CardContent>
         </Card>
@@ -1063,6 +1523,7 @@ export function OffresTab({
           )}
         </CardContent>
       </Card>
+    </div>
     </div>
   );
 }

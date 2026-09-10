@@ -1,28 +1,50 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsQuery,
   authedQuery,
   creatorMutation,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
   publicQuery,
   requireCreatorViewableByAdmin,
   requireProjectAdmin,
 } from "./functions";
+import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import {
-  isPortalRole,
+  MEMBERSHIP_ROLES,
+  PORTAL_ROLES,
+  TEAM_ROLES,
+  hasRole,
+  isTeamRole,
+  portalRoleOf,
   resolveCreatorKind,
   roleForKind,
-  type PortalRole,
+  rolesOf,
+  teamRoleOf,
+  withPortalRole,
+  type MembershipRole,
+  type TeamRole,
 } from "./roles";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
 import { ConvexError, v } from "convex/values";
+import { normalizeRef } from "./conversionAttribution";
+import { isSupportedTimezone, resolveCreatorTimezone } from "./creatorDay";
+import {
+  EMPTY_ACTIVITY,
+  summarizeCreatorActivity,
+} from "./creatorActivity";
+import { creatorZone } from "./creatorTimezone";
+import { creatorActivationPatch } from "./creatorActivation";
 import type { Doc, Id } from "./_generated/dataModel";
+import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { normalizeCreatorLocale, localeOrDefault} from "./locales";
+import { convexErrorText } from "./errorCodes";
+import { faceUrlsByCreator, purgeCompteAvatar } from "./compteAvatar";
 
 /**
  * P1 Créateurs — gestion des créateurs côté admin + onboarding par lien
@@ -31,7 +53,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  *
  * Couche d'accès :
  *   - listCreators / getCreator / inviteCreator / regenerateInvitation /
- *     updateCreator → adminQuery / adminMutation (admin du projet requis).
+ *     updateCreator → gardées par bloc (droit d'administration requis).
  *   - getInvitationPreview → publicQuery (pré-session : la page /join lit le
  *     token avant que le compte n'existe). NE LEAK PAS l'état d'un token.
  *   - getMyPortal → authedQuery (routage par rôle, cf /app et /).
@@ -88,7 +110,7 @@ async function killInvitations(ctx: MutationCtx, creatorId: Id<"creators">) {
  * l'invitation active (token + expiresAt) quand le créateur est encore
  * "invited" — pour reconstruire le lien /join et le bouton régénérer côté UI.
  */
-export const listCreators = adminQuery({
+export const listCreators = permissionQuery("creators.read")({
   args: {},
   handler: async (ctx) => {
     const creators = await ctx.db
@@ -102,22 +124,223 @@ export const listCreators = adminQuery({
         const inv = await activeInvitation(ctx, c._id);
         if (inv) invitation = { token: inv.token, expiresAt: inv.expiresAt };
       }
-      rows.push({ ...c, invitation });
+      // Langue RÉSOLUE — celle qui est réellement servie au créateur, pas celle
+      // de la fiche. Deux raisons de la calculer ICI plutôt qu'à l'écran :
+      //
+      //  1. `users.locale` fait foi dès que le compte existe, et cette table
+      //     n'est pas exposée au client ;
+      //  2. le FRANÇAIS N'EST PAS STOCKÉ — `normalizeCreatorLocale("fr")` rend
+      //     `undefined`, donc `creators.locale` vaut « en » ou rien. Un filtre
+      //     qui comparerait la valeur brute devrait traiter l'ABSENCE comme du
+      //     français, et se tromperait le jour où une créatrice bascule en
+      //     français depuis son profil : `setMyLocale` écrit alors « fr »
+      //     EXPLICITEMENT sur `users.locale`. En rendant une langue concrète,
+      //     l'écran compare une valeur, jamais une absence.
+      //
+      // `resolveCreatorLocale` est le cœur PARTAGÉ avec `getCreatorLocale`
+      // (convex/i18n.ts) : les deux ne peuvent pas diverger.
+      rows.push({
+        // PROJECTION EXPLICITE — surtout PAS `...c`. La fiche `creators` porte
+        // des données de RÉMUNÉRATION et des COORDONNÉES DE PAIEMENT ; un
+        // spread les diffusait à tous les écrans qui listent des créatrices
+        // (table Créateurs, tracker, appariement, sélecteur de propriétaire,
+        // assignation de campagne) alors qu'aucun ne les affiche. Ces champs
+        // sortent désormais par `getCreator` seule — la query de la FICHE, qui
+        // est le seul écran à les rendre. Cf docs/CHAMPS-SENSIBLES.md.
+        //
+        // ⚠️ Ajouter un champ ici est une DÉCISION : tout champ absent de cette
+        // liste ne quitte pas le serveur.
+        _id: c._id,
+        _creationTime: c._creationTime,
+        projectId: c.projectId,
+        userId: c.userId,
+        name: c.name,
+        email: c.email,
+        phone: c.phone,
+        timezone: c.timezone,
+        timezoneSource: c.timezoneSource,
+        kind: c.kind,
+        clipperId: c.clipperId,
+        status: c.status,
+        handlesToCreate: c.handlesToCreate,
+        driveFolderId: c.driveFolderId,
+        firstPostAt: c.firstPostAt,
+        payStartAt: c.payStartAt,
+        refSlug: c.refSlug,
+        createdAt: c.createdAt,
+        invitation,
+        locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
+      });
     }
     return rows.sort((a, b) => b.createdAt - a.createdAt);
   },
 });
 
+/**
+ * ACTIVITÉ par créatrice — comptes, publications, dernier post.
+ *
+ * ─── POURQUOI UNE QUERY À PART, ET PAS TROIS CHAMPS SUR `listCreators` ──────
+ * `listCreators` est lue par CINQ écrans (table Créateurs, tracker, appariement,
+ * sélecteur de propriétaire, assignation de campagne). Y greffer un balayage des
+ * comptes ET des assignments du projet ralentirait les quatre qui n'en ont que
+ * faire. Cette query-ci n'est appelée que par l'écran Créateurs.
+ *
+ * ─── CE QUI EST BALAYÉ ──────────────────────────────────────────────────────
+ * Deux `collect()` par projet, regroupés en un passage par
+ * `summarizeCreatorActivity` — pas une requête par créatrice. À dix-sept fiches
+ * la différence est invisible, à deux cents elle ne l'est plus.
+ *
+ * Rend UNE LIGNE PAR CRÉATRICE, y compris celles qui n'ont rien : c'est ici, et
+ * pas dans le module pur, qu'on décide qu'« aucun compte » s'écrit zéro.
+ */
+export const listCreatorActivity = permissionQuery("creators.read")({
+  args: {},
+  handler: async (ctx) => {
+    const [creators, comptes, assignments] = await Promise.all([
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const parCreatrice = summarizeCreatorActivity({ comptes, assignments });
+
+    // ─── FUSEAU EFFECTIF, celui qui sert vraiment ────────────────────────────
+    // `listCreators` sert le fuseau STOCKÉ. Grouper là-dessus mettrait dans
+    // « non renseigné » des créatrices dont le fuseau est parfaitement
+    // déductible du pays de leurs comptes — donc l'écran désignerait comme un
+    // trou à combler quelque chose qui n'en est pas un.
+    //
+    // La résolution est faite ICI parce que les comptes sont DÉJÀ chargés : le
+    // pays vient d'eux. `resolveCreatorTimezone` est la fonction canonique, la
+    // même que `creatorZone` appelle — l'écran ne peut donc pas afficher un
+    // fuseau différent de celui sur lequel le warmup compte les jours.
+    // (`buildZoneMap` ne rendrait que la valeur ; il faut aussi la PROVENANCE,
+    // sans quoi on ne peut pas distinguer un fait d'une supposition.)
+    const paysParCreatrice = new Map<string, string[]>();
+    for (const compte of comptes) {
+      const owner = compte.creatorId;
+      const pays = compte.targetCountry;
+      if (!owner || !pays) continue;
+      const liste = paysParCreatrice.get(owner) ?? [];
+      liste.push(pays);
+      paysParCreatrice.set(owner, liste);
+    }
+
+    // PHOTO DE PROFIL — les comptes sont déjà chargés, donc c'est ici que ça
+    // coûte le moins. Cette query n'est lue QUE par l'écran Créateurs : y
+    // greffer les visages ne ralentit aucun des quatre autres écrans qui lisent
+    // `listCreators`.
+    const visages = await faceUrlsByCreator(ctx, comptes);
+
+    return creators.map((c) => {
+      const zone = resolveCreatorTimezone(c, paysParCreatrice.get(c._id) ?? []);
+      return {
+        creatorId: c._id,
+        /**
+         * URL SIGNÉE de sa photo de profil TikTok, recopiée dans le storage.
+         * `null` = pas de photo collectée — l'écran affiche ses initiales, et
+         * c'est un état normal (compte sans post relevé, compte non-TikTok).
+         */
+        avatarUrl: visages.get(c._id) ?? null,
+        ...(parCreatrice.get(c._id) ?? EMPTY_ACTIVITY),
+        /** Fuseau EFFECTIF (fiche, sinon déduit du pays des comptes). */
+        zone: zone.timezone,
+        /** Provenance — « confirmed » est un fait, le reste une supposition. */
+        zoneSource: zone.source,
+        /** La valeur est-elle FIGÉE en base, ou recalculée à chaque lecture ? */
+        zoneStored: zone.stored,
+      };
+    });
+  },
+});
+
+/**
+ * Activité d'UNE créatrice — l'en-tête de sa fiche.
+ *
+ * Passe par les index `by_project_creator` / `by_creator` plutôt que de
+ * réutiliser la query de liste : sa fiche n'a aucune raison de lire les
+ * assignments de tout le projet.
+ */
+export const getCreatorActivity = permissionQuery("creators.read")({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    const [comptes, assignments] = await Promise.all([
+      ctx.db
+        .query("comptes")
+        .withIndex("by_project_creator", (q) =>
+          q.eq("projectId", ctx.projectId).eq("creatorId", id),
+        )
+        .collect(),
+      ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", id))
+        .collect(),
+    ]);
+    // L'index `by_creator` ne porte PAS `projectId`. Une fiche `creators`
+    // appartient bien à un seul projet (`addCreatorToProject` en crée une
+    // seconde plutôt que d'en partager une), donc ce filtre ne retire rien
+    // aujourd'hui — il empêche la fiche de compter du travail d'un autre projet
+    // le jour où cette invariante bougerait, ce qui est exactement le genre
+    // d'erreur qu'on ne verrait pas : le chiffre resterait plausible.
+    const duProjet = assignments.filter((a) => a.projectId === ctx.projectId);
+    const parCreatrice = summarizeCreatorActivity({
+      comptes,
+      assignments: duProjet,
+    });
+    const visages = await faceUrlsByCreator(ctx, comptes);
+    return {
+      ...(parCreatrice.get(id) ?? EMPTY_ACTIVITY),
+      /** Sa photo de profil TikTok, ou null → initiales (cf listCreatorActivity). */
+      avatarUrl: visages.get(id) ?? null,
+    };
+  },
+});
+
 /** Fiche détaillée d'un créateur + son invitation active éventuelle. */
-export const getCreator = adminQuery({
+export const getCreator = permissionQuery("creators.read")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) return null;
     const inv =
       creator.status === "invited" ? await activeInvitation(ctx, id) : null;
+    // PROJECTION EXPLICITE (pas de spread). Les champs de RÉMUNÉRATION ne
+    // sortent PLUS d'ici : ils ont leur propre query, `getCreatorPayTerms`,
+    // gardée par le bloc `creators.pay_terms`. C'est ce découpage qui fait
+    // exister la frontière argent — avant lui, « voir une fiche » suffisait à
+    // lire un RIB. Cf docs/CHAMPS-SENSIBLES.md.
     return {
-      ...creator,
+      _id: creator._id,
+      _creationTime: creator._creationTime,
+      projectId: creator.projectId,
+      userId: creator.userId,
+      name: creator.name,
+      email: creator.email,
+      phone: creator.phone,
+      locale: creator.locale,
+      timezone: creator.timezone,
+      timezoneSource: creator.timezoneSource,
+      kind: creator.kind,
+      clipperId: creator.clipperId,
+      status: creator.status,
+      handlesToCreate: creator.handlesToCreate,
+      driveFolderId: creator.driveFolderId,
+      firstPostAt: creator.firstPostAt,
+      payStartAt: creator.payStartAt,
+      refSlug: creator.refSlug,
+      createdAt: creator.createdAt,
+      // `adminNotes` reste ici : ce sont des notes d'équipe, pas de l'argent.
+      adminNotes: creator.adminNotes,
       invitation: inv ? { token: inv.token, expiresAt: inv.expiresAt } : null,
     };
   },
@@ -128,7 +351,7 @@ export const getCreator = adminQuery({
  * Retourne { creatorId, token } pour afficher le lien /join immédiatement.
  * Dedupe par email dans le projet.
  */
-export const inviteCreator = adminMutation({
+export const inviteCreator = permissionMutation("creators.manage")({
   args: {
     name: v.string(),
     email: v.string(),
@@ -143,6 +366,11 @@ export const inviteCreator = adminMutation({
         v.literal("clipper"),
       ),
     ),
+    // LANGUE d'interface du créateur invité. ABSENT ⇒ français : on ne stocke
+    // que la DIVERGENCE, comme pour `kind`. C'est cette valeur qui décide de la
+    // langue de l'e-mail d'invitation — envoyé AVANT que le compte existe, donc
+    // avant qu'un `users.locale` puisse exister.
+    locale: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -174,6 +402,8 @@ export const inviteCreator = adminMutation({
         args.kind === undefined || args.kind === "partner"
           ? undefined
           : args.kind,
+      // Même règle que `kind` : « fr » est le défaut, on ne l'écrit pas.
+      locale: normalizeCreatorLocale(args.locale),
       createdAt: now,
     });
     const token = crypto.randomUUID();
@@ -205,7 +435,7 @@ export const inviteCreator = adminMutation({
  * Régénère le lien d'un créateur encore "invited" (lien expiré ou perdu) :
  * supprime les anciens tokens (l'ancien lien meurt) et en crée un neuf.
  */
-export const regenerateInvitation = adminMutation({
+export const regenerateInvitation = permissionMutation("creators.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
@@ -268,17 +498,41 @@ function normalizeHandlesToCreate(
   return { tiktok, youtube, instagram };
 }
 
-export const updateCreator = adminMutation({
+/**
+ * Édition de la fiche — IDENTITÉ ET SUIVI, jamais la rémunération.
+ *
+ * Les cinq champs d'argent (`paymentMethod`, `paymentDetails`, `bonusPricingId`,
+ * `clipRate`, `monthlyRetainer`) ont été SORTIS d'ici : ils vivent dans
+ * `updateCreatorPayTerms`, gardée par le bloc `creators.pay_terms`. Avant ce
+ * découpage, « pouvoir modifier une fiche » signifiait littéralement « pouvoir
+ * changer ce qu'on verse à quelqu'un », et aucune permission ne pouvait séparer
+ * les deux — c'est ce qui rendait le rôle manager fictif.
+ *
+ * ⚠️ NE PAS y ré-ajouter un champ de rémunération « pour la commodité de
+ * l'écran ». Deux points d'entrée avec chacun sa garde restent séparables ; un
+ * point d'entrée à deux gardes ne l'est plus (cf. convex/functions.ts).
+ */
+export const updateCreator = permissionMutation("creators.manage")({
   args: {
     id: v.id("creators"),
     name: v.optional(v.string()),
     phone: v.optional(v.string()),
     status: v.optional(CREATOR_STATUSES),
-    paymentMethod: v.optional(PAYMENT_METHODS),
-    paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
-    // Grille de paliers de bonus du créateur (cumul). null = détacher.
-    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
+    // LANGUE d'interface — corrigeable SANS régénérer l'invitation. Une valeur
+    // « fr » explicite est normalisée en `undefined` (on ne stocke que la
+    // divergence) : repasser un créateur en français EFFACE le champ.
+    locale: v.optional(v.string()),
+    // ─── FUSEAU HORAIRE (IANA) — saisi à la main par l'admin ─────────────────
+    // `null` = effacer (la fiche redevient « fuseau à définir » et la déduction
+    // depuis le pays des comptes reprend la main). Absent = ne pas toucher.
+    // Écrire ici pose TOUJOURS la provenance "admin" : c'est une saisie humaine,
+    // pas une confirmation de la créatrice — seule `confirmMyTimezone` peut
+    // marquer "confirmed", et faire passer l'une pour l'autre reviendrait à
+    // présenter une supposition comme un fait.
+    timezone: v.optional(v.union(v.string(), v.null())),
+    // Ref du chemin court snytch.co (attribution de conversion). null = retirer.
+    refSlug: v.optional(v.union(v.string(), v.null())),
     // @ à créer par réseau (saisie libre admin). Absent = ne pas toucher ;
     // objet (réseaux vides) = effacer.
     handlesToCreate: v.optional(handlesToCreateValidator),
@@ -289,15 +543,6 @@ export const updateCreator = adminMutation({
     // inassignable et intestable. La cible est vérifiée : elle doit être un
     // CLIPPEUR du même projet, et le champ n'a de sens que sur un talent.
     clipperId: v.optional(v.union(v.id("creators"), v.null())),
-    // ─── TARIFS des deux nouvelles populations (chantier pricing) ────────────
-    // Scalaires, édités depuis l'écran Pricings. `null` = retirer le tarif,
-    // absent = ne pas toucher. Aucune validation croisée avec le `kind` : un
-    // tarif posé sur la mauvaise population est inerte (le moteur ne lit
-    // `clipRate` qu'à l'assignation d'un clip et `monthlyRetainer` que sur un
-    // talent), et refuser ici obligerait à re-saisir après un changement de
-    // population.
-    clipRate: v.optional(v.union(v.number(), v.null())),
-    monthlyRetainer: v.optional(v.union(v.number(), v.null())),
     // ─── CHANGEMENT DE POPULATION ────────────────────────────────────────────
     // Corrige une invitation faite avec la mauvaise population. Autorisé
     // UNIQUEMENT sur une fiche VIERGE (cf garde dans le handler) : basculer
@@ -313,23 +558,30 @@ export const updateCreator = adminMutation({
       throw new ConvexError("Créateur introuvable.");
     }
     const patch: Partial<Doc<"creators">> = {};
-    if (args.bonusPricingId !== undefined) {
-      if (args.bonusPricingId === null) {
-        patch.bonusPricingId = undefined;
-      } else {
-        const pricing = await ctx.db.get(args.bonusPricingId);
-        if (!pricing || pricing.projectId !== ctx.projectId) {
-          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
-        }
-        patch.bonusPricingId = args.bonusPricingId;
-      }
-    }
     if (args.name !== undefined) {
       const name = args.name.trim();
       if (name.length === 0) throw new ConvexError("Le nom est requis.");
       patch.name = name;
     }
     if (args.phone !== undefined) patch.phone = args.phone.trim() || undefined;
+    if (args.timezone !== undefined) {
+      if (args.timezone === null || args.timezone.trim() === "") {
+        patch.timezone = undefined;
+        patch.timezoneSource = undefined;
+      } else {
+        const tz = args.timezone.trim();
+        if (!isSupportedTimezone(tz)) {
+          throw new ConvexError(
+            `Fuseau horaire inconnu : ${tz}. Attendu un identifiant IANA, par exemple America/New_York.`,
+          );
+        }
+        patch.timezone = tz;
+        patch.timezoneSource = "admin";
+      }
+    }
+    if (args.locale !== undefined) {
+      patch.locale = normalizeCreatorLocale(args.locale);
+    }
     if (args.status !== undefined) patch.status = args.status;
     // ─── ANCRE DE CYCLE D'UN TALENT — la ligne la plus délicate de ce module ──
     // Posée à la PREMIÈRE activation, jamais réécrite.
@@ -339,12 +591,13 @@ export const updateCreator = adminMutation({
     // recalerait TOUS ses cycles, y compris ceux déjà payés, et des euros
     // changeraient de cycle sans qu'aucun humain n'ait rien fait. Une spec le
     // vérifie avec un partenaire réel.
-    if (
-      args.status === "active" &&
-      creator.payStartAt === undefined &&
-      resolveCreatorKind(creator.kind) === "talent"
-    ) {
-      patch.payStartAt = Date.now();
+    //
+    // Le patch lui-même vient de `creatorActivationPatch` : c'est le MÊME geste
+    // que l'activation automatique déclenchée par la validation d'un compte
+    // (cf convex/creatorActivation.ts). Deux copies de cette règle, et l'une des
+    // deux portes d'activation finirait par oublier l'ancre.
+    if (args.status === "active") {
+      Object.assign(patch, creatorActivationPatch(creator, Date.now()));
     }
     // FIN DE PAIE — le pendant de l'ancre de début. Quitter `active` arrête les
     // mois dus (celui de la sortie est dû en entier) ; revenir efface la borne.
@@ -352,7 +605,14 @@ export const updateCreator = adminMutation({
     // Sans elle, un talent arrêté continuerait d'accumuler un forfait tous les
     // mois, indéfiniment : rien ne planterait, le total dû grossirait tout seul,
     // et on le découvrirait au virement.
-    if (args.status !== undefined && resolveCreatorKind(creator.kind) === "talent") {
+    //
+    // Elle vit ICI et pas dans `creatorActivationPatch` : ce patch dit ce que
+    // l'ACTIVATION écrit, et il est partagé avec l'automatisme qui active sur
+    // validation d'un compte — lequel ne désactive jamais personne.
+    if (
+      args.status !== undefined &&
+      resolveCreatorKind(creator.kind) === "talent"
+    ) {
       if (args.status === "active") {
         patch.payEndAt = undefined;
       } else if (creator.payStartAt !== undefined) {
@@ -361,20 +621,22 @@ export const updateCreator = adminMutation({
         if (creator.payEndAt === undefined) patch.payEndAt = Date.now();
       }
     }
-    for (const champ of ["clipRate", "monthlyRetainer"] as const) {
-      const valeur = args[champ];
-      if (valeur === undefined) continue;
-      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
-        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
-      }
-      patch[champ] = valeur === null ? undefined : valeur;
-    }
-    if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
-    if (args.paymentDetails !== undefined) {
-      patch.paymentDetails = args.paymentDetails.trim() || undefined;
-    }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;
+    }
+    if (args.refSlug !== undefined) {
+      // Une ref appartient à UNE personne. Sans ce contrôle, deux fiches avec
+      // la même ref affichaient toutes deux les mêmes chiffres et le total ne
+      // le montrait pas (il somme les refs, pas les fiches) : rien n'aurait
+      // signalé l'erreur. Couvre aussi le croisement avec une ref d'influenceuse.
+      await assertRefSlugFree(ctx, ctx.projectId, args.refSlug, args.id);
+      // Normalisée à l'écriture (minuscules, sans « / » ni « @ ») ; null ET
+      // saisie blanche retirent la ref — la créatrice repasse « pas de ref
+      // configurée » dans la section conversion, jamais à zéro.
+      patch.refSlug =
+        args.refSlug === null
+          ? undefined
+          : (normalizeRef(args.refSlug) ?? undefined);
     }
     if (args.handlesToCreate !== undefined) {
       patch.handlesToCreate = normalizeHandlesToCreate(args.handlesToCreate);
@@ -416,7 +678,15 @@ export const updateCreator = adminMutation({
           )
           .first();
         if (membership) {
-          await ctx.db.patch(membership._id, { role: roleForKind(cible) });
+          // ⚠️ `withPortalRole` et non `{ roles: [nouveauPortail] }` : une
+          // créatrice-manager qui change de population garde son rôle manager.
+          // Écrite en remplacement complet, cette ligne le lui retirerait en
+          // silence — elle perdrait l'app interne sans que personne l'ait
+          // demandé, et aucun écran ne le dirait.
+          await ctx.db.patch(membership._id, {
+            roles: withPortalRole(rolesOf(membership), roleForKind(cible)),
+            role: undefined,
+          });
         }
       }
 
@@ -464,6 +734,93 @@ export const updateCreator = adminMutation({
       }
     }
     await ctx.db.patch(args.id, patch);
+  },
+});
+
+// ─── RÉMUNÉRATION D'UNE CRÉATRICE — bloc `creators.pay_terms` ───────────────
+//
+// Les cinq champs d'argent de la fiche, extraits de `getCreator`/`updateCreator`
+// pour qu'un droit puisse les couvrir SEULS. C'est ce découpage qui fait exister
+// la frontière : un manager peut désormais gérer une créatrice sans voir son RIB
+// ni pouvoir changer son tarif.
+//
+// PREMIÈRES vraies `permissionQuery`/`permissionMutation` du dépôt, au-delà des
+// sondes ; depuis l'étape 5 toutes les fonctions d'administration sont gardées par bloc
+// jusqu'à l'étape 4.
+
+/**
+ * Les conditions de rémunération d'UNE créatrice. `null` si la fiche est
+ * introuvable ou hors projet — même contrat que `getCreator`.
+ *
+ * Sert la fiche admin, qui fait donc DEUX lectures : l'identité par `getCreator`,
+ * l'argent par celle-ci. C'est le prix du découpage, et il est assumé : une seule
+ * query ne peut pas porter deux droits sans devenir insécable.
+ */
+export const getCreatorPayTerms = permissionQuery("creators.pay_terms")({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    return {
+      paymentMethod: creator.paymentMethod ?? null,
+      paymentDetails: creator.paymentDetails ?? null,
+      bonusPricingId: creator.bonusPricingId ?? null,
+      clipRate: creator.clipRate ?? null,
+      monthlyRetainer: creator.monthlyRetainer ?? null,
+    };
+  },
+});
+
+/**
+ * Écriture des mêmes cinq champs. Contrat de chaque champ INCHANGÉ par rapport à
+ * `updateCreator` : absent = ne pas toucher, `null` = retirer. Un tarif absent et
+ * un tarif nul ne veulent pas dire la même chose — sans tarif, aucune ligne de
+ * paie n'est créée du tout.
+ *
+ * Les validations déménagent AVEC les champs (pricing du projet, tarif ≥ 0), et
+ * la matérialisation des paliers de bonus aussi : changer la grille doit toujours
+ * refléter immédiatement les paliers déjà atteints, sinon l'écran de progression
+ * ment jusqu'au prochain cumul.
+ */
+export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
+  args: {
+    id: v.id("creators"),
+    paymentMethod: v.optional(PAYMENT_METHODS),
+    paymentDetails: v.optional(v.string()),
+    bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
+    clipRate: v.optional(v.union(v.number(), v.null())),
+    monthlyRetainer: v.optional(v.union(v.number(), v.null())),
+  },
+  handler: async (ctx, args) => {
+    const creator = await ctx.db.get(args.id);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable.");
+    }
+    const patch: Partial<Doc<"creators">> = {};
+    if (args.bonusPricingId !== undefined) {
+      if (args.bonusPricingId === null) {
+        patch.bonusPricingId = undefined;
+      } else {
+        const pricing = await ctx.db.get(args.bonusPricingId);
+        if (!pricing || pricing.projectId !== ctx.projectId) {
+          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
+        }
+        patch.bonusPricingId = args.bonusPricingId;
+      }
+    }
+    for (const champ of ["clipRate", "monthlyRetainer"] as const) {
+      const valeur = args[champ];
+      if (valeur === undefined) continue;
+      if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
+        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
+      }
+      patch[champ] = valeur === null ? undefined : valeur;
+    }
+    if (args.paymentMethod !== undefined) patch.paymentMethod = args.paymentMethod;
+    if (args.paymentDetails !== undefined) {
+      patch.paymentDetails = args.paymentDetails.trim() || undefined;
+    }
+    await ctx.db.patch(args.id, patch);
     // Changer la grille de bonus → matérialise immédiatement les paliers déjà
     // atteints par le cumul (idempotent).
     if (args.bonusPricingId !== undefined) {
@@ -490,6 +847,7 @@ async function creatorDeletionImpact(
   keptAssignments: number;
   payments: number;
   publications: number;
+  contracts: number;
 }> {
   const projectId = creator.projectId;
   const comptes = await ctx.db
@@ -519,12 +877,19 @@ async function creatorDeletionImpact(
       .collect();
     publications = pubs.filter((p) => handles.has(p.compte)).length;
   }
+  // Les contrats PDF partent avec la fiche : le blob n'est référencé par rien
+  // d'autre, et un contrat sans signataire ne se rattache à personne.
+  const contracts = await ctx.db
+    .query("creatorContracts")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+    .collect();
   return {
     comptes: comptes.length,
     deletableAssignments,
     keptAssignments: assignments.length - deletableAssignments,
     payments: payments.length,
     publications,
+    contracts: contracts.length,
   };
 }
 
@@ -532,7 +897,7 @@ async function creatorDeletionImpact(
  * Prévisualisation pour la confirmation de suppression : nom exact (saisie de
  * confirmation) + compteurs supprimé/conservé. null si introuvable / hors projet.
  */
-export const getCreatorDeletionImpact = adminQuery({
+export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -553,6 +918,7 @@ export const getCreatorDeletionImpact = adminQuery({
  *     (Convex + Stream, best-effort) + suppression de la row, ce qui LIBÈRE le
  *     comboKey (réassignable) ;
  *   - invitations (tokens one-shot) ;
+ *   - contrats PDF (row + blob storage) ;
  *   - membership creator du projet (révoque l'accès portail) ;
  *   - le compte user partagé + ses reset tokens UNIQUEMENT s'il devient orphelin
  *     (aucun autre membership ni fiche) → ne casse pas un créateur multi-projets
@@ -570,7 +936,7 @@ export const getCreatorDeletionImpact = adminQuery({
  * via purgeAndDeleteAssignment (idiome deleteAssignment) — un échec externe ne
  * casse pas la suppression DB (transactionnelle).
  */
-export const deleteCreator = adminMutation({
+export const deleteCreator = permissionMutation("creators.delete")({
   args: { id: v.id("creators") },
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
@@ -627,8 +993,10 @@ export const deleteCreator = adminMutation({
     }
 
     // 3. Supprimer les comptes (opérationnels). Les publications gardent leur
-    //    handle (string) → restent lisibles sans la row compte.
+    //    handle (string) → restent lisibles sans la row compte. La photo de
+    //    profil recopiée part avec : plus aucun écran ne la désignerait.
     for (const c of comptes) {
+      await purgeCompteAvatar(ctx, c);
       await ctx.db.delete(c._id);
     }
 
@@ -641,6 +1009,18 @@ export const deleteCreator = adminMutation({
       await ctx.db.delete(inv._id);
     }
 
+    // 4bis. Contrats : row ET blob. Sans cette purge, le PDF resterait dans le
+    //       storage sans plus aucune row pour le désigner — introuvable, et
+    //       pourtant toujours là.
+    const contracts = await ctx.db
+      .query("creatorContracts")
+      .withIndex("by_creator", (q) => q.eq("creatorId", id))
+      .collect();
+    for (const c of contracts) {
+      await ctx.db.delete(c._id);
+      await ctx.storage.delete(c.storageId);
+    }
+
     // 5. Révoquer l'accès : supprimer le membership creator de CE projet. Le
     //    compte user partagé n'est supprimé que s'il devient totalement orphelin.
     const userId = creator.userId;
@@ -651,9 +1031,19 @@ export const deleteCreator = adminMutation({
         .collect();
       const remaining: typeof memberships = [];
       for (const m of memberships) {
-        if (m.projectId === projectId && m.role === "creator") {
+        if (m.projectId !== projectId || !hasRole(m, "creator")) {
+          remaining.push(m);
+          continue;
+        }
+        // Le membership peut porter D'AUTRES rôles (une créatrice-manager) :
+        // on retire SON rôle de portail, on ne supprime la ligne que s'il ne
+        // reste rien. Supprimer d'office rendrait le retrait d'une fiche
+        // créatrice équivalent à un renvoi de l'équipe.
+        const restants = withPortalRole(rolesOf(m), null);
+        if (restants.length === 0) {
           await ctx.db.delete(m._id);
         } else {
+          await ctx.db.patch(m._id, { roles: restants, role: undefined });
           remaining.push(m);
         }
       }
@@ -683,6 +1073,7 @@ export const deleteCreator = adminMutation({
         comptes: comptes.length,
         assignments: deletedAssignments,
         invitations: invitations.length,
+        contracts: contracts.length,
         freedCombos,
       },
       kept: {
@@ -720,6 +1111,17 @@ export const getInvitationPreview = publicQuery({
     const project = await ctx.db.get(inv.projectId);
     return {
       status: "valid" as const,
+      // LANGUE choisie par l'admin à l'invitation. Exposée ici parce que c'est
+      // le SEUL moment où /join peut la connaître : le créateur arrive sans
+      // session (rien à lire côté users) et sans cookie (premier passage sur le
+      // domaine). Sans elle, il clique un e-mail en anglais et atterrit sur un
+      // écran français — `Accept-Language` peut le sauver par chance, jamais par
+      // choix de l'admin.
+      //
+      // Aucune fuite ajoutée : le token garde déjà toute cette lecture, et c'est
+      // une valeur POSÉE PAR L'ADMIN, pas une donnée personnelle du créateur.
+      // `null` = défaut, la page ne pose alors aucun cookie.
+      locale: creator.locale ?? null,
       email: inv.email,
       name: creator.name,
       projectName: project?.name ?? null,
@@ -731,20 +1133,47 @@ export const getInvitationPreview = publicQuery({
 
 /**
  * Portail de l'utilisateur courant — base du routage par rôle :
- *   - superadmin OU au moins un membership "admin" → role "admin" + slug du
- *     projet par défaut (cible de redirection depuis / et les portails).
+ *   - superadmin OU au moins un membership d'ÉQUIPE ("admin" ou "manager") →
+ *     ce rôle + slug du projet d'équipe par défaut (cible de redirection depuis
+ *     / et les portails).
  *   - sinon, au moins un membership de PORTAIL → ce rôle ("creator" partenaire,
  *     "talent" ou "clipper") + nom de la fiche (pour l'accueil du portail).
- *     L'admin PRIME (un humain admin+créateur va sur l'app interne) ; entre
+ *     L'ÉQUIPE PRIME (un humain admin+créateur va sur l'app interne) ; entre
  *     rôles de portail, le PREMIER trouvé dans l'ordre creator → talent →
  *     clipper gagne : un même humain n'est pas censé cumuler deux populations,
  *     et si ça arrive, mieux vaut un choix déterministe qu'un écran vide.
  *   - sinon → role "none".
  *
+ * ── DEUX DÉFAUTS CORRIGÉS ICI, TOUS DEUX ANTÉRIEURS AU CUMUL DE RÔLES ────────
+ *
+ * 1. « MANAGER » N'ÉTAIT NI L'UN NI L'AUTRE. La condition d'équipe testait
+ *    `role === "admin"` strictement, et `manager` n'est pas un rôle de portail :
+ *    un manager tombait donc dans le `role: "none"` final, c'est-à-dire sur
+ *    l'écran « aucun espace ». Le rôle existait depuis #154 et n'a jamais été
+ *    exercé en production (0 manager en base au 2026-09-05) — le défaut était
+ *    armé, pas déclenché. Il se serait déclenché sur le PREMIER manager.
+ *
+ * 2. LE SLUG D'ATTERRISSAGE SE CHOISISSAIT PARMI **TOUS** LES MEMBERSHIPS.
+ *    Le `reduce` prenait le plus récent sans regarder son rôle. Un admin du
+ *    projet A qui devient créateur du projet B (chemin `addCreatorToProject`,
+ *    qui existe et est utilisé) atterrissait donc sur `/admin/B/dashboard`, où
+ *    `ProjectProvider` voit un rôle de portail et le renvoie sur `/app` : il ne
+ *    revoyait JAMAIS son app interne. Le slug se choisit désormais parmi les
+ *    seuls memberships qui OUVRENT l'app interne.
+ *    ⚠️ Ne pas « simplifier » en reprenant tous les memberships : le cumul
+ *    équipe + portail devient la norme (promotion interne), donc ce cas cesse
+ *    d'être théorique.
+ *
  * La FORME du retour est volontairement UNIQUE pour les trois portails (mêmes
  * champs projectId/payoutDay/accentColor) : un objet discriminé par rôle
  * obligerait chaque appelant front à narrower avant de lire `projectId`, pour
  * zéro gain — la donnée est la même, seul le portail cible change.
+ *
+ * Le rôle d'équipe est rendu TEL QUEL ("admin" ou "manager"), jamais aplati en
+ * "admin" : le client s'en sert pour router (via `isTeamRole`), et lui répondre
+ * « admin » pour un manager serait une donnée fausse dans le seul but d'éviter
+ * un littéral de plus. Ce qu'un manager peut FAIRE reste décidé par les blocs,
+ * requête par requête.
  */
 export const getMyPortal = authedQuery({
   args: {},
@@ -755,15 +1184,60 @@ export const getMyPortal = authedQuery({
       .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
       .collect();
     const isSuperadmin = user?.role === "superadmin";
-    const hasAdmin = memberships.some((m) => m.role === "admin");
-    const portalRole: PortalRole | undefined = (
-      ["creator", "talent", "clipper"] as const
-    ).find((r) => memberships.some((m) => m.role === r));
+    // TOUS les rôles de la personne, tous projets confondus, filtrés par la
+    // liste fermée. Sert au CLIENT à savoir quels espaces lui sont légitimes —
+    // c'est ce qui empêche les gardes de portail de renvoyer chez elle une
+    // créatrice-manager qui ouvre /app. Ce n'est PAS une barrière : chaque
+    // fonction revérifie côté serveur, membership par membership.
+    const tous = new Set<MembershipRole>();
+    for (const m of memberships) for (const r of rolesOf(m)) tous.add(r);
+    const roles = MEMBERSHIP_ROLES.filter((r) => tous.has(r));
 
-    if (isSuperadmin || hasAdmin) {
+    // Ordre significatif (TEAM_ROLES) : admin avant manager — même priorité que
+    // la cascade de requirePermission pour une personne qui cumulerait les deux
+    // sur deux projets.
+    const teamRole = TEAM_ROLES.find((r) => tous.has(r));
+    const portalRole = PORTAL_ROLES.find((r) => tous.has(r));
+
+    // ── LE CONTEXTE DU PORTAIL, calculé DÈS QU'ELLE EN A UN ──────────────────
+    // Et non plus seulement quand le portail est son espace PRINCIPAL. Une
+    // créatrice-manager atterrit côté équipe (l'équipe prime), mais /app doit
+    // pouvoir se rendre pour elle : sans ces champs, son shell créatrice n'a ni
+    // projectId ni accent et reste bloqué sur son écran d'attente.
+    let creatorName: string | null = null;
+    let projectId: Id<"projects"> | null = null;
+    let payoutDay: number | null = null;
+    let accentColor: string | null = null;
+    if (portalRole !== undefined) {
+      // Résolution INCHANGÉE (`.first()` par userId) : le partenaire multi-projets
+      // continue de passer par getMyCreatorProjects pour la liste ; ici on ne sert
+      // que le nom d'accueil + le projet par défaut du portail.
+      const creator = await ctx.db
+        .query("creators")
+        .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
+        .first();
+      creatorName = creator?.name ?? null;
+      // P5 — projectId du créateur : le portail le passe aux creator/talent/
+      // clipperQuery (qui exigent projectId, hors ProjectProvider).
+      projectId = creator?.projectId ?? null;
+      if (creator?.projectId) {
+        const project = await ctx.db.get(creator.projectId);
+        // P9 — payoutDay : le portail affiche la prochaine date de paie.
+        payoutDay = project?.payoutDay ?? null;
+        // P10 branding — accentColor injecté dans --primary (#FF5200 sinon).
+        accentColor = project?.accentColor ?? null;
+      }
+    }
+
+    if (isSuperadmin || teamRole !== undefined) {
       let slug: string | null = null;
-      if (memberships.length > 0) {
-        const latest = memberships.reduce((a, b) =>
+      // Le plus récent parmi les memberships D'ÉQUIPE (cf défaut 2 ci-dessus) :
+      // un membership de portail ne désigne pas un projet où l'on administre.
+      const teamMemberships = memberships.filter(
+        (m) => teamRoleOf(m) !== null,
+      );
+      if (teamMemberships.length > 0) {
+        const latest = teamMemberships.reduce((a, b) =>
           b._creationTime > a._creationTime ? b : a,
         );
         const project = await ctx.db.get(latest.projectId);
@@ -773,35 +1247,29 @@ export const getMyPortal = authedQuery({
         const repackit = await getProjectBySlug(ctx, REPACKIT_SLUG);
         slug = repackit?.slug ?? null;
       }
-      return { role: "admin" as const, slug, creatorName: null };
+      // Un superadmin est TOUJOURS annoncé "admin", même s'il se trouve manager
+      // quelque part : son accès est implicite et total (cf requireProjectAdmin
+      // / requirePermission, qui le laissent passer avant toute autre lecture).
+      // L'annoncer "manager" décrirait un pouvoir plus petit que le sien.
+      const role: TeamRole = isSuperadmin ? "admin" : (teamRole ?? "admin");
+      return {
+        role,
+        roles,
+        slug,
+        creatorName,
+        projectId,
+        payoutDay,
+        accentColor,
+      };
     }
 
     if (portalRole !== undefined) {
-      // Résolution INCHANGÉE (`.first()` par userId) : le partenaire multi-projets
-      // continue de passer par getMyCreatorProjects pour la liste ; ici on ne sert
-      // que le nom d'accueil + le projet par défaut du portail.
-      const creator = await ctx.db
-        .query("creators")
-        .withIndex("by_user", (q) => q.eq("userId", ctx.userId))
-        .first();
-      // P9 — payoutDay du projet : le portail créateur l'utilise pour afficher
-      // la prochaine date de paie (nextPayoutDate, calculé client).
-      let payoutDay: number | null = null;
-      // P10 branding — accentColor du projet : le portail /app l'injecte dans
-      // --primary pour que l'accent suive le projet du créateur (#FF5200 sinon).
-      let accentColor: string | null = null;
-      if (creator?.projectId) {
-        const project = await ctx.db.get(creator.projectId);
-        payoutDay = project?.payoutDay ?? null;
-        accentColor = project?.accentColor ?? null;
-      }
       return {
         role: portalRole,
+        roles,
         slug: null,
-        creatorName: creator?.name ?? null,
-        // P5 — projectId du créateur : le portail le passe aux creator/talent/
-        // clipperQuery (qui exigent projectId, hors ProjectProvider).
-        projectId: creator?.projectId ?? null,
+        creatorName,
+        projectId,
         payoutDay,
         accentColor,
       };
@@ -809,9 +1277,12 @@ export const getMyPortal = authedQuery({
 
     return {
       role: "none" as const,
+      roles,
       slug: null,
       creatorName: null,
       projectId: null,
+      payoutDay: null,
+      accentColor: null,
     };
   },
 });
@@ -836,6 +1307,58 @@ async function profileFor(ctx: QueryCtx, creatorId: Id<"creators">) {
 export const getMyProfile = creatorQuery({
   args: {},
   handler: async (ctx) => profileFor(ctx, ctx.creatorId),
+});
+
+/**
+ * FUSEAU de la créatrice connectée + provenance — lecture.
+ *
+ * Sert l'invite d'onboarding : « tu es bien à New York ? ». L'écran compare
+ * cette valeur à `Intl.DateTimeFormat().resolvedOptions().timeZone` (le fuseau
+ * réel de son navigateur) et propose de confirmer ou de corriger.
+ */
+export const getCreatorTimezone = permissionQuery("creators.read")({
+  args: { id: v.id("creators") },
+  handler: async (ctx, { id }) => {
+    const creator = await ctx.db.get(id);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw new ConvexError("Créateur introuvable dans le projet.");
+    }
+    return creatorZone(ctx, id);
+  },
+});
+
+export const getMyTimezone = creatorQuery({
+  args: {},
+  handler: async (ctx) => creatorZone(ctx, ctx.creatorId),
+});
+
+/**
+ * La créatrice CONFIRME son fuseau — la seule source de provenance "confirmed".
+ *
+ * Pré-rempli depuis son navigateur puis validé par elle : c'est le seul chemin
+ * qui produit un FAIT plutôt qu'une supposition. L'admin, lui, ne peut poser que
+ * "admin" (cf updateCreator) et la déduction depuis le pays que "inferred".
+ *
+ * Idempotent : reconfirmer le même fuseau ne fait rien de plus. Une créatrice
+ * qui déménage rappelle simplement cette mutation.
+ */
+export const confirmMyTimezone = creatorMutation({
+  args: { timezone: v.string() },
+  handler: async (ctx, { timezone }) => {
+    const tz = timezone.trim();
+    if (!isSupportedTimezone(tz)) {
+      throw new ConvexError(
+        `Fuseau horaire inconnu : ${timezone}. Attendu un identifiant IANA, par exemple America/New_York.`,
+      );
+    }
+    await ctx.db.patch(ctx.creatorId, {
+      timezone: tz,
+      timezoneSource: "confirmed",
+    });
+    // Même forme que `getMyTimezone` / `getCreatorTimezone` : un appelant qui
+    // compare les deux ne doit pas avoir à connaître deux contrats.
+    return { timezone: tz, source: "confirmed" as const, stored: true };
+  },
 });
 
 /** ADMIN view-as — profil (lecture) du créateur ciblé. Scopé projet + superadmin. */
@@ -918,7 +1441,7 @@ export const getMyCreatorProjects = authedQuery({
       payCurrency: string | null;
     }[] = [];
     for (const m of memberships) {
-      if (!isPortalRole(m.role)) continue;
+      if (portalRoleOf(m) === null) continue;
       const project = await ctx.db.get(m.projectId);
       if (!project) continue;
       const fiche = fiches.find((c) => c.projectId === m.projectId);
@@ -958,7 +1481,7 @@ export const listAddableProjectsForCreator = authedQuery({
         .collect();
       adminProjects = [];
       for (const m of myMemberships) {
-        if (m.role !== "admin") continue;
+        if (!hasRole(m, "admin")) continue;
         const p = await ctx.db.get(m.projectId);
         if (p) adminProjects.push(p);
       }
@@ -977,7 +1500,7 @@ export const listAddableProjectsForCreator = authedQuery({
 
 /**
  * ADMIN — rattache un créateur DÉJÀ inscrit (compte existant, identifié par son
- * userId) au projet courant (= projet cible, sur lequel l'adminMutation vérifie
+ * userId) au projet courant (= projet cible, sur lequel la garde vérifie
  * les droits de l'appelant). Crée une nouvelle fiche `creators` + un membership
  * "creator" pour ce compte sur ce projet. NE touche NI au login NI au mot de
  * passe (même compte). Identité (nom/email/téléphone) copiée depuis une fiche
@@ -987,7 +1510,7 @@ export const listAddableProjectsForCreator = authedQuery({
  * Pour un créateur JAMAIS inscrit (aucun compte), ce bouton ne s'applique pas :
  * c'est /join (invitation à token) qui crée un nouveau compte.
  */
-export const addCreatorToProject = adminMutation({
+export const addCreatorToProject = permissionMutation("creators.manage")({
   args: { creatorUserId: v.id("users") },
   handler: async (ctx, { creatorUserId }): Promise<{ creatorId: Id<"creators"> }> => {
     const user = await ctx.db.get(creatorUserId);
@@ -1027,7 +1550,7 @@ export const addCreatorToProject = adminMutation({
     await ctx.db.insert("memberships", {
       userId: creatorUserId,
       projectId: ctx.projectId,
-      role: "creator",
+      roles: ["creator"],
     });
     // Dépôt de fichiers Snytch — crée le sous-dossier Drive (self-gaté Snytch,
     // no-op sans env Drive). Cf inviteCreator.
@@ -1045,6 +1568,25 @@ export const addCreatorToProject = adminMutation({
  * du test multi-projets sans passer par l'UI admin. Crée la fiche + le
  * membership "creator" si absents. Retourne le creatorId.
  */
+/**
+ * Lecture e2e de la LANGUE, des deux côtés à la fois : la fiche et le compte.
+ * Les deux ensemble parce que c'est leur COHÉRENCE qui est testée — la fiche
+ * porte le choix de l'admin, le compte en hérite au signup et fait foi ensuite.
+ * `null` des deux côtés = français par défaut, rien de stocké.
+ */
+export const e2eGetCreatorLocaleState = e2eMutation({
+  args: { creatorId: v.id("creators") },
+  handler: async (ctx, { creatorId }) => {
+    const c = await ctx.db.get(creatorId);
+    if (!c) throw new ConvexError("Fiche introuvable.");
+    const user = c.userId ? await ctx.db.get(c.userId) : null;
+    return {
+      creatorLocale: c.locale ?? null,
+      userLocale: user?.locale ?? null,
+    };
+  },
+});
+
 export const e2eAddCreatorToProject = e2eMutation({
   args: { email: v.string(), projectId: v.id("projects") },
   handler: async (ctx, { email, projectId }) => {
@@ -1072,7 +1614,7 @@ export const e2eAddCreatorToProject = e2eMutation({
         await ctx.db.insert("memberships", {
           userId: user._id,
           projectId,
-          role: "creator",
+          roles: ["creator"],
         });
       }
       return { creatorId: existingFiche._id };
@@ -1089,7 +1631,7 @@ export const e2eAddCreatorToProject = e2eMutation({
     await ctx.db.insert("memberships", {
       userId: user._id,
       projectId,
-      role: "creator",
+      roles: ["creator"],
     });
     return { creatorId };
   },
@@ -1098,7 +1640,7 @@ export const e2eAddCreatorToProject = e2eMutation({
 /**
  * Exécute requireProjectAdmin pour le user (par email) sur projectId et
  * retourne { allowed, error? }. Preuve serveur que la garde des wrappers
- * adminQuery/adminMutation rejette un creator (sans avoir à ouvrir une session
+ * la garde rejette un creator (sans avoir à ouvrir une session
  * pour un user de test dépourvu de mot de passe). Cf e2eAssertAccess.
  */
 export const e2eAssertAdminAccess = e2eMutation({
@@ -1115,7 +1657,7 @@ export const e2eAssertAdminAccess = e2eMutation({
     } catch (e) {
       return {
         allowed: false,
-        error: e instanceof ConvexError ? String(e.data) : "error",
+        error: convexErrorText(e),
       };
     }
   },
@@ -1151,7 +1693,7 @@ export const e2eAssertViewAsAccess = e2eMutation({
     } catch (e) {
       return {
         allowed: false,
-        error: e instanceof ConvexError ? String(e.data) : "error",
+        error: convexErrorText(e),
       };
     }
   },
@@ -1254,5 +1796,112 @@ export const cleanupTestCreators = e2eMutation({
       deleted++;
     }
     return { deleted };
+  },
+});
+
+
+/**
+ * Refuse une ref déjà portée par QUELQU'UN D'AUTRE — une autre créatrice du
+ * projet, ou une influenceuse déclarée (`projects.influencerRefs`).
+ *
+ * Une ref est une clé d'attribution : deux porteurs, et les deux lignes
+ * affichent les mêmes chiffres pendant que le total reste juste (il somme les
+ * refs, pas les lignes). Le défaut serait donc invisible — d'où un refus À
+ * L'ÉCRITURE plutôt qu'un contrôle à la lecture.
+ *
+ * Effacer une ref (null/vide) est toujours autorisé, et reposer la MÊME ref sur
+ * la même fiche reste idempotent.
+ */
+async function assertRefSlugFree(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  refSlug: string | null | undefined,
+  selfId: Id<"creators">,
+): Promise<void> {
+  const next = normalizeRef(refSlug ?? null);
+  if (next === null) return;
+  const others = (
+    await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((c) => c._id !== selfId && normalizeRef(c.refSlug ?? null) === next);
+  if (others.length > 0) {
+    throw new ConvexError(
+      `La ref « ${next} » est déjà portée par ${others[0].name}. Une ref ne peut appartenir qu'à une seule personne.`,
+    );
+  }
+  const project = await ctx.db.get(projectId);
+  const influencer = (project?.influencerRefs ?? []).find(
+    (i) => normalizeRef(i.ref) === next,
+  );
+  if (influencer) {
+    throw new ConvexError(
+      `La ref « ${next} » est déclarée pour l'influenceuse ${influencer.name}. Une ref ne peut appartenir qu'à une seule personne.`,
+    );
+  }
+}
+
+// ─── Outillage : pose des refSlug depuis le CLI (npx convex run --prod) ──────
+
+/**
+ * Pose la ref du chemin court snytch.co sur une créatrice, DEPUIS LE CLI.
+ *
+ * `updateCreator` est gardée par bloc (session requise) — inatteignable
+ * depuis `npx convex run`. Cette mutation interne sert l'amorçage : les
+ * refSlug n'existaient sur aucune fiche après le déploiement de #72, et sans
+ * elles la section « Ce que ça a rapporté » affiche « pas de ref configurée »
+ * partout.
+ *
+ * Résolution par (slug de projet, nom de créatrice) : les deux choses lisibles
+ * dans un appel CLI. Nom plié (casse/accents/espaces). REFUSE d'écraser une
+ * ref DIFFÉRENTE déjà posée sans `force` : une ref est une clé d'attribution —
+ * la changer par mégarde rattacherait l'historique à la mauvaise personne.
+ * Idempotent si la ref est identique.
+ */
+export const setCreatorRefSlugBySlug = internalMutation({
+  args: {
+    projectSlug: v.string(),
+    creatorName: v.string(),
+    refSlug: v.union(v.string(), v.null()),
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { projectSlug, creatorName, refSlug, force }) => {
+    const project = (await ctx.db.query("projects").collect()).find(
+      (p) => p.slug === projectSlug,
+    );
+    if (!project) throw new ConvexError(`Projet « ${projectSlug} » introuvable.`);
+    const fold = (t: string) =>
+      t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", project._id))
+      .collect();
+    const matches = creators.filter((c) => fold(c.name) === fold(creatorName));
+    if (matches.length !== 1) {
+      throw new ConvexError(
+        `${matches.length} créatrice(s) « ${creatorName} » sur ${projectSlug} — il en faut exactement une.`,
+      );
+    }
+    const c = matches[0];
+    const next = refSlug === null ? undefined : (normalizeRef(refSlug) ?? undefined);
+    if (
+      c.refSlug !== undefined &&
+      next !== undefined &&
+      c.refSlug !== next &&
+      force !== true
+    ) {
+      throw new ConvexError(
+        `${c.name} porte déjà la ref « ${c.refSlug} » — passer force:true pour la remplacer par « ${next} ».`,
+      );
+    }
+    await assertRefSlugFree(ctx, project._id, refSlug, c._id);
+    await ctx.db.patch(c._id, { refSlug: next });
+    return {
+      creatorId: c._id,
+      name: c.name,
+      before: c.refSlug ?? null,
+      after: next ?? null,
+    };
   },
 });

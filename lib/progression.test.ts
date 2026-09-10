@@ -52,9 +52,12 @@ describe("rewardOf", () => {
       expect(r.emoji).toBe("📱");
     }
   });
-  it("nature sans libellé → label de repli", () => {
+  it("nature sans libellé → null (le repli i18n est posé à l'affichage)", () => {
     const r = rewardOf({ rewardType: "nature" });
-    if (r.kind === "item") expect(r.label).toBe("Récompense");
+    // `label` porte la DONNÉE saisie par l'admin. Vide ⇒ null : le repli
+    // « Récompense » / « Reward » est résolu à l'affichage, dans la langue du
+    // lecteur, et ne peut plus être figé en français dans un module pur.
+    if (r.kind === "item") expect(r.label).toBe(null);
   });
 });
 

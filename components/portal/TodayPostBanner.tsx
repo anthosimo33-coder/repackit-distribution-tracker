@@ -8,9 +8,12 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { portalHref } from "@/lib/view-as";
 import {
   calendarStatus,
-  isSameLocalDay,
+  formatPlannedDay,
+  isPlannedToday,
   representativePostedAt,
 } from "@/lib/calendar-status";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type BannerRow = {
   _id: Id<"assignments">;
@@ -18,12 +21,19 @@ type BannerRow = {
   postDate?: number;
   postWindow?: { startMin: number; endMin: number };
   managedByAdmin?: boolean;
+  /** SON fuseau (servi par la query) — la journée se termine chez elle. */
+  creatorTimezone?: string | null;
   targets: { platform: string; publishedAt?: number | null }[];
   publishedAt?: number | null;
 };
 
-function longDate(ts: number): string {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+/**
+ * Jour PRÉVU en toutes lettres. Passe par `formatPlannedDay` : ce jour est une
+ * étiquette écrite à minuit Paris, et la rendre avec l'horloge du lecteur la
+ * décale d'un jour pour toute créatrice à l'ouest de Paris.
+ */
+function longDate(ts: number, locale: string): string {
+  return formatPlannedDay(ts, locale, {
     weekday: "long",
     day: "2-digit",
     month: "long",
@@ -47,6 +57,8 @@ export function TodayPostBanner({
   now: number;
   base: string;
 }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const mine = list.filter((a) => !a.managedByAdmin && a.postDate != null);
   if (mine.length === 0) return null;
 
@@ -55,13 +67,18 @@ export function TodayPostBanner({
       postDate: a.postDate,
       postedAt: representativePostedAt(a),
       now,
+      timeZone: a.creatorTimezone,
     }) === "scheduled";
 
+  // « Aujourd'hui » = SA journée à elle, comparée à l'ÉTIQUETTE du jour prévu.
   const today = mine.filter(
-    (a) => isScheduled(a) && isSameLocalDay(a.postDate!, now),
+    (a) => isScheduled(a) && isPlannedToday(a.postDate!, now, a.creatorTimezone),
   );
   const next = mine
-    .filter((a) => isScheduled(a) && !isSameLocalDay(a.postDate!, now))
+    .filter(
+      (a) =>
+        isScheduled(a) && !isPlannedToday(a.postDate!, now, a.creatorTimezone),
+    )
     .sort((x, y) => x.postDate! - y.postDate!)[0];
 
   if (today.length > 0) {
@@ -70,7 +87,7 @@ export function TodayPostBanner({
         <CardContent className="p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-primary">
             <SendIcon className="size-4" />
-            Aujourd&apos;hui tu postes
+            {t("todayPost.title")}
           </div>
           <ul className="space-y-1.5">
             {today.map((a) => (
@@ -113,27 +130,32 @@ export function TodayPostBanner({
         </span>
         <div className="min-w-0 flex-1 text-sm">
           <p className="font-medium text-slate-900">
-            Rien à poster aujourd&apos;hui.
+            {t("todayPost.nothing")}
           </p>
           {next ? (
             <p className="text-slate-500">
-              Prochain post{" "}
-              <span className="font-medium capitalize">
-                {longDate(next.postDate!)}
-              </span>{" "}
               {formatPostWindow(next.postWindow) !== null
-                ? ` entre ${formatPostWindow(next.postWindow)!.replace("-", " et ")}`
-                : ""}{" "}
-              : {next.formatName}.
+                ? t("todayPost.nextWindow", {
+                    date: longDate(next.postDate!, loc),
+                    window: formatPostWindow(next.postWindow)!.replace(
+                      "-",
+                      loc.startsWith("fr") ? " et " : " and ",
+                    ),
+                    format: next.formatName,
+                  })
+                : t("todayPost.next", {
+                    date: longDate(next.postDate!, loc),
+                    format: next.formatName,
+                  })}
             </p>
           ) : (
-            <p className="text-slate-500">Aucun post planifié à venir.</p>
+            <p className="text-slate-500">{t("todayPost.empty")}</p>
           )}
         </div>
         {next && (
           <Link
             href={portalHref(base, `/assignments/${next._id}`)}
-            aria-label="Voir le prochain post"
+            aria-label={t("todayPost.seeNext")}
             className="shrink-0 text-primary"
           >
             <ArrowRightIcon className="size-4" />

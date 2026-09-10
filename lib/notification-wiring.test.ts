@@ -173,9 +173,13 @@ describe("publication — la notification est la DERNIÈRE chose du cœur", () =
 });
 
 describe("revue vidéo — validation et refus notifient, hors transaction", () => {
+  // Le repère ne mentionne PAS le wrapper : les fonctions d'administration
+  // migrent vers `permissionMutation("bloc")` au fil du chantier permissions, et
+  // un test qui cherche « = adminMutation » se met à échouer à chaque bloc migré
+  // — en désignant la migration comme un défaut alors qu'elle n'en est pas un.
   const bloc = (nom: string) => {
-    const debut = SRC.indexOf(`export const ${nom} = adminMutation`);
-    expect(debut).toBeGreaterThan(-1);
+    const debut = SRC.indexOf(`export const ${nom} = `);
+    expect(debut, `${nom} introuvable dans convex/assignments.ts`).toBeGreaterThan(-1);
     return SRC.slice(debut, debut + 2500);
   };
 

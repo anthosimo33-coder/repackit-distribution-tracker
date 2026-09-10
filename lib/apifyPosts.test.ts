@@ -95,6 +95,20 @@ describe("toCount", () => {
     expect(toCount(NaN)).toBeNull();
     expect(toCount(Infinity)).toBeNull();
   });
+
+  it("rejette les NÉGATIFS — code d'absence, jamais un compteur", () => {
+    // `likesCount: -1` est ce que l'actor Instagram renvoie quand le compte
+    // masque ses likes. Rendu tel quel, il s'affichait « -1 like » et rendait
+    // le taux d'engagement négatif. Aucun compteur de cette chaîne (vues,
+    // likes, commentaires, saves, abonnés) n'admet de négatif légitime.
+    expect(toCount(-1)).toBeNull();
+    expect(toCount("-1")).toBeNull();
+    expect(toCount(-4_211)).toBeNull();
+    expect(toCount(-Infinity)).toBeNull();
+    // 0 reste une MESURE, et le reste.
+    expect(toCount(0)).toBe(0);
+    expect(toCount("0")).toBe(0);
+  });
 });
 
 // ─── Parse TikTok ────────────────────────────────────────────────────────────
@@ -121,12 +135,17 @@ describe("parseTikTokViews", () => {
       likes: 320,
       comments: 88,
       title: "Ma légende #fyp",
+      // TikTok sans collectCount dans la fixture → non collecté, pas zéro.
+      saves: null,
+      author: null,
     });
     expect(stats["42"]).toEqual({
       views: 120,
       likes: null,
       comments: null,
       title: null,
+      saves: null,
+      author: null,
     });
     expect(unavailable).toEqual([]);
   });
@@ -207,12 +226,17 @@ describe("parseInstagramViews", () => {
       likes: 88,
       comments: 47,
       title: "Légende IG",
+      // Instagram : pas de saves sur la plateforme, `null` est DÉFINITIF.
+      saves: null,
+      author: null,
     });
     expect(stats["Creel002"]).toEqual({
       views: 3_300,
       likes: null,
       comments: null,
       title: null,
+      saves: null,
+      author: null,
     });
     expect(unavailable).toEqual([]);
   });
@@ -234,5 +258,168 @@ describe("parseInstagramViews", () => {
 
   it("ne crash pas sur une réponse non-array", () => {
     expect(parseInstagramViews("nope", ["Cx"]).unavailable).toEqual(["Cx"]);
+  });
+
+  it("likes MASQUÉS (likesCount: -1) → null, et le post reste relevé", () => {
+    // Items recopiés d'un run réel de l'actor sur des posts Snytch dont le
+    // compte masque le nombre de likes : `likesCount: -1`, `videoViewCount`
+    // absent, `videoPlayCount` renseigné. C'est le cas des 63 publications
+    // trouvées en prod. Le post N'EST PAS perdu — seuls ses likes le sont.
+    const items = [
+      {
+        shortCode: "DcraIz6seQJ",
+        type: "Video",
+        likesCount: -1,
+        commentsCount: 0,
+        videoPlayCount: 163,
+        videoViewCount: null,
+        url: "https://www.instagram.com/p/DcraIz6seQJ/",
+      },
+      {
+        shortCode: "DcY8lwlsHqf",
+        type: "Video",
+        likesCount: -1,
+        commentsCount: 2,
+        videoPlayCount: 2_227,
+        videoViewCount: null,
+        url: "https://www.instagram.com/p/DcY8lwlsHqf/",
+      },
+    ];
+    const { stats, unavailable } = parseInstagramViews(items, [
+      "DcraIz6seQJ",
+      "DcY8lwlsHqf",
+    ]);
+    expect(unavailable).toEqual([]);
+    // PRÉSENCE : vues et commentaires continuent d'être relevés...
+    expect(stats["DcraIz6seQJ"].views).toBe(163);
+    expect(stats["DcraIz6seQJ"].comments).toBe(0);
+    expect(stats["DcY8lwlsHqf"].views).toBe(2_227);
+    expect(stats["DcY8lwlsHqf"].comments).toBe(2);
+    // ...ABSENCE : et seuls les likes tombent à null, jamais à -1 ni à 0.
+    expect(stats["DcraIz6seQJ"].likes).toBeNull();
+    expect(stats["DcY8lwlsHqf"].likes).toBeNull();
+  });
+});
+
+// ─── Saves + compteurs de compte, servis par le MÊME run ─────────────────────
+
+describe("parseTikTokViews — les champs que le relevé jetait", () => {
+  /** Item calqué sur une sortie réelle de clockworks/tiktok-scraper. */
+  const item = {
+    id: "7674970651362381088",
+    webVideoUrl:
+      "https://www.tiktok.com/@thekellychapters_/video/7674970651362381088",
+    text: "elle a vérifié son téléphone",
+    playCount: 41_206,
+    diggCount: 3_712,
+    commentCount: 214,
+    collectCount: 619,
+    authorMeta: {
+      name: "thekellychapters_",
+      nickName: "Kelly",
+      fans: 18_430,
+      following: 312,
+      heart: 1_204_900,
+    },
+  };
+
+  it("remonte les saves du post ET les compteurs du compte en un seul run", () => {
+    const { stats } = parseTikTokViews([item], ["7674970651362381088"]);
+    // Les saves : le champ qui manquait pour la règle de graduation.
+    expect(stats["7674970651362381088"].saves).toBe(619);
+    // Les abonnés : servis gratuitement, sans run supplémentaire, et rattachés
+    // AU POST (donc au compte via la publication, jamais par le handle).
+    expect(stats["7674970651362381088"].author).toEqual({
+      // ⚠️ `avatarUrl: null` — et c'est le point de cette fixture. Elle vient
+      // d'une sortie RÉELLE de l'input `postURLs` (celui du relevé des
+      // créatrices), et cet `authorMeta`-là ne porte PAS d'`avatar`, là où la
+      // documentation de l'acteur en annonce un. Tant qu'une sortie réelle ne
+      // l'aura pas montré, la photo de profil des créatrices est un ESPOIR
+      // câblé, pas un acquis : le relevé de nuit journalise le nombre
+      // d'avatars vus par lot (`N avatar(s)`), un zéro constant est la réponse.
+      avatarUrl: null,
+      handle: "thekellychapters_",
+      followers: 18_430,
+      following: 312,
+      totalLikes: 1_204_900,
+    });
+  });
+
+  it("quand l'avatar EST là, il remonte avec les compteurs", () => {
+    // Le pendant du cas ci-dessus : la fixture réelle n'a pas d'`avatar`, donc
+    // sans ce test-ci, rien ne prouverait que le relevé sait le lire le jour où
+    // l'acteur le sert. Lien signé du CDN, forme de la prod.
+    const avecAvatar = {
+      ...item,
+      authorMeta: {
+        ...item.authorMeta,
+        avatar:
+          "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/kelly~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200",
+      },
+    };
+    const { stats } = parseTikTokViews([avecAvatar], ["7674970651362381088"]);
+    expect(stats["7674970651362381088"].author?.avatarUrl).toBe(
+      "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/kelly~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200",
+    );
+    expect(stats["7674970651362381088"].author?.followers).toBe(18_430);
+  });
+
+  it("une photo SANS aucun compteur suffit à remonter le profil", () => {
+    // `hasAnyCount` répond « y a-t-il un compteur à historiser » : non. Mais la
+    // photo, elle, est là — la jeter serait perdre le seul champ utile.
+    const { stats } = parseTikTokViews(
+      [
+        {
+          ...item,
+          authorMeta: {
+            name: "thekellychapters_",
+            avatar: "https://p16-sign-va.tiktokcdn.com/kelly.jpeg?x-expires=1",
+          },
+        },
+      ],
+      ["7674970651362381088"],
+    );
+    expect(stats["7674970651362381088"].author?.followers).toBeNull();
+    expect(stats["7674970651362381088"].author?.avatarUrl).toBe(
+      "https://p16-sign-va.tiktokcdn.com/kelly.jpeg?x-expires=1",
+    );
+  });
+
+  it("sans authorMeta, le relevé des VUES continue et le profil est vide", () => {
+    // L'hypothèse non prouvée du chantier (authorMeta sur l'input postURLs) :
+    // si elle est fausse, les vues doivent quand même rentrer.
+    const { authorMeta, ...sansAuteur } = item;
+    expect(authorMeta.fans).toBe(18_430);
+    const { stats } = parseTikTokViews([sansAuteur], ["7674970651362381088"]);
+    expect(stats["7674970651362381088"].views).toBe(41_206);
+    expect(stats["7674970651362381088"].saves).toBe(619);
+    expect(stats["7674970651362381088"].author).toBeNull();
+  });
+
+  it("un compte dont tous les compteurs manquent n'est pas historisé", () => {
+    const { stats } = parseTikTokViews(
+      [{ ...item, authorMeta: { name: "thekellychapters_" } }],
+      ["7674970651362381088"],
+    );
+    expect(stats["7674970651362381088"].views).toBe(41_206);
+    // Sans garde-fou, on écrirait un relevé de profil vide chaque nuit et le
+    // delta d'abonnés se calculerait sur du vide.
+    expect(stats["7674970651362381088"].author).toBeNull();
+  });
+
+  it("Instagram ne rapporte NI saves NI profil (limite de plateforme)", () => {
+    const { stats } = parseInstagramViews(
+      [
+        {
+          shortCode: "Creel001",
+          videoPlayCount: 5_000,
+          likesCount: 88,
+          commentsCount: 47,
+        },
+      ],
+      ["Creel001"],
+    );
+    expect(stats["Creel001"].saves).toBeNull();
+    expect(stats["Creel001"].author).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { adminQuery } from "./functions";
+import { permissionQuery } from "./functions";
 import { resolveCreatorKind } from "./roles";
 import {
   daysCovered,
@@ -164,7 +164,10 @@ export async function talentPayRecap(
  * pas : c'est le cas de Manon aujourd'hui, et il ne doit pas produire une ligne
  * à 0 € qui se lirait comme un forfait nul.
  */
-export const listTalentPay = adminQuery({
+// Même droit que le reste de l'écran Paiements (`listPayments`, `getDueTotal`) :
+// `adminQuery` n'existe plus depuis la migration des droits par bloc, et un
+// forfait de talent est un montant dû — il se lit avec les autres.
+export const listTalentPay = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx): Promise<TalentPayRecap[]> => {
     const creators = await ctx.db

@@ -1,5 +1,6 @@
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient } from "./helpers/authed-client";
+import { assembledScriptOf } from "./helpers/assignment-script";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
@@ -38,17 +39,15 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
     const addBrick = (
       kind: "hook" | "flux" | "cta",
       label: string,
-      content: string,
-      tier?: "S",
+      content: string
     ) =>
       admin.mutation(api.scripts.createBrick, {
         campaignId,
         kind,
         label,
         content,
-        ...(tier ? { tier } : {}),
       });
-    await addBrick("hook", "H", "HOOK CONTENU", "S");
+    await addBrick("hook", "H", "HOOK CONTENU");
     await addBrick("flux", "F", "FLUX CONTENU UNIQUE");
     await addBrick("cta", "C", "CTA CONTENU");
     const { pricingId } = await admin.mutation(api.pricing.createPricing, {
@@ -84,7 +83,7 @@ test.describe("Voir le script monté + vidéo modèle depuis inspiration", () =>
 
     // PART A (données) : assembledScript FIGÉ présent, rendu créateur (sans ##),
     // hook→flux→cta enchaînés. C'est CE texte que la modale affiche (non re-dérivé).
-    const script = row.scriptCombo!.assembledScript!;
+    const script = await assembledScriptOf(admin, row._id);
     expect(script).toContain("HOOK CONTENU");
     expect(script).toContain("FLUX CONTENU UNIQUE");
     expect(script).not.toContain("## ");

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  viewsSplitOf,
   isPromoPost,
   isBonusTierPost,
   computeViewCounters,
@@ -100,5 +101,54 @@ describe("computeViewCounters", () => {
     expect(VIEW_COUNTER_USAGE.payables).toMatch(/cpm/i);
     expect(VIEW_COUNTER_USAGE.promo).toMatch(/conversion/i);
     expect(VIEW_COUNTER_USAGE.paliers).toMatch(/palier/i);
+  });
+});
+
+/**
+ * VENTILATION du RPM — la coupure est FINANCIÈRE, pas éditoriale.
+ *
+ * Les cas ci-dessous sont ceux de la prod du 2026-09-02 (projet snytch), pas des
+ * nombres ronds : c'est en retirant de la paie un post NON-warmup de 271 100 vues
+ * que le défaut est apparu — la carte Rentabilité le comptait toujours comme
+ * monétisé, donc le RPM business ne bougeait pas.
+ */
+describe("viewsSplitOf", () => {
+  it("sort de `paidViews` un post NON-warmup retiré de la paie", () => {
+    const split = viewsSplitOf([
+      { isWarmup: false, remunere: false, views: 271_100 }, // retiré à la main
+      { isWarmup: false, views: 304 }, // l'autre post de la même vidéo
+    ]);
+    expect(split.paidViews).toBe(304);
+    expect(split.unpaidViews).toBe(271_100);
+  });
+
+  it("GARDE le post warmup explicitement PAYÉ dans `paidViews` (cas Kelly)", () => {
+    // Contre-test : une implémentation qui se contenterait de `!isWarmup` sortirait
+    // ce post, alors qu'il est bel et bien payé. Les deux sens comptent.
+    const split = viewsSplitOf([{ isWarmup: true, remunere: true, views: 262_200 }]);
+    expect(split.paidViews).toBe(262_200);
+    expect(split.unpaidViews).toBe(0);
+  });
+
+  it("sans drapeau explicite, retombe sur le warmup (aucune régression)", () => {
+    const split = viewsSplitOf([
+      { isWarmup: false, views: 1_715 },
+      { isWarmup: true, views: 112_200 },
+    ]);
+    expect(split.paidViews).toBe(1_715);
+    expect(split.unpaidViews).toBe(112_200);
+  });
+
+  it("les deux parts sont une PARTITION des vues totales", () => {
+    const items = [
+      { isWarmup: false, remunere: false, views: 1_639 },
+      { isWarmup: true, remunere: true, views: 33 },
+      { isWarmup: true, views: 59_000 },
+      { isWarmup: false, views: 12_100 },
+    ];
+    const split = viewsSplitOf(items);
+    const { totales } = computeViewCounters(items);
+    expect(split.paidViews + split.unpaidViews).toBe(totales);
+    expect(totales).toBe(72_772);
   });
 });

@@ -1,4 +1,8 @@
-import { adminMutation, adminQuery, e2eMutation } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+} from "./functions";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
@@ -12,6 +16,7 @@ import {
   representativePostedAt,
 } from "./assignments";
 import { formatDateFr } from "./dateFr";
+import { comboCooldownDaysOf } from "./comboCooldown";
 import { isValidPostWindow } from "./postWindow";
 import { buildPricingSnapshot } from "./pricing";
 import { canTransition } from "./rushStatus";
@@ -24,6 +29,14 @@ import {
   isGuardedKind,
 } from "./rushScriptEligibility";
 import { ConvexError, v } from "convex/values";
+import {
+  PROVEN_CAMPAIGN_NAME,
+  campaignNameMatches,
+  hookIdentityKey,
+  bestRun,
+  qualifiesForGraduation,
+  type GraduationOutcome,
+} from "./graduation";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 
@@ -31,8 +44,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
  * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
  * vidéo = 1 hook + 1 flux + 1 cta (le kind "corps" et le socle démo ont été
  * retirés du montage). CRUD admin des campagnes et de leurs bricks + import
- * (COPIE) de hooks depuis la bibliothèque. TOUT passe par adminQuery/
- * adminMutation → le rôle creator n'a aucun accès.
+ * (COPIE) de hooks depuis la bibliothèque. TOUT passe par des gardes de
+ * bloc → le rôle creator n'a aucun accès.
  *
  * L'assemblage (assembleScript) et le décompte (countCombinations) vivent dans
  * lib/scriptAssembly.ts (pur, testé) et sont consommés CÔTÉ CLIENT. La
@@ -43,10 +56,6 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 // Kinds créables : refonte → hook/flux/cta. "corps" n'est plus créable (les
 // corps existants sont reclassés en hook par migrateCorpsToHooks).
 const KIND = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
-// 2 tiers visuels : "S" → « Argent », "A" → « Autre » (cf lib/script-tier).
-// "B" reste TOLÉRÉ par les args (legacy back-compat / seed de migration), mais
-// l'UI ne le propose plus jamais ; migrateTierBToA reclasse les "B" en "A".
-const TIER = v.union(v.literal("S"), v.literal("A"), v.literal("B"));
 
 // SNYTCH — mode d'usage d'une brique DANS LA VIDÉO (hook / flux) : à dire / à
 // afficher / les deux. Stocké UNIQUEMENT pour hook/flux (cf create/updateBrick).
@@ -89,7 +98,14 @@ type ServerCombo = {
   assembledScript: string;
 };
 
-function assembleNoLabels(p: {
+/**
+ * Montage d'un combo, labels OFF — RÉPLIQUE de lib/scriptAssembly.assembleScript
+ * (règle A6). EXPORTÉ pour que `convex/challenges.ts` monte le script d'un défi
+ * avec exactement la même fonction : une seconde copie divergerait au premier
+ * ajustement de mise en forme, et les créatrices liraient deux textes différents
+ * pour le même combo.
+ */
+export function assembleNoLabels(p: {
   hook: string;
   flux: string;
   cta: string;
@@ -276,9 +292,24 @@ function usedComboKeysForPlatforms(
   return used;
 }
 
-/** Fenêtre de cooldown projet — RÉPLIQUE de lib/scriptCombos.COOLDOWN_DAYS (A6). */
-const COOLDOWN_DAYS = 4;
 const DAY_MS = 86_400_000;
+
+/**
+ * Durée de cooldown DU PROJET, en jours. Réglage produit (`comboCooldownDays`),
+ * défaut dans `convex/comboCooldown.ts` — module PUR partagé par le serveur, lib
+ * et le client, donc aucune réplique A6 à tenir sur la valeur.
+ *
+ * Lue à CHAQUE appel plutôt que mise en cache : un tirage doit obéir au réglage
+ * en vigueur au moment où il tourne, et une lecture de document de plus est
+ * négligeable devant la lecture intégrale des assignments du projet que le
+ * cooldown fait déjà juste à côté.
+ */
+async function comboCooldownDaysFor(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+): Promise<number> {
+  return comboCooldownDaysOf((await ctx.db.get(projectId)) ?? {});
+}
 
 /**
  * Statuts qui ne réservent AUCUNE fenêtre : la vidéo a été refusée, le script
@@ -298,6 +329,18 @@ const DAY_MS = 86_400_000;
  * fantômes sur des posts jamais publiés.
  */
 function cooldownAnchorOf(a: Doc<"assignments">): number | null {
+  // ─── Les vidéos de DÉFI n'occupent aucune fenêtre ──────────────────────────
+  // Un défi donne le MÊME script à toutes ses participantes, le même jour :
+  // c'est son principe, pas un accident. Sans cette sortie, la première
+  // assignation de défi stériliserait son combo pour toute la production
+  // normale pendant la fenêtre — on aurait construit un mécanisme qui se
+  // sabote lui-même.
+  //
+  // ⚠️ Sortie ici et non dans les appelants : `cooldownAnchorOf` est le point
+  // unique par lequel TOUS les lecteurs de cooldown passent (tirage, aperçu,
+  // garde d'édition, premier créneau libre). Un filtre posé dans l'un d'eux
+  // seulement laisserait les autres compter ces lignes.
+  if (a.challengeId !== undefined) return null;
   if (typeof a.postDate === "number") return a.postDate;
   const stamps = (a.targets ?? [])
     .map((t) => t.publishedAt)
@@ -308,7 +351,12 @@ function cooldownAnchorOf(a: Doc<"assignments">): number | null {
 /**
  * comboKeys indisponibles à `targetAt` sur TOUT le projet — RÉPLIQUE EXACTE de
  * lib/scriptCombos.comboKeysInCooldown (règle A6). Borne stricte : un écart
- * d'exactement COOLDOWN_DAYS est autorisé (J+3 refusé, J+4 accepté).
+ * d'exactement `cooldownDays` est autorisé (avec 1 jour : le jour même refusé,
+ * la veille acceptée).
+ *
+ * `cooldownDays` est OBLIGATOIRE, comme côté lib : un appelant qui oublierait de
+ * le passer doit casser le typecheck, pas retomber en silence sur une durée qui
+ * n'est pas celle du projet.
  *
  * Les combos IMPOSÉS occupent la fenêtre (une publication imposée sort pour de
  * vrai) alors qu'ils sont ignorés de l'unicité à vie : « hors règles » veut dire
@@ -317,6 +365,7 @@ function cooldownAnchorOf(a: Doc<"assignments">): number | null {
 function comboKeysInCooldownServer(
   projectAssignments: Doc<"assignments">[],
   targetAt: number | null | undefined,
+  cooldownDays: number,
 ): Set<string> {
   const out = new Set<string>();
   if (targetAt === null || targetAt === undefined) return out;
@@ -325,7 +374,7 @@ function comboKeysInCooldownServer(
     if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
-    if (Math.abs(anchor - targetAt) < COOLDOWN_DAYS * DAY_MS) out.add(a.comboKey);
+    if (Math.abs(anchor - targetAt) < cooldownDays * DAY_MS) out.add(a.comboKey);
   }
   return out;
 }
@@ -338,6 +387,7 @@ function comboKeysInCooldownServer(
 function firstFreeSlotServer(
   projectAssignments: Doc<"assignments">[],
   targetAt: number,
+  cooldownDays: number,
 ): number | null {
   let best: number | null = null;
   for (const a of projectAssignments) {
@@ -345,8 +395,8 @@ function firstFreeSlotServer(
     if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
-    if (Math.abs(anchor - targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
-    const freeAt = anchor + COOLDOWN_DAYS * DAY_MS;
+    if (Math.abs(anchor - targetAt) >= cooldownDays * DAY_MS) continue;
+    const freeAt = anchor + cooldownDays * DAY_MS;
     if (best === null || freeAt < best) best = freeAt;
   }
   return best;
@@ -380,6 +430,8 @@ function pickForDates(input: {
   projectRows: Doc<"assignments">[];
   postDates: number[] | undefined;
   count: number;
+  /** Durée de cooldown DU PROJET (cf comboCooldownDaysFor). Obligatoire. */
+  cooldownDays: number;
   manualExclusions?: string[];
   onExhausted?: (targetAt: number | undefined) => void;
 }): ServerCombo[] {
@@ -389,7 +441,7 @@ function pickForDates(input: {
     const targetAt = input.postDates?.[i];
     const excluded = new Set<string>([
       ...input.lifetimeKeys,
-      ...comboKeysInCooldownServer(input.projectRows, targetAt),
+      ...comboKeysInCooldownServer(input.projectRows, targetAt, input.cooldownDays),
       ...takenThisCall,
     ]);
     const one = pickCombosServer(input.combos, excluded, 1);
@@ -479,6 +531,8 @@ async function assertComboFreeForCreatorPlatforms(
   // un script programmé ailleurs dans la fenêtre. Sans ce contrôle, l'édition
   // serait la porte de sortie de la règle.
   if (input.targetAt === undefined || input.targetAt === null) return;
+  const cooldownDays = await comboCooldownDaysFor(ctx, input.projectId);
+  if (cooldownDays === 0) return; // cooldown désactivé pour ce projet
   const projectRows = await projectAssignmentsForCooldown(ctx, input.projectId);
   for (const a of projectRows) {
     if (a._id === input.excludeAssignmentId) continue;
@@ -486,7 +540,7 @@ async function assertComboFreeForCreatorPlatforms(
     if (COMBO_FREEING_STATUSES.has(a.status)) continue;
     const anchor = cooldownAnchorOf(a);
     if (anchor === null) continue;
-    if (Math.abs(anchor - input.targetAt) >= COOLDOWN_DAYS * DAY_MS) continue;
+    if (Math.abs(anchor - input.targetAt) >= cooldownDays * DAY_MS) continue;
     // Message OPÉRATIONNEL : sans le compte ni les dates, l'admin ne peut ni
     // vérifier ni choisir une autre date — il ne peut que subir le refus.
     const handles: string[] = [];
@@ -498,8 +552,9 @@ async function assertComboFreeForCreatorPlatforms(
     const oue = handles.length > 0 ? handles.join(", ") : "un autre compte";
     throw new ConvexError(
       `Ce script est déjà programmé sur ${oue} le ${formatDateFr(anchor)} ` +
-        `(cooldown de ${COOLDOWN_DAYS} jours). Il redevient disponible le ` +
-        `${formatDateFr(anchor + COOLDOWN_DAYS * DAY_MS)}.`,
+        `(cooldown de ${cooldownDays} jour${cooldownDays > 1 ? "s" : ""}). ` +
+        `Il redevient disponible le ` +
+        `${formatDateFr(anchor + cooldownDays * DAY_MS)}.`,
     );
   }
 }
@@ -508,12 +563,12 @@ async function assertComboFreeForCreatorPlatforms(
 
 /**
  * Combos UNIQUES disponibles pour assigner un créateur sur des plateformes
- * données : total des combos de la campagne (après filtre tier) MOINS ceux déjà
+ * données : total des combos de la campagne MOINS ceux déjà
  * pris par ce créateur sur l'une des plateformes ciblées (unicité comboKey ×
  * créateur × plateforme). Alimente la modale pour prévenir AVANT d'assigner s'il
  * manque des combos uniques. `available` = combos encore attribuables.
  */
-export const availableCombosForAssignment = adminQuery({
+export const availableCombosForAssignment = permissionQuery("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
@@ -524,7 +579,6 @@ export const availableCombosForAssignment = adminQuery({
         v.literal("YouTube"),
       ),
     ),
-    tier: v.optional(TIER),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -532,11 +586,7 @@ export const availableCombosForAssignment = adminQuery({
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
       .collect();
-    const bricks =
-      args.tier === undefined
-        ? allBricks
-        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-    const combos = generateCombosServer(bricks);
+    const combos = generateCombosServer(allBricks);
     const existing = await ctx.db
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
@@ -572,14 +622,13 @@ export const availableCombosForAssignment = adminQuery({
  * la chaîne. Tant que ce n'est pas fait, la modale annonce l'aperçu indisponible
  * en lot plutôt que d'en montrer un approximatif.
  */
-export const previewCombosForAssignment = adminQuery({
+export const previewCombosForAssignment = permissionQuery("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
     targets: v.array(targetInputValidator),
     videosPerCreator: v.number(),
     postDates: v.optional(v.array(v.number())),
-    tier: v.optional(TIER),
     excludedComboKeys: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
@@ -588,13 +637,14 @@ export const previewCombosForAssignment = adminQuery({
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
       .collect();
-    const bricks =
-      args.tier === undefined
-        ? allBricks
-        : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-    const combos = generateCombosServer(bricks);
+    const combos = generateCombosServer(allBricks);
     if (combos.length === 0) {
-      return { combos: [], total: 0, shortage: args.videosPerCreator > 0 };
+      return {
+        combos: [],
+        total: 0,
+        shortage: args.videosPerCreator > 0,
+        cooldownDays: await comboCooldownDaysFor(ctx, ctx.projectId),
+      };
     }
     const existing = await ctx.db
       .query("assignments")
@@ -606,12 +656,14 @@ export const previewCombosForAssignment = adminQuery({
       args.targets.map((t) => t.platform),
     );
     const projectRows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+    const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     const picked = pickForDates({
       combos,
       lifetimeKeys,
       projectRows,
       postDates: args.postDates,
       count: args.videosPerCreator,
+      cooldownDays,
       manualExclusions: args.excludedComboKeys,
     });
 
@@ -644,7 +696,7 @@ export const previewCombosForAssignment = adminQuery({
         dernierUsage = {
           compte: handles.join(", ") || "un autre compte",
           le: anchor,
-          disponibleLe: anchor + COOLDOWN_DAYS * DAY_MS,
+          disponibleLe: anchor + cooldownDays * DAY_MS,
         };
       }
       out.push({
@@ -661,12 +713,16 @@ export const previewCombosForAssignment = adminQuery({
       combos: out,
       total: combos.length,
       shortage: picked.length < args.videosPerCreator,
+      // La fenêtre EFFECTIVE du projet, rendue au client : l'aperçu explique la
+      // rotation qu'il montre, et il ne peut pas annoncer une durée différente de
+      // celle que le tirage vient d'appliquer (c'est la même variable).
+      cooldownDays,
     };
   },
 });
 
 /** Campagnes du projet (actives d'abord, puis par nom). */
-export const listCampaigns = adminQuery({
+export const listCampaigns = permissionQuery("scripts.manage")({
   args: {},
   handler: async (ctx) => {
     const campaigns = await ctx.db
@@ -683,7 +739,7 @@ export const listCampaigns = adminQuery({
 });
 
 /** Détail d'une campagne + ses bricks (triés kind puis order/createdAt). */
-export const getCampaign = adminQuery({
+export const getCampaign = permissionQuery("scripts.manage")({
   args: { id: v.id("scriptCampaigns") },
   handler: async (ctx, { id }) => {
     const campaign = await ctx.db.get(id);
@@ -716,7 +772,7 @@ export const getCampaign = adminQuery({
  * projet. L'entrée ANALYTICS (combo agrégé) ne passe PAS par ici : elle n'a pas de
  * source unique (payload construit côté client depuis ComboPerf).
  */
-export const getReplaySource = adminQuery({
+export const getReplaySource = permissionQuery("scripts.manage")({
   args: {
     publicationId: v.optional(v.id("publications")),
     assignmentId: v.optional(v.id("assignments")),
@@ -799,7 +855,7 @@ export const getReplaySource = adminQuery({
 
 // ─── Mutations — campagnes ───────────────────────────────────────────────────
 
-export const createCampaign = adminMutation({
+export const createCampaign = permissionMutation("scripts.manage")({
   args: { name: v.string(), demoBlock: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -818,7 +874,7 @@ export const createCampaign = adminMutation({
   },
 });
 
-export const updateCampaign = adminMutation({
+export const updateCampaign = permissionMutation("scripts.manage")({
   args: {
     id: v.id("scriptCampaigns"),
     name: v.optional(v.string()),
@@ -845,7 +901,7 @@ export const updateCampaign = adminMutation({
  * est référencée par des assignments (le combo figé doit rester traçable) →
  * archiver plutôt que supprimer.
  */
-export const deleteCampaign = adminMutation({
+export const deleteCampaign = permissionMutation("scripts.manage")({
   args: { id: v.id("scriptCampaigns") },
   handler: async (ctx, { id }) => {
     await requireCampaign(ctx, id, ctx.projectId);
@@ -868,16 +924,32 @@ export const deleteCampaign = adminMutation({
   },
 });
 
+/**
+ * Consigne STOCKÉE pour une saisie quelconque : bords rognés, `undefined` pour
+ * une saisie vide, blanche, nulle ou absente. « Pas de consigne » est une
+ * ABSENCE, jamais la chaîne vide — sans quoi la fiche créatrice afficherait un
+ * encart « Instruction » vide sous le bloc.
+ */
+function normalizeInstruction(
+  input: string | null | undefined,
+): string | undefined {
+  const trimmed = input?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 // ─── Mutations — bricks ──────────────────────────────────────────────────────
 
-export const createBrick = adminMutation({
+export const createBrick = permissionMutation("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     kind: KIND,
     label: v.string(),
     content: v.string(),
-    tier: v.optional(TIER),
     mode: v.optional(MODE),
+    // Consigne de tournage LIBRE et OPTIONNELLE, lue par la créatrice sous ce
+    // bloc. Blanche = absence (jamais la chaîne vide, qui afficherait un encart
+    // vide côté créatrice).
+    instruction: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
@@ -891,29 +963,28 @@ export const createBrick = adminMutation({
       kind: args.kind,
       label,
       content: args.content,
-      // tier UNIQUEMENT pour les hooks.
-      tier: args.kind === "hook" ? args.tier : undefined,
       // mode (zone vidéo) UNIQUEMENT pour hook/flux ; absent = défaut "les_deux"
       // au read (Snytch). Ignoré pour cta.
       mode:
         args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
+      instruction: normalizeInstruction(args.instruction),
       active: true,
       createdAt: Date.now(),
     });
   },
 });
 
-export const updateBrick = adminMutation({
+export const updateBrick = permissionMutation("scripts.manage")({
   args: {
     id: v.id("scriptBricks"),
     label: v.optional(v.string()),
     content: v.optional(v.string()),
-    // null = retirer le tier ; "S"|"A" = définir (ignoré si non-hook). "B"
-    // encore accepté par TIER (legacy) mais l'UI ne l'envoie plus.
-    tier: v.optional(v.union(TIER, v.null())),
     active: v.optional(v.boolean()),
     order: v.optional(v.number()),
     mode: v.optional(MODE),
+    // null = retirer la consigne ; chaîne = définir. Une saisie blanche vaut
+    // `null` (normalizeInstruction) : effacer le champ EFFACE la consigne.
+    instruction: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     const brick = await ctx.db.get(args.id);
@@ -929,9 +1000,6 @@ export const updateBrick = adminMutation({
     if (args.content !== undefined) patch.content = args.content;
     if (args.active !== undefined) patch.active = args.active;
     if (args.order !== undefined) patch.order = args.order;
-    if (args.tier !== undefined && brick.kind === "hook") {
-      patch.tier = args.tier === null ? undefined : args.tier;
-    }
     // mode (zone vidéo) : hook/flux uniquement.
     if (
       args.mode !== undefined &&
@@ -939,12 +1007,15 @@ export const updateBrick = adminMutation({
     ) {
       patch.mode = args.mode;
     }
+    if (args.instruction !== undefined) {
+      patch.instruction = normalizeInstruction(args.instruction);
+    }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
   },
 });
 
-export const deleteBrick = adminMutation({
+export const deleteBrick = permissionMutation("scripts.manage")({
   args: { id: v.id("scriptBricks") },
   handler: async (ctx, { id }) => {
     const brick = await ctx.db.get(id);
@@ -955,11 +1026,95 @@ export const deleteBrick = adminMutation({
 });
 
 /**
- * Importe des hooks de la BIBLIOTHÈQUE (table hooks) en scriptBricks kind="hook".
- * COPIE : le texte du hook devient un brick indépendant (taggable par tier sans
- * toucher la biblio). La table hooks est seulement LUE → reste intacte.
+ * ACTIONS EN LOT sur une sélection de briques (banc de montage).
+ *
+ * Pourquoi côté serveur plutôt qu'une boucle de mutations dans l'écran : douze
+ * appels séparés, ce sont douze transactions dont n'importe laquelle peut
+ * échouer au milieu — l'admin se retrouve avec sept briques désactivées sur
+ * douze et aucun moyen de savoir lesquelles. Ici, une seule transaction : tout
+ * passe ou rien.
+ *
+ * ISOLATION : chaque brique est re-vérifiée dans le projet courant et IGNORÉE
+ * sinon (même règle que les mutations unitaires, qui ne lèvent pas non plus).
+ * `touched` dit combien ont réellement bougé.
+ *
+ * PLAFOND : une sélection est un geste humain sur un écran ; au-delà de
+ * MAX_BULK_BRICKS c'est un script, et une transaction Convex a des limites de
+ * lecture/écriture qu'on ne veut pas découvrir en production.
  */
-export const importHooks = adminMutation({
+const MAX_BULK_BRICKS = 200;
+
+function assertBulkSize(ids: readonly unknown[]) {
+  if (ids.length === 0) throw new ConvexError("Aucune brique sélectionnée.");
+  if (ids.length > MAX_BULK_BRICKS) {
+    throw new ConvexError(
+      `Trop de briques d'un coup (${ids.length} > ${MAX_BULK_BRICKS}).`,
+    );
+  }
+}
+
+/** Active / désactive TOUTES les briques de la sélection. */
+export const setBricksActive = permissionMutation("scripts.manage")({
+  args: { ids: v.array(v.id("scriptBricks")), active: v.boolean() },
+  handler: async (ctx, args) => {
+    assertBulkSize(args.ids);
+    let touched = 0;
+    for (const id of args.ids) {
+      const brick = await ctx.db.get(id);
+      if (!brick || brick.projectId !== ctx.projectId) continue;
+      if (brick.active === args.active) continue;
+      await ctx.db.patch(id, { active: args.active });
+      touched++;
+    }
+    return { touched };
+  },
+});
+
+/**
+ * Pose (ou retire, avec `null`/blanc) la MÊME consigne sur toute la sélection.
+ * Même normalisation que l'édition unitaire : une saisie blanche EFFACE.
+ */
+export const setBricksInstruction = permissionMutation("scripts.manage")({
+  args: {
+    ids: v.array(v.id("scriptBricks")),
+    instruction: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    assertBulkSize(args.ids);
+    const instruction = normalizeInstruction(args.instruction);
+    let touched = 0;
+    for (const id of args.ids) {
+      const brick = await ctx.db.get(id);
+      if (!brick || brick.projectId !== ctx.projectId) continue;
+      await ctx.db.patch(id, { instruction });
+      touched++;
+    }
+    return { touched };
+  },
+});
+
+/** Supprime TOUTES les briques de la sélection. */
+export const deleteBricks = permissionMutation("scripts.manage")({
+  args: { ids: v.array(v.id("scriptBricks")) },
+  handler: async (ctx, args) => {
+    assertBulkSize(args.ids);
+    let deleted = 0;
+    for (const id of args.ids) {
+      const brick = await ctx.db.get(id);
+      if (!brick || brick.projectId !== ctx.projectId) continue;
+      await ctx.db.delete(id);
+      deleted++;
+    }
+    return { deleted };
+  },
+});
+
+/**
+ * Importe des hooks de la BIBLIOTHÈQUE (table hooks) en scriptBricks kind="hook".
+ * COPIE : le texte du hook devient un brick indépendant (éditable sans toucher
+ * la biblio). La table hooks est seulement LUE → reste intacte.
+ */
+export const importHooks = permissionMutation("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     hookIds: v.array(v.id("hooks")),
@@ -980,7 +1135,6 @@ export const importHooks = adminMutation({
         kind: "hook",
         label,
         content: hook.text,
-        tier: undefined,
         active: true,
         createdAt: now,
       });
@@ -1004,14 +1158,13 @@ export const importHooks = adminMutation({
  * du pricing choisi, figé en pricingSnapshot. Les anciens champs tarif de base /
  * bonus aux vues (rateModel legacy) sont RETIRÉS de l'assignation.
  */
-export const assignScriptCampaign = adminMutation({
+export const assignScriptCampaign = permissionMutation("assignments.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
     targets: v.array(targetInputValidator),
     videosPerCreator: v.number(),
     dueDate: v.number(),
-    tier: v.optional(TIER),
     // Pricing OBLIGATOIRE (barème de paie). Validator `optional` UNIQUEMENT pour
     // émettre un ConvexError lisible si absent (sinon erreur validator brute) ;
     // le handler le rend requis. Plus aucun mode "sans pricing" (legacy retiré).
@@ -1130,8 +1283,8 @@ export const assignScriptCampaign = adminMutation({
     await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
 
     // Bricks de la campagne — servent au tirage AUTO (generateCombos) ET à valider
-    // un combo IMPOSÉ (validateImposedCombo). Le filtre tier et la génération ne
-    // s'appliquent qu'au chemin auto (cf branche de sélection ci-dessous).
+    // un combo IMPOSÉ (validateImposedCombo). La génération ne s'applique qu'au
+    // chemin auto (cf branche de sélection ci-dessous).
     const allBricks = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
@@ -1215,14 +1368,10 @@ export const assignScriptCampaign = adminMutation({
       picked = Array.from({ length: args.videosPerCreator }, () => combo);
       totalCombos = 1;
     } else {
-      const bricks =
-        args.tier === undefined
-          ? allBricks
-          : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-      const combos = generateCombosServer(bricks);
+      const combos = generateCombosServer(allBricks);
       if (combos.length === 0) {
         throw new ConvexError(
-          "Aucun combo disponible (un type de brique manque, ou aucun hook actif pour ce tier).",
+          "Aucun combo disponible (un type de brique manque, ou aucun hook actif).",
         );
       }
       totalCombos = combos.length;
@@ -1241,20 +1390,23 @@ export const assignScriptCampaign = adminMutation({
         args.creatorId,
         targetPlatforms,
       );
-      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de COOLDOWN_DAYS
-      // de la date visée est indisponible, quel que soit le compte ou la
-      // créatrice. Deux exclusions qui se CUMULENT, elles ne se remplacent pas :
-      // l'unicité à vie reste appliquée par-dessus.
+      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de
+      // `cooldownDays` de la date visée est indisponible, quel que soit le
+      // compte ou la créatrice. Deux exclusions qui se CUMULENT, elles ne se
+      // remplacent pas : l'unicité à vie reste appliquée par-dessus (et n'a
+      // aucun réglage — mettre 0 jour ici ne la relâche pas).
       const projectRows = await projectAssignmentsForCooldown(
         ctx,
         ctx.projectId,
       );
+      const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
       picked = pickForDates({
         combos,
         lifetimeKeys,
         projectRows,
         postDates: args.postDates,
         count: args.videosPerCreator,
+        cooldownDays,
         manualExclusions: args.excludedComboKeys,
         onExhausted: (targetAt) => {
           // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
@@ -1262,12 +1414,13 @@ export const assignScriptCampaign = adminMutation({
           // les dates suivantes déciderait du planning à la place de l'admin.
           // On refuse en disant QUAND ça repasse.
           if (targetAt === undefined) return;
-          const freeAt = firstFreeSlotServer(projectRows, targetAt);
+          const freeAt = firstFreeSlotServer(projectRows, targetAt, cooldownDays);
           if (freeAt === null) return;
           throw new ConvexError(
             `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
-              `tous ceux de cette campagne sont déjà programmés dans les ` +
-              `${COOLDOWN_DAYS} jours. Le premier se libère le ` +
+              `tous ceux de cette campagne sont déjà programmés à ` +
+              `${cooldownDays} jour${cooldownDays > 1 ? "s" : ""} ou moins. ` +
+              `Le premier se libère le ` +
               `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
               `ou ajoute des briques à la campagne.`,
           );
@@ -1292,14 +1445,22 @@ export const assignScriptCampaign = adminMutation({
         ? verbatimCombo.comboKey
         : comboKeyOf(picked[0]);
       const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+      const imposedCooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
       for (let i = 0; i < picked.length; i++) {
         const targetAt = args.postDates?.[i];
-        if (!comboKeysInCooldownServer(rows, targetAt).has(imposedKey)) continue;
+        if (
+          !comboKeysInCooldownServer(rows, targetAt, imposedCooldownDays).has(
+            imposedKey,
+          )
+        ) {
+          continue;
+        }
         console.warn(
           `[combo-cooldown] Combo imposé ${imposedKey} assigné à ${creator.name} ` +
             `le ${formatDateFr(targetAt as number)} alors qu'il est déjà programmé ` +
-            `dans les ${COOLDOWN_DAYS} jours sur ce projet. Laissé passer ` +
-            `(imposé = volontaire), mais c'est un doublon inter-comptes.`,
+            `à ${imposedCooldownDays} jour${imposedCooldownDays > 1 ? "s" : ""} ` +
+            `ou moins sur ce projet. Laissé passer (imposé = volontaire), mais ` +
+            `c'est un doublon inter-comptes.`,
         );
       }
     }
@@ -1419,7 +1580,7 @@ function assertScriptEditable(a: Doc<"assignments">): void {
  * → AUCUNE donnée de perf/publication rattachée n'est jamais altérée (la
  * publication matérialise la perf ; avant, re-figer est sans conséquence).
  */
-export const editScriptCombo = adminMutation({
+export const editScriptCombo = permissionMutation("scripts.manage")({
   args: {
     id: v.id("assignments"),
     slot: SLOT,
@@ -1508,7 +1669,7 @@ const MAX_BRICK_TEXT = 2000;
 
 /**
  * Édite le TEXTE d'UNE brique (hook | flux | cta) sur un assignment : FORKE une
- * NOUVELLE brique en bibliothèque (même kind + tier, texte modifié, active,
+ * NOUVELLE brique en bibliothèque (même kind, texte modifié, active,
  * même campagne) et l'applique au combo. La brique d'origine reste INTACTE.
  *
  * MÊME garde que editScriptCombo : autorisé TANT QUE le post n'est pas publié
@@ -1516,7 +1677,7 @@ const MAX_BRICK_TEXT = 2000;
  * comboKey (assembleNoLabels → rendu créateur labels:false). pricingSnapshot
  * INCHANGÉ. La brique forkée démarre vierge côté analytics (nouvelle brique).
  */
-export const editScriptBrickText = adminMutation({
+export const editScriptBrickText = permissionMutation("scripts.manage")({
   args: {
     id: v.id("assignments"),
     slot: SLOT,
@@ -1540,7 +1701,7 @@ export const editScriptBrickText = adminMutation({
       throw new ConvexError(`Texte trop long (max ${MAX_BRICK_TEXT} caractères).`);
     }
 
-    // Brique d'origine du slot → on en HÉRITE kind + tier (jamais écrasée).
+    // Brique d'origine du slot → on en HÉRITE le kind (jamais écrasée).
     const currentId =
       args.slot === "hook"
         ? combo.hookBrickId
@@ -1552,14 +1713,17 @@ export const editScriptBrickText = adminMutation({
       throw new ConvexError("Brique d'origine introuvable.");
     }
 
-    // FORK : nouvelle brique en bibliothèque (même kind + tier, texte modifié).
+    // FORK : nouvelle brique en bibliothèque (même kind, texte modifié). La
+    // CONSIGNE suit le texte : elle décrit ce que la créatrice doit faire de ce
+    // bloc, pas la version du texte — la perdre à chaque correction de coquille
+    // viderait silencieusement les fiches.
     const forkedId = await ctx.db.insert("scriptBricks", {
       projectId: ctx.projectId,
       campaignId: combo.campaignId,
       kind: orig.kind,
       label: `${orig.label} (variante)`,
       content: text,
-      tier: orig.tier, // hérite (undefined si non-hook)
+      instruction: orig.instruction,
       active: true,
       createdAt: Date.now(),
     });
@@ -1656,8 +1820,6 @@ export const seedRepackitScriptCampaign = internalMutation({
         kind: b.kind,
         label: b.label,
         content: b.content,
-        // Schéma : tier optional (S|A|B) — null (non-hook / non taggé) → undefined.
-        tier: b.tier ?? undefined,
         active: b.active,
         createdAt: now,
       });
@@ -1669,7 +1831,7 @@ export const seedRepackitScriptCampaign = internalMutation({
 
 /**
  * REFONTE 3 briques — migration data : reclasse TOUTES les briques kind="corps"
- * en kind="hook" tier "A" (l'audit confirme que les corps sont des hooks). PATCH
+ * en kind="hook" (l'audit confirme que les corps sont des hooks). PATCH
  * uniquement (même _id), JAMAIS de delete → 0 perte d'historique. Les combos
  * figés (assignments.scriptCombo.assembledScript) sont du TEXTE autonome : ils
  * ne bougent pas. Les publications.scriptCombo.corpsBrickId historiques pointent
@@ -1687,7 +1849,7 @@ export const migrateCorpsToHooks = internalMutation({
     let migrated = 0;
     for (const b of all) {
       if (b.kind !== "corps") continue;
-      await ctx.db.patch(b._id, { kind: "hook", tier: "A" });
+      await ctx.db.patch(b._id, { kind: "hook" });
       migrated++;
     }
     return { migrated };
@@ -1695,38 +1857,41 @@ export const migrateCorpsToHooks = internalMutation({
 });
 
 /**
- * Passage à 2 tiers (Argent/Autre) : reclasse TOUS les hooks tier "B" en "A".
- * PATCH du seul champ `tier` (même _id) → n'altère AUCUN assembledScript figé,
- * combo, assignment ni snapshot analytics (le tier d'une pub est re-résolu à
- * l'affichage depuis hookBrickId : un ex-"B" affichera « Autre », ce qui est
- * voulu). Tourne sur TOUS les projets (internalMutation, pas de ctx.projectId).
+ * RETRAIT de la taxonomie de hook (`tier` + `angleFamily`) : efface les DEUX
+ * champs de TOUTES les briques. Plus rien ne les écrit ni ne les lit — mais un
+ * `convex deploy` refuse tout document portant un champ absent du schéma, donc
+ * cette migration doit passer AVANT la PR de resserrage qui retire les deux
+ * lignes de `convex/schema.ts`.
  *
- * IDEMPOTENTE : relançable sans effet (no-op s'il ne reste aucun "B"). À lancer
- * APRÈS le deploy du code 2-tiers (même PR) :
- *   npx convex run scripts:migrateTierBToA --prod
+ * PATCH du seul couple de champs (même _id) → n'altère AUCUN assembledScript
+ * figé, combo, assignment ni publication : le texte des briques, leur kind et
+ * leur mode ne bougent pas.
+ *
+ * IDEMPOTENTE : relançable sans effet (no-op quand plus aucune brique n'en
+ * porte). Tourne sur TOUS les projets (internalMutation, pas de ctx.projectId).
+ * À lancer APRÈS le deploy de cette PR :
+ *   ./scripts/convex-prod.sh run scripts:stripBrickTaxonomy
  */
-async function reclassTierBToA(
-  ctx: MutationCtx,
-): Promise<{ migrated: number }> {
+async function stripTaxonomy(ctx: MutationCtx): Promise<{ migrated: number }> {
   const all = await ctx.db.query("scriptBricks").collect();
   let migrated = 0;
   for (const b of all) {
-    if (b.tier !== "B") continue;
-    await ctx.db.patch(b._id, { tier: "A" });
+    if (b.tier === undefined && b.angleFamily === undefined) continue;
+    await ctx.db.patch(b._id, { tier: undefined, angleFamily: undefined });
     migrated++;
   }
   return { migrated };
 }
 
-export const migrateTierBToA = internalMutation({
+export const stripBrickTaxonomy = internalMutation({
   args: {},
-  handler: (ctx) => reclassTierBToA(ctx),
+  handler: (ctx) => stripTaxonomy(ctx),
 });
 
 /** Variante e2e (gated E2E_SECRET) pour prouver la migration en test. */
-export const e2eMigrateTierBToA = e2eMutation({
+export const e2eStripBrickTaxonomy = e2eMutation({
   args: {},
-  handler: (ctx) => reclassTierBToA(ctx),
+  handler: (ctx) => stripTaxonomy(ctx),
 });
 
 /** Supprime les campagnes de test ([E2E_TEST]) + leurs bricks (cascade). */
@@ -1775,13 +1940,12 @@ export const cleanupTestScripts = e2eMutation({
  * « afficher » entrent dans le tirage (cf convex/rushScriptEligibility.ts). Le
  * filtrage précède le tirage pour que l'erreur nomme la brique fautive.
  */
-export const assignScriptToRush = adminMutation({
+export const assignScriptToRush = permissionMutation("assignments.manage")({
   args: {
     rushId: v.id("rushes"),
     campaignId: v.id("scriptCampaigns"),
     targets: v.array(targetInputValidator),
     dueDate: v.number(),
-    tier: v.optional(TIER),
     overlayText: v.optional(v.string()),
     // Consigne de montage libre, propre à ce clip (champ partagé avec le flux
     // partenaire, déjà classé dans les deux allowlists).
@@ -1882,20 +2046,18 @@ export const assignScriptToRush = adminMutation({
         }
       }
     } else {
-      // D7 : filtrage AVANT le tirage. Le tier ne filtre que les hooks, comme
-      // dans le chemin partenaire.
-      const tiered =
-        args.tier === undefined
-          ? allBricks
-          : allBricks.filter((b) => b.kind !== "hook" || b.tier === args.tier);
-      const eligible = eligibleBricksForRush(tiered);
+      // D7 : filtrage AVANT le tirage (un rush est muet — seul ce qui s'affiche
+      // est assignable), comme dans le chemin partenaire.
+      const eligible = eligibleBricksForRush(allBricks);
       const combos = generateCombosServer(eligible);
       if (combos.length === 0) {
         // Message qui NOMME les briques à corriger — « aucun combo disponible »
         // tout court laisse l'admin sans geste possible.
         throw new ConvexError(
           describeNoEligibleCombo(
-            tiered.filter((b) => isGuardedKind(b.kind) && !isBrickRushEligible(b)),
+            allBricks.filter(
+              (b) => isGuardedKind(b.kind) && !isBrickRushEligible(b),
+            ),
           ),
         );
       }
@@ -1969,5 +2131,275 @@ export const assignScriptToRush = adminMutation({
     });
 
     return { assignmentId };
+  },
+});
+
+// ─── GRADUATION d'un hook (LAB → ouvertures prouvées) ────────────────────────
+
+/**
+ * Runs d'un hook = les publications dont le combo porte cette brique en hook.
+ * Lecture par index projet puis filtrage en mémoire : Convex n'indexe pas les
+ * champs imbriqués, `scriptCombo.hookBrickId` n'est donc pas requêtable — même
+ * idiome que scriptAnalytics et trackerData.
+ *
+ * Métriques LATEST dénormalisées (pas de lecture de snapshots) : c'est ce que
+ * l'admin voit au moment où il gradue, donc ce qu'il faut figer dans le journal.
+ */
+async function hookRunsOf(
+  ctx: Parameters<typeof requireCampaign>[0],
+  projectId: Id<"projects">,
+  brickId: Id<"scriptBricks">,
+): Promise<{ vues: number; likes: number; saves: number | null }[]> {
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return pubs
+    .filter((p) => p.scriptCombo?.hookBrickId === brickId)
+    .map((p) => ({
+      vues: p.vuesLatest ?? 0,
+      likes: p.likesLatest ?? 0,
+      // `undefined` (jamais collecté) ≠ 0 (mesuré à zéro) — la règle de
+      // graduation refuse un taux non mesuré, elle ne le suppose pas satisfait.
+      saves: p.savesLatest ?? null,
+    }));
+}
+
+/**
+ * GRADUER un hook : le copier dans « Format Warmup - Ouvertures prouvées » ET
+ * désactiver l'original dans « Format Warmup LAB ». Les DEUX, dans la MÊME
+ * mutation — donc dans la même transaction Convex.
+ *
+ * Séparer les deux écritures laisserait le même TEXTE actif dans deux
+ * campagnes, et le cooldown ne le verrait pas : il travaille sur `comboKey`,
+ * c'est-à-dire sur des identifiants de briques. Deux briques portant le même
+ * hook sont deux clés distinctes — rien ne les empêcherait de sortir le même
+ * jour sur deux comptes. Cf convex/graduation.ts.
+ *
+ * IDEMPOTENTE : si le texte existe déjà dans la campagne cible, on ne duplique
+ * pas — on désactive quand même l'original (c'est ce qui rétablit l'invariant)
+ * et on le SIGNALE via `outcome: "already-graduated"`.
+ *
+ * Les scores sont recalculés ICI, côté serveur : un journal d'audit alimenté par
+ * des chiffres venus du client n'auditerait rien.
+ */
+export const graduateHook = permissionMutation("scripts.manage")({
+  args: { brickId: v.id("scriptBricks") },
+  handler: async (
+    ctx,
+    { brickId },
+  ): Promise<{
+    outcome: GraduationOutcome;
+    targetBrickId: Id<"scriptBricks">;
+    targetCampaignName: string;
+  }> => {
+    const brick = await ctx.db.get(brickId);
+    if (!brick || brick.projectId !== ctx.projectId) {
+      throw new ConvexError("Hook introuvable.");
+    }
+    if (brick.kind !== "hook") {
+      throw new ConvexError("Seul un hook peut être gradué.");
+    }
+
+    const campaigns = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const target = campaigns.find((c) =>
+      campaignNameMatches(c.name, PROVEN_CAMPAIGN_NAME),
+    );
+    if (!target) {
+      // Message ACTIONNABLE : la campagne cible est identifiée par son nom, son
+      // absence est une situation normale sur un projet neuf.
+      throw new ConvexError(
+        `Aucune campagne « ${PROVEN_CAMPAIGN_NAME} » sur ce projet — crée-la d'abord.`,
+      );
+    }
+    if (target._id === brick.campaignId) {
+      throw new ConvexError("Ce hook est déjà dans les ouvertures prouvées.");
+    }
+
+    // Idempotence par le TEXTE (la copie a forcément un autre id). Les briques
+    // INACTIVES comptent : une graduation annulée à la main ne doit pas
+    // permettre d'en recréer une seconde copie.
+    const existing = (
+      await ctx.db
+        .query("scriptBricks")
+        .withIndex("by_campaign_kind", (q) =>
+          q.eq("campaignId", target._id).eq("kind", "hook"),
+        )
+        .collect()
+    ).find(
+      (b) => hookIdentityKey(b.content) === hookIdentityKey(brick.content),
+    );
+
+    // Désactivation de l'original — faite dans les DEUX branches : c'est elle
+    // qui garantit qu'un seul exemplaire reste actif.
+    await ctx.db.patch(brickId, { active: false });
+
+    if (existing) {
+      return {
+        outcome: "already-graduated",
+        targetBrickId: existing._id,
+        targetCampaignName: target.name,
+      };
+    }
+
+    const targetBrickId = await ctx.db.insert("scriptBricks", {
+      projectId: ctx.projectId,
+      campaignId: target._id,
+      kind: "hook",
+      label: brick.label,
+      content: brick.content,
+      mode: brick.mode,
+      // La CONSIGNE suit le hook : c'est une propriété du texte, pas de la
+      // campagne qui l'héberge.
+      instruction: brick.instruction,
+      active: true,
+      createdAt: Date.now(),
+    });
+
+    const runs = await hookRunsOf(ctx, ctx.projectId, brickId);
+    const meilleur = bestRun(runs);
+    await ctx.db.insert("hookGraduations", {
+      projectId: ctx.projectId,
+      sourceBrickId: brickId,
+      sourceCampaignId: brick.campaignId,
+      targetBrickId,
+      targetCampaignId: target._id,
+      content: brick.content,
+      graduatedAt: Date.now(),
+      scores: {
+        vues: meilleur?.vues ?? 0,
+        likes: meilleur?.likes ?? 0,
+        saves: meilleur?.saves ?? undefined,
+        runs: runs.length,
+      },
+    });
+
+    return {
+      outcome: "graduated",
+      targetBrickId,
+      targetCampaignName: target.name,
+    };
+  },
+});
+
+/**
+ * Ce qu'il faut MONTRER avant de graduer : le texte du hook, ses scores, et vers
+ * quelle campagne il part. Query séparée pour que l'écran de confirmation
+ * affiche des chiffres relus en base, jamais des chiffres portés par le clic.
+ */
+export const getGraduationPreview = permissionQuery("scripts.manage")({
+  args: { brickId: v.id("scriptBricks") },
+  handler: async (ctx, { brickId }) => {
+    const brick = await ctx.db.get(brickId);
+    if (!brick || brick.projectId !== ctx.projectId) return null;
+
+    const campaigns = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const target = campaigns.find((c) =>
+      campaignNameMatches(c.name, PROVEN_CAMPAIGN_NAME),
+    );
+
+    const runs = await hookRunsOf(ctx, ctx.projectId, brickId);
+    const meilleur = bestRun(runs);
+    const dejaPresent =
+      target !== undefined &&
+      (
+        await ctx.db
+          .query("scriptBricks")
+          .withIndex("by_campaign_kind", (q) =>
+            q.eq("campaignId", target._id).eq("kind", "hook"),
+          )
+          .collect()
+      ).some(
+        (b) => hookIdentityKey(b.content) === hookIdentityKey(brick.content),
+      );
+
+    return {
+      content: brick.content,
+      targetCampaignName: target?.name ?? null,
+      runs: runs.length,
+      best: meilleur,
+      qualifies: meilleur !== null && qualifiesForGraduation(meilleur),
+      alreadyPresent: dejaPresent,
+    };
+  },
+});
+
+// ─── Disponibilité des hooks (affichage) ─────────────────────────────────────
+
+/**
+ * USAGES PASSÉS de chaque hook de la campagne — matière première de
+ * l'indicateur de disponibilité (convex/hookAvailability.ts).
+ *
+ * Ne DÉCIDE rien : rend les faits (qui a eu ce hook, sur quelles plateformes, à
+ * quelle date d'ancrage, était-ce un combo imposé), la lecture se fait côté
+ * client avec le même module pur que les tests. Le tirage et le cooldown
+ * restent intacts — ceci n'est qu'une vue.
+ *
+ * Un comboKey vaut « hook:flux:cta » (ou « hook:corps:flux:cta » en legacy) :
+ * le hook est TOUJOURS le premier segment, dans les deux espaces de clés.
+ */
+export const hookUsagesForCampaign = permissionQuery("scripts.manage")({
+  args: { campaignId: v.id("scriptCampaigns") },
+  handler: async (ctx, { campaignId }) => {
+    await requireCampaign(ctx, campaignId, ctx.projectId);
+
+    const [assignments, creators] = await Promise.all([
+      ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+    ]);
+    const nameById = new Map(creators.map((c) => [c._id as string, c.name]));
+
+    const parHook = new Map<
+      string,
+      {
+        creatorId: string;
+        creatorName: string;
+        platforms: string[];
+        anchorAt: number | null;
+        comboImposed: boolean;
+      }[]
+    >();
+    for (const a of assignments) {
+      if (!a.comboKey) continue;
+      const hookBrickId = a.comboKey.split(":")[0];
+      if (!hookBrickId) continue;
+      // Ancrage = date de publication PRÉVUE, à défaut la date RÉELLE de sortie.
+      // Même convention que le cooldown (lib/scriptCombos.ScheduledComboUsage) :
+      // deux lectures divergentes donneraient deux vérités à l'écran.
+      const anchorAt =
+        a.postDate ??
+        (a.targets ?? []).reduce<number | null>(
+          (acc, t) =>
+            t.publishedAt !== undefined && (acc === null || t.publishedAt < acc)
+              ? t.publishedAt
+              : acc,
+          null,
+        );
+      const arr = parHook.get(hookBrickId) ?? [];
+      arr.push({
+        creatorId: a.creatorId as string,
+        creatorName:
+          nameById.get(a.creatorId as string) ??
+          a.creatorNameSnapshot ??
+          "Créateur supprimé",
+        platforms: [...new Set((a.targets ?? []).map((t) => t.platform))],
+        anchorAt,
+        comboImposed: a.comboImposed === true,
+      });
+      parHook.set(hookBrickId, arr);
+    }
+    return Object.fromEntries(parHook);
   },
 });

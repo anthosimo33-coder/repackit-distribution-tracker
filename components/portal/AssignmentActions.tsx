@@ -28,8 +28,10 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
+import { useConvexError } from "@/lib/use-convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
+import { publishUrlIssue, type PostUrlPlatform } from "@/convex/postUrlShape";
+import { useTranslations } from "next-intl";
 
 /**
  * Workflow EN DEUX TEMPS côté créateur :
@@ -73,6 +75,12 @@ export function AssignmentActions({
   /** Admin view-as : aucune action ; l'état du workflow est rendu en lecture. */
   readOnly?: boolean;
 }) {
+  const showError = useConvexError();
+  const t = useTranslations("portal");
+  // Alias STABLE : les `.map((t) => …)` de ce fichier nomment leur cible `t` et
+  // masquent le hook à l'intérieur. Renommer le paramètre toucherait beaucoup
+  // plus de lignes qu'un alias, pour le même résultat.
+  const tr = t;
   const start = useMutation(api.assignments.startAssignment);
   const submitVideo = useMutation(api.assignments.submitVideo);
   const confirmPublication = useMutation(api.assignments.confirmPublication);
@@ -90,9 +98,9 @@ export function AssignmentActions({
     setBusy(true);
     try {
       await start({ projectId, id: assignment._id });
-      toast.success("C'est parti — bon tournage !");
+      toast.success(t("assignment.started"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Impossible de démarrer la mission"));
+      toast.error(showError(e, t("assignment.startFailed")));
     } finally {
       setBusy(false);
     }
@@ -108,9 +116,9 @@ export function AssignmentActions({
         mimeType: v.mimeType,
       });
       setUploadOpen(false);
-      toast.success("Vidéo envoyée — en attente de validation");
+      toast.success(t("assignment.videoSent"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de l'envoi de la vidéo"));
+      toast.error(showError(e, t("assignment.videoSendFailed")));
     } finally {
       setBusy(false);
     }
@@ -118,13 +126,25 @@ export function AssignmentActions({
 
   async function handleConfirm(e: React.FormEvent) {
     e.preventDefault();
-    // Garde client : chaque URL doit correspondre à SA plateforme (le serveur
-    // revalide de toute façon).
+    // Garde client : on ne refuse QUE ce qui est prouvé faux — mauvaise
+    // plateforme, ou lien de profil. Un format d'URL non reconnu PASSE : c'est
+    // au serveur de trancher, et il est permissif. L'inverse — une liste
+    // blanche de formats côté client — a bloqué des créatrices pendant des
+    // semaines sur des liens parfaitement valides (cf convex/postUrlShape.ts).
     for (const t of targets) {
-      const val = (urls[t.platform] ?? "").trim();
-      const detected = val ? detectInspirationType(val) : null;
-      if (!detected || detected.plateforme !== t.platform) {
-        toast.error(`L'URL pour ${t.platform} ne correspond pas à cette plateforme.`);
+      const issue = publishUrlIssue(
+        (urls[t.platform] ?? "").trim(),
+        t.platform as PostUrlPlatform,
+      );
+      if (issue !== null) {
+        toast.error(
+          tr(
+            issue === "account-url"
+              ? "assignment.urlIsAccount"
+              : "assignment.urlWrongPlatform",
+            { platform: t.platform },
+          ),
+        );
         return;
       }
     }
@@ -138,10 +158,10 @@ export function AssignmentActions({
           url: (urls[t.platform] ?? "").trim(),
         })),
       });
-      toast.success("Publication confirmée — paiement en route 🎉");
+      toast.success(t("assignment.published"));
       setUrls({});
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Échec de la confirmation de publication"));
+      toast.error(showError(err, t("assignment.publishFailed")));
     } finally {
       setBusy(false);
     }
@@ -156,14 +176,14 @@ export function AssignmentActions({
       <StreamPlayer
         uid={streamUid}
         status={streamStatus}
-        title="Ta vidéo soumise"
+        title={t("assignment.myVideo")}
       />
     ) : assignment.submittedVideoStorageId && submittedVideoUrl !== undefined ? (
       <VideoExample
         example={{
           kind: "file",
           storageId: assignment.submittedVideoStorageId,
-          title: "Ta vidéo soumise",
+          title: t("assignment.myVideo"),
           mimeType: submittedVideoMimeType ?? "video/mp4",
           url: submittedVideoUrl ?? null,
         }}
@@ -184,12 +204,8 @@ export function AssignmentActions({
         <div className="flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600">
           <UsersIcon className="mt-0.5 size-4 shrink-0 text-slate-400" />
           <span>
-            <span className="font-medium text-slate-800">
-              Géré par l&apos;équipe
-            </span>{" "}
-            — l&apos;équipe publie ce contenu. Tu n&apos;as rien à soumettre ni à
-            publier ; le post et ses performances apparaîtront dans « Mes
-            vidéos ».
+            <span className="font-medium text-slate-800">{t("assignment.managedBadge2")}</span>{" "}
+            {t("assignment.managedNotice")}
           </span>
         </div>
         {isOnline && publishedTargets.length > 0 && (
@@ -202,7 +218,7 @@ export function AssignmentActions({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                Voir le post {t.platform}
+                {tr("assignment.seePostOn", { platform: t.platform })}
                 <ExternalLinkIcon className="size-3.5" />
               </a>
             ))}
@@ -222,14 +238,14 @@ export function AssignmentActions({
     return (
       <div className="space-y-3">
         {s === "todo" && (
-          <ReadOnlyState tone="slate" label="Mission pas encore démarrée par le créateur." />
+          <ReadOnlyState tone="slate" label={t("assignment.ro.todo")} />
         )}
         {s === "in_progress" && (
-          <ReadOnlyState tone="slate" label="En production — le créateur doit soumettre sa vidéo." />
+          <ReadOnlyState tone="slate" label={t("assignment.ro.inProgress")} />
         )}
         {s === "video_submitted" && (
           <>
-            <ReadOnlyState tone="amber" label="Vidéo envoyée — en attente de validation par l'admin." />
+            <ReadOnlyState tone="amber" label={t("assignment.ro.submitted")} />
             {myVideoPreview}
           </>
         )}
@@ -237,25 +253,25 @@ export function AssignmentActions({
           <>
             {assignment.videoReviewFeedback && (
               <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-                <p className="font-semibold">Vidéo à refaire</p>
+                <p className="font-semibold">{t("assignment.redoTitle")}</p>
                 <p>{assignment.videoReviewFeedback}</p>
               </div>
             )}
             {myVideoPreview}
-            <ReadOnlyState tone="slate" label="Le créateur doit re-soumettre une vidéo." />
+            <ReadOnlyState tone="slate" label={t("assignment.ro.resubmit")} />
           </>
         )}
         {s === "to_publish" && (
           <ReadOnlyState
             tone="emerald"
-            label="Vidéo validée — le créateur doit publier puis coller les URLs."
+            label={t("assignment.ro.toPublish")}
           />
         )}
         {(s === "published" || s === "paid") && (
           <>
             <ReadOnlyState
               tone="emerald"
-              label={s === "paid" ? "Publié et payé ✓" : "Publié ✓"}
+              label={s === "paid" ? t("assignment.publishedPaid") : t("assignment.publishedOnly")}
             />
             {publishedTargets.map((t) => (
               <a
@@ -265,7 +281,7 @@ export function AssignmentActions({
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                Voir le post {t.platform}
+                {tr("assignment.seePostOn", { platform: t.platform })}
                 <ExternalLinkIcon className="size-3.5" />
               </a>
             ))}
@@ -279,16 +295,15 @@ export function AssignmentActions({
     <Dialog open={uploadOpen} onOpenChange={(o) => !busy && setUploadOpen(o)}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Soumettre ta vidéo</DialogTitle>
+          <DialogTitle>{t("assignment.uploadTitle")}</DialogTitle>
           <DialogDescription>
-            Envoie ton MP4 (non publié). L&apos;admin la valide avant que tu la
-            publies sur {targets.length > 1 ? "tes comptes" : "ton compte"}.
+            {t("assignment.uploadHint", { count: targets.length })}
           </DialogDescription>
         </DialogHeader>
         <VideoUploader
           onUploaded={handleUploaded}
           disabled={busy}
-          title="Glisse ta vidéo ici"
+          title={t("assignment.dropHere")}
         />
       </DialogContent>
     </Dialog>
@@ -312,17 +327,13 @@ export function AssignmentActions({
   if (s === "in_progress") {
     return (
       <div className="space-y-2">
-        <p className="text-sm text-slate-600">
-          Tourne ta vidéo selon le brief, puis envoie-la pour validation.
-        </p>
+        <p className="text-sm text-slate-600">{t("assignment.shootHint")}</p>
         <Button
           onClick={() => setUploadOpen(true)}
           disabled={busy}
           className={ACTION_BTN}
         >
-          <UploadIcon className="mr-2 size-4" />
-          Soumettre ma vidéo
-        </Button>
+          <UploadIcon className="mr-2 size-4" />{t("assignment.submitMine")}</Button>
         {uploadModal}
       </div>
     );
@@ -333,9 +344,7 @@ export function AssignmentActions({
     return (
       <div className="space-y-3">
         <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-          <ClockIcon className="size-4 shrink-0" />
-          Vidéo envoyée — en attente de validation par l&apos;admin.
-        </div>
+          <ClockIcon className="size-4 shrink-0" />{t("assignment.sentAwaiting")}</div>
         {myVideoPreview}
       </div>
     );
@@ -347,7 +356,7 @@ export function AssignmentActions({
       <div className="space-y-3">
         {assignment.videoReviewFeedback && (
           <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
-            <p className="font-semibold">Vidéo à refaire</p>
+            <p className="font-semibold">{t("assignment.redoTitle")}</p>
             <p>{assignment.videoReviewFeedback}</p>
           </div>
         )}
@@ -357,9 +366,7 @@ export function AssignmentActions({
           disabled={busy}
           className={ACTION_BTN}
         >
-          <UploadIcon className="mr-2 size-4" />
-          Re-soumettre une vidéo
-        </Button>
+          <UploadIcon className="mr-2 size-4" />{t("assignment.resubmit")}</Button>
         {uploadModal}
       </div>
     );
@@ -374,42 +381,61 @@ export function AssignmentActions({
       <form onSubmit={handleConfirm} className="space-y-4">
         <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           <CheckCircle2Icon className="size-4 shrink-0" />
-          Ta vidéo est validée — publie-la sur {targets.length > 1
-            ? "chaque plateforme"
-            : "ton compte"}, puis colle {targets.length > 1
-            ? "les URLs"
-            : "l'URL"} ci-dessous.
+          {t("assignment.validatedPublish", { count: targets.length })}
         </div>
-        {targets.map((t) => {
-          const val = urls[t.platform] ?? "";
-          const detected = val.trim() ? detectInspirationType(val) : null;
-          const mismatch = detected && detected.plateforme !== t.platform;
+        {targets.map((target) => {
+          const val = urls[target.platform] ?? "";
+          // Trois états, jamais un silence. `issue` = prouvé faux (rouge,
+          // bloquant) ; `unknown` = lien non reconnu (ambre, NON bloquant) —
+          // c'est cet état qui manquait : le champ paraissait valide, le bouton
+          // actif, et l'erreur ne tombait qu'au clic, sur un lien correct.
+          const issue = publishUrlIssue(
+            val.trim(),
+            target.platform as PostUrlPlatform,
+          );
+          const unknown =
+            issue === null &&
+            val.trim() !== "" &&
+            detectInspirationType(val) === null;
           return (
-            <div key={t.platform} className="space-y-1.5">
-              <Label htmlFor={`url-${t.platform}`}>
-                Publie sur {t.platform}
-                {t.accountHandle ? (
+            <div key={target.platform} className="space-y-1.5">
+              <Label htmlFor={`url-${target.platform}`}>
+                {t("assignment.publishOn", { platform: target.platform })}
+                {target.accountHandle ? (
                   <span className="font-mono text-slate-500">
                     {" "}
-                    {t.accountHandle}
+                    {target.accountHandle}
                   </span>
                 ) : null}
               </Label>
               <Input
-                id={`url-${t.platform}`}
+                id={`url-${target.platform}`}
                 type="url"
                 inputMode="url"
-                placeholder={placeholderFor(t.platform)}
+                placeholder={placeholderFor(target.platform)}
                 value={val}
                 onChange={(e) =>
-                  setUrls((prev) => ({ ...prev, [t.platform]: e.target.value }))
+                  setUrls((prev) => ({ ...prev, [target.platform]: e.target.value }))
                 }
                 required
                 className="h-11 sm:h-9"
               />
-              {mismatch && (
-                <p className="text-xs text-rose-600">
-                  Ce lien n&apos;est pas un lien {t.platform}.
+              {issue !== null && (
+                <p
+                  className="text-xs text-rose-600"
+                  data-testid={`url-issue-${target.platform}`}
+                >
+                  {issue === "account-url"
+                    ? t("assignment.profileLink")
+                    : t("assignment.wrongLink", { platform: target.platform })}
+                </p>
+              )}
+              {unknown && (
+                <p
+                  className="text-xs text-amber-600"
+                  data-testid={`url-unknown-${target.platform}`}
+                >
+                  {t("assignment.unknownLink")}
                 </p>
               )}
             </div>
@@ -425,7 +451,7 @@ export function AssignmentActions({
           ) : (
             <SendIcon className="mr-2 size-4" />
           )}
-          Confirmer la publication
+          {t("assignment.confirmPublish")}
         </Button>
       </form>
     );
@@ -437,7 +463,7 @@ export function AssignmentActions({
     <div className="space-y-2">
       <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
         <CheckCircle2Icon className="size-4 shrink-0" />
-        {s === "paid" ? "Publié et payé ✓" : "Publié ✓"}
+        {s === "paid" ? t("assignment.publishedPaid") : t("assignment.publishedOnly")}
       </div>
       {publishedTargets.map((t) => (
         <a
@@ -447,7 +473,7 @@ export function AssignmentActions({
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
         >
-          Voir le post {t.platform}
+          {tr("assignment.seePostOn", { platform: t.platform })}
           <ExternalLinkIcon className="size-3.5" />
         </a>
       ))}
@@ -469,6 +495,7 @@ function ReadOnlyState({
   tone: "slate" | "amber" | "emerald";
   label: string;
 }) {
+  const t = useTranslations("portal.assignment");
   return (
     <div
       data-testid="assignment-readonly-state"

@@ -10,6 +10,7 @@ import {
 } from "@/lib/embed";
 import { tiktokPostId } from "@/lib/apifyPosts";
 import { handleFromPostUrl } from "@/lib/post-url-account";
+import { useTranslations } from "next-intl";
 
 /**
  * P6 — <VideoExample> : rend un exemple vidéo REGARDABLE in-app, JAMAIS
@@ -100,15 +101,15 @@ function FileVideo({
   mimeType: string;
   onUnreadable?: () => void;
 }) {
+  const tve = useTranslations("videoExample");
   const [error, setError] = useState(false);
-  if (!url) return <FallbackCard label="Vidéo indisponible" />;
+  if (!url) return <FallbackCard label={tve("unavailable")} />;
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center gap-1 p-6 text-center text-sm text-slate-500">
         <FilmIcon className="size-6 text-slate-300" />
         <p>
-          Format non lisible par ce navigateur (probable .mov HEVC iPhone) —
-          réencoder en mp4 H.264.
+          {tve("codecHint")}
         </p>
       </div>
     );
@@ -132,12 +133,13 @@ function FileVideo({
 }
 
 function YouTubeEmbed({ url, title }: { url: string; title: string }) {
+  const tve = useTranslations("videoExample");
   const id = extractYouTubeId(url);
-  if (!id) return <FallbackCard label="Voir sur YouTube" href={url} />;
+  if (!id) return <FallbackCard label={tve("seeYouTube")} href={url} />;
   return (
     <iframe
       src={youTubeEmbedUrl(id)}
-      title={title || "Exemple YouTube"}
+      title={title || tve("youtubeEx")}
       allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
       allowFullScreen
       className="aspect-video w-full"
@@ -167,6 +169,7 @@ function TikTokEmbed({
   title: string;
   posterUrl?: string | null;
 }) {
+  const tve = useTranslations("videoExample");
   // Lecteur officiel `player/v1` en iframe AUTONOME : joue la vidéo en place,
   // sans oEmbed ni embed.js. L'ancienne approche (blockquote hydraté par
   // embed.js) ne se ré-hydratait PAS après le 1er montage — or ici le montage
@@ -179,7 +182,7 @@ function TikTokEmbed({
     // carte cliquable propre, jamais de bloc de texte brut.
     return (
       <FallbackCard
-        label={title || "Voir la vidéo"}
+        label={title || tve("seeVideo")}
         href={url}
         posterUrl={posterUrl}
         handle={handleFromPostUrl(url, "TikTok")}
@@ -189,7 +192,7 @@ function TikTokEmbed({
   return (
     <iframe
       src={tiktokPlayerEmbedUrl(videoId)}
-      title={title || "Exemple TikTok"}
+      title={title || tve("tiktokEx")}
       allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
       allowFullScreen
       className="aspect-[9/16] w-full"
@@ -199,6 +202,7 @@ function TikTokEmbed({
 }
 
 function InstagramEmbed({ url, title }: { url: string; title: string }) {
+  const tve = useTranslations("videoExample");
   const ref = useRef<HTMLDivElement>(null);
   useExternalScript("https://www.instagram.com/embed.js", true);
   useEffect(() => {
@@ -223,7 +227,7 @@ function InstagramEmbed({ url, title }: { url: string; title: string }) {
           className="inline-flex items-center gap-1.5 p-4 text-sm font-medium text-slate-700 hover:text-slate-900"
         >
           <ExternalLinkIcon className="size-4" />
-          {title || "Voir sur Instagram"}
+          {title || tve("seeInstagram")}
         </a>
       </blockquote>
     </div>
@@ -247,6 +251,7 @@ function FallbackCard({
   posterUrl?: string | null;
   handle?: string | null;
 }) {
+  const tve = useTranslations("videoExample");
   const content = (
     <div className="flex items-center gap-3 p-3 text-left">
       {posterUrl ? (

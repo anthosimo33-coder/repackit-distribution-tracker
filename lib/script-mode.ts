@@ -25,10 +25,10 @@ export {
 import type { BrickMode } from "../convex/rushScriptEligibility";
 
 /** Options ordonnées pour le sélecteur admin (hook / flux uniquement). */
-export const BRICK_MODE_OPTIONS: { value: BrickMode; label: string }[] = [
-  { value: "dire", label: "Dire à l'oral" },
-  { value: "afficher", label: "Afficher à l'écran" },
-  { value: "les_deux", label: "Les deux" },
+export const BRICK_MODE_OPTIONS: { value: BrickMode; labelKey: string }[] = [
+  { value: "dire", labelKey: "scriptMode.option.dire" },
+  { value: "afficher", labelKey: "scriptMode.option.afficher" },
+  { value: "les_deux", labelKey: "scriptMode.option.les_deux" },
 ];
 
 /**
@@ -37,14 +37,14 @@ export const BRICK_MODE_OPTIONS: { value: BrickMode; label: string }[] = [
  */
 export function brickModeDisplay(mode: BrickMode): {
   icon: string;
-  label: string;
+  labelKey: string;
 } {
   switch (mode) {
     case "dire":
-      return { icon: "🗣️", label: "À dire à l'oral" };
+      return { icon: "🗣️", labelKey: "scriptMode.hint.dire" };
     case "afficher":
-      return { icon: "💬", label: "À afficher en texte à l'écran" };
+      return { icon: "💬", labelKey: "scriptMode.hint.afficher" };
     case "les_deux":
-      return { icon: "🗣️💬", label: "À dire ET afficher à l'écran" };
+      return { icon: "🗣️💬", labelKey: "scriptMode.hint.les_deux" };
   }
 }

@@ -94,6 +94,44 @@ export function computeViewCounters(
   return { totales, payables, promo, paliers };
 }
 
+/**
+ * Ventilation des vues d'un projet en DEUX parts EXCLUSIVES et ADDITIVES —
+ * `paidViews + unpaidViews === totales` — pour le dénominateur du RPM et le
+ * toggle de la carte Rentabilité.
+ *
+ * QUEL compteur (règle A2 — la carte DÉCLARE lequel elle lit) : `payables`, PAS
+ * `promo`. La carte Rentabilité met le revenu en face du COÛT ; son RPM répond
+ * donc à « que me rapporte une vue que j'ai PAYÉE ? ». Lire `promo` répondrait à
+ * « que rapporte une vue qui pouvait convertir ? » — une autre question, et une
+ * qui rendrait invisible le retrait d'un post promo de la paie.
+ *
+ * ⚠️ La coupure est le fait FINANCIER (`isRemunerated`), PAS le fait éditorial
+ * (`isWarmup`). Les deux ne coïncident pas : un post « pas warmup mais retiré de
+ * la paie » (remunere=false) n'est pas monétisé, et un post « warmup mais payé »
+ * (cas Kelly, remunere=true) l'est.
+ *
+ * C'est le défaut que cette fonction supprime : la carte Rentabilité ventilait
+ * sur `p.isWarmup === true` en dur, alors que l'en-tête de ce module interdit
+ * précisément de re-tester isWarmup dans un agrégat. Mesuré sur la prod du
+ * 2026-09-02, le décalage allait dans les DEUX sens :
+ *   - 7 posts / 398 357 vues NON rémunérés étaient comptés comme monétisés
+ *     (277 857 sur le seul mois d'août, soit 23 % du mois) ;
+ *   - 13 posts warmup explicitement PAYÉS en étaient exclus (694 000 vues sur
+ *     juillet à eux seuls).
+ *
+ * Les deux parts sont ADDITIVES, contrairement aux quatre compteurs ci-dessus :
+ * c'est une partition de `totales`, pas quatre lectures du même ensemble.
+ */
+export function viewsSplitOf(items: readonly ViewCountersInput[]): {
+  /** Vues des posts RÉMUNÉRÉS (= compteur `payables`) — dénominateur du RPM. */
+  paidViews: number;
+  /** Vues des posts NON rémunérés (warmup, ou explicitement retirés de la paie). */
+  unpaidViews: number;
+} {
+  const { totales, payables } = computeViewCounters(items);
+  return { paidViews: payables, unpaidViews: totales - payables };
+}
+
 /** Libellés d'usage — la carte DÉCLARE lequel elle lit (règle A2). */
 export const VIEW_COUNTER_USAGE = {
   totales: "Affichage et suivi",

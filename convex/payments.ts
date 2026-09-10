@@ -1,14 +1,18 @@
 import {
-  adminMutation,
-  adminQuery,
   adminViewAsQuery,
   creatorQuery,
   e2eMutation,
+  permissionMutation,
+  permissionQuery,
 } from "./functions";
 import { internal } from "./_generated/api";
 import {
   computeLivePricingBreakdown,
   computeCyclePricingBreakdown,
+  loadCreatorPayrollSources,
+  loadProjectPublications,
+  newViewsCache,
+  type AssignmentViewsCache,
   assignmentPublishedAt,
   syncBonusUnlocks,
   MAX_PAY_PER_VIDEO_EUR,
@@ -22,6 +26,7 @@ import {
   CYCLE_LENGTH_MS,
   payAnchorOf,
 } from "./payCycle";
+import { paidBeforePayWindow } from "./payWindow";
 import { resolveCreatorKind } from "./roles";
 import {
   monthLabelFr,
@@ -32,6 +37,7 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import { ERR, err } from "./errorCodes";
 
 /**
  * P8 — Paiements (accrual). LOGIQUE D'ARGENT : chaque montant crédité est
@@ -48,12 +54,29 @@ import type { Doc, Id } from "./_generated/dataModel";
 type LineItem = {
   // Optionnel : un palier bonus cumulé (bonus_tier) n'a pas d'assignment.
   assignmentId?: Id<"assignments">;
+  /** Phrase FIGÉE au paiement (français). Repli d'affichage, jamais réécrite. */
   label: string;
+  /** Données structurées — le libellé est recomposé à l'affichage (cf schema). */
+  detail?: {
+    videoCount?: number;
+    views?: number;
+    cycleIndex?: number;
+    challengeName?: string;
+  };
   amount: number;
   // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement ;
   // clip = montant fixe par clip (clippeur) ; retainer = forfait de cycle
-  // (talent). Quatre modèles de rémunération, quatre kinds — cf schema.
-  kind: "base" | "bonus" | "fixed" | "cpm" | "bonus_tier" | "clip" | "retainer";
+  // (talent) ; challenge = prime d'une victoire de défi, UNE LIGNE PAR VICTOIRE.
+  // Cinq modèles de rémunération, cinq kinds — cf schema.
+  kind:
+    | "base"
+    | "bonus"
+    | "fixed"
+    | "cpm"
+    | "bonus_tier"
+    | "clip"
+    | "retainer"
+    | "challenge";
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
@@ -391,6 +414,7 @@ async function frozenPricingLineItems(
     out.push({
       assignmentId: rep?.assignmentId as Id<"assignments"> | undefined,
       label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
+      detail: { videoCount: g.videoCount },
       amount: g.fixed,
       kind: "fixed",
     });
@@ -400,6 +424,7 @@ async function frozenPricingLineItems(
       out.push({
         assignmentId: a.assignmentId as Id<"assignments">,
         label: `CPM — ${a.totalViews} vues`,
+        detail: { views: a.totalViews },
         amount: a.cpm,
         kind: "cpm",
       });
@@ -413,7 +438,34 @@ async function frozenPricingLineItems(
       kind: "bonus_tier",
     });
   }
+  out.push(...challengeLineItems(breakdown));
   return out;
+}
+
+/**
+ * Lignes de PRIME DE DÉFI — UNE PAR VICTOIRE, jamais une ligne agrégée.
+ *
+ * C'est l'écart délibéré avec `bonus_tier` juste au-dessus : sa ligne unique a
+ * rendu le détail par palier irrécupérable, ce qui oblige `unlockIsFrozen` à
+ * deviner par fenêtre si un palier est déjà payé. Ici la ligne nomme son défi,
+ * si bien que le grand livre reste lisible et l'annulation vérifiable — la
+ * garde de `cancelChallengeWin` peut s'appuyer sur un fait, pas sur un
+ * intervalle.
+ *
+ * ⚠️ Le NOM est figé dans `detail.challengeName` : renommer un défi ensuite ne
+ * réécrit pas une feuille de paie émise. `label` reste la phrase française de
+ * repli (convention du dépôt), le libellé traduit se recompose autour de
+ * `detail` dans la langue de la lectrice.
+ */
+function challengeLineItems(breakdown: PricingBreakdown): LineItem[] {
+  return breakdown.challengeWins
+    .filter((w) => w.montant > 0)
+    .map((w) => ({
+      label: `Prime de défi — ${w.challengeName}`,
+      detail: { challengeName: w.challengeName },
+      amount: w.montant,
+      kind: "challenge" as const,
+    }));
 }
 
 /** Breakdown pricing dérivé de lineItems GELÉES (période payée). */
@@ -426,6 +478,19 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
   const cpmTotal = sumKind("cpm");
   // bonus_tier = bonus de PALIER cash (v2), DISJOINT du "bonus" legacy par vidéo.
   const bonusTierCashTotal = sumKind("bonus_tier");
+  const challengeTotal = sumKind("challenge");
+  // Gelé, mais PAS PERDU : chaque prime a sa propre ligne, on reconstitue donc
+  // le détail à l'identique — contrairement aux paliers, dont la ligne agrégée
+  // ne se décompose plus. `winId` n'est pas dans la ligne gelée (il n'y sert à
+  // rien : la prime est versée, plus rien ne s'y rattache) ; le NOM, si, parce
+  // que c'est lui qu'on lit.
+  const challengeWins = p.lineItems
+    .filter((li) => li.kind === "challenge")
+    .map((li) => ({
+      winId: "",
+      challengeName: li.detail?.challengeName ?? li.label,
+      montant: li.amount,
+    }));
   return {
     fixedTotal,
     cpmTotal,
@@ -433,7 +498,16 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     // Gelé : lineItem bonus_tier AGRÉGÉE → pas de détail par palier récupérable.
     // La vue retombe sur la ligne agrégée (bonusTierCashTotal).
     bonusTierCashUnlocks: [],
-    total: round2(fixedTotal + cpmTotal + bonusTierCashTotal),
+    challengeTotal,
+    challengeWins,
+    // Gelé : le statut de collecte du moment n'est pas dans les lignes payées,
+    // et un cycle déjà payé ne se rediscute pas. 0 = « rien à signaler ICI »,
+    // pas « tout était mesuré » — l'avertissement n'a de sens qu'AVANT de payer.
+    unmeasuredPayablePosts: 0,
+    // GELÉ : un cycle payé n'a plus d'engagement, il a un montant. L'engagé y
+    // vaut donc le dû — c'est le seul état où les deux ne peuvent pas diverger.
+    engage: { total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal), billedViews: 0 },
+    total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
     perPricing: [],
     perAssignment: [],
   };
@@ -468,7 +542,57 @@ export type CyclePayment = {
    * `markCyclePaid` en règle automatique, ce que personne n'a demandé.
    */
   rushCount: number | null;
+  /**
+   * Cycle PAYÉ sous l'ANCIENNE règle : son montant a été gelé avant l'entrée en
+   * vigueur du plafond J+30 (cf convex/payWindow.PAY_WINDOW_EFFECTIVE_AT), et il
+   * comporte au moins une ligne assise sur des vues.
+   *
+   * Sert UNIQUEMENT à afficher une mention datée. Sans elle, une créatrice qui
+   * compare deux cycles voit deux logiques de calcul et rien ne le lui dit —
+   * exactement le genre d'écart silencieux que ce chantier existe pour éviter.
+   * `false` sur tout cycle en cours, et sur un cycle payé que le plafond
+   * n'aurait de toute façon pas déplacé.
+   */
+  computedBeforePayWindow: boolean;
+  /**
+   * ID de la row Convex — `null` pour un cycle qui n'a pas encore de row (il est
+   * calculé live). Les gestes qui portent sur la ROW (annulation) en ont besoin.
+   */
+  paymentId: Id<"payments"> | null;
+  /**
+   * ACOMPTES déjà versés sur ce cycle, du plus ancien au plus récent. Un cycle
+   * sans acompte rend `[]` — l'écran ne montre alors rien de plus qu'avant.
+   */
+  advances: { amount: number; at: number; note?: string }[];
+  /**
+   * Ce qu'il RESTE à verser : `totalDue − acomptes`, jamais négatif. Sur un
+   * cycle payé, il vaut 0. C'est ce nombre que l'écran additionne — `totalDue`
+   * reste « ce que vaut le cycle », et les deux ne se confondent pas.
+   */
+  remainingDue: number;
+  /**
+   * L'annulation est-elle encore disponible ? Elle l'est UNE fois, tant que le
+   * reçu posé au paiement n'a pas été consommé. `false` sur un cycle non payé,
+   * sur un cycle déjà annulé une fois, et sur les paiements antérieurs au reçu.
+   */
+  canRevert: boolean;
 };
+
+/** Acomptes d'une row, prêts pour l'écran (sans l'auteur, qui ne s'affiche pas). */
+function advancesOf(
+  row: Doc<"payments"> | undefined,
+): { amount: number; at: number; note?: string }[] {
+  return (row?.advances ?? []).map((a) => ({
+    amount: a.amount,
+    at: a.at,
+    ...(a.note !== undefined ? { note: a.note } : {}),
+  }));
+}
+
+/** Somme des acomptes versés sur une row (0 si aucune, ou aucun acompte). */
+function advancedTotalOf(row: Doc<"payments"> | undefined): number {
+  return round2((row?.advances ?? []).reduce((s, a) => s + a.amount, 0));
+}
 
 /** LineItems GELÉES (fixed/cpm + bonus_tier cash) construites depuis un breakdown. */
 function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
@@ -482,6 +606,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       // unique — la ligne « Fixe » de l'un aurait pointé une vidéo de l'autre.
       assignmentId: g.firstAssignmentId as Id<"assignments"> | undefined,
       label: `Fixe — ${g.videoCount} vidéo${g.videoCount > 1 ? "s" : ""} publiée${g.videoCount > 1 ? "s" : ""}`,
+      detail: { videoCount: g.videoCount },
       amount: g.fixed,
       kind: "fixed",
     });
@@ -491,6 +616,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       out.push({
         assignmentId: a.assignmentId as Id<"assignments">,
         label: `CPM — ${a.totalViews} vues`,
+        detail: { views: a.totalViews },
         amount: a.cpm,
         kind: "cpm",
       });
@@ -503,6 +629,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       kind: "bonus_tier",
     });
   }
+  out.push(...challengeLineItems(b));
   return out;
 }
 
@@ -522,6 +649,28 @@ export async function cyclePaymentsForCreator(
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
   now: number,
+  /**
+   * Cache de vues d'UNE query (cf convex/pricing AssignmentViewsCache).
+   *
+   * Un appelant qui boucle sur TOUTES les créatrices — `getReliability`,
+   * `listPayments` — recalcule sinon les mêmes vues cycle après cycle. C'est
+   * `getReliability` qui a fini par ÉCHOUER en prod le 2026-09-06 (« too many
+   * system operations »). Absent = comportement d'avant, à l'identique.
+   */
+  viewsCache?: AssignmentViewsCache,
+  /**
+   * Ne calculer QUE ce cycle-là.
+   *
+   * Deux appelants ne veulent qu'un seul cycle et jetaient tous les autres : le
+   * CLASSEMENT (le cycle en cours de chaque créatrice) et l'en-tête de la fiche
+   * créatrice. Or la boucle ci-dessous descend de `currentCycle` à 0 et fait un
+   * breakdown complet à chaque tour — sur une créatrice active depuis cinq
+   * cycles, c'était cinq fois le travail pour une ligne de classement.
+   *
+   * Absent = tous les cycles, comportement d'avant à l'identique (c'est ce dont
+   * l'écran Paiements a besoin : il les affiche tous).
+   */
+  onlyCycle?: number,
 ): Promise<CyclePayment[]> {
   const creator = await ctx.db.get(creatorId);
   // Ancre = payStartAt (talent) ?? firstPostAt (partenaire/clippeur). Pour un
@@ -555,6 +704,18 @@ export async function cyclePaymentsForCreator(
       cycleIndexOf(firstPostAt, assignmentPublishedAt(a)),
     ]),
   );
+  // Les lectures qui ne dépendent PAS du cycle, faites UNE fois pour la boucle
+  // ci-dessous. `computeCyclePricingBreakdown` re-collectait sinon, à CHAQUE
+  // cycle, ces mêmes assignations, les paliers débloqués et les victoires de
+  // défi de la créatrice — cinq cycles = cinq fois la même lecture, multipliée
+  // encore par les appelants qui bouclent sur toutes les créatrices. Les
+  // assignations déjà lues ci-dessus sont réinjectées telles quelles.
+  const payrollSources = await loadCreatorPayrollSources(
+    ctx,
+    projectId,
+    creatorId,
+    assignments,
+  );
   // Rushes du talent, chargés UNE fois pour tous ses cycles (index by_talent).
   // Population non-talent → aucune lecture supplémentaire.
   const estTalent = resolveCreatorKind(creator.kind) === "talent";
@@ -584,7 +745,14 @@ export async function cyclePaymentsForCreator(
   }
 
   const out: CyclePayment[] = [];
-  for (let k = currentCycle; k >= 0; k--) {
+  // Un cycle demandé HORS de l'histoire de la créatrice ne rend rien : mieux
+  // vaut une liste vide qu'un cycle fabriqué sur une ancre qui n'existe pas.
+  const premier = onlyCycle ?? currentCycle;
+  const dernier = onlyCycle ?? 0;
+  if (onlyCycle !== undefined && (onlyCycle < 0 || onlyCycle > currentCycle)) {
+    return [];
+  }
+  for (let k = premier; k >= dernier; k--) {
     const w = cycleWindow(firstPostAt, k);
     const period = cyclePeriodKey(w.cycleStart);
     const paid = paidByPeriod.get(period);
@@ -603,9 +771,24 @@ export async function cyclePaymentsForCreator(
         rushCount: estTalent
           ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
           : null,
+        computedBeforePayWindow: paidBeforePayWindow({
+          paidAt: paid.paidAt,
+          lineItemKinds: paid.lineItems.map((li) => li.kind),
+        }),
+        paymentId: paid._id,
+        advances: advancesOf(paid),
+        // Un cycle payé ne reste rien : le solde a été versé, quels qu'aient
+        // été les acomptes qui l'ont précédé.
+        remainingDue: 0,
+        // L'annulation ne dépend PAS du reçu : sans lui, elle se reconstruit
+        // (cf revertCyclePayment). Elle dépend de ne pas avoir déjà servi.
+        canRevert: paid.revertedAt === undefined,
       });
       continue;
     }
+    const openRow = rows.find(
+      (r) => r.period === period && r.status !== "paid",
+    );
     const legacyItems = legacyByCycle.get(k) ?? [];
     const legacyIds = new Set(
       legacyItems
@@ -619,6 +802,8 @@ export async function cyclePaymentsForCreator(
       firstPostAt,
       k,
       legacyIds,
+      viewsCache,
+      payrollSources,
     );
     // ⚠️ AUCUN forfait de talent ici. Le forfait est au MOIS CALENDAIRE
     // (arbitrage B3) et vit dans `convex/talentPay.ts` — le second chemin de
@@ -640,8 +825,25 @@ export async function cyclePaymentsForCreator(
       rushCount: estTalent
         ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
         : null,
+      // Cycle EN COURS : il se calcule live, donc sous la règle actuelle.
+      computedBeforePayWindow: false,
+      paymentId: openRow?._id ?? null,
+      advances: advancesOf(openRow),
+      // « Dû du jour − déjà versé » : le montant continue de suivre les vues,
+      // donc le reste bouge avec lui. Jamais négatif — un acompte plus gros que
+      // le dû (vues retombées, correction de lien) laisse un cycle à 0, pas une
+      // créance de l'admin sur la créatrice.
+      remainingDue: Math.max(
+        0,
+        round2(round2(legacyTotal + breakdown.total) - advancedTotalOf(openRow)),
+      ),
+      canRevert: false,
     });
   }
+  // Le filtre existe pour ne pas noyer l'écran Paiements sous des cycles vides.
+  // Quand UN cycle a été demandé nommément, l'appelant sait ce qu'il veut : le
+  // lui retirer parce qu'il est à zéro rendrait la fonction menteuse.
+  if (onlyCycle !== undefined) return out;
   return out.filter(
     (c) =>
       c.cycleIndex === currentCycle || c.totalDue > 0 || c.lineItems.length > 0,
@@ -656,79 +858,131 @@ export async function cyclePaymentsForCreator(
  * NB : n'itère que les créateurs VIVANTS (une fiche supprimée avec des cycles
  * payés — inexistant tant que rien n'est versé — ne remonterait pas ici).
  */
-export const listPayments = adminQuery({
-  args: {},
-  handler: async (ctx) => {
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const now = Date.now();
-    const liveIds = new Set(creators.map((c) => c._id));
-    const out = [];
-    for (const c of creators) {
-      const cycles = await cyclePaymentsForCreator(
-        ctx,
-        ctx.projectId,
-        c._id,
-        now,
-      );
-      for (const cy of cycles) {
-        out.push({
-          ...cy,
-          creatorId: c._id,
-          creatorName: c.name,
-          creatorEmail: c.email,
-          creatorPaymentMethod: c.paymentMethod ?? null,
-          creatorPaymentDetails: c.paymentDetails ?? null,
-        });
-      }
-    }
-    // Approche C — paiements ORPHELINS (fiche créateur supprimée : plus de
-    // firstPostAt donc AUCUN cycle calculé) : on surface la row STOCKÉE telle
-    // quelle (snapshot financier figé), lisible via creatorNameSnapshot. Sans ça,
-    // l'historique d'un créateur supprimé disparaîtrait de la vue admin.
-    const orphanRows = (
-      await ctx.db
-        .query("payments")
-        .withIndex("by_project_period", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter((p) => !liveIds.has(p.creatorId));
-    for (const p of orphanRows) {
+async function collectProjectPaymentRows(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+) {
+  const creators = await ctx.db
+    .query("creators")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const now = Date.now();
+  const liveIds = new Set(creators.map((c) => c._id));
+  const out = [];
+  // Cache PARTAGÉ par toute la boucle : une créatrice = plusieurs cycles, et
+  // chacun recalculait les vues de ses vidéos. Cf AssignmentViewsCache.
+  const viewsCache = newViewsCache(await loadProjectPublications(ctx, projectId));
+  for (const c of creators) {
+    const cycles = await cyclePaymentsForCreator(
+      ctx,
+      projectId,
+      c._id,
+      now,
+      viewsCache,
+    );
+    for (const cy of cycles) {
       out.push({
-        // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
-        key: `orphan:${p._id}`,
-        cycleIndex: 0,
-        cycleStart: p.createdAt,
-        cycleEnd: p.createdAt + CYCLE_LENGTH_MS,
-        period: p.period,
-        status: (p.status === "paid" ? "paid" : "accruing") as
-          | "paid"
-          | "accruing",
-        paidAt: p.paidAt ?? null,
-        lineItems: p.lineItems,
-        totalDue: p.totalDue,
-        pricingBreakdown: frozenBreakdownOf(p),
-        // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
-        // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
-        rushCount: null as number | null,
-        creatorId: p.creatorId,
-        creatorName: p.creatorNameSnapshot ?? "—",
-        creatorEmail: "",
-        creatorPaymentMethod: null as
-          | "sepa"
-          | "paypal"
-          | "usdt"
-          | "autre"
-          | null,
-        creatorPaymentDetails: null as string | null,
+        ...cy,
+        creatorId: c._id,
+        creatorName: c.name,
+        creatorEmail: c.email,
+        creatorPaymentMethod: c.paymentMethod ?? null,
+        creatorPaymentDetails: c.paymentDetails ?? null,
       });
     }
-    return out.sort(
-      (a, b) =>
-        b.cycleStart - a.cycleStart ||
-        a.creatorName.localeCompare(b.creatorName, "fr"),
-    );
+  }
+  // Approche C — paiements ORPHELINS (fiche créateur supprimée : plus de
+  // firstPostAt donc AUCUN cycle calculé) : on surface la row STOCKÉE telle
+  // quelle (snapshot financier figé), lisible via creatorNameSnapshot. Sans ça,
+  // l'historique d'un créateur supprimé disparaîtrait de la vue admin.
+  const orphanRows = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter((p) => !liveIds.has(p.creatorId));
+  for (const p of orphanRows) {
+    out.push({
+      // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
+      key: `orphan:${p._id}`,
+      cycleIndex: 0,
+      cycleStart: p.createdAt,
+      cycleEnd: p.createdAt + CYCLE_LENGTH_MS,
+      period: p.period,
+      status: (p.status === "paid" ? "paid" : "accruing") as
+        | "paid"
+        | "accruing",
+      paidAt: p.paidAt ?? null,
+      lineItems: p.lineItems,
+      totalDue: p.totalDue,
+      pricingBreakdown: frozenBreakdownOf(p),
+      // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
+      // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
+      rushCount: null as number | null,
+      // Mêmes champs que les cycles vivants — une row orpheline reste une LIGNE
+      // de cet écran, et un champ absent y devient `undefined` à l'affichage.
+      computedBeforePayWindow: paidBeforePayWindow({
+        paidAt: p.paidAt ?? null,
+        lineItemKinds: p.lineItems.map((li) => li.kind),
+      }),
+      paymentId: p._id,
+      advances: advancesOf(p),
+      remainingDue:
+        p.status === "paid"
+          ? 0
+          : Math.max(0, round2(p.totalDue - advancedTotalOf(p))),
+      canRevert: p.status === "paid" && p.revertedAt === undefined,
+      creatorId: p.creatorId,
+      creatorName: p.creatorNameSnapshot ?? "—",
+      creatorEmail: "",
+      creatorPaymentMethod: null as
+        | "sepa"
+        | "paypal"
+        | "usdt"
+        | "autre"
+        | null,
+      creatorPaymentDetails: null as string | null,
+    });
+  }
+  return out.sort(
+    (a, b) =>
+      b.cycleStart - a.cycleStart ||
+      a.creatorName.localeCompare(b.creatorName, "fr"),
+  );
+}
+
+export const listPayments = permissionQuery("payments.manage")({
+  args: {},
+  handler: async (ctx) => collectProjectPaymentRows(ctx, ctx.projectId),
+});
+
+/**
+ * TOTAL DÛ du projet — la carte 3 du dashboard, et RIEN d'autre.
+ *
+ * POURQUOI CETTE QUERY EXISTE. Le dashboard calculait ce total côté client, en
+ * lisant `listPayments` : le navigateur recevait donc l'INTÉGRALITÉ des cycles
+ * de paie (montants par créatrice, lignes de paie, ventilation du barème et
+ * jusqu'aux coordonnées bancaires servies pour l'export CSV) pour n'afficher
+ * qu'un nombre. Masquer la carte n'y changeait rien : la donnée était déjà
+ * partie. Ici, seul le nombre traverse le réseau.
+ *
+ * MÊME ENSEMBLE, MÊME ORDRE, MÊME ARITHMÉTIQUE que la page Paiements : les deux
+ * passent par `collectProjectPaymentRows`, la somme est faite sur le tableau
+ * DÉJÀ TRIÉ et sans arrondi — exactement le `reduce` que faisait le client.
+ * Un total de dashboard qui diverge du total de la page Paiements serait pire
+ * que pas de total du tout, et l'addition de flottants n'est pas commutative.
+ */
+export const getDueTotal = permissionQuery("payments.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await collectProjectPaymentRows(ctx, ctx.projectId);
+    return {
+      // RESTE à verser, acomptes déduits : c'est le nombre que l'admin doit
+      // sortir de sa banque. Sommer `totalDue` re-compterait l'argent déjà viré.
+      dueTotal: rows
+        .filter((p) => p.status !== "paid")
+        .reduce((sum, p) => sum + p.remainingDue, 0),
+    };
   },
 });
 
@@ -747,7 +1001,7 @@ export const getPaymentsAsAdmin = adminViewAsQuery({
 
 /**
  * Classement d'un projet sur les gains du cycle J+30 EN COURS de chaque créateur.
- * Logique PARTAGÉE entre l'adminQuery `leaderboard` (vue admin) et la creatorQuery
+ * Logique PARTAGÉE entre la query admin `leaderboard` et la creatorQuery
  * `projectLeaderboard` (portail créateur) — 0 duplication. Métrique = `totalDue`
  * du cycle courant (fixe/CPM + bonus paliers cash = le vrai « à payer »). Réutilise
  * `cyclePaymentsForCreator` (le cycle courant y est TOUJOURS présent, même à 0 $)
@@ -777,6 +1031,9 @@ async function computeProjectLeaderboard(
     .query("creators")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
+  // Publications du projet en UNE lecture, partagées par toutes les créatrices
+  // (cf AssignmentViewsCache) : sans ça, chaque vidéo relisait sa publication.
+  const viewsCache = newViewsCache(await loadProjectPublications(ctx, projectId));
   const rows: Array<{
     creatorId: Id<"creators">;
     name: string;
@@ -797,7 +1054,15 @@ async function computeProjectLeaderboard(
     if (resolveCreatorKind(c.kind) !== "partner") continue;
     if (c.firstPostAt === undefined) continue; // aucun post → pas de cycle
     const currentIndex = calcCycle(c.firstPostAt, now).cycleIndex;
-    const cycles = await cyclePaymentsForCreator(ctx, projectId, c._id, now);
+    // SEUL le cycle en cours est demandé : c'est la seule ligne qu'on affiche.
+    const cycles = await cyclePaymentsForCreator(
+      ctx,
+      projectId,
+      c._id,
+      now,
+      viewsCache,
+      currentIndex,
+    );
     const current = cycles.find((cy) => cy.cycleIndex === currentIndex);
     if (!current) continue; // garde défensive (toujours présent en théorie)
     rows.push({
@@ -818,8 +1083,48 @@ async function computeProjectLeaderboard(
   }));
 }
 
+/**
+ * CYCLE EN COURS d'UNE créatrice — l'en-tête de sa fiche.
+ *
+ * Pourquoi pas `leaderboard` filtré côté écran : le classement calcule les
+ * cycles de TOUTES les créatrices du projet pour n'en garder qu'un. Sur une
+ * fiche, c'est un balayage entier du projet pour un seul nombre.
+ *
+ * Rend `null` quand la personne n'a AUCUN cycle — un talent jamais activé, une
+ * partenaire qui n'a jamais publié. Un zéro dirait « elle a gagné zéro ce
+ * cycle-ci » alors qu'il n'y a pas de cycle du tout.
+ */
+export const getCreatorCurrentCycle = permissionQuery("payments.manage")({
+  args: { creatorId: v.id("creators") },
+  handler: async (ctx, { creatorId }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) return null;
+    const anchor = payAnchorOf(creator);
+    if (anchor === undefined) return null;
+    const now = Date.now();
+    const index = calcCycle(anchor, now).cycleIndex;
+    // Idem : un seul cycle demandé, un seul calculé.
+    const cycles = await cyclePaymentsForCreator(
+      ctx,
+      ctx.projectId,
+      creatorId,
+      now,
+      undefined,
+      index,
+    );
+    const courant = cycles.find((c) => c.cycleIndex === index);
+    if (!courant) return null;
+    return {
+      totalDue: courant.totalDue,
+      cycleStart: courant.cycleStart,
+      cycleEnd: courant.cycleEnd,
+      cycleIndex: courant.cycleIndex,
+    };
+  },
+});
+
 /** Leaderboard ADMIN du projet (cf computeProjectLeaderboard). isMe tout false. */
-export const leaderboard = adminQuery({
+export const leaderboard = permissionQuery("payments.manage")({
   args: {},
   handler: async (ctx) =>
     computeProjectLeaderboard(ctx, ctx.projectId, Date.now()),
@@ -847,24 +1152,22 @@ export const projectLeaderboard = creatorQuery({
  * (pas la clé date, lossy si firstPostAt n'est pas à minuit) → la fenêtre + la
  * clé sont recalculées serveur. Idempotent : un cycle déjà payé → no-op.
  */
-export const markCyclePaid = adminMutation({
+export const markCyclePaid = permissionMutation("payments.manage")({
   args: { creatorId: v.id("creators"), cycleIndex: v.number() },
   handler: async (ctx, { creatorId, cycleIndex }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     // MÊME ancre que l'écran. Sans cette bascule, un talent s'affichait payable
     // et `markCyclePaid` jetait « n'a pas encore publié » — payable à l'écran,
     // impayable en pratique.
     const anchor = payAnchorOf(creator);
     if (anchor === undefined) {
-      throw new ConvexError(
-        "Aucun cycle : ce créateur n'a ni publication ni date d'activation.",
-      );
+      throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
     }
     if (!Number.isInteger(cycleIndex) || cycleIndex < 0) {
-      throw new ConvexError("Cycle invalide.");
+      throw err(ERR.CYCLE_INVALID, "Cycle invalide.");
     }
     const w = cycleWindow(anchor, cycleIndex);
     const period = cyclePeriodKey(w.cycleStart);
@@ -904,10 +1207,13 @@ export const markCyclePaid = adminMutation({
       ]),
     );
     const legacyOfCycle: LineItem[] = [];
+    // D'OÙ viennent les lignes déplacées : sans ça, l'annulation les rendrait à
+    // personne et le total de la row source resterait amputé.
+    const movedFrom: { paymentId: Id<"payments">; lineItems: LineItem[] }[] = [];
     for (const r of rows) {
       if (r.status === "paid" || r.period === period) continue;
       const keep: LineItem[] = [];
-      let moved = false;
+      const taken: LineItem[] = [];
       for (const li of r.lineItems) {
         const cyc =
           li.assignmentId !== undefined
@@ -915,12 +1221,13 @@ export const markCyclePaid = adminMutation({
             : undefined;
         if (li.assignmentId !== undefined && cyc === cycleIndex) {
           legacyOfCycle.push(li);
-          moved = true;
+          taken.push(li);
         } else {
           keep.push(li);
         }
       }
-      if (moved) {
+      if (taken.length > 0) {
+        movedFrom.push({ paymentId: r._id, lineItems: taken });
         await ctx.db.patch(r._id, {
           lineItems: keep,
           totalDue: recomputeTotal(keep),
@@ -944,6 +1251,26 @@ export const markCyclePaid = adminMutation({
         paidAt: now,
         lineItems,
         totalDue: paidTotal,
+        // Reçu d'ANNULATION — l'état exact d'avant, y compris ce qui a été
+        // déplacé depuis d'autres rows.
+        //
+        // UNE SEULE ANNULATION PAR CYCLE, et c'est ici que la règle tient : un
+        // cycle déjà annulé une fois ne reçoit PLUS de reçu, même re-payé.
+        // Sans cette ligne, « annuler / re-payer » rendrait l'annulation à
+        // l'infini — et la limite promise à l'écran serait fausse.
+        undo:
+          target.revertedAt === undefined
+            ? {
+                previousStatus: (target.status === "scheduled"
+                  ? "scheduled"
+                  : "accruing") as "scheduled" | "accruing",
+                previousLineItems: target.lineItems,
+                previousTotalDue: target.totalDue,
+                movedFrom,
+                paidAt: now,
+                paidTotal,
+              }
+            : undefined,
       });
     } else {
       paidTotal = recomputeTotal(frozen);
@@ -955,6 +1282,16 @@ export const markCyclePaid = adminMutation({
         totalDue: paidTotal,
         status: "paid",
         paidAt: now,
+        // La row n'existait pas : l'état d'avant est une row VIDE en accrual —
+        // exactement ce que `getOrCreatePayment` aurait produit.
+        undo: {
+          previousStatus: "accruing",
+          previousLineItems: [],
+          previousTotalDue: 0,
+          movedFrom,
+          paidAt: now,
+          paidTotal,
+        },
         createdAt: now,
       });
     }
@@ -972,8 +1309,209 @@ export const markCyclePaid = adminMutation({
   },
 });
 
+/**
+ * Les kinds de ligne CALCULÉS AU PAIEMENT (gelés depuis le barème) — par
+ * opposition à ceux ACCRUS À LA PUBLICATION (`base`, `bonus` legacy, `clip`),
+ * qui existaient DÉJÀ sur la row avant qu'on la marque payée.
+ *
+ * C'est la frontière qui rend une annulation possible SANS reçu : on retire ce
+ * que le paiement a posé, on garde ce qui était là avant. Toute nouvelle
+ * lineItem gelée au paiement doit être ajoutée ici, sinon elle survivrait à
+ * l'annulation et le cycle compterait double.
+ */
+const FROZEN_AT_PAYMENT: ReadonlySet<LineItem["kind"]> = new Set([
+  "fixed",
+  "cpm",
+  "bonus_tier",
+  "retainer",
+  "challenge",
+]);
+
+/**
+ * ANNULER un paiement posé par erreur — UNE fois, et une seule.
+ *
+ * Ce n'est pas un « repasser en dû » : le marquage payé GÈLE des lignes (fixe,
+ * CPM, paliers, forfait) et en DÉPLACE d'autres depuis les rows d'autres
+ * périodes. Repasser le statut sans défaire tout ça laisserait des lignes gelées
+ * dans un cycle qui se recalcule live — donc un montant compté deux fois — et
+ * des rows sources amputées. L'annulation restaure donc le REÇU posé au
+ * paiement : lignes d'avant, total d'avant, statut d'avant, et rend à chaque row
+ * source ce qui lui avait été pris.
+ *
+ * UNE SEULE FOIS, parce que le reçu est CONSOMMÉ : après annulation, il n'y a
+ * plus d'état d'avant à restaurer, et un second passage inventerait le sien.
+ * `revertedAt` garde la trace du geste pour l'écran.
+ *
+ * La créatrice a déjà reçu l'e-mail « tu as été payée » : un e-mail de
+ * CORRECTION part (hors transaction, comme celui du paiement).
+ */
+export const revertCyclePayment = permissionMutation("payments.manage")({
+  args: { id: v.id("payments") },
+  handler: async (ctx, { id }) => {
+    const p = await ctx.db.get(id);
+    if (!p || p.projectId !== ctx.projectId) {
+      throw err(ERR.PAYMENT_NOT_FOUND, "Paiement introuvable.");
+    }
+    if (p.status !== "paid") {
+      throw err(ERR.PAYMENT_NOT_PAID, "Ce cycle n'est pas marqué payé.");
+    }
+    if (p.revertedAt !== undefined) {
+      throw err(
+        ERR.PAYMENT_REVERT_USED,
+        "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
+      );
+    }
+    const undo = p.undo;
+    const montantVerse = undo?.paidTotal ?? p.totalDue;
+
+    if (undo) {
+      // ── CHEMIN EXACT — un reçu a été posé au paiement ─────────────────────
+      // 1. Rendre à chaque row source les lignes qui lui avaient été PRISES.
+      for (const m of undo.movedFrom) {
+        const src = await ctx.db.get(m.paymentId);
+        if (!src || src.projectId !== ctx.projectId) continue;
+        const lineItems = [...src.lineItems, ...m.lineItems];
+        await ctx.db.patch(m.paymentId, {
+          lineItems,
+          totalDue: recomputeTotal(lineItems),
+        });
+      }
+      // 2. Restaurer la row elle-même, et CONSOMMER le reçu.
+      await ctx.db.patch(id, {
+        status: undo.previousStatus,
+        lineItems: undo.previousLineItems,
+        totalDue: undo.previousTotalDue,
+        paidAt: undefined,
+        undo: undefined,
+        revertedAt: Date.now(),
+      });
+    } else {
+      // ── CHEMIN RECONSTRUIT — paiement ANTÉRIEUR au reçu ───────────────────
+      // Tous les cycles payés avant la mise en place du reçu n'en ont pas, et
+      // ce sont précisément ceux qu'on découvre payés par erreur. Refuser
+      // rendrait la fonction inutile là où elle sert le plus.
+      //
+      // La reconstruction est bornée par une frontière NETTE : on retire les
+      // lignes CALCULÉES AU PAIEMENT (elles seront recalculées live) et on
+      // garde celles ACCRUES À LA PUBLICATION, qui étaient là avant.
+      //
+      // Ce qu'elle ne sait PAS faire, et qu'il faut assumer : rendre à une
+      // autre période les lignes legacy que le paiement lui avait prises. Elles
+      // restent sur CE cycle — celui auquel leur date de publication les
+      // rattache, donc l'endroit où le calcul live les attend de toute façon.
+      const gardees = p.lineItems.filter((li) => !FROZEN_AT_PAYMENT.has(li.kind));
+      await ctx.db.patch(id, {
+        status: "accruing",
+        lineItems: gardees,
+        totalDue: recomputeTotal(gardees),
+        paidAt: undefined,
+        revertedAt: Date.now(),
+      });
+    }
+
+    // Prévenir la créatrice — l'e-mail de paiement, lui, est déjà parti.
+    const w = await cycleWindowOfPayment(ctx, p);
+    await ctx.scheduler.runAfter(0, internal.emails.sendPaymentReverted, {
+      creatorId: p.creatorId,
+      amount: montantVerse,
+      cycleStart: w.cycleStart,
+      cycleEnd: w.cycleEnd,
+    });
+
+    const restauree = await ctx.db.get(id);
+    return { ok: true as const, restoredTotal: restauree?.totalDue ?? 0 };
+  },
+});
+
+/**
+ * Fenêtre de cycle d'une row de paiement, pour les libellés d'e-mail. La row
+ * porte sa `period` (= début de cycle) ; on retombe sur `createdAt` quand la
+ * fiche créatrice n'a plus d'ancre — un e-mail avec une période approximative
+ * vaut mieux qu'une annulation qui échoue.
+ */
+async function cycleWindowOfPayment(
+  ctx: MutationCtx,
+  p: Doc<"payments">,
+): Promise<{ cycleStart: number; cycleEnd: number }> {
+  const creator = await ctx.db.get(p.creatorId);
+  const anchor = creator ? payAnchorOf(creator) : undefined;
+  if (anchor !== undefined) {
+    const parsed = Date.parse(p.period);
+    if (!Number.isNaN(parsed)) {
+      return { cycleStart: parsed, cycleEnd: parsed + CYCLE_LENGTH_MS };
+    }
+  }
+  return { cycleStart: p.createdAt, cycleEnd: p.createdAt + CYCLE_LENGTH_MS };
+}
+
+/**
+ * ACOMPTE — enregistre un versement PARTIEL sur un cycle encore ouvert.
+ *
+ * Le cycle NE se ferme PAS et son montant continue de suivre les vues : le reste
+ * dû est recalculé à chaque lecture (« dû du jour − déjà versé »). C'est
+ * l'arbitrage produit — un reste ferme exigerait de geler le cycle au premier
+ * versement, donc de payer d'avance des vues pas encore faites.
+ *
+ * Un acompte n'est PAS une ligne de paie : les `lineItems` disent ce qui est
+ * GAGNÉ, les `advances` ce qui est VERSÉ. Les mélanger ferait baisser le montant
+ * gagné du cycle à chaque virement — et le grand livre deviendrait illisible.
+ */
+export const recordAdvance = permissionMutation("payments.manage")({
+  args: {
+    creatorId: v.id("creators"),
+    cycleIndex: v.number(),
+    amount: v.number(),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { creatorId, cycleIndex, amount, note }) => {
+    if (!(amount > 0)) {
+      throw err(ERR.ADVANCE_INVALID, "Le montant d'un acompte doit être positif.");
+    }
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
+    }
+    const anchor = payAnchorOf(creator);
+    if (anchor === undefined) {
+      throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
+    }
+    if (!Number.isInteger(cycleIndex) || cycleIndex < 0) {
+      throw err(ERR.CYCLE_INVALID, "Cycle invalide.");
+    }
+    const w = cycleWindow(anchor, cycleIndex);
+    const period = cyclePeriodKey(w.cycleStart);
+    const now = Date.now();
+    const row = await getOrCreatePayment(ctx, {
+      projectId: ctx.projectId,
+      creatorId,
+      period,
+      now,
+    });
+    if (row.status === "paid") {
+      throw err(
+        ERR.PAYMENT_ALREADY_PAID,
+        "Ce cycle est déjà soldé : un acompte n'a plus d'objet.",
+      );
+    }
+    const advances = [
+      ...(row.advances ?? []),
+      {
+        amount: round2(amount),
+        at: now,
+        actorUserId: ctx.userId,
+        ...(note?.trim() ? { note: note.trim() } : {}),
+      },
+    ];
+    await ctx.db.patch(row._id, { advances });
+    return {
+      ok: true as const,
+      advancedTotal: round2(advances.reduce((s, a) => s + a.amount, 0)),
+    };
+  },
+});
+
 /** Marque UN paiement comme payé. Idempotent : re-marquer ne change pas paidAt. */
-export const markPaymentPaid = adminMutation({
+export const markPaymentPaid = permissionMutation("payments.manage")({
   args: { id: v.id("payments") },
   handler: async (ctx, { id }) => {
     const p = await ctx.db.get(id);
@@ -1022,7 +1560,7 @@ export const markPaymentPaid = adminMutation({
  * AUCUN CRON N'APPELLE CECI. Le seul geste qui verse est un clic d'admin, après
  * lecture du récap — c'est la condition posée pour le premier talent réel.
  */
-export const markTalentMonthPaid = adminMutation({
+export const markTalentMonthPaid = permissionMutation("payments.manage")({
   args: { creatorId: v.id("creators"), period: v.string() },
   handler: async (ctx, { creatorId, period }) => {
     const creator = await ctx.db.get(creatorId);
@@ -1089,7 +1627,7 @@ export const markTalentMonthPaid = adminMutation({
   },
 });
 
-export const markPeriodPaid = adminMutation({
+export const markPeriodPaid = permissionMutation("payments.manage")({
   args: { period: v.string() },
   handler: async (ctx, { period }) => {
     const payments = await ctx.db
@@ -1164,6 +1702,20 @@ export const backfillFirstPostAt = internalMutation({
 // ─── Cleanup e2e (gated E2E_SECRET) ──────────────────────────────────────────
 
 /** Supprime les paiements liés à un créateur de test ([E2E_TEST] / e2e-creator). */
+/**
+ * TEST — retire le reçu d'annulation d'une row payée, pour rejouer le cas des
+ * paiements ANTÉRIEURS au reçu (toute la prod du 7 septembre 2026). Sans ce
+ * backdoor, le chemin reconstruit ne serait jamais exercé : un test ne peut pas
+ * remonter le temps avant le déploiement.
+ */
+export const e2eForgetUndoReceipt = e2eMutation({
+  args: { id: v.id("payments") },
+  handler: async (ctx, { id }) => {
+    await ctx.db.patch(id, { undo: undefined });
+    return { ok: true as const };
+  },
+});
+
 export const cleanupTestPayments = e2eMutation({
   args: {},
   handler: async (ctx) => {

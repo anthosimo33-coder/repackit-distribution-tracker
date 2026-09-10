@@ -1,10 +1,11 @@
 import { test, expect } from "./fixtures/auth-fixture";
 import { api } from "../convex/_generated/api";
+import { minuitParis } from "./helpers/paris-day";
 import type { Id } from "../convex/_generated/dataModel";
 import { createE2eClient } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
-import { parisDayIndex } from "../convex/calendarStatus";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -23,19 +24,6 @@ const convex = createE2eClient(convexUrl);
  */
 
 const JOUR = 86_400_000;
-
-/** Minuit PARIS du jour contenant `at` — la forme réelle de `postDate`. */
-function minuitParis(at: number): number {
-  const i = parisDayIndex(at);
-  const y = Math.floor(i / 10000);
-  const m = Math.floor((i % 10000) / 100);
-  const d = i % 100;
-  // Minuit Paris = 22:00 ou 23:00 UTC la veille ; on part de midi UTC du jour
-  // et on redescend jusqu'à trouver l'instant dont le jour Paris bascule.
-  let t = Date.UTC(y, m, d, 12);
-  while (parisDayIndex(t - 3_600_000) === i) t -= 3_600_000;
-  return t;
-}
 
 async function creerCreatrice(ts: number, quoi: string) {
   const email = `e2e-creator-retard-${quoi}-${ts}@repackit.test`;
@@ -101,11 +89,13 @@ test.describe("Bilan de fin de journée", () => {
       platform: "TikTok",
       handle: `@e2eretard${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Retard ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
 
     // TROIS lots, et les trois comptent pour ce que le test prouve :
     //  - 4 MANQUÉS il y a dix jours → exclus (jour passé) ;
@@ -171,11 +161,13 @@ test.describe("Bilan de fin de journée", () => {
       platform: "TikTok",
       handle: `@e2eabsente${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Absente ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
     // Un post manqué la semaine dernière, rien aujourd'hui.
     await planifier({
       creatorId,
@@ -206,11 +198,13 @@ test.describe("Bilan de fin de journée", () => {
       platform: "TikTok",
       handle: `@e2epublie${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Publié ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
     const [id] = await planifier({
       creatorId,
       target,
@@ -242,6 +236,93 @@ test.describe("Bilan de fin de journée", () => {
   });
 });
 
+test.describe("Le retard se juge dans le fuseau de la créatrice", () => {
+  test("publier le soir à New York n'est plus « en retard » parce qu'il est minuit à Paris", async () => {
+    test.setTimeout(150_000);
+    const ts = Date.now() + 7;
+    const formatId = await createFormatWithRate(convex, {
+      name: `[E2E_TEST] Fuseau ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 0 },
+    });
+
+    // Le jour PRÉVU : il y a trois jours. Publier « le soir chez elle » tombe
+    // alors le lendemain à Paris — c'est exactement le cas de production.
+    const jourPrevu = minuitParis(ts - 3 * JOUR);
+    // 01:00 à Paris le lendemain = 19:00 à New York le jour prévu.
+    const publieLeSoirNY = minuitParis(ts - 2 * JOUR) + 3_600_000;
+
+    async function creerEtPublier(quoi: string, timezone: string | null) {
+      const creatorId = await creerCreatrice(ts, quoi);
+      if (timezone) {
+        await convex.mutation(api.creators.updateCreator, {
+          id: creatorId,
+          timezone,
+        });
+      }
+      const target = await availableTarget({
+        e2eClient: convex,
+        creatorId,
+        platform: "TikTok",
+        handle: `@e2efuseau${quoi}${ts}`,
+      });
+      const [id] = await planifier({
+        creatorId,
+        target,
+        formatId,
+        count: 1,
+        postDate: jourPrevu,
+        ts,
+      });
+      await convex.mutation(api.assignments.confirmPublicationAsAdmin, {
+        id,
+        urls: [
+          {
+            platform: "TikTok",
+            url: `https://www.tiktok.com/@f/video/fz${quoi}${ts}`,
+          },
+        ],
+        publishedAt: publieLeSoirNY,
+        // Le post est antérieur à la création de l'assignation (régularisation) :
+        // c'est la seule façon de POSER un instant passé depuis un test.
+        allowBackdate: true,
+      });
+      return creatorId;
+    }
+
+    const newYorkaise = await creerEtPublier("ny", "America/New_York");
+    // CONTRASTE — même instant de publication, fuseau INCONNU : le verdict reste
+    // celui d'avant (Paris). Sans cette seconde créatrice, un test vert ne
+    // prouverait pas que c'est le FUSEAU qui décide, seulement que rien n'est
+    // compté en retard.
+    const sansFuseau = await creerEtPublier("nofz", null);
+
+    const stats = await convex.query(
+      api.publicationLateness.getCreatorPublicationStats,
+      {},
+    );
+    const ny = stats.find((s) => s.creatorId === newYorkaise)!;
+    const paris = stats.find((s) => s.creatorId === sansFuseau)!;
+
+    expect(ny.tally.past).toBe(1);
+    expect(ny.tally.onTime).toBe(1);
+    expect(ny.tally.late).toBe(0);
+    expect(ny.tally.rate).toBe(1);
+
+    expect(paris.tally.past).toBe(1);
+    expect(paris.tally.late).toBe(1);
+    expect(paris.tally.onTime).toBe(0);
+
+    // Et l'écran d'assignations sert bien le fuseau, sans quoi le calendrier
+    // admin retomberait sur Paris quoi que dise la fiche.
+    const rows = await convex.query(api.assignments.listAssignments, {});
+    const ligneNy = rows.find((a) => a.creatorId === newYorkaise)!;
+    expect(ligneNy.creatorTimezone).toBe("America/New_York");
+    const ligneSans = rows.find((a) => a.creatorId === sansFuseau)!;
+    expect(ligneSans.creatorTimezone ?? null).toBeNull();
+  });
+});
+
 test.describe("Taux à l'heure par créatrice", () => {
   test("compte tout l'historique, et ignore les assignations sans date de post", async () => {
     test.setTimeout(120_000);
@@ -253,11 +334,13 @@ test.describe("Taux à l'heure par créatrice", () => {
       platform: "TikTok",
       handle: `@e2etaux${ts}`,
     });
-    const formatId = await convex.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(convex, {
       name: `[E2E_TEST] Taux ${ts}`,
       type: "short",
-      rateModel: { basePerPost: 0 },
-    });
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente —
+    // sans quoi la garde de paie refuse l'assignation (et elle a raison).
+    rateModel: { basePerPost: 0 },
+  });
 
     // 2 manqués il y a une semaine + 1 SANS date de post (invisible du taux).
     await planifier({

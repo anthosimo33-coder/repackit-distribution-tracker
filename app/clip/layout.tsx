@@ -10,7 +10,9 @@ import {
   PortalPending,
   usePortalGate,
 } from "@/components/portal/PortalRoleGate";
+import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button } from "@/components/ui/button";
+import { useTranslations } from "next-intl";
 
 /**
  * Shell du portail CLIPPEUR (/clip/*) — celui qui déclare ses comptes, les
@@ -33,6 +35,7 @@ export default function ClipPortalLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const t = useTranslations("portal");
   const router = useRouter();
   const { signOut } = useAuthActions();
   const gate = usePortalGate("clipper");
@@ -58,13 +61,14 @@ export default function ClipPortalLayout({
       <AccentStyle accent={accent} />
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4">
         <span className="truncate text-sm font-medium text-slate-900">
-          {gate.creatorName ?? "Mon espace"}
+          {gate.creatorName ?? t("mySpace")}
         </span>
+        <VersEspaceEquipe variant="icone" />
         <Button
           variant="ghost"
           size="icon-sm"
           onClick={handleSignOut}
-          aria-label="Se déconnecter"
+          aria-label={t("sidebar.logout")}
           className="shrink-0 text-slate-600 hover:text-slate-900"
         >
           <LogOutIcon className="size-5" />

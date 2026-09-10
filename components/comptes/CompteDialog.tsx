@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useProjectMutation } from "@/components/project/use-project-convex";
+import { useEffect, useMemo, useState } from "react";
+import {
+  useProjectMutation,
+  useProjectQuery,
+} from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -43,11 +46,8 @@ import {
 } from "@/lib/compte-status";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 import { Switch } from "@/components/ui/switch";
-import {
-  COUNTRY_LABELS,
-  COUNTRY_CODES,
-  type CountryCode,
-} from "@/lib/countries";
+import { type CountryCode } from "@/lib/countries";
+import { CountryPicker, COUNTRY_NONE } from "@/components/comptes/CountryPicker";
 
 // listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
 // et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
@@ -59,6 +59,25 @@ export type Compte = Doc<"comptes"> & {
   // Fourni par listComptes ; absent ailleurs (page détail) → plateforme reste
   // non modifiable par prudence.
   inUse?: boolean;
+  /**
+   * Durée de warmup RÉSOLUE PAR LE SERVEUR (barème du projet + surcharge du
+   * compte) et warmup terminé. Servis par `listComptes` : les écrans les
+   * LISENT, ils ne les recalculent pas — un calcul client redeviendrait une
+   * seconde source de vérité, divergente au premier changement de barème.
+   */
+  targetDays: number;
+  warmupDone: boolean;
+  /**
+   * Fuseau (IANA) de la créatrice PROPRIÉTAIRE du compte, résolu par le serveur
+   * — `null` quand il est encore à définir.
+   *
+   * Servi pour la même raison que `targetDays` : tout écran qui compte des
+   * JOURS (jours manqués, « déjà coché aujourd'hui », « en retard ») doit le
+   * faire dans l'horloge de la créatrice. Le recalculer côté navigateur le
+   * ferait dans celle de l'équipe — c'est exactement le défaut corrigé par le
+   * chantier fuseaux (cf docs/diagnostic-fuseaux.md).
+   */
+  creatorTimezone: string | null;
 };
 
 const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
@@ -67,9 +86,6 @@ const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
   { value: "shadowban", label: "Shadowban", dot: "bg-rose-500" },
   { value: "archived", label: "Archivé", dot: "bg-slate-400" },
 ];
-
-/** Valeur sentinelle du sélecteur pays = « non défini » (targetCountry unset). */
-const COUNTRY_NONE = "none";
 
 function todayStart(): number {
   const d = new Date();
@@ -121,6 +137,22 @@ export default function CompteDialog({
   );
   const [dateError, setDateError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Pays DÉJÀ POSÉS sur les autres comptes du projet — remontés en tête du
+  // sélecteur. La query est celle de la page Comptes d'où le dialog s'ouvre :
+  // Convex la sert depuis son cache, sans aller-retour. Absente (dialog ouvert
+  // depuis une fiche créatrice), le sélecteur rend simplement la liste entière.
+  const comptes = useProjectQuery(api.comptes.listComptes, {});
+  const paysDejaUtilises = useMemo(
+    () => [
+      ...new Set(
+        (comptes ?? []).flatMap((c) =>
+          c.targetCountry ? [c.targetCountry as string] : [],
+        ),
+      ),
+    ],
+    [comptes],
+  );
 
   const createCompte = useProjectMutation(api.comptes.createCompte);
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
@@ -301,8 +333,11 @@ export default function CompteDialog({
                   <SelectValue>{plateforme}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
+                  {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
                   <SelectItem value="TikTok">TikTok</SelectItem>
+                  {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
                   <SelectItem value="Instagram">Instagram</SelectItem>
+                  {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
                   <SelectItem value="YouTube">YouTube</SelectItem>
                 </SelectContent>
               </Select>
@@ -426,31 +461,17 @@ export default function CompteDialog({
               Optionnel — qui gère ce compte.
             </p>
           </div>
-          {/* Pays ciblé — label INFORMATIF interne (liste fermée partagée avec le
-              Radar). Ne pilote rien (scraping/filtres inchangés), invisible côté
-              créatrice. « Non défini » = unset. */}
+          {/* Pays ciblé — label INFORMATIF interne. Ne pilote rien (scraping et
+              filtres inchangés), invisible côté créatrice. « Non défini » =
+              unset. La liste est passée à 250 pays : c'est une RECHERCHE, plus
+              une liste déroulante (cf CountryPicker). */}
           <div className="space-y-1.5">
             <Label>Pays ciblé</Label>
-            <Select
+            <CountryPicker
               value={targetCountry}
-              onValueChange={(v) => v !== null && setTargetCountry(v)}
-            >
-              <SelectTrigger aria-label="Pays ciblé">
-                <SelectValue>
-                  {targetCountry === COUNTRY_NONE
-                    ? "Non défini"
-                    : (COUNTRY_LABELS[targetCountry] ?? targetCountry)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={COUNTRY_NONE}>Non défini</SelectItem>
-                {COUNTRY_CODES.map((cc) => (
-                  <SelectItem key={cc} value={cc}>
-                    {COUNTRY_LABELS[cc] ?? cc}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={setTargetCountry}
+              suggestions={paysDejaUtilises}
+            />
             <p className="text-xs text-slate-500">
               Label interne informatif — n&apos;affecte ni le scraping ni les
               filtres. Invisible côté créatrice.

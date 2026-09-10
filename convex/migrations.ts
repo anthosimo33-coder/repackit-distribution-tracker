@@ -11,6 +11,15 @@ import {
   syncBonusUnlocks,
 } from "./pricing";
 import { periodOf } from "./payments";
+import { GUIDE_MODULES_EN } from "./guideModulesEn";
+import { moduleLocale } from "./guideModuleLocale";
+import { warmupTargetDaysOf, defaultTargetDays } from "./warmup";
+import {
+  WARMUP_GUIDE_BY_PROJECT,
+  WARMUP_MODULE_TITLE,
+} from "./warmupGuideFused";
+import { GUIDE_FR_FIXES } from "./guideFrFixes";
+import { rolesOf } from "./roles";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -70,7 +79,7 @@ export const setupRepackitProject = internalMutation({
         await ctx.db.insert("memberships", {
           userId: u._id,
           projectId,
-          role: "admin",
+          roles: ["admin"],
         });
         membershipsCreated += 1;
       }
@@ -184,7 +193,7 @@ export const seedProject = internalMutation({
         await ctx.db.insert("memberships", {
           userId: args.ownerUserId,
           projectId,
-          role: args.ownerRole ?? "admin",
+          roles: [args.ownerRole ?? "admin"],
         });
       }
     }
@@ -236,10 +245,10 @@ export const backfillSnytchWarmupDoneToActif = internalMutation({
       const status = c.status ?? (c.actif === false ? "archived" : "actif");
       return (
         status === "warmup" &&
-        isWarmupComplete({
-          plateforme: c.plateforme,
-          warmupProtocol: c.warmupProtocol,
-        })
+        isWarmupComplete(
+          { plateforme: c.plateforme, warmupProtocol: c.warmupProtocol },
+          warmupTargetDaysOf(project),
+        )
       );
     });
 
@@ -645,5 +654,581 @@ export const auditBonusTiers = internalQuery({
 
     lignes.sort((a, b) => b.cumulPaliers - a.cumulPaliers);
     return { creatrices: lignes.length, incoherents, lignes };
+  },
+});
+
+/**
+ * LOT B (i18n du guide) — rend EXPLICITE la langue des modules « Comment ça
+ * marche » écrits avant le champ `locale` : ils sont français, ils le disent.
+ *
+ * ISO-AFFICHAGE, par construction : `moduleLocale` traite déjà une `locale`
+ * absente comme du français (convex/guideModuleLocale.ts), donc écrire « fr »
+ * rend exactement la même chose à chaque lecteur, avant comme après. Ce que la
+ * migration change, c'est la LISIBILITÉ de la base : après elle, un module sans
+ * langue est un module créé par un chemin qui a oublié de la poser, pas un
+ * vestige — et l'éditeur admin range chaque module dans le bon jeu sans avoir à
+ * inférer quoi que ce soit.
+ *
+ * On ne stocke PAS que la divergence ici, contrairement à `creators.locale` :
+ * la langue d'un module n'est pas une préférence qui s'écarte d'un défaut, c'est
+ * un attribut du CONTENU. Un jeu français et un jeu anglais sont deux citoyens
+ * de même rang ; l'absence de valeur ne veut rien dire d'utile.
+ *
+ * IDEMPOTENTE : ne touche QUE les modules dont la langue est absente ou vide.
+ * Un module déjà rangé en « en » n'est jamais réécrit.
+ *
+ * dryRun par défaut — la liste rendue est EXACTEMENT ce qui sera écrit :
+ *   ./node_modules/.bin/convex run migrations:setGuideModuleLocaleFr '{}' [--prod]
+ *   ./node_modules/.bin/convex run migrations:setGuideModuleLocaleFr '{"commit":true}' [--prod]
+ */
+export const setGuideModuleLocaleFr = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const all = await ctx.db.query("guideModules").collect();
+    const missing = all.filter(
+      (m) => m.locale === undefined || m.locale.trim() === "",
+    );
+
+    // Slug du projet plutôt que son id : la sortie est faite pour être RELUE
+    // par un humain avant l'exécution, pas corrélée à la main.
+    const slugs = new Map<Id<"projects">, string>();
+    for (const m of missing) {
+      if (!slugs.has(m.projectId)) {
+        const p = await ctx.db.get(m.projectId);
+        slugs.set(m.projectId, p?.slug ?? "(projet supprimé)");
+      }
+    }
+
+    if (!dryRun) {
+      for (const m of missing) await ctx.db.patch(m._id, { locale: "fr" });
+    }
+
+    return {
+      dryRun,
+      totalModules: all.length,
+      alreadySet: all.length - missing.length,
+      willWrite: missing.map((m) => ({
+        projet: slugs.get(m.projectId),
+        titre: m.title,
+        order: m.order,
+        status: m.status,
+        localeAvant: m.locale ?? null,
+        localeApres: "fr",
+      })),
+      patched: dryRun ? 0 : missing.length,
+    };
+  },
+});
+
+
+/**
+ * LOT B (i18n du guide), ÉTAPE 2 — pose le JEU ANGLAIS des modules
+ * « Comment ça marche » (`convex/guideModulesEn.ts`), projet par projet.
+ *
+ * SANS TOUCHER AU FRANÇAIS, par construction : la mutation n'insère que des
+ * lignes `locale: "en"` et ne lit les modules existants que pour savoir
+ * lesquels existent déjà. Aucun `patch`, aucun `delete` sur un module français
+ * — il n'y a pas de chemin de code qui puisse en atteindre un.
+ *
+ * IDEMPOTENTE par (projet, locale « en », titre) : relancer ne crée pas de
+ * doublon et ne réécrit pas un module anglais déjà posé, même s'il a été édité
+ * dans l'éditeur admin depuis. C'est délibéré — une relecture humaine ne doit
+ * pas pouvoir être écrasée par une relance de migration.
+ *
+ * Le jour où le guide bascule, il bascule POUR DE BON : dès le premier module
+ * anglais publié, une lectrice EN cesse de voir le français et le bandeau
+ * disparaît (convex/guideModuleLocale.ts). D'où `status: "published"` d'entrée
+ * — poser la moitié du jeu en brouillon donnerait un guide anglais à trous.
+ *
+ * dryRun par défaut ; la liste rendue est EXACTEMENT ce qui sera écrit :
+ *   ./scripts/convex-prod.sh run migrations:seedGuideModulesEn '{}'
+ *   ./scripts/convex-prod.sh run migrations:seedGuideModulesEn '{"commit":true}'
+ */
+export const seedGuideModulesEn = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const willInsert: {
+      projet: string;
+      order: number;
+      titre: string;
+      caracteres: number;
+    }[] = [];
+    const dejaPresents: { projet: string; titre: string }[] = [];
+    const projetsIntrouvables: string[] = [];
+    let frIntacts = 0;
+
+    for (const [slug, seeds] of Object.entries(GUIDE_MODULES_EN)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) {
+        projetsIntrouvables.push(slug);
+        continue;
+      }
+      const existing = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      frIntacts += existing.filter((m) => moduleLocale(m) !== "en").length;
+      const titresEn = new Set(
+        existing.filter((m) => moduleLocale(m) === "en").map((m) => m.title),
+      );
+
+      for (const seed of seeds) {
+        if (titresEn.has(seed.title)) {
+          dejaPresents.push({ projet: slug, titre: seed.title });
+          continue;
+        }
+        willInsert.push({
+          projet: slug,
+          order: seed.order,
+          titre: seed.title,
+          caracteres: seed.contentMarkdown.length,
+        });
+        if (!dryRun) {
+          const now = Date.now();
+          await ctx.db.insert("guideModules", {
+            projectId: project._id,
+            title: seed.title,
+            contentMarkdown: seed.contentMarkdown,
+            order: seed.order,
+            status: "published",
+            locale: "en",
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      // Compté, pas affirmé : le nombre de modules NON anglais avant écriture.
+      // Il doit être identique avant et après — c'est la preuve chiffrée que le
+      // jeu français n'a pas bougé.
+      modulesNonAnglaisAvant: frIntacts,
+      dejaPresents,
+      projetsIntrouvables,
+      willInsert,
+      inserted: dryRun ? 0 : willInsert.length,
+    };
+  },
+});
+
+
+/**
+ * CORRECTION DU GUIDE FRANÇAIS — coquilles, puces perdues, plateformes.
+ *
+ * Le guide vit en BASE : corriger une coquille, c'est patcher une ligne, pas
+ * éditer un fichier. Les retouches sont listées dans `convex/guideFrFixes.ts`,
+ * revues en diff ; celle-ci les applique.
+ *
+ * TROIS GARDES, parce qu'un remplacement aveugle sur du texte rédigé par un
+ * humain — qui a pu bouger entre le relevé et l'exécution — corromprait un
+ * contenu que personne ne relit ligne à ligne :
+ *   1. le module doit exister à ce (projet, order) ET porter `expectTitle` ;
+ *   2. il doit être FRANÇAIS (`moduleLocale` ≠ « en ») — une retouche ne peut
+ *      pas atteindre le jeu anglais, même si un titre coïncidait ;
+ *   3. `find` doit apparaître EXACTEMENT UNE FOIS. Zéro : déjà corrigé, ou le
+ *      texte a changé. Plusieurs : l'ancre est ambiguë. Dans les deux cas on
+ *      REFUSE et on le dit, plutôt que de deviner.
+ *
+ * IDEMPOTENTE par le compte à zéro : une retouche déjà appliquée ne trouve plus
+ * son ancre et est rangée en `dejaFaites`, pas en échec.
+ *
+ * dryRun par défaut, avec l'AVANT et l'APRÈS de chaque retouche :
+ *   ./scripts/convex-prod.sh run migrations:fixFrenchGuideTypos '{}'
+ *   ./scripts/convex-prod.sh run migrations:fixFrenchGuideTypos '{"commit":true}'
+ */
+export const fixFrenchGuideTypos = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const appliquees: {
+      projet: string;
+      order: number;
+      champ: string;
+      pourquoi: string;
+      avant: string;
+      apres: string;
+    }[] = [];
+    const dejaFaites: { projet: string; order: number; pourquoi: string }[] = [];
+    const refusees: { projet: string; order: number; pourquoi: string; motif: string }[] = [];
+
+    // Le contenu courant PAR MODULE, pour enchaîner deux retouches sur le même
+    // texte (snytch/5 en a deux) sans que la seconde travaille sur une version
+    // périmée.
+    const courant = new Map<string, { title: string; content: string }>();
+
+    for (const fix of GUIDE_FR_FIXES) {
+      const project = await getProjectBySlug(ctx, fix.slug);
+      if (project === null) {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: "projet introuvable" });
+        continue;
+      }
+      const modules = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      const cible = modules.find(
+        (m) => m.order === fix.order && moduleLocale(m) !== "en",
+      );
+      if (cible === undefined) {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: "aucun module français à cet order" });
+        continue;
+      }
+      const cle = String(cible._id);
+      if (!courant.has(cle)) {
+        courant.set(cle, { title: cible.title, content: cible.contentMarkdown });
+      }
+      const etat = courant.get(cle)!;
+      if (etat.title !== fix.expectTitle && fix.field !== "title") {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: `titre inattendu : ${etat.title}` });
+        continue;
+      }
+      const source = fix.field === "title" ? etat.title : etat.content;
+      const occurrences = source.split(fix.find).length - 1;
+      if (occurrences === 0) {
+        dejaFaites.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why });
+        continue;
+      }
+      if (occurrences > 1) {
+        refusees.push({ projet: fix.slug, order: fix.order, pourquoi: fix.why, motif: `ancre trouvée ${occurrences} fois` });
+        continue;
+      }
+      const remplace = source.replace(fix.find, fix.replace);
+      if (fix.field === "title") etat.title = remplace;
+      else etat.content = remplace;
+      appliquees.push({
+        projet: fix.slug,
+        order: fix.order,
+        champ: fix.field,
+        pourquoi: fix.why,
+        avant: fix.find,
+        apres: fix.replace,
+      });
+      if (!dryRun) {
+        await ctx.db.patch(cible._id, {
+          ...(fix.field === "title" ? { title: etat.title } : { contentMarkdown: etat.content }),
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
+    return {
+      dryRun,
+      appliquees,
+      dejaFaites,
+      refusees,
+      patched: dryRun ? 0 : appliquees.length,
+    };
+  },
+});
+
+/**
+ * DURÉE DE WARMUP PAR PROJET — pose le barème de chaque projet, puis REBASE les
+ * warmups EN COURS dessus.
+ *
+ * POURQUOI DEUX TEMPS. La durée est FIGÉE sur `comptes.warmupProtocol.targetDays`
+ * au démarrage du warmup : poser le barème du projet ne débloque personne, les
+ * comptes déjà lancés gardent leur cible. Sans le rebasage, les créatrices
+ * Snytch continueraient d'attendre 7 et 14 jours pour une règle qui dit 3.
+ *
+ * PERSONNE NE SAUTE D'ÉTAPE. La complétion se compte en CHECKS RÉELLEMENT POSÉS,
+ * pas en jours calendaires, et un check par jour au maximum : un compte à 2
+ * checks rebasé sur 3 a encore un check à poser, il ne bascule pas « terminé »
+ * d'un coup. C'est vérifié dans la sortie (`termineImmediatement`).
+ *
+ * NE TOUCHE QUE LES PROJETS NOMMÉS. `thea-app` et ses comptes ne bougent pas.
+ *
+ * IDEMPOTENTE : un projet déjà au bon barème et un compte déjà à la bonne cible
+ * ne sont pas réécrits.
+ *
+ * dryRun par défaut ; la sortie EST ce qui sera écrit :
+ *   ./scripts/convex-prod.sh run migrations:setWarmupTargetDaysPerProject '{}'
+ *   ./scripts/convex-prod.sh run migrations:setWarmupTargetDaysPerProject '{"commit":true}'
+ */
+const WARMUP_DAYS_BY_PROJECT: Record<
+  string,
+  { tiktok?: number; instagram?: number; youtube?: number }
+> = {
+  // Règle produit : Snytch chauffe 3 jours, TikTok comme Instagram. YouTube
+  // n'est PAS défini — il est hors périmètre Snytch, et lui donner une valeur
+  // affirmerait une règle qui n'existe pas.
+  snytch: { tiktok: 3, instagram: 3 },
+  // Explicite plutôt qu'implicite : RepackIt ne doit pas dépendre d'un barème
+  // global qu'un autre projet pourrait faire bouger — c'est exactement ce qui
+  // est arrivé le 2026-06-23.
+  repackit: { tiktok: 7, instagram: 14, youtube: 7 },
+};
+
+export const setWarmupTargetDaysPerProject = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const projets: {
+      slug: string;
+      avant: unknown;
+      apres: unknown;
+      deja: boolean;
+    }[] = [];
+    const comptes: {
+      projet: string;
+      handle: string;
+      plateforme: string;
+      checks: number;
+      cibleAvant: number;
+      cibleApres: number;
+      resteApres: number;
+      termineImmediatement: boolean;
+    }[] = [];
+
+    for (const [slug, days] of Object.entries(WARMUP_DAYS_BY_PROJECT)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) continue;
+      const avant = project.warmupTargetDays ?? null;
+      const deja =
+        avant !== null &&
+        avant.tiktok === days.tiktok &&
+        avant.instagram === days.instagram &&
+        avant.youtube === days.youtube;
+      // Le rebasage lit le barème RÉSOLU (repli champ par champ), pas la
+      // déclaration brute : un compte YouTube chez Snytch prendrait 7.
+      projets.push({ slug, avant, apres: days, deja });
+      if (!dryRun && !deja) {
+        await ctx.db.patch(project._id, { warmupTargetDays: days });
+      }
+
+      // Rebasage des warmups EN COURS de ce projet.
+      const rows = await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      for (const c of rows) {
+        if (c.status !== "warmup" || !c.warmupProtocol) continue;
+        const cibleApres = defaultTargetDays(
+          c.plateforme,
+          warmupTargetDaysOf({ warmupTargetDays: days }),
+        );
+        if (c.warmupProtocol.targetDays === cibleApres) continue;
+        const checks = c.warmupProtocol.dailyChecks.length;
+        comptes.push({
+          projet: slug,
+          handle: c.handle,
+          plateforme: c.plateforme,
+          checks,
+          cibleAvant: c.warmupProtocol.targetDays,
+          cibleApres,
+          resteApres: Math.max(0, cibleApres - checks),
+          termineImmediatement: checks >= cibleApres,
+        });
+        if (!dryRun) {
+          await ctx.db.patch(c._id, {
+            warmupProtocol: { ...c.warmupProtocol, targetDays: cibleApres },
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      projets,
+      comptesRebases: comptes,
+      // Doit rester 0 : personne ne doit basculer « terminé » par la migration.
+      termineImmediatement: comptes.filter((c) => c.termineImmediatement).length,
+      joursDAttenteSupprimes: comptes.reduce(
+        (n, c) => n + (c.cibleAvant - c.cibleApres),
+        0,
+      ),
+      patched: dryRun ? 0 : projets.filter((p) => !p.deja).length + comptes.length,
+    };
+  },
+});
+
+/**
+ * FUSION DU GUIDE WARMUP — verse le protocole de la modale dans le module
+ * « Warmup » du guide, par projet et par langue, et le marque `slot: "warmup"`.
+ *
+ * REMPLACE le contenu des modules warm-up existants (FR et EN) plutôt que d'en
+ * créer de nouveaux : le but est de SUPPRIMER la double source, pas d'en ajouter
+ * une troisième. C'est la seule migration du chantier qui écrase du contenu
+ * rédigé — d'où l'ancrage par `slot` puis par titre connu, et le refus net si
+ * le module visé est introuvable.
+ *
+ * IDEMPOTENTE : un module déjà au bon contenu n'est pas réécrit.
+ *
+ * dryRun par défaut :
+ *   ./scripts/convex-prod.sh run migrations:fuseWarmupGuide '{}'
+ *   ./scripts/convex-prod.sh run migrations:fuseWarmupGuide '{"commit":true}'
+ */
+export const fuseWarmupGuide = internalMutation({
+  args: { commit: v.optional(v.boolean()) },
+  handler: async (ctx, { commit }) => {
+    const dryRun = commit !== true;
+    const maj: {
+      projet: string;
+      locale: string;
+      titre: string;
+      carAvant: number;
+      carApres: number;
+      slotAvant: string | null;
+    }[] = [];
+    const introuvables: { projet: string; locale: string }[] = [];
+    const dejaFaits: { projet: string; locale: string }[] = [];
+
+    for (const [slug, seed] of Object.entries(WARMUP_GUIDE_BY_PROJECT)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) continue;
+      const modules = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+
+      for (const locale of ["fr", "en"] as const) {
+        const dansLaLangue = modules.filter((m) => moduleLocale(m) === locale);
+        // Ancrage : le slot d'abord (stable), le titre connu ensuite (premier
+        // passage, avant que le slot n'existe).
+        const cible =
+          dansLaLangue.find((m) => m.slot === "warmup") ??
+          dansLaLangue.find((m) => m.title === WARMUP_MODULE_TITLE[locale]);
+        if (cible === undefined) {
+          introuvables.push({ projet: slug, locale });
+          continue;
+        }
+        const contenu = seed[locale];
+        if (cible.contentMarkdown === contenu && cible.slot === "warmup") {
+          dejaFaits.push({ projet: slug, locale });
+          continue;
+        }
+        maj.push({
+          projet: slug,
+          locale,
+          titre: cible.title,
+          carAvant: cible.contentMarkdown.length,
+          carApres: contenu.length,
+          slotAvant: cible.slot ?? null,
+        });
+        if (!dryRun) {
+          await ctx.db.patch(cible._id, {
+            contentMarkdown: contenu,
+            slot: "warmup",
+            updatedAt: Date.now(),
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      misAJour: maj,
+      dejaFaits,
+      // Doit rester vide : un module warm-up introuvable veut dire que le guide
+      // a été réorganisé, et qu'il faut regarder avant d'écrire.
+      introuvables,
+      patched: dryRun ? 0 : maj.length,
+    };
+  },
+});
+
+/**
+ * AUDIT du slot warmup — combien de modules le portent, par projet et par
+ * langue. Doit valoir 0 ou 1 partout.
+ *
+ * Le transfert (convex/guideModules.updateModule) rend l'invariant vrai à
+ * l'ÉCRITURE ; cet audit le vérifie sur les DONNÉES, y compris celles écrites
+ * avant qu'il existe. `violations` non vide = deux modules se disputent le
+ * bouton, et le serveur en sert un au hasard de l'ordre.
+ *   ./scripts/convex-prod.sh run migrations:auditWarmupSlot '{}'
+ */
+export const auditWarmupSlot = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").collect();
+    const lignes: { projet: string; locale: string; porteurs: string[] }[] = [];
+    for (const p of projects) {
+      const modules = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", p._id))
+        .collect();
+      for (const locale of ["fr", "en"]) {
+        const porteurs = modules
+          .filter((m) => m.slot === "warmup" && moduleLocale(m) === locale)
+          .map((m) => m.title);
+        if (porteurs.length > 0) {
+          lignes.push({ projet: p.slug, locale, porteurs });
+        }
+      }
+    }
+    return {
+      lignes,
+      violations: lignes.filter((l) => l.porteurs.length > 1),
+      ok: lignes.every((l) => l.porteurs.length === 1),
+    };
+  },
+});
+
+/**
+ * MULTI-RÔLES — convertit les memberships de la forme d'HÉRITAGE (`role`
+ * scalaire) vers la liste (`roles`), et efface le scalaire.
+ *
+ * ── CE N'EST PAS UNE MIGRATION QUI DÉBLOQUE, C'EST UNE MIGRATION QUI RANGE ───
+ * Rien n'en dépend : `rolesOf` lit les DEUX formes, donc l'application marche
+ * identiquement avant et après. C'est délibéré — une migration dont le retard
+ * enferme les gens dehors est exactement ce que #154 avait refusé de construire.
+ * Elle sert à ce qu'un document ne porte jamais deux champs qui pourraient se
+ * contredire, et à ce que la lecture d'héritage devienne du code mort qu'on
+ * pourra retirer.
+ *
+ * Idempotente : un document déjà converti est ignoré. À lancer APRÈS le deploy.
+ *   ./scripts/convex-prod.sh run migrations:backfillMembershipRoles '{}'
+ *   ./scripts/convex-prod.sh run migrations:auditMembershipRoles '{}'
+ */
+export const backfillMembershipRoles = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("memberships").collect();
+    let converties = 0;
+    let deja = 0;
+    const orphelines: string[] = [];
+    for (const m of all) {
+      if (m.roles !== undefined) {
+        deja += 1;
+        // Un document qui porterait ENCORE le scalaire à côté de la liste : on
+        // finit le ménage plutôt que de laisser les deux cohabiter.
+        if (m.role !== undefined) await ctx.db.patch(m._id, { role: undefined });
+        continue;
+      }
+      const effectifs = [...rolesOf(m)];
+      if (effectifs.length === 0) {
+        // Ni liste, ni scalaire connu : on NE TOUCHE À RIEN et on le nomme. Un
+        // membership sans rôle n'ouvre déjà rien (fail-closed) ; le convertir en
+        // liste vide ne changerait que l'apparence du problème.
+        orphelines.push(m._id);
+        continue;
+      }
+      await ctx.db.patch(m._id, { roles: effectifs, role: undefined });
+      converties += 1;
+    }
+    return { total: all.length, converties, deja, orphelines };
+  },
+});
+
+/** Relecture : combien de documents dans chaque forme, et ce qu'ils portent. */
+export const auditMembershipRoles = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query("memberships").collect();
+    const parForme = { heritage: 0, liste: 0, lesDeux: 0, aucune: 0 };
+    const parRole: Record<string, number> = {};
+    for (const m of all) {
+      const aScalaire = m.role !== undefined;
+      const aListe = m.roles !== undefined;
+      if (aScalaire && aListe) parForme.lesDeux += 1;
+      else if (aListe) parForme.liste += 1;
+      else if (aScalaire) parForme.heritage += 1;
+      else parForme.aucune += 1;
+      for (const r of rolesOf(m)) parRole[r] = (parRole[r] ?? 0) + 1;
+    }
+    return { total: all.length, parForme, parRole };
   },
 });

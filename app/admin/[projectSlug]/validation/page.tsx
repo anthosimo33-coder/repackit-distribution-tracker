@@ -36,10 +36,11 @@ import {
 import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
-import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
+import { countTomorrow, reviewSlot, type ReviewSlot } from "@/lib/review-queue";
+import { formatPostWindow } from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
 import {
   CheckIcon,
@@ -52,7 +53,9 @@ import {
   FilmIcon,
   FileTextIcon,
   ChevronDownIcon,
+  CalendarClockIcon,
 } from "lucide-react";
+import { usePermissions } from "@/components/project/use-permissions";
 
 type VideoSubmittedRow =
   FunctionReturnType<typeof api.assignments.listVideoSubmitted>[number];
@@ -60,8 +63,6 @@ type PublishedRow =
   FunctionReturnType<typeof api.assignments.listPublished>[number];
 type BonusRowData =
   FunctionReturnType<typeof api.assignments.listValidatedForBonus>[number];
-type ManagedToPublishRow =
-  FunctionReturnType<typeof api.assignments.listManagedToPublish>[number];
 
 /**
  * File de validation admin. La REVUE VIDÉO vient AVANT publication :
@@ -70,10 +71,82 @@ type ManagedToPublishRow =
  *     paiement ici). Refuser → feedback obligatoire → video_rejected.
  *  2. « Publiées récemment » : assignments passés en published (URL).
  *  3. « Bonus de vues » : assignments publiés avec snapshots → calcul du bonus.
+ *
+ * PAS de file « comptes gérés » ici. Coller le lien d'un post publié à la place
+ * d'une créatrice reste possible — mais depuis le PANNEAU DE L'ASSIGNATION
+ * (calendrier), là où l'on voit de quelle mission il s'agit. Une seconde file
+ * sur cet écran doublonnait ce geste sans rien montrer de plus.
  */
 
 const nf = new Intl.NumberFormat("fr-FR");
 const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
+
+/**
+ * PASTILLE « ça sort quand » de la file de validation.
+ *
+ * C'est l'information qui manquait : la file affichait `dueDate`, l'échéance de
+ * PRODUCTION — partagée par tout un lot d'assignation. Cinq vidéos soumises
+ * ensemble portaient donc cinq fois la même date, et rien ne disait laquelle
+ * devait sortir le lendemain. Le créneau se lit sur `postDate`.
+ *
+ * Le libellé nomme le jour (« demain ») au lieu de le dater quand il est proche :
+ * c'est ce qui permet de balayer la file sans lire les chiffres.
+ */
+const SLOT_META: Record<
+  ReviewSlot,
+  { className: string; label: (ts: number | null) => string }
+> = {
+  overdue: {
+    className: "border-rose-300 bg-rose-50 text-rose-700",
+    label: (ts) => `Devait sortir le ${formatDate(ts!)}`,
+  },
+  today: {
+    className: "border-orange-300 bg-orange-50 text-orange-700",
+    label: () => "Sort aujourd'hui",
+  },
+  tomorrow: {
+    className: "border-amber-300 bg-amber-50 text-amber-800",
+    label: () => "Sort demain",
+  },
+  upcoming: {
+    className: "border-slate-200 bg-slate-50 text-slate-600",
+    label: (ts) => `Sort le ${formatDate(ts!)}`,
+  },
+  undated: {
+    className: "border-slate-200 bg-white text-slate-400",
+    label: () => "Pas de date de publication",
+  },
+};
+
+function PublicationSlotBadge({
+  postDate,
+  postWindow,
+  now,
+}: {
+  postDate: number | null;
+  postWindow: { startMin: number; endMin: number } | null;
+  now: number;
+}) {
+  const slot = reviewSlot(postDate, now);
+  const meta = SLOT_META[slot];
+  // La plage n'est rendue que si elle existe : sans elle, la pastille reste
+  // exactement ce qu'elle serait sans le champ (aucun tiret orphelin).
+  const plage = formatPostWindow(postWindow ?? undefined);
+  return (
+    <span
+      data-testid="publication-slot"
+      data-slot={slot}
+      className={cn(
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold",
+        meta.className,
+      )}
+    >
+      <CalendarClockIcon className="size-3" />
+      {meta.label(postDate)}
+      {plage !== null && <span className="font-normal">· {plage}</span>}
+    </span>
+  );
+}
 
 /**
  * Wrapper Suspense pour useSearchParams (Next 16 le suspend) — cf le même
@@ -91,16 +164,23 @@ function ValidationPageInner() {
   // Devise de la PAIE créatrices (dollars) — pour les montants de bonus affichés.
   const payCurrency = useProject().project.payCurrency;
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
+  // Ancre temporelle FIGÉE au montage : « demain » doit être le même demain pour
+  // l'en-tête et pour chaque carte. Un Date.now() par appel les ferait diverger
+  // à la seconde qui change de jour (même patron que le dashboard créateur).
+  const [now] = useState(() => Date.now());
   // Lien profond des notifications hors-app : `?soumission=<assignmentId>` cible
   // UNE soumission (« un lien vers l'écran de validation de CETTE soumission,
   // pas vers la liste »). Sa carte est surlignée et amenée à l'écran.
   const highlightedId = useSearchParams().get("soumission");
-  const managedToPublish = useProjectQuery(
-    api.assignments.listManagedToPublish,
-    {},
-  );
   const published = useProjectQuery(api.assignments.listPublished, {});
-  const bonusRows = useProjectQuery(api.assignments.listValidatedForBonus, {});
+  // Bonus de vues = ARGENT (bloc `payments.manage`). Sans le bloc, la query
+  // lèverait et emporterait la page entière : on la skippe et on ne rend pas la
+  // section. Valider une vidéo, lui, reste dans `review.manage`.
+  const droits = usePermissions();
+  const bonusRows = useProjectQuery(
+    api.assignments.listValidatedForBonus,
+    droits.skipUnless("payments.manage", {}),
+  );
 
   return (
     <div className="space-y-8">
@@ -112,6 +192,19 @@ function ValidationPageInner() {
           {toReview === undefined
             ? "Chargement…"
             : `${toReview.length} vidéo${toReview.length > 1 ? "s" : ""} en attente de revue`}
+          {/* Le chiffre qui décide de l'ordre de traitement : ce qui doit sortir
+              demain ne peut pas attendre la revue d'après-demain. */}
+          {toReview !== undefined && countTomorrow(toReview, now) > 0 && (
+            <>
+              {" — dont "}
+              <strong
+                data-testid="review-tomorrow-count"
+                className="font-semibold text-amber-700"
+              >
+                {countTomorrow(toReview, now)} à sortir demain
+              </strong>
+            </>
+          )}
         </p>
       </header>
 
@@ -138,6 +231,7 @@ function ValidationPageInner() {
               <VideoReviewCard
                 key={a._id}
                 a={a}
+                now={now}
                 highlighted={a._id === highlightedId}
               />
             ))}
@@ -155,25 +249,6 @@ function ValidationPageInner() {
             </p>
           )}
       </section>
-
-      {/* ─── Comptes gérés — à publier ──────────────────────────────────────── */}
-      {managedToPublish !== undefined && managedToPublish.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Comptes gérés — à publier
-          </h2>
-          <p className="text-sm text-slate-500">
-            Comptes tenus par l&apos;équipe : colle le lien du post publié. La
-            créatrice est créditée et voit le post + ses perfs (elle ne publie
-            pas).
-          </p>
-          <div className="grid gap-4 lg:grid-cols-2">
-            {managedToPublish.map((a) => (
-              <ManagedPublishCard key={a._id} a={a} />
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* ─── Publiées récemment ────────────────────────────────────────────── */}
       {published !== undefined && published.length > 0 && (
@@ -204,6 +279,7 @@ function ValidationPageInner() {
       )}
 
       {/* ─── Bonus de vues ─────────────────────────────────────────────────── */}
+      {droits.has("payments.manage") && (
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
           Bonus de vues
@@ -244,15 +320,20 @@ function ValidationPageInner() {
           </Card>
         )}
       </section>
+      )}
     </div>
   );
 }
 
 function VideoReviewCard({
   a,
+  now,
   highlighted = false,
 }: {
   a: VideoSubmittedRow;
+  /** Ancre temporelle du rendu, figée au montage par la page (jamais Date.now()
+   *  au render : deux cartes calculeraient « demain » à deux instants). */
+  now: number;
   /** Cible du lien profond `?soumission=` : surlignée et amenée à l'écran. */
   highlighted?: boolean;
 }) {
@@ -361,17 +442,39 @@ function VideoReviewCard({
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-0.5">
             <div className="font-medium text-slate-900">{a.creatorName}</div>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
               {a.label}
               {a.origin === "script" && (
                 <Badge variant="secondary" className="text-[10px]">
                   Script
                 </Badge>
               )}
+              {/* DÉFI — ce qu'on valide ici compte dans un classement en cours.
+                  Sans ce badge, la vidéo arriverait sous le nom de la campagne
+                  dont son script est tiré, indistinguable d'une vidéo
+                  ordinaire : refuser sans le savoir coûte une place à
+                  quelqu'un. */}
+              {a.challengeName !== null && (
+                <Badge
+                  className="bg-amber-100 text-[10px] text-amber-800 hover:bg-amber-100"
+                  data-testid="validation-challenge-badge"
+                >
+                  Défi — {a.challengeName}
+                </Badge>
+              )}
             </div>
           </div>
-          <div className="text-right text-xs text-slate-400">
-            Échéance {formatDate(a.dueDate)}
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <PublicationSlotBadge
+              postDate={a.postDate}
+              postWindow={a.postWindow}
+              now={now}
+            />
+            {/* L'échéance de PRODUCTION reste lisible, mais en second : elle est
+                partagée par tout un lot et ne départage rien. */}
+            <span className="text-xs text-slate-400">
+              Échéance {formatDate(a.dueDate)}
+            </span>
           </div>
         </div>
 
@@ -535,70 +638,6 @@ function VideoReviewCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
-  );
-}
-
-/**
- * COMPTE GÉRÉ — l'admin colle le(s) lien(s) du post publié (1 URL par cible) puis
- * publie via confirmPublicationAsAdmin. MÊME accrual que la publication créatrice
- * → la créatrice est créditée à l'identique et voit le post + ses perfs.
- */
-function ManagedPublishCard({ a }: { a: ManagedToPublishRow }) {
-  const [scriptOpen, setScriptOpen] = useState(false);
-
-  return (
-    <Card>
-      <CardContent className="space-y-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-0.5">
-            <div className="font-medium text-slate-900">{a.creatorName}</div>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
-              {a.label}
-              <Badge variant="secondary" className="text-[10px]">
-                Géré
-              </Badge>
-            </div>
-          </div>
-          <div className="text-right text-xs text-slate-400">
-            Échéance {formatDate(a.dueDate)}
-          </div>
-        </div>
-
-        {a.assembledScript && (
-          <div className="overflow-hidden rounded-md border border-slate-200 bg-slate-50">
-            <button
-              type="button"
-              onClick={() => setScriptOpen((o) => !o)}
-              aria-expanded={scriptOpen}
-              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-            >
-              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
-                <FileTextIcon className="size-4 shrink-0 text-slate-400" />
-                Script à publier
-              </span>
-              <ChevronDownIcon
-                className={cn(
-                  "size-4 shrink-0 text-slate-400 transition-transform",
-                  scriptOpen && "rotate-180",
-                )}
-              />
-            </button>
-            {scriptOpen && (
-              <div className="border-t border-slate-200 px-3 py-2.5">
-                <SimpleMarkdown content={a.assembledScript} />
-              </div>
-            )}
-          </div>
-        )}
-
-        <AdminPublishForm
-          assignmentId={a._id}
-          targets={a.targets}
-          managed
-          buttonTestId={`managed-publish-${a._id}`}
-        />
-      </CardContent>
     </Card>
   );
 }

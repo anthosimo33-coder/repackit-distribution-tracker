@@ -3,6 +3,7 @@ import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -47,7 +48,7 @@ test.describe("Créateur — dashboard orienté action (scopé projet)", () => {
     await cpage.waitForURL("**/app", { timeout: 20_000 });
 
     // ── Seed e2e-test : 4 assignments → 2 todo, 1 to_publish, 1 video_rejected. ──
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] Format Dash ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10 },

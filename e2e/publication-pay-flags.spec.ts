@@ -65,6 +65,81 @@ test.describe("Publication — warmup et rémunération, deux réglages distinct
     return pubId;
   }
 
+  /**
+   * REGISTRE DES DRAPEAUX — `publicationFlagChanges`, en ajout seul.
+   *
+   * Il existe parce que ces deux bascules décident si une vidéo est PAYÉE, que le
+   * geste est quotidien, et qu'il est désormais délégable à un manager (bloc
+   * `tracker.manage`). Sans trace, on constatait qu'un post n'était plus payé sans
+   * pouvoir dire qui l'avait décidé.
+   *
+   * Le cas qui compte est le DERNIER : une fois `remunere` posé explicitement, la
+   * bascule warmup ne change plus la paie — et le journal ne doit alors PAS écrire
+   * de ligne de rémunération. Un registre qui consigne une conséquence qui n'a pas
+   * eu lieu est pire qu'un registre vide.
+   */
+  test("chaque bascule laisse une ligne — et seulement quand elle change quelque chose", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const icpId = (await admin.mutation(api.icps.createIcp, {
+      nom: `[E2E_TEST] Registre ${ts}`,
+    })) as Id<"icps">;
+    const pubId = await makePublishedShort("registre", 700, icpId, ts);
+    const journal = () =>
+      admin.mutation(api.publications.e2eReadFlagChanges, {
+        secret: E2E_SECRET,
+        publicationId: pubId,
+      });
+
+    expect(await journal(), "rien n'a encore été basculé").toEqual([]);
+
+    // 1. Passage en warmup : le fait éditorial ET sa conséquence de paie.
+    await admin.mutation(api.publications.setPublicationWarmup, {
+      publicationId: pubId,
+      isWarmup: true,
+    });
+    expect(await journal()).toEqual([
+      { flag: "warmup", before: false, after: true },
+      { flag: "remunerated", before: true, after: false },
+    ]);
+
+    // 2. Retour en arrière : les deux lignes, dans l'autre sens.
+    await admin.mutation(api.publications.setPublicationWarmup, {
+      publicationId: pubId,
+      isWarmup: false,
+    });
+    expect((await journal()).slice(2)).toEqual([
+      { flag: "warmup", before: true, after: false },
+      { flag: "remunerated", before: false, after: true },
+    ]);
+
+    // 3. Décision de paie EXPLICITE : une seule ligne, la financière.
+    await admin.mutation(api.publications.setPublicationRemuneration, {
+      publicationId: pubId,
+      remunere: false,
+    });
+    expect((await journal()).slice(4)).toEqual([
+      { flag: "remunerated", before: true, after: false },
+    ]);
+
+    // 4. Le cas qui compte : `remunere` est désormais ÉPINGLÉ, donc la bascule
+    //    warmup ne touche plus la paie. UNE seule ligne, éditoriale.
+    await admin.mutation(api.publications.setPublicationWarmup, {
+      publicationId: pubId,
+      isWarmup: true,
+    });
+    expect((await journal()).slice(5)).toEqual([
+      { flag: "warmup", before: false, after: true },
+    ]);
+
+    // 5. Re-poser le même état est un no-op : aucune ligne de plus.
+    await admin.mutation(api.publications.setPublicationWarmup, {
+      publicationId: pubId,
+      isWarmup: true,
+    });
+    expect(await journal()).toHaveLength(6);
+  });
+
   test("la rémunération est pilotable indépendamment du warmup", async () => {
     test.setTimeout(120_000);
     const ts = Date.now();

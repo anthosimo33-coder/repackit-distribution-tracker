@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
-import { useMyProfile } from "@/components/portal/creator-data";
+import { useMyContracts, useMyProfile } from "@/components/portal/creator-data";
 import { useReadOnly } from "@/components/portal/ViewAsContext";
 import {
   Card,
@@ -25,24 +25,29 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
-import { Loader2Icon } from "lucide-react";
+import { useConvexError } from "@/lib/use-convex-error";
+import { FileTextIcon, Loader2Icon } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
+import { LanguageSelector } from "@/components/layout/LanguageSelector";
 
 type PaymentMethod = "sepa" | "paypal" | "usdt" | "autre";
 
-const METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: "sepa", label: "SEPA (virement bancaire)" },
-  { value: "paypal", label: "PayPal" },
-  { value: "usdt", label: "USDT (crypto)" },
-  { value: "autre", label: "Autre" },
-];
+// Tables de CLÉS i18n, pas de libellés : `value` est la donnée envoyée au
+// serveur (creators.paymentMethod), elle ne bouge pas. Seule sa traduction est
+// résolue au rendu.
+const METHODS = [
+  { value: "sepa", labelKey: "profil.method.sepa" },
+  { value: "paypal", labelKey: "profil.method.paypal" },
+  { value: "usdt", labelKey: "profil.method.usdt" },
+  { value: "autre", labelKey: "profil.method.autre" },
+] as const satisfies ReadonlyArray<{ value: PaymentMethod; labelKey: string }>;
 
-const DETAILS_PLACEHOLDER: Record<PaymentMethod, string> = {
-  sepa: "IBAN + nom du titulaire",
-  paypal: "Email PayPal",
-  usdt: "Adresse du wallet (réseau)",
-  autre: "Précise comment te payer",
-};
+const DETAILS_PLACEHOLDER_KEY = {
+  sepa: "profil.placeholder.sepa",
+  paypal: "profil.placeholder.paypal",
+  usdt: "profil.placeholder.usdt",
+  autre: "profil.placeholder.autre",
+} as const satisfies Record<PaymentMethod, string>;
 
 /**
  * « Profil » — écran RÉUTILISÉ par le portail créateur normal ET le mode admin
@@ -52,9 +57,16 @@ const DETAILS_PLACEHOLDER: Record<PaymentMethod, string> = {
  * qui n'a pas de membership creator).
  */
 export default function ProfilScreen() {
+  const showError = useConvexError();
+  const t = useTranslations("portal");
   const projectId = useCreatorProjectId();
   const profile = useMyProfile(projectId);
+  // Contrats déposés par l'équipe sur SA fiche. Lecture seule des deux côtés :
+  // aucune mutation créatrice n'existe (elle ne dépose ni ne supprime rien).
+  const contracts = useMyContracts(projectId);
+  const locale = useLocale();
   const readOnly = useReadOnly();
+  const tSettings = useTranslations("settings.language");
   const updateProfile = useMutation(api.creators.updateMyProfile);
 
   // Valeurs éditées (null = pas encore touché → on affiche la valeur serveur).
@@ -79,9 +91,9 @@ export default function ProfilScreen() {
         paymentMethod: method === "" ? undefined : method,
         paymentDetails: details,
       });
-      toast.success("Profil enregistré.");
+      toast.success(t("profil.saved"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(showError(e, t("profil.error")));
     } finally {
       setBusy(false);
     }
@@ -92,7 +104,7 @@ export default function ProfilScreen() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-        Profil
+        {t("profil.title")}
       </h1>
 
       {loading ? (
@@ -100,7 +112,7 @@ export default function ProfilScreen() {
       ) : profile === null ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-slate-500">
-            Profil introuvable.
+            {t("profil.notFound")}
           </CardContent>
         </Card>
       ) : (
@@ -108,19 +120,18 @@ export default function ProfilScreen() {
           {/* Identité (gérée par l'admin) */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Identité</CardTitle>
+              <CardTitle className="text-base">{t("profil.identityTitle")}</CardTitle>
               <CardDescription>
-                Nom et email sont gérés par l&apos;équipe. Pour les changer,
-                contacte un administrateur.
+                {t("profil.identityHint")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>Nom</Label>
+                <Label>{t("profil.name")}</Label>
                 <p className="text-sm text-slate-700">{profile.name}</p>
               </div>
               <div className="space-y-1">
-                <Label>Email</Label>
+                <Label>{t("profil.email")}</Label>
                 <p className="text-sm text-slate-700">{profile.email}</p>
               </div>
             </CardContent>
@@ -129,15 +140,14 @@ export default function ProfilScreen() {
           {/* Paiement (éditable par le créateur ; en lecture seule pour l'admin) */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Paiement</CardTitle>
+              <CardTitle className="text-base">{t("profil.paymentTitle")}</CardTitle>
               <CardDescription>
-                Indique comment te payer. Ces infos sont visibles par l&apos;admin
-                qui exécute les virements.
+                {t("profil.paymentHint")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="phone">Téléphone</Label>
+                <Label htmlFor="phone">{t("profil.phone")}</Label>
                 <Input
                   id="phone"
                   value={phone}
@@ -147,36 +157,36 @@ export default function ProfilScreen() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="method">Méthode de paiement</Label>
+                <Label htmlFor="method">{t("profil.methodLabel")}</Label>
                 <Select
                   value={method}
                   onValueChange={(v) => v && setMethodEdit(v as PaymentMethod)}
                   disabled={readOnly}
                 >
-                  <SelectTrigger id="method" aria-label="Méthode de paiement">
-                    <SelectValue placeholder="Choisir…">
+                  <SelectTrigger id="method" aria-label={t("profil.methodLabel")}>
+                    <SelectValue placeholder={t("profil.methodPlaceholder")}>
                       {method
-                        ? METHODS.find((m) => m.value === method)?.label
-                        : "Choisir…"}
+                        ? t(METHODS.find((m) => m.value === method)!.labelKey)
+                        : t("profil.methodPlaceholder")}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {METHODS.map((m) => (
                       <SelectItem key={m.value} value={m.value}>
-                        {m.label}
+                        {t(m.labelKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="details">Coordonnées de paiement</Label>
+                <Label htmlFor="details">{t("profil.detailsLabel")}</Label>
                 <Input
                   id="details"
                   value={details}
                   onChange={(e) => setDetailsEdit(e.target.value)}
                   placeholder={
-                    method ? DETAILS_PLACEHOLDER[method] : "IBAN, email, wallet…"
+                    method ? t(DETAILS_PLACEHOLDER_KEY[method]) : t("profil.detailsPlaceholder")
                   }
                   disabled={readOnly}
                 />
@@ -189,12 +199,98 @@ export default function ProfilScreen() {
                     className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
                   >
                     {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                    Enregistrer
+                    {t("profil.save")}
                   </Button>
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Contrat — déposé par l'équipe depuis la fiche admin. Toujours
+              rendu, y compris vide : « aucun contrat » est une réponse, et une
+              carte qui apparaît/disparaît laisserait croire à un bug le jour où
+              l'équipe en dépose un. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("profil.contractTitle")}
+              </CardTitle>
+              <CardDescription>{t("profil.contractHint")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {contracts === undefined ? (
+                <Skeleton className="h-12 w-full" />
+              ) : contracts.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  {t("profil.contractEmpty")}
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {contracts.map((c) => (
+                    <li key={c._id} className="flex items-center gap-2.5 py-2.5">
+                      <FileTextIcon className="size-4 shrink-0 text-slate-400" />
+                      <div className="min-w-0">
+                        {/* URL absente = blob introuvable. On le DIT plutôt que
+                            de rendre un lien mort qui rechargerait la page. */}
+                        {c.url ? (
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block truncate text-sm font-medium text-slate-900 hover:underline"
+                          >
+                            {c.fileName}
+                          </a>
+                        ) : (
+                          <p className="truncate text-sm font-medium text-slate-400">
+                            {t("profil.contractMissing", {
+                              fileName: c.fileName,
+                            })}
+                          </p>
+                        )}
+                        <p className="text-xs text-slate-400">
+                          {t("profil.contractUploadedOn", {
+                            date: new Date(c.uploadedAt).toLocaleDateString(
+                              locale,
+                              {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                              },
+                            ),
+                          })}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+
+          {/*
+            Langue de l'interface. Le sélecteur n'existait QUE dans la sidebar
+            admin : un créateur subissait la langue posée par l'admin à
+            l'invitation, sans pouvoir la corriger — un créateur US invité par
+            erreur en français restait bloqué en français.
+
+            Masqué en lecture seule (view-as) : la mutation écrit sur
+            `users.locale` de L'APPELANT, donc sur le compte de l'admin
+            observateur. Le bouton changerait la langue de l'admin tout en
+            paraissant agir sur celle de la créatrice observée.
+          */}
+          {!readOnly && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {tSettings("label")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LanguageSelector />
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>

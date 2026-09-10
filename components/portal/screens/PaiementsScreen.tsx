@@ -12,11 +12,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/format-rate";
-import { formatDate } from "@/lib/format";
+import { formatMoneyDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
+import { PAY_WINDOW_EFFECTIVE_AT } from "@/convex/payWindow";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTranslations } from "next-intl";
 
 /**
  * « Mes paiements / gains » — écran RÉUTILISÉ par le portail créateur normal ET
@@ -29,7 +32,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 type Payment = FunctionReturnType<typeof api.payments.getMyPayments>[number];
 
 const DAY_MS = 86_400_000;
-const fmtViews = (n: number) => n.toLocaleString("fr-FR");
+const fmtViews = (n: number, locale: string) => n.toLocaleString(locale);
 
 /**
  * Paliers de bonus (cumul de vues À VIE) — motivant : cumul, jauge vers le
@@ -42,6 +45,8 @@ function BonusTierPanel({
   projectId: Id<"projects">;
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const status = useMyBonusStatus(projectId);
   const base = usePortalBase();
   if (!status || (status.tiers.length === 0 && status.natureUnlocked.length === 0))
@@ -58,13 +63,15 @@ function BonusTierPanel({
       <CardContent className="space-y-3 py-5">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-sm font-semibold text-amber-900">
-            🏆 Paliers de récompense
+            {t("paiements.tiersTitle")}
           </span>
           <span
             className="text-sm font-medium tabular-nums text-amber-800"
             data-testid="cumul-views"
           >
-            {fmtViews(status.cumulViews)} vues cumulées
+            {t("paiements.cumulViews", {
+              views: fmtViews(status.cumulViews, loc),
+            })}
           </span>
         </div>
         {next ? (
@@ -76,29 +83,26 @@ function BonusTierPanel({
               />
             </div>
             <p className="text-xs text-amber-800">
-              Plus que{" "}
-              <span className="font-semibold tabular-nums">
-                {fmtViews(status.viewsToNext ?? 0)}
-              </span>{" "}
-              vues avant{" "}
-              <span className="font-semibold">
-                {next.rewardType === "cash"
-                  ? `${formatMoney(next.montant ?? 0, currency)}`
-                  : next.libelle}
-              </span>
-              .
+              {t("paiements.viewsBefore", {
+                count: status.viewsToNext ?? 0,
+                views: fmtViews(status.viewsToNext ?? 0, loc),
+                reward:
+                  next.rewardType === "cash"
+                    ? formatMoney(next.montant ?? 0, currency, loc)
+                    : (next.libelle ?? t("paiements.rewardFallback")),
+              })}
             </p>
           </div>
         ) : (
           <p className="text-xs text-amber-800">
-            Tous les paliers sont débloqués 🎉
+            {t("progression.allUnlocked")}
           </p>
         )}
         {(status.cashUnlockedTotal > 0 || status.natureUnlocked.length > 0) && (
           <div className="flex flex-wrap gap-1.5 pt-1">
             {status.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(status.cashUnlockedTotal, currency)} débloqués
+                + {formatMoney(status.cashUnlockedTotal, currency, loc)} débloqués
               </span>
             )}
             {status.natureUnlocked.map((r, i) => (
@@ -114,25 +118,26 @@ function BonusTierPanel({
         <Link
           href={portalHref(base, "/progression")}
           className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-amber-900 underline underline-offset-4 hover:text-amber-700"
-        >
-          Voir ma progression
-          <ArrowRightIcon className="size-3.5" />
+        >{t("paiements.seeProgress")}<ArrowRightIcon className="size-3.5" />
         </Link>
       </CardContent>
     </Card>
   );
 }
 
-const KIND_TAG: Record<string, { label: string; className: string }> = {
-  base: { label: "Base", className: "bg-slate-200 text-slate-600" },
-  bonus: { label: "Bonus", className: "bg-indigo-50 text-indigo-600" },
-  fixed: { label: "Fixe", className: "bg-emerald-50 text-emerald-600" },
-  cpm: { label: "CPM", className: "bg-sky-50 text-sky-600" },
-  bonus_tier: { label: "Palier", className: "bg-amber-50 text-amber-600" },
+const KIND_TAG = {
+  base: { labelKey: "paiements.kind.base", className: "bg-slate-200 text-slate-600" },
+  bonus: { labelKey: "paiements.kind.bonus", className: "bg-indigo-50 text-indigo-600" },
+  fixed: { labelKey: "paiements.kind.fixed", className: "bg-emerald-50 text-emerald-600" },
+  cpm: { labelKey: "paiements.kind.cpm", className: "bg-sky-50 text-sky-600" },
+  bonus_tier: { labelKey: "paiements.kind.bonus_tier", className: "bg-amber-50 text-amber-600" },
   // Chantier pricing talent/clippeur — quatre modèles, quatre étiquettes.
-  clip: { label: "Clip", className: "bg-violet-50 text-violet-600" },
-  retainer: { label: "Forfait", className: "bg-teal-50 text-teal-600" },
-};
+  clip: { labelKey: "paiements.kind.clip", className: "bg-violet-50 text-violet-600" },
+  retainer: { labelKey: "paiements.kind.retainer", className: "bg-teal-50 text-teal-600" },
+  // Prime de défi — une COULEUR À ELLE. Reprendre l'ambre des paliers ferait
+  // lire deux natures de gain comme une seule dans le relevé.
+  challenge: { labelKey: "paiements.kind.challenge", className: "bg-rose-50 text-rose-600" },
+} as const;
 
 function KindTag({
   kind,
@@ -144,17 +149,19 @@ function KindTag({
     | "cpm"
     | "bonus_tier"
     | "clip"
-    | "retainer";
+    | "retainer"
+    | "challenge";
 }) {
-  const t = KIND_TAG[kind] ?? KIND_TAG.base;
+  const tag = KIND_TAG[kind] ?? KIND_TAG.base;
+  const tt = useTranslations("portal");
   return (
     <span
       className={cn(
         "inline-flex shrink-0 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
-        t.className,
+        tag.className,
       )}
     >
-      {t.label}
+      {tt(tag.labelKey)}
     </span>
   );
 }
@@ -170,6 +177,8 @@ function PricingBreakdown({
   b: Payment["pricingBreakdown"];
   currency?: string | null;
 }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   if (b.total <= 0 && b.perPricing.length === 0) return null;
   // Un cycle peut mélanger DEUX barèmes (un pricing édité en place laisse des
   // vidéos figées sur l'ancien) : on rend alors une ligne PAR barème, sinon le
@@ -177,23 +186,71 @@ function PricingBreakdown({
   const groupes = b.perPricing;
   return (
     <div className="space-y-2 rounded-lg border border-slate-200 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-        Détail (temps réel)
-      </p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t("paiements.liveDetail")}</p>
       {groupes.length === 0 ? (
-        <Row label="Fixe" amount={b.fixedTotal} currency={currency} />
+        <Row label={t("paiements.fixe")} amount={b.fixedTotal} currency={currency} />
       ) : (
-        groupes.map((g) => (
-          <Row
-            key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}
-            label={`Fixe — ${g.videoCount}/${g.nbVideosCible} vidéos publiées`}
-            sub={`sur ${formatMoney(g.montantFixe, currency)}`}
-            amount={g.fixed}
-            currency={currency}
-          />
+        groupes
+          // ⚠️ Un barème à budget fixe NUL — celui des DÉFIS — produirait une
+          // ligne « Fixe — 3/1 vidéos publiées sur 0,00 → 0,00 » : un zéro qui
+          // n'apprend rien et qui laisse croire à un manque à gagner. On ne
+          // montre le fixe que là où il existe.
+          .filter((g) => g.montantFixe > 0 || g.fixed > 0)
+          .map((g) => (
+          <div key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}>
+            <Row
+              label={t("paiements.line.fixedGroup", {
+                done: g.videoCount,
+                target: g.nbVideosCible,
+              })}
+              sub={t("paiements.line.outOf", {
+                amount: formatMoney(g.montantFixe, currency, loc),
+              })}
+              amount={g.fixed}
+              currency={currency}
+            />
+            {/* JAUGE DU SEUIL — rendue seulement quand le barème en porte un.
+                Un forfait conditionnel qu'elle ne voit pas est un litige
+                programmé : elle doit pouvoir lire, AVANT la fin du mois, ce
+                qu'il reste à faire pour que le fixe soit dû. */}
+            {g.seuilVuesFixe > 0 && (
+              <div className="mt-1 space-y-1 rounded-md bg-slate-50 px-3 py-2">
+                <div className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="tabular-nums text-slate-700">
+                    {t("paiements.fixeSeuil.gauge", {
+                      done: fmtViews(g.groupViews, loc),
+                      target: fmtViews(g.seuilVuesFixe, loc),
+                    })}
+                  </span>
+                  {!g.fixeBloque && (
+                    <span className="text-emerald-700">
+                      {t("paiements.fixeSeuil.unlocked")}
+                    </span>
+                  )}
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={
+                      g.fixeBloque ? "h-full bg-amber-500" : "h-full bg-emerald-500"
+                    }
+                    style={{
+                      width: `${Math.min(100, Math.round((g.groupViews / Math.max(1, g.seuilVuesFixe)) * 100))}%`,
+                    }}
+                  />
+                </div>
+                {g.fixeBloque && (
+                  <p className="text-[11px] leading-relaxed text-slate-500">
+                    {t("paiements.fixeSeuil.locked", {
+                      target: fmtViews(g.seuilVuesFixe, loc),
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         ))
       )}
-      <Row label="CPM accumulé (sur tes vues)" amount={b.cpmTotal} currency={currency} />
+      <Row label={t("paiements.cpmAccum")} amount={b.cpmTotal} currency={currency} />
       {b.bonusTierCashTotal > 0 &&
         (b.bonusTierCashUnlocks.length > 0 ? (
           // Une ligne par palier cash débloqué sur ce cycle (cohérent avec la
@@ -201,7 +258,9 @@ function PricingBreakdown({
           b.bonusTierCashUnlocks.map((u, i) => (
             <Row
               key={i}
-              label={`Bonus palier ${fmtViews(u.seuilVues)} vues`}
+              label={t("paiements.line.tierBonus", {
+                views: fmtViews(u.seuilVues, loc),
+              })}
               amount={u.montant}
               currency={currency}
             />
@@ -209,15 +268,28 @@ function PricingBreakdown({
         ) : (
           // Cycle gelé (payé) → détail par palier indisponible : ligne agrégée.
           <Row
-            label="Bonus paliers (cumul de vues)"
+            label={t("paiements.bonusTiers")}
             amount={b.bonusTierCashTotal}
             currency={currency}
           />
         ))}
+      {/* ⚠️ LA PRIME DE DÉFI, une ligne PAR VICTOIRE. Sans elle, le sous-total
+          contenait la prime sans qu'aucune ligne ne la nomme : la créatrice
+          voyait « 195,08 de CPM » puis « 395,08 de sous-total » et l'addition
+          ne tombait pas juste. Constaté à l'œil sur une capture, pas au
+          typage. */}
+      {b.challengeWins.map((w, i) => (
+        <Row
+          key={`${w.winId}:${i}`}
+          label={t("paiements.line.challengeWin", { name: w.challengeName })}
+          amount={w.montant}
+          currency={currency}
+        />
+      ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
-        <span>Sous-total pricing</span>
+        <span>{t("paiements.subtotal")}</span>
         <span className="tabular-nums" data-testid="pricing-total">
-          {formatMoney(b.total, currency)}
+          {formatMoney(b.total, currency, loc)}
         </span>
       </div>
     </div>
@@ -235,6 +307,7 @@ function Row({
   amount: number;
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
   return (
     <div className="flex items-center justify-between gap-3 text-sm">
       <span className="min-w-0 text-slate-600">
@@ -242,13 +315,55 @@ function Row({
         {sub ? <span className="text-slate-400"> {sub}</span> : null}
       </span>
       <span className="shrink-0 tabular-nums text-slate-900">
-        {formatMoney(amount, currency)}
+        {formatMoney(amount, currency, loc)}
       </span>
     </div>
   );
 }
 
+/**
+ * Libellé d'une ligne de paie.
+ *
+ * `label` est une phrase FIGÉE en base au moment du paiement, en français :
+ * « Fixe — 3 vidéos publiées ». Aucune extraction ne peut la traduire — c'est
+ * de la donnée, pas de l'interface. Les lignes écrites depuis A9 portent en
+ * plus un `detail` STRUCTURÉ, et c'est lui qu'on rend quand il est là.
+ *
+ * ⚠️ REPLI SUR `label` : les paiements ANTÉRIEURS n'ont pas de `detail` et
+ * restent affichés en français. C'est assumé — un créateur US nouvellement
+ * onboardé n'a pas d'historique, et réécrire le passé serait falsifier un
+ * grand livre. Cf I18N_STATUS.md, dette « migration des libellés de paie ».
+ */
+function useLineLabel() {
+  const t = useTranslations("portal.paiements.line");
+  return (li: Payment["lineItems"][number]) => {
+    const d = li.detail;
+    if (d) {
+      if (li.kind === "fixed" && d.videoCount !== undefined) {
+        return t("fixed", { count: d.videoCount });
+      }
+      if (li.kind === "cpm" && d.views !== undefined) {
+        return t("cpm", { views: d.views });
+      }
+      if (li.kind === "retainer" && d.cycleIndex !== undefined) {
+        return t("retainer", { cycle: d.cycleIndex });
+      }
+      // Le NOM du défi vient de la donnée gelée ; la phrase se compose dans SA
+      // langue. `label` (français, figé au paiement) reste le repli des lignes
+      // écrites avant ce champ.
+      if (li.kind === "challenge" && d.challengeName !== undefined) {
+        return t("challenge", { name: d.challengeName });
+      }
+    }
+    if (li.kind === "bonus_tier") return t("bonusTier");
+    return li.label;
+  };
+}
+
 function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
+  const lineLabel = useLineLabel();
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   return (
     <ul className="divide-y divide-slate-100">
       {p.lineItems.map((li, i) => (
@@ -258,22 +373,24 @@ function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
         >
           <span className="flex min-w-0 items-center gap-2">
             <KindTag kind={li.kind} />
-            <span className="truncate text-slate-700">{li.label}</span>
+            <span className="truncate text-slate-700">{lineLabel(li)}</span>
           </span>
           <span className="shrink-0 tabular-nums text-slate-900">
-            {formatMoney(li.amount, currency)}
+            {formatMoney(li.amount, currency, loc)}
           </span>
         </li>
       ))}
       <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
-        <span>Total</span>
-        <span className="tabular-nums">{formatMoney(p.totalDue, currency)}</span>
+        <span>{t("paiements.total")}</span>
+        <span className="tabular-nums">{formatMoney(p.totalDue, currency, loc)}</span>
       </li>
     </ul>
   );
 }
 
 function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const [open, setOpen] = useState(false);
   return (
     <Card>
@@ -290,24 +407,42 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
             )}
           />
           <span className="font-medium text-slate-900">
-            {formatCycleRange(p.cycleStart, p.cycleEnd)}
+            {formatCycleRange(p.cycleStart, p.cycleEnd, loc)}
           </span>
           {p.status === "paid" ? (
             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              Payé{p.paidAt ? ` le ${formatDate(p.paidAt)}` : ""}
+              {p.paidAt
+                ? t("paiements.paidOn", {
+                    date: formatMoneyDate(p.paidAt, loc),
+                  })
+                : t("paiements.paidLabel")}
             </span>
           ) : (
-            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-              En attente
-            </span>
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">{t("paiements.pending")}</span>
           )}
         </span>
         <span className="shrink-0 tabular-nums font-medium text-slate-900">
-          {formatMoney(p.totalDue, currency)}
+          {formatMoney(p.totalDue, currency, loc)}
         </span>
       </button>
       {open && (
         <div className="border-t border-slate-100">
+          {/* ANCIENNE RÈGLE — mention DATÉE, jamais générique. Un cycle payé
+              avant le plafond garde son montant gelé : sans cette phrase, deux
+              cycles côte à côte affichent deux logiques de calcul et rien ne
+              l'explique. Elle nomme les deux dates (celle du paiement, celle de
+              l'entrée en vigueur) pour que la comparaison soit vérifiable. */}
+          {p.computedBeforePayWindow && p.paidAt !== null && (
+            <p
+              data-testid="pre-cap-notice"
+              className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-500"
+            >
+              {t("paiements.preCapNotice", {
+                paid: formatMoneyDate(p.paidAt, loc),
+                effective: formatMoneyDate(PAY_WINDOW_EFFECTIVE_AT, loc),
+              })}
+            </p>
+          )}
           <LineItems p={p} currency={currency} />
         </div>
       )}
@@ -316,6 +451,8 @@ function PastPeriod({ p, currency }: { p: Payment; currency?: string | null }) {
 }
 
 export default function PaiementsScreen() {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const { current: currentProject } = useCreatorProject();
   // Devise de la paie créatrices (projects.payCurrency, $ Snytch ; null → sans
   // symbole), passée aux sous-composants (un hook ne court qu'en corps de composant).
@@ -338,9 +475,7 @@ export default function PaiementsScreen() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-        Mes paiements
-      </h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t("paiements.title")}</h1>
 
       {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
       <PaymentInfoNudge projectId={currentProject.projectId} />
@@ -356,25 +491,28 @@ export default function PaiementsScreen() {
             <CardContent className="space-y-1 py-7 text-center">
               <p className="text-sm text-slate-500">
                 {current
-                  ? `Dû pour le cycle en cours (${formatCycleRange(current.cycleStart, current.cycleEnd)})`
-                  : "Dû ce cycle"}
+                  ? t("paiements.dueForCycle", { range: formatCycleRange(current.cycleStart, current.cycleEnd, loc) })
+                  : t("paiements.dueThisCycle")}
               </p>
               <p
                 className="text-4xl font-semibold tabular-nums text-slate-900"
                 data-testid="due-now"
               >
-                {formatMoney(dueNow, payCurrency)}
+                {formatMoney(dueNow, payCurrency, loc)}
               </p>
               {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
                   {dueNow > 0
-                    ? `Payé dans ${days} jour${days > 1 ? "s" : ""} (le ${formatDate(nextTs)})`
-                    : `Prochaine paie le ${formatDate(nextTs)}`}
+                    ? t("paiements.paidIn", {
+                        days,
+                        date: formatMoneyDate(nextTs, loc),
+                      })
+                    : t("paiements.nextPayout", {
+                        date: formatMoneyDate(nextTs, loc),
+                      })}
                 </p>
               ) : (
-                <p className="text-sm text-slate-500">
-                  Ta première paie démarrera après ta première publication.
-                </p>
+                <p className="text-sm text-slate-500">{t("paiements.firstPayHint")}</p>
               )}
             </CardContent>
           </Card>
@@ -382,16 +520,12 @@ export default function PaiementsScreen() {
           {/* Détail — période en cours : aperçu pricing temps réel (nouveau
               modèle) + lineItems legacy éventuelles. */}
           <section className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Détail du cycle en cours
-            </h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("paiements.currentCycle")}</h2>
             {!current ||
             (current.lineItems.length === 0 &&
               current.pricingBreakdown.total <= 0) ? (
               <Card>
-                <CardContent className="py-8 text-center text-sm text-slate-500">
-                  Aucune vidéo publiée sur ce cycle pour l&apos;instant.
-                </CardContent>
+                <CardContent className="py-8 text-center text-sm text-slate-500">{t("paiements.noVideoCycle")}</CardContent>
               </Card>
             ) : (
               <div className="space-y-2">
@@ -410,9 +544,7 @@ export default function PaiementsScreen() {
           {/* Historique des périodes passées (repliées) */}
           {past.length > 0 && (
             <section className="space-y-2">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-                Historique
-              </h2>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("paiements.history")}</h2>
               <div className="space-y-2">
                 {past.map((p) => (
                   <PastPeriod key={p.key} p={p} currency={payCurrency} />

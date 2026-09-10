@@ -130,16 +130,26 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         throw new ConvexError("Invitation invalide ou expirée.");
       }
 
-      const userId = await db.insert("users", { email, role: "member" });
+      // La langue de la fiche devient celle du COMPTE : `users.locale` fait foi
+      // ensuite, et la lecture de repli sur `creators` (convex/i18n.getMyLocale)
+      // n'a plus à s'exécuter à chaque rendu serveur. La fiche est déjà chargée
+      // ci-dessus, c'est une recopie, pas une lecture de plus.
+      const userId = await db.insert("users", {
+        email,
+        role: "member",
+        locale: creator.locale,
+      });
       // Le littéral de membership DÉRIVE de la population de la fiche
       // (creators.kind) — il n'est plus écrit en dur. La fiche est la source de
       // vérité : l'invitation ne porte aucun rôle, donc régénérer un lien ne peut
       // pas dériver du rôle réel. Fiche sans `kind` (toutes les existantes) →
       // "creator", soit exactement le comportement d'avant. Cf convex/roles.ts.
+      // Un compte NEUF : l'ensemble ne contient donc que son rôle de portail.
+      // (Le cumul se pose ensuite depuis l'écran de gestion — cf team.addRole.)
       await db.insert("memberships", {
         userId,
         projectId: invitation.projectId,
-        role: roleForKind(creator.kind),
+        roles: [roleForKind(creator.kind)],
       });
       await db.patch(invitation.creatorId, {
         userId,

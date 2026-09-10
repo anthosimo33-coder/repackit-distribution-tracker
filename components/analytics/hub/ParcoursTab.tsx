@@ -19,13 +19,28 @@ import {
   HubNotice,
   InfoDot,
   ColLabel,
-  WebhookFixNotice,
+  HubNoticeStack,
+  webhookFixItem,
+  posthogOutageItem,
   dash,
   pct,
   formatDuration,
+  pctFromFraction,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
-import type { ProductAnalyticsData, ReliabilityData } from "./types";
+import { isoCountryLabel } from "@/lib/country-name";
+import { formatMoney } from "@/lib/format-rate";
+import {
+  buildSegmentRows,
+  clientCoverage,
+  UNKNOWN_SEGMENT,
+  type SegmentPayload,
+  type SplitRow,
+} from "@/lib/segment-funnel";
+import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
+import type { ProductAnalyticsData, ReliabilityData,
+  BillingCountriesData,
+} from "./types";
 
 /**
  * Onglet PARCOURS (B1) — le tunnel de CONVERSION corrigé (chemin de monétisation)
@@ -86,21 +101,50 @@ interface ActivationRow {
 export function ParcoursTab({
   analytics,
   reliability,
+  billing,
+  windowed,
   now,
 }: {
   analytics: ProductAnalyticsData;
   reliability: ReliabilityData | undefined;
+  billing: BillingCountriesData | undefined;
+  /**
+   * Agrégats RECALCULÉS sur la période choisie. `data` absent = on sert le cache
+   * du cron (90 jours), soit parce que la période couvre tout, soit parce que le
+   * recalcul n'est pas revenu.
+   */
+  windowed: WindowedAnalyticsState;
   now: number;
 }) {
   const [recentOnly, setRecentOnly] = useState(false);
 
+  // Les quatre agrégats que la période peut changer. Les autres (pays facturés,
+  // fiabilité) viennent d'ailleurs et restent sur toute la profondeur.
+  //
+  // Pendant un recalcul on garde DÉLIBÉRÉMENT les chiffres précédents, grisés :
+  // vider l'écran à chaque changement de dates ferait clignoter la page une
+  // seconde sur deux, et un écran vide se lit comme « aucune donnée ».
+  const a = useMemo(
+    () =>
+      windowed.data
+        ? {
+            ...analytics,
+            funnels: windowed.data.funnels,
+            activation: windowed.data.activation,
+            checkoutReliability: windowed.data.checkoutReliability,
+            serverSideSplit: windowed.data.serverSideSplit,
+          }
+        : analytics,
+    [analytics, windowed.data],
+  );
+
   const seqSteps = useMemo(
-    () => analytics.funnels.sequential.segments[0]?.steps ?? [],
-    [analytics.funnels.sequential.segments],
+    () => a.funnels.sequential.segments[0]?.steps ?? [],
+    [a.funnels.sequential.segments],
   );
   const reachSteps = useMemo(
-    () => analytics.funnels.global.segments[0]?.steps ?? [],
-    [analytics.funnels.global.segments],
+    () => a.funnels.global.segments[0]?.steps ?? [],
+    [a.funnels.global.segments],
   );
 
   const funnel = useMemo(
@@ -126,58 +170,71 @@ export function ParcoursTab({
   const devices = useMemo(
     () =>
       computeConversion(
-        analytics.checkoutReliability.rows.map((r) => ({
+        a.checkoutReliability.rows.map((r) => ({
           key: r.device,
           label: DEVICE_LABELS[r.device] ?? r.device,
           n: r.checkouts,
           converted: r.paid,
         })),
       ),
-    [analytics.checkoutReliability.rows],
+    [a.checkoutReliability.rows],
   );
   const coverage = useMemo(() => {
-    const rows = analytics.checkoutReliability.rows;
+    const rows = a.checkoutReliability.rows;
     const total = rows.reduce((s, r) => s + r.checkouts, 0);
     const known = rows
       .filter((r) => r.device !== "inconnu")
       .reduce((s, r) => s + r.checkouts, 0);
     return total > 0 ? Math.round((known / total) * 1000) / 10 : null;
-  }, [analytics.checkoutReliability.rows]);
+  }, [a.checkoutReliability.rows]);
 
   // « Où se perdent les checkouts » — ventilation MUTUELLEMENT EXCLUSIVE des NON
   // payeurs (total = non payeurs). L'échec de paiement est une sous-part des
   // disparus, pas une 4e ligne additionnelle (l'ancienne carte double-comptait :
   // 78 + 28 + 20 = 126 = tous les checkouts, alors que les non payeurs sont 106).
   const loss = useMemo(() => {
-    const rows = analytics.checkoutReliability.rows;
+    const rows = a.checkoutReliability.rows;
     const disappeared = rows.reduce((s, r) => s + r.disappeared, 0);
     const divertedFree = rows.reduce((s, r) => s + r.divertedFree, 0);
     const failedPayment = rows.reduce((s, r) => s + (r.failedPayment ?? 0), 0);
     const total = disappeared + divertedFree + failedPayment;
     return { disappeared, divertedFree, failedPayment, total };
-  }, [analytics.checkoutReliability.rows]);
+  }, [a.checkoutReliability.rows]);
 
   // Délai médian/p90 jusqu'au paiement, tous appareils (le plus grand échantillon).
   const delay = useMemo(() => {
-    const rows = analytics.checkoutReliability.rows.filter(
+    const rows = a.checkoutReliability.rows.filter(
       (r) => r.paid > 0 && r.medPayMs !== null,
     );
     if (rows.length === 0) return { medMs: null, p90Ms: null };
     const top = [...rows].sort((a, b) => b.paid - a.paid)[0];
     return { medMs: top.medPayMs, p90Ms: top.p90PayMs };
-  }, [analytics.checkoutReliability.rows]);
+  }, [a.checkoutReliability.rows]);
 
+  // « Paiements Whop sans abonnement applicatif » — en PERSONNES des deux côtés.
+  // Cette carte affichait `whopMembers - dashboardClients`, soit des ABONNEMENTS
+  // moins des PERSONNES : au relevé du 2026-08-29 elle annonçait 9 paiements
+  // orphelins en rouge, qui étaient les 9 abonnements en double de clients
+  // existants (8 personnes en ont 2, une en a 3). Aucun paiement orphelin.
+  //
+  // Côté applicatif on prend l'atteinte brute (personnes ayant émis
+  // subscription_completed) et non le tunnel séquentiel : un client qui paie
+  // sans checkout tracké a bien un abonnement applicatif.
   const whopGap = useMemo(() => {
     const c = reliability?.coherence;
-    if (!c || c.whopMembers === null || c.dashboardClients === null) return null;
-    return { whop: c.whopMembers, app: c.dashboardClients, gap: c.whopMembers - c.dashboardClients };
+    if (!c || c.whopClients === null) return null;
+    const reach =
+      c.reachSteps.find((s) => s.key === "subscription_completed")?.count ??
+      c.dashboardClients;
+    if (reach === null) return null;
+    return { whop: c.whopClients, app: reach, gap: c.whopClients - reach };
   }, [reliability]);
 
   // Activation : agrégée par segment, « tous » ou « depuis le 28/07 » (recent=1).
   const activation = useMemo(() => {
     const agg = (recentFlag: boolean): ActivationRow[] => {
       const bySeg = new Map<string, ActivationRow>();
-      for (const r of analytics.activation.rows) {
+      for (const r of a.activation.rows) {
         if (r.segment === "hors_inscription") continue;
         if (recentFlag && r.recent !== 1) continue;
         const cur =
@@ -194,13 +251,45 @@ export function ParcoursTab({
       );
     };
     return { all: agg(false), recent: agg(true) };
-  }, [analytics.activation.rows]);
+  }, [a.activation.rows]);
   const activationRows = recentOnly ? activation.recent : activation.all;
   const hasRecent = activation.recent.length > 0;
 
   return (
     <div className="space-y-6">
-      <WebhookFixNotice now={now} />
+      {windowed.error !== null ? (
+        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+          <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
+          Les chiffres ci-dessous portent donc sur toute la profondeur, pas sur la
+          période choisie.
+        </HubNotice>
+      ) : null}
+      {/* Chiffres servis depuis le cache serveur APRÈS un refus de PostHog
+          (429) : ils sont vrais, mais datés. Le dire — un chiffre périmé qu'on
+          croit frais est pire qu'une erreur franche. */}
+      {windowed.data?.stale === true && windowed.data.cachedAt !== null ? (
+        <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+          <strong>PostHog a refusé le recalcul</strong> (trop de requêtes). Les
+          chiffres de cette période sont ceux calculés le{" "}
+          {new Date(windowed.data.cachedAt).toLocaleString("fr-FR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          .
+        </HubNotice>
+      ) : null}
+      {/* Les chiffres du recalcul sont GRISÉS pendant qu'il tourne, jamais
+          effacés : un écran vide se lit comme « aucune donnée », et la volée
+          coûte une seconde en usage courant, dix à froid. */}
+      <div
+        className={
+          windowed.loading ? "space-y-6 opacity-50 transition-opacity" : "space-y-6"
+        }
+        aria-busy={windowed.loading}
+      >
+      <HubNoticeStack items={[webhookFixItem(now), posthogOutageItem(now)]} />
       <HubNotice className="border-sky-200 bg-sky-50/70 text-sky-900">
         <strong>Tunnel corrigé le 29/07.</strong> L&apos;ordre des étapes était faux
         (les cibles et la 1re alerte étaient placées avant l&apos;offre) : les taux
@@ -466,8 +555,8 @@ export function ParcoursTab({
                     {formatNumber(Math.max(0, whopGap.gap))}
                   </span>
                   <span className="text-xs text-slate-500">
-                    paiement(s) Whop ({formatNumber(whopGap.whop)}) sans abonnement
-                    applicatif ({formatNumber(whopGap.app)})
+                    client(s) Whop ({formatNumber(whopGap.whop)} personnes) sans
+                    abonnement applicatif ({formatNumber(whopGap.app)} personnes)
                   </span>
                 </div>
                 <p className="text-xs text-slate-400">
@@ -483,6 +572,40 @@ export function ParcoursTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* ── D'où vient le trafic ──────────────────────────────────────────
+          Le MÊME entonnoir, coupé par géographie puis par langue. Le pays vient
+          d'une propriété d'EVENT (GeoIP, posée à l'ingestion) ; la langue d'une
+          propriété de PERSONNE, posée par l'app à l'inscription — d'où sa part
+          d'« inconnu » massive, affichée en tête de chaque tableau plutôt que
+          noyée dans les lignes. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <SegmentFunnelCard
+          title="Trafic par pays de connexion"
+          subtitle="Le tunnel, coupé par le pays d'où le VISITEUR SE CONNECTE — lu sur l'event PostHog, donc sur l'adresse IP."
+          payload={a.funnels.country}
+          colonne="Pays"
+          split={a.serverSideSplit.rows}
+          libelle={isoCountryLabel}
+          sansVentes
+          note="Une personne qui visite depuis un pays et achète depuis un autre compte dans les deux : les lignes ne s'additionnent pas en un total."
+        />
+        <SegmentFunnelCard
+          title="Trafic par langue"
+          subtitle="Même tunnel, coupé par langue d'interface. Collectée depuis toujours, affichée seulement maintenant."
+          payload={a.funnels.language}
+          colonne="Langue"
+          note="La langue est une propriété de PERSONNE, posée à l'inscription : les visiteurs qui n'ont pas fini de s'inscrire restent en « inconnu »."
+        />
+      </div>
+
+      {/* ── Ventes par pays de FACTURATION ────────────────────────────────
+          Tableau SÉPARÉ, et non des colonnes de plus au-dessus. Le pays de
+          facturation vient de Whop (adresse collectée pour la TVA), celui du
+          trafic vient de l'IP : deux notions, et surtout DEUX POPULATIONS —
+          payeurs contre visiteurs. Côte à côte, on finirait par diviser des
+          clients par des visiteurs, un taux qui n'aurait aucun sens. */}
+      <BillingCountriesCard billing={billing} />
 
       {/* Activation — hors tunnel de paiement, séparée par type d'inscrit */}
       <Card>
@@ -578,5 +701,294 @@ export function ParcoursTab({
         </CardContent>
       </Card>
     </div>
+    </div>
+  );
+}
+
+/** Libellés d'étapes pour les mentions de couverture. */
+const STEP_LABELS: Record<string, string> = {
+  $pageview: "visiteurs",
+  signup_completed: "inscriptions",
+  paywall_viewed: "paywall",
+  checkout_started: "checkouts",
+  subscription_completed: "clients",
+};
+
+/**
+ * Une carte « tunnel par segment » — pays, langue, et ce qui viendra.
+ *
+ * La part d'« inconnu » est affichée EN TÊTE, avant le tableau, parce qu'elle
+ * qualifie tout ce qui suit : un classement qui ne l'annonce pas se lit comme
+ * une répartition du trafic alors qu'il n'en décrit qu'une fraction. Mesuré en
+ * prod sur la langue : 84 % des visiteurs y sont « inconnu ».
+ *
+ * Aucun TOTAL n'est affiché, volontairement. Le pays vient de l'event : une
+ * personne qui visite depuis la France et achète depuis la Belgique compte dans
+ * les deux lignes, donc leur somme dépasse le nombre réel de personnes.
+ */
+function SegmentFunnelCard({
+  title,
+  subtitle,
+  payload,
+  colonne,
+  note,
+  split,
+  libelle,
+  sansVentes,
+}: {
+  title: string;
+  subtitle: string;
+  payload: SegmentPayload;
+  colonne: string;
+  note: string;
+  /** Répartition client/serveur — seulement pour le découpage géographique. */
+  split?: readonly SplitRow[];
+  /**
+   * Traduction du libellé de segment. ⚠️ NE PAS passer `isoCountryLabel` à la carte
+   * des LANGUES : « fr » y rendrait « France » et « en » « EN ». Les deux
+   * vocabulaires se ressemblent et ne veulent pas dire la même chose.
+   */
+  libelle?: (s: string) => string;
+  /**
+   * Retire les colonnes VENTES (clients, taux) de ce tableau, et dit pourquoi.
+   *
+   * Un seul drapeau porte les deux, délibérément : on ne peut pas retirer la
+   * colonne sans que l'écran l'explique. Sinon la question revient dans trois
+   * mois et personne ne retrouve la raison.
+   *
+   * Le cas : le pays de connexion vient de l'IP, or `subscription_completed` est
+   * émis à 91,5 % côté SERVEUR — la colonne « clients » n'y couvrait que 8,5 %
+   * des clients réels. À côté du tableau de facturation, qui en couvre 99,4 %,
+   * elle n'apportait rien et invitait à la comparaison qu'on cherche à éviter.
+   */
+  sansVentes?: boolean;
+}) {
+  const { rows, unknownShare, unknownVisitors } = buildSegmentRows(payload);
+  // Les events SERVEUR sont exclus du découpage par pays : ils portent l'IP du
+  // datacenter, pas celle du visiteur. Nécessaire — avant filtre, l'Indonésie
+  // absorbait 86 % des inscriptions du site sur une ligne à 58 visiteurs — mais
+  // pas gratuit : une étape émise uniquement côté serveur voit sa colonne se
+  // vider. On le DIT, plutôt que d'afficher un zéro qui se lirait comme une
+  // mesure.
+  const couverture = clientCoverage(split ?? []);
+  const vides = couverture.filter((c) => c.unmeasurable);
+  // Couverture client de l'étape de souscription — sert la mention ci-dessous.
+  const ventesCouverture =
+    couverture.find((c) => c.event === "subscription_completed")?.share ?? null;
+  const partielles = couverture.filter(
+    (c) =>
+      !c.unmeasurable &&
+      c.share !== null &&
+      c.share < 0.99 &&
+      // La souscription a sa propre mention quand la colonne est retirée : la
+      // citer deux fois donnerait deux explications du même fait.
+      !(sansVentes && c.event === "subscription_completed"),
+  );
+  const nommes = rows.filter((r) => r.key !== UNKNOWN_SEGMENT);
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <HubCardHeader title={title} subtitle={subtitle} />
+        {rows.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            — en attente de la synchro PostHog.
+          </p>
+        ) : (
+          <>
+            {unknownShare !== null && unknownShare > 0 ? (
+              <p className="text-xs text-slate-500">
+                <strong className="tabular-nums">{pctFromFraction(unknownShare)}</strong> des
+                visiteurs ne sont pas attribués (
+                {formatNumber(unknownVisitors)} en « inconnu ») — ce
+                classement ne décrit que le reste.
+              </p>
+            ) : null}
+            {nommes.length === 0 ? (
+              /* Tout est en « inconnu » — cas réel de `source`, à 100 %. Un
+                 tableau vide sous ses en-têtes se lit comme une panne ; la
+                 phrase dit ce qui se passe. */
+              <p className="text-sm text-slate-400">
+                Aucun segment identifié : la totalité du trafic est en
+                « inconnu ».
+              </p>
+            ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{colonne}</TableHead>
+                    <TableHead className="text-right">Visiteurs</TableHead>
+                    <TableHead className="text-right">Inscrits</TableHead>
+                    <TableHead className="text-right">Checkouts</TableHead>
+                    {sansVentes ? null : (
+                      <>
+                        <TableHead className="text-right">Clients</TableHead>
+                        <TableHead className="text-right">Taux</TableHead>
+                      </>
+                    )}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {nommes.map((r) => (
+                    <TableRow key={r.key}>
+                      <TableCell className="text-xs font-medium text-slate-700">
+                        {libelle ? libelle(r.key) : r.key}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.visit)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.signup)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.checkout)}
+                      </TableCell>
+                      {sansVentes ? null : (
+                        <>
+                          <TableCell className="text-right text-xs tabular-nums font-medium">
+                            {formatNumber(r.subs)}
+                          </TableCell>
+                          <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                            {r.rate === null ? "—" : pctFromFraction(r.rate)}
+                          </TableCell>
+                        </>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            )}
+            <p className="text-xs text-slate-400">{note}</p>
+            {sansVentes ? (
+              <p className="text-xs text-slate-400">
+                Pas de colonne « clients » ici, volontairement. Ce pays vient de
+                l&apos;adresse IP, or l&apos;event de souscription part
+                {ventesCouverture !== null
+                  ? ` à ${pctFromFraction(1 - ventesCouverture)} `
+                  : " majoritairement "}
+                du serveur, dont l&apos;adresse est celle du datacenter :
+                {ventesCouverture !== null
+                  ? ` seuls ${pctFromFraction(ventesCouverture)} des clients y seraient visibles.`
+                  : " la colonne ne couvrirait qu'une fraction des clients."}{" "}
+                Les ventes se lisent dans « Ventes par pays de facturation », qui
+                les couvre presque toutes — et les deux tableaux ne se comparent
+                pas, ce ne sont pas les mêmes personnes.
+              </p>
+            ) : null}
+            {vides.length > 0 ? (
+              <p className="text-xs text-amber-700">
+                Non mesurable par {colonne.toLowerCase()} :{" "}
+                {vides.map((c) => STEP_LABELS[c.event] ?? c.event).join(", ")} —
+                ces étapes ne sont émises que côté serveur, dont l&apos;adresse
+                est celle du datacenter. La colonne reste vide plutôt que fausse.
+              </p>
+            ) : null}
+            {partielles.length > 0 ? (
+              <p className="text-xs text-slate-400">
+                Mesuré côté navigateur :{" "}
+                {partielles
+                  .map(
+                    (c) =>
+                      `${STEP_LABELS[c.event] ?? c.event} ${pctFromFraction(c.share)}`,
+                  )
+                  .join(" · ")}{" "}
+                — le reste part du serveur et est exclu du découpage.
+              </p>
+            ) : null}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * VENTES PAR PAYS DE FACTURATION — le pendant Whop du tableau de trafic.
+ *
+ * Tableau SÉPARÉ, délibérément. Le pays vient ici de l'adresse que Whop collecte
+ * pour la TVA ; celui du trafic vient de l'adresse IP. Deux notions, et surtout
+ * deux POPULATIONS : les payeurs d'un côté, les visiteurs de l'autre. Réunis
+ * dans un même tableau, quelqu'un finirait par diviser les uns par les autres.
+ *
+ * La couverture est annoncée en tête, comme sur le tableau de trafic — c'est
+ * elle qui qualifie tout ce qui suit.
+ */
+function BillingCountriesCard({ billing }: { billing: BillingCountriesData | undefined }) {
+  if (billing === undefined || billing.rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Ventes par pays de facturation"
+            subtitle="Clients, renouvellements et revenu, par pays de l'adresse de facturation Whop."
+          />
+          <p className="text-sm text-slate-400">
+            — en attente de la synchro Whop.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const couverture =
+    billing.clients > 0 ? billing.clientsWithCountry / billing.clients : null;
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <HubCardHeader
+          title="Ventes par pays de facturation"
+          subtitle="Clients, renouvellements et revenu, par pays de l'adresse que Whop collecte pour la TVA — pas par pays de connexion."
+        />
+        {couverture !== null ? (
+          <p className="text-xs text-slate-500">
+            <strong className="tabular-nums">{pctFromFraction(couverture)}</strong>{" "}
+            des clients ont un pays de facturation (
+            {formatNumber(billing.clientsWithCountry)} sur{" "}
+            {formatNumber(billing.clients)}) ·{" "}
+            {formatNumber(billing.withCountry)} paiements sur{" "}
+            {formatNumber(billing.payments)}.
+          </p>
+        ) : null}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Pays de facturation</TableHead>
+                <TableHead className="text-right">Clients</TableHead>
+                <TableHead className="text-right">Renouvellements</TableHead>
+                <TableHead className="text-right">Échecs</TableHead>
+                <TableHead className="text-right">Revenu net</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {billing.rows.map((r) => (
+                <TableRow key={r.country ?? "(sans pays)"}>
+                  <TableCell className="text-xs font-medium text-slate-700">
+                    {isoCountryLabel(r.country)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatNumber(r.clients)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatNumber(r.renewals)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums">
+                    {formatNumber(r.failures)}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums font-medium">
+                    {formatMoney(r.net, billing.currency ?? undefined)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <p className="text-xs text-slate-400">
+          Un client est rattaché au pays de son PREMIER paiement encaissé — la
+          même ancre que « client acquis » ailleurs dans le hub. Ces lignes ne se
+          comparent pas à celles du trafic : ce ne sont pas les mêmes personnes.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

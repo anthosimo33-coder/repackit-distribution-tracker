@@ -11,6 +11,8 @@
  * cycleIndexOf, cycleWindow, cyclePeriodKey). Les tests de référence vivent ici.
  */
 
+import { FORMAT_LOCALE_DEFAULT } from "./format-rate";
+
 /** Durée d'un cycle en jours (glissant, pas calendaire). */
 export const CYCLE_LENGTH_DAYS = 30;
 
@@ -65,14 +67,18 @@ export function cyclePeriodKey(cycleStart: number): string {
  * Libellé d'un cycle « 5 juil – 3 août 2026 » (dernier jour INCLUS = cycleEnd −
  * 1 j). UTC pour rester déterministe (ne dépend pas du fuseau du navigateur).
  */
-export function formatCycleRange(cycleStart: number, cycleEnd: number): string {
+export function formatCycleRange(
+  cycleStart: number,
+  cycleEnd: number,
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): string {
   const opts: Intl.DateTimeFormatOptions = {
     day: "numeric",
     month: "short",
     timeZone: "UTC",
   };
-  const start = new Date(cycleStart).toLocaleDateString("fr-FR", opts);
-  const end = new Date(cycleEnd - DAY_MS).toLocaleDateString("fr-FR", {
+  const start = new Date(cycleStart).toLocaleDateString(locale, opts);
+  const end = new Date(cycleEnd - DAY_MS).toLocaleDateString(locale, {
     ...opts,
     year: "numeric",
   });

@@ -1,6 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Input } from "@/components/ui/input";
+import {
+  POST_WINDOW_PRESETS,
+  formatPostWindow,
+} from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
 import { fr } from "date-fns/locale";
 import {
@@ -17,7 +22,10 @@ import {
   TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useProjectMutation } from "@/components/project/use-project-convex";
+import {
+  useProjectMutation,
+  useProjectQuery,
+} from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -43,7 +51,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { Id } from "@/convex/_generated/dataModel";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { calendarStatus, type CalendarStatus } from "@/lib/calendar-status";
@@ -62,6 +80,7 @@ import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
+import { useLabel } from "@/lib/use-label";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -96,12 +115,17 @@ export function AssignmentDetailSheet({
   row: AssignmentRow;
   now: number;
 }) {
+  const tLabel = useLabel();
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
+  const setPostWindow = useProjectMutation(
+    api.assignments.setAssignmentPostWindow,
+  );
   const deleteAssignment = useProjectMutation(
     api.assignments.deleteAssignment,
   );
   const [dateOpen, setDateOpen] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
+  const [savingWindow, setSavingWindow] = useState(false);
   // « Rejouer ce script » : ouvre la modale d'assignation pré-remplie depuis CETTE
   // assignation (lignage replayedFrom = row._id). Réservé aux assignations script.
   const [replayOpen, setReplayOpen] = useState(false);
@@ -120,10 +144,22 @@ export function AssignmentDetailSheet({
     postDate: row.postDate,
     postedAt: row.postedAt,
     now,
+    // Même règle que le calendrier : la journée se termine chez elle.
+    timeZone: row.creatorTimezone,
   });
   const combo = row.scriptCombo ?? null;
-  const script =
-    row.origin === "script" ? (combo?.assembledScript ?? null) : null;
+  // TEXTE du script demandé À L'OUVERTURE du panneau : la liste ne le porte plus
+  // (240 Kio sur 478 lignes, cf convex/assignments getAssignmentScript). Le
+  // panneau n'existe que quand il est ouvert, donc la requête ne part que là.
+  const scriptDoc = useProjectQuery(
+    api.assignments.getAssignmentScript,
+    open && row.origin === "script" && row.hasAssembledScript
+      ? { id: row._id }
+      : "skip",
+  );
+  /** Y a-t-il un script à montrer ? (connu SANS attendre le texte) */
+  const hasScript = row.origin === "script" && row.hasAssembledScript;
+  const script = scriptDoc?.assembledScript ?? null;
   // « Éditer le texte » : dispo TANT QUE le post n'est pas publié (même garde que
   // la vue liste — le seul verrou est le lien de publication, cf row.postedAt).
   const canEditText =
@@ -132,7 +168,7 @@ export function AssignmentDetailSheet({
     canEditScriptCombo({ postedAt: row.postedAt });
   // Script présent mais verrouillé (déjà publié) → on l'explicite au lieu de
   // masquer le bouton sans un mot (« plus jamais d'absence silencieuse »).
-  const scriptLockedPublished = script != null && !canEditText;
+  const scriptLockedPublished = hasScript && !canEditText;
   // Suppressible ? réplique pure du garde-fou serveur (published/paid bloqués).
   const deletable = canDeleteAssignment(row.status as AssignmentStatus);
   // Une vidéo a-t-elle déjà été soumise ? → la confirmation le signale (on
@@ -153,6 +189,18 @@ export function AssignmentDetailSheet({
       toast.error(convexErrorMessage(e));
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function saveWindow(next: { startMin: number; endMin: number } | undefined) {
+    setSavingWindow(true);
+    try {
+      await setPostWindow({ id: row._id, postWindow: next });
+      toast.success(next ? "Créneau mis à jour." : "Créneau retiré.");
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec de la mise à jour du créneau"));
+    } finally {
+      setSavingWindow(false);
     }
   }
 
@@ -325,6 +373,73 @@ export function AssignmentDetailSheet({
               />
             </DetailRow>
 
+            {/* CRÉNEAU — sous la date de post, éditable ici : une assignation
+                planifiée avant #56 n'a pas de créneau, l'admin doit pouvoir en
+                poser un après coup sans replanifier la date. Sans créneau, la
+                ligne n'affiche aucun placeholder — juste les presets. */}
+            <DetailRow label="Créneau">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {formatPostWindow(row.postWindow) !== null && (
+                  <span className="font-medium text-slate-700">
+                    {formatPostWindow(row.postWindow)!.replace("-", "–")}
+                  </span>
+                )}
+                {POST_WINDOW_PRESETS.map((p) => {
+                  const actif =
+                    row.postWindow?.startMin === p.window.startMin &&
+                    row.postWindow?.endMin === p.window.endMin;
+                  return (
+                    <Button
+                      key={p.id}
+                      type="button"
+                      size="sm"
+                      variant={actif ? "default" : "outline"}
+                      disabled={savingWindow}
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() =>
+                        void saveWindow(actif ? undefined : p.window)
+                      }
+                    >
+                      {tLabel(p.shortKey)}
+                    </Button>
+                  );
+                })}
+                <Input
+                  type="time"
+                  aria-label="Heure de début du créneau"
+                  disabled={savingWindow}
+                  className="h-6 w-24 text-[11px]"
+                  value={
+                    row.postWindow
+                      ? `${String(Math.floor(row.postWindow.startMin / 60)).padStart(2, "0")}:${String(row.postWindow.startMin % 60).padStart(2, "0")}`
+                      : ""
+                  }
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    const [h, m] = e.target.value.split(":").map(Number);
+                    if (Number.isNaN(h)) return;
+                    const startMin = h * 60 + (m || 0);
+                    const endMin =
+                      row.postWindow && row.postWindow.endMin > startMin
+                        ? row.postWindow.endMin
+                        : Math.min(startMin + 120, 1440);
+                    void saveWindow({ startMin, endMin });
+                  }}
+                />
+                {row.postWindow && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={savingWindow}
+                    className="h-6 px-2 text-[11px]"
+                    onClick={() => void saveWindow(undefined)}
+                  >
+                    Retirer
+                  </Button>
+                )}
+              </div>
+            </DetailRow>
+
             <DetailRow label="Échéance prod.">
               <span className="text-slate-700">{formatDate(row.dueDate)}</span>
             </DetailRow>
@@ -334,8 +449,12 @@ export function AssignmentDetailSheet({
             </DetailRow>
           </dl>
 
-          {/* Script à publier (même donnée que Validation / brief créateur) */}
-          {script ? (
+          {/* Script à publier (même donnée que Validation / brief créateur).
+              La SECTION est décidée par `hasScript`, connu dès l'ouverture ;
+              seul le TEXTE arrive ensuite. Gater la section sur le texte
+              afficherait « Pas de script monté » pendant le chargement — une
+              phrase fausse, et la pire des deux. */}
+          {hasScript ? (
             <section className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -370,7 +489,11 @@ export function AssignmentDetailSheet({
                 className="rounded-lg border border-slate-200 bg-slate-50 p-4"
                 data-testid="assignment-detail-script"
               >
-                <SimpleMarkdown content={script} />
+                {script === null ? (
+                  <Skeleton className="h-32 w-full" />
+                ) : (
+                  <SimpleMarkdown content={script} />
+                )}
               </div>
             </section>
           ) : (
@@ -477,6 +600,7 @@ function DetailRow({
 }
 
 function CalendarStatusPill({ status }: { status: CalendarStatus }) {
+  const tLabel = useLabel();
   if (status === "none") {
     return <span className="text-slate-400">Non planifié</span>;
   }
@@ -489,12 +613,13 @@ function CalendarStatusPill({ status }: { status: CalendarStatus }) {
       )}
     >
       <meta.Icon className="size-3" />
-      {meta.label}
+      {tLabel(meta.labelKey)}
     </span>
   );
 }
 
 function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
+  const tLabel = useLabel();
   const st = ASSIGNMENT_STATUS[status];
   return (
     <span
@@ -503,7 +628,7 @@ function ProductionStatusBadge({ status }: { status: AssignmentStatus }) {
         st.className,
       )}
     >
-      {st.label}
+      {tLabel(st.labelKey)}
     </span>
   );
 }
@@ -587,16 +712,25 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
           {row.status === "paid" ? "Publié et payé ✓" : "Publié ✓"}
         </div>
         {publishedTargets.map((t) => (
-          <a
-            key={t.platform}
-            href={t.publishedUrl ?? undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-          >
-            Voir le post {t.platform}
-            <ExternalLinkIcon className="size-3.5" />
-          </a>
+          <div key={t.platform} className="flex flex-wrap items-center gap-2">
+            <a
+              href={t.publishedUrl ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+            >
+              Voir le post {t.platform}
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+            {/* « Elle s'est trompée de vidéo » — le seul geste qui répare un
+                suivi accroché au mauvais post. Refusé côté serveur si le cycle
+                de paie est déjà payé. */}
+            <CorrectUrlButton
+              assignmentId={row._id}
+              platform={t.platform}
+              currentUrl={t.publishedUrl ?? ""}
+            />
+          </div>
         ))}
         <PublishedByLine publishedBy={row.publishedBy} at={row.postedAt} />
       </div>
@@ -617,6 +751,100 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
       notReady={row.status !== "to_publish"}
       buttonTestId={`detail-${managed ? "managed" : "creator-backup"}-publish-${row._id}`}
     />
+  );
+}
+
+/**
+ * Corriger le LIEN DE SUIVI d'un post déjà publié.
+ *
+ * La modale dit ce que le geste détruit AVANT de le faire : les relevés de vues
+ * accumulés sur l'ancienne vidéo sont effacés. Ce n'est pas une précaution de
+ * style — sans ce texte, l'admin voit les vues du post s'effondrer le lendemain
+ * et croit à une panne de synchro.
+ */
+function CorrectUrlButton({
+  assignmentId,
+  platform,
+  currentUrl,
+}: {
+  assignmentId: Id<"assignments">;
+  platform: "TikTok" | "Instagram" | "YouTube";
+  currentUrl: string;
+}) {
+  const correct = useProjectMutation(api.assignments.correctPublishedUrl);
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState(currentUrl);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const r = await correct({ id: assignmentId, platform, url });
+      toast.success(
+        !r.changed
+          ? "Lien inchangé."
+          : r.deletedSnapshots > 0
+            ? `Lien corrigé — ${r.deletedSnapshots} relevé${r.deletedSnapshots > 1 ? "s" : ""} de l'ancienne vidéo effacé${r.deletedSnapshots > 1 ? "s" : ""}.`
+            : "Lien corrigé.",
+      );
+      setOpen(false);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="xs"
+        className="h-6 gap-1 px-1.5 text-xs text-slate-500 hover:text-slate-900"
+        onClick={() => {
+          setUrl(currentUrl);
+          setOpen(true);
+        }}
+        data-testid={`correct-url-${platform}`}
+      >
+        <PencilIcon className="size-3" />
+        Corriger le lien
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Corriger le lien {platform}</DialogTitle>
+            <DialogDescription>
+              À utiliser quand la créatrice a collé le lien d&apos;une AUTRE
+              vidéo. Les relevés de vues accumulés sur l&apos;ancienne vidéo
+              seront effacés — le suivi repart de zéro sur la bonne. La date de
+              publication et le cycle de paie, eux, ne bougent pas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <p className="text-xs text-slate-500">Lien actuellement suivi</p>
+            <p className="break-all rounded-md bg-slate-50 p-2 text-xs text-slate-600">
+              {currentUrl}
+            </p>
+          </div>
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={`Nouveau lien ${platform}`}
+            aria-label={`Nouveau lien ${platform}`}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
+              Annuler
+            </Button>
+            <Button onClick={submit} disabled={busy || url.trim().length === 0}>
+              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              Corriger
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

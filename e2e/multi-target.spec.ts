@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
 
@@ -37,7 +38,7 @@ test.describe("Multi-plateforme — cibles warmup-gated, paiement par post", () 
     const tkUrl = `https://www.tiktok.com/@x/video/${ts}`;
     const ytUrl = `https://www.youtube.com/watch?v=mt${ts}`;
 
-    const formatId = await admin.mutation(api.formats.createFormat, {
+    const formatId = await createFormatWithRate(admin, {
       name: `[E2E_TEST] MultiFmt ${ts}`,
       type: "short",
       rateModel: { basePerPost: 10, viewBonusPer1k: 2 },

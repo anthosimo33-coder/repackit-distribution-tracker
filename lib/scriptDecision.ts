@@ -11,7 +11,7 @@
  * (lib/scriptDecision.test.ts).
  *
  * PRINCIPE (cf décisions S4) :
- *  - On juge PAR BRIQUE/DIMENSION d'abord (un flux, un tier, un cta accumule 50
+ *  - On juge PAR BRIQUE/DIMENSION d'abord (un hook, un flux, un cta accumule 50
  *    posts bien plus vite qu'un combo précis), le combo entier en bonus.
  *  - Trois portes :
  *      1. EN TEST — sous le seuil de données → on continue d'assigner, AUCUN
@@ -45,7 +45,7 @@ export const DECISION_THRESHOLD = JUGEABLE_THRESHOLD;
  * +25 % au-dessus → À POUSSER ; −25 % en-dessous → À COUPER ; entre les deux →
  * NEUTRE. Choix : ±25 % est assez large pour ignorer le bruit statistique d'un
  * échantillon de ~50 posts (la médiane bouge peu mais pas à 5 % près) et assez
- * serré pour qu'un écart « net » à l'œil (un tier qui fait 1,5×–2× un autre)
+ * serré pour qu'un écart « net » à l'œil (une brique qui fait 1,5×–2× une autre)
  * tombe largement du bon côté. Réglable selon l'appétit au risque.
  */
 export const PUSH_DELTA = 0.25;
@@ -56,7 +56,7 @@ export const CUT_DELTA = -0.25;
  * jugeable, la « médiane des pairs » est un point isolé (ou inexistant) : on
  * refuse de trancher et on reste en_test. 1 = minimum viable (au moins un point
  * de comparaison crédible). Les dimensions du bulk testing ont peu de niveaux
- * (3 tiers, 2–3 flux/cta), donc on ne peut pas en exiger beaucoup.
+ * (quelques hooks, 2–3 flux/cta), donc on ne peut pas en exiger beaucoup.
  */
 export const MIN_JUDGEABLE_PEERS = 1;
 
@@ -84,8 +84,7 @@ export type BrickVerdict = "en_test" | "a_pousser" | "a_couper" | "neutre";
 
 /**
  * Entrée minimale d'une brique/dimension à juger. `key` identifie l'entité
- * (brickId, ou « S »/« A »/« B » pour un tier). `kind` regroupe les pairs
- * comparables (« tier », « corps », « flux », « cta »).
+ * (brickId). `kind` regroupe les pairs comparables (« hook », « flux », « cta »).
  */
 export interface BrickInput {
   key: string;
@@ -239,7 +238,7 @@ export function decideKind(
 export interface SignalInput {
   key: string;
   label: string;
-  /** « combo » | « tier » | « corps » | « flux » | « cta » — pour l'affichage. */
+  /** « combo » | « hook » | « flux » | « cta » — pour l'affichage. */
   kind: string;
   postCount: number;
   viewsMedian: number | null;

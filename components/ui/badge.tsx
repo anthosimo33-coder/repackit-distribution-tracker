@@ -32,6 +32,7 @@ function Badge({
   variant = "default",
   render,
   ...props
+// i18n-exempt: faux positif du détecteur : générique TypeScript, pas du texte
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
   return useRender({
     defaultTagName: "span",

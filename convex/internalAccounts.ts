@@ -29,9 +29,20 @@ const EMPTY: InternalAccountsConfig = { handles: [], whopMembershipIds: [] };
 
 const BY_SLUG: Record<string, InternalAccountsConfig> = {
   // is_internal suffit en prod côté PostHog (6 personnes) → aucun handle en dur.
-  // Côté Whop, le compte de TEST de l'admin (vérifié : mem_4Hrv8RLuDels71, plan
-  // 7,99 €, encaissé) doit être exclu du revenu ET du compte « clients payants ».
-  snytch: { handles: [], whopMembershipIds: ["mem_4Hrv8RLuDels71"] },
+  // Côté Whop, les comptes de TEST de l'équipe doivent être exclus du revenu ET
+  // du compte « clients payants » :
+  //   mem_4Hrv8RLuDels71 « sofiamatcha » — plan 7,99 €, 1 paiement ENCAISSÉ
+  //     (7,32 € net). C'est lui qui creusait l'écart entre l'écran Paiements
+  //     (non filtré) et le hub (filtré).
+  //   mem_cQrqcTIY2B7Qwm « anthosimo » — plan « Pro — Weekly » 5,99 $, 1 seul
+  //     paiement, en ÉCHEC. Zéro euro encaissé, mais il pesait quand même :
+  //     +1 abonné, une ligne d'offre fantôme « 5,99 $ » (modalPrice ignore le
+  //     statut) et +1 dans la colonne « Échecs ». C'est AUSSI la seule ligne
+  //     non-EUR de la base : l'exclure retire la 2ᵉ devise du périmètre.
+  snytch: {
+    handles: [],
+    whopMembershipIds: ["mem_4Hrv8RLuDels71", "mem_cQrqcTIY2B7Qwm"],
+  },
 };
 
 export function internalAccountsFor(slug: string): InternalAccountsConfig {
@@ -100,4 +111,31 @@ export function isInternalWhopMembership(
   return (
     membershipId !== undefined && cfg.whopMembershipIds.includes(membershipId)
   );
+}
+
+/**
+ * Exclusion A4, POINT DE PASSAGE UNIQUE. Tout site qui LIT des paiements Whop
+ * pour en tirer une métrique doit passer par ici — le filtre était auparavant
+ * réécrit à la main site par site, et deux d'entre eux (getWhopRevenue,
+ * getProjectProfitability) l'avaient tout simplement oublié : l'écran Paiements
+ * et le hub affichaient deux revenus différents pour le même périmètre.
+ *
+ * Générique sur le porteur de `membershipId` pour servir aussi bien les
+ * `whopPayments` que les `whopMemberships`.
+ *
+ * NE PAS l'appliquer à l'INGESTION (convex/whopSync upsertWhopPayments) : on
+ * ingère tout, on exclut au READ. Filtrer à l'écriture rendrait l'exclusion
+ * invérifiable et non rétroactive.
+ */
+export function excludeInternalWhop<T extends { membershipId?: string }>(
+  rows: T[],
+  cfg: InternalAccountsConfig,
+): { kept: T[]; internalMemberIds: Set<string> } {
+  const internalMemberIds = new Set<string>();
+  const kept = rows.filter((r) => {
+    if (!isInternalWhopMembership(r.membershipId, cfg)) return true;
+    if (r.membershipId) internalMemberIds.add(r.membershipId);
+    return false;
+  });
+  return { kept, internalMemberIds };
 }

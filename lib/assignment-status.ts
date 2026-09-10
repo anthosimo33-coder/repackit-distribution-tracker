@@ -26,24 +26,29 @@ export type AssignmentStatus =
 
 const DAY = 86_400_000;
 
+/**
+ * Table de CLÉS i18n, pas de libellés. La table est PARTAGÉE entre le portail
+ * créateur et le pilotage admin : chaque audience résout la clé dans SA langue,
+ * là où un libellé figé aurait imposé le français à tout le monde.
+ */
 export const ASSIGNMENT_STATUS: Record<
   AssignmentStatus,
-  { label: string; className: string }
+  { labelKey: string; className: string }
 > = {
-  todo: { label: "À faire", className: "border-slate-200 bg-slate-50 text-slate-600" },
+  todo: { labelKey: "status.assignment.todo", className: "border-slate-200 bg-slate-50 text-slate-600" },
   // in_progress = accent RepackIt (orange #FF5200) — suit projects.accentColor
   // via le token --primary (cf globals.css + injection P10).
-  in_progress: { label: "En cours", className: "border-primary/30 bg-primary/10 text-primary" },
-  video_submitted: { label: "Vidéo en revue", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  video_rejected: { label: "Vidéo à refaire", className: "border-rose-200 bg-rose-50 text-rose-700" },
-  to_publish: { label: "À publier", className: "border-primary/30 bg-primary/10 text-primary" },
-  published: { label: "Publié", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  paid: { label: "Payé", className: "border-violet-200 bg-violet-50 text-violet-700" },
-  cancelled: { label: "Abandonné", className: "border-slate-200 bg-slate-100 text-slate-500" },
+  in_progress: { labelKey: "status.assignment.in_progress", className: "border-primary/30 bg-primary/10 text-primary" },
+  video_submitted: { labelKey: "status.assignment.video_submitted", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  video_rejected: { labelKey: "status.assignment.video_rejected", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  to_publish: { labelKey: "status.assignment.to_publish", className: "border-primary/30 bg-primary/10 text-primary" },
+  published: { labelKey: "status.assignment.published", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  paid: { labelKey: "status.assignment.paid", className: "border-violet-200 bg-violet-50 text-violet-700" },
+  cancelled: { labelKey: "status.assignment.cancelled", className: "border-slate-200 bg-slate-100 text-slate-500" },
   // LEGACY :
-  submitted: { label: "Soumis", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  validated: { label: "Validé", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  rejected: { label: "Rejeté", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  submitted: { labelKey: "status.assignment.submitted", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  validated: { labelKey: "status.assignment.validated", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  rejected: { labelKey: "status.assignment.rejected", className: "border-rose-200 bg-rose-50 text-rose-700" },
 };
 
 /** Statuts où LE CRÉATEUR doit agir (≠ en attente d'admin, ≠ terminé). */
@@ -93,9 +98,9 @@ export function urgencyRank(u: Urgency): number {
 
 export const URGENCY_BADGE: Record<
   Exclude<Urgency, "none">,
-  { label: string; className: string }
+  { labelKey: string; className: string }
 > = {
-  overdue: { label: "En retard", className: "border-rose-300 bg-rose-100 text-rose-700" },
-  soon: { label: "< 48 h", className: "border-amber-300 bg-amber-100 text-amber-700" },
-  ok: { label: "Dans les temps", className: "border-slate-200 bg-slate-50 text-slate-500" },
+  overdue: { labelKey: "status.urgency.overdue", className: "border-rose-300 bg-rose-100 text-rose-700" },
+  soon: { labelKey: "status.urgency.soon", className: "border-amber-300 bg-amber-100 text-amber-700" },
+  ok: { labelKey: "status.urgency.ok", className: "border-slate-200 bg-slate-50 text-slate-500" },
 };

@@ -70,6 +70,21 @@ export type CreatorVideo = {
   gain: number | null;
   /** Le gain a atteint le plafond 150 $ → afficher « gain max ». */
   capped: boolean;
+  /**
+   * FENÊTRE DE PAIE J+30 close sur au moins un post RÉMUNÉRÉ de cette vidéo :
+   * ses vues continuent de monter, son gain non. `false` sur une vidéo dont la
+   * fenêtre court encore, ET sur une vidéo dont la fenêtre est close sans aucun
+   * relevé dedans — on n'annonce jamais un plafond qu'on n'a pas pu mesurer.
+   *
+   * ⚠️ DISTINCT de `capped` (plafond 150 $/vidéo). Les deux peuvent être vrais.
+   */
+  payWindowClosed: boolean;
+  /**
+   * Vues acquises APRÈS la fenêtre, donc NON rémunérées. Sert à écrire le
+   * chiffre à côté du gain : « 12 400 vues hors fenêtre ». 0 tant que la fenêtre
+   * court. C'est ce nombre qui empêche le plafond d'être une baisse silencieuse.
+   */
+  viewsOutsideWindow: number;
   /** Feedback admin de REFUS (video_rejected), si stocké ; null sinon. */
   rejectionReason: string | null;
   /** La créatrice a bien un MP4 soumis (video_submitted..published) rattaché. */
@@ -140,12 +155,20 @@ async function toCreatorVideo(
   let views: number | null = null;
   let gain: number | null = null;
   let capped = false;
+  let payWindowClosed = false;
+  let viewsOutsideWindow = 0;
   let trackingStatus: VideoTrackingStatus | null = null;
   let publishedAt: number | null = null;
 
   if (isOnline) {
-    const { totalViews, payableViews, hasPayablePost, hasMetrics } =
-      await assignmentViewsAndMetrics(ctx, a);
+    const {
+      totalViews,
+      payableViews,
+      hasPayablePost,
+      hasMetrics,
+      payWindowClosed: windowClosed,
+      viewsOutsideWindow: outside,
+    } = await assignmentViewsAndMetrics(ctx, a);
     // Gain par vidéo — MÊME moteur cappé que Mes paiements (plafond 150 réutilisé).
     // Warmup : posts warmup EXCLUS de la paie → gain sur les seules vues PAYABLES ;
     // une vidéo entièrement warmup (hasPayablePost false) ne génère rien.
@@ -160,10 +183,13 @@ async function toCreatorVideo(
             },
           ]).total
         : computeEarnings(a.rateSnapshot, payableViews).total;
-    // Vues AFFICHÉES = vues réelles trackées (warmup inclus) — le suivi reste normal.
+    // Vues AFFICHÉES = vues réelles trackées (warmup inclus) — le suivi reste
+    // normal, y compris après J+30 : seul le GAIN est plafonné.
     views = hasMetrics ? totalViews : null;
     gain = g;
     capped = g >= MAX_PAY_PER_VIDEO_EUR;
+    payWindowClosed = windowClosed;
+    viewsOutsideWindow = outside;
     trackingStatus = hasMetrics ? "active" : "pending";
     publishedAt = assignmentPublishedAt(a);
   }
@@ -178,6 +204,8 @@ async function toCreatorVideo(
     views,
     gain,
     capped,
+    payWindowClosed,
+    viewsOutsideWindow,
     rejectionReason:
       status === "video_rejected" ? (a.videoReviewFeedback ?? null) : null,
     hasSubmittedVideo:

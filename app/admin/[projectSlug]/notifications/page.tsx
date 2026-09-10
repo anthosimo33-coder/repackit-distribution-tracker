@@ -1,12 +1,13 @@
 "use client";
 
 import { NotificationSettings } from "@/components/admin/NotificationSettings";
+import { PermissionGate } from "@/components/project/PermissionGate";
 
 /**
  * Configuration des notifications hors-app du projet (canal, destinataire,
  * bascule par événement). Écran mince : toute la logique est dans le composant.
  */
-export default function NotificationsPage() {
+function NotificationsPageContenu() {
   return (
     <div className="space-y-6">
       <header className="space-y-1">
@@ -20,5 +21,21 @@ export default function NotificationsPage() {
       </header>
       <NotificationSettings />
     </div>
+  );
+}
+
+/**
+ * Garde d'écran : notifications.manage. Le menu ne propose plus cette page à qui n'a pas le
+ * bloc, mais son URL répond toujours — sans cette enveloppe, y arriver par un
+ * favori déclenche les queries de la page, qui lèvent, et on lit une erreur
+ * technique au lieu d'une phrase.
+ *
+ * ⚠️ Ce n'est PAS la barrière : le serveur refuse déjà chaque appel.
+ */
+export default function NotificationsPage() {
+  return (
+    <PermissionGate bloc="notifications.manage">
+      <NotificationsPageContenu />
+    </PermissionGate>
   );
 }

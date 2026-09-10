@@ -34,7 +34,6 @@ async function makeCampaign(ts: number) {
       kind,
       label,
       content: `${label} contenu`,
-      ...(kind === "hook" ? { tier: "S" as const } : {}),
     });
   const h1 = await add("hook", "H1");
   const h2 = await add("hook", "H2");
