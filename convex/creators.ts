@@ -44,6 +44,7 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { normalizeCreatorLocale, localeOrDefault} from "./locales";
 import { convexErrorText } from "./errorCodes";
+import { faceUrlsByCreator, purgeCompteAvatar } from "./compteAvatar";
 
 /**
  * P1 Créateurs — gestion des créateurs côté admin + onboarding par lien
@@ -233,10 +234,22 @@ export const listCreatorActivity = permissionQuery("creators.read")({
       paysParCreatrice.set(owner, liste);
     }
 
+    // PHOTO DE PROFIL — les comptes sont déjà chargés, donc c'est ici que ça
+    // coûte le moins. Cette query n'est lue QUE par l'écran Créateurs : y
+    // greffer les visages ne ralentit aucun des quatre autres écrans qui lisent
+    // `listCreators`.
+    const visages = await faceUrlsByCreator(ctx, comptes);
+
     return creators.map((c) => {
       const zone = resolveCreatorTimezone(c, paysParCreatrice.get(c._id) ?? []);
       return {
         creatorId: c._id,
+        /**
+         * URL SIGNÉE de sa photo de profil TikTok, recopiée dans le storage.
+         * `null` = pas de photo collectée — l'écran affiche ses initiales, et
+         * c'est un état normal (compte sans post relevé, compte non-TikTok).
+         */
+        avatarUrl: visages.get(c._id) ?? null,
         ...(parCreatrice.get(c._id) ?? EMPTY_ACTIVITY),
         /** Fuseau EFFECTIF (fiche, sinon déduit du pays des comptes). */
         zone: zone.timezone,
@@ -284,7 +297,12 @@ export const getCreatorActivity = permissionQuery("creators.read")({
       comptes,
       assignments: duProjet,
     });
-    return parCreatrice.get(id) ?? EMPTY_ACTIVITY;
+    const visages = await faceUrlsByCreator(ctx, comptes);
+    return {
+      ...(parCreatrice.get(id) ?? EMPTY_ACTIVITY),
+      /** Sa photo de profil TikTok, ou null → initiales (cf listCreatorActivity). */
+      avatarUrl: visages.get(id) ?? null,
+    };
   },
 });
 
@@ -950,8 +968,10 @@ export const deleteCreator = permissionMutation("creators.delete")({
     }
 
     // 3. Supprimer les comptes (opérationnels). Les publications gardent leur
-    //    handle (string) → restent lisibles sans la row compte.
+    //    handle (string) → restent lisibles sans la row compte. La photo de
+    //    profil recopiée part avec : plus aucun écran ne la désignerait.
     for (const c of comptes) {
+      await purgeCompteAvatar(ctx, c);
       await ctx.db.delete(c._id);
     }
 

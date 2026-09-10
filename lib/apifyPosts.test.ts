@@ -330,11 +330,59 @@ describe("parseTikTokViews — les champs que le relevé jetait", () => {
     // Les abonnés : servis gratuitement, sans run supplémentaire, et rattachés
     // AU POST (donc au compte via la publication, jamais par le handle).
     expect(stats["7674970651362381088"].author).toEqual({
+      // ⚠️ `avatarUrl: null` — et c'est le point de cette fixture. Elle vient
+      // d'une sortie RÉELLE de l'input `postURLs` (celui du relevé des
+      // créatrices), et cet `authorMeta`-là ne porte PAS d'`avatar`, là où la
+      // documentation de l'acteur en annonce un. Tant qu'une sortie réelle ne
+      // l'aura pas montré, la photo de profil des créatrices est un ESPOIR
+      // câblé, pas un acquis : le relevé de nuit journalise le nombre
+      // d'avatars vus par lot (`N avatar(s)`), un zéro constant est la réponse.
+      avatarUrl: null,
       handle: "thekellychapters_",
       followers: 18_430,
       following: 312,
       totalLikes: 1_204_900,
     });
+  });
+
+  it("quand l'avatar EST là, il remonte avec les compteurs", () => {
+    // Le pendant du cas ci-dessus : la fixture réelle n'a pas d'`avatar`, donc
+    // sans ce test-ci, rien ne prouverait que le relevé sait le lire le jour où
+    // l'acteur le sert. Lien signé du CDN, forme de la prod.
+    const avecAvatar = {
+      ...item,
+      authorMeta: {
+        ...item.authorMeta,
+        avatar:
+          "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/kelly~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200",
+      },
+    };
+    const { stats } = parseTikTokViews([avecAvatar], ["7674970651362381088"]);
+    expect(stats["7674970651362381088"].author?.avatarUrl).toBe(
+      "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/kelly~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200",
+    );
+    expect(stats["7674970651362381088"].author?.followers).toBe(18_430);
+  });
+
+  it("une photo SANS aucun compteur suffit à remonter le profil", () => {
+    // `hasAnyCount` répond « y a-t-il un compteur à historiser » : non. Mais la
+    // photo, elle, est là — la jeter serait perdre le seul champ utile.
+    const { stats } = parseTikTokViews(
+      [
+        {
+          ...item,
+          authorMeta: {
+            name: "thekellychapters_",
+            avatar: "https://p16-sign-va.tiktokcdn.com/kelly.jpeg?x-expires=1",
+          },
+        },
+      ],
+      ["7674970651362381088"],
+    );
+    expect(stats["7674970651362381088"].author?.followers).toBeNull();
+    expect(stats["7674970651362381088"].author?.avatarUrl).toBe(
+      "https://p16-sign-va.tiktokcdn.com/kelly.jpeg?x-expires=1",
+    );
   });
 
   it("sans authorMeta, le relevé des VUES continue et le profil est vide", () => {

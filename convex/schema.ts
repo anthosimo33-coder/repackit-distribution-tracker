@@ -1085,6 +1085,34 @@ export default defineSchema({
     // Édité uniquement par l'admin (updateCompte). Optional → 0 migration ;
     // absent = « non défini ».
     targetCountry: v.optional(countryValidator),
+    /**
+     * PHOTO DE PROFIL du compte, RECOPIÉE dans le storage — jamais un lien
+     * TikTok servi tel quel.
+     *
+     * Pourquoi un miroir plutôt qu'une URL en cache, comme `inspirations`
+     * le fait pour ses vignettes : les liens du CDN TikTok sont SIGNÉS et
+     * datés (`x-expires`). Une vignette d'inspiration qui casse, on la
+     * remplace ; dix-neuf visages qui deviennent des carrés gris sur l'écran
+     * Créateurs, personne ne va les recoller à la main. Le blob pèse quelques
+     * dizaines de Ko et ne bouge qu'au rythme où la créatrice change de photo.
+     *
+     * `sourceUrl` est le lien D'OÙ VIENT le blob : il sert uniquement à
+     * savoir, au relevé suivant, si la photo a changé — sinon on ne
+     * retélécharge rien. Il n'alimente aucun `<img>`.
+     *
+     * Absent = jamais collectée. Ça vaut pour tout compte non-TikTok (seul
+     * l'item TikTok porte l'avatar sans run supplémentaire) et pour tout
+     * compte qui n'a pas encore de publication relevée — un compte sans post
+     * n'entre pas dans le relevé, donc sa photo n'arrive jamais. L'écran
+     * retombe sur les initiales, et c'est un état normal, pas une panne.
+     */
+    avatar: v.optional(
+      v.object({
+        storageId: v.id("_storage"),
+        sourceUrl: v.string(),
+        fetchedAt: v.number(),
+      }),
+    ),
   })
     .index("by_plateforme", ["plateforme"])
     .index("by_actif", ["actif"])

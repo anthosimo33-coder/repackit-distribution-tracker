@@ -453,6 +453,9 @@ export const syncApifyLot = internalAction({
       // identique sur toutes les vidéos d'un même compte, l'écrire une fois par
       // post ferait N écritures pour une seule information.
       const comptesReleves = new Set<string>();
+      // compteId → URL de la photo de profil vue dans ce lot. Une Map, donc un
+      // seul téléchargement par compte même s'il a dix publications relevées.
+      const avatars = new Map<Id<"comptes">, string>();
       // Posts qu'Apify n'a PAS rendus. Jusqu'ici : `continue`, et plus rien —
       // d'où 10 publications jamais relevées pendant des semaines, dont une à
       // 39 000 vues réelles peinte « 0 vue » et payée comme telle.
@@ -480,20 +483,41 @@ export const syncApifyLot = internalAction({
         // pas avec celui saisi en base).
         if (stat.author !== null && !comptesReleves.has(t.compte)) {
           comptesReleves.add(t.compte);
-          await ctx.runMutation(internal.apifySync.recordAccountProfile, {
-            publicationId: t.publicationId,
-            capturedAt,
-            followers: stat.author.followers,
-            following: stat.author.following,
-            totalLikes: stat.author.totalLikes,
-            source: lot.source,
-          });
+          const prof = await ctx.runMutation(
+            internal.apifySync.recordAccountProfile,
+            {
+              publicationId: t.publicationId,
+              capturedAt,
+              followers: stat.author.followers,
+              following: stat.author.following,
+              totalLikes: stat.author.totalLikes,
+              source: lot.source,
+            },
+          );
+          // PHOTO DE PROFIL — même origine, même gratuité : l'avatar voyage sur
+          // l'item vidéo. On ne fait que NOTER le candidat ici ; le
+          // téléchargement se joue une fois, à la fin du lot, hors de la boucle
+          // de relevé (une image lente ne doit pas retarder des vues).
+          if (prof.compteId && stat.author.avatarUrl) {
+            avatars.set(prof.compteId, stat.author.avatarUrl);
+          }
         }
+      }
+      // Photos de profil, UNE FOIS le lot relevé. L'action ne télécharge que
+      // les avatars dont l'URL a changé et n'échoue jamais : au pire les
+      // visages du jour restent ceux de la veille.
+      if (avatars.size > 0) {
+        await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
+          candidats: [...avatars].map(([compteId, sourceUrl]) => ({
+            compteId,
+            sourceUrl,
+          })),
+        });
       }
       console.info(
         `[nightly-views] lot ${args.lotIndex + 1}/${args.lotTotal} ${lot.plateforme} — ` +
           `${comptes.length} compte(s), ${releves.size}/${lot.targets.length} relevée(s), ` +
-          `${comptesReleves.size} profil(s), ${Date.now() - debut} ms.`,
+          `${comptesReleves.size} profil(s), ${avatars.size} avatar(s), ${Date.now() - debut} ms.`,
       );
     } catch (e) {
       // LOT ENTIER EN ERREUR (Apify down, quota, timeout réseau). Ses posts

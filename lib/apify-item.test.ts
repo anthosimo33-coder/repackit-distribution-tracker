@@ -33,6 +33,10 @@ const itemReel = {
     fans: 155_000_000,
     following: 1_312,
     heart: 12_400_000_000,
+    avatar:
+      "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/7318163540831043590~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200&x-signature=Xr9%2Fk1Qa",
+    originalAvatarUrl:
+      "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/7318163540831043590~c5_1080x1080.jpeg",
   },
 };
 
@@ -93,6 +97,8 @@ describe("parseAuthorProfile — les abonnés servis avec chaque vidéo", () => 
       followers: 155_000_000,
       following: 1_312,
       totalLikes: 12_400_000_000,
+      avatarUrl:
+        "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/7318163540831043590~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200&x-signature=Xr9%2Fk1Qa",
     });
   });
 
@@ -108,6 +114,7 @@ describe("parseAuthorProfile — les abonnés servis avec chaque vidéo", () => 
       followers: 155_000_000,
       following: null,
       totalLikes: null,
+      avatarUrl: null,
     });
   });
 
@@ -121,7 +128,33 @@ describe("parseAuthorProfile — les abonnés servis avec chaque vidéo", () => 
       followers: null,
       following: null,
       totalLikes: null,
+      avatarUrl: null,
     });
+  });
+
+  it("lit la photo de profil (`avatar`), lien signé du CDN compris", () => {
+    // C'est ce lien-là qui porte `x-expires` : le miroir existe pour ça.
+    expect(parseAuthorProfile(itemReel).avatarUrl).toBe(
+      "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/7318163540831043590~tplv-tiktokx-cropcenter:720:720.jpeg?x-expires=1789171200&x-signature=Xr9%2Fk1Qa",
+    );
+  });
+
+  it("retombe sur `originalAvatarUrl` quand `avatar` manque", () => {
+    const { avatar, ...sansAvatar } = itemReel.authorMeta;
+    expect(avatar).toContain("x-expires"); // l'item de départ l'avait bien
+    expect(
+      parseAuthorProfile({ ...itemReel, authorMeta: sansAvatar }).avatarUrl,
+    ).toBe(
+      "https://p16-sign-va.tiktokcdn.com/tos-maliva-avt-0068/7318163540831043590~c5_1080x1080.jpeg",
+    );
+  });
+
+  it("refuse ce qui n'est pas une URL http(s) — vide, objet, chemin nu", () => {
+    for (const avatar of ["", "   ", "//cdn/x.jpg", { url: "x" }, 42, null]) {
+      expect(
+        parseAuthorProfile({ authorMeta: { name: "kelly", avatar } }).avatarUrl,
+      ).toBeNull();
+    }
   });
 
   it("retire un « @ » de tête et les espaces du handle", () => {
@@ -144,6 +177,7 @@ describe("hasAnyCount — faut-il enregistrer ce profil ?", () => {
         followers: null,
         following: null,
         totalLikes: 42,
+        avatarUrl: null,
       }),
     ).toBe(true);
   });
@@ -157,6 +191,7 @@ describe("hasAnyCount — faut-il enregistrer ce profil ?", () => {
         followers: null,
         following: null,
         totalLikes: null,
+        avatarUrl: null,
       }),
     ).toBe(false);
   });
@@ -168,6 +203,7 @@ describe("hasAnyCount — faut-il enregistrer ce profil ?", () => {
         followers: 0,
         following: null,
         totalLikes: null,
+        avatarUrl: null,
       }),
     ).toBe(true);
   });
@@ -190,6 +226,8 @@ describe("parseInstagramProfile — le run dédié (+1 run/nuit)", () => {
       following: 431,
       // Instagram n'expose pas de total de likes du compte.
       totalLikes: null,
+      // Le miroir de photo de profil n'est câblé que sur TikTok.
+      avatarUrl: null,
     });
   });
 

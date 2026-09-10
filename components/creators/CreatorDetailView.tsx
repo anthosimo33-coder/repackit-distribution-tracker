@@ -73,6 +73,7 @@ import {
 } from "@/components/ui/tabs";
 import { formatDateFr } from "@/convex/dateFr";
 import { CreatorContractsSection } from "@/components/creators/CreatorContractsSection";
+import { CreatorAvatar } from "@/components/creators/CreatorAvatar";
 import { localTimeIn, shortZoneLabel } from "@/lib/creator-region";
 import { EMPTY_ACTIVITY } from "@/convex/creatorActivity";
 import { CopyableLink } from "./CopyableLink";
@@ -345,12 +346,12 @@ export function CreatorDetailView({
           « Voir son espace » — l'action la plus utilisée de cette page — passe en
           bouton principal. */}
       <div className="flex flex-wrap items-start gap-4">
-        <span
-          aria-hidden
-          className="grid size-12 shrink-0 place-items-center rounded-full bg-primary text-lg font-semibold text-primary-foreground"
-        >
-          {initialesDe(creator.name)}
-        </span>
+        <CreatorAvatar
+          name={creator.name}
+          avatarUrl={activite?.avatarUrl ?? null}
+          className="size-12"
+          textClassName="text-lg"
+        />
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
@@ -1180,13 +1181,6 @@ function BonusGridSection({
   );
 }
 
-/** Initiales d'un nom — « Ladidi / Sam » → « LS », « Kelly » → « KE ». */
-function initialesDe(nom: string): string {
-  const parts = nom.trim().split(/[\s/]+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 /**
  * Une case de l'en-tête chiffré. `valeur === null` = encore en chargement : on

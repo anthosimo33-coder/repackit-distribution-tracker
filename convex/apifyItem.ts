@@ -79,6 +79,16 @@ export type AuthorProfile = {
   following: number | null;
   /** Likes CUMULÉS du compte (`authorMeta.heart`). */
   totalLikes: number | null;
+  /**
+   * PHOTO DE PROFIL du compte (`authorMeta.avatar`), URL du CDN TikTok.
+   *
+   * ⚠️ CETTE URL EXPIRE. Le CDN TikTok signe ses liens (`x-expires`) : gardée
+   * telle quelle, elle affiche une image cassée quelques jours plus tard. Elle
+   * ne sert donc qu'à DEUX choses côté serveur — savoir que la photo a changé,
+   * et savoir où aller la chercher — jamais à alimenter un `<img>`. Le blob est
+   * recopié dans le storage (cf. convex/compteAvatar.ts).
+   */
+  avatarUrl: string | null;
 };
 
 /**
@@ -100,7 +110,27 @@ export function parseAuthorProfile(item: unknown): AuthorProfile {
     followers: toCount(author.fans),
     following: toCount(author.following),
     totalLikes: toCount(author.heart),
+    avatarUrl: parseAvatarUrl(author),
   };
+}
+
+/**
+ * `authorMeta.avatar`, sinon `authorMeta.originalAvatarUrl`. L'acteur expose les
+ * deux ; `avatar` est la version passée par le cache d'Apify et se révèle la
+ * plus servable, l'autre est le lien TikTok brut — on prend le premier des deux
+ * qui existe plutôt que d'en exiger un.
+ *
+ * Filtré sur http(s) : un champ présent mais vide, ou une valeur qui n'est pas
+ * une URL, vaut `null` — mieux vaut l'initiale que le téléchargement d'un
+ * n'importe quoi.
+ */
+function parseAvatarUrl(author: Record<string, unknown>): string | null {
+  for (const candidate of [author.avatar, author.originalAvatarUrl]) {
+    if (typeof candidate !== "string") continue;
+    const url = candidate.trim();
+    if (url.startsWith("https://") || url.startsWith("http://")) return url;
+  }
+  return null;
 }
 
 /** Ce profil porte-t-il au moins un compteur exploitable ? */
@@ -129,5 +159,8 @@ export function parseInstagramProfile(item: unknown): AuthorProfile {
     followers: toCount(rec.followersCount),
     following: toCount(rec.followsCount),
     totalLikes: null,
+    // Le miroir de photo de profil n'est câblé que sur TikTok (c'est la seule
+    // plateforme dont l'item de post porte l'avatar sans run supplémentaire).
+    avatarUrl: null,
   };
 }
