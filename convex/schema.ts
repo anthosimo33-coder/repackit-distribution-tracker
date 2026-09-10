@@ -1932,6 +1932,12 @@ export default defineSchema({
         montantFixe: v.number(),
         nbVideosCible: v.number(),
         tauxCPM: v.number(),
+        /**
+         * Seuil de vues conditionnant le fixe, FIGÉ comme le reste du barème.
+         * Absent sur les snapshots d'avant ⇒ aucune condition, comportement
+         * strictement inchangé.
+         */
+        seuilVuesFixe: v.optional(v.number()),
         seuilBonusVues: v.number(),
         montantBonus: v.number(),
       }),
@@ -2044,6 +2050,21 @@ export default defineSchema({
     montantFixe: v.number(),
     nbVideosCible: v.number(), // >= 1 (imposé serveur, anti division par zéro)
     tauxCPM: v.number(), // $ par 1000 vues
+    /**
+     * SEUIL DE VUES QUI CONDITIONNE LE FIXE — absent ou 0 = aucune condition.
+     *
+     * « 700 $ pour 60 vidéos, à condition de 100 000 vues cumulées sur le mois. »
+     * Sous la barre, le fixe du mois vaut ZÉRO — le seuil est ABSOLU, jamais
+     * pro-raté sur les vidéos livrées : un forfait qui s'adapte à la
+     * sous-livraison n'est plus une condition.
+     *
+     * ⚠️ NE TOUCHE QUE LE FIXE. Le CPM et les paliers de bonus ne bougent pas :
+     * ils paient la vue, pas le forfait.
+     *
+     * Optional ⇒ 0 migration, et les huit barèmes existants sont strictement
+     * inchangés.
+     */
+    seuilVuesFixe: v.optional(v.number()),
     // LEGACY (pricing v1, seuil de bonus UNIQUE par vidéo) — conservés en
     // lecture pour les pricings/snapshots existants ; `tiersOf()` les convertit
     // en 1 palier cash. 0 migration.

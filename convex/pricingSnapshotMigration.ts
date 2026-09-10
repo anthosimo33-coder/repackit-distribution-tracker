@@ -54,6 +54,10 @@ function sameSnapshot(a: PricingSnapshot, b: PricingSnapshot): boolean {
     a.montantFixe === b.montantFixe &&
     a.nbVideosCible === b.nbVideosCible &&
     a.tauxCPM === b.tauxCPM &&
+    // La CONDITION de vues fait partie du barème figé : deux snapshots qui n'en
+    // diffèrent que par elle ne sont PAS le même, sinon la migration croirait
+    // n'avoir rien à réécrire là où le fixe peut passer à zéro.
+    (a.seuilVuesFixe ?? 0) === (b.seuilVuesFixe ?? 0) &&
     a.seuilBonusVues === b.seuilBonusVues &&
     a.montantBonus === b.montantBonus
   );
@@ -61,7 +65,8 @@ function sameSnapshot(a: PricingSnapshot, b: PricingSnapshot): boolean {
 
 /** Forme courte lisible dans le rapport et les logs. */
 function brief(s: PricingSnapshot): string {
-  return `fixe ${s.montantFixe}$/${s.nbVideosCible} vidéos · CPM ${s.tauxCPM}`;
+  const cond = s.seuilVuesFixe ? ` · fixe conditionné à ${s.seuilVuesFixe} vues` : "";
+  return `fixe ${s.montantFixe}$/${s.nbVideosCible} vidéos · CPM ${s.tauxCPM}${cond}`;
 }
 
 /** La ligne porte-t-elle déjà une publication (URL, date ou publication liée) ? */

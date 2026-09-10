@@ -82,6 +82,7 @@ const EMPTY = {
   montantFixe: "",
   nbVideosCible: "",
   tauxCPM: "",
+  seuilVuesFixe: "",
 };
 
 function emptyTier(): TierForm {
@@ -215,6 +216,7 @@ function PricingsPageContenu() {
       montantFixe: String(p.montantFixe),
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
+      seuilVuesFixe: p.seuilVuesFixe > 0 ? String(p.seuilVuesFixe) : "",
     });
     setTiers(tiersToForm(p.bonusTiers ?? []));
     setTemplateId(p.bonusTemplateId ?? null);
@@ -230,6 +232,7 @@ function PricingsPageContenu() {
       montantFixe: String(p.montantFixe),
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
+      seuilVuesFixe: p.seuilVuesFixe > 0 ? String(p.seuilVuesFixe) : "",
     });
     setTiers(tiersToForm(p.bonusTiers ?? []));
     setTemplateId(p.bonusTemplateId ?? null);
@@ -243,6 +246,10 @@ function PricingsPageContenu() {
       montantFixe: Number(form.montantFixe),
       nbVideosCible: Number(form.nbVideosCible),
       tauxCPM: Number(form.tauxCPM),
+      // Champ VIDE = aucune condition, jamais 0 : `Number("")` vaut 0 et aurait
+      // enregistré « seuil de 0 vue » sur tous les barèmes qui n'en ont pas.
+      seuilVuesFixe:
+        form.seuilVuesFixe.trim() === "" ? 0 : Number(form.seuilVuesFixe),
       bonusTiers: formToTiers(tiers),
       // Toujours transmis, y compris à null : sans ça, une simple modification
       // de nom effacerait la provenance et l'écran cesserait de signaler la
@@ -614,6 +621,18 @@ function PricingRow({
           >
             {PRICING_KIND_LABEL[kind]}
           </span>
+          {/* CONDITION DE VUES — à côté de la nature du barème, parce qu'elle en
+              change la nature : un « fixe seul » conditionné n'est pas un
+              forfait, c'est un forfait sous réserve. Absente = rien n'est rendu,
+              les huit barèmes existants ne bougent pas. */}
+          {p.seuilVuesFixe > 0 && (
+            <span
+              className="rounded bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-semibold uppercase text-amber-800"
+              title={`Le fixe n'est dû que si les vidéos du mois cumulent au moins ${new Intl.NumberFormat("fr-FR").format(p.seuilVuesFixe)} vues.`}
+            >
+              conditionné · {formatSeuil(p.seuilVuesFixe)} vues
+            </span>
+          )}
           <span>{p.nbVideosCible} vidéos</span>
           {p.bonusCreatorCount > 0 && (
             <span>
@@ -1304,6 +1323,36 @@ function PricingEditorDialog({
               />
             </div>
           </div>
+
+          {/* CONDITION DE VUES SUR LE FIXE — sous les trois montants, parce
+              qu'elle les conditionne. Masquée quand le barème n'a pas de fixe :
+              un seuil qui ne conditionne rien n'a pas à se saisir (le serveur le
+              refuse d'ailleurs). */}
+          {Number(form.montantFixe) > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="seuilVuesFixe">
+                Seuil de vues qui conditionne le fixe (optionnel)
+              </Label>
+              <Input
+                id="seuilVuesFixe"
+                type="number"
+                min={0}
+                step={1000}
+                placeholder="Aucune condition"
+                value={form.seuilVuesFixe}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, seuilVuesFixe: e.target.value }))
+                }
+              />
+              <p className="text-xs leading-relaxed text-slate-500">
+                Les vidéos du mois doivent cumuler au moins ce nombre de vues
+                payées pour que le fixe soit dû.{" "}
+                <strong>En dessous, le fixe du mois vaut 0</strong> — le seuil ne
+                s&apos;abaisse pas si moins de vidéos sont livrées. Le CPM et les
+                paliers de bonus, eux, ne sont pas concernés.
+              </p>
+            </div>
+          )}
 
           <PayoutPreview
             form={form}

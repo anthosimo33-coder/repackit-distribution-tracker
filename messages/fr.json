@@ -519,7 +519,12 @@
       "paidLabel": "Payé",
       "paidOn": "Payé le {date}",
       "rewardFallback": "Récompense",
-      "preCapNotice": "Rémunération calculée le {paid}, avant l'entrée en vigueur du plafond de 30 jours (le {effective}). Les vues acquises au-delà de 30 jours y comptent encore."
+      "preCapNotice": "Rémunération calculée le {paid}, avant l'entrée en vigueur du plafond de 30 jours (le {effective}). Les vues acquises au-delà de 30 jours y comptent encore.",
+      "fixeSeuil": {
+        "gauge": "{done} / {target} vues",
+        "locked": "Le fixe du mois se débloque à {target} vues cumulées sur tes vidéos du mois.",
+        "unlocked": "Seuil atteint — le fixe du mois est acquis."
+      }
     },
     "videos": {
       "trackingActive": "Suivi actif",
