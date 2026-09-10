@@ -197,18 +197,57 @@ function PricingBreakdown({
           // montre le fixe que là où il existe.
           .filter((g) => g.montantFixe > 0 || g.fixed > 0)
           .map((g) => (
-          <Row
-            key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}
-            label={t("paiements.line.fixedGroup", {
-              done: g.videoCount,
-              target: g.nbVideosCible,
-            })}
-            sub={t("paiements.line.outOf", {
-              amount: formatMoney(g.montantFixe, currency, loc),
-            })}
-            amount={g.fixed}
-            currency={currency}
-          />
+          <div key={`${g.pricingId}:${g.montantFixe}:${g.nbVideosCible}`}>
+            <Row
+              label={t("paiements.line.fixedGroup", {
+                done: g.videoCount,
+                target: g.nbVideosCible,
+              })}
+              sub={t("paiements.line.outOf", {
+                amount: formatMoney(g.montantFixe, currency, loc),
+              })}
+              amount={g.fixed}
+              currency={currency}
+            />
+            {/* JAUGE DU SEUIL — rendue seulement quand le barème en porte un.
+                Un forfait conditionnel qu'elle ne voit pas est un litige
+                programmé : elle doit pouvoir lire, AVANT la fin du mois, ce
+                qu'il reste à faire pour que le fixe soit dû. */}
+            {g.seuilVuesFixe > 0 && (
+              <div className="mt-1 space-y-1 rounded-md bg-slate-50 px-3 py-2">
+                <div className="flex items-baseline justify-between gap-2 text-xs">
+                  <span className="tabular-nums text-slate-700">
+                    {t("paiements.fixeSeuil.gauge", {
+                      done: fmtViews(g.groupViews, loc),
+                      target: fmtViews(g.seuilVuesFixe, loc),
+                    })}
+                  </span>
+                  {!g.fixeBloque && (
+                    <span className="text-emerald-700">
+                      {t("paiements.fixeSeuil.unlocked")}
+                    </span>
+                  )}
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={
+                      g.fixeBloque ? "h-full bg-amber-500" : "h-full bg-emerald-500"
+                    }
+                    style={{
+                      width: `${Math.min(100, Math.round((g.groupViews / Math.max(1, g.seuilVuesFixe)) * 100))}%`,
+                    }}
+                  />
+                </div>
+                {g.fixeBloque && (
+                  <p className="text-[11px] leading-relaxed text-slate-500">
+                    {t("paiements.fixeSeuil.locked", {
+                      target: fmtViews(g.seuilVuesFixe, loc),
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         ))
       )}
       <Row label={t("paiements.cpmAccum")} amount={b.cpmTotal} currency={currency} />

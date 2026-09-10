@@ -49,6 +49,12 @@ export type PricingSnapshot = {
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
+  /**
+   * SEUIL DE VUES QUI CONDITIONNE LE FIXE — 0 ou absent = aucune condition.
+   * Réplique de lib/pricing-engine (règle A6) : le commentaire de fond y vit.
+   * ABSOLU, jamais pro-raté, et il ne touche QUE le fixe.
+   */
+  seuilVuesFixe?: number;
   // legacy v1 (ignorés par le moteur v2 ; conservés sur les snapshots existants).
   seuilBonusVues: number;
   montantBonus: number;
@@ -70,6 +76,16 @@ export type PerPricing = {
   fixePerVideo: number;
   fixed: number;
   cpm: number;
+  /** Seuil conditionnant le fixe (0 = aucun). */
+  seuilVuesFixe: number;
+  /** Vues CUMULÉES du groupe — l'assiette comparée au seuil. */
+  groupViews: number;
+  /**
+   * Le fixe est-il ANNULÉ par la condition ? `true` ⇒ `fixed` vaut 0 alors que
+   * `montantFixe` annonce toujours le contrat : l'écran doit pouvoir dire
+   * « 0 sur 700 — seuil non atteint », pas afficher un contrat à zéro.
+   */
+  fixeBloque: boolean;
 };
 
 export interface MonthlyPayout {
@@ -155,7 +171,16 @@ export function promoVideoCost(
  * du groupe. Cf lib/pricing-engine.ts pour le raisonnement complet.
  */
 function payoutGroupKey(s: PricingSnapshot): string {
-  return [s.pricingId, s.montantFixe, s.nbVideosCible, s.tauxCPM].join("|");
+  // ⚠️ LE SEUIL EN FAIT PARTIE. Sans lui, deux générations de snapshot qui ne
+  // diffèrent QUE par la condition tomberaient dans le même groupe, donc dans le
+  // même budget fixe — et la condition de l'une déciderait pour l'autre.
+  return [
+    s.pricingId,
+    s.montantFixe,
+    s.nbVideosCible,
+    s.tauxCPM,
+    s.seuilVuesFixe ?? 0,
+  ].join("|");
 }
 
 /** RÉPLIQUE de lib/pricing-engine.computeMonthlyPayout (DOIT rester identique). */
@@ -176,8 +201,31 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     // tous ses membres par construction (cf payoutGroupKey) → indépendant de
     // l'ordre. Le reste se lit par ITEM, sur SON snapshot, comme le CPM.
     const groupSnapshot = groupItems[0].snapshot;
-    const budgetFixe = groupSnapshot.montantFixe;
     const videoCount = groupItems.length;
+
+    // ─── CONDITION DE VUES SUR LE FIXE ─────────────────────────────────────
+    // L'assiette est la somme des vues du groupe — LES MÊMES vues que celles qui
+    // paient le CPM (`payableViews` côté serveur). Un second sens du mot
+    // « vues » rendrait la jauge de la créatrice incompréhensible : elle lirait
+    // un total ici et un autre sur sa vidéo.
+    //
+    // Le seuil est ABSOLU. Le pro rata a été écarté : à 30 vidéos sur 60 il
+    // ramènerait la barre à 50 000, et un forfait qui s'adapte à la
+    // sous-livraison n'est plus une condition.
+    //
+    // Non atteint ⇒ le BUDGET tombe à zéro, et tout le reste en découle sans
+    // autre exception : parts fixes nulles, plafond 150 $ appliqué au seul CPM,
+    // aucune vue « achetée » sur un barème au fixe seul. Une branche ajoutée
+    // plus bas aurait dû répéter chacune de ces conséquences.
+    const seuilVuesFixe = Math.max(0, groupSnapshot.seuilVuesFixe ?? 0);
+    const groupViews = groupItems.reduce(
+      (s, it) => s + Math.max(0, it.totalViews),
+      0,
+    );
+    // Écrit `seuil > vues` et non `vues < seuil` : le détecteur i18n prend le
+    // `<` pour une ouverture de balise et signale un faux littéral en dur.
+    const fixeBloque = seuilVuesFixe > 0 && seuilVuesFixe > groupViews;
+    const budgetFixe = fixeBloque ? 0 : groupSnapshot.montantFixe;
     // Plafond 150 $/vidéo (RÉPLIQUE lib/pricing-engine) : dépassement rogné sur le
     // CPM d'abord, puis la part fixe (pathologique). Sans dépassement = inchangé.
     let remainingFixe = budgetFixe;
@@ -222,10 +270,15 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       firstAssignmentId: groupItems[0].assignmentId,
       videoCount,
       nbVideosCible: groupSnapshot.nbVideosCible,
-      montantFixe: budgetFixe,
+      // Le CONTRAT, pas le budget effectif : bloqué, l'écran doit lire
+      // « 0 sur 700 », jamais « 0 sur 0 ».
+      montantFixe: groupSnapshot.montantFixe,
       fixePerVideo: round2(fixePerVideo(groupSnapshot)),
       fixed,
       cpm: groupCpm,
+      seuilVuesFixe,
+      groupViews,
+      fixeBloque,
     });
     fixedTotal = round2(fixedTotal + fixed);
     cpmTotal = round2(cpmTotal + groupCpm);
@@ -1327,6 +1380,11 @@ export async function buildPricingSnapshot(
     montantFixe: pricing.montantFixe,
     nbVideosCible: pricing.nbVideosCible,
     tauxCPM: pricing.tauxCPM,
+    // FIGÉ comme le reste : changer la condition d'un barème ne réécrit aucune
+    // vidéo déjà assignée (même règle que montantFixe et tauxCPM).
+    ...(pricing.seuilVuesFixe !== undefined && pricing.seuilVuesFixe > 0
+      ? { seuilVuesFixe: pricing.seuilVuesFixe }
+      : {}),
     // legacy v1 sur le snapshot (ignorés par le moteur v2) — défaut 0.
     seuilBonusVues: pricing.seuilBonusVues ?? 0,
     montantBonus: pricing.montantBonus ?? 0,
@@ -1340,6 +1398,8 @@ type PricingInput = {
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
+  /** Seuil de vues conditionnant le fixe. 0 = aucune condition. */
+  seuilVuesFixe?: number;
   bonusTiers?: BonusTier[];
   bonusTemplateId?: Id<"bonusTemplates"> | null;
 };
@@ -1374,8 +1434,30 @@ function validatePricingFields(args: PricingInput): PricingInput {
       throw new ConvexError(`${label} doit être un nombre ≥ 0.`);
     }
   }
+  // SEUIL DE VUES DU FIXE — entier ≥ 0, et 0 vaut « aucune condition ». On
+  // NORMALISE le 0 en `undefined` pour qu'un barème sans condition ne porte pas
+  // un champ à zéro : `seuilVuesFixe: 0` et l'absence doivent être le même état
+  // en base, sinon la clé de regroupement du moteur les distinguerait un jour.
+  if (args.seuilVuesFixe !== undefined) {
+    if (!Number.isFinite(args.seuilVuesFixe) || args.seuilVuesFixe < 0) {
+      throw new ConvexError("seuilVuesFixe doit être un nombre ≥ 0.");
+    }
+    if (args.seuilVuesFixe > 0 && args.montantFixe <= 0) {
+      throw new ConvexError(
+        "Un seuil de vues ne conditionne que le FIXE : ce barème n'en a pas. " +
+          "Renseigne un montant fixe, ou laisse le seuil vide.",
+      );
+    }
+  }
   validateBonusTiers(args.bonusTiers ?? []);
-  return { ...args, name };
+  return {
+    ...args,
+    name,
+    seuilVuesFixe:
+      args.seuilVuesFixe !== undefined && args.seuilVuesFixe > 0
+        ? Math.round(args.seuilVuesFixe)
+        : undefined,
+  };
 }
 
 /**
@@ -1439,6 +1521,7 @@ const PRICING_ARGS = {
   montantFixe: v.number(),
   nbVideosCible: v.number(),
   tauxCPM: v.number(),
+  seuilVuesFixe: v.optional(v.number()),
   bonusTiers: v.optional(v.array(BONUS_TIER_VALIDATOR)),
   // Provenance de l'échelle — traçabilité seule (cf schema). `null` la coupe
   // explicitement : une échelle repartie de zéro ne doit pas continuer à se
@@ -1601,6 +1684,9 @@ export const listPricings = permissionQuery("pricing.manage")({
         montantFixe: p.montantFixe,
         nbVideosCible: p.nbVideosCible,
         tauxCPM: p.tauxCPM,
+        // 0 plutôt qu'`undefined` : l'écran teste `> 0`, et deux formes pour
+        // « aucune condition » finiraient par diverger à l'affichage.
+        seuilVuesFixe: p.seuilVuesFixe ?? 0,
         bonusTiers: p.bonusTiers,
         // legacy v1 — `tiersOf` en a besoin pour rendre le seuil unique des
         // barèmes d'avant les paliers.

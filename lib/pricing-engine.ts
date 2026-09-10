@@ -29,6 +29,20 @@ export type PricingSnapshot = {
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
+  /**
+   * SEUIL DE VUES QUI CONDITIONNE LE FIXE — 0 ou absent = aucune condition.
+   *
+   * Certains contrats achètent un forfait mensuel SOUS RÉSERVE d'un volume :
+   * « 700 $ pour 60 vidéos, à condition de 100 000 vues cumulées sur le mois ».
+   * Le seuil est ABSOLU, jamais pro-raté : sous la barre, le fixe du mois vaut
+   * ZÉRO, quel que soit le nombre de vidéos livrées. C'est le sens du contrat —
+   * un forfait qui ne se déclenche pas si le volume n'y est pas.
+   *
+   * ⚠️ IL NE TOUCHE QUE LE FIXE. Le CPM et les paliers de bonus sont calculés
+   * exactement comme avant : ils rémunèrent la performance à la vue, et rien ne
+   * justifie de les suspendre parce qu'un forfait ne se déclenche pas.
+   */
+  seuilVuesFixe?: number;
   // LEGACY v1 (seuil unique par vidéo) — conservés sur les snapshots existants,
   // PLUS utilisés par le moteur v2 (le bonus est désormais à paliers cumulés).
   seuilBonusVues?: number;
@@ -52,6 +66,16 @@ export type PerPricing = {
   fixePerVideo: number;
   fixed: number;
   cpm: number;
+  /** Seuil conditionnant le fixe (0 = aucun). */
+  seuilVuesFixe: number;
+  /** Vues CUMULÉES du groupe — l'assiette comparée au seuil. */
+  groupViews: number;
+  /**
+   * Le fixe est-il ANNULÉ par la condition ? `true` ⇒ `fixed` vaut 0 alors que
+   * `montantFixe` annonce toujours le contrat : l'écran doit pouvoir dire
+   * « 0 sur 700 — seuil non atteint », pas afficher un contrat à zéro.
+   */
+  fixeBloque: boolean;
 };
 
 export type PerAssignment = {
@@ -244,7 +268,16 @@ export function promoVideoCost(
  * ⚠️ Toute valeur de barème lue AU NIVEAU DU GROUPE doit figurer ici.
  */
 function payoutGroupKey(s: PricingSnapshot): string {
-  return [s.pricingId, s.montantFixe, s.nbVideosCible, s.tauxCPM].join("|");
+  // ⚠️ LE SEUIL EN FAIT PARTIE. Sans lui, deux générations de snapshot qui ne
+  // diffèrent QUE par la condition tomberaient dans le même groupe, donc dans le
+  // même budget fixe — et la condition de l'une déciderait pour l'autre.
+  return [
+    s.pricingId,
+    s.montantFixe,
+    s.nbVideosCible,
+    s.tauxCPM,
+    s.seuilVuesFixe ?? 0,
+  ].join("|");
 }
 
 export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
@@ -267,8 +300,31 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     // donc indépendant de l'ordre. Tout le reste se lit par ITEM, sur SON
     // snapshot, exactement comme le CPM.
     const groupSnapshot = groupItems[0].snapshot;
-    const budgetFixe = groupSnapshot.montantFixe;
     const videoCount = groupItems.length;
+
+    // ─── CONDITION DE VUES SUR LE FIXE ─────────────────────────────────────
+    // L'assiette est la somme des vues du groupe — LES MÊMES vues que celles qui
+    // paient le CPM (`payableViews` côté serveur). Un second sens du mot
+    // « vues » rendrait la jauge de la créatrice incompréhensible : elle lirait
+    // un total ici et un autre sur sa vidéo.
+    //
+    // Le seuil est ABSOLU. Le pro rata a été écarté : à 30 vidéos sur 60 il
+    // ramènerait la barre à 50 000, et un forfait qui s'adapte à la
+    // sous-livraison n'est plus une condition.
+    //
+    // Non atteint ⇒ le BUDGET tombe à zéro, et tout le reste en découle sans
+    // autre exception : parts fixes nulles, plafond 150 $ appliqué au seul CPM,
+    // aucune vue « achetée » sur un barème au fixe seul. Une branche ajoutée
+    // plus bas aurait dû répéter chacune de ces conséquences.
+    const seuilVuesFixe = Math.max(0, groupSnapshot.seuilVuesFixe ?? 0);
+    const groupViews = groupItems.reduce(
+      (s, it) => s + Math.max(0, it.totalViews),
+      0,
+    );
+    // Écrit `seuil > vues` et non `vues < seuil` : le détecteur i18n prend le
+    // `<` pour une ouverture de balise et signale un faux littéral en dur.
+    const fixeBloque = seuilVuesFixe > 0 && seuilVuesFixe > groupViews;
+    const budgetFixe = fixeBloque ? 0 : groupSnapshot.montantFixe;
 
     // ─── Plafond 150 $/vidéo ───────────────────────────────────────────────
     // Chaque vidéo = part fixe (répartie, bornée au budget montantFixe) + CPM.
@@ -335,10 +391,15 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
       firstAssignmentId: groupItems[0].assignmentId,
       videoCount,
       nbVideosCible: groupSnapshot.nbVideosCible,
-      montantFixe: budgetFixe,
+      // Le CONTRAT, pas le budget effectif : bloqué, l'écran doit lire
+      // « 0 sur 700 », jamais « 0 sur 0 ».
+      montantFixe: groupSnapshot.montantFixe,
       fixePerVideo: round2(fixePerVideo(groupSnapshot)),
       fixed,
       cpm: groupCpm,
+      seuilVuesFixe,
+      groupViews,
+      fixeBloque,
     });
     fixedTotal = round2(fixedTotal + fixed);
     cpmTotal = round2(cpmTotal + groupCpm);

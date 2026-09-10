@@ -64,6 +64,114 @@ describe("computeMonthlyPayout — FIXE + CPM (v2, sans bonus par vidéo)", () =
   });
 });
 
+/**
+ * FIXE CONDITIONNÉ À UN VOLUME DE VUES — « 700 $ pour 60 vidéos, à condition de
+ * 100 000 vues cumulées sur le mois ».
+ *
+ * Jeu d'essai à la FORME du contrat réel : 700 $ / 60 vidéos, seuil 100 000, et
+ * un barème SANS CPM — c'est le cas de production (les huit barèmes du projet
+ * sont « fixe seul » ou « CPM pur », jamais les deux).
+ */
+describe("seuil de vues conditionnant le FIXE", () => {
+  const CONTRAT: PricingSnapshot = {
+    pricingId: "p-contrat",
+    montantFixe: 700,
+    nbVideosCible: 60,
+    tauxCPM: 0,
+    seuilVuesFixe: 100_000,
+    seuilBonusVues: 0,
+    montantBonus: 0,
+  };
+
+  it("seuil ATTEINT : le fixe est dû, au pro rata des vidéos livrées", () => {
+    // 60 vidéos × 1 700 vues = 102 000 ≥ 100 000.
+    const r = computeMonthlyPayout(items(60, 1_700, CONTRAT));
+    expect(r.fixedTotal).toBe(700);
+    expect(r.perPricing[0].fixeBloque).toBe(false);
+    expect(r.perPricing[0].groupViews).toBe(102_000);
+  });
+
+  it("seuil MANQUÉ de peu : le fixe tombe à ZÉRO, pas au prorata", () => {
+    // 60 vidéos × 1 600 vues = 96 000 < 100 000. Tout le travail est livré, et
+    // pourtant rien n'est dû : c'est le sens du contrat, et c'est le cas qu'il
+    // faut voir écrit noir sur blanc.
+    const r = computeMonthlyPayout(items(60, 1_600, CONTRAT));
+    expect(r.fixedTotal).toBe(0);
+    expect(r.total).toBe(0);
+    const g = r.perPricing[0];
+    expect(g.fixeBloque).toBe(true);
+    expect(g.groupViews).toBe(96_000);
+    // Le CONTRAT reste annoncé : l'écran doit lire « 0 sur 700 », jamais
+    // « 0 sur 0 ». Sans ça, un barème bloqué ressemble à un barème vide.
+    expect(g.montantFixe).toBe(700);
+    expect(g.videoCount).toBe(60);
+  });
+
+  it("le seuil est ABSOLU : sous-livrer ne l'abaisse PAS", () => {
+    // 30 vidéos sur 60, 2 000 vues chacune = 60 000. Au pro rata (50 000) le
+    // seuil serait franchi et 350 $ seraient dus ; en absolu, rien.
+    const r = computeMonthlyPayout(items(30, 2_000, CONTRAT));
+    expect(r.perPricing[0].groupViews).toBe(60_000);
+    expect(r.fixedTotal).toBe(0);
+    // Présence en regard : les mêmes 30 vidéos, seuil franchi, paient bien 350 $.
+    expect(
+      computeMonthlyPayout(items(30, 4_000, CONTRAT)).fixedTotal,
+    ).toBe(350);
+  });
+
+  it("le seuil ne touche QUE le fixe — le CPM est payé quoi qu'il arrive", () => {
+    const AVEC_CPM: PricingSnapshot = { ...CONTRAT, tauxCPM: 2 };
+    // 10 vidéos × 1 000 vues = 10 000 : très loin des 100 000.
+    const r = computeMonthlyPayout(items(10, 1_000, AVEC_CPM));
+    expect(r.fixedTotal).toBe(0);
+    // 10 vidéos × 1 000 vues × 2 $/1000 = 20 $, intégralement dus.
+    expect(r.cpmTotal).toBe(20);
+    expect(r.total).toBe(20);
+  });
+
+  it("aucun seuil : STRICTEMENT le comportement d'avant", () => {
+    // La contre-épreuve qui protège les huit barèmes existants.
+    const SANS: PricingSnapshot = { ...CONTRAT, seuilVuesFixe: undefined };
+    const r = computeMonthlyPayout(items(60, 1, SANS));
+    expect(r.fixedTotal).toBe(700);
+    expect(r.perPricing[0].fixeBloque).toBe(false);
+    expect(r.perPricing[0].seuilVuesFixe).toBe(0);
+    // Un seuil à ZÉRO est le même état que l'absence — jamais une barre à
+    // franchir avec 0 vue.
+    const ZERO: PricingSnapshot = { ...CONTRAT, seuilVuesFixe: 0 };
+    expect(computeMonthlyPayout(items(60, 0, ZERO)).fixedTotal).toBe(700);
+  });
+
+  it("bloqué, un barème au FIXE SEUL n'achète AUCUNE vue", () => {
+    // `billedViews` sert au RPM : compter des vues achetées alors que rien n'a
+    // été versé écraserait le coût par vue à zéro.
+    const r = computeMonthlyPayout(items(3, 1_000, CONTRAT));
+    expect(r.fixedTotal).toBe(0);
+    expect(r.perAssignment.every((a) => a.billedViews === 0)).toBe(true);
+    // Présence : seuil franchi, les vues sont bien achetées.
+    const ok = computeMonthlyPayout(items(60, 2_000, CONTRAT));
+    expect(ok.perAssignment.every((a) => a.billedViews === 2_000)).toBe(true);
+  });
+
+  it("deux générations de snapshot : chaque groupe juge AVEC SON seuil", () => {
+    // Le piège de la clé de regroupement : sans le seuil dedans, les 40 vidéos
+    // partageraient un budget et la condition de l'une déciderait pour l'autre.
+    const DUR: PricingSnapshot = { ...CONTRAT, seuilVuesFixe: 100_000 };
+    const SOUPLE: PricingSnapshot = { ...CONTRAT, seuilVuesFixe: 10_000 };
+    const r = computeMonthlyPayout([
+      ...items(20, 1_000, DUR, "dur"),
+      ...items(20, 1_000, SOUPLE, "souple"),
+    ]);
+    const dur = r.perPricing.find((g) => g.seuilVuesFixe === 100_000)!;
+    const souple = r.perPricing.find((g) => g.seuilVuesFixe === 10_000)!;
+    // 20 000 vues chacun : le dur est bloqué, le souple est payé.
+    expect(dur.fixeBloque).toBe(true);
+    expect(dur.fixed).toBe(0);
+    expect(souple.fixeBloque).toBe(false);
+    expect(souple.fixed).toBe(233.33);
+  });
+});
+
 describe("plafond 150 $/vidéo — computeMonthlyPayout (global tous projets)", () => {
   // Part fixe RONDE (120/60 = 2 $/vidéo) → totaux nets pour les assertions.
   const P2: PricingSnapshot = {
@@ -509,6 +617,14 @@ describe("parité lib/ ↔ convex/ du moteur de paie (règle A6)", () => {
       ...items(7, 10_000, ANCIEN, "vieux"),
       ...items(12, 2_000, NOUVEAU, "neuf"),
     ] },
+    { nom: "seuil atteint", items: items(60, 1_700, {
+      pricingId: "p-c", montantFixe: 700, nbVideosCible: 60, tauxCPM: 0,
+      seuilVuesFixe: 100_000, seuilBonusVues: 0, montantBonus: 0,
+    }) },
+    { nom: "seuil manqué", items: items(60, 1_600, {
+      pricingId: "p-c", montantFixe: 700, nbVideosCible: 60, tauxCPM: 0,
+      seuilVuesFixe: 100_000, seuilBonusVues: 0, montantBonus: 0,
+    }) },
     { nom: "cycle mixte inversé", items: [
       ...items(12, 2_000, NOUVEAU, "neuf"),
       ...items(7, 10_000, ANCIEN, "vieux"),

@@ -519,7 +519,12 @@
       "paidLabel": "Paid",
       "paidOn": "Paid on {date}",
       "rewardFallback": "Reward",
-      "preCapNotice": "Earnings calculated on {paid}, before the 30-day cap took effect (on {effective}). Views past day 30 still count in this cycle."
+      "preCapNotice": "Earnings calculated on {paid}, before the 30-day cap took effect (on {effective}). Views past day 30 still count in this cycle.",
+      "fixeSeuil": {
+        "gauge": "{done} / {target} views",
+        "locked": "This month's flat fee unlocks at {target} cumulative views on your videos this month.",
+        "unlocked": "Threshold reached — this month's flat fee is secured."
+      }
     },
     "videos": {
       "trackingActive": "Tracking active",
