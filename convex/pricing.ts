@@ -20,6 +20,7 @@ import {
   type RetainedViews,
 } from "./payWindow";
 import { ERR, err } from "./errorCodes";
+import { resolveCreatorKind } from "./roles";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -2219,6 +2220,140 @@ export const setDefaultBonusPricing = permissionMutation("pricing.manage")({
       synced += 1;
     }
     return { synced };
+  },
+});
+
+/**
+ * ADMIN — QUI est sur quelle grille, vu depuis l'écran Barèmes.
+ *
+ * Rend TOUTES les fiches de PARTENAIRE assignables du projet, avec leur grille
+ * PERSO (`bonusPricingId`, ce qui est écrit sur la fiche) ET leur grille
+ * EFFECTIVE (perso sinon défaut du projet) — la distinction n'est pas cosmétique :
+ * décocher une créatrice qui HÉRITE du défaut ne fait rien, décocher une
+ * créatrice à grille perso la renvoie sur le défaut. Sans les deux valeurs,
+ * l'écran ne peut pas dire laquelle des deux il s'apprête à faire.
+ *
+ * Talents et clippeurs sont ABSENTS, et c'est le même arbitrage que sur la fiche
+ * (BonusGridSection) : ils sont payés au clip ou au forfait de cycle
+ * (`clipRate` / `cycleRetainer`), champs STRICTEMENT DISJOINTS du barème.
+ *
+ * Gardé par `creators.pay_terms` : la grille d'une créatrice est une condition de
+ * rémunération, où qu'on la lise. Le nom du barème sort, jamais ses montants.
+ */
+export const listCreatorPricingGrids = permissionQuery("creators.pay_terms")({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    const defaultId = project?.defaultBonusPricingId ?? null;
+    const pricings = await ctx.db
+      .query("pricings")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const nameOf = new Map(pricings.map((p) => [p._id, p.name]));
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    return creators
+      .filter(
+        (c) =>
+          resolveCreatorKind(c.kind) === "partner" &&
+          c.status !== "churned" &&
+          c.status !== "paused",
+      )
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"))
+      .map((c) => {
+        const effectiveId = c.bonusPricingId ?? defaultId;
+        return {
+          _id: c._id,
+          name: c.name,
+          status: c.status,
+          // Écrit sur la fiche (null = elle hérite).
+          pricingId: c.bonusPricingId ?? null,
+          // Ce qui s'applique réellement aujourd'hui.
+          effectivePricingId: effectiveId,
+          effectivePricingName: effectiveId
+            ? (nameOf.get(effectiveId) ?? null)
+            : null,
+          inherited: c.bonusPricingId === undefined && effectiveId !== null,
+        };
+      });
+  },
+});
+
+/**
+ * ADMIN — pose la grille d'un LOT de créatrices depuis l'écran Barèmes.
+ *
+ * `creatorIds` est l'ENSEMBLE VOULU pour cette grille, pas un ajout : une
+ * créatrice qui y était par sa grille perso et qui n'est plus dans la liste est
+ * RETIRÉE (sa fiche repasse « aucune grille » et elle hérite du défaut du
+ * projet). C'est ce qui permet à l'écran de rendre une case à cocher honnête —
+ * un « ajout seul » afficherait des cases qu'on ne peut pas décocher.
+ *
+ * ⚠️ N'EFFACE JAMAIS la grille de quelqu'un qui est sur une AUTRE grille : seules
+ * les fiches pointant sur `pricingId` sont candidates au retrait.
+ *
+ * Comme `updateCreatorPayTerms`, chaque changement rejoue `syncBonusUnlocks` :
+ * les paliers déjà atteints sous la nouvelle grille sont matérialisés tout de
+ * suite (idempotent), sinon ils n'apparaîtraient qu'au prochain cumul.
+ */
+export const setPricingCreators = permissionMutation("creators.pay_terms")({
+  args: {
+    pricingId: v.id("pricings"),
+    creatorIds: v.array(v.id("creators")),
+  },
+  handler: async (
+    ctx,
+    { pricingId, creatorIds },
+  ): Promise<{ added: number; removed: number }> => {
+    const pricing = await ctx.db.get(pricingId);
+    if (!pricing || pricing.projectId !== ctx.projectId) {
+      throw err(ERR.PRICING_NOT_IN_PROJECT, "Barème introuvable dans le projet.");
+    }
+    const wanted = new Set<string>(creatorIds);
+    // Les cibles sont VÉRIFIÉES une à une (projet + population) avant toute
+    // écriture : un id d'un autre projet doit faire échouer l'appel, pas être
+    // ignoré en silence — sinon l'écran affiche « enregistré » pour une
+    // créatrice qui n'a pas bougé.
+    for (const id of creatorIds) {
+      const c = await ctx.db.get(id);
+      if (!c || c.projectId !== ctx.projectId) {
+        throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
+      }
+      if (resolveCreatorKind(c.kind) !== "partner") {
+        throw err(
+          ERR.CREATOR_NOT_IN_PROJECT,
+          `${c.name} n'est pas un créateur partenaire : sa rémunération ne passe pas par un barème.`,
+          { name: c.name },
+        );
+      }
+      if (pricing.status === "archived" && c.bonusPricingId !== pricingId) {
+        throw err(
+          ERR.PRICING_ARCHIVED,
+          "Barème archivé : réactive-le avant d'y mettre des créatrices.",
+        );
+      }
+    }
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let added = 0;
+    let removed = 0;
+    for (const c of creators) {
+      const surCetteGrille = c.bonusPricingId === pricingId;
+      if (wanted.has(c._id)) {
+        if (surCetteGrille) continue;
+        await ctx.db.patch(c._id, { bonusPricingId: pricingId });
+        await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+        added += 1;
+      } else if (surCetteGrille) {
+        await ctx.db.patch(c._id, { bonusPricingId: undefined });
+        await syncBonusUnlocks(ctx, ctx.projectId, c._id);
+        removed += 1;
+      }
+    }
+    return { added, removed };
   },
 });
 

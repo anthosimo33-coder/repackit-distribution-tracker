@@ -6,6 +6,8 @@ import {
   useProjectMutation,
 } from "@/components/project/use-project-convex";
 import { useProject } from "@/components/project/ProjectProvider";
+import { PricingCreatorsDialog } from "@/components/pricing/PricingCreatorsDialog";
+import { usePermissions } from "@/components/project/use-permissions";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -172,6 +174,12 @@ function PricingsPageContenu() {
   // pricingId, lui, ne change pas.
   const drift = useProjectQuery(api.pricing.listPricingSnapshotDrift, {});
   const [driftFor, setDriftFor] = useState<string | null>(null);
+  // « Créatrices sur cette grille » écrit `creators.bonusPricingId`, un champ de
+  // RÉMUNÉRATION : le droit qui le garde côté serveur (setPricingCreators) est
+  // celui qui décide si l'entrée de menu existe. Un manager sans ce droit garde
+  // l'écran des barèmes sans pouvoir déplacer l'argent de quelqu'un.
+  const peutPoserLesGrilles = usePermissions().has("creators.pay_terms");
+  const [creatorsFor, setCreatorsFor] = useState<Pricing | null>(null);
 
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"active" | "archived" | "all">("active");
@@ -451,6 +459,9 @@ function PricingsPageContenu() {
                 onDuplicate={() => openDuplicate(p)}
                 onShowDrift={() => setDriftFor(p._id)}
                 onSetDefault={() => handleSetDefaultBonus(p._id)}
+                onEditCreators={
+                  peutPoserLesGrilles ? () => setCreatorsFor(p) : null
+                }
                 onSaveAsTemplate={() => saveAsTemplate(p)}
                 onArchive={() => toggleArchive(p)}
                 onDelete={() => handleDelete(p)}
@@ -466,6 +477,15 @@ function PricingsPageContenu() {
         money={money}
         payCurrency={payCurrency}
       />
+
+      {creatorsFor && (
+        <PricingCreatorsDialog
+          pricingId={creatorsFor._id}
+          pricingName={creatorsFor.name}
+          open
+          onOpenChange={(o) => !o && setCreatorsFor(null)}
+        />
+      )}
 
       {/* Détail de la dérive — les barèmes figés qui ne correspondent plus. */}
       <Dialog
@@ -567,6 +587,7 @@ function PricingRow({
   onDuplicate,
   onShowDrift,
   onSetDefault,
+  onEditCreators,
   onSaveAsTemplate,
   onArchive,
   onDelete,
@@ -580,6 +601,8 @@ function PricingRow({
   onDuplicate: () => void;
   onShowDrift: () => void;
   onSetDefault: () => void;
+  /** null = l'utilisateur n'a pas le droit de toucher aux conditions de paie. */
+  onEditCreators: (() => void) | null;
   onSaveAsTemplate: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -687,6 +710,11 @@ function PricingRow({
         <DropdownMenuContent align="end" className="w-60">
           <DropdownMenuItem onClick={onEdit}>Modifier le barème</DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>Dupliquer</DropdownMenuItem>
+          {onEditCreators && (
+            <DropdownMenuItem onClick={onEditCreators}>
+              Créatrices sur cette grille…
+            </DropdownMenuItem>
+          )}
           {/* Amorce la bibliothèque depuis une échelle qui EXISTE : sans elle,
               le seul chemin vers un premier modèle était de retaper les six
               paliers à la main — exactement ce qu'un modèle sert à éviter. */}

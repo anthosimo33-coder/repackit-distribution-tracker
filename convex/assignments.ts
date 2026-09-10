@@ -67,6 +67,7 @@ import { internalMutation } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { resolveCreatorPricing } from "./creatorPricing";
 
 /**
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
@@ -187,9 +188,36 @@ export async function resolveManagedTargets(
  * Créateurs assignables : onboardés (userId posé) et au travail (status
  * active ou onboarding). Exclut invited (pas de compte), paused, churned.
  */
+/**
+ * BARÈME PRÉ-SÉLECTIONNÉ d'une créatrice — le sien (`bonusPricingId`) sinon la
+ * grille par défaut du projet, EXACTEMENT la résolution de
+ * `effectiveBonusPricing`. Ces deux lectures doivent rester la même : si l'écran
+ * proposait un barème et que la paie en lisait un autre, personne ne verrait
+ * l'écart avant le versement.
+ *
+ * Un barème ARCHIVÉ ne sort JAMAIS : le sélecteur d'assignation ne liste que les
+ * barèmes actifs (`listPricingsForAssignment`), et pré-remplir une valeur absente
+ * de la liste afficherait un choix vide au lieu d'un choix.
+ *
+ * Ce que ça expose au détenteur de `assignments.manage` : un id et un NOM de
+ * barème — jamais un montant. Même surface que `listPricingsForAssignment`, qui
+ * porte déjà ce droit.
+ */
+async function pricingResolver(ctx: QueryCtx, projectId: Id<"projects">) {
+  const project = await ctx.db.get(projectId);
+  const defaultId = project?.defaultBonusPricingId ?? null;
+  const pricings = await ctx.db
+    .query("pricings")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return (creator: Doc<"creators">) =>
+    resolveCreatorPricing(creator, defaultId, pricings);
+}
+
 export const listAssignableCreators = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
+    const pricingOf = await pricingResolver(ctx, ctx.projectId);
     const creators = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -201,7 +229,10 @@ export const listAssignableCreators = permissionQuery("assignments.manage")({
           (c.status === "active" || c.status === "onboarding"),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "fr"))
-      .map((c) => ({ _id: c._id, name: c.name, status: c.status }));
+      // Le barème part AVEC la créatrice : la modale d'assignation le
+      // pré-sélectionne, au lieu de laisser le manager le retrouver de mémoire à
+      // chaque script.
+      .map((c) => ({ _id: c._id, name: c.name, status: c.status, ...pricingOf(c) }));
   },
 });
 
@@ -236,6 +267,7 @@ export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.m
           (c.status === "active" || c.status === "onboarding"),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    const pricingOf = await pricingResolver(ctx, ctx.projectId);
     const out = [];
     for (const c of assignable) {
       const comptes = await ctx.db
@@ -248,6 +280,10 @@ export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.m
         _id: c._id,
         name: c.name,
         status: c.status,
+        // Idem mode unitaire : en masse, chaque créatrice garde SON barème (les
+        // grilles diffèrent par pays et par deal — en imposer une seule à tout
+        // un lot serait faux pour la plupart).
+        ...pricingOf(c),
         accounts: comptes
           .filter((a) => isAccountAvailable(a, days, { strict }))
           .map((a) => ({
