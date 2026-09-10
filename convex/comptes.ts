@@ -36,6 +36,7 @@ async function warmupDaysFor(
 }
 import { isSnytchProject } from "./projects";
 import { resolveCreatorKind } from "./roles";
+import { activateCreatorOnAccountValidated } from "./creatorActivation";
 import { auditCompteHandle } from "./handleHygiene";
 import { postsPerDayAt } from "./accountPhase";
 import { creatorZoneOnly, ensureCreatorZone } from "./creatorTimezone";
@@ -691,6 +692,23 @@ export const updateCompte = permissionMutation("accounts.manage")({
     }
 
     await ctx.db.patch(id, update);
+
+    // ─── PREMIER COMPTE VALIDÉ ⇒ LA FICHE SORT DE L'ONBOARDING ───────────────
+    // Le sens de l'onboarding est « elle n'a encore rien qui tourne » : dès qu'un
+    // de ses comptes est en service, ce statut ment. On l'écrit ICI, sur la
+    // transition, plutôt que de le dériver à la lecture — le statut est édité à
+    // la main (pause, départ), donc il doit rester une VALEUR, pas un calcul.
+    // Sans effet si la fiche n'est pas en onboarding (cf shouldAutoActivateCreator).
+    // Propriétaire APRÈS le patch : la même mutation peut réassigner le compte
+    // (args.creatorId), et c'est la nouvelle propriétaire qui vient d'avoir un
+    // compte en service, pas l'ancienne.
+    const owner =
+      args.creatorId !== undefined
+        ? (args.creatorId ?? undefined)
+        : compte.creatorId;
+    if (targetStatus === "actif" && owner) {
+      await activateCreatorOnAccountValidated(ctx, owner);
+    }
   },
 });
 
@@ -876,6 +894,11 @@ export const unarchiveCompte = permissionMutation("accounts.manage")({
       refusedAt: undefined,
       refusedReason: undefined,
     });
+    // Désarchiver, c'est remettre le compte en service : même conséquence que la
+    // validation initiale sur une fiche restée en onboarding.
+    if (compte.creatorId) {
+      await activateCreatorOnAccountValidated(ctx, compte.creatorId);
+    }
     return { ok: true };
   },
 });
@@ -1689,6 +1712,32 @@ export const migrateComptesStatus = internalMutation({
       migrated++;
     }
     return { migrated, skipped };
+  },
+});
+
+/**
+ * BACKFILL ONE-SHOT de l'activation automatique (internal — à lancer une fois
+ * post-deploy : `./scripts/convex-prod.sh run comptes:backfillCreatorActivation`).
+ *
+ * L'automatisme ne se déclenche que sur la TRANSITION d'un compte vers "actif" :
+ * les fiches restées en onboarding alors qu'un de leurs comptes tourne déjà
+ * (validé avant ce chantier) n'ont pas d'événement à attendre — c'est ce que ce
+ * backfill rattrape. Idempotent : une fiche déjà "active" (ou en pause, ou
+ * partie) n'est pas touchée, cf shouldAutoActivateCreator.
+ */
+export const backfillCreatorActivation = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const comptes = await ctx.db.query("comptes").collect();
+    const owners = new Set<Id<"creators">>();
+    for (const c of comptes) {
+      if (c.creatorId && effectiveStatus(c) === "actif") owners.add(c.creatorId);
+    }
+    let activated = 0;
+    for (const creatorId of owners) {
+      if (await activateCreatorOnAccountValidated(ctx, creatorId)) activated++;
+    }
+    return { candidates: owners.size, activated };
   },
 });
 
