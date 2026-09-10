@@ -342,18 +342,19 @@ export const recordAccountProfile = internalMutation({
     totalLikes: v.optional(v.union(v.number(), v.null())),
     source: apifySourceValidator,
   },
-  handler: async (ctx, args): Promise<{ action: "written" | "skipped" }> => {
-    const followers = args.followers ?? undefined;
-    const following = args.following ?? undefined;
-    const totalLikes = args.totalLikes ?? undefined;
-    if (
-      followers === undefined &&
-      following === undefined &&
-      totalLikes === undefined
-    ) {
-      return { action: "skipped" };
-    }
-
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    action: "written" | "skipped";
+    /** Compte résolu depuis la publication — sert au miroir de photo de profil. */
+    compteId?: Id<"comptes">;
+  }> => {
+    // LE COMPTE D'ABORD, les compteurs ensuite. L'ordre inverse (l'historique,
+    // c'était tout ce que cette mutation faisait) renvoyait « skipped » sans
+    // jamais résoudre le compte quand aucun compteur n'arrivait — et l'appelant
+    // n'avait alors pas de `compteId` où accrocher la photo de profil, qui,
+    // elle, était peut-être bien là.
     const pub = await ctx.db.get(args.publicationId);
     if (!pub) return { action: "skipped" };
     const compte = (
@@ -365,6 +366,19 @@ export const recordAccountProfile = internalMutation({
     // Compte non déclaré en base (publication saisie à la main) : rien à
     // historiser, mais ce n'est pas une erreur de relevé.
     if (!compte) return { action: "skipped" };
+
+    const followers = args.followers ?? undefined;
+    const following = args.following ?? undefined;
+    const totalLikes = args.totalLikes ?? undefined;
+    if (
+      followers === undefined &&
+      following === undefined &&
+      totalLikes === undefined
+    ) {
+      // Rien à HISTORISER — mais le compte est identifié, donc la photo de
+      // profil, elle, reste rattachable.
+      return { action: "skipped", compteId: compte._id };
+    }
 
     const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
     const existing = await ctx.db
@@ -390,7 +404,7 @@ export const recordAccountProfile = internalMutation({
     };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("accountProfileSnapshots", row);
-    return { action: "written" };
+    return { action: "written", compteId: compte._id };
   },
 });
 

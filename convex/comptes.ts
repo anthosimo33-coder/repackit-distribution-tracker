@@ -46,6 +46,7 @@ import {
   sortieDeChauffeAt,
 } from "./clipperReadiness";
 import { countryValidator } from "./countries";
+import { purgeCompteAvatar } from "./compteAvatar";
 import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -737,6 +738,7 @@ export const deleteCompte = permissionMutation("accounts.manage")({
         },
       );
     }
+    await purgeCompteAvatar(ctx, compte);
     await ctx.db.delete(args.id);
   },
 });
@@ -1770,6 +1772,7 @@ export const cleanupTestComptes = e2eMutation({
         });
         archived++;
       } else {
+        await purgeCompteAvatar(ctx, compte);
         await ctx.db.delete(compte._id);
         deleted++;
       }

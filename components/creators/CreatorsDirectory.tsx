@@ -47,6 +47,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { creatorStatusBadge, CREATOR_STATUS_ORDER, type CreatorStatus } from "@/lib/creator-status";
 import { formatMoney } from "@/lib/format-rate";
 import { formatDateFr } from "@/convex/dateFr";
+import { CreatorAvatar } from "@/components/creators/CreatorAvatar";
 import { cn } from "@/lib/utils";
 import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/locales";
 import {
@@ -157,13 +158,6 @@ function ecrire(k: string, v: string) {
     // localStorage indisponible (mode privé strict) : on tolère l'absence de
     // persistance, jamais une erreur à l'écran.
   }
-}
-
-function initiales(nom: string): string {
-  const parts = nom.trim().split(/[\s/]+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 /**
@@ -321,6 +315,10 @@ export function CreatorsDirectory({
           zone: a?.zone ?? c.timezone ?? null,
           zoneSource: a?.zoneSource ?? c.timezoneSource ?? null,
           zoneStored: a?.zoneStored ?? c.timezone !== undefined,
+          // Sa photo TikTok. `null` tant que l'activité charge : on n'affiche
+          // jamais un visage à moitié — les initiales tiennent la place, et la
+          // photo les remplace quand elle arrive.
+          avatarUrl: a?.avatarUrl ?? null,
         },
         // La région suit le fuseau EFFECTIF, pas celui de la fiche : une
         // créatrice dont le fuseau se déduit du pays de ses comptes a une
@@ -785,12 +783,12 @@ export function CreatorsDirectory({
                           </TableCell>
                           <TableCell className="font-medium whitespace-nowrap text-slate-900">
                             <span className="flex items-center gap-2.5">
-                              <span
-                                aria-hidden
-                                className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
-                              >
-                                {initiales(l.name)}
-                              </span>
+                              <CreatorAvatar
+                                name={l.name}
+                                avatarUrl={l.activite.avatarUrl}
+                                className="size-7"
+                                textClassName="text-[11px]"
+                              />
                               <Link
                                 href={projectPath(`/createurs/${l._id}`)}
                                 className="transition-colors hover:text-primary hover:underline"
@@ -1146,12 +1144,12 @@ function CarteCreatrice({
           aria-label="Sélectionner ce créateur"
           className="mt-1 size-3.5 shrink-0 accent-primary"
         />
-        <span
-          aria-hidden
-          className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
-        >
-          {initiales(ligne.name)}
-        </span>
+        <CreatorAvatar
+          name={ligne.name}
+          avatarUrl={ligne.activite.avatarUrl}
+          className="size-8"
+          textClassName="text-xs"
+        />
         <span className="flex min-w-0 flex-col">
           <Link
             href={href}

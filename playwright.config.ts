@@ -2,6 +2,24 @@ import { defineConfig, devices } from "@playwright/test";
 
 const isCI = !!process.env.CI;
 
+/**
+ * OÙ TOURNE L'APP PENDANT LES TESTS — une seule source, `PLAYWRIGHT_BASE_URL`.
+ *
+ * `baseURL` la lisait déjà ; le serveur de dev, lui, était cloué au port 3000.
+ * Deux worktrees ouverts en même temps (le mode de travail normal ici, cf. les
+ * backends Convex sur ports décalés) et le second RÉUTILISAIT le serveur du
+ * premier : `reuseExistingServer` voyait 3000 répondre et s'en contentait. Les
+ * specs tapaient alors sur l'app d'une AUTRE branche, branchée sur un AUTRE
+ * backend — d'où une page de login au lieu de l'écran attendu, sans que rien
+ * ne signale la confusion.
+ *
+ *   PLAYWRIGHT_BASE_URL=http://localhost:3010 pnpm test:e2e
+ *
+ * Non défini = 3000, exactement comme avant (CI comprise).
+ */
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000";
+const PORT = new URL(BASE_URL).port || "3000";
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false, // tests share one Convex DB; serial avoids flake
@@ -13,7 +31,7 @@ export default defineConfig({
   globalTeardown: require.resolve("./e2e/global-teardown"),
 
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000",
+    baseURL: BASE_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -82,9 +100,9 @@ export default defineConfig({
     // le workflow) via `next start` au lieu de `next dev`. Évite la compilation
     // à la volée par route (payée à chaque 1er hit, sur ~85 specs) → phase de
     // tests nettement plus courte. En local : `pnpm dev` (HMR, pas de build).
-    // `next start` écoute sur le même port 3000 → url/health-check inchangés.
-    command: isCI ? "pnpm start" : "pnpm dev",
-    url: "http://localhost:3000",
+    // `next start` écoute sur le même port → url/health-check inchangés.
+    command: isCI ? `pnpm start -p ${PORT}` : `pnpm dev -p ${PORT}`,
+    url: BASE_URL,
     reuseExistingServer: !isCI,
     timeout: 120 * 1000,
   },

@@ -176,7 +176,11 @@ function parseTikTokViews(
       // `collectCount` et `authorMeta` étaient reçus et jetés : la lecture vit
       // maintenant dans le helper partagé avec RADAR (convex/apifyItem.ts).
       saves: parseSaves(item),
-      author: hasAnyCount(profil) ? profil : null,
+      // `hasAnyCount` répond « y a-t-il un compteur à historiser ». Une photo
+      // de profil n'en est pas un, et pourtant elle vaut à elle seule d'être
+      // remontée : sans ce second terme, un item qui porterait l'avatar sans
+      // aucun compteur ferait perdre la photo en silence.
+      author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
     };
   }
   const present = new Set(Object.keys(stats));
