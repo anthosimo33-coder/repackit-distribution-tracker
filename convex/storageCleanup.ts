@@ -96,7 +96,7 @@ export async function purgeAssetBlobs(
  * Garde-fou : lib/storage-fields.test.ts compte les `v.id("_storage")` de
  * schema.ts et échoue dès que le compte diverge de cette constante.
  */
-export const STORAGE_FIELD_COUNT = 6;
+export const STORAGE_FIELD_COUNT = 7;
 
 async function collecterStorageIdsReferences(
   ctx: MutationCtx,
@@ -125,6 +125,9 @@ async function collecterStorageIdsReferences(
     ajouter(a.storageId);
     ajouter(a.postprocessBackup?.storageId);
   }
+  for (const c of await ctx.db.query("creatorContracts").collect()) {
+    ajouter(c.storageId);
+  }
   return refs;
 }
 
@@ -136,7 +139,7 @@ async function collecterStorageIdsReferences(
  */
 const FENETRE_DE_GRACE_MS = 24 * 60 * 60 * 1000;
 
-/** Blobs examinés par transaction. Le coût fixe d'un lot = 1 scan des 5 tables. */
+/** Blobs examinés par transaction. Le coût fixe d'un lot = 1 scan des 6 tables. */
 const TAILLE_LOT = 200;
 
 type CandidatOrphelin = {

@@ -802,6 +802,7 @@ async function creatorDeletionImpact(
   keptAssignments: number;
   payments: number;
   publications: number;
+  contracts: number;
 }> {
   const projectId = creator.projectId;
   const comptes = await ctx.db
@@ -831,12 +832,19 @@ async function creatorDeletionImpact(
       .collect();
     publications = pubs.filter((p) => handles.has(p.compte)).length;
   }
+  // Les contrats PDF partent avec la fiche : le blob n'est référencé par rien
+  // d'autre, et un contrat sans signataire ne se rattache à personne.
+  const contracts = await ctx.db
+    .query("creatorContracts")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+    .collect();
   return {
     comptes: comptes.length,
     deletableAssignments,
     keptAssignments: assignments.length - deletableAssignments,
     payments: payments.length,
     publications,
+    contracts: contracts.length,
   };
 }
 
@@ -865,6 +873,7 @@ export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
  *     (Convex + Stream, best-effort) + suppression de la row, ce qui LIBÈRE le
  *     comboKey (réassignable) ;
  *   - invitations (tokens one-shot) ;
+ *   - contrats PDF (row + blob storage) ;
  *   - membership creator du projet (révoque l'accès portail) ;
  *   - le compte user partagé + ses reset tokens UNIQUEMENT s'il devient orphelin
  *     (aucun autre membership ni fiche) → ne casse pas un créateur multi-projets
@@ -953,6 +962,18 @@ export const deleteCreator = permissionMutation("creators.delete")({
       await ctx.db.delete(inv._id);
     }
 
+    // 4bis. Contrats : row ET blob. Sans cette purge, le PDF resterait dans le
+    //       storage sans plus aucune row pour le désigner — introuvable, et
+    //       pourtant toujours là.
+    const contracts = await ctx.db
+      .query("creatorContracts")
+      .withIndex("by_creator", (q) => q.eq("creatorId", id))
+      .collect();
+    for (const c of contracts) {
+      await ctx.db.delete(c._id);
+      await ctx.storage.delete(c.storageId);
+    }
+
     // 5. Révoquer l'accès : supprimer le membership creator de CE projet. Le
     //    compte user partagé n'est supprimé que s'il devient totalement orphelin.
     const userId = creator.userId;
@@ -1005,6 +1026,7 @@ export const deleteCreator = permissionMutation("creators.delete")({
         comptes: comptes.length,
         assignments: deletedAssignments,
         invitations: invitations.length,
+        contracts: contracts.length,
         freedCombos,
       },
       kept: {

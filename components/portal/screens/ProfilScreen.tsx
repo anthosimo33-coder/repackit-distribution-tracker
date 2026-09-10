@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
-import { useMyProfile } from "@/components/portal/creator-data";
+import { useMyContracts, useMyProfile } from "@/components/portal/creator-data";
 import { useReadOnly } from "@/components/portal/ViewAsContext";
 import {
   Card,
@@ -26,8 +26,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
-import { Loader2Icon } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { FileTextIcon, Loader2Icon } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 import { LanguageSelector } from "@/components/layout/LanguageSelector";
 
 type PaymentMethod = "sepa" | "paypal" | "usdt" | "autre";
@@ -61,6 +61,10 @@ export default function ProfilScreen() {
   const t = useTranslations("portal");
   const projectId = useCreatorProjectId();
   const profile = useMyProfile(projectId);
+  // Contrats déposés par l'équipe sur SA fiche. Lecture seule des deux côtés :
+  // aucune mutation créatrice n'existe (elle ne dépose ni ne supprime rien).
+  const contracts = useMyContracts(projectId);
+  const locale = useLocale();
   const readOnly = useReadOnly();
   const tSettings = useTranslations("settings.language");
   const updateProfile = useMutation(api.creators.updateMyProfile);
@@ -198,6 +202,68 @@ export default function ProfilScreen() {
                     {t("profil.save")}
                   </Button>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Contrat — déposé par l'équipe depuis la fiche admin. Toujours
+              rendu, y compris vide : « aucun contrat » est une réponse, et une
+              carte qui apparaît/disparaît laisserait croire à un bug le jour où
+              l'équipe en dépose un. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("profil.contractTitle")}
+              </CardTitle>
+              <CardDescription>{t("profil.contractHint")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {contracts === undefined ? (
+                <Skeleton className="h-12 w-full" />
+              ) : contracts.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  {t("profil.contractEmpty")}
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {contracts.map((c) => (
+                    <li key={c._id} className="flex items-center gap-2.5 py-2.5">
+                      <FileTextIcon className="size-4 shrink-0 text-slate-400" />
+                      <div className="min-w-0">
+                        {/* URL absente = blob introuvable. On le DIT plutôt que
+                            de rendre un lien mort qui rechargerait la page. */}
+                        {c.url ? (
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block truncate text-sm font-medium text-slate-900 hover:underline"
+                          >
+                            {c.fileName}
+                          </a>
+                        ) : (
+                          <p className="truncate text-sm font-medium text-slate-400">
+                            {t("profil.contractMissing", {
+                              fileName: c.fileName,
+                            })}
+                          </p>
+                        )}
+                        <p className="text-xs text-slate-400">
+                          {t("profil.contractUploadedOn", {
+                            date: new Date(c.uploadedAt).toLocaleDateString(
+                              locale,
+                              {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric",
+                              },
+                            ),
+                          })}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </CardContent>
           </Card>

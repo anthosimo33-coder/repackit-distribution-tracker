@@ -85,9 +85,16 @@ export function DeleteCreatorDialog({
 
   // Compteurs (impact) — non bloquant : si encore en chargement, on n'affiche pas
   // le détail mais la saisie reste possible.
+  // Le contrat n'apparaît QUE s'il y en a un : la phrase de confirmation ne doit
+  // pas s'allonger d'un « 0 contrat » sur l'immense majorité des fiches — mais
+  // quand un PDF signé est sur le point de partir, on ne le tait pas.
   const willDelete =
     impact !== undefined && impact !== null
-      ? `${impact.comptes} compte${impact.comptes > 1 ? "s" : ""} et ${impact.deletableAssignments} mission${impact.deletableAssignments > 1 ? "s" : ""} en cours`
+      ? `${impact.comptes} compte${impact.comptes > 1 ? "s" : ""} et ${impact.deletableAssignments} mission${impact.deletableAssignments > 1 ? "s" : ""} en cours${
+          impact.contracts > 0
+            ? `, ${impact.contracts} contrat${impact.contracts > 1 ? "s" : ""}`
+            : ""
+        }`
       : null;
   const willKeep =
     impact !== undefined && impact !== null
