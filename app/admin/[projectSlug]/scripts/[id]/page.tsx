@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -166,11 +166,21 @@ export default function ScriptCampaignDetailPage() {
   const [graduating, setGraduating] = useState<Id<"scriptBricks"> | null>(null);
   /** L'éditeur a des modifications non enregistrées (voir `pick`). */
   const [dirty, setDirty] = useState(false);
-  /** Enregistrement publié par l'éditeur, appelé AVANT de changer de ligne :
-   *  quitter une ligne modifiée ne doit jamais perdre la saisie. */
-  const [saveDraft, setSaveDraft] = useState<(() => Promise<boolean>) | null>(
-    null,
-  );
+  /**
+   * Enregistrement de l'éditeur, appelé AVANT de changer de ligne : quitter une
+   * ligne modifiée ne doit jamais perdre la saisie.
+   *
+   * ⚠️ UN REF, PAS UN ÉTAT, et ce n'est pas un détail de style. L'éditeur
+   * publiait sa fonction pendant son rendu (`registerSave(save)`), ce qui
+   * (1) mettait à jour CE composant pendant le rendu d'un autre — l'erreur React
+   * en console — et (2) ne publiait qu'au PREMIER rendu du montage : la fonction
+   * gardée ici fermait sur les valeurs INITIALES des champs. Changer de ligne
+   * réenregistrait donc le texte d'origine (l'édition disparaissait sans un mot),
+   * et sur une brique neuve échouait sur « le nom court est requis » alors que le
+   * nom était rempli. `useImperativeHandle` republie à chaque rendu, hors phase
+   * de rendu : la fonction appelée ici est toujours celle de l'état affiché.
+   */
+  const editorRef = useRef<BrickEditorHandle | null>(null);
 
   const creators = useProjectQuery(api.creators.listCreators, {});
   const comptes = useProjectQuery(api.comptes.listComptes, {});
@@ -259,8 +269,8 @@ export default function ScriptCampaignDetailPage() {
 
   /** Change de cible d'édition — en enregistrant d'abord si la saisie a bougé. */
   async function pick(next: string | null) {
-    if (dirty && saveDraft) {
-      const ok = await saveDraft();
+    if (dirty && editorRef.current) {
+      const ok = await editorRef.current.save();
       if (!ok) return; // saisie invalide : on ne quitte pas la ligne
     }
     setSelectedId(next);
@@ -268,8 +278,8 @@ export default function ScriptCampaignDetailPage() {
 
   async function switchKind(k: ScriptKind) {
     if (k === kind) return;
-    if (dirty && saveDraft) {
-      const ok = await saveDraft();
+    if (dirty && editorRef.current) {
+      const ok = await editorRef.current.save();
       if (!ok) return;
     }
     setKind(k);
@@ -534,7 +544,7 @@ export default function ScriptCampaignDetailPage() {
             bricks={bricks}
             isLab={isLab}
             onDirtyChange={setDirty}
-            registerSave={(fn) => setSaveDraft(() => fn)}
+            ref={editorRef}
             onCreated={(newId) => setSelectedId(newId as string)}
             onDeleted={() => setSelectedId(null)}
             onGraduate={(bid) => setGraduating(bid)}
@@ -740,6 +750,12 @@ function BrickRow({
 
 /* ─── Volet d'édition ─────────────────────────────────────────────────────── */
 
+/**
+ * Ce que l'écran peut demander à l'éditeur — une seule chose : enregistre, et
+ * dis-moi si c'est passé (`false` = saisie invalide, on ne quitte pas la ligne).
+ */
+export type BrickEditorHandle = { save: () => Promise<boolean> };
+
 function BrickEditor({
   campaignId,
   kind,
@@ -748,7 +764,7 @@ function BrickEditor({
   bricks,
   isLab,
   onDirtyChange,
-  registerSave,
+  ref,
   onCreated,
   onDeleted,
   onGraduate,
@@ -760,7 +776,8 @@ function BrickEditor({
   bricks: Brick[];
   isLab: boolean;
   onDirtyChange: (d: boolean) => void;
-  registerSave: (fn: () => Promise<boolean>) => void;
+  /** React 19 : le ref est une prop ordinaire, pas de forwardRef. */
+  ref: React.Ref<BrickEditorHandle>;
   onCreated: (id: Id<"scriptBricks">) => void;
   onDeleted: () => void;
   onGraduate: (id: Id<"scriptBricks">) => void;
@@ -832,14 +849,15 @@ function BrickEditor({
   }
 
   // L'écran appelle `save` avant de changer de ligne : une saisie en cours ne
-  // doit pas disparaître parce qu'on a cliqué ailleurs. Publié une seule fois
-  // par montage (le composant est remonté à chaque changement de cible, cf.
-  // `key`), donc la fonction publiée ferme toujours sur l'état courant.
-  const [registered, setRegistered] = useState(false);
-  if (!registered) {
-    setRegistered(true);
-    registerSave(save);
-  }
+  // doit pas disparaître parce qu'on a cliqué ailleurs.
+  //
+  // ⚠️ SANS TABLEAU DE DÉPENDANCES, VOLONTAIREMENT : `save` ferme sur `label`,
+  // `content`, `instruction` et `mode`, qui changent à chaque frappe. Republier
+  // à chaque rendu est la seule façon que l'écran appelle la version qui voit ce
+  // qui est affiché — figer la publication (une fois par montage, ou une liste
+  // de dépendances incomplète) fait réenregistrer un état périmé, c'est-à-dire
+  // perdre la saisie en silence.
+  useImperativeHandle(ref, () => ({ save }));
 
   async function onDelete() {
     if (!brick) return;
