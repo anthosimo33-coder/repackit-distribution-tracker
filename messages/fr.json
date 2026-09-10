@@ -409,7 +409,12 @@
       "notFound": "Profil introuvable.",
       "identityHint": "Nom et email sont gérés par l'équipe. Pour les changer, contacte un administrateur.",
       "paymentHint": "Indique comment te payer. Ces infos sont visibles par l'admin qui exécute les virements.",
-      "save": "Enregistrer"
+      "save": "Enregistrer",
+      "contractTitle": "Contrat",
+      "contractHint": "Le contrat signé pour ce projet. Déposé par l'équipe — clique pour l'ouvrir ou l'enregistrer.",
+      "contractEmpty": "Aucun contrat pour l'instant.",
+      "contractUploadedOn": "Déposé le {date}",
+      "contractMissing": "{fileName} — fichier introuvable"
     },
     "assignment": {
       "started": "C'est parti — bon tournage !",

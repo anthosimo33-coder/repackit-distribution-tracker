@@ -498,6 +498,9 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     // et un cycle déjà payé ne se rediscute pas. 0 = « rien à signaler ICI »,
     // pas « tout était mesuré » — l'avertissement n'a de sens qu'AVANT de payer.
     unmeasuredPayablePosts: 0,
+    // GELÉ : un cycle payé n'a plus d'engagement, il a un montant. L'engagé y
+    // vaut donc le dû — c'est le seul état où les deux ne peuvent pas diverger.
+    engage: { total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal), billedViews: 0 },
     total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
     perPricing: [],
     perAssignment: [],

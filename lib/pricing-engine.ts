@@ -54,6 +54,21 @@ export type PayoutItem = {
   assignmentId: string;
   snapshot: PricingSnapshot;
   totalViews: number;
+  /**
+   * VUES DE LA PÉRIODE — celles mesurées à la FIN de la période, sans la fenêtre
+   * de paie J+30.
+   *
+   * ⚠️ ELLE NE SERT QU'AU SEUIL DU FIXE, jamais au CPM. Les deux répondent à
+   * deux questions différentes : le CPM paie une vidéo pour ce qu'elle a fait
+   * dans SES trente jours à elle, la condition demande ce que le MOIS a produit.
+   * Une vidéo publiée l'avant-veille de la clôture continue d'accumuler des vues
+   * payables pendant un mois — les compter dans la condition ferait basculer un
+   * mois déjà clos des semaines plus tard.
+   *
+   * Absente ⇒ on retombe sur `totalViews` : les appelants qui n'ont pas de borne
+   * de période gardent exactement le comportement d'avant.
+   */
+  periodViews?: number;
 };
 
 export type PerPricing = {
@@ -317,8 +332,9 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     // aucune vue « achetée » sur un barème au fixe seul. Une branche ajoutée
     // plus bas aurait dû répéter chacune de ces conséquences.
     const seuilVuesFixe = Math.max(0, groupSnapshot.seuilVuesFixe ?? 0);
+    // Les vues DE LA PÉRIODE (cf PayoutItem.periodViews), pas l'assiette du CPM.
     const groupViews = groupItems.reduce(
-      (s, it) => s + Math.max(0, it.totalViews),
+      (s, it) => s + Math.max(0, it.periodViews ?? it.totalViews),
       0,
     );
     // Écrit `seuil > vues` et non `vues < seuil` : le détecteur i18n prend le

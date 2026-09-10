@@ -194,6 +194,21 @@ export function useMyProfile(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/** Contrats PDF déposés par l'admin sur SA fiche. View-as →
+ *  listContractsAsAdmin (même lecture serveur, scopée creator∈projet). */
+export function useMyContracts(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(
+    api.creatorContracts.listMyContracts,
+    va ? "skip" : { projectId },
+  );
+  const asAdmin = useQuery(
+    api.creatorContracts.listContractsAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 /** Progression (échelle des paliers + victoires + célébrations). View-as →
  *  getProgressionAsAdmin (adminViewAsQuery : admin+projet+creator∈projet). */
 export function useMyProgression(projectId: Id<"projects">) {

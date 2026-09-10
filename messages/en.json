@@ -409,7 +409,12 @@
       "notFound": "Profile not found.",
       "identityHint": "Your name and email are managed by the team. To change them, get in touch with an administrator.",
       "paymentHint": "Tell us how to pay you. These details are visible to the admin who runs the transfers.",
-      "save": "Save"
+      "save": "Save",
+      "contractTitle": "Contract",
+      "contractHint": "The signed contract for this project. Uploaded by the team — click to open or save it.",
+      "contractEmpty": "No contract yet.",
+      "contractUploadedOn": "Uploaded on {date}",
+      "contractMissing": "{fileName} — file not found"
     },
     "assignment": {
       "started": "You're on — happy shooting!",

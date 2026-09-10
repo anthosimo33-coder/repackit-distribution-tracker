@@ -153,6 +153,55 @@ describe("seuil de vues conditionnant le FIXE", () => {
     expect(ok.perAssignment.every((a) => a.billedViews === 2_000)).toBe(true);
   });
 
+  it("le seuil se juge sur les vues DE LA PÉRIODE, pas sur l'assiette du CPM", () => {
+    // Le cas de production : une vidéo publiée en fin de mois continue de gagner
+    // des vues payables pendant trente jours. Si la condition les comptait, un
+    // mois clos à 40 000 vues basculerait des semaines plus tard.
+    const items = [
+      {
+        assignmentId: "a0",
+        snapshot: CONTRAT,
+        totalViews: 150_000, // assiette du CPM, J+30 (elle a monté depuis)
+        periodViews: 40_000, // ce que le MOIS avait produit à sa clôture
+      },
+    ];
+    const r = computeMonthlyPayout(items);
+    expect(r.perPricing[0].groupViews).toBe(40_000);
+    expect(r.fixedTotal).toBe(0);
+    // Présence en regard : les mêmes vues de période au-dessus du seuil paient.
+    const ok = computeMonthlyPayout([
+      { ...items[0], periodViews: 120_000 },
+    ]);
+    expect(ok.perPricing[0].groupViews).toBe(120_000);
+    expect(ok.fixedTotal).toBe(11.67);
+  });
+
+  it("sans vues de période, on retombe sur l'assiette du CPM", () => {
+    // Les appelants qui n'ont pas de borne (migrations, écrans d'affichage)
+    // gardent exactement le comportement d'avant.
+    const r = computeMonthlyPayout([
+      { assignmentId: "a0", snapshot: CONTRAT, totalViews: 150_000 },
+    ]);
+    expect(r.perPricing[0].groupViews).toBe(150_000);
+    expect(r.fixedTotal).toBe(11.67);
+  });
+
+  it("le CPM, lui, reste sur l'assiette J+30", () => {
+    // Les deux nombres coexistent et ne se contaminent pas : la condition
+    // regarde le mois, le CPM regarde les trente jours de la vidéo.
+    const AVEC_CPM = { ...CONTRAT, tauxCPM: 2 };
+    const r = computeMonthlyPayout([
+      {
+        assignmentId: "a0",
+        snapshot: AVEC_CPM,
+        totalViews: 50_000,
+        periodViews: 10_000,
+      },
+    ]);
+    expect(r.fixedTotal).toBe(0); // 10 000 < 100 000
+    expect(r.cpmTotal).toBe(100); // 50 000 × 2 $/1000, intact
+  });
+
   it("deux générations de snapshot : chaque groupe juge AVEC SON seuil", () => {
     // Le piège de la clé de regroupement : sans le seuil dedans, les 40 vidéos
     // partageraient un budget et la condition de l'une déciderait pour l'autre.
@@ -604,6 +653,57 @@ describe("computeMonthlyPayout — indépendance à l'ordre des documents", () =
 // module convex ne peut pas importer lib/. Cette parité n'était vérifiée par
 // AUCUN test : les deux copies pouvaient diverger sur de l'ARGENT sans que rien
 // ne casse. Le correctif d'ordre ci-dessus touchant les deux, on la verrouille.
+
+/**
+ * COÛT ENGAGÉ — ce que la période coûterait si la condition était remplie.
+ *
+ * Il ne paie personne : il sert au PILOTAGE (marge, RPM) d'un mois EN COURS.
+ * Sans lui, un mois dont le seuil n'est pas encore franchi s'affiche à coût nul
+ * et paraît excellent jusqu'à la seconde où il s'effondre.
+ */
+describe("engageOf — le coût d'un mois en cours", () => {
+  const CONTRAT2: PricingSnapshot = {
+    pricingId: "p-eng",
+    montantFixe: 700,
+    nbVideosCible: 60,
+    tauxCPM: 0,
+    seuilVuesFixe: 100_000,
+    seuilBonusVues: 0,
+    montantBonus: 0,
+  };
+
+  it("bloqué : le dû est 0, l'engagé est ce qu'on paiera si le seuil tombe", () => {
+    const jeu = items(60, 1_000, CONTRAT2); // 60 000 < 100 000
+    const base = computeMonthlyPayout(jeu);
+    expect(base.total).toBe(0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const eng = convexPricing.engageOf(jeu as any, base as any);
+    expect(eng.total).toBe(700);
+    // Le dénominateur du RPM suit le numérateur : les vues sont « achetées »
+    // dans le scénario engagé, sinon la marge et le RPM décriraient deux
+    // ensembles différents.
+    expect(eng.billedViews).toBe(60_000);
+  });
+
+  it("non bloqué : l'engagé EST le dû, au centime près", () => {
+    const jeu = items(60, 2_000, CONTRAT2); // 120 000 ≥ 100 000
+    const base = computeMonthlyPayout(jeu);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const eng = convexPricing.engageOf(jeu as any, base as any);
+    expect(base.total).toBe(700);
+    expect(eng.total).toBe(700);
+    expect(eng.billedViews).toBe(120_000);
+  });
+
+  it("aucune condition : rien à supposer, l'engagé est le dû", () => {
+    const SANS = { ...CONTRAT2, seuilVuesFixe: undefined };
+    const jeu = items(30, 10, SANS);
+    const base = computeMonthlyPayout(jeu);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const eng = convexPricing.engageOf(jeu as any, base as any);
+    expect(eng.total).toBe(base.total);
+  });
+});
 
 describe("parité lib/ ↔ convex/ du moteur de paie (règle A6)", () => {
   const JEUX: { nom: string; items: PayoutItem[] }[] = [

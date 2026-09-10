@@ -80,3 +80,30 @@ export function monthKeyParis(ts: number): string {
     .format(new Date(ts))
     .slice(0, 7);
 }
+
+/**
+ * PREMIER INSTANT DU MOIS SUIVANT, en heure de Paris — la borne haute d'un mois
+ * clé `monthKeyParis`, en millisecondes.
+ *
+ * ⚠️ TROUVÉE PAR DICHOTOMIE, pas par arithmétique. Ajouter « 31 jours » à un
+ * début de mois traverse les changements d'heure et rate la borne d'une heure
+ * deux fois par an ; et l'offset de Paris n'est pas une constante. On cherche
+ * donc l'instant exact où `monthKeyParis` change de valeur, ce qui reste juste
+ * quel que soit le fuseau ou la règle d'été.
+ *
+ * Un mois ne dépassant jamais 31 jours, 45 jours de fenêtre suffisent, et
+ * cinquante itérations amènent la précision sous la milliseconde.
+ */
+export function parisMonthEndMs(monthKey: string): number {
+  const [y, m] = monthKey.split("-").map(Number);
+  // Repère sûr DANS le mois visé, quel que soit le fuseau (midi UTC le 15).
+  const dedans = Date.UTC(y, m - 1, 15, 12, 0, 0);
+  let bas = dedans;
+  let haut = dedans + 45 * 86_400_000;
+  for (let i = 0; i < 50; i++) {
+    const milieu = Math.floor((bas + haut) / 2);
+    if (monthKeyParis(milieu) === monthKey) bas = milieu;
+    else haut = milieu;
+  }
+  return haut;
+}

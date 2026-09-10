@@ -1403,6 +1403,45 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_user", ["userId"]),
 
+  // ─── CONTRATS — le PDF signé entre le projet et la créatrice ───────────────
+  // 1 row = 1 PDF déposé par l'admin sur la fiche d'une créatrice. Le blob vit
+  // dans Convex file storage (pas sur Drive comme les rushes : ces fichiers-là
+  // sont lourds et transitent par le navigateur de la créatrice, un contrat est
+  // léger et ne sort jamais de l'app).
+  //
+  // PAR PROJET SANS LE DIRE : une row `creators` est DÉJÀ scopée projet — une
+  // même personne présente sur deux projets a deux fiches, donc deux contrats
+  // distincts. `projectId` est recopié ici pour pouvoir filtrer sans jointure,
+  // et il doit toujours valoir celui de la fiche.
+  //
+  // UNE LISTE, PAS UN CHAMP. Un avenant ne remplace pas le contrat d'origine :
+  // il s'ajoute. Un `contractStorageId` sur `creators` aurait forcé l'admin à
+  // écraser — et la créatrice à perdre — le document qu'elle avait signé.
+  // L'écran affiche le plus récent en tête ; le plus souvent il n'y en a qu'un.
+  //
+  // ⚠️ Lecture GATÉE `creators.pay_terms` côté admin : un contrat énonce le
+  // tarif négocié, il n'a rien à faire sous les yeux d'un manager à qui on
+  // cache ce même tarif sur la fiche. Côté créatrice, aucune garde à ajouter :
+  // elle ne lit que les siens (scopés par ctx.creatorId).
+  creatorContracts: defineTable({
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+    // Résolu en URL signée SERVEUR (ctx.storage.getUrl) — ni l'admin ni la
+    // créatrice ne manipulent jamais le storageId.
+    storageId: v.id("_storage"),
+    // Nom du fichier tel que déposé. C'est le SEUL libellé : pas de titre saisi
+    // à côté, qui ne ferait que diverger du contenu du PDF.
+    fileName: v.string(),
+    size: v.number(),
+    uploadedAt: v.number(),
+    // Qui a déposé. Traçabilité seule (affichée nulle part aujourd'hui) : sur un
+    // document contractuel, « qui l'a mis là » est la question qu'on se pose six
+    // mois plus tard, et elle ne se reconstitue pas après coup.
+    uploadedBy: v.id("users"),
+  })
+    .index("by_creator", ["creatorId"])
+    .index("by_project", ["projectId"]),
+
   // ─── Dépôt de fichiers Snytch — métadonnées des fichiers déposés ──────────
   // SNYTCH UNIQUEMENT. 1 row = 1 fichier (vidéo ou photo) déposé par un créateur
   // dans SON dossier Google Drive. Le FICHIER lui-même vit sur Drive (jamais

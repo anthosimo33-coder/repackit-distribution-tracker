@@ -65,6 +65,12 @@ type PayoutItem = {
   assignmentId: string;
   snapshot: PricingSnapshot;
   totalViews: number;
+  /**
+   * VUES DE LA PÉRIODE (fin de période, sans la fenêtre J+30) — SEUL le seuil du
+   * fixe les lit ; le CPM garde `totalViews`. Réplique A6 : le raisonnement vit
+   * dans lib/pricing-engine.
+   */
+  periodViews?: number;
 };
 
 export type PerPricing = {
@@ -219,8 +225,9 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
     // aucune vue « achetée » sur un barème au fixe seul. Une branche ajoutée
     // plus bas aurait dû répéter chacune de ces conséquences.
     const seuilVuesFixe = Math.max(0, groupSnapshot.seuilVuesFixe ?? 0);
+    // Les vues DE LA PÉRIODE (cf PayoutItem.periodViews), pas l'assiette du CPM.
     const groupViews = groupItems.reduce(
-      (s, it) => s + Math.max(0, it.totalViews),
+      (s, it) => s + Math.max(0, it.periodViews ?? it.totalViews),
       0,
     );
     // Écrit `seuil > vues` et non `vues < seuil` : le détecteur i18n prend le
@@ -600,6 +607,60 @@ export async function assignmentViewsAndMetrics(
   return out;
 }
 
+/**
+ * VUES PAYABLES D'UNE ASSIGNATION À UN INSTANT DONNÉ — l'assiette du SEUIL.
+ *
+ * ⚠️ CE N'EST PAS `payableViews`. Celle-là applique la fenêtre de paie J+30 :
+ * une vidéo publiée l'avant-veille de la clôture continue d'y gagner des vues
+ * pendant un mois. Pour une CONDITION portant sur ce que le mois a produit,
+ * c'est faux — un mois clos basculerait des semaines plus tard.
+ *
+ * Ici, une seule borne : le dernier relevé pris AVANT `asOfMs`. Aucun relevé
+ * avant cette borne ⇒ zéro pour ce post, et c'est juste : à la fin du mois, une
+ * vidéo qu'on n'avait pas encore mesurée n'avait pas encore de vues à porter au
+ * crédit du mois.
+ *
+ * Le filtre PAYABLE, lui, est le MÊME (`payableAssignmentViews`) : deux
+ * définitions du mot « payable » finiraient par diverger, et c'est de l'argent.
+ *
+ * ⚠️ HORS DU CACHE d'`assignmentViewsAndMetrics`, volontairement : son résultat
+ * dépend de `asOfMs`, et une même assignation est évaluée sur plusieurs périodes
+ * dans la même query (rentabilité par mois). Un cache par assignation seule
+ * rendrait la valeur d'un autre mois.
+ */
+export async function payableViewsAsOf(
+  ctx: QueryCtx | MutationCtx,
+  a: Doc<"assignments">,
+  asOfMs: number,
+  cache?: AssignmentViewsCache,
+): Promise<number> {
+  const pubIds = [
+    ...(a.targets ?? []).map((t) => t.publicationId),
+    a.publicationId,
+  ].filter((p): p is Id<"publications"> => p !== undefined);
+  const pubs: (RemunerationFlags & { views: number })[] = [];
+  const seen = new Set<string>();
+  for (const pid of pubIds) {
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const pub = cache?.pubs?.get(pid as string) ?? (await ctx.db.get(pid));
+    if (!pub) continue;
+    const snap = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_publication_and_capturedAt", (q) =>
+        q.eq("publicationId", pid).lte("capturedAt", asOfMs),
+      )
+      .order("desc")
+      .first();
+    pubs.push({
+      isWarmup: pub.isWarmup === true,
+      remunere: pub.remunere,
+      views: Math.max(0, snap?.vues ?? 0),
+    });
+  }
+  return payableAssignmentViews(pubs).payableViews;
+}
+
 /** "YYYY-MM" → mois suivant ("YYYY-MM"), UTC (rollover Guard A). */
 function nextPeriod(period: string): string {
   const [y, m] = period.split("-").map(Number);
@@ -950,6 +1011,24 @@ export interface PricingBreakdown extends MonthlyPayout {
    * l'information n'y est pas récupérable, et un cycle payé ne se rediscute pas.
    */
   unmeasuredPayablePosts: number;
+  /**
+   * COÛT ENGAGÉ — ce que la période coûterait si les conditions de vues étaient
+   * remplies. Égal à `total` dès qu'aucun barème n'est bloqué, c'est-à-dire
+   * partout sauf sur une période sous son seuil.
+   *
+   * ⚠️ CE N'EST PAS UN DÛ. Personne n'est payé là-dessus : `total` reste le
+   * montant dû, et lui seul devient une ligne de paie. Cette valeur sert au
+   * PILOTAGE — marge et RPM d'un mois EN COURS. Sans elle, un mois dont le seuil
+   * n'est pas encore franchi s'affiche à coût nul et la marge du mois paraît
+   * excellente jusqu'à la seconde où elle s'effondre. Le RPM d'un mois ouvert
+   * doit se lire en supposant qu'on paiera ; à la clôture, c'est `total` qui
+   * fait foi.
+   */
+  engage: {
+    total: number;
+    /** Vues facturées du scénario engagé — le dénominateur qui va avec. */
+    billedViews: number;
+  };
 }
 
 /**
@@ -1154,6 +1233,32 @@ export function assignmentCostFromBreakdown(input: {
  * ⚠️ NE JAMAIS passer autre chose que `periodOf` depuis un chemin qui ÉCRIT
  * (accrual, gel au paiement) : la clé y sert de jointure avec `payments.period`.
  */
+/**
+ * Le scénario ENGAGÉ — le même calcul, conditions de vues neutralisées.
+ *
+ * Une SECONDE passe du moteur plutôt qu'un calcul parallèle : le plafond
+ * 150 $/vidéo dépend de la part fixe, donc « ce que ça coûterait » ne se déduit
+ * pas du résultat bloqué. Elle n'est payée que si un groupe est effectivement
+ * bloqué — sinon l'engagé EST le dû, et on rend les mêmes nombres.
+ */
+export function engageOf(items: PayoutItem[], base: MonthlyPayout): {
+  total: number;
+  billedViews: number;
+} {
+  const billed = (b: MonthlyPayout) =>
+    b.perAssignment.reduce((s, a) => s + a.billedViews, 0);
+  if (!base.perPricing.some((g) => g.fixeBloque)) {
+    return { total: base.total, billedViews: billed(base) };
+  }
+  const sansSeuil = computeMonthlyPayout(
+    items.map((it) => ({
+      ...it,
+      snapshot: { ...it.snapshot, seuilVuesFixe: undefined },
+    })),
+  );
+  return { total: sansSeuil.total, billedViews: billed(sansSeuil) };
+}
+
 export async function computeLivePricingBreakdown(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
@@ -1168,6 +1273,12 @@ export async function computeLivePricingBreakdown(
    * CreatorPayrollSources). Absent = on relit, comme avant.
    */
   sources?: CreatorPayrollSources,
+  /**
+   * FIN DE LA PÉRIODE (ms) — sert UNIQUEMENT au seuil de vues du fixe, et n'est
+   * lue que si un barème de la période en porte un. Absente ⇒ le seuil retombe
+   * sur l'assiette du CPM, c'est-à-dire le comportement d'avant la condition.
+   */
+  periodEndMs?: number,
 ): Promise<PricingBreakdown> {
   const allAssignments =
     sources?.assignments ??
@@ -1185,6 +1296,12 @@ export async function computeLivePricingBreakdown(
       periodKeyOf(assignmentPublishedAt(a)) === period &&
       !legacyAssignmentIds.has(a._id),
   );
+  // Le seuil coûte une lecture indexée PAR PUBLICATION : on ne la paie que si un
+  // barème de la période en porte un. Aucun des barèmes existants n'en a, donc
+  // aucune lecture de plus pour eux.
+  const seuilPresent =
+    periodEndMs !== undefined &&
+    assignments.some((a) => (a.pricingSnapshot?.seuilVuesFixe ?? 0) > 0);
   const items: PayoutItem[] = [];
   let unmeasuredPayablePosts = 0;
   for (const a of assignments) {
@@ -1200,6 +1317,11 @@ export async function computeLivePricingBreakdown(
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
       totalViews: payableViews,
+      ...(seuilPresent
+        ? {
+            periodViews: await payableViewsAsOf(ctx, a, periodEndMs!, viewsCache),
+          }
+        : {}),
     });
   }
   const base = computeMonthlyPayout(items);
@@ -1243,6 +1365,7 @@ export async function computeLivePricingBreakdown(
     challengeTotal,
     challengeWins,
     unmeasuredPayablePosts,
+    engage: engageOf(items, base),
     // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
     // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
     // vidéos de défi forment leur propre groupe de paie.
@@ -1294,6 +1417,13 @@ export async function computeCyclePricingBreakdown(
   );
   const items: PayoutItem[] = [];
   let unmeasuredPayablePosts = 0;
+  // FIN DU CYCLE — la borne du seuil de vues. Elle est connue ici sans rien
+  // demander à l'appelant : un cycle EST une fenêtre. Lecture payée seulement si
+  // un barème du cycle porte une condition.
+  const cycleEnd = cycleWindow(firstPostAt, cycleIndex).cycleEnd;
+  const seuilPresent = assignments.some(
+    (a) => (a.pricingSnapshot?.seuilVuesFixe ?? 0) > 0,
+  );
   for (const a of assignments) {
     const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
       await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
@@ -1307,6 +1437,9 @@ export async function computeCyclePricingBreakdown(
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
       totalViews: payableViews,
+      ...(seuilPresent
+        ? { periodViews: await payableViewsAsOf(ctx, a, cycleEnd, viewsCache) }
+        : {}),
     });
   }
   const base = computeMonthlyPayout(items);
@@ -1354,6 +1487,7 @@ export async function computeCyclePricingBreakdown(
     challengeTotal,
     challengeWins,
     unmeasuredPayablePosts,
+    engage: engageOf(items, base),
     // ⚠️ S'AJOUTE (cf. computeLivePricingBreakdown) : fixe et CPM intouchés.
     total: round2(base.total + bonusTierCashTotal + challengeTotal),
   };
