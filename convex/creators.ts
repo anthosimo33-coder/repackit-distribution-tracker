@@ -38,6 +38,7 @@ import {
   summarizeCreatorActivity,
 } from "./creatorActivity";
 import { creatorZone } from "./creatorTimezone";
+import { creatorActivationPatch } from "./creatorActivation";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -572,12 +573,13 @@ export const updateCreator = permissionMutation("creators.manage")({
     // recalerait TOUS ses cycles, y compris ceux déjà payés, et des euros
     // changeraient de cycle sans qu'aucun humain n'ait rien fait. Une spec le
     // vérifie avec un partenaire réel.
-    if (
-      args.status === "active" &&
-      creator.payAnchorAt === undefined &&
-      resolveCreatorKind(creator.kind) === "talent"
-    ) {
-      patch.payAnchorAt = Date.now();
+    //
+    // Le patch lui-même vient de `creatorActivationPatch` : c'est le MÊME geste
+    // que l'activation automatique déclenchée par la validation d'un compte
+    // (cf convex/creatorActivation.ts). Deux copies de cette règle, et l'une des
+    // deux portes d'activation finirait par oublier l'ancre.
+    if (args.status === "active") {
+      Object.assign(patch, creatorActivationPatch(creator, Date.now()));
     }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;

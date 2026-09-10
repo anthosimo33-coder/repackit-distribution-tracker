@@ -512,6 +512,19 @@ export function CreatorDetailView({
                       ))}
                     </SelectContent>
                   </Select>
+                  {/*
+                    Dit l'automatisme AVANT qu'il se produise : sans cette ligne,
+                    un statut qu'on vient de poser à la main change tout seul
+                    quelques minutes plus tard, et rien à l'écran ne dit pourquoi.
+                    Affichée seulement en onboarding — c'est le seul statut que
+                    la validation d'un compte fait bouger.
+                  */}
+                  {status === "onboarding" && (
+                    <p className="text-xs text-muted-foreground">
+                      Passe en « Actif » automatiquement dès qu&apos;un de ses
+                      comptes est validé.
+                    </p>
+                  )}
                 </div>
                 {/*
                   Langue de la fiche — le FILET quand une invitation est partie dans
