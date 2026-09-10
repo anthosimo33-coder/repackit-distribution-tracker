@@ -113,12 +113,7 @@ async function makeChallenge(ts: number, tag: string, targetViews: number) {
     winnerRule: { kind: "all" },
     deadline: Date.now() + 10 * DAY,
     pricingId,
-    material: {
-      campaignId,
-      hookBrickIds: [h1],
-      fluxBrickId: flux,
-      ctaBrickId: cta,
-    },
+    script: "[E2E_TEST] script du défi — un seul texte, le même pour toutes.",
   });
   return challengeId;
 }

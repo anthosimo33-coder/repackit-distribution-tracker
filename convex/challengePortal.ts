@@ -179,6 +179,10 @@ async function challengesForCreator(
     const c = await ctx.db.get(p.challengeId);
     if (!c || c.projectId !== projectId) continue;
     if (c.status === "draft") continue;
+    // MASQUÉ — le défi existe encore côté admin (ses vidéos sont payées, ses
+    // victoires dues), mais il a disparu pour elle. C'est le seul geste possible
+    // quand la suppression est refusée, et il doit se voir ICI, à la lecture.
+    if (c.hiddenAt !== undefined) continue;
     if (!challengeStillVisible({ deadline: c.deadline, closedAt: c.closedAt }, now)) {
       continue;
     }

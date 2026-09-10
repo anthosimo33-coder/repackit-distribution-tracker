@@ -217,12 +217,7 @@ test.describe("Défis — la prime dans la paie", () => {
         winnerRule: { kind: "all" },
         deadline: Date.now() + 10 * DAY,
         pricingId: defiPricing,
-        material: {
-          campaignId,
-          hookBrickIds: [h1],
-          fluxBrickId: flux,
-          ctaBrickId: cta,
-        },
+        script: "[E2E_TEST] script du défi — un seul texte, le même pour toutes.",
       },
     );
     await admin.mutation(api.challenges.setChallengeParticipants, {
@@ -382,12 +377,7 @@ test.describe("Défis — la prime dans la paie", () => {
         winnerRule: { kind: "all" },
         deadline: Date.now() + 10 * DAY,
         pricingId: defiPricing,
-        material: {
-          campaignId,
-          hookBrickIds: [h1],
-          fluxBrickId: flux,
-          ctaBrickId: cta,
-        },
+        script: "[E2E_TEST] script du défi — un seul texte, le même pour toutes.",
       },
     );
     await admin.mutation(api.challenges.setChallengeParticipants, {

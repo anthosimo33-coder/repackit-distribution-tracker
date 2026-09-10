@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   useProjectQuery,
   useProjectMutation,
@@ -35,6 +35,7 @@ import { formatDateFr } from "@/convex/dateFr";
 import { formatMoney } from "@/lib/format-rate";
 import { progressRatio, type WinnerRule } from "@/convex/challengeScore";
 import { ChallengeMaterialCard } from "@/components/challenges/ChallengeMaterialCard";
+import { ChallengeDangerActions } from "@/components/challenges/ChallengeDangerActions";
 import { ChallengeParticipantsCard } from "@/components/challenges/ChallengeParticipantsCard";
 import { ChallengeWinsCard } from "@/components/challenges/ChallengeWinsCard";
 import {
@@ -58,12 +59,10 @@ export default function ChallengeDetailPage() {
   // Devise de la PAIE créatrices : une prime de défi lui est versée comme le
   // reste de sa paie. Jamais un symbole en dur (cf challenge-format).
   const payCurrency = useProject().project.payCurrency;
-  const router = useRouter();
   const data = useProjectQuery(api.challenges.getChallenge, { id });
   const preview = useProjectQuery(api.challenges.previewChallengeWinners, { id });
   const open = useProjectMutation(api.challenges.openChallenge);
   const close = useProjectMutation(api.challenges.closeChallenge);
-  const remove = useProjectMutation(api.challenges.deleteChallenge);
   const evaluate = useProjectMutation(api.challengeSync.evaluateChallengeNow);
   const setRemoved = useProjectMutation(api.challenges.setChallengeVideoRemoved);
   const [busy, setBusy] = useState(false);
@@ -131,30 +130,24 @@ export default function ChallengeDetailPage() {
           <p className="text-xs text-slate-400">{modeHelp(c.mode)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* SUPPRIMER / MASQUER — à TOUS les statuts, parce que c'est ce que le
+              défi PORTE qui décide, pas l'étape où il en est. Reste un geste
+              `challenges.money` : il défait un budget, ce n'est pas de
+              l'animation. */}
+          {droitsNav.has("challenges.money") && (
+            <ChallengeDangerActions
+              id={id}
+              hidden={c.hiddenAt !== null}
+              redirectTo={projectPath("/defis")}
+            />
+          )}
           {c.status === "draft" && (
-            <>
-              {/* Supprimer un brouillon de défi = `challenges.money` :
-                  c'est le geste qui défait un budget, pas de l'animation. */}
-              {droitsNav.has("challenges.money") && (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() =>
-                  act(() => remove({ id }), "Brouillon supprimé", () =>
-                    router.push(projectPath("/defis")),
-                  )
-                }
-              >
-                Supprimer
-              </Button>
-              )}
-              <Button
-                disabled={busy}
-                onClick={() => act(() => open({ id }), "Défi ouvert")}
-              >
-                Ouvrir le défi
-              </Button>
-            </>
+            <Button
+              disabled={busy}
+              onClick={() => act(() => open({ id }), "Défi ouvert")}
+            >
+              Ouvrir le défi
+            </Button>
           )}
           {c.status === "active" && (
             <>
@@ -336,7 +329,8 @@ export default function ChallengeDetailPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <ChallengeMaterialCard
           challengeId={id}
-          material={c.material}
+          script={c.script}
+          legacy={c.legacy}
           instructions={c.instructions}
         />
         <ChallengeParticipantsCard

@@ -80,6 +80,11 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   "contentType",
   "remunerated",
   // Décomposition script / rejeu / traçabilité admin — jamais côté portail.
+  // SCRIPT LIBRE d'un défi — sorti du champ brut, comme `scriptCombo`. Il est
+  // servi à part sous `assembledScript` (cf enrichForClipper) : passer le champ
+  // ici en plus le rendrait DEUX FOIS, et le jour où l'un des deux chemins se
+  // met à filtrer, l'autre ne filtrerait pas.
+  "freeScript",
   "scriptCombo",
   "comboKey",
   "comboImposed",

@@ -74,6 +74,11 @@ export const NON_CREATOR_ASSIGNMENT_FIELDS = [
   // faut-il le lui DIRE explicitement plutôt que de le taire ? cf rapport.)
   "challengeRemovedAt",
   // Décomposition script / rejeu / traçabilité admin — JAMAIS côté créatrice.
+  // SCRIPT LIBRE d'un défi — sorti du champ brut, comme `scriptCombo`. Il est
+  // servi à part sous `assembledScript` (cf enrichForCreator) : passer le champ
+  // ici en plus le rendrait DEUX FOIS, et le jour où l'un des deux chemins se
+  // met à filtrer, l'autre ne filtrerait pas.
+  "freeScript",
   "scriptCombo",
   "comboKey",
   "comboImposed",

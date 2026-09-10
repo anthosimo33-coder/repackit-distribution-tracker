@@ -1656,6 +1656,20 @@ export default defineSchema({
         editedOnce: v.optional(v.boolean()),
       }),
     ),
+    /**
+     * SCRIPT LIBRE — le texte figé d'une vidéo de DÉFI.
+     *
+     * Un défi n'a plus de campagne ni de briques : son script est un texte, et
+     * il est RECOPIÉ ici à la création de la vidéo. Il est donc figé comme
+     * l'était `scriptCombo.assembledScript` — corriger le script du défi ne
+     * réécrit pas le brief d'une créatrice qui a déjà commencé.
+     *
+     * Exclusif de `scriptCombo` : une assignation porte l'un ou l'autre, jamais
+     * les deux. Les projections serveur rendent le premier des deux sous le même
+     * nom (`assembledScript`), pour qu'aucun écran n'ait à connaître la
+     * différence.
+     */
+    freeScript: v.optional(v.string()),
     // S2 — signature top-level du combo. Refonte : "hook:flux:cta" (3 segments)
     // pour les nouveaux ; "hook:corps:flux:cta" (4 segments) pour l'historique.
     // Espaces de clés DISJOINTS → index by_creator_combo pour l'anti-coordination
@@ -2870,6 +2884,27 @@ export default defineSchema({
      * par index de soumission. Un seul hook ⇒ combo unique, cas dégénéré.
      * Absent = défi sans script (vidéos modèles + instructions seulement).
      */
+    /**
+     * LE SCRIPT DU DÉFI — un seul texte, écrit d'une traite, le même pour toutes.
+     *
+     * Un défi empruntait une campagne et composait des briques (hooks en
+     * rotation, flux, cta) : l'outillage de la production EN SÉRIE appliqué à
+     * son exact inverse. Un défi est un coup et un texte ; il n'a ni rotation à
+     * organiser, ni anti-coordination à contourner, ni combinaison à tracer.
+     *
+     * Absent = défi sans script (vidéos modèles + instructions seulement) : cas
+     * réel, et la production y est refusée tant qu'il manque.
+     */
+    script: v.optional(v.string()),
+    /**
+     * ⚠️ HÉRITAGE — l'ancien matériel par briques. PLUS JAMAIS ÉCRIT.
+     *
+     * Conservé en LECTURE seule pour les défis créés avant la bascule : leur
+     * script est reconstitué à la volée depuis ces briques (cf `getChallenge`)
+     * et persisté dans `script` à la première sauvegarde. Le champ part au
+     * resserrage, quand plus aucun document ne le porte — le retirer maintenant
+     * ferait échouer la poussée de schéma sur les documents existants.
+     */
     material: v.optional(
       v.object({
         campaignId: v.id("scriptCampaigns"),
@@ -2878,6 +2913,15 @@ export default defineSchema({
         ctaBrickId: v.id("scriptBricks"),
       }),
     ),
+    /**
+     * MASQUÉ AUX CRÉATRICES — un défi qu'on ne peut pas supprimer.
+     *
+     * Un défi qui porte des vidéos publiées ou des victoires ne se supprime pas
+     * (ses vidéos sont payées, le lien casserait). Mais on doit pouvoir le faire
+     * DISPARAÎTRE de l'espace des créatrices et de la liste admin. Masquer ne
+     * touche à aucun fait : ni vidéo, ni paie, ni victoire.
+     */
+    hiddenAt: v.optional(v.number()),
     /** Vidéos MODÈLES (liens) — même forme que assignments.modelVideos. */
     modelVideos: v.optional(
       v.array(

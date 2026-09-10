@@ -24,21 +24,30 @@ function dayMs(offsetDays: number): number {
  * SOUMISSION LIBRE dans un défi — côté créatrice.
  *
  * Ce que ces cas verrouillent :
- *   - AUCUN QUOTA : la 2e, la 3e, la 5e vidéo passent. C'est la promesse
- *     produit, et c'est aussi le point le plus fragile — l'unicité à vie du
- *     combo la refuserait dès la deuxième si `comboImposed` sautait ;
- *   - les hooks tournent par rang de soumission DE CETTE créatrice ;
+ *   - AUCUN QUOTA : la 2e, la 3e, la 5e vidéo passent. C'était le point le plus
+ *     fragile tant qu'un défi portait une COMBINAISON : l'unicité à vie la
+ *     refusait dès la deuxième, et seul le drapeau `comboImposed` la sauvait.
+ *     Depuis le script libre il n'y a plus de combinaison — donc plus rien à
+ *     court-circuiter, et c'est cette ABSENCE que le cas vérifie ;
+ *   - les cinq vidéos portent le MÊME texte, celui du défi ;
  *   - le score ne compte QUE les vidéos du défi, à partir de zéro : une vidéo
  *     ordinaire publiée à côté, même très vue, ne le fait pas bouger ;
  *   - la file de validation DIT qu'une vidéo relève d'un défi.
  */
-async function setupChallenge(ts: number, tag: string, hooks: 1 | 2) {
+/** Le script libre du défi — un seul texte, comparé à l'octet près plus bas. */
+const SCRIPT_DEFI =
+  "[E2E_TEST] script du défi — un seul texte, le même pour toutes.";
+
+async function setupChallenge(ts: number, tag: string) {
   const { pricingId } = await admin.mutation(api.pricing.createPricing, {
     name: `[E2E_TEST] Défi CPM ${tag} ${ts}`,
     montantFixe: 0,
     nbVideosCible: 1,
     tauxCPM: 2,
   });
+  // Une campagne ordinaire est encore semée ici : elle ne sert PLUS au défi
+  // (qui porte son propre texte), mais aux vidéos HORS défi de deux des cas —
+  // le contrôle qui donne son sens au score.
   const campaignId = await admin.mutation(api.scripts.createCampaign, {
     name: `[E2E_TEST] Défi camp ${tag} ${ts}`,
   });
@@ -49,10 +58,9 @@ async function setupChallenge(ts: number, tag: string, hooks: 1 | 2) {
       label,
       content: `${label} texte`,
     });
-  const h1 = await add("hook", `${tag} H1`);
-  const h2 = hooks === 2 ? await add("hook", `${tag} H2`) : null;
-  const flux = await add("flux", `${tag} F1`);
-  const cta = await add("cta", `${tag} C1`);
+  await add("hook", `${tag} H1`);
+  await add("flux", `${tag} F1`);
+  await add("cta", `${tag} C1`);
 
   const { challengeId } = await admin.mutation(api.challenges.createChallenge, {
     name: `[E2E_TEST] Défi ${tag} ${ts}`,
@@ -62,18 +70,13 @@ async function setupChallenge(ts: number, tag: string, hooks: 1 | 2) {
     winnerRule: { kind: "first" },
     deadline: dayMs(14),
     pricingId,
-    material: {
-      campaignId,
-      hookBrickIds: h2 ? [h1, h2] : [h1],
-      fluxBrickId: flux,
-      ctaBrickId: cta,
-    },
+    script: SCRIPT_DEFI,
   });
-  return { challengeId, pricingId, campaignId, h1, h2, flux, cta };
+  return { challengeId, pricingId, campaignId };
 }
 
 test.describe("Défis — soumission libre", () => {
-  test("aucun quota : cinq vidéos de suite, et les hooks tournent", async () => {
+  test("aucun quota : cinq vidéos de suite, toutes sur le même script", async () => {
     test.setTimeout(180_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -87,15 +90,15 @@ test.describe("Défis — soumission libre", () => {
       platform: "TikTok",
       handle: `@defisub${ts}`,
     });
-    const { challengeId, h1, h2 } = await setupChallenge(ts, "Sub", 2);
+    const { challengeId } = await setupChallenge(ts, "Sub");
     await admin.mutation(api.challenges.setChallengeParticipants, {
       id: challengeId,
       creatorIds: [creator.creatorId],
     });
     await admin.mutation(api.challenges.openChallenge, { id: challengeId });
 
-    // CINQ soumissions d'affilée, par le chemin CRÉATRICE. Si l'unicité à vie
-    // s'appliquait (comboImposed absent), la 2e serait déjà refusée.
+    // CINQ soumissions d'affilée, par le chemin CRÉATRICE. Sans combinaison,
+    // l'unicité à vie n'a plus de prise : c'est ce que les cinq prouvent.
     const ids = [];
     for (let i = 0; i < 5; i++) {
       const { assignmentId } = await creator.client.mutation(
@@ -106,7 +109,6 @@ test.describe("Défis — soumission libre", () => {
     }
     expect(new Set(ids).size).toBe(5);
 
-    // ROTATION des hooks : H1, H2, H1, H2, H1 (index de SES soumissions).
     const detail = (await admin.query(api.challenges.getChallenge, {
       id: challengeId,
     }))!;
@@ -114,17 +116,22 @@ test.describe("Défis — soumission libre", () => {
 
     const rows = await admin.query(api.assignments.listAssignments, {});
     const mine = ids.map((id) => rows.find((r) => r._id === id)!);
-    expect(mine.map((a) => a.scriptCombo?.hookBrickId)).toEqual([
-      h1,
-      h2,
-      h1,
-      h2,
-      h1,
-    ]);
-    // Toutes portent le marqueur de défi et le flag qui rend la répétition
-    // possible — les deux vont ensemble, l'un sans l'autre ne marcherait pas.
+    // Toutes portent le marqueur de défi…
     expect(mine.every((a) => a.challengeId === challengeId)).toBe(true);
-    expect(mine.every((a) => a.comboImposed === true)).toBe(true);
+    // …et AUCUNE combinaison : ni combo, ni clé, ni drapeau pour contourner
+    // l'unicité. C'est l'assertion d'ABSENCE qui remplace `comboImposed`, et
+    // elle est appariée à la présence du texte juste en dessous.
+    expect(mine.every((a) => a.scriptCombo === undefined)).toBe(true);
+    expect(mine.every((a) => a.comboKey === undefined)).toBe(true);
+    expect(mine.every((a) => a.comboImposed === undefined)).toBe(true);
+
+    // Le texte du défi est bien CELUI qu'elle lit, sur chacune des cinq.
+    for (const id of ids) {
+      const script = await admin.query(api.assignments.getAssignmentScript, {
+        id,
+      });
+      expect(script?.assembledScript).toBe(SCRIPT_DEFI);
+    }
   });
 
   test("le score ne compte QUE les vidéos du défi, à partir de zéro", async () => {
@@ -144,7 +151,6 @@ test.describe("Défis — soumission libre", () => {
     const { challengeId, campaignId, pricingId } = await setupChallenge(
       ts,
       "Score",
-      1,
     );
     await admin.mutation(api.challenges.setChallengeParticipants, {
       id: challengeId,
@@ -273,7 +279,6 @@ test.describe("Défis — soumission libre", () => {
     const { challengeId, campaignId, pricingId } = await setupChallenge(
       ts,
       "File",
-      1,
     );
     await admin.mutation(api.challenges.setChallengeParticipants, {
       id: challengeId,
@@ -342,7 +347,7 @@ test.describe("Défis — soumission libre", () => {
       platform: "TikTok",
       handle: `@defiout${ts}`,
     });
-    const { challengeId } = await setupChallenge(ts, "Garde", 1);
+    const { challengeId } = await setupChallenge(ts, "Garde");
 
     // BROUILLON : personne ne produit dessus, pas même une participante.
     await admin.mutation(api.challenges.setChallengeParticipants, {

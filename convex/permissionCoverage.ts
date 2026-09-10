@@ -16,7 +16,7 @@ export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "assignments.manage": { queries: 5, mutations: 13 },
   "business.read": { queries: 12, mutations: 2 },
   "challenges.money": { queries: 1, mutations: 3 },
-  "challenges.run": { queries: 3, mutations: 7 },
+  "challenges.run": { queries: 4, mutations: 8 },
   "content.analytics": { queries: 13, mutations: 0 },
   "creators.delete": { queries: 1, mutations: 1 },
   "creators.manage": { queries: 0, mutations: 5 },
