@@ -9,6 +9,7 @@ import {
   permissionMutation,
 } from "./functions";
 import { internal } from "./_generated/api";
+import { matchCompteByHandle } from "./creatorAvatar";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -342,14 +343,7 @@ export const recordAccountProfile = internalMutation({
     totalLikes: v.optional(v.union(v.number(), v.null())),
     source: apifySourceValidator,
   },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    action: "written" | "skipped";
-    /** Compte résolu depuis la publication — sert au miroir de photo de profil. */
-    compteId?: Id<"comptes">;
-  }> => {
+  handler: async (ctx, args): Promise<{ action: "written" | "skipped" }> => {
     // LE COMPTE D'ABORD, les compteurs ensuite. L'ordre inverse (l'historique,
     // c'était tout ce que cette mutation faisait) renvoyait « skipped » sans
     // jamais résoudre le compte quand aucun compteur n'arrivait — et l'appelant
@@ -357,12 +351,21 @@ export const recordAccountProfile = internalMutation({
     // elle, était peut-être bien là.
     const pub = await ctx.db.get(args.publicationId);
     if (!pub) return { action: "skipped" };
-    const compte = (
+    // ⚠️ LE @ SEUL NE SUFFIT PAS À DÉSIGNER UN COMPTE. Sept des quarante-six @
+    // de la prod existent à la fois en TikTok et en Instagram
+    // (`@introvertgela`, `@juliettesnytch`, `@repackit.io`…). Ce `find` ne
+    // filtrait que sur le handle : les abonnés TikTok d'un de ces comptes
+    // pouvaient être écrits sur la ligne INSTAGRAM du même @, et la row
+    // recopiait `plateforme: compte.plateforme` — donc un relevé TikTok
+    // étiqueté Instagram, sans erreur nulle part.
+    const compte = matchCompteByHandle(
       await ctx.db
         .query("comptes")
         .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
-        .collect()
-    ).find((c) => c.handle === pub.compte);
+        .collect(),
+      pub.compte,
+      args.source === "tiktok" ? "TikTok" : "Instagram",
+    );
     // Compte non déclaré en base (publication saisie à la main) : rien à
     // historiser, mais ce n'est pas une erreur de relevé.
     if (!compte) return { action: "skipped" };
@@ -375,9 +378,7 @@ export const recordAccountProfile = internalMutation({
       following === undefined &&
       totalLikes === undefined
     ) {
-      // Rien à HISTORISER — mais le compte est identifié, donc la photo de
-      // profil, elle, reste rattachable.
-      return { action: "skipped", compteId: compte._id };
+      return { action: "skipped" };
     }
 
     const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
@@ -404,7 +405,7 @@ export const recordAccountProfile = internalMutation({
     };
     if (existing) await ctx.db.patch(existing._id, row);
     else await ctx.db.insert("accountProfileSnapshots", row);
-    return { action: "written", compteId: compte._id };
+    return { action: "written" };
   },
 });
 
@@ -560,6 +561,9 @@ export const runDailySync = internalAction({
         publicationId: Id<"publications">;
         key: string;
         url: string;
+        /** @ TEL QU'IL EST EN BASE — la photo s'accroche là-dessus. */
+        compte: string;
+        projectId: Id<"projects">;
       }[] = [];
       const urls: string[] = [];
       for (const p of pubs) {
@@ -583,11 +587,23 @@ export const runDailySync = internalAction({
           }
           continue;
         }
-        targets.push({ publicationId: p._id, key, url: p.postUrl });
+        targets.push({
+          publicationId: p._id,
+          key,
+          url: p.postUrl,
+          compte: p.compte,
+          projectId: p.projectId,
+        });
         urls.push(p.postUrl);
       }
       summary.matched += targets.length;
       if (targets.length === 0) continue;
+      // (projet, @) → photo, un seul téléchargement par compte (cf le relevé
+      // nocturne, même forme).
+      const avatars = new Map<
+        string,
+        { projectId: Id<"projects">; handle: string; sourceUrl: string }
+      >();
 
       const { stats, unavailable, errors, runs } =
         await fetchApifyViewsForPlatform(plateforme, urls, apiToken);
@@ -615,6 +631,25 @@ export const runDailySync = internalAction({
           source,
         });
         if (r.action !== "skipped") summary.synced += 1;
+
+        // PHOTO DE PROFIL — le relevé manuel la collecte comme le nocturne.
+        // Sans ça, le bouton « Synchroniser » relevait les vues mais laissait
+        // les visages aux initiales, et il fallait attendre 23h30 pour voir
+        // quoi que ce soit : un chemin de moins pour observer ce qu'on vient
+        // de déployer.
+        if (stat.author?.avatarUrl) {
+          avatars.set(`${t.projectId}|${t.compte}`, {
+            projectId: t.projectId,
+            handle: t.compte,
+            sourceUrl: stat.author.avatarUrl,
+          });
+        }
+      }
+
+      if (avatars.size > 0) {
+        await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
+          candidats: [...avatars.values()].map((a) => ({ ...a, plateforme })),
+        });
       }
 
       if (manques.length > 0) {

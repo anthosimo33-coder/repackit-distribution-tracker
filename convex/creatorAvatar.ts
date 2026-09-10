@@ -64,3 +64,36 @@ export function pickFaceCompte<T extends CompteFace>(comptes: readonly T[]): T |
     return a3 < b3 ? c : meilleur;
   });
 }
+
+
+/** Ce qu'il faut savoir d'un compte pour le retrouver par son @. */
+export interface CompteRef {
+  handle: string;
+  plateforme: string;
+}
+
+/**
+ * Le compte d'un projet portant CE @ SUR CETTE PLATEFORME.
+ *
+ * ⚠️ LA PLATEFORME N'EST PAS FACULTATIVE. Sept des quarante-six @ de la prod
+ * existent à la fois en TikTok et en Instagram (`@introvertgela`,
+ * `@juliettesnytch`, `@repackit.io`…) : chercher par le seul @ rend le premier
+ * des deux, c'est-à-dire un compte sur deux au hasard de l'ordre de la table.
+ * Pour une photo, on collerait le visage TikTok sur la ligne Instagram — et le
+ * choix du visage (`pickFaceCompte`) ne regarde que les lignes TikTok, donc la
+ * photo n'apparaîtrait jamais, sans erreur nulle part.
+ *
+ * `null` si aucun ne correspond : une publication saisie à la main peut porter
+ * un @ qui n'a pas de ligne `comptes`, et ce n'est pas une anomalie.
+ */
+export function matchCompteByHandle<T extends CompteRef>(
+  comptes: readonly T[],
+  handle: string,
+  plateforme: string,
+): T | null {
+  return (
+    comptes.find(
+      (c) => c.handle === handle && c.plateforme === plateforme,
+    ) ?? null
+  );
+}
