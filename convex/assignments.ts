@@ -901,7 +901,9 @@ export const getAssignmentScript = permissionQuery("assignments.manage")({
   handler: async (ctx, { id }): Promise<{ assembledScript: string } | null> => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) return null;
-    const texte = a.scriptCombo?.assembledScript;
+    // Le premier des DEUX porteurs de texte : combo monté (production normale)
+    // ou script libre (défi). Aucun écran n'a à connaître la différence.
+    const texte = a.scriptCombo?.assembledScript ?? a.freeScript;
     return texte === undefined ? null : { assembledScript: texte };
   },
 });
@@ -1038,7 +1040,8 @@ export const listAssignments = permissionQuery("assignments.manage")({
           // demande, par `getAssignmentScript`.
           scriptCombo: scriptComboSansTexte(a.scriptCombo),
           /** Y a-t-il un script monté ? (le texte, lui, se demande à part) */
-          hasAssembledScript: a.scriptCombo?.assembledScript != null,
+          hasAssembledScript:
+            (a.scriptCombo?.assembledScript ?? a.freeScript) != null,
           comboKey: a.comboKey,
           comboImposed: a.comboImposed,
           replayedFrom: a.replayedFrom,
@@ -1225,6 +1228,22 @@ async function materializeTargetPublication(
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
       },
+      ...qualification,
+    });
+  }
+  // SCRIPT LIBRE (défi) — ni combinaison à tracer, ni format à lire. La
+  // publication est matérialisée quand même : c'est elle qui porte les vues, et
+  // sans elle une vidéo de défi publiée ne compterait NI au score NI à la paie.
+  // Elle n'a simplement pas de `scriptCombo` — il n'y a pas de briques à
+  // attribuer, et en inventer une fausserait les analytics par combinaison.
+  if (a.freeScript !== undefined && a.formatId === undefined) {
+    return await ctx.runMutation(internal.publications.createFromAssignment, {
+      projectId,
+      mediaType: "short",
+      plateforme: target.platform,
+      compte,
+      datePubli,
+      postUrl: url,
       ...qualification,
     });
   }
@@ -1493,7 +1512,7 @@ export const listVideoSubmitted = permissionQuery("review.manage")({
             // SCRIPT MONTÉ FIGÉ (labels:false, sans titres ##) : on l'AFFICHE
             // tel quel pour comparer vidéo ↔ script attendu. JAMAIS re-dérivé —
             // cohérent avec AssignmentScriptDialog. Null hors origine script.
-            assembledScript: combo?.assembledScript ?? null,
+            assembledScript: combo?.assembledScript ?? a.freeScript ?? null,
             comboSummary,
           };
         }),
@@ -2135,7 +2154,7 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
     ...safe,
     targets,
     ...label,
-    assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
+    assembledScript: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
   };
 }
 
@@ -2407,7 +2426,7 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
     targets,
     // Le TEXTE monté, jamais la décomposition (briques/ids/campagne) : elle
     // sert à l'anti-coordination et aux analytics, pas au montage.
-    assembledScript: a.scriptCombo ? a.scriptCombo.assembledScript : null,
+    assembledScript: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
   };
 }
 
@@ -2537,6 +2556,23 @@ async function assignmentDetailFor(
       assembledScript: a.scriptCombo.assembledScript,
       scriptZones,
       scriptInstructions,
+      targets,
+      submittedVideoUrl,
+      submittedVideoMimeType,
+      assets,
+    };
+  }
+  // SCRIPT LIBRE (défi) — pas de combo, donc pas de zones ni d'instructions de
+  // brique : juste le texte. Il passe par le MÊME champ `assembledScript`, sinon
+  // chaque écran devrait apprendre un second nom pour la même chose.
+  if (a.freeScript) {
+    return {
+      assignment: safe,
+      ...label,
+      format: null,
+      assembledScript: a.freeScript,
+      scriptZones: null as ScriptZones | null,
+      scriptInstructions: [] as ScriptInstruction[],
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,

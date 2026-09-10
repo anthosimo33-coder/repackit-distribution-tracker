@@ -244,12 +244,7 @@ test.describe("Défis — administration", () => {
         winnerRule: { kind: "all" },
         deadline: dayMs(10),
         pricingId,
-        material: {
-          campaignId,
-          hookBrickIds: [h1],
-          fluxBrickId: flux,
-          ctaBrickId: cta,
-        },
+        script: "[E2E_TEST] script du défi — un seul texte, le même pour toutes.",
       },
     );
 
@@ -313,12 +308,7 @@ test.describe("Défis — administration", () => {
           winnerRule: { kind: "all" },
           deadline: dayMs(10),
           pricingId,
-          material: {
-            campaignId,
-            hookBrickIds: [h1],
-            fluxBrickId: flux,
-            ctaBrickId: cta,
-          },
+          script: "[E2E_TEST] script du défi — un seul texte, le même pour toutes.",
         },
       );
       await admin.mutation(api.challenges.setChallengeParticipants, {
@@ -376,7 +366,7 @@ test.describe("Défis — administration", () => {
     }
   });
 
-  test("un défi ouvert ne se supprime pas — il se clôt", async () => {
+  test("un défi ouvert SANS rien de produit se supprime — la clôture reste possible", async () => {
     test.setTimeout(150_000);
     const ts = Date.now();
     const a = await newCreator(ts, "Clos");
@@ -398,9 +388,16 @@ test.describe("Défis — administration", () => {
     });
     await admin.mutation(api.challenges.openChallenge, { id: challengeId });
 
-    await expect(
-      admin.mutation(api.challenges.deleteChallenge, { id: challengeId }),
-    ).rejects.toThrow(/brouillon/i);
+    // ⚠️ LA RÈGLE A CHANGÉ DE CRITÈRE. Un défi ouvert n'était pas supprimable,
+    // au motif qu'il « peut porter des vidéos et des victoires ». Le motif est
+    // juste, sa portée était trop large : celui-ci n'en porte AUCUNE, et rien ne
+    // permettait de le retirer de l'espace de ses participantes. C'est
+    // désormais ce qu'il PORTE qui décide — le refus par les faits est vérifié
+    // dans defis-suppression.spec.ts.
+    expect(
+      (await admin.query(api.challenges.getChallengeFacts, { id: challengeId }))
+        .deletable,
+    ).toBe(true);
 
     await admin.mutation(api.challenges.closeChallenge, { id: challengeId });
     const d = (await admin.query(api.challenges.getChallenge, {
@@ -411,6 +408,14 @@ test.describe("Défis — administration", () => {
     await expect(
       admin.mutation(api.challenges.openChallenge, { id: challengeId }),
     ).rejects.toThrow(/ne se rouvre pas/i);
+
+    // …et une fois clos sans rien avoir produit, il se supprime pour de bon.
+    await admin.mutation(api.challenges.deleteChallenge, { id: challengeId });
+    expect(
+      (await admin.query(api.challenges.listChallenges, {})).some(
+        (c) => c._id === challengeId,
+      ),
+    ).toBe(false);
   });
 });
 

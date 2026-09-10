@@ -14,6 +14,7 @@ import {
   targetInputValidator,
   validateProjectFolderIds,
   validateTargets,
+  DELETABLE_STATUSES,
 } from "./assignments";
 import { assembleNoLabels } from "./scripts";
 import {
@@ -59,12 +60,15 @@ const rewardValidator = v.object({
   coutReel: v.optional(v.number()),
 });
 
-const materialValidator = v.object({
-  campaignId: v.id("scriptCampaigns"),
-  hookBrickIds: v.array(v.id("scriptBricks")),
-  fluxBrickId: v.id("scriptBricks"),
-  ctaBrickId: v.id("scriptBricks"),
-});
+
+/**
+ * Longueur MAXIMALE du script d'un défi.
+ *
+ * Généreuse à dessein : un script de défi est un texte complet (accroche, corps,
+ * appel à l'action), parfois en deux langues. La borne n'est pas une politique
+ * éditoriale, c'est un garde-fou contre un collage accidentel de mégaoctets.
+ */
+export const CHALLENGE_SCRIPT_MAX = 20_000;
 
 export const CHALLENGE_NAME_MAX = 120;
 export const CHALLENGE_DESCRIPTION_MAX = 1000;
@@ -184,39 +188,21 @@ type MaterialInput = {
  * désactiver en bibliothèque ne doit pas casser un défi en cours. C'est le même
  * arbitrage que `validateImposedCombo` côté scripts.
  */
-async function validateMaterial(
-  ctx: QueryCtx | MutationCtx,
-  projectId: Id<"projects">,
-  material: MaterialInput,
-): Promise<MaterialInput> {
-  const campaign = await ctx.db.get(material.campaignId);
-  if (!campaign || campaign.projectId !== projectId) {
-    throw new ConvexError("Campagne de scripts introuvable dans le projet.");
+
+/**
+ * Normalise et borne le script libre. Une chaîne VIDE vaut « pas de script » —
+ * effacer le champ doit pouvoir se faire, et un texte de zéro caractère n'est
+ * pas un script.
+ */
+function validateScript(script: string): string | undefined {
+  const t = script.trim();
+  if (t === "") return undefined;
+  if (t.length > CHALLENGE_SCRIPT_MAX) {
+    throw new ConvexError(
+      `Script trop long (${t.length} caractères, maximum ${CHALLENGE_SCRIPT_MAX}).`,
+    );
   }
-  const hookIds = [...new Set(material.hookBrickIds)];
-  if (hookIds.length === 0) {
-    throw new ConvexError("Choisis au moins un hook pour le script du défi.");
-  }
-  const need = async (
-    id: Id<"scriptBricks">,
-    kind: "hook" | "flux" | "cta",
-  ): Promise<Doc<"scriptBricks">> => {
-    const brick = await ctx.db.get(id);
-    if (!brick || brick.campaignId !== material.campaignId) {
-      throw new ConvexError("Brique introuvable dans cette campagne.");
-    }
-    // "corps" est legacy et n'est jamais un kind cible ici.
-    if (brick.kind !== kind) {
-      throw new ConvexError(
-        `La brique « ${brick.label} » n'est pas un ${kind}.`,
-      );
-    }
-    return brick;
-  };
-  for (const h of hookIds) await need(h, "hook");
-  await need(material.fluxBrickId, "flux");
-  await need(material.ctaBrickId, "cta");
-  return { ...material, hookBrickIds: hookIds };
+  return t;
 }
 
 /**
@@ -387,7 +373,7 @@ export const createChallenge = permissionMutation("challenges.money")({
     winnerRule: winnerRuleValidator,
     deadline: v.number(),
     pricingId: v.id("pricings"),
-    material: v.optional(materialValidator),
+    script: v.optional(v.string()),
     instructions: v.optional(v.string()),
     assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
     modelVideos: v.optional(
@@ -433,9 +419,7 @@ export const createChallenge = permissionMutation("challenges.money")({
       deadline: validateDeadline(args.deadline, now),
       status: "draft",
       pricingId: args.pricingId,
-      material: args.material
-        ? await validateMaterial(ctx, ctx.projectId, args.material)
-        : undefined,
+      script: args.script === undefined ? undefined : validateScript(args.script),
       instructions: normalizeInstructions(args.instructions),
       assetFolderIds:
         args.assetFolderIds && args.assetFolderIds.length > 0
@@ -474,7 +458,7 @@ export const updateChallenge = permissionMutation("challenges.money")({
     reward: v.optional(rewardValidator),
     winnerRule: v.optional(winnerRuleValidator),
     deadline: v.optional(v.number()),
-    material: v.optional(materialValidator),
+    script: v.optional(v.string()),
     instructions: v.optional(v.string()),
     assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
     modelVideos: v.optional(
@@ -500,8 +484,11 @@ export const updateChallenge = permissionMutation("challenges.money")({
     if (args.instructions !== undefined) {
       patch.instructions = normalizeInstructions(args.instructions);
     }
-    if (args.material !== undefined) {
-      patch.material = await validateMaterial(ctx, ctx.projectId, args.material);
+    if (args.script !== undefined) {
+      patch.script = validateScript(args.script);
+      // Écrire un script SOLDE l'ancien matériel : un défi ne peut pas porter
+      // les deux, sinon la production ne saurait pas lequel servir.
+      if (c.material !== undefined) patch.material = undefined;
     }
     if (args.assetFolderIds !== undefined) {
       patch.assetFolderIds =
@@ -607,19 +594,75 @@ export const closeChallenge = permissionMutation("challenges.run")({
 });
 
 /**
- * Suppression — UNIQUEMENT un brouillon. Un défi ouvert a été vu par des
- * créatrices et peut porter des vidéos et des victoires ; le supprimer
- * effacerait des faits. On le clôt, on ne le supprime pas.
+ * CE QUE PORTE UN DÉFI — les faits qui interdisent de le supprimer.
+ *
+ * Une vidéo PUBLIÉE porte une publication (analytics) et souvent une ligne de
+ * paie ; une victoire porte un dû. Les effacer laisserait des lignes de paie
+ * sans défi et des vues sans origine. Une vidéo encore À FAIRE, elle, ne porte
+ * rien : personne ne l'a vue, personne ne l'a payée.
+ *
+ * Les statuts supprimables sont ceux d'`assignments.DELETABLE_STATUSES`, et
+ * c'est VOULU : deux règles séparées finiraient par diverger, et c'est la
+ * seconde qui déciderait vraiment (celle qui s'exécute au moment d'effacer).
+ */
+async function challengeFacts(
+  ctx: MutationCtx | QueryCtx,
+  id: Id<"challenges">,
+): Promise<{
+  videos: number;
+  published: number;
+  wins: number;
+  deletable: Doc<"assignments">[];
+}> {
+  const videos = await challengeAssignments(ctx, id);
+  const wins = await ctx.db
+    .query("challengeWins")
+    .withIndex("by_challenge", (q) => q.eq("challengeId", id))
+    .collect();
+  const deletable = videos.filter((a) => DELETABLE_STATUSES.has(a.status));
+  return {
+    videos: videos.length,
+    published: videos.length - deletable.length,
+    wins: wins.filter((w) => w.cancelledAt === undefined).length,
+    deletable,
+  };
+}
+
+/**
+ * SUPPRESSION — permise tant que le défi ne porte AUCUN fait.
+ *
+ * Elle ne l'était que pour un brouillon, au motif qu'un défi ouvert « peut
+ * porter des vidéos et des victoires ». Le motif est juste, sa portée était trop
+ * large : un défi ouvert puis clos sans qu'une seule vidéo sorte ne porte rien
+ * du tout, et rien ne permettait de le faire disparaître — ni de l'écran, ni de
+ * l'espace des quatorze créatrices qui l'y voyaient.
+ *
+ * On regarde donc ce qu'il PORTE, pas son statut. Sans fait : le défi, ses
+ * participantes et ses vidéos encore à faire partent ensemble. Avec des faits :
+ * REFUS, et le message les compte — c'est lui qui oriente vers « masquer », le
+ * geste qui fait disparaître sans rien effacer.
  */
 export const deleteChallenge = permissionMutation("challenges.money")({
   args: { id: v.id("challenges") },
   handler: async (ctx, { id }): Promise<{ ok: true }> => {
-    const c = await requireChallenge(ctx, id, ctx.projectId);
-    if (c.status !== "draft") {
+    await requireChallenge(ctx, id, ctx.projectId);
+    const faits = await challengeFacts(ctx, id);
+    if (faits.published > 0 || faits.wins > 0) {
+      const quoi = [
+        faits.published > 0
+          ? `${faits.published} vidéo(s) publiée(s)`
+          : null,
+        faits.wins > 0 ? `${faits.wins} victoire(s)` : null,
+      ]
+        .filter(Boolean)
+        .join(" et ");
       throw new ConvexError(
-        "Seul un brouillon se supprime. Un défi ouvert se clôt (son historique reste).",
+        `Ce défi porte ${quoi} : les supprimer casserait le lien entre ces vidéos ` +
+          "et leur cycle de paie. Masque-le plutôt — il disparaît de l'espace des " +
+          "créatrices, ses vidéos et ses paiements restent intacts.",
       );
     }
+    for (const a of faits.deletable) await ctx.db.delete(a._id);
     const participants = await ctx.db
       .query("challengeParticipants")
       .withIndex("by_challenge", (q) => q.eq("challengeId", id))
@@ -627,6 +670,44 @@ export const deleteChallenge = permissionMutation("challenges.money")({
     for (const p of participants) await ctx.db.delete(p._id);
     await ctx.db.delete(id);
     return { ok: true };
+  },
+});
+
+/**
+ * MASQUER / RÉAFFICHER — la sortie pour un défi qu'on ne peut pas supprimer.
+ *
+ * Masquer ne touche à AUCUN fait : les vidéos restent publiées, payées et
+ * comptées, les victoires restent dues. Seule la VISIBILITÉ change, et d'un seul
+ * côté : la créatrice ne le voit plus. Côté admin il reste listé, marqué
+ * « masqué » — un défi qui disparaîtrait des deux côtés serait indistinguable
+ * d'un défi supprimé, et personne ne pourrait le rendre.
+ */
+export const setChallengeHidden = permissionMutation("challenges.run")({
+  args: { id: v.id("challenges"), hidden: v.boolean() },
+  handler: async (ctx, { id, hidden }): Promise<{ ok: true }> => {
+    await requireChallenge(ctx, id, ctx.projectId);
+    await ctx.db.patch(id, { hiddenAt: hidden ? Date.now() : undefined });
+    return { ok: true };
+  },
+});
+
+/** Ce que le défi porte — pour que l'écran l'annonce AVANT le clic. */
+export const getChallengeFacts = permissionQuery("challenges.run")({
+  args: { id: v.id("challenges") },
+  handler: async (ctx, { id }) => {
+    await requireChallenge(ctx, id, ctx.projectId);
+    const f = await challengeFacts(ctx, id);
+    const participants = await ctx.db
+      .query("challengeParticipants")
+      .withIndex("by_challenge", (q) => q.eq("challengeId", id))
+      .collect();
+    return {
+      videos: f.videos,
+      published: f.published,
+      wins: f.wins,
+      participants: participants.length,
+      deletable: f.published === 0 && f.wins === 0,
+    };
   },
 });
 
@@ -788,9 +869,9 @@ export async function createChallengeAssignment(
   if (!participation) {
     throw new ConvexError("Cette créatrice ne participe pas à ce défi.");
   }
-  if (!challenge.material) {
+  if (!challenge.script) {
     throw new ConvexError(
-      "Ce défi n'a pas encore de script : ajoute son matériel avant d'y produire.",
+      "Ce défi n'a pas encore de script : écris-le avant d'y produire.",
     );
   }
 
@@ -802,20 +883,6 @@ export async function createChallengeAssignment(
     input.targets,
   );
 
-  // AUCUN QUOTA : on compte seulement pour savoir quel hook servir. C'est la
-  // seule raison de ce décompte — surtout ne pas le transformer en limite.
-  const mine = (await challengeAssignments(ctx, challenge._id)).filter(
-    (a) => a.creatorId === input.creatorId,
-  );
-  const hookBrickId = hookForSubmission(
-    challenge.material.hookBrickIds,
-    mine.length,
-  );
-  const assembledScript = await assembleChallengeScript(
-    ctx,
-    challenge.material,
-    hookBrickId,
-  );
   const pricingSnapshot = await buildPricingSnapshot(
     ctx,
     ctx.projectId,
@@ -827,17 +894,14 @@ export async function createChallengeAssignment(
     projectId: ctx.projectId,
     creatorId: input.creatorId,
     challengeId: challenge._id,
-    scriptCombo: {
-      campaignId: challenge.material.campaignId,
-      hookBrickId,
-      fluxBrickId: challenge.material.fluxBrickId,
-      ctaBrickId: challenge.material.ctaBrickId,
-      assembledScript,
-    },
-    comboKey: `${hookBrickId}:${challenge.material.fluxBrickId}:${challenge.material.ctaBrickId}`,
-    // Cf. point 2 du commentaire d'en-tête : sans ce flag, la 2e vidéo de la
-    // même créatrice sur le même script serait refusée par l'unicité à vie.
-    comboImposed: true,
+    // LE SCRIPT EST RECOPIÉ, pas référencé : corriger celui du défi ne réécrit
+    // pas le brief d'une créatrice qui a déjà commencé. Même propriété que
+    // l'`assembledScript` figé d'avant.
+    freeScript: challenge.script,
+    // NI `scriptCombo`, NI `comboKey`, NI `comboImposed` : sans combinaison, il
+    // n'y a plus rien à imposer. L'unicité à vie ne s'applique qu'aux combos —
+    // deux vidéos de défi d'une même créatrice ne se gênent donc plus, et ce
+    // n'est plus un flag qui le permet, c'est l'absence de clé.
     targets: input.targets,
     dueDate: input.dueDate ?? challenge.deadline,
     status: managed ? "to_publish" : "todo",
@@ -944,6 +1008,7 @@ export const listChallenges = permissionQuery("challenges.run")({
             _id: c._id,
             name: c.name,
             status: c.status,
+            hiddenAt: c.hiddenAt ?? null,
             mode: c.mode,
             targetViews: c.targetViews,
             deadline: c.deadline,
@@ -1011,7 +1076,28 @@ export const getChallenge = permissionQuery("challenges.run")({
         deadline: c.deadline,
         status: c.status,
         openedAt: c.openedAt ?? null,
-        material: c.material ?? null,
+        hiddenAt: c.hiddenAt ?? null,
+        script: c.script ?? null,
+        /**
+         * ANCIEN FORMAT — le défi porte encore des briques et pas de script.
+         *
+         * On ne convertit PAS en silence : 41 hooks en rotation ne se replient
+         * pas sur un texte unique sans perdre quarante d'entre eux. L'écran le
+         * DIT, propose le premier hook monté comme point de départ, et c'est
+         * l'admin qui décide. Une conversion automatique aurait effacé du
+         * travail en croyant rendre service.
+         */
+        legacy:
+          c.material !== undefined && c.script === undefined
+            ? {
+                hookCount: c.material.hookBrickIds.length,
+                brouillon: await assembleChallengeScript(
+                  ctx,
+                  c.material,
+                  c.material.hookBrickIds[0],
+                ).catch(() => ""),
+              }
+            : null,
         modelVideos: c.modelVideos ?? [],
         instructions: c.instructions ?? null,
         assetFolderIds: c.assetFolderIds ?? [],
