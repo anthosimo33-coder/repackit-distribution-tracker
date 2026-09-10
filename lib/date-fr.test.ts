@@ -6,7 +6,9 @@
 process.env.TZ = "UTC";
 
 import { describe, expect, it } from "vitest";
-import { formatDateFr, formatDayMonthFr, monthKeyParis } from "../convex/dateFr";
+import { formatDateFr, formatDayMonthFr, monthKeyParis,
+  parisMonthEndMs,
+} from "../convex/dateFr";
 import { periodOf } from "../convex/payments";
 
 /**
@@ -139,5 +141,52 @@ describe("monthKeyParis — mois calendaire Europe/Paris", () => {
     // Hors frontière, elles coïncident — c'est ce qui rend la substitution sûre
     // partout ailleurs.
     expect(periodOf(1787254571095)).toBe(monthKeyParis(1787254571095));
+  });
+});
+
+/**
+ * BORNE HAUTE D'UN MOIS PARIS — la fenêtre sur laquelle se juge le seuil de vues
+ * d'un barème conditionné. C'est de l'ARGENT : une borne fausse d'une heure
+ * déplace des vues d'un mois à l'autre, et peut faire basculer une condition.
+ *
+ * ⚠️ ELLE EST CHERCHÉE PAR DICHOTOMIE, pas calculée. Ajouter « 31 jours » à un
+ * début de mois traverse les changements d'heure : les deux cas de bascule
+ * ci-dessous sont exactement ceux qu'une arithmétique naïve rate.
+ */
+describe("parisMonthEndMs", () => {
+  it("est l'instant EXACT où le mois change, à la milliseconde", () => {
+    for (const mois of ["2026-01", "2026-06", "2026-09", "2026-12"]) {
+      const fin = parisMonthEndMs(mois);
+      expect(monthKeyParis(fin - 1), mois).toBe(mois);
+      expect(monthKeyParis(fin), mois).not.toBe(mois);
+    }
+  });
+
+  it("suit l'heure d'été : mars et octobre ne finissent pas au même offset", () => {
+    // Fin mars, Paris est à UTC+2 → 22:00Z. Fin octobre, UTC+1 → 23:00Z. Une
+    // borne posée « à minuit UTC » se serait trompée d'une heure deux fois l'an.
+    expect(new Date(parisMonthEndMs("2026-03")).toISOString()).toBe(
+      "2026-03-31T22:00:00.000Z",
+    );
+    expect(new Date(parisMonthEndMs("2026-10")).toISOString()).toBe(
+      "2026-10-31T23:00:00.000Z",
+    );
+  });
+
+  it("gère le passage d'année", () => {
+    expect(new Date(parisMonthEndMs("2026-12")).toISOString()).toBe(
+      "2026-12-31T23:00:00.000Z",
+    );
+    expect(monthKeyParis(parisMonthEndMs("2026-12"))).toBe("2027-01");
+  });
+
+  it("les mois courts et longs tombent sur le bon dernier jour", () => {
+    // Février 2028 est bissextile : 29 jours.
+    expect(new Date(parisMonthEndMs("2028-02")).toISOString()).toBe(
+      "2028-02-29T23:00:00.000Z",
+    );
+    expect(new Date(parisMonthEndMs("2026-02")).toISOString()).toBe(
+      "2026-02-28T23:00:00.000Z",
+    );
   });
 });

@@ -8,7 +8,7 @@ import {
   loadCreatorPayrollSources,
   assignmentPublishedAt,
 } from "./pricing";
-import { monthKeyParis } from "./dateFr";
+import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 
@@ -90,6 +90,9 @@ async function creatorCostByMonth(
   // Une seule lecture des sources de la créatrice pour TOUS ses mois : le
   // moteur les relisait sinon à chaque tour de boucle (cf CreatorPayrollSources).
   const sources = await loadCreatorPayrollSources(ctx, projectId, creator._id);
+  // Le mois EN COURS n'est pas fini : ce qu'il coûte n'est pas encore ce qu'on
+  // doit. Cf `engage` plus bas.
+  const moisCourant = monthKeyParis(Date.now());
   for (const month of activeMonths) {
     const bd = await computeLivePricingBreakdown(
       ctx,
@@ -100,14 +103,29 @@ async function creatorCostByMonth(
       monthKeyParis,
       undefined,
       sources,
+      // Borne du seuil de vues : la fin du mois PARIS, la même que celle qui
+      // range les publications dans ce mois.
+      parisMonthEndMs(month),
     );
     // Les vues FACTURÉES viennent du MÊME appel que le coût : c'est la seule
     // façon que le dénominateur du RPM et son numérateur décrivent le même
     // ensemble. Un mois à coût nul peut porter des vues (barème à taux nul) et
     // l'inverse (bonus de palier sans publication) — d'où les deux conditions.
-    const billedViews = bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
-    if (bd.total > 0 || billedViews > 0) {
-      out.set(month, { cost: bd.total, billedViews });
+    // ─── MOIS EN COURS : le coût ENGAGÉ ────────────────────────────────────
+    // Un barème conditionné dont le seuil n'est pas encore franchi doit à ce
+    // jour ZÉRO. Le compter à zéro dans la marge ferait paraître le mois
+    // excellent jusqu'à la seconde où le seuil tombe — et un RPM qui saute d'un
+    // facteur deux à la clôture n'est pas un indicateur, c'est un piège.
+    // Tant que le mois court on suppose donc qu'on paiera ; à la clôture, le DÛ
+    // reprend la main (les deux valeurs sont égales dès qu'aucun seuil ne
+    // bloque, c'est-à-dire partout ailleurs).
+    const enCours = month === moisCourant;
+    const cost = enCours ? bd.engage.total : bd.total;
+    const billedViews = enCours
+      ? bd.engage.billedViews
+      : bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
+    if (cost > 0 || billedViews > 0) {
+      out.set(month, { cost, billedViews });
     }
   }
   return out;
