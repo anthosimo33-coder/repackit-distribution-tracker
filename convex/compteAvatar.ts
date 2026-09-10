@@ -4,7 +4,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { pickFaceCompte } from "./creatorAvatar";
+import { matchCompteByHandle, pickFaceCompte } from "./creatorAvatar";
 
 /**
  * PHOTO DE PROFIL d'un compte — miroir du blob TikTok dans le storage.
@@ -177,19 +177,35 @@ export const e2eAttachAvatar = e2eMutation({
   handler: async (ctx, args) => attachAvatarCore(ctx, args),
 });
 
-/** Comptes à rafraîchir : ceux dont l'URL diffère de celle déjà stockée. */
+/** Un @ vu dans un relevé, avec la photo que l'item portait. */
+const candidatValidator = v.object({
+  projectId: v.id("projects"),
+  /** Handle TEL QU'IL EST EN BASE (celui de la publication, pas celui de l'URL). */
+  handle: v.string(),
+  plateforme: v.string(),
+  sourceUrl: v.string(),
+});
+
+/**
+ * Résout les @ en comptes et ne garde que ceux dont la photo a changé.
+ *
+ * La résolution se fait ici, en base, plutôt que chez l'appelant : les deux
+ * relevés (le nocturne et le bouton « Synchroniser ») ont le @ sous la main,
+ * pas l'id — et le faire deux fois, c'est se donner deux occasions de le faire
+ * différemment.
+ */
 export const comptesARafraichir = internalMutation({
-  args: {
-    candidats: v.array(
-      v.object({ compteId: v.id("comptes"), sourceUrl: v.string() }),
-    ),
-  },
+  args: { candidats: v.array(candidatValidator) },
   handler: async (ctx, { candidats }) => {
     const aFaire: { compteId: Id<"comptes">; sourceUrl: string }[] = [];
     for (const c of candidats) {
-      const compte = await ctx.db.get(c.compteId);
+      const duProjet = await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", c.projectId))
+        .collect();
+      const compte = matchCompteByHandle(duProjet, c.handle, c.plateforme);
       if (!compte || dejaAJour(compte, c.sourceUrl)) continue;
-      aFaire.push(c);
+      aFaire.push({ compteId: compte._id, sourceUrl: c.sourceUrl });
     }
     return aFaire;
   },
@@ -202,11 +218,7 @@ export const comptesARafraichir = internalMutation({
  * précédent (ou les initiales) en place, et se relira au relevé suivant.
  */
 export const rafraichirAvatars = internalAction({
-  args: {
-    candidats: v.array(
-      v.object({ compteId: v.id("comptes"), sourceUrl: v.string() }),
-    ),
-  },
+  args: { candidats: v.array(candidatValidator) },
   handler: async (ctx, { candidats }): Promise<{ recopies: number }> => {
     if (candidats.length === 0) return { recopies: 0 };
     const aFaire = await ctx.runMutation(

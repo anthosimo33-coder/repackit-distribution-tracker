@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { pickFaceCompte, type CompteFace } from "../convex/creatorAvatar";
+import {
+  matchCompteByHandle,
+  pickFaceCompte,
+  type CompteFace,
+} from "../convex/creatorAvatar";
 
 /** Comptes à la forme de la prod : handles réels, dates espacées de semaines. */
 function compte(over: Partial<CompteFace> & { createdAt: number }): CompteFace {
@@ -59,5 +63,35 @@ describe("pickFaceCompte", () => {
     });
     const sansPhoto = compte({ createdAt: LE_28_AVRIL, hasAvatar: false });
     expect(pickFaceCompte([seul, sansPhoto])).toBe(seul);
+  });
+});
+
+describe("matchCompteByHandle", () => {
+  // Cas RÉEL de la prod : sept @ sur quarante-six existent sur les deux
+  // plateformes. Ici l'Instagram est en tête de liste, comme il peut l'être
+  // dans la table.
+  const comptes = [
+    { handle: "@introvertgela", plateforme: "Instagram" },
+    { handle: "@introvertgela", plateforme: "TikTok" },
+    { handle: "@ja.deotn", plateforme: "TikTok" },
+  ];
+
+  it("rend le compte de LA BONNE plateforme quand le @ est partagé", () => {
+    expect(matchCompteByHandle(comptes, "@introvertgela", "TikTok")).toEqual({
+      handle: "@introvertgela",
+      plateforme: "TikTok",
+    });
+    expect(matchCompteByHandle(comptes, "@introvertgela", "Instagram")).toEqual({
+      handle: "@introvertgela",
+      plateforme: "Instagram",
+    });
+  });
+
+  it("rend null quand le @ existe mais pas sur cette plateforme", () => {
+    expect(matchCompteByHandle(comptes, "@ja.deotn", "Instagram")).toBeNull();
+  });
+
+  it("rend null quand le @ est inconnu (publication saisie à la main)", () => {
+    expect(matchCompteByHandle(comptes, "@jamais_vu", "TikTok")).toBeNull();
   });
 });
