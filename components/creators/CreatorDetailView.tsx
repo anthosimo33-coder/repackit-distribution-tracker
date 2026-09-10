@@ -72,6 +72,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { formatDateFr } from "@/convex/dateFr";
+import { CreatorContractsSection } from "@/components/creators/CreatorContractsSection";
 import { localTimeIn, shortZoneLabel } from "@/lib/creator-region";
 import { EMPTY_ACTIVITY } from "@/convex/creatorActivity";
 import { CopyableLink } from "./CopyableLink";
@@ -885,6 +886,13 @@ export function CreatorDetailView({
                 current={payTerms?.bonusPricingId ?? null}
                 currency={payCurrency}
               />
+            )}
+            {/* Le contrat signé — rangé avec les conditions, pas avec l'identité :
+                il énonce le tarif négocié, il relève donc du même droit
+                (`creators.pay_terms`) que le reste de cet onglet. Toutes
+                populations : un talent et un clippeur signent aussi. */}
+            {canEditPayTerms && (
+              <CreatorContractsSection creatorId={creator._id} />
             )}
             </div>
           </TabsContent>

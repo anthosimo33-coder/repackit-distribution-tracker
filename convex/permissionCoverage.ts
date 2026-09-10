@@ -20,7 +20,7 @@ export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "content.analytics": { queries: 13, mutations: 0 },
   "creators.delete": { queries: 1, mutations: 1 },
   "creators.manage": { queries: 0, mutations: 5 },
-  "creators.pay_terms": { queries: 1, mutations: 1 },
+  "creators.pay_terms": { queries: 2, mutations: 3 },
   "creators.read": { queries: 5, mutations: 0 },
   "guide.manage": { queries: 3, mutations: 5 },
   "legacy.access": { queries: 2, mutations: 3 },
