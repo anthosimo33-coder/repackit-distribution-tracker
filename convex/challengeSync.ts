@@ -167,7 +167,7 @@ export const cancelChallengeWin = permissionMutation("challenges.run")({
         .collect()
     ).filter((p) => p.projectId === ctx.projectId && p.status === "paid");
     const creator = await ctx.db.get(win.creatorId);
-    const anchor = creator?.payAnchorAt ?? creator?.firstPostAt;
+    const anchor = creator?.payStartAt ?? creator?.firstPostAt;
     const paid = paidRows.filter((p) => {
       if (p.period === win.attributionPeriod) return true; // mode mensuel
       if (anchor === undefined) return false;

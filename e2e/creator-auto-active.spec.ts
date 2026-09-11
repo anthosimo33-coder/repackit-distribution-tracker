@@ -64,7 +64,7 @@ test.describe("Créateur — activation automatique au premier compte validé", 
     expect(apres.status).toBe("active");
     // Partenaire : PAS d'ancre de paie (elle recalerait ses cycles sur une date
     // antérieure à son premier post).
-    expect(apres.payAnchorAt).toBeUndefined();
+    expect(apres.payStartAt).toBeUndefined();
   });
 
   test("valider le compte d'un talent pose son ancre de paie", async () => {
@@ -85,7 +85,7 @@ test.describe("Créateur — activation automatique au premier compte validé", 
     expect(apres.status).toBe("active");
     // Sans ancre, un talent activé n'apparaît dans AUCUN cycle de paie et
     // `markCyclePaid` jette : c'est la moitié la plus coûteuse de l'activation.
-    expect(apres.payAnchorAt).toBeGreaterThan(0);
+    expect(apres.payStartAt).toBeGreaterThan(0);
   });
 
   test("une fiche partie n'est pas ressuscitée par une validation", async () => {

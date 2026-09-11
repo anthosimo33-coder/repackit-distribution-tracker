@@ -133,7 +133,7 @@ test.describe("Barèmes — la grille suit la créatrice", () => {
       kind: "talent",
     });
 
-    // Un talent est payé au forfait de cycle (`cycleRetainer`), champ disjoint du
+    // Un talent est payé au forfait mensuel (`monthlyRetainer`), champ disjoint du
     // barème : lui en poser un écrirait une condition de paie que rien ne lit.
     await expect(
       admin.mutation(api.pricing.setPricingCreators, {

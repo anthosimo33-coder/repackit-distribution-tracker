@@ -165,7 +165,7 @@ export const listCreators = permissionQuery("creators.read")({
         handlesToCreate: c.handlesToCreate,
         driveFolderId: c.driveFolderId,
         firstPostAt: c.firstPostAt,
-        payAnchorAt: c.payAnchorAt,
+        payStartAt: c.payStartAt,
         refSlug: c.refSlug,
         createdAt: c.createdAt,
         invitation,
@@ -336,7 +336,7 @@ export const getCreator = permissionQuery("creators.read")({
       handlesToCreate: creator.handlesToCreate,
       driveFolderId: creator.driveFolderId,
       firstPostAt: creator.firstPostAt,
-      payAnchorAt: creator.payAnchorAt,
+      payStartAt: creator.payStartAt,
       refSlug: creator.refSlug,
       createdAt: creator.createdAt,
       // `adminNotes` reste ici : ce sont des notes d'équipe, pas de l'argent.
@@ -502,7 +502,7 @@ function normalizeHandlesToCreate(
  * Édition de la fiche — IDENTITÉ ET SUIVI, jamais la rémunération.
  *
  * Les cinq champs d'argent (`paymentMethod`, `paymentDetails`, `bonusPricingId`,
- * `clipRate`, `cycleRetainer`) ont été SORTIS d'ici : ils vivent dans
+ * `clipRate`, `monthlyRetainer`) ont été SORTIS d'ici : ils vivent dans
  * `updateCreatorPayTerms`, gardée par le bloc `creators.pay_terms`. Avant ce
  * découpage, « pouvoir modifier une fiche » signifiait littéralement « pouvoir
  * changer ce qu'on verse à quelqu'un », et aucune permission ne pouvait séparer
@@ -599,6 +599,28 @@ export const updateCreator = permissionMutation("creators.manage")({
     if (args.status === "active") {
       Object.assign(patch, creatorActivationPatch(creator, Date.now()));
     }
+    // FIN DE PAIE — le pendant de l'ancre de début. Quitter `active` arrête les
+    // mois dus (celui de la sortie est dû en entier) ; revenir efface la borne.
+    //
+    // Sans elle, un talent arrêté continuerait d'accumuler un forfait tous les
+    // mois, indéfiniment : rien ne planterait, le total dû grossirait tout seul,
+    // et on le découvrirait au virement.
+    //
+    // Elle vit ICI et pas dans `creatorActivationPatch` : ce patch dit ce que
+    // l'ACTIVATION écrit, et il est partagé avec l'automatisme qui active sur
+    // validation d'un compte — lequel ne désactive jamais personne.
+    if (
+      args.status !== undefined &&
+      resolveCreatorKind(creator.kind) === "talent"
+    ) {
+      if (args.status === "active") {
+        patch.payEndAt = undefined;
+      } else if (creator.payStartAt !== undefined) {
+        // Figée à la PREMIÈRE sortie : repasser de `paused` à `churned` ne
+        // déplace pas la borne, donc n'ajoute pas de mois.
+        if (creator.payEndAt === undefined) patch.payEndAt = Date.now();
+      }
+    }
     if (args.adminNotes !== undefined) {
       patch.adminNotes = args.adminNotes.trim() || undefined;
     }
@@ -668,20 +690,23 @@ export const updateCreator = permissionMutation("creators.manage")({
         }
       }
 
-      // 3. L'ANCRE DE PAIE. `payAnchorAt` se pose à l'activation d'un TALENT ;
+      // 3. LES BORNES DE PAIE. `payStartAt` se pose à l'activation d'un TALENT ;
       //    quelqu'un déjà actif basculé en talent ne l'aurait jamais eue — il
-      //    n'apparaîtrait dans aucun cycle et `markCyclePaid` jetterait.
+      //    ne devrait alors aucun mois.
       const statutCible = args.status ?? creator.status;
       if (
         cible === "talent" &&
         statutCible === "active" &&
-        creator.payAnchorAt === undefined
+        creator.payStartAt === undefined
       ) {
-        patch.payAnchorAt = Date.now();
+        patch.payStartAt = Date.now();
       }
-      // Quitter la population talent retire l'ancre : la fiche est vierge par
-      // construction (garde ci-dessus), donc aucun cycle ne s'y appuie.
-      if (cible !== "talent") patch.payAnchorAt = undefined;
+      // Quitter la population talent retire les DEUX bornes : la fiche est
+      // vierge par construction (garde ci-dessus), rien ne s'y appuie.
+      if (cible !== "talent") {
+        patch.payStartAt = undefined;
+        patch.payEndAt = undefined;
+      }
     }
 
     if (args.clipperId !== undefined) {
@@ -741,7 +766,7 @@ export const getCreatorPayTerms = permissionQuery("creators.pay_terms")({
       paymentDetails: creator.paymentDetails ?? null,
       bonusPricingId: creator.bonusPricingId ?? null,
       clipRate: creator.clipRate ?? null,
-      cycleRetainer: creator.cycleRetainer ?? null,
+      monthlyRetainer: creator.monthlyRetainer ?? null,
     };
   },
 });
@@ -764,7 +789,7 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
     paymentDetails: v.optional(v.string()),
     bonusPricingId: v.optional(v.union(v.id("pricings"), v.null())),
     clipRate: v.optional(v.union(v.number(), v.null())),
-    cycleRetainer: v.optional(v.union(v.number(), v.null())),
+    monthlyRetainer: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
@@ -783,7 +808,7 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
         patch.bonusPricingId = args.bonusPricingId;
       }
     }
-    for (const champ of ["clipRate", "cycleRetainer"] as const) {
+    for (const champ of ["clipRate", "monthlyRetainer"] as const) {
       const valeur = args[champ];
       if (valeur === undefined) continue;
       if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
@@ -1678,7 +1703,7 @@ export const e2eAssertViewAsAccess = e2eMutation({
 /**
  * e2e ONLY — ANTIDATE l'ancre de cycle d'un talent.
  *
- * `payAnchorAt` est posée par le moteur à l'activation (`Date.now()`) et jamais
+ * `payStartAt` est posée par le moteur à l'activation (`Date.now()`) et jamais
  * réécrite : sans antidatage, tester un talent qui a plusieurs cycles derrière
  * lui demanderait d'attendre 30 jours par cycle. Même rôle que le `now` injecté
  * de l'expiration des rushes et que le `validatedAt` du seed de compte — le test
@@ -1687,14 +1712,19 @@ export const e2eAssertViewAsAccess = e2eMutation({
 export const e2eSetPayAnchor = e2eMutation({
   args: {
     creatorId: v.id("creators"),
-    payAnchorAt: v.optional(v.number()),
+    payStartAt: v.optional(v.number()),
+    // Borne de SORTIE, antidatable pour la même raison : prouver qu'un talent
+    // activé le 28 et arrêté le 3 doit deux mois demanderait sinon d'attendre
+    // un changement de mois.
+    payEndAt: v.optional(v.number()),
     // `firstPostAt` sert aux specs qui ont besoin d'un créateur « qui a publié »
     // sans dérouler une publication complète (classement du cycle).
     firstPostAt: v.optional(v.number()),
   },
-  handler: async (ctx, { creatorId, payAnchorAt, firstPostAt }) => {
+  handler: async (ctx, { creatorId, payStartAt, payEndAt, firstPostAt }) => {
     await ctx.db.patch(creatorId, {
-      ...(payAnchorAt !== undefined ? { payAnchorAt } : {}),
+      ...(payStartAt !== undefined ? { payStartAt } : {}),
+      ...(payEndAt !== undefined ? { payEndAt } : {}),
       ...(firstPostAt !== undefined ? { firstPostAt } : {}),
     });
     return { ok: true };

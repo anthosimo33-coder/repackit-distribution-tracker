@@ -36,6 +36,7 @@ import { formatCycleRange } from "@/lib/pay-cycle";
 import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
 import { ProfitabilityCard } from "@/components/ProfitabilityCard";
+import { TalentPayCard } from "@/components/admin/TalentPayCard";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import {
@@ -417,6 +418,12 @@ function PaiementsPageContenu() {
       {/* Rentabilité (rentabilité P3) — revenu net vs coût créateurs → marge,
           RPM business, toggle warmup (recalcule les vues/RPM, pas le revenu). */}
       {droitsNav.has("business.read") && <ProfitabilityCard />}
+
+      {/* FORFAITS DES TALENTS — second chemin de lecture (B3). Un talent ne
+          publie jamais, donc il n'a aucun cycle et n'apparaît pas dans le
+          tableau ci-dessous. La carte se masque d'elle-même si aucun talent
+          n'est activé. */}
+      <TalentPayCard />
 
       {payments === undefined ? (
         <Skeleton className="h-64 w-full" />

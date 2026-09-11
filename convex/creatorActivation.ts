@@ -8,7 +8,7 @@ import { resolveCreatorKind } from "./roles";
  * validé »). Un seul endroit écrit `status: "active"`, sinon l'ancre de paie
  * d'un talent serait posée sur un chemin et pas sur l'autre.
  *
- * ⚠️ `payAnchorAt` N'EST PAS UN DÉTAIL : elle est posée à la PREMIÈRE activation
+ * ⚠️ `payStartAt` N'EST PAS UN DÉTAIL : elle est posée à la PREMIÈRE activation
  * d'un TALENT et jamais réécrite (cf schema + payCycle.payAnchorOf). Une
  * activation qui l'oublie sort le talent de tous les cycles et fait jeter
  * `markCyclePaid` ; une activation qui la réécrit décale des cycles DÉJÀ PAYÉS.
@@ -16,13 +16,13 @@ import { resolveCreatorKind } from "./roles";
  * recevrait verrait ses cycles recalés sur une date antérieure à son 1er post.
  */
 export function creatorActivationPatch(
-  creator: { kind?: Doc<"creators">["kind"]; payAnchorAt?: number },
+  creator: { kind?: Doc<"creators">["kind"]; payStartAt?: number },
   now: number,
-): { status: "active"; payAnchorAt?: number } {
+): { status: "active"; payStartAt?: number } {
   const poseAncre =
     resolveCreatorKind(creator.kind) === "talent" &&
-    creator.payAnchorAt === undefined;
-  return { status: "active", ...(poseAncre ? { payAnchorAt: now } : {}) };
+    creator.payStartAt === undefined;
+  return { status: "active", ...(poseAncre ? { payStartAt: now } : {}) };
 }
 
 /**

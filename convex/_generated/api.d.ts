@@ -140,6 +140,8 @@ import type * as storage from "../storage.js";
 import type * as storageCleanup from "../storageCleanup.js";
 import type * as syncScope from "../syncScope.js";
 import type * as talentBriefFields from "../talentBriefFields.js";
+import type * as talentPay from "../talentPay.js";
+import type * as talentRetainer from "../talentRetainer.js";
 import type * as talentRushFields from "../talentRushFields.js";
 import type * as team from "../team.js";
 import type * as tiktokFallback from "../tiktokFallback.js";
@@ -300,6 +302,8 @@ declare const fullApi: ApiFromModules<{
   storageCleanup: typeof storageCleanup;
   syncScope: typeof syncScope;
   talentBriefFields: typeof talentBriefFields;
+  talentPay: typeof talentPay;
+  talentRetainer: typeof talentRetainer;
   talentRushFields: typeof talentRushFields;
   team: typeof team;
   tiktokFallback: typeof tiktokFallback;

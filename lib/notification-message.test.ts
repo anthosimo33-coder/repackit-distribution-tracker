@@ -466,7 +466,8 @@ const EMPTY: DigestSections = {
   warmupLate: [],
   retryableRenewalFailures: [],
   chauffeSansTalent: [],
-      jamaisMesurees: [],
+  talentSoldeDu: [],
+  jamaisMesurees: [],
 };
 
 describe("buildDigestMessage", () => {
@@ -509,6 +510,42 @@ describe("buildDigestMessage", () => {
     expect(msg).not.toBeNull();
     expect(msg).toContain("1 renouvellement en échec");
     expect(msg).toContain("Whop le relancera");
+  });
+
+  it("talents arrêtés : le nombre de mois dus, JAMAIS le montant", () => {
+    const msg = buildDigestMessage({
+      projectName: "Snytch",
+      sections: {
+        ...EMPTY,
+        talentSoldeDu: [
+          { creatorName: "Manon", moisDus: 2 },
+          { creatorName: "Sarah", moisDus: 1 },
+        ],
+      },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("2 talents arrêtés avec un forfait non payé");
+    expect(msg).toContain("Manon");
+    expect(msg).toContain("2 mois dus");
+    expect(msg).toContain("Sarah");
+    // Le canal n'affiche jamais de montant de paie individuel — le nombre de
+    // mois suffit à déclencher le geste, et le détail vit dans l'écran.
+    expect(msg).not.toMatch(/[$€£]|\d+[,.]\d{2}/);
+  });
+
+  it("un talent arrêté SANS mois dû ne produit pas de section", () => {
+    // La condition d'entrée est « au moins un mois dû », pas « arrêté » : un
+    // talent parti et soldé n'a plus rien à signaler. Sans ce test, la branche
+    // n'est vérifiée que du côté où elle produit quelque chose.
+    expect(
+      buildDigestMessage({
+        projectName: "Snytch",
+        sections: { ...EMPTY, talentSoldeDu: [] },
+        appBaseUrl: BASE,
+        projectSlug: SLUG,
+      }),
+    ).toBeNull();
   });
 
   it("chauffe sans talent : nomme le compte, son clippeur et le temps restant", () => {
@@ -575,7 +612,8 @@ describe("buildDigestMessage", () => {
         warmupLate: [{ handle: "@kelly.repack", missedDays: 3 }],
         retryableRenewalFailures: [],
         chauffeSansTalent: [],
-      jamaisMesurees: [],
+        talentSoldeDu: [],
+        jamaisMesurees: [],
       },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -620,11 +658,14 @@ function everyMessage(): string[] {
     chauffeSansTalent: [
       { handle: "@clip.marine", clipperName: "Yanis", joursRestants: 1 },
     ],
-      jamaisMesurees: [
+    // Un solde dû, dans le scan de fuite : le nombre de mois y est, le MONTANT
+    // ne doit jamais y entrer.
+    talentSoldeDu: [{ creatorName: "Manon", moisDus: 2 }],
+    jamaisMesurees: [
       { compte: "@sarahkl02", joursDepuisPubli: 19 },
       { compte: "@withorlane", joursDepuisPubli: 34 },
     ],
-};
+  };
   return [
     buildSubmissionMessage({
       ctx: CTX,
@@ -956,7 +997,8 @@ describe("digest — warmups terminés en attente de validation", () => {
     warmupReady: [],
     retryableRenewalFailures: [],
     chauffeSansTalent: [],
-      jamaisMesurees: [],
+    talentSoldeDu: [],
+    jamaisMesurees: [],
   };
   const build = (sections: DigestSections) =>
     buildDigestMessage({

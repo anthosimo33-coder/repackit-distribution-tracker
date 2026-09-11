@@ -2235,7 +2235,7 @@ export const setDefaultBonusPricing = permissionMutation("pricing.manage")({
  *
  * Talents et clippeurs sont ABSENTS, et c'est le même arbitrage que sur la fiche
  * (BonusGridSection) : ils sont payés au clip ou au forfait de cycle
- * (`clipRate` / `cycleRetainer`), champs STRICTEMENT DISJOINTS du barème.
+ * (`clipRate` / `monthlyRetainer`), champs STRICTEMENT DISJOINTS du barème.
  *
  * Gardé par `creators.pay_terms` : la grille d'une créatrice est une condition de
  * rémunération, où qu'on la lise. Le nom du barème sort, jamais ses montants.

@@ -37,7 +37,7 @@ describe("creatorActivationPatch", () => {
   it("pose l'ancre de paie d'un talent qui n'en a pas", () => {
     expect(creatorActivationPatch({ kind: "talent" }, MAINTENANT)).toEqual({
       status: "active",
-      payAnchorAt: MAINTENANT,
+      payStartAt: MAINTENANT,
     });
   });
 
@@ -45,7 +45,7 @@ describe("creatorActivationPatch", () => {
     // Une réécriture décalerait des cycles déjà payés (cf payCycle.payAnchorOf).
     expect(
       creatorActivationPatch(
-        { kind: "talent", payAnchorAt: ANCRE_EXISTANTE },
+        { kind: "talent", payStartAt: ANCRE_EXISTANTE },
         MAINTENANT,
       ),
     ).toEqual({ status: "active" });

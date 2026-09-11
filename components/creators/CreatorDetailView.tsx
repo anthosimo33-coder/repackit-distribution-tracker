@@ -204,7 +204,7 @@ export function CreatorDetailView({
     kind === "clipper"
       ? (payTerms?.clipRate?.toString() ?? "")
       : kind === "talent"
-        ? (payTerms?.cycleRetainer?.toString() ?? "")
+        ? (payTerms?.monthlyRetainer?.toString() ?? "")
         : "",
   );
   const [handleTiktok, setHandleTiktok] = useState(
@@ -296,14 +296,14 @@ export function CreatorDetailView({
         methodeVoulue !== (payTerms?.paymentMethod ?? undefined) ||
         paymentDetails !== (payTerms?.paymentDetails ?? "") ||
         (kind === "clipper" && tarifVoulu !== (payTerms?.clipRate ?? null)) ||
-        (kind === "talent" && tarifVoulu !== (payTerms?.cycleRetainer ?? null));
+        (kind === "talent" && tarifVoulu !== (payTerms?.monthlyRetainer ?? null));
       if (argentChange) {
         await updatePayTerms({
           id: creator._id,
           paymentMethod: methodeVoulue,
           paymentDetails,
           ...(kind === "clipper" ? { clipRate: tarifVoulu } : {}),
-          ...(kind === "talent" ? { cycleRetainer: tarifVoulu } : {}),
+          ...(kind === "talent" ? { monthlyRetainer: tarifVoulu } : {}),
         });
       }
       toast.success("Créateur mis à jour");
@@ -856,7 +856,7 @@ export function CreatorDetailView({
                       <Label htmlFor="tarif">
                         {kind === "clipper"
                           ? "Tarif par clip"
-                          : "Forfait par cycle (30 j)"}
+                          : "Forfait mensuel"}
                       </Label>
                       <Input
                         id="tarif"
@@ -868,10 +868,14 @@ export function CreatorDetailView({
                         value={tarif}
                         onChange={(e) => setTarif(e.target.value)}
                       />
+                      {/* La RÈGLE, écrite là où on règle le montant — pour pouvoir la
+                          montrer à quelqu'un qui la conteste, sans avoir à retrouver
+                          une conversation. Elle est vraie contre le moteur : les mois
+                          dus se calculent dans convex/talentRetainer.monthsDue. */}
                       <p className="text-xs text-slate-500">
                         {kind === "clipper"
                           ? "Figé sur chaque clip au moment où il est assigné — le modifier ne change aucun clip déjà commandé."
-                          : "Dû pour chaque cycle écoulé, quel que soit le nombre de rushes déposés. Le compte de rushes s'affiche à côté du montant, dans Paiements."}
+                          : "Forfait mensuel — mois d'entrée et de sortie payés en entier, aucun prorata. Dû pour chaque mois écoulé quel que soit le nombre de rushes déposés ; le compte de rushes s'affiche à côté du montant, dans Paiements. Le modifier n'affecte aucun mois déjà payé."}
                       </p>
                     </div>
                   </div>
