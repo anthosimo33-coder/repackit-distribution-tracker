@@ -28,6 +28,8 @@ const P: PricingSnapshot = {
   montantBonus: 50,
 };
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 function items(n: number, views: number, snapshot = P, prefix = "a"): PayoutItem[] {
   return Array.from({ length: n }, (_, i) => ({
     assignmentId: `${prefix}${i}`,
@@ -644,6 +646,52 @@ describe("computeMonthlyPayout — indépendance à l'ordre des documents", () =
       ...items(5, 0, NOUVEAU, "n"),
     ]);
     expect(r.fixedTotal).toBe(100);
+  });
+});
+
+/**
+ * PART FIXE PAR VIDÉO — la moitié du coût que `perAssignment` ne disait pas.
+ *
+ * Elle existe pour le coût par MARCHÉ : le pays vit sur le COMPTE, un cran
+ * sous la créatrice, donc la répartition a besoin du coût de CHAQUE vidéo. Un
+ * second calcul de la part fixe hors du moteur finirait par diverger de celui
+ * qui paie — d'où l'exposition plutôt qu'une reconstitution.
+ */
+describe("perAssignment.fixed — le coût d'UNE vidéo, moteur compris", () => {
+  it("recolle au total du groupe, fixe et CPM confondus", () => {
+    // 30 vidéos sur un contrat de 60 : le budget fixe n'est pas épuisé, et
+    // chaque vidéo porte 1,67 $ de fixe + son CPM.
+    const p = computeMonthlyPayout(items(30, 12_000));
+    const somme = p.perAssignment.reduce((s, a) => s + a.fixed + a.cpm, 0);
+    expect(round2(somme)).toBe(p.total);
+    expect(round2(p.perAssignment.reduce((s, a) => s + a.fixed, 0))).toBe(
+      p.fixedTotal,
+    );
+  });
+
+  it("un barème au FIXE SEUL ne rend pas une vidéo gratuite", () => {
+    // Le cas « Cintia - Brazil » : 0 de CPM, et pourtant la vidéo coûte.
+    const FIXE_SEUL: PricingSnapshot = { ...P, tauxCPM: 0, montantFixe: 150, nbVideosCible: 30 };
+    const p = computeMonthlyPayout(items(30, 800, FIXE_SEUL));
+    expect(p.perAssignment.every((a) => a.cpm === 0)).toBe(true);
+    expect(p.perAssignment[0].fixed).toBe(5);
+    expect(round2(p.perAssignment.reduce((s, a) => s + a.fixed, 0))).toBe(150);
+  });
+
+  it("la vidéo plafonnée ne facture pas au-delà de 150 $", () => {
+    // Assiette volontairement énorme (le cas Kelly relevé en prod) : le
+    // dépassement est rogné sur le CPM, la part fixe reste due.
+    const p = computeMonthlyPayout(items(1, 5_000_000));
+    const a = p.perAssignment[0];
+    expect(round2(a.fixed + a.cpm)).toBe(150);
+    expect(a.fixed).toBeGreaterThan(0);
+  });
+
+  it("budget fixe ÉPUISÉ : la 31ᵉ vidéo d'un contrat de 30 ne porte aucun fixe", () => {
+    const CONTRAT30: PricingSnapshot = { ...P, montantFixe: 90, nbVideosCible: 30, tauxCPM: 0 };
+    const p = computeMonthlyPayout(items(31, 500, CONTRAT30));
+    expect(p.perAssignment[30].fixed).toBe(0);
+    expect(round2(p.perAssignment.reduce((s, a) => s + a.fixed, 0))).toBe(90);
   });
 });
 

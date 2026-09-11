@@ -100,6 +100,22 @@ export type PerAssignment = {
   totalViews: number;
   cpm: number;
   /**
+   * PART FIXE de cette vidéo, APRÈS plafond — la moitié manquante du coût.
+   *
+   * `cpm` seul ne suffit pas à dire ce qu'une vidéo a coûté : sur un barème au
+   * FIXE SEUL il vaut 0, et la vidéo n'en est pas gratuite. Exposé parce que le
+   * coût par MARCHÉ (convex/marketCost) se répartit sur des comptes, un cran
+   * plus bas que la créatrice — et qu'un second calcul de la part fixe hors du
+   * moteur finirait par diverger de celui qui paie.
+   *
+   * ⚠️ NON ARRONDIE. Le moteur arrondit le fixe au niveau du GROUPE ; arrondir
+   * aussi chaque vidéo fait dériver la somme du total (10 centimes sur 30 vidéos
+   * à 1,666…). Arrondissez à l'agrégation, pas ici. Somme du groupe =
+   * `perPricing.fixed`, dépassement de plafond déjà retiré vidéo par vidéo.
+   */
+  fixed: number;
+
+  /**
    * Vues réellement FACTURÉES — celles qui ont produit le CPM versé.
    *
    * `totalViews` est l'assiette AVANT plafond ; au-delà du seuil où la vidéo
@@ -390,6 +406,11 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
         pricingId: it.snapshot.pricingId,
         totalViews: views,
         cpm: cappedCpm,
+        // NON ARRONDIE, délibérément : le moteur arrondit le fixe au niveau du
+        // GROUPE (cf `fixed` plus bas). Arrondir ici aussi ferait dériver la
+        // somme des vidéos du total du groupe — mesuré à 10 centimes sur 30
+        // vidéos à 1,666…. L'appelant arrondit quand il agrège.
+        fixed: fixedShare - (excess - cpmOverflow),
         billedViews: Math.round(Math.min(views, billableViews)),
       });
     }
