@@ -15,7 +15,7 @@
  *
  * COÛT MESURÉ (06/09/2026, API PostHog réelle, concurrence 6) :
  *   - première volée après > 2 min de silence : 10,6 s (8,7 - 11,8)
- *   - volées suivantes : 1,4 s pour un jeu léger, 2,8 à 5,8 s pour les quinze
+ *   - volées suivantes : 1,4 s pour un jeu léger, 2,8 à 5,8 s pour les seize
  *     requêtes servies ici
  * La LARGEUR de la fenêtre ne change rien : ce qui coûte, c'est de repartir à
  * froid. Au-delà de 8 requêtes simultanées PostHog met en file et tout se
@@ -178,6 +178,8 @@ export interface WindowedParcours {
     source: FunnelPayload;
     language: FunnelPayload;
     country: FunnelPayload;
+    /** Funnel par pays attribué PAR PERSONNE — cf QUERIES.countryPersons. */
+    countryPersons: FunnelPayload;
   };
   activation: ActivationPayload;
   checkoutReliability: CheckoutReliabilityPayload;
@@ -316,6 +318,7 @@ export const getWindowedAnalytics = authedAction({
           run(Q.funnelSource),
           run(Q.funnelLanguage),
           run(Q.funnelCountry),
+          run(Q.countryPersons),
           run(Q.activation),
           run(Q.checkoutReliability),
           run(Q.serverSideSplit),
@@ -338,6 +341,7 @@ export const getWindowedAnalytics = authedAction({
       source,
       language,
       country,
+      countryPersons,
       act,
       chk,
       split,
@@ -356,6 +360,7 @@ export const getWindowedAnalytics = authedAction({
         source: shapeFunnel(source),
         language: shapeFunnel(language),
         country: shapeFunnel(country),
+        countryPersons: shapeFunnel(countryPersons),
       },
       activation: shapeActivation(act),
       checkoutReliability: shapeCheckoutReliability(chk),

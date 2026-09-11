@@ -23,6 +23,13 @@ import { isoCountryLabel } from "@/lib/country-name";
 import { countryFlag } from "@/lib/countries";
 import { formatDateFr } from "@/convex/dateFr";
 import type { MarketRow } from "@/convex/marketPnl";
+import {
+  countryTrafficRows,
+  shareGap,
+  MIN_COUNTRY_SAMPLE,
+  type CountrySteps,
+} from "@/lib/country-traffic";
+import { pctFromFraction } from "@/lib/percent";
 
 /**
  * ONGLET PAYS — ce qu'un marché coûte en créatrices, contre ce qu'il rapporte.
@@ -76,7 +83,35 @@ function MarketLabel({ code }: { code: string | null }) {
   );
 }
 
-export function PaysTab({ pnl }: { pnl: MarketPnl | undefined }) {
+/** Étapes d'un pays, telles que `countryPersons` les rend. */
+export type FunnelSegments = {
+  segments: { key: string; steps: { key: string; count: number }[] }[];
+};
+
+function stepsOf(segments: FunnelSegments | undefined): CountrySteps[] {
+  return (segments?.segments ?? []).map((seg) => {
+    const n = (k: string) => seg.steps.find((x) => x.key === k)?.count ?? 0;
+    return {
+      country: seg.key,
+      visitors: n("visit"),
+      paywall: n("paywall_viewed"),
+      checkouts: n("checkout_started"),
+      clients: n("subscription_completed"),
+    };
+  });
+}
+
+export function PaysTab({
+  pnl,
+  traffic,
+  error,
+}: {
+  pnl: MarketPnl | undefined;
+  /** Funnel par pays attribué PAR PERSONNE (cf QUERIES.countryPersons). */
+  traffic?: FunnelSegments;
+  /** Message d'échec de lecture — un tiret muet se lirait « pas de données ». */
+  error?: string | null;
+}) {
   const ctx: CurrencyContext = {
     payCurrency: pnl?.payCurrency,
     revenueCurrency: pnl?.revenueCurrency,
@@ -101,8 +136,13 @@ export function PaysTab({ pnl }: { pnl: MarketPnl | undefined }) {
           coutAffiche !== null && coutAffiche.rate !== null
             ? coutAffiche.value
             : null;
+        // La ligne « aucun pays défini » n'est PAS un marché : c'est du coût
+        // HORS marché. Lui calculer une marge la ferait lire comme une perte de
+        // marché (« le Brésil perd 77 €, le néant en perd 122 »), alors qu'il
+        // n'y a rien à quoi la comparer. Le coût reste visible, la marge est un
+        // tiret.
         const marge =
-          coutComparable === null || !pnl?.whopConfigured
+          r.country === null || coutComparable === null || !pnl?.whopConfigured
             ? null
             : round2(r.revenueNet - coutComparable);
         return { ...r, marge };
@@ -113,10 +153,28 @@ export function PaysTab({ pnl }: { pnl: MarketPnl | undefined }) {
 
   const totalCost = lignes.reduce((s, r) => s + r.cost, 0);
   const totalRevenue = lignes.reduce((s, r) => s + r.revenueNet, 0);
-  const totalMarge = lignes.some((r) => r.marge !== null)
-    ? round2(lignes.reduce((s, r) => s + (r.marge ?? 0), 0))
-    : null;
+  // Le total, lui, PORTE le coût hors marché : c'est la marge réelle. Il se
+  // calcule donc sur les totaux et non en sommant les lignes, dont une n'a
+  // délibérément pas de marge.
+  const totalCoutAffiche = toDisplayAmount(totalCost, ctx);
+  const totalMarge =
+    pnl?.whopConfigured &&
+    totalCoutAffiche !== null &&
+    totalCoutAffiche.rate !== null
+      ? round2(totalRevenue - totalCoutAffiche.value)
+      : null;
 
+  // Une lecture qui ÉCHOUE et une absence de données se corrigent très
+  // différemment : l'écran ne doit pas les afficher pareil.
+  if (error) {
+    return (
+      <Card className="border-red-200 bg-red-50/60">
+        <CardContent className="p-4 text-sm text-red-900">
+          La rentabilité par marché n&apos;a pas pu être lue. {error}
+        </CardContent>
+      </Card>
+    );
+  }
   if (pnl === undefined) {
     return (
       <Card>
@@ -127,6 +185,7 @@ export function PaysTab({ pnl }: { pnl: MarketPnl | undefined }) {
     );
   }
 
+  const lignesTrafic = countryTrafficRows(stepsOf(traffic));
   const c = pnl.collection;
   const fraicheur = c.total > 0 ? c.fresh / c.total : null;
 
@@ -295,6 +354,99 @@ export function PaysTab({ pnl }: { pnl: MarketPnl | undefined }) {
           </p>
         </CardContent>
       </Card>
+
+      {/* ── TRAFIC ET CONVERSION — une seule source, des personnes ──────────
+          Le taux est calculé DANS PostHog, sur les mêmes personnes des deux
+          bouts (cf QUERIES.countryPersons). Les parts servent la comparaison
+          qui, elle, ne divise jamais deux populations l'une par l'autre. */}
+      {lignesTrafic.length > 0 ? (
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="D'où vient le trafic, et ce qu'il devient"
+              subtitle="Pays de connexion du visiteur. Une personne est rattachée au pays de ses visites, et ses achats lui sont comptés d'où qu'ils partent."
+            />
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Pays de connexion</TableHead>
+                    <TableHead className="text-right">Visiteurs</TableHead>
+                    <TableHead className="text-right">Paywall</TableHead>
+                    <TableHead className="text-right">Checkouts</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Conversion</TableHead>
+                    <TableHead className="text-right">
+                      Part checkouts → clients
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lignesTrafic.map((r) => {
+                    const ecart = shareGap(r);
+                    return (
+                      <TableRow key={r.country}>
+                        <TableCell className="text-xs font-medium text-slate-700">
+                          <MarketLabel
+                            code={r.country === "(inconnu)" ? null : r.country}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(r.visitors)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(r.paywall)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(r.checkouts)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(r.clients)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs font-medium tabular-nums">
+                          {pctFromFraction(r.conversion)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          <span className="text-slate-500">
+                            {pctFromFraction(r.checkoutShare)} →{" "}
+                            {pctFromFraction(r.clientShare)}
+                          </span>
+                          {ecart !== null ? (
+                            <span
+                              className={`ml-2 font-medium ${
+                                ecart < 0 ? "text-rose-600" : "text-emerald-600"
+                              }`}
+                            >
+                              {/* POINTS, jamais « % » : l'écart entre deux
+                                  parts se compte en points. Écrire « 13 % » là
+                                  où il y a 13 POINTS est le glissement d'unité
+                                  que ce dépôt paie cher (cf lib/pct-units). */}
+                              {ecart > 0 ? "+" : "−"}
+                              {formatNumber(
+                                Math.round(Math.abs(ecart) * 1000) / 10,
+                              )}{" "}
+                              pts
+                            </span>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <p className="text-xs text-slate-400">
+              La conversion ne s&apos;affiche qu&apos;au-delà de{" "}
+              {MIN_COUNTRY_SAMPLE} visiteurs. La colonne de droite compare la
+              place d&apos;un pays dans les checkouts à sa place dans les
+              clients : un écart négatif dit que son trafic se transforme moins
+              bien que son volume ne le laissait attendre. Ces visiteurs ne sont
+              pas les clients du tableau ci-dessus — l&apos;un compte des
+              connexions, l&apos;autre des adresses de facturation.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
