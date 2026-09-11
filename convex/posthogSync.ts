@@ -199,6 +199,8 @@ export const POSTHOG_CACHE_KEYS = {
   funnelSource: "funnel:source",
   funnelLanguage: "funnel:language",
   funnelCountry: "funnel:country",
+  /** Funnel par pays, attribué PAR PERSONNE — cf QUERIES.countryPersons. */
+  countryPersons: "countryPersons",
   serverSideSplit: "serverSideSplit",
   countryDaily: "countryDaily",
   timeToValue: "timeToValue",
@@ -1023,6 +1025,55 @@ SELECT ${COUNTRY_SEGMENT} AS seg,${FUNNEL_COLUMNS}
 FROM events
 WHERE ${WINDOW}${notCounted}
   AND NOT (${SERVER_COPY})
+GROUP BY seg
+ORDER BY visit DESC
+LIMIT ${COUNTRY_LIMIT}`,
+
+  /**
+   * FUNNEL PAR PAYS, ATTRIBUÉ PAR PERSONNE — le seul qui compte des CLIENTS.
+   *
+   * ⚠️ CE N'EST PAS UN DOUBLON de `funnelCountry`. Celui-là attribue CHAQUE
+   * ÉTAPE au pays de SON event, ce qui est le bon sens pour « d'où vient le
+   * trafic » — mais l'achat est émis côté SERVEUR, donc géolocalisé au
+   * datacenter et écarté par le filtre anti-copie-serveur. Résultat mesuré en
+   * prod le 11/09/2026 : 14 `subscription_completed` portent un pays, contre
+   * 450 clients chez Whop. La dernière colonne de `funnelCountry` ne peut donc
+   * pas servir de numérateur, et un taux de conversion par pays en est
+   * inatteignable.
+   *
+   * Ici, on regroupe D'ABORD par PERSONNE : son pays est lu sur ses events
+   * CLIENT (géoIP réel), puis on compte SES étapes — achat compris, d'où qu'il
+   * soit émis. C'est exactement le patron de `abOffers`, qui compte 170 clients
+   * là où le funnel filtré n'en voyait aucun.
+   *
+   * Une personne sans AUCUN event client n'a pas de pays : elle tombe sous
+   * « (inconnu) », ligne VISIBLE plutôt que répartie — la répartir inventerait
+   * une géographie.
+   *
+   * Le pays retenu est celui de son DERNIER event client (`argMaxIf`) : une
+   * personne qui déménage ou voyage est rangée là où elle a fini, pas là où
+   * elle a commencé. Un choix, pas une évidence — mais il faut en faire un, et
+   * celui-ci va avec « le pays où elle a acheté ».
+   */
+  countryPersons: `
+SELECT if(pays = '', '(inconnu)', pays) AS seg,
+       countIf(n_visit > 0) AS visit,
+       countIf(n_signup > 0) AS signup_completed,
+       countIf(n_paywall > 0) AS paywall_viewed,
+       countIf(n_checkout > 0) AS checkout_started,
+       countIf(n_sub > 0) AS subscription_completed
+FROM (
+  SELECT person_id,
+         argMaxIf(${COUNTRY_SEGMENT}, timestamp, NOT (${SERVER_COPY})) AS pays,
+         countIf(event = '$pageview' AND NOT (${SERVER_COPY})) AS n_visit,
+         countIf(event = 'signup_completed') AS n_signup,
+         countIf(event = 'paywall_viewed' AND NOT (${SERVER_COPY})) AS n_paywall,
+         countIf(event = 'checkout_started' AND NOT (${SERVER_COPY})) AS n_checkout,
+         countIf(event = 'subscription_completed') AS n_sub
+  FROM events
+  WHERE ${WINDOW}${notCounted}
+  GROUP BY person_id
+)
 GROUP BY seg
 ORDER BY visit DESC
 LIMIT ${COUNTRY_LIMIT}`,
@@ -2354,6 +2405,13 @@ export const runHourlySync = internalAction({
           shapeFunnel,
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.countryPersons,
+          apiKey,
+          target,
+          QUERIES.countryPersons,
+          shapeFunnel,
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.serverSideSplit,
           apiKey,
           target,
@@ -2754,6 +2812,16 @@ export interface ProductAnalytics {
     language: FunnelPayload;
     /** Funnel par PAYS du visiteur (propriété d'event GeoIP, copies serveur exclues). */
     country: FunnelPayload;
+    /**
+     * Funnel par pays attribué PAR PERSONNE — le seul qui compte des clients.
+     *
+     * `country` ci-dessus attribue CHAQUE ÉTAPE au pays de SON event : l'achat
+     * partant du serveur, il est écarté par le filtre géo et la dernière colonne
+     * s'effondre (14 clients mesurés contre 450 chez Whop, relevé du 11/09).
+     * Celui-ci prend le pays sur les events CLIENT de la personne, puis compte
+     * ses étapes — achat compris, d'où qu'il soit émis.
+     */
+    countryPersons: FunnelPayload;
   };
   /** Répartition client/serveur par étape — rend le filtre géo vérifiable. */
   serverSideSplit: ServerSideSplitPayload;
@@ -2824,6 +2892,7 @@ export const getProductAnalytics = permissionQuery("business.read")({
         source: EMPTY_FUNNEL,
         language: EMPTY_FUNNEL,
         country: EMPTY_FUNNEL,
+        countryPersons: EMPTY_FUNNEL,
       },
       serverSideSplit: { rows: [] },
       countryDaily: { rows: [] },
@@ -2890,6 +2959,7 @@ export const getProductAnalytics = permissionQuery("business.read")({
         source: read(POSTHOG_CACHE_KEYS.funnelSource, EMPTY_FUNNEL),
         language: read(POSTHOG_CACHE_KEYS.funnelLanguage, EMPTY_FUNNEL),
         country: read(POSTHOG_CACHE_KEYS.funnelCountry, EMPTY_FUNNEL),
+        countryPersons: read(POSTHOG_CACHE_KEYS.countryPersons, EMPTY_FUNNEL),
       },
       serverSideSplit: read(POSTHOG_CACHE_KEYS.serverSideSplit, { rows: [] }),
       countryDaily: read(POSTHOG_CACHE_KEYS.countryDaily, { rows: [] }),

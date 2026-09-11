@@ -435,7 +435,14 @@ function AnalyticsPageContenu() {
             </TabsContent>
 
             <TabsContent value="pays" className="mt-6">
-              <PaysTab pnl={marketPnlQ.data} />
+              <PaysTab
+                pnl={marketPnlQ.data}
+                traffic={
+                  windowedAnalytics.data?.funnels.countryPersons ??
+                  analytics?.funnels.countryPersons
+                }
+                error={marketPnlQ.error}
+              />
             </TabsContent>
 
             <TabsContent value="fiabilite" className="mt-6">
