@@ -106,6 +106,8 @@ export interface MonthlyPayout {
     /** Assiette AVANT plafond (vues payables retenues). */
     totalViews: number;
     cpm: number;
+    /** Part fixe APRÈS plafond — cf lib/pricing-engine.PerAssignment. */
+    fixed: number;
     /** Vues réellement FACTURÉES — cf lib/pricing-engine.PerAssignment. */
     billedViews: number;
   }[];
@@ -265,6 +267,11 @@ export function computeMonthlyPayout(items: PayoutItem[]): MonthlyPayout {
         pricingId: it.snapshot.pricingId,
         totalViews: views,
         cpm: cappedCpm,
+        // Réplique A6. NON ARRONDIE, délibérément : le moteur arrondit le fixe au niveau du
+        // GROUPE (cf `fixed` plus bas). Arrondir ici aussi ferait dériver la
+        // somme des vidéos du total du groupe — mesuré à 10 centimes sur 30
+        // vidéos à 1,666…. L'appelant arrondit quand il agrège.
+        fixed: fixedShare - (excess - cpmOverflow),
         billedViews: Math.round(Math.min(views, billableViews)),
       });
     }

@@ -84,6 +84,8 @@ import type * as internalAccounts from "../internalAccounts.js";
 import type * as likesNegativeMigration from "../likesNegativeMigration.js";
 import type * as locales from "../locales.js";
 import type * as maintenance from "../maintenance.js";
+import type * as marketCost from "../marketCost.js";
+import type * as marketPnl from "../marketPnl.js";
 import type * as memberPermissions from "../memberPermissions.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
@@ -246,6 +248,8 @@ declare const fullApi: ApiFromModules<{
   likesNegativeMigration: typeof likesNegativeMigration;
   locales: typeof locales;
   maintenance: typeof maintenance;
+  marketCost: typeof marketCost;
+  marketPnl: typeof marketPnl;
   memberPermissions: typeof memberPermissions;
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;

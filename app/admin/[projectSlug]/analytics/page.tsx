@@ -15,6 +15,7 @@ import {
   ActivityIcon,
   BarChart3Icon,
   FlaskConicalIcon,
+  GlobeIcon,
   Loader2Icon,
   RefreshCwIcon,
   RepeatIcon,
@@ -23,6 +24,8 @@ import {
   ShieldCheckIcon,
   TargetIcon,
 } from "lucide-react";
+import { PaysTab } from "@/components/analytics/hub/PaysTab";
+import { windowToMs } from "@/lib/market-window";
 import { PeriodPicker } from "@/components/analytics/hub/PeriodPicker";
 import {
   clampWindow,
@@ -174,6 +177,24 @@ function AnalyticsPageContenu() {
   // BORNÉE aux données réelles — la même que les autres onglets, sinon deux
   // écrans afficheraient deux périodes sous le même libellé.
   const windowedAnalytics = useWindowedAnalytics(effectiveWindow, dataRange);
+  // L'ARGENT suit le sélecteur SANS recalcul PostHog : ce sont des lignes
+  // Convex filtrables sur n'importe quelle plage (paidAt, datePubli). Seuls les
+  // agrégats PostHog ont besoin de la volée à la demande ci-dessus.
+  // `Safe` comme ses voisines : un agrégat qui échoue ne doit pas emporter les
+  // huit onglets (incident du 2026-09-08).
+  const marketBounds = useMemo(
+    () => (effectiveWindow ? windowToMs(effectiveWindow) : null),
+    [effectiveWindow],
+  );
+  // Pas de `skip` quand la fenêtre est nulle : cet agrégat ne dépend PAS de
+  // PostHog (lignes Whop + moteur de paie), et `dataRange` l'est. Sur un projet
+  // sans données produit, sauter la requête laissait l'onglet sur « Chargement… »
+  // pour toujours — vu à l'écran avant d'être vu dans un test. Sans bornes, la
+  // query rend toute la profondeur.
+  const marketPnlQ = useProjectQuerySafe(
+    api.marketPnl.getMarketPnl,
+    marketBounds ? { from: marketBounds.from, to: marketBounds.to } : {},
+  );
 
   const onSync = async () => {
     setSyncing(true);
@@ -325,6 +346,10 @@ function AnalyticsPageContenu() {
                 <RepeatIcon className="size-4" />
                 Rétention
               </TabsTrigger>
+              <TabsTrigger value="pays">
+                <GlobeIcon className="size-4" />
+                Pays
+              </TabsTrigger>
               <TabsTrigger value="fiabilite">
                 <ShieldCheckIcon className="size-4" />
                 Fiabilité
@@ -407,6 +432,10 @@ function AnalyticsPageContenu() {
                   now={now}
                 />
               )}
+            </TabsContent>
+
+            <TabsContent value="pays" className="mt-6">
+              <PaysTab pnl={marketPnlQ.data} />
             </TabsContent>
 
             <TabsContent value="fiabilite" className="mt-6">
