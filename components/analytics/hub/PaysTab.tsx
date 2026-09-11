@@ -22,7 +22,11 @@ import {
 import { isoCountryLabel } from "@/lib/country-name";
 import { countryFlag } from "@/lib/countries";
 import { formatDateFr } from "@/convex/dateFr";
-import type { MarketRow } from "@/convex/marketPnl";
+import type {
+  MarketRow,
+  MarketTrendPoint,
+  PlanCountryCell,
+} from "@/convex/marketPnl";
 import {
   countryTrafficRows,
   shareGap,
@@ -52,6 +56,8 @@ export type MarketPnl = {
   revenueCurrency: string | null;
   fxRateToRevenue: number | null;
   rows: MarketRow[];
+  planCells: PlanCountryCell[];
+  trend: MarketTrendPoint[];
   collection: {
     lastAt: number | null;
     fresh: number;
@@ -186,6 +192,37 @@ export function PaysTab({
   }
 
   const lignesTrafic = countryTrafficRows(stepsOf(traffic));
+
+  /**
+   * La série, agrégée TOUS MARCHÉS : la question du mois est « est-ce que ça
+   * s'améliore », pas « où ». Le détail par pays existe déjà au-dessus, et
+   * vingt courbes côte à côte ne se lisent pas.
+   *
+   * L'écart n'est calculé que si le coût a pu être converti — sinon on
+   * soustrairait des dollars à des euros.
+   */
+  const mois = (() => {
+    const parMois = new Map<string, { cost: number; revenueNet: number }>();
+    for (const p of pnl.trend) {
+      const d = parMois.get(p.month) ?? { cost: 0, revenueNet: 0 };
+      d.cost = round2(d.cost + p.cost);
+      d.revenueNet = round2(d.revenueNet + p.revenueNet);
+      parMois.set(p.month, d);
+    }
+    return [...parMois.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, d]) => {
+        const converti = toDisplayAmount(d.cost, ctx);
+        return {
+          month,
+          ...d,
+          ecart:
+            converti !== null && converti.rate !== null
+              ? round2(d.revenueNet - converti.value)
+              : null,
+        };
+      });
+  })();
   const c = pnl.collection;
   const fraicheur = c.total > 0 ? c.fresh / c.total : null;
 
@@ -443,6 +480,150 @@ export function PaysTab({
               bien que son volume ne le laissait attendre. Ces visiteurs ne sont
               pas les clients du tableau ci-dessus — l&apos;un compte des
               connexions, l&apos;autre des adresses de facturation.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* ── QUEL PLAN PASSE, ET OÙ ──────────────────────────────────────────
+          Entièrement côté Whop : plan et pays y sont complets. Le « taux de
+          réussite » est le seul taux mesurable sans croiser deux sources — il
+          compare des tentatives de paiement à des encaissements. */}
+      {pnl.planCells.length > 0 ? (
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Quel plan passe, et où"
+              subtitle="Paiements encaissés et part des tentatives qui aboutissent. Du moins cher au plus cher."
+            />
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Pays</TableHead>
+                    <TableHead className="text-right">Clients</TableHead>
+                    <TableHead className="text-right">Encaissés</TableHead>
+                    <TableHead className="text-right">Réussite</TableHead>
+                    <TableHead className="text-right">Revenu net</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pnl.planCells.map((c) => {
+                    const reussite =
+                      c.attempts > 0 ? c.paid / c.attempts : null;
+                    return (
+                      <TableRow key={`${c.planId}|${c.country ?? ""}`}>
+                        <TableCell className="text-xs text-slate-700">
+                          <span className="font-medium">
+                            {formatMoney(
+                              c.price,
+                              pnl.revenueCurrency ?? undefined,
+                            )}
+                          </span>
+                          {/* Le slug vient de l'agrégat A/B ; Whop n'expose
+                              aucun libellé. Absent ⇒ l'identifiant, jamais un
+                              nom inventé. */}
+                          <span className="ml-2 text-slate-400">
+                            {c.planLabel ?? c.planId}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-xs font-medium text-slate-700">
+                          <MarketLabel code={c.country} />
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(c.clients)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatNumber(c.paid)}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right text-xs font-medium tabular-nums ${
+                            reussite !== null && reussite < 0.6
+                              ? "text-amber-700"
+                              : ""
+                          }`}
+                        >
+                          {pctFromFraction(reussite)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums">
+                          {formatMoney(c.net, pnl.revenueCurrency ?? undefined)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+            <p className="text-xs text-slate-400">
+              Le plan qu&apos;une personne peut acheter dépend de son bras de
+              test A/B : une répartition par pays mélange donc la préférence et
+              le tirage. Le taux de réussite, lui, se lit sans cette réserve —
+              il porte sur des gens qui ont déjà choisi.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* ── UN MARCHÉ DANS LE TEMPS ─────────────────────────────────────────
+          Deux colonnes côte à côte, JAMAIS un ratio mensuel : le retour arrive
+          après la dépense (une vidéo d'août encaisse en septembre) et le CPM
+          d'une vidéo récente n'a pas fini de courir. */}
+      {mois.length > 0 ? (
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Un marché dans le temps"
+              subtitle="Coût des vidéos publiées le mois, contre revenu encaissé le mois. Tous marchés confondus."
+            />
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Mois</TableHead>
+                    <TableHead className="text-right">Coût</TableHead>
+                    <TableHead className="text-right">Revenu net</TableHead>
+                    <TableHead className="text-right">Écart</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {mois.map((m) => (
+                    <TableRow key={m.month}>
+                      <TableCell className="text-xs font-medium text-slate-700">
+                        {m.month}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {argent(m.cost)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatMoney(
+                          m.revenueNet,
+                          pnl.revenueCurrency ?? undefined,
+                        )}
+                      </TableCell>
+                      <TableCell
+                        className={`text-right text-xs font-medium tabular-nums ${
+                          m.ecart === null
+                            ? ""
+                            : m.ecart < 0
+                              ? "text-rose-600"
+                              : "text-emerald-600"
+                        }`}
+                      >
+                        {dash(m.ecart, (n) =>
+                          formatMoney(n, pnl.revenueCurrency ?? undefined),
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <p className="text-xs text-slate-400">
+              L&apos;écart d&apos;un mois n&apos;est pas sa rentabilité : une
+              vidéo publiée en août encaisse encore en septembre, et son CPM
+              continue de courir tant que le relevé lui ajoute des vues. Le mois
+              en cours est un plancher, jamais un solde.
             </p>
           </CardContent>
         </Card>
