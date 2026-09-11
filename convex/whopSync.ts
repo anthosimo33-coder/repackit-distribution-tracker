@@ -4,6 +4,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import {
+  e2eMutation,
   permissionMutation,
   permissionQuery,
 } from "./functions";
@@ -299,6 +300,62 @@ export const upsertWhopPayments = internalMutation({
  * Upsert IDEMPOTENT des libellés d'offres (par projet + planId). Un plan absent de
  * l'appel n'est jamais supprimé (on ne perd pas un libellé sur un hoquet d'API).
  */
+/**
+ * SEMEUR E2E — un paiement Whop écrit directement, sans appeler l'API.
+ *
+ * Les paiements n'arrivent en base que par la synchro horaire, qui parle à Whop.
+ * Résultat : toute la moitié ARGENT des écrans (revenu par pays, matrice plan ×
+ * pays, taux de réussite du paiement) n'était couverte par AUCUN test e2e — il
+ * n'y avait aucun moyen d'en fabriquer un. Ce semeur existe pour ça, et pour
+ * rien d'autre : il est gaté par le secret e2e comme ses voisins.
+ *
+ * Il écrit la row telle quelle, sans notification ni dédup croisée : ce n'est
+ * pas un chemin d'ingestion, c'est un décor de test.
+ */
+export const e2eSeedWhopPayment = e2eMutation({
+  args: {
+    // `e2eMutation` ne scope AUCUN projet (il ne consomme que le secret) : la
+    // cible est donc explicite, comme dans les autres semeurs du dépôt.
+    projectId: v.id("projects"),
+    whopId: v.string(),
+    status: v.union(
+      v.literal("paid"),
+      v.literal("refunded"),
+      v.literal("failed"),
+      v.literal("pending"),
+      v.literal("disputed"),
+      v.literal("other"),
+    ),
+    grossAmount: v.number(),
+    netAmount: v.number(),
+    paidAt: v.number(),
+    currency: v.optional(v.string()),
+    planId: v.optional(v.string()),
+    membershipId: v.optional(v.string()),
+    billingCountry: v.optional(v.string()),
+    billingReason: v.optional(v.string()),
+  },
+  handler: async (ctx, a): Promise<Id<"whopPayments">> =>
+    await ctx.db.insert("whopPayments", {
+      projectId: a.projectId,
+      whopId: a.whopId,
+      status: a.status,
+      rawStatus: a.status,
+      currency: a.currency ?? "EUR",
+      grossAmount: a.grossAmount,
+      feeAmount: Math.round((a.grossAmount - a.netAmount) * 100) / 100,
+      netAmount: a.netAmount,
+      refundedAmount: 0,
+      paidAt: a.paidAt,
+      planId: a.planId,
+      membershipId: a.membershipId,
+      billingCountry: a.billingCountry,
+      billingReason: a.billingReason,
+      updatedAt: Date.now(),
+      importedAt: Date.now(),
+    }),
+});
+
 export const upsertWhopPlans = internalMutation({
   args: {
     projectId: v.id("projects"),

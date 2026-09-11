@@ -60,6 +60,28 @@ function normalizeBillingCountry(raw: string | undefined): string | null {
   return t === "" ? null : t.toUpperCase();
 }
 
+/** Une case de la matrice plan × pays. */
+export type PlanCountryCell = {
+  planId: string;
+  /** Nom lisible (`snytch_trio_weekly`) si PostHog l'a vu, sinon `null`. */
+  planLabel: string | null;
+  /** Prix moyen ENCAISSÉ de ce plan, toutes géographies — le libellé qui parle. */
+  price: number;
+  country: string | null;
+  clients: number;
+  paid: number;
+  attempts: number;
+  net: number;
+};
+
+/** Un point de la courbe : un marché, un mois. */
+export type MarketTrendPoint = {
+  month: string;
+  country: string | null;
+  cost: number;
+  revenueNet: number;
+};
+
 export type MarketRow = {
   /** Code pays, ou `null` pour « non défini » (compte sans marché visé). */
   country: string | null;
@@ -75,13 +97,25 @@ export type MarketRow = {
   revenueNet: number;
 };
 
-/** Coût d'une période, réparti par marché. Clé = pays, `""` pour « non défini ». */
+/**
+ * Coût d'une période, réparti par marché ET par mois.
+ *
+ * Le mois est porté ici plutôt que recalculé ailleurs : le moteur de paie est
+ * de loin la lecture la plus chère de cette query (une passe par créatrice et
+ * par mois), et la courbe d'évolution a besoin exactement du même travail. Le
+ * refaire une seconde fois doublerait le coût de l'écran pour rien.
+ *
+ * Clé du pays : `""` pour « non défini ».
+ */
 async function costByMarket(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   from: number,
   to: number,
-): Promise<Map<string, { cost: number; videos: number; creators: Set<string> }>> {
+): Promise<{
+  parPays: Map<string, { cost: number; videos: number; creators: Set<string> }>;
+  parMois: Map<string, number>;
+}> {
   // Pays visé de chaque compte, et vues de chaque publication : les deux clés de
   // la répartition, lues une fois pour tout le projet.
   const comptes = await ctx.db
@@ -108,6 +142,8 @@ async function costByMarket(
     string,
     { cost: number; videos: number; creators: Set<string> }
   >();
+  /** Coût par `pays|mois` — la série de la courbe. */
+  const serieParMois = new Map<string, number>();
   const touch = (pays: string | null) => {
     const k = pays ?? "";
     const d = out.get(k) ?? { cost: 0, videos: 0, creators: new Set<string>() };
@@ -196,6 +232,11 @@ async function costByMarket(
           const d = touch(part.country);
           d.cost = round2(d.cost + part.cost);
           d.creators.add(creator._id as string);
+          const cle = `${part.country ?? ""}|${month}`;
+          serieParMois.set(
+            cle,
+            round2((serieParMois.get(cle) ?? 0) + part.cost),
+          );
         }
         // La vidéo compte UNE fois, sur le marché qui en porte la plus grosse
         // part : un compteur de vidéos réparti en fractions ne veut rien dire.
@@ -206,7 +247,7 @@ async function costByMarket(
       }
     }
   }
-  return out;
+  return { parPays: out, parMois: serieParMois };
 }
 
 /**
@@ -237,7 +278,18 @@ export const getMarketPnl = permissionQuery("business.read")({
       revenus.set(k, d);
       return d;
     };
-    if (whopConfigured) {
+    /** Paiements de la PÉRIODE — partagés par les trois lectures d'argent. */
+    const paiementsPeriode: Doc<"whopPayments">[] = [];
+    /** whopId → pays du CLIENT (ancré sur son premier paiement). */
+    const paysDuPaiement = new Map<string, string | null>();
+    /** whopId des paiements qui sont le PREMIER d'un client (= une acquisition). */
+    const estPremierPaiement = new Set<string>();
+    // ⚠️ LES LIGNES PRIMENT SUR LE DRAPEAU. `whopConfigured` dit à l'écran s'il
+    // faut expliquer l'absence de revenu ; il ne décide pas de la LECTURE. Une
+    // row de paiement présente est un fait, et la gater sur la config faisait
+    // qu'un projet portant des paiements sans mapping affichait zéro — c'est
+    // exactement ce que les tests ont trouvé.
+    {
       const { payments } = await collectProjectWhopPayments(
         ctx,
         ctx.projectId,
@@ -254,6 +306,7 @@ export const getMarketPnl = permissionQuery("business.read")({
         const vu = premierPaiement.get(k);
         if (!vu || p.paidAt < vu.paidAt) premierPaiement.set(k, p);
       }
+      for (const p of premierPaiement.values()) estPremierPaiement.add(p.whopId);
       const paysDuClient = new Map<string, string | null>();
       for (const [k, p] of premierPaiement) {
         paysDuClient.set(k, normalizeBillingCountry(p.billingCountry));
@@ -261,14 +314,16 @@ export const getMarketPnl = permissionQuery("business.read")({
       for (const p of payments) {
         if (p.paidAt < from || p.paidAt > to) continue;
         const k = p.membershipId ?? p.whopId;
-        const pays = paysDuClient.get(k) ?? normalizeBillingCountry(p.billingCountry);
+        const pays =
+          paysDuClient.get(k) ?? normalizeBillingCountry(p.billingCountry);
+        paiementsPeriode.push(p);
+        paysDuPaiement.set(p.whopId, pays);
         const d = touchRev(pays);
         if (p.status === "paid") {
           d.rows.push(p);
           d.attempts += 1;
           if (p.billingReason === "subscription_cycle") d.renewals += 1;
-          const premier = premierPaiement.get(k);
-          if (premier && premier.whopId === p.whopId) d.clients += 1;
+          if (estPremierPaiement.has(p.whopId)) d.clients += 1;
         } else if (p.status === "failed") {
           d.attempts += 1;
           d.failures += 1;
@@ -277,7 +332,128 @@ export const getMarketPnl = permissionQuery("business.read")({
     }
 
     // ── Coût par MARCHÉ VISÉ ──────────────────────────────────────────────────
-    const couts = await costByMarket(ctx, ctx.projectId, from, to);
+    const { parPays: couts, parMois: coutParMois } = await costByMarket(
+      ctx,
+      ctx.projectId,
+      from,
+      to,
+    );
+
+    // ── MATRICE PLAN × PAYS ───────────────────────────────────────────────
+    // Entièrement côté Whop : plan et pays y sont à 100 % (relevé du 11/09).
+    // Le « taux de réussite » qu'elle porte est le SEUL taux de conversion
+    // mesurable sans croiser deux sources — il compare des tentatives de
+    // paiement à des paiements encaissés, dans la même table.
+    const cellules = new Map<string, PlanCountryCell>();
+    const prixDuPlan = new Map<string, { somme: number; n: number }>();
+    for (const p of paiementsPeriode) {
+      if (p.status !== "paid" && p.status !== "failed") continue;
+      const plan = p.planId ?? "";
+      if (plan === "") continue;
+      const pays = paysDuPaiement.get(p.whopId) ?? null;
+      const cle = `${plan}|${pays ?? ""}`;
+      const c =
+        cellules.get(cle) ??
+        {
+          planId: plan,
+          planLabel: null,
+          price: 0,
+          country: pays,
+          clients: 0,
+          paid: 0,
+          attempts: 0,
+          net: 0,
+        };
+      c.attempts += 1;
+      if (p.status === "paid") {
+        c.paid += 1;
+        if (estPremierPaiement.has(p.whopId)) c.clients += 1;
+        const pr = prixDuPlan.get(plan) ?? { somme: 0, n: 0 };
+        pr.somme += p.grossAmount;
+        pr.n += 1;
+        prixDuPlan.set(plan, pr);
+      }
+      cellules.set(cle, c);
+    }
+    // Revenu net par cellule : le même résumé que partout ailleurs (remboursements
+    // déduits), pas une somme naïve de `netAmount`.
+    for (const [cle, c] of cellules) {
+      const lignes = paiementsPeriode.filter(
+        (p) =>
+          p.status === "paid" &&
+          (p.planId ?? "") === c.planId &&
+          (paysDuPaiement.get(p.whopId) ?? null) === c.country,
+      );
+      c.net = summarizeWhopRevenue(lignes, fx).net;
+      cellules.set(cle, c);
+    }
+    // NOM LISIBLE DU PLAN — depuis l'agrégat A/B, qui mappe déjà l'identifiant
+    // Whop au slug émis par l'app. Whop, lui, n'expose aucun libellé : sans
+    // cette jointure l'écran afficherait `plan_8Eo6l4YYhkeI5`.
+    const abRow = await ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", "abPurchases"),
+      )
+      .unique();
+    const nomDuPlan = new Map<string, string>();
+    if (abRow) {
+      try {
+        const payload = JSON.parse(abRow.json) as {
+          rows?: { plan?: string; whopPlanId?: string }[];
+        };
+        for (const r of payload.rows ?? []) {
+          if (r.whopPlanId && r.plan) nomDuPlan.set(r.whopPlanId, r.plan);
+        }
+      } catch {
+        // Cache illisible : les plans gardent leur identifiant. Un écran sans
+        // libellé reste lisible ; une query qui jette ne l'est pas.
+      }
+    }
+    const planCells: PlanCountryCell[] = [...cellules.values()]
+      .map((c) => {
+        const pr = prixDuPlan.get(c.planId);
+        // Champs ÉNUMÉRÉS, jamais `...c` : la règle du dépôt vaut même quand
+        // l'objet étalé est local — c'est ainsi qu'un champ ajouté plus tard
+        // sort sans que personne l'ait décidé (garde scripts/check-db-spread).
+        return {
+          planId: c.planId,
+          country: c.country,
+          clients: c.clients,
+          paid: c.paid,
+          attempts: c.attempts,
+          net: c.net,
+          planLabel: nomDuPlan.get(c.planId) ?? null,
+          price: pr && pr.n > 0 ? round2(pr.somme / pr.n) : 0,
+        };
+      })
+      .sort((a, b) => a.price - b.price || b.clients - a.clients);
+
+    // ── SÉRIE D'ÉVOLUTION ─────────────────────────────────────────────────
+    // Coût et revenu par (marché, mois), CÔTE À CÔTE et jamais en ratio : le
+    // retour arrive après la dépense (une vidéo d'août encaisse en septembre) et
+    // le CPM d'une vidéo récente n'a pas fini de courir. Un ratio mensuel
+    // flatterait le dernier mois et chargerait le premier.
+    const trend = new Map<string, MarketTrendPoint>();
+    const pointFor = (country: string | null, month: string) => {
+      const cle = `${country ?? ""}|${month}`;
+      const p =
+        trend.get(cle) ?? { month, country, cost: 0, revenueNet: 0 };
+      trend.set(cle, p);
+      return p;
+    };
+    for (const [cle, cout] of coutParMois) {
+      const [pays, month] = cle.split("|");
+      pointFor(pays === "" ? null : pays, month).cost = cout;
+    }
+    for (const p of paiementsPeriode) {
+      if (p.status !== "paid") continue;
+      const pays = paysDuPaiement.get(p.whopId) ?? null;
+      const point = pointFor(pays, monthKeyParis(p.paidAt));
+      point.revenueNet = round2(
+        point.revenueNet + summarizeWhopRevenue([p], fx).net,
+      );
+    }
 
     const pays = new Set<string>([...couts.keys(), ...revenus.keys()]);
     const rows: MarketRow[] = [...pays].map((k) => {
@@ -327,6 +503,10 @@ export const getMarketPnl = permissionQuery("business.read")({
       revenueCurrency: (project?.whop ? "EUR" : null) as string | null,
       fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
       rows,
+      planCells,
+      trend: [...trend.values()].sort(
+        (a, b) => a.month.localeCompare(b.month) || (a.country ?? "").localeCompare(b.country ?? ""),
+      ),
       collection: {
         /** Dernier relevé de vues, tous comptes confondus (ms). */
         lastAt: dernier,

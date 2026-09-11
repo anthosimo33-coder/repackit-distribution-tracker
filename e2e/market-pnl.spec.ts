@@ -246,4 +246,103 @@ test.describe("Rentabilité par marché", () => {
     // n'oublie une moitié.
     expect(pnl.rows.find((r) => r.country === "HR")?.cost).toBe(102);
   });
+
+  test("la matrice plan × pays compte les tentatives, pas seulement les ventes", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now() + 3;
+    const projectId = await admin.getProjectId();
+    const plan = `plan_e2e_${ts}`;
+    // Un client SERBE : un premier paiement encaissé, puis un échec. Le taux de
+    // réussite est le seul « taux de conversion » mesurable sans croiser deux
+    // sources — il compare des tentatives à des encaissements, dans une table.
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET,
+      projectId,
+      whopId: `pay_ok_${ts}`,
+      status: "paid",
+      grossAmount: 16.9,
+      netAmount: 15.98,
+      paidAt: ts,
+      planId: plan,
+      membershipId: `mem_${ts}`,
+      billingCountry: "RS",
+      billingReason: "subscription_create",
+    });
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET,
+      projectId,
+      whopId: `pay_ko_${ts}`,
+      status: "failed",
+      grossAmount: 16.9,
+      netAmount: 0,
+      paidAt: ts + 1000,
+      planId: plan,
+      membershipId: `mem_${ts}`,
+      billingCountry: "RS",
+      billingReason: "subscription_cycle",
+    });
+
+    const pnl = await admin.query(api.marketPnl.getMarketPnl, {
+      from: ts - DAY,
+      to: Date.now() + DAY,
+    });
+    const cell = pnl.planCells.find(
+      (c) => c.planId === plan && c.country === "RS",
+    )!;
+    expect(cell.attempts).toBe(2);
+    expect(cell.paid).toBe(1);
+    // UN client, pas deux : le second paiement est une échéance du même
+    // abonnement, et il a échoué.
+    expect(cell.clients).toBe(1);
+    expect(cell.net).toBeCloseTo(15.98, 2);
+    // Le prix affiché est celui qui a été ENCAISSÉ, pas celui qui a été tenté.
+    expect(cell.price).toBeCloseTo(16.9, 2);
+  });
+
+  test("un client reste rattaché au pays de son PREMIER paiement", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now() + 4;
+    const projectId = await admin.getProjectId();
+    const mem = `mem_voyage_${ts}`;
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET,
+      projectId,
+      whopId: `pay_fr_${ts}`,
+      status: "paid",
+      grossAmount: 9.99,
+      netAmount: 9.2,
+      paidAt: ts,
+      planId: `plan_voyage_${ts}`,
+      membershipId: mem,
+      billingCountry: "FR",
+      billingReason: "subscription_create",
+    });
+    // Deuxième cycle facturé depuis la Suisse — un déménagement, ou une carte
+    // changée. Le client ne doit PAS migrer de marché : sinon son revenu
+    // quitterait le pays qui l'a acquis, et deux marchés bougeraient d'un coup.
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET,
+      projectId,
+      whopId: `pay_ch_${ts}`,
+      status: "paid",
+      grossAmount: 9.99,
+      netAmount: 9.2,
+      paidAt: ts + 2000,
+      planId: `plan_voyage_${ts}`,
+      membershipId: mem,
+      billingCountry: "CH",
+      billingReason: "subscription_cycle",
+    });
+
+    const pnl = await admin.query(api.marketPnl.getMarketPnl, {
+      from: ts - DAY,
+      to: Date.now() + DAY,
+    });
+    const cells = pnl.planCells.filter(
+      (c) => c.planId === `plan_voyage_${ts}`,
+    );
+    expect(cells).toHaveLength(1);
+    expect(cells[0].country).toBe("FR");
+    expect(cells[0].paid).toBe(2);
+  });
 });
