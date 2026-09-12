@@ -255,16 +255,25 @@ export function useMyProgression(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
-/** Statut bonus (paliers). View-as → getCreatorBonusStatus (adminQuery existant). */
+/**
+ * Statut bonus (paliers). View-as → `getBonusStatusAsAdmin`.
+ *
+ * ⚠️ PAS `getCreatorBonusStatus` (bloc `pricing.manage`) : c'est ce qu'elle
+ * lisait, et un manager qui a le bloc Paiements sans le bloc Pricings passait la
+ * porte de l'écran pour se prendre un refus DERRIÈRE elle — la query levait, et
+ * l'écran mourait. Un écran ouvert par `payments.manage` ne lit que des queries
+ * gardées par `payments.manage`.
+ */
 export function useMyBonusStatus(projectId: Id<"projects">) {
   const va = useViewAs();
+  const argent = useArgentObservable();
   const mine = useQuery(
     api.pricing.getMyBonusStatus,
     va ? "skip" : { projectId },
   );
   const asAdmin = useQuery(
-    api.pricing.getCreatorBonusStatus,
-    va ? { projectId, creatorId: va.creatorId } : "skip",
+    api.pricing.getBonusStatusAsAdmin,
+    va && argent ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;
 }

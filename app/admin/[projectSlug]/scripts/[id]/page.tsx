@@ -191,10 +191,14 @@ export default function ScriptCampaignDetailPage() {
   // Fenêtre de cooldown DU PROJET (réglage produit). Le badge « Cooldown → JJ/MM »
   // doit annoncer la durée que le tirage applique réellement ; la lire dans une
   // constante du client la ferait mentir dès le premier réglage.
-  const cooldownSettings = useProjectQuery(
-    api.projects.getComboCooldownSettings,
-    {},
-  );
+  //
+  // ⚠️ `getComboCooldownDays` (bloc `scripts.manage`), PAS
+  // `getComboCooldownSettings` (bloc « Réglages du projet »). Cette page lisait
+  // la seconde : chez une manageuse, qui n'a pas ce bloc, la query levait et
+  // emportait la PAGE ENTIÈRE — « Cette page n'a pas pu s'afficher », constaté
+  // en production le 12/09/2026. Régler la durée reste fermé ; savoir laquelle
+  // s'applique au tirage qu'on fait ici ne l'est pas.
+  const cooldownDays = useProjectQuery(api.projects.getComboCooldownDays, {});
   // PERF PAR BRIQUE, fenêtre « latest » : la médiane des vues et le nombre de
   // runs à l'endroit où se prend la décision d'activer ou de couper. Fenêtre la
   // plus couvrante (dernier relevé de CHAQUE post) — les fenêtres J+X
@@ -239,8 +243,7 @@ export default function ScriptCampaignDetailPage() {
       // c'est la même valeur que le serveur appliquerait à un projet sans
       // réglage, donc le badge ne clignote jamais vers une durée inventée.
       cooldownMs:
-        (cooldownSettings?.effective ?? COMBO_COOLDOWN_DAYS_FALLBACK) *
-        86_400_000,
+        (cooldownDays ?? COMBO_COOLDOWN_DAYS_FALLBACK) * 86_400_000,
     });
   };
 

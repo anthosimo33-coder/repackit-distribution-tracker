@@ -1,4 +1,5 @@
 import {
+  adminViewAsMoneyQuery,
   creatorQuery,
   e2eMutation,
   permissionMutation,
@@ -2179,6 +2180,32 @@ export const getCreatorBonusStatus = permissionQuery("pricing.manage")({
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    return bonusStatusFor(ctx, ctx.projectId, creator);
+  },
+});
+
+/**
+ * OBSERVATION — statut bonus de la personne observée, sur la garde ARGENT de
+ * l'observation (`payments.manage`), pas sur `pricing.manage`.
+ *
+ * L'espace observé affiche ce statut sur son écran « Mes paiements », lui-même
+ * fermé derrière `adminViewAsMoneyQuery` depuis #226. Il lisait pourtant
+ * `getCreatorBonusStatus`, gardée par `pricing.manage` : un manager qui a le
+ * bloc Paiements mais pas le bloc Pricings franchissait la porte et se prenait
+ * un refus DERRIÈRE elle — la query levait, et l'écran entier mourait.
+ *
+ * Une porte, une garde : l'écran est ouvert par `payments.manage`, tout ce qu'il
+ * lit l'est aussi. Le panneau ADMIN des récompenses, lui, ne bouge pas : c'est
+ * un écran de barèmes, il reste sur `pricing.manage`.
+ *
+ * Même helper `bonusStatusFor` que les deux autres lectures → aucune dérive
+ * possible sur ce qui est rendu.
+ */
+export const getBonusStatusAsAdmin = adminViewAsMoneyQuery({
+  args: {},
+  handler: async (ctx) => {
+    const creator = await ctx.db.get(ctx.creatorId);
+    if (!creator) return null;
     return bonusStatusFor(ctx, ctx.projectId, creator);
   },
 });

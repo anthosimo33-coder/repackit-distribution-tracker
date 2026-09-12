@@ -31,7 +31,7 @@ export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "project.settings": { queries: 3, mutations: 3 },
   "radar.use": { queries: 6, mutations: 5 },
   "review.manage": { queries: 5, mutations: 5 },
-  "scripts.manage": { queries: 9, mutations: 16 },
+  "scripts.manage": { queries: 10, mutations: 16 },
   "tracker.manage": { queries: 5, mutations: 10 },
 };
 
