@@ -89,6 +89,7 @@ import {
 import { utcOffsetLabel, zoneLabel } from "@/lib/timezone-choices";
 import { TimezonePicker, TZ_NONE } from "@/components/creators/TimezonePicker";
 import { usePermissions } from "@/components/project/use-permissions";
+import { canObserveCreatorSpace } from "@/lib/view-as-access";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 /** Conditions de rémunération — SECONDE lecture, gardée par `creators.pay_terms`.
@@ -115,6 +116,12 @@ export function CreatorDetailView({
   // La grille de bonus lit les BARÈMES (`pricing.manage`) : deux droits, pas un.
   // Un manager peut porter `creators.pay_terms` sans `pricing.manage`.
   const droits = usePermissions();
+  // Le bouton d'observation lit le RÔLE, pas un bloc de droits (cf
+  // lib/view-as-access) : c'est la seule action de cette page dans ce cas.
+  const peutObserver = canObserveCreatorSpace({
+    role: droits.role,
+    chargement: droits.chargement,
+  });
   const peutLireBaremesGrille = droits.has("pricing.manage");
   const peutSupprimer = droits.has("creators.delete");
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
@@ -397,15 +404,24 @@ export function CreatorDetailView({
           </div>
         </div>
         {/* Voir l'espace du créateur tel qu'il le voit, en LECTURE SEULE (scopé
-            projet, vérifié serveur). N'agit jamais en son nom. */}
-        <Link
-          href={viewAsBase(projectSlug, creator._id)}
-          className={cn(buttonVariants(), "shrink-0")}
-          data-testid="view-as-creator"
-        >
-          <EyeIcon className="mr-2 size-4" />
-          Voir son espace
-        </Link>
+            projet, vérifié serveur). N'agit jamais en son nom.
+
+            RÉSERVÉ AUX ADMINS, et le bouton le sait : sa garde serveur lit le
+            RÔLE (`requireCreatorViewableByAdmin`), pas les blocs de droits — un
+            manager ne la passera donc jamais, même avec tout le catalogue
+            coché. Le laisser visible lui promettait un écran qu'il n'aurait
+            pas : constaté en prod le 10/09/2026. Cf lib/view-as-access pour la
+            règle et la raison de cacher ICI alors qu'ailleurs on montre. */}
+        {peutObserver && (
+          <Link
+            href={viewAsBase(projectSlug, creator._id)}
+            className={cn(buttonVariants(), "shrink-0")}
+            data-testid="view-as-creator"
+          >
+            <EyeIcon className="mr-2 size-4" />
+            Voir son espace
+          </Link>
+        )}
       </div>
 
       {/* ─── CE QU'ELLE FAIT ────────────────────────────────────────────────
