@@ -123,6 +123,29 @@ export const EXPLAIN = {
     "Le détail de chaque annulation, du délai le plus court au plus long. Une annulation en quelques minutes veut dire que la personne a payé, n'a rien vu et a annulé, c'est un bug ; après des heures ou des jours, elle a eu accès et est partie quand même. L'accès exact côté app n'est pas mesuré ici, donc c'est le délai qui tranche.",
   projectionLtv:
     "Ce qu'un client rapporte sur toute sa vie : le net par paiement multiplié par le nombre moyen de paiements. C'est ce chiffre, comparé au coût d'acquisition, qui dit si le moteur est viable. Il reste un tiret tant que le renouvellement n'est pas mesurable.",
+  // ─── Pays : ce qu'un client vaut, par marché ───────────────────────────────
+  marcheClients:
+    "Les personnes dont le tout premier paiement tombe dans la période choisie. Un renouvellement ne compte pas comme un client de plus. Chaque client reste rattaché au pays de son premier paiement, même s'il paie ensuite depuis ailleurs.",
+  marcheCoutClient:
+    "Ce que coûtent les créatrices qui visent ce marché, divisé par les clients gagnés dessus. Sert à savoir combien on paie pour gagner un client ici. Le marché visé est celui du compte et non le pays de la créatrice : une créatrice serbe qui vise la France compte dans le coût de la France.",
+  marchePanier:
+    "Le revenu net divisé par le nombre de paiements encaissés. Ce n'est pas le prix du plan : un marché qui prend surtout l'offre la moins chère a un panier plus bas sans que rien n'aille mal.",
+  marcheCycles:
+    "Le nombre de paiements divisé par le nombre de clients gagnés, c'est à dire combien de fois un client paie en moyenne. Un chiffre proche de 1 veut dire que personne ne renouvelle. Les clients arrivés récemment n'ont pas eu le temps de renouveler et tirent ce chiffre vers le bas.",
+  marcheValeur30:
+    "Ce qu'un client gagné sur ce marché a rapporté 30 jours après son premier paiement. Elle ne compte que les clients qui ont vraiment cet âge, parce qu'un client de dix jours ne peut rien en dire. Le petit nombre gris à côté est l'effectif sur lequel elle est calculée.",
+  marcheValeur90:
+    "La même chose à 90 jours, l'horizon le plus loin que l'historique permette. C'est un plancher et non la valeur totale d'un client : un marché qui retient bien vaut davantage, mais on ne peut pas encore le prouver. Elle porte sur tous les clients du marché et pas seulement sur ceux de la période.",
+  marcheSurvie:
+    "La part des clients encore abonnés 30, 60 et 90 jours après leur arrivée. Elle explique pourquoi la valeur d'un marché décroche. Une résiliation ne compte que le jour où l'accès s'arrête vraiment, pas le jour où elle est demandée.",
+  marcheCout:
+    "Ce que les vidéos publiées sur ce marché ont coûté pendant la période, fixe et CPM compris. Le CPM continue de courir tant que le relevé ajoute des vues, donc une vidéo publiée il y a trois jours n'a pas fini de coûter. Le coût est en dollars et le revenu en euros, la conversion utilise le taux réglé sur le projet.",
+  marcheRevenuNet:
+    "L'argent qui reste une fois retirés les frais de Whop et les remboursements. Il est rattaché au pays de facturation du premier paiement du client. Un litige en cours n'est déduit que le jour où il est tranché.",
+  marcheRetour:
+    "Le revenu net divisé par le coût des créatrices : au dessus de 1, le marché rend plus qu'il ne prend. C'est un rapport sur la période et non une rentabilité à vie, car le revenu des clients gagnés maintenant continuera d'arriver après. Un marché sans aucune dépense n'a pas de retour et sa case reste vide.",
+  marcheRemboursement:
+    "Le nombre de jours avant qu'un client rapporte ce qu'il a coûté à gagner. C'est le chiffre qui tranche entre pousser un marché et l'arrêter. Jamais veut dire pas dans les 90 jours mesurés, pas jamais au sens absolu.",
 } as const;
 
 export type ExplainKey = keyof typeof EXPLAIN;

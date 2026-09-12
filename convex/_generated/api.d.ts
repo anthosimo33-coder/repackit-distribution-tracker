@@ -86,6 +86,7 @@ import type * as locales from "../locales.js";
 import type * as maintenance from "../maintenance.js";
 import type * as marketCost from "../marketCost.js";
 import type * as marketPnl from "../marketPnl.js";
+import type * as marketValue from "../marketValue.js";
 import type * as memberPermissions from "../memberPermissions.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
@@ -250,6 +251,7 @@ declare const fullApi: ApiFromModules<{
   maintenance: typeof maintenance;
   marketCost: typeof marketCost;
   marketPnl: typeof marketPnl;
+  marketValue: typeof marketValue;
   memberPermissions: typeof memberPermissions;
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;

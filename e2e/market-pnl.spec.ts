@@ -69,6 +69,21 @@ async function videoPubliee(opts: {
   });
 }
 
+/**
+ * Un projet NEUF, pour les lectures qui s'agrègent PAR PAYS.
+ *
+ * Un code ISO n'est pas unique d'un run à l'autre : sur le projet e2e partagé,
+ * rejouer la spec doublait les effectifs de la cohorte. Le projet, lui, porte
+ * l'isolation que la donnée ne porte pas.
+ */
+async function projetNeuf(quoi: string, ts: number) {
+  return await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+    secret: E2E_SECRET,
+    slug: `e2e-marche-${quoi}-${ts}`,
+    name: `[E2E_TEST] Marché ${quoi} ${ts}`,
+  });
+}
+
 test.describe("Rentabilité par marché", () => {
   test("le coût atterrit sur le pays du compte, et il vient du moteur", async () => {
     test.setTimeout(180_000);
@@ -344,5 +359,160 @@ test.describe("Rentabilité par marché", () => {
     expect(cells).toHaveLength(1);
     expect(cells[0].country).toBe("FR");
     expect(cells[0].paid).toBe(2);
+  });
+
+  /**
+   * CE QU'UN CLIENT VAUT — la moitié « cohorte » de l'onglet.
+   *
+   * Elle ne suit PAS la période : elle décrit le marché. Ces tests le prouvent
+   * en demandant une fenêtre étroite et en vérifiant que la valeur, elle, porte
+   * sur des paiements qui en sortent.
+   */
+  test("la valeur d'un client ne compte que les clients qui ont l'âge du jalon", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now() + 5;
+    // ⚠️ PROJET NEUF, et c'est la condition pour que ce test soit REJOUABLE.
+    // Ses voisins s'ancrent sur un `planId` unique par run ; celui-ci s'agrège
+    // par PAYS, et un code ISO ne s'invente pas. Sur le projet partagé, un
+    // second passage doublait donc tous les effectifs — vu en local.
+    const { projectId } = await projetNeuf("valeur", ts);
+    const pays = "PT";
+
+    // Un client MÛR : acquis il y a 120 jours, deux paiements (J0 et J+40).
+    const vieux = Date.now() - 120 * DAY;
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET, projectId,
+      whopId: `pay_vx1_${ts}`, status: "paid",
+      grossAmount: 4.99, netAmount: 4.48, paidAt: vieux,
+      membershipId: `mem_vieux_${ts}`, billingCountry: pays,
+      billingReason: "subscription_create",
+    });
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET, projectId,
+      whopId: `pay_vx2_${ts}`, status: "paid",
+      grossAmount: 4.99, netAmount: 4.48, paidAt: vieux + 40 * DAY,
+      membershipId: `mem_vieux_${ts}`, billingCountry: pays,
+      billingReason: "subscription_cycle",
+    });
+    // Un client JEUNE : acquis il y a 5 jours, un seul paiement.
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET, projectId,
+      whopId: `pay_jn_${ts}`, status: "paid",
+      grossAmount: 8.9, netAmount: 8.02, paidAt: Date.now() - 5 * DAY,
+      membershipId: `mem_jeune_${ts}`, billingCountry: pays,
+      billingReason: "subscription_create",
+    });
+
+    // Fenêtre ÉTROITE (les sept derniers jours) : elle ne contient que le jeune.
+    const pnl = await admin.query(api.marketPnl.getMarketPnl, {
+      projectId,
+      from: Date.now() - 7 * DAY,
+      to: Date.now() + DAY,
+    });
+    const row = pnl.rows.find((r) => r.country === pays)!;
+    // La PÉRIODE ne voit qu'un client acquis…
+    expect(row.clients).toBe(1);
+    expect(row.paid).toBe(1);
+    // …mais la COHORTE porte sur tout l'historique : deux clients.
+    expect(row.cohortClients).toBe(2);
+
+    const j0 = row.curve.find((c) => c.day === 0)!;
+    const j30 = row.curve.find((c) => c.day === 30)!;
+    const j90 = row.curve.find((c) => c.day === 90)!;
+    // À J0, les deux ont l'âge : 4,48 + 8,02.
+    expect(j0.mature).toBe(2);
+    expect(j0.sum).toBeCloseTo(12.5, 2);
+    // À J+30 et J+90, seul le vieux a l'âge. Le jeune sort des DEUX côtés de la
+    // division : compté à zéro, il ferait tomber la valeur de moitié.
+    expect(j30.mature).toBe(1);
+    expect(j30.sum).toBeCloseTo(4.48, 2);
+    // Son second paiement (J+40) n'entre qu'au jalon 90.
+    expect(j90.mature).toBe(1);
+    expect(j90.sum).toBeCloseTo(8.96, 2);
+  });
+
+  test("la survie lit la fin d'accès, pas le statut", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now() + 6;
+    const { projectId } = await projetNeuf("survie", ts);
+    const pays = "IE";
+    const t0 = Date.now() - 120 * DAY;
+
+    // Deux clients acquis le même jour sur le même marché.
+    for (const [suffixe, fin] of [
+      // Résilié chez Whop mais l'accès court toujours : ENCORE abonné.
+      ["resilie", undefined],
+      // Accès arrêté à J+45 : vivant à 30, parti à 60 et 90.
+      ["parti", t0 + 45 * DAY],
+    ] as const) {
+      await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+        secret: E2E_SECRET, projectId,
+        whopId: `pay_${suffixe}_${ts}`, status: "paid",
+        grossAmount: 4.99, netAmount: 4.48, paidAt: t0,
+        membershipId: `mem_${suffixe}_${ts}`, billingCountry: pays,
+        billingReason: "subscription_create",
+      });
+      await admin.mutation(api.whopSync.e2eSeedWhopMembership, {
+        secret: E2E_SECRET, projectId,
+        whopMembershipId: `mem_${suffixe}_${ts}`,
+        status: suffixe === "resilie" ? "canceled" : "expired",
+        accessEndsAt: fin,
+        createdAt: t0,
+      });
+    }
+
+    const pnl = await admin.query(api.marketPnl.getMarketPnl, {
+      projectId,
+      from: t0 - DAY,
+      to: Date.now() + DAY,
+    });
+    const row = pnl.rows.find((r) => r.country === pays)!;
+    const par = new Map(row.survival.map((s) => [s.day, s]));
+    // À 30 jours, les deux sont encore là — dont le « canceled », dont l'accès
+    // n'est pas fini. Lire le STATUT l'aurait compté mort.
+    expect(par.get(30)!.mature).toBe(2);
+    expect(par.get(30)!.alive).toBe(2);
+    // À 60 et 90, seul celui dont l'accès court reste.
+    expect(par.get(60)!.alive).toBe(1);
+    expect(par.get(90)!.alive).toBe(1);
+    expect(par.get(90)!.mature).toBe(2);
+  });
+
+  test("les variations comparent à la fenêtre de MÊME DURÉE juste avant", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now() + 7;
+    const { projectId } = await projetNeuf("variations", ts);
+    const pays = "NO";
+    const finPeriode = Date.now();
+    const debutPeriode = finPeriode - 30 * DAY;
+
+    // Un client dans la période, deux dans les 30 jours d'AVANT.
+    await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+      secret: E2E_SECRET, projectId,
+      whopId: `pay_now_${ts}`, status: "paid",
+      grossAmount: 4.99, netAmount: 4.48, paidAt: finPeriode - 3 * DAY,
+      membershipId: `mem_now_${ts}`, billingCountry: pays,
+      billingReason: "subscription_create",
+    });
+    for (const n of [1, 2]) {
+      await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+        secret: E2E_SECRET, projectId,
+        whopId: `pay_av${n}_${ts}`, status: "paid",
+        grossAmount: 4.99, netAmount: 4.48, paidAt: debutPeriode - n * 5 * DAY,
+        membershipId: `mem_av${n}_${ts}`, billingCountry: pays,
+        billingReason: "subscription_create",
+      });
+    }
+
+    const pnl = await admin.query(api.marketPnl.getMarketPnl, {
+      projectId,
+      from: debutPeriode,
+      to: finPeriode,
+    });
+    const row = pnl.rows.find((r) => r.country === pays)!;
+    expect(row.clients).toBe(1);
+    // La fenêtre d'avant fait exactement 30 jours elle aussi : deux clients.
+    expect(row.previousClients).toBe(2);
+    expect(row.previousRevenueNet).toBeCloseTo(8.96, 2);
   });
 });

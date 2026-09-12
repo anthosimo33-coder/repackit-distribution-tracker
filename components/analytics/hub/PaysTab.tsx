@@ -10,7 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { HubCardHeader, dash } from "./HubPrimitives";
+import { HubCardHeader, ColLabel, dash } from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
 import {
@@ -34,6 +35,11 @@ import {
   type CountrySteps,
 } from "@/lib/country-traffic";
 import { pctFromFraction } from "@/lib/percent";
+import {
+  aggregateMarket,
+  type MarketDerived,
+  type MarketFacts,
+} from "@/lib/market-aggregate";
 
 /**
  * ONGLET PAYS — ce qu'un marché coûte en créatrices, contre ce qu'il rapporte.
@@ -67,6 +73,176 @@ export type MarketPnl = {
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * ── LES CELLULES QUI ONT UNE RÈGLE ──────────────────────────────────────────
+ * Chacune porte une distinction que `dash()` seul ne saurait pas rendre : un
+ * zéro qui est un fait contre une valeur inconnue, un effectif trop maigre pour
+ * qu'un taux se lise, un « jamais » qui ne veut pas dire jamais.
+ */
+
+/** Variation contre la période d'avant. Rien avant ⇒ rien d'affiché. */
+function Variation({ value }: { value: number | null }) {
+  // Sous 3 %, on n'affiche rien plutôt qu'un « +1 % » qui invite à conclure.
+  if (value === null || Math.abs(value) < 0.03) return null;
+  const monte = value > 0;
+  return (
+    <span
+      className={`ml-1 text-[10px] ${monte ? "text-emerald-600" : "text-rose-600"}`}
+      title={`Contre la période précédente de même durée`}
+    >
+      {monte ? "▲" : "▼"}
+      {Math.abs(Math.round(value * 100))}%
+    </span>
+  );
+}
+
+/**
+ * Coût d'acquisition. `0` n'est PAS un tiret : il dit qu'aucune créatrice ne
+ * vise ce marché, ce qui est une information et non une absence de mesure.
+ */
+function CoutParClient({
+  value,
+  revenueCurrency,
+}: {
+  value: number | null;
+  revenueCurrency: string | null;
+}) {
+  if (value === null) return <>—</>;
+  if (value === 0) return <span className="text-slate-400">aucun</span>;
+  return <>{formatMoney(value, revenueCurrency ?? undefined)}</>;
+}
+
+/**
+ * Valeur de cohorte : le montant, et TOUJOURS l'effectif sur lequel il porte.
+ * Sous le seuil, l'effectif reste visible : « — 4 » dit qu'on a quatre clients
+ * et pas assez pour conclure, là où un tiret nu se lirait « aucune donnée ».
+ */
+function Valeur({
+  point,
+  revenueCurrency,
+}: {
+  point: { value: number | null; mature: number } | undefined;
+  revenueCurrency: string | null;
+}) {
+  if (!point || point.mature === 0) return <>—</>;
+  return (
+    <>
+      {point.value === null ? (
+        <span className="text-slate-400">—</span>
+      ) : (
+        formatMoney(point.value, revenueCurrency ?? undefined)
+      )}{" "}
+      <span className="text-[10px] text-slate-400">{point.mature}</span>
+    </>
+  );
+}
+
+/** Survie : trois barres (30, 60, 90 j) et le taux à 90 jours. */
+function Survie({
+  steps,
+}: {
+  steps: { day: number; rate: number | null; mature: number }[];
+}) {
+  const connus = steps.filter((s) => s.rate !== null);
+  if (connus.length === 0) return <>—</>;
+  const dernier = [...connus].pop()!;
+  return (
+    <span className="inline-flex items-center gap-1.5 align-middle">
+      <span className="inline-flex h-3.5 items-end gap-px">
+        {steps.map((s) => (
+          <span
+            key={s.day}
+            title={`${s.day} jours : ${
+              s.rate === null ? `trop peu de recul (${s.mature})` : pctFromFraction(s.rate)
+            }`}
+            className="block w-1 rounded-[1px] bg-slate-300"
+            style={{ height: `${Math.max(2, (s.rate ?? 0) * 14)}px` }}
+          />
+        ))}
+      </span>
+      <span className="text-[11px] text-slate-500">
+        {pctFromFraction(dernier.rate ?? 0)}
+      </span>
+    </span>
+  );
+}
+
+/** Le jour du remboursement, ou ce qui l'empêche de se lire. */
+function Remboursement({
+  value,
+}: {
+  value: { day: number | null; state: "gratuit" | "ok" | "jamais" | "inconnu" };
+}) {
+  if (value.state === "gratuit")
+    return <span className="text-emerald-600">immédiat</span>;
+  if (value.state === "jamais")
+    return (
+      <span className="text-rose-600" title="Pas dans les 90 jours mesurés">
+        jamais
+      </span>
+    );
+  if (value.state === "inconnu" || value.day === null)
+    return <span className="text-slate-400">—</span>;
+  return <span className="text-emerald-600">J+{value.day}</span>;
+}
+
+/** Retour sur investissement : la couleur tranche à 1,00. */
+function Retour({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-slate-400">—</span>;
+  const classe =
+    value >= 1 ? "text-emerald-600" : value >= 0.6 ? "text-amber-600" : "text-rose-600";
+  return <span className={`font-medium ${classe}`}>{value.toFixed(2)}</span>;
+}
+
+/**
+ * DU SERVEUR À L'AGRÉGATION — le pont, et les deux populations qu'il respecte.
+ *
+ * `MarketRow` porte l'argent (pays de FACTURATION) ; `CountrySteps` porte le
+ * trafic (pays de CONNEXION). Ils sont posés dans la même structure parce que
+ * l'écran les montre côte à côte, mais AUCUN calcul ne les divise l'un par
+ * l'autre : la conversion se dérive des visiteurs et des clients PostHog
+ * seulement, et toutes les colonnes d'argent des seuls paiements Whop.
+ *
+ * Le coût est converti ICI, une fois : `lib/market-aggregate` reçoit un montant
+ * déjà comparable au revenu, ou `null` quand aucun taux n'est réglé. Sans ce
+ * `null`, un ratio euros/dollars sortirait un nombre sans unité.
+ */
+function factsOf(
+  r: MarketRow,
+  ctx: CurrencyContext,
+  trafic: Map<string, CountrySteps>,
+  plans: PlanCountryCell[],
+): MarketFacts {
+  const converti = toDisplayAmount(r.cost, ctx);
+  const t = r.country === null ? undefined : trafic.get(r.country);
+  return {
+    country: r.country,
+    creatorIds: r.creatorIds,
+    videos: r.videos,
+    cost: r.cost,
+    costComparable:
+      converti !== null && converti.rate !== null ? converti.value : null,
+    clients: r.clients,
+    payments: r.paid,
+    revenueNet: r.revenueNet,
+    previousClients: r.previousClients,
+    previousRevenueNet: r.previousRevenueNet,
+    cohortClients: r.cohortClients,
+    curve: r.curve,
+    survival: r.survival,
+    visitors: t?.visitors ?? 0,
+    trafficClients: t?.clients ?? 0,
+    plans: plans
+      .filter((c) => c.country === r.country)
+      .map((c) => ({
+        planId: c.planId,
+        label: c.planLabel,
+        price: c.price,
+        clients: c.clients,
+      })),
+  };
+}
 
 /**
  * Libellé d'un marché : drapeau + nom, ou la ligne « hors marché ».
@@ -157,6 +333,36 @@ export function PaysTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pnl]);
 
+  /**
+   * LES MARCHÉS DÉRIVÉS — un par pays pour l'instant.
+   *
+   * `aggregateMarket` prend une LISTE de pays : ici elle n'en reçoit qu'un, et
+   * c'est déjà la bonne forme pour les marchés composés qui viendront s'y
+   * brancher sans toucher au rendu. Un pays seul et un marché de cinq pays
+   * passent par la même dérivation, donc par les mêmes règles de seuil.
+   */
+  const marches: MarketDerived[] = useMemo(() => {
+    const trafic = new Map(stepsOf(traffic).map((t) => [t.country, t]));
+    const cells = pnl?.planCells ?? [];
+    return (pnl?.rows ?? [])
+      .map((r) =>
+        aggregateMarket([factsOf(r, ctx, trafic, cells)], {
+          key: r.country ?? "",
+          label: r.country === null ? "Aucun pays défini" : isoCountryLabel(r.country),
+          composed: false,
+        }),
+      )
+      .sort((a, b) => {
+        // Le RETOUR d'abord : c'est la question posée. Un marché sans dépense
+        // n'en a pas et passe après, trié sur son revenu.
+        if (a.retour === null && b.retour === null) return b.revenueNet - a.revenueNet;
+        if (a.retour === null) return 1;
+        if (b.retour === null) return -1;
+        return b.retour - a.retour;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pnl, traffic]);
+
   const totalCost = lignes.reduce((s, r) => s + r.cost, 0);
   const totalRevenue = lignes.reduce((s, r) => s + r.revenueNet, 0);
   // Le total, lui, PORTE le coût hors marché : c'est la marge réelle. Il se
@@ -192,6 +398,7 @@ export function PaysTab({
   }
 
   const lignesTrafic = countryTrafficRows(stepsOf(traffic));
+
 
   /**
    * La série, agrégée TOUS MARCHÉS : la question du mois est « est-ce que ça
@@ -315,65 +522,102 @@ export function PaysTab({
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
-            title="Rentabilité par marché"
-            subtitle="Coût des créatrices qui visent ce marché, contre revenu net encaissé depuis ce pays."
+            title="Le retour, marché par marché"
+            subtitle="Ce qu'un client rapporte face à ce que le marché coûte. Trié par retour sur investissement."
           />
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Marché</TableHead>
-                  <TableHead className="text-right">Créatrices</TableHead>
-                  <TableHead className="text-right">Vidéos payées</TableHead>
-                  <TableHead className="text-right">Coût</TableHead>
-                  <TableHead className="text-right">Clients</TableHead>
-                  <TableHead className="text-right">Revenu net</TableHead>
-                  <TableHead className="text-right">Marge</TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Clients" info={EXPLAIN.marcheClients} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Coût / client" info={EXPLAIN.marcheCoutClient} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Panier" info={EXPLAIN.marchePanier} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Cycles" info={EXPLAIN.marcheCycles} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Valeur 30 j" info={EXPLAIN.marcheValeur30} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Valeur 90 j" info={EXPLAIN.marcheValeur90} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Survie" info={EXPLAIN.marcheSurvie} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Remboursé" info={EXPLAIN.marcheRemboursement} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Coût" info={EXPLAIN.marcheCout} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Revenu net" info={EXPLAIN.marcheRevenuNet} />
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <ColLabel label="Retour" info={EXPLAIN.marcheRetour} />
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {lignes.map((r) => (
-                  <TableRow
-                    key={r.country ?? "(hors marché)"}
-                    className={
-                      r.marge !== null && r.marge < 0 ? "bg-rose-50/50" : undefined
-                    }
-                  >
+                {marches.map((m) => (
+                  <TableRow key={m.key || "(hors marché)"}>
                     <TableCell className="text-xs font-medium text-slate-700">
-                      <MarketLabel code={r.country} />
+                      <MarketLabel code={m.countries[0] ?? null} />
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
-                      {r.creators > 0 ? formatNumber(r.creators) : "—"}
+                      {m.clients > 0 ? formatNumber(m.clients) : "—"}
+                      <Variation value={m.deltaClients} />
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
-                      {r.videos > 0 ? formatNumber(r.videos) : "—"}
+                      <CoutParClient
+                        value={m.cac}
+                        revenueCurrency={pnl.revenueCurrency}
+                      />
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
-                      {r.cost > 0 ? argent(r.cost) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {r.clients > 0 ? formatNumber(r.clients) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {r.revenueNet > 0
-                        ? formatMoney(
-                            r.revenueNet,
-                            pnl.revenueCurrency ?? undefined,
-                          )
-                        : "—"}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right text-xs font-medium tabular-nums ${
-                        r.marge === null
-                          ? ""
-                          : r.marge < 0
-                            ? "text-rose-600"
-                            : "text-emerald-600"
-                      }`}
-                    >
-                      {dash(r.marge, (n) =>
+                      {dash(m.basket, (n) =>
                         formatMoney(n, pnl.revenueCurrency ?? undefined),
                       )}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {dash(m.cycles, (n) => n.toFixed(1))}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      <Valeur
+                        point={m.value.find((v) => v.day === 30)}
+                        revenueCurrency={pnl.revenueCurrency}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      <Valeur
+                        point={m.value.find((v) => v.day === 90)}
+                        revenueCurrency={pnl.revenueCurrency}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      <Survie steps={m.survival} />
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      <Remboursement value={m.payback} />
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {m.cost > 0 ? argent(m.cost) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {m.revenueNet > 0
+                        ? formatMoney(m.revenueNet, pnl.revenueCurrency ?? undefined)
+                        : "—"}
+                      <Variation value={m.deltaRevenue} />
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      <Retour value={m.retour} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -381,13 +625,15 @@ export function PaysTab({
             </Table>
           </div>
           <p className="text-xs text-slate-400">
-            Le <strong>coût</strong> vient du marché visé par le compte de la
-            créatrice ; le <strong>revenu</strong>, de l&apos;adresse de
-            facturation du client. Deux notions de pays, mises face à face parce
-            que c&apos;est la décision qu&apos;on prend — jamais divisées
-            l&apos;une par l&apos;autre. Un coût sans marché défini garde sa
-            propre ligne : le répartir au prorata fabriquerait une rentabilité
-            que personne n&apos;a mesurée.
+            <strong>Deux horloges sur la même ligne.</strong> Le coût, le revenu
+            et les clients suivent la période choisie en haut ; la valeur à 30 et
+            90 jours et la survie portent sur tous les clients du marché, parce
+            qu&apos;elles décrivent le marché et non la fenêtre. Le{" "}
+            <strong>coût</strong> vient du marché visé par le compte de la
+            créatrice, le <strong>revenu</strong> de l&apos;adresse de facturation
+            du client : deux notions de pays, mises face à face parce que
+            c&apos;est la décision qu&apos;on prend, jamais divisées l&apos;une par
+            l&apos;autre.
           </p>
         </CardContent>
       </Card>
