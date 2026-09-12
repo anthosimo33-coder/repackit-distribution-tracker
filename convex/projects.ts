@@ -975,6 +975,31 @@ export const getComboCooldownSettings = permissionQuery("project.settings")({
   },
 });
 
+/**
+ * LA DURÉE APPLIQUÉE, pour l'écran des scripts — `scripts.manage`, pas
+ * `project.settings`.
+ *
+ * Cette query existe parce que la page d'une campagne affiche « Cooldown →
+ * JJ/MM » sur chaque hook, et qu'elle lisait pour cela `getComboCooldownSettings`
+ * (bloc « Réglages du projet », que les managers n'ont pas par défaut). La query
+ * levait, et la PAGE ENTIÈRE mourait : constaté en production le 12/09/2026, sur
+ * le compte d'une manageuse.
+ *
+ * ⚠️ ELLE NE DIT PAS LA MÊME CHOSE que `getComboCooldownSettings`, et c'est
+ * exprès. Celle-là rend le RÉGLAGE — `defined` (posé ou non) et le défaut —, de
+ * quoi remplir un formulaire ; celle-ci ne rend que la durée EFFECTIVEMENT
+ * appliquée, de quoi dater un badge. Régler reste fermé ; savoir quelle règle
+ * s'applique à un tirage qu'on est en train de faire ne l'est pas.
+ *
+ * Un repli côté client sur la constante par défaut ferait MENTIR le badge dès
+ * qu'un projet règle sa durée — c'est précisément ce que cette query évite.
+ */
+export const getComboCooldownDays = permissionQuery("scripts.manage")({
+  args: {},
+  handler: async (ctx): Promise<number> =>
+    comboCooldownDaysOf((await ctx.db.get(ctx.projectId)) ?? {}),
+});
+
 export const setComboCooldownDays = permissionMutation("project.settings")({
   args: { days: v.union(v.number(), v.null()) },
   handler: async (ctx, { days }): Promise<{ updated: true }> => {
