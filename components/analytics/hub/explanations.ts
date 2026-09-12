@@ -146,6 +146,12 @@ export const EXPLAIN = {
     "Le revenu net divisé par le coût des créatrices : au dessus de 1, le marché rend plus qu'il ne prend. C'est un rapport sur la période et non une rentabilité à vie, car le revenu des clients gagnés maintenant continuera d'arriver après. Un marché sans aucune dépense n'a pas de retour et sa case reste vide.",
   marcheRemboursement:
     "Le nombre de jours avant qu'un client rapporte ce qu'il a coûté à gagner. C'est le chiffre qui tranche entre pousser un marché et l'arrêter. Jamais veut dire pas dans les 90 jours mesurés, pas jamais au sens absolu.",
+  marcheQuadrant:
+    "Chaque bulle est un marché, placé sur ce qu'un client y coûte et sur ce qu'il y rapporte à 90 jours. La diagonale est le seuil : au dessus, un client rapporte plus qu'il n'a coûté. Un marché sans aucun client n'y figure pas, faute d'avoir une valeur à porter en hauteur.",
+  marcheCourbe:
+    "Le revenu cumulé d'un client depuis son premier paiement, et en pointillé ce qu'il a coûté à gagner. La courbe franchit le pointillé le jour du remboursement. Chaque point a son propre effectif, donc la courbe n'est pas un groupe de clients suivi dans le temps mais la meilleure lecture possible à chaque âge.",
+  marcheComposeur:
+    "Un marché composé additionne le coût et le revenu de ses pays, et se lit ensuite comme une seule ligne. Un pays ne peut appartenir qu'à un seul marché, sinon son coût serait compté deux fois. Les marchés sont partagés par toute l'équipe, la bascule par pays ou par marché reste propre à votre écran.",
 } as const;
 
 export type ExplainKey = keyof typeof EXPLAIN;

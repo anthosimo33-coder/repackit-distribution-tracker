@@ -36,6 +36,10 @@ import {
 } from "@/lib/country-traffic";
 import { pctFromFraction } from "@/lib/percent";
 import { MarketComposer } from "./MarketComposer";
+import { MarketQuadrant } from "./MarketQuadrant";
+import { MarketPayback } from "./MarketPayback";
+import { MarketValueCurve } from "./MarketValueCurve";
+import { MarketDetailSheet } from "./MarketDetailSheet";
 import { partitionMarches } from "@/lib/market-groups";
 import type { MarketGroup } from "@/convex/marketGroups";
 import {
@@ -190,12 +194,24 @@ function Remboursement({
   return <span className="text-emerald-600">J+{value.day}</span>;
 }
 
+/**
+ * Un RATIO en français. `toFixed` rend « 1.71 » avec un point, au milieu d'une
+ * colonne où les montants s'écrivent « 6,67 € » : la ligne se lit alors comme
+ * si deux systèmes de nombres s'y croisaient.
+ */
+function ratioFr(n: number, decimales = 2): string {
+  return n.toLocaleString("fr-FR", {
+    minimumFractionDigits: decimales,
+    maximumFractionDigits: decimales,
+  });
+}
+
 /** Retour sur investissement : la couleur tranche à 1,00. */
 function Retour({ value }: { value: number | null }) {
   if (value === null) return <span className="text-slate-400">—</span>;
   const classe =
     value >= 1 ? "text-emerald-600" : value >= 0.6 ? "text-amber-600" : "text-rose-600";
-  return <span className={`font-medium ${classe}`}>{value.toFixed(2)}</span>;
+  return <span className={`font-medium ${classe}`}>{ratioFr(value)}</span>;
 }
 
 /**
@@ -307,6 +323,12 @@ export function PaysTab({
    * consulte.
    */
   const [maille, setMaille] = useState<"pays" | "marche">("marche");
+  /**
+   * LE MARCHÉ OUVERT, partagé par les trois vues. Une seule sélection pour le
+   * quadrant, le remboursement, la courbe et le tableau : cliquer une bulle
+   * souligne la même ligne ailleurs, et ouvre le même tiroir.
+   */
+  const [ouvert, setOuvert] = useState<string | null>(null);
   const ctx: CurrencyContext = {
     payCurrency: pnl?.payCurrency,
     revenueCurrency: pnl?.revenueCurrency,
@@ -599,6 +621,55 @@ export function PaysTab({
         onMaille={setMaille}
       />
 
+      <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Ce qu'un client coûte, ce qu'il rapporte"
+              subtitle="Chaque bulle est un marché, sa taille ses clients. Clique pour ouvrir son détail."
+              info={EXPLAIN.marcheQuadrant}
+            />
+            <MarketQuadrant
+              marches={marches}
+              devise={pnl.revenueCurrency}
+              selection={ouvert}
+              onSelect={setOuvert}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Remboursé en combien de temps"
+              subtitle="Jours avant que la valeur d'un client rattrape son coût d'acquisition."
+              info={EXPLAIN.marcheRemboursement}
+            />
+            <MarketPayback
+              marches={marches}
+              selection={ouvert}
+              onSelect={setOuvert}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="La valeur d'un client, jour après jour"
+            subtitle="Trait plein : ce qu'il a rapporté. Pointillé : ce qu'il a coûté à acquérir."
+            info={EXPLAIN.marcheCourbe}
+          />
+          <MarketValueCurve
+            marches={marches}
+            devise={pnl.revenueCurrency}
+            selection={ouvert}
+            onSelect={setOuvert}
+          />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
@@ -647,7 +718,16 @@ export function PaysTab({
               </TableHeader>
               <TableBody>
                 {marches.map((m) => (
-                  <TableRow key={m.key || "(hors marché)"}>
+                  <TableRow
+                    key={m.key || "(hors marché)"}
+                    onClick={() => setOuvert(m.key)}
+                    aria-selected={ouvert === m.key}
+                    className={
+                      ouvert === m.key
+                        ? "cursor-pointer bg-slate-50"
+                        : "cursor-pointer"
+                    }
+                  >
                     <TableCell className="text-xs font-medium text-slate-700">
                       {m.composed ? (
                         <span className="inline-flex items-center gap-1.5">
@@ -676,7 +756,7 @@ export function PaysTab({
                       )}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
-                      {dash(m.cycles, (n) => n.toFixed(1))}
+                      {dash(m.cycles, (n) => ratioFr(n, 1))}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       <Valeur
@@ -963,6 +1043,12 @@ export function PaysTab({
           </CardContent>
         </Card>
       ) : null}
+      <MarketDetailSheet
+        marche={marches.find((m) => m.key === ouvert) ?? null}
+        ctx={ctx}
+        devise={pnl.revenueCurrency}
+        onClose={() => setOuvert(null)}
+      />
     </div>
   );
 }
