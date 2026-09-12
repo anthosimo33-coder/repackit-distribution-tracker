@@ -2465,6 +2465,30 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_whopMembershipId", ["whopMembershipId"]),
 
+  /**
+   * MARCHÉS COMPOSÉS — « Serbie + Croatie » lus comme un seul marché.
+   *
+   * Un regroupement de PILOTAGE, pas une donnée de facturation : il ne change
+   * rien à ce qui est encaissé ni à ce qui est payé, seulement à la maille de
+   * lecture de l'onglet Pays. Il vit donc en base et non dans un stockage local,
+   * parce que l'équipe doit lire les mêmes marchés que la personne qui les a
+   * composés.
+   *
+   * ⚠️ UN PAYS N'APPARTIENT QU'À UN SEUL MARCHÉ. La règle est tenue par
+   * `lib/market-groups` ET par la mutation : sans elle, un pays compté dans deux
+   * marchés doublerait son coût, et la ligne « tous marchés » cesserait d'être
+   * un total. Aucun index ne peut l'exprimer (c'est une contrainte entre
+   * lignes) : elle est vérifiée à l'écriture, sur les marchés du projet.
+   */
+  marketGroups: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    /** Codes pays, tels que le revenu et le coût les portent. */
+    countries: v.array(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
   // Journal des CHANGEMENTS D'OFFRE — horodaté, saisi par l'admin. Sans lui, deux
   // cohortes ne sont pas comparables (un prix change, le plan gratuit apparaît, un
   // webhook tombe…). Alimenté via analyticsHub.addOfferChange.

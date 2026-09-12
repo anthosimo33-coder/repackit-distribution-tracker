@@ -195,6 +195,12 @@ function AnalyticsPageContenu() {
     api.marketPnl.getMarketPnl,
     marketBounds ? { from: marketBounds.from, to: marketBounds.to } : {},
   );
+  // Les marchés composés (« Serbie + Croatie »). Query à part et non un champ de
+  // `getMarketPnl` : ils changent au rythme des gens, pas de la période, et une
+  // création ne doit pas faire recalculer tout l'agrégat de rentabilité.
+  // `Safe` comme ses voisines : un échec de lecture des marchés ferait au pire
+  // retomber l'onglet sur la maille par pays, jamais disparaître la page.
+  const marketGroupsQ = useProjectQuerySafe(api.marketGroups.listMarketGroups, {});
 
   const onSync = async () => {
     setSyncing(true);
@@ -437,6 +443,7 @@ function AnalyticsPageContenu() {
             <TabsContent value="pays" className="mt-6">
               <PaysTab
                 pnl={marketPnlQ.data}
+                groups={marketGroupsQ.data}
                 traffic={
                   windowedAnalytics.data?.funnels.countryPersons ??
                   analytics?.funnels.countryPersons
