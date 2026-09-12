@@ -26,7 +26,9 @@ const convex = createE2eClient(convexUrl);
  *   - un creatorId hors projet (passé avec un autre projectId) ne renvoie RIEN
  *     (« introuvable dans ce projet » — pas de fuite cross-projet) ;
  *   - le superadmin voit partout ;
- *   - une session CRÉATEUR est rejetée du chemin admin view-as (requireProjectAdmin).
+ *   - une session CRÉATEUR est rejetée du chemin admin view-as ;
+ *   - une MANAGEUSE portant `creators.read` observe l'espace, et ses GAINS lui
+ *     restent fermés sans `payments.manage` (arbitrage du 12/09/2026).
  * Le mode est en lecture seule par construction : il n'existe AUCUNE mutation
  * view-as (aucune n'est testée car aucune n'est exposée).
  */
@@ -151,6 +153,127 @@ test.describe("Admin — voir l'espace d'un créateur (lecture seule, scopé pro
       secret: E2E_SECRET,
       slug: slugB,
     });
+  });
+
+  /**
+   * L'ARBITRAGE DU 12/09/2026 — l'observation s'ouvre aux managers, son ARGENT
+   * reste fermé.
+   *
+   * Ce test passe par une SESSION de manageuse réelle, pas par une assertion
+   * serveur : ce qu'on veut prouver n'est pas que `requireCreatorObservable`
+   * refuse bien (ça, une assertion suffirait), c'est que les DEUX wrappers sont
+   * câblés sur les bonnes queries — `adminViewAsQuery` sur l'espace,
+   * `adminViewAsMoneyQuery` sur les gains. Un wrapper posé sur la mauvaise
+   * fonction passerait toutes les assertions de garde et fuirait quand même.
+   *
+   * Les deux moitiés sont indispensables. Sans la seconde, on prouverait juste
+   * qu'on peut tout ouvrir ; sans la troisième (le droit accordé), on prouverait
+   * qu'on peut tout fermer.
+   */
+  test("une manageuse observe l'espace, mais pas les gains — sauf avec « Paiements »", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const projectId = await convex.getProjectId();
+
+    // La créatrice OBSERVÉE (une tierce, pas la manageuse elle-même).
+    const { creatorId } = await convex.mutation(api.creators.inviteCreator, {
+      name: `[E2E_TEST] ViewAs Observee ${ts}`,
+      email: `e2e-viewas-obs-${ts}@repackit.test`,
+    });
+
+    // La MANAGEUSE : un compte réel (le circuit d'invitation est le seul chemin
+    // vers un mot de passe utilisable), dont on remplace ensuite les rôles.
+    const email = `e2e-viewas-mgr-${ts}@repackit.test`;
+    const password = `viewas-mgr-${ts}`;
+    const { token } = await convex.mutation(api.creators.inviteCreator, {
+      name: `[E2E_TEST] ViewAs Manageuse ${ts}`,
+      email,
+    });
+    const mgr = new ConvexHttpClient(convexUrl);
+    const signed = await mgr.action(api.auth.signIn, {
+      provider: "password",
+      params: { email, password, flow: "signUp", inviteToken: token },
+    });
+    mgr.setAuth(signed.tokens!.token);
+
+    const poser = (permissions: string[]) =>
+      convex.mutation(api.permissionProbe.e2eSetMembershipRole, {
+        secret: E2E_SECRET,
+        email,
+        projectId,
+        role: "manager",
+        permissions,
+      });
+
+    // ── 1. SANS `creators.read` : l'observation ne s'ouvre pas ───────────────
+    // Le rôle manager n'est pas un laissez-passer : c'est bien le BLOC qui
+    // décide. Sans cette marche, l'étape 2 prouverait seulement que « manager
+    // passe ».
+    await poser([]);
+    await expect(
+      mgr.query(api.creators.getProfileAsAdmin, { projectId, creatorId }),
+    ).rejects.toThrow(/ERR_PERMISSION_DENIED|droit non accordé/i);
+
+    // ── 2. AVEC `creators.read` : elle observe ──────────────────────────────
+    // C'est le défaut corrigé : avant, la garde lisait le RÔLE, et une manageuse
+    // qui cliquait « Voir son espace » tombait sur un refus.
+    await poser(["creators.read"]);
+    const profil = await mgr.query(api.creators.getProfileAsAdmin, {
+      projectId,
+      creatorId,
+    });
+    expect(profil?.name).toContain("ViewAs Observee");
+    // …et l'espace observé répond vraiment : ses comptes, pas seulement sa fiche.
+    expect(
+      await mgr.query(api.comptes.listComptesAsAdmin, { projectId, creatorId }),
+    ).toEqual([]);
+
+    // ── 3. MAIS PAS SES GAINS ───────────────────────────────────────────────
+    // Les quatre queries d'argent de l'espace observé, une par une : chacune est
+    // un chemin distinct vers le même argent, et il a suffi qu'UNE reste sur le
+    // wrapper ouvert pour que la frontière ne tienne plus.
+    for (const lecture of [
+      () => mgr.query(api.payments.getPaymentsAsAdmin, { projectId, creatorId }),
+      () =>
+        mgr.query(api.progression.getProgressionAsAdmin, {
+          projectId,
+          creatorId,
+        }),
+      () =>
+        mgr.query(api.creatorVideos.getVideoStatsAsAdmin, {
+          projectId,
+          creatorId,
+        }),
+      () =>
+        mgr.query(api.creatorVideos.listPublishedVideosAsAdmin, {
+          projectId,
+          creatorId,
+        }),
+    ]) {
+      await expect(lecture()).rejects.toThrow(
+        /ERR_PERMISSION_DENIED|droit non accordé/i,
+      );
+    }
+    // Le classement du projet est du même argent, vu de plus haut — il porte les
+    // gains de TOUTE l'équipe, et il était déjà gardé. On le vérifie ici parce
+    // que l'espace observé l'affiche.
+    await expect(
+      mgr.query(api.payments.leaderboard, { projectId }),
+    ).rejects.toThrow(/ERR_PERMISSION_DENIED|droit non accordé/i);
+
+    // ── 4. AVEC `payments.manage` EN PLUS : les gains s'ouvrent ─────────────
+    // La contre-épreuve de l'étape 3 : sans elle, une garde qui refuserait TOUT
+    // (ou une query cassée) laisserait ce test vert.
+    await poser(["creators.read", "payments.manage"]);
+    expect(
+      await mgr.query(api.payments.getPaymentsAsAdmin, { projectId, creatorId }),
+    ).toEqual([]);
+    expect(
+      await mgr.query(api.creatorVideos.listPublishedVideosAsAdmin, {
+        projectId,
+        creatorId,
+      }),
+    ).toEqual([]);
   });
 
   test("une session créateur est refusée des queries view-as", async () => {

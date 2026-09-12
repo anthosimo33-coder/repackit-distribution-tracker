@@ -1,5 +1,5 @@
 import {
-  adminViewAsQuery,
+  adminViewAsMoneyQuery,
   creatorQuery,
   e2eMutation,
   permissionMutation,
@@ -993,7 +993,7 @@ export const getMyPayments = creatorQuery({
 });
 
 /** ADMIN view-as — cycles/gains du créateur ciblé (lecture seule, scopé projet). */
-export const getPaymentsAsAdmin = adminViewAsQuery({
+export const getPaymentsAsAdmin = adminViewAsMoneyQuery({
   args: {},
   handler: async (ctx) =>
     cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),

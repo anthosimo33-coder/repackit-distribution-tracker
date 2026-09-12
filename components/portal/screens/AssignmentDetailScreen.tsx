@@ -4,7 +4,10 @@ import Link from "next/link";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
-import { useMyAssignment } from "@/components/portal/creator-data";
+import {
+  useArgentObservable,
+  useMyAssignment,
+} from "@/components/portal/creator-data";
 import { useReadOnly, usePortalBase } from "@/components/portal/ViewAsContext";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +44,7 @@ export default function AssignmentDetailScreen({
   // Devise de la paie créatrices ($ Snytch ; null → sans symbole), passée aux
   // estimateurs de rému (feuilles sans contexte).
   const payCurrency = useCreatorProject().current.payCurrency;
+  const argent = useArgentObservable();
   const readOnly = useReadOnly();
   const base = usePortalBase();
   const data = useMyAssignment(projectId, assignmentId);
@@ -259,7 +263,16 @@ export default function AssignmentDetailScreen({
           {/* Rémunération figée + calculateur. Populations DISJOINTES :
               - mission de campagne de script → pricingSnapshot (modèle v2 :
                 fixe/vidéo + CPM) ; rateSnapshot y est un placeholder {basePerPost:0} ;
-              - mission de format → rateSnapshot réel (modèle legacy, inchangé). */}
+              - mission de format → rateSnapshot réel (modèle legacy, inchangé).
+
+              MASQUÉE à l'observateur sans droit « Paiements ». C'est le barème
+              de la mission, pas un cumul — mais l'espace observé n'a qu'UNE
+              frontière argent, et c'est la plus stricte des deux candidates
+              (`pricing.manage` et `payments.manage` sont toutes deux du bloc
+              Argent, aucune n'est donnée aux managers par défaut). Une seule
+              frontière, une seule phrase pour la dire dans le bandeau.
+              Hors observation : toujours affichée, la créatrice voit sa paie. */}
+          {argent && (
           <Card>
             <CardHeader>
               <CardTitle className="text-base">{ta("pay")}</CardTitle>
@@ -278,6 +291,7 @@ export default function AssignmentDetailScreen({
               )}
             </CardContent>
           </Card>
+          )}
         </div>
       )}
     </div>

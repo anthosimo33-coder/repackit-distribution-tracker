@@ -1,4 +1,4 @@
-import { creatorQuery, adminViewAsQuery, creatorMutation } from "./functions";
+import { creatorQuery, adminViewAsMoneyQuery, creatorMutation } from "./functions";
 import {
   creatorCumulViews,
   creatorBonusTiers,
@@ -12,7 +12,7 @@ import type { Doc, Id } from "./_generated/dataModel";
  *
  * UN SEUL query de progression (`getMyProgression`) + son jumeau view-as admin,
  * qui partagent le MÊME helper de collecte → aucune fuite cross-projet (garanti
- * par creatorQuery/adminViewAsQuery : membership + creator∈projet côté serveur).
+ * par creatorQuery/adminViewAsMoneyQuery : membership + creator∈projet côté serveur).
  *
  * On ne fait ici que COLLECTER (cumul de vues, grille de paliers du créateur,
  * unlocks persistés, nb de posts). Toute la MISE EN FORME (échelle, prochain
@@ -117,7 +117,7 @@ export const getMyProgression = creatorQuery({
 });
 
 /** ADMIN view-as (LECTURE SEULE) — même helper, créateur ciblé scopé projet. */
-export const getProgressionAsAdmin = adminViewAsQuery({
+export const getProgressionAsAdmin = adminViewAsMoneyQuery({
   args: {},
   handler: async (ctx): Promise<ProgressionData | null> => {
     const creator = await ctx.db.get(ctx.creatorId);

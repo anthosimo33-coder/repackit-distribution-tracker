@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { authedQuery, authedMutation, requireCreatorViewableByAdmin } from "./functions";
+import { authedQuery, authedMutation, requireCreatorObservable } from "./functions";
 import { getProjectBySlug } from "./projects";
 import type { Id } from "./_generated/dataModel";
 
@@ -133,7 +133,7 @@ export const getCreatorLocale = authedQuery({
     // garde exécutée est la MÊME (identité, rôle admin du projet, fiche ∈ projet).
     const project = await getProjectBySlug(ctx, projectSlug);
     if (project === null) return { locale: null };
-    const creator = await requireCreatorViewableByAdmin(
+    const creator = await requireCreatorObservable(
       ctx,
       ctx.userId,
       project._id,

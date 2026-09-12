@@ -117,16 +117,39 @@ export function useMyComptes(projectId: Id<"projects">) {
   return va ? asAdmin : mine;
 }
 
+/**
+ * L'OBSERVATEUR PEUT-IL LIRE L'ARGENT DE LA PERSONNE OBSERVÉE ?
+ *
+ * Hors observation, la question ne se pose pas : une créatrice lit SES gains par
+ * `creatorQuery`, et ce hook rend `true` sans consulter le moindre droit — son
+ * portail est STRICTEMENT inchangé.
+ *
+ * En observation, la réponse est celle que le provider a déjà résolue
+ * (`payments.manage`, le même bloc que la garde serveur
+ * `requireCreatorMoneyObservable`). Elle est LUE EN CONTEXTE et pas recalculée
+ * par `usePermissions()` : ces hooks servent aussi le portail réel, où il n'y a
+ * pas de `ProjectProvider` — l'appeler ici casserait l'espace des créatrices.
+ *
+ * Les écrans s'en servent pour deux choses : ne pas lancer une query qui
+ * lèverait, et ne pas laisser un squelette tourner sur un bloc qui ne viendra
+ * jamais.
+ */
+export function useArgentObservable(): boolean {
+  return useViewAs()?.argent ?? true;
+}
+
 /** Mes vidéos publiées (Snytch). View-as → listPublishedVideosAsAdmin (scopé serveur). */
 export function useMyPublishedVideos(projectId: Id<"projects">) {
   const va = useViewAs();
+  // Chaque ligne porte le GAIN de la vidéo : cette liste est un écran d'argent.
+  const argent = useArgentObservable();
   const mine = useQuery(
     api.creatorVideos.listMyPublishedVideos,
     va ? "skip" : { projectId },
   );
   const asAdmin = useQuery(
     api.creatorVideos.listPublishedVideosAsAdmin,
-    va ? { projectId, creatorId: va.creatorId } : "skip",
+    va && argent ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;
 }
@@ -134,26 +157,28 @@ export function useMyPublishedVideos(projectId: Id<"projects">) {
 /** Récap vidéos du mois (Snytch). View-as → getVideoStatsAsAdmin. */
 export function useMyVideoStats(projectId: Id<"projects">) {
   const va = useViewAs();
+  const argent = useArgentObservable();
   const mine = useQuery(
     api.creatorVideos.getMyVideoStats,
     va ? "skip" : { projectId },
   );
   const asAdmin = useQuery(
     api.creatorVideos.getVideoStatsAsAdmin,
-    va ? { projectId, creatorId: va.creatorId } : "skip",
+    va && argent ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;
 }
 
 export function useMyPayments(projectId: Id<"projects">) {
   const va = useViewAs();
+  const argent = useArgentObservable();
   const mine = useQuery(
     api.payments.getMyPayments,
     va ? "skip" : { projectId },
   );
   const asAdmin = useQuery(
     api.payments.getPaymentsAsAdmin,
-    va ? { projectId, creatorId: va.creatorId } : "skip",
+    va && argent ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;
 }
@@ -167,13 +192,17 @@ export function useMyPayments(projectId: Id<"projects">) {
  */
 export function useProjectLeaderboard(projectId: Id<"projects">) {
   const va = useViewAs();
+  // Le classement du projet montre les GAINS DE TOUTES : en observation il passe
+  // par `payments.leaderboard`, qui exige déjà `payments.manage`. Sans le droit,
+  // la query serait REFUSÉE — donc une exception, donc le dashboard démonté.
+  const argent = useArgentObservable();
   const mine = useQuery(
     api.payments.projectLeaderboard,
     va ? "skip" : { projectId },
   );
   const asAdmin = useQuery(
     api.payments.leaderboard,
-    va ? { projectId } : "skip",
+    va && argent ? { projectId } : "skip",
   );
   if (va) {
     return asAdmin?.map((e) => ({ ...e, isMe: e.creatorId === va.creatorId }));
@@ -213,13 +242,15 @@ export function useMyContracts(projectId: Id<"projects">) {
  *  getProgressionAsAdmin (adminViewAsQuery : admin+projet+creator∈projet). */
 export function useMyProgression(projectId: Id<"projects">) {
   const va = useViewAs();
+  // Les paliers portent leurs MONTANTS : écran d'argent lui aussi.
+  const argent = useArgentObservable();
   const mine = useQuery(
     api.progression.getMyProgression,
     va ? "skip" : { projectId },
   );
   const asAdmin = useQuery(
     api.progression.getProgressionAsAdmin,
-    va ? { projectId, creatorId: va.creatorId } : "skip",
+    va && argent ? { projectId, creatorId: va.creatorId } : "skip",
   );
   return va ? asAdmin : mine;
 }

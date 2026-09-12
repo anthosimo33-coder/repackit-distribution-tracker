@@ -7,6 +7,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProject, useProjectPath } from "@/components/project/ProjectProvider";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { usePermissions } from "@/components/project/use-permissions";
+import { canObserveMoney } from "@/lib/view-as-access";
 import { resolveCreatorKind } from "@/convex/roles";
 import {
   CreatorProjectContext,
@@ -17,17 +19,18 @@ import { viewAsBase } from "@/lib/view-as";
 
 /**
  * Admin « voir l'espace d'un créateur » (LECTURE SEULE) — provider de données du
- * mode view-as. Monté SOUS ProjectProvider (qui résout le projet par slug et gate
- * l'accès admin/superadmin côté client ; la vraie barrière reste serveur).
+ * mode view-as. Monté SOUS ProjectProvider (qui résout le projet par slug et
+ * vérifie le membership côté client ; la vraie barrière reste serveur).
  *
- * Il résout le créateur ciblé via api.creators.getCreator (adminQuery : renvoie
- * null si la fiche n'est pas dans le projet de l'admin → DÉFENSE EN PROFONDEUR,
+ * Il résout le créateur ciblé via api.creators.getCreator (permissionQuery
+ * `creators.read` : renvoie null si la fiche n'est pas dans le projet de
+ * l'appelant → DÉFENSE EN PROFONDEUR,
  * en plus de la vérif serveur de chaque query view-as). Puis il alimente :
  *   - CreatorProjectContext avec un projet UNIQUE synthétique (branding du projet
  *     + nom du créateur ciblé) → les écrans portail réutilisés fonctionnent sans
  *     modification (useCreatorProject / useCreatorProjectId) ;
- *   - ViewAsContext (creatorId + nom + base path) → indirection des données et
- *     rendu lecture seule.
+ *   - ViewAsContext (creatorId + nom + base path + droit d'ARGENT de
+ *     l'observateur) → indirection des données et rendu lecture seule.
  */
 export function ViewAsProvider({
   creatorId,
@@ -39,8 +42,15 @@ export function ViewAsProvider({
   const { project } = useProject();
   const projectPath = useProjectPath();
   const creator = useProjectQuery(api.creators.getCreator, { id: creatorId });
+  // Les droits de L'OBSERVATEUR sur ce projet (pas ceux de la personne observée).
+  const droits = usePermissions();
 
-  if (creator === undefined) {
+  // On attend les DROITS comme on attend la fiche, et c'est ce qui rend `argent`
+  // fiable en aval : les écrans du portail lancent leurs queries dès le montage,
+  // et une query d'argent lancée avant de savoir serait refusée par le serveur —
+  // donc une exception, donc l'écran démonté. Les deux lectures partent en
+  // parallèle : l'attente est celle qui existait déjà.
+  if (creator === undefined || droits.chargement) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2Icon className="size-6 animate-spin text-slate-400" />
@@ -93,6 +103,7 @@ export function ViewAsProvider({
           creatorName: creator.name,
           creatorKind: resolveCreatorKind(creator.kind),
           basePath: viewAsBase(project.slug, creatorId),
+          argent: canObserveMoney(droits),
         }}
       >
         {children}

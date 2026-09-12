@@ -9,6 +9,7 @@ import {
   HelpCircleIcon,
   HomeIcon,
   ListChecksIcon,
+  LockIcon,
   LogOutIcon,
   UserIcon,
   WalletIcon,
@@ -20,10 +21,15 @@ import { SidebarItem } from "@/components/layout/SidebarItem";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { useViewAs } from "@/components/portal/ViewAsContext";
-import { useActionable, useWarmupDue } from "@/components/portal/creator-data";
+import {
+  useActionable,
+  useArgentObservable,
+  useWarmupDue,
+} from "@/components/portal/creator-data";
 import { TalentProjectProvider } from "@/components/talent/TalentProjectProvider";
 import { ClipperProjectProvider } from "@/components/clip/ClipperProjectProvider";
 import { portalHref } from "@/lib/view-as";
+import { isMoneySub } from "@/lib/view-as-access";
 import { ViewAsLocale } from "@/components/portal/ViewAsLocale";
 import { useTranslations } from "next-intl";
 import type { AbstractIntlMessages } from "next-intl";
@@ -118,6 +124,7 @@ function ViewAsBanner() {
   const viewAs = useViewAs();
   const projectPath = useProjectPath();
   const { current } = useCreatorProject();
+  const argent = useArgentObservable();
   const creatorName = viewAs?.creatorName ?? current.creatorName ?? "ce créateur";
   // Quitter → fiche admin du créateur (point d'entrée du mode vue).
   const exitHref = viewAs
@@ -131,10 +138,18 @@ function ViewAsBanner() {
     >
       <div className="flex min-w-0 items-center gap-2">
         <EyeIcon className="size-4 shrink-0" />
+        {/* Sans le droit « Paiements », des blocs MANQUENT à l'écran (gains,
+            classement, paliers) et deux entrées manquent à la nav. Le dire ici
+            évite que l'observateur lise ces absences comme une créatrice sans
+            activité. ⚠️ Ce `truncate` coupe déjà la parenthèse sur un écran
+            étroit — c'était vrai avant ce chantier. La mention est un CONFORT ;
+            ce qui porte vraiment le refus, c'est l'écran de gains lui-même. */}
         <p className="min-w-0 truncate text-sm">
           Tu regardes l&apos;espace de{" "}
           <span className="font-semibold">{creatorName}</span>{" "}
-          <span className="font-medium text-amber-700">(lecture seule)</span>
+          <span className="font-medium text-amber-700">
+            {argent ? "(lecture seule)" : "(lecture seule, sans ses gains)"}
+          </span>
         </p>
       </div>
       <Link
@@ -167,6 +182,40 @@ function ScreenOutsideSpace({ base }: { base: string }) {
         {viewAs?.creatorName ?? "Cette personne"} n&apos;a pas cette page — son
         espace n&apos;a pas la même forme que celui d&apos;un créateur
         partenaire.
+      </p>
+      <Link
+        href={base}
+        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+      >
+        Revenir à son espace
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * Écran de GAINS d'un espace observé, demandé par quelqu'un qui n'a pas le droit
+ * « Paiements ».
+ *
+ * ⚠️ CE PANNEAU NE PROTÈGE RIEN : la barrière est `requireCreatorMoneyObservable`,
+ * côté serveur, à chaque requête. Il existe parce qu'une URL se tape et se met
+ * en favori — et parce qu'un refus qu'on n'explique pas se lit comme une panne.
+ * Même choix qu'au-dessus : on DIT, on ne redirige pas.
+ */
+function ScreenWithoutMoney({ base }: { base: string }) {
+  const viewAs = useViewAs();
+  return (
+    <div className="mx-auto max-w-md space-y-3 py-12 text-center">
+      <LockIcon className="mx-auto size-5 text-slate-400" />
+      <p className="text-sm font-medium text-slate-900">
+        Ses gains ne te sont pas ouverts.
+      </p>
+      <p className="text-sm text-slate-500">
+        Observer l&apos;espace de{" "}
+        {viewAs?.creatorName ?? "cette personne"} ne donne pas accès à
+        l&apos;argent qu&apos;on y trouve : ses paiements, le gain de chaque
+        vidéo et le montant de ses paliers demandent le droit «&nbsp;Paiements&nbsp;».
+        Le reste de son espace reste consultable.
       </p>
       <Link
         href={base}
@@ -380,15 +429,23 @@ function PartnerViewShell({ children, locale, messages }: ShellProps) {
   } as React.CSSProperties;
 
   const base = viewAs?.basePath ?? "/app";
+  const sub = useSubPath(base);
+  // Droit d'ARGENT de l'observateur (true hors observation : le portail réel
+  // d'une créatrice ne perd jamais rien).
+  const argent = useArgentObservable();
 
   const actionable = useActionable(current.projectId) ?? 0;
   const warmupDue = useWarmupDue(current.projectId) ?? 0;
   const badgeCount = { actionable, warmupDue };
   // « Mes vidéos » réservé à Snytch (comme dans le portail créateur normal).
   const afterPaiements = NAV.findIndex((it) => it.sub === "/paiements") + 1;
-  const navItems = isSnytchProject(current.slug)
+  const complet = isSnytchProject(current.slug)
     ? [...NAV.slice(0, afterPaiements), VIDEOS_NAV, ...NAV.slice(afterPaiements)]
     : NAV;
+  // Sans le droit « Paiements », les écrans de gains quittent la nav : proposer
+  // une entrée dont on sait qu'elle rendra un refus, c'est le défaut qu'on
+  // corrige un cran plus haut avec le bouton « Voir son espace ».
+  const navItems = argent ? complet : complet.filter((it) => !isMoneySub(it.sub));
 
   function isActive(item: NavItem) {
     const href = portalHref(base, item.sub);
@@ -422,7 +479,11 @@ function PartnerViewShell({ children, locale, messages }: ShellProps) {
 
         <main className="flex-1 overflow-x-hidden">
           <div className="container mx-auto px-4 py-6 pb-24 sm:px-6 sm:py-8 md:pb-8">
-            {children}
+            {argent || !isMoneySub(sub) ? (
+              children
+            ) : (
+              <ScreenWithoutMoney base={base} />
+            )}
           </div>
         </main>
       </div>
