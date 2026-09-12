@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -35,6 +35,9 @@ import {
   type CountrySteps,
 } from "@/lib/country-traffic";
 import { pctFromFraction } from "@/lib/percent";
+import { MarketComposer } from "./MarketComposer";
+import { partitionMarches } from "@/lib/market-groups";
+import type { MarketGroup } from "@/convex/marketGroups";
 import {
   aggregateMarket,
   type MarketDerived,
@@ -286,14 +289,24 @@ function stepsOf(segments: FunnelSegments | undefined): CountrySteps[] {
 export function PaysTab({
   pnl,
   traffic,
+  groups,
   error,
 }: {
   pnl: MarketPnl | undefined;
   /** Funnel par pays attribué PAR PERSONNE (cf QUERIES.countryPersons). */
   traffic?: FunnelSegments;
+  /** Les marchés composés du projet. `undefined` tant que la query charge. */
+  groups?: MarketGroup[];
   /** Message d'échec de lecture — un tiret muet se lirait « pas de données ». */
   error?: string | null;
 }) {
+  /**
+   * PAR PAYS ou PAR MARCHÉ. La maille vit dans l'écran et non en base : c'est
+   * une façon de regarder, pas une décision d'équipe. Les marchés composés, eux,
+   * sont partagés — c'est la distinction entre ce qu'on compose et ce qu'on
+   * consulte.
+   */
+  const [maille, setMaille] = useState<"pays" | "marche">("marche");
   const ctx: CurrencyContext = {
     payCurrency: pnl?.payCurrency,
     revenueCurrency: pnl?.revenueCurrency,
@@ -334,34 +347,94 @@ export function PaysTab({
   }, [pnl]);
 
   /**
-   * LES MARCHÉS DÉRIVÉS — un par pays pour l'instant.
+   * LES MARCHÉS DÉRIVÉS — un par pays, ou un par marché composé.
    *
-   * `aggregateMarket` prend une LISTE de pays : ici elle n'en reçoit qu'un, et
-   * c'est déjà la bonne forme pour les marchés composés qui viendront s'y
-   * brancher sans toucher au rendu. Un pays seul et un marché de cinq pays
-   * passent par la même dérivation, donc par les mêmes règles de seuil.
+   * La PARTITION (`lib/market-groups`) dit quels pays vont ensemble ;
+   * l'AGRÉGATION (`lib/market-aggregate`) somme puis divise une fois. Les deux
+   * sont séparées exprès : on peut tester la partition sans fabriquer de
+   * chiffres, et l'agrégation sans fabriquer de marchés.
+   *
+   * Un pays seul et un marché de cinq pays passent par la MÊME dérivation, donc
+   * par les mêmes seuils d'effectif. C'est ce qui garantit qu'une valeur affichée
+   * pour « Balkans » obéit aux mêmes règles que celle affichée pour la France.
    */
   const marches: MarketDerived[] = useMemo(() => {
     const trafic = new Map(stepsOf(traffic).map((t) => [t.country, t]));
     const cells = pnl?.planCells ?? [];
-    return (pnl?.rows ?? [])
-      .map((r) =>
-        aggregateMarket([factsOf(r, ctx, trafic, cells)], {
-          key: r.country ?? "",
-          label: r.country === null ? "Aucun pays défini" : isoCountryLabel(r.country),
+    const parPays = new Map(
+      (pnl?.rows ?? []).map((r) => [r.country ?? "", factsOf(r, ctx, trafic, cells)]),
+    );
+    const codes = (pnl?.rows ?? [])
+      .map((r) => r.country)
+      .filter((c): c is string => c !== null);
+
+    // Par pays : la partition n'est pas consultée du tout. Passer une liste vide
+    // de marchés rendrait le même résultat, mais le dire explicitement évite de
+    // se demander plus tard si la bascule a un effet de bord.
+    const groupes =
+      maille === "pays"
+        ? codes.map((c) => ({ key: c, label: c, pays: [c], composed: false }))
+        : partitionMarches(
+            codes,
+            (groups ?? []).map((g) => ({
+              id: g._id as string,
+              nom: g.name,
+              pays: g.countries,
+            })),
+          );
+
+    const derives = groupes
+      // Un marché dont tous les pays ont disparu des données n'a rien à montrer
+      // ici. Il reste modifiable dans le composeur, qui, lui, le garde visible.
+      .filter((g) => g.pays.length > 0)
+      .map((g) =>
+        aggregateMarket(
+          g.pays.map((c) => parPays.get(c)!).filter(Boolean),
+          {
+            key: g.key,
+            label: g.composed ? g.label : isoCountryLabel(g.label),
+            composed: g.composed,
+          },
+        ),
+      );
+
+    // La ligne « hors marché » (coût sans pays cible) n'est PAS un marché : elle
+    // ne se compose avec rien et garde sa place, comme avant.
+    const horsMarche = parPays.get("");
+    if (horsMarche) {
+      derives.push(
+        aggregateMarket([horsMarche], {
+          key: "",
+          label: "Aucun pays défini",
           composed: false,
         }),
-      )
-      .sort((a, b) => {
-        // Le RETOUR d'abord : c'est la question posée. Un marché sans dépense
-        // n'en a pas et passe après, trié sur son revenu.
-        if (a.retour === null && b.retour === null) return b.revenueNet - a.revenueNet;
-        if (a.retour === null) return 1;
-        if (b.retour === null) return -1;
-        return b.retour - a.retour;
-      });
+      );
+    }
+
+    return derives.sort((a, b) => {
+      // Le RETOUR d'abord : c'est la question posée. Un marché sans dépense
+      // n'en a pas et passe après, trié sur son revenu.
+      if (a.retour === null && b.retour === null) return b.revenueNet - a.revenueNet;
+      if (a.retour === null) return 1;
+      if (b.retour === null) return -1;
+      return b.retour - a.retour;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pnl, traffic]);
+  }, [pnl, traffic, groups, maille]);
+
+  /**
+   * Les pays PRÉSENTS dans les données, pour le composeur. On ne propose pas un
+   * pays dont aucune ligne ne parle : composer « Slovénie » alors qu'elle n'a ni
+   * coût ni client fabriquerait un marché qui ne s'affiche jamais.
+   */
+  const paysConnus = useMemo(
+    () =>
+      (pnl?.rows ?? [])
+        .map((r) => r.country)
+        .filter((c): c is string => c !== null)
+        .sort((a, b) => isoCountryLabel(a).localeCompare(isoCountryLabel(b), "fr")),
+    [pnl],
+  );
 
   const totalCost = lignes.reduce((s, r) => s + r.cost, 0);
   const totalRevenue = lignes.reduce((s, r) => s + r.revenueNet, 0);
@@ -519,6 +592,13 @@ export function PaysTab({
         </Card>
       </div>
 
+      <MarketComposer
+        groups={groups ?? []}
+        countries={paysConnus}
+        maille={maille}
+        onMaille={setMaille}
+      />
+
       <Card>
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
@@ -569,7 +649,16 @@ export function PaysTab({
                 {marches.map((m) => (
                   <TableRow key={m.key || "(hors marché)"}>
                     <TableCell className="text-xs font-medium text-slate-700">
-                      <MarketLabel code={m.countries[0] ?? null} />
+                      {m.composed ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          {m.label}
+                          <span className="rounded bg-slate-100 px-1 py-px font-mono text-[10px] text-slate-500">
+                            {m.countries.filter((c) => c !== null).join("+")}
+                          </span>
+                        </span>
+                      ) : (
+                        <MarketLabel code={m.countries[0] ?? null} />
+                      )}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums">
                       {m.clients > 0 ? formatNumber(m.clients) : "—"}
