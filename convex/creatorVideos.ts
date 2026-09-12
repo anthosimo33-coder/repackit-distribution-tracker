@@ -1,4 +1,4 @@
-import { creatorQuery, adminViewAsQuery } from "./functions";
+import { creatorQuery, adminViewAsMoneyQuery } from "./functions";
 import { isSnytchProject } from "./projects";
 import {
   computeMonthlyPayout,
@@ -297,8 +297,14 @@ export const listMyPublishedVideos = creatorQuery({
   handler: async (ctx) => videosForCreator(ctx, ctx.projectId, ctx.creatorId),
 });
 
-/** ADMIN view-as — vidéos du créateur ciblé (lecture seule). */
-export const listPublishedVideosAsAdmin = adminViewAsQuery({
+/**
+ * ADMIN view-as — vidéos du créateur ciblé (lecture seule).
+ *
+ * Garde ARGENT : chaque ligne porte le `gain` de la vidéo. L'écran « Mes
+ * vidéos » d'un espace observé est donc un écran de gains, et il se ferme comme
+ * tel à un manager sans `payments.manage` (arbitrage du 12/09/2026).
+ */
+export const listPublishedVideosAsAdmin = adminViewAsMoneyQuery({
   args: {},
   handler: async (ctx) => videosForCreator(ctx, ctx.projectId, ctx.creatorId),
 });
@@ -311,7 +317,7 @@ export const getMyVideoStats = creatorQuery({
 });
 
 /** ADMIN view-as — récap vidéos du créateur ciblé (lecture seule). */
-export const getVideoStatsAsAdmin = adminViewAsQuery({
+export const getVideoStatsAsAdmin = adminViewAsMoneyQuery({
   args: {},
   handler: async (ctx) =>
     videoStatsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),

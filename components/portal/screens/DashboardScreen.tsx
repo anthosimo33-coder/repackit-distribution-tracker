@@ -13,6 +13,7 @@ import {
   useMyAssignments,
   useWarmupDue,
   useWarmupInProgress,
+  useArgentObservable,
   useMyPayments,
   useOnboardingState,
   useMyVideoStats,
@@ -94,6 +95,12 @@ export default function DashboardScreen() {
   // rappel permanent « reviens le cocher chaque jour » (lecture seule).
   const warmupInProgress = useWarmupInProgress(projectId) ?? 0;
   const payments = useMyPayments(projectId);
+  // Observation SANS le droit « Paiements » (cf lib/view-as-access) : les blocs
+  // d'argent de cet écran ne recevront jamais de données — leurs queries ne
+  // partent pas. Les MASQUER, plutôt que de laisser tourner un squelette qui
+  // promet un chiffre qui ne viendra pas. Hors observation, toujours `true` :
+  // le dashboard d'une créatrice est strictement inchangé.
+  const argent = useArgentObservable();
   // Onboarding (Snytch) — dérivé serveur compact. Hors Snytch : applicable false.
   const onboardingRaw = useOnboardingState(projectId);
   const onboarding = onboardingRaw ? deriveOnboarding(onboardingRaw) : null;
@@ -315,20 +322,24 @@ export default function DashboardScreen() {
         <VideoStatsCard projectId={projectId} base={base} currency={payCurrency} />
       )}
 
-      {/* 5. Aperçu gains + prochaine paie — toujours visible. */}
-      <EarningsOverview
-        loading={payments === undefined}
-        dueNow={dueNow}
-        nextPayoutTs={nextPayoutTs}
-        payoutDays={payoutDays}
-        detailHref={portalHref(base, "/paiements")}
-        currency={payCurrency}
-      />
+      {/* 5. Aperçu gains + prochaine paie — toujours visible, SAUF en
+          observation sans le droit « Paiements ». */}
+      {argent && (
+        <EarningsOverview
+          loading={payments === undefined}
+          dueNow={dueNow}
+          nextPayoutTs={nextPayoutTs}
+          payoutDays={payoutDays}
+          detailHref={portalHref(base, "/paiements")}
+          currency={payCurrency}
+        />
+      )}
 
       {/* 6. Classement du projet — gains de tous visibles (transparence assumée),
           soi surligné. Scopé/sécurisé serveur (creatorQuery), view-as géré via le
-          hook d'indirection. */}
-      <PortalLeaderboard />
+          hook d'indirection. Masqué à l'observateur sans droit d'argent : il y
+          verrait les gains de TOUTE l'équipe, pas seulement ceux d'une. */}
+      {argent && <PortalLeaderboard />}
     </div>
   );
 }

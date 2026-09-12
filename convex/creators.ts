@@ -7,7 +7,7 @@ import {
   permissionMutation,
   permissionQuery,
   publicQuery,
-  requireCreatorViewableByAdmin,
+  requireCreatorObservable,
   requireProjectAdmin,
 } from "./functions";
 import { resolveCreatorLocale } from "./i18n";
@@ -1666,7 +1666,7 @@ export const e2eAssertAdminAccess = e2eMutation({
 /**
  * Assertion du contrôle d'accès du mode admin « voir l'espace d'un créateur »
  * (adminViewAsQuery), AS l'utilisateur `email`, pour (projectId, creatorId).
- * Exécute la MÊME gate que le wrapper (requireCreatorViewableByAdmin) → prouve
+ * Exécute la MÊME gate que le wrapper (requireCreatorObservable) → prouve
  * le scoping serveur : admin du projet OK ; créateur hors projet / autre projet
  * refusé ; rôle creator refusé. Renvoie { allowed, error } sans lever.
  */
@@ -1683,7 +1683,7 @@ export const e2eAssertViewAsAccess = e2eMutation({
       .first();
     if (user === null) return { allowed: false, error: "user introuvable" };
     try {
-      await requireCreatorViewableByAdmin(
+      await requireCreatorObservable(
         ctx,
         user._id,
         args.projectId,

@@ -118,10 +118,7 @@ export function CreatorDetailView({
   const droits = usePermissions();
   // Le bouton d'observation lit le RÔLE, pas un bloc de droits (cf
   // lib/view-as-access) : c'est la seule action de cette page dans ce cas.
-  const peutObserver = canObserveCreatorSpace({
-    role: droits.role,
-    chargement: droits.chargement,
-  });
+  const peutObserver = canObserveCreatorSpace(droits);
   const peutLireBaremesGrille = droits.has("pricing.manage");
   const peutSupprimer = droits.has("creators.delete");
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
@@ -406,12 +403,11 @@ export function CreatorDetailView({
         {/* Voir l'espace du créateur tel qu'il le voit, en LECTURE SEULE (scopé
             projet, vérifié serveur). N'agit jamais en son nom.
 
-            RÉSERVÉ AUX ADMINS, et le bouton le sait : sa garde serveur lit le
-            RÔLE (`requireCreatorViewableByAdmin`), pas les blocs de droits — un
-            manager ne la passera donc jamais, même avec tout le catalogue
-            coché. Le laisser visible lui promettait un écran qu'il n'aurait
-            pas : constaté en prod le 10/09/2026. Cf lib/view-as-access pour la
-            règle et la raison de cacher ICI alors qu'ailleurs on montre. */}
+            Affiché à qui peut l'ouvrir : `creators.read`, le MÊME bloc que la
+            garde serveur (`requireCreatorObservable`). Avant le 12/09/2026 la
+            garde lisait le RÔLE et le bouton n'avait aucune condition — une
+            manageuse cliquait et tombait sur un refus. Les écrans de GAINS de
+            l'espace observé restent, eux, derrière `payments.manage`. */}
         {peutObserver && (
           <Link
             href={viewAsBase(projectSlug, creator._id)}

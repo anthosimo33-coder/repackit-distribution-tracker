@@ -20,6 +20,22 @@ export type ViewAsValue = {
   creatorKind: "partner" | "talent" | "clipper";
   /** Base path des liens internes du portail en mode view-as (viewAsBase). */
   basePath: string;
+  /**
+   * L'OBSERVATEUR A-T-IL LE DROIT DE VOIR L'ARGENT DE LA PERSONNE OBSERVÉE ?
+   * (`payments.manage` — cf lib/view-as-access et `requireCreatorMoneyObservable`)
+   *
+   * Il vit ICI, et pas dans un `usePermissions()` appelé par les écrans, pour une
+   * raison mécanique : les écrans du portail sont PARTAGÉS avec la créatrice, et
+   * chez elle il n'y a pas de `ProjectProvider` — `usePermissions()` y lèverait.
+   * Le provider de l'observation, lui, est monté dessous : il résout la question
+   * une fois et la passe en contexte. Hors observation, `useViewAs()` rend null
+   * et la question ne se pose pas (une créatrice lit SES gains par `creatorQuery`).
+   *
+   * Toujours CONNU quand les enfants rendent : le provider attend les droits
+   * comme il attend déjà la fiche (cf ViewAsProvider) — pas de fenêtre où une
+   * query d'argent partirait à l'aveugle.
+   */
+  argent: boolean;
 };
 
 const ViewAsContext = createContext<ViewAsValue | null>(null);

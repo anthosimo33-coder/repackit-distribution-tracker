@@ -536,23 +536,62 @@ export const clipperMutation = customMutation(mutation, {
  * adminViewAsMutation ; aucune mutation n'est jamais exposée par ce chemin.
  */
 /**
- * Gate du mode « voir comme » : `userId` doit être admin du projet (ou
- * superadmin) ET la fiche `creatorId` doit appartenir à CE projet. Retourne la
- * fiche ciblée, ou rejette. Source de vérité UNIQUE du contrôle d'accès view-as :
- * appelée par adminViewAsQuery (toutes les queries de lecture) ET par l'assertion
- * e2e (creators.e2eAssertViewAsAccess) → aucune dérive possible entre les deux.
+ * Gate du mode « voir comme » : qui peut OBSERVER l'espace d'une créatrice, et
+ * sur quelle fiche. Source de vérité UNIQUE du contrôle d'accès view-as —
+ * appelée par `adminViewAsQuery` (toutes les lectures) ET par l'assertion e2e
+ * (creators.e2eAssertViewAsAccess), donc aucune dérive possible entre les deux.
+ *
+ * ── QUI PASSE ───────────────────────────────────────────────────────────────
+ * superadmin, admin du projet, et MANAGER PORTANT `creators.read`. Ce dernier a
+ * été ajouté le 12/09/2026 : une manageuse voyait le bouton « Voir son espace »
+ * et tombait sur un refus, parce que la garde lisait le RÔLE quand tout le reste
+ * de son travail passe par des BLOCS. Observer une créatrice qu'on gère déjà —
+ * dont on lit la fiche, les comptes et les missions — n'ouvre rien de neuf.
+ *
+ * ⚠️ SAUF L'ARGENT. L'espace observé porte les GAINS de la créatrice (ses
+ * paiements, le gain de chaque vidéo, les montants de ses paliers) : ceux-là
+ * passent par `adminViewAsMoneyQuery`, qui exige EN PLUS `payments.manage`.
+ * Sans cette seconde garde, l'observation serait un contournement de la
+ * frontière argent que le catalogue de droits pose exprès.
+ *
+ * La fiche ciblée est vérifiée côté serveur (`creator.projectId === projectId`) :
+ * un creatorId d'un AUTRE projet, deviné ou forgé, ne rend aucune donnée.
  */
-export async function requireCreatorViewableByAdmin(
+export async function requireCreatorObservable(
   ctx: QueryCtx | MutationCtx,
   userId: Id<"users">,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
 ): Promise<Doc<"creators">> {
-  await requireProjectAdmin(ctx, userId, projectId);
+  // `creators.read` couvre l'admin et le superadmin par la cascade de
+  // `requirePermission` (ils franchissent tout) : une seule vérification, pas un
+  // « admin OU droit » qui redirait la cascade et pourrait en diverger.
+  await requirePermission(ctx, userId, projectId, "creators.read");
   const creator = await ctx.db.get(creatorId);
   if (creator === null || creator.projectId !== projectId) {
     throw err(ERR.CREATOR_NOT_IN_THIS_PROJECT, "Créateur introuvable dans ce projet.");
   }
+  return creator;
+}
+
+/**
+ * L'ARGENT DE LA PERSONNE OBSERVÉE — seconde garde, et elle est le cœur de
+ * l'arbitrage du 12/09/2026 : l'observation s'ouvre aux managers, sa moitié
+ * argent reste fermée.
+ *
+ * `payments.manage` EN PLUS de la garde d'observation. Un manager qui gère les
+ * créatrices sans toucher à la paie voit leur espace ; il n'y voit pas ce qu'il
+ * ne verrait pas dans l'admin — ni les paiements, ni le gain d'une vidéo, ni le
+ * montant d'un palier.
+ */
+export async function requireCreatorMoneyObservable(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+): Promise<Doc<"creators">> {
+  const creator = await requireCreatorObservable(ctx, userId, projectId, creatorId);
+  await requirePermission(ctx, userId, projectId, "payments.manage");
   return creator;
 }
 
@@ -582,7 +621,27 @@ export const adminViewAsQuery = customQuery(query, {
   args: { projectId: v.id("projects"), creatorId: v.id("creators") },
   input: async (ctx, { projectId, creatorId }) => {
     const userId = await requireUserId(ctx);
-    const creator = await requireCreatorViewableByAdmin(
+    const creator = await requireCreatorObservable(
+      ctx,
+      userId,
+      projectId,
+      creatorId,
+    );
+    return { ctx: { userId, projectId, creatorId: creator._id }, args: {} };
+  },
+});
+
+/**
+ * OBSERVATION DE L'ARGENT — même forme qu'`adminViewAsQuery`, garde plus
+ * stricte (cf `requireCreatorMoneyObservable`). Un wrapper distinct, pas un
+ * drapeau : « une fonction, une garde » vaut ici aussi, et le jour où l'une
+ * bouge on sait laquelle protégeait quoi.
+ */
+export const adminViewAsMoneyQuery = customQuery(query, {
+  args: { projectId: v.id("projects"), creatorId: v.id("creators") },
+  input: async (ctx, { projectId, creatorId }) => {
+    const userId = await requireUserId(ctx);
+    const creator = await requireCreatorMoneyObservable(
       ctx,
       userId,
       projectId,
@@ -621,7 +680,7 @@ function adminViewAsPopulationQuery(role: PortalRole) {
     args: { projectId: v.id("projects"), creatorId: v.id("creators") },
     input: async (ctx, { projectId, creatorId }) => {
       const userId = await requireUserId(ctx);
-      const creator = await requireCreatorViewableByAdmin(
+      const creator = await requireCreatorObservable(
         ctx,
         userId,
         projectId,
