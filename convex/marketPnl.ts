@@ -9,6 +9,12 @@ import {
 } from "./pricing";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
+import {
+  marketValueByCountry,
+  marketSurvivalByCountry,
+  VALUE_DAYS,
+  SURVIVAL_DAYS,
+} from "./marketValue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { splitCostByMarket, type MarketTarget } from "./marketCost";
 
@@ -89,12 +95,29 @@ export type MarketRow = {
   creators: number;
   videos: number;
   cost: number;
+  /**
+   * Ids des créatrices qui visent ce marché. Des IDS, pas un compte : une
+   * créatrice qui vise deux pays d'un même marché composé ne doit pas y compter
+   * double, et seul l'écran sait quels pays il regroupe (cf lib/market-aggregate).
+   */
+  creatorIds: string[];
   /** ── Ce que ça rapporte (pays de facturation) ── */
   clients: number;
   renewals: number;
   failures: number;
   attempts: number;
+  /** Paiements ENCAISSÉS de la période — le dénominateur du panier moyen. */
+  paid: number;
   revenueNet: number;
+  /** ── La période PRÉCÉDENTE, de même durée, pour les variations ── */
+  previousClients: number;
+  previousRevenueNet: number;
+  /** ── Les cohortes, sur TOUT l'historique (cf convex/marketValue) ── */
+  cohortClients: number;
+  /** Valeur cumulée d'un client : sommes et effectifs mûrs, jamais une moyenne. */
+  curve: { day: number; sum: number; mature: number }[];
+  /** Combien restent abonnés, aux mêmes conditions de maturité. */
+  survival: { day: number; alive: number; mature: number }[];
 };
 
 /**
@@ -268,13 +291,20 @@ export const getMarketPnl = permissionQuery("business.read")({
     const fx = projectFx(project);
     const revenus = new Map<
       string,
-      { clients: number; renewals: number; failures: number; attempts: number; rows: Doc<"whopPayments">[] }
+      {
+        clients: number;
+        renewals: number;
+        failures: number;
+        attempts: number;
+        paid: number;
+        rows: Doc<"whopPayments">[];
+      }
     >();
     const touchRev = (pays: string | null) => {
       const k = pays ?? "";
       const d =
         revenus.get(k) ??
-        { clients: 0, renewals: 0, failures: 0, attempts: 0, rows: [] };
+        { clients: 0, renewals: 0, failures: 0, attempts: 0, paid: 0, rows: [] };
       revenus.set(k, d);
       return d;
     };
@@ -284,6 +314,13 @@ export const getMarketPnl = permissionQuery("business.read")({
     const paysDuPaiement = new Map<string, string | null>();
     /** whopId des paiements qui sont le PREMIER d'un client (= une acquisition). */
     const estPremierPaiement = new Set<string>();
+    /** Cohortes et survie — remplies plus bas, sur TOUT l'historique. */
+    let valeurParPays: ReturnType<typeof marketValueByCountry> = [];
+    let survieParPays: ReturnType<typeof marketSurvivalByCountry> = [];
+    /** Période PRÉCÉDENTE, de MÊME DURÉE, juste avant. Une variation contre une
+     *  fenêtre d'une autre longueur ne compare rien. */
+    const avantDe = from - (to - from);
+    const precedent = new Map<string, { clients: number; net: number }>();
     // ⚠️ LES LIGNES PRIMENT SUR LE DRAPEAU. `whopConfigured` dit à l'écran s'il
     // faut expliquer l'absence de revenu ; il ne décide pas de la LECTURE. Une
     // row de paiement présente est un fait, et la gater sur la config faisait
@@ -322,6 +359,7 @@ export const getMarketPnl = permissionQuery("business.read")({
         if (p.status === "paid") {
           d.rows.push(p);
           d.attempts += 1;
+          d.paid += 1;
           if (p.billingReason === "subscription_cycle") d.renewals += 1;
           if (estPremierPaiement.has(p.whopId)) d.clients += 1;
         } else if (p.status === "failed") {
@@ -329,6 +367,70 @@ export const getMarketPnl = permissionQuery("business.read")({
           d.failures += 1;
         }
       }
+
+      // ── LA PÉRIODE D'AVANT, pour les variations ─────────────────────────
+      // Même découpage, même ancre de pays : c'est la comparabilité qui compte,
+      // pas l'exhaustivité — seuls les clients et le revenu en sortent.
+      {
+        const parPaysAvant = new Map<string, Doc<"whopPayments">[]>();
+        for (const p of payments) {
+          if (p.status !== "paid") continue;
+          if (p.paidAt < avantDe || p.paidAt >= from) continue;
+          const k = p.membershipId ?? p.whopId;
+          const pays =
+            (paysDuClient.get(k) ?? normalizeBillingCountry(p.billingCountry)) ?? "";
+          const l = parPaysAvant.get(pays);
+          if (l) l.push(p);
+          else parPaysAvant.set(pays, [p]);
+        }
+        for (const [pays, lignes] of parPaysAvant) {
+          precedent.set(pays, {
+            clients: lignes.filter((p) => estPremierPaiement.has(p.whopId)).length,
+            net: summarizeWhopRevenue(lignes, fx).net,
+          });
+        }
+      }
+
+      // ── LES COHORTES, sur TOUT l'historique ────────────────────────────
+      // Elles décrivent le MARCHÉ, pas la fenêtre : restreindre à la période
+      // viderait la colonne (cf convex/marketValue). Le net est résumé paiement
+      // par paiement, avec le même résumé que partout — remboursements déduits.
+      const maintenant = Date.now();
+      const encaisses = payments.filter((p) => p.status === "paid");
+      valeurParPays = marketValueByCountry(
+        encaisses.map((p) => {
+          const k = p.membershipId ?? p.whopId;
+          return {
+            client: k,
+            country: paysDuClient.get(k) ?? normalizeBillingCountry(p.billingCountry),
+            paidAt: p.paidAt,
+            net: summarizeWhopRevenue([p], fx).net,
+          };
+        }),
+        maintenant,
+      );
+
+      // ── LA SURVIE ──────────────────────────────────────────────────────
+      // Le membership porte la fin d'accès ; le client, lui, est identifié
+      // comme partout ailleurs (membershipId à défaut whopId). Un paiement sans
+      // membership n'a donc aucun abonnement à rejoindre — il est écarté du
+      // verdict, pas compté résilié.
+      const memberships = await ctx.db
+        .query("whopMemberships")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      survieParPays = marketSurvivalByCountry(
+        [...premierPaiement.entries()].map(([k, p]) => ({
+          client: k,
+          country: paysDuClient.get(k) ?? normalizeBillingCountry(p.billingCountry),
+          firstPaidAt: p.paidAt,
+        })),
+        memberships.map((m) => ({
+          client: m.whopMembershipId,
+          accessEndsAt: m.accessEndsAt ?? null,
+        })),
+        maintenant,
+      );
     }
 
     // ── Coût par MARCHÉ VISÉ ──────────────────────────────────────────────────
@@ -455,20 +557,44 @@ export const getMarketPnl = permissionQuery("business.read")({
       );
     }
 
-    const pays = new Set<string>([...couts.keys(), ...revenus.keys()]);
+    const valeurDe = new Map(valeurParPays.map((v) => [v.country ?? "", v]));
+    const survieDe = new Map(survieParPays.map((v) => [v.country ?? "", v]));
+    /** Une courbe VIDE a quand même ses jalons : l'écran itère dessus sans
+     *  se demander si le pays a des clients. */
+    const courbeVide = () => VALUE_DAYS.map((day) => ({ day, sum: 0, mature: 0 }));
+    const survieVide = () => SURVIVAL_DAYS.map((day) => ({ day, alive: 0, mature: 0 }));
+
+    // Les pays des COHORTES comptent aussi : un marché dont tous les clients ont
+    // été acquis AVANT la période n'a ni coût ni revenu dans la fenêtre, mais il
+    // a une valeur — et l'omettre le ferait disparaître de l'écran.
+    const pays = new Set<string>([
+      ...couts.keys(),
+      ...revenus.keys(),
+      ...valeurDe.keys(),
+    ]);
     const rows: MarketRow[] = [...pays].map((k) => {
       const c = couts.get(k);
       const r = revenus.get(k);
+      const v = valeurDe.get(k);
+      const sv = survieDe.get(k);
+      const av = precedent.get(k);
       return {
         country: k === "" ? null : k,
         creators: c?.creators.size ?? 0,
+        creatorIds: [...(c?.creators ?? [])],
         videos: c?.videos ?? 0,
         cost: round2(c?.cost ?? 0),
         clients: r?.clients ?? 0,
         renewals: r?.renewals ?? 0,
         failures: r?.failures ?? 0,
         attempts: r?.attempts ?? 0,
+        paid: r?.paid ?? 0,
         revenueNet: r ? summarizeWhopRevenue(r.rows, fx).net : 0,
+        previousClients: av?.clients ?? 0,
+        previousRevenueNet: av?.net ?? 0,
+        cohortClients: v?.cohortClients ?? 0,
+        curve: v?.curve ?? courbeVide(),
+        survival: sv?.steps ?? survieVide(),
       };
     });
 

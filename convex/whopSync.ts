@@ -356,6 +356,38 @@ export const e2eSeedWhopPayment = e2eMutation({
     }),
 });
 
+/**
+ * SEMEUR E2E — un abonnement Whop, pour la SURVIE par marché.
+ *
+ * Même raison que son voisin : les memberships n'arrivent que par la synchro,
+ * et sans eux la colonne « survie » de l'onglet Pays n'était couverte par rien.
+ * Seule `accessEndsAt` tranche — c'est la règle du produit (résilié n'est pas
+ * expiré), et un test qui sèmerait un statut sans date ne prouverait rien.
+ */
+export const e2eSeedWhopMembership = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    whopMembershipId: v.string(),
+    status: v.optional(v.string()),
+    /** Fin d'accès. Absente = l'accès court toujours. */
+    accessEndsAt: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
+    planId: v.optional(v.string()),
+  },
+  handler: async (ctx, a): Promise<Id<"whopMemberships">> =>
+    await ctx.db.insert("whopMemberships", {
+      projectId: a.projectId,
+      whopMembershipId: a.whopMembershipId,
+      status: a.status ?? "active",
+      valid: a.accessEndsAt === undefined,
+      createdAt: a.createdAt ?? Date.now(),
+      accessEndsAt: a.accessEndsAt,
+      planId: a.planId,
+      importedAt: Date.now(),
+      updatedAt: Date.now(),
+    }),
+});
+
 export const upsertWhopPlans = internalMutation({
   args: {
     projectId: v.id("projects"),
