@@ -9,13 +9,32 @@ import {
   currentOfferByArm,
   excludedViewers,
   intervalOfPlan,
+  offerCurrency,
   offerLabel,
   type AbOfferInput,
+  type OfferPlanLike,
 } from "./ab-offers";
 
 const at = (iso: string) => Date.parse(iso);
-/** Devise du projet Snytch — elle vient du revenu Whop, jamais du code. */
 const EUR = "EUR";
+
+/**
+ * Extrait du CATALOGUE WHOP de Snytch le 13/09/2026 : la même grille existe en
+ * euros, en dollars et en dinars serbes. Prix et rythmes tels que Whop les rend.
+ */
+const PLANS: OfferPlanLike[] = [
+  { price: 16.9, currency: "eur", interval: "mois" },
+  { price: 49.9, currency: "eur", interval: "an" },
+  { price: 4.99, currency: "eur", interval: "semaine" },
+  { price: 16.99, currency: "eur", interval: "mois" },
+  { price: 9.99, currency: "eur", interval: "semaine" },
+  { price: 29.99, currency: "eur", interval: "mois" },
+  { price: 11.99, currency: "usd", interval: "semaine" },
+  { price: 19.99, currency: "usd", interval: "mois" },
+  { price: 599, currency: "rsd", interval: "semaine" },
+  { price: 1049, currency: "rsd", interval: "mois" },
+  { price: null, currency: "rsd", interval: "one_time" },
+];
 
 /**
  * L'ÉTAT RÉEL DE LA PROD le 06/09/2026, relevé sur PostHog (expérience
@@ -180,9 +199,43 @@ describe("offerLabel", () => {
   });
 });
 
+describe("offerCurrency", () => {
+  it("les grilles par pays : 599 et 1049 sont des DINARS, 11,99 des dollars", () => {
+    // Le défaut vécu le 13/09 : « 599,00 €/semaine » et « 1 049,00 €/mois ».
+    expect(offerCurrency("snytch_trio_weekly", "599", PLANS)).toBe("rsd");
+    expect(offerCurrency("snytch_target_monthly", "1049", PLANS)).toBe("rsd");
+    expect(offerCurrency("snytch_trio_weekly", "11.99", PLANS)).toBe("usd");
+    expect(offerCurrency("snytch_target_monthly", "19.99", PLANS)).toBe("usd");
+    // Contre-test de présence : la grille en euros reste en euros.
+    expect(offerCurrency("snytch_trio_weekly", "9.99", PLANS)).toBe("eur");
+  });
+
+  it("rythme non émis : rapprochement sur le prix seul", () => {
+    expect(offerCurrency("", "49.9", PLANS)).toBe("eur");
+  });
+
+  it("aucun plan, rythme discordant ou devise ambiguë ⇒ null, jamais supposée", () => {
+    expect(offerCurrency("snytch_trio_weekly", "599", [])).toBeNull();
+    // 599 existe en hebdo, pas en mensuel.
+    expect(offerCurrency("snytch_trio_monthly", "599", PLANS)).toBeNull();
+    const ambigu = [...PLANS, { price: 9.99, currency: "usd", interval: "semaine" }];
+    expect(offerCurrency("snytch_trio_weekly", "9.99", ambigu)).toBeNull();
+  });
+
+  it("le libellé et le revenu par mille portent la devise de L'OFFRE", () => {
+    const [rsd] = attributedOffers(
+      [{ ...PROD[4], price: "599", paywallViewers: 78, paid: 1 }],
+      PLANS,
+    );
+    expect(rsd.currency).toBe("rsd");
+    expect(rsd.label).toBe(`${formatMoney(599, "rsd")}/semaine`);
+    expect(rsd.label).not.toContain("€");
+  });
+});
+
 describe("attributedOffers", () => {
   it("calcule conversion et revenu du 1er cycle sur les vues de CETTE offre", () => {
-    const rows = attributedOffers(PROD, EUR);
+    const rows = attributedOffers(PROD, PLANS);
     const softHebdo = rows.find(
       (r) => r.variant === "soft" && r.price === "4.99",
     )!;
@@ -201,7 +254,7 @@ describe("attributedOffers", () => {
   });
 
   it("écarte les lignes non attribuées et trie du plus récent au plus ancien", () => {
-    const rows = attributedOffers(PROD, EUR);
+    const rows = attributedOffers(PROD, PLANS);
     expect(rows).toHaveLength(6);
     expect(rows.every((r) => r.attributed)).toBe(true);
     const soft = rows.filter((r) => r.variant === "soft");
@@ -212,7 +265,7 @@ describe("attributedOffers", () => {
   it("sans prix connu, pas de revenu par mille (et pas zéro)", () => {
     const rows = attributedOffers([
       { ...PROD[1], price: "", paid: 89, paywallViewers: 4544 },
-    ], EUR);
+    ], PLANS);
     expect(rows[0].firstCycleRevenuePer1000).toBeNull();
     // La conversion, elle, reste mesurable : elle ne dépend pas du prix.
     expect(rows[0].conversionPct).toBe(1.96);
@@ -230,7 +283,7 @@ describe("excludedViewers", () => {
 
 describe("currentOfferByArm / armComparability", () => {
   it("donne l'offre servie EN CE MOMENT par chaque bras", () => {
-    const current = currentOfferByArm(PROD, EUR);
+    const current = currentOfferByArm(PROD, PLANS);
     expect(current.get("soft")!.label).toBe(`${formatMoney(16.9, "EUR")}/mois`);
     expect(current.get("hard")!.label).toBe(
       `${formatMoney(9.99, "EUR")}/semaine`,
@@ -238,7 +291,7 @@ describe("currentOfferByArm / armComparability", () => {
   });
 
   it("06/09 : les bras ne sont plus comparables (mois vs semaine)", () => {
-    const c = armComparability(PROD, EUR);
+    const c = armComparability(PROD, PLANS);
     expect(c.comparable).toBe(false);
     expect(c.intervals).toEqual(expect.arrayContaining(["mois", "semaine"]));
   });
@@ -246,7 +299,7 @@ describe("currentOfferByArm / armComparability", () => {
   it("la veille, les DEUX bras étaient en hebdo : comparables", () => {
     // Contre-test de la condition : sans lui, un `comparable` toujours faux
     // passerait le test précédent sans rien mesurer.
-    const c = armComparability(HIER, EUR);
+    const c = armComparability(HIER, PLANS);
     expect(c.comparable).toBe(true);
     expect(c.current.map((o) => o.label)).toEqual([
       `${formatMoney(9.99, "EUR")}/semaine`,
@@ -258,12 +311,12 @@ describe("currentOfferByArm / armComparability", () => {
     const flou = HIER.map((r) =>
       r.variant === "hard" && r.price === "9.99" ? { ...r, plan: "" } : r,
     );
-    expect(armComparability(flou, EUR).comparable).toBe(false);
+    expect(armComparability(flou, PLANS).comparable).toBe(false);
   });
 
   it("un seul bras servi n'est pas signalé comme incomparable", () => {
     const seul = PROD.filter((r) => r.variant === "soft");
-    expect(armComparability(seul, EUR).comparable).toBe(true);
-    expect(armComparability(seul, EUR).current).toHaveLength(1);
+    expect(armComparability(seul, PLANS).comparable).toBe(true);
+    expect(armComparability(seul, PLANS).current).toHaveLength(1);
   });
 });

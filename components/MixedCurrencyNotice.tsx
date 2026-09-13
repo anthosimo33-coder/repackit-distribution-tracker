@@ -32,26 +32,24 @@ import { AlertTriangleIcon, InfoIcon } from "lucide-react";
 export function MixedCurrencyNotice({
   mixed,
   present,
-  converted,
-  convertedFrom,
-  fxRate,
+  conversions,
   currency,
   currencies,
   className,
 }: {
   mixed?: boolean;
   present?: boolean;
-  /** Les montants ont été RAMENÉS à une seule devise au taux du projet. */
-  converted?: boolean;
-  /** Devise convertie (ex. "usd"). */
-  convertedFrom?: string | null;
-  /** Taux appliqué. */
-  fxRate?: number | null;
+  /**
+   * Devises RAMENÉES à `currency` au taux du projet (1 `from` = `rate`). Non
+   * vide ⇒ les montants sont exploitables mais convertis.
+   */
+  conversions?: readonly { from: string; rate: number }[];
   /** Devise d'affichage après conversion. */
   currency?: string | null;
   currencies?: string[];
   className?: string;
 }) {
+  const converted = (conversions?.length ?? 0) > 0;
   if (!mixed && !present && !converted) return null;
   const list =
     currencies && currencies.length > 0
@@ -83,8 +81,13 @@ export function MixedCurrencyNotice({
             Les montants sont ramenés en{" "}
             {(currency ?? "").toUpperCase() || "une seule devise"} au taux du
             projet
-            {convertedFrom && fxRate
-              ? ` (1 ${convertedFrom.toUpperCase()} = ${fxRate} ${(currency ?? "").toUpperCase()})`
+            {conversions && conversions.length > 0
+              ? ` (${conversions
+                  .map(
+                    (c) =>
+                      `1 ${c.from.toUpperCase()} = ${c.rate} ${(currency ?? "").toUpperCase()}`,
+                  )
+                  .join(" · ")})`
               : ""}
             , posé à la main et jamais rafraîchi : lisez-les comme un ordre de
             grandeur. Le détail par devise, lui, est exact.
@@ -94,8 +97,8 @@ export function MixedCurrencyNotice({
             <strong>Plusieurs devises encaissées{list ? ` (${list})` : ""}.</strong>{" "}
             Les montants ne sont pas additionnables : ils sont volontairement
             laissés à zéro plutôt que mélangés. Aucun total de revenu, de marge
-            ni de RPM n&apos;est exploitable tant que le périmètre reste
-            bi-devise.
+            ni de RPM n&apos;est exploitable tant qu&apos;une devise encaissée
+            n&apos;a pas de taux de change réglé sur le projet.
           </>
         ) : (
           <>

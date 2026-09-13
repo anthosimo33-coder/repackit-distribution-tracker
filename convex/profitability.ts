@@ -320,8 +320,7 @@ export const getProjectProfitability = permissionQuery("business.read")({
       // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
       // montant. Un chiffre faux est pire qu'un chiffre absent.
       mixedCurrency: totalRevenue.mixedCurrency,
-      convertedFrom: totalRevenue.convertedFrom,
-      fxRate: totalRevenue.fxRate,
+      conversions: totalRevenue.conversions,
       mixedCurrencyPresent: totalRevenue.mixedCurrencyPresent,
       currenciesPresent: totalRevenue.currenciesPresent,
       total: {

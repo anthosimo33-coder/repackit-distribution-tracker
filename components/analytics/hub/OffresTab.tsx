@@ -290,17 +290,19 @@ export function OffresTab({
   // 18/08, puis le bras souple est repassé au mensuel le 06/09. Ce tableau lit
   // l'offre SERVIE au lieu de la supposer — il n'a rien à remettre à jour au
   // prochain changement, contrairement à EXPECTED_ARM_PRICING plus bas.
-  // La devise vient du projet (revenu Whop) : `properties.price` est un nombre
-  // nu côté PostHog. `revenue` est chargé après `analytics` — tant qu'il manque,
-  // les montants sortent sans symbole plutôt qu'avec un « € » supposé.
-  const offerCurrency = revenue?.currency ?? null;
+  // La devise de chaque offre vient du catalogue Whop (prix + rythme) :
+  // `properties.price` est un nombre nu côté PostHog, et le paywall sert une
+  // grille par pays (euros, dollars, dinars). `revenue` est chargé après
+  // `analytics` — tant qu'il manque, les montants sortent sans symbole plutôt
+  // qu'avec une devise supposée.
+  const offerPlans = revenue?.plans;
   const offers = useMemo(
-    () => attributedOffers(analyticsW.abOffers.rows, offerCurrency),
-    [analyticsW.abOffers.rows, offerCurrency],
+    () => attributedOffers(analyticsW.abOffers.rows, offerPlans ?? []),
+    [analyticsW.abOffers.rows, offerPlans],
   );
   const offerComparability = useMemo(
-    () => armComparability(analyticsW.abOffers.rows, offerCurrency),
-    [analyticsW.abOffers.rows, offerCurrency],
+    () => armComparability(analyticsW.abOffers.rows, offerPlans ?? []),
+    [analyticsW.abOffers.rows, offerPlans],
   );
   const offerExcluded = useMemo(
     () => excludedViewers(analyticsW.abOffers.rows),
@@ -316,6 +318,7 @@ export function OffresTab({
         revenueCurrency: revenue?.currency ?? null,
         payCurrency: attribution?.payCurrency ?? null,
         fxRateToRevenue: attribution?.fxRateToRevenue ?? null,
+        otherRates: revenue?.fxRates ?? null,
       }),
     [
       analyticsW.abPurchases.rows,
@@ -323,6 +326,7 @@ export function OffresTab({
       revenue?.currency,
       attribution?.payCurrency,
       attribution?.fxRateToRevenue,
+      revenue?.fxRates,
     ],
   );
   const purchaseIssues = useMemo(
@@ -427,9 +431,7 @@ export function OffresTab({
       <MixedCurrencyNotice
         mixed={revenue?.mixedCurrency}
         present={revenue?.mixedCurrencyPresent}
-        converted={revenue?.convertedFrom != null}
-        convertedFrom={revenue?.convertedFrom}
-        fxRate={revenue?.fxRate}
+        conversions={revenue?.conversions}
         currency={revenue?.currency}
         currencies={revenue?.currenciesPresent}
       />
@@ -902,7 +904,7 @@ export function OffresTab({
                       </TableCell>
                       <TableCell className="text-right">
                         {dash(o.firstCycleRevenuePer1000, (n) =>
-                          formatMoney(n, offerCurrency),
+                          formatMoney(n, o.currency),
                         )}
                       </TableCell>
                     </TableRow>

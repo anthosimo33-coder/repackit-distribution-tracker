@@ -337,6 +337,40 @@ export const setProjectCurrencyBySlug = internalMutation({
 });
 
 /**
+ * Taux d'une devise ENCAISSÉE autre que la paie, vers la devise du revenu
+ * (1 `currency` = `rate` unités du revenu). rate ≤ 0 → retire le taux. La devise
+ * de paie garde son propre réglage (setProjectCurrencyBySlug) : la poser ici
+ * ferait deux taux pour une même devise.
+ *   ./scripts/convex-prod.sh run projects:setProjectFxRateBySlug '{"slug":"snytch","currency":"rsd","rate":0.0085}'
+ */
+export const setProjectFxRateBySlug = internalMutation({
+  args: { slug: v.string(), currency: v.string(), rate: v.number() },
+  handler: async (
+    ctx,
+    { slug, currency, rate },
+  ): Promise<{ updated: boolean; rates: { currency: string; rate: number }[] }> => {
+    const project = await getProjectBySlug(ctx, slug);
+    if (project === null) return { updated: false, rates: [] };
+    const cur = currency.trim().toLowerCase();
+    if (cur === "") throw new Error("Devise vide.");
+    if (cur === project.payCurrency) {
+      throw new Error(
+        `${cur} est la devise de paie : son taux se règle avec setProjectCurrencyBySlug.`,
+      );
+    }
+    const rates = (project.fxRatesToRevenue ?? []).filter(
+      (x) => x.currency !== cur,
+    );
+    if (rate > 0) rates.push({ currency: cur, rate });
+    rates.sort((a, b) => a.currency.localeCompare(b.currency));
+    await ctx.db.patch(project._id, {
+      fxRatesToRevenue: rates.length > 0 ? rates : undefined,
+    });
+    return { updated: true, rates };
+  },
+});
+
+/**
  * Réglages de l'espace TALENT d'un projet : quel format sert de brief permanent,
  * et le dépôt de fichiers est-il ouvert.
  *

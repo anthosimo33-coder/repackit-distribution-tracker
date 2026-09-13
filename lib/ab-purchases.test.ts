@@ -209,3 +209,16 @@ describe("purchaseCoherenceIssues", () => {
     expect(issues[0]).toContain("multi-plans");
   });
 });
+
+describe("convertibleAmount — autres devises (dinar serbe)", () => {
+  it("un taux propre à la devise convertit, et lui seul", () => {
+    const ctx = { ...CTX, otherRates: [{ from: "rsd", rate: 0.0085 }] };
+    expect(convertibleAmount(599, "rsd", ctx)).toBe(5.09);
+    expect(convertibleAmount(599, "gbp", ctx)).toBeNull();
+    // Contre-test : sans taux dinar, pas de conversion inventée.
+    expect(convertibleAmount(599, "rsd", CTX)).toBeNull();
+    // Le dollar garde son chemin.
+    expect(convertibleAmount(100, "usd", ctx)).toBe(86);
+  });
+});
+

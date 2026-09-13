@@ -100,9 +100,7 @@ export function ProfitabilityCard() {
         <MixedCurrencyNotice
           mixed={data.mixedCurrency}
           present={data.mixedCurrencyPresent}
-          converted={data.convertedFrom != null}
-          convertedFrom={data.convertedFrom}
-          fxRate={data.fxRate}
+          conversions={data.conversions}
           currency={data.currency}
           currencies={data.currenciesPresent}
         />

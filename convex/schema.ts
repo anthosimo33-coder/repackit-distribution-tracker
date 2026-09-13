@@ -279,6 +279,14 @@ export default defineSchema({
     // 1 unité de payCurrency = fxRateToRevenue unités de la devise du revenu (ex.
     // 1 $ = 0,92 €). ABSENT ⇒ la marge combinée n'est PAS calculée (ni inventée).
     fxRateToRevenue: v.optional(v.number()),
+    // Taux des AUTRES devises encaissées (hors paie), vers la devise du revenu :
+    // 1 unité de `currency` = `rate` unités du revenu. Le catalogue Whop vend en
+    // euros, en dollars et, depuis le 13/09/2026, en dinars serbes (RSD) : sans
+    // un taux par devise, une seule vente en dinars remettait tous les montants
+    // à zéro. Posé via projects.setProjectFxRateBySlug.
+    fxRatesToRevenue: v.optional(
+      v.array(v.object({ currency: v.string(), rate: v.number() })),
+    ),
     // ─── Refs d'INFLUENCEUSES (chemin court snytch.co) ──────────────────────
     // Des refs qui appartiennent à quelqu'un de NOMMÉ sans être des créatrices :
     // elles n'entrent ni dans le moteur de paie, ni dans le portail, ni dans les
