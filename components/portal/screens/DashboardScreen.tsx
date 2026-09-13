@@ -23,7 +23,13 @@ import {
   type CreatorAssignment,
 } from "@/components/portal/MissionListItem";
 import { portalHref } from "@/lib/view-as";
-import { isActionable, type AssignmentStatus } from "@/lib/assignment-status";
+import {
+  assignmentUrgency,
+  isActionable,
+  URGENCY_BADGE,
+  type AssignmentStatus,
+} from "@/lib/assignment-status";
+import { useLabel } from "@/lib/use-label";
 import { formatPlannedDay, representativePostedAt } from "@/lib/calendar-status";
 import { sortBySchedule } from "@/lib/creator-schedule";
 import { nextCreatorAction, type NextAction } from "@/lib/creator-next-action";
@@ -322,9 +328,13 @@ function NextActionCard({
   base: string;
 }) {
   const t = useTranslations("portal");
+  const tLabel = useLabel();
   const loc = useIntlLocale();
 
   const row = "row" in action ? action.row : null;
+  const urgency = row
+    ? assignmentUrgency(row.dueDate, row.status as AssignmentStatus)
+    : ("none" as const);
   const missionHref = row ? portalHref(base, `/assignments/${row._id}`) : null;
   const plannedDay = (ts: number) =>
     formatPlannedDay(ts, loc, { weekday: "long", day: "numeric", month: "long" });
@@ -402,11 +412,25 @@ function NextActionCard({
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">
           {t("home.nextAction")}
         </p>
-        {row && row.targets.length > 0 && (
-          <span className="truncate font-mono text-xs text-slate-400">
-            {row.targets.map((x) => x.platform).join(" · ")}
-          </span>
-        )}
+        <div className="flex min-w-0 items-center gap-2">
+          {row && row.targets.length > 0 && (
+            <span className="truncate font-mono text-xs text-slate-400">
+              {row.targets.map((x) => x.platform).join(" · ")}
+            </span>
+          )}
+          {/* Échéance de PRODUCTION dépassée ou proche : le même badge que dans
+              les listes — la carte ne doit pas taire ce que la ligne disait. */}
+          {urgency !== "none" && urgency !== "ok" && (
+            <span
+              className={cn(
+                "shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold",
+                URGENCY_BADGE[urgency].className,
+              )}
+            >
+              {tLabel(URGENCY_BADGE[urgency].labelKey)}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex items-start gap-3">
@@ -420,7 +444,14 @@ function NextActionCard({
         </span>
         <div className="min-w-0 space-y-1">
           <h2 className="text-lg font-bold leading-snug tracking-tight text-slate-900 sm:text-xl">
-            {title}
+            {/* Le titre nomme la mission : il y mène, comme une ligne de liste. */}
+            {missionHref ? (
+              <Link href={missionHref} className="hover:underline">
+                {title}
+              </Link>
+            ) : (
+              title
+            )}
           </h2>
           {hint && (
             <p className={cn("text-sm", urgent ? "text-rose-700" : "text-slate-600")}>{hint}</p>
