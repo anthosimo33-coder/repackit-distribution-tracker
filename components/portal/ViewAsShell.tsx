@@ -2,20 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { EyeIcon, LockIcon, LogOutIcon, type LucideIcon } from "lucide-react";
 import {
-  AtSignIcon,
-  EyeIcon,
-  FilmIcon,
-  HelpCircleIcon,
-  HomeIcon,
-  ListChecksIcon,
-  LockIcon,
-  LogOutIcon,
-  UserIcon,
-  WalletIcon,
-  type LucideIcon,
-} from "lucide-react";
-import { isSnytchProject } from "@/lib/snytch-drive";
+  activeCreatorTab,
+  creatorTabsFor,
+  type CreatorTabKey,
+} from "@/lib/creator-nav";
+import { CREATOR_TAB_ICONS } from "@/components/portal/creator-tab-icons";
 import { AccentStyle } from "@/components/project/AccentStyle";
 import { SidebarItem } from "@/components/layout/SidebarItem";
 import { useProjectPath } from "@/components/project/ProjectProvider";
@@ -60,37 +53,17 @@ import { cn } from "@/lib/utils";
  * qui le dit, jamais l'écran d'une autre population.
  */
 type NavItem = {
+  key: CreatorTabKey;
   sub: string;
   /**
-   * Clés du portail RÉEL, réutilisées telles quelles : cette nav est la réplique
-   * read-only de `CreatorSidebar` / `CreatorBottomNav`, c'est le MÊME élément
-   * d'interface. Ce n'est pas la réutilisation opportuniste que la doctrine
-   * interdit — les deux navs ne peuvent pas diverger sans que la preview cesse
-   * de montrer ce qu'elle prétend montrer.
+   * Clé du portail RÉEL (`tabs.*`), réutilisée telle quelle : cette nav est la
+   * réplique read-only de `CreatorSidebar` / `CreatorBottomNav`, construite sur
+   * le MÊME découpage (`lib/creator-nav`). Les deux navs ne peuvent pas diverger
+   * sans que la preview cesse de montrer ce qu'elle prétend montrer.
    */
   labelKey: string;
-  shortLabelKey: string;
   icon: LucideIcon;
-  exact: boolean;
   badge?: "actionable" | "warmupDue";
-};
-
-const NAV: NavItem[] = [
-  { sub: "/", labelKey: "sidebar.dashboard", shortLabelKey: "bottomNav.home", icon: HomeIcon, exact: true, badge: "actionable" },
-  { sub: "/missions", labelKey: "sidebar.missions", shortLabelKey: "bottomNav.missions", icon: ListChecksIcon, exact: false },
-  { sub: "/comptes", labelKey: "sidebar.comptes", shortLabelKey: "bottomNav.comptes", icon: AtSignIcon, exact: false, badge: "warmupDue" },
-  { sub: "/paiements", labelKey: "sidebar.paiements", shortLabelKey: "bottomNav.gains", icon: WalletIcon, exact: false },
-  { sub: "/profil", labelKey: "sidebar.profil", shortLabelKey: "bottomNav.profil", icon: UserIcon, exact: false },
-  { sub: "/guide", labelKey: "sidebar.guide", shortLabelKey: "bottomNav.guide", icon: HelpCircleIcon, exact: false },
-];
-
-/** Suivi vidéos — Snytch uniquement, inséré après « Mes paiements » (lecture seule). */
-const VIDEOS_NAV: NavItem = {
-  sub: "/videos",
-  labelKey: "sidebar.videos",
-  shortLabelKey: "bottomNav.videos",
-  icon: FilmIcon,
-  exact: false,
 };
 
 /** Aiguillage sur la population observée. Hors mode vue → coque partenaire. */
@@ -373,11 +346,7 @@ function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
           // faisait retomber la barre sur `grid-cols-5` : deux items passaient à
           // la ligne, sous la zone visible. Tailwind ne pouvant pas générer
           // `grid-cols-${n}` à la volée, la table reste explicite.
-          items.length === 7
-            ? "grid-cols-7"
-            : items.length === 6
-              ? "grid-cols-6"
-              : "grid-cols-5",
+          items.length === 4 ? "grid-cols-4" : "grid-cols-3",
         )}
       >
         {items.map((it) => {
@@ -405,7 +374,7 @@ function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
                 {/* Borné à la cellule, comme dans la barre créatrice : un
                     libellé trop long est coupé, jamais étalé sur le voisin. */}
                 <span className="w-full truncate px-0.5 text-center">
-                  {k(it.shortLabelKey)}
+                  {k(it.labelKey)}
                 </span>
               </Link>
             </li>
@@ -418,7 +387,6 @@ function BottomNav({ items, base, isActive, badgeCount }: NavRenderProps) {
 
 /** PARTENAIRE — la coque historique (sidebar desktop / bottom nav mobile). */
 function PartnerViewShell({ children, locale, messages }: ShellProps) {
-  const pathname = usePathname();
   const { current } = useCreatorProject();
   const viewAs = useViewAs();
 
@@ -437,19 +405,22 @@ function PartnerViewShell({ children, locale, messages }: ShellProps) {
   const actionable = useActionable(current.projectId) ?? 0;
   const warmupDue = useWarmupDue(current.projectId) ?? 0;
   const badgeCount = { actionable, warmupDue };
-  // « Mes vidéos » réservé à Snytch (comme dans le portail créateur normal).
-  const afterPaiements = NAV.findIndex((it) => it.sub === "/paiements") + 1;
-  const complet = isSnytchProject(current.slug)
-    ? [...NAV.slice(0, afterPaiements), VIDEOS_NAV, ...NAV.slice(afterPaiements)]
-    : NAV;
-  // Sans le droit « Paiements », les écrans de gains quittent la nav : proposer
-  // une entrée dont on sait qu'elle rendra un refus, c'est le défaut qu'on
-  // corrige un cran plus haut avec le bouton « Voir son espace ».
-  const navItems = argent ? complet : complet.filter((it) => !isMoneySub(it.sub));
+  // Les quatre onglets du portail réel. Sans le droit « Paiements », « Gains »
+  // quitte la nav : proposer une entrée dont on sait qu'elle rendra un refus,
+  // c'est le défaut qu'on corrige un cran plus haut avec « Voir son espace ».
+  const navItems: NavItem[] = creatorTabsFor({ argent }).map((tab) => ({
+    key: tab.key,
+    sub: tab.sub,
+    labelKey: `tabs.${tab.key}`,
+    icon: CREATOR_TAB_ICONS[tab.key],
+    badge: tab.badge,
+  }));
+  // MÊME calcul d'onglet actif que la créatrice (cf lib/creator-nav) : une
+  // sous-page comme /comptes allume « Moi » des deux côtés.
+  const activeKey = activeCreatorTab(sub);
 
   function isActive(item: NavItem) {
-    const href = portalHref(base, item.sub);
-    return item.exact ? pathname === href : pathname.startsWith(href);
+    return item.key === activeKey;
   }
 
   return (

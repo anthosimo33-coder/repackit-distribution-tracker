@@ -131,11 +131,15 @@ async function campagneAffichable(ts: number) {
  * sans ce contrôle positif, rien ne dirait qu'ils ne sont pas devenus vides.
  */
 function signaturePartenaire(page: Page) {
+  // Depuis la nav à quatre onglets, le portail partenaire se reconnaît à ses
+  // onglets (noms EXACTS : « Missions » ne doit pas matcher « Toutes mes
+  // missions »). « Gains » n'apparaît qu'avec le droit d'argent — l'observateur
+  // de ces specs est admin, il l'a.
   return [
     page.getByRole("heading", { name: /Bonjour/ }),
-    page.getByRole("link", { name: "Mes vidéos" }),
-    page.getByRole("link", { name: /Mes comptes/i }),
-    page.getByRole("link", { name: /Mes paiements/i }),
+    page.getByRole("link", { name: "Missions", exact: true }),
+    page.getByRole("link", { name: "Moi", exact: true }),
+    page.getByRole("link", { name: "Gains", exact: true }),
   ];
 }
 
@@ -332,12 +336,13 @@ test.describe("Populations — membership et mode d'observation", () => {
     // rien pris au chemin partenaire. Et contrôle POSITIF de la signature — sans
     // lui, `aucunElementPartenaire` pourrait devenir vraie parce que ses
     // marqueurs ont disparu de l'app, pas parce que la vue est correcte.
-    // « Mes vidéos » est réservé à Snytch et le projet e2e n'en est pas un : il
-    // est donc EXCLU du contrôle positif, et reste vérifié absent ailleurs.
-    const [accueil, , comptes, paiements] = signaturePartenaire(page);
+    // Les quatre marqueurs sont TOUS contrôlés présents ici : aucun n'est
+    // réservé à un projet (les onglets existent partout).
+    const [accueil, missions, moi, gains] = signaturePartenaire(page);
     await expect(accueil).toBeVisible();
-    await expect(comptes).toBeVisible();
-    await expect(paiements).toBeVisible();
+    await expect(missions.first()).toBeVisible();
+    await expect(moi.first()).toBeVisible();
+    await expect(gains.first()).toBeVisible();
   });
 
   test("un écran hors de son espace le DIT, au lieu de rendre celui d'un partenaire", async ({

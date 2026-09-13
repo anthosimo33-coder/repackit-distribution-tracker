@@ -112,7 +112,9 @@ test.describe("Créateur — écran « Mes missions »", () => {
     });
     const lien = cpage.getByTestId("see-all-missions");
     await expect(lien).toBeVisible();
-    await expect(lien).toHaveText(/\+6 de plus/);
+    // 11 missions : la plus ancienne en retard est LA prochaine action (carte en
+    // tête), « Ensuite » en montre 5 des 10 restantes → « +5 de plus ».
+    await expect(lien).toHaveText(/\+5 de plus/);
     await lien.click();
     await cpage.waitForURL("**/app/missions", { timeout: 20_000 });
 
@@ -155,7 +157,7 @@ test.describe("Créateur — écran « Mes missions »", () => {
 
     // ── L'onglet de nav mène ici (l'ask : « accessible depuis la nav »). ──
     await cpage.goto("/app");
-    await cpage.getByRole("link", { name: "Mes missions" }).first().click();
+    await cpage.getByRole("link", { name: "Missions", exact: true }).first().click();
     await cpage.waitForURL("**/app/missions", { timeout: 20_000 });
 
     // ── Une mission mène à son brief. ──

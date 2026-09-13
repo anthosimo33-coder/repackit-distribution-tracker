@@ -92,10 +92,19 @@ test.describe("Créateur — dashboard orienté action (scopé projet)", () => {
     await expect(cpage.getByText(`Refais le hook ${ts}`)).toBeVisible();
     await expect(cpage.getByTestId("dashboard-due")).toBeVisible();
 
-    // Un item « à produire » mène au détail de l'assignment.
+    // La vidéo refusée est LA prochaine action (elle bloque sa mission) : la
+    // carte l'annonce, et les trois autres missions attendent dans « Ensuite ».
+    await expect(cpage.getByTestId("home-next-action")).toHaveAttribute(
+      "data-kind",
+      "redo",
+    );
+    await expect(
+      cpage.getByTestId("home-upcoming").locator('a[href*="/app/assignments/"]'),
+    ).toHaveCount(3);
+    // Un item de « Ensuite » mène au détail de l'assignment.
     await cpage
-      .getByTestId("block-produce")
-      .getByRole("link")
+      .getByTestId("home-upcoming")
+      .locator('a[href*="/app/assignments/"]')
       .first()
       .click();
     await expect(cpage).toHaveURL(/\/app\/assignments\/.+/, { timeout: 10_000 });
@@ -117,7 +126,8 @@ test.describe("Créateur — dashboard orienté action (scopé projet)", () => {
     await cpage.getByRole("menuitem", { name: nameB }).click();
     await cpage.waitForURL("**/app", { timeout: 10_000 });
     await expect(cpage.getByTestId("all-clear")).toBeVisible({ timeout: 15_000 });
-    await expect(cpage.getByTestId("block-produce")).toHaveCount(0);
+    await expect(cpage.getByTestId("home-next-action")).toHaveCount(0);
+    await expect(cpage.getByTestId("home-upcoming")).toHaveCount(0);
 
     // ── Retour sur e2e-test → compteurs de nouveau présents (scope projet). ──
     await cpage.getByRole("button", { name: "Changer de projet" }).click();
