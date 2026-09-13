@@ -5,7 +5,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
-import { computeDailyViewDeltas } from "./viewsDaily";
+import {
+  computeDailyViewDeltas,
+  computeDailyViewDeltasBy,
+  computeDayContributions,
+} from "./viewsDaily";
 import { savesAvailability } from "./decisionThresholds";
 import { collectAvailability } from "./collectAvailability";
 import { qualificationOf } from "./quadrant";
@@ -429,6 +433,72 @@ export const trackerWarmupHiddenDates = permissionQuery("content.analytics")({
 // lib/tracker-data pour le client. Plus de réplique à tenir synchrone : c'est le
 // même code des deux côtés, testé en vitest (lib/views-daily.test.ts).
 
+/**
+ * LE MARCHÉ DE CHAQUE PUBLICATION — par son PROPRE compte.
+ *
+ * `publications.compte` porte le handle sur lequel le post est réellement parti,
+ * et `comptes.targetCountry` le marché que ce compte vise. La jointure se fait
+ * sur (plateforme, handle) : un même pseudo peut exister sur deux plateformes.
+ *
+ * ⚠️ PAS LE MÊME CHEMIN QUE L'ONGLET PAYS, et c'est voulu. Là-bas le coût d'une
+ * assignation se RÉPARTIT entre plusieurs comptes visés, donc la jointure part
+ * de `assignments.targets[].accountId`. Ici on attribue les vues D'UN post, et
+ * le post n'est parti que d'un seul compte — celui qu'il porte. Ce chemin couvre
+ * aussi les publications sans assignation (publication de secours par l'admin).
+ *
+ * Un compte introuvable ou sans marché visé rend `""` : le groupe « sans
+ * marché ». Le verser dans un marché réel gonflerait celui-ci d'un volume qui
+ * n'est rattaché à rien.
+ */
+async function buildPublicationMarketMap(
+  ctx: QueryCtx & { projectId: Id<"projects"> },
+  publications: readonly Doc<"publications">[],
+): Promise<Map<string, string>> {
+  const comptes = await ctx.db
+    .query("comptes")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const marcheDuCompte = new Map<string, string>();
+  for (const c of comptes) {
+    marcheDuCompte.set(`${c.plateforme}|${c.handle}`, c.targetCountry ?? "");
+  }
+  const out = new Map<string, string>();
+  for (const p of publications) {
+    out.set(
+      p._id as string,
+      marcheDuCompte.get(`${p.plateforme}|${p.compte}`) ?? "",
+    );
+  }
+  return out;
+}
+
+/**
+ * LES MARCHÉS COMPOSÉS s'appliquent ICI AUSSI — « Serbie + Croatie » se lit
+ * d'un seul trait dans le tracker comme dans l'onglet Pays.
+ *
+ * ⚠️ LA TABLE EST LUE CÔTÉ SERVEUR, pas par une query du client. Le tracker est
+ * gardé par `content.analytics` ; `marketGroups.listMarketGroups`, par
+ * `business.read`. Faire lire cette query à l'écran aurait tué la page pour un
+ * gestionnaire qui a l'un sans l'autre — le défaut corrigé en #227. Regrouper
+ * des VUES par marché est de l'analyse de contenu, pas de la donnée d'argent :
+ * la lecture se fait donc dans cette query, sous son propre bloc.
+ */
+async function buildMarketLabelMap(
+  ctx: QueryCtx & { projectId: Id<"projects"> },
+): Promise<Map<string, { key: string; label: string }>> {
+  const groupes = await ctx.db
+    .query("marketGroups")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const out = new Map<string, { key: string; label: string }>();
+  for (const g of groupes) {
+    for (const pays of g.countries) {
+      out.set(pays, { key: `g:${g._id as string}`, label: g.name });
+    }
+  }
+  return out;
+}
+
 export const trackerViewsDaily = permissionQuery("content.analytics")({
   args: filterArgs,
   handler: async (ctx, args) => {
@@ -449,7 +519,8 @@ export const trackerViewsDaily = permissionQuery("content.analytics")({
       filteredIds.add(p._id as string);
       if (p.datePubli < minDatePubli) minDatePubli = p.datePubli;
     }
-    if (filteredIds.size === 0) return [];
+    if (filteredIds.size === 0)
+      return { daily: [], byMarket: [], marketLabels: [] };
 
     // 2) Range-scan BORNÉ sur by_project_capturedAt. Borne basse = "Du" si posé,
     //    sinon la 1re date de publication des posts filtrés (jamais 0 → jamais un
@@ -475,6 +546,127 @@ export const trackerViewsDaily = permissionQuery("content.analytics")({
         vues: s.vues,
       }));
 
-    return computeDailyViewDeltas(points);
+    // ── VENTILATION PAR MARCHÉ ────────────────────────────────────────────
+    // Le pays visé du compte, puis le marché composé s'il en fait partie. Les
+    // deux séries sortent de la MÊME répartition : le total d'un jour et la
+    // somme de ses tranches ne peuvent pas diverger (cf convex/viewsDaily).
+    const marcheDe = await buildPublicationMarketMap(ctx, pubs);
+    const composeDe = await buildMarketLabelMap(ctx);
+    const libelles = new Map<string, string>();
+    const groupeDe = (publicationId: string): string => {
+      const pays = marcheDe.get(publicationId) ?? "";
+      const compose = pays === "" ? undefined : composeDe.get(pays);
+      const key = compose?.key ?? pays;
+      // Le groupe VIDE n'a pas de libellé à porter : l'absence de marché n'est
+      // pas un marché qui s'appellerait « ». C'est l'écran qui la nomme, et il
+      // la nomme une seule fois (« Sans marché »).
+      if (key !== "" && !libelles.has(key)) {
+        libelles.set(key, compose?.label ?? pays);
+      }
+      return key;
+    };
+
+    const parMarche = computeDailyViewDeltasBy(points, groupeDe);
+    return {
+      /** La série totale — inchangée, même forme qu'avant. */
+      daily: computeDailyViewDeltas(points),
+      /** La même, ventilée. Chaque jour : somme des tranches = total du jour. */
+      byMarket: parMarche,
+      /** Clé de groupe → libellé lisible (nom du marché composé, ou code pays). */
+      marketLabels: [...libelles.entries()].map(([key, label]) => ({ key, label })),
+    };
+  },
+});
+
+/**
+ * LE DÉTAIL D'UN JOUR — ce qui a fait les vues de cette date.
+ *
+ * Query SÉPARÉE et non un champ de la série : le détail est |jours| × |posts|,
+ * soit des dizaines de milliers de lignes sur une fenêtre de trois mois. On ne
+ * le calcule que pour le jour qu'on regarde, et on le borne.
+ *
+ * Elle rejoue la MÊME répartition que la courbe (cf `computeDayContributions`) :
+ * un détail recalculé par un autre chemin donnerait un total voisin mais
+ * différent, et l'écart se lirait comme un bug de l'un ou de l'autre.
+ */
+export const trackerViewsDayDetail = permissionQuery("content.analytics")({
+  /**
+   * Les filtres arrivent GROUPÉS et non étalés, pour deux raisons qui vont dans
+   * le même sens. La garde anti-fuite (`scripts/check-db-spread`) refuse tout
+   * spread d'identifiant dans une query — elle ne peut pas distinguer un spread
+   * d'ARGUMENTS d'un spread de DOCUMENT, et c'est très bien ainsi : la contourner
+   * aurait coûté plus cher que de s'y plier. Et réécrire la liste à la main
+   * l'aurait fait diverger de `filterArgs` au premier filtre ajouté, avec pour
+   * symptôme un détail qui ne somme plus au point de la courbe.
+   */
+  args: {
+    filters: v.object(filterArgs),
+    day: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, { filters, day, limit }) => {
+    const refs = await buildPublicationAssignmentMap(ctx);
+    const pubs = await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+
+    const gardees = new Map<string, Doc<"publications">>();
+    let minDatePubli = Number.POSITIVE_INFINITY;
+    for (const p of pubs) {
+      if (!publishedAndMatches(p, filters, (id) => refs.get(id))) continue;
+      gardees.set(p._id as string, p);
+      if (p.datePubli < minDatePubli) minDatePubli = p.datePubli;
+    }
+    if (gardees.size === 0) return { total: 0, rows: [] };
+
+    // La fenêtre du scan est celle des FILTRES, pas celle du jour demandé : un
+    // intervalle qui traverse minuit alimente le jour depuis un relevé de la
+    // veille, et le borner au jour ferait disparaître cette part.
+    const lower = filters.dateFrom ?? minDatePubli;
+    const snaps = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_project_capturedAt", (ix) => {
+        const lo = ix.eq("projectId", ctx.projectId).gte("capturedAt", lower);
+        return filters.dateTo !== undefined
+          ? lo.lte("capturedAt", filters.dateTo)
+          : lo;
+      })
+      .collect();
+
+    const points = snaps
+      .filter((s) => gardees.has(s.publicationId as string))
+      .map((s) => ({
+        publicationId: s.publicationId as string,
+        capturedAt: s.capturedAt,
+        vues: s.vues,
+      }));
+
+    const detail = computeDayContributions(points, day);
+    const marcheDe = await buildPublicationMarketMap(ctx, pubs);
+    const composeDe = await buildMarketLabelMap(ctx);
+    const limite = Math.max(1, Math.min(limit ?? 20, 100));
+
+    return {
+      /** Le total du jour — le MÊME chiffre que le point de la courbe. */
+      total: detail.total,
+      rows: detail.parts.slice(0, limite).map((c) => {
+        const p = gardees.get(c.publicationId);
+        const pays = marcheDe.get(c.publicationId) ?? "";
+        const compose = pays === "" ? undefined : composeDe.get(pays);
+        const ref = refs.get(c.publicationId);
+        return {
+          publicationId: c.publicationId as Id<"publications">,
+          value: c.value,
+          titre: p?.titre ?? null,
+          compte: p?.compte ?? null,
+          plateforme: p?.plateforme ?? null,
+          datePubli: p?.datePubli ?? null,
+          isWarmup: p?.isWarmup === true,
+          creatorName: ref?.creatorName ?? null,
+          market: compose?.label ?? (pays === "" ? null : pays),
+        };
+      }),
+    };
   },
 });

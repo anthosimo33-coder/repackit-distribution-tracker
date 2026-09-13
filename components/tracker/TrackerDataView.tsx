@@ -12,10 +12,15 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  Area,
+  AreaChart,
+  Legend,
 } from "recharts";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProjectQuery } from "@/components/project/use-project-convex";
+import { isoCountryLabel } from "@/lib/country-name";
+import { DayDetailSheet } from "./DayDetailSheet";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +40,7 @@ import {
   DEFAULT_WARMUP_FILTER,
   type CategoryItem,
   type DailyPoint,
+  type DailyByGroup,
   type WarmupFilter,
   shapeCampaignRows,
   CAMPAIGN_NONE_LABEL,
@@ -80,6 +86,45 @@ function endOfDayMs(dateStr: string): number {
  * (zone 3 mode Charts). Latest dénormalisé pour stats/liste ; snapshots bornés
  * (range-scan) seulement pour la courbe vues/jour.
  */
+/**
+ * Teintes d'empilement par marché — assez contrastées côte à côte pour qu'une
+ * tranche fine reste distincte de sa voisine, et stables d'un rendu à l'autre
+ * (l'ordre des marchés est figé sur toute la fenêtre, cf `groupes`).
+ */
+/**
+ * Clé de série pour les publications SANS marché visé.
+ *
+ * Le serveur les range sous la chaîne VIDE — c'est l'absence, pas un nom. Mais
+ * une chaîne vide passée en `dataKey` à recharts est un identifiant qui n'en est
+ * pas un : elle fonctionne aujourd'hui, et c'est exactement le genre de détail
+ * qui casse à la montée de version. L'écran lui donne donc un nom, et c'est le
+ * seul endroit où il existe.
+ */
+const SANS_MARCHE = "__sans_marche__";
+
+const TEINTES_MARCHE = [
+  "#6366f1",
+  "#0d9488",
+  "#e11d48",
+  "#d97706",
+  "#2563eb",
+  "#7c3aed",
+  "#0891b2",
+  "#94a3b8",
+];
+
+/** Les filtres du tracker, tels que les queries les attendent. */
+export type TrackerQueryArgs = {
+  dateFrom?: number;
+  dateTo?: number;
+  creatorIds?: Id<"creators">[];
+  comptes?: string[];
+  plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
+  formatIds?: Id<"formats">[];
+  campaignIds?: Id<"scriptCampaigns">[];
+  warmup?: WarmupFilter;
+};
+
 export function TrackerDataView() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -105,16 +150,7 @@ export function TrackerDataView() {
   const formats = useProjectQuery(api.formats.listFormats, {});
 
   const queryArgs = useMemo(() => {
-    const a: {
-      dateFrom?: number;
-      dateTo?: number;
-      creatorIds?: Id<"creators">[];
-      comptes?: string[];
-      plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
-      formatIds?: Id<"formats">[];
-      campaignIds?: Id<"scriptCampaigns">[];
-      warmup?: WarmupFilter;
-    } = {};
+    const a: TrackerQueryArgs = {};
     if (dateFrom) a.dateFrom = startOfDayMs(dateFrom);
     if (dateTo) a.dateTo = endOfDayMs(dateTo);
     if (creatorIds.size) a.creatorIds = [...creatorIds] as Id<"creators">[];
@@ -149,10 +185,11 @@ export function TrackerDataView() {
   ) as TrackerPost[] | undefined;
 
   // La courbe (et donc la query snapshots bornée) n'est chargée qu'en mode Charts.
-  const daily = useProjectQuery(
+  const series = useProjectQuery(
     api.trackerData.trackerViewsDaily,
     mode === "charts" ? queryArgs : "skip",
   );
+  const daily = series?.daily;
 
   // DATES des posts que le filtre warmup retire de la lecture. La carte quadrant
   // ne peut pas les déduire de ses lignes : elles lui arrivent déjà filtrées.
@@ -468,6 +505,9 @@ export function TrackerDataView() {
       ) : (
         <ChartsPanel
           daily={daily}
+          byMarket={series?.byMarket}
+          marketLabels={series?.marketLabels}
+          queryArgs={queryArgs}
           posts={posts}
           warmup={warmup}
           hiddenWarmupDates={
@@ -600,12 +640,21 @@ function ChartsPanel({
   warmup,
   hiddenWarmupDates,
   onSelectPost,
+  byMarket,
+  marketLabels,
+  queryArgs,
   byPlatform,
   byCreator,
   byFormat,
   byCampaign,
 }: {
   daily: DailyPoint[] | undefined;
+  /** La même série, ventilée par marché (somme des tranches = total du jour). */
+  byMarket: DailyByGroup[] | undefined;
+  /** Clé de groupe → libellé lisible. */
+  marketLabels: { key: string; label: string }[] | undefined;
+  /** Les filtres courants — le détail d'un jour doit lire la MÊME sélection. */
+  queryArgs: TrackerQueryArgs;
   posts: TrackerPost[];
   warmup: WarmupFilter;
   hiddenWarmupDates: readonly number[] | null;
@@ -615,20 +664,89 @@ function ChartsPanel({
   byFormat: CategoryAggregate[];
   byCampaign: CategoryAggregate[];
 }) {
+  const [ventile, setVentile] = useState(false);
+  const [jourOuvert, setJourOuvert] = useState<string | null>(null);
+
+  /**
+   * Les marchés à empiler, du plus gros au plus petit sur la fenêtre entière.
+   * L'ordre est FIGÉ pour toute la série : un empilement dont les tranches
+   * changent d'ordre d'un jour à l'autre ne se lit plus.
+   */
+  const groupes = useMemo(() => {
+    const total = new Map<string, number>();
+    for (const jour of byMarket ?? []) {
+      for (const p of jour.parts) total.set(p.group, (total.get(p.group) ?? 0) + p.value);
+    }
+    const libelle = new Map((marketLabels ?? []).map((l) => [l.key, l.label]));
+    return [...total.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([key]) => ({
+        key: key === "" ? SANS_MARCHE : key,
+        // Un code pays devient un nom ; un marché composé porte déjà le sien ;
+        // l'absence de marché se DIT, elle ne reste pas une case vide.
+        label:
+          key === ""
+            ? "Sans marché"
+            : (libelle.get(key) ?? key).length === 2
+              ? isoCountryLabel(libelle.get(key) ?? key)
+              : (libelle.get(key) ?? key),
+      }));
+  }, [byMarket, marketLabels]);
+
+  /** Une ligne par jour, une colonne par marché — la forme qu'attend recharts. */
+  const empile = useMemo(
+    () =>
+      (byMarket ?? []).map((jour) => {
+        const ligne: Record<string, string | number> = { date: jour.date };
+        for (const g of groupes) ligne[g.key] = 0;
+        for (const p of jour.parts) {
+          ligne[p.group === "" ? SANS_MARCHE : p.group] = p.value;
+        }
+        return ligne;
+      }),
+    [byMarket, groupes],
+  );
+
   return (
     <div className="space-y-4">
       {/* Graphique 1 — Évolution : vues GAGNÉES par jour (deltas, pas cumulé). */}
       <Card>
         <CardContent className="space-y-3 p-4">
-          <div>
-            <h3 className="text-base font-semibold text-slate-900">
-              Vues gagnées par jour
-            </h3>
-            <p className="text-xs text-slate-500">
-              Delta des vues entre snapshots consécutifs, réparti au prorata du
-              temps couvert et agrégé par jour (Europe/Paris) sur les posts
-              filtrés — rythme réel, non cumulé.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">
+                Vues gagnées par jour
+              </h3>
+              <p className="text-xs text-slate-500">
+                Delta des vues entre snapshots consécutifs, réparti au prorata du
+                temps couvert et agrégé par jour (Europe/Paris) sur les posts
+                filtrés — rythme réel, non cumulé. Clique un jour pour voir ce
+                qui l&apos;a fait.
+              </p>
+            </div>
+            {groupes.length > 1 ? (
+              <div
+                role="group"
+                aria-label="Découpage de la courbe"
+                className="inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5"
+              >
+                {([false, true] as const).map((v) => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    aria-pressed={ventile === v}
+                    onClick={() => setVentile(v)}
+                    className={
+                      ventile === v
+                        ? "rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-900 shadow-sm"
+                        : "rounded-full px-3 py-1 text-xs text-slate-500 hover:text-slate-700"
+                    }
+                  >
+                    {v ? "Par marché" : "Total"}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
           {daily === undefined ? (
             <ChartPlaceholder>Chargement…</ChartPlaceholder>
@@ -636,11 +754,62 @@ function ChartsPanel({
             <ChartPlaceholder>
               Pas assez d&apos;historique pour tracer l&apos;évolution.
             </ChartPlaceholder>
+          ) : ventile ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart
+                data={empile}
+                margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                onClick={(e: { activeLabel?: string | number }) => {
+                  const jour = e?.activeLabel;
+                  if (typeof jour === "string") setJourOuvert(jour);
+                }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fontSize: 11, fill: "#475569" }}
+                  axisLine={{ stroke: "#cbd5e1" }}
+                  tickLine={false}
+                  tickFormatter={shortDay}
+                  minTickGap={24}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#475569" }}
+                  axisLine={{ stroke: "#cbd5e1" }}
+                  tickLine={false}
+                  width={50}
+                  tickFormatter={(v: number) => formatNumber(v)}
+                />
+                <Tooltip
+                  contentStyle={{ borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12 }}
+                  formatter={(v, nom) => [formatNumber(Number(v)), String(nom)]}
+                  labelFormatter={(l) => fullDay(String(l))}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {groupes.map((g, i) => (
+                  <Area
+                    key={g.key}
+                    type="monotone"
+                    dataKey={g.key}
+                    name={g.label}
+                    stackId="marche"
+                    stroke={TEINTES_MARCHE[i % TEINTES_MARCHE.length]}
+                    fill={TEINTES_MARCHE[i % TEINTES_MARCHE.length]}
+                    fillOpacity={0.75}
+                    strokeWidth={1}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
           ) : (
             <ResponsiveContainer width="100%" height={280}>
               <LineChart
                 data={daily}
                 margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
+                onClick={(e: { activeLabel?: string | number }) => {
+                  const jour = e?.activeLabel;
+                  if (typeof jour === "string") setJourOuvert(jour);
+                }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
@@ -730,6 +899,15 @@ function ChartsPanel({
           metric="vues"
         />
       </div>
+      <DayDetailSheet
+        day={jourOuvert}
+        queryArgs={queryArgs}
+        onClose={() => setJourOuvert(null)}
+        onSelectPost={(id) => {
+          setJourOuvert(null);
+          onSelectPost(id);
+        }}
+      />
     </div>
   );
 }
