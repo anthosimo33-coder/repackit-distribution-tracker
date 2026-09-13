@@ -40,6 +40,8 @@ import {
 } from "@/lib/onboarding";
 import { HomeSkeleton } from "@/components/portal/skeletons";
 import { StreakCard } from "@/components/portal/StreakCard";
+import { TodayStatChips } from "@/components/portal/TodayStatChips";
+import { useIsDesktop } from "@/components/portal/use-is-desktop";
 import { ViewsPulseCard } from "@/components/portal/ViewsPulseCard";
 import { dayPartAt, type DayPart } from "@/lib/day-part";
 import {
@@ -95,6 +97,9 @@ export default function DashboardScreen() {
   const name = current.creatorName;
   const base = usePortalBase();
   const argent = useArgentObservable();
+  // Deux dispositions, pas une grille qui s'empile : sur mobile, la colonne de
+  // droite tombait SOUS tout l'écran (cf TodayStatChips).
+  const isDesktop = useIsDesktop();
 
   const assignments = useMyAssignments(projectId);
   const warmupDue = useWarmupDue(projectId) ?? 0;
@@ -171,6 +176,10 @@ export default function DashboardScreen() {
         </h1>
       </header>
 
+      {/* MOBILE : série, vues d'hier et place en pastilles, sous le salut. Sur
+          desktop, ces chiffres ont leurs cartes dans la colonne de droite. */}
+      {!isDesktop && loaded && <TodayStatChips />}
+
       <PaymentInfoNudge projectId={projectId} />
 
       {!loaded || action === null ? (
@@ -200,6 +209,10 @@ export default function DashboardScreen() {
                 />
               </div>
             )}
+
+            {/* MOBILE : les gains en une bande, juste sous le volume de travail.
+                Le détail (carte complète) reste pour la colonne desktop. */}
+            {!isDesktop && argent && <CycleGainsCard variant="compact" />}
 
             {/* Le programme du jour garde son bandeau, SAUF quand la carte dit
                 déjà « publier aujourd'hui » : on ne répète pas la même mission. */}
@@ -285,17 +298,23 @@ export default function DashboardScreen() {
               </section>
             )}
 
+            {/* MOBILE : les voisines de classement, en bas — là où on défile
+                quand on a le temps. Sa place est déjà dans les pastilles. */}
+            {!isDesktop && argent && <RankCard variant="window" />}
+
             <CreatorPublicationCalendar list={list} now={nowMs} base={base} />
           </div>
 
           {/* Vues d'hier et série ne sont pas de l'argent : visibles en
               observation. Gains et classement restent derrière le droit. */}
-          <aside className="min-w-0 space-y-6">
-            <ViewsPulseCard />
-            {argent && <CycleGainsCard />}
-            <StreakCard />
-            {argent && <RankCard variant="window" />}
-          </aside>
+          {isDesktop && (
+            <aside className="min-w-0 space-y-6">
+              <ViewsPulseCard />
+              {argent && <CycleGainsCard />}
+              <StreakCard />
+              {argent && <RankCard variant="window" />}
+            </aside>
+          )}
         </div>
       )}
     </div>
