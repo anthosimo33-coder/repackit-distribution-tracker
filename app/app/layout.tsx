@@ -17,6 +17,7 @@ import {
 } from "@/components/portal/CreatorProjectProvider";
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { ProgressionCelebration } from "@/components/portal/ProgressionCelebration";
+import { CelebrationHost } from "@/components/portal/CelebrationHost";
 import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button } from "@/components/ui/button";
 import { useTranslations } from "next-intl";
@@ -84,6 +85,8 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
       <AccentStyle accent={accent} />
       {/* Célébration globale à la traversée d'un palier (créateur uniquement). */}
       <ProgressionCelebration projectId={current.projectId} />
+      {/* Publication, place gagnée, série, chauffe terminée (cf lib/celebrate). */}
+      <CelebrationHost />
 
       {/* Header MOBILE (< md) : switcher | espace équipe + déconnexion. Le guide
           n'y est plus : il vit sous « Moi », comme les outils. */}

@@ -12,7 +12,7 @@ import { startOfDayUtcFromLocal, groupBySchedule } from "@/lib/creator-schedule"
 import { representativePostedAt } from "@/lib/calendar-status";
 import { isActionable, type AssignmentStatus } from "@/lib/assignment-status";
 import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { MissionsSkeleton } from "@/components/portal/skeletons";
 import { CircleCheckIcon, UsersIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -157,10 +157,7 @@ export default function MissionsScreen() {
           </ul>
         )
       ) : assignments === undefined ? (
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
+        <MissionsSkeleton />
       ) : mine.length === 0 && managed.length === 0 ? (
         <Card data-testid="missions-empty">
           <CardContent className="flex items-center gap-3 p-6 text-sm">

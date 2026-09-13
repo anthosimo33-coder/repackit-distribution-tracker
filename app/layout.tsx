@@ -1,9 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import "./globals.css";
+import "./celebrations.css";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import { AppShell } from "@/components/layout/AppShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -26,8 +27,20 @@ export async function generateMetadata(): Promise<Metadata> {
     title: t("title"),
     description: t("description"),
     robots: "noindex, nofollow",
+    // Installée sur l'écran d'accueil d'un iPhone, l'app s'ouvre plein écran
+    // (iOS ne lit pas `display: standalone` du manifeste, seulement ceci).
+    appleWebApp: {
+      capable: true,
+      title: "Jarvis", // i18n-exempt: nom de marque de l'app installée, identique dans toutes les langues
+      statusBarStyle: "default",
+    },
   };
 }
+
+/** Couleur de la barre du navigateur / de l'app installée : le fond des headers. */
+export const viewport: Viewport = {
+  themeColor: "#ffffff",
+};
 
 /**
  * Remédiation sécurité — ConvexAuthNextjsServerProvider (cookies de session

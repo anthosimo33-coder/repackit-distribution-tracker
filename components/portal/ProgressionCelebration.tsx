@@ -12,6 +12,8 @@ import { formatMoney, formatViews } from "@/lib/format-rate";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
+import { Confetti } from "@/components/portal/Confetti";
+import { haptic } from "@/lib/haptics";
 
 /**
  * Overlay GLOBAL de célébration de palier — monté dans le shell créateur, donc
@@ -74,6 +76,7 @@ export function ProgressionCelebration({
       .sort((a, b) => b.seuilVues - a.seuilVues);
     setQueue(cels);
     setOpen(true);
+    haptic("celebrate");
     void markSeen({ projectId }).catch(() => {});
   }, [raw, va, projectId, markSeen]);
 
@@ -89,11 +92,14 @@ export function ProgressionCelebration({
       aria-label={tcel("tierUnlocked")}
       onClick={() => setOpen(false)}
     >
+      {/* Palier franchi : le plus grand moment de l'espace, il a droit à
+          l'éclat de confettis et à l'arrivée en rebond. */}
+      <Confetti />
       <div
-        className="w-full max-w-sm rounded-2xl bg-white p-6 text-center ring-1 ring-black/5"
+        className="animate-pop animate-shine relative w-full max-w-sm overflow-hidden rounded-2xl bg-white p-6 text-center ring-1 ring-black/5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-5xl" aria-hidden>
+        <div className="text-5xl motion-safe:animate-bounce [animation-iteration-count:2]" aria-hidden>
           {headline.emoji}
         </div>
         <p className="mt-3 text-lg font-semibold text-slate-900">{tcel("tierUnlockedBang")}</p>

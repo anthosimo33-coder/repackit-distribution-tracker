@@ -29,6 +29,7 @@ import {
   representativePostedAt,
 } from "../convex/calendarStatus";
 import { isToCatchUp, sortBySchedule } from "./creator-schedule";
+import type { DayPart } from "./day-part";
 
 export type NextActionRow = {
   _id: string;
@@ -81,6 +82,8 @@ export function nextCreatorAction<T extends NextActionRow>(input: {
   warmupDue: number;
   /** Onboarding applicable et pas terminé (cf lib/onboarding). */
   onboardingPending: boolean;
+  /** Moment de la journée CHEZ ELLE (cf lib/day-part). Absent = après-midi. */
+  dayPart?: DayPart;
 }): NextAction<T> {
   const { now, warmupDue, onboardingPending } = input;
   const mine = input.rows.filter((r) => !r.managedByAdmin);
@@ -107,14 +110,26 @@ export function nextCreatorAction<T extends NextActionRow>(input: {
       !catchup.includes(r),
   );
 
+  // Le TRAVAIL COURANT change d'ordre avec le moment de la journée. Le matin on
+  // tourne (la lumière, le temps devant soi) ; ensuite on coche la chauffe et on
+  // publie. Ce qui est URGENT ou BLOQUANT (rattrapage, publication du jour,
+  // vidéo à refaire, onboarding) ne bouge jamais : l'heure ne rend pas un retard
+  // moins en retard.
+  const produce = pick("produce", actionable.filter((r) => PRODUCE.has(r.status)));
+  const warmup: NextAction<T> | null =
+    warmupDue > 0 ? { kind: "warmup", count: warmupDue } : null;
+  const publish = pick("publish", toPublish);
+  const routine =
+    input.dayPart === "morning"
+      ? (produce ?? warmup ?? publish)
+      : (warmup ?? publish ?? produce);
+
   return (
     pick("catchup", catchup) ??
     pick("publishToday", today) ??
     pick("redo", actionable.filter((r) => REDO.has(r.status))) ??
     (onboardingPending ? { kind: "onboarding" } : null) ??
-    (warmupDue > 0 ? { kind: "warmup", count: warmupDue } : null) ??
-    pick("publish", toPublish) ??
-    pick("produce", actionable.filter((r) => PRODUCE.has(r.status))) ??
+    routine ??
     (() => {
       const waiting = mine.filter((r) => WAITING.has(r.status)).length;
       return waiting > 0 ? { kind: "waiting" as const, count: waiting } : null;

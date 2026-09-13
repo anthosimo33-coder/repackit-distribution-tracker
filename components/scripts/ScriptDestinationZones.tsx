@@ -7,6 +7,10 @@ import {
 } from "@/components/ui/card";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { CopyButton } from "@/components/ui/CopyButton";
+import {
+  CopyAndOpenButton,
+  type OpenPlatform,
+} from "@/components/portal/CopyAndOpenButton";
 import { brickModeDisplay, type BrickMode } from "@/lib/script-mode";
 import { useTranslations } from "next-intl";
 import { useLabel } from "@/lib/use-label";
@@ -36,11 +40,18 @@ export function ScriptDestinationZones({
   videoBlocks,
   descriptionScript,
   instructions = [],
+  openOn = [],
 }: {
   videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
   /** Consignes par slot (absentes = aucun encart). */
   instructions?: readonly { slot: "hook" | "flux" | "cta"; text: string }[];
+  /**
+   * Plateformes où PUBLIER maintenant : un bouton « Copier et ouvrir » par
+   * plateforme. Vide (défaut) hors de l'étape de publication, et TOUJOURS vide
+   * dans l'aperçu admin — on n'ouvre pas TikTok depuis l'équipe.
+   */
+  openOn?: readonly OpenPlatform[];
 }) {
   const t = useTranslations("portal.script");
   const tLabel = useLabel();
@@ -89,11 +100,23 @@ export function ScriptDestinationZones({
             text={instructionFor("cta")}
             label={t("instruction")}
           />
-          <CopyButton
-            text={descriptionScript}
-            label={t("copyDescription")}
-            className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {/* Au moment de publier : copier ET ouvrir l'app, en un geste. Le
+                simple « copier » reste, pour qui publie depuis un autre appareil. */}
+            {openOn.map((platform) => (
+              <CopyAndOpenButton
+                key={platform}
+                text={descriptionScript}
+                platform={platform}
+                className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
+              />
+            ))}
+            <CopyButton
+              text={descriptionScript}
+              label={t("copyDescription")}
+              className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

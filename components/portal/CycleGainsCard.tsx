@@ -11,6 +11,7 @@ import {
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AnimatedNumber } from "@/components/portal/AnimatedNumber";
 import { buildProgression } from "@/lib/progression";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { formatMoneyDate } from "@/lib/format";
@@ -63,12 +64,12 @@ export function CycleGainsCard() {
           <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
             {t("home.gainsTitle")}
           </p>
-          <p
-            data-testid="dashboard-due"
-            className="text-3xl font-bold tracking-tight tabular-nums text-slate-900"
-          >
-            {formatMoney(due, current.payCurrency, loc)}
-          </p>
+          <AnimatedNumber
+            testId="dashboard-due"
+            value={due}
+            format={(n) => formatMoney(n, current.payCurrency, loc)}
+            className="block text-3xl font-bold tracking-tight tabular-nums text-slate-900"
+          />
         </div>
       </div>
 

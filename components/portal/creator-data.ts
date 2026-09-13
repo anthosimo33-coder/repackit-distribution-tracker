@@ -356,6 +356,20 @@ export function useMyWarmupModule(
 }
 
 /**
+ * Les vues gagnées HIER, par vidéo. Ce sont des vues, pas de l'argent : lisibles
+ * en observation sans le droit « Paiements ». View-as → `getViewsPulseAsAdmin`.
+ */
+export function useMyViewsPulse(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const mine = useQuery(api.viewsPulse.getMyViewsPulse, va ? "skip" : { projectId });
+  const asAdmin = useQuery(
+    api.viewsPulse.getViewsPulseAsAdmin,
+    va ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
+/**
  * DÉFIS ouverts où la créatrice est nommément inscrite.
  *
  * View-as admin → `getChallengesAsAdmin` (adminViewAsQuery, scopé serveur) :

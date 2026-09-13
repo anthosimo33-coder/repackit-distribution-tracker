@@ -64,6 +64,33 @@ describe("nextCreatorAction — l'ordre", () => {
     expect(nextCreatorAction({ ...base, rows: [publish] }).kind).toBe("publish");
   });
 
+  it("le matin, tourner passe avant la chauffe et la publication", () => {
+    const publish = row({ status: "to_publish", postDate: parisMidnight(24) });
+    const produce = row({ status: "todo", postDate: parisMidnight(22) });
+    expect(
+      nextCreatorAction({ ...base, warmupDue: 1, dayPart: "morning", rows: [publish, produce] }).kind,
+    ).toBe("produce");
+    // Présence appariée : l'après-midi, l'ordre habituel revient.
+    expect(
+      nextCreatorAction({ ...base, warmupDue: 1, dayPart: "afternoon", rows: [publish, produce] }).kind,
+    ).toBe("warmup");
+    expect(
+      nextCreatorAction({ ...base, dayPart: "evening", rows: [publish, produce] }).kind,
+    ).toBe("publish");
+  });
+
+  it("le matin ne fait jamais passer tourner avant un retard ou une vidéo à refaire", () => {
+    const late = row({ status: "to_publish", postDate: parisMidnight(15) });
+    const redo = row({ status: "video_rejected", postDate: parisMidnight(23) });
+    const produce = row({ status: "todo", postDate: parisMidnight(22) });
+    expect(
+      nextCreatorAction({ ...base, dayPart: "morning", rows: [produce, late] }).kind,
+    ).toBe("catchup");
+    expect(
+      nextCreatorAction({ ...base, dayPart: "morning", rows: [produce, redo] }).kind,
+    ).toBe("redo");
+  });
+
   it("à tourner : sans date de publication, l'échéance la plus proche", () => {
     const loin = row({ status: "todo", dueDate: parisMidnight(28) });
     const proche = row({ status: "in_progress", dueDate: parisMidnight(21) });
