@@ -739,7 +739,7 @@
         "publishHint": "Validée, à publier le {date}.",
         "publishHintNoDate": "Validée : tu peux la publier.",
         "produceTitle": "Tourner « {name} »",
-        "produceHint": "À envoyer avant le {date}.",
+        "produceHint": "À envoyer avant le {date}",
         "waitingTitle": "{count, plural, one {Ta vidéo est en validation} other {Tes # vidéos sont en validation}}",
         "waitingHint": "Rien à faire pour l'instant : l'équipe les regarde.",
         "others": "{count, plural, one {+ # autre mission du même type} other {+ # autres missions du même type}}",

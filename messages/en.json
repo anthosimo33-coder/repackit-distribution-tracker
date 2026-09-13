@@ -739,7 +739,7 @@
         "publishHint": "Approved, post it on {date}.",
         "publishHintNoDate": "Approved: you can post it.",
         "produceTitle": "Shoot “{name}”",
-        "produceHint": "Send it before {date}.",
+        "produceHint": "Send it before {date}",
         "waitingTitle": "{count, plural, one {Your video is being reviewed} other {Your # videos are being reviewed}}",
         "waitingHint": "Nothing to do for now: the team is reviewing them.",
         "others": "{count, plural, one {+ # more mission of this kind} other {+ # more missions of this kind}}",

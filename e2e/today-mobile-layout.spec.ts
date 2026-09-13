@@ -46,6 +46,9 @@ test.describe("Aujourd'hui — disposition mobile", () => {
     const ctx = await browser.newContext({
       storageState: { cookies: [], origins: [] },
       viewport: MOBILE,
+      // Captures fidèles : sans le fondu d'entrée des écrans (sinon l'image est
+      // prise à mi-transition, texte délavé). Sans effet sur les assertions.
+      reducedMotion: "reduce",
     });
     const page = await ctx.newPage();
     await page.goto(`/join/${token}`);
@@ -84,7 +87,14 @@ test.describe("Aujourd'hui — disposition mobile", () => {
     expect(yGains).toBeLessThan(yEnsuite);
     // Un seul montant dans la page : la carte desktop n'est pas montée cachée.
     await expect(page.getByTestId("dashboard-due")).toHaveCount(1);
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/today-mobile.png`, fullPage: true });
+    // Écran par écran et non `fullPage` : la barre d'onglets est fixe, une
+    // capture pleine page la dessinerait au milieu du contenu.
+    if (SHOTS) {
+      await page.screenshot({ path: `${SHOTS}/today-mobile-1.png` });
+      await page.getByTestId("home-upcoming").scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${SHOTS}/today-mobile-2.png` });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    }
 
     // ── DESKTOP, même page : la carte complète revient dans la colonne de
     //    droite, à côté de l'action (même hauteur de départ), et la bande part.
