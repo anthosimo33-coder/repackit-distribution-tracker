@@ -9,7 +9,11 @@ import {
   publicQuery,
   requireCreatorObservable,
   requireProjectAdmin,
+  creatorScopeFor,
+  extendCreatorScopeWith,
+  requireCreatorInScope,
 } from "./functions";
+import { filterByCreatorScope, isInCreatorScope } from "./creatorScope";
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import {
@@ -113,10 +117,17 @@ async function killInvitations(ctx: MutationCtx, creatorId: Id<"creators">) {
 export const listCreators = permissionQuery("creators.read")({
   args: {},
   handler: async (ctx) => {
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // Périmètre du manager : cette liste nourrit CINQ écrans (cf plus bas), et
+    // c'est ce qui les borne tous d'un coup.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    const creators = filterByCreatorScope(
+      await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c._id,
+      scope,
+    );
     const rows = [];
     for (const c of creators) {
       let invitation: { token: string; expiresAt: number } | null = null;
@@ -211,6 +222,7 @@ export const listCreatorActivity = permissionQuery("creators.read")({
         .collect(),
     ]);
     const parCreatrice = summarizeCreatorActivity({ comptes, assignments });
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
 
     // ─── FUSEAU EFFECTIF, celui qui sert vraiment ────────────────────────────
     // `listCreators` sert le fuseau STOCKÉ. Grouper là-dessus mettrait dans
@@ -240,7 +252,7 @@ export const listCreatorActivity = permissionQuery("creators.read")({
     // `listCreators`.
     const visages = await faceUrlsByCreator(ctx, comptes);
 
-    return creators.map((c) => {
+    return filterByCreatorScope(creators, (c) => c._id, scope).map((c) => {
       const zone = resolveCreatorTimezone(c, paysParCreatrice.get(c._id) ?? []);
       return {
         creatorId: c._id,
@@ -274,6 +286,11 @@ export const getCreatorActivity = permissionQuery("creators.read")({
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    // Hors périmètre : `null`, comme une fiche absente — une query qui LÈVE
+    // ferait tomber l'écran entier (cf #227), et la fiche n'est de toute façon
+    // plus listée pour ce manager.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, id)) return null;
     const [comptes, assignments] = await Promise.all([
       ctx.db
         .query("comptes")
@@ -312,6 +329,9 @@ export const getCreator = permissionQuery("creators.read")({
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    // Hors périmètre : `null`, même raison que `getCreatorActivity`.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, id)) return null;
     const inv =
       creator.status === "invited" ? await activeInvitation(ctx, id) : null;
     // PROJECTION EXPLICITE (pas de spread). Les champs de RÉMUNÉRATION ne
@@ -427,6 +447,9 @@ export const inviteCreator = permissionMutation("creators.manage")({
       creatorId,
       token,
     });
+    // Invitée par un manager restreint ⇒ dans SON périmètre, sinon elle
+    // disparaîtrait de son écran à l'instant où il la crée.
+    await extendCreatorScopeWith(ctx, ctx.userId, ctx.projectId, creatorId);
     return { creatorId, token };
   },
 });
@@ -442,6 +465,7 @@ export const regenerateInvitation = permissionMutation("creators.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     if (creator.status !== "invited") {
       throw new ConvexError("Ce créateur a déjà accepté son invitation.");
     }
@@ -557,11 +581,17 @@ export const updateCreator = permissionMutation("creators.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     const patch: Partial<Doc<"creators">> = {};
     if (args.name !== undefined) {
       const name = args.name.trim();
       if (name.length === 0) throw new ConvexError("Le nom est requis.");
       patch.name = name;
+    }
+    // Apparier un talent à un clippeur hors périmètre lui confierait le travail
+    // d'une créatrice que ce manager ne gère pas : les DEUX bouts sont à lui.
+    if (args.clipperId) {
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.clipperId);
     }
     if (args.phone !== undefined) patch.phone = args.phone.trim() || undefined;
     if (args.timezone !== undefined) {
@@ -761,6 +791,9 @@ export const getCreatorPayTerms = permissionQuery("creators.pay_terms")({
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    // Les coordonnées de paiement d'une créatrice hors périmètre ne sortent pas.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, id)) return null;
     return {
       paymentMethod: creator.paymentMethod ?? null,
       paymentDetails: creator.paymentDetails ?? null,
@@ -796,6 +829,7 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     const patch: Partial<Doc<"creators">> = {};
     if (args.bonusPricingId !== undefined) {
       if (args.bonusPricingId === null) {
@@ -902,6 +936,8 @@ export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, id)) return null;
     const impact = await creatorDeletionImpact(ctx, creator);
     return { name: creator.name, ...impact };
   },
@@ -943,6 +979,9 @@ export const deleteCreator = permissionMutation("creators.delete")({
     if (!creator || creator.projectId !== ctx.projectId) {
       return { ok: true as const, alreadyGone: true as const };
     }
+    // Refus EXPLICITE, jamais `alreadyGone` : répondre « déjà supprimée » sur une
+    // fiche bien vivante mentirait sur l'opération la plus destructrice de l'app.
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     const name = creator.name;
     const projectId = creator.projectId;
 
@@ -1323,6 +1362,7 @@ export const getCreatorTimezone = permissionQuery("creators.read")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable dans le projet.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     return creatorZone(ctx, id);
   },
 });
@@ -1557,6 +1597,8 @@ export const addCreatorToProject = permissionMutation("creators.manage")({
     await ctx.scheduler.runAfter(0, internal.snytchDrive.ensureCreatorFolder, {
       creatorId,
     });
+    // Même règle qu'`inviteCreator` : ce qu'un manager restreint crée reste à lui.
+    await extendCreatorScopeWith(ctx, ctx.userId, ctx.projectId, creatorId);
     return { creatorId };
   },
 });

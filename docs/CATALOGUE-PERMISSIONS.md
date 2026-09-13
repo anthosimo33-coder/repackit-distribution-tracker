@@ -201,6 +201,30 @@ Trois raisons, et la première suffirait :
 
 Table proposée, `publicationFlagChanges` : `projectId`, `publicationId`, `flag` (`"warmup" | "remunerated"`), `before`, `after`, `actorUserId`, `at`. **Elle n'est pas implémentée ici** : elle exige de modifier `setPublicationWarmup` et `setPublicationRemuneration`, donc de toucher deux des 212 — ce que ce chantier s'interdit. C'est un lot à part, à faire avant ou pendant l'étape 4.
 
+### 3.7 Le périmètre de créatrices — SUR QUI, à côté de QUOI
+
+Les blocs disent **quels écrans et quels gestes**. Le périmètre dit **sur quelles créatrices**. Un manager affecté à un marché garde « Assignments et planning », mais ne l'exerce que sur ses créatrices. Les deux axes se croisent : ce n'est pas un bloc de plus, et il ne figure donc pas dans le tableau du §1.
+
+| Valeur de `memberships.creatorScope` | Sens |
+|---|---|
+| absent | **toutes** les créatrices — l'état de départ de chaque manager, et celui des managers en place le jour du déploiement |
+| liste d'ids | exactement celles-là |
+| `[]` | **aucune** — un choix explicite, jamais relu comme « toutes » |
+
+C'est l'inverse du fail-closed des blocs, et c'est voulu (arbitrage du 13/09/2026) : restreindre est un geste qu'on fait, pas un état dans lequel on tombe au déploiement. Admin et superadmin ne sont jamais restreints (même cascade que §3.2).
+
+**Ce qui est borné** — tout le nominatif, en lecture ET en écriture : fiches, comptes, file des comptes à valider, assignments (liste, calendrier, création, pièces jointes, script), validation et publiées, rushes, observation « voir son espace », participantes et vidéos de défis, contrats, conditions de paie et gestes de paiement sur une créatrice. Hors périmètre, une liste ne rend pas la ligne, une lecture de fiche rend `null` (une query qui lève tuerait l'écran), et un geste lève `ERR_CREATOR_OUT_OF_SCOPE`.
+
+**Ce qui ne l'est pas** — les écrans agrégés : Dashboard, Tracker, performance des scripts, et les listes globales de l'écran Paiements. Arbitrage du 13/09/2026 pour les trois premiers ; pour le dernier, le bloc `payments.manage` est décoché par défaut chez un manager.
+
+Trois règles de bord :
+
+- **Un objet sans créatrice** (compte interne) n'est dans aucun périmètre restreint. Un manager restreint ne peut donc pas en créer : il ne le verrait plus.
+- **Une créatrice qu'un manager restreint invite** entre dans son périmètre, sinon elle disparaîtrait de son écran à l'instant où il la crée.
+- **Les écritures d'ENSEMBLE** (participantes d'un défi, créatrices d'un barème) ignorent les créatrices hors périmètre : absentes de l'écran du manager, elles sont absentes de ce qu'il soumet, et ce n'est pas une demande de retrait.
+
+Le périmètre se règle dans « Rôles et droits » (superadmin), et chaque changement écrit le journal du §3.4 sous la forme `périmètre:toutes` / `périmètre:<id>`, relue par le nom de la créatrice.
+
 ---
 
 ## 4. Où en est le chantier

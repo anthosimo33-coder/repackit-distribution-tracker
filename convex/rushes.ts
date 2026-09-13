@@ -6,7 +6,10 @@ import {
   permissionQuery,
   talentMutation,
   talentQuery,
+  creatorScopeFor,
+  requireCreatorInScope,
 } from "./functions";
+import { isInCreatorScope, type CreatorScope } from "./creatorScope";
 import {
   internalAction,
   internalMutation,
@@ -214,6 +217,7 @@ export const rejectRush = permissionMutation("review.manage")({
     if (!rush || rush.projectId !== ctx.projectId) {
       throw new ConvexError("Rush introuvable dans ce projet.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, rush.talentId);
     if (!canTransition(rush.status, "rejected")) {
       throw new ConvexError("Ce rush n'est plus refusable (déjà traité).");
     }
@@ -489,9 +493,11 @@ export const listRushesForReview = permissionQuery("review.manage")({
       return fiches.get(key) ?? null;
     };
 
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
     const rows: RushReviewRow[] = [];
     for (const r of rushes) {
       const talent = await fiche(r.talentId);
+      if (!rushInScope(scope, r.talentId, talent?.clipperId)) continue;
       const clipper = talent?.clipperId ? await fiche(talent.clipperId) : null;
       rows.push({
         id: r._id,
@@ -514,6 +520,19 @@ export const listRushesForReview = permissionQuery("review.manage")({
   },
 });
 
+/**
+ * Un rush est-il dans le périmètre ? Celui du TALENT qui l'a déposé, ou celui du
+ * CLIPPEUR qui le monte : un manager qui suit le clippeur d'un marché doit voir
+ * ce qui arrive sur sa table, même si le talent est suivi par quelqu'un d'autre.
+ */
+function rushInScope(
+  scope: CreatorScope,
+  talentId: Id<"creators">,
+  clipperId: Id<"creators"> | undefined,
+): boolean {
+  return isInCreatorScope(scope, talentId) || (clipperId !== undefined && isInCreatorScope(scope, clipperId));
+}
+
 /** Badge de sidebar : nombre de rushes en attente de décision. */
 export const countRushesToReview = permissionQuery("review.manage")({
   args: {},
@@ -524,6 +543,15 @@ export const countRushesToReview = permissionQuery("review.manage")({
         q.eq("projectId", ctx.projectId).eq("status", "deposited"),
       )
       .collect();
-    return waiting.length;
+    // Même périmètre que la file : un badge qui compterait des rushes qu'on ne
+    // voit pas en ouvrant l'écran ferait chercher ce qui n'est pas là.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (scope === null) return waiting.length;
+    let n = 0;
+    for (const r of waiting) {
+      const talent = await ctx.db.get(r.talentId);
+      if (rushInScope(scope, r.talentId, talent?.clipperId)) n++;
+    }
+    return n;
   },
 });

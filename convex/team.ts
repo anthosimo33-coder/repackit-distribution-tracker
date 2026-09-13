@@ -35,11 +35,17 @@ import {
   hasRole,
   isPortalRole,
   kindForRole,
+  resolveCreatorKind,
   roleSetProblem,
   rolesOf,
   teamRoleOf,
   withTeamRole,
 } from "./roles";
+import {
+  SCOPE_ALL_TRACE,
+  creatorIdOfScopeTrace,
+  scopeTrace,
+} from "./creatorScope";
 
 /** Validateur des rôles : la liste fermée, jamais `v.string()`. */
 const ROLE_VALIDATOR = v.union(
@@ -125,6 +131,9 @@ export const listMembers = superadminQuery({
         // étiquettes. Rendre un seul rôle obligerait l'écran à en choisir un et
         // à taire l'autre — exactement ce qu'on vient d'ouvrir.
         roles: [...rolesOf(m)],
+        // `null` = toutes les créatrices ; une liste (même vide) = celles-là.
+        // Rendu tel que stocké : l'écran doit distinguer « absent » de « vide ».
+        creatorScope: m.creatorScope ?? null,
         effective: [...grantedPermissions(stored)],
         // Valeurs stockées qui n'ouvrent RIEN. Affichées telles quelles.
         ignored: stored.filter((p) => !isPermissionId(p)),
@@ -412,6 +421,77 @@ export const setTeamRole = superadminMutation({
   },
 });
 
+/**
+ * Les créatrices qu'on peut mettre dans un périmètre — toutes les fiches du
+ * projet, archivées comprises (une créatrice en pause reste suivie par quelqu'un).
+ * Projection minimale : l'écran des droits n'a rien à faire d'une fiche entière.
+ */
+export const listScopeCandidates = superadminQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }) => {
+    const creators = await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    return creators
+      .map((c) => ({
+        _id: c._id,
+        name: c.name,
+        status: c.status,
+        kind: resolveCreatorKind(c.kind),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  },
+});
+
+/**
+ * POSE LE PÉRIMÈTRE D'UN MANAGER — `null` = toutes, une liste = celles-là.
+ *
+ * Même doctrine que `setMemberPermissions` : réservé aux managers (un admin
+ * passe la cascade avant qu'on lise le champ, le restreindre le PRÉTENDRAIT),
+ * l'écran soumet l'ENSEMBLE, et le journal est signé du compte connecté.
+ *
+ * Refuse un id qui n'est pas une fiche DE CE PROJET : un périmètre qui contient
+ * une créatrice d'ailleurs n'ouvrirait rien ici, et laisserait croire le
+ * contraire à la relecture.
+ */
+export const setMemberCreatorScope = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    membershipId: v.id("memberships"),
+    creatorScope: v.union(v.null(), v.array(v.id("creators"))),
+  },
+  handler: async (ctx, { projectId, membershipId, creatorScope }) => {
+    const m = await membershipOf(ctx, membershipId, projectId);
+    if (!hasRole(m, "manager")) {
+      throw new ConvexError(
+        `Ce membre n'a pas le rôle manager (${[...rolesOf(m)].join(", ") || "aucun rôle"}) : ` +
+          "le périmètre ne s'applique qu'aux managers.",
+      );
+    }
+    const apres = creatorScope === null ? null : [...new Set(creatorScope)];
+    for (const id of apres ?? []) {
+      const c = await ctx.db.get(id);
+      if (c === null || c.projectId !== projectId) {
+        throw new ConvexError("Une des créatrices choisies n'est pas dans ce projet.");
+      }
+    }
+    const avant = (await ctx.db.get(membershipId))?.creatorScope;
+    // `undefined` et pas `null` en base : ABSENT = toutes (cf convex/creatorScope).
+    await ctx.db.patch(membershipId, { creatorScope: apres ?? undefined });
+    const traced = await traceDiff(
+      ctx,
+      projectId,
+      m.userId,
+      scopeTrace(avant),
+      scopeTrace(apres),
+      "écran",
+      ctx.userId,
+    );
+    return { creatorScope: apres, traced: traced.length };
+  },
+});
+
 /** Le journal d'une personne sur un projet — le plus récent d'abord. */
 export const listChanges = superadminQuery({
   args: { projectId: v.id("projects"), userId: v.id("users") },
@@ -425,8 +505,18 @@ export const listChanges = superadminQuery({
     const out = [];
     for (const r of rows.sort((a, b) => b.at - a.at).slice(0, 50)) {
       const actor = r.actorUserId ? await ctx.db.get(r.actorUserId) : null;
+      // Une ligne de périmètre porte un id de fiche : on la relit par le NOM,
+      // sinon le journal dirait « périmètre:k57… » à quelqu'un qui cherche Kelly.
+      const scopedId = creatorIdOfScopeTrace(r.permission);
+      const scoped = scopedId ? ctx.db.normalizeId("creators", scopedId) : null;
+      const fiche = scoped ? await ctx.db.get(scoped) : null;
       out.push({
-        permission: r.permission,
+        permission:
+          r.permission === SCOPE_ALL_TRACE
+            ? "Périmètre : toutes les créatrices"
+            : scopedId
+              ? `Périmètre : ${fiche?.name ?? "créatrice supprimée"}`
+              : r.permission,
         granted: r.granted,
         at: r.at,
         // L'e-mail quand le geste est signé, l'étiquette sinon (« cli »).

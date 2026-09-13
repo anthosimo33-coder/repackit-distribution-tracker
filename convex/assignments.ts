@@ -8,7 +8,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  requireCreatorInScope,
+  creatorScopeFor,
 } from "./functions";
+import { filterByCreatorScope } from "./creatorScope";
 import {
   CLIPPER_ASSIGNMENT_FIELDS,
   pickClipperAssignment,
@@ -218,10 +221,14 @@ export const listAssignableCreators = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
     const pricingOf = await pricingResolver(ctx, ctx.projectId);
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    const creators = filterByCreatorScope(
+      await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c._id,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
     return creators
       .filter(
         (c) =>
@@ -256,10 +263,14 @@ export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.m
     // Barème du projet, résolu une fois : la disponibilité d'un compte pour
     // publication en dépend, et c'est le gate le plus lourd de conséquence.
     const days = warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {});
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    const creators = filterByCreatorScope(
+      await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c._id,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
     const assignable = creators
       .filter(
         (c) =>
@@ -358,6 +369,7 @@ export const assignFormat = permissionMutation("assignments.manage")({
     if (format.status === "archived") {
       throw err(ERR.FORMAT_ARCHIVED, "Format archivé : réactive-le pour l'assigner.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
     if (
       !Number.isInteger(args.postsPerCreator) ||
       args.postsPerCreator < 1 ||
@@ -476,6 +488,7 @@ export const setAssignmentOverlayText = permissionMutation("assignments.manage")
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     await ctx.db.patch(args.id, {
       overlayText: normalizeOverlayText(args.overlayText),
     });
@@ -500,6 +513,7 @@ export const setAssignmentInstructions = permissionMutation("assignments.manage"
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     await ctx.db.patch(args.id, {
       instructions: normalizeInstructions(args.instructions),
     });
@@ -523,6 +537,7 @@ export const setAssignmentPostDate = permissionMutation("assignments.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     await ctx.db.patch(args.id, { postDate: args.postDate });
     return { ok: true };
   },
@@ -554,6 +569,7 @@ export const setAssignmentPostWindow = permissionMutation("assignments.manage")(
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (args.postWindow !== undefined && !isValidPostWindow(args.postWindow)) {
       throw new ConvexError(
         "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.",
@@ -655,6 +671,7 @@ export const addModelVideoToAssignment = permissionMutation("assignments.manage"
   },
   handler: async (ctx, args) => {
     const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const url = normalizeModelVideoUrlServer(args.url);
     if (!url) {
       throw new ConvexError(
@@ -688,6 +705,7 @@ export const removeModelVideoFromAssignment = permissionMutation("assignments.ma
   args: { id: v.id("assignments"), videoId: v.string() },
   handler: async (ctx, args) => {
     const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const next = (a.modelVideos ?? []).filter((mv) => mv.id !== args.videoId);
     await ctx.db.patch(args.id, { modelVideos: next });
     return { ok: true };
@@ -744,7 +762,8 @@ export const setAssetFolders = permissionMutation("assignments.manage")({
     folderIds: v.array(v.id("assetFolders")),
   },
   handler: async (ctx, args) => {
-    await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const valid = await validateProjectFolderIds(
       ctx,
       args.folderIds,
@@ -818,6 +837,7 @@ export const cancelAssignment = permissionMutation("assignments.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
     if (!DELETABLE_STATUSES.has(a.status)) {
       throw new ConvexError(
@@ -879,6 +899,7 @@ export const deleteAssignment = permissionMutation("assignments.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       return { ok: true as const, alreadyGone: true };
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (!DELETABLE_STATUSES.has(a.status)) {
       throw new ConvexError(
         "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).",
@@ -937,6 +958,7 @@ export const getAssignmentScript = permissionQuery("assignments.manage")({
   handler: async (ctx, { id }): Promise<{ assembledScript: string } | null> => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) return null;
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     // Le premier des DEUX porteurs de texte : combo monté (production normale)
     // ou script libre (défi). Aucun écran n'a à connaître la différence.
     const texte = a.scriptCombo?.assembledScript ?? a.freeScript;
@@ -947,10 +969,16 @@ export const getAssignmentScript = permissionQuery("assignments.manage")({
 export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
-    const assignments = await ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // Périmètre du manager : ses créatrices. Le calendrier et la table lisent
+    // cette query, ils sont donc bornés tous les deux.
+    const assignments = filterByCreatorScope(
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (a) => a.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
     const [
       creators,
       formats,
@@ -1158,7 +1186,12 @@ export const countVideoSubmitted = permissionQuery("review.manage")({
         q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
       )
       .collect();
-    return subs.length;
+    // Même périmètre que la file : le badge ne compte que ce que l'écran montre.
+    return filterByCreatorScope(
+      subs,
+      (a) => a.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    ).length;
   },
 });
 
@@ -1308,6 +1341,7 @@ export const reviewVideoApprove = permissionMutation("review.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
     if (a.status !== "video_submitted") {
       throw new ConvexError("Seules les vidéos en revue peuvent être validées.");
@@ -1338,6 +1372,7 @@ export const reviewVideoReject = permissionMutation("review.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status !== "video_submitted") {
       throw new ConvexError("Seules les vidéos en revue peuvent être refusées.");
     }
@@ -1390,6 +1425,7 @@ export const nudgeAssignment = permissionMutation("assignments.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw new ConvexError("Mission introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const relançable = (UNFINISHED_STATUSES as readonly string[]).includes(
       a.status,
     );
@@ -1448,12 +1484,16 @@ function compareByPostDate(
 export const listVideoSubmitted = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
-    const subs = await ctx.db
-      .query("assignments")
-      .withIndex("by_project_status", (q) =>
-        q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
-      )
-      .collect();
+    const subs = filterByCreatorScope(
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_project_status", (q) =>
+          q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
+        )
+        .collect(),
+      (a) => a.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
     const [creators, formats, campaigns, comptes, scriptBricks, challenges] =
       await Promise.all([
         ctx.db
@@ -1560,12 +1600,16 @@ export const listVideoSubmitted = permissionQuery("review.manage")({
 export const listPublished = permissionQuery("review.manage")({
   args: {},
   handler: async (ctx) => {
-    const pubs = await ctx.db
-      .query("assignments")
-      .withIndex("by_project_status", (q) =>
-        q.eq("projectId", ctx.projectId).eq("status", "published"),
-      )
-      .collect();
+    const pubs = filterByCreatorScope(
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_project_status", (q) =>
+          q.eq("projectId", ctx.projectId).eq("status", "published"),
+        )
+        .collect(),
+      (a) => a.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
     const [creators, formats, comptes] = await Promise.all([
       ctx.db
         .query("creators")
@@ -1924,6 +1968,7 @@ export const computeViewBonus = permissionMutation("payments.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status !== "published") {
       throw new ConvexError("Le bonus se calcule sur un assignment publié.");
     }
@@ -3315,6 +3360,7 @@ export const confirmPublicationAsAdmin = permissionMutation("review.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     // Remplace le gate managedByAdmin : chaque cible doit exister DANS le projet de
     // l'admin (ce que le flag portait implicitement) — vaut pour compte géré ET
     // compte de créatrice. L'appartenance projet de l'assignment est déjà vérifiée.
@@ -3384,6 +3430,7 @@ export const correctPublishedUrl = permissionMutation("review.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const targets = a.targets ?? [];
     const target = targets.find((t) => t.platform === platform);
     if (!target || !target.publishedUrl) {

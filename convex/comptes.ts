@@ -10,7 +10,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  requireCreatorInScope,
+  creatorScopeFor,
 } from "./functions";
+import { filterByCreatorScope, isInCreatorScope } from "./creatorScope";
 import {
   defaultTargetDays,
   warmupTargetDaysOf,
@@ -276,6 +279,7 @@ export const getCompteUsage = permissionQuery("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     return compteUsage(ctx, ctx.projectId, compte);
   },
 });
@@ -286,10 +290,16 @@ export const listComptes = permissionQuery("accounts.manage")({
     statusFilter: v.optional(statusValidator),
   },
   handler: async (ctx, args) => {
-    let results = await ctx.db
-      .query("comptes")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // Périmètre du manager : les comptes de SES créatrices. Un compte interne
+    // (sans créatrice) n'est dans aucun périmètre restreint.
+    let results = filterByCreatorScope(
+      await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
     // Backward compat : actifOnly (legacy) est mappé sur statusFilter="actif".
     const filter: CompteStatus | undefined =
       args.statusFilter ?? (args.actifOnly ? "actif" : undefined);
@@ -374,6 +384,10 @@ export const listComptes = permissionQuery("accounts.manage")({
 export const listCreatorAvailableComptes = permissionQuery("accounts.manage")({
   args: { creatorId: v.id("creators") },
   handler: async (ctx, { creatorId }) => {
+    // Hors périmètre : aucun compte proposé. Liste vide plutôt qu'un refus — ce
+    // sélecteur vit dans une modale, et une query qui lève la ferait tomber.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, creatorId)) return [];
     const strict = await isSnytchProject(ctx, ctx.projectId);
     const comptes = await ctx.db
       .query("comptes")
@@ -432,6 +446,15 @@ export const createCompte = permissionMutation("accounts.manage")({
     targetCountry: v.optional(countryValidator),
   },
   handler: async (ctx, args) => {
+    // Ce geste crée un compte INTERNE, sans créatrice : il n'entrerait dans aucun
+    // périmètre, donc un manager restreint le créerait et ne le verrait plus. Un
+    // compte tenu pour une de ses créatrices passe par `declareManagedCompte`.
+    if ((await creatorScopeFor(ctx, ctx.userId, ctx.projectId)) !== null) {
+      throw err(
+        ERR.CREATOR_OUT_OF_SCOPE,
+        "Un compte interne n'appartient à aucune créatrice de ton périmètre. Déclare-le sur une de tes créatrices.",
+      );
+    }
     // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
     const days = await warmupDaysFor(ctx, ctx.projectId);
     // Dedup (handle, plateforme) DANS le projet (by_project_plateforme).
@@ -530,6 +553,7 @@ export const updateCompte = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     // Rattachement RÉSULTANT (après application des args) : la garde « géré ⇒
     // créatrice » est évaluée sur l'ÉTAT CIBLE, pas sur l'état courant — sinon
     // détacher la créatrice d'un compte géré laisserait un managed orphelin.
@@ -538,6 +562,12 @@ export const updateCompte = permissionMutation("accounts.manage")({
       if (!creator || creator.projectId !== ctx.projectId) {
         throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
       }
+      // Réassigner à une créatrice hors périmètre = donner le compte à
+      // quelqu'un qu'on ne gère pas, puis le perdre de vue.
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
+    } else if (args.creatorId === null) {
+      // Détacher = rendre le compte INTERNE : même motif que `createCompte`.
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, null);
     }
     const nextCreatorId =
       args.creatorId === undefined
@@ -726,6 +756,7 @@ export const deleteCompte = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     const usage = await compteUsage(ctx, ctx.projectId, compte);
     if (usage.inUse) {
       throw err(
@@ -756,6 +787,7 @@ export const archiveCompte = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     await ctx.db.patch(id, {
       status: "archived",
       actif: false,
@@ -806,9 +838,11 @@ export const listComptesAValider = permissionQuery("accounts.manage")({
       .query("comptes")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
 
     return comptes
       .filter((c) => {
+        if (!isInCreatorScope(scope, c.creatorId)) return false;
         if (effectiveStatus(c) !== "warmup") return false;
         if (c.validatedAt !== undefined) return false;
         if (!c.creatorId) return false;
@@ -854,6 +888,7 @@ export const refuseCompte = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     const motif = reason.trim();
     if (motif.length === 0) {
       throw new ConvexError("Un motif de refus est requis.");
@@ -881,6 +916,7 @@ export const unarchiveCompte = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     if (effectiveStatus(compte) !== "archived") return { ok: true };
     await ctx.db.patch(id, {
       status: "actif",
@@ -925,6 +961,7 @@ export const restartWarmup = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     const now = Date.now();
     const proto = compte.warmupProtocol;
     const targetDays = defaultTargetDays(compte.plateforme, days);
@@ -982,6 +1019,7 @@ export const updateWarmupProtocol = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     const current = compte.warmupProtocol ?? {
       keywords: [],
       instructions: "",
@@ -1088,6 +1126,7 @@ export const setAccountBio = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     const patch = computeBioPatch(compte, bio, Date.now());
     if (patch !== null) await ctx.db.patch(id, patch);
   },
@@ -1405,6 +1444,7 @@ export const declareManagedCompte = permissionMutation("accounts.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     return declareCompteCore(ctx, ctx.projectId, args, {
       // Appartenance : la créatrice ciblée (comme declareCompte pose ctx.creatorId).
       creatorId: args.creatorId,
@@ -1513,6 +1553,7 @@ export const markWarmupCheckAsAdmin = permissionMutation("accounts.manage")({
     if (!compte || compte.projectId !== ctx.projectId) {
       throw err(ERR.ACCOUNT_NOT_FOUND, "Compte introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     if (!compte.managedByAdmin) {
       throw err(ERR.ACCOUNT_NOT_MANAGED, "Ce compte n'est pas géré par l'équipe (le créateur coche son warmup).");
     }

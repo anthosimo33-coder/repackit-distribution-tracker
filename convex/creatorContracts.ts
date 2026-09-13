@@ -3,7 +3,10 @@ import {
   creatorQuery,
   permissionMutation,
   permissionQuery,
+  creatorScopeFor,
+  requireCreatorInScope,
 } from "./functions";
+import { isInCreatorScope } from "./creatorScope";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -67,6 +70,7 @@ export const listCreatorContracts = permissionQuery("creators.pay_terms")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable dans le projet.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     return await contractsFor(ctx, creatorId);
   },
 });
@@ -105,6 +109,12 @@ export const addCreatorContract = permissionMutation("creators.pay_terms")({
       await ctx.storage.delete(args.storageId);
       throw new ConvexError("Créateur introuvable dans le projet.");
     }
+    // Hors périmètre : même règle que les autres refus ci-dessous — le blob est
+    // purgé AVANT de lever, sinon un contrat resterait en storage sans row.
+    if (!isInCreatorScope(await creatorScopeFor(ctx, ctx.userId, ctx.projectId), creator._id)) {
+      await ctx.storage.delete(args.storageId);
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
+    }
     if (
       args.contentType !== CONTRACT_CONTENT_TYPE ||
       !Number.isFinite(args.size) ||
@@ -140,6 +150,7 @@ export const deleteCreatorContract = permissionMutation("creators.pay_terms")({
     if (!row || row.projectId !== ctx.projectId) {
       throw new ConvexError("Contrat introuvable dans le projet.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, row.creatorId);
     await ctx.db.delete(id);
     await ctx.storage.delete(row.storageId);
   },

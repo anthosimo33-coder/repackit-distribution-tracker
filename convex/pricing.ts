@@ -4,7 +4,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  creatorScopeFor,
+  requireCreatorInScope,
 } from "./functions";
+import { isInCreatorScope } from "./creatorScope";
 import { collectAvailability } from "./collectAvailability";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -2180,6 +2183,8 @@ export const getCreatorBonusStatus = permissionQuery("pricing.manage")({
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, creatorId)) return null;
     return bonusStatusFor(ctx, ctx.projectId, creator);
   },
 });
@@ -2345,6 +2350,7 @@ export const setPricingCreators = permissionMutation("creators.pay_terms")({
       throw err(ERR.PRICING_NOT_IN_PROJECT, "Barème introuvable dans le projet.");
     }
     const wanted = new Set<string>(creatorIds);
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
     // Les cibles sont VÉRIFIÉES une à une (projet + population) avant toute
     // écriture : un id d'un autre projet doit faire échouer l'appel, pas être
     // ignoré en silence — sinon l'écran affiche « enregistré » pour une
@@ -2354,6 +2360,7 @@ export const setPricingCreators = permissionMutation("creators.pay_terms")({
       if (!c || c.projectId !== ctx.projectId) {
         throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
       }
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, c._id);
       if (resolveCreatorKind(c.kind) !== "partner") {
         throw err(
           ERR.CREATOR_NOT_IN_PROJECT,
@@ -2375,6 +2382,10 @@ export const setPricingCreators = permissionMutation("creators.pay_terms")({
     let added = 0;
     let removed = 0;
     for (const c of creators) {
+      // Hors périmètre : ni ajoutée ni RETIRÉE. Absente de l'écran d'un manager
+      // restreint, elle est absente de ce qu'il soumet — ce n'est pas un retrait,
+      // et le prendre pour tel changerait la paie de quelqu'un qu'il ne voit pas.
+      if (!isInCreatorScope(scope, c._id)) continue;
       const surCetteGrille = c.bonusPricingId === pricingId;
       if (wanted.has(c._id)) {
         if (surCetteGrille) continue;
