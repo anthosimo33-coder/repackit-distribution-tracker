@@ -58,6 +58,11 @@ export interface RevenueContext {
   payCurrency: string | null | undefined;
   /** 1 unité de `payCurrency` = ce nombre d'unités de `revenueCurrency`. */
   fxRateToRevenue: number | null | undefined;
+  /**
+   * Taux des AUTRES devises vendues (dinar serbe…), un par devise, vers
+   * `revenueCurrency`. Une devise absente d'ici reste non convertible.
+   */
+  otherRates?: readonly { from: string; rate: number }[] | null;
 }
 
 /**
@@ -71,7 +76,12 @@ export function convertibleAmount(
   ctx: RevenueContext,
 ): number | null {
   if (sameCurrency(currency, ctx.revenueCurrency)) return amount;
-  if (!sameCurrency(currency, ctx.payCurrency)) return null;
+  if (!sameCurrency(currency, ctx.payCurrency)) {
+    const own = ctx.otherRates?.find((r) => sameCurrency(r.from, currency));
+    return own && own.rate > 0 && ctx.revenueCurrency
+      ? Math.round(amount * own.rate * 100) / 100
+      : null;
+  }
   const d = payAmountInRevenueCurrency(
     amount,
     currency,

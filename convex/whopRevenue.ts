@@ -171,19 +171,24 @@ export interface WhopRevenueSummary {
    * `null` si aucune conversion n'a eu lieu. L'écran DOIT le dire : un montant
    * converti à un taux posé à la main n'est pas une comptabilité.
    */
-  convertedFrom: string | null;
-  /** Taux appliqué (1 unité de `convertedFrom` = ce nombre d'unités de `currency`). */
-  fxRate: number | null;
+  conversions: WhopConversion[];
+}
+
+/** Une devise ramenée vers `currency` : 1 unité de `from` = `rate` unités. */
+export interface WhopConversion {
+  from: string;
+  rate: number;
 }
 
 /**
  * Le taux du projet, et la devise qu'il sait convertir.
  *
- * ⚠️ IL NE VAUT QUE POUR UNE PAIRE. `projects.fxRateToRevenue` est défini comme
- * « 1 unité de payCurrency = X unités de la devise du revenu ». L'appliquer à
- * une troisième devise donnerait un montant faux d'apparence crédible, ce qui
- * est pire qu'un tiret : la conversion n'a donc lieu QUE sur exactement deux
- * devises encaissées dont l'une est `from`.
+ * ⚠️ UN TAUX PAR DEVISE, JAMAIS UN TAUX UNIVERSEL. Chaque entrée dit « 1 unité
+ * de `from` = X unités de la devise du revenu ». Appliquer le taux du dollar à
+ * une autre devise donnerait un montant faux d'apparence crédible, ce qui est
+ * pire qu'un tiret : une devise encaissée sans taux à elle n'est jamais
+ * convertie. Le dinar serbe (RSD, 13/09/2026) a vidé les écrans financiers
+ * parce que le projet ne connaissait qu'une paire.
  */
 /**
  * Net d'un paiement EXPRIMÉ dans la devise d'affichage du résumé.
@@ -196,14 +201,12 @@ export interface WhopRevenueSummary {
  */
 export function whopNetInSummaryCurrency(
   p: WhopPaymentLike,
-  summary: Pick<WhopRevenueSummary, "convertedFrom" | "fxRate">,
+  summary: Pick<WhopRevenueSummary, "conversions">,
 ): number {
   const net = whopNetContribution(p);
-  if (summary.convertedFrom === null || summary.fxRate === null) return net;
   const cur = p.currency?.trim().toLowerCase();
-  return cur === summary.convertedFrom
-    ? Math.round(net * summary.fxRate * 100) / 100
-    : net;
+  const c = summary.conversions.find((x) => x.from === cur);
+  return c ? Math.round(net * c.rate * 100) / 100 : net;
 }
 
 /**
@@ -216,19 +219,25 @@ export function whopNetInSummaryCurrency(
 export function projectFx(project: {
   payCurrency?: string;
   fxRateToRevenue?: number;
+  fxRatesToRevenue?: { currency: string; rate: number }[];
 } | null | undefined): WhopFx | null {
-  const from = project?.payCurrency?.trim().toLowerCase();
-  const rate = project?.fxRateToRevenue;
-  if (!from || typeof rate !== "number" || !(rate > 0)) return null;
-  return { from, rate };
+  const rates = new Map<string, number>();
+  const pay = project?.payCurrency?.trim().toLowerCase();
+  const payRate = project?.fxRateToRevenue;
+  if (pay && typeof payRate === "number" && payRate > 0) rates.set(pay, payRate);
+  for (const x of project?.fxRatesToRevenue ?? []) {
+    const cur = x.currency.trim().toLowerCase();
+    if (cur !== "" && x.rate > 0 && !rates.has(cur)) rates.set(cur, x.rate);
+  }
+  if (rates.size === 0) return null;
+  return [...rates.entries()].map(([from, rate]) => ({ from, rate }));
 }
 
-export interface WhopFx {
-  /** Devise source (projects.payCurrency), en minuscules. */
-  from: string;
-  /** 1 unité de `from` = ce nombre d'unités de la devise cible. */
-  rate: number;
-}
+/**
+ * Taux du projet, un par devise convertible (codes en minuscules). La devise du
+ * revenu, elle, n'a pas de taux : c'est la cible.
+ */
+export type WhopFx = readonly WhopConversion[];
 
 /**
  * Agrège une liste de paiements PAR DEVISE (cf lib/whop-revenue — DOIT rester
@@ -323,49 +332,48 @@ export function summarizeWhopRevenue(
   // Le zérotage d'origine traitait ce cas comme une anomalie et vidait TOUS les
   // écrans financiers — revenu, marge, RPM — dès la première vente hors Europe.
   //
-  // La conversion n'a lieu que sur la paire EXACTE que le taux du projet
-  // couvre : deux devises encaissées, dont l'une est `fx.from`. Trois devises,
-  // ou une devise que le taux ne connaît pas, retombent sur le zérotage.
-  const converti =
-    fx && fx.rate > 0 && collected.length === 2
-      ? (() => {
-          const src = collected.find((c) => c.currency === fx.from);
-          const dst = collected.find((c) => c.currency !== fx.from);
-          return src && dst ? { src, dst } : null;
-        })()
-      : null;
-  if (currencies.length > 1 && converti) {
-    const { src, dst } = converti;
-    const r = fx!.rate;
+  // Chaque taux ramène UNE devise vers celle du revenu. La devise cible est donc
+  // la SEULE devise encaissée sans taux : s'il y en a deux (une devise que le
+  // projet ne sait pas convertir), ou aucune (on ne sait plus vers quoi
+  // convertir), on retombe sur le zérotage.
+  const rateOf = new Map(
+    (fx ?? []).filter((x) => x.rate > 0).map((x) => [x.from, x.rate] as const),
+  );
+  const sansTaux = collected.filter((c) => !rateOf.has(c.currency));
+  if (currencies.length > 1 && sansTaux.length === 1) {
+    const dst = sansTaux[0];
+    const sources = collected.filter((c) => c !== dst);
+    const sum = (pick: (c: WhopCurrencyRevenue) => number): number =>
+      sources.reduce(
+        (t, c) => t + pick(c) * (rateOf.get(c.currency) ?? 0),
+        pick(dst),
+      );
+    const gross = sum((c) => c.gross);
+    const net = sum((c) => c.net);
     return {
-      net: round2(dst.net + src.net * r),
-      gross: round2(dst.gross + src.gross * r),
-      fees: round2(dst.fees + src.fees * r),
+      net: round2(net),
+      gross: round2(gross),
+      fees: round2(sum((c) => c.fees)),
       // Le taux de frais est un RATIO : il survit à la conversion, contrairement
       // aux montants. Recalculé sur les totaux convertis plutôt que moyenné.
-      feeRate:
-        dst.gross + src.gross * r > 0
-          ? round2(
-              (dst.gross + src.gross * r - (dst.net + src.net * r)) /
-                (dst.gross + src.gross * r),
-            )
-          : null,
-      refunded: round2(dst.refunded + src.refunded * r),
-      disputed: round2(dst.disputed + src.disputed * r),
+      feeRate: gross > 0 ? round2((gross - net) / gross) : null,
+      refunded: round2(sum((c) => c.refunded)),
+      disputed: round2(sum((c) => c.disputed)),
       paymentCount,
       refundCount,
       disputedCount,
       currency: dst.currency,
       currencies,
       // FAUX, délibérément : les montants ci-dessus SONT additionnables. Le fait
-      // qu'il y ait deux devises reste lisible dans `currencies` et `byCurrency`,
-      // et `convertedFrom` oblige l'écran à le dire.
+      // qu'il y ait plusieurs devises reste lisible dans `currencies` et
+      // `byCurrency`, et `conversions` oblige l'écran à le dire.
       mixedCurrency: false,
       currenciesPresent,
       mixedCurrencyPresent,
       byCurrency,
-      convertedFrom: src.currency,
-      fxRate: r,
+      conversions: sources
+        .map((c) => ({ from: c.currency, rate: rateOf.get(c.currency) ?? 0 }))
+        .sort((a, b) => a.from.localeCompare(b.from)),
     };
   }
 
@@ -386,8 +394,7 @@ export function summarizeWhopRevenue(
       currenciesPresent,
       mixedCurrencyPresent,
       byCurrency,
-      convertedFrom: null,
-      fxRate: null,
+      conversions: [],
     };
   }
 
@@ -426,8 +433,7 @@ export function summarizeWhopRevenue(
     currenciesPresent,
     mixedCurrencyPresent,
     byCurrency,
-    convertedFrom: null,
-    fxRate: null,
+    conversions: [],
   };
 }
 

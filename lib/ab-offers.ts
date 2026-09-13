@@ -36,7 +36,19 @@ export interface AbOfferInput {
   lastMs: number | null;
 }
 
+/** Ce dont ce module a besoin d'un plan Whop (sous-ensemble de PlanEconomics). */
+export interface OfferPlanLike {
+  price: number | null;
+  currency: string | null;
+  interval: string | null;
+}
+
 export interface AbOffer extends AbOfferInput {
+  /**
+   * Devise de CETTE offre, retrouvée dans le catalogue Whop. `null` = aucun plan
+   * ou plusieurs devises possibles : le montant sort alors sans symbole.
+   */
+  currency: string | null;
   /** `null` quand le plan n'est pas émis : le rythme est alors INCONNU, pas mensuel. */
   interval: BillingInterval | null;
   /** `null` quand `price` n'est pas émis ou n'est pas un nombre. */
@@ -70,13 +82,48 @@ export function amountOfPrice(price: string): number | null {
 }
 
 /**
+ * Devise d'une offre servie, lue dans le CATALOGUE WHOP.
+ *
+ * ⚠️ `properties.price` EST UN NOMBRE NU. Il a longtemps pris la devise du
+ * revenu (l'euro) : depuis que le paywall sert une grille par pays, « 599 » et
+ * « 1049 » (dinars serbes) s'affichaient 599,00 €/semaine et 1 049,00 €/mois, et
+ * les grilles en dollars (11,99, 19,99) passaient pour des euros.
+ *
+ * Le rapprochement se fait sur (prix, rythme) : une devise n'est retenue que si
+ * TOUS les plans Whop à ce prix et ce rythme la partagent. Aucun plan, ou deux
+ * devises possibles ⇒ `null`, jamais une devise supposée.
+ */
+export function offerCurrency(
+  plan: string,
+  price: string,
+  plans: readonly OfferPlanLike[],
+): string | null {
+  const amount = amountOfPrice(price);
+  if (amount === null) return null;
+  const interval = intervalOfPlan(plan);
+  const devises = new Set(
+    plans
+      .filter(
+        (p) =>
+          p.price !== null &&
+          Math.abs(p.price - amount) < 0.005 &&
+          !!p.currency &&
+          (interval === null || p.interval === interval),
+      )
+      .map((p) => p.currency!.trim().toLowerCase()),
+  );
+  return devises.size === 1 ? [...devises][0] : null;
+}
+
+/**
  * Libellé lisible. Une offre dont le plan manque garde son prix : l'app a un trou
  * d'instrumentation (233 personnes en prod le 06/09 côté `soft`), et masquer la
  * ligne entière pour un champ absent perdrait des conversions bien réelles.
  *
- * `currency` vient du PROJET (devise du revenu Whop) : `properties.price` est un
- * nombre nu, PostHog n'en transporte pas la devise. Absente, `formatMoney` rend
- * le montant sans symbole — un « € » posé par défaut serait une devise inventée.
+ * `currency` vient du catalogue Whop (cf `offerCurrency`) : `properties.price`
+ * est un nombre nu, PostHog n'en transporte pas la devise. Absente, `formatMoney`
+ * rend le montant sans symbole — un « € » posé par défaut serait une devise
+ * inventée.
  */
 export function offerLabel(
   plan: string,
@@ -90,10 +137,12 @@ export function offerLabel(
   return interval === null ? `${money} (rythme non émis)` : `${money}/${interval}`;
 }
 
-function enrich(r: AbOfferInput, currency: string | null | undefined): AbOffer {
+function enrich(r: AbOfferInput, plans: readonly OfferPlanLike[]): AbOffer {
   const amount = amountOfPrice(r.price);
+  const currency = offerCurrency(r.plan, r.price, plans);
   return {
     ...r,
+    currency,
     interval: intervalOfPlan(r.plan),
     amount,
     label: offerLabel(r.plan, r.price, currency),
@@ -115,11 +164,11 @@ function enrich(r: AbOfferInput, currency: string | null | undefined): AbOffer {
  */
 export function attributedOffers(
   rows: readonly AbOfferInput[],
-  currency: string | null | undefined,
+  plans: readonly OfferPlanLike[],
 ): AbOffer[] {
   return rows
     .filter((r) => r.attributed)
-    .map((r) => enrich(r, currency))
+    .map((r) => enrich(r, plans))
     .sort((a, b) =>
       a.variant !== b.variant
         ? a.variant < b.variant
@@ -143,10 +192,10 @@ export function excludedViewers(rows: readonly AbOfferInput[]): number {
  */
 export function currentOfferByArm(
   rows: readonly AbOfferInput[],
-  currency: string | null | undefined,
+  plans: readonly OfferPlanLike[],
 ): Map<string, AbOffer> {
   const out = new Map<string, AbOffer>();
-  for (const o of attributedOffers(rows, currency)) {
+  for (const o of attributedOffers(rows, plans)) {
     if (o.lastMs === null) continue;
     const prev = out.get(o.variant);
     if (prev === undefined || (prev.lastMs ?? 0) < o.lastMs) out.set(o.variant, o);
@@ -169,9 +218,9 @@ export interface ArmComparability {
 
 export function armComparability(
   rows: readonly AbOfferInput[],
-  currency: string | null | undefined,
+  plans: readonly OfferPlanLike[],
 ): ArmComparability {
-  const current = [...currentOfferByArm(rows, currency).values()].sort((a, b) =>
+  const current = [...currentOfferByArm(rows, plans).values()].sort((a, b) =>
     a.variant < b.variant ? -1 : 1,
   );
   const intervals = [...new Set(current.map((o) => o.interval))];

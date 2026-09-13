@@ -870,13 +870,16 @@ export interface RevenueBreakdown {
   /**
    * A5 — true = revenu multi-devise NON CONVERTIBLE : les totaux ne sont pas
    * additionnés. Faux dès que le taux du projet a pu les ramener à une seule
-   * devise (cf convertedFrom).
+   * devise (cf conversions).
    */
   mixedCurrency: boolean;
   /** Devise convertie vers `currency` au taux du projet, ou null. */
-  convertedFrom: string | null;
-  /** Taux appliqué (1 unité de convertedFrom = ce nombre d'unités de currency). */
-  fxRate: number | null;
+  conversions: { from: string; rate: number }[];
+  /**
+   * TOUS les taux du projet (paie comprise), appliqués ou non : de quoi convertir
+   * ailleurs qu'ici (achats du test A/B) sans redemander le projet.
+   */
+  fxRates: { from: string; rate: number }[];
   /** Devises PRÉSENTES (tout statut) — cf whopRevenue.currenciesPresent. */
   currenciesPresent: string[];
   /** Plusieurs devises en base, même si une seule encaissée. Ne zéroïse rien. */
@@ -974,8 +977,8 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
         configured: false,
         currency: null,
         mixedCurrency: false,
-        convertedFrom: null,
-        fxRate: null,
+        conversions: [],
+        fxRates: [],
         currenciesPresent: [],
         mixedCurrencyPresent: false,
         feeRate: null,
@@ -1364,8 +1367,8 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
       currency: summary.currency,
       mixedCurrency: summary.mixedCurrency,
       // Ramené à une seule devise au taux du projet : l'écran DOIT le dire.
-      convertedFrom: summary.convertedFrom,
-      fxRate: summary.fxRate,
+      conversions: summary.conversions,
+      fxRates: [...(projectFx(project) ?? [])],
       currenciesPresent: summary.currenciesPresent,
       mixedCurrencyPresent: summary.mixedCurrencyPresent,
       feeRate: summary.feeRate,
