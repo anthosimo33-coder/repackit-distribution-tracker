@@ -2,7 +2,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  creatorScopeFor,
+  requireCreatorInScope,
 } from "./functions";
+import { isInCreatorScope } from "./creatorScope";
 import { buildPricingSnapshot } from "./pricing";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -728,12 +731,14 @@ export const setChallengeParticipants = permissionMutation("challenges.run")({
   handler: async (ctx, { id, creatorIds }): Promise<{ ok: true }> => {
     const c = await requireChallenge(ctx, id, ctx.projectId);
     const wanted = new Set<string>(creatorIds);
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
 
     for (const creatorId of wanted) {
       const creator = await ctx.db.get(creatorId as Id<"creators">);
       if (!creator || creator.projectId !== ctx.projectId) {
         throw new ConvexError("Créatrice introuvable dans le projet.");
       }
+      await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
       // Les défis sont réservés aux PARTENAIRES : un talent ne publie jamais, un
       // clippeur publie le travail d'un autre. Les mêmes raisons que pour le
       // classement de gains (cf computeProjectLeaderboard).
@@ -757,6 +762,10 @@ export const setChallengeParticipants = permissionMutation("challenges.run")({
 
     for (const row of existing) {
       if (wanted.has(row.creatorId)) continue;
+      // L'écran d'un manager restreint ne montre que SES créatrices : une
+      // participante d'un autre marché est absente de ce qu'il soumet, et ce
+      // n'est PAS une demande de retrait. On la garde.
+      if (!isInCreatorScope(scope, row.creatorId)) continue;
       const hasVideos = (await challengeAssignments(ctx, id)).some(
         (a) => a.creatorId === row.creatorId,
       );
@@ -942,6 +951,7 @@ export const assignChallengeVideo = permissionMutation("challenges.run")({
   },
   handler: async (ctx, args): Promise<{ assignmentId: Id<"assignments"> }> => {
     const challenge = await requireChallenge(ctx, args.challengeId, ctx.projectId);
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
     return createChallengeAssignment(ctx, {
       challenge,
       creatorId: args.creatorId,
@@ -971,6 +981,7 @@ export const setChallengeVideoRemoved = permissionMutation("challenges.run")({
     if (!a || a.projectId !== ctx.projectId) {
       throw new ConvexError("Assignation introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.challengeId === undefined) {
       throw new ConvexError("Cette vidéo ne relève d'aucun défi.");
     }

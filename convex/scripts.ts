@@ -2,7 +2,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  requireCreatorInScope,
+  creatorScopeFor,
 } from "./functions";
+import { isInCreatorScope } from "./creatorScope";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
@@ -582,6 +585,7 @@ export const availableCombosForAssignment = permissionQuery("scripts.manage")({
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
     const allBricks = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
@@ -633,6 +637,7 @@ export const previewCombosForAssignment = permissionQuery("scripts.manage")({
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
     const allBricks = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
@@ -816,6 +821,12 @@ export const getReplaySource = permissionQuery("scripts.manage")({
             ),
         ) ?? null;
     }
+
+    // Périmètre : la source d'un rejeu porte le nom et le script d'une créatrice.
+    // Hors périmètre — ou publication sans assignation, qui n'appartient à
+    // personne — `null`, comme une source absente.
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, assignment?.creatorId)) return null;
 
     // La source doit porter un combo de script (sinon rien à rejouer).
     const combo = assignment?.scriptCombo ?? publication?.scriptCombo ?? null;
@@ -1234,6 +1245,7 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
     if (campaign.status === "archived") {
       throw new ConvexError("Campagne archivée : réactive-la pour l'assigner.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
     if (
       !Number.isInteger(args.videosPerCreator) ||
       args.videosPerCreator < 1 ||
@@ -1591,6 +1603,7 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw new ConvexError("Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const combo = a.scriptCombo;
     if (!combo) {
       throw new ConvexError("Cet assignment n'est pas un script.");
@@ -1688,6 +1701,7 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
     if (!a || a.projectId !== ctx.projectId) {
       throw new ConvexError("Assignment introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const combo = a.scriptCombo;
     if (!combo) {
       throw new ConvexError("Cet assignment n'est pas un script.");
@@ -1990,6 +2004,9 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
     if (!clipper || clipper.projectId !== ctx.projectId) {
       throw new ConvexError("Clippeur introuvable dans ce projet.");
     }
+    // L'assignation créée appartient au CLIPPEUR : c'est lui qui doit être dans
+    // le périmètre, quel que soit le manager qui suit le talent.
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, clipper._id);
     if (resolveCreatorKind(clipper.kind) !== "clipper") {
       throw new ConvexError(
         `${clipper.name} n'est plus un clippeur : refais l'appariement de ${talent.name}.`,

@@ -1051,6 +1051,7 @@
     "ERR_PORTAL_ROLE_REJECTED": "Cet espace est réservé à une autre population du projet.",
     "generic": "Une erreur est survenue.",
     "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",
+    "ERR_CREATOR_OUT_OF_SCOPE": "Cette créatrice n'est pas dans ton périmètre. Demande à un administrateur de l'ajouter à tes créatrices.",
     "ERR_FORMAT_RATE_NOT_SET": "La grille de rémunération de ce format n'a jamais été renseignée. Renseigne-la avant d'assigner, sinon la mission serait figée à 0.",
     "ERR_SUPERADMIN_ONLY": "Réservé au superadmin.",
     "ERR_PAYMENT_NOT_FOUND": "Paiement introuvable.",

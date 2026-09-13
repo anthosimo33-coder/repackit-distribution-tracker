@@ -4,7 +4,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  creatorScopeFor,
+  requireCreatorInScope,
 } from "./functions";
+import { isInCreatorScope } from "./creatorScope";
 import { internal } from "./_generated/api";
 import {
   computeLivePricingBreakdown,
@@ -1099,6 +1102,8 @@ export const getCreatorCurrentCycle = permissionQuery("payments.manage")({
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) return null;
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (!isInCreatorScope(scope, creatorId)) return null;
     const anchor = payAnchorOf(creator);
     if (anchor === undefined) return null;
     const now = Date.now();
@@ -1159,6 +1164,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     // MÊME ancre que l'écran. Sans cette bascule, un talent s'affichait payable
     // et `markCyclePaid` jetait « n'a pas encore publié » — payable à l'écran,
     // impayable en pratique.
@@ -1471,6 +1477,7 @@ export const recordAdvance = permissionMutation("payments.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     const anchor = payAnchorOf(creator);
     if (anchor === undefined) {
       throw err(ERR.NO_PAY_CYCLE, "Aucun cycle : ce créateur n'a ni publication ni date d'activation.");
@@ -1567,6 +1574,7 @@ export const markTalentMonthPaid = permissionMutation("payments.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     if (resolveCreatorKind(creator.kind) !== "talent") {
       throw new ConvexError("Le forfait mensuel ne concerne que les talents.");
     }

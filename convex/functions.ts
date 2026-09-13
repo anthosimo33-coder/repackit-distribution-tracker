@@ -16,6 +16,11 @@ import {
   type PermissionId,
 } from "./permissions";
 import { ERR, err } from "./errorCodes";
+import {
+  creatorScopeFrom,
+  isInCreatorScope,
+  type CreatorScope,
+} from "./creatorScope";
 
 /**
  * Remédiation sécurité — wrappers de gating pour TOUTES les fonctions
@@ -189,6 +194,95 @@ export async function requirePermission(
   if (!grantedPermissions(membership.permissions).has(permission)) {
     throw err(ERR.PERMISSION_DENIED, "Droit non accordé.", { permission });
   }
+}
+
+/**
+ * PÉRIMÈTRE DE CRÉATRICES — sur QUI un manager exerce ses blocs.
+ *
+ * Seconde couche, APRÈS `requirePermission` : le bloc ouvre le geste, le
+ * périmètre borne les personnes (convex/creatorScope.ts). Rend `null` quand rien
+ * n'est restreint :
+ *   - superadmin, admin du projet → `null` (ils ont tout, comme pour les blocs) ;
+ *   - manager sans `creatorScope`  → `null` (défaut voulu : absent = toutes) ;
+ *   - manager avec une liste       → cet ensemble, même vide.
+ *
+ * ⚠️ Ne décide RIEN sur les blocs. Appelée hors d'une fonction déjà gardée par
+ * bloc, elle rendrait `null` à un membre de portail — ce n'est pas une garde
+ * d'accès, c'est un filtre posé derrière une garde.
+ */
+export async function creatorScopeFor(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<CreatorScope> {
+  const user = await ctx.db.get(userId);
+  if (user?.role === "superadmin") return null;
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  const roles = rolesOf(membership);
+  // Même cascade que `requirePermission` : admin s'arrête AVANT le champ.
+  if (roles.has("admin")) return null;
+  if (!roles.has("manager")) return null;
+  return creatorScopeFrom(membership?.creatorScope);
+}
+
+/**
+ * Refuse un geste sur une créatrice hors du périmètre. `creatorId` absent (compte
+ * interne, ligne sans propriétaire) ⇒ refusé dès qu'un périmètre existe : un
+ * manager de marché n'a pas la main sur ce qui n'appartient à personne.
+ *
+ * Le refus porte son propre code (`CREATOR_OUT_OF_SCOPE`) et pas « introuvable » :
+ * l'objet existe, et le manager sait qu'il existe — le lui cacher ne protège rien
+ * et lui ferait chercher un bug.
+ */
+export async function requireCreatorInScope(
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators"> | null | undefined,
+): Promise<void> {
+  const scope = await creatorScopeFor(ctx, userId, projectId);
+  if (!isInCreatorScope(scope, creatorId)) {
+    throw err(
+      ERR.CREATOR_OUT_OF_SCOPE,
+      "Cette créatrice n'est pas dans ton périmètre.",
+    );
+  }
+}
+
+/**
+ * Une créatrice qu'un manager RESTREINT vient de créer entre dans son périmètre.
+ *
+ * Sans ça, inviter une créatrice la ferait disparaître de son écran à l'instant
+ * où elle existe — il l'aurait créée, et ne pourrait plus ni la voir ni lui
+ * renvoyer son lien. Sans restriction (admin, manager « toutes »), rien à faire.
+ *
+ * ⚠️ N'écrit PAS le journal des droits : ce n'est pas un droit accordé par un
+ * tiers, c'est la conséquence d'un geste du manager lui-même, déjà visible sur
+ * la fiche qu'il a créée.
+ */
+export async function extendCreatorScopeWith(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+): Promise<void> {
+  const scope = await creatorScopeFor(ctx, userId, projectId);
+  if (scope === null || scope.has(creatorId)) return;
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_user_project", (q) =>
+      q.eq("userId", userId).eq("projectId", projectId),
+    )
+    .first();
+  if (membership === null) return;
+  await ctx.db.patch(membership._id, {
+    creatorScope: [...(membership.creatorScope ?? []), creatorId],
+  });
 }
 
 /**
@@ -571,6 +665,9 @@ export async function requireCreatorObservable(
   if (creator === null || creator.projectId !== projectId) {
     throw err(ERR.CREATOR_NOT_IN_THIS_PROJECT, "Créateur introuvable dans ce projet.");
   }
+  // Observer une créatrice hors de son périmètre serait le contournement exact
+  // de la restriction : tout l'espace, en lecture. Même garde que les gestes.
+  await requireCreatorInScope(ctx, userId, projectId, creator._id);
   return creator;
 }
 

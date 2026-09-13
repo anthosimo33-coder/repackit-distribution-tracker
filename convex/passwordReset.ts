@@ -2,6 +2,7 @@ import {
   e2eMutation,
   permissionMutation,
   publicQuery,
+  requireCreatorInScope,
 } from "./functions";
 import { action, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -72,6 +73,9 @@ export const generatePasswordResetLink = permissionMutation("creators.manage")({
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
     }
+    // Un lien de reset donne la main sur le COMPTE de la créatrice : c'est le
+    // geste le plus fort du bloc, il ne sort pas du périmètre.
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     if (!creator.userId) {
       throw new ConvexError(
         "Ce créateur n'a pas encore finalisé son compte. Utilise « Régénérer l'invitation ».",

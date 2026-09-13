@@ -405,6 +405,15 @@ export default defineSchema({
     // les documents existants restent valides, pas pour ouvrir une porte.
     // Une valeur hors catalogue n'autorise RIEN (cf. isPermissionId).
     permissions: v.optional(v.array(v.string())),
+    // ─── PÉRIMÈTRE DE CRÉATRICES D'UN MANAGER (convex/creatorScope.ts) ────────
+    // Les blocs disent QUOI, ce champ dit SUR QUI. Un manager de marché coche
+    // « Assignments » mais ne l'exerce que sur ses créatrices.
+    //
+    // ⚠️ ABSENT = TOUTES, et c'est l'inverse du défaut de `permissions` : le jour
+    // du déploiement ne change rien pour les managers en place. `[]` = AUCUNE,
+    // un choix explicite — ne jamais confondre les deux.
+    // Ignoré pour "admin" et le superadmin, comme `permissions`.
+    creatorScope: v.optional(v.array(v.id("creators"))),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])

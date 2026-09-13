@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import type { FunctionReturnType } from "convex/server";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   AlertTriangleIcon,
   ArrowDownIcon,
@@ -541,6 +542,8 @@ function CarteManager({
             </div>
           </div>
         ))}
+
+        <PerimetreCreatrices membre={membre} />
       </CardContent>
 
       <AlertDialog
@@ -596,6 +599,165 @@ function CarteManager({
         </AlertDialogContent>
       </AlertDialog>
     </Card>
+  );
+}
+
+/**
+ * SUR QUI — les créatrices sur lesquelles ce manager exerce ses droits.
+ *
+ * Deux états, et la différence est tout le sujet : « Toutes » (rien d'écrit,
+ * l'état de départ de chaque manager) et « Seulement celles-ci » (une liste,
+ * MÊME VIDE). Une liste vide ne revient pas à « toutes » : elle ferme tout le
+ * nominatif, d'où l'avertissement.
+ *
+ * Enregistré À PART des droits : ce sont deux mutations, deux lignes de journal,
+ * et cocher une créatrice ne doit pas renvoyer au serveur les blocs en cours de
+ * modification (ni l'inverse).
+ */
+function PerimetreCreatrices({ membre }: { membre: Membre }) {
+  const candidates = useProjectQuery(api.team.listScopeCandidates, {});
+  const enregistrer = useProjectMutation(api.team.setMemberCreatorScope);
+  const stocke = membre.creatorScope;
+  const [toutes, setToutes] = useState(stocke === null);
+  const [choix, setChoix] = useState<Id<"creators">[]>(stocke ?? []);
+  const [recherche, setRecherche] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const modifie =
+    toutes !== (stocke === null) ||
+    (!toutes &&
+      (choix.length !== (stocke ?? []).length ||
+        choix.some((c) => !(stocke ?? []).includes(c))));
+
+  const visibles = useMemo(() => {
+    const q = recherche.trim().toLowerCase();
+    return (candidates ?? []).filter(
+      (c) => q === "" || c.name.toLowerCase().includes(q),
+    );
+  }, [candidates, recherche]);
+
+  async function go() {
+    setBusy(true);
+    try {
+      await enregistrer({
+        membershipId: membre.membershipId,
+        creatorScope: toutes ? null : choix,
+      });
+      toast.success(`Créatrices de ${membre.email} mises à jour`);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec de la mise à jour des créatrices"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3" aria-label="Créatrices gérées">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Créatrices
+        </div>
+        <Button
+          size="sm"
+          variant={toutes ? "default" : "outline"}
+          aria-pressed={toutes}
+          onClick={() => setToutes(true)}
+          disabled={busy}
+        >
+          Toutes
+        </Button>
+        <Button
+          size="sm"
+          variant={toutes ? "outline" : "default"}
+          aria-pressed={!toutes}
+          onClick={() => setToutes(false)}
+          disabled={busy}
+        >
+          Seulement celles-ci
+        </Button>
+        <Button size="sm" onClick={go} disabled={busy || !modifie}>
+          {busy && <Loader2Icon className="size-3.5 animate-spin" />}
+          Enregistrer les créatrices
+        </Button>
+      </div>
+
+      {toutes ? (
+        <p className="text-xs text-slate-500">
+          Ce manager exerce ses droits sur toutes les créatrices du projet, y
+          compris celles qui arriveront.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-slate-500">
+            Hors de cette liste, une créatrice est invisible pour lui (fiche,
+            comptes, assignments, validation, rushes) et le serveur refuse tout
+            geste sur elle. Le Dashboard et le Tracker restent à l&apos;échelle du
+            projet. Une créatrice qu&apos;il invite lui-même s&apos;ajoute ici.
+          </p>
+          {choix.length === 0 && (
+            <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <strong>Aucune créatrice cochée.</strong> Ce n&apos;est pas « toutes » :
+                il ne verra aucune fiche, aucun compte, aucun assignment.
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              placeholder="Rechercher une créatrice"
+              aria-label="Rechercher une créatrice"
+              className="h-8 max-w-xs"
+            />
+            <span className="text-xs text-slate-400">
+              {choix.length} cochée{choix.length > 1 ? "s" : ""}
+            </span>
+          </div>
+          {candidates === undefined ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <div className="grid max-h-72 gap-1.5 overflow-y-auto sm:grid-cols-2">
+              {visibles.map((c) => {
+                const id = `perimetre-${membre.membershipId}-${c._id}`;
+                const coche = choix.includes(c._id);
+                return (
+                  <label
+                    key={c._id}
+                    htmlFor={id}
+                    className={cn(
+                      "flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm hover:bg-slate-50",
+                      coche ? "border-slate-400" : "border-slate-200",
+                    )}
+                  >
+                    <Checkbox
+                      id={id}
+                      checked={coche}
+                      onCheckedChange={(v) =>
+                        setChoix((prev) =>
+                          v === true
+                            ? [...prev, c._id]
+                            : prev.filter((x) => x !== c._id),
+                        )
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate text-slate-900">
+                      {c.name}
+                    </span>
+                    {(c.status === "paused" || c.status === "churned") && (
+                      <Badge variant="outline" className="text-[10px] font-normal text-slate-500">
+                        {c.status === "paused" ? "en pause" : "partie"}
+                      </Badge>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

@@ -110,6 +110,12 @@ export const ERR = {
    */
   PERMISSION_DENIED: "ERR_PERMISSION_DENIED",
   /**
+   * Créatrice HORS DU PÉRIMÈTRE du manager (convex/creatorScope.ts). Distinct de
+   * PERMISSION_DENIED : le bloc est bien coché, mais pas sur cette personne — la
+   * demande à faire n'est pas la même (« ajoute-la à mes créatrices »).
+   */
+  CREATOR_OUT_OF_SCOPE: "ERR_CREATOR_OUT_OF_SCOPE",
+  /**
    * Format dont la GRILLE DE RÉMUNÉRATION n'a jamais été renseignée. Distinct
    * d'une grille volontairement à 0 : ici personne n'a encore décidé combien ce
    * format paie, et assigner figerait un tarif nul dans la mission.
