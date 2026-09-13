@@ -772,6 +772,9 @@
         "morning": "ce matin",
         "afternoon": "cet après-midi",
         "evening": "ce soir"
+      },
+      "chips": {
+        "streak": "{count} à l'heure"
       }
     },
     "gains": {

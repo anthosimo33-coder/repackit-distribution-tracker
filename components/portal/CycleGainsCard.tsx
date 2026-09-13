@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRightIcon } from "lucide-react";
+import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import {
   useArgentObservable,
@@ -31,7 +31,16 @@ import { useTranslations } from "next-intl";
  * Masquée à l'observateur sans le droit « Paiements » (ses queries ne partent
  * pas : un squelette tournerait pour rien).
  */
-export function CycleGainsCard() {
+export function CycleGainsCard({
+  variant = "full",
+}: {
+  /**
+   * `compact` : une BANDE d'une ligne pour l'accueil mobile — le montant, la
+   * barre du prochain palier, et l'écran Gains au tap. `full` : la carte de la
+   * colonne de droite desktop.
+   */
+  variant?: "full" | "compact";
+} = {}) {
   const t = useTranslations("portal");
   const tLabel = useLabel();
   const loc = useIntlLocale();
@@ -53,6 +62,53 @@ export function CycleGainsCard() {
     payoutTs !== null ? Math.max(0, Math.ceil((payoutTs - now) / 86_400_000)) : null;
   const p = raw ? buildProgression(raw) : null;
   const reward = p?.nextReward ?? null;
+
+  if (variant === "compact") {
+    return (
+      <Link
+        href={portalHref(base, "/gains")}
+        data-testid="cycle-gains-card"
+        className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 transition-colors active:bg-slate-50"
+      >
+        <div className="shrink-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            {t("home.gainsTitle")}
+          </p>
+          <AnimatedNumber
+            testId="dashboard-due"
+            value={due}
+            format={(n) => formatMoney(n, current.payCurrency, loc)}
+            className="block text-xl font-bold tracking-tight tabular-nums text-slate-900"
+          />
+        </div>
+        {p && reward ? (
+          <div className="min-w-0 flex-1 space-y-1.5" data-testid="next-tier-card">
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${Math.round(p.progressToNext * 100)}%` }}
+              />
+            </div>
+            <p className="truncate text-xs text-slate-500">
+              {t("progression.nextTier")} ·{" "}
+              {reward.kind === "cash"
+                ? `+${formatMoney(reward.amount, current.payCurrency, loc)}`
+                : (reward.label ?? tLabel("progression.reward"))}
+            </p>
+          </div>
+        ) : (
+          <p className="min-w-0 flex-1 truncate text-right text-xs text-slate-500">
+            {payoutTs !== null && days !== null
+              ? due > 0
+                ? t("dashboard.earnings.paidIn", { days, date: formatMoneyDate(payoutTs, loc) })
+                : t("dashboard.earnings.nextPayout", { date: formatMoneyDate(payoutTs, loc) })
+              : null}
+          </p>
+        )}
+        <ChevronRightIcon className="size-4 shrink-0 text-slate-300" />
+      </Link>
+    );
+  }
 
   return (
     <section
