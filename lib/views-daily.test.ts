@@ -10,6 +10,8 @@
 import { describe, it, expect } from "vitest";
 import {
   computeDailyViewDeltas,
+  computeDailyViewDeltasBy,
+  computeDayContributions,
   parisDayKey,
   parisMidnightUtc,
   ESTIMATED_SPAN_MS,
@@ -300,5 +302,152 @@ describe("computeDailyViewDeltas — invariants conservés", () => {
 
   it("entrée vide → série vide", () => {
     expect(computeDailyViewDeltas([])).toEqual([]);
+  });
+});
+
+/**
+ * VENTILATION PAR MARCHÉ et DÉTAIL D'UN JOUR.
+ *
+ * Les deux partent de la MÊME répartition que la série simple : c'est ce qu'on
+ * vérifie en premier, parce qu'une ventilation qui ne somme pas au trait
+ * qu'elle décompose est pire qu'une absence de ventilation.
+ *
+ * Les instants gardent l'heure réelle des relevés (08:00 UTC, cf le cron), et
+ * les identifiants la forme des ids Convex.
+ */
+
+/** Trois publications sur deux marchés, relevées deux jours de suite. */
+const MARCHE_DE: Record<string, string> = {
+  kh7fr1: "FR",
+  kh7fr2: "FR",
+  kh7rs1: "RS",
+};
+const troisPosts = (): SnapshotPoint[] => [
+  { publicationId: "kh7fr1", capturedAt: utc(2026, 8, 15, 8), vues: 1_000 },
+  { publicationId: "kh7fr1", capturedAt: utc(2026, 8, 16, 8), vues: 3_400 },
+  { publicationId: "kh7fr2", capturedAt: utc(2026, 8, 15, 8), vues: 500 },
+  { publicationId: "kh7fr2", capturedAt: utc(2026, 8, 16, 8), vues: 1_100 },
+  { publicationId: "kh7rs1", capturedAt: utc(2026, 8, 15, 8), vues: 200 },
+  { publicationId: "kh7rs1", capturedAt: utc(2026, 8, 16, 8), vues: 1_200 },
+];
+
+describe("computeDailyViewDeltasBy — les tranches somment au trait", () => {
+  it("chaque jour : la somme des marchés vaut EXACTEMENT le total du jour", () => {
+    const ventile = computeDailyViewDeltasBy(
+      troisPosts(),
+      (id) => MARCHE_DE[id] ?? "",
+    );
+    expect(ventile.length).toBeGreaterThan(0);
+    for (const jour of ventile) {
+      const somme = jour.parts.reduce((s, p) => s + p.value, 0);
+      expect(somme).toBe(jour.value);
+    }
+  });
+
+  it("le TOTAL par jour est le même que celui de la série simple", () => {
+    // C'est l'invariant qui autorise à poser les deux courbes sur le même axe.
+    const simple = valuesOf(computeDailyViewDeltas(troisPosts()));
+    const ventile = computeDailyViewDeltasBy(
+      troisPosts(),
+      (id) => MARCHE_DE[id] ?? "",
+    );
+    expect(Object.fromEntries(ventile.map((j) => [j.date, j.value]))).toEqual(simple);
+  });
+
+  it("un jour dont les tranches tombent sur des fractions somme QUAND MÊME", () => {
+    // L'arithmétique, explicitement : l'intervalle 08:00 UTC → 08:00 UTC couvre
+    // 14 h du jour Paris et 10 h du suivant. Trois posts de trois marchés qui
+    // gagnent 4 vues chacun donnent donc 4 × 14/24 = 2,3333 par marché le
+    // premier jour. Arrondies chacune dans leur coin : 2 + 2 + 2 = 6. Le total
+    // exact du jour, lui, vaut 7,0 et s'arrondit à 7 — l'empilement afficherait
+    // 6 sous un trait à 7.
+    const petits: SnapshotPoint[] = [
+      { publicationId: "kh7a", capturedAt: utc(2026, 8, 15, 8), vues: 100 },
+      { publicationId: "kh7a", capturedAt: utc(2026, 8, 16, 8), vues: 104 },
+      { publicationId: "kh7b", capturedAt: utc(2026, 8, 15, 8), vues: 100 },
+      { publicationId: "kh7b", capturedAt: utc(2026, 8, 16, 8), vues: 104 },
+      { publicationId: "kh7c", capturedAt: utc(2026, 8, 15, 8), vues: 100 },
+      { publicationId: "kh7c", capturedAt: utc(2026, 8, 16, 8), vues: 104 },
+    ];
+    const marche: Record<string, string> = { kh7a: "FR", kh7b: "RS", kh7c: "BE" };
+    const ventile = computeDailyViewDeltasBy(petits, (id) => marche[id]);
+    const premier = ventile[0];
+    expect(premier.value).toBe(7);
+    expect(premier.parts.reduce((s, p) => s + p.value, 0)).toBe(7);
+    // …et la somme naïve, celle qu'on n'a PAS faite, aurait rendu 6.
+    expect(premier.parts.map((p) => p.value).sort()).toEqual([2, 2, 3]);
+  });
+
+  it("range les marchés du plus gros au plus petit", () => {
+    const ventile = computeDailyViewDeltasBy(
+      troisPosts(),
+      (id) => MARCHE_DE[id] ?? "",
+    );
+    const jour = ventile.find((j) => j.parts.length > 1)!;
+    expect(jour.parts[0].value).toBeGreaterThanOrEqual(jour.parts[1].value);
+    // Les deux marchés sont bien là, et pas un seul fourre-tout.
+    expect(new Set(jour.parts.map((p) => p.group))).toEqual(new Set(["FR", "RS"]));
+  });
+
+  it("une publication sans marché tombe dans un groupe À PART, pas dans un autre", () => {
+    // Un compte sans pays visé n'est pas français : le ranger avec la France
+    // gonflerait un marché réel d'un volume qui n'est rattaché à rien.
+    const ventile = computeDailyViewDeltasBy(troisPosts(), (id) =>
+      id === "kh7rs1" ? "" : "FR",
+    );
+    const jour = ventile.find((j) => j.parts.length > 1)!;
+    expect(jour.parts.map((p) => p.group).sort()).toEqual(["", "FR"]);
+  });
+
+  it("le drapeau « estimé » suit le jour, comme dans la série simple", () => {
+    const trou: SnapshotPoint[] = [
+      { publicationId: "kh7fr1", capturedAt: utc(2026, 8, 15, 8), vues: 0 },
+      {
+        publicationId: "kh7fr1",
+        capturedAt: utc(2026, 8, 15, 8) + ESTIMATED_SPAN_MS + HOUR,
+        vues: 9_000,
+      },
+    ];
+    const ventile = computeDailyViewDeltasBy(trou, () => "FR");
+    expect(ventile.every((j) => j.estimated)).toBe(true);
+  });
+
+  it("sans aucun relevé, aucune ligne", () => {
+    expect(computeDailyViewDeltasBy([], () => "FR")).toEqual([]);
+  });
+});
+
+describe("computeDayContributions — le détail d'un jour somme à son point", () => {
+  it("la somme des publications vaut le total du jour", () => {
+    const snaps = troisPosts();
+    const jour = computeDailyViewDeltas(snaps)[0].date;
+    const detail = computeDayContributions(snaps, jour);
+    expect(detail.parts.reduce((s, p) => s + p.value, 0)).toBe(detail.total);
+  });
+
+  it("le total du détail vaut le point du graphe pour ce jour", () => {
+    // Le détail et la courbe doivent dire la MÊME chose : s'ils divergeaient de
+    // quelques vues, on ne saurait pas lequel des deux croire.
+    const snaps = troisPosts();
+    const serie = computeDailyViewDeltas(snaps);
+    for (const point of serie) {
+      expect(computeDayContributions(snaps, point.date).total).toBe(point.value);
+    }
+  });
+
+  it("classe les publications de la plus forte à la plus faible", () => {
+    const snaps = troisPosts();
+    const jour = computeDailyViewDeltas(snaps)[0].date;
+    const { parts } = computeDayContributions(snaps, jour);
+    expect(parts.length).toBeGreaterThan(1);
+    for (let i = 1; i < parts.length; i++) {
+      expect(parts[i - 1].value).toBeGreaterThanOrEqual(parts[i].value);
+    }
+  });
+
+  it("un jour sans aucune vue rend un détail vide, pas une erreur", () => {
+    const detail = computeDayContributions(troisPosts(), "2026-01-01");
+    expect(detail.total).toBe(0);
+    expect(detail.parts).toEqual([]);
   });
 });

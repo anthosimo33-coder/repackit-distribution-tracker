@@ -128,7 +128,14 @@ test.describe("Vue tracker — filtre warmup", () => {
     const dailyOnly = await admin.query(api.trackerData.trackerViewsDaily, {
       warmup: "only",
     });
-    expect(Array.isArray(dailyExcluded)).toBe(true);
-    expect(Array.isArray(dailyOnly)).toBe(true);
+    // La série ET sa ventilation par marché sortent du même filtre : les deux
+    // sont des tableaux, et leurs totaux par jour coïncident.
+    expect(Array.isArray(dailyExcluded.daily)).toBe(true);
+    expect(Array.isArray(dailyOnly.daily)).toBe(true);
+    for (const serie of [dailyExcluded, dailyOnly]) {
+      expect(serie.byMarket.map((j) => [j.date, j.value])).toEqual(
+        serie.daily.map((j) => [j.date, j.value]),
+      );
+    }
   });
 });

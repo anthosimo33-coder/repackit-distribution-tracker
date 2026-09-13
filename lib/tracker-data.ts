@@ -271,6 +271,7 @@ export {
   ESTIMATED_SPAN_MS,
   type SnapshotPoint,
   type DailyPoint,
+  type DailyByGroup,
 } from "../convex/viewsDaily";
 
 /** Libellé du bucket des publications sans campagne rattachée. */
