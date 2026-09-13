@@ -55,6 +55,9 @@ test.describe("Guide warmup — portail créateur", () => {
     await page.waitForURL("**/app", { timeout: 20_000 });
 
     // Aller sur « Mes comptes » (aucun compte déclaré : le guide reste accessible).
+    // Les comptes vivent sous l'onglet « Moi » depuis la nav à quatre onglets.
+    await page.getByRole("link", { name: "Moi", exact: true }).first().click();
+    await page.waitForURL("**/app/moi", { timeout: 15_000 });
     await page.getByRole("link", { name: "Mes comptes", exact: true }).click();
     await page.waitForURL("**/app/comptes", { timeout: 15_000 });
 

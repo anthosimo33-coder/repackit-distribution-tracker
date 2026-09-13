@@ -1,141 +1,69 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import {
-  AtSignIcon,
-  FilesIcon,
-  FilmIcon,
-  HelpCircleIcon,
-  HomeIcon,
-  ListChecksIcon,
-  LogOutIcon,
-  UserIcon,
-  WalletIcon,
-  type LucideIcon,
-} from "lucide-react";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { LogOutIcon } from "lucide-react";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
+import { CREATOR_TAB_ICONS } from "@/components/portal/creator-tab-icons";
 import { SidebarItem } from "@/components/layout/SidebarItem";
 import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
 import { Button } from "@/components/ui/button";
+import { activeCreatorTab, creatorTabsFor } from "@/lib/creator-nav";
 import { getCreatorTools } from "@/lib/creator-tools";
-import { isSnytchProject } from "@/lib/snytch-drive";
 import { resolveSidebarLinkIcon } from "@/lib/sidebar-link-icon";
+import { portalHref } from "@/lib/view-as";
 import { useTranslations } from "next-intl";
 import { useLabel } from "@/lib/use-label";
 
 /**
- * Sidebar DESKTOP du portail créateur (≥ md), réplique du pattern admin :
- * branding du projet courant en haut (switcher), items de nav verticaux,
- * catégorie « Outils » (liens externes figés par projet), déconnexion en bas.
- * Sous md, c'est le header mobile + la bottom tab bar qui prennent le relais
- * (cf app/app/layout.tsx) → cette sidebar est masquée.
+ * Sidebar DESKTOP du portail créateur (≥ md) — les MÊMES quatre onglets que la
+ * barre mobile (cf `lib/creator-nav`), dans le même ordre et sous les mêmes mots.
+ * Une créatrice qui passe du téléphone à l'ordinateur retrouve son espace.
  *
- * Les LABELS sont identiques à l'ancienne nav du haut (« Mes comptes », « Mes
- * paiements », « Comment ça marche »…) : les liens restent ciblables par nom,
- * la navigation interne du portail est inchangée — seul l'agencement passe
- * d'horizontal à vertical.
+ * La catégorie « Outils » reste ici : sur desktop il y a la place, et un lien
+ * externe utilisé souvent ne doit pas coûter deux clics. Sur mobile, les outils
+ * sont sous « Moi ».
  */
-type NavItem = {
-  href: string;
-  labelKey: string;
-  icon: LucideIcon;
-  exact: boolean;
-};
-
-// `as const` : `labelKey` doit garder son type LITTÉRAL, sinon t() le refuse —
-// les clés de messages sont typées depuis messages/fr.json.
-const NAV_ITEMS = [
-  { href: "/app", labelKey: "sidebar.dashboard", icon: HomeIcon, exact: true },
-  // « Mes missions » : la liste sans plafond, juste sous le tableau de bord (qui,
-  // lui, n'en montre que les 5 premières par bloc).
-  { href: "/app/missions", labelKey: "sidebar.missions", icon: ListChecksIcon, exact: false },
-  { href: "/app/comptes", labelKey: "sidebar.comptes", icon: AtSignIcon, exact: false },
-  {
-    href: "/app/paiements",
-    labelKey: "sidebar.paiements",
-    icon: WalletIcon,
-    exact: false,
-  },
-  { href: "/app/profil", labelKey: "sidebar.profil", icon: UserIcon, exact: false },
-  {
-    href: "/app/guide",
-    labelKey: "sidebar.guide",
-    icon: HelpCircleIcon,
-    exact: false,
-  },
-] as const;
-
-/** Dépôt de contenu — Snytch uniquement (cf lib/snytch-drive), inséré après comptes. */
-const FICHIERS_ITEM = {
-  href: "/app/fichiers",
-  labelKey: "sidebar.fichiers",
-  icon: FilesIcon,
-  exact: false,
-} as const;
-
-/** Suivi des vidéos publiées — Snytch uniquement, inséré après « Mes fichiers ». */
-const VIDEOS_ITEM = {
-  href: "/app/videos",
-  labelKey: "sidebar.videos",
-  icon: FilmIcon,
-  exact: false,
-} as const;
-
 export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
   const tLabel = useLabel();
   const t = useTranslations("portal");
   const pathname = usePathname();
   const { current } = useCreatorProject();
-  // Outils figés du projet courant (vide → pas de section, cf creator-tools).
   const tools = getCreatorTools(current.slug);
-  // « Mes fichiers » + « Mes vidéos » réservés à Snytch (les autres projets n'ont
-  // ni Drive ni suivi vidéos exposé).
-  // Découpage par NOM d'item et non par index nu : l'insertion Snytch se faisait
-  // sur `slice(0, 2)` / `slice(2)`, si bien qu'ajouter une entrée en amont
-  // envoyait « Mes fichiers » avant « Mes comptes » sans que rien ne le signale.
-  const afterComptes =
-    NAV_ITEMS.findIndex((it) => it.href === "/app/comptes") + 1;
-  const navItems = isSnytchProject(current.slug)
-    ? [
-        ...NAV_ITEMS.slice(0, afterComptes),
-        FICHIERS_ITEM,
-        VIDEOS_ITEM,
-        ...NAV_ITEMS.slice(afterComptes),
-      ]
-    : NAV_ITEMS;
+  const sub = pathname.startsWith("/app") ? pathname.slice("/app".length) : pathname;
+  const active = activeCreatorTab(sub);
+  const actionable =
+    useQuery(api.assignments.countMyActionable, { projectId: current.projectId }) ?? 0;
+  const warmupDue =
+    useQuery(api.comptes.countMyWarmupDue, { projectId: current.projectId }) ?? 0;
+  const badgeCount = { actionable, warmupDue };
 
   return (
     <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:sticky md:top-0 md:flex">
-      {/* Header : branding / switcher du projet courant */}
       <div className="flex h-14 shrink-0 items-center border-b border-slate-200 px-3">
         <CreatorProjectSwitcher />
       </div>
 
-      {/* Nav : items existants (verticaux) + catégorie Outils */}
       <nav
         aria-label={t("sidebar.aria")}
         className="flex-1 space-y-6 overflow-y-auto px-3 py-4"
       >
         <div className="space-y-1">
-          {navItems.map((it) => (
+          {creatorTabsFor({ argent: true }).map((tab) => (
             <SidebarItem
-              key={it.href}
-              icon={it.icon}
-              label={t(it.labelKey)}
-              href={it.href}
-              isActive={
-                it.exact
-                  ? pathname === it.href
-                  : pathname.startsWith(it.href)
-              }
+              key={tab.key}
+              icon={CREATOR_TAB_ICONS[tab.key]}
+              label={t(`tabs.${tab.key}`)}
+              href={portalHref("/app", tab.sub)}
+              isActive={active === tab.key}
               isCollapsed={false}
+              badge={tab.badge ? badgeCount[tab.badge] : undefined}
             />
           ))}
         </div>
 
-        {/* Outils — liens directs du projet, en nouvel onglet. Masqué si le
-            projet n'a aucun outil (pas de section vide). */}
         {tools.length > 0 && (
           <div>
             <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
@@ -158,7 +86,6 @@ export function CreatorSidebar({ onSignOut }: { onSignOut: () => void }) {
         )}
       </nav>
 
-      {/* Footer : retour à l'app interne (si elle en a une) + déconnexion */}
       <div className="space-y-1.5 border-t border-slate-200 p-2">
         <VersEspaceEquipe variant="carte" />
         <Button

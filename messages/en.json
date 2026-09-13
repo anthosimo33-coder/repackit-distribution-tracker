@@ -665,7 +665,12 @@
       "groupHint": {
         "catchup": "The planned day has passed and nothing is published yet.",
         "undated": "No publication date has been planned — shoot them whenever you like."
-      }
+      },
+      "view": {
+        "todo": "To do",
+        "done": "Done"
+      },
+      "doneEmpty": "No published missions yet."
     },
     "nudge": {
       "addPaymentInfo": "Add your payment details",
@@ -712,6 +717,104 @@
       "syncLineOver": "Last check: {date} at {time}",
       "finalRanking": "Final standings",
       "leaderboardLive": "Leaderboard"
+    },
+    "tabs": {
+      "today": "Today",
+      "missions": "Missions",
+      "gains": "Earnings",
+      "moi": "Me"
+    },
+    "home": {
+      "nextAction": "Your next step",
+      "kind": {
+        "catchupTitle": "Post “{name}”",
+        "catchupHint": "Planned for {date}, not posted yet.",
+        "catchupOthers": "{count, plural, one {+ # more to catch up on} other {+ # more to catch up on}}",
+        "publishTodayTitle": "Post “{name}”",
+        "publishTodayHint": "To post today.",
+        "redoTitle": "Redo “{name}”",
+        "redoHint": "Your video was rejected: fix it and send it again.",
+        "warmupTitle": "{count, plural, one {Do today's warm-up check} other {Do today's # warm-up checks}}",
+        "publishTitle": "Post “{name}”",
+        "publishHint": "Approved, post it on {date}.",
+        "publishHintNoDate": "Approved: you can post it.",
+        "produceTitle": "Shoot “{name}”",
+        "produceHint": "Send it before {date}.",
+        "waitingTitle": "{count, plural, one {Your video is being reviewed} other {Your # videos are being reviewed}}",
+        "waitingHint": "Nothing to do for now: the team is reviewing them.",
+        "others": "{count, plural, one {+ # more mission of this kind} other {+ # more missions of this kind}}"
+      },
+      "cta": {
+        "open": "Open mission",
+        "publish": "Post now",
+        "shoot": "Get started",
+        "redo": "See feedback",
+        "warmup": "Check my warm-up",
+        "missions": "See my missions"
+      },
+      "counters": {
+        "toShoot": "to shoot",
+        "toPublish": "to post",
+        "toRedo": "to redo"
+      },
+      "gainsTitle": "This cycle",
+      "rank": {
+        "title": "Cycle ranking",
+        "place": "{rank, selectordinal, one {#st} two {#nd} few {#rd} other {#th}} of {total}",
+        "gap": "{amount} to catch the spot above.",
+        "first": "You're leading this cycle.",
+        "seeAll": "See the ranking"
+      },
+      "upcoming": "Up next",
+      "upcomingAll": "All my missions"
+    },
+    "gains": {
+      "title": "Earnings",
+      "subtitle": "What you've earned, and what's coming.",
+      "cycle": "Cycle {range}",
+      "split": {
+        "fixed": "Fixed",
+        "views": "Views",
+        "bonus": "Bonus"
+      },
+      "detail": "See breakdown and history",
+      "tiersTitle": "Bonus tiers",
+      "toGo": "{views} views to go",
+      "rankingTitle": "Cycle ranking",
+      "videosTitle": "Your videos",
+      "videosAll": "All my videos",
+      "views": "{views} views"
+    },
+    "moi": {
+      "title": "Me",
+      "account": {
+        "active": "Active",
+        "warmup": "Warm-up · day {done} of {target}",
+        "checkToday": "Today's check to do",
+        "bio": "Bio to apply",
+        "archived": "Archived",
+        "pending": "Pending"
+      },
+      "space": "My space",
+      "payment": "Payment details",
+      "paymentTodo": "To complete",
+      "paymentDone": "Filled in",
+      "guideHint": "The project guide, step by step",
+      "filesHint": "Upload your files",
+      "toolsHint": "Project tools",
+      "profileHint": "Identity, language and contract"
+    },
+    "mission": {
+      "step": {
+        "shoot": "Shoot",
+        "review": "Review",
+        "publish": "Post",
+        "done": "Posted"
+      },
+      "dueBefore": "Send before {date}",
+      "plannedOn": "Post on {date}",
+      "earn": "You earn {amount} per video, plus a bonus based on views.",
+      "back": "My missions"
     }
   },
   "status": {

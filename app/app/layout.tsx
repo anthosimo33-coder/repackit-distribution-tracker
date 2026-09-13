@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { HelpCircleIcon, LogOutIcon } from "lucide-react";
+import { LogOutIcon } from "lucide-react";
 import { AccentStyle } from "@/components/project/AccentStyle";
 import { CreatorBottomNav } from "@/components/portal/CreatorBottomNav";
 import { CreatorSidebar } from "@/components/portal/CreatorSidebar";
@@ -19,10 +18,7 @@ import {
 import { CreatorProjectSwitcher } from "@/components/portal/CreatorProjectSwitcher";
 import { ProgressionCelebration } from "@/components/portal/ProgressionCelebration";
 import { VersEspaceEquipe } from "@/components/layout/EspaceSwitch";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { getCreatorTools } from "@/lib/creator-tools";
-import { isSnytchProject } from "@/lib/snytch-drive";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { useTranslations } from "next-intl";
 
 /**
@@ -57,26 +53,19 @@ export default function AppPortalLayout({
 /**
  * Shell interne (sous CreatorProjectProvider) : applique l'accent du PROJET
  * COURANT et agence la navigation scopée sur le projet courant :
- *   - DESKTOP (≥ md) : sidebar gauche (CreatorSidebar) — branding, items,
+ *   - DESKTOP (≥ md) : sidebar gauche (CreatorSidebar) — les quatre onglets,
  *     catégorie Outils, déconnexion. Pas de barre du haut.
- *   - MOBILE (< md) : header (switcher | Guide si outils + déconnexion) en
- *     haut, bottom tab bar (CreatorBottomNav) en bas.
+ *   - MOBILE (< md) : header (switcher | espace équipe + déconnexion) en haut,
+ *     barre de quatre onglets (CreatorBottomNav) en bas.
  *
- * Réorganisation mobile conditionnée par les outils du projet :
- *   - AVEC outils → Guide passe dans le header, « Outils » prend sa place dans
- *     la bottom bar (page /app/outils).
- *   - SANS outils → aucune réorganisation : Guide reste dans la bottom bar, pas
- *     de bouton Guide dans le header, pas d'onglet Outils.
+ * Plus de réorganisation selon les outils du projet : guide, outils et fichiers
+ * vivent sous « Moi », quel que soit le projet (cf lib/creator-nav).
  */
 function CreatorShell({ children }: { children: React.ReactNode }) {
   const t = useTranslations("nav");
-  const tPortal = useTranslations("portal");
   const router = useRouter();
   const { signOut } = useAuthActions();
   const { current } = useCreatorProject();
-  const hasTools = getCreatorTools(current.slug).length > 0;
-  // « Mes fichiers » (dépôt Drive) — Snytch uniquement.
-  const showFiles = isSnytchProject(current.slug);
 
   async function handleSignOut() {
     await signOut();
@@ -96,22 +85,11 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
       {/* Célébration globale à la traversée d'un palier (créateur uniquement). */}
       <ProgressionCelebration projectId={current.projectId} />
 
-      {/* Header MOBILE (< md) : switcher | (Guide si outils) + déconnexion. */}
+      {/* Header MOBILE (< md) : switcher | espace équipe + déconnexion. Le guide
+          n'y est plus : il vit sous « Moi », comme les outils. */}
       <header className="sticky top-0 z-40 flex h-14 shrink-0 items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 md:hidden">
         <CreatorProjectSwitcher />
         <div className="flex shrink-0 items-center gap-0.5">
-          {hasTools && (
-            <Link
-              href="/app/guide"
-              aria-label={tPortal("nav.guide")}
-              className={cn(
-                buttonVariants({ variant: "ghost", size: "icon-sm" }),
-                "text-slate-600 hover:text-slate-900",
-              )}
-            >
-              <HelpCircleIcon className="size-5" />
-            </Link>
-          )}
           <VersEspaceEquipe variant="icone" />
           <Button
             variant="ghost"
@@ -136,11 +114,7 @@ function CreatorShell({ children }: { children: React.ReactNode }) {
         </div>
       </main>
 
-      <CreatorBottomNav
-        projectId={current.projectId}
-        hasTools={hasTools}
-        showFiles={showFiles}
-      />
+      <CreatorBottomNav projectId={current.projectId} />
     </div>
   );
 }

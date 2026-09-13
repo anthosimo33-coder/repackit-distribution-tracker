@@ -122,11 +122,12 @@ test.describe("View-as — la preview parle la langue de la personne observée",
     await expect(
       page.getByRole("heading", { name: "My payments" }),
     ).toBeVisible({ timeout: 20_000 });
+    // Nav à quatre onglets : « Me » en anglais…
     await expect(
-      page.getByRole("link", { name: "My accounts", exact: true }).first(),
+      page.getByRole("link", { name: "Me", exact: true }).first(),
     ).toBeVisible();
-    // Et le libellé français de la même nav n'est nulle part.
-    await expect(page.getByText("Mes comptes", { exact: true })).toHaveCount(0);
+    // …et le libellé français du même onglet n'est nulle part.
+    await expect(page.getByText("Moi", { exact: true })).toHaveCount(0);
 
     // Le FORMAT suit aussi : séparateur décimal anglais, jamais la virgule.
     const due = page.getByTestId("due-now");
@@ -173,8 +174,8 @@ test.describe("View-as — la preview parle la langue de la personne observée",
       timeout: 20_000,
     });
     await expect(
-      page.getByRole("link", { name: "My accounts", exact: true }).first(),
+      page.getByRole("link", { name: "Me", exact: true }).first(),
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("Mes comptes", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Moi", { exact: true })).toHaveCount(0);
   });
 });

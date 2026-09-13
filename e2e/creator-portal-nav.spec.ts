@@ -12,23 +12,20 @@ const convex = createE2eClient(convexUrl);
 const MOBILE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
 const SUBTITLES_URL = "https://sous-titre-editeur.vercel.app/";
+const ONGLETS = ["Aujourd'hui", "Missions", "Gains", "Moi"];
 
 /**
- * Portail créateur — refonte nav :
- *  - DESKTOP : sidebar gauche (réplique admin) — items existants conservés
- *    (labels exacts), déconnexion en bas, catégorie « Outils » (liens directs
- *    du projet, nouvel onglet) affichée SEULEMENT si le projet a des outils ;
- *  - MOBILE : si le projet a des outils → Guide déplacé dans le header,
- *    « Outils » prend sa place dans la bottom bar et ouvre la page /app/outils
- *    qui liste les outils ; sinon AUCUNE réorg (Guide reste dans la barre).
+ * Portail créateur — navigation à QUATRE onglets (Aujourd'hui, Missions, Gains,
+ * Moi), identiques sur desktop (sidebar) et mobile (barre du bas).
  *
- * Outils figés PAR PROJET (lib/creator-tools) : e2e-test n'en a pas (cas sans
- * outils), « repackit » en a un (Sous-titres). Le créateur est rattaché aux
- * deux pour exercer les deux états via le switcher. Isolation : les outils
- * suivent le projet courant.
+ *  - Le guide et les outils ne sont plus des onglets : ils vivent sous « Moi »,
+ *    quel que soit le projet. Sur desktop, les outils restent AUSSI en lien
+ *    direct dans la sidebar (nouvel onglet) — il y a la place.
+ *  - Outils figés PAR PROJET (lib/creator-tools) : e2e-test n'en a pas,
+ *    « repackit » en a un (Sous-titres). Le créateur est rattaché aux deux.
  */
-test.describe("Portail créateur — sidebar desktop + Outils + nav mobile", () => {
-  test("sidebar desktop, Outils par projet, réorg mobile (Guide↔Outils)", async ({
+test.describe("Portail créateur — quatre onglets + Outils", () => {
+  test("sidebar et barre à quatre onglets, guide et outils sous « Moi »", async ({
     browser,
   }) => {
     test.setTimeout(120_000);
@@ -37,13 +34,11 @@ test.describe("Portail créateur — sidebar desktop + Outils + nav mobile", () 
     const email = `e2e-creator-nav-${ts}@repackit.test`;
     const password = "creator-nav-12345";
 
-    // 1. Admin invite le créateur (sur e2e-test, projet SANS outils) → token.
     const { token } = await convex.mutation(api.creators.inviteCreator, {
       name,
       email,
     });
 
-    // 2. Le créateur finalise (contexte vierge → reste connecté sur /app).
     const ctx = await browser.newContext({
       storageState: { cookies: [], origins: [] },
     });
@@ -59,44 +54,45 @@ test.describe("Portail créateur — sidebar desktop + Outils + nav mobile", () 
         name: "Navigation créateur",
       });
 
-      // ── DESKTOP, projet SANS outils (e2e-test) : sidebar + items conservés.
+      // ── DESKTOP, projet SANS outils : les quatre onglets, et rien d'autre.
+      for (const onglet of ONGLETS) {
+        await expect(
+          sidebar.getByRole("link", { name: onglet, exact: true }),
+        ).toBeVisible({ timeout: 15_000 });
+      }
+      await expect(sidebar.getByRole("link")).toHaveCount(ONGLETS.length);
+      // L'onglet de la page courante est allumé, les autres non.
       await expect(
-        sidebar.getByRole("link", { name: "Tableau de bord", exact: true }),
-      ).toBeVisible({ timeout: 15_000 });
+        sidebar.getByRole("link", { name: "Aujourd'hui", exact: true }),
+      ).toHaveClass(/text-primary/);
       await expect(
-        sidebar.getByRole("link", { name: "Mes comptes", exact: true }),
-      ).toBeVisible();
-      await expect(
-        sidebar.getByRole("link", { name: "Mes paiements", exact: true }),
-      ).toBeVisible();
-      await expect(
-        sidebar.getByRole("link", { name: "Comment ça marche", exact: true }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("button", { name: "Se déconnecter" }),
-      ).toBeVisible();
-      // Pas d'outils → pas de catégorie/lien Outils dans la sidebar.
-      await expect(
-        sidebar.getByRole("link", { name: "Sous-titres" }),
-      ).toHaveCount(0);
+        sidebar.getByRole("link", { name: "Moi", exact: true }),
+      ).not.toHaveClass(/text-primary/);
+      await expect(page.getByRole("button", { name: "Se déconnecter" })).toBeVisible();
 
-      // ── MOBILE, projet SANS outils : Guide reste dans la barre, pas d'Outils,
-      //    Guide n'est PAS déplacé dans le header.
+      // ── MOBILE, projet SANS outils : quatre cellules, pas de Guide ni d'Outils.
       await page.setViewportSize(MOBILE);
-      const bottomNav = page.getByRole("navigation", {
-        name: "Navigation portail",
-      });
+      const bottomNav = page.getByRole("navigation", { name: "Navigation portail" });
+      await expect(bottomNav.locator("> ul > li")).toHaveCount(4);
+      for (const onglet of ONGLETS) {
+        await expect(bottomNav.getByRole("link", { name: onglet, exact: true })).toBeVisible();
+      }
+      await expect(bottomNav.getByRole("link", { name: "Guide" })).toHaveCount(0);
+
+      // Sous « Moi » : le guide est là, les outils non (ce projet n'en a pas).
+      await bottomNav.getByRole("link", { name: "Moi", exact: true }).click();
+      await page.waitForURL("**/app/moi", { timeout: 15_000 });
       await expect(
-        bottomNav.getByRole("link", { name: "Guide" }),
-      ).toBeVisible();
-      await expect(
-        bottomNav.getByRole("link", { name: "Outils" }),
-      ).toHaveCount(0);
-      // 1 seul lien « Guide » au total (celui de la barre) → rien dans le header.
-      await expect(page.getByRole("link", { name: "Guide" })).toHaveCount(1);
+        page.getByRole("link", { name: "Comment ça marche", exact: true }),
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByRole("link", { name: "Outils", exact: true })).toHaveCount(0);
+      await expect(bottomNav.getByRole("link", { name: "Moi", exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
       await page.setViewportSize(DESKTOP);
 
-      // 3. Rattacher le créateur à « repackit » (slug figé → 1 outil).
+      // Rattacher le créateur à « repackit » (slug figé → 1 outil).
       const { projectId: repackitId } = await convex.mutation(
         api.projects.e2eEnsureProjectBySlug,
         { secret: E2E_SECRET, slug: "repackit", name: "RepackIt" },
@@ -107,12 +103,10 @@ test.describe("Portail créateur — sidebar desktop + Outils + nav mobile", () 
         projectId: repackitId,
       });
 
-      // 4. Bascule sur repackit via le switcher (2 projets désormais).
-      await page.reload();
+      await page.goto("/app");
       const switcher = page.getByRole("button", { name: "Changer de projet" });
       await expect(switcher).toBeVisible({ timeout: 15_000 });
       await switcher.click();
-      // L'autre projet que « E2E Test » (le nom de repackit dépend du seed).
       await page
         .getByRole("menuitem")
         .filter({ hasNotText: "E2E Test" })
@@ -120,30 +114,27 @@ test.describe("Portail créateur — sidebar desktop + Outils + nav mobile", () 
         .click();
       await page.waitForURL("**/app", { timeout: 10_000 });
 
-      // ── DESKTOP, projet AVEC outils (repackit) : catégorie Outils + lien direct.
+      // ── DESKTOP, projet AVEC outils : lien direct dans la sidebar.
       const sidebarTool = sidebar.getByRole("link", { name: "Sous-titres" });
       await expect(sidebarTool).toBeVisible({ timeout: 15_000 });
       await expect(sidebarTool).toHaveAttribute("href", SUBTITLES_URL);
       await expect(sidebarTool).toHaveAttribute("target", "_blank");
       await expect(sidebarTool).toHaveAttribute("rel", /noopener/);
 
-      // ── MOBILE, projet AVEC outils : Outils dans la barre, Guide dans le header.
+      // ── MOBILE, projet AVEC outils : toujours quatre onglets ; « Outils » est
+      //    sous « Moi » et mène à la page qui liste l'outil.
       await page.setViewportSize(MOBILE);
-      const bottomNav2 = page.getByRole("navigation", {
-        name: "Navigation portail",
-      });
-      await expect(
-        bottomNav2.getByRole("link", { name: "Outils" }),
-      ).toBeVisible();
-      await expect(
-        bottomNav2.getByRole("link", { name: "Guide" }),
-      ).toHaveCount(0);
-      // Guide déplacé dans le header : 1 seul lien Guide, hors de la barre.
-      await expect(page.getByRole("link", { name: "Guide" })).toHaveCount(1);
-
-      // Cliquer « Outils » → page /app/outils qui liste l'outil (lien externe).
-      await bottomNav2.getByRole("link", { name: "Outils" }).click();
+      await expect(bottomNav.locator("> ul > li")).toHaveCount(4);
+      await expect(bottomNav.getByRole("link", { name: "Outils" })).toHaveCount(0);
+      await bottomNav.getByRole("link", { name: "Moi", exact: true }).click();
+      await page.waitForURL("**/app/moi", { timeout: 15_000 });
+      await page.getByRole("link", { name: "Outils", exact: true }).click();
       await page.waitForURL("**/app/outils", { timeout: 10_000 });
+      // Sous-page d'« Moi » : l'onglet reste allumé.
+      await expect(bottomNav.getByRole("link", { name: "Moi", exact: true })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
       const pageTool = page.getByRole("link", { name: "Sous-titres" });
       await expect(pageTool).toBeVisible({ timeout: 10_000 });
       await expect(pageTool).toHaveAttribute("href", SUBTITLES_URL);

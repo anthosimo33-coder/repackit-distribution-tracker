@@ -4,40 +4,40 @@ import { useState } from "react";
 import Link from "next/link";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
-import { PortalLeaderboard } from "@/components/portal/PortalLeaderboard";
-import { CatchUpBanner } from "@/components/portal/CatchUpBanner";
 import { TodayPostBanner } from "@/components/portal/TodayPostBanner";
 import { ChallengeBanner } from "@/components/portal/ChallengeBanner";
 import { CreatorPublicationCalendar } from "@/components/portal/CreatorPublicationCalendar";
+import { CycleGainsCard } from "@/components/portal/CycleGainsCard";
+import { RankCard } from "@/components/portal/RankCard";
 import {
   useMyAssignments,
   useWarmupDue,
   useWarmupInProgress,
   useArgentObservable,
-  useMyPayments,
   useOnboardingState,
-  useMyVideoStats,
-  useMyProgression,
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import {
   MissionListItem,
+  formatMissionDate,
   type CreatorAssignment,
 } from "@/components/portal/MissionListItem";
 import { portalHref } from "@/lib/view-as";
-import { buildProgression } from "@/lib/progression";
+import {
+  assignmentUrgency,
+  isActionable,
+  URGENCY_BADGE,
+  type AssignmentStatus,
+} from "@/lib/assignment-status";
+import { useLabel } from "@/lib/use-label";
+import { formatPlannedDay, representativePostedAt } from "@/lib/calendar-status";
+import { sortBySchedule } from "@/lib/creator-schedule";
+import { nextCreatorAction, type NextAction } from "@/lib/creator-next-action";
 import {
   deriveOnboarding,
   type StepState,
   type OnboardingDerived,
 } from "@/lib/onboarding";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ArrowRightIcon,
@@ -46,309 +46,450 @@ import {
   CircleIcon,
   ClapperboardIcon,
   ClockIcon,
-  FilmIcon,
   FlameIcon,
-  ListChecksIcon,
+  HourglassIcon,
   PartyPopperIcon,
   RotateCcwIcon,
   SendIcon,
-  TrophyIcon,
   UsersIcon,
-  WalletIcon,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatMoney, formatViews } from "@/lib/format-rate";
-import { isSnytchProject } from "@/lib/snytch-drive";
-import type { Id } from "@/convex/_generated/dataModel";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
-import { useLabel } from "@/lib/use-label";
-import { formatMoneyDate } from "@/lib/format";
 
 /**
- * Accueil du portail créateur — DASHBOARD ORIENTÉ ACTION, scopé au PROJET
- * COURANT. Écran RÉUTILISÉ tel quel par le portail créateur normal ET par le
- * mode admin « voir l'espace d'un créateur » (lecture seule) :
- *   - les données viennent des hooks d'indirection (creator-data) → getMy* en
- *     normal, *AsAdmin scopé serveur en view-as ;
- *   - les liens internes sont préfixés par usePortalBase() ("/app" ou base
- *     view-as) ; en lecture seule, les éléments de mission ne sont pas cliquables
- *     (pas de page de détail dans le mode vue).
+ * « AUJOURD'HUI » — l'accueil du portail créatrice, construit autour d'UNE action.
+ *
+ * L'ancien accueil empilait jusqu'à six blocs (rattrapage, post du jour, à
+ * produire, à publier, à refaire, warmup), puis les gains et le classement tout en
+ * bas. Tout y était, et rien ne disait par quoi commencer. Ici :
+ *   1. la PROCHAINE ACTION, une seule, en grand (cf `lib/creator-next-action`) ;
+ *   2. trois compteurs, pour le volume ;
+ *   3. « Ensuite » : le reste, dans l'ordre du planning ;
+ *   4. à côté (sous, sur mobile) : les gains du cycle et ta place au classement.
+ *
+ * Écran RÉUTILISÉ par le mode admin « voir l'espace d'un créateur » (lecture
+ * seule) : données par les hooks d'indirection, liens préfixés par la base.
+ *
+ * `data-testid` CONSERVÉS là où le sens n'a pas changé (`produce-count`,
+ * `publish-count`, `redo-count`, `dashboard-due`, `all-clear`, `see-all-missions`,
+ * `block-managed`, `onboarding-checklist`) : ce sont des contrats de specs.
  */
 
-const ITEM_CAP = 5;
+const UPCOMING_CAP = 5;
 
 export default function DashboardScreen() {
   const t = useTranslations("portal");
+  const loc = useIntlLocale();
   const { current } = useCreatorProject();
   const projectId = current.projectId;
-  // Devise de la paie créatrices ($ Snytch ; null → sans symbole), threadée aux
-  // sous-composants qui rendent des montants.
-  const payCurrency = current.payCurrency;
   const name = current.creatorName;
   const base = usePortalBase();
+  const argent = useArgentObservable();
 
   const assignments = useMyAssignments(projectId);
   const warmupDue = useWarmupDue(projectId) ?? 0;
-  // QW1 — warmups EN COURS (qu'un check soit dû aujourd'hui ou non) : alimente le
-  // rappel permanent « reviens le cocher chaque jour » (lecture seule).
   const warmupInProgress = useWarmupInProgress(projectId) ?? 0;
-  const payments = useMyPayments(projectId);
-  // Observation SANS le droit « Paiements » (cf lib/view-as-access) : les blocs
-  // d'argent de cet écran ne recevront jamais de données — leurs queries ne
-  // partent pas. Les MASQUER, plutôt que de laisser tourner un squelette qui
-  // promet un chiffre qui ne viendra pas. Hors observation, toujours `true` :
-  // le dashboard d'une créatrice est strictement inchangé.
-  const argent = useArgentObservable();
-  // Onboarding (Snytch) — dérivé serveur compact. Hors Snytch : applicable false.
   const onboardingRaw = useOnboardingState(projectId);
   const onboarding = onboardingRaw ? deriveOnboarding(onboardingRaw) : null;
 
+  // Ancre temporelle stable au montage (impure au render sinon, cf react-hooks/purity).
+  const [nowMs] = useState(() => Date.now());
   const list = assignments ?? [];
-  // Comptes GÉRÉS par l'équipe : missions montrées en LECTURE (script visible)
-  // mais JAMAIS dans les blocs actionnables — la créatrice ne produit/soumet/
-  // publie rien dessus (l'équipe s'en charge, cf managedByAdmin dénormalisé).
+  // On attend assignments ET onboarding : sinon « Tout est à jour » clignote
+  // avant que l'état d'onboarding soit connu.
+  const loaded = assignments !== undefined && onboarding !== null;
+  const showChecklist = onboarding?.applicable === true && !onboarding.complete;
+  const fullyManaged = onboarding?.fullyManaged === true;
+
   const managedList = list.filter((a) => a.managedByAdmin);
-  const actionable = list.filter((a) => !a.managedByAdmin);
-  const toProduce = actionable.filter(
-    (a) => a.status === "todo" || a.status === "in_progress",
+  const actionable = list.filter(
+    (a) => !a.managedByAdmin && isActionable(a.status as AssignmentStatus),
   );
+  const toShoot = actionable.filter((a) => a.status === "todo" || a.status === "in_progress");
   const toPublish = actionable.filter((a) => a.status === "to_publish");
   const toRedo = actionable.filter(
     (a) => a.status === "video_rejected" || a.status === "rejected",
   );
 
-  // Gains + prochaine paie du CYCLE J+30 EN COURS (fenêtre de 30 j perso, ancrée
-  // au 1er post). Cycle courant = celui qui contient maintenant (sinon le plus
-  // récent). « Prochaine paie » = sa fin (cycleEnd) — plus de « 10 du mois ».
-  // Ancre temporelle stable au montage (impure au render sinon, cf react-hooks/purity).
-  const [nowMs] = useState(() => Date.now());
-  const currentCycle =
-    (payments ?? []).find((p) => nowMs >= p.cycleStart && nowMs < p.cycleEnd) ??
-    (payments ?? [])[0] ??
-    null;
-  const dueNow = currentCycle?.totalDue ?? 0;
-  const nextPayoutTs = currentCycle?.cycleEnd ?? null;
-  const payoutDays =
-    nextPayoutTs !== null
-      ? Math.max(0, Math.ceil((nextPayoutTs - nowMs) / 86_400_000))
-      : null;
+  const action = loaded
+    ? nextCreatorAction({
+        rows: list,
+        now: nowMs,
+        warmupDue,
+        onboardingPending: showChecklist,
+      })
+    : null;
+  const heroId = action && "row" in action ? action.row._id : null;
 
-  // On attend assignments ET onboarding pour éviter un flash « Tout est à jour »
-  // avant que l'état d'onboarding soit connu.
-  const loaded = assignments !== undefined && onboarding !== null;
-  // Checklist visible tant que l'onboarding Snytch n'est PAS terminé.
-  const showChecklist = onboarding?.applicable === true && !onboarding.complete;
-  // Créatrice « full gérée » (0 compte propre, l'équipe tient tout) : pas de
-  // checklist (onboarding.complete=true côté lib) → message dédié à la place.
-  const fullyManaged = onboarding?.fullyManaged === true;
-  // Onboarding « terminé » pour la logique AllClear : true hors Snytch (dashboard
-  // inchangé) et une fois la créatrice réellement activée.
-  const onboardingDone = !onboarding?.applicable || onboarding.complete;
-  // Pendant l'onboarding PUR (aucun compte actif), la checklist porte déjà l'info
-  // warmup → on masque les blocs warmup autonomes pour ne pas dupliquer.
-  const suppressWarmupBlocks =
-    showChecklist && onboarding?.hasActiveAccount === false;
+  // « Ensuite » : les missions à faire hors de la carte, dans l'ordre du planning
+  // (rattrapages d'abord, le plus ancien en tête — même tri que le bandeau).
+  const upcoming = sortBySchedule(
+    actionable
+      .filter((a) => a._id !== heroId)
+      .map((a) => ({
+        row: a,
+        postDate: a.postDate,
+        postWindow: a.postWindow,
+        publishedAt: representativePostedAt(a),
+      })),
+    nowMs,
+  ).map((x) => x.row);
+  const shown = upcoming.slice(0, UPCOMING_CAP);
+  const extra = upcoming.length - shown.length;
+  // Warmup dû mais pas en tête (une action plus urgente y est) : il reste une
+  // tâche du jour, donc il remonte en premier dans « Ensuite ».
+  const warmupInUpcoming = warmupDue > 0 && action?.kind !== "warmup" && !showChecklist;
 
-  const allClear =
-    loaded &&
-    onboardingDone &&
-    toProduce.length === 0 &&
-    toPublish.length === 0 &&
-    toRedo.length === 0 &&
-    warmupDue === 0 &&
-    warmupInProgress === 0;
+  const today = new Intl.DateTimeFormat(loc, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(nowMs);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <p className="text-sm font-medium text-slate-500 first-letter:uppercase">{today}</p>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
           {name ? t("dashboard.greetingNamed", { name }) : t("dashboard.greeting")}
         </h1>
-        <p className="text-sm text-slate-500">
-          {t("dashboard.subtitle", { project: current.name })}
-        </p>
       </header>
 
-      {/* QW3 — coordonnées de paiement manquantes alors que des gains sont dus. */}
       <PaymentInfoNudge projectId={projectId} />
 
-      {!loaded ? (
+      {!loaded || action === null ? (
         <div className="space-y-3">
-          <Skeleton className="h-28 w-full" />
-          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-52 w-full rounded-xl" />
+          <Skeleton className="h-20 w-full rounded-xl" />
         </div>
       ) : (
-        <>
-          {/* « À rattraper » AVANT « aujourd'hui » : un retard découvert sous la
-              tâche du jour reste un retard. Ordre strict, plus ancien en tête.
-              Null si rien à rattraper. */}
-          <CatchUpBanner list={list} now={nowMs} base={base} />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start">
+          <div className="min-w-0 space-y-6">
+            {action.kind === "onboarding" ? (
+              onboarding && <OnboardingChecklist onb={onboarding} base={base} />
+            ) : action.kind === "allClear" ? (
+              <AllClear />
+            ) : (
+              <NextActionCard action={action} base={base} />
+            )}
 
-          {/* Bandeau « aujourd'hui tu postes X » (brique D) — LA réponse à « je
-              poste quoi ? ». Null si aucune publication planifiée. */}
-          <TodayPostBanner list={list} now={nowMs} base={base} />
+            {fullyManaged && <ManagedByTeamNotice />}
 
-          {/* DÉFIS — juste SOUS le rattrapage et le post du jour, au-dessus de
-              tout le reste. L'ordre n'est pas négociable : un retard caché sous
-              un défi reste un retard, et les deux bandeaux au-dessus demandent
-              une action qui n'attend pas. Un défi est une opportunité — il
-              mérite d'être vu, pas de couvrir une échéance.
-              Null si elle ne participe à aucun défi ouvert. */}
-          <ChallengeBanner />
+            {actionable.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 sm:gap-3">
+                <Counter testId="produce-count" value={toShoot.length} label={t("home.counters.toShoot")} />
+                <Counter testId="publish-count" value={toPublish.length} label={t("home.counters.toPublish")} />
+                <Counter
+                  testId="redo-count"
+                  value={toRedo.length}
+                  label={t("home.counters.toRedo")}
+                  tone={toRedo.length > 0 ? "rose" : "slate"}
+                />
+              </div>
+            )}
 
-          {/* 0. Checklist d'onboarding (Snytch) — tant que le compte n'est pas
-              activé, on guide au lieu d'afficher un faux « tout à jour ». */}
-          {showChecklist && onboarding && (
-            <OnboardingChecklist onb={onboarding} base={base} />
-          )}
+            {/* Le programme du jour garde son bandeau, SAUF quand la carte dit
+                déjà « publier aujourd'hui » : on ne répète pas la même mission. */}
+            {action.kind !== "publishToday" && (
+              <TodayPostBanner list={list} now={nowMs} base={base} />
+            )}
 
-          {/* Créatrice full gérée : rien à configurer (l'équipe tient ses
-              comptes). Message court + espace normal (missions/vidéos/AllClear
-              selon l'état réel). Mutuellement exclusif avec la checklist. */}
-          {fullyManaged && <ManagedByTeamNotice />}
+            {/* Défi : une opportunité, sous l'action du jour — jamais au-dessus. */}
+            <ChallengeBanner />
 
-          {allClear && <AllClear />}
-
-          {/* 1. À produire */}
-          {toProduce.length > 0 && (
-            <ActionBlock
-              testId="block-produce"
-              icon={ClapperboardIcon}
-              tone="primary"
-              count={toProduce.length}
-              countTestId="produce-count"
-              title={t("dashboard.produce.title", { count: toProduce.length })}
-              description={t("dashboard.produce.description")}
-            >
-              <AssignmentList items={toProduce} base={base} />
-            </ActionBlock>
-          )}
-
-          {/* 1 bis. Prochain palier de récompense (compact) — sous « à produire »
-              qui reste la priorité. Tap → écran Progression. null si aucun
-              prochain palier (grille absente ou tout débloqué). */}
-          <NextTierCard projectId={projectId} base={base} currency={payCurrency} />
-
-          {/* 2. Warmups à cocher aujourd'hui — masqué pendant l'onboarding pur
-              (la checklist porte déjà l'étape warmup). */}
-          {!suppressWarmupBlocks && warmupDue > 0 && (
-            <ActionBlock
-              testId="block-warmup"
-              icon={FlameIcon}
-              tone="amber"
-              count={warmupDue}
-              countTestId="warmup-count"
-              title={t("dashboard.warmup.title", { count: warmupDue })}
-              description={t("dashboard.warmup.description")}
-            >
-              <BlockCta href={portalHref(base, "/comptes")} label={t("dashboard.warmup.cta")} />
-            </ActionBlock>
-          )}
-
-          {/* 2 bis. Warmup en cours mais rien à cocher aujourd'hui → rappel
-              PERMANENT (QW1) : le warmup se coche chaque jour, on ne laisse
-              jamais croire « rien à faire » tant qu'il n'est pas terminé. */}
-          {!suppressWarmupBlocks &&
-            warmupDue === 0 &&
-            warmupInProgress > 0 && (
+            {warmupDue === 0 && warmupInProgress > 0 && !showChecklist && (
               <WarmupOngoingReminder href={portalHref(base, "/comptes")} />
             )}
 
-          {/* 3. À publier */}
-          {toPublish.length > 0 && (
-            <ActionBlock
-              testId="block-publish"
-              icon={SendIcon}
-              tone="emerald"
-              count={toPublish.length}
-              countTestId="publish-count"
-              title={t("dashboard.publish.title", { count: toPublish.length })}
-              description={t("dashboard.publish.description")}
-            >
-              <AssignmentList items={toPublish} base={base} />
-            </ActionBlock>
-          )}
+            {(shown.length > 0 || warmupInUpcoming) && (
+              <section className="space-y-2" data-testid="home-upcoming">
+                <div className="flex items-baseline justify-between gap-2">
+                  <h2 className="text-base font-semibold text-slate-900">{t("home.upcoming")}</h2>
+                  <Link
+                    href={portalHref(base, "/missions")}
+                    className="text-sm font-semibold text-primary hover:underline"
+                  >
+                    {t("home.upcomingAll")}
+                  </Link>
+                </div>
+                <ul className="space-y-2">
+                  {warmupInUpcoming && (
+                    <li>
+                      <Link
+                        href={portalHref(base, "/comptes")}
+                        className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 transition-colors hover:bg-amber-100"
+                      >
+                        <FlameIcon className="size-5 shrink-0 text-amber-600" />
+                        <span className="min-w-0 flex-1 text-sm font-medium text-amber-900">
+                          {t("home.kind.warmupTitle", { count: warmupDue })}
+                        </span>
+                        <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />
+                      </Link>
+                    </li>
+                  )}
+                  {shown.map((a) => (
+                    <li key={a._id}>
+                      <MissionListItem assignment={a} base={base} showFeedback />
+                    </li>
+                  ))}
+                  {extra > 0 && (
+                    <li className="px-1 pt-1">
+                      <Link
+                        href={portalHref(base, "/missions")}
+                        data-testid="see-all-missions"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 underline underline-offset-4 hover:text-slate-900"
+                      >
+                        {t("missions.seeAll", { count: extra })}
+                        <ArrowRightIcon className="size-3" />
+                      </Link>
+                    </li>
+                  )}
+                </ul>
+              </section>
+            )}
 
-          {/* 4. À refaire */}
-          {toRedo.length > 0 && (
-            <ActionBlock
-              testId="block-redo"
-              icon={RotateCcwIcon}
-              tone="rose"
-              count={toRedo.length}
-              countTestId="redo-count"
-              title={t("dashboard.redo.title", { count: toRedo.length })}
-              description={t("dashboard.redo.description")}
-            >
-              <AssignmentList items={toRedo} base={base} showFeedback />
-            </ActionBlock>
-          )}
-
-          {/* Gérées par l'équipe — LECTURE seule : la créatrice consulte le
-              script à produire, mais l'équipe publie (aucune action ici). Le
-              post publié + les perfs apparaissent dans « Mes vidéos ». */}
-          {managedList.length > 0 && (
-            <Card data-testid="block-managed">
-              <CardHeader>
-                <div className="flex items-center gap-3">
+            {managedList.length > 0 && (
+              <section
+                data-testid="block-managed"
+                className="space-y-3 rounded-xl border border-slate-200 bg-white p-4"
+              >
+                <div className="flex items-start gap-3">
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
                     <UsersIcon className="size-5" />
                   </span>
-                  <div className="min-w-0">
-                    <CardTitle className="text-base">{t("dashboard.managedTitle")}</CardTitle>
-                    <CardDescription>
-                      {t("dashboard.managedBody")}
-                    </CardDescription>
+                  <div className="min-w-0 space-y-0.5">
+                    <h2 className="text-base font-semibold text-slate-900">{t("dashboard.managedTitle")}</h2>
+                    <p className="text-sm text-slate-500">{t("dashboard.managedBody")}</p>
                   </div>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <AssignmentList items={managedList} base={base} managed />
-              </CardContent>
-            </Card>
+                <ul className="space-y-2">
+                  {managedList.slice(0, UPCOMING_CAP).map((a) => (
+                    <li key={a._id}>
+                      <MissionListItem assignment={a} base={base} managed />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <CreatorPublicationCalendar list={list} now={nowMs} base={base} />
+          </div>
+
+          {argent && (
+            <aside className="min-w-0 space-y-6">
+              <CycleGainsCard />
+              <RankCard variant="window" />
+            </aside>
           )}
-
-          {/* Mini-calendrier de publication (brique D) — vue d'ensemble de SES
-              posts planifiés + statuts (mêmes couleurs que le pilotage admin).
-              Clic → brief. Null si aucune publication planifiée. */}
-          <CreatorPublicationCalendar list={list} now={nowMs} base={base} />
-        </>
+        </div>
       )}
+    </div>
+  );
+}
 
-      {/* Récap « Mes vidéos publiées » (Snytch) — 3 chiffres du mois + détail. */}
-      {isSnytchProject(current.slug) && (
-        <VideoStatsCard projectId={projectId} base={base} currency={payCurrency} />
-      )}
-
-      {/* 5. Aperçu gains + prochaine paie — toujours visible, SAUF en
-          observation sans le droit « Paiements ». */}
-      {argent && (
-        <EarningsOverview
-          loading={payments === undefined}
-          dueNow={dueNow}
-          nextPayoutTs={nextPayoutTs}
-          payoutDays={payoutDays}
-          detailHref={portalHref(base, "/paiements")}
-          currency={payCurrency}
-        />
-      )}
-
-      {/* 6. Classement du projet — gains de tous visibles (transparence assumée),
-          soi surligné. Scopé/sécurisé serveur (creatorQuery), view-as géré via le
-          hook d'indirection. Masqué à l'observateur sans droit d'argent : il y
-          verrait les gains de TOUTE l'équipe, pas seulement ceux d'une. */}
-      {argent && <PortalLeaderboard />}
+function Counter({
+  testId,
+  value,
+  label,
+  tone = "slate",
+}: {
+  testId: string;
+  value: number;
+  label: string;
+  tone?: "slate" | "rose";
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3 py-3">
+      <p
+        data-testid={testId}
+        className={cn(
+          "text-2xl font-bold tabular-nums",
+          tone === "rose" ? "text-rose-600" : "text-slate-900",
+        )}
+      >
+        {value}
+      </p>
+      <p className="text-xs text-slate-500">{label}</p>
     </div>
   );
 }
 
 /**
- * Checklist d'ONBOARDING (Snytch) — remplace le faux « Tout est à jour » tant
- * que la créatrice n'est pas activée. Guide les 4 étapes : déclarer un compte,
- * warmup, bio (si fournie), validation admin. Le message « en cours de
- * validation » couvre le trou warmup-terminé-mais-pas-encore-actif.
+ * LA CARTE D'ACTION — un titre qui dit le geste, une phrase qui dit pourquoi
+ * maintenant, un bouton. Tout le reste de l'accueil lui est subordonné.
+ */
+function NextActionCard({
+  action,
+  base,
+}: {
+  action: Exclude<NextAction<CreatorAssignment>, { kind: "onboarding" } | { kind: "allClear" }>;
+  base: string;
+}) {
+  const t = useTranslations("portal");
+  const tLabel = useLabel();
+  const loc = useIntlLocale();
+
+  const row = "row" in action ? action.row : null;
+  const urgency = row
+    ? assignmentUrgency(row.dueDate, row.status as AssignmentStatus)
+    : ("none" as const);
+  const missionHref = row ? portalHref(base, `/assignments/${row._id}`) : null;
+  const plannedDay = (ts: number) =>
+    formatPlannedDay(ts, loc, { weekday: "long", day: "numeric", month: "long" });
+
+  let icon: LucideIcon = ClapperboardIcon;
+  let title = "";
+  let hint = "";
+  let cta = t("home.cta.open");
+  let href = missionHref ?? portalHref(base, "/missions");
+  let urgent = false;
+
+  switch (action.kind) {
+    case "catchup":
+      icon = ClockIcon;
+      urgent = true;
+      title = t("home.kind.catchupTitle", { name: action.row.formatName });
+      hint = action.row.postDate != null
+        ? t("home.kind.catchupHint", { date: plannedDay(action.row.postDate) })
+        : "";
+      cta = action.row.status === "to_publish" ? t("home.cta.publish") : t("home.cta.open");
+      break;
+    case "publishToday":
+      icon = SendIcon;
+      title = t("home.kind.publishTodayTitle", { name: action.row.formatName });
+      hint = t("home.kind.publishTodayHint");
+      cta = t("home.cta.publish");
+      break;
+    case "redo":
+      icon = RotateCcwIcon;
+      urgent = true;
+      title = t("home.kind.redoTitle", { name: action.row.formatName });
+      hint = t("home.kind.redoHint");
+      cta = t("home.cta.redo");
+      break;
+    case "warmup":
+      icon = FlameIcon;
+      title = t("home.kind.warmupTitle", { count: action.count });
+      hint = t("dashboard.warmup.description");
+      cta = t("home.cta.warmup");
+      href = portalHref(base, "/comptes");
+      break;
+    case "publish":
+      icon = SendIcon;
+      title = t("home.kind.publishTitle", { name: action.row.formatName });
+      hint = action.row.postDate != null
+        ? t("home.kind.publishHint", { date: plannedDay(action.row.postDate) })
+        : t("home.kind.publishHintNoDate");
+      cta = t("home.cta.publish");
+      break;
+    case "produce":
+      icon = ClapperboardIcon;
+      title = t("home.kind.produceTitle", { name: action.row.formatName });
+      hint = t("home.kind.produceHint", { date: formatMissionDate(action.row.dueDate, loc) });
+      cta = t("home.cta.shoot");
+      break;
+    case "waiting":
+      icon = HourglassIcon;
+      title = t("home.kind.waitingTitle", { count: action.count });
+      hint = t("home.kind.waitingHint");
+      cta = t("home.cta.missions");
+      href = portalHref(base, "/missions");
+      break;
+  }
+
+  const Icon = icon;
+  const others = "others" in action ? action.others : 0;
+
+  return (
+    <section
+      data-testid="home-next-action"
+      data-kind={action.kind}
+      className="space-y-4 rounded-xl border border-primary/25 bg-white p-4 shadow-[0_12px_32px_-20px_color-mix(in_srgb,var(--primary)_55%,transparent)] sm:p-5"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+          {t("home.nextAction")}
+        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          {row && row.targets.length > 0 && (
+            <span className="truncate font-mono text-xs text-slate-400">
+              {row.targets.map((x) => x.platform).join(" · ")}
+            </span>
+          )}
+          {/* Échéance de PRODUCTION dépassée ou proche : le même badge que dans
+              les listes — la carte ne doit pas taire ce que la ligne disait. */}
+          {urgency !== "none" && urgency !== "ok" && (
+            <span
+              className={cn(
+                "shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold",
+                URGENCY_BADGE[urgency].className,
+              )}
+            >
+              {tLabel(URGENCY_BADGE[urgency].labelKey)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-start gap-3">
+        <span
+          className={cn(
+            "flex size-11 shrink-0 items-center justify-center rounded-xl",
+            urgent ? "bg-rose-50 text-rose-600" : "bg-primary/10 text-primary",
+          )}
+        >
+          <Icon className="size-5" />
+        </span>
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-lg font-bold leading-snug tracking-tight text-slate-900 sm:text-xl">
+            {/* Le titre nomme la mission : il y mène, comme une ligne de liste. */}
+            {missionHref ? (
+              <Link href={missionHref} className="hover:underline">
+                {title}
+              </Link>
+            ) : (
+              title
+            )}
+          </h2>
+          {hint && (
+            <p className={cn("text-sm", urgent ? "text-rose-700" : "text-slate-600")}>{hint}</p>
+          )}
+          {action.kind === "redo" && action.row.videoReviewFeedback && (
+            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 p-2 text-sm text-rose-700">
+              {action.row.videoReviewFeedback}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <Link
+          href={href}
+          className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+        >
+          {cta}
+          <ArrowRightIcon className="size-4" />
+        </Link>
+        {others > 0 && (
+          <Link
+            href={portalHref(base, "/missions")}
+            className="text-center text-sm font-medium text-slate-500 hover:text-slate-900 sm:text-right"
+          >
+            {action.kind === "catchup"
+              ? t("home.kind.catchupOthers", { count: others })
+              : t("home.kind.others", { count: others })}
+          </Link>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Checklist d'ONBOARDING (Snytch) — tant que le compte n'est pas activé, c'est
+ * elle, la prochaine action : on guide au lieu d'afficher un faux « à jour ».
  */
 function OnboardingChecklist({
   onb,
@@ -362,22 +503,20 @@ function OnboardingChecklist({
   const best = onb.best;
   const comptesHref = portalHref(base, "/comptes");
   return (
-    <Card
+    <section
       data-testid="onboarding-checklist"
-      className="border-primary/30 bg-primary/5"
+      className="space-y-4 rounded-xl border border-primary/25 bg-white p-4 sm:p-5"
     >
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <ListChecksIcon className="size-5" />
-          </span>
-          <div className="min-w-0">
-            <CardTitle className="text-base">{t("dashboard.onboardTitle")}</CardTitle>
-            <CardDescription>{t("dashboard.onboardBody")}</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+          {t("home.nextAction")}
+        </p>
+        <h2 className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
+          {t("dashboard.onboardTitle")}
+        </h2>
+        <p className="text-sm text-slate-600">{t("dashboard.onboardBody")}</p>
+      </div>
+      <div className="space-y-3">
         <ChecklistRow
           testId="step-declare"
           state={s.declare}
@@ -450,8 +589,8 @@ function OnboardingChecklist({
             }
           />
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
@@ -481,30 +620,19 @@ function ChecklistRow({
   const { Icon, className } = STEP_ICON[state];
   const muted = state === "upcoming" || state === "na";
   return (
-    <div
-      data-testid={testId}
-      data-state={state}
-      className="flex items-start gap-3"
-    >
+    <div data-testid={testId} data-state={state} className="flex items-start gap-3">
       <Icon className={cn("mt-0.5 size-5 shrink-0", className)} />
       <div className="min-w-0 flex-1 space-y-1">
-        <p
-          className={cn(
-            "text-sm font-medium",
-            muted ? "text-slate-400" : "text-slate-900",
-          )}
-        >
+        <p className={cn("text-sm font-medium", muted ? "text-slate-400" : "text-slate-900")}>
           {title}
         </p>
         {detail && (
-          <p className={cn("text-xs", muted ? "text-slate-400" : "text-slate-500")}>
-            {detail}
-          </p>
+          <p className={cn("text-xs", muted ? "text-slate-400" : "text-slate-500")}>{detail}</p>
         )}
         {cta && (
           <Link
             href={cta.href}
-            className="inline-flex h-10 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            className="inline-flex h-11 items-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90"
           >
             {cta.label}
             <ArrowRightIcon className="size-3.5" />
@@ -515,55 +643,43 @@ function ChecklistRow({
   );
 }
 
-/**
- * Créatrice « full gérée » (0 compte propre, l'équipe tient tous ses comptes) :
- * rien à configurer → message court à la place de la checklist d'onboarding.
- * L'espace normal (missions gérées, vidéos, AllClear) s'affiche selon l'état réel
- * des assignments — pas de faux « tout à jour » forcé.
- */
+/** Créatrice « full gérée » : rien à configurer, l'équipe tient ses comptes. */
 function ManagedByTeamNotice() {
   const t = useTranslations("portal");
   return (
-    <Card
+    <div
       data-testid="managed-by-team-notice"
-      className="border-slate-200 bg-slate-50/60"
+      className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white p-4"
     >
-      <CardContent className="flex items-start gap-3 py-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
-          <UsersIcon className="size-5" />
-        </span>
-        <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-semibold text-slate-900">{t("dashboard.teamManagesTitle")}</p>
-          <p className="text-sm text-slate-500">
-            {t("dashboard.teamManagesBody")}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
+        <UsersIcon className="size-5" />
+      </span>
+      <div className="min-w-0 space-y-0.5">
+        <p className="text-sm font-semibold text-slate-900">{t("dashboard.teamManagesTitle")}</p>
+        <p className="text-sm text-slate-500">{t("dashboard.teamManagesBody")}</p>
+      </div>
+    </div>
   );
 }
 
-/** État « tout à jour » : rien à faire dans aucune catégorie. */
+/** Rien à faire, dans aucune catégorie. */
 function AllClear() {
   const t = useTranslations("portal");
   return (
-    <Card data-testid="all-clear" className="border-emerald-200 bg-emerald-50/60">
-      <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-        <PartyPopperIcon className="size-9 text-emerald-500" strokeWidth={1.5} />
-        <p className="text-base font-semibold text-emerald-900">{t("dashboard.allClearTitle")}</p>
-        <p className="text-sm text-emerald-700">
-          {t("dashboard.allClearBody")}
-        </p>
-      </CardContent>
-    </Card>
+    <section
+      data-testid="all-clear"
+      className="flex flex-col items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-10 text-center"
+    >
+      <PartyPopperIcon className="size-9 text-emerald-500" strokeWidth={1.5} />
+      <p className="text-base font-semibold text-emerald-900">{t("dashboard.allClearTitle")}</p>
+      <p className="text-sm text-emerald-700">{t("dashboard.allClearBody")}</p>
+    </section>
   );
 }
 
 /**
- * QW1 — rappel PERMANENT tant qu'un warmup est en cours (et que le check du jour
- * est déjà fait). Le warmup se coche CHAQUE jour jusqu'au bout ; on l'affiche même
- * « fait aujourd'hui » pour ne jamais laisser croire qu'il n'y a plus rien à faire.
- * Renvoie vers « Mes comptes » où se fait le check. AFFICHAGE seul (lecture).
+ * Warmup en cours, check du jour déjà fait : rappel qu'il se coche CHAQUE jour
+ * jusqu'au bout — jamais laisser croire qu'il n'y a plus rien à faire.
  */
 function WarmupOngoingReminder({ href }: { href: string }) {
   const t = useTranslations("portal");
@@ -571,314 +687,14 @@ function WarmupOngoingReminder({ href }: { href: string }) {
     <Link
       href={href}
       data-testid="warmup-ongoing-reminder"
-      className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100"
+      className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 transition-colors hover:bg-amber-100"
     >
       <FlameIcon className="size-5 shrink-0 text-amber-600" />
       <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="text-sm font-medium text-amber-900">
-          {t("dashboard.warmupDoneToday")}
-        </p>
-        <p className="text-sm text-amber-800">
-          {t("dashboard.warmupDailyHint")}
-        </p>
+        <p className="text-sm font-medium text-amber-900">{t("dashboard.warmupDoneToday")}</p>
+        <p className="text-sm text-amber-800">{t("dashboard.warmupDailyHint")}</p>
       </div>
       <ArrowRightIcon className="size-4 shrink-0 text-amber-700" />
     </Link>
-  );
-}
-
-const TONE_CHIP: Record<string, string> = {
-  primary: "bg-primary/10 text-primary",
-  amber: "bg-amber-100 text-amber-600",
-  emerald: "bg-emerald-100 text-emerald-600",
-  rose: "bg-rose-100 text-rose-600",
-};
-
-/** Bloc d'action : pastille d'icône + compteur + titre + description, et corps. */
-function ActionBlock({
-  testId,
-  icon: Icon,
-  tone,
-  count,
-  countTestId,
-  title,
-  description,
-  children,
-}: {
-  testId: string;
-  icon: LucideIcon;
-  tone: keyof typeof TONE_CHIP | string;
-  count: number;
-  countTestId: string;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card data-testid={testId}>
-      <CardHeader>
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-lg",
-              TONE_CHIP[tone] ?? TONE_CHIP.primary,
-            )}
-          >
-            <Icon className="size-5" />
-          </span>
-          <div className="min-w-0">
-            <CardTitle className="text-base">
-              <span data-testid={countTestId} className="tabular-nums">
-                {count}
-              </span>{" "}
-              {title}
-            </CardTitle>
-            <CardDescription>{description}</CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  );
-}
-
-/** CTA pleine largeur (mobile-friendly, 44px) vers une page du portail. */
-function BlockCta({ href, label }: { href: string; label: string }) {
-  return (
-    <Link
-      href={href}
-      className="flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
-    >
-      {label}
-      <ArrowRightIcon className="size-4" />
-    </Link>
-  );
-}
-
-/**
- * Carte COMPACTE « prochain palier » (Accueil) : récompense visée + barre de
- * progression + « plus que X vues ». Tap → écran Progression. Accent = primary
- * du projet. Rendu null si aucun prochain palier (grille absente / tout
- * débloqué) → footprint minimal sur un Accueil déjà dense.
- */
-function NextTierCard({
-  projectId,
-  base,
-  currency,
-}: {
-  projectId: Id<"projects">;
-  base: string;
-  currency?: string | null;
-}) {
-  const t = useTranslations("portal");
-  const tLabel = useLabel();
-  const loc = useIntlLocale();
-  const raw = useMyProgression(projectId);
-  const p = raw ? buildProgression(raw) : null;
-  if (!p || !p.nextReward) return null;
-  const reward = p.nextReward;
-  const pct = Math.round(p.progressToNext * 100);
-  return (
-    <Link
-      href={portalHref(base, "/progression")}
-      className="block"
-      data-testid="next-tier-card"
-    >
-      <Card className="transition-colors hover:bg-slate-50">
-        <CardContent className="space-y-2.5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <TrophyIcon className="size-5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-slate-900">{t("dashboard.nextTier")}</p>
-              <p className="truncate text-xs text-slate-500">
-                {reward.kind === "cash"
-                  ? formatMoney(reward.amount, currency, loc)
-                  : `${reward.emoji} ${reward.label ?? tLabel("progression.reward")}`}
-              </p>
-            </div>
-            <ArrowRightIcon className="size-4 shrink-0 text-slate-400" />
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-primary/10">
-            <div
-              className="h-full rounded-full bg-primary transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <p className="text-xs text-slate-500">
-            {t("progression.viewsToGo", {
-              count: p.remainingViews,
-              views: formatViews(p.remainingViews, loc),
-            })}
-          </p>
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
-
-/**
- * Bloc de missions du dashboard — plafonné à ITEM_CAP.
- *
- * Le reliquat n'est plus une mention morte : « +N de plus… » est un LIEN vers
- * « Mes missions », qui liste tout. Sans ce lien, une créatrice au-delà de 5
- * missions n'avait aucun chemin vers la 6ᵉ depuis ce bloc (constaté en prod :
- * 16 missions actionnables pour une créatrice, 5 affichées).
- */
-function AssignmentList({
-  items,
-  base,
-  showFeedback,
-  managed,
-}: {
-  items: CreatorAssignment[];
-  base: string;
-  showFeedback?: boolean;
-  /** Comptes gérés : pas d'urgence, badge « géré par l'équipe » au lieu du statut. */
-  managed?: boolean;
-}) {
-  const t = useTranslations("portal");
-  const shown = items.slice(0, ITEM_CAP);
-  const extra = items.length - shown.length;
-  return (
-    <ul className="space-y-2">
-      {shown.map((a) => (
-        <li key={a._id}>
-          <MissionListItem
-            assignment={a}
-            base={base}
-            showFeedback={showFeedback}
-            managed={managed}
-          />
-        </li>
-      ))}
-      {extra > 0 && (
-        <li className="px-1 pt-1">
-          <Link
-            href={portalHref(base, "/missions")}
-            data-testid="see-all-missions"
-            className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 underline underline-offset-4 hover:text-slate-900"
-          >
-            {t("missions.seeAll", { count: extra })}
-            <ArrowRightIcon className="size-3" />
-          </Link>
-        </li>
-      )}
-    </ul>
-  );
-}
-
-/**
- * Récap « Mes vidéos publiées » (Snytch) — 3 chiffres du MOIS (vidéos en ligne /
- * vues cumulées / gains générés) + lien vers le détail par vidéo. Rendu SEULEMENT
- * si au moins une vidéo est publiée ce mois-ci (jamais de carte vide). Les gains
- * = somme des gains PAR VIDÉO déjà plafonnés 150 $ (source unique, cf VideosScreen).
- */
-function VideoStatsCard({
-  projectId,
-  base,
-  currency,
-}: {
-  projectId: Id<"projects">;
-  base: string;
-  currency?: string | null;
-}) {
-  const loc = useIntlLocale();
-  const t = useTranslations("portal");
-  const stats = useMyVideoStats(projectId);
-  if (!stats || stats.onlineCount === 0) return null;
-  return (
-    <Card data-testid="video-stats-card">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <FilmIcon className="size-4 text-slate-400" />
-          {t("dashboard.videos.title")}
-        </CardTitle>
-        <CardDescription>{t("dashboard.videos.subtitle")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-3 gap-2">
-          <VideoStat label={t("dashboard.videos.online")} value={String(stats.onlineCount)} />
-          <VideoStat label={t("dashboard.videos.views")} value={formatViews(stats.totalViews, loc)} />
-          <VideoStat label={t("dashboard.videos.gains")} value={formatMoney(stats.totalGain, currency, loc)} />
-        </div>
-        <Link
-          href={portalHref(base, "/videos")}
-          className="inline-flex items-center gap-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
-        >
-          {t("dashboard.videos.detailLink")}
-          <ArrowRightIcon className="size-3.5" />
-        </Link>
-      </CardContent>
-    </Card>
-  );
-}
-
-function VideoStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-slate-50 py-3 text-center">
-      <p
-        className="text-lg font-semibold tabular-nums text-slate-900"
-        data-testid="video-stat-value"
-      >
-        {value}
-      </p>
-      <p className="text-xs text-slate-500">{label}</p>
-    </div>
-  );
-}
-
-function EarningsOverview({
-  loading,
-  dueNow,
-  nextPayoutTs,
-  payoutDays,
-  detailHref,
-  currency,
-}: {
-  loading: boolean;
-  dueNow: number;
-  nextPayoutTs: number | null;
-  payoutDays: number | null;
-  detailHref: string;
-  currency?: string | null;
-}) {
-  const t = useTranslations("portal");
-  const loc = useIntlLocale();
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <WalletIcon className="size-4 text-slate-400" />
-          {t("dashboard.earnings.title")}
-        </CardTitle>
-        <CardDescription>{t("dashboard.earnings.subtitle")}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-1">
-        {loading ? (
-          <Skeleton className="h-9 w-24" />
-        ) : (
-          <p
-            className="text-3xl font-semibold tabular-nums text-slate-900"
-            data-testid="dashboard-due"
-          >
-            {formatMoney(dueNow, currency, loc)}
-          </p>
-        )}
-        {nextPayoutTs !== null && payoutDays !== null && (
-          <p className="text-xs text-slate-500">
-            {dueNow > 0
-              ? t("dashboard.earnings.paidIn", { days: payoutDays, date: formatMoneyDate(nextPayoutTs, loc) })
-              : t("dashboard.earnings.nextPayout", { date: formatMoneyDate(nextPayoutTs, loc) })}
-          </p>
-        )}
-        <Link
-          href={detailHref}
-          className="inline-flex items-center gap-1 pt-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
-        >{t("dashboard.seeDetail")}<ArrowRightIcon className="size-3.5" />
-        </Link>
-      </CardContent>
-    </Card>
   );
 }

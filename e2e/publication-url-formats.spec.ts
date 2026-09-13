@@ -209,7 +209,9 @@ test.describe("Publication — formes d'URL", () => {
     await expect(inline).toBeHidden();
     await expect(page.getByTestId("url-unknown-TikTok")).toBeHidden();
     await confirmer.click();
-    await expect(page.getByText(/Publié/)).toBeVisible({ timeout: 15_000 });
+    // Texte EXACT de la confirmation : la fiche porte aussi l'étape « Publiée »
+    // du parcours de mission, qu'une regex /Publié/ attraperait en plus.
+    await expect(page.getByText("Publié ✓", { exact: true })).toBeVisible({ timeout: 15_000 });
 
     // Le serveur a bien enregistré la publication, pas seulement l'écran.
     const apres = await admin.query(api.assignments.listAssignments, {});

@@ -46,6 +46,9 @@ test.describe("Bio à mettre — portail créateur (UI)", () => {
       .click();
     await creator.waitForURL("**/app", { timeout: 20_000 });
 
+    // Les comptes vivent sous l'onglet « Moi » (nav à quatre onglets).
+    await creator.getByRole("link", { name: "Moi", exact: true }).first().click();
+    await creator.waitForURL("**/app/moi", { timeout: 15_000 });
     await creator
       .getByRole("link", { name: "Mes comptes", exact: true })
       .click();

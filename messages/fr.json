@@ -665,7 +665,12 @@
       "groupHint": {
         "catchup": "Le jour prévu est passé et rien n'est encore publié.",
         "undated": "Aucune date de publication n'a été planifiée — tu peux les tourner quand tu veux."
-      }
+      },
+      "view": {
+        "todo": "À faire",
+        "done": "Terminées"
+      },
+      "doneEmpty": "Aucune mission publiée pour l'instant."
     },
     "nudge": {
       "addPaymentInfo": "Ajoute tes coordonnées de paiement",
@@ -712,6 +717,104 @@
       "syncLineOver": "Dernier relevé : {date} à {time}",
       "finalRanking": "Classement d'arrivée",
       "leaderboardLive": "Classement"
+    },
+    "tabs": {
+      "today": "Aujourd'hui",
+      "missions": "Missions",
+      "gains": "Gains",
+      "moi": "Moi"
+    },
+    "home": {
+      "nextAction": "Ta prochaine action",
+      "kind": {
+        "catchupTitle": "Publier « {name} »",
+        "catchupHint": "Prévue le {date}, pas encore publiée.",
+        "catchupOthers": "{count, plural, one {+ # autre à rattraper} other {+ # autres à rattraper}}",
+        "publishTodayTitle": "Publier « {name} »",
+        "publishTodayHint": "À publier aujourd'hui.",
+        "redoTitle": "Refaire « {name} »",
+        "redoHint": "Ta vidéo a été refusée : corrige-la et renvoie-la.",
+        "warmupTitle": "{count, plural, one {Faire le check de chauffe du jour} other {Faire les # checks de chauffe du jour}}",
+        "publishTitle": "Publier « {name} »",
+        "publishHint": "Validée, à publier le {date}.",
+        "publishHintNoDate": "Validée : tu peux la publier.",
+        "produceTitle": "Tourner « {name} »",
+        "produceHint": "À envoyer avant le {date}.",
+        "waitingTitle": "{count, plural, one {Ta vidéo est en validation} other {Tes # vidéos sont en validation}}",
+        "waitingHint": "Rien à faire pour l'instant : l'équipe les regarde.",
+        "others": "{count, plural, one {+ # autre mission du même type} other {+ # autres missions du même type}}"
+      },
+      "cta": {
+        "open": "Ouvrir la mission",
+        "publish": "Publier maintenant",
+        "shoot": "Commencer",
+        "redo": "Voir le retour",
+        "warmup": "Cocher ma chauffe",
+        "missions": "Voir mes missions"
+      },
+      "counters": {
+        "toShoot": "à tourner",
+        "toPublish": "à publier",
+        "toRedo": "à refaire"
+      },
+      "gainsTitle": "Ce cycle",
+      "rank": {
+        "title": "Classement du cycle",
+        "place": "{rank, selectordinal, one {#re} other {#e}} sur {total}",
+        "gap": "{amount} te séparent de la place du dessus.",
+        "first": "Tu es en tête du cycle.",
+        "seeAll": "Voir le classement"
+      },
+      "upcoming": "Ensuite",
+      "upcomingAll": "Toutes mes missions"
+    },
+    "gains": {
+      "title": "Gains",
+      "subtitle": "Ce que tu as gagné, et ce qui arrive.",
+      "cycle": "Cycle du {range}",
+      "split": {
+        "fixed": "Fixe",
+        "views": "Vues",
+        "bonus": "Bonus"
+      },
+      "detail": "Voir le détail et l'historique",
+      "tiersTitle": "Paliers de bonus",
+      "toGo": "Encore {views} vues",
+      "rankingTitle": "Classement du cycle",
+      "videosTitle": "Tes vidéos",
+      "videosAll": "Toutes mes vidéos",
+      "views": "{views} vues"
+    },
+    "moi": {
+      "title": "Moi",
+      "account": {
+        "active": "Actif",
+        "warmup": "Chauffe · jour {done} sur {target}",
+        "checkToday": "Check du jour à faire",
+        "bio": "Bio à appliquer",
+        "archived": "Archivé",
+        "pending": "En attente"
+      },
+      "space": "Mon espace",
+      "payment": "Coordonnées de paiement",
+      "paymentTodo": "À compléter",
+      "paymentDone": "Renseignées",
+      "guideHint": "Le guide du projet, étape par étape",
+      "filesHint": "Dépose tes fichiers",
+      "toolsHint": "Les outils du projet",
+      "profileHint": "Identité, langue et contrat"
+    },
+    "mission": {
+      "step": {
+        "shoot": "Tourner",
+        "review": "Validation",
+        "publish": "Publier",
+        "done": "Publiée"
+      },
+      "dueBefore": "À envoyer avant le {date}",
+      "plannedOn": "À publier le {date}",
+      "earn": "Tu gagnes {amount} par vidéo, plus un bonus selon les vues.",
+      "back": "Mes missions"
     }
   },
   "status": {

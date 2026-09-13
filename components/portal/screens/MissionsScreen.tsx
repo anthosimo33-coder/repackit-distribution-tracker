@@ -58,6 +58,17 @@ export default function MissionsScreen() {
     [list],
   );
   const managed = useMemo(() => list.filter((a) => a.managedByAdmin), [list]);
+  // « Terminées » : publiées ou payées, la plus récente en tête. C'est l'autre
+  // moitié de la question « où en suis-je ? » — sans elle, une mission publiée
+  // disparaissait du portail sauf à passer par les vidéos.
+  const [vue, setVue] = useState<"todo" | "done">("todo");
+  const done = useMemo(
+    () =>
+      list
+        .filter((a) => !a.managedByAdmin && (a.status === "published" || a.status === "paid"))
+        .sort((x, y) => (representativePostedAt(y) ?? 0) - (representativePostedAt(x) ?? 0)),
+    [list],
+  );
 
   const groups = useMemo(
     () =>
@@ -94,7 +105,7 @@ export default function MissionsScreen() {
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
           {t("missions.title")}
         </h1>
         <p className="text-sm text-slate-500">
@@ -104,7 +115,48 @@ export default function MissionsScreen() {
         </p>
       </header>
 
-      {assignments === undefined ? (
+      <div
+        role="group"
+        aria-label={t("missions.title")}
+        className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1"
+      >
+        {(["todo", "done"] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            aria-pressed={vue === k}
+            data-testid={`missions-view-${k}`}
+            onClick={() => setVue(k)}
+            className={
+              vue === k
+                ? "h-10 rounded-lg bg-white text-sm font-semibold text-slate-900 shadow-sm"
+                : "h-10 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-900"
+            }
+          >
+            {k === "todo"
+              ? `${t("missions.view.todo")} · ${mine.length}`
+              : `${t("missions.view.done")} · ${done.length}`}
+          </button>
+        ))}
+      </div>
+
+      {vue === "done" && assignments !== undefined ? (
+        done.length === 0 ? (
+          <Card data-testid="missions-done-empty">
+            <CardContent className="p-6 text-sm text-slate-500">
+              {t("missions.doneEmpty")}
+            </CardContent>
+          </Card>
+        ) : (
+          <ul className="space-y-2" data-testid="missions-done-list">
+            {done.map((a) => (
+              <li key={a._id}>
+                <MissionListItem assignment={a} base={base} />
+              </li>
+            ))}
+          </ul>
+        )
+      ) : assignments === undefined ? (
         <div className="space-y-3">
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />

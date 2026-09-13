@@ -61,7 +61,7 @@ export function canObserveMoney(d: Droits): boolean {
  * Ce sont les trois écrans faits de gains : les cycles de paie, le gain de
  * chaque vidéo, le montant des paliers.
  */
-export const MONEY_SUBS = ["/paiements", "/videos", "/progression"] as const;
+export const MONEY_SUBS = ["/gains", "/paiements", "/videos", "/progression"] as const;
 
 /** `sub` (relatif à la base d'observation) est-il un écran de gains ? */
 export function isMoneySub(sub: string): boolean {

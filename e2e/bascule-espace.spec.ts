@@ -70,7 +70,7 @@ test("une créatrice-manager va d'un espace à l'autre, dans les deux sens", asy
   await page.waitForTimeout(2500);
   // …qui est bien LE SIEN : le portail rend son tableau de bord, il ne la
   // renvoie pas vers l'app interne.
-  await expect(page.getByRole("link", { name: /Mes paiements/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Gains", exact: true }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /Espace équipe/ }).first()).toBeVisible();
 
   // …et retour vers l'app interne.
@@ -116,6 +116,6 @@ test("une créatrice SANS rôle manager ne voit aucune porte", async ({ browser 
   await page.waitForTimeout(2500);
   await expect(page.getByRole("link", { name: /Espace équipe/ })).toHaveCount(0);
   // PRÉSENCE en regard : son portail est bien rendu, ce n'est pas une page vide.
-  await expect(page.getByRole("link", { name: /Mes paiements/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Gains", exact: true }).first()).toBeVisible();
   await ctx.close();
 });

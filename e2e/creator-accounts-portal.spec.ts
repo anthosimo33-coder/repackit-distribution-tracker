@@ -41,7 +41,10 @@ test.describe("Portail créateur — /app/comptes", () => {
     await page.getByRole("button", { name: /activer mon compte/i }).click();
     await page.waitForURL("**/app", { timeout: 20_000 });
 
-    // Mes comptes (lien de nav — exact pour ne pas matcher le bouton d'accueil).
+    // Mes comptes — sous l'onglet « Moi » (nav à quatre onglets). `exact` pour ne
+    // pas matcher un autre lien qui contiendrait le mot.
+    await page.getByRole("link", { name: "Moi", exact: true }).first().click();
+    await page.waitForURL("**/app/moi", { timeout: 15_000 });
     await page.getByRole("link", { name: "Mes comptes", exact: true }).click();
     await page.waitForURL("**/app/comptes", { timeout: 15_000 });
 

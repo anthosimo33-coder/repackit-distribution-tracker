@@ -58,6 +58,9 @@ const ENTRIES = [
   // Portail partenaire
   "app/app/layout.tsx",
   "app/app/page.tsx",
+  "app/app/gains/page.tsx",
+  "app/app/moi/page.tsx",
+  "app/app/missions/page.tsx",
   "app/app/comptes/page.tsx",
   "app/app/paiements/page.tsx",
   "app/app/profil/page.tsx",
