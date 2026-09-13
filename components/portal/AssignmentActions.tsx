@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
+import { celebrate } from "@/lib/celebrate";
+import { haptic } from "@/lib/haptics";
+import { suggestedPostUrl } from "@/lib/clipboard-post-url";
+import { estimateMissionEarnings } from "@/lib/pricing-engine";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -26,6 +30,7 @@ import {
   CheckCircle2Icon,
   ExternalLinkIcon,
   UsersIcon,
+  ClipboardPasteIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
@@ -66,6 +71,7 @@ export function AssignmentActions({
   submittedVideoUrl,
   submittedVideoMimeType,
   readOnly = false,
+  missionName,
 }: {
   assignment: Doc<"assignments">;
   targets: Target[];
@@ -74,6 +80,8 @@ export function AssignmentActions({
   submittedVideoMimeType?: string | null;
   /** Admin view-as : aucune action ; l'état du workflow est rendu en lecture. */
   readOnly?: boolean;
+  /** Nom de la mission, repris par la célébration de publication. */
+  missionName?: string;
 }) {
   const showError = useConvexError();
   const t = useTranslations("portal");
@@ -88,6 +96,63 @@ export function AssignmentActions({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // Lien de publication trouvé dans le presse-papiers, par plateforme.
+  const [clipSuggest, setClipSuggest] = useState<Record<string, string>>({});
+
+  // « C'EST CE LIEN ? » — au retour sur l'écran (elle revient de TikTok), on
+  // regarde le presse-papiers et on propose le lien qui s'y trouve.
+  //
+  // ⚠️ SEULEMENT SI LA LECTURE EST DÉJÀ AUTORISÉE. Lire sans permission ferait
+  // surgir une demande du navigateur à chaque retour sur l'onglet — une
+  // interruption, pas une aide. La première autorisation se donne en touchant
+  // « Coller » (un geste explicite) ; ensuite, la suggestion arrive seule.
+  useEffect(() => {
+    if (assignment.status !== "to_publish" || readOnly || assignment.managedByAdmin) return;
+    let alive = true;
+    async function probe() {
+      try {
+        const perm = await navigator.permissions?.query({
+          name: "clipboard-read" as PermissionName,
+        });
+        if (!perm || perm.state !== "granted") return;
+        const text = await navigator.clipboard.readText();
+        if (!alive) return;
+        const next: Record<string, string> = {};
+        for (const target of targets) {
+          const found = suggestedPostUrl(text, target.platform);
+          if (found) next[target.platform] = found;
+        }
+        setClipSuggest(next);
+      } catch {
+        /* navigateur sans API de permission, ou lecture refusée : pas de suggestion */
+      }
+    }
+    void probe();
+    const onBack = () => {
+      if (document.visibilityState === "visible") void probe();
+    };
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    return () => {
+      alive = false;
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("focus", onBack);
+    };
+  }, [assignment.status, assignment.managedByAdmin, readOnly, targets]);
+
+  /** « Coller » : le geste qui autorise la lecture, et remplit le champ. */
+  async function pasteInto(platform: Platform) {
+    try {
+      const text = await navigator.clipboard.readText();
+      // Lien reconnu → on le garde propre ; sinon le texte brut, que la
+      // vérification du champ commentera (profil, mauvaise plateforme).
+      const value = suggestedPostUrl(text, platform) ?? text.trim();
+      setUrls((prev) => ({ ...prev, [platform]: value }));
+      haptic("tap");
+    } catch {
+      /* lecture refusée : le champ reste modifiable à la main */
+    }
+  }
 
   const s = assignment.status;
   // Compte GÉRÉ par l'équipe : la créatrice ne soumet ni ne publie rien (l'admin
@@ -158,8 +223,18 @@ export function AssignmentActions({
           url: (urls[t.platform] ?? "").trim(),
         })),
       });
-      toast.success(t("assignment.published"));
+      // Le moment de fierté de la mission : il se CÉLÈBRE (confettis, vibration,
+      // gain par vidéo) au lieu d'un toast qui passe inaperçu.
+      const perVideo = assignment.pricingSnapshot
+        ? estimateMissionEarnings(assignment.pricingSnapshot, 0).fixed
+        : null;
+      celebrate({
+        kind: "published",
+        missionName: missionName ?? "",
+        perVideo: perVideo && perVideo > 0 ? perVideo : null,
+      });
       setUrls({});
+      setClipSuggest({});
     } catch (err) {
       toast.error(showError(err, t("assignment.publishFailed")));
     } finally {
@@ -399,15 +474,26 @@ export function AssignmentActions({
             detectInspirationType(val) === null;
           return (
             <div key={target.platform} className="space-y-1.5">
-              <Label htmlFor={`url-${target.platform}`}>
-                {t("assignment.publishOn", { platform: target.platform })}
-                {target.accountHandle ? (
-                  <span className="font-mono text-slate-500">
-                    {" "}
-                    {target.accountHandle}
-                  </span>
-                ) : null}
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor={`url-${target.platform}`}>
+                  {t("assignment.publishOn", { platform: target.platform })}
+                  {target.accountHandle ? (
+                    <span className="font-mono text-slate-500">
+                      {" "}
+                      {target.accountHandle}
+                    </span>
+                  ) : null}
+                </Label>
+                <button
+                  type="button"
+                  onClick={() => void pasteInto(target.platform)}
+                  data-testid={`paste-url-${target.platform}`}
+                  className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
+                >
+                  <ClipboardPasteIcon className="size-3.5" />
+                  {t("publishFlow.paste")}
+                </button>
+              </div>
               <Input
                 id={`url-${target.platform}`}
                 type="url"
@@ -420,6 +506,33 @@ export function AssignmentActions({
                 required
                 className="h-11 sm:h-9"
               />
+              {clipSuggest[target.platform] && val.trim() === "" && (
+                <button
+                  type="button"
+                  data-testid={`clip-suggest-${target.platform}`}
+                  onClick={() => {
+                    setUrls((prev) => ({
+                      ...prev,
+                      [target.platform]: clipSuggest[target.platform],
+                    }));
+                    haptic("tap");
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-left transition-colors hover:bg-primary/10 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-1"
+                >
+                  <ClipboardPasteIcon className="size-4 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold text-primary">
+                      {t("publishFlow.suggestion")}
+                    </span>
+                    <span className="block truncate font-mono text-xs text-slate-600">
+                      {clipSuggest[target.platform]}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold text-primary">
+                    {t("publishFlow.use")}
+                  </span>
+                </button>
+              )}
               {issue !== null && (
                 <p
                   className="text-xs text-rose-600"

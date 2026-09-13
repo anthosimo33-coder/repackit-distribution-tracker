@@ -742,7 +742,8 @@
         "produceHint": "À envoyer avant le {date}.",
         "waitingTitle": "{count, plural, one {Ta vidéo est en validation} other {Tes # vidéos sont en validation}}",
         "waitingHint": "Rien à faire pour l'instant : l'équipe les regarde.",
-        "others": "{count, plural, one {+ # autre mission du même type} other {+ # autres missions du même type}}"
+        "others": "{count, plural, one {+ # autre mission du même type} other {+ # autres missions du même type}}",
+        "publishTodayBefore": "À publier aujourd'hui, avant {time}."
       },
       "cta": {
         "open": "Ouvrir la mission",
@@ -766,7 +767,12 @@
         "seeAll": "Voir le classement"
       },
       "upcoming": "Ensuite",
-      "upcomingAll": "Toutes mes missions"
+      "upcomingAll": "Toutes mes missions",
+      "dayPart": {
+        "morning": "ce matin",
+        "afternoon": "cet après-midi",
+        "evening": "ce soir"
+      }
     },
     "gains": {
       "title": "Gains",
@@ -815,6 +821,41 @@
       "plannedOn": "À publier le {date}",
       "earn": "Tu gagnes {amount} par vidéo, plus un bonus selon les vues.",
       "back": "Mes missions"
+    },
+    "celebrate": {
+      "publishedTitle": "Publiée !",
+      "publishedEarn": "{amount} en route vers ton prochain paiement.",
+      "publishedNoEarn": "Tes vues comptent dès maintenant.",
+      "rankUpTitle": "Tu passes {rank, selectordinal, one {#re} other {#e}} !",
+      "rankUpBody": "Sur {total} créatrices classées ce cycle.",
+      "streakTitle": "{count} publications à l'heure d'affilée",
+      "streakBody": "Tu tiens le rythme. Continue comme ça.",
+      "warmupDoneTitle": "Chauffe terminée !",
+      "warmupDoneBody": "@{handle} a fini sa chauffe.",
+      "close": "Fermer"
+    },
+    "streak": {
+      "label": "Ta série",
+      "inARow": "{count, plural, one {publication à l'heure} other {publications à l'heure d'affilée}}",
+      "best": "Record : {count}",
+      "restart": "Ton record : {count}. Publie à l'heure pour repartir."
+    },
+    "pulse": {
+      "yesterday": "Hier",
+      "views": "+{views} vues sur tes vidéos",
+      "estimated": "Estimation : un relevé de vues a manqué.",
+      "perVideo": "+{views} hier"
+    },
+    "publishFlow": {
+      "paste": "Coller",
+      "suggestion": "C'est ce lien ?",
+      "use": "Utiliser",
+      "copyOpen": "Copier et ouvrir {platform}"
+    },
+    "install": {
+      "title": "Installer l'app",
+      "hint": "Ton espace en un tap depuis l'écran d'accueil",
+      "iosHint": "Touche Partager, puis « Sur l'écran d'accueil »."
     }
   },
   "status": {

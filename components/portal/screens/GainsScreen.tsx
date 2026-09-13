@@ -12,6 +12,9 @@ import {
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
 import { RankCard } from "@/components/portal/RankCard";
+import { AnimatedNumber } from "@/components/portal/AnimatedNumber";
+import { ViewsPulseCard } from "@/components/portal/ViewsPulseCard";
+import { useMyViewsPulse } from "@/components/portal/creator-data";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildProgression, type ProgressionReward } from "@/lib/progression";
 import { formatMoney, formatViews } from "@/lib/format-rate";
@@ -82,6 +85,8 @@ export default function GainsScreen() {
 
       <PaymentInfoNudge projectId={current.projectId} />
 
+      <ViewsPulseCard />
+
       {payments === undefined ? (
         <Skeleton className="h-52 w-full rounded-xl" />
       ) : (
@@ -93,12 +98,12 @@ export default function GainsScreen() {
                   ? t("gains.cycle", { range: formatCycleRange(cycle.cycleStart, cycle.cycleEnd, loc) })
                   : t("paiements.dueThisCycle")}
               </p>
-              <p
-                data-testid="gains-due"
-                className="text-4xl font-bold tracking-tight tabular-nums text-slate-900 sm:text-5xl"
-              >
-                {formatMoney(due, currency, loc)}
-              </p>
+              <AnimatedNumber
+                testId="gains-due"
+                value={due}
+                format={(n) => formatMoney(n, currency, loc)}
+                className="block text-4xl font-bold tracking-tight tabular-nums text-slate-900 sm:text-5xl"
+              />
               <p className="text-sm text-slate-500">
                 {payoutTs !== null && days !== null
                   ? due > 0
@@ -118,7 +123,7 @@ export default function GainsScreen() {
 
           {splitTotal > 0 && (
             <div className="mt-5 space-y-3">
-              <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-slate-100">
+              <div className="flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-slate-100 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-left-4 motion-safe:duration-700">
                 {split
                   .filter((x) => x.amount > 0)
                   .map((x) => (
@@ -282,6 +287,9 @@ function VideosCard() {
   const { current } = useCreatorProject();
   const base = usePortalBase();
   const videos = useMyPublishedVideos(current.projectId);
+  const pulse = useMyViewsPulse(current.projectId);
+  const yesterdayOf = (assignmentId: string) =>
+    pulse?.perAssignment.find((p) => p.assignmentId === assignmentId)?.views ?? 0;
   if (!isSnytchProject(current.slug)) return null;
   if (videos === undefined) return <Skeleton className="h-48 w-full rounded-xl" />;
   const online = videos
@@ -317,6 +325,11 @@ function VideosCard() {
               <p className="text-xs tabular-nums text-slate-500">
                 {v.views === null ? "—" : t("gains.views", { views: formatViews(v.views, loc) })}
               </p>
+              {yesterdayOf(v.id) > 0 && (
+                <p className="text-[11px] font-semibold tabular-nums text-emerald-600">
+                  {t("pulse.perVideo", { views: formatViews(yesterdayOf(v.id), loc) })}
+                </p>
+              )}
             </div>
           </li>
         ))}

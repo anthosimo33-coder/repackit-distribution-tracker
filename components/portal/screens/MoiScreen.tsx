@@ -23,6 +23,7 @@ import {
 } from "@/components/portal/creator-data";
 import { usePortalBase, useReadOnly } from "@/components/portal/ViewAsContext";
 import { Skeleton } from "@/components/ui/skeleton";
+import { InstallAppRow } from "@/components/portal/InstallAppRow";
 import { needsPaymentInfo } from "@/lib/creator-payment";
 import { getCreatorTools } from "@/lib/creator-tools";
 import { isSnytchProject } from "@/lib/snytch-drive";
@@ -171,6 +172,7 @@ export default function MoiScreen() {
               />
             </li>
           )}
+          {!readOnly && <InstallAppRow />}
           <li>
             <MoiRow
               href={portalHref(base, "/profil")}

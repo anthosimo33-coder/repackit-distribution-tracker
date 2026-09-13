@@ -24,6 +24,8 @@ import {
 import { warmupProgress, mustCheckToday } from "@/lib/warmup";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
+import { celebrate } from "@/lib/celebrate";
+import { haptic } from "@/lib/haptics";
 
 /**
  * P5 — carte d'un compte côté portail créateur. En warmup : mots-clés,
@@ -80,7 +82,14 @@ export function WarmupCompteCard({
     setSubmitting(true);
     try {
       await markCheck({ projectId, id: compte._id });
-      toast.success(tw("checkDone"));
+      haptic("tap");
+      // Le check qui TERMINE la chauffe est une étape franchie, pas un check de
+      // plus : il se célèbre. Les autres gardent leur toast discret.
+      if (isWarmup && dailyChecks.length + 1 >= targetDays) {
+        celebrate({ kind: "warmupDone", handle: compte.handle });
+      } else {
+        toast.success(tw("checkDone"));
+      }
     } catch (e) {
       toast.error(showError(e, tw("error")));
     } finally {

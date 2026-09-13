@@ -154,6 +154,8 @@ import type * as tiktokPublicPage from "../tiktokPublicPage.js";
 import type * as trackerData from "../trackerData.js";
 import type * as viewCounters from "../viewCounters.js";
 import type * as viewsDaily from "../viewsDaily.js";
+import type * as viewsPulse from "../viewsPulse.js";
+import type * as viewsPulseCore from "../viewsPulseCore.js";
 import type * as warmup from "../warmup.js";
 import type * as warmupGuideFused from "../warmupGuideFused.js";
 import type * as warmupMode from "../warmupMode.js";
@@ -321,6 +323,8 @@ declare const fullApi: ApiFromModules<{
   trackerData: typeof trackerData;
   viewCounters: typeof viewCounters;
   viewsDaily: typeof viewsDaily;
+  viewsPulse: typeof viewsPulse;
+  viewsPulseCore: typeof viewsPulseCore;
   warmup: typeof warmup;
   warmupGuideFused: typeof warmupGuideFused;
   warmupMode: typeof warmupMode;

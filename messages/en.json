@@ -742,7 +742,8 @@
         "produceHint": "Send it before {date}.",
         "waitingTitle": "{count, plural, one {Your video is being reviewed} other {Your # videos are being reviewed}}",
         "waitingHint": "Nothing to do for now: the team is reviewing them.",
-        "others": "{count, plural, one {+ # more mission of this kind} other {+ # more missions of this kind}}"
+        "others": "{count, plural, one {+ # more mission of this kind} other {+ # more missions of this kind}}",
+        "publishTodayBefore": "To post today, before {time}."
       },
       "cta": {
         "open": "Open mission",
@@ -766,7 +767,12 @@
         "seeAll": "See the ranking"
       },
       "upcoming": "Up next",
-      "upcomingAll": "All my missions"
+      "upcomingAll": "All my missions",
+      "dayPart": {
+        "morning": "this morning",
+        "afternoon": "this afternoon",
+        "evening": "tonight"
+      }
     },
     "gains": {
       "title": "Earnings",
@@ -815,6 +821,41 @@
       "plannedOn": "Post on {date}",
       "earn": "You earn {amount} per video, plus a bonus based on views.",
       "back": "My missions"
+    },
+    "celebrate": {
+      "publishedTitle": "Posted!",
+      "publishedEarn": "{amount} on its way to your next payout.",
+      "publishedNoEarn": "Your views count from now on.",
+      "rankUpTitle": "You're now {rank, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}!",
+      "rankUpBody": "Out of {total} ranked creators this cycle.",
+      "streakTitle": "{count} on-time posts in a row",
+      "streakBody": "You're keeping the pace. Keep it up.",
+      "warmupDoneTitle": "Warm-up complete!",
+      "warmupDoneBody": "@{handle} has finished warming up.",
+      "close": "Close"
+    },
+    "streak": {
+      "label": "Your streak",
+      "inARow": "{count, plural, one {on-time post} other {on-time posts in a row}}",
+      "best": "Best: {count}",
+      "restart": "Your best: {count}. Post on time to start again."
+    },
+    "pulse": {
+      "yesterday": "Yesterday",
+      "views": "+{views} views on your videos",
+      "estimated": "Estimate: a view reading was missed.",
+      "perVideo": "+{views} yesterday"
+    },
+    "publishFlow": {
+      "paste": "Paste",
+      "suggestion": "Is this the link?",
+      "use": "Use it",
+      "copyOpen": "Copy and open {platform}"
+    },
+    "install": {
+      "title": "Install the app",
+      "hint": "Your space one tap away from your home screen",
+      "iosHint": "Tap Share, then “Add to Home Screen”."
     }
   },
   "status": {

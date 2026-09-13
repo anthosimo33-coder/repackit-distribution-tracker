@@ -38,7 +38,10 @@ import {
   type StepState,
   type OnboardingDerived,
 } from "@/lib/onboarding";
-import { Skeleton } from "@/components/ui/skeleton";
+import { HomeSkeleton } from "@/components/portal/skeletons";
+import { StreakCard } from "@/components/portal/StreakCard";
+import { ViewsPulseCard } from "@/components/portal/ViewsPulseCard";
+import { dayPartAt, type DayPart } from "@/lib/day-part";
 import {
   ArrowRightIcon,
   CircleCheckIcon,
@@ -79,6 +82,11 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 
 const UPCOMING_CAP = 5;
 
+/** Minutes depuis minuit local → "HH:MM" (même repère que le créneau stocké). */
+function minutesToHhmm(min: number): string {
+  return `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+}
+
 export default function DashboardScreen() {
   const t = useTranslations("portal");
   const loc = useIntlLocale();
@@ -102,6 +110,11 @@ export default function DashboardScreen() {
   const loaded = assignments !== undefined && onboarding !== null;
   const showChecklist = onboarding?.applicable === true && !onboarding.complete;
   const fullyManaged = onboarding?.fullyManaged === true;
+  // Moment de la journée CHEZ ELLE : son fuseau est servi sur ses missions.
+  const dayPart = dayPartAt(
+    nowMs,
+    list.find((a) => a.creatorTimezone)?.creatorTimezone ?? null,
+  );
 
   const managedList = list.filter((a) => a.managedByAdmin);
   const actionable = list.filter(
@@ -119,6 +132,7 @@ export default function DashboardScreen() {
         now: nowMs,
         warmupDue,
         onboardingPending: showChecklist,
+        dayPart,
       })
     : null;
   const heroId = action && "row" in action ? action.row._id : null;
@@ -160,10 +174,7 @@ export default function DashboardScreen() {
       <PaymentInfoNudge projectId={projectId} />
 
       {!loaded || action === null ? (
-        <div className="space-y-3">
-          <Skeleton className="h-52 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
+        <HomeSkeleton />
       ) : (
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start">
           <div className="min-w-0 space-y-6">
@@ -172,7 +183,7 @@ export default function DashboardScreen() {
             ) : action.kind === "allClear" ? (
               <AllClear />
             ) : (
-              <NextActionCard action={action} base={base} />
+              <NextActionCard action={action} base={base} dayPart={dayPart} />
             )}
 
             {fullyManaged && <ManagedByTeamNotice />}
@@ -277,12 +288,14 @@ export default function DashboardScreen() {
             <CreatorPublicationCalendar list={list} now={nowMs} base={base} />
           </div>
 
-          {argent && (
-            <aside className="min-w-0 space-y-6">
-              <CycleGainsCard />
-              <RankCard variant="window" />
-            </aside>
-          )}
+          {/* Vues d'hier et série ne sont pas de l'argent : visibles en
+              observation. Gains et classement restent derrière le droit. */}
+          <aside className="min-w-0 space-y-6">
+            <ViewsPulseCard />
+            {argent && <CycleGainsCard />}
+            <StreakCard />
+            {argent && <RankCard variant="window" />}
+          </aside>
         </div>
       )}
     </div>
@@ -323,9 +336,11 @@ function Counter({
 function NextActionCard({
   action,
   base,
+  dayPart,
 }: {
   action: Exclude<NextAction<CreatorAssignment>, { kind: "onboarding" } | { kind: "allClear" }>;
   base: string;
+  dayPart: DayPart;
 }) {
   const t = useTranslations("portal");
   const tLabel = useLabel();
@@ -359,7 +374,10 @@ function NextActionCard({
     case "publishToday":
       icon = SendIcon;
       title = t("home.kind.publishTodayTitle", { name: action.row.formatName });
-      hint = t("home.kind.publishTodayHint");
+      // Un créneau fixé : on donne l'HEURE LIMITE, c'est elle qui presse le soir.
+      hint = action.row.postWindow
+        ? t("home.kind.publishTodayBefore", { time: minutesToHhmm(action.row.postWindow.endMin) })
+        : t("home.kind.publishTodayHint");
       cta = t("home.cta.publish");
       break;
     case "redo":
@@ -410,7 +428,7 @@ function NextActionCard({
     >
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-          {t("home.nextAction")}
+          {t("home.nextAction")} · {t(`home.dayPart.${dayPart}`)}
         </p>
         <div className="flex min-w-0 items-center gap-2">
           {row && row.targets.length > 0 && (

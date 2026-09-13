@@ -9,7 +9,8 @@ import {
   useMyAssignment,
 } from "@/components/portal/creator-data";
 import { useReadOnly, usePortalBase } from "@/components/portal/ViewAsContext";
-import { Skeleton } from "@/components/ui/skeleton";
+import { MissionDetailSkeleton } from "@/components/portal/skeletons";
+import type { OpenPlatform } from "@/components/portal/CopyAndOpenButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ArrowLeftIcon,
@@ -83,7 +84,7 @@ export default function AssignmentDetailScreen({
         <ArrowLeftIcon className="size-4" />{ta("backToDashboard")}</Link>
 
       {data === undefined ? (
-        <Skeleton className="h-96 w-full" />
+        <MissionDetailSkeleton />
       ) : data === null ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-500">{ta("notFound")}</CardContent>
@@ -164,6 +165,11 @@ export default function AssignmentDetailScreen({
                         videoBlocks={data.scriptZones.videoBlocks}
                         descriptionScript={data.scriptZones.descriptionScript}
                         instructions={data.scriptInstructions}
+                        openOn={
+                          a.status === "to_publish" && !readOnly && !a.managedByAdmin
+                            ? (data.targets.map((t) => t.platform) as OpenPlatform[])
+                            : []
+                        }
                       />
                     ) : (
                       <Card>
@@ -277,6 +283,7 @@ export default function AssignmentDetailScreen({
                       submittedVideoUrl={data.submittedVideoUrl}
                       submittedVideoMimeType={data.submittedVideoMimeType}
                       readOnly={readOnly}
+                      missionName={data.formatName}
                     />
                   </CardContent>
                 </Card>
