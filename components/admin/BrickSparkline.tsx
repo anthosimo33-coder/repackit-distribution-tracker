@@ -1,4 +1,6 @@
-/**
+
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";/**
  * COURBE MINIATURE d'une brique de script — les vues de ses derniers runs, dans
  * l'ordre de publication.
  *
@@ -23,6 +25,8 @@ export function BrickSparkline({
   values: readonly number[];
   className?: string;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.scripts.BrickSparkline");
   if (values.length < 2) return null;
 
   const width = 52;
@@ -51,7 +55,7 @@ export function BrickSparkline({
       viewBox={`0 0 ${width} ${height}`}
       className={className}
       role="img"
-      aria-label={`${values.length} derniers runs, du plus ancien au plus récent ; dernier : ${dernier.toLocaleString("fr-FR")} vues`}
+      aria-label={tr("derniersRunsDuPlusAncien", { count: values.length, value: dernier.toLocaleString(loc) })}
     >
       <polyline
         points={points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ")}

@@ -3,6 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { formatDateFr } from "@/convex/dateFr";
 import type { HookAvailability } from "@/convex/hookAvailability";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Pastille de disponibilité d'un hook POUR UNE CRÉATRICE.
@@ -19,13 +21,15 @@ export function HookAvailabilityBadge({
 }: {
   availability: HookAvailability;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.scripts.HookAvailabilityBadge");
   if (availability.kind === "free") {
     return (
       <Badge
         variant="outline"
         className="shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700"
       >
-        Libre
+        {tr("libre")}
       </Badge>
     );
   }
@@ -34,9 +38,9 @@ export function HookAvailabilityBadge({
       <Badge
         variant="outline"
         className="shrink-0 border-amber-200 bg-amber-50 text-amber-700"
-        title="Fenêtre de cooldown à l'échelle du projet (tous créateurs confondus)"
+        title={tr("fenetreDeCooldownAL")}
       >
-        Cooldown → {formatDateFr(availability.until)}
+        {tr("cooldown", { date: formatDateFr(availability.until, loc) })}
       </Badge>
     );
   }
@@ -44,10 +48,10 @@ export function HookAvailabilityBadge({
     <Badge
       variant="outline"
       className="shrink-0 border-slate-200 bg-slate-50 text-slate-600"
-      title="Unicité à vie : cette créatrice a déjà reçu ce hook sur cette plateforme"
+      title={tr("uniciteAVieCetteCreatrice")}
     >
       {availability.creatorName} · {availability.platform}
-      {availability.at !== null ? ` · ${formatDateFr(availability.at)}` : ""}
+      {availability.at !== null ? ` · ${formatDateFr(availability.at, loc)}` : ""}
     </Badge>
   );
 }

@@ -16,6 +16,7 @@ import {
   resolveAssetContentType,
   validateAssetFile,
 } from "@/lib/asset-file";
+import { useTranslations } from "next-intl";
 
 // Accept = types MIME + extensions (certains OS ne renseignent pas le MIME des
 // .mp4/.mov dans le picker → l'extension garantit qu'ils restent sélectionnables).
@@ -57,13 +58,17 @@ function putBlob(
           };
           resolve(storageId);
         } catch {
+          // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
           reject(new Error("Réponse d'upload invalide."));
         }
       } else {
+        // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
         reject(new Error(`Upload échoué (HTTP ${xhr.status}).`));
       }
     };
+    // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
     xhr.onerror = () => reject(new Error("Erreur réseau pendant l'upload."));
+    // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
     xhr.ontimeout = () => reject(new Error("Upload expiré — réessaie."));
     xhr.send(file);
   });
@@ -102,6 +107,8 @@ export function AssetUploader({
   folderId: Id<"assetFolders">;
   postprocess: boolean;
 }) {
+  const tr = useTranslations("admin.library.AssetUploader");
+  const tErr = useTranslations("admin.library.assetError");
   const convex = useConvex();
   const generateUploadUrl = useMutation(api.storage.generateUploadUrl);
   const createAsset = useProjectMutation(api.assets.createAsset);
@@ -142,6 +149,7 @@ export function AssetUploader({
       const sourceUrl = await convex.query(api.storage.getPreviewUrl, {
         storageId,
       });
+      // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
       if (!sourceUrl) throw new Error("URL de lecture introuvable.");
       const uploadUrl = await generateUploadUrl();
 
@@ -194,7 +202,7 @@ export function AssetUploader({
     const contentType = resolveAssetContentType(file) ?? file.type;
     const check = validateAssetFile({ contentType, size: file.size });
     if (!check.ok) {
-      toast.error(`${file.name} : ${check.error ?? "fichier invalide."}`);
+      toast.error(`${file.name} : ${tErr(check.error ?? "invalid")}`);
       return false;
     }
     const uploadUrl = await generateUploadUrl();
@@ -233,14 +241,14 @@ export function AssetUploader({
           toast.error(
             convexErrorMessage(
               e,
-              convexErrorMessage(e, "Erreur d'upload."),
+              convexErrorMessage(e, tr("erreurDUpload")),
             ),
           );
         }
       }
       if (ok > 0) {
         toast.success(
-          `${ok} fichier${ok > 1 ? "s" : ""} ajouté${ok > 1 ? "s" : ""}.`,
+          tr("fichierAjoute", { ok: ok }),
         );
       }
     } finally {
@@ -275,10 +283,10 @@ export function AssetUploader({
           <Loader2Icon className="size-6 animate-spin text-slate-400" />
           <p className="text-sm text-slate-500">
             {processing
-              ? "Nettoyage des métadonnées…"
+              ? tr("nettoyageDesMetadonnees")
               : progress === null
-                ? "Préparation…"
-                : `Upload en cours… ${progress}%`}
+                ? tr("preparation")
+                : tr("uploadEnCours", { progress: progress })}
           </p>
         </>
       ) : (
@@ -286,10 +294,10 @@ export function AssetUploader({
           <UploadIcon className="size-6 text-slate-400" />
           <div>
             <p className="text-sm font-medium text-slate-700">
-              Glisse des images ou vidéos ici
+              {tr("glisseDesImagesOuVideos")}
             </p>
             <p className="text-xs text-slate-500">
-              Images JPG/PNG/WebP (10 Mo) · Vidéos MP4/MOV/WebM (100 Mo, ~1 min)
+              {tr("imagesJpgPngWebp10")}
             </p>
           </div>
           <Button
@@ -298,7 +306,7 @@ export function AssetUploader({
             size="sm"
             onClick={() => inputRef.current?.click()}
           >
-            Parcourir
+            {tr("parcourir")}
           </Button>
         </>
       )}
@@ -308,7 +316,7 @@ export function AssetUploader({
         multiple
         accept={ACCEPT_ATTR}
         className="hidden"
-        aria-label="Sélectionner des images ou vidéos"
+        aria-label={tr("selectionnerDesImagesOuVideos")}
         onChange={(e) => {
           if (e.target.files) handleFiles(e.target.files);
           e.target.value = "";

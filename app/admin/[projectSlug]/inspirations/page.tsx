@@ -27,6 +27,7 @@ import {
   activeFilterCount,
   type InspirationFilters,
 } from "@/lib/inspiration-filters";
+import { useTranslations } from "next-intl";
 
 const FILTER_KEYS_SET = new Set<string>(FILTER_PARAM_KEYS);
 
@@ -71,6 +72,7 @@ function PageSkeleton() {
 }
 
 function InspirationsPageInner() {
+  const tr = useTranslations("admin.library.InspirationsPageInner");
   const router = useRouter();
   const projectPath = useProjectPath();
   const searchParams = useSearchParams();
@@ -243,10 +245,10 @@ function InspirationsPageInner() {
         hasAnyInspiration ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
             <p className="text-sm font-medium text-slate-900">
-              Aucune inspiration ne correspond à ces filtres.
+              {tr("aucuneInspirationNeCorrespondA")}
             </p>
             <p className="text-sm text-slate-500">
-              Essaie de réinitialiser ou d&apos;élargir tes critères.
+              {tr("essaieDeReinitialiserOuD")}
             </p>
           </div>
         ) : (

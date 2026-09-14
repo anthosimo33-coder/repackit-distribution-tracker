@@ -29,7 +29,7 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { assembleScript, KIND_LABELS } from "@/lib/scriptAssembly";
+import { assembleScript, KIND_LABEL_KEYS } from "@/lib/scriptAssembly";
 import {
   SCRIPT_COMBO_SLOTS,
   type ScriptComboSlot,
@@ -64,6 +64,7 @@ export function EditScriptComboDialog({
   creatorName: string;
 }) {
   const tr = useTranslations("admin.assignments.EditScriptComboDialog");
+  const tKind = useTranslations("admin.scripts.brickKind");
   const campaign = useProjectQuery(
     api.scripts.getCampaign,
     open ? { id: campaignId } : "skip",
@@ -164,12 +165,12 @@ export function EditScriptComboDialog({
                   onValueChange={(v) => v && changeSlot(v as ScriptComboSlot)}
                 >
                   <SelectTrigger id="slot">
-                    <SelectValue>{KIND_LABELS[slot]}</SelectValue>
+                    <SelectValue>{tKind(KIND_LABEL_KEYS[slot])}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {SCRIPT_COMBO_SLOTS.map((s) => (
                       <SelectItem key={s} value={s}>
-                        {KIND_LABELS[s]}
+                        {tKind(KIND_LABEL_KEYS[s])}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -202,7 +203,7 @@ export function EditScriptComboDialog({
 
             {options.length === 0 && (
               <p className="text-sm text-amber-600">
-                {tr("aucuneAutreBriqueActiveDans", { value: KIND_LABELS[slot].toLowerCase() })}
+                {tr("aucuneAutreBriqueActiveDans", { value: tKind(KIND_LABEL_KEYS[slot]).toLowerCase() })}
               </p>
             )}
 

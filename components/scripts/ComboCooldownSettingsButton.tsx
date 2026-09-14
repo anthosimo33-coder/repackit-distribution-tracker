@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { ComboCooldownSettingsCard } from "./ComboCooldownSettingsCard";
 import { usePermissions } from "@/components/project/use-permissions";
+import { useTranslations } from "next-intl";
 
 /**
  * Réglage du cooldown de combo, ouvert depuis l'écran /scripts.
@@ -22,6 +23,7 @@ import { usePermissions } from "@/components/project/use-permissions";
  * regardent.
  */
 export function ComboCooldownSettingsButton() {
+  const tr = useTranslations("admin.scripts.ComboCooldownSettingsButton");
   // Réglage de PROJET (délai de réutilisation d'un combo) — même raison.
   const droits = usePermissions();
   if (!droits.has("project.settings")) return null;
@@ -31,7 +33,7 @@ export function ComboCooldownSettingsButton() {
         render={
           <Button variant="outline" data-testid="combo-cooldown-button">
             <SlidersHorizontalIcon className="mr-2 size-4" />
-            Cooldown
+            {tr("cooldown")}
           </Button>
         }
       />
@@ -40,9 +42,9 @@ export function ComboCooldownSettingsButton() {
         className="w-full gap-0 p-0 data-[side=right]:sm:max-w-lg"
       >
         <SheetHeader className="border-b border-slate-100 p-4">
-          <SheetTitle>Cooldown des scripts — ce projet</SheetTitle>
+          <SheetTitle>{tr("cooldownDesScriptsCeProjet")}</SheetTitle>
           <SheetDescription>
-            À quel écart un même script peut repartir sur un autre compte.
+            {tr("aQuelEcartUnMeme")}
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-4">

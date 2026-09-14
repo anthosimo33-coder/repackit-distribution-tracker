@@ -59,7 +59,7 @@ import {
 import {
   assembleScript,
   countCombinations,
-  KIND_LABELS,
+  KIND_LABEL_KEYS,
   SCRIPT_KINDS,
   usefulShortLabel,
   type ScriptKind,
@@ -87,6 +87,8 @@ import { campaignNameMatches, LAB_CAMPAIGN_NAME } from "@/convex/graduation";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { FunctionReturnType } from "convex/server";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * BANC DE MONTAGE — l'écran d'une campagne de scripts.
@@ -138,6 +140,8 @@ function fold(s: string): string {
 }
 
 export default function ScriptCampaignDetailPage() {
+  const tr = useTranslations("admin.scripts.ScriptCampaignDetailPage");
+  const tKind = useTranslations("admin.scripts.brickKind");
   const params = useParams<{ id: string }>();
   const id = params.id as Id<"scriptCampaigns">;
   const projectPath = useProjectPath();
@@ -301,11 +305,11 @@ export default function ScriptCampaignDetailPage() {
           className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
         >
           <ArrowLeftIcon className="size-4" />
-          Scripts
+          {tr("scripts")}
         </Link>
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-500">
-            Campagne introuvable.
+            {tr("campagneIntrouvable")}
           </CardContent>
         </Card>
       </div>
@@ -326,7 +330,7 @@ export default function ScriptCampaignDetailPage() {
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
       >
         <ArrowLeftIcon className="size-4" />
-        Scripts
+        {tr("scripts")}
       </Link>
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -335,13 +339,9 @@ export default function ScriptCampaignDetailPage() {
             {campaign.name}
           </h1>
           <p className="text-sm text-slate-500" data-testid="combo-count">
-            <span className="font-semibold text-slate-900">{combos.total}</span>{" "}
-            combinaison{combos.total > 1 ? "s" : ""} possible
-            {combos.total > 1 ? "s" : ""}
+            <span className="font-semibold text-slate-900">{combos.total}</span>{" "}{tr("combinaisonPossible", { total: combos.total })}
             <span className="text-slate-400">
-              {" "}
-              ({combos.byKind.hook} hooks × {combos.byKind.flux} flux ×{" "}
-              {combos.byKind.cta} cta)
+              {" "}{tr("hooksFluxCta", { hook: combos.byKind.hook, flux: combos.byKind.flux, cta: combos.byKind.cta })}
             </span>
           </p>
         </div>
@@ -351,11 +351,11 @@ export default function ScriptCampaignDetailPage() {
             className={buttonVariants({ variant: "outline" })}
           >
             <BarChart3Icon className="mr-2 size-4" />
-            Analytics
+            {tr("analytics")}
           </Link>
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <DownloadIcon className="mr-2 size-4" />
-            Importer des hooks
+            {tr("importerDesHooks")}
           </Button>
           <Button
             variant="outline"
@@ -363,14 +363,14 @@ export default function ScriptCampaignDetailPage() {
             disabled={combos.total === 0}
           >
             <EyeIcon className="mr-2 size-4" />
-            Aperçu d&apos;un script
+            {tr("apercuDUnScript")}
           </Button>
           <Button
             onClick={() => setAssignOpen(true)}
             disabled={combos.total === 0 || campaign.status === "archived"}
           >
             <SendIcon className="mr-2 size-4" />
-            Assigner cette campagne
+            {tr("assignerCetteCampagne")}
           </Button>
         </div>
       </header>
@@ -380,7 +380,7 @@ export default function ScriptCampaignDetailPage() {
         <div
           className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
           role="tablist"
-          aria-label="Type de brique"
+          aria-label={tr("typeDeBrique")}
         >
           {SCRIPT_KINDS.map((k) => (
             <button
@@ -396,7 +396,7 @@ export default function ScriptCampaignDetailPage() {
                   : "text-slate-500 hover:text-slate-900",
               )}
             >
-              {KIND_LABELS[k]}
+              {tKind(KIND_LABEL_KEYS[k])}
               <span className="ml-1.5 tabular-nums text-xs text-slate-400">
                 {bricks.filter((b) => b.kind === k).length}
               </span>
@@ -409,20 +409,20 @@ export default function ScriptCampaignDetailPage() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Chercher dans le texte des ${KIND_PLURAL[kind]}…`}
-            aria-label="Chercher une brique"
+            placeholder={tr("chercherDansLeTexteDes", { value: KIND_PLURAL[kind] })}
+            aria-label={tr("chercherUneBrique")}
             className="h-8 pl-8"
           />
         </div>
 
         <FilterChip pressed={onlyActive} onClick={() => setOnlyActive((v) => !v)}>
-          Actives seulement
+          {tr("activesSeulement")}
         </FilterChip>
         <FilterChip
           pressed={onlyWithInstruction}
           onClick={() => setOnlyWithInstruction((v) => !v)}
         >
-          💡 Avec consigne
+          {tr("avecConsigne")}
         </FilterChip>
 
         <Select
@@ -432,19 +432,17 @@ export default function ScriptCampaignDetailPage() {
           <SelectTrigger
             id="dispo-pour"
             className="h-8 w-52"
-            aria-label="Disponible pour"
+            aria-label={tr("disponiblePour")}
           >
             <SelectValue>
               {availableFor === NO_CREATOR
-                ? "Dispo pour…"
-                : `Dispo pour ${
-                    (creators ?? []).find((c) => c._id === availableFor)?.name ??
-                    "?"
-                  }`}
+                ? tr("dispoPour")
+                : tr("dispoPour2", { value: (creators ?? []).find((c) => c._id === availableFor)?.name ??
+                    "?" })}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NO_CREATOR}>— aucune créatrice —</SelectItem>
+            <SelectItem value={NO_CREATOR}>{tr("aucuneCreatrice")}</SelectItem>
             {(creators ?? []).map((c) => (
               <SelectItem key={c._id} value={c._id}>
                 {c.name}
@@ -457,34 +455,31 @@ export default function ScriptCampaignDetailPage() {
             pressed={onlyAvailable}
             onClick={() => setOnlyAvailable((v) => !v)}
           >
-            Masquer les indisponibles
+            {tr("masquerLesIndisponibles")}
           </FilterChip>
         )}
         {availableFor !== NO_CREATOR && creatorPlatforms.length === 0 && (
           <span className="text-xs text-amber-700">
-            Cette créatrice n&apos;a aucun compte déclaré — aucune collision
-            d&apos;unicité n&apos;est calculable.
+            {tr("cetteCreatriceNAAucun")}
           </span>
         )}
       </div>
 
       {/* ─── Les deux volets ───────────────────────────────────────────────── */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        <section className="space-y-2" aria-label="Briques de la campagne">
+        <section className="space-y-2" aria-label={tr("briquesDeLaCampagne")}>
           <div className="flex items-center justify-between px-1">
             <p className="text-xs text-slate-500" data-testid="brick-count">
-              <span className="font-medium text-slate-700">{shown.length}</span>{" "}
-              sur {ofKind.length} {KIND_PLURAL[kind]}
+              <span className="font-medium text-slate-700">{shown.length}</span>{" "}{tr("sur", { count: ofKind.length, value: KIND_PLURAL[kind] })}
               {activeCount !== ofKind.length && (
                 <span className="text-slate-400">
-                  {" "}
-                  · {activeCount} active{activeCount > 1 ? "s" : ""}
+                  {" "}{tr("active", { activeCount: activeCount })}
                 </span>
               )}
             </p>
             <Button size="sm" variant="outline" onClick={() => pick(NEW_BRICK)}>
               <PlusIcon className="mr-2 size-4" />
-              Ajouter
+              {tr("ajouter")}
             </Button>
           </div>
 
@@ -500,8 +495,8 @@ export default function ScriptCampaignDetailPage() {
             <Card>
               <CardContent className="py-8 text-center text-sm text-slate-400">
                 {ofKind.length === 0
-                  ? `Aucune brique « ${KIND_LABELS[kind].toLowerCase()} ».`
-                  : "Aucune brique ne correspond aux filtres."}
+                  ? tr("aucuneBrique", { value: tKind(KIND_LABEL_KEYS[kind]).toLowerCase() })
+                  : tr("aucuneBriqueNeCorrespondAux")}
               </CardContent>
             </Card>
           ) : (
@@ -536,7 +531,7 @@ export default function ScriptCampaignDetailPage() {
 
         <section
           className="lg:sticky lg:top-4 lg:self-start"
-          aria-label="Édition de la brique sélectionnée"
+          aria-label={tr("editionDeLaBriqueSelectionnee")}
         >
           <BrickEditor
             key={editing === "new" ? `new:${kind}` : (editing?._id ?? "vide")}
@@ -634,6 +629,8 @@ function BrickRow({
   /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
   availability?: HookAvailability;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.scripts.BrickRow");
   const tLabel = useLabel();
   const update = useProjectMutation(api.scripts.updateBrick);
   const snytch = isSnytchProject(useProjectSlug());
@@ -644,7 +641,7 @@ function BrickRow({
     try {
       await update({ id: brick._id, active });
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -667,13 +664,13 @@ function BrickRow({
       <Checkbox
         checked={checked}
         onCheckedChange={(v) => onCheck(v === true)}
-        aria-label="Sélectionner la brique"
+        aria-label={tr("selectionnerLaBrique")}
         className="mt-1"
       />
       <Switch
         checked={brick.active}
         onCheckedChange={setActive}
-        aria-label="Activer la brique"
+        aria-label={tr("activerLaBrique")}
         className="mt-0.5"
       />
       <button
@@ -692,12 +689,12 @@ function BrickRow({
                 className="border-amber-200 bg-amber-50 text-[10px] text-amber-700"
                 data-testid="brick-instruction-tag"
               >
-                💡 consigne
+                {tr("consigne")}
               </Badge>
             )}
             {!brick.active && (
               <Badge variant="outline" className="text-[10px] text-slate-500">
-                inactive
+                {tr("inactive")}
               </Badge>
             )}
             {availability && <HookAvailabilityBadge availability={availability} />}
@@ -725,17 +722,17 @@ function BrickRow({
       {perf && (
         <div
           className="flex w-20 shrink-0 flex-col items-end tabular-nums"
-          title="Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs"
+          title={tr("medianeDesVuesAuDernier")}
           data-testid="brick-perf"
         >
           {/* Aucun run : un « — » seul, sans « 0 run » sous chaque ligne — une
               colonne de zéros ne dit rien et alourdit la liste. */}
           <p className="text-sm font-semibold text-slate-900">
-            {perf.postCount === 0 ? "—" : formatNumber(perf.viewsMedian)}
+            {perf.postCount === 0 ? "—" : formatNumber(perf.viewsMedian, loc)}
           </p>
           {perf.postCount > 0 && (
             <p className="text-[11px] text-slate-400">
-              {perf.postCount} run{perf.postCount > 1 ? "s" : ""}
+              {tr("run", { postCount: perf.postCount })}
             </p>
           )}
           {/* La pente des derniers runs, sous la médiane : elle sépare le hook
@@ -785,6 +782,8 @@ function BrickEditor({
   onDeleted: () => void;
   onGraduate: (id: Id<"scriptBricks">) => void;
 }) {
+  const tr = useTranslations("admin.scripts.BrickEditor");
+  const tKind = useTranslations("admin.scripts.brickKind");
   const tLabel = useLabel();
   const create = useProjectMutation(api.scripts.createBrick);
   const update = useProjectMutation(api.scripts.updateBrick);
@@ -812,7 +811,7 @@ function BrickEditor({
 
   async function save(): Promise<boolean> {
     if (label.trim().length === 0) {
-      toast.error("Le nom court est requis.");
+      toast.error(tr("leNomCourtEstRequis"));
       return false;
     }
     setBusy(true);
@@ -827,7 +826,7 @@ function BrickEditor({
           instruction,
           ...(showMode ? { mode } : {}),
         });
-        toast.success("Brique mise à jour");
+        toast.success(tr("briqueMiseAJour"));
       } else {
         const newId = await create({
           campaignId,
@@ -837,14 +836,14 @@ function BrickEditor({
           ...(instruction.trim() ? { instruction } : {}),
           ...(showMode ? { mode } : {}),
         });
-        toast.success("Brique ajoutée");
+        toast.success(tr("briqueAjoutee"));
         onCreated(newId);
       }
       setDirty(false);
       onDirtyChange(false);
       return true;
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
       return false;
     } finally {
       setBusy(false);
@@ -867,10 +866,10 @@ function BrickEditor({
     setBusy(true);
     try {
       await remove({ id: brick._id });
-      toast.success("Brique supprimée");
+      toast.success(tr("briqueSupprimee"));
       onDeleted();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -880,7 +879,7 @@ function BrickEditor({
     return (
       <Card>
         <CardContent className="py-12 text-center text-sm text-slate-400">
-          Choisis une brique dans la liste, ou ajoutes-en une.
+          {tr("choisisUneBriqueDansLa")}
         </CardContent>
       </Card>
     );
@@ -900,20 +899,20 @@ function BrickEditor({
         <CardContent className="space-y-4 p-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              {creating ? "Nouvelle brique" : "Modifier"} — {KIND_LABELS[kind]}
+              {creating ? tr("nouvelleBrique") : tr("modifier")} — {tKind(KIND_LABEL_KEYS[kind])}
             </h2>
             {dirty && (
               <span className="text-xs text-amber-700" data-testid="brick-dirty">
-                modifications non enregistrées
+                {tr("modificationsNonEnregistrees")}
               </span>
             )}
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="brick-content">
-              Texte{" "}
+              {tr("texte")}{" "}
               <span className="font-normal text-slate-400">
-                — part dans le script
+                {tr("partDansLeScript")}
               </span>
             </Label>
             <Textarea
@@ -929,9 +928,9 @@ function BrickEditor({
               vidéo ni dans la description. */}
           <div className="space-y-1.5">
             <Label htmlFor="brick-instruction">
-              Instruction{" "}
+              {tr("instruction")}{" "}
               <span className="font-normal text-slate-400">
-                — optionnelle, lue par la créatrice
+                {tr("optionnelleLueParLaCreatrice")}
               </span>
             </Label>
             <Textarea
@@ -939,30 +938,29 @@ function BrickEditor({
               value={instruction}
               onChange={(e) => touch(setInstruction)(e.target.value)}
               rows={2}
-              placeholder="Ex. l'élément précis qui justifie la vérification."
+              placeholder={tr("exLElementPrecisQui")}
               className="border-amber-200 bg-amber-50/40"
             />
             <p className="text-xs text-slate-400">
-              Affichée sous ce bloc dans la fiche de la créatrice, jamais dans le
-              texte à dire ni dans la description. Vider le champ la retire.
+              {tr("afficheeSousCeBlocDans")}
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="brick-label">Nom court (interne)</Label>
+              <Label htmlFor="brick-label">{tr("nomCourtInterne")}</Label>
               <Input
                 id="brick-label"
                 value={label}
                 onChange={(e) => touch(setLabel)(e.target.value)}
-                placeholder="Ex. Flux 2 — scan & clone"
+                placeholder={tr("exFlux2ScanClone")}
               />
             </div>
             {/* SNYTCH — mode d'usage dans la vidéo (hook/flux) : dire / afficher
                 / les deux. Ce que la créatrice verra étiqueté sur ce bloc. */}
             {showMode && (
               <div className="space-y-1.5">
-                <Label htmlFor="brick-mode">Dans la vidéo</Label>
+                <Label htmlFor="brick-mode">{tr("dansLaVideo")}</Label>
                 <Select
                   value={mode}
                   onValueChange={(v) => v && touch(setMode)(v as BrickMode)}
@@ -991,7 +989,7 @@ function BrickEditor({
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
             <span className="text-xs text-slate-400">
-              ⌘S enregistre — changer de ligne aussi.
+              {tr("sEnregistreChangerDeLigne")}
             </span>
             <div className="flex items-center gap-2">
               {/* Graduer n'a de sens que pour un hook ENCORE actif du LAB : un
@@ -1003,7 +1001,7 @@ function BrickEditor({
                   onClick={() => onGraduate(brick._id)}
                 >
                   <GraduationCapIcon className="mr-2 size-3.5" />
-                  Graduer
+                  {tr("graduer")}
                 </Button>
               )}
               {brick && (
@@ -1013,14 +1011,14 @@ function BrickEditor({
                   className="text-rose-600 hover:text-rose-700"
                   onClick={onDelete}
                   disabled={busy}
-                  aria-label="Supprimer"
+                  aria-label={tr("supprimer")}
                 >
                   <Trash2Icon className="size-4" />
                 </Button>
               )}
               <Button onClick={() => save()} disabled={busy || !dirty}>
                 {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                {creating ? "Ajouter" : "Enregistrer"}
+                {creating ? tr("ajouter") : tr("enregistrer")}
               </Button>
             </div>
           </div>
@@ -1051,6 +1049,8 @@ function CreatorPreview({
   bricks: Brick[];
   draft: { content: string; instruction: string; mode: BrickMode };
 }) {
+  const tr = useTranslations("admin.scripts.CreatorPreview");
+  const tKind = useTranslations("admin.scripts.brickKind");
   const snytch = isSnytchProject(useProjectSlug());
 
   /** Texte + consigne d'un slot : la SAISIE EN COURS pour le slot édité, la
@@ -1088,8 +1088,7 @@ function CreatorPreview({
     return (
       <Card>
         <CardContent className="py-6 text-center text-xs text-slate-400">
-          L&apos;aperçu s&apos;affiche dès qu&apos;une brique active de chaque
-          type porte du texte.
+          {tr("lApercuSAfficheDes")}
         </CardContent>
       </Card>
     );
@@ -1109,10 +1108,9 @@ function CreatorPreview({
   return (
     <div className="space-y-2" data-testid="editor-preview">
       <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Ce que verra la créatrice
+        {tr("ceQueVerraLaCreatrice")}
         <span className="ml-1 font-normal normal-case tracking-normal text-slate-400">
-          — {KIND_LABELS[kind].toLowerCase()}{" "}
-          en cours d&apos;édition
+          {tr("enCoursDEdition", { value: tKind(KIND_LABEL_KEYS[kind]).toLowerCase() })}
         </span>
       </p>
       {snytch ? (
@@ -1153,6 +1151,7 @@ function BulkBar({
   onDone: () => void;
   kindLabel: string;
 }) {
+  const tr = useTranslations("admin.scripts.BulkBar");
   const setActive = useProjectMutation(api.scripts.setBricksActive);
   const setInstruction = useProjectMutation(api.scripts.setBricksInstruction);
   const removeMany = useProjectMutation(api.scripts.deleteBricks);
@@ -1168,7 +1167,7 @@ function BulkBar({
       toast.success(done);
       onDone();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -1180,8 +1179,7 @@ function BulkBar({
       data-testid="bulk-bar"
     >
       <span className="text-xs text-slate-700">
-        <span className="font-semibold">{ids.length}</span> {kindLabel}{" "}
-        sélectionné{ids.length > 1 ? "s" : ""}
+        <span className="font-semibold">{ids.length}</span>{" "}{tr("selectionne", { kindLabel: kindLabel, count: ids.length })}
       </span>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <Button
@@ -1191,11 +1189,11 @@ function BulkBar({
           onClick={() =>
             run(
               () => setActive({ ids, active: true }),
-              `${ids.length} brique${ids.length > 1 ? "s activées" : " activée"}`,
+              `${ids.length} brique${ids.length > 1 ? tr("sActivees") : ` ${tr("activee")}`}`,
             )
           }
         >
-          Activer
+          {tr("activer")}
         </Button>
         <Button
           size="sm"
@@ -1204,11 +1202,11 @@ function BulkBar({
           onClick={() =>
             run(
               () => setActive({ ids, active: false }),
-              `${ids.length} brique${ids.length > 1 ? "s désactivées" : " désactivée"}`,
+              `${ids.length} brique${ids.length > 1 ? tr("sDesactivees") : ` ${tr("desactivee")}`}`,
             )
           }
         >
-          Désactiver
+          {tr("desactiver")}
         </Button>
         <Button
           size="sm"
@@ -1219,7 +1217,7 @@ function BulkBar({
             setInstrOpen(true);
           }}
         >
-          Consigne…
+          {tr("consigne")}
         </Button>
         <Button
           size="sm"
@@ -1229,7 +1227,7 @@ function BulkBar({
           onClick={() => setConfirmOpen(true)}
         >
           <Trash2Icon className="mr-1.5 size-3.5" />
-          Supprimer
+          {tr("supprimer")}
         </Button>
       </div>
 
@@ -1237,34 +1235,33 @@ function BulkBar({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Consigne pour {ids.length} brique{ids.length > 1 ? "s" : ""}
+              {tr("consignePourBrique", { count: ids.length })}
             </DialogTitle>
             <DialogDescription>
-              La MÊME consigne est posée sur toute la sélection, en remplaçant
-              celle qui s&apos;y trouve. Laisser vide RETIRE la consigne.
+              {tr("laMemeConsigneEstPosee")}
             </DialogDescription>
           </DialogHeader>
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={3}
-            aria-label="Consigne"
+            aria-label={tr("consigne2")}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setInstrOpen(false)}>
-              Annuler
+              {tr("annuler")}
             </Button>
             <Button
               disabled={busy}
               onClick={async () => {
                 await run(
                   () => setInstruction({ ids, instruction: text }),
-                  text.trim() ? "Consigne posée" : "Consigne retirée",
+                  text.trim() ? tr("consignePosee") : tr("consigneRetiree"),
                 );
                 setInstrOpen(false);
               }}
             >
-              Appliquer
+              {tr("appliquer")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1274,16 +1271,15 @@ function BulkBar({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Supprimer {ids.length} brique{ids.length > 1 ? "s" : ""} ?
+              {tr("supprimerBrique", { count: ids.length })}
             </DialogTitle>
             <DialogDescription>
-              Irréversible. Les scripts DÉJÀ assignés ne bougent pas — leur texte
-              est figé —, mais ces briques ne seront plus tirées.
+              {tr("irreversibleLesScriptsDejaAssignes")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmOpen(false)}>
-              Annuler
+              {tr("annuler")}
             </Button>
             <Button
               variant="destructive"
@@ -1291,12 +1287,12 @@ function BulkBar({
               onClick={async () => {
                 await run(
                   () => removeMany({ ids }),
-                  `${ids.length} brique${ids.length > 1 ? "s supprimées" : " supprimée"}`,
+                  `${ids.length} brique${ids.length > 1 ? tr("sSupprimees") : ` ${tr("supprimee")}`}`,
                 );
                 setConfirmOpen(false);
               }}
             >
-              Supprimer
+              {tr("supprimer")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1316,6 +1312,7 @@ function ImportHooksDialog({
   onOpenChange: (o: boolean) => void;
   campaignId: Id<"scriptCampaigns">;
 }) {
+  const tr = useTranslations("admin.scripts.ImportHooksDialog");
   const hooks = useProjectQuery(api.hooks.listHooks, open ? {} : "skip");
   const importHooks = useProjectMutation(api.scripts.importHooks);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -1338,7 +1335,7 @@ function ImportHooksDialog({
 
   async function onImport() {
     if (selected.size === 0) {
-      toast.error("Sélectionne au moins un hook.");
+      toast.error(tr("selectionneAuMoinsUnHook"));
       return;
     }
     setBusy(true);
@@ -1348,11 +1345,11 @@ function ImportHooksDialog({
         hookIds: [...selected] as Id<"hooks">[],
       });
       toast.success(
-        `${r.imported} hook${r.imported > 1 ? "s" : ""} importé${r.imported > 1 ? "s" : ""}.`,
+        tr("hookImporte", { imported: r.imported }),
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -1362,10 +1359,9 @@ function ImportHooksDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[80vh] overflow-hidden">
         <DialogHeader>
-          <DialogTitle>Importer des hooks</DialogTitle>
+          <DialogTitle>{tr("importerDesHooks")}</DialogTitle>
           <DialogDescription>
-            Les hooks sélectionnés sont COPIÉS comme briques (la bibliothèque
-            reste intacte).
+            {tr("lesHooksSelectionnesSontCopies")}
           </DialogDescription>
         </DialogHeader>
         <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
@@ -1373,7 +1369,7 @@ function ImportHooksDialog({
             <Skeleton className="h-40 w-full" />
           ) : hooks.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-500">
-              La bibliothèque de hooks est vide.
+              {tr("laBibliothequeDeHooksEst")}
             </p>
           ) : (
             hooks.map((h) => (
@@ -1409,11 +1405,11 @@ function ImportHooksDialog({
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onImport} disabled={busy || selected.size === 0}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Importer ({selected.size})
+            {tr("importer", { size: selected.size })}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1430,6 +1426,8 @@ function PreviewDialog({
   onOpenChange: (o: boolean) => void;
   campaign: CampaignDetail;
 }) {
+  const tr = useTranslations("admin.scripts.PreviewDialog");
+  const tKind = useTranslations("admin.scripts.brickKind");
   // Choix d'une brique active par kind (défaut : la première active).
   const activeByKind = (kind: ScriptKind) =>
     campaign.bricks.filter((b) => b.kind === kind && b.active);
@@ -1484,11 +1482,11 @@ function PreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Aperçu d&apos;un script monté</DialogTitle>
+          <DialogTitle>{tr("apercuDUnScriptMonte")}</DialogTitle>
           <DialogDescription>
             {snytch
-              ? "Ce que verra la créatrice : 🎬 hook + flux vont dans la vidéo, 📝 la description va sous la publication."
-              : "Le rendu final d'une vidéo (ce que verra le créateur), sans les briques séparées."}
+              ? tr("ceQueVerraLaCreatrice")
+              : tr("leRenduFinalDUne")}
           </DialogDescription>
         </DialogHeader>
 
@@ -1499,7 +1497,7 @@ function PreviewDialog({
             return (
               <div key={kind} className="min-w-0 space-y-1">
                 <Label className="block truncate text-xs text-slate-500">
-                  {KIND_LABELS[kind]}
+                  {tKind(KIND_LABEL_KEYS[kind])}
                 </Label>
                 <Select
                   value={cur?._id ?? ""}
@@ -1555,7 +1553,7 @@ function PreviewDialog({
             )
           ) : (
             <p className="text-sm text-slate-500">
-              Active au moins une brique de chaque type pour prévisualiser.
+              {tr("activeAuMoinsUneBrique")}
             </p>
           )}
         </div>

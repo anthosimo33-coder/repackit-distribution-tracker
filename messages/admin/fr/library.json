@@ -1,1 +1,332 @@
-{}
+{
+  "AssetFolderDetailPage": {
+    "assets": "Assets",
+    "imagesJpgPngWebp10": "Images JPG/PNG/WebP (10 Mo) · Vidéos MP4/MOV/WebM (100 Mo). Lie ce dossier à un assignment depuis la page Assignments.",
+    "lesImagesDeposeesIciSont": "Les images déposées ici sont nettoyées de leurs métadonnées (C2PA, EXIF, XMP) et ré-encodées en JPEG à l'ingestion. La recompression est irréversible — n'y dépose pas de matériel source.",
+    "contenuAPublier": "Contenu à publier.",
+    "aucunFichierDansCeDossier": "Aucun fichier dans ce dossier.",
+    "video": "Vidéo",
+    "dossierIntrouvable": "Dossier introuvable",
+    "supprimer": "Supprimer {fileName}",
+    "fichierSupprime": "Fichier supprimé."
+  },
+  "AssetsPage": {
+    "assets": "Assets",
+    "bibliothequeDImagesEtVideos": "Bibliothèque d'images et vidéos en dossiers, à lier aux assignments pour téléchargement par les créateurs.",
+    "nouveauDossier": "Nouveau dossier",
+    "aucunDossierCreeUnDossier": "Aucun dossier. Crée un dossier pour y uploader des images et vidéos.",
+    "fichier": "{assetCount} {assetCount, plural, one {fichier} other {fichiers}}",
+    "aPublier": "À publier",
+    "lesImagesDeposeesSontNettoyees": "Les images déposées sont nettoyées de leurs métadonnées et ré-encodées"
+  },
+  "FolderActions": {
+    "modifier": "Modifier",
+    "supprimer": "Supprimer",
+    "dossierSupprime": "Dossier supprimé."
+  },
+  "FolderDialog": {
+    "unDossierRegroupeDesImages": "Un dossier regroupe des images et vidéos à fournir aux créateurs.",
+    "nom": "Nom",
+    "lesImagesDeposeesSerontNettoyees": "Les images déposées seront nettoyées de leurs métadonnées (C2PA, EXIF, XMP) et ré-encodées en JPEG. À laisser DÉSACTIVÉ pour du matériel source que les créatrices retravaillent : la recompression est irréversible.",
+    "contenuAPublier": "Contenu à publier",
+    "annuler": "Annuler",
+    "modifierLeDossier": "Modifier le dossier",
+    "nouveauDossier": "Nouveau dossier",
+    "exLogosOverlays": "Ex. Logos & overlays",
+    "contenuAPublierNettoyerLes": "Contenu à publier — nettoyer les métadonnées des images",
+    "enregistrer": "Enregistrer",
+    "creer": "Créer",
+    "leNomEstRequis": "Le nom est requis.",
+    "dossierMisAJour": "Dossier mis à jour.",
+    "dossierCree": "Dossier créé."
+  },
+  "BiblioHooksPage": {
+    "bibliothequeHooks": "Bibliothèque Hooks",
+    "recherche": "Recherche",
+    "masquerPublies": "Masquer publiés",
+    "masquerLesAVenir": "Masquer les à venir",
+    "resetFiltres": "Reset filtres",
+    "chargement": "Chargement...",
+    "hooks": "{count} hooks",
+    "surHooks": "{count} sur {count2} hooks",
+    "texteDuHook": "Texte du hook...",
+    "langue": "Langue",
+    "toutes": "Toutes"
+  },
+  "PublishedBadge": {
+    "utiliseFois": "Utilisé {carousels} fois"
+  },
+  "DraftBadge": {
+    "carrAVenir": "+{carousels} carr. à venir"
+  },
+  "HookCard": {
+    "varianteCarrousel": "{variantsCountCarousel} {variantsCountCarousel, plural, one {variante} other {variantes}} carrousel",
+    "creerCarrousel": "Créer carrousel →"
+  },
+  "HookVariantsPopover": {
+    "aucuneVariante": "Aucune variante."
+  },
+  "UsageDetail": {
+    "autre": "+{extraAccounts} {extraAccounts, plural, one {autre} other {autres}}",
+    "dernierePubli": "Dernière publi : {date}"
+  },
+  "EmptyState": {
+    "aucunHookNeCorrespondA": "Aucun hook ne correspond à ces filtres.",
+    "resetLesFiltres": "Reset les filtres"
+  },
+  "InspirationsPageInner": {
+    "aucuneInspirationNeCorrespondA": "Aucune inspiration ne correspond à ces filtres.",
+    "essaieDeReinitialiserOuD": "Essaie de réinitialiser ou d'élargir tes critères."
+  },
+  "AssetUploader": {
+    "glisseDesImagesOuVideos": "Glisse des images ou vidéos ici",
+    "imagesJpgPngWebp10": "Images JPG/PNG/WebP (10 Mo) · Vidéos MP4/MOV/WebM (100 Mo, ~1 min)",
+    "parcourir": "Parcourir",
+    "nettoyageDesMetadonnees": "Nettoyage des métadonnées…",
+    "preparation": "Préparation…",
+    "uploadEnCours": "Upload en cours… {progress}%",
+    "selectionnerDesImagesOuVideos": "Sélectionner des images ou vidéos",
+    "erreurDUpload": "Erreur d'upload.",
+    "fichierAjoute": "{ok} {ok, plural, one {fichier} other {fichiers}} {ok, plural, one {ajouté} other {ajoutés}}."
+  },
+  "GuideModuleEditForm": {
+    "ecrisLeContenuEnMarkdown": "Écris le contenu en markdown — l'aperçu montre ce que verra le créateur.",
+    "titre": "Titre *",
+    "caracteres": "{count}/{TITLE_MAX} caractères",
+    "contenuMarkdown": "Contenu (markdown)",
+    "apercuCreateur": "Aperçu créateur",
+    "lApercuDuRenduApparaitra": "L'aperçu du rendu apparaîtra ici.",
+    "langue": "Langue *",
+    "chaqueLangueASonPropre": "Chaque langue a son propre jeu de modules. Ce module n'apparaît que dans le guide {value}",
+    "cEstLeGuideWarmup": "C'est le guide warmup",
+    "leBoutonGuideWarmupDe": "Le bouton « Guide warmup » de l'écran comptes ouvre ce module.",
+    "lActiverIciLeRetire": ": l'activer ici le retire du module qui le portait.",
+    "unSeulParLangue": "Un seul par langue",
+    "annuler": "Annuler",
+    "modifierLeModule": "Modifier le module",
+    "nouveauModule": "Nouveau module",
+    "exCommentJeSuisPaye": "Ex : Comment je suis payé",
+    "titreEcrisTonContenuIci": "# Titre Écris ton contenu ici…",
+    "langue2": "Langue",
+    "leChangerLeDeplaceEn": "— le changer le déplace en fin de l'autre jeu.",
+    "etNeToucheARien": ", et ne touche à rien dans l'autre.",
+    "publie": "Publié",
+    "brouillon": "Brouillon",
+    "visibleParLesCreateursDu": "Visible par les créateurs du projet.",
+    "invisibleCoteCreateurTantQue": "Invisible côté créateur tant que brouillon.",
+    "sauvegarder": "Sauvegarder",
+    "creer": "Créer",
+    "moduleMisAJour": "Module mis à jour",
+    "moduleCree": "Module créé",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "GuideModulesManager": {
+    "commentCaMarche": "Comment ça marche",
+    "lesModulesDeFormationAffiches": "Les modules de formation affichés aux créateurs (markdown, par projet). Les brouillons restent invisibles côté créateur. Chaque langue a son jeu de modules, indépendant de l'autre.",
+    "aucunModule": "Aucun module",
+    "creeTonPremierModulePour": "Crée ton premier module pour expliquer le fonctionnement aux créateurs.",
+    "nouveauModule": "Nouveau module",
+    "guide": "Guide {label}",
+    "guideWarmup": "Guide warmup",
+    "supprimer": "Supprimer « {title} » ?",
+    "actionIrreversibleLeModuleSera": "Action irréversible. Le module sera définitivement supprimé.",
+    "annuler": "Annuler",
+    "supprimer2": "Supprimer",
+    "aucunModule2": "aucun module",
+    "module": "{count} {count, plural, one {module} other {modules}}",
+    "nouveauModuleGuide": "Nouveau module — guide {label}",
+    "aucunModuleDansCetteLangue": "Aucun module dans cette langue.",
+    "aucunModuleDansCetteLangue2": "Aucun module dans cette langue : les créateurs qui lisent en {label} voient le guide français, avec un bandeau qui le leur dit.",
+    "monter": "Monter {title}",
+    "descendre": "Descendre {title}",
+    "publie": "Publié",
+    "brouillon": "Brouillon",
+    "modifier": "Modifier {title}",
+    "supprimer3": "Supprimer {title}",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "moduleSupprime": "Module supprimé"
+  },
+  "FolderCombobox": {
+    "aucunDossier": "Aucun dossier",
+    "creer": "Créer « {trimmedQuery} »",
+    "chercheOuCreeUnDossier": "Cherche ou crée un dossier...",
+    "aucunDossierCreeLeCi": "Aucun dossier — crée-le ci-dessous.",
+    "aucunDossierTrouve": "Aucun dossier trouvé.",
+    "dossierCree": "Dossier \"{trimmedQuery}\" créé",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "FolderEditDialogForm": {
+    "nom": "Nom *",
+    "caracteres": "{count}/{MAX_NAME_LENGTH} caractères",
+    "description": "Description",
+    "couleur": "Couleur",
+    "annuler": "Annuler",
+    "modifierLeDossier": "Modifier le dossier",
+    "nouveauDossier": "Nouveau dossier",
+    "metsAJourLeNom": "Mets à jour le nom, la description ou la couleur.",
+    "creeUnDossierPourOrganiser": "Crée un dossier pour organiser tes inspirations.",
+    "exHooksGrowth": "Ex: Hooks Growth",
+    "optionnel": "Optionnel",
+    "couleur2": "Couleur {label}",
+    "sauvegarder": "Sauvegarder",
+    "creer": "Créer",
+    "dossierModifie": "Dossier modifié",
+    "dossierCree": "Dossier créé",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "FolderManagerSection": {
+    "retourAuxInspirations": "Retour aux inspirations",
+    "dossiers": "Dossiers",
+    "organiseTesInspirationsEnCollections": "Organise tes inspirations en collections thématiques.",
+    "nouveauDossier": "Nouveau dossier",
+    "aucunDossier": "Aucun dossier",
+    "creeTonPremierDossierPour": "Crée ton premier dossier pour organiser tes inspirations.",
+    "supprimer": "Supprimer « {name} » ?",
+    "annuler": "Annuler",
+    "supprimer2": "Supprimer",
+    "changerLaCouleurDe": "Changer la couleur de {name}",
+    "couleur": "Couleur {label}",
+    "renommer": "Renommer {name}",
+    "supprimer3": "Supprimer {name}",
+    "actionIrreversibleLeDossierSera": "Action irréversible. Le dossier sera supprimé.",
+    "couleurMiseAJour": "Couleur mise à jour",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "dossierSupprimeInspirationSDeplacee": "Dossier supprimé — {moved} inspiration(s) déplacée(s) vers Non classé",
+    "dossierSupprime": "Dossier supprimé",
+    "serontDeplacees": "seront déplacées",
+    "seraDeplacee": "sera déplacée",
+    "inspirationsDeplacees": "{count} {count, plural, one {inspiration sera déplacée} other {inspirations seront déplacées}} vers Non classé. Le dossier sera supprimé."
+  },
+  "InspirationCard": {
+    "sansTitre": "(Sans titre)",
+    "inspiration": "Inspiration",
+    "retirerDesFavoris": "Retirer des favoris",
+    "ajouterAuxFavoris": "Ajouter aux favoris",
+    "ouvrirLaPublication": "Ouvrir la publication",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "DialogNotFound": {
+    "inspirationIntrouvable": "Inspiration introuvable",
+    "cetteInspirationAEteSupprimee": "Cette inspiration a été supprimée ou n'existe plus.",
+    "fermer": "Fermer"
+  },
+  "InspirationDialogForm": {
+    "url": "URL *",
+    "detection": "Détection :",
+    "modifier": "Modifier",
+    "plateforme": "Plateforme",
+    "type": "Type",
+    "titre": "Titre",
+    "notes": "Notes",
+    "thumbnail": "Thumbnail",
+    "dossier": "Dossier",
+    "tags": "Tags",
+    "entreeVirguleOuTabPour": "Entrée, virgule ou Tab pour valider. Backspace pour retirer.",
+    "favori": "Favori",
+    "supprimer": "Supprimer",
+    "annuler": "Annuler",
+    "quitterSansEnregistrer": "Quitter sans enregistrer ?",
+    "tesModificationsNeSerontPas": "Tes modifications ne seront pas sauvegardées.",
+    "continuerLEdition": "Continuer l'édition",
+    "quitter": "Quitter",
+    "supprimerCetteInspiration": "Supprimer cette inspiration ?",
+    "actionIrreversibleLInspirationSera": "Action irréversible. L'inspiration sera définitivement supprimée.",
+    "modifierLInspiration": "Modifier l'inspiration",
+    "nouvelleInspiration": "Nouvelle inspiration",
+    "metsAJourLesDetails": "Mets à jour les détails de cette inspiration.",
+    "captureUneVideoOuUn": "Capture une vidéo ou un compte qui t'inspire.",
+    "plateformeNonDetecteeSelectionneManuelle": "Plateforme non détectée — sélectionne manuellement.",
+    "overrideManuel": "Override manuel.",
+    "optionnel": "Optionnel",
+    "ceQuiTAMarque": "Ce qui t'a marqué, ce que tu retiens...",
+    "sauvegarder": "Sauvegarder",
+    "enregistrer": "Enregistrer",
+    "inspirationModifiee": "Inspiration modifiée",
+    "inspirationCreee": "Inspiration créée",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "inspirationSupprimee": "Inspiration supprimée",
+    "urlPlaceholder": "https://www.tiktok.com/@... ou https://www.instagram.com/..."
+  },
+  "InspirationStatsAccordion": {
+    "statsOptionnel": "Stats (optionnel)",
+    "vues": "Vues",
+    "likes": "Likes",
+    "commentaires": "Commentaires",
+    "abonnes": "Abonnés",
+    "dateDeCapture": "Date de capture"
+  },
+  "InspirationsEmptyState": {
+    "aucuneInspiration": "Aucune inspiration",
+    "captureUneVideoOuUn": "Capture une vidéo ou un compte qui t'inspire.",
+    "nouvelleInspiration": "+ Nouvelle inspiration"
+  },
+  "InspirationsFilters": {
+    "recherche": "Recherche",
+    "favorisSeulement": "Favoris seulement",
+    "reinitialiser": "Réinitialiser",
+    "dossier": "Dossier",
+    "plateforme": "Plateforme",
+    "type": "Type",
+    "tags": "Tags",
+    "aucunTag": "Aucun tag",
+    "tous": "Tous",
+    "titreNotesUrl": "Titre, notes, URL…"
+  },
+  "InspirationsHeader": {
+    "inspirations": "Inspirations",
+    "bibliothequeDeVideosEtComptes": "Bibliothèque de vidéos et comptes qui t'inspirent.",
+    "filtres": "Filtres",
+    "dossiers": "Dossiers",
+    "nouvelleInspiration": "Nouvelle inspiration"
+  },
+  "InspirationsList": {
+    "type": "Type",
+    "plateforme": "Plateforme",
+    "titre": "Titre",
+    "dossier": "Dossier",
+    "stats": "Stats",
+    "date": "Date",
+    "sansTitre": "(Sans titre)",
+    "actions": "Actions",
+    "ouvrirLaPublication": "Ouvrir la publication",
+    "retirerDesFavoris": "Retirer des favoris",
+    "ajouterAuxFavoris": "Ajouter aux favoris",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "ThumbnailCell": {
+    "inspiration": "Inspiration"
+  },
+  "StatsCell": {
+    "abonnes": "{count} abonnés"
+  },
+  "InspirationsListSkeleton": {
+    "type": "Type",
+    "plateforme": "Plateforme",
+    "titre": "Titre",
+    "dossier": "Dossier",
+    "stats": "Stats",
+    "date": "Date"
+  },
+  "TagsInput": {
+    "retirerLeTag": "Retirer le tag {tag}",
+    "growthB2b": "growth, b2b…",
+    "ajouterUnTag": "Ajouter un tag",
+    "maximumTags": "Maximum {max} tags"
+  },
+  "ViewToggle": {
+    "vueGrilleOuListe": "Vue grille ou liste",
+    "vueGrille": "Vue grille",
+    "vueListe": "Vue liste"
+  },
+  "assetError": {
+    "wrongType": "Format non supporté. Images JPG/PNG/WebP ou vidéos MP4/MOV/WebM uniquement.",
+    "empty": "Fichier vide ou taille invalide.",
+    "imageTooBig": "Image trop lourde (10 Mo max).",
+    "videoTooBig": "Vidéo trop lourde (100 Mo max).",
+    "invalid": "fichier invalide."
+  },
+  "inspirationType": {
+    "video": "Vidéo",
+    "account": "Compte"
+  }
+}

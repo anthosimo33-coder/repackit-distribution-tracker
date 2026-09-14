@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 const MAX_TAGS_DEFAULT = 20;
 
@@ -33,6 +34,7 @@ export function TagsInput({
   max?: number;
   disabled?: boolean;
 }) {
+  const tr = useTranslations("admin.library.TagsInput");
   const [input, setInput] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,7 +48,7 @@ export function TagsInput({
       return;
     }
     if (value.length >= max) {
-      toast.error(`Maximum ${max} tags`);
+      toast.error(tr("maximumTags", { max: max }));
       return;
     }
     onChange([...value, normalized]);
@@ -111,7 +113,7 @@ export function TagsInput({
                 removeTag(tag);
               }}
               disabled={disabled}
-              aria-label={`Retirer le tag ${tag}`}
+              aria-label={tr("retirerLeTag", { tag: tag })}
               className="rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-900"
             >
               <XIcon className="size-3" />
@@ -127,9 +129,9 @@ export function TagsInput({
           onFocus={handleFocus}
           onBlur={handleBlur}
           disabled={disabled}
-          placeholder={value.length === 0 ? "growth, b2b…" : ""}
+          placeholder={value.length === 0 ? tr("growthB2b") : ""}
           className="min-w-[80px] flex-1 border-0 bg-transparent text-sm outline-none placeholder:text-slate-400 disabled:cursor-not-allowed"
-          aria-label="Ajouter un tag"
+          aria-label={tr("ajouterUnTag")}
         />
       </div>
       {open && matchingSuggestions.length > 0 && !disabled && (

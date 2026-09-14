@@ -14,6 +14,8 @@ import { resolveOutlierRatio } from "@/lib/inspiration-stats";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type InspirationCardData = Doc<"inspirations"> & {
   thumbnailUrl: string | null;
@@ -25,10 +27,7 @@ export type FolderRef = {
   color?: string;
 };
 
-const TYPE_LABELS: Record<"video" | "account", string> = {
-  video: "Vidéo",
-  account: "Compte",
-};
+// Libellés : `admin.library.inspirationType.<type>`.
 
 export function InspirationCard({
   inspiration,
@@ -39,7 +38,10 @@ export function InspirationCard({
   folder?: FolderRef;
   onClick: () => void;
 }) {
-  const typeLabel = TYPE_LABELS[inspiration.type];
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.library.InspirationCard");
+  const tType = useTranslations("admin.library.inspirationType");
+  const typeLabel = tType(inspiration.type);
   const folderColor = getFolderColor(folder?.color);
   // Bouton "Ouvrir" seulement si l'inspiration a une URL exploitable.
   const hasUrl = inspiration.url.trim().length > 0;
@@ -66,7 +68,7 @@ export function InspirationCard({
         isFavorite: !inspiration.isFavorite,
       });
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -90,7 +92,7 @@ export function InspirationCard({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={inspiration.thumbnailUrl}
-            alt={inspiration.titre ?? "Inspiration"}
+            alt={inspiration.titre ?? tr("inspiration")}
             loading="lazy"
             onError={() => setImgError(true)}
             className="size-full object-cover"
@@ -106,8 +108,8 @@ export function InspirationCard({
           type="button"
           aria-label={
             inspiration.isFavorite
-              ? "Retirer des favoris"
-              : "Ajouter aux favoris"
+              ? tr("retirerDesFavoris")
+              : tr("ajouterAuxFavoris")
           }
           onClick={handleToggleFavorite}
           className={cn(
@@ -133,7 +135,7 @@ export function InspirationCard({
             href={inspiration.url}
             target="_blank"
             rel="noopener noreferrer"
-            aria-label="Ouvrir la publication"
+            aria-label={tr("ouvrirLaPublication")}
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
             className="absolute top-2 left-2 rounded-full bg-white/90 p-1.5 text-slate-600 shadow-sm transition-colors hover:bg-white hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
@@ -155,7 +157,7 @@ export function InspirationCard({
           >
             {outlierRatio != null && (
               <span className="rounded bg-slate-900/90 px-1.5 py-0.5 text-xs font-bold tabular-nums text-white shadow-sm">
-                {formatOutlierRatio(outlierRatio)}
+                {formatOutlierRatio(outlierRatio, loc)}
               </span>
             )}
             {(views != null || followers != null) && (
@@ -163,13 +165,13 @@ export function InspirationCard({
                 {views != null && (
                   <span className="inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white shadow-sm">
                     <EyeIcon className="size-3" />
-                    {formatNumber(views)}
+                    {formatNumber(views, loc)}
                   </span>
                 )}
                 {followers != null && (
                   <span className="inline-flex items-center gap-1 rounded bg-black/55 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white shadow-sm">
                     <UsersIcon className="size-3" />
-                    {formatNumber(followers)}
+                    {formatNumber(followers, loc)}
                   </span>
                 )}
               </div>
@@ -181,7 +183,7 @@ export function InspirationCard({
       <div className="flex flex-1 flex-col gap-2 p-3">
         <p className="line-clamp-2 text-sm font-medium text-slate-900">
           {inspiration.titre || (
-            <span className="text-slate-400">(Sans titre)</span>
+            <span className="text-slate-400">{tr("sansTitre")}</span>
           )}
         </p>
         <div className="flex flex-wrap items-center gap-1.5">

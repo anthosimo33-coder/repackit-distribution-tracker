@@ -16,8 +16,10 @@ import { AssetUploader } from "@/components/admin/AssetUploader";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { ArrowLeftIcon, SparklesIcon, Trash2Icon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 export default function AssetFolderDetailPage() {
+  const tr = useTranslations("admin.library.AssetFolderDetailPage");
   const params = useParams<{ folderId: string }>();
   const folderId = params.folderId as Id<"assetFolders">;
   const projectPath = useProjectPath();
@@ -30,7 +32,7 @@ export default function AssetFolderDetailPage() {
   async function onDelete(id: Id<"assets">) {
     try {
       await removeAsset({ id });
-      toast.success("Fichier supprimé.");
+      toast.success(tr("fichierSupprime"));
     } catch (e) {
       toast.error(convexErrorMessage(e));
     }
@@ -43,16 +45,15 @@ export default function AssetFolderDetailPage() {
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
       >
         <ArrowLeftIcon className="size-4" />
-        Assets
+        {tr("assets")}
       </Link>
 
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          {folders === undefined ? "…" : (folder?.name ?? "Dossier introuvable")}
+          {folders === undefined ? "…" : (folder?.name ?? tr("dossierIntrouvable"))}
         </h1>
         <p className="text-sm text-slate-500">
-          Images JPG/PNG/WebP (10 Mo) · Vidéos MP4/MOV/WebM (100 Mo). Lie ce
-          dossier à un assignment depuis la page Assignments.
+          {tr("imagesJpgPngWebp10")}
         </p>
       </header>
 
@@ -60,10 +61,7 @@ export default function AssetFolderDetailPage() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
           <SparklesIcon className="mt-0.5 size-4 shrink-0" />
           <p>
-            <span className="font-medium">Contenu à publier.</span> Les images
-            déposées ici sont nettoyées de leurs métadonnées (C2PA, EXIF, XMP) et
-            ré-encodées en JPEG à l&apos;ingestion. La recompression est
-            irréversible — n&apos;y dépose pas de matériel source.
+            <span className="font-medium">{tr("contenuAPublier")}</span>{" "}{tr("lesImagesDeposeesIciSont")}
           </p>
         </div>
       )}
@@ -80,7 +78,7 @@ export default function AssetFolderDetailPage() {
       ) : assets.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-400">
-            Aucun fichier dans ce dossier.
+            {tr("aucunFichierDansCeDossier")}
           </CardContent>
         </Card>
       ) : (
@@ -106,7 +104,7 @@ export default function AssetFolderDetailPage() {
                   ))}
                 {a.contentType.startsWith("video/") && (
                   <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                    Vidéo
+                    {tr("video")}
                   </span>
                 )}
                 <Button
@@ -114,7 +112,7 @@ export default function AssetFolderDetailPage() {
                   size="sm"
                   className="absolute right-1 top-1 size-7 bg-white/80 p-0 text-rose-600 hover:bg-white hover:text-rose-700"
                   onClick={() => onDelete(a._id)}
-                  aria-label={`Supprimer ${a.fileName}`}
+                  aria-label={tr("supprimer", { fileName: a.fileName })}
                 >
                   <Trash2Icon className="size-4" />
                 </Button>

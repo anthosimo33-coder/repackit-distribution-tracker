@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import { JUGEABLE_THRESHOLD } from "@/lib/scriptStats";
 import { parseComboKey } from "@/lib/scriptCombos";
-import { KIND_LABELS } from "@/lib/scriptAssembly";
+import { KIND_LABEL_KEYS } from "@/lib/scriptAssembly";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { ReplaySource } from "@/components/admin/ChosenComboPicker";
 import {
@@ -37,6 +37,8 @@ import {
   MinusIcon,
   RepeatIcon,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type Window = "j3" | "j7" | "j14" | "j30";
 const WINDOWS: { key: Window; label: string }[] = [
@@ -53,17 +55,19 @@ type Dimension = Decisions["dimensions"][number];
 type BrickDecision = Dimension["decisions"][number];
 type StrongSignal = Decisions["strongSignals"][number];
 
-// Libellés de brique : repris de KIND_LABELS (source unique) plutôt que redéclarés
-// — c'est ce qui rendait « CTA » présent en double ici après le renommage.
-const KIND_LABEL: Record<string, string> = { ...KIND_LABELS };
+// Libellés de brique : repris des clés de `scriptAssembly` (source unique)
+// plutôt que redéclarés — c'est ce qui rendait « CTA » présent en double ici
+// après le renommage.
+const KIND_LABEL_KEY: Record<string, string> = { ...KIND_LABEL_KEYS };
 
-const DIMENSION_LABEL: Record<string, string> = {
-  hook: KIND_LABELS.hook,
-  flux: KIND_LABELS.flux,
-  cta: KIND_LABELS.cta,
+const DIMENSION_LABEL_KEY: Record<string, string> = {
+  hook: KIND_LABEL_KEYS.hook,
+  flux: KIND_LABEL_KEYS.flux,
+  cta: KIND_LABEL_KEYS.cta,
 };
 
 export default function ScriptAnalyticsPage() {
+  const tr = useTranslations("admin.scripts.ScriptAnalyticsPage");
   const params = useParams<{ id: string }>();
   const campaignId = params.id as Id<"scriptCampaigns">;
   const projectPath = useProjectPath();
@@ -96,18 +100,16 @@ export default function ScriptAnalyticsPage() {
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
       >
         <ArrowLeftIcon className="size-4" />
-        Retour à la campagne
+        {tr("retourALaCampagne")}
       </Link>
 
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Analytics{campaign ? ` — ${campaign.name}` : ""}
+            {tr("analytics")}{campaign ? ` — ${campaign.name}` : ""}
           </h1>
           <p className="text-sm text-slate-500">
-            Performance par variable de script. Médiane des vues (robuste aux
-            outliers). Verdict à partir de {JUGEABLE_THRESHOLD} posts par
-            brique.
+            {tr("performanceParVariableDeScript", { JUGEABLE_THRESHOLD: JUGEABLE_THRESHOLD })}
           </p>
         </div>
         <WindowSelector value={window} onChange={setWindow} />
@@ -128,11 +130,10 @@ export default function ScriptAnalyticsPage() {
             <div className="space-y-8">
               <div className="border-t border-slate-200 pt-6">
                 <h2 className="text-base font-semibold text-slate-900">
-                  Détail des chiffres
+                  {tr("detailDesChiffres")}
                 </h2>
                 <p className="text-sm text-slate-500">
-                  Médianes brutes par variable et par combo. Les décisions
-                  ci-dessus en sont tirées.
+                  {tr("medianesBrutesParVariableEt")}
                 </p>
               </div>
               {(["hook", "flux", "cta"] as const).map((kind) => (
@@ -165,11 +166,12 @@ function WindowSelector({
   value: Window;
   onChange: (w: Window) => void;
 }) {
+  const tr = useTranslations("admin.scripts.WindowSelector");
   return (
     <div
       className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
       role="group"
-      aria-label="Fenêtre de vues"
+      aria-label={tr("fenetreDeVues")}
     >
       {WINDOWS.map((w) => (
         <button
@@ -213,24 +215,25 @@ function ratioText(median: number | null, peerMedian: number | null): string | n
 }
 
 function VerdictBadge({ verdict }: { verdict: BrickDecision["verdict"] }) {
+  const tr = useTranslations("admin.scripts.VerdictBadge");
   switch (verdict) {
     case "a_pousser":
       return (
         <Badge className="shrink-0 gap-1 bg-emerald-600 text-white hover:bg-emerald-600">
-          <TrendingUpIcon className="size-3" />À pousser
+          <TrendingUpIcon className="size-3" />{tr("aPousser")}
         </Badge>
       );
     case "a_couper":
       return (
         <Badge className="shrink-0 gap-1 bg-rose-600 text-white hover:bg-rose-600">
-          <TrendingDownIcon className="size-3" />À couper
+          <TrendingDownIcon className="size-3" />{tr("aCouper")}
         </Badge>
       );
     case "neutre":
       return (
         <Badge variant="secondary" className="shrink-0 gap-1">
           <MinusIcon className="size-3" />
-          Neutre
+          {tr("neutre")}
         </Badge>
       );
     default:
@@ -239,34 +242,52 @@ function VerdictBadge({ verdict }: { verdict: BrickDecision["verdict"] }) {
           variant="outline"
           className="shrink-0 border-amber-300 text-amber-700"
         >
-          en test
+          {tr("enTest")}
         </Badge>
       );
   }
 }
 
-/** Phrase de reco prête à lire (verbe d'action en tête). */
-function decisionHeadline(d: BrickDecision): string {
-  const r = ratioText(d.viewsMedian, d.peerMedian);
-  switch (d.verdict) {
-    case "a_pousser":
-      return `Pousse ${d.label}${r ? ` — médiane ${r} vs pairs` : ""}, sur ${d.postCount} posts.`;
-    case "a_couper":
-      return `Coupe ${d.label}${
-        d.deltaVsPeerMedian !== null
-          ? ` — médiane ${signedPct(d.deltaVsPeerMedian)} sous les pairs`
-          : ""
-      }, sur ${d.postCount} posts.`;
-    case "neutre":
-      return `${d.label} — dans la moyenne${
-        d.deltaVsPeerMedian !== null ? ` (${signedPct(d.deltaVsPeerMedian)})` : ""
-      }, garder en rotation. ${d.postCount} posts.`;
-    default:
-      return `${d.label} — en test, ${d.postCount}/${JUGEABLE_THRESHOLD} posts.`;
-  }
+/**
+ * Phrase de reco prête à lire (verbe d'action en tête) — la phrase vit dans
+ * `admin.scripts.decision.<verdict>`, l'écart en est un paramètre.
+ */
+function useDecisionHeadline() {
+  const t = useTranslations("admin.scripts.decision");
+  return (d: BrickDecision): string => {
+    const r = ratioText(d.viewsMedian, d.peerMedian);
+    const ecart = d.deltaVsPeerMedian !== null ? signedPct(d.deltaVsPeerMedian) : "";
+    switch (d.verdict) {
+      case "a_pousser":
+        return t("aPousser", {
+          label: d.label,
+          posts: d.postCount,
+          ratio: r ?? "",
+          hasRatio: r ? "yes" : "no",
+        });
+      case "a_couper":
+        return t("aCouper", {
+          label: d.label,
+          posts: d.postCount,
+          ecart,
+          hasEcart: ecart ? "yes" : "no",
+        });
+      case "neutre":
+        return t("neutre", {
+          label: d.label,
+          posts: d.postCount,
+          ecart,
+          hasEcart: ecart ? "yes" : "no",
+        });
+      default:
+        return t("enTest", { label: d.label, posts: d.postCount, seuil: JUGEABLE_THRESHOLD });
+    }
+  };
 }
 
 function DecisionRow({ d }: { d: BrickDecision }) {
+  const loc = useIntlLocale();
+  const decisionHeadline = useDecisionHeadline();
   const actionable = d.verdict === "a_pousser" || d.verdict === "a_couper";
   return (
     <div
@@ -291,13 +312,14 @@ function DecisionRow({ d }: { d: BrickDecision }) {
         </p>
       </div>
       <span className="shrink-0 pt-0.5 tabular-nums text-sm font-semibold text-slate-900">
-        {formatNumber(d.viewsMedian)}
+        {formatNumber(d.viewsMedian, loc)}
       </span>
     </div>
   );
 }
 
 function DimensionBlock({ dimension }: { dimension: Dimension }) {
+  const tKind = useTranslations("admin.scripts.brickKind");
   if (dimension.decisions.length === 0) return null;
   const sorted = [...dimension.decisions].sort(
     (a, b) =>
@@ -307,7 +329,9 @@ function DimensionBlock({ dimension }: { dimension: Dimension }) {
   return (
     <div className="space-y-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-        {DIMENSION_LABEL[dimension.kind] ?? dimension.kind}
+        {DIMENSION_LABEL_KEY[dimension.kind]
+          ? tKind(DIMENSION_LABEL_KEY[dimension.kind] as "hook")
+          : dimension.kind}
       </h3>
       <div className="space-y-2">
         {sorted.map((d) => (
@@ -326,16 +350,16 @@ function CollectState({
   decisions: Decisions;
   windowLabel: string;
 }) {
+  const tr = useTranslations("admin.scripts.CollectState");
   if (decisions.totalPosts === 0) {
     return (
       <Card>
         <CardContent className="py-12 text-center">
           <p className="text-sm font-medium text-slate-900">
-            Aucune publication de script mesurée à {windowLabel}.
+            {tr("aucunePublicationDeScriptMesuree", { windowLabel: windowLabel })}
           </p>
           <p className="mt-1 text-sm text-slate-500">
-            Essaie une autre fenêtre, ou reviens quand des posts auront des vues
-            à cette échéance.
+            {tr("essaieUneAutreFenetreOu")}
           </p>
         </CardContent>
       </Card>
@@ -354,17 +378,14 @@ function CollectState({
     <Card>
       <CardContent className="py-12 text-center">
         <p className="text-sm font-medium text-slate-900">
-          Encore en collecte de données.
+          {tr("encoreEnCollecteDeDonnees")}
         </p>
         <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-          Les recommandations apparaîtront dès qu&apos;une brique atteint{" "}
-          {JUGEABLE_THRESHOLD} posts publiés. (Le bulk testing a besoin de volume
-          pour décider.)
+          {tr("lesRecommandationsApparaitrontDesQu", { JUGEABLE_THRESHOLD: JUGEABLE_THRESHOLD })}
         </p>
         {lead && lead.postCount > 0 && (
           <p className="mt-3 text-xs text-slate-400">
-            Brique la plus avancée : {lead.label} — {lead.postCount}/
-            {JUGEABLE_THRESHOLD}.
+            {tr("briqueLaPlusAvancee", { label: lead.label, postCount: lead.postCount, JUGEABLE_THRESHOLD: JUGEABLE_THRESHOLD })}
           </p>
         )}
       </CardContent>
@@ -373,18 +394,18 @@ function CollectState({
 }
 
 function StrongSignalsBlock({ signals }: { signals: StrongSignal[] }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.scripts.StrongSignalsBlock");
   return (
     <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/50 p-4">
       <div className="flex items-center gap-2">
         <FlameIcon className="size-4 text-amber-600" />
         <h3 className="text-sm font-semibold text-amber-900">
-          Signaux forts à valider
+          {tr("signauxFortsAValider")}
         </h3>
       </div>
       <p className="text-xs text-amber-700">
-        Briques/combos qui explosent la médiane de campagne avant d&apos;être
-        jugeables. À confirmer manuellement — aucune action automatique (un seul
-        carton peut être un accident).
+        {tr("briquesCombosQuiExplosentLa")}
       </p>
       <div className="space-y-2 pt-1">
         {signals.map((s) => (
@@ -397,12 +418,11 @@ function StrongSignalsBlock({ signals }: { signals: StrongSignal[] }) {
                 {s.label}
               </p>
               <p className="text-xs text-slate-500">
-                ×{s.multipleOfGlobal.toFixed(1).replace(".", ",")} la médiane de
-                campagne · {s.postCount} posts · à confirmer manuellement
+                {tr("laMedianeDeCampagnePosts", { value: s.multipleOfGlobal.toFixed(1).replace(".", ","), postCount: s.postCount })}
               </p>
             </div>
             <span className="shrink-0 tabular-nums text-sm font-semibold text-slate-900">
-              {formatNumber(s.viewsMedian)}
+              {formatNumber(s.viewsMedian, loc)}
             </span>
           </div>
         ))}
@@ -418,14 +438,13 @@ function DecisionsSection({
   decisions: Decisions;
   windowLabel: string;
 }) {
+  const tr = useTranslations("admin.scripts.DecisionsSection");
   return (
     <section className="space-y-5">
       <div className="space-y-1">
-        <h2 className="text-lg font-semibold text-slate-900">Décisions</h2>
+        <h2 className="text-lg font-semibold text-slate-900">{tr("decisions")}</h2>
         <p className="text-sm text-slate-500">
-          Recommandations de bulk testing à {windowLabel}. « À pousser » = à
-          assigner davantage ; « à couper » = arrêter d&apos;assigner. Le système
-          recommande, il ne ré-assigne jamais tout seul.
+          {tr("recommandationsDeBulkTestingA", { windowLabel: windowLabel })}
         </p>
       </div>
 
@@ -454,10 +473,11 @@ function StatusBadge({
   status: "en_test" | "jugeable";
   postCount: number;
 }) {
+  const tr = useTranslations("admin.scripts.StatusBadge");
   if (status === "jugeable") {
     return (
       <Badge variant="secondary" className="shrink-0">
-        {postCount} posts
+        {tr("posts", { postCount: postCount })}
       </Badge>
     );
   }
@@ -466,7 +486,7 @@ function StatusBadge({
       variant="outline"
       className="shrink-0 border-amber-300 text-amber-700"
     >
-      en test ({postCount}/{JUGEABLE_THRESHOLD})
+      {tr("enTest", { postCount: postCount, JUGEABLE_THRESHOLD: JUGEABLE_THRESHOLD })}
     </Badge>
   );
 }
@@ -489,6 +509,7 @@ function MetricRow({
   maxMedian: number;
   winner: boolean;
 }) {
+  const loc = useIntlLocale();
   const pct =
     median !== null && maxMedian > 0
       ? Math.max(2, (median / maxMedian) * 100)
@@ -516,7 +537,7 @@ function MetricRow({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="tabular-nums text-sm font-semibold text-slate-900">
-            {formatNumber(median)}
+            {formatNumber(median, loc)}
           </span>
           <StatusBadge status={status} postCount={postCount} />
         </div>
@@ -560,6 +581,8 @@ function BrickSection({
   window: Window;
   windowLabel: string;
 }) {
+  const tr = useTranslations("admin.scripts.BrickSection");
+  const tKind = useTranslations("admin.scripts.brickKind");
   const rows = bricks.map((b) => ({
     median: b.viewsMedian,
     jugeable: b.status === "jugeable",
@@ -570,12 +593,12 @@ function BrickSection({
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-        {KIND_LABEL[kind] ?? kind}
+        {KIND_LABEL_KEY[kind] ? tKind(KIND_LABEL_KEY[kind] as "hook") : kind}
       </h2>
       {bricks.length === 0 ? (
         <Card>
           <CardContent className="py-6 text-center text-sm text-slate-400">
-            Aucune brique active.
+            {tr("aucuneBriqueActive")}
           </CardContent>
         </Card>
       ) : (
@@ -625,6 +648,7 @@ function BrickDrilldown({
   windowLabel: string;
   postCount: number;
 }) {
+  const tr = useTranslations("admin.scripts.BrickDrilldown");
   const [open, setOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("vues");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -652,7 +676,7 @@ function BrickDrilldown({
   if (postCount === 0) {
     return (
       <p className="pl-1 text-xs text-slate-400">
-        Aucun post mesuré à {windowLabel}.
+        {tr("aucunPostMesureA", { windowLabel: windowLabel })}
       </p>
     );
   }
@@ -669,17 +693,15 @@ function BrickDrilldown({
           className={cn("size-3.5 transition-transform", open && "rotate-180")}
         />
         {open
-          ? "Masquer les posts"
-          : `Voir les ${postCount} post${postCount > 1 ? "s" : ""} mesuré${
-              postCount > 1 ? "s" : ""
-            } à ${windowLabel}`}
+          ? tr("masquerLesPosts")
+          : tr("voirLesPostMesureA", { postCount: postCount, windowLabel: windowLabel })}
       </button>
       {open &&
         (posts === undefined ? (
           <Skeleton className="mt-2 h-40 w-full" />
         ) : posts.length === 0 ? (
           <p className="mt-2 pl-1 text-xs text-slate-400">
-            Aucun post mesuré à {windowLabel}.
+            {tr("aucunPostMesureA", { windowLabel: windowLabel })}
           </p>
         ) : (
           <div className="mt-2">
@@ -704,6 +726,8 @@ function ComboSection({
   campaignId: Id<"scriptCampaigns">;
   campaignName: string;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.scripts.ComboSection");
   const [open, setOpen] = useState(false);
   // « Rejouer » un combo : combo source sélectionné (payload construit côté client
   // depuis ComboPerf — perf agrégée, pas de source unique donc replayedFrom absent).
@@ -744,15 +768,13 @@ function ComboSection({
           className={cn("mr-1 size-4 transition-transform", open && "rotate-180")}
         />
         <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Combos complets ({combos.length})
+          {tr("combosComplets", { count: combos.length })}
         </span>
       </Button>
       {open && (
         <div className="space-y-2">
           <p className="text-xs text-slate-400">
-            La plupart des combos précis sont sous le seuil ({JUGEABLE_THRESHOLD}
-            ) : c&apos;est attendu. « Signal » = jugeable ET au-dessus de la
-            médiane de campagne.
+            {tr("laPlupartDesCombosPrecis", { JUGEABLE_THRESHOLD: JUGEABLE_THRESHOLD })}
           </p>
           {top.map((c) => (
             <div
@@ -766,12 +788,12 @@ function ComboSection({
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <span className="tabular-nums text-sm font-semibold text-slate-900">
-                  {formatNumber(c.viewsMedian)}
+                  {formatNumber(c.viewsMedian, loc)}
                 </span>
                 {c.signal ? (
                   <Badge className="shrink-0 gap-1 bg-emerald-600">
                     <SparklesIcon className="size-3" />
-                    signal
+                    {tr("signal")}
                   </Badge>
                 ) : (
                   <StatusBadge status={c.status} postCount={c.postCount} />
@@ -784,7 +806,7 @@ function ComboSection({
                     onClick={() => setReplayCombo(c)}
                   >
                     <RepeatIcon className="size-3" />
-                    Rejouer
+                    {tr("rejouer")}
                   </Button>
                 )}
               </div>

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import {
   assembleScript,
-  KIND_LABELS,
+  KIND_LABEL_KEYS,
   normalizeAssembledForCompare,
   splitAssembledIntoThree,
   usefulShortLabel,
@@ -102,6 +102,7 @@ export function ChosenComboPicker({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.ChosenComboPicker");
+  const tKind = useTranslations("admin.scripts.brickKind");
   // Perf par brique/combo sur TOUT l'historique (fenêtre `latest`), pas j7.
   const perfBricks = useProjectQuery(api.scriptAnalytics.perfByBrick, {
     campaignId,
@@ -293,7 +294,7 @@ export function ChosenComboPicker({
                       className="rounded border border-amber-200 bg-white p-2"
                     >
                       <div className="text-xs font-medium text-slate-600">
-                        {KIND_LABELS[d.kind]}
+                        {tKind(KIND_LABEL_KEYS[d.kind])}
                       </div>
                       <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
                         <div>
@@ -399,10 +400,10 @@ export function ChosenComboPicker({
             const selected = opts.find((b) => b._id === value[kind]);
             return (
               <div key={kind} className="space-y-1">
-                <Label className="text-xs">{KIND_LABELS[kind]}</Label>
+                <Label className="text-xs">{tKind(KIND_LABEL_KEYS[kind])}</Label>
                 {opts.length === 0 ? (
                   <p className="text-xs text-amber-600">
-                    {tr("aucuneBriqueActiveDansCette", { value: KIND_LABELS[kind].toLowerCase() })}
+                    {tr("aucuneBriqueActiveDansCette", { value: tKind(KIND_LABEL_KEYS[kind]).toLowerCase() })}
                   </p>
                 ) : (
                   <Select
@@ -412,7 +413,7 @@ export function ChosenComboPicker({
                     }
                     disabled={disabled || (!!replayVerbatim && verbatimAvailable)}
                   >
-                    <SelectTrigger aria-label={KIND_LABELS[kind]}>
+                    <SelectTrigger aria-label={tKind(KIND_LABEL_KEYS[kind])}>
                       <SelectValue>
                         {/* content = le texte qui PART à la créatrice (pas label). */}
                         {selected ? (
@@ -460,12 +461,12 @@ export function ChosenComboPicker({
                 )}
                 {status === "deleted" && (
                   <p className="text-xs font-medium text-amber-700">
-                    {tr("briqueDeLaSourceSupprimee", { value: KIND_LABELS[kind].toLowerCase() })}
+                    {tr("briqueDeLaSourceSupprimee", { value: tKind(KIND_LABEL_KEYS[kind]).toLowerCase() })}
                   </p>
                 )}
                 {status === "disabled" && (
                   <p className="text-xs font-medium text-amber-700">
-                    {tr("briqueDeLaSourceDesactivee", { value: KIND_LABELS[kind].toLowerCase() })}
+                    {tr("briqueDeLaSourceDesactivee", { value: tKind(KIND_LABEL_KEYS[kind]).toLowerCase() })}
                   </p>
                 )}
               </div>

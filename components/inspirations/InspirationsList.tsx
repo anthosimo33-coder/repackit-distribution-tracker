@@ -27,24 +27,24 @@ import { ExternalLinkIcon, StarIcon } from "lucide-react";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
-const TYPE_LABELS: Record<"video" | "account", string> = {
-  video: "Vidéo",
-  account: "Compte",
-};
+// Libellés : `admin.library.inspirationType.<type>`.
 
 /**
  * Vignette d'une ligne : image si dispo (onError → fallback), sinon fallback
  * propre icône-plateforme. Sous-composant pour porter l'état d'erreur par row.
  */
 function ThumbnailCell({ inspiration }: { inspiration: InspirationCardData }) {
+  const tr = useTranslations("admin.library.ThumbnailCell");
   const [imgError, setImgError] = useState(false);
   if (inspiration.thumbnailUrl && !imgError) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={inspiration.thumbnailUrl}
-        alt={inspiration.titre ?? "Inspiration"}
+        alt={inspiration.titre ?? tr("inspiration")}
         loading="lazy"
         onError={() => setImgError(true)}
         className="size-10 rounded-md object-cover"
@@ -68,6 +68,8 @@ function StatsCell({
   stats: InspirationCardData["stats"];
   type: "video" | "account";
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.library.StatsCell");
   // Ratio outlier résolu (stocké Radar ou fallback views/followers) — SORTI du
   // slice pour rester TOUJOURS visible s'il existe, quelles que soient les
   // autres stats. Même helper/format que la grille et l'onglet Radar Outliers.
@@ -76,19 +78,19 @@ function StatsCell({
   // TÊTE pour toujours survivre au slice(0, 2). Ordre selon le type (un compte
   // met les abonnés d'abord, une vidéo les vues) ; likes/comm. secondaires.
   const viewsPart =
-    stats?.views !== undefined ? `${formatNumber(stats.views)} vues` : null;
+    stats?.views !== undefined ? `${formatNumber(stats.views, loc)} vues` : null;
   const followersPart =
     stats?.followers !== undefined
-      ? `${formatNumber(stats.followers)} abonnés`
+      ? tr("abonnes", { count: formatNumber(stats.followers, loc) })
       : null;
   const parts: string[] = (
     type === "account"
       ? [followersPart, viewsPart]
       : [viewsPart, followersPart]
   ).filter((p): p is string => p !== null);
-  if (stats?.likes !== undefined) parts.push(`${formatNumber(stats.likes)} likes`);
+  if (stats?.likes !== undefined) parts.push(`${formatNumber(stats.likes, loc)} likes`);
   if (stats?.comments !== undefined)
-    parts.push(`${formatNumber(stats.comments)} comm.`);
+    parts.push(`${formatNumber(stats.comments, loc)} comm.`);
   if (outlierRatio === null && parts.length === 0) {
     return <span className="text-slate-400">—</span>;
   }
@@ -96,7 +98,7 @@ function StatsCell({
     <div className="flex items-center gap-1.5">
       {outlierRatio !== null && (
         <span className="rounded bg-slate-900 px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white">
-          {formatOutlierRatio(outlierRatio)}
+          {formatOutlierRatio(outlierRatio, loc)}
         </span>
       )}
       {parts.length > 0 && (
@@ -126,6 +128,9 @@ export function InspirationsList({
   folderMap: Map<Id<"folders">, FolderRef>;
   onCardClick: (id: Id<"inspirations">) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.library.InspirationsList");
+  const tType = useTranslations("admin.library.inspirationType");
   const updateInspiration = useProjectMutation(api.inspirations.updateInspiration);
 
   async function toggleFavorite(
@@ -137,7 +142,7 @@ export function InspirationsList({
     try {
       await updateInspiration({ id, isFavorite: !current });
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -147,13 +152,13 @@ export function InspirationsList({
         <TableHeader className="sticky top-0 z-10 bg-slate-50">
           <TableRow>
             <TableHead className="w-[60px]" />
-            <TableHead className="w-[80px]">Type</TableHead>
-            <TableHead className="w-[100px]">Plateforme</TableHead>
-            <TableHead>Titre</TableHead>
-            <TableHead className="w-[140px]">Dossier</TableHead>
-            <TableHead className="w-[210px]">Stats</TableHead>
-            <TableHead className="w-[88px]" aria-label="Actions" />
-            <TableHead className="w-[90px]">Date</TableHead>
+            <TableHead className="w-[80px]">{tr("type")}</TableHead>
+            <TableHead className="w-[100px]">{tr("plateforme")}</TableHead>
+            <TableHead>{tr("titre")}</TableHead>
+            <TableHead className="w-[140px]">{tr("dossier")}</TableHead>
+            <TableHead className="w-[210px]">{tr("stats")}</TableHead>
+            <TableHead className="w-[88px]" aria-label={tr("actions")} />
+            <TableHead className="w-[90px]">{tr("date")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -171,7 +176,7 @@ export function InspirationsList({
                 </TableCell>
                 <TableCell>
                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
-                    {TYPE_LABELS[i.type]}
+                    {tType(i.type)}
                   </span>
                 </TableCell>
                 <TableCell>
@@ -180,10 +185,10 @@ export function InspirationsList({
                 <TableCell className="max-w-[200px]">
                   <span
                     className="block truncate"
-                    title={i.titre || "(Sans titre)"}
+                    title={i.titre || tr("sansTitre")}
                   >
                     {i.titre || (
-                      <span className="text-slate-400">(Sans titre)</span>
+                      <span className="text-slate-400">{tr("sansTitre")}</span>
                     )}
                   </span>
                 </TableCell>
@@ -216,7 +221,7 @@ export function InspirationsList({
                         href={i.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        aria-label="Ouvrir la publication"
+                        aria-label={tr("ouvrirLaPublication")}
                         onClick={(e) => e.stopPropagation()}
                         className={cn(
                           buttonVariants({ variant: "ghost", size: "icon-sm" }),
@@ -230,7 +235,7 @@ export function InspirationsList({
                       variant="ghost"
                       size="icon-sm"
                       aria-label={
-                        i.isFavorite ? "Retirer des favoris" : "Ajouter aux favoris"
+                        i.isFavorite ? tr("retirerDesFavoris") : tr("ajouterAuxFavoris")
                       }
                       onClick={(e) => toggleFavorite(e, i._id, i.isFavorite)}
                     >
@@ -247,7 +252,7 @@ export function InspirationsList({
                 </TableCell>
                 <TableCell>
                   <span className="text-xs tabular-nums text-slate-500">
-                    {formatDate(i.createdAt)}
+                    {formatDate(i.createdAt, loc)}
                   </span>
                 </TableCell>
               </TableRow>

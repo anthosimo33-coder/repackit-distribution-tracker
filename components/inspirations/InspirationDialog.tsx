@@ -53,11 +53,9 @@ import { ALL_PLATFORMS } from "@/lib/format-config";
 import { Loader2Icon, StarIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
-const TYPE_LABELS: Record<InspirationType, string> = {
-  video: "Vidéo",
-  account: "Compte",
-};
+// Libellés : `admin.library.inspirationType.<type>`.
 
 const TYPES: InspirationType[] = ["video", "account"];
 
@@ -146,16 +144,17 @@ function DialogLoadingSkeleton() {
 }
 
 function DialogNotFound({ onClose }: { onClose: () => void }) {
+  const tr = useTranslations("admin.library.DialogNotFound");
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Inspiration introuvable</DialogTitle>
+        <DialogTitle>{tr("inspirationIntrouvable")}</DialogTitle>
         <DialogDescription>
-          Cette inspiration a été supprimée ou n&apos;existe plus.
+          {tr("cetteInspirationAEteSupprimee")}
         </DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button onClick={onClose}>Fermer</Button>
+        <Button onClick={onClose}>{tr("fermer")}</Button>
       </DialogFooter>
     </>
   );
@@ -172,6 +171,8 @@ function InspirationDialogForm({
   onClose: () => void;
   tagSuggestions: string[];
 }) {
+  const tr = useTranslations("admin.library.InspirationDialogForm");
+  const tType = useTranslations("admin.library.inspirationType");
   const isEdit = mode === "edit";
 
   const [url, setUrl] = useState(initialData?.url ?? "");
@@ -375,7 +376,7 @@ function InspirationDialogForm({
           isFavorite,
           tags,
         });
-        toast.success("Inspiration modifiée");
+        toast.success(tr("inspirationModifiee"));
       } else {
         await createInspiration({
           url: url.trim(),
@@ -389,11 +390,11 @@ function InspirationDialogForm({
           isFavorite,
           tags,
         });
-        toast.success("Inspiration créée");
+        toast.success(tr("inspirationCreee"));
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -404,11 +405,11 @@ function InspirationDialogForm({
     setSubmitting(true);
     try {
       await deleteInspiration({ id: initialData._id });
-      toast.success("Inspiration supprimée");
+      toast.success(tr("inspirationSupprimee"));
       setConfirmDeleteOpen(false);
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
       setSubmitting(false);
     }
   }
@@ -428,22 +429,22 @@ function InspirationDialogForm({
     <>
       <DialogHeader>
         <DialogTitle>
-          {isEdit ? "Modifier l'inspiration" : "Nouvelle inspiration"}
+          {isEdit ? tr("modifierLInspiration") : tr("nouvelleInspiration")}
         </DialogTitle>
         <DialogDescription>
           {isEdit
-            ? "Mets à jour les détails de cette inspiration."
-            : "Capture une vidéo ou un compte qui t'inspire."}
+            ? tr("metsAJourLesDetails")
+            : tr("captureUneVideoOuUn")}
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-1.5">
-        <Label htmlFor="insp-url">URL *</Label>
+        <Label htmlFor="insp-url">{tr("url")}</Label>
         <Input
           id="insp-url"
           type="url"
           autoFocus={!isEdit}
-          placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
+          placeholder={tr("urlPlaceholder")}
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
@@ -453,10 +454,10 @@ function InspirationDialogForm({
         />
         {url.trim().length > 0 && !manualOverride && detected !== null && (
           <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span>Détection :</span>
+            <span>{tr("detection")}</span>
             <PlatformBadge plateforme={detected.plateforme} />
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 font-medium text-slate-600">
-              {TYPE_LABELS[detected.type]}
+              {tType(detected.type)}
             </span>
             <button
               type="button"
@@ -467,7 +468,7 @@ function InspirationDialogForm({
                 setManualType(detected.type);
               }}
             >
-              Modifier
+              {tr("modifier")}
             </button>
           </div>
         )}
@@ -475,12 +476,12 @@ function InspirationDialogForm({
           <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/50 p-3">
             <p className="text-xs text-slate-600">
               {detected === null && !manualOverride
-                ? "Plateforme non détectée — sélectionne manuellement."
-                : "Override manuel."}
+                ? tr("plateformeNonDetecteeSelectionneManuelle")
+                : tr("overrideManuel")}
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="insp-manual-plateforme">Plateforme</Label>
+                <Label htmlFor="insp-manual-plateforme">{tr("plateforme")}</Label>
                 <Select
                   value={manualPlateforme}
                   onValueChange={(v) => {
@@ -501,7 +502,7 @@ function InspirationDialogForm({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="insp-manual-type">Type</Label>
+                <Label htmlFor="insp-manual-type">{tr("type")}</Label>
                 <Select
                   value={manualType}
                   onValueChange={(v) => {
@@ -515,7 +516,7 @@ function InspirationDialogForm({
                   <SelectContent>
                     {TYPES.map((t) => (
                       <SelectItem key={t} value={t}>
-                        {TYPE_LABELS[t]}
+                        {tType(t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -527,21 +528,21 @@ function InspirationDialogForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="insp-titre">Titre</Label>
+        <Label htmlFor="insp-titre">{tr("titre")}</Label>
         <Input
           id="insp-titre"
-          placeholder="Optionnel"
+          placeholder={tr("optionnel")}
           value={titre}
           onChange={(e) => setTitre(e.target.value)}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="insp-notes">Notes</Label>
+        <Label htmlFor="insp-notes">{tr("notes")}</Label>
         <Textarea
           id="insp-notes"
           rows={6}
-          placeholder="Ce qui t'a marqué, ce que tu retiens..."
+          placeholder={tr("ceQuiTAMarque")}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           className="font-mono text-xs"
@@ -549,7 +550,7 @@ function InspirationDialogForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label>Thumbnail</Label>
+        <Label>{tr("thumbnail")}</Label>
         <ImageUploader
           value={thumbnail}
           imageUrl={thumbnailUrl}
@@ -560,11 +561,11 @@ function InspirationDialogForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>Dossier</Label>
+          <Label>{tr("dossier")}</Label>
           <FolderCombobox value={folderId} onChange={setFolderId} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="insp-tags-input">Tags</Label>
+          <Label htmlFor="insp-tags-input">{tr("tags")}</Label>
           <TagsInput
             value={tags}
             onChange={setTags}
@@ -572,7 +573,7 @@ function InspirationDialogForm({
             disabled={submitting}
           />
           <p className="text-xs text-slate-500">
-            Entrée, virgule ou Tab pour valider. Backspace pour retirer.
+            {tr("entreeVirguleOuTabPour")}
           </p>
         </div>
       </div>
@@ -587,7 +588,7 @@ function InspirationDialogForm({
             }
           />
           <Label htmlFor="insp-favorite" className="cursor-pointer">
-            Favori
+            {tr("favori")}
           </Label>
         </div>
         <Switch
@@ -618,7 +619,7 @@ function InspirationDialogForm({
             disabled={submitting}
           >
             <Trash2Icon className="size-4" />
-            Supprimer
+            {tr("supprimer")}
           </Button>
         )}
         <Button
@@ -626,11 +627,11 @@ function InspirationDialogForm({
           onClick={handleClose}
           disabled={submitting}
         >
-          Annuler
+          {tr("annuler")}
         </Button>
         <Button onClick={handleSave} disabled={!canSubmit}>
           {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          {isEdit ? "Sauvegarder" : "Enregistrer"}
+          {isEdit ? tr("sauvegarder") : tr("enregistrer")}
         </Button>
       </DialogFooter>
 
@@ -640,18 +641,18 @@ function InspirationDialogForm({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Quitter sans enregistrer ?</AlertDialogTitle>
+            <AlertDialogTitle>{tr("quitterSansEnregistrer")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Tes modifications ne seront pas sauvegardées.
+              {tr("tesModificationsNeSerontPas")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Continuer l&apos;édition</AlertDialogCancel>
+            <AlertDialogCancel>{tr("continuerLEdition")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleConfirmCancel}
             >
-              Quitter
+              {tr("quitter")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -663,14 +664,13 @@ function InspirationDialogForm({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer cette inspiration ?</AlertDialogTitle>
+            <AlertDialogTitle>{tr("supprimerCetteInspiration")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Action irréversible. L&apos;inspiration sera définitivement
-              supprimée.
+              {tr("actionIrreversibleLInspirationSera")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={submitting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDelete}
@@ -679,7 +679,7 @@ function InspirationDialogForm({
               {submitting && (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
               )}
-              Supprimer
+              {tr("supprimer")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

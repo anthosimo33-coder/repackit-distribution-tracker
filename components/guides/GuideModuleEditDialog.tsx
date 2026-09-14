@@ -35,6 +35,7 @@ import { GuideMarkdown } from "@/components/ui/GuideMarkdown";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 const TITLE_MAX = 120;
 const CONTENT_MAX = 50_000;
@@ -103,6 +104,7 @@ function GuideModuleEditForm({
   initialLocale: Locale;
   onClose: () => void;
 }) {
+  const tr = useTranslations("admin.library.GuideModuleEditForm");
   const isEdit = mode === "edit";
   const [title, setTitle] = useState(initialModule?.title ?? "");
   const [content, setContent] = useState(initialModule?.contentMarkdown ?? "");
@@ -141,7 +143,7 @@ function GuideModuleEditForm({
           locale,
           isWarmupGuide: isWarmup,
         });
-        toast.success("Module mis à jour");
+        toast.success(tr("moduleMisAJour"));
       } else {
         await createModule({
           title: trimmed,
@@ -149,11 +151,11 @@ function GuideModuleEditForm({
           status,
           locale,
         });
-        toast.success("Module créé");
+        toast.success(tr("moduleCree"));
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -163,36 +165,35 @@ function GuideModuleEditForm({
     <>
       <DialogHeader>
         <DialogTitle>
-          {isEdit ? "Modifier le module" : "Nouveau module"}
+          {isEdit ? tr("modifierLeModule") : tr("nouveauModule")}
         </DialogTitle>
         <DialogDescription>
-          Écris le contenu en markdown — l&apos;aperçu montre ce que verra le
-          créateur.
+          {tr("ecrisLeContenuEnMarkdown")}
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-1.5">
-        <Label htmlFor="module-title">Titre *</Label>
+        <Label htmlFor="module-title">{tr("titre")}</Label>
         <Input
           id="module-title"
           autoFocus
           maxLength={TITLE_MAX}
-          placeholder="Ex : Comment je suis payé"
+          placeholder={tr("exCommentJeSuisPaye")}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
         />
         <p className="text-xs text-slate-500">
-          {trimmed.length}/{TITLE_MAX} caractères
+          {tr("caracteres", { count: trimmed.length, TITLE_MAX: TITLE_MAX })}
         </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="min-w-0 space-y-1.5">
-          <Label htmlFor="module-content">Contenu (markdown)</Label>
+          <Label htmlFor="module-content">{tr("contenuMarkdown")}</Label>
           <Textarea
             id="module-content"
             rows={18}
-            placeholder={"# Titre\n\nÉcris ton contenu ici…"}
+            placeholder={tr("titreEcrisTonContenuIci")}
             value={content}
             onChange={(e) => setContent(e.target.value)}
             className="font-mono text-xs"
@@ -200,13 +201,13 @@ function GuideModuleEditForm({
           <p className="text-xs text-slate-400">{MARKDOWN_HINT}</p>
         </div>
         <div className="min-w-0 space-y-1.5">
-          <Label>Aperçu créateur</Label>
+          <Label>{tr("apercuCreateur")}</Label>
           <div className="min-h-[18rem] rounded-md border border-slate-200 bg-white p-4">
             {content.trim().length > 0 ? (
               <GuideMarkdown content={content} />
             ) : (
               <p className="text-sm text-slate-400">
-                L&apos;aperçu du rendu apparaîtra ici.
+                {tr("lApercuDuRenduApparaitra")}
               </p>
             )}
           </div>
@@ -214,12 +215,12 @@ function GuideModuleEditForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label>Langue *</Label>
+        <Label>{tr("langue")}</Label>
         <Select
           value={locale}
           onValueChange={(v) => v !== null && setLocale(v as Locale)}
         >
-          <SelectTrigger aria-label="Langue" className="w-full sm:w-64">
+          <SelectTrigger aria-label={tr("langue2")} className="w-full sm:w-64">
             <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
@@ -231,11 +232,10 @@ function GuideModuleEditForm({
           </SelectContent>
         </Select>
         <p className="text-xs text-slate-500">
-          Chaque langue a son propre jeu de modules. Ce module n&apos;apparaît
-          que dans le guide {LOCALE_LABELS[locale]}
+          {tr("chaqueLangueASonPropre", { value: LOCALE_LABELS[locale] })}
           {isEdit
-            ? " — le changer le déplace en fin de l'autre jeu."
-            : ", et ne touche à rien dans l'autre."}
+            ? ` ${tr("leChangerLeDeplaceEn")}`
+            : tr("etNeToucheARien")}
         </p>
       </div>
 
@@ -248,12 +248,10 @@ function GuideModuleEditForm({
           />
           <div className="space-y-0.5">
             <Label htmlFor="module-warmup" className="cursor-pointer">
-              C&apos;est le guide warmup
+              {tr("cEstLeGuideWarmup")}
             </Label>
             <p className="text-xs text-slate-500">
-              Le bouton « Guide warmup » de l&apos;écran comptes ouvre ce
-              module. <strong>Un seul par langue</strong> : l&apos;activer ici
-              le retire du module qui le portait.
+              {tr("leBoutonGuideWarmupDe")}{" "}<strong>{tr("unSeulParLangue")}</strong>{" "}{tr("lActiverIciLeRetire")}
             </p>
           </div>
         </div>
@@ -267,23 +265,23 @@ function GuideModuleEditForm({
         />
         <div className="space-y-0.5">
           <Label htmlFor="module-published" className="cursor-pointer">
-            {published ? "Publié" : "Brouillon"}
+            {published ? tr("publie") : tr("brouillon")}
           </Label>
           <p className="text-xs text-slate-500">
             {published
-              ? "Visible par les créateurs du projet."
-              : "Invisible côté créateur tant que brouillon."}
+              ? tr("visibleParLesCreateursDu")
+              : tr("invisibleCoteCreateurTantQue")}
           </p>
         </div>
       </div>
 
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={submitting}>
-          Annuler
+          {tr("annuler")}
         </Button>
         <Button onClick={handleSave} disabled={!canSubmit}>
           {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          {isEdit ? "Sauvegarder" : "Créer"}
+          {isEdit ? tr("sauvegarder") : tr("creer")}
         </Button>
       </DialogFooter>
     </>

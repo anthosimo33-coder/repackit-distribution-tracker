@@ -126,6 +126,7 @@
     "components/challenges/ChallengeWinsCard.tsx",
     "components/challenges/CreateChallengeDialog.tsx",
     "components/challenges/challenge-format.ts",
+    "components/challenges/use-challenge-labels.ts",
     "components/comptes/CompteAdminActions.tsx",
     "components/comptes/CompteDialog.tsx",
     "components/comptes/CompteReassignDialog.tsx",

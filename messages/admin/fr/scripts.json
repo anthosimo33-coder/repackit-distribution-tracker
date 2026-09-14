@@ -1,1 +1,235 @@
-{}
+{
+  "ScriptAnalyticsPage": {
+    "retourALaCampagne": "Retour à la campagne",
+    "analytics": "Analytics",
+    "performanceParVariableDeScript": "Performance par variable de script. Médiane des vues (robuste aux outliers). Verdict à partir de {JUGEABLE_THRESHOLD} posts par brique.",
+    "detailDesChiffres": "Détail des chiffres",
+    "medianesBrutesParVariableEt": "Médianes brutes par variable et par combo. Les décisions ci-dessus en sont tirées."
+  },
+  "VerdictBadge": {
+    "aPousser": "À pousser",
+    "aCouper": "À couper",
+    "neutre": "Neutre",
+    "enTest": "en test"
+  },
+  "CollectState": {
+    "aucunePublicationDeScriptMesuree": "Aucune publication de script mesurée à {windowLabel}.",
+    "essaieUneAutreFenetreOu": "Essaie une autre fenêtre, ou reviens quand des posts auront des vues à cette échéance.",
+    "encoreEnCollecteDeDonnees": "Encore en collecte de données.",
+    "lesRecommandationsApparaitrontDesQu": "Les recommandations apparaîtront dès qu'une brique atteint {JUGEABLE_THRESHOLD} posts publiés. (Le bulk testing a besoin de volume pour décider.)",
+    "briqueLaPlusAvancee": "Brique la plus avancée : {label} — {postCount}/{JUGEABLE_THRESHOLD}."
+  },
+  "StrongSignalsBlock": {
+    "signauxFortsAValider": "Signaux forts à valider",
+    "briquesCombosQuiExplosentLa": "Briques/combos qui explosent la médiane de campagne avant d'être jugeables. À confirmer manuellement — aucune action automatique (un seul carton peut être un accident).",
+    "laMedianeDeCampagnePosts": "×{value} la médiane de campagne · {postCount} posts · à confirmer manuellement"
+  },
+  "DecisionsSection": {
+    "decisions": "Décisions",
+    "recommandationsDeBulkTestingA": "Recommandations de bulk testing à {windowLabel}. « À pousser » = à assigner davantage ; « à couper » = arrêter d'assigner. Le système recommande, il ne ré-assigne jamais tout seul."
+  },
+  "StatusBadge": {
+    "posts": "{postCount} posts",
+    "enTest": "en test ({postCount}/{JUGEABLE_THRESHOLD})"
+  },
+  "BrickSection": {
+    "aucuneBriqueActive": "Aucune brique active."
+  },
+  "BrickDrilldown": {
+    "aucunPostMesureA": "Aucun post mesuré à {windowLabel}.",
+    "masquerLesPosts": "Masquer les posts",
+    "voirLesPostMesureA": "Voir les {postCount} {postCount, plural, one {post} other {posts}} {postCount, plural, one {mesuré} other {mesurés}} à {windowLabel}"
+  },
+  "ComboSection": {
+    "combosComplets": "Combos complets ({count})",
+    "laPlupartDesCombosPrecis": "La plupart des combos précis sont sous le seuil ({JUGEABLE_THRESHOLD}) : c'est attendu. « Signal » = jugeable ET au-dessus de la médiane de campagne.",
+    "signal": "signal",
+    "rejouer": "Rejouer"
+  },
+  "WindowSelector": {
+    "fenetreDeVues": "Fenêtre de vues"
+  },
+  "ScriptCampaignDetailPage": {
+    "scripts": "Scripts",
+    "campagneIntrouvable": "Campagne introuvable.",
+    "combinaisonPossible": "{total, plural, one {combinaison} other {combinaisons}} {total, plural, one {possible} other {possibles}}",
+    "hooksFluxCta": "({hook} hooks × {flux} flux × {cta} cta)",
+    "analytics": "Analytics",
+    "importerDesHooks": "Importer des hooks",
+    "apercuDUnScript": "Aperçu d'un script",
+    "assignerCetteCampagne": "Assigner cette campagne",
+    "activesSeulement": "Actives seulement",
+    "avecConsigne": "💡 Avec consigne",
+    "aucuneCreatrice": "— aucune créatrice —",
+    "masquerLesIndisponibles": "Masquer les indisponibles",
+    "cetteCreatriceNAAucun": "Cette créatrice n'a aucun compte déclaré — aucune collision d'unicité n'est calculable.",
+    "sur": "sur {count} {value}",
+    "active": "· {activeCount} {activeCount, plural, one {active} other {actives}}",
+    "ajouter": "Ajouter",
+    "typeDeBrique": "Type de brique",
+    "chercherDansLeTexteDes": "Chercher dans le texte des {value}…",
+    "chercherUneBrique": "Chercher une brique",
+    "disponiblePour": "Disponible pour",
+    "dispoPour": "Dispo pour…",
+    "dispoPour2": "Dispo pour {value}",
+    "briquesDeLaCampagne": "Briques de la campagne",
+    "aucuneBrique": "Aucune brique « {value} ».",
+    "aucuneBriqueNeCorrespondAux": "Aucune brique ne correspond aux filtres.",
+    "editionDeLaBriqueSelectionnee": "Édition de la brique sélectionnée"
+  },
+  "BrickRow": {
+    "consigne": "💡 consigne",
+    "inactive": "inactive",
+    "run": "{postCount} {postCount, plural, one {run} other {runs}}",
+    "selectionnerLaBrique": "Sélectionner la brique",
+    "activerLaBrique": "Activer la brique",
+    "medianeDesVuesAuDernier": "Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "BrickEditor": {
+    "choisisUneBriqueDansLa": "Choisis une brique dans la liste, ou ajoutes-en une.",
+    "modificationsNonEnregistrees": "modifications non enregistrées",
+    "texte": "Texte",
+    "partDansLeScript": "— part dans le script",
+    "instruction": "Instruction",
+    "optionnelleLueParLaCreatrice": "— optionnelle, lue par la créatrice",
+    "afficheeSousCeBlocDans": "Affichée sous ce bloc dans la fiche de la créatrice, jamais dans le texte à dire ni dans la description. Vider le champ la retire.",
+    "nomCourtInterne": "Nom court (interne)",
+    "dansLaVideo": "Dans la vidéo",
+    "sEnregistreChangerDeLigne": "⌘S enregistre — changer de ligne aussi.",
+    "graduer": "Graduer",
+    "nouvelleBrique": "Nouvelle brique",
+    "modifier": "Modifier",
+    "exLElementPrecisQui": "Ex. l'élément précis qui justifie la vérification.",
+    "exFlux2ScanClone": "Ex. Flux 2 — scan & clone",
+    "supprimer": "Supprimer",
+    "ajouter": "Ajouter",
+    "enregistrer": "Enregistrer",
+    "leNomCourtEstRequis": "Le nom court est requis.",
+    "briqueMiseAJour": "Brique mise à jour",
+    "briqueAjoutee": "Brique ajoutée",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "briqueSupprimee": "Brique supprimée"
+  },
+  "CreatorPreview": {
+    "lApercuSAfficheDes": "L'aperçu s'affiche dès qu'une brique active de chaque type porte du texte.",
+    "ceQueVerraLaCreatrice": "Ce que verra la créatrice",
+    "enCoursDEdition": "— {value} en cours d'édition"
+  },
+  "BulkBar": {
+    "selectionne": "{kindLabel} {count, plural, one {sélectionné} other {sélectionnés}}",
+    "activer": "Activer",
+    "desactiver": "Désactiver",
+    "consigne": "Consigne…",
+    "supprimer": "Supprimer",
+    "consignePourBrique": "Consigne pour {count} {count, plural, one {brique} other {briques}}",
+    "laMemeConsigneEstPosee": "La MÊME consigne est posée sur toute la sélection, en remplaçant celle qui s'y trouve. Laisser vide RETIRE la consigne.",
+    "annuler": "Annuler",
+    "appliquer": "Appliquer",
+    "supprimerBrique": "Supprimer {count} {count, plural, one {brique} other {briques}} ?",
+    "irreversibleLesScriptsDejaAssignes": "Irréversible. Les scripts DÉJÀ assignés ne bougent pas — leur texte est figé —, mais ces briques ne seront plus tirées.",
+    "consigne2": "Consigne",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "sActivees": "s activées",
+    "activee": "activée",
+    "sDesactivees": "s désactivées",
+    "desactivee": "désactivée",
+    "consignePosee": "Consigne posée",
+    "consigneRetiree": "Consigne retirée",
+    "sSupprimees": "s supprimées",
+    "supprimee": "supprimée"
+  },
+  "ImportHooksDialog": {
+    "importerDesHooks": "Importer des hooks",
+    "lesHooksSelectionnesSontCopies": "Les hooks sélectionnés sont COPIÉS comme briques (la bibliothèque reste intacte).",
+    "laBibliothequeDeHooksEst": "La bibliothèque de hooks est vide.",
+    "annuler": "Annuler",
+    "importer": "Importer ({size})",
+    "selectionneAuMoinsUnHook": "Sélectionne au moins un hook.",
+    "hookImporte": "{imported} {imported, plural, one {hook} other {hooks}} {imported, plural, one {importé} other {importés}}.",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "PreviewDialog": {
+    "apercuDUnScriptMonte": "Aperçu d'un script monté",
+    "activeAuMoinsUneBrique": "Active au moins une brique de chaque type pour prévisualiser.",
+    "ceQueVerraLaCreatrice": "Ce que verra la créatrice : 🎬 hook + flux vont dans la vidéo, 📝 la description va sous la publication.",
+    "leRenduFinalDUne": "Le rendu final d'une vidéo (ce que verra le créateur), sans les briques séparées."
+  },
+  "ScriptsPage": {
+    "scripts": "Scripts",
+    "campagnesCombinatoiresHookFluxCta": "Campagnes combinatoires : hook + flux + cta.",
+    "nouvelleCampagne": "Nouvelle campagne",
+    "aucuneCampagneCreeTaPremiere": "Aucune campagne. Crée ta première campagne de scripts.",
+    "campagne": "Campagne",
+    "statut": "Statut",
+    "active": "Active",
+    "archivee": "Archivée"
+  },
+  "CampaignActions": {
+    "modifier": "Modifier",
+    "supprimer": "Supprimer",
+    "reactiver": "Réactiver",
+    "archiver": "Archiver",
+    "reactivee": "Réactivée",
+    "archivee": "Archivée",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "campagneSupprimee": "Campagne supprimée"
+  },
+  "CampaignDialog": {
+    "uneCampagneRegroupeLesHooks": "Une campagne regroupe les hooks, flux et descriptions d'un angle de test.",
+    "nom": "Nom",
+    "annuler": "Annuler",
+    "modifierLaCampagne": "Modifier la campagne",
+    "nouvelleCampagne": "Nouvelle campagne",
+    "exAngleGainDeTemps": "Ex. Angle « gain de temps »",
+    "enregistrer": "Enregistrer",
+    "creer": "Créer",
+    "leNomEstRequis": "Le nom est requis.",
+    "campagneMiseAJour": "Campagne mise à jour",
+    "campagneCreee": "Campagne créée",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "BrickSparkline": {
+    "derniersRunsDuPlusAncien": "{count} derniers runs, du plus ancien au plus récent ; dernier : {value} vues"
+  },
+  "HookAvailabilityBadge": {
+    "libre": "Libre",
+    "cooldown": "Cooldown → {date}",
+    "fenetreDeCooldownAL": "Fenêtre de cooldown à l'échelle du projet (tous créateurs confondus)",
+    "uniciteAVieCetteCreatrice": "Unicité à vie : cette créatrice a déjà reçu ce hook sur cette plateforme"
+  },
+  "ComboCooldownSettingsButton": {
+    "cooldown": "Cooldown",
+    "cooldownDesScriptsCeProjet": "Cooldown des scripts — ce projet",
+    "aQuelEcartUnMeme": "À quel écart un même script peut repartir sur un autre compte."
+  },
+  "ComboCooldownSettingsCard": {
+    "cooldownDUnScriptEn": "Cooldown d'un script, en jours",
+    "unScriptDejaProgrammeOu": "Un script déjà programmé (ou sorti) à moins de ce nombre de jours d'une date visée n'est pas réattribuable à cette date — même sur un autre compte, même chez une autre créatrice.",
+    "jours": "Jours",
+    "unEntierEntreEtOu": "Un entier entre {COMBO_COOLDOWN_DAYS_MIN} et {COMBO_COOLDOWN_DAYS_MAX}, ou vide pour le défaut.",
+    "ceReglageNeChange": "Ce réglage ne change",
+    "unComboDejaAttribueEst": ": un combo déjà attribué est figé sur son assignation. Il ne touche pas non plus à l'",
+    "uneCreatriceNeRecoitJamais": "— une créatrice ne reçoit jamais deux fois le même script sur la même plateforme, quel que soit ce nombre.",
+    "queLesTiragesAVenir": "que les tirages à venir",
+    "uniciteAVie": "unicité à vie",
+    "enregistrer": "Enregistrer",
+    "defaut": "défaut : {fallback}",
+    "nonDefiniJourApplique": "non défini — {fallback} {fallback, plural, one {jour} other {jours}} {fallback, plural, one {appliqué} other {appliqués}}",
+    "n0CooldownDesactiveUnMeme": "0 — cooldown désactivé : un même script peut repartir le jour même sur un autre compte",
+    "jourApplique": "{parsed} {value, plural, one {jour} other {jours}} {value, plural, one {appliqué} other {appliqués}}",
+    "cooldownEnregistre": "Cooldown enregistré",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "brickKind": {
+    "hook": "Hook",
+    "flux": "Flux",
+    "cta": "Description"
+  },
+  "decision": {
+    "aPousser": "Pousse {label}{hasRatio, select, yes { — médiane {ratio} vs pairs} other {}}, sur {posts} posts.",
+    "aCouper": "Coupe {label}{hasEcart, select, yes { — médiane {ecart} sous les pairs} other {}}, sur {posts} posts.",
+    "neutre": "{label} — dans la moyenne{hasEcart, select, yes { ({ecart})} other {}}, garder en rotation. {posts} posts.",
+    "enTest": "{label} — en test, {posts}/{seuil} posts."
+  }
+}

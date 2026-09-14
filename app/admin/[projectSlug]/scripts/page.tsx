@@ -47,10 +47,12 @@ import {
 } from "lucide-react";
 import { ComboCooldownSettingsButton } from "@/components/scripts/ComboCooldownSettingsButton";
 import type { FunctionReturnType } from "convex/server";
+import { useTranslations } from "next-intl";
 
 type Campaign = FunctionReturnType<typeof api.scripts.listCampaigns>[number];
 
 export default function ScriptsPage() {
+  const tr = useTranslations("admin.scripts.ScriptsPage");
   const campaigns = useProjectQuery(api.scripts.listCampaigns, {});
   const projectPath = useProjectPath();
   const [editTarget, setEditTarget] = useState<Campaign | null>(null);
@@ -61,17 +63,17 @@ export default function ScriptsPage() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Scripts
+            {tr("scripts")}
           </h1>
           <p className="text-sm text-slate-500">
-            Campagnes combinatoires : hook + flux + cta.
+            {tr("campagnesCombinatoiresHookFluxCta")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ComboCooldownSettingsButton />
           <Button onClick={() => setCreateOpen(true)}>
             <PlusIcon className="mr-2 size-4" />
-            Nouvelle campagne
+            {tr("nouvelleCampagne")}
           </Button>
         </div>
       </header>
@@ -86,7 +88,7 @@ export default function ScriptsPage() {
               strokeWidth={1.5}
             />
             <p className="text-sm text-slate-500">
-              Aucune campagne. Crée ta première campagne de scripts.
+              {tr("aucuneCampagneCreeTaPremiere")}
             </p>
           </CardContent>
         </Card>
@@ -96,8 +98,8 @@ export default function ScriptsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Campagne</TableHead>
-                  <TableHead>Statut</TableHead>
+                  <TableHead>{tr("campagne")}</TableHead>
+                  <TableHead>{tr("statut")}</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
@@ -124,7 +126,7 @@ export default function ScriptsPage() {
                             : "border-slate-200 bg-slate-50 text-slate-500",
                         )}
                       >
-                        {c.status === "active" ? "Active" : "Archivée"}
+                        {c.status === "active" ? tr("active") : tr("archivee")}
                       </span>
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
@@ -162,6 +164,7 @@ function CampaignActions({
   campaign: Campaign;
   onEdit: () => void;
 }) {
+  const tr = useTranslations("admin.scripts.CampaignActions");
   const update = useProjectMutation(api.scripts.updateCampaign);
   const remove = useProjectMutation(api.scripts.deleteCampaign);
   const isArchived = campaign.status === "archived";
@@ -172,18 +175,18 @@ function CampaignActions({
         id: campaign._id,
         status: isArchived ? "active" : "archived",
       });
-      toast.success(isArchived ? "Réactivée" : "Archivée");
+      toast.success(isArchived ? tr("reactivee") : tr("archivee"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
   async function onDelete() {
     try {
       await remove({ id: campaign._id });
-      toast.success("Campagne supprimée");
+      toast.success(tr("campagneSupprimee"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -197,16 +200,16 @@ function CampaignActions({
         }
       />
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={onEdit}>Modifier</DropdownMenuItem>
+        <DropdownMenuItem onClick={onEdit}>{tr("modifier")}</DropdownMenuItem>
         <DropdownMenuItem onClick={toggleArchive}>
-          {isArchived ? "Réactiver" : "Archiver"}
+          {isArchived ? tr("reactiver") : tr("archiver")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={onDelete}
           className="text-rose-600 focus:text-rose-700"
         >
-          Supprimer
+          {tr("supprimer")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -222,6 +225,7 @@ function CampaignDialog({
   onOpenChange: (o: boolean) => void;
   campaign: Campaign | null;
 }) {
+  const tr = useTranslations("admin.scripts.CampaignDialog");
   const create = useProjectMutation(api.scripts.createCampaign);
   const update = useProjectMutation(api.scripts.updateCampaign);
   const isEdit = campaign !== null;
@@ -239,21 +243,21 @@ function CampaignDialog({
 
   async function onSubmit() {
     if (name.trim().length === 0) {
-      toast.error("Le nom est requis.");
+      toast.error(tr("leNomEstRequis"));
       return;
     }
     setBusy(true);
     try {
       if (isEdit) {
         await update({ id: campaign._id, name });
-        toast.success("Campagne mise à jour");
+        toast.success(tr("campagneMiseAJour"));
       } else {
         await create({ name });
-        toast.success("Campagne créée");
+        toast.success(tr("campagneCreee"));
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -264,21 +268,20 @@ function CampaignDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? "Modifier la campagne" : "Nouvelle campagne"}
+            {isEdit ? tr("modifierLaCampagne") : tr("nouvelleCampagne")}
           </DialogTitle>
           <DialogDescription>
-            Une campagne regroupe les hooks, flux et descriptions d&apos;un angle
-            de test.
+            {tr("uneCampagneRegroupeLesHooks")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="campaign-name">Nom</Label>
+            <Label htmlFor="campaign-name">{tr("nom")}</Label>
             <Input
               id="campaign-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex. Angle « gain de temps »"
+              placeholder={tr("exAngleGainDeTemps")}
             />
           </div>
         </div>
@@ -288,11 +291,11 @@ function CampaignDialog({
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onSubmit} disabled={busy}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            {isEdit ? "Enregistrer" : "Créer"}
+            {isEdit ? tr("enregistrer") : tr("creer")}
           </Button>
         </DialogFooter>
       </DialogContent>

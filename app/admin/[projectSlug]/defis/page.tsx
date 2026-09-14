@@ -22,17 +22,18 @@ import { formatDateFr } from "@/convex/dateFr";
 import type { WinnerRule } from "@/convex/challengeScore";
 import { CreateChallengeDialog } from "@/components/challenges/CreateChallengeDialog";
 import {
-  deadlineLabel,
   formatViews,
-  modeLabel,
-  rewardLabel,
-  statusLabel,
   statusTone,
-  winnerRuleLabel,
 } from "@/components/challenges/challenge-format";
 import { usePermissions } from "@/components/project/use-permissions";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useChallengeLabels } from "@/components/challenges/use-challenge-labels";
 
 export default function ChallengesPage() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.challenges.ChallengesPage");
+  const L = useChallengeLabels();
   const droitsNav = usePermissions();
   const challenges = useProjectQuery(api.challenges.listChallenges, {});
   const projectPath = useProjectPath();
@@ -46,16 +47,15 @@ export default function ChallengesPage() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Défis
+            {tr("defis")}
           </h1>
           <p className="text-sm text-slate-500">
-            Opérations exceptionnelles, limitées dans le temps, attribuées
-            nommément.
+            {tr("operationsExceptionnellesLimiteesDansLe")}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <PlusIcon className="mr-2 size-4" />
-          Nouveau défi
+          {tr("nouveauDefi")}
         </Button>
       </header>
 
@@ -66,8 +66,7 @@ export default function ChallengesPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <TrophyIcon className="size-12 text-slate-300" strokeWidth={1.5} />
             <p className="text-sm text-slate-500">
-              Aucun défi. Crée le premier — il naîtra en brouillon, invisible des
-              créatrices tant que tu ne l&apos;ouvres pas.
+              {tr("aucunDefiCreeLePremier")}
             </p>
           </CardContent>
         </Card>
@@ -77,13 +76,13 @@ export default function ChallengesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Défi</TableHead>
-                  <TableHead>Objectif</TableHead>
-                  <TableHead>Récompense</TableHead>
-                  <TableHead>Participantes</TableHead>
-                  <TableHead>Gagnantes</TableHead>
-                  <TableHead>Deadline</TableHead>
-                  <TableHead>Statut</TableHead>
+                  <TableHead>{tr("defi")}</TableHead>
+                  <TableHead>{tr("objectif")}</TableHead>
+                  <TableHead>{tr("recompense")}</TableHead>
+                  <TableHead>{tr("participantes")}</TableHead>
+                  <TableHead>{tr("gagnantes")}</TableHead>
+                  <TableHead>{tr("deadline")}</TableHead>
+                  <TableHead>{tr("statut")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -97,14 +96,14 @@ export default function ChallengesPage() {
                         {c.name}
                       </Link>
                       <span className="ml-2 text-xs text-slate-400">
-                        {modeLabel(c.mode)}
+                        {L.mode(c.mode)}
                       </span>
                     </TableCell>
                     <TableCell className="tabular-nums">
-                      {formatViews(c.targetViews)} vues
+                      {tr("vues", { count: formatViews(c.targetViews, loc) })}
                     </TableCell>
                     <TableCell>
-                      {rewardLabel(c.reward, c.winnerRule as WinnerRule, payCurrency)}
+                      {L.reward(c.reward, c.winnerRule as WinnerRule, payCurrency)}
                     </TableCell>
                     <TableCell className="tabular-nums">
                       {c.participantCount}
@@ -115,13 +114,13 @@ export default function ChallengesPage() {
                         {Number.isFinite(c.slots) ? ` / ${c.slots}` : " / ∞"}
                       </span>
                       <span className="ml-2 text-xs text-slate-400">
-                        {winnerRuleLabel(c.winnerRule as WinnerRule)}
+                        {L.winnerRule(c.winnerRule as WinnerRule)}
                       </span>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {formatDateFr(c.deadline)}
+                      {formatDateFr(c.deadline, loc)}
                       <span className="ml-2 text-xs text-slate-400">
-                        {deadlineLabel(c.deadline, now)}
+                        {L.deadline(c.deadline, now)}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -131,14 +130,14 @@ export default function ChallengesPage() {
                           statusTone(c.status),
                         )}
                       >
-                        {statusLabel(c.status)}
+                        {L.status(c.status)}
                       </span>
                       {c.over && c.status === "active" && (
                         <span
                           className="ml-2 text-xs text-slate-400"
-                          title="Deadline passée ou toutes les places prises"
+                          title={tr("deadlinePasseeOuToutesLes")}
                         >
-                          terminé de fait
+                          {tr("termineDeFait")}
                         </span>
                       )}
                     </TableCell>

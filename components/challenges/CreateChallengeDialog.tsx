@@ -33,6 +33,8 @@ import { Loader2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatMoney } from "@/lib/format-rate";
 import { formatViews, maxCommitment } from "./challenge-format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Création d'un défi. Le défi naît en BROUILLON : on le crée, puis on lui donne
@@ -72,6 +74,8 @@ export function CreateChallengeDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.challenges.CreateChallengeDialog");
   const router = useRouter();
   const projectPath = useProjectPath();
   const payCurrency = useProject().project.payCurrency;
@@ -99,14 +103,14 @@ export function CreateChallengeDialog({
   // refermé. Un objet valeur → libellé suffit ; les <SelectItem> gardent le
   // même texte, il n'y a pas deux sources.
   const modeItems = {
-    cumulative: "Cumulé — la somme de ses vidéos du défi",
-    single: "Une seule vidéo doit atteindre la barre",
+    cumulative: tr("cumuleLaSommeDeSes"),
+    single: tr("uneSeuleVideoDoitAtteindre"),
   };
-  const rewardItems = { cash: "Monétaire", nature: "En nature" };
+  const rewardItems = { cash: tr("monetaire"), nature: tr("enNature") };
   const winnerItems = {
-    first: "La première",
-    topN: "Les N premières",
-    all: "Toutes celles qui franchissent",
+    first: tr("laPremiere"),
+    topN: tr("lesNPremieres"),
+    all: tr("toutesCellesQuiFranchissent"),
   };
   // Ancre temporelle STABLE au montage : `Date.now()` au render est impur
   // (react-hooks/purity), et la validation d'une deadline n'a pas besoin de la
@@ -170,11 +174,11 @@ export function CreateChallengeDialog({
         deadline: deadlineTs,
         pricingId: pricingId as Id<"pricings">,
       });
-      toast.success("Défi créé en brouillon");
+      toast.success(tr("defiCreeEnBrouillon"));
       onOpenChange(false);
       router.push(projectPath(`/defis/${challengeId}`));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -184,38 +188,37 @@ export function CreateChallengeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Nouveau défi</DialogTitle>
+          <DialogTitle>{tr("nouveauDefi")}</DialogTitle>
           <DialogDescription>
-            Le défi est créé en brouillon. Tu lui donnes ensuite son matériel et
-            ses participantes, puis tu l&apos;ouvres.
+            {tr("leDefiEstCreeEn")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
           <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="ch-name">Nom</Label>
+            <Label htmlFor="ch-name">{tr("nom")}</Label>
             <Input
               id="ch-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Sprint de septembre"
+              placeholder={tr("sprintDeSeptembre")}
             />
           </div>
 
           <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="ch-desc">Consigne (visible des créatrices)</Label>
+            <Label htmlFor="ch-desc">{tr("consigneVisibleDesCreatrices")}</Label>
             <Textarea
               id="ch-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              placeholder="Ce qu'on attend d'elles, en une ou deux phrases."
+              placeholder={tr("ceQuOnAttendD")}
             />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid min-w-0 gap-1.5">
-              <Label htmlFor="ch-target">Objectif de vues</Label>
+              <Label htmlFor="ch-target">{tr("objectifDeVues")}</Label>
               <Input
                 id="ch-target"
                 inputMode="numeric"
@@ -225,11 +228,11 @@ export function CreateChallengeDialog({
                 placeholder="100000"
               />
               <p className="text-xs text-slate-400">
-                {targetOk ? `${formatViews(target)} vues` : "Un entier positif."}
+                {targetOk ? tr("vues", { count: formatViews(target, loc) }) : tr("unEntierPositif")}
               </p>
             </div>
             <div className="grid min-w-0 gap-1.5">
-              <Label>Mode</Label>
+              <Label>{tr("mode")}</Label>
               <Select
                 items={modeItems}
                 value={mode}
@@ -250,7 +253,7 @@ export function CreateChallengeDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid min-w-0 gap-1.5">
-              <Label>Récompense</Label>
+              <Label>{tr("recompense")}</Label>
               <Select
                 items={rewardItems}
                 value={rewardType}
@@ -266,7 +269,7 @@ export function CreateChallengeDialog({
               </Select>
             </div>
             <div className="grid min-w-0 gap-1.5">
-              <Label>Gagnantes</Label>
+              <Label>{tr("gagnantes")}</Label>
               <Select
                 items={winnerItems}
                 value={winnerKind}
@@ -289,7 +292,7 @@ export function CreateChallengeDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             {rewardType === "cash" ? (
               <div className="grid min-w-0 gap-1.5">
-                <Label htmlFor="ch-amount">Montant par gagnante</Label>
+                <Label htmlFor="ch-amount">{tr("montantParGagnante")}</Label>
                 <Input
                   id="ch-amount"
                   inputMode="decimal"
@@ -301,17 +304,17 @@ export function CreateChallengeDialog({
             ) : (
               <>
                 <div className="grid min-w-0 gap-1.5">
-                  <Label htmlFor="ch-libelle">Ce qui est offert</Label>
+                  <Label htmlFor="ch-libelle">{tr("ceQuiEstOffert")}</Label>
                   <Input
                     id="ch-libelle"
                     value={libelle}
                     onChange={(e) => setLibelle(e.target.value)}
-                    placeholder="iPhone 16"
+                    placeholder={tr("iphone16")}
                   />
                 </div>
                 <div className="grid min-w-0 gap-1.5">
                   <Label htmlFor="ch-cout">
-                    Ce qu&apos;il nous coûte (jamais montré à la créatrice)
+                    {tr("ceQuIlNousCoute")}
                   </Label>
                   <Input
                     id="ch-cout"
@@ -325,7 +328,7 @@ export function CreateChallengeDialog({
             )}
             {winnerKind === "topN" && (
               <div className="grid min-w-0 gap-1.5">
-                <Label htmlFor="ch-n">Combien de gagnantes</Label>
+                <Label htmlFor="ch-n">{tr("combienDeGagnantes")}</Label>
                 <Input
                   id="ch-n"
                   inputMode="numeric"
@@ -345,26 +348,25 @@ export function CreateChallengeDialog({
           >
             {engagement !== null ? (
               <>
-                La récompense est <strong>par gagnante</strong>, jamais partagée.
-                Engagement maximal :{" "}
-                <strong>{formatMoney(engagement, payCurrency)}</strong>
-                {" si toutes les places sont prises."}
+                {tr("laRecompenseEst")}{" "}<strong>{tr("parGagnante")}</strong>{tr("jamaisPartageeEngagementMaximal")}{" "}
+                <strong>{formatMoney(engagement, payCurrency, loc)}</strong>
+                {` ${tr("siToutesLesPlacesSont")}`}
               </>
             ) : (
               <>
-                La récompense est <strong>par gagnante</strong>, jamais partagée.
+                {tr("laRecompenseEst")}{" "}<strong>{tr("parGagnante")}</strong>{tr("jamaisPartagee")}
                 {winnerKind === "all"
-                  ? " Avec « toutes celles qui franchissent », le total n'a pas de plafond connu d'avance."
+                  ? ` ${tr("avecToutesCellesQuiFranchissent")}`
                   : rewardType === "cash"
-                    ? " Renseigne le montant pour chiffrer l'engagement."
-                    : " Renseigne le coût réel pour chiffrer l'engagement."}
+                    ? ` ${tr("renseigneLeMontantPourChiffrer")}`
+                    : ` ${tr("renseigneLeCoutReelPour")}`}
               </>
             )}
           </p>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid min-w-0 gap-1.5">
-              <Label htmlFor="ch-deadline">Deadline</Label>
+              <Label htmlFor="ch-deadline">{tr("deadline")}</Label>
               <Input
                 id="ch-deadline"
                 type="date"
@@ -373,28 +375,28 @@ export function CreateChallengeDialog({
                 onChange={(e) => setDeadline(e.target.value)}
               />
               <p className="text-xs text-slate-400">
-                Le défi court jusqu&apos;à la fin de cette journée.
+                {tr("leDefiCourtJusquA")}
               </p>
             </div>
             <div className="grid min-w-0 gap-1.5">
-              <Label>Barème des vidéos du défi</Label>
+              <Label>{tr("baremeDesVideosDuDefi")}</Label>
               <Select
                 items={Object.fromEntries(
                   (pricings ?? []).map((p) => [
                     p._id,
-                    `${p.name} — ${formatMoney(p.tauxCPM, payCurrency)}/1000 vues`,
+                    `${p.name} — ${formatMoney(p.tauxCPM, payCurrency, loc)}/1000 vues`,
                   ]),
                 )}
                 value={pricingId}
                 onValueChange={(v) => setPricingId(v ?? "")}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Choisir un barème…" />
+                  <SelectValue placeholder={tr("choisirUnBareme")} />
                 </SelectTrigger>
                 <SelectContent>
                   {(pricings ?? []).map((p) => (
                     <SelectItem key={p._id} value={p._id}>
-                      {p.name} — {formatMoney(p.tauxCPM, payCurrency)}/1000 vues
+                      {tr("n1000Vues", { name: p.name, amount: formatMoney(p.tauxCPM, payCurrency, loc) })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -404,16 +406,11 @@ export function CreateChallengeDialog({
                     est mangé au transpile — la page affichait « fixe nulsont
                     proposés », vu à l'œil sur une capture, pas à la relecture
                     (l'espace EST dans le source). */}
-                Seuls les barèmes à <strong>fixe nul</strong>{" "}
-                sont proposés : les vidéos d&apos;un défi sont payées au CPM
-                (plus la prime),
-                pour qu&apos;elles ne consomment pas le budget fixe des vidéos
-                normales.
+                {tr("seulsLesBaremesA")}{" "}<strong>{tr("fixeNul")}</strong>{" "}{tr("sontProposesLesVideosD")}
               </p>
               {pricings !== undefined && pricings.length === 0 && (
                 <p className="text-xs text-rose-600">
-                  Aucun barème éligible. Crée-en un avec un montant fixe de 0
-                  dans « Barèmes ».
+                  {tr("aucunBaremeEligibleCreeEn")}
                 </p>
               )}
             </div>
@@ -422,11 +419,11 @@ export function CreateChallengeDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={handleCreate} disabled={!canSubmit}>
             {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Créer le brouillon
+            {tr("creerLeBrouillon")}
           </Button>
         </DialogFooter>
       </DialogContent>

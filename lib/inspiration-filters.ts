@@ -95,10 +95,12 @@ export const FILTER_PARAM_KEYS = [
   "tags",
 ] as const;
 
+// i18n-exempt: générique TypeScript, pas du texte
 const VALID_TYPES: ReadonlySet<InspirationType> = new Set<InspirationType>([
   "video",
   "account",
 ]);
+// i18n-exempt: générique TypeScript, pas du texte
 const VALID_PLATEFORMES: ReadonlySet<Plateforme> = new Set<Plateforme>(
   ALL_PLATFORMS,
 );
@@ -150,11 +152,13 @@ export function searchParamsToFilters(
       .filter((s) => s.length > 0);
   }
 
+  // i18n-exempt: générique TypeScript, pas du texte
   const folderIds = new Set<Id<"folders">>();
   for (const id of csv("folders")) {
     if (validFolderIds.has(id)) folderIds.add(id as Id<"folders">);
   }
 
+  // i18n-exempt: générique TypeScript, pas du texte
   const plateformes = new Set<Plateforme>();
   for (const p of csv("plateformes")) {
     if (VALID_PLATEFORMES.has(p as Plateforme)) {
@@ -162,6 +166,7 @@ export function searchParamsToFilters(
     }
   }
 
+  // i18n-exempt: générique TypeScript, pas du texte
   const types = new Set<InspirationType>();
   for (const t of csv("types")) {
     if (VALID_TYPES.has(t as InspirationType)) {
@@ -169,6 +174,7 @@ export function searchParamsToFilters(
     }
   }
 
+  // i18n-exempt: générique TypeScript, pas du texte
   const tags = new Set<string>();
   for (const t of csv("tags")) {
     const normalized = t.toLowerCase();

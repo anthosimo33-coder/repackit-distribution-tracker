@@ -83,7 +83,8 @@ export function maxBytesForType(contentType: string): number | null {
 
 export interface AssetValidationResult {
   ok: boolean;
-  error?: string;
+  /** Clé du motif de refus : `admin.library.assetError.<clé>`. */
+  error?: "wrongType" | "empty" | "imageTooBig" | "videoTooBig";
 }
 
 /**
@@ -99,21 +100,17 @@ export function validateAssetFile(file: {
   if (!kind) {
     return {
       ok: false,
-      error:
-        "Format non supporté. Images JPG/PNG/WebP ou vidéos MP4/MOV/WebM uniquement.",
+      error: "wrongType",
     };
   }
   if (!Number.isFinite(file.size) || file.size <= 0) {
-    return { ok: false, error: "Fichier vide ou taille invalide." };
+    return { ok: false, error: "empty" };
   }
   const max = kind === "image" ? ASSET_IMAGE_MAX_BYTES : ASSET_VIDEO_MAX_BYTES;
   if (file.size > max) {
     return {
       ok: false,
-      error:
-        kind === "image"
-          ? "Image trop lourde (10 Mo max)."
-          : "Vidéo trop lourde (100 Mo max).",
+      error: kind === "image" ? "imageTooBig" : "videoTooBig",
     };
   }
   return { ok: true };
