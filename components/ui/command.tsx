@@ -34,7 +34,9 @@ function Command({
 }
 
 function CommandDialog({
+  // i18n-exempt: défauts shadcn en sr-only, jamais utilisés par l'app
   title = "Command Palette",
+  // i18n-exempt: défauts shadcn en sr-only, jamais utilisés par l'app
   description = "Search for a command to run...",
   children,
   className,

@@ -16,6 +16,7 @@ import {
 } from "@/components/portal/CreatorProjectProvider";
 import { ViewAsContextProvider } from "@/components/portal/ViewAsContext";
 import { viewAsBase } from "@/lib/view-as";
+import { useTranslations } from "next-intl";
 
 /**
  * Admin « voir l'espace d'un créateur » (LECTURE SEULE) — provider de données du
@@ -39,6 +40,7 @@ export function ViewAsProvider({
   creatorId: Id<"creators">;
   children: ReactNode;
 }) {
+  const tr = useTranslations("admin.viewAs.ViewAsProvider");
   const { project } = useProject();
   const projectPath = useProjectPath();
   const creator = useProjectQuery(api.creators.getCreator, { id: creatorId });
@@ -65,17 +67,17 @@ export function ViewAsProvider({
       <div className="flex h-screen items-center justify-center px-6 text-center">
         <div className="max-w-sm space-y-3">
           <p className="text-sm font-medium text-slate-900">
-            Créateur introuvable
+            {tr("createurIntrouvable")}
           </p>
           <p className="text-sm text-slate-500">
-            Ce créateur n&apos;existe pas dans ce projet.
+            {tr("ceCreateurNExistePas")}
           </p>
           <Link
             href={projectPath("/createurs")}
             className="inline-flex items-center gap-1 text-sm font-medium text-slate-900 underline underline-offset-4 hover:text-slate-700"
           >
             <ArrowLeftIcon className="size-4" />
-            Retour aux créateurs
+            {tr("retourAuxCreateurs")}
           </Link>
         </div>
       </div>

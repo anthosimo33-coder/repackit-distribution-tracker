@@ -4,6 +4,7 @@ import { useSnapshotAge } from "./SnapshotAgeContext";
 import { FIXED_AGES, type SnapshotAge } from "@/lib/snapshot-matching";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 const LABELS: Record<SnapshotAge, string> = {
   j1: "J+1",
@@ -25,17 +26,18 @@ const ORDER: readonly SnapshotAge[] = [...FIXED_AGES, "latest", "custom"];
  * pour les headers de page étroits.
  */
 export function SnapshotAgeSelector({ compact = false }: { compact?: boolean }) {
+  const tr = useTranslations("admin.common.SnapshotAgeSelector");
   const { age, customDay, setAge, setCustomDay } = useSnapshotAge();
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!compact && (
-        <span className="text-xs font-medium text-slate-500">Période</span>
+        <span className="text-xs font-medium text-slate-500">{tr("periode")}</span>
       )}
       <div
         className="inline-flex flex-wrap rounded-md border border-slate-200 bg-white p-0.5"
         role="radiogroup"
-        aria-label="Âge du snapshot"
+        aria-label={tr("ageDuSnapshot")}
       >
         {ORDER.map((opt) => (
           <button
@@ -69,7 +71,7 @@ export function SnapshotAgeSelector({ compact = false }: { compact?: boolean }) 
               if (Number.isFinite(n) && n >= 0) setCustomDay(n);
             }}
             className="h-7 w-16 text-xs"
-            aria-label="Jour personnalisé"
+            aria-label={tr("jourPersonnalise")}
           />
         </div>
       )}

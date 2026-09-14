@@ -9,6 +9,7 @@ import { ConvexClientProvider } from "./ConvexClientProvider";
 import { AppShell } from "@/components/layout/AppShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { withoutAdmin } from "@/i18n/messages";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -61,7 +62,9 @@ export default async function RootLayout({
   // Accept-Language → « fr ». Le premier octet envoyé au navigateur porte déjà
   // la bonne langue — aucune bascule visible après hydratation.
   const locale = await getLocale();
-  const messages = await getMessages();
+  // L'espace d'équipe n'est PAS envoyé ici : ce layout sert aussi les
+  // créatrices. `app/admin/layout.tsx` le remonte pour l'app interne.
+  const messages = withoutAdmin(await getMessages());
   return (
     <ConvexAuthNextjsServerProvider>
       <html

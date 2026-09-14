@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePermissions } from "@/components/project/use-permissions";
 import type { PermissionId } from "@/convex/permissions";
+import { useTranslations } from "next-intl";
 
 /**
  * Écran réservé à un bloc — rend un REFUS LISIBLE au lieu d'un écran cassé.
@@ -29,6 +30,7 @@ export function PermissionGate({
   bloc: PermissionId;
   children: ReactNode;
 }) {
+  const tr = useTranslations("admin.common.PermissionGate");
   const droits = usePermissions();
 
   if (droits.chargement) return <Skeleton className="h-96 w-full" />;
@@ -37,10 +39,9 @@ export function PermissionGate({
   return (
     <Card>
       <CardContent className="py-16 text-center">
-        <p className="text-sm font-medium text-slate-900">Accès refusé</p>
+        <p className="text-sm font-medium text-slate-900">{tr("accesRefuse")}</p>
         <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-          Cet écran demande un droit que tu n&apos;as pas sur ce projet. Demande-le
-          à un administrateur s&apos;il t&apos;est nécessaire.
+          {tr("cetEcranDemandeUnDroit")}
         </p>
       </CardContent>
     </Card>

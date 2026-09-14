@@ -38,6 +38,7 @@ import {
   type Period,
 } from "@/lib/analytics-stats";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 const ALL_METRICS: readonly ChartMetric[] = [
   "views",
@@ -71,6 +72,7 @@ export function MetricChart({
   publicationId?: Id<"publications">;
   mediaType?: FormatKey;
 }) {
+  const tr = useTranslations("admin.common.MetricChart");
   const available = mediaType
     ? FORMAT_CONFIGS[mediaType].availableMetrics
     : ALL_METRICS;
@@ -122,7 +124,7 @@ export function MetricChart({
     <Card>
       <CardContent className="space-y-4 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-base font-semibold text-slate-900">Évolution</h3>
+          <h3 className="text-base font-semibold text-slate-900">{tr("evolution")}</h3>
           {mode === "aggregate" && (
             <div className="flex flex-wrap items-center gap-2">
               <ChartPeriodToggle value={period} onChange={setPeriod} />
@@ -134,12 +136,12 @@ export function MetricChart({
               >
                 <SelectTrigger className="h-8 w-[110px] text-xs">
                   <SelectValue>
-                    {granularity === "day" ? "Jour" : "Semaine"}
+                    {granularity === "day" ? tr("jour") : tr("semaine")}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="day">Jour</SelectItem>
-                  <SelectItem value="week">Semaine</SelectItem>
+                  <SelectItem value="day">{tr("jour")}</SelectItem>
+                  <SelectItem value="week">{tr("semaine")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -174,13 +176,13 @@ export function MetricChart({
 
         {loading ? (
           <div className="flex h-[300px] items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-400">
-            Chargement…
+            {tr("chargement")}
           </div>
         ) : data.length === 0 ? (
           <div className="flex h-[300px] items-center justify-center rounded-md border border-dashed border-slate-200 text-sm text-slate-400">
             {mode === "single_publication"
-              ? "Pas assez de données pour afficher l'évolution."
-              : "Aucune donnée sur cette période."}
+              ? tr("pasAssezDeDonneesPour")
+              : tr("aucuneDonneeSurCettePeriode")}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={300}>

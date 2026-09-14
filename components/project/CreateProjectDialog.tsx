@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -53,6 +54,7 @@ export function CreateProjectDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const tr = useTranslations("admin.common.CreateProjectDialog");
   const router = useRouter();
   const createProject = useMutation(api.projects.createProject);
 
@@ -82,14 +84,14 @@ export function CreateProjectDialog({
         accentColor,
         payoutDay: Number(payoutDay),
       });
-      toast.success(`Projet « ${name.trim()} » créé.`);
+      toast.success(tr("projetCree", { value: name.trim() }));
       onOpenChange(false);
       router.push(projectPath(result.slug, "/dashboard"));
     } catch (err) {
       setError(
         err instanceof ConvexError && typeof err.data === "string"
           ? err.data
-          : "Création du projet impossible.",
+          : tr("creationDuProjetImpossible"),
       );
       setSubmitting(false);
     }
@@ -100,28 +102,27 @@ export function CreateProjectDialog({
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Créer un projet</DialogTitle>
+            <DialogTitle>{tr("creerUnProjet")}</DialogTitle>
             <DialogDescription>
-              Un nouvel espace de distribution isolé. Le workspace démarre
-              entièrement vide.
+              {tr("unNouvelEspaceDeDistribution")}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             <div className="space-y-1.5">
-              <Label htmlFor="project-name">Nom</Label>
+              <Label htmlFor="project-name">{tr("nom")}</Label>
               <Input
                 id="project-name"
                 value={name}
                 onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="Mon projet"
+                placeholder={tr("monProjet")}
                 required
                 autoFocus
               />
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="project-slug">Slug</Label>
+              <Label htmlFor="project-slug">{tr("slug")}</Label>
               <Input
                 id="project-slug"
                 value={effectiveSlug}
@@ -133,14 +134,15 @@ export function CreateProjectDialog({
                 required
               />
               <p className="text-xs text-slate-400">
-                URL du projet :{" "}
+                {tr("urlDuProjet")}{" "}
+                {/* i18n-exempt: chemin d'URL, pas du texte */}
                 <span className="font-mono">/admin/{effectiveSlug || "…"}</span>
               </p>
             </div>
 
             <div className="flex gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="project-accent">Couleur d&apos;accent</Label>
+                <Label htmlFor="project-accent">{tr("couleurDAccent")}</Label>
                 <div className="flex items-center gap-2">
                   <input
                     id="project-accent"
@@ -148,7 +150,7 @@ export function CreateProjectDialog({
                     value={accentColor}
                     onChange={(e) => setAccentColor(e.target.value)}
                     className="size-9 cursor-pointer rounded-md border border-slate-200 bg-white p-0.5"
-                    aria-label="Couleur d'accent"
+                    aria-label={tr("couleurDAccent")}
                   />
                   <Input
                     value={accentColor}
@@ -159,7 +161,7 @@ export function CreateProjectDialog({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="project-payout">Jour de paie</Label>
+                <Label htmlFor="project-payout">{tr("jourDePaie")}</Label>
                 <Input
                   id="project-payout"
                   type="number"
@@ -186,11 +188,11 @@ export function CreateProjectDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
-              Annuler
+              {tr("annuler")}
             </Button>
             <Button type="submit" disabled={submitting}>
               {submitting && <Loader2Icon className="size-4 animate-spin" />}
-              Créer le projet
+              {tr("creerLeProjet")}
             </Button>
           </DialogFooter>
         </form>

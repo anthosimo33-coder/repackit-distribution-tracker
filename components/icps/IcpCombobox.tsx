@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Combobox de sélection d'un ICP, calque IcpCombobox sur PersonneCombobox.
@@ -54,6 +55,7 @@ export function IcpCombobox({
   onChange: (icpId: Id<"icps"> | null) => void;
   required?: boolean;
 }) {
+  const tr = useTranslations("admin.common.IcpCombobox");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -75,11 +77,11 @@ export function IcpCombobox({
     try {
       const newId = await createIcp({ nom });
       onChange(newId);
-      toast.success(`ICP "${nom}" créé`);
+      toast.success(tr("icpCree", { nom: nom }));
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setCreating(false);
     }
@@ -126,7 +128,7 @@ export function IcpCombobox({
                   <>
                     <TargetIcon className="size-4 shrink-0 text-slate-300" />
                     <span className="text-slate-500">
-                      {required ? "Sélectionner un ICP" : "Aucun ICP"}
+                      {required ? tr("selectionnerUnIcp") : tr("aucunIcp")}
                     </span>
                   </>
                 )}
@@ -141,7 +143,7 @@ export function IcpCombobox({
         >
           <Command>
             <CommandInput
-              placeholder="Cherche ou crée un ICP..."
+              placeholder={tr("chercheOuCreeUnIcp")}
               value={query}
               onValueChange={setQuery}
             />
@@ -154,7 +156,7 @@ export function IcpCombobox({
                 </div>
               ) : (
                 <>
-                  <CommandEmpty>Aucun ICP trouvé.</CommandEmpty>
+                  <CommandEmpty>{tr("aucunIcpTrouve")}</CommandEmpty>
                   <CommandGroup>
                     {!required && (
                       <CommandItem
@@ -166,7 +168,7 @@ export function IcpCombobox({
                         }}
                       >
                         <TargetIcon className="size-4 text-slate-400" />
-                        <span className="text-slate-600">Aucun ICP</span>
+                        <span className="text-slate-600">{tr("aucunIcp")}</span>
                         {value === null && (
                           <CheckIcon className="ml-auto size-4 opacity-100" />
                         )}
@@ -211,10 +213,10 @@ export function IcpCombobox({
                           <PlusIcon className="size-4 text-slate-700" />
                           {trimmedQuery.length > 0 ? (
                             <span>
-                              Créer &laquo;&nbsp;{trimmedQuery}&nbsp;&raquo;
+                              {tr("creer", { trimmedQuery: trimmedQuery })}
                             </span>
                           ) : (
-                            <span>Créer un ICP</span>
+                            <span>{tr("creerUnIcp")}</span>
                           )}
                         </CommandItem>
                       </CommandGroup>

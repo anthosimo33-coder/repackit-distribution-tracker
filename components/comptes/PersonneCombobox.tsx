@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Combobox de sélection d'un gestionnaire (personne), adapté de
@@ -53,6 +54,7 @@ export function PersonneCombobox({
   value: Id<"personnes"> | null;
   onChange: (personneId: Id<"personnes"> | null) => void;
 }) {
+  const tr = useTranslations("admin.common.PersonneCombobox");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -88,11 +90,11 @@ export function PersonneCombobox({
     try {
       const newId = await createPersonne({ prenom, nom });
       onChange(newId);
-      toast.success(`${prenom} ${nom} ajouté·e`);
+      toast.success(tr("ajouteE", { prenom: prenom, nom: nom }));
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setCreating(false);
     }
@@ -137,7 +139,7 @@ export function PersonneCombobox({
                 ) : (
                   <>
                     <UserXIcon className="size-4 shrink-0 text-slate-300" />
-                    <span className="text-slate-500">Aucun gestionnaire</span>
+                    <span className="text-slate-500">{tr("aucunGestionnaire")}</span>
                   </>
                 )}
               </span>
@@ -151,7 +153,7 @@ export function PersonneCombobox({
         >
           <Command>
             <CommandInput
-              placeholder="Cherche ou crée une personne..."
+              placeholder={tr("chercheOuCreeUnePersonne")}
               value={query}
               onValueChange={setQuery}
             />
@@ -164,7 +166,7 @@ export function PersonneCombobox({
                 </div>
               ) : (
                 <>
-                  <CommandEmpty>Aucune personne trouvée.</CommandEmpty>
+                  <CommandEmpty>{tr("aucunePersonneTrouvee")}</CommandEmpty>
                   <CommandGroup>
                     <CommandItem
                       value="__none__"
@@ -175,7 +177,7 @@ export function PersonneCombobox({
                       }}
                     >
                       <UserXIcon className="size-4 text-slate-400" />
-                      <span className="text-slate-600">Aucun gestionnaire</span>
+                      <span className="text-slate-600">{tr("aucunGestionnaire")}</span>
                       {value === null && (
                         <CheckIcon className="ml-auto size-4 opacity-100" />
                       )}
@@ -212,10 +214,10 @@ export function PersonneCombobox({
                           <UserPlusIcon className="size-4 text-slate-700" />
                           {trimmedQuery.length > 0 ? (
                             <span>
-                              Créer &laquo;&nbsp;{trimmedQuery}&nbsp;&raquo;
+                              {tr("creer", { trimmedQuery: trimmedQuery })}
                             </span>
                           ) : (
-                            <span>Créer une personne</span>
+                            <span>{tr("creerUnePersonne")}</span>
                           )}
                         </CommandItem>
                       </CommandGroup>

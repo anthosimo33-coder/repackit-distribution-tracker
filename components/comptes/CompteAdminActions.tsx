@@ -29,8 +29,10 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { getEffectiveStatus } from "@/lib/compte-status";
 import { CompteReassignDialog } from "@/components/comptes/CompteReassignDialog";
 import type { Compte } from "@/components/comptes/CompteDialog";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { formatNumber } from "@/lib/format";
 
-const nfFR = new Intl.NumberFormat("fr-FR");
 
 /**
  * Chantier D — actions ADMIN sur un compte (créateur ou interne) : Modifier
@@ -54,6 +56,8 @@ export function CompteAdminActions({
   /** Appelé après une suppression réussie (la fiche détail doit repartir). */
   onDeleted?: () => void;
 }) {
+  const tr = useTranslations("admin.common.CompteAdminActions");
+  const loc = useIntlLocale();
   const archive = useProjectMutation(api.comptes.archiveCompte);
   const unarchive = useProjectMutation(api.comptes.unarchiveCompte);
   const deleteCompte = useProjectMutation(api.comptes.deleteCompte);
@@ -73,13 +77,13 @@ export function CompteAdminActions({
     try {
       if (isArchived) {
         await unarchive({ id: compte._id });
-        toast.success(`${compte.handle} réactivé`);
+        toast.success(tr("reactive", { handle: compte.handle }));
       } else {
         await archive({ id: compte._id });
-        toast.success(`${compte.handle} archivé`);
+        toast.success(tr("archive", { handle: compte.handle }));
       }
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -87,11 +91,11 @@ export function CompteAdminActions({
     setSubmitting(true);
     try {
       await deleteCompte({ id: compte._id });
-      toast.success(`${compte.handle} supprimé`);
+      toast.success(tr("supprime", { handle: compte.handle }));
       setConfirmOpen(false);
       onDeleted?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -102,10 +106,10 @@ export function CompteAdminActions({
     setSubmitting(true);
     try {
       await archive({ id: compte._id });
-      toast.success(`${compte.handle} archivé — historique conservé`);
+      toast.success(tr("archiveHistoriqueConserve", { handle: compte.handle }));
       setConfirmOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -126,26 +130,26 @@ export function CompteAdminActions({
               // matcherait alors DEUX cellules — strict mode violation dans les
               // ~10 specs qui repèrent une ligne par sa cellule handle. Les
               // specs scopent déjà par ligne : "Actions" suffit à désambiguïser.
-              aria-label="Actions"
+              aria-label={tr("actions")}
             >
               <MoreHorizontalIcon className="size-4" />
             </Button>
           }
         />
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={onEdit}>Modifier</DropdownMenuItem>
+          <DropdownMenuItem onClick={onEdit}>{tr("modifier")}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setReassignOpen(true)}>
-            Réassigner…
+            {tr("reassigner")}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={toggleArchive}>
-            {isArchived ? "Réactiver" : "Archiver"}
+            {isArchived ? tr("reactiver") : tr("archiver")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onClick={() => setConfirmOpen(true)}
             className="text-rose-600 focus:text-rose-700"
           >
-            Supprimer…
+            {tr("supprimer")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -162,13 +166,13 @@ export function CompteAdminActions({
       >
         <DialogContent data-testid="compte-delete-dialog">
           <DialogHeader>
-            <DialogTitle>Supprimer {compte.handle} ?</DialogTitle>
+            <DialogTitle>{tr("supprimer2", { handle: compte.handle })}</DialogTitle>
             <DialogDescription>
               {usage === undefined
-                ? "Vérification des données rattachées…"
+                ? tr("verificationDesDonneesRattachees")
                 : usage.inUse
-                  ? "Ce compte a un historique : il ne peut pas être supprimé."
-                  : "Action irréversible."}
+                  ? tr("ceCompteAUnHistorique")
+                  : tr("actionIrreversible")}
             </DialogDescription>
           </DialogHeader>
 
@@ -177,41 +181,31 @@ export function CompteAdminActions({
           ) : usage.inUse ? (
             <div className="min-w-0 space-y-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
               <p className="font-medium">
-                {compte.handle} — rattaché à :{" "}
-                {usage.publications > 0 && (
-                  <>
-                    {usage.publications} publication
-                    {usage.publications > 1 ? "s" : ""} (
-                    {nfFR.format(usage.views)} vues)
-                    {usage.assignments > 0 || usage.payments > 0 ? ", " : ""}
-                  </>
-                )}
-                {usage.assignments > 0 && (
-                  <>
-                    {usage.assignments} mission
-                    {usage.assignments > 1 ? "s" : ""}
-                    {usage.payments > 0 ? ", " : ""}
-                  </>
-                )}
-                {usage.payments > 0 && (
-                  <>
-                    {usage.payments} ligne{usage.payments > 1 ? "s" : ""} de paie
-                  </>
-                )}
+                {tr("rattacheA", { handle: compte.handle })}{" "}
+                {[
+                  usage.publications > 0 &&
+                    tr("usagePublications", {
+                      count: usage.publications,
+                      views: formatNumber(usage.views, loc),
+                    }),
+                  usage.assignments > 0 &&
+                    tr("usageMissions", { count: usage.assignments }),
+                  usage.payments > 0 && tr("ligneDePaie", { payments: usage.payments }),
+                ]
+                  .filter(Boolean)
+                  .join(", ")}
                 .
               </p>
               <p className="text-xs">
-                Supprimer la fiche rendrait ces données intraçables (les
-                publications sont rapprochées par handle).{" "}
+                {tr("supprimerLaFicheRendraitCes")}{" "}
                 {isArchived
-                  ? "Ce compte est déjà archivé : il est hors des listes actives et des sélecteurs d'assignation, son historique reste intact."
-                  : "Archive-le : il sort des listes actives et des sélecteurs d'assignation, ses publications, vues et paiements restent intacts."}
+                  ? tr("ceCompteEstDejaArchive")
+                  : tr("archiveLeIlSortDes")}
               </p>
             </div>
           ) : (
             <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-              {compte.handle} est vierge : aucune publication, aucune mission,
-              aucune ligne de paie. La fiche sera supprimée définitivement.
+              {tr("estViergeAucunePublicationAucune", { handle: compte.handle })}
             </div>
           )}
 
@@ -221,7 +215,7 @@ export function CompteAdminActions({
               onClick={() => setConfirmOpen(false)}
               disabled={submitting}
             >
-              Annuler
+              {tr("annuler")}
             </Button>
             {usage !== undefined && usage.inUse ? (
               !isArchived && (
@@ -229,7 +223,7 @@ export function CompteAdminActions({
                   {submitting && (
                     <Loader2Icon className="mr-2 size-4 animate-spin" />
                   )}
-                  Archiver à la place
+                  {tr("archiverALaPlace")}
                 </Button>
               )
             ) : (
@@ -241,7 +235,7 @@ export function CompteAdminActions({
                 {submitting && (
                   <Loader2Icon className="mr-2 size-4 animate-spin" />
                 )}
-                Supprimer
+                {tr("supprimer3")}
               </Button>
             )}
           </DialogFooter>

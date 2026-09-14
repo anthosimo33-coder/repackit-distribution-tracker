@@ -1,0 +1,27 @@
+{
+  "ViewAsProvider": {
+    "createurIntrouvable": "Creator not found",
+    "ceCreateurNExistePas": "This creator doesn't exist in this project.",
+    "retourAuxCreateurs": "Back to creators"
+  },
+  "ViewAsBanner": {
+    "tuRegardesLEspaceDe": "You're viewing the space of",
+    "quitter": "Exit",
+    "ceCreateur": "this creator",
+    "readOnly": "(read-only)",
+    "readOnlyNoMoney": "(read-only, without their earnings)"
+  },
+  "ScreenOutsideSpace": {
+    "cetEcranNExistePas": "This screen doesn't exist in their space.",
+    "nAPasCettePage": "doesn't have this page — their space isn't shaped like a partner creator's.",
+    "revenirASonEspace": "Back to their space",
+    "cettePersonne": "This person"
+  },
+  "ScreenWithoutMoney": {
+    "sesGainsNeTeSont": "Their earnings aren't open to you.",
+    "observerLEspaceDe": "Viewing the space of",
+    "neDonnePasAccesA": "doesn't give access to the money in it: their payments, each video's earnings and their tier amounts require the “Payments” permission. The rest of their space stays viewable.",
+    "revenirASonEspace": "Back to their space",
+    "thisPerson": "this person"
+  }
+}

@@ -15,12 +15,13 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { fr } from "date-fns/locale";
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale, WEEKDAY_KEYS } from "@/lib/date-fns-locale";
 
-const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 // MIME custom pour le drag natif : porte l'index du slot vidéo déplacé.
 const DND_MIME = "application/x-video-slot";
 
@@ -49,6 +50,9 @@ export function AssignmentPlanningCalendar({
   onChange: (next: (number | null)[]) => void;
   disabled?: boolean;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.AssignmentPlanningCalendar");
+  const twd = useTranslations("calendar.weekday");
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   // Slot sélectionné pour le placement au CLIC (alternative au drag).
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
@@ -105,7 +109,7 @@ export function AssignmentPlanningCalendar({
       <div className="rounded-md border border-slate-200 bg-slate-50/60 p-2.5">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-xs font-medium text-slate-600">
-            Vidéos à placer
+            {tr("videosAPlacer")}
           </span>
           <span
             className={cn(
@@ -114,13 +118,12 @@ export function AssignmentPlanningCalendar({
             )}
             data-testid="plan-progress"
           >
-            {placedCount}/{count} planifiée{count > 1 ? "s" : ""}
+            {tr("planifiee", { placedCount: placedCount, count: count })}
           </span>
         </div>
         {unplaced.length === 0 ? (
           <p className="py-1 text-xs text-slate-400">
-            Toutes les vidéos sont placées. Glisse-les entre les jours pour
-            ajuster, ou clique le × d&apos;une vignette pour la replacer.
+            {tr("toutesLesVideosSontPlacees")}
           </p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
@@ -137,7 +140,7 @@ export function AssignmentPlanningCalendar({
                   setSelectedSlot((s) => (s === slot ? null : slot))
                 }
                 disabled={disabled}
-                aria-label={`Vidéo ${slot + 1} à placer`}
+                aria-label={tr("videoAPlacer", { value: slot + 1 })}
                 aria-pressed={selectedSlot === slot}
                 className={cn(
                   "cursor-grab rounded-full border px-2.5 py-1 text-xs font-medium transition-colors active:cursor-grabbing",
@@ -146,14 +149,14 @@ export function AssignmentPlanningCalendar({
                     : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10",
                 )}
               >
-                Vidéo {slot + 1}
+                {tr("video", { value: slot + 1 })}
               </button>
             ))}
           </div>
         )}
         {selectedSlot !== null && (
           <p className="mt-1.5 text-[11px] text-primary">
-            Clique un jour pour placer la vidéo {selectedSlot + 1} (ou glisse-la).
+            {tr("cliqueUnJourPourPlacer", { value: selectedSlot + 1 })}
           </p>
         )}
       </div>
@@ -162,14 +165,14 @@ export function AssignmentPlanningCalendar({
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold capitalize text-slate-900">
           {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
-          {format(currentMonth, "MMMM yyyy", { locale: fr })}
+          {format(currentMonth, "MMMM yyyy", { locale: dateFnsLocale(loc) })}
         </h3>
         <div className="flex items-center gap-1">
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="Mois précédent"
+            aria-label={tr("moisPrecedent")}
             onClick={() => setCurrentMonth((m) => subMonths(m, 1))}
           >
             <ChevronLeftIcon className="size-4" />
@@ -178,7 +181,7 @@ export function AssignmentPlanningCalendar({
             type="button"
             variant="ghost"
             size="icon-sm"
-            aria-label="Mois suivant"
+            aria-label={tr("moisSuivant")}
             onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
           >
             <ChevronRightIcon className="size-4" />
@@ -187,12 +190,12 @@ export function AssignmentPlanningCalendar({
       </div>
 
       <div className="grid grid-cols-7 gap-px">
-        {WEEKDAYS.map((w) => (
+        {WEEKDAY_KEYS.map((w) => (
           <div
             key={w}
             className="pb-1 text-center text-[11px] font-medium text-slate-400"
           >
-            {w}
+            {twd(w)}
           </div>
         ))}
         {days.map((day) => {
@@ -218,7 +221,7 @@ export function AssignmentPlanningCalendar({
               }
               onDrop={(e) => handleDrop(e, day)}
               // i18n-exempt: « EEEE d MMMM yyyy » est un MASQUE date-fns, pas du texte
-              aria-label={format(day, "EEEE d MMMM yyyy", { locale: fr })}
+              aria-label={format(day, "EEEE d MMMM yyyy", { locale: dateFnsLocale(loc) })}
               className={cn(
                 "min-h-16 rounded-md border p-1 transition-colors sm:min-h-20",
                 inMonth ? "bg-white" : "bg-slate-50/50",
@@ -255,7 +258,7 @@ export function AssignmentPlanningCalendar({
                         unplace(slot);
                       }}
                       disabled={disabled}
-                      aria-label={`Retirer la vidéo ${slot + 1}`}
+                      aria-label={tr("retirerLaVideo", { value: slot + 1 })}
                       className="grid size-3 place-items-center rounded-full hover:bg-white/25"
                     >
                       <XIcon className="size-2.5" />

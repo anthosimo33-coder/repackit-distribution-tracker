@@ -94,11 +94,12 @@ export function ViewAsShell({ children, locale, messages }: ShellProps) {
  * ne voit plus le bandeau ne sait plus qu'il observe.
  */
 function ViewAsBanner() {
+  const tr = useTranslations("admin.viewAs.ViewAsBanner");
   const viewAs = useViewAs();
   const projectPath = useProjectPath();
   const { current } = useCreatorProject();
   const argent = useArgentObservable();
-  const creatorName = viewAs?.creatorName ?? current.creatorName ?? "ce créateur";
+  const creatorName = viewAs?.creatorName ?? current.creatorName ?? tr("ceCreateur");
   // Quitter → fiche admin du créateur (point d'entrée du mode vue).
   const exitHref = viewAs
     ? projectPath(`/createurs/${viewAs.creatorId}`)
@@ -118,10 +119,10 @@ function ViewAsBanner() {
             étroit — c'était vrai avant ce chantier. La mention est un CONFORT ;
             ce qui porte vraiment le refus, c'est l'écran de gains lui-même. */}
         <p className="min-w-0 truncate text-sm">
-          Tu regardes l&apos;espace de{" "}
+          {tr("tuRegardesLEspaceDe")}{" "}
           <span className="font-semibold">{creatorName}</span>{" "}
           <span className="font-medium text-amber-700">
-            {argent ? "(lecture seule)" : "(lecture seule, sans ses gains)"}
+            {argent ? tr("readOnly") : tr("readOnlyNoMoney")}
           </span>
         </p>
       </div>
@@ -131,7 +132,7 @@ function ViewAsBanner() {
         className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-amber-900 px-3 text-sm font-medium text-amber-50 transition-opacity hover:opacity-90"
       >
         <LogOutIcon className="size-3.5" />
-        Quitter
+        {tr("quitter")}
       </Link>
     </div>
   );
@@ -145,22 +146,21 @@ function ViewAsBanner() {
  * de l'écran plutôt que du mode.
  */
 function ScreenOutsideSpace({ base }: { base: string }) {
+  const tr = useTranslations("admin.viewAs.ScreenOutsideSpace");
   const viewAs = useViewAs();
   return (
     <div className="mx-auto max-w-md space-y-3 py-12 text-center">
       <p className="text-sm font-medium text-slate-900">
-        Cet écran n&apos;existe pas dans son espace.
+        {tr("cetEcranNExistePas")}
       </p>
       <p className="text-sm text-slate-500">
-        {viewAs?.creatorName ?? "Cette personne"} n&apos;a pas cette page — son
-        espace n&apos;a pas la même forme que celui d&apos;un créateur
-        partenaire.
+        {viewAs?.creatorName ?? tr("cettePersonne")}{" "}{tr("nAPasCettePage")}
       </p>
       <Link
         href={base}
         className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
       >
-        Revenir à son espace
+        {tr("revenirASonEspace")}
       </Link>
     </div>
   );
@@ -176,25 +176,23 @@ function ScreenOutsideSpace({ base }: { base: string }) {
  * Même choix qu'au-dessus : on DIT, on ne redirige pas.
  */
 function ScreenWithoutMoney({ base }: { base: string }) {
+  const tr = useTranslations("admin.viewAs.ScreenWithoutMoney");
   const viewAs = useViewAs();
   return (
     <div className="mx-auto max-w-md space-y-3 py-12 text-center">
       <LockIcon className="mx-auto size-5 text-slate-400" />
       <p className="text-sm font-medium text-slate-900">
-        Ses gains ne te sont pas ouverts.
+        {tr("sesGainsNeTeSont")}
       </p>
       <p className="text-sm text-slate-500">
-        Observer l&apos;espace de{" "}
-        {viewAs?.creatorName ?? "cette personne"} ne donne pas accès à
-        l&apos;argent qu&apos;on y trouve : ses paiements, le gain de chaque
-        vidéo et le montant de ses paliers demandent le droit «&nbsp;Paiements&nbsp;».
-        Le reste de son espace reste consultable.
+        {tr("observerLEspaceDe")}{" "}
+        {viewAs?.creatorName ?? tr("thisPerson")}{" "}{tr("neDonnePasAccesA")}
       </p>
       <Link
         href={base}
         className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
       >
-        Revenir à son espace
+        {tr("revenirASonEspace")}
       </Link>
     </div>
   );

@@ -9,6 +9,7 @@ import { Loader2Icon, UploadIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -36,6 +37,7 @@ export function ImageUploader({
   onChange: (storageId: Id<"_storage"> | null) => void;
   disabled?: boolean;
 }) {
+  const tr = useTranslations("admin.common.ImageUploader");
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -43,11 +45,11 @@ export function ImageUploader({
 
   async function handleFile(file: File) {
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      toast.error("Format invalide. Utilise JPG, PNG ou WebP.");
+      toast.error(tr("formatInvalideUtiliseJpgPng"));
       return;
     }
     if (file.size > MAX_SIZE_BYTES) {
-      toast.error("Image trop lourde (≤ 5 MB).");
+      toast.error(tr("imageTropLourde5Mb"));
       return;
     }
     setUploading(true);
@@ -59,6 +61,7 @@ export function ImageUploader({
         body: file,
       });
       if (!res.ok) {
+        // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
         throw new Error(`Upload failed: HTTP ${res.status}`);
       }
       const { storageId } = (await res.json()) as {
@@ -67,7 +70,7 @@ export function ImageUploader({
       onChange(storageId);
     } catch (e) {
       toast.error(
-        convexErrorMessage(e, "Erreur lors de l'upload"),
+        convexErrorMessage(e, tr("erreurLorsDeLUpload")),
       );
     } finally {
       setUploading(false);
@@ -101,7 +104,7 @@ export function ImageUploader({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imageUrl}
-            alt="Preview"
+            alt={tr("preview")}
             className="aspect-video w-full object-cover"
           />
         </div>
@@ -118,7 +121,7 @@ export function ImageUploader({
             ) : (
               <UploadIcon className="size-4" />
             )}
-            Remplacer
+            {tr("remplacer")}
           </Button>
           <Button
             type="button"
@@ -129,7 +132,7 @@ export function ImageUploader({
             className="text-rose-600 hover:text-rose-700"
           >
             <XIcon className="size-4" />
-            Supprimer
+            {tr("supprimer")}
           </Button>
         </div>
         <input
@@ -163,16 +166,16 @@ export function ImageUploader({
       {uploading ? (
         <>
           <Loader2Icon className="size-6 animate-spin text-slate-400" />
-          <p className="text-sm text-slate-500">Upload en cours…</p>
+          <p className="text-sm text-slate-500">{tr("uploadEnCours")}</p>
         </>
       ) : (
         <>
           <UploadIcon className="size-6 text-slate-400" />
           <div>
             <p className="text-sm font-medium text-slate-700">
-              Glisse une image ici
+              {tr("glisseUneImageIci")}
             </p>
-            <p className="text-xs text-slate-500">JPG, PNG ou WebP — 5 MB max</p>
+            <p className="text-xs text-slate-500">{tr("jpgPngOuWebp5")}</p>
           </div>
           <Button
             type="button"
@@ -181,7 +184,7 @@ export function ImageUploader({
             disabled={disabled || uploading}
             onClick={() => inputRef.current?.click()}
           >
-            Parcourir
+            {tr("parcourir")}
           </Button>
         </>
       )}
@@ -192,7 +195,7 @@ export function ImageUploader({
         className="hidden"
         onChange={handleInputChange}
         disabled={disabled || uploading}
-        aria-label="Sélectionner une image"
+        aria-label={tr("selectionnerUneImage")}
       />
     </div>
   );

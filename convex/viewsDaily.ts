@@ -185,6 +185,7 @@ function addTo(map: Map<string, number>, key: string, value: number): void {
  * Départage déterministe par clé de jour à reste égal (résultat stable, donc
  * testable).
  */
+// i18n-exempt: générique TypeScript, pas du texte
 function roundPreservingTotal(exact: Map<string, number>): Map<string, number> {
   const rows = [...exact.entries()].map(([date, value]) => ({
     date,
@@ -260,6 +261,7 @@ const groupeDe = (cle: string) => cle.slice(cle.indexOf(SEP) + 1);
 function repartir(
   snaps: SnapshotPoint[],
   groupeDeLaPubli: (publicationId: string) => string,
+// i18n-exempt: générique TypeScript, pas du texte
 ): { exact: Map<string, number>; estimatedDays: Set<string> } {
   const byPub = new Map<string, SnapshotPoint[]>();
   for (const s of snaps) {

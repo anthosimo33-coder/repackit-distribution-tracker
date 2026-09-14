@@ -33,7 +33,7 @@
  *   --check       : échoue si le fichier est périmé (utilisé en CI)
  */
 
-import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, resolve, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -95,9 +95,9 @@ function resolveSpec(spec, fromFile) {
 const IMPORT_RE =
   /(?:^|\n)\s*(?:import|export)\s[^;]*?from\s*["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)/g;
 
-export function computeScope() {
+export function computeScope(entries = ENTRIES) {
   const seen = new Set();
-  const queue = [...ENTRIES];
+  const queue = [...entries];
   while (queue.length > 0) {
     const f = queue.shift();
     if (seen.has(f) || !existsSync(join(ROOT, f))) continue;
@@ -116,26 +116,67 @@ export function computeScope() {
   return [...seen].sort();
 }
 
+/**
+ * ESPACE D'ÉQUIPE — traduit depuis septembre 2026 : une créatrice peut être
+ * manager, et son espace de manager doit parler sa langue.
+ *
+ * Points d'entrée : TOUT fichier de route sous `app/admin/` (pages, layouts,
+ * écran d'erreur, observation). Un fichier atteint par les deux graphes reste
+ * dans le périmètre CRÉATEUR : chaque fichier n'appartient qu'à un périmètre.
+ */
+function walkRoutes(dir) {
+  const out = [];
+  for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+    const rel = join(dir, e.name);
+    if (e.isDirectory()) out.push(...walkRoutes(rel));
+    else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) out.push(rel);
+  }
+  return out;
+}
+
 const files = computeScope();
-const out = {
-  // Le commentaire vit DANS le fichier : quelqu'un l'ouvrira sans lire ce script.
-  _: "GÉNÉRÉ par scripts/i18n-scope-gen.mjs — ne pas éditer à la main. Clôture d'imports des routes créateur (portails partenaire/talent/clippeur + pré-session).",
-  files,
-};
-const target = join(ROOT, "scripts/i18n-creator-scope.json");
-const next = `${JSON.stringify(out, null, 2)}\n`;
+const creatorSet = new Set(files);
+const managerFiles = computeScope(walkRoutes("app/admin").sort()).filter(
+  (f) => !creatorSet.has(f),
+);
+
+const targets = [
+  {
+    path: join(ROOT, "scripts/i18n-creator-scope.json"),
+    label: "périmètre créateur",
+    body: {
+      // Le commentaire vit DANS le fichier : quelqu'un l'ouvrira sans lire ce script.
+      _: "GÉNÉRÉ par scripts/i18n-scope-gen.mjs — ne pas éditer à la main. Clôture d'imports des routes créateur (portails partenaire/talent/clippeur + pré-session).",
+      files,
+    },
+  },
+  {
+    path: join(ROOT, "scripts/i18n-manager-scope.json"),
+    label: "espace d'équipe",
+    body: {
+      _: "GÉNÉRÉ par scripts/i18n-scope-gen.mjs — ne pas éditer à la main. Clôture d'imports des routes app/admin/**, moins les fichiers déjà dans le périmètre créateur.",
+      files: managerFiles,
+    },
+  },
+];
 
 if (process.argv.includes("--check")) {
-  const current = existsSync(target) ? readFileSync(target, "utf8") : "";
-  if (current !== next) {
-    console.error(
-      "\n✖ scripts/i18n-creator-scope.json est périmé.\n" +
-        "  Le graphe d'imports a changé — régénère-le :  node scripts/i18n-scope-gen.mjs\n",
-    );
-    process.exit(1);
+  let stale = false;
+  for (const t of targets) {
+    const current = existsSync(t.path) ? readFileSync(t.path, "utf8") : "";
+    if (current !== `${JSON.stringify(t.body, null, 2)}\n`) {
+      stale = true;
+      console.error(
+        `\n✖ ${relative(ROOT, t.path)} est périmé.\n` +
+          "  Le graphe d'imports a changé — régénère-le :  node scripts/i18n-scope-gen.mjs\n",
+      );
+    }
   }
-  console.log(`✓ périmètre créateur à jour — ${files.length} fichiers.`);
+  if (stale) process.exit(1);
+  for (const t of targets) console.log(`✓ ${t.label} à jour — ${t.body.files.length} fichiers.`);
 } else {
-  writeFileSync(target, next);
-  console.log(`✓ scripts/i18n-creator-scope.json — ${files.length} fichiers.`);
+  for (const t of targets) {
+    writeFileSync(t.path, `${JSON.stringify(t.body, null, 2)}\n`);
+    console.log(`✓ ${relative(ROOT, t.path)} — ${t.body.files.length} fichiers.`);
+  }
 }

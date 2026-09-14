@@ -36,14 +36,15 @@ import { StepContenu } from "./steps/StepContenu";
 import { StepPublication } from "./steps/StepPublication";
 import { StepRecap } from "./steps/StepRecap";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
-const STEP_LABELS: Record<Step, string> = {
-  1: "Format",
-  2: "Hook",
-  3: "Contenu",
-  4: "Publication",
-  5: "Récap",
-};
+const STEP_KEYS = {
+  1: "format",
+  2: "hook",
+  3: "contenu",
+  4: "publication",
+  5: "recap",
+} as const satisfies Record<Step, string>;
 
 /**
  * NouveauModal — modal multi-étapes de création de publication (Batch C).
@@ -86,6 +87,7 @@ export function NouveauModal({
    *  /shorts?carouselId=X. */
   onSuccess?: (carouselId: string, mediaType: MediaType) => void;
 }) {
+  const tr = useTranslations("admin.common.NouveauModal");
   const { state, dispatch, goto, next, prev, isStep5 } = useNouveauState({
     initialMediaType,
     initialHookId,
@@ -229,7 +231,7 @@ export function NouveauModal({
     // step 5). Toasts d'erreur clairs pour permettre à l'user de revenir
     // à la bonne étape via les boutons "Modifier" du récap.
     if (!state.data.mediaType) {
-      toast.error("Sélectionne un format");
+      toast.error(tr("selectionneUnFormat"));
       goto(1);
       return;
     }
@@ -247,7 +249,7 @@ export function NouveauModal({
       // SR : l'erreur "titre requis" sera levée plus bas (toast plus
       // spécifique). Pour carousel/short, on redirige vers step 2 (Hook).
       if (!isSR) {
-        toast.error("Hook requis");
+        toast.error(tr("hookRequis"));
         goto(2);
         return;
       }
@@ -259,14 +261,14 @@ export function NouveauModal({
       // Anti-shadowban — sourceId REQUIS pour un nouveau Short (saisi à
       // l'étape Hook, step 2). Optional au schéma (S007/S008 a posteriori).
       if (!state.data.sourceId.trim()) {
-        toast.error("Source requise pour le Short");
+        toast.error(tr("sourceRequisePourLeShort"));
         goto(2);
         return;
       }
       // Refinement Shorts — script optionnel (saisissable plus tard), mais
       // l'ICP ciblé est REQUIS à la création.
       if (state.data.icpId === undefined) {
-        toast.error("ICP requis pour le Short");
+        toast.error(tr("icpRequisPourLeShort"));
         goto(3);
         return;
       }
@@ -277,33 +279,33 @@ export function NouveauModal({
       // hookText au-dessus accepte le hookText synthétique du titre).
       const titre = state.data.titre.trim();
       if (titre.length < 3 || titre.length > 200) {
-        toast.error("Titre requis (3-200 caractères).");
+        toast.error(tr("titreRequis3200Caracteres"));
         goto(3);
         return;
       }
       if (state.data.image === null) {
-        toast.error("Image requise pour ScreenRecorder.");
+        toast.error(tr("imageRequisePourScreenrecorder"));
         goto(3);
         return;
       }
       if (state.data.recordingDevice === undefined) {
-        toast.error("Appareil d'enregistrement requis.");
+        toast.error(tr("appareilDEnregistrementRequis"));
         goto(3);
         return;
       }
       if (state.data.isRepackaging === undefined) {
-        toast.error("Indique si c'est un repackaging RepackIt.");
+        toast.error(tr("indiqueSiCEstUn"));
         goto(3);
         return;
       }
     }
     if (state.data.plateformes.length === 0) {
-      toast.error("Au moins une plateforme requise");
+      toast.error(tr("auMoinsUnePlateformeRequise"));
       goto(4);
       return;
     }
     if (!state.data.compte) {
-      toast.error("Compte requis");
+      toast.error(tr("compteRequis"));
       goto(4);
       return;
     }
@@ -315,7 +317,7 @@ export function NouveauModal({
       : [];
     if (effectivePlatforms.length === 0) {
       toast.error(
-        "Le compte choisi ne couvre aucune des plateformes sélectionnées",
+        tr("leCompteChoisiNeCouvre"),
       );
       goto(4);
       return;
@@ -331,12 +333,12 @@ export function NouveauModal({
       const formatLabel =
         FORMAT_CONFIGS[state.data.mediaType as FormatKey]?.plural ??
         state.data.mediaType;
-      toast.error(`${formatLabel} non autorisés sur ${invalidPlatform}.`);
+      toast.error(tr("nonAutorisesSur", { formatLabel: formatLabel, invalidPlatform: invalidPlatform }));
       goto(4);
       return;
     }
     if (!nextCarouselId) {
-      toast.error("ID pas encore prêt, attends une seconde…");
+      toast.error(tr("idPasEncorePretAttends"));
       return;
     }
 
@@ -420,7 +422,7 @@ export function NouveauModal({
         FORMAT_CONFIGS[state.data.mediaType as FormatKey]?.singular ??
         "Publication";
       toast.success(
-        `${formatLabel} ${nextCarouselId} créé sur ${effectivePlatforms.length} plateforme${effectivePlatforms.length > 1 ? "s" : ""}`,
+        tr("creeSurPlateforme", { formatLabel: formatLabel, nextCarouselId: nextCarouselId, count: effectivePlatforms.length }),
       );
       // onSuccess change l'URL via router.push (vers /carrousels?carouselId=X
       // ou /shorts?carouselId=X). On NE PAS appeler onOpenChange(false) ici
@@ -431,7 +433,7 @@ export function NouveauModal({
       onSuccess?.(nextCarouselId, state.data.mediaType as MediaType);
     } catch (e) {
       toast.error(
-        convexErrorMessage(e, "Erreur lors de la création"),
+        convexErrorMessage(e, tr("erreurLorsDeLaCreation")),
       );
     } finally {
       setSubmitting(false);
@@ -466,9 +468,9 @@ export function NouveauModal({
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Nouvelle publication</DialogTitle>
+            <DialogTitle>{tr("nouvellePublication")}</DialogTitle>
             <DialogDescription className="sr-only">
-              Création d&apos;une nouvelle publication
+              {tr("creationDUneNouvellePublication")}
             </DialogDescription>
             <ProgressBar
               step={state.step}
@@ -510,7 +512,7 @@ export function NouveauModal({
               onClick={attemptClose}
               disabled={submitting}
             >
-              Annuler
+              {tr("annuler")}
             </Button>
             <div className="flex gap-2">
               {state.step > 1 && (
@@ -519,12 +521,12 @@ export function NouveauModal({
                   onClick={prev}
                   disabled={submitting}
                 >
-                  Précédent
+                  {tr("precedent")}
                 </Button>
               )}
               {!isStep5 ? (
                 <Button onClick={next} disabled={submitting}>
-                  Suivant
+                  {tr("suivant")}
                 </Button>
               ) : (
                 <Button
@@ -534,7 +536,7 @@ export function NouveauModal({
                   {submitting && (
                     <Loader2Icon className="mr-2 size-4 animate-spin" />
                   )}
-                  Créer
+                  {tr("creer")}
                 </Button>
               )}
             </div>
@@ -552,9 +554,9 @@ export function NouveauModal({
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Quitter sans enregistrer ?</DialogTitle>
+            <DialogTitle>{tr("quitterSansEnregistrer")}</DialogTitle>
             <DialogDescription>
-              Tu vas perdre les infos saisies. Cette action est irréversible.
+              {tr("tuVasPerdreLesInfos")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -562,10 +564,10 @@ export function NouveauModal({
               variant="outline"
               onClick={() => setConfirmCloseOpen(false)}
             >
-              Continuer la saisie
+              {tr("continuerLaSaisie")}
             </Button>
             <Button variant="destructive" onClick={confirmDiscard}>
-              Quitter
+              {tr("quitter")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -581,6 +583,7 @@ function ProgressBar({
   step: Step;
   mediaType: MediaType | undefined;
 }) {
+  const tr = useTranslations("admin.common.ProgressBar");
   // Refinement SR — total dynamique : 4 pour ScreenRecorder (skip Hook),
   // 5 pour carousel/short. L'étape affichée (1-based) compresse les
   // steps internes 3/4/5 en 2/3/4 pour SR.
@@ -590,7 +593,7 @@ function ProgressBar({
     <div className="space-y-1.5 pt-1">
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>
-          Étape {displayedStep} / {total} — {STEP_LABELS[step]}
+          {tr("etape", { displayedStep: displayedStep, total: total, value: tr(`steps.${STEP_KEYS[step]}`) })}
         </span>
       </div>
       <div className="flex gap-1">

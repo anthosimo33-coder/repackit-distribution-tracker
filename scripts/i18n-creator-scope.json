@@ -129,6 +129,7 @@
     "convex/rushStatus.ts",
     "i18n/locale-cookie.ts",
     "i18n/locales.ts",
+    "i18n/messages.ts",
     "lib/apifyPosts.ts",
     "lib/assignment-status.ts",
     "lib/calendar-status.ts",

@@ -112,6 +112,7 @@ export function SnapshotAgeProvider({
 export function useSnapshotAge(): SnapshotAgeContextValue {
   const ctx = useContext(SnapshotAgeContext);
   if (!ctx) {
+    // i18n-exempt: erreur de développement, jamais affichée
     throw new Error("useSnapshotAge must be used within SnapshotAgeProvider");
   }
   return ctx;

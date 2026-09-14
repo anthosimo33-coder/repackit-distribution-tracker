@@ -47,6 +47,7 @@ function InputGroupAddon({
   className,
   align = "inline-start",
   ...props
+// i18n-exempt: générique TypeScript, pas du texte
 }: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) {
   return (
     <div

@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { NouveauAction } from "../useNouveauState";
+import { useTranslations } from "next-intl";
 
 /**
  * StepFormat — étape 1 du modal. 3 cards cliquables (Carrousel / Short /
@@ -27,12 +28,13 @@ export function StepFormat({
    *  "Suivant" en step 1. */
   onChosen: () => void;
 }) {
+  const tr = useTranslations("admin.common.StepFormat");
   const formatKeys: FormatKey[] = ["carousel", "short", "screenrecorder"];
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-slate-600">
-        Quel format veux-tu créer ? Tu pourras choisir un hook ensuite.
+        {tr("quelFormatVeuxTuCreer")}
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {formatKeys.map((key) => {
@@ -70,7 +72,7 @@ export function StepFormat({
                     <Icon className="size-6 text-slate-700" />
                     {disabled && (
                       <Badge variant="outline" className="text-xs">
-                        Bientôt disponible
+                        {tr("bientotDisponible")}
                       </Badge>
                     )}
                   </div>

@@ -32,7 +32,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { fr } from "date-fns/locale";
 import { CalendarIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -48,6 +47,10 @@ import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 import { Switch } from "@/components/ui/switch";
 import { type CountryCode } from "@/lib/countries";
 import { CountryPicker, COUNTRY_NONE } from "@/components/comptes/CountryPicker";
+import { useTranslations } from "next-intl";
+import { useLabel } from "@/lib/use-label";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale } from "@/lib/date-fns-locale";
 
 // listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
 // et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
@@ -80,11 +83,12 @@ export type Compte = Doc<"comptes"> & {
   creatorTimezone: string | null;
 };
 
-const STATUS_OPTIONS: { value: CompteStatus; label: string; dot: string }[] = [
-  { value: "warmup", label: "Warmup", dot: "bg-amber-500" },
-  { value: "actif", label: "Actif", dot: "bg-emerald-500" },
-  { value: "shadowban", label: "Shadowban", dot: "bg-rose-500" },
-  { value: "archived", label: "Archivé", dot: "bg-slate-400" },
+// Libellés : les clés du portail (`status.compte.*`), les mêmes que la créatrice lit.
+const STATUS_OPTIONS: { value: CompteStatus; labelKey: string; dot: string }[] = [
+  { value: "warmup", labelKey: "status.compte.warmup", dot: "bg-amber-500" },
+  { value: "actif", labelKey: "status.compte.actif", dot: "bg-emerald-500" },
+  { value: "shadowban", labelKey: "status.compte.shadowban", dot: "bg-rose-500" },
+  { value: "archived", labelKey: "status.compte.archive", dot: "bg-slate-400" },
 ];
 
 function todayStart(): number {
@@ -111,6 +115,9 @@ export default function CompteDialog({
   mode: "add" | "edit";
   compte?: Compte;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.CompteDialog");
+  const tLabel = useLabel();
   const isEdit = mode === "edit";
   const [handle, setHandle] = useState(compte?.handle ?? "");
   const [plateforme, setPlateforme] = useState<string>(
@@ -213,10 +220,10 @@ export default function CompteDialog({
         status: "actif",
         warmupStartedAt: null,
       });
-      toast.success(`${compte.handle} passé en actif`);
+      toast.success(tr("passeEnActif", { handle: compte.handle }));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -225,12 +232,12 @@ export default function CompteDialog({
   async function submit() {
     const finalHandle = normalizeHandle(handle);
     if (!finalHandle || finalHandle === "@") {
-      toast.error("Handle requis");
+      toast.error(tr("handleRequis"));
       return;
     }
     if (status === "warmup" && warmupStartedAt == null) {
       setDateError(true);
-      toast.error("Date de début warmup requise.");
+      toast.error(tr("dateDeDebutWarmupRequise"));
       return;
     }
     setSubmitting(true);
@@ -257,7 +264,7 @@ export default function CompteDialog({
               ? null
               : (targetCountry as CountryCode),
         });
-        toast.success(`${finalHandle} mis à jour`);
+        toast.success(tr("misAJour", { finalHandle: finalHandle }));
       } else {
         await createCompte({
           handle: finalHandle,
@@ -272,7 +279,7 @@ export default function CompteDialog({
               ? undefined
               : (targetCountry as CountryCode),
         });
-        toast.success(`${finalHandle} ajouté sur ${plateforme}`);
+        toast.success(tr("ajouteSur", { finalHandle: finalHandle, plateforme: plateforme }));
       }
       onOpenChange(false);
       setHandle("");
@@ -282,7 +289,7 @@ export default function CompteDialog({
       setWarmupStartedAt(null);
       setTargetCountry(COUNTRY_NONE);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -293,25 +300,25 @@ export default function CompteDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? "Modifier le compte" : "Nouveau compte"}
+            {isEdit ? tr("modifierLeCompte") : tr("nouveauCompte")}
           </DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Modifie le handle, le statut ou les notes. La plateforme ne peut pas changer."
-              : "Ajoute un compte TikTok, Instagram ou YouTube à utiliser pour publier."}
+              ? tr("modifieLeHandleLeStatut")
+              : tr("ajouteUnCompteTiktokInstagram")}
           </DialogDescription>
         </DialogHeader>
 
         {canPasserEnActif && (
           <Button onClick={passerEnActif} disabled={submitting}>
             <CheckIcon className="mr-2 size-4" />
-            Passer en actif
+            {tr("passerEnActif")}
           </Button>
         )}
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="compte-handle">Handle</Label>
+            <Label htmlFor="compte-handle">{tr("handle")}</Label>
             <Input
               id="compte-handle"
               placeholder="@compte_pro"
@@ -319,17 +326,17 @@ export default function CompteDialog({
               onChange={(e) => setHandle(e.target.value)}
             />
             <p className="text-xs text-slate-500">
-              Le @ est ajouté automatiquement si tu l&apos;oublies.
+              {tr("leEstAjouteAutomatiquementSi")}
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label>Plateforme</Label>
+            <Label>{tr("plateforme")}</Label>
             {plateformeEditable ? (
               <Select
                 value={plateforme}
                 onValueChange={(v) => v !== null && setPlateforme(v)}
               >
-                <SelectTrigger aria-label="Plateforme">
+                <SelectTrigger aria-label={tr("plateforme")}>
                   <SelectValue>{plateforme}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -343,28 +350,25 @@ export default function CompteDialog({
               </Select>
             ) : (
               <>
-                <Input value={plateforme} disabled aria-label="Plateforme" />
+                <Input value={plateforme} disabled aria-label={tr("plateforme")} />
                 <p className="text-xs text-slate-500">
-                  Plateforme non modifiable : ce compte est déjà utilisé
-                  (publications / assignments). Archive-le et fais-en déclarer un
-                  nouveau.
+                  {tr("plateformeNonModifiableCeCompte")}
                 </p>
               </>
             )}
             {isEdit && plateformeEditable && (
               <p className="text-xs text-slate-500">
-                Changer la plateforme réinitialise le warmup (durée et compteur de
-                checks repartent sur la nouvelle plateforme).
+                {tr("changerLaPlateformeReinitialiseLe")}
               </p>
             )}
           </div>
           <div className="space-y-1.5">
-            <Label>Statut</Label>
+            <Label>{tr("statut")}</Label>
             <Select
               value={status}
               onValueChange={(v) => v !== null && changeStatus(v as CompteStatus)}
             >
-              <SelectTrigger aria-label="Statut">
+              <SelectTrigger aria-label={tr("statut")}>
                 <SelectValue>
                   <span className="flex items-center gap-2">
                     <span
@@ -373,7 +377,7 @@ export default function CompteDialog({
                         selectedStatus?.dot,
                       )}
                     />
-                    {selectedStatus?.label}
+                    {selectedStatus ? tLabel(selectedStatus.labelKey) : null}
                   </span>
                 </SelectValue>
               </SelectTrigger>
@@ -382,7 +386,7 @@ export default function CompteDialog({
                   <SelectItem key={o.value} value={o.value}>
                     <span className="flex items-center gap-2">
                       <span className={cn("size-2 rounded-full", o.dot)} />
-                      {o.label}
+                      {tLabel(o.labelKey)}
                     </span>
                   </SelectItem>
                 ))}
@@ -391,7 +395,7 @@ export default function CompteDialog({
           </div>
           {status === "warmup" && (
             <div className="space-y-1.5">
-              <Label>Date de début du warmup</Label>
+              <Label>{tr("dateDeDebutDuWarmup")}</Label>
               <Popover>
                 <PopoverTrigger
                   render={
@@ -404,12 +408,12 @@ export default function CompteDialog({
                     >
                       <CalendarIcon className="mr-2 size-4" />
                       {warmupStartedAt != null
-                        ? new Date(warmupStartedAt).toLocaleDateString("fr-FR", {
+                        ? new Date(warmupStartedAt).toLocaleDateString(loc, {
                             day: "2-digit",
                             month: "long",
                             year: "numeric",
                           })
-                        : "Choisir une date"}
+                        : tr("choisirUneDate")}
                     </Button>
                   }
                 />
@@ -427,38 +431,37 @@ export default function CompteDialog({
                         setDateError(false);
                       }
                     }}
-                    locale={fr}
+                    locale={dateFnsLocale(loc)}
                     weekStartsOn={1}
                   />
                 </PopoverContent>
               </Popover>
               {dateError ? (
                 <p className="text-xs font-medium text-rose-600">
-                  Date de début warmup requise.
+                  {tr("dateDeDebutWarmupRequise")}
                 </p>
               ) : (
                 <p className="text-xs text-slate-500">
-                  Durée warmup pour {plateforme} :{" "}
-                  {getWarmupDuration(plateforme as Plateforme)} jours
+                  {tr("dureeWarmupPourJours", { plateforme: plateforme, value: getWarmupDuration(plateforme as Plateforme) })}
                 </p>
               )}
             </div>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="compte-notes">Notes</Label>
+            <Label htmlFor="compte-notes">{tr("notes")}</Label>
             <Textarea
               id="compte-notes"
               rows={3}
-              placeholder="Optionnel"
+              placeholder={tr("optionnel")}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Gestionnaire</Label>
+            <Label>{tr("gestionnaire")}</Label>
             <PersonneCombobox value={personneId} onChange={setPersonneId} />
             <p className="text-xs text-slate-500">
-              Optionnel — qui gère ce compte.
+              {tr("optionnelQuiGereCeCompte")}
             </p>
           </div>
           {/* Pays ciblé — label INFORMATIF interne. Ne pilote rien (scraping et
@@ -466,15 +469,14 @@ export default function CompteDialog({
               unset. La liste est passée à 250 pays : c'est une RECHERCHE, plus
               une liste déroulante (cf CountryPicker). */}
           <div className="space-y-1.5">
-            <Label>Pays ciblé</Label>
+            <Label>{tr("paysCible")}</Label>
             <CountryPicker
               value={targetCountry}
               onChange={setTargetCountry}
               suggestions={paysDejaUtilises}
             />
             <p className="text-xs text-slate-500">
-              Label interne informatif — n&apos;affecte ni le scraping ni les
-              filtres. Invisible côté créatrice.
+              {tr("labelInterneInformatifNAffecte")}
             </p>
           </div>
           {/* Mode « géré par l'équipe » — uniquement en édition d'un compte
@@ -489,12 +491,10 @@ export default function CompteDialog({
               />
               <div className="space-y-0.5">
                 <Label htmlFor="compte-managed" className="cursor-pointer">
-                  Géré par l&apos;équipe
+                  {tr("gereParLEquipe")}
                 </Label>
                 <p className="text-xs text-slate-500">
-                  L&apos;équipe tient le compte (warmup, publication, lien) ; la
-                  créatrice suit en lecture. N&apos;affecte que les futurs
-                  assignments.
+                  {tr("lEquipeTientLeCompte")}
                 </p>
               </div>
             </div>
@@ -506,11 +506,11 @@ export default function CompteDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={submit} disabled={submitting}>
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            {isEdit ? "Enregistrer" : "Ajouter"}
+            {isEdit ? tr("enregistrer") : tr("ajouter")}
           </Button>
         </DialogFooter>
       </DialogContent>

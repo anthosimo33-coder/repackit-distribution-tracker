@@ -22,6 +22,8 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { Loader2Icon, GraduationCapIcon } from "lucide-react";
 import { rateOf } from "@/convex/graduation";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Écran de CONFIRMATION d'une graduation : le texte du hook, ses scores, et vers
@@ -44,6 +46,8 @@ export function GraduateHookDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.GraduateHookDialog");
   const preview = useProjectQuery(
     api.scripts.getGraduationPreview,
     brickId && open ? { brickId } : "skip",
@@ -58,14 +62,14 @@ export function GraduateHookDialog({
       const res = await graduate({ brickId });
       if (res.outcome === "already-graduated") {
         toast.info(
-          `Ce hook était déjà dans « ${res.targetCampaignName} » — rien dupliqué, l'original du LAB est désactivé.`,
+          tr("ceHookEtaitDejaDans", { targetCampaignName: res.targetCampaignName }),
         );
       } else {
-        toast.success(`Hook gradué vers « ${res.targetCampaignName} ».`);
+        toast.success(tr("hookGradueVers", { targetCampaignName: res.targetCampaignName }));
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Graduation impossible"));
+      toast.error(convexErrorMessage(e, tr("graduationImpossible")));
     } finally {
       setBusy(false);
     }
@@ -79,18 +83,16 @@ export function GraduateHookDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Graduer ce hook</DialogTitle>
+          <DialogTitle>{tr("graduerCeHook")}</DialogTitle>
           <DialogDescription>
-            Le hook part dans les ouvertures prouvées et son original est
-            désactivé dans le LAB — les deux d&apos;un coup, jamais l&apos;un
-            sans l&apos;autre.
+            {tr("leHookPartDansLes")}
           </DialogDescription>
         </DialogHeader>
 
         {preview === undefined ? (
           <Skeleton className="h-40" />
         ) : preview === null ? (
-          <p className="text-sm text-slate-500">Hook introuvable.</p>
+          <p className="text-sm text-slate-500">{tr("hookIntrouvable")}</p>
         ) : (
           <div className="space-y-4">
             <blockquote className="rounded-md border-l-2 border-primary/40 bg-slate-50 px-3 py-2 text-sm text-slate-800">
@@ -98,40 +100,37 @@ export function GraduateHookDialog({
             </blockquote>
 
             <div className="grid grid-cols-4 gap-2 text-center">
-              <Score label="Vues" value={best ? formatNumber(best.vues) : "—"} />
+              <Score label={tr("vues")} value={best ? formatNumber(best.vues, loc) : "—"} />
               <Score
-                label="Like rate"
-                value={likeRate === null ? "—" : formatPercent(likeRate)}
+                label={tr("likeRate")}
+                value={likeRate === null ? "—" : formatPercent(likeRate, undefined, loc)}
               />
               <Score
-                label="Save rate"
+                label={tr("saveRate")}
                 // « — » ici veut dire NON COLLECTÉ, pas zéro : le relevé auto ne
                 // remonte pas encore les saves sur tous les posts.
-                value={saveRate === null ? "—" : formatPercent(saveRate)}
+                value={saveRate === null ? "—" : formatPercent(saveRate, undefined, loc)}
               />
-              <Score label="Runs" value={String(preview.runs)} />
+              <Score label={tr("runs")} value={String(preview.runs)} />
             </div>
 
             {!preview.qualifies && (
               <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                Ce hook ne franchit pas les seuils de graduation. Tu peux le
-                graduer quand même — la règle propose, elle ne décide pas.
+                {tr("ceHookNeFranchitPas")}
               </p>
             )}
             {preview.alreadyPresent && (
               <p className="rounded-md bg-sky-50 px-3 py-2 text-xs text-sky-800">
-                Ce texte est déjà présent dans la campagne cible. Rien ne sera
-                dupliqué ; l&apos;original du LAB sera simplement désactivé.
+                {tr("ceTexteEstDejaPresent")}
               </p>
             )}
             {preview.targetCampaignName === null ? (
               <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-800">
-                Aucune campagne d&apos;ouvertures prouvées sur ce projet — à
-                créer avant de pouvoir graduer.
+                {tr("aucuneCampagneDOuverturesProuvees")}
               </p>
             ) : (
               <p className="text-xs text-slate-500">
-                Destination :{" "}
+                {tr("destination")}{" "}
                 <span className="font-medium text-slate-700">
                   {preview.targetCampaignName}
                 </span>
@@ -142,7 +141,7 @@ export function GraduateHookDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button
             onClick={onConfirm}
@@ -158,7 +157,7 @@ export function GraduateHookDialog({
             ) : (
               <GraduationCapIcon className="size-4" />
             )}
-            Graduer
+            {tr("graduer")}
           </Button>
         </DialogFooter>
       </DialogContent>

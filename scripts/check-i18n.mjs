@@ -65,7 +65,7 @@
  * Sortie : 1 dès qu'une occurrence est trouvée, avec fichier:ligne et l'extrait.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { catalogEntityViolations } from "./i18n-entities.mjs";
@@ -75,6 +75,7 @@ import {
   looksLikeSentence,
 } from "./i18n-detect.mjs";
 import { astFindings, stripLineComments } from "./i18n-ast.mjs";
+import { icuArgs } from "./i18n-icu.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -90,9 +91,21 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
  * La liste est GÉNÉRÉE par `scripts/i18n-scope-gen.mjs` (clôture d'imports),
  * jamais écrite à la main : un périmètre tenu à la main dérive.
  */
-const SCOPE = JSON.parse(
+const CREATOR_SCOPE = JSON.parse(
   readFileSync(join(ROOT, "scripts/i18n-creator-scope.json"), "utf8"),
 ).files;
+
+/**
+ * L'ESPACE D'ÉQUIPE rejoint la garde en septembre 2026 : une créatrice peut être
+ * manager, et un manager anglophone lisait un menu anglais sur des pages
+ * françaises. Même règle, même cliquet : ses fichiers pas encore extraits sont
+ * dans la baseline, qui ne peut que rétrécir.
+ */
+const MANAGER_SCOPE = JSON.parse(
+  readFileSync(join(ROOT, "scripts/i18n-manager-scope.json"), "utf8"),
+).files;
+
+const SCOPE = [...CREATOR_SCOPE, ...MANAGER_SCOPE];
 
 /** Fichiers du périmètre pas encore extraits — la liste ne peut que rétrécir. */
 const BASELINE = new Set(
@@ -386,8 +399,37 @@ function flatten(obj, prefix = "", out = []) {
   return out;
 }
 
-const fr = JSON.parse(readFileSync(join(ROOT, "messages/fr.json"), "utf8"));
-const en = JSON.parse(readFileSync(join(ROOT, "messages/en.json"), "utf8"));
+// Le socle + l'espace d'équipe, rangé comme le charge `i18n/messages.ts` :
+// `admin.<zone>` ← `messages/admin/<langue>/<zone>.json`.
+const ADMIN_AREAS = [
+  ...readFileSync(join(ROOT, "i18n/messages.ts"), "utf8")
+    .match(/ADMIN_AREAS = \[([\s\S]*?)\]/)[1]
+    .matchAll(/"(\w+)"/g),
+].map((m) => m[1]);
+
+const adminFileProblems = [];
+function loadCatalog(locale) {
+  const base = JSON.parse(readFileSync(join(ROOT, `messages/${locale}.json`), "utf8"));
+  const dir = join(ROOT, `messages/admin/${locale}`);
+  const present = existsSync(dir)
+    ? readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5))
+    : [];
+  for (const f of present) {
+    if (!ADMIN_AREAS.includes(f)) adminFileProblems.push(`messages/admin/${locale}/${f}.json n'est pas une zone de i18n/messages.ts`);
+  }
+  const admin = {};
+  for (const area of ADMIN_AREAS) {
+    if (!present.includes(area)) {
+      adminFileProblems.push(`messages/admin/${locale}/${area}.json manque`);
+      continue;
+    }
+    admin[area] = JSON.parse(readFileSync(join(dir, `${area}.json`), "utf8"));
+  }
+  return { ...base, admin };
+}
+
+const fr = loadCatalog("fr");
+const en = loadCatalog("en");
 const frKeys = new Set(flatten(fr));
 const enKeys = new Set(flatten(en));
 const missingInEn = [...frKeys].filter((k) => !enKeys.has(k));
@@ -410,7 +452,11 @@ function flatValues(obj, prefix = "", out = {}) {
 const frVals = flatValues(fr);
 const enVals = flatValues(en);
 const untranslated = Object.keys(frVals).filter(
-  (k) => k in enVals && enVals[k] === frVals[k] && !SAME_IN_EN.has(k),
+  (k) =>
+    k in enVals &&
+    ((enVals[k] === frVals[k] && !SAME_IN_EN.has(k)) ||
+      // Marqueur d'extraction laissé en place : la valeur n'a jamais été traduite.
+      String(enVals[k]).startsWith("__TODO__")),
 );
 // Une clé de la liste blanche qui n'est PLUS identique doit en sortir : sinon la
 // liste se transforme en tapis, exactement comme la baseline.
@@ -423,20 +469,32 @@ const staleSameInEn = [...SAME_IN_EN].filter(
 // plural,` devenu `{n, plural,`) ou une de ses branches. next-intl lève alors à
 // l'exécution, sur l'écran du créateur, et seulement dans la locale traduite —
 // le genre de panne qu'aucun rendu FR ne révèle.
-const ICU_RE = /\{\s*(\w+)\s*,\s*(plural|select|selectordinal)\s*,/g;
 const icuMismatch = [];
 for (const k of Object.keys(frVals)) {
   if (!(k in enVals)) continue;
-  const sig = (s) => {
-    ICU_RE.lastIndex = 0;
-    const found = [];
-    let m;
-    while ((m = ICU_RE.exec(String(s))) !== null) found.push(`${m[1]}:${m[2]}`);
-    return found.sort().join(",");
-  };
-  const a = sig(frVals[k]);
-  const b = sig(enVals[k]);
-  if (a !== b) icuMismatch.push({ key: k, fr: a || "(aucune)", en: b || "(aucune)" });
+  // Deux défauts lèvent ou trompent à l'exécution, et seulement dans la langue
+  // traduite :
+  //   1. l'anglais cite une variable que le code ne passe pas (renommée :
+  //      `{count, plural,` devenu `{n, plural,`) — next-intl lève ;
+  //   2. l'anglais PERD une variable de pluriel du français — la phrase ne dit
+  //      plus combien.
+  // Ce qui n'est PAS un défaut : une langue qui accorde plusieurs mots sur le
+  // même compteur (« 3 assignments créés ») là où l'autre n'en accorde qu'un,
+  // ou n'a pas besoin de pluriel du tout (« 3 selected »).
+  const frArgs = icuArgs(frVals[k]);
+  const enArgs = icuArgs(enVals[k]);
+  const unknown = [...enArgs.keys()].filter((a) => !frArgs.has(a));
+  const lost = [...frArgs]
+    .filter(([, types]) => types.has("plural") || types.has("select") || types.has("selectordinal"))
+    .map(([name]) => name)
+    .filter((name) => !enArgs.has(name));
+  if (unknown.length > 0 || lost.length > 0) {
+    icuMismatch.push({
+      key: k,
+      fr: [...frArgs.keys()].sort().join(",") || "(aucune)",
+      en: `${[...enArgs.keys()].sort().join(",") || "(aucune)"}${unknown.length ? ` — inconnue(s) : ${unknown.join(",")}` : ""}${lost.length ? ` — pluriel perdu : ${lost.join(",")}` : ""}`,
+    });
+  }
 }
 
 // ─── Entités HTML dans les catalogues ────────────────────────────────────────
@@ -463,6 +521,12 @@ const regressions = [...byFile.entries()].filter(([file]) => !BASELINE.has(file)
 const staleBaseline = [...BASELINE].filter((file) => !byFile.has(file));
 
 let failed = false;
+
+if (adminFileProblems.length > 0) {
+  failed = true;
+  console.error("\n✖ Les catalogues de l'espace d'équipe ne suivent pas i18n/messages.ts :");
+  for (const p of adminFileProblems) console.error(`    ${p}`);
+}
 
 if (regressions.length > 0) {
   failed = true;
@@ -543,7 +607,7 @@ if (staleSameInEn.length > 0) {
 if (icuMismatch.length > 0) {
   failed = true;
   console.error(
-    `\n✖ ${icuMismatch.length} clé(s) ont des structures ICU divergentes entre FR et EN :`,
+    `\n✖ ${icuMismatch.length} clé(s) ont des variables ICU incompatibles entre FR et EN :`,
   );
   for (const v of icuMismatch) {
     console.error(`    ${v.key}\n      fr: ${v.fr}\n      en: ${v.en}`);
@@ -566,9 +630,13 @@ if (failed) process.exit(1);
 // rendait 0 quoi qu'il arrive. Le compteur affirmait alors « 0 chaîne » sans
 // rien avoir vérifié.
 const remaining = findings.length;
+const inBaseline = (list) => list.filter((f) => BASELINE.has(f)).length;
+const creatorLeft = inBaseline(CREATOR_SCOPE);
+const managerLeft = inBaseline(MANAGER_SCOPE);
+const managerStrings = findings.filter((f) => MANAGER_SCOPE.includes(f.file)).length;
 console.log(
   `✓ i18n — ${frKeys.size} clés, catalogues alignés, anglais traduit, aucune régression.\n` +
-    `  Périmètre créateur : ${SCOPE.length - BASELINE.size}/${SCOPE.length} fichiers extraits.\n` +
-    `  Reste dans le périmètre : ~${remaining} chaînes dans ${BASELINE.size} fichiers.\n` +
-    `  (Hors périmètre — admin, analytics — volontairement non gardé : l'admin reste en FR.)`,
+    `  Périmètre créateur : ${CREATOR_SCOPE.length - creatorLeft}/${CREATOR_SCOPE.length} fichiers extraits.\n` +
+    `  Espace d'équipe    : ${MANAGER_SCOPE.length - managerLeft}/${MANAGER_SCOPE.length} fichiers extraits.\n` +
+    `  Reste : ~${remaining} chaînes dans ${BASELINE.size} fichiers (dont ~${managerStrings} côté équipe).`,
 );

@@ -24,6 +24,8 @@ import {
 } from "@/lib/scriptAssembly";
 import { comboKeyOf } from "@/lib/scriptCombos";
 import { formatNumber, formatDate } from "@/lib/format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Sélecteur de « combinaison choisie » — cœur UI de « Rejouer ce script » et du
@@ -76,11 +78,7 @@ type ComboPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByCombo>[numb
 
 const KINDS: ScriptKind[] = ["hook", "flux", "cta"];
 
-/** Libellé perf d'une brique. Sans historique (0 post) → tiret, JAMAIS un zéro. */
-function brickPerfLabel(p: BrickPerf | undefined): string {
-  if (!p || p.postCount === 0) return "—";
-  return `${p.postCount}× · ${formatNumber(p.viewsMedian)} vues méd.`;
-}
+
 
 export function ChosenComboPicker({
   campaignId,
@@ -102,6 +100,8 @@ export function ChosenComboPicker({
   onReplayVerbatimChange?: (v: boolean) => void;
   disabled?: boolean;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.ChosenComboPicker");
   // Perf par brique/combo sur TOUT l'historique (fenêtre `latest`), pas j7.
   const perfBricks = useProjectQuery(api.scriptAnalytics.perfByBrick, {
     campaignId,
@@ -143,6 +143,7 @@ export function ChosenComboPicker({
         out[b.kind].push(b);
       }
     }
+    // i18n-exempt: générique TypeScript (`>, b: Doc<`), pas du texte
     const byOrigin = (a: Doc<"scriptBricks">, b: Doc<"scriptBricks">) =>
       (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     for (const k of KINDS) {
@@ -266,27 +267,23 @@ export function ChosenComboPicker({
       {/* Panneau perf SOURCE — rappelle POURQUOI on rejoue + divergences. */}
       {replaySource && (
         <div className="rounded-md border border-indigo-200 bg-indigo-50/60 p-2.5 text-sm">
-          <div className="font-medium text-indigo-900">Script source</div>
+          <div className="font-medium text-indigo-900">{tr("scriptSource")}</div>
           <div className="text-indigo-800">
             {replaySource.perf.kind === "post"
-              ? `${formatNumber(replaySource.perf.views)} vues · ${
-                  replaySource.perf.date != null
-                    ? formatDate(replaySource.perf.date)
-                    : "—"
-                } · ${replaySource.perf.creatorName}`
-              : `médiane ${formatNumber(replaySource.perf.viewsMedian)} vues · ${
-                  replaySource.perf.postCount
-                } post${replaySource.perf.postCount > 1 ? "s" : ""}`}
+              ? tr("vues", { count: formatNumber(replaySource.perf.views, loc), value: replaySource.perf.date != null
+                    ? formatDate(replaySource.perf.date, loc)
+                    : "—", creatorName: replaySource.perf.creatorName })
+              : tr("medianeVuesPost", { count: formatNumber(replaySource.perf.viewsMedian, loc), postCount: replaySource.perf.postCount })}
           </div>
           {changed && (
             <div className="mt-1 text-xs font-medium text-amber-700">
-              ⚠️ Perf affichée = script original, pas ta variante.
+              {tr("perfAfficheeScriptOriginalPas")}
             </div>
           )}
           {editedSince && (
             <div className="mt-2 space-y-2 border-t border-indigo-200 pt-2">
               <div className="text-xs font-medium text-amber-700">
-                ⚠️ Une brique a été éditée depuis. Voici ce qui change :
+                {tr("uneBriqueAEteEditee")}
               </div>
               {brickDiffs.length > 0 ? (
                 <div className="space-y-1.5">
@@ -301,7 +298,7 @@ export function ChosenComboPicker({
                       <div className="mt-1 grid grid-cols-2 gap-2 text-xs">
                         <div>
                           <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">
-                            A marché (figé)
+                            {tr("aMarcheFige")}
                           </div>
                           <div className="whitespace-pre-wrap text-slate-700">
                             {d.before}
@@ -309,7 +306,7 @@ export function ChosenComboPicker({
                         </div>
                         <div>
                           <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                            Actuel
+                            {tr("actuel")}
                           </div>
                           <div className="whitespace-pre-wrap text-slate-700">
                             {d.after}
@@ -324,7 +321,7 @@ export function ChosenComboPicker({
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
                     <div className="text-[10px] font-medium uppercase tracking-wide text-emerald-600">
-                      A marché (figé)
+                      {tr("aMarcheFige")}
                     </div>
                     <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded border border-amber-200 bg-white p-1.5 text-slate-700">
                       {replaySource.sourceAssembledScript}
@@ -332,7 +329,7 @@ export function ChosenComboPicker({
                   </div>
                   <div>
                     <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                      Actuel
+                      {tr("actuel")}
                     </div>
                     <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded border border-slate-200 bg-white p-1.5 text-slate-700">
                       {reconstructed}
@@ -351,7 +348,7 @@ export function ChosenComboPicker({
                     onChange={() => onReplayVerbatimChange?.(false)}
                   />
                   <span>
-                    Rejouer avec le <strong>texte actuel</strong> (par défaut)
+                    {tr("rejouerAvecLe")}{" "}<strong>{tr("texteActuel")}</strong>{" "}{tr("parDefaut")}
                   </span>
                 </label>
                 <label className="flex items-start gap-2">
@@ -364,8 +361,7 @@ export function ChosenComboPicker({
                     onChange={() => onReplayVerbatimChange?.(true)}
                   />
                   <span>
-                    Rejouer <strong>à l&apos;identique</strong> — le texte qui a
-                    réellement marché
+                    {tr("rejouer")}{" "}<strong>{tr("aLIdentique")}</strong>{" "}{tr("leTexteQuiAReellement")}
                   </span>
                 </label>
               </div>
@@ -380,10 +376,10 @@ export function ChosenComboPicker({
         <>
           <div className="flex items-center justify-between">
             <Label className="text-xs text-slate-500">
-              Trois briques (actives uniquement)
+              {tr("troisBriquesActivesUniquement")}
               {!!replayVerbatim && verbatimAvailable && (
                 <span className="ml-1 text-slate-400">
-                  — verrouillées (rejeu à l&apos;identique)
+                  {tr("verrouilleesRejeuALIdentique")}
                 </span>
               )}
             </Label>
@@ -393,7 +389,7 @@ export function ChosenComboPicker({
               disabled={disabled}
               className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
             >
-              {sortByPerf ? "Tri : performance ↓" : "Tri : ordre d'origine"}
+              {sortByPerf ? tr("triPerformance") : tr("triOrdreDOrigine")}
             </button>
           </div>
 
@@ -406,8 +402,7 @@ export function ChosenComboPicker({
                 <Label className="text-xs">{KIND_LABELS[kind]}</Label>
                 {opts.length === 0 ? (
                   <p className="text-xs text-amber-600">
-                    Aucune brique {KIND_LABELS[kind].toLowerCase()} active dans
-                    cette campagne.
+                    {tr("aucuneBriqueActiveDansCette", { value: KIND_LABELS[kind].toLowerCase() })}
                   </p>
                 ) : (
                   <Select
@@ -425,7 +420,7 @@ export function ChosenComboPicker({
                             {selected.content}
                           </span>
                         ) : (
-                          "Choisir une brique…"
+                          tr("choisirUneBrique")
                         )}
                       </SelectValue>
                     </SelectTrigger>
@@ -441,11 +436,20 @@ export function ChosenComboPicker({
                               </span>
                               {note && (
                                 <span className="text-xs italic text-slate-400">
-                                  note : {note}
+                                  {tr("note", { note: note })}
                                 </span>
                               )}
                               <span className="text-xs text-slate-500">
-                                {brickPerfLabel(perfByBrickId.get(b._id))}
+                                {/* Sans historique (0 post) → tiret, JAMAIS un zéro. */}
+                                {(() => {
+                                  const p = perfByBrickId.get(b._id);
+                                  return !p || p.postCount === 0
+                                    ? "—"
+                                    : tr("brickPerf", {
+                                        count: p.postCount,
+                                        views: formatNumber(p.viewsMedian, loc),
+                                      });
+                                })()}
                               </span>
                             </span>
                           </SelectItem>
@@ -456,14 +460,12 @@ export function ChosenComboPicker({
                 )}
                 {status === "deleted" && (
                   <p className="text-xs font-medium text-amber-700">
-                    Brique {KIND_LABELS[kind].toLowerCase()} de la source
-                    supprimée — choisis un remplaçant.
+                    {tr("briqueDeLaSourceSupprimee", { value: KIND_LABELS[kind].toLowerCase() })}
                   </p>
                 )}
                 {status === "disabled" && (
                   <p className="text-xs font-medium text-amber-700">
-                    Brique {KIND_LABELS[kind].toLowerCase()} de la source
-                    désactivée — choisis un remplaçant.
+                    {tr("briqueDeLaSourceDesactivee", { value: KIND_LABELS[kind].toLowerCase() })}
                   </p>
                 )}
               </div>
@@ -472,14 +474,14 @@ export function ChosenComboPicker({
 
           {/* Aperçu du script assemblé (labels:false = rendu créatrice). */}
           <div className="space-y-1">
-            <Label className="text-xs text-slate-500">Aperçu du script</Label>
+            <Label className="text-xs text-slate-500">{tr("apercuDuScript")}</Label>
             {preview ? (
               <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-white p-2.5 text-sm text-slate-800">
                 {preview}
               </div>
             ) : (
               <p className="text-xs text-slate-400">
-                Choisis les trois briques pour voir le script assemblé.
+                {tr("choisisLesTroisBriquesPour")}
               </p>
             )}
           </div>
@@ -488,12 +490,10 @@ export function ChosenComboPicker({
           {comboKey && (
             <p className="text-xs text-slate-500">
               {comboPerf
-                ? `Déjà utilisée : médiane ${formatNumber(
-                    comboPerf.viewsMedian,
-                  )} vues · ${comboPerf.postCount} post${
-                    comboPerf.postCount > 1 ? "s" : ""
-                  }.`
-                : "Combinaison encore jamais utilisée."}
+                ? tr("dejaUtiliseeMedianeVuesPost", { count: formatNumber(
+                    comboPerf.viewsMedian, loc,
+                  ), postCount: comboPerf.postCount })
+                : tr("combinaisonEncoreJamaisUtilisee")}
             </p>
           )}
         </>

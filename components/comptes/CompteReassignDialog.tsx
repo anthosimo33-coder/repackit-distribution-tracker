@@ -41,8 +41,10 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 import type { Compte } from "@/components/comptes/CompteDialog";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { formatNumber } from "@/lib/format";
 
-const nfFR = new Intl.NumberFormat("fr-FR");
 
 /** Sous-ensemble de listCreators utile au sélecteur de propriétaire. */
 interface CreatorOption {
@@ -66,6 +68,7 @@ function CreatorCombobox({
   /** Créateurs du projet (chargés par le dialog parent), undefined = en cours. */
   creators: CreatorOption[] | undefined;
 }) {
+  const tr = useTranslations("admin.common.CreatorCombobox");
   const [open, setOpen] = useState(false);
   const sorted = [...(creators ?? [])].sort((a, b) =>
     a.name.localeCompare(b.name, "fr"),
@@ -80,7 +83,7 @@ function CreatorCombobox({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            aria-label="Créatrice propriétaire"
+            aria-label={tr("creatriceProprietaire")}
             className="w-full justify-between text-left font-normal"
           >
             <span className="flex items-center gap-2 truncate">
@@ -92,7 +95,7 @@ function CreatorCombobox({
               ) : (
                 <>
                   <UsersIcon className="size-4 shrink-0 text-slate-300" />
-                  <span className="text-slate-500">Interne (équipe)</span>
+                  <span className="text-slate-500">{tr("interneEquipe")}</span>
                 </>
               )}
             </span>
@@ -105,7 +108,7 @@ function CreatorCombobox({
         align="start"
       >
         <Command>
-          <CommandInput placeholder="Cherche une créatrice..." />
+          <CommandInput placeholder={tr("chercheUneCreatrice")} />
           <CommandList>
             {creators === undefined ? (
               <div className="space-y-2 p-2">
@@ -115,7 +118,7 @@ function CreatorCombobox({
               </div>
             ) : (
               <>
-                <CommandEmpty>Aucune créatrice trouvée.</CommandEmpty>
+                <CommandEmpty>{tr("aucuneCreatriceTrouvee")}</CommandEmpty>
                 <CommandGroup>
                   <CommandItem
                     value="__none__"
@@ -125,7 +128,7 @@ function CreatorCombobox({
                     }}
                   >
                     <UsersIcon className="size-4 text-slate-400" />
-                    <span className="text-slate-600">Interne (équipe)</span>
+                    <span className="text-slate-600">{tr("interneEquipe")}</span>
                     {value === null && (
                       <CheckIcon className="ml-auto size-4 opacity-100" />
                     )}
@@ -142,7 +145,7 @@ function CreatorCombobox({
                       <UserIcon className="size-4 text-slate-500" />
                       <span className="truncate">{c.name}</span>
                       {c.status === "invited" && (
-                        <span className="text-xs text-slate-400">invitée</span>
+                        <span className="text-xs text-slate-400">{tr("invitee")}</span>
                       )}
                       {value === c._id && (
                         <CheckIcon className="ml-auto size-4 opacity-100" />
@@ -180,6 +183,8 @@ export function CompteReassignDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const tr = useTranslations("admin.common.CompteReassignDialog");
+  const loc = useIntlLocale();
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
   // Queries gatées sur `open` : ce dialog est monté par CHAQUE ligne de la table
   // /comptes — rien ne doit être chargé tant qu'il est fermé.
@@ -236,12 +241,12 @@ export function CompteReassignDialog({
       });
       toast.success(
         creatorChanged
-          ? `${compte.handle} → ${nextCreatorName ?? "interne (équipe)"}`
-          : `${compte.handle} mis à jour`,
+          ? `${compte.handle} → ${nextCreatorName ?? tr("interneEquipe2")}`
+          : tr("misAJour", { handle: compte.handle }),
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -251,34 +256,30 @@ export function CompteReassignDialog({
     <Dialog open={open} onOpenChange={(o) => !submitting && onOpenChange(o)}>
       <DialogContent data-testid="compte-reassign-dialog">
         <DialogHeader>
-          <DialogTitle>Réassigner {compte.handle}</DialogTitle>
+          <DialogTitle>{tr("reassigner", { handle: compte.handle })}</DialogTitle>
           <DialogDescription>
-            Change la propriétaire, le gestionnaire ou le mode de gestion. Les
-            publications et la paie déjà calculées ne sont pas touchées.
+            {tr("changeLaProprietaireLeGestionnaire")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-w-0 space-y-4">
           <div className="space-y-1.5">
-            <Label>Créatrice propriétaire</Label>
+            <Label>{tr("creatriceProprietaire")}</Label>
             <CreatorCombobox
               value={creatorId}
               onChange={setCreatorId}
               creators={creators}
             />
             <p className="text-xs text-slate-500">
-              Détermine qui voit le compte dans « Mes comptes » et qui peut être
-              assignée dessus. « Interne » = compte de l&apos;équipe, sans
-              créatrice.
+              {tr("determineQuiVoitLeCompte")}
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <Label>Gestionnaire</Label>
+            <Label>{tr("gestionnaire")}</Label>
             <PersonneCombobox value={personneId} onChange={setPersonneId} />
             <p className="text-xs text-slate-500">
-              Interne — qui suit ce compte côté équipe. Indépendant de la
-              créatrice.
+              {tr("interneQuiSuitCeCompte")}
             </p>
           </div>
 
@@ -291,12 +292,10 @@ export function CompteReassignDialog({
               />
               <div className="min-w-0 space-y-0.5">
                 <Label htmlFor="reassign-managed" className="cursor-pointer">
-                  Géré par l&apos;équipe
+                  {tr("gereParLEquipe")}
                 </Label>
                 <p className="text-xs text-slate-500">
-                  L&apos;équipe tient le compte (warmup, publication, lien) ; la
-                  créatrice suit en lecture. N&apos;affecte que les futurs
-                  assignments.
+                  {tr("lEquipeTientLeCompte")}
                 </p>
               </div>
             </div>
@@ -309,34 +308,27 @@ export function CompteReassignDialog({
             <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
               {creatorChanged && (
                 <p className="font-medium text-slate-800">
-                  {currentCreatorName ?? "Interne (équipe)"} →{" "}
-                  {nextCreatorName ?? "Interne (équipe)"}
+                  {currentCreatorName ?? tr("interneEquipe")} →{" "}
+                  {nextCreatorName ?? tr("interneEquipe")}
                 </p>
               )}
               <p>
                 {usage.publications > 0 ? (
                   <>
-                    Les <strong>{usage.publications}</strong> publication
-                    {usage.publications > 1 ? "s" : ""} déjà faites sur{" "}
-                    {compte.handle} ({nfFR.format(usage.views)} vues) restent
-                    attribuées à {currentCreatorName ?? "l'équipe"} — la paie des
-                    cycles déjà payés est gelée et ne bouge pas.
+                    {tr("les")}{" "}<strong>{usage.publications}</strong>{" "}{tr("publicationDejaFaitesSurVues", { publications: usage.publications, handle: compte.handle, value: formatNumber(usage.views, loc) })}{" "}{currentCreatorName ?? tr("lEquipe")}{" "}{tr("laPaieDesCyclesDeja")}
                   </>
                 ) : (
-                  <>Aucune publication sur ce compte : rien à réattribuer.</>
+                  <>{tr("aucunePublicationSurCeCompte")}</>
                 )}
               </p>
               {usage.openAssignments > 0 && (
                 <p className="flex items-start gap-1.5 font-medium text-amber-700">
                   <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
                   <span>
-                    {usage.openAssignments} mission
-                    {usage.openAssignments > 1 ? "s" : ""} en cours cible
-                    {usage.openAssignments > 1 ? "nt" : ""} ce compte : elle
-                    {usage.openAssignments > 1 ? "s" : ""} rest
-                    {usage.openAssignments > 1 ? "ent" : "e"} à{" "}
-                    {currentCreatorName ?? "l'équipe"}, qui pourra toujours
-                    publier dessus.
+                    {tr("openAssignmentsStay", {
+                      count: usage.openAssignments,
+                      owner: currentCreatorName ?? tr("lEquipe"),
+                    })}
                   </span>
                 </p>
               )}
@@ -350,11 +342,11 @@ export function CompteReassignDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={submit} disabled={submitting || !dirty}>
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Réassigner
+            {tr("reassigner2")}
           </Button>
         </DialogFooter>
       </DialogContent>

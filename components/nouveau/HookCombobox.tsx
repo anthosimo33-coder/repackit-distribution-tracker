@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { CheckIcon, ChevronsUpDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * HookCombobox — extrait de l'ancien app/nouveau/page.tsx (Batch C).
@@ -36,6 +37,7 @@ export function HookCombobox({
   value: Id<"hooks"> | null;
   onChange: (id: Id<"hooks">) => void;
 }) {
+  const tr = useTranslations("admin.common.HookCombobox");
   const [open, setOpen] = useState(false);
   const selected = hooks?.find((h) => h._id === value);
 
@@ -52,7 +54,7 @@ export function HookCombobox({
             <span className="truncate">
               {selected
                 ? selected.text
-                : "Sélectionne un hook de la bibliothèque..."}
+                : tr("selectionneUnHookDeLa")}
             </span>
             <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
           </Button>
@@ -63,7 +65,7 @@ export function HookCombobox({
         align="start"
       >
         <Command>
-          <CommandInput placeholder="Cherche un hook..." />
+          <CommandInput placeholder={tr("chercheUnHook")} />
           <CommandList>
             {hooks === undefined ? (
               <div className="space-y-2 p-2">
@@ -73,7 +75,7 @@ export function HookCombobox({
               </div>
             ) : (
               <>
-                <CommandEmpty>Aucun hook trouvé.</CommandEmpty>
+                <CommandEmpty>{tr("aucunHookTrouve")}</CommandEmpty>
                 <CommandGroup>
                   {hooks.map((h) => (
                     <CommandItem
