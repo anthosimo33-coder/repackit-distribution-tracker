@@ -62,6 +62,8 @@ import { formatNumber, formatPercent } from "@/lib/format";
 import { MAX_QUADRANT_PERIOD_DAYS } from "@/convex/quadrantSettings";
 import { cn } from "@/lib/utils";
 import { BarChart3Icon, ListIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
 const CREATOR_NONE = "__none__";
@@ -126,6 +128,8 @@ export type TrackerQueryArgs = {
 };
 
 export function TrackerDataView() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.TrackerDataView");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   // Filtres de dimension MULTI-SELECT : Set vide = pas de filtre (tous).
@@ -281,7 +285,7 @@ export function TrackerDataView() {
         (posts ?? []).map(
           (p): CategoryItem => ({
             key: p.creatorId ?? CREATOR_NONE,
-            label: p.creatorName ?? "Sans créateur",
+            label: p.creatorName ?? tr("sansCreateur"),
             vues: p.vues,
             likes: p.likes,
             comments: p.comments,
@@ -300,7 +304,7 @@ export function TrackerDataView() {
         (posts ?? []).map(
           (p): CategoryItem => ({
             key: p.formatId ?? FORMAT_NONE,
-            label: p.formatName ?? "Sans format",
+            label: p.formatName ?? tr("sansFormat"),
             vues: p.vues,
             likes: p.likes,
             comments: p.comments,
@@ -362,7 +366,7 @@ export function TrackerDataView() {
     () =>
       (campaigns ?? []).map((c) => ({
         value: c._id as string,
-        label: c.status === "archived" ? `${c.name} (archivée)` : c.name,
+        label: c.status === "archived" ? tr("archivee", { name: c.name }) : c.name,
       })),
     [campaigns],
   );
@@ -370,7 +374,7 @@ export function TrackerDataView() {
     () =>
       (formats ?? []).map((f) => ({
         value: f._id as string,
-        label: f.status === "archived" ? `${f.name} (archivé)` : f.name,
+        label: f.status === "archived" ? tr("archive", { name: f.name }) : f.name,
       })),
     [formats],
   );
@@ -382,7 +386,7 @@ export function TrackerDataView() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="tracker-from" className="text-xs text-slate-600">
-              Du
+              {tr("du")}
             </Label>
             <Input
               id="tracker-from"
@@ -394,7 +398,7 @@ export function TrackerDataView() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="tracker-to" className="text-xs text-slate-600">
-              Au
+              {tr("au")}
             </Label>
             <Input
               id="tracker-to"
@@ -405,43 +409,43 @@ export function TrackerDataView() {
             />
           </div>
           <FilterMultiSelect
-            label="Créateur"
+            label={tr("createur")}
             selectedValues={creatorIds}
             onChange={setCreatorIds}
             options={creatorOptions}
-            allLabel="Tous"
+            allLabel={tr("tous")}
             width="w-full"
           />
           <FilterMultiSelect
-            label="Compte"
+            label={tr("compte")}
             selectedValues={comptes_}
             onChange={setComptes}
             options={compteOptions}
-            allLabel="Tous"
+            allLabel={tr("tous")}
             width="w-full"
           />
           <FilterMultiSelect
-            label="Plateforme"
+            label={tr("plateforme")}
             selectedValues={plateformes}
             onChange={setPlateformes}
             options={PLATFORMS.map((p) => ({ value: p, label: p }))}
-            allLabel="Toutes"
+            allLabel={tr("toutes")}
             width="w-full"
           />
           <FilterMultiSelect
-            label="Format"
+            label={tr("format")}
             selectedValues={formatIds}
             onChange={setFormatIds}
             options={formatOptions}
-            allLabel="Tous"
+            allLabel={tr("tous")}
             width="w-full"
           />
           <FilterMultiSelect
-            label="Campagne"
+            label={tr("campagne")}
             selectedValues={campaignIds}
             onChange={setCampaignIds}
             options={campaignOptions}
-            allLabel="Toutes"
+            allLabel={tr("toutes")}
             width="w-full"
           />
           <WarmupFilterSelect value={warmup} onChange={setWarmup} />
@@ -453,7 +457,7 @@ export function TrackerDataView() {
             onClick={resetFilters}
             disabled={!filtersActive}
           >
-            Réinitialiser
+            {tr("reinitialiser")}
           </Button>
         </div>
       </div>
@@ -467,15 +471,16 @@ export function TrackerDataView() {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Vues" value={formatNumber(stats.vues)} />
-          <StatCard label="Likes" value={formatNumber(stats.likes)} />
-          <StatCard label="Commentaires" value={formatNumber(stats.comments)} />
+          <StatCard label={tr("vues")} value={formatNumber(stats.vues, loc)} />
+          <StatCard label={tr("likes")} value={formatNumber(stats.likes, loc)} />
+          <StatCard label={tr("commentaires")} value={formatNumber(stats.comments, loc)} />
           <StatCard
-            label="Engagement rate"
-            value={formatPercent(stats.engagement, 2)}
-            secondary={`(likes + comments) / ${formatNumber(stats.engagementVues)} vues ${
-              warmup === "only" ? "warmup" : "hors warmup"
-            }`}
+            label={tr("engagementRate")}
+            value={formatPercent(stats.engagement, 2, loc)}
+            secondary={tr("engagementFormule", {
+              views: formatNumber(stats.engagementVues, loc),
+              scope: warmup === "only" ? "only" : "exclude",
+            })}
           />
         </div>
       )}
@@ -484,8 +489,8 @@ export function TrackerDataView() {
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-slate-500">
           {posts === undefined
-            ? "Chargement…"
-            : `${posts.length} post${posts.length > 1 ? "s" : ""} publié${posts.length > 1 ? "s" : ""}`}
+            ? tr("chargement")
+            : tr("postPublie", { count: posts.length })}
         </p>
         <ModeToggle value={mode} onChange={setMode} />
       </div>
@@ -548,11 +553,8 @@ export function TrackerDataView() {
   );
 }
 
-const WARMUP_OPTIONS: { value: WarmupFilter; label: string }[] = [
-  { value: "exclude", label: "Hors warmup" },
-  { value: "all", label: "Tous" },
-  { value: "only", label: "Warmup seulement" },
-];
+// Libellés dans `admin.dashboard.warmupFilter.*`.
+const WARMUP_OPTIONS = ["exclude", "all", "only"] as const satisfies readonly WarmupFilter[];
 
 /**
  * Filtre warmup tri-état. Single-select : <FilterSelect> n'est pas réutilisable
@@ -567,21 +569,22 @@ function WarmupFilterSelect({
   value: WarmupFilter;
   onChange: (v: WarmupFilter) => void;
 }) {
-  const current = WARMUP_OPTIONS.find((o) => o.value === value);
+  const tr = useTranslations("admin.dashboard.WarmupFilterSelect");
+  const tw = useTranslations("admin.dashboard.warmupFilter");
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-medium text-slate-600">Warmup</label>
+      <label className="text-xs font-medium text-slate-600">{tr("warmup")}</label>
       <Select
         value={value}
         onValueChange={(v) => v !== null && onChange(v as WarmupFilter)}
       >
         <SelectTrigger className="w-full">
-          <SelectValue>{current?.label ?? "Hors warmup"}</SelectValue>
+          <SelectValue>{tw(value)}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {WARMUP_OPTIONS.map((o) => (
-            <SelectItem key={o.value} value={o.value}>
-              {o.label}
+            <SelectItem key={o} value={o}>
+              {tw(o)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -597,14 +600,15 @@ function ModeToggle({
   value: ViewMode;
   onChange: (v: ViewMode) => void;
 }) {
+  const tr = useTranslations("admin.dashboard.ModeToggle");
   const options: { value: ViewMode; label: string; icon: typeof ListIcon }[] = [
-    { value: "list", label: "Liste", icon: ListIcon },
-    { value: "charts", label: "Charts", icon: BarChart3Icon },
+    { value: "list", label: tr("liste"), icon: ListIcon },
+    { value: "charts", label: tr("charts"), icon: BarChart3Icon },
   ];
   return (
     <div
       role="radiogroup"
-      aria-label="Mode d'affichage"
+      aria-label={tr("modeDAffichage")}
       className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
     >
       {options.map((opt) => {
@@ -664,6 +668,8 @@ function ChartsPanel({
   byFormat: CategoryAggregate[];
   byCampaign: CategoryAggregate[];
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.ChartsPanel");
   const [ventile, setVentile] = useState(false);
   const [jourOuvert, setJourOuvert] = useState<string | null>(null);
 
@@ -686,7 +692,7 @@ function ChartsPanel({
         // l'absence de marché se DIT, elle ne reste pas une case vide.
         label:
           key === ""
-            ? "Sans marché"
+            ? tr("sansMarche")
             : (libelle.get(key) ?? key).length === 2
               ? isoCountryLabel(libelle.get(key) ?? key)
               : (libelle.get(key) ?? key),
@@ -715,19 +721,16 @@ function ChartsPanel({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="text-base font-semibold text-slate-900">
-                Vues gagnées par jour
+                {tr("vuesGagneesParJour")}
               </h3>
               <p className="text-xs text-slate-500">
-                Delta des vues entre snapshots consécutifs, réparti au prorata du
-                temps couvert et agrégé par jour (Europe/Paris) sur les posts
-                filtrés — rythme réel, non cumulé. Clique un jour pour voir ce
-                qui l&apos;a fait.
+                {tr("deltaDesVuesEntreSnapshots")}
               </p>
             </div>
             {groupes.length > 1 ? (
               <div
                 role="group"
-                aria-label="Découpage de la courbe"
+                aria-label={tr("decoupageDeLaCourbe")}
                 className="inline-flex shrink-0 rounded-full border border-slate-200 bg-slate-50 p-0.5"
               >
                 {([false, true] as const).map((v) => (
@@ -742,17 +745,17 @@ function ChartsPanel({
                         : "rounded-full px-3 py-1 text-xs text-slate-500 hover:text-slate-700"
                     }
                   >
-                    {v ? "Par marché" : "Total"}
+                    {v ? tr("parMarche") : tr("total")}
                   </button>
                 ))}
               </div>
             ) : null}
           </div>
           {daily === undefined ? (
-            <ChartPlaceholder>Chargement…</ChartPlaceholder>
+            <ChartPlaceholder>{tr("chargement")}</ChartPlaceholder>
           ) : daily.length === 0 ? (
             <ChartPlaceholder>
-              Pas assez d&apos;historique pour tracer l&apos;évolution.
+              {tr("pasAssezDHistoriquePour")}
             </ChartPlaceholder>
           ) : ventile ? (
             <ResponsiveContainer width="100%" height={280}>
@@ -778,11 +781,11 @@ function ChartsPanel({
                   axisLine={{ stroke: "#cbd5e1" }}
                   tickLine={false}
                   width={50}
-                  tickFormatter={(v: number) => formatNumber(v)}
+                  tickFormatter={(v: number) => formatNumber(v, loc)}
                 />
                 <Tooltip
                   contentStyle={{ borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 12 }}
-                  formatter={(v, nom) => [formatNumber(Number(v)), String(nom)]}
+                  formatter={(v, nom) => [formatNumber(Number(v), loc), String(nom)]}
                   labelFormatter={(l) => fullDay(String(l))}
                 />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -829,7 +832,7 @@ function ChartsPanel({
                   axisLine={{ stroke: "#cbd5e1" }}
                   tickLine={false}
                   width={50}
-                  tickFormatter={(v: number) => formatNumber(v)}
+                  tickFormatter={(v: number) => formatNumber(v, loc)}
                 />
                 <Tooltip
                   contentStyle={{
@@ -837,13 +840,13 @@ function ChartsPanel({
                     border: "1px solid #e2e8f0",
                     fontSize: 12,
                   }}
-                  formatter={(v) => [formatNumber(Number(v)), "Vues gagnées"]}
+                  formatter={(v) => [formatNumber(Number(v), loc), tr("vuesGagnees")]}
                   labelFormatter={(l, payload) => (
                     <>
                       {fullDay(String(l))}
                       {isEstimatedDay(payload) ? (
                         <span className="mt-0.5 block text-[11px] font-normal text-slate-500">
-                          estimé au prorata entre syncs
+                          {tr("estimeAuProrataEntreSyncs")}
                         </span>
                       ) : null}
                     </>
@@ -852,7 +855,7 @@ function ChartsPanel({
                 <Line
                   type="monotone"
                   dataKey="value"
-                  name="Vues gagnées"
+                  name={tr("vuesGagnees")}
                   stroke="#6366f1"
                   strokeWidth={2}
                   dot={{ r: 2 }}
@@ -878,23 +881,23 @@ function ChartsPanel({
       {/* Graphiques 2-5 — comparaisons par catégorie. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ComparisonChart
-          title="Vues par plateforme"
+          title={tr("vuesParPlateforme")}
           rows={byPlatform}
           metric="vues"
         />
         <ComparisonChart
-          title="Engagement par plateforme"
+          title={tr("engagementParPlateforme")}
           rows={byPlatform}
           metric="engagement"
         />
         <ComparisonChart
-          title="Vues par créateur"
+          title={tr("vuesParCreateur")}
           rows={byCreator}
           metric="vues"
         />
-        <ComparisonChart title="Vues par format" rows={byFormat} metric="vues" />
+        <ComparisonChart title={tr("vuesParFormat")} rows={byFormat} metric="vues" />
         <ComparisonChart
-          title="Vues par campagne"
+          title={tr("vuesParCampagne")}
           rows={byCampaign}
           metric="vues"
         />
@@ -932,6 +935,8 @@ function ComparisonChart({
   rows: CategoryAggregate[];
   metric: "vues" | "engagement";
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.ComparisonChart");
   // Barres horizontales (catégories à gauche). Engagement → valeur en % (×100),
   // null traité comme 0 pour la barre mais formaté "—" au tooltip.
   const data = rows.map((r) => ({
@@ -952,7 +957,7 @@ function ComparisonChart({
       <CardContent className="space-y-3 p-4">
         <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
         {data.length === 0 ? (
-          <ChartPlaceholder small>Aucune donnée.</ChartPlaceholder>
+          <ChartPlaceholder small>{tr("aucuneDonnee")}</ChartPlaceholder>
         ) : (
           <ResponsiveContainer width="100%" height={height}>
             <BarChart
@@ -973,7 +978,7 @@ function ComparisonChart({
                 tickFormatter={(v: number) =>
                   metric === "engagement"
                     ? `${v.toFixed(0)}%`
-                    : formatNumber(v)
+                    : formatNumber(v, loc)
                 }
               />
               <YAxis
@@ -1001,10 +1006,10 @@ function ComparisonChart({
                   };
                   return [
                     metric === "engagement"
-                      ? formatPercent(payload?.raw ?? null, 2)
-                      : formatNumber(payload?.raw ?? null),
+                      ? formatPercent(payload?.raw ?? null, 2, loc)
+                      : formatNumber(payload?.raw ?? null, loc),
                     metric === "engagement"
-                      ? `Engagement · ${formatNumber(payload?.engVues ?? 0)} vues`
+                      ? tr("engagementVues", { count: formatNumber(payload?.engVues ?? 0, loc) })
                       : "Vues",
                   ];
                 }}
@@ -1072,16 +1077,17 @@ function EmptyState({
   filtersActive: boolean;
   onReset: () => void;
 }) {
+  const tr = useTranslations("admin.dashboard.EmptyState");
   return (
     <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16 text-center">
       <p className="text-sm text-slate-500">
         {filtersActive
-          ? "Aucun post publié ne correspond à ces filtres."
-          : "Aucun post publié pour l'instant."}
+          ? tr("aucunPostPublieNeCorrespond")
+          : tr("aucunPostPubliePourL")}
       </p>
       {filtersActive && (
         <Button variant="outline" size="sm" onClick={onReset}>
-          Réinitialiser les filtres
+          {tr("reinitialiserLesFiltres")}
         </Button>
       )}
     </div>

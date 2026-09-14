@@ -31,6 +31,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/format";
 import { ConvexError } from "convex/values";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Monter un script sur une prise — modale d'assignation.
@@ -65,11 +67,10 @@ function phaseHint(c: {
   phase: string | null;
   postsPerDay: number | null;
   sortieDeChauffeAt: number | null;
-}): string | null {
+}): { until: number | null } | null {
   if (c.phase === null || c.postsPerDay === null || c.postsPerDay > 0) return null;
-  return c.sortieDeChauffeAt !== null
-    ? `En chauffe jusqu'au ${formatDate(c.sortieDeChauffeAt)} — la publication sera refusée.`
-    : "Aucune publication possible dans cette phase.";
+  // La phrase est rendue par l'écran, dans la langue du lecteur.
+  return { until: c.sortieDeChauffeAt };
 }
 
 export function AssignScriptToRushDialog({
@@ -87,6 +88,8 @@ export function AssignScriptToRushDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const tr = useTranslations("admin.validation.AssignScriptToRushDialog");
+  const loc = useIntlLocale();
   const campaigns = useProjectQuery(api.scripts.listCampaigns, {});
   const comptes = useProjectQuery(
     api.comptes.listCreatorAvailableComptes,
@@ -141,7 +144,7 @@ export function AssignScriptToRushDialog({
         dueDate: new Date(`${dueDate}T12:00:00Z`).getTime(),
         instructions: instructions.trim() || undefined,
       });
-      toast.success(`Script monté — clip assigné à ${clipperName}.`);
+      toast.success(tr("scriptMonteClipAssigneA", { clipperName: clipperName }));
       onOpenChange(false);
     } catch (e) {
       // Le serveur nomme la brique fautive quand D7 bloque : on affiche son
@@ -149,7 +152,7 @@ export function AssignScriptToRushDialog({
       toast.error(
         e instanceof ConvexError && typeof e.data === "string"
           ? e.data
-          : "Assignation impossible.",
+          : tr("assignationImpossible"),
         { duration: 10_000 },
       );
     } finally {
@@ -161,20 +164,20 @@ export function AssignScriptToRushDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Monter un script sur cette prise</DialogTitle>
+          <DialogTitle>{tr("monterUnScriptSurCette")}</DialogTitle>
           <DialogDescription>
-            Prise de {talentName} — le clip sera assigné à {clipperName}.
+            {tr("priseDeLeClipSera", { talentName: talentName, clipperName: clipperName })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-w-0 space-y-4">
           <div className="min-w-0 space-y-2">
-            <Label htmlFor="rush-campaign">Campagne de scripts</Label>
+            <Label htmlFor="rush-campaign">{tr("campagneDeScripts")}</Label>
             {campaigns === undefined ? (
               <Skeleton className="h-9 w-full" />
             ) : actives.length === 0 ? (
               <p className="text-sm text-slate-500">
-                Aucune campagne active dans ce projet.
+                {tr("aucuneCampagneActiveDansCe")}
               </p>
             ) : (
               <Select
@@ -183,9 +186,9 @@ export function AssignScriptToRushDialog({
               >
                 <SelectTrigger id="rush-campaign">
                   {/* Enfants obligatoires — sans eux, l'id Convex s'affiche. */}
-                  <SelectValue placeholder="Choisir une campagne">
+                  <SelectValue placeholder={tr("choisirUneCampagne")}>
                     {actives.find((c) => c._id === campaignId)?.name ??
-                      "Choisir une campagne"}
+                      tr("choisirUneCampagne")}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -200,13 +203,12 @@ export function AssignScriptToRushDialog({
           </div>
 
           <div className="min-w-0 space-y-2">
-            <Label>Comptes de publication</Label>
+            <Label>{tr("comptesDePublication")}</Label>
             {comptes === undefined ? (
               <Skeleton className="h-16 w-full" />
             ) : available.length === 0 ? (
               <p className="text-sm text-slate-500">
-                {clipperName} n&apos;a aucun compte disponible : ses comptes sont
-                en chauffe, archivés, ou pas encore validés.
+                {tr("nAAucunCompteDisponible", { clipperName: clipperName })}
               </p>
             ) : (
               <div className="space-y-2">
@@ -230,7 +232,9 @@ export function AssignScriptToRushDialog({
                       </span>
                       {phaseHint(c) !== null && (
                         <span className="block text-xs text-amber-700">
-                          {phaseHint(c)}
+                          {phaseHint(c)!.until !== null
+                            ? tr("phaseUntil", { date: formatDate(phaseHint(c)!.until!, loc) })
+                            : tr("phaseNone")}
                         </span>
                       )}
                     </span>
@@ -241,7 +245,7 @@ export function AssignScriptToRushDialog({
           </div>
 
           <div className="min-w-0 space-y-2">
-            <Label htmlFor="rush-due">Échéance</Label>
+            <Label htmlFor="rush-due">{tr("echeance")}</Label>
             <Input
               id="rush-due"
               type="date"
@@ -252,27 +256,27 @@ export function AssignScriptToRushDialog({
 
           <div className="min-w-0 space-y-2">
             <Label htmlFor="rush-instructions">
-              Consigne de montage (optionnelle)
+              {tr("consigneDeMontageOptionnelle")}
             </Label>
             <Textarea
               id="rush-instructions"
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
               rows={3}
-              placeholder="Ex. : garde les 3 premières secondes, coupe le silence à la fin."
+              placeholder={tr("exGardeLes3Premieres")}
             />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button
             onClick={() => void submit()}
             disabled={busy || !campaignId || targets.length === 0}
           >
-            Monter le script
+            {tr("monterLeScript")}
           </Button>
         </DialogFooter>
       </DialogContent>

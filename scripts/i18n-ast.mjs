@@ -52,6 +52,7 @@ const TECHNICAL_ATTR = new Set([
   "position", "placement", "justify", "items", "gap", "cols", "wrap",
   "labelKey", "i18nKey", "namespace", "defaultChecked", "enterKeyHint",
   "capture", "crossOrigin", "download", "media", "poster", "preload",
+  "controlsList", "layout", "variantKey", "chartType", "axis", "unit",
   "timeZone", "dateFormat", "inputFormat", "mask", "field", "sortKey",
   "storageKey", "storageSuffix", "slug", "projectSlug", "event", "metric",
 ]);
@@ -87,6 +88,8 @@ export function isDisplayText(v) {
 export function isRenderedText(v) {
   const t = String(v).replace(/\s+/g, " ").trim();
   if (!/[A-Za-zÀ-ÿ]{2}/.test(t)) return false;
+  // Une URL n'est pas de la copie, même en placeholder.
+  if (/^(https?:\/\/|www\.)|:\/\//.test(t)) return false;
   return !/^(&[a-z]+;\s*)+$/i.test(t);
 }
 
@@ -185,7 +188,9 @@ export function astFindings(src, fileName = "x.tsx") {
         // Entre balises, un littéral est RENDU comme un texte JSX : un fragment
         // en minuscules (`` ` du ${a} au ${b}` ``) est de la copie. En attribut,
         // on garde le filtre des jetons (`layout="grid"`).
-        for (const l of lits) push(l, l.text, { rendered: inChildren });
+        // Attribut de libellé compris : `label={x ? t("a") : "vues"}` rendait un
+        // mot français en minuscules, qu'`isDisplayText` laisse passer.
+        for (const l of lits) push(l, l.text, { rendered: true });
       }
     } else if (
       ts.isJsxAttribute(node) &&
@@ -193,7 +198,7 @@ export function astFindings(src, fileName = "x.tsx") {
       ts.isStringLiteral(node.initializer) &&
       !isTechnicalAttr(node.name.getText(sf))
     ) {
-      push(node.initializer, node.initializer.text);
+      push(node.initializer, node.initializer.text, { rendered: true });
     }
     ts.forEachChild(node, visit);
   };

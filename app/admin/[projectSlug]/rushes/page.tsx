@@ -27,6 +27,8 @@ import type { RushStatus } from "@/convex/rushStatus";
 import { AssignScriptToRushDialog } from "@/components/rushes/AssignScriptToRushDialog";
 import { TalentSettingsCard } from "@/components/rushes/TalentSettingsCard";
 import { usePermissions } from "@/components/project/use-permissions";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * REVUE DES RUSHES (admin) — décider de chaque prise déposée par un talent :
@@ -53,14 +55,17 @@ const STATUS_VARIANT: Record<
   expired: "outline",
 };
 
-/** Vocabulaire ADMIN — distinct de celui du talent, qui lit « Validé ». */
-const ADMIN_STATUS_LABELS: Record<RushStatus, string> = {
-  deposited: "À traiter",
-  assigned: "Script monté",
-  published: "Publié",
-  rejected: "Refusé",
-  expired: "Expiré",
-};
+/**
+ * Vocabulaire ADMIN — distinct de celui du talent, qui lit « Validé ».
+ * Clés du catalogue : `admin.validation.rushStatus.<statut>`.
+ */
+const ADMIN_STATUS_KEYS = {
+  deposited: "deposited",
+  assigned: "assigned",
+  published: "published",
+  rejected: "rejected",
+  expired: "expired",
+} as const satisfies Record<RushStatus, string>;
 
 type RushRow = {
   id: Id<"rushes">;
@@ -85,6 +90,7 @@ function RejectDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const tr = useTranslations("admin.validation.RejectDialog");
   const reject = useProjectMutation(api.rushes.rejectRush);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -94,14 +100,14 @@ function RejectDialog({
     setBusy(true);
     try {
       await reject({ rushId: rush.id, reason });
-      toast.success("Rush refusé — le talent voit le motif.");
+      toast.success(tr("rushRefuseLeTalentVoit"));
       onOpenChange(false);
       setReason("");
     } catch (e) {
       toast.error(
         e instanceof ConvexError && typeof e.data === "string"
           ? e.data
-          : "Refus impossible.",
+          : tr("refusImpossible"),
       );
     } finally {
       setBusy(false);
@@ -112,20 +118,20 @@ function RejectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Refuser cette prise</DialogTitle>
+          <DialogTitle>{tr("refuserCettePrise")}</DialogTitle>
           <DialogDescription>
             {rush.talentName} — {rush.fileName}
           </DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-2">
-          <Label htmlFor="rush-reject-reason">Motif du refus *</Label>
+          <Label htmlFor="rush-reject-reason">{tr("motifDuRefus")}</Label>
           <Textarea
             id="rush-reject-reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             maxLength={500}
             rows={4}
-            placeholder="Ex. : cadrage trop serré, on ne voit pas le produit. Refais-la face à la fenêtre."
+            placeholder={tr("exCadrageTropSerreOn")}
           />
           {/*
             LE POINT DE CET ÉCRAN. Le motif franchit une frontière de rôle : il
@@ -133,25 +139,22 @@ function RejectDialog({
             phrase, l'admin écrit une note interne sans le savoir.
           */}
           <p className="text-xs font-medium text-amber-700">
-            Visible par le talent — écris-le comme si tu t&apos;adressais à
-            {" "}
-            {rush.talentName}.
+            {tr("visibleParLeTalentEcris", { talentName: rush.talentName })}
           </p>
           <p className="text-xs text-slate-400">
-            {reason.trim().length}/500 · le fichier sera supprimé du stockage,
-            l&apos;historique du dépôt est conservé.
+            {tr("n500LeFichierSeraSupprime", { count: reason.trim().length })}
           </p>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button
             variant="destructive"
             onClick={() => void submit()}
             disabled={busy || reason.trim().length === 0}
           >
-            Refuser
+            {tr("refuser")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -160,6 +163,9 @@ function RejectDialog({
 }
 
 function RushCard({ rush }: { rush: RushRow }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.validation.RushCard");
+  const trStatus = useTranslations("admin.validation.rushStatus");
   const [rejectOpen, setRejectOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const actionable = rush.status === "deposited";
@@ -187,17 +193,17 @@ function RushCard({ rush }: { rush: RushRow }) {
               {rush.fileName}
             </p>
             <Badge variant={STATUS_VARIANT[rush.status]}>
-              {ADMIN_STATUS_LABELS[rush.status]}
+              {trStatus(ADMIN_STATUS_KEYS[rush.status])}
             </Badge>
           </div>
           <p className="text-xs text-slate-500">
-            {rush.talentName} · {formatDate(rush.depositedAt)} ·{" "}
-            {formatBytes(rush.sizeBytes)}
+            {rush.talentName} · {formatDate(rush.depositedAt, loc)} ·{" "}
+            {formatBytes(rush.sizeBytes, loc)}
           </p>
           <p className="text-xs text-slate-400">
             {rush.clipperName
-              ? `Clippeur : ${rush.clipperName}`
-              : "Aucun clippeur apparié à ce talent"}
+              ? tr("clippeur", { clipperName: rush.clipperName })
+              : tr("aucunClippeurApparieACe")}
           </p>
           {rush.rejectionReason && (
             <p className="whitespace-pre-wrap break-words pt-1 text-xs text-red-600">
@@ -215,7 +221,7 @@ function RushCard({ rush }: { rush: RushRow }) {
               className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               <ExternalLinkIcon className="size-3.5" />
-              Voir
+              {tr("voir")}
             </a>
           )}
           {actionable && (
@@ -226,18 +232,18 @@ function RushCard({ rush }: { rush: RushRow }) {
                 disabled={rush.clipperId === null}
                 title={
                   rush.clipperId === null
-                    ? "Apparie d'abord ce talent à un clippeur"
+                    ? tr("apparieDAbordCeTalent")
                     : undefined
                 }
               >
-                Monter un script
+                {tr("monterUnScript")}
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setRejectOpen(true)}
               >
-                Refuser
+                {tr("refuser")}
               </Button>
             </>
           )}
@@ -264,6 +270,7 @@ function RushCard({ rush }: { rush: RushRow }) {
 }
 
 export default function RushesPage() {
+  const tr = useTranslations("admin.validation.RushesPage");
   const droitsNav = usePermissions();
   const rushes = useProjectQuery(api.rushes.listRushesForReview, {});
   const waiting = (rushes ?? []).filter((r) => r.status === "deposited");
@@ -273,12 +280,12 @@ export default function RushesPage() {
     <div className="space-y-8">
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Rushes
+          {tr("rushes")}
         </h1>
         <p className="text-sm text-slate-500">
           {rushes === undefined
-            ? "Chargement…"
-            : `${waiting.length} prise${waiting.length > 1 ? "s" : ""} en attente de décision`}
+            ? tr("chargement")
+            : tr("priseEnAttenteDeDecision", { count: waiting.length })}
         </p>
       </header>
 
@@ -288,7 +295,7 @@ export default function RushesPage() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          À traiter
+          {tr("aTraiter")}
         </h2>
         {rushes === undefined ? (
           <Skeleton className="h-32 w-full" />
@@ -297,7 +304,7 @@ export default function RushesPage() {
             <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
               <InboxIcon className="size-10 text-slate-300" strokeWidth={1.5} />
               <p className="text-sm text-slate-500">
-                Aucune prise en attente. Les dépôts des talents arrivent ici.
+                {tr("aucunePriseEnAttenteLes")}
               </p>
             </CardContent>
           </Card>
@@ -309,7 +316,7 @@ export default function RushesPage() {
       {treated.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Traitées
+            {tr("traitees")}
           </h2>
           {treated.map((r) => (
             <RushCard key={r.id} rush={r as RushRow} />

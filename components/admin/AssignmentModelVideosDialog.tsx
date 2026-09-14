@@ -31,6 +31,7 @@ import {
   Trash2Icon,
   VideoIcon,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 type VideoInspiration = FunctionReturnType<
   typeof api.inspirations.listInspirations
@@ -55,6 +56,7 @@ export function AssignmentModelVideosDialog({
   creatorName: string;
   modelVideos: ModelVideo[];
 }) {
+  const tr = useTranslations("admin.assignments.AssignmentModelVideosDialog");
   const add = useProjectMutation(api.assignments.addModelVideoToAssignment);
   const remove = useProjectMutation(
     api.assignments.removeModelVideoFromAssignment,
@@ -77,7 +79,7 @@ export function AssignmentModelVideosDialog({
 
   async function onAdd() {
     if (url.trim().length === 0) {
-      toast.error("L'URL est requise.");
+      toast.error(tr("lUrlEstRequise"));
       return;
     }
     setBusy(true);
@@ -92,7 +94,7 @@ export function AssignmentModelVideosDialog({
       setTitle("");
       setNote("");
       toast.success(
-        res.duplicate ? "Déjà dans les modèles." : "Vidéo modèle ajoutée.",
+        res.duplicate ? tr("dejaDansLesModeles") : tr("videoModeleAjoutee"),
       );
     } catch (e) {
       toast.error(convexErrorMessage(e));
@@ -110,7 +112,7 @@ export function AssignmentModelVideosDialog({
         title: insp.titre || undefined,
       });
       toast.success(
-        res.duplicate ? "Déjà dans les modèles." : "Vidéo modèle ajoutée.",
+        res.duplicate ? tr("dejaDansLesModeles") : tr("videoModeleAjoutee"),
       );
     } catch (e) {
       toast.error(convexErrorMessage(e));
@@ -122,7 +124,7 @@ export function AssignmentModelVideosDialog({
   async function onRemove(videoId: string) {
     try {
       await remove({ id: assignmentId, videoId });
-      toast.success("Vidéo modèle retirée.");
+      toast.success(tr("videoModeleRetiree"));
     } catch (e) {
       toast.error(convexErrorMessage(e));
     }
@@ -137,11 +139,10 @@ export function AssignmentModelVideosDialog({
             carte (débordement horizontal, texte tronqué, bouton hors cadre). */}
         <DialogHeader className="min-w-0">
           <DialogTitle className="break-words">
-            Vidéos modèles — {creatorName}
+            {tr("videosModeles", { creatorName: creatorName })}
           </DialogTitle>
           <DialogDescription>
-            Des LIENS vers des vidéos existantes à reproduire avec le script. Le
-            créateur les voit dans son brief comme « vidéos à reproduire ».
+            {tr("desLiensVersDesVideos")}
           </DialogDescription>
         </DialogHeader>
 
@@ -149,7 +150,7 @@ export function AssignmentModelVideosDialog({
           {/* Liste */}
           {modelVideos.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-sm text-slate-400">
-              Aucune vidéo modèle pour l&apos;instant.
+              {tr("aucuneVideoModelePourL")}
             </p>
           ) : (
             <ul className="space-y-2">
@@ -187,7 +188,7 @@ export function AssignmentModelVideosDialog({
                       size="sm"
                       className="size-8 shrink-0 p-0 text-rose-600 hover:text-rose-700"
                       onClick={() => onRemove(mv.id)}
-                      aria-label="Retirer"
+                      aria-label={tr("retirer")}
                     >
                       <Trash2Icon className="size-4" />
                     </Button>
@@ -200,7 +201,7 @@ export function AssignmentModelVideosDialog({
           {/* Ajout */}
           <div className="space-y-2.5 border-t border-slate-200 pt-4">
             <div className="space-y-1.5">
-              <Label htmlFor="mv-url">URL de la vidéo modèle</Label>
+              <Label htmlFor="mv-url">{tr("urlDeLaVideoModele")}</Label>
               <Input
                 id="mv-url"
                 value={url}
@@ -209,21 +210,21 @@ export function AssignmentModelVideosDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="mv-title">Titre (optionnel)</Label>
+              <Label htmlFor="mv-title">{tr("titreOptionnel")}</Label>
               <Input
                 id="mv-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ex. Le hook qui marche"
+                placeholder={tr("exLeHookQuiMarche")}
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="mv-note">À reproduire (optionnel)</Label>
+              <Label htmlFor="mv-note">{tr("aReproduireOptionnel")}</Label>
               <Textarea
                 id="mv-note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Ce qu'il faut reproduire (rythme, structure…)"
+                placeholder={tr("ceQuIlFautReproduire")}
                 rows={2}
               />
             </div>
@@ -233,18 +234,18 @@ export function AssignmentModelVideosDialog({
               ) : (
                 <PlusIcon className="mr-2 size-4" />
               )}
-              Ajouter la vidéo modèle
+              {tr("ajouterLaVideoModele")}
             </Button>
           </div>
 
           {/* 2e voie : piocher une inspiration existante (scopée projet). */}
           <div className="space-y-2 border-t border-slate-200 pt-4">
-            <Label>Ou choisir depuis mes inspirations</Label>
+            <Label>{tr("ouChoisirDepuisMesInspirations")}</Label>
             {inspirations === undefined ? (
               <Skeleton className="h-24 w-full" />
             ) : pickableInspirations.length === 0 ? (
               <p className="text-sm text-slate-400">
-                Aucune inspiration vidéo disponible.
+                {tr("aucuneInspirationVideoDisponible")}
               </p>
             ) : (
               <div className="max-h-52 space-y-1.5 overflow-y-auto">

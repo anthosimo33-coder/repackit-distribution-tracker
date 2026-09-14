@@ -1,6 +1,7 @@
 import { RepeatIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * Repère « combinaison imposée » sur une assignation : le combo a été choisi
@@ -12,6 +13,7 @@ import { cn } from "@/lib/utils";
  * sélection. `data-testid` stable pour cibler le badge directement.
  */
 export function ImposedComboBadge({ className }: { className?: string }) {
+  const tr = useTranslations("admin.assignments.ImposedComboBadge");
   return (
     <Badge
       variant="outline"
@@ -19,11 +21,11 @@ export function ImposedComboBadge({ className }: { className?: string }) {
         "gap-1 border-indigo-200 bg-indigo-50 text-indigo-700",
         className,
       )}
-      title="Combinaison imposée manuellement (rejeu ou choix), hors tirage automatique."
+      title={tr("combinaisonImposeeManuellementRejeuOu")}
       data-testid="imposed-combo-badge"
     >
       <RepeatIcon className="size-3" />
-      Combinaison imposée
+      {tr("combinaisonImposee")}
     </Badge>
   );
 }

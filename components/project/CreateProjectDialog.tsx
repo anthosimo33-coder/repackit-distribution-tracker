@@ -130,7 +130,7 @@ export function CreateProjectDialog({
                   setSlugTouched(true);
                   setSlug(e.target.value);
                 }}
-                placeholder="mon-projet"
+                placeholder={tr("slugPlaceholder")}
                 required
               />
               <p className="text-xs text-slate-400">

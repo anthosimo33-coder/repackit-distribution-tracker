@@ -1,1 +1,207 @@
-{}
+{
+  "DashboardPage": {
+    "bonjour": "Hi",
+    "vueTracker": "Tracker view",
+    "voiciCeQuiDemandeTon": "Here's what needs your attention.",
+    "dataDesPostsPublies": "{today} — data from published posts"
+  },
+  "ViewToggle": {
+    "vueDuDashboard": "Dashboard view",
+    "action": "Action",
+    "tracker": "Tracker"
+  },
+  "ActionDashboard": {
+    "inviteTesPremiersCreateursPour": "Invite your first creators to get started",
+    "uneFoisDesCreateursAjoutes": "Once creators are added and content is assigned, their submissions and deadlines will show up here.",
+    "ajouterUnCreateur": "Add a creator",
+    "aValider": "To review",
+    "warmupsEnRetard": "Warm-ups behind",
+    "comptesAvecJoursManques": "accounts with missed days",
+    "warmupsAValider": "Warm-ups to approve",
+    "du": "Due",
+    "cyclesNonPayes": "unpaid cycles",
+    "aDecider": "To decide",
+    "postsDesDernieres48H": "Posts from the last 48h",
+    "ceQueCaARapporte": "What it brought in",
+    "voirTout": "See all",
+    "soumissionsEnAttente": "submissions waiting",
+    "chauffeFinieEnAttente": "warm-up done, waiting"
+  },
+  "DeactivateHookDialog": {
+    "desactiverCeHook": "Turn off this hook",
+    "ilSortDesRotationsAutomatiques": "It leaves the automatic rotations; its past runs and their stats stay intact. You can turn it back on from the campaign page.",
+    "annuler": "Cancel",
+    "desactiver": "Turn off",
+    "hookDesactiveIlSortDes": "Hook turned off — it leaves the rotations.",
+    "desactivationImpossible": "Couldn't turn it off"
+  },
+  "Recent48h": {
+    "postJVues": "{count} {count, plural, one {post} other {posts}} · {value}/day · {count2} views ·",
+    "abonnesCollecte": "followers: collecting…",
+    "aucunPostPublieDansLes": "No post published in the last 48h.",
+    "leDeltaDAbonnesDemande": "The follower delta needs two nightly readings — still collecting.",
+    "abonnes": "{count} followers"
+  },
+  "PostRow": {
+    "collecte": "collecting…",
+    "saves": "saves",
+    "sansTitre": "(untitled)",
+    "vuesAu": "views · on {sourceDay}",
+    "dernierReleveLeA23h30": "Last reading on {sourceDay} at 11:30pm — the next sync updates it.",
+    "pasEncoreDeuxRelevesEspaces": "Not two spaced readings yet — delta at the next 11:30pm sync.",
+    "aucunReleveAvecSavesPour": "No reading with saves for this post — still collecting.",
+    "savesAu": "saves · on {sourceDay}",
+    "savesCount": "{count} {count, plural, one {save} other {saves}}",
+    "savesCountAu": "{count} {count, plural, one {save} other {saves}} on {sourceDay}",
+    "vues": "views",
+    "likes": "likes"
+  },
+  "ConversionSection": {
+    "chacuneAfficheLesMemesChiffres": "Each one shows the SAME figures, and the total doesn't show it — it sums refs, not lines.",
+    "refPorteeParPlusieursPersonnes": "{count} {count, plural, one {ref carried} other {refs carried}} by several people.",
+    "depuisLeJourCollecteAttribution": "Since {date} — {collectedDays} {collectedDays, plural, one {day} other {days}} collected · attribution by snytch.co ref",
+    "visiteursEtInscrits": "Visitors and signups",
+    "ventesEtRevenu": "sales and revenue",
+    "sansSource": "No source",
+    "traficEtVentesNonAttribues": "traffic and sales not attributed to a ref",
+    "totalAttribue": "Attributed total",
+    "refsRattacheesAQuelquUn": "refs linked to someone — creator or influencer",
+    "total": "Total",
+    "orphelinesEtSansSourceComprises": "orphans and no-source included",
+    "pasEncoreDeDonneesPremiere": "No data yet — first collection after the 11:30pm sync.",
+    "enAttenteDuPremierReleve": "waiting for the first PostHog reading",
+    "arretesAuReleveQuotidienDe": "as of {date} (daily 11pm reading)",
+    "enAttenteDeLaSynchro": "waiting for the Whop sync",
+    "aJourSynchroWhopDu": "up to date, Whop sync from {date}"
+  },
+  "ConversionRow": {
+    "pasDeRefConfiguree": "no ref set",
+    "influenceuse": "influencer",
+    "refRattacheeAPersonne": "ref linked to nobody",
+    "donneesAnterieuresASonArrivee": "data from before they joined — attribution to check",
+    "lAttributionReposeEntierementSur": "Attribution relies entirely on the short path snytch.co/'<ref>' — set the ref on their profile.",
+    "le": "on {date}",
+    "duAu": "from {date} to {date2}",
+    "cetteRefPorteDesConversions": "This ref carries conversions from BEFORE the creator joined: the slug may have been used by someone else earlier. Since a ref's start date isn't stored, all-time attribution can't settle it."
+  },
+  "ConversionCells": {
+    "revenu": "revenue",
+    "visiteurs": "visitors",
+    "signups": "signups",
+    "ventes": "sales"
+  },
+  "DecideList": {
+    "rienADeciderCeSoir": "Nothing to decide tonight. Next reading after the 11:30pm sync.",
+    "portesOuvertes": "Open doors",
+    "programmerLaFrappe": "Schedule the push",
+    "aGraduer": "To graduate",
+    "graduer": "Graduate",
+    "hooksMorts": "Dead hooks",
+    "runsPubliesMeilleurVuesAucun": "{runs} runs published, best {count} views — none is landing ({campaignName})",
+    "desactiver": "Turn off",
+    "alarmesCompte": "Account alarms",
+    "postsConsecutifsSousLesSeuils": "{streak} posts in a row below thresholds — stop promos, proven warm-up for 5-7 days",
+    "abonnes": "+{count} followers"
+  },
+  "ApifySyncButton": {
+    "synchroniserTiktokInsta": "Sync TikTok/Insta",
+    "synchroniserLesVuesTiktokInstagram": "Sync TikTok/Instagram views now"
+  },
+  "YouTubeSyncButton": {
+    "synchroniserYoutube": "Sync YouTube",
+    "synchroniserLesVuesYoutubeMaintenant": "Sync YouTube views now"
+  },
+  "DayDetailSheet": {
+    "aucuneVueGagneeCeJour": "No views gained that day on the filtered posts.",
+    "lesVuesDUnReleve": "A reading's views are spread pro rata over the time between two passes: a post can therefore appear here with a fraction of what it actually gained in the interval. The total, though, matches the curve's point exactly.",
+    "chargement": "Loading…",
+    "vuesGagneesCeJourLa": "{count} views gained that day, spread across {count2} {count2, plural, one {post} other {posts}}",
+    "sansTitre": "Untitled",
+    "chauffe": "· warming up",
+    "sansMarche": "no market"
+  },
+  "TrackerDataView": {
+    "du": "From",
+    "au": "To",
+    "reinitialiser": "Reset",
+    "createur": "Creator",
+    "tous": "All",
+    "compte": "Account",
+    "plateforme": "Platform",
+    "toutes": "All",
+    "format": "Format",
+    "campagne": "Campaign",
+    "vues": "Views",
+    "likes": "Likes",
+    "commentaires": "Comments",
+    "engagementRate": "Engagement rate",
+    "chargement": "Loading…",
+    "postPublie": "{count} {count, plural, one {post} other {posts}} published",
+    "sansCreateur": "No creator",
+    "sansFormat": "No format",
+    "archivee": "{name} (archived)",
+    "archive": "{name} (archived)",
+    "engagementFormule": "(likes + comments) / {views} {scope, select, only {warm-up} other {non-warm-up}} views"
+  },
+  "WarmupFilterSelect": {
+    "warmup": "Warm-up",
+    "horsWarmup": "Excluding warm-up"
+  },
+  "ChartsPanel": {
+    "vuesGagneesParJour": "Views gained per day",
+    "deltaDesVuesEntreSnapshots": "View delta between consecutive snapshots, spread pro rata over the time covered and aggregated per day (Europe/Paris) on the filtered posts — real pace, not cumulative. Click a day to see what drove it.",
+    "chargement": "Loading…",
+    "pasAssezDHistoriquePour": "Not enough history to draw the trend.",
+    "estimeAuProrataEntreSyncs": "estimated pro rata between syncs",
+    "decoupageDeLaCourbe": "Curve breakdown",
+    "parMarche": "By market",
+    "total": "Total",
+    "vuesParPlateforme": "Views by platform",
+    "engagementParPlateforme": "Engagement by platform",
+    "vuesParCreateur": "Views by creator",
+    "vuesParFormat": "Views by format",
+    "vuesParCampagne": "Views by campaign",
+    "sansMarche": "No market",
+    "vuesGagnees": "Views gained"
+  },
+  "ComparisonChart": {
+    "aucuneDonnee": "No data.",
+    "engagementVues": "Engagement · {count} views"
+  },
+  "EmptyState": {
+    "reinitialiserLesFiltres": "Reset the filters",
+    "aucunPostPublieNeCorrespond": "No published post matches these filters.",
+    "aucunPostPubliePourL": "No post published yet."
+  },
+  "ModeToggle": {
+    "modeDAffichage": "Display mode",
+    "liste": "List",
+    "charts": "Charts"
+  },
+  "age": {
+    "label": "{unit, select, now {just now} d {{count}d ago} h {{count}h ago} other {{count} min ago}}"
+  },
+  "verdict": {
+    "pending": "pending",
+    "openDoor": "open door",
+    "rising": "rising",
+    "fading": "fading",
+    "below": "below thresholds"
+  },
+  "postType": {
+    "prouve": "proven",
+    "lab": "LAB",
+    "warmup": "warm-up",
+    "promo": "promo"
+  },
+  "accountState": {
+    "window": "Active window",
+    "cruise": "Cruising",
+    "alarm": "Alarm"
+  },
+  "warmupFilter": {
+    "exclude": "Excluding warm-up",
+    "all": "All",
+    "only": "Warm-up only"
+  }
+}

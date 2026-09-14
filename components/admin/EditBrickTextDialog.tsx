@@ -35,6 +35,7 @@ import {
   SCRIPT_COMBO_SLOTS,
   type ScriptComboSlot,
 } from "@/lib/script-combo-edit";
+import { useTranslations } from "next-intl";
 
 /**
  * Édite le TEXTE d'UNE brique (hook | flux | cta) d'un assignment → FORKE une
@@ -61,6 +62,7 @@ export function EditBrickTextDialog({
   };
   creatorName: string;
 }) {
+  const tr = useTranslations("admin.assignments.EditBrickTextDialog");
   const campaign = useProjectQuery(
     api.scripts.getCampaign,
     open ? { id: campaignId } : "skip",
@@ -109,13 +111,13 @@ export function EditBrickTextDialog({
 
   async function onConfirm() {
     if (text.trim().length === 0) {
-      toast.error("Le texte est requis.");
+      toast.error(tr("leTexteEstRequis"));
       return;
     }
     setBusy(true);
     try {
       await edit({ id: assignmentId, slot, newText: text });
-      toast.success("Texte édité — nouvelle variante créée, script mis à jour.");
+      toast.success(tr("texteEditeNouvelleVarianteCreee"));
       onOpenChange(false);
     } catch (e) {
       toast.error(convexErrorMessage(e));
@@ -128,12 +130,9 @@ export function EditBrickTextDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Éditer le texte — {creatorName}</DialogTitle>
+          <DialogTitle>{tr("editerLeTexte", { creatorName: creatorName })}</DialogTitle>
           <DialogDescription>
-            Modifie le texte d&apos;une brique. Cela crée une NOUVELLE variante
-            dans la bibliothèque (même type + tier) et l&apos;applique à cet
-            assignment. Une seule édition possible, avant publication. Le pricing
-            n&apos;est pas impacté.
+            {tr("modifieLeTexteDUne")}
           </DialogDescription>
         </DialogHeader>
 
@@ -142,7 +141,7 @@ export function EditBrickTextDialog({
         ) : (
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="brick-slot">Brique à éditer</Label>
+              <Label htmlFor="brick-slot">{tr("briqueAEditer")}</Label>
               <Select
                 value={slot}
                 onValueChange={(v) => v && setSlot(v as ScriptComboSlot)}
@@ -161,7 +160,7 @@ export function EditBrickTextDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="brick-text">Texte</Label>
+              <Label htmlFor="brick-text">{tr("texte")}</Label>
               <Textarea
                 id="brick-text"
                 value={text}
@@ -172,7 +171,7 @@ export function EditBrickTextDialog({
 
             {preview && (
               <div className="space-y-1.5">
-                <Label>Aperçu du script modifié</Label>
+                <Label>{tr("apercuDuScriptModifie")}</Label>
                 <div
                   className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3"
                   data-testid="edit-text-preview"
@@ -190,11 +189,11 @@ export function EditBrickTextDialog({
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onConfirm} disabled={busy || text.trim().length === 0}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Créer la variante
+            {tr("creerLaVariante")}
           </Button>
         </DialogFooter>
       </DialogContent>

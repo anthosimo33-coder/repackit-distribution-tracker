@@ -39,6 +39,7 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
+import { formatNumber } from "@/lib/format";
 import { countTomorrow, reviewSlot, type ReviewSlot } from "@/lib/review-queue";
 import { formatPostWindow } from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
@@ -56,6 +57,8 @@ import {
   CalendarClockIcon,
 } from "lucide-react";
 import { usePermissions } from "@/components/project/use-permissions";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type VideoSubmittedRow =
   FunctionReturnType<typeof api.assignments.listVideoSubmitted>[number];
@@ -78,8 +81,8 @@ type BonusRowData =
  * sur cet écran doublonnait ce geste sans rien montrer de plus.
  */
 
-const nf = new Intl.NumberFormat("fr-FR");
-const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
+const formatDate = (ts: number, locale: string = "fr-FR") =>
+  new Date(ts).toLocaleDateString(locale);
 
 /**
  * PASTILLE « ça sort quand » de la file de validation.
@@ -94,28 +97,13 @@ const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
  */
 const SLOT_META: Record<
   ReviewSlot,
-  { className: string; label: (ts: number | null) => string }
+  { className: string }
 > = {
-  overdue: {
-    className: "border-rose-300 bg-rose-50 text-rose-700",
-    label: (ts) => `Devait sortir le ${formatDate(ts!)}`,
-  },
-  today: {
-    className: "border-orange-300 bg-orange-50 text-orange-700",
-    label: () => "Sort aujourd'hui",
-  },
-  tomorrow: {
-    className: "border-amber-300 bg-amber-50 text-amber-800",
-    label: () => "Sort demain",
-  },
-  upcoming: {
-    className: "border-slate-200 bg-slate-50 text-slate-600",
-    label: (ts) => `Sort le ${formatDate(ts!)}`,
-  },
-  undated: {
-    className: "border-slate-200 bg-white text-slate-400",
-    label: () => "Pas de date de publication",
-  },
+  overdue: { className: "border-rose-300 bg-rose-50 text-rose-700" },
+  today: { className: "border-orange-300 bg-orange-50 text-orange-700" },
+  tomorrow: { className: "border-amber-300 bg-amber-50 text-amber-800" },
+  upcoming: { className: "border-slate-200 bg-slate-50 text-slate-600" },
+  undated: { className: "border-slate-200 bg-white text-slate-400" },
 };
 
 function PublicationSlotBadge({
@@ -127,8 +115,15 @@ function PublicationSlotBadge({
   postWindow: { startMin: number; endMin: number } | null;
   now: number;
 }) {
+  const tr = useTranslations("admin.validation.PublicationSlotBadge");
+  const loc = useIntlLocale();
   const slot = reviewSlot(postDate, now);
   const meta = SLOT_META[slot];
+  // Libellé du slot — le texte vit dans `slot.<clé>`, la date dans la langue du lecteur.
+  const label =
+    slot === "overdue" || slot === "upcoming"
+      ? tr(`slot.${slot}`, { date: formatDate(postDate!, loc) })
+      : tr(`slot.${slot}`);
   // La plage n'est rendue que si elle existe : sans elle, la pastille reste
   // exactement ce qu'elle serait sans le champ (aucun tiret orphelin).
   const plage = formatPostWindow(postWindow ?? undefined);
@@ -142,7 +137,7 @@ function PublicationSlotBadge({
       )}
     >
       <CalendarClockIcon className="size-3" />
-      {meta.label(postDate)}
+      {label}
       {plage !== null && <span className="font-normal">· {plage}</span>}
     </span>
   );
@@ -161,6 +156,7 @@ export default function ValidationPage() {
 }
 
 function ValidationPageInner() {
+  const tr = useTranslations("admin.validation.ValidationPageInner");
   // Devise de la PAIE créatrices (dollars) — pour les montants de bonus affichés.
   const payCurrency = useProject().project.payCurrency;
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
@@ -186,22 +182,22 @@ function ValidationPageInner() {
     <div className="space-y-8">
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Validation
+          {tr("validation")}
         </h1>
         <p className="text-sm text-slate-500">
           {toReview === undefined
-            ? "Chargement…"
-            : `${toReview.length} vidéo${toReview.length > 1 ? "s" : ""} en attente de revue`}
+            ? tr("chargement")
+            : tr("videoEnAttenteDeRevue", { count: toReview.length })}
           {/* Le chiffre qui décide de l'ordre de traitement : ce qui doit sortir
               demain ne peut pas attendre la revue d'après-demain. */}
           {toReview !== undefined && countTomorrow(toReview, now) > 0 && (
             <>
-              {" — dont "}
+              {` ${tr("dont")} `}
               <strong
                 data-testid="review-tomorrow-count"
                 className="font-semibold text-amber-700"
               >
-                {countTomorrow(toReview, now)} à sortir demain
+                {tr("aSortirDemain", { count: countTomorrow(toReview, now) })}
               </strong>
             </>
           )}
@@ -211,7 +207,7 @@ function ValidationPageInner() {
       {/* ─── Vidéos à valider ──────────────────────────────────────────────── */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          Vidéos à valider
+          {tr("videosAValider")}
         </h2>
         {toReview === undefined ? (
           <Skeleton className="h-48 w-full" />
@@ -220,8 +216,7 @@ function ValidationPageInner() {
             <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
               <InboxIcon className="size-10 text-slate-300" strokeWidth={1.5} />
               <p className="text-sm text-slate-500">
-                Aucune vidéo en attente. Les soumissions des créateurs
-                apparaîtront ici.
+                {tr("aucuneVideoEnAttenteLes")}
               </p>
             </CardContent>
           </Card>
@@ -244,8 +239,7 @@ function ValidationPageInner() {
           toReview !== undefined &&
           !toReview.some((a) => a._id === highlightedId) && (
             <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
-              La soumission de ce lien n&apos;est plus en attente de revue — elle
-              a déjà été traitée.
+              {tr("laSoumissionDeCeLien")}
             </p>
           )}
       </section>
@@ -254,17 +248,17 @@ function ValidationPageInner() {
       {published !== undefined && published.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Publiées récemment
+            {tr("publieesRecemment")}
           </h2>
           <Card>
             <CardContent className="overflow-x-auto p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Créateur</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Publié le</TableHead>
-                    <TableHead>Posts</TableHead>
+                    <TableHead>{tr("createur")}</TableHead>
+                    <TableHead>{tr("type")}</TableHead>
+                    <TableHead>{tr("publieLe")}</TableHead>
+                    <TableHead>{tr("posts")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -282,14 +276,14 @@ function ValidationPageInner() {
       {droits.has("payments.manage") && (
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          Bonus de vues
+          {tr("bonusDeVues")}
         </h2>
         {bonusRows === undefined ? (
           <Skeleton className="h-32 w-full" />
         ) : bonusRows.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center text-sm text-slate-500">
-              Aucun post publié pour l&apos;instant.
+              {tr("aucunPostPubliePourL")}
             </CardContent>
           </Card>
         ) : (
@@ -298,11 +292,11 @@ function ValidationPageInner() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Créateur</TableHead>
-                    <TableHead>Format</TableHead>
-                    <TableHead>Posts</TableHead>
-                    <TableHead className="text-right">Vues cumulées</TableHead>
-                    <TableHead className="text-right">Bonus</TableHead>
+                    <TableHead>{tr("createur")}</TableHead>
+                    <TableHead>{tr("format")}</TableHead>
+                    <TableHead>{tr("posts")}</TableHead>
+                    <TableHead className="text-right">{tr("vuesCumulees")}</TableHead>
+                    <TableHead className="text-right">{tr("bonus")}</TableHead>
                     <TableHead className="w-40" />
                   </TableRow>
                 </TableHeader>
@@ -337,6 +331,8 @@ function VideoReviewCard({
   /** Cible du lien profond `?soumission=` : surlignée et amenée à l'écran. */
   highlighted?: boolean;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.validation.VideoReviewCard");
   const approve = useProjectMutation(api.assignments.reviewVideoApprove);
   const reject = useProjectMutation(api.assignments.reviewVideoReject);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -384,7 +380,7 @@ function VideoReviewCard({
       URL.revokeObjectURL(objectUrl);
     } catch {
       window.open(a.videoUrl, "_blank", "noopener,noreferrer");
-      toast.error("Téléchargement direct impossible — ouvert dans un onglet.");
+      toast.error(tr("telechargementDirectImpossibleOuvertDans"));
     } finally {
       setDownloading(false);
     }
@@ -396,11 +392,11 @@ function VideoReviewCard({
       const r = await approve({ id: a._id });
       toast.success(
         r.alreadyApproved
-          ? "Déjà validée."
-          : "Vidéo validée — le créateur peut publier.",
+          ? tr("dejaValidee")
+          : tr("videoValideeLeCreateurPeut"),
       );
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la validation de la vidéo"));
+      toast.error(convexErrorMessage(e, tr("echecDeLaValidationDe")));
     } finally {
       setBusy(false);
     }
@@ -408,17 +404,17 @@ function VideoReviewCard({
 
   async function onReject() {
     if (feedback.trim().length === 0) {
-      toast.error("Un motif de refus est requis.");
+      toast.error(tr("unMotifDeRefusEst"));
       return;
     }
     setBusy(true);
     try {
       await reject({ id: a._id, feedback });
-      toast.success("Refusée — le créateur peut re-soumettre.");
+      toast.success(tr("refuseeLeCreateurPeutRe"));
       setRejectOpen(false);
       setFeedback("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec du refus de la vidéo"));
+      toast.error(convexErrorMessage(e, tr("echecDuRefusDeLa")));
     } finally {
       setBusy(false);
     }
@@ -446,7 +442,7 @@ function VideoReviewCard({
               {a.label}
               {a.origin === "script" && (
                 <Badge variant="secondary" className="text-[10px]">
-                  Script
+                  {tr("script")}
                 </Badge>
               )}
               {/* DÉFI — ce qu'on valide ici compte dans un classement en cours.
@@ -459,7 +455,7 @@ function VideoReviewCard({
                   className="bg-amber-100 text-[10px] text-amber-800 hover:bg-amber-100"
                   data-testid="validation-challenge-badge"
                 >
-                  Défi — {a.challengeName}
+                  {tr("defi", { challengeName: a.challengeName })}
                 </Badge>
               )}
             </div>
@@ -473,7 +469,7 @@ function VideoReviewCard({
             {/* L'échéance de PRODUCTION reste lisible, mais en second : elle est
                 partagée par tout un lot et ne départage rien. */}
             <span className="text-xs text-slate-400">
-              Échéance {formatDate(a.dueDate)}
+              {tr("echeance", { date: formatDate(a.dueDate, loc) })}
             </span>
           </div>
         </div>
@@ -502,7 +498,7 @@ function VideoReviewCard({
             />
           ) : (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-center text-sm text-slate-400">
-              Vidéo indisponible.
+              {tr("videoIndisponible")}
             </div>
           )}
         </div>
@@ -513,9 +509,7 @@ function VideoReviewCard({
               <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
                 <FilmIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
                 <span>
-                  La vidéo ne s&apos;affiche pas dans le navigateur (format HEVC
-                  iPhone). Télécharge-la pour la visionner dans ton lecteur
-                  (QuickTime).
+                  {tr("laVideoNeSAffiche")}
                 </span>
               </div>
             )}
@@ -537,7 +531,7 @@ function VideoReviewCard({
               ) : (
                 <DownloadIcon className="mr-2 size-4" />
               )}
-              Télécharger la vidéo
+              {tr("telechargerLaVideo")}
             </a>
           </div>
         )}
@@ -553,7 +547,7 @@ function VideoReviewCard({
             >
               <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
                 <FileTextIcon className="size-4 shrink-0 text-slate-400" />
-                <span className="shrink-0">Script à suivre</span>
+                <span className="shrink-0">{tr("scriptASuivre")}</span>
                 {a.comboSummary && (
                   <span className="truncate text-xs font-normal text-slate-400">
                     · {a.comboSummary}
@@ -590,7 +584,7 @@ function VideoReviewCard({
             ) : (
               <CheckIcon className="mr-2 size-4" />
             )}
-            Valider la vidéo
+            {tr("validerLaVideo")}
           </Button>
           <Button
             variant="outline"
@@ -599,7 +593,7 @@ function VideoReviewCard({
             className="flex-1"
           >
             <XIcon className="mr-2 size-4" />
-            Refuser
+            {tr("refuser")}
           </Button>
         </div>
       </CardContent>
@@ -607,19 +601,18 @@ function VideoReviewCard({
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Refuser — {a.creatorName}</DialogTitle>
+            <DialogTitle>{tr("refuser2", { creatorName: a.creatorName })}</DialogTitle>
             <DialogDescription>
-              Le motif est visible par le créateur, qui pourra corriger et
-              re-soumettre une vidéo.
+              {tr("leMotifEstVisiblePar")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="reject-feedback">Motif du refus</Label>
+            <Label htmlFor="reject-feedback">{tr("motifDuRefus")}</Label>
             <Textarea
               id="reject-feedback"
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
-              placeholder="Ex. hook hors brief, cadrage, sous-titres manquants…"
+              placeholder={tr("exHookHorsBriefCadrage")}
               rows={4}
             />
           </div>
@@ -629,11 +622,11 @@ function VideoReviewCard({
               onClick={() => setRejectOpen(false)}
               disabled={busy}
             >
-              Annuler
+              {tr("annuler")}
             </Button>
             <Button variant="destructive" onClick={onReject} disabled={busy}>
               {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Refuser
+              {tr("refuser")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -643,6 +636,7 @@ function VideoReviewCard({
 }
 
 function PublishedTableRow({ p }: { p: PublishedRow }) {
+  const loc = useIntlLocale();
   return (
     <TableRow>
       <TableCell className="font-medium text-slate-900">
@@ -650,7 +644,7 @@ function PublishedTableRow({ p }: { p: PublishedRow }) {
       </TableCell>
       <TableCell className="text-slate-700">{p.label}</TableCell>
       <TableCell className="text-slate-500">
-        {p.publishedAt ? formatDate(p.publishedAt) : "—"}
+        {p.publishedAt ? formatDate(p.publishedAt, loc) : "—"}
       </TableCell>
       <TableCell>
         {p.targets.length === 0 ? (
@@ -695,6 +689,8 @@ function BonusRow({
   /** Devise de la PAIE créatrices (dollars), threadée depuis ValidationPage. */
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.validation.BonusRow");
   const compute = useProjectMutation(api.assignments.computeViewBonus);
   const [open, setOpen] = useState(false);
   const [views, setViews] = useState("");
@@ -708,16 +704,16 @@ function BonusRow({
   async function onCompute() {
     const v = Number(views);
     if (!Number.isFinite(v) || v < 0) {
-      toast.error("Nombre de vues invalide.");
+      toast.error(tr("nombreDeVuesInvalide"));
       return;
     }
     setBusy(true);
     try {
       const res = await compute({ id: r.assignmentId, views: v });
-      toast.success(`Bonus crédité : ${formatMoney(res.bonus, currency)}`);
+      toast.success(tr("bonusCredite", { amount: formatMoney(res.bonus, currency, loc) }));
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec du calcul du bonus"));
+      toast.error(convexErrorMessage(e, tr("echecDuCalculDuBonus")));
     } finally {
       setBusy(false);
     }
@@ -730,17 +726,17 @@ function BonusRow({
       </TableCell>
       <TableCell className="text-slate-700">{r.formatName}</TableCell>
       <TableCell className="text-sm text-slate-500">
-        {r.postCount} post{r.postCount > 1 ? "s" : ""}
+        {tr("post", { postCount: r.postCount })}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {r.latestViews !== null ? (
-          nf.format(r.latestViews)
+          formatNumber(r.latestViews, loc)
         ) : (
-          <span className="text-xs text-slate-400">aucun snapshot</span>
+          <span className="text-xs text-slate-400">{tr("aucunSnapshot")}</span>
         )}
       </TableCell>
       <TableCell className="text-right tabular-nums text-slate-700">
-        {r.existingBonus !== null ? formatMoney(r.existingBonus, currency) : "—"}
+        {r.existingBonus !== null ? formatMoney(r.existingBonus, currency, loc) : "—"}
       </TableCell>
       <TableCell className="text-right">
         <Button
@@ -751,25 +747,23 @@ function BonusRow({
           title={
             r.hasSnapshot
               ? undefined
-              : "Aucun snapshot de vues pour cette publication"
+              : tr("aucunSnapshotDeVuesPour")
           }
         >
           <TrendingUpIcon className="mr-2 size-4" />
-          {r.existingBonus !== null ? "Recalculer" : "Calculer le bonus"}
+          {r.existingBonus !== null ? tr("recalculer") : tr("calculerLeBonus")}
         </Button>
 
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Bonus de vues — {r.creatorName}</DialogTitle>
+              <DialogTitle>{tr("bonusDeVues", { creatorName: r.creatorName })}</DialogTitle>
               <DialogDescription>
-                Prérempli avec les vues du dernier snapshot. Le montant est
-                calculé serveur depuis le tarif figé de l&apos;assignment (un
-                seul bonus par post — recalculer remplace la ligne).
+                {tr("prerempliAvecLesVuesDu")}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
-              <Label htmlFor="bonus-views">Vues</Label>
+              <Label htmlFor="bonus-views">{tr("vues")}</Label>
               <Input
                 id="bonus-views"
                 type="number"
@@ -784,11 +778,11 @@ function BonusRow({
                 onClick={() => setOpen(false)}
                 disabled={busy}
               >
-                Annuler
+                {tr("annuler")}
               </Button>
               <Button onClick={onCompute} disabled={busy}>
                 {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                {r.existingBonus !== null ? "Recalculer" : "Calculer"}
+                {r.existingBonus !== null ? tr("recalculer") : tr("calculer")}
               </Button>
             </DialogFooter>
           </DialogContent>

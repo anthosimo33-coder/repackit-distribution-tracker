@@ -203,7 +203,8 @@
     "creerLeProjet": "Create the project",
     "monProjet": "My project",
     "projetCree": "Project “{value}” created.",
-    "creationDuProjetImpossible": "Couldn't create the project."
+    "creationDuProjetImpossible": "Couldn't create the project.",
+    "slugPlaceholder": "my-project"
   },
   "ProjectSwitcher": {
     "projets": "Projects",
@@ -679,7 +680,8 @@
     "uneErreurEstSurvenue": "Something went wrong.",
     "handleRequis": "Handle required",
     "misAJour": "{finalHandle} updated",
-    "ajouteSur": "{finalHandle} added on {plateforme}"
+    "ajouteSur": "{finalHandle} added on {plateforme}",
+    "handlePlaceholder": "@pro_account"
   },
   "CreatorCombobox": {
     "interneEquipe": "Internal (team)",

@@ -321,7 +321,7 @@ export default function CompteDialog({
             <Label htmlFor="compte-handle">{tr("handle")}</Label>
             <Input
               id="compte-handle"
-              placeholder="@compte_pro"
+              placeholder={tr("handlePlaceholder")}
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
             />

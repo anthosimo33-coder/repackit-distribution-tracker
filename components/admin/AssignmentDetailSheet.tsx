@@ -7,7 +7,6 @@ import {
   formatPostWindow,
 } from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
-import { fr } from "date-fns/locale";
 import {
   CalendarIcon,
   CheckCircle2Icon,
@@ -81,12 +80,16 @@ import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale } from "@/lib/date-fns-locale";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
   FunctionReturnType<typeof api.assignments.listAssignments>[number];
 
-const formatDate = (ts: number) => new Date(ts).toLocaleDateString("fr-FR");
+const formatDate = (ts: number, locale: string = "fr-FR") =>
+  new Date(ts).toLocaleDateString(locale);
 
 /**
  * Panneau de DÉTAIL d'une assignation, ouvert au clic sur un post du calendrier de
@@ -115,6 +118,8 @@ export function AssignmentDetailSheet({
   row: AssignmentRow;
   now: number;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.AssignmentDetailSheet");
   const tLabel = useLabel();
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
   const setPostWindow = useProjectMutation(
@@ -181,7 +186,7 @@ export function AssignmentDetailSheet({
     try {
       await deleteAssignment({ id: row._id });
       toast.success(
-        "Assignation supprimée — le combo est de nouveau disponible.",
+        tr("assignationSupprimeeLeComboEst"),
       );
       setConfirmDelete(false);
       onOpenChange(false);
@@ -196,9 +201,9 @@ export function AssignmentDetailSheet({
     setSavingWindow(true);
     try {
       await setPostWindow({ id: row._id, postWindow: next });
-      toast.success(next ? "Créneau mis à jour." : "Créneau retiré.");
+      toast.success(next ? tr("creneauMisAJour") : tr("creneauRetire"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la mise à jour du créneau"));
+      toast.error(convexErrorMessage(e, tr("echecDeLaMiseA")));
     } finally {
       setSavingWindow(false);
     }
@@ -210,8 +215,8 @@ export function AssignmentDetailSheet({
       await setPostDate({ id: row._id, postDate: next });
       toast.success(
         next
-          ? "Date de publication mise à jour."
-          : "Date de publication retirée.",
+          ? tr("dateDePublicationMiseA")
+          : tr("dateDePublicationRetiree"),
       );
       setDateOpen(false);
     } catch (e) {
@@ -244,7 +249,7 @@ export function AssignmentDetailSheet({
                 onClick={() => setReplayOpen(true)}
               >
                 <RepeatIcon className="size-3.5" />
-                Rejouer ce script
+                {tr("rejouerCeScript")}
               </Button>
             )}
           </div>
@@ -293,25 +298,24 @@ export function AssignmentDetailSheet({
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Supprimer cette assignation ?</AlertDialogTitle>
+              <AlertDialogTitle>{tr("supprimerCetteAssignation")}</AlertDialogTitle>
               <AlertDialogDescription>
                 <span className="font-medium text-slate-700">
                   {row.creatorName}
                 </span>{" "}
                 — {label}
                 {row.postDate
-                  ? ` · post prévu le ${formatDate(row.postDate)}`
+                  ? ` ${tr("postPrevuLe", { date: formatDate(row.postDate, loc) })}`
                   : ""}
                 .{" "}
                 {hasSubmittedVideo
-                  ? "La vidéo déjà soumise sera définitivement écartée. "
+                  ? `${tr("laVideoDejaSoumiseSera")} `
                   : ""}
-                Le combo sera libéré et pourra être réassigné. Action
-                irréversible.
+                {tr("leComboSeraLibereEt")}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+              <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
                 onClick={(e) => {
@@ -323,7 +327,7 @@ export function AssignmentDetailSheet({
                 data-testid="assignment-detail-delete-confirm"
               >
                 {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                Supprimer
+                {tr("supprimer")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -332,7 +336,7 @@ export function AssignmentDetailSheet({
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
           {/* Contexte */}
           <dl className="grid grid-cols-[7rem_1fr] items-center gap-x-3 gap-y-3 text-sm">
-            <DetailRow label="Compte">
+            <DetailRow label={tr("compte")}>
               {row.targets.length === 0 ? (
                 <span className="text-slate-400">—</span>
               ) : (
@@ -358,11 +362,11 @@ export function AssignmentDetailSheet({
               )}
             </DetailRow>
 
-            <DetailRow label="Statut calendrier">
+            <DetailRow label={tr("statutCalendrier")}>
               <CalendarStatusPill status={status} />
             </DetailRow>
 
-            <DetailRow label="Date de post">
+            <DetailRow label={tr("dateDePost")}>
               <PostDatePopover
                 open={dateOpen}
                 onOpenChange={setDateOpen}
@@ -377,7 +381,7 @@ export function AssignmentDetailSheet({
                 planifiée avant #56 n'a pas de créneau, l'admin doit pouvoir en
                 poser un après coup sans replanifier la date. Sans créneau, la
                 ligne n'affiche aucun placeholder — juste les presets. */}
-            <DetailRow label="Créneau">
+            <DetailRow label={tr("creneau")}>
               <div className="flex flex-wrap items-center gap-1.5">
                 {formatPostWindow(row.postWindow) !== null && (
                   <span className="font-medium text-slate-700">
@@ -406,7 +410,7 @@ export function AssignmentDetailSheet({
                 })}
                 <Input
                   type="time"
-                  aria-label="Heure de début du créneau"
+                  aria-label={tr("heureDeDebutDuCreneau")}
                   disabled={savingWindow}
                   className="h-6 w-24 text-[11px]"
                   value={
@@ -434,17 +438,17 @@ export function AssignmentDetailSheet({
                     className="h-6 px-2 text-[11px]"
                     onClick={() => void saveWindow(undefined)}
                   >
-                    Retirer
+                    {tr("retirer")}
                   </Button>
                 )}
               </div>
             </DetailRow>
 
-            <DetailRow label="Échéance prod.">
-              <span className="text-slate-700">{formatDate(row.dueDate)}</span>
+            <DetailRow label={tr("echeanceProd")}>
+              <span className="text-slate-700">{formatDate(row.dueDate, loc)}</span>
             </DetailRow>
 
-            <DetailRow label="Production">
+            <DetailRow label={tr("production")}>
               <ProductionStatusBadge status={row.status as AssignmentStatus} />
             </DetailRow>
           </dl>
@@ -459,7 +463,7 @@ export function AssignmentDetailSheet({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                   <FileTextIcon className="size-4 text-slate-400" />
-                  Script à publier
+                  {tr("scriptAPublier")}
                 </h3>
                 {/* Éditer le TEXTE — MÊME chemin que la vue liste (fork d'une
                     brique). Autorisé tant que le post n'est pas publié ; sinon,
@@ -473,7 +477,7 @@ export function AssignmentDetailSheet({
                     data-testid="assignment-detail-edit-text"
                   >
                     <TypeIcon className="size-3.5" />
-                    Éditer le texte
+                    {tr("editerLeTexte")}
                   </Button>
                 ) : scriptLockedPublished ? (
                   <span
@@ -481,7 +485,7 @@ export function AssignmentDetailSheet({
                     data-testid="assignment-detail-edit-locked"
                   >
                     <LockIcon className="size-3.5 shrink-0" />
-                    Verrouillé : post déjà publié
+                    {tr("verrouillePostDejaPublie")}
                   </span>
                 ) : null}
               </div>
@@ -498,7 +502,7 @@ export function AssignmentDetailSheet({
             </section>
           ) : (
             <p className="text-sm text-slate-400">
-              Pas de script monté pour cet assignment.
+              {tr("pasDeScriptMontePour")}
             </p>
           )}
 
@@ -509,7 +513,7 @@ export function AssignmentDetailSheet({
             <div className="flex items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
                 <ClipboardListIcon className="size-4 text-slate-400" />
-                Instructions
+                {tr("instructions")}
               </h3>
               <Button
                 variant="ghost"
@@ -519,7 +523,7 @@ export function AssignmentDetailSheet({
                 data-testid="assignment-detail-instructions-edit"
               >
                 <PencilIcon className="size-3.5" />
-                {row.instructions ? "Modifier" : "Ajouter"}
+                {row.instructions ? tr("modifier") : tr("ajouter")}
               </Button>
             </div>
             {row.instructions ? (
@@ -533,7 +537,7 @@ export function AssignmentDetailSheet({
               </div>
             ) : (
               <p className="text-sm text-slate-400">
-                Aucune instruction pour la créatrice.
+                {tr("aucuneInstructionPourLaCreatrice")}
               </p>
             )}
           </section>
@@ -549,7 +553,7 @@ export function AssignmentDetailSheet({
 
           {/* Publication */}
           <section className="space-y-2">
-            <h3 className="text-sm font-semibold text-slate-700">Publication</h3>
+            <h3 className="text-sm font-semibold text-slate-700">{tr("publication")}</h3>
             <PublicationSection row={row} />
           </section>
 
@@ -565,7 +569,7 @@ export function AssignmentDetailSheet({
                 data-testid="assignment-detail-delete"
               >
                 <Trash2Icon className="size-4" />
-                Supprimer l&apos;assignation
+                {tr("supprimerLAssignation")}
               </Button>
             ) : (
               <p
@@ -573,8 +577,7 @@ export function AssignmentDetailSheet({
                 data-testid="assignment-detail-delete-blocked"
               >
                 <Trash2Icon className="size-3.5 shrink-0 translate-y-0.5" />
-                Assignation publiée ou payée — suppression indisponible
-                (l&apos;historique financier est conservé).
+                {tr("assignationPublieeOuPayeeSuppression")}
               </p>
             )}
           </section>
@@ -600,9 +603,10 @@ function DetailRow({
 }
 
 function CalendarStatusPill({ status }: { status: CalendarStatus }) {
+  const tr = useTranslations("admin.assignments.CalendarStatusPill");
   const tLabel = useLabel();
   if (status === "none") {
-    return <span className="text-slate-400">Non planifié</span>;
+    return <span className="text-slate-400">{tr("nonPlanifie")}</span>;
   }
   const meta = CALENDAR_STATUS_META[status];
   return (
@@ -648,6 +652,8 @@ function PostDatePopover({
   onSelect: (d: Date) => void;
   onClear: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.PostDatePopover");
   const selected = postDate ? new Date(postDate) : undefined;
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -657,10 +663,10 @@ function PostDatePopover({
             variant="outline"
             size="sm"
             className="h-8 justify-start gap-1.5 font-normal"
-            aria-label="Modifier la date de publication"
+            aria-label={tr("modifierLaDateDePublication")}
           >
             <CalendarIcon className="size-4" />
-            {postDate ? formatDate(postDate) : "Planifier"}
+            {postDate ? formatDate(postDate, loc) : tr("planifier")}
           </Button>
         }
       />
@@ -669,7 +675,7 @@ function PostDatePopover({
           mode="single"
           selected={selected}
           onSelect={(d) => d && onSelect(d)}
-          locale={fr}
+          locale={dateFnsLocale(loc)}
           weekStartsOn={1}
           defaultMonth={selected}
         />
@@ -682,7 +688,7 @@ function PostDatePopover({
             disabled={saving || postDate === undefined}
           >
             {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Retirer la date
+            {tr("retirerLaDate")}
           </Button>
         </div>
       </PopoverContent>
@@ -700,6 +706,7 @@ function PostDatePopover({
  *    été suivi (post publié hors app, statut resté « À faire »).
  */
 function PublicationSection({ row }: { row: AssignmentRow }) {
+  const tr = useTranslations("admin.assignments.PublicationSection");
   const managed = row.managedByAdmin === true;
   const isPublished = row.status === "published" || row.status === "paid";
   const publishedTargets = row.targets.filter((t) => t.publishedUrl);
@@ -709,7 +716,7 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
       <div className="space-y-2" data-testid="detail-publication-published">
         <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           <CheckCircle2Icon className="size-4 shrink-0" />
-          {row.status === "paid" ? "Publié et payé ✓" : "Publié ✓"}
+          {row.status === "paid" ? tr("publieEtPaye") : tr("publie")}
         </div>
         {publishedTargets.map((t) => (
           <div key={t.platform} className="flex flex-wrap items-center gap-2">
@@ -719,7 +726,7 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
             >
-              Voir le post {t.platform}
+              {tr("voirLePost", { platform: t.platform })}
               <ExternalLinkIcon className="size-3.5" />
             </a>
             {/* « Elle s'est trompée de vidéo » — le seul geste qui répare un
@@ -771,6 +778,7 @@ function CorrectUrlButton({
   platform: "TikTok" | "Instagram" | "YouTube";
   currentUrl: string;
 }) {
+  const tr = useTranslations("admin.assignments.CorrectUrlButton");
   const correct = useProjectMutation(api.assignments.correctPublishedUrl);
   const [open, setOpen] = useState(false);
   const [url, setUrl] = useState(currentUrl);
@@ -782,14 +790,14 @@ function CorrectUrlButton({
       const r = await correct({ id: assignmentId, platform, url });
       toast.success(
         !r.changed
-          ? "Lien inchangé."
+          ? tr("lienInchange")
           : r.deletedSnapshots > 0
-            ? `Lien corrigé — ${r.deletedSnapshots} relevé${r.deletedSnapshots > 1 ? "s" : ""} de l'ancienne vidéo effacé${r.deletedSnapshots > 1 ? "s" : ""}.`
-            : "Lien corrigé.",
+            ? tr("lienCorrigeReleveDeL", { deletedSnapshots: r.deletedSnapshots })
+            : tr("lienCorrige"),
       );
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -808,21 +816,18 @@ function CorrectUrlButton({
         data-testid={`correct-url-${platform}`}
       >
         <PencilIcon className="size-3" />
-        Corriger le lien
+        {tr("corrigerLeLien")}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Corriger le lien {platform}</DialogTitle>
+            <DialogTitle>{tr("corrigerLeLien2", { platform: platform })}</DialogTitle>
             <DialogDescription>
-              À utiliser quand la créatrice a collé le lien d&apos;une AUTRE
-              vidéo. Les relevés de vues accumulés sur l&apos;ancienne vidéo
-              seront effacés — le suivi repart de zéro sur la bonne. La date de
-              publication et le cycle de paie, eux, ne bougent pas.
+              {tr("aUtiliserQuandLaCreatrice")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">
-            <p className="text-xs text-slate-500">Lien actuellement suivi</p>
+            <p className="text-xs text-slate-500">{tr("lienActuellementSuivi")}</p>
             <p className="break-all rounded-md bg-slate-50 p-2 text-xs text-slate-600">
               {currentUrl}
             </p>
@@ -830,16 +835,16 @@ function CorrectUrlButton({
           <Input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder={`Nouveau lien ${platform}`}
-            aria-label={`Nouveau lien ${platform}`}
+            placeholder={tr("nouveauLien", { platform: platform })}
+            aria-label={tr("nouveauLien", { platform: platform })}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
-              Annuler
+              {tr("annuler")}
             </Button>
             <Button onClick={submit} disabled={busy || url.trim().length === 0}>
               {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Corriger
+              {tr("corriger")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -861,26 +866,28 @@ function PublishedByLine({
   publishedBy?: "creator" | "admin";
   at: number | null;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.PublishedByLine");
   const who =
     publishedBy === "creator"
-      ? "la créatrice"
+      ? tr("laCreatrice")
       : publishedBy === "admin"
         ? "l'admin"
         : null;
   const date =
     at != null
-      ? new Date(at).toLocaleDateString("fr-FR", {
+      ? new Date(at).toLocaleDateString(loc, {
           day: "2-digit",
           month: "2-digit",
         })
       : null;
   return (
     <p className="text-xs text-slate-500" data-testid="detail-published-by">
-      Lien saisi par{" "}
+      {tr("lienSaisiPar")}{" "}
       <span className={who ? "font-medium text-slate-600" : "text-slate-400"}>
         {who ?? "—"}
       </span>
-      {date ? ` le ${date}` : ""}.
+      {date ? ` ${tr("le", { date: date })}` : ""}.
     </p>
   );
 }

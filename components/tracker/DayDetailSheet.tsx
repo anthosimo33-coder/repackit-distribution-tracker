@@ -14,6 +14,8 @@ import { useProjectQuery } from "@/components/project/use-project-convex";
 import { formatNumber } from "@/lib/format";
 import { isoCountryLabel } from "@/lib/country-name";
 import type { TrackerQueryArgs } from "./TrackerDataView";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * CE QUI A FAIT LES VUES D'UN JOUR.
@@ -42,6 +44,8 @@ export function DayDetailSheet({
   onClose: () => void;
   onSelectPost: (id: Id<"publications">) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.DayDetailSheet");
   const detail = useProjectQuery(
     api.trackerData.trackerViewsDayDetail,
     day === null ? "skip" : { filters: queryArgs, day },
@@ -58,8 +62,8 @@ export function DayDetailSheet({
           <SheetTitle>{day === null ? "" : jourLisible(day)}</SheetTitle>
           <SheetDescription>
             {detail === undefined
-              ? "Chargement…"
-              : `${formatNumber(detail.total)} vues gagnées ce jour-là, réparties entre ${detail.rows.length} publication${detail.rows.length > 1 ? "s" : ""}`}
+              ? tr("chargement")
+              : tr("vuesGagneesCeJourLa", { count: formatNumber(detail.total, loc), count2: detail.rows.length })}
           </SheetDescription>
         </SheetHeader>
 
@@ -72,7 +76,7 @@ export function DayDetailSheet({
             </div>
           ) : detail.rows.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Aucune vue gagnée ce jour-là sur les posts filtrés.
+              {tr("aucuneVueGagneeCeJour")}
             </p>
           ) : (
             <ul className="divide-y divide-slate-100">
@@ -85,23 +89,23 @@ export function DayDetailSheet({
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-slate-900">
-                        {r.titre?.trim() || "Sans titre"}
+                        {r.titre?.trim() || tr("sansTitre")}
                       </span>
                       <span className="mt-0.5 block truncate text-xs text-slate-500">
                         {[
                           r.compte,
                           r.creatorName,
                           r.market === null
-                            ? "sans marché"
+                            ? tr("sansMarche")
                             : marcheLisible(r.market),
                         ]
                           .filter(Boolean)
                           .join(" · ")}
-                        {r.isWarmup ? " · chauffe" : ""}
+                        {r.isWarmup ? ` ${tr("chauffe")}` : ""}
                       </span>
                     </span>
                     <span className="shrink-0 pt-0.5 text-right font-mono text-sm tabular-nums text-slate-900">
-                      {formatNumber(r.value)}
+                      {formatNumber(r.value, loc)}
                     </span>
                   </button>
                 </li>
@@ -109,10 +113,7 @@ export function DayDetailSheet({
             </ul>
           )}
           <p className="mt-3 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-400">
-            Les vues d&apos;un relevé sont réparties au prorata du temps entre
-            deux passages : une publication peut donc apparaître ici avec une
-            fraction de ce qu&apos;elle a réellement gagné dans l&apos;intervalle.
-            Le total, lui, vaut exactement le point de la courbe.
+            {tr("lesVuesDUnReleve")}
           </p>
         </div>
       </SheetContent>

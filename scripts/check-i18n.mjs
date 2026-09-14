@@ -497,6 +497,19 @@ for (const k of Object.keys(frVals)) {
   }
 }
 
+// ─── Balises non échappées dans les catalogues ───────────────────────────────
+// next-intl lit `<mot>` comme une BALISE de texte riche : une valeur qui en
+// contient sans l'échapper lève à l'exécution (`INVALID_MESSAGE: UNCLOSED_TAG`)
+// et l'écran entier meurt. C'est arrivé sur « le chemin court snytch.co/<ref> ».
+// L'échappement ICU est l'apostrophe : `'<ref>'`.
+const TAG_RE = /(?<!')<\/?[a-zA-Z][\w-]*>/;
+const tagViolations = [];
+for (const [locale, vals] of [["fr", frVals], ["en", enVals]]) {
+  for (const [k, v] of Object.entries(vals)) {
+    if (typeof v === "string" && TAG_RE.test(v)) tagViolations.push({ locale, key: k, value: v });
+  }
+}
+
 // ─── Entités HTML dans les catalogues ────────────────────────────────────────
 // Le détecteur rend le littéral tel qu'il est écrit dans la SOURCE JSX, où la
 // convention ESLint `react/no-unescaped-entities` impose `&apos;`. Copié tel
@@ -550,6 +563,20 @@ if (staleBaseline.length > 0) {
   );
   console.error("  Retire-les de la liste : la baseline ne doit que rétrécir.");
   for (const f of staleBaseline) console.error(`    ${f}`);
+}
+
+if (tagViolations.length > 0) {
+  failed = true;
+  console.error(
+    `\n✖ ${tagViolations.length} valeur(s) contiennent une balise non échappée :`,
+  );
+  for (const v of tagViolations) {
+    console.error(`    [${v.locale}] ${v.key}\n      ${v.value.slice(0, 100)}`);
+  }
+  console.error(
+    "\n  next-intl y voit du texte riche et lève à l'exécution (UNCLOSED_TAG).",
+  );
+  console.error("  Échapper avec des apostrophes ICU :  '<ref>'");
 }
 
 if (entityViolations.length > 0) {

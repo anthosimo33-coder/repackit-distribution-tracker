@@ -14,29 +14,28 @@ import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
 import type { FilterMultiSelectOption } from "@/components/filters/FilterMultiSelect";
 import type { CalendarStatusFilter } from "@/components/admin/AssignmentsCalendar";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
-export const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "all", label: "Tous statuts" },
-  { value: "todo", label: "À faire" },
-  { value: "in_progress", label: "En cours" },
-  { value: "submitted", label: "Soumis" },
-  { value: "validated", label: "Validé" },
-  { value: "rejected", label: "Rejeté" },
-  { value: "paid", label: "Payé" },
-];
+// Libellés : `admin.assignments.statusFilter.<valeur>` (le statut de PRODUCTION).
+export const STATUS_OPTIONS = [
+  "all",
+  "todo",
+  "in_progress",
+  "submitted",
+  "validated",
+  "rejected",
+  "paid",
+] as const;
 
 /** Options du filtre de STATUT CALENDRIER (vue calendrier). Même axe que la
  *  pastille : à l'heure / en retard / manqué / prévu (≠ statut de PRODUCTION). */
-export const CAL_STATUS_OPTIONS: {
-  value: CalendarStatusFilter;
-  label: string;
-}[] = [
-  { value: "all", label: "Tous statuts" },
-  { value: "on_time", label: "À l'heure" },
-  { value: "late", label: "En retard" },
-  { value: "missed", label: "Manqué" },
-  { value: "scheduled", label: "Prévu" },
-];
+export const CAL_STATUS_OPTIONS = [
+  "all",
+  "on_time",
+  "late",
+  "missed",
+  "scheduled",
+] as const satisfies readonly CalendarStatusFilter[];
 
 export type AssignmentsFiltersProps = {
   viewMode: "list" | "calendar";
@@ -90,6 +89,9 @@ export function AssignmentsFilters({
   onReset,
   layout,
 }: AssignmentsFiltersProps) {
+  const tr = useTranslations("admin.assignments.AssignmentsFilters");
+  const tStatus = useTranslations("admin.assignments.statusFilter");
+  const tCal = useTranslations("admin.assignments.calStatusFilter");
   const stacked = layout === "stacked";
   const fieldWidth = (w: string) => (stacked ? "w-full" : w);
 
@@ -103,11 +105,11 @@ export function AssignmentsFilters({
     >
       {/* Créateur MULTI (Set vide = tous) — partagé liste + calendrier. */}
       <FilterMultiSelect
-        label="Créateur"
+        label={tr("createur")}
         selectedValues={creatorIds}
         onChange={onCreatorIdsChange}
         options={creatorOptions}
-        allLabel="Tous créateurs"
+        allLabel={tr("tousCreateurs")}
         width={fieldWidth("w-44")}
       />
 
@@ -116,12 +118,12 @@ export function AssignmentsFilters({
           « N sélectionnés » : un filtre persistant doit se lire d'un coup
           d'œil au retour sur la page. */}
       <FilterMultiSelect
-        label="Campagne"
+        label={tr("campagne")}
         selectedValues={campaignIds}
         onChange={onCampaignIdsChange}
         options={campaignOptions}
-        sectionLabels={{ active: "Actives", archived: "Archivées" }}
-        allLabel="Toutes campagnes"
+        sectionLabels={{ active: "Actives", archived: tr("archivees") }}
+        allLabel={tr("toutesCampagnes")}
         triggerLabel={campaignTriggerLabel}
         width={fieldWidth("w-56")}
       />
@@ -129,7 +131,7 @@ export function AssignmentsFilters({
       {/* Filtre STATUT — MÊME emplacement, axe selon la vue : production en
           liste, calendrier (à l'heure/en retard/manqué/prévu) en calendrier. */}
       {stacked && (
-        <span className="-mb-3 text-sm font-medium text-slate-600">Statut</span>
+        <span className="-mb-3 text-sm font-medium text-slate-600">{tr("statut")}</span>
       )}
       {viewMode === "calendar" ? (
         <Select
@@ -140,19 +142,14 @@ export function AssignmentsFilters({
         >
           <SelectTrigger
             className={fieldWidth("w-40")}
-            aria-label="Filtrer par statut calendrier"
+            aria-label={tr("filtrerParStatutCalendrier")}
           >
-            <SelectValue>
-              {
-                CAL_STATUS_OPTIONS.find((o) => o.value === calStatusFilter)
-                  ?.label
-              }
-            </SelectValue>
+            <SelectValue>{tCal(calStatusFilter)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {CAL_STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+              <SelectItem key={o} value={o}>
+                {tCal(o)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -164,16 +161,14 @@ export function AssignmentsFilters({
         >
           <SelectTrigger
             className={fieldWidth("w-40")}
-            aria-label="Filtrer par statut"
+            aria-label={tr("filtrerParStatut")}
           >
-            <SelectValue>
-              {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label}
-            </SelectValue>
+            <SelectValue>{tStatus(statusFilter as (typeof STATUS_OPTIONS)[number])}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+              <SelectItem key={o} value={o}>
+                {tStatus(o)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -192,7 +187,7 @@ export function AssignmentsFilters({
           checked={overdueOnly}
           onCheckedChange={(c) => onOverdueOnlyChange(c === true)}
         />
-        En retard seulement
+        {tr("enRetardSeulement")}
       </label>
 
       {/* Le filtre campagne PERSISTE d'une visite à l'autre : sans un repère
@@ -212,8 +207,7 @@ export function AssignmentsFilters({
           onClick={onReset}
         >
           <FilterXIcon className="size-3.5" />
-          Réinitialiser {activeFilterCount} filtre
-          {activeFilterCount > 1 ? "s" : ""}
+          {tr("reinitialiserFiltre", { activeFilterCount: activeFilterCount })}
         </Button>
       )}
     </div>
