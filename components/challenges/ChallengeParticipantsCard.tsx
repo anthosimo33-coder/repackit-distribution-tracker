@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTranslations } from "next-intl";
 
 /**
  * CIBLAGE NOMINATIF — qui voit le défi.
@@ -42,6 +43,7 @@ export function ChallengeParticipantsCard({
   /** Défi clos : la liste devient une lecture. */
   locked: boolean;
 }) {
+  const tr = useTranslations("admin.challenges.ChallengeParticipantsCard");
   const creators = useProjectQuery(api.assignments.listAssignableCreators, {});
   const save = useProjectMutation(api.challenges.setChallengeParticipants);
   const [draft, setDraft] = useState<Set<string> | null>(null);
@@ -58,9 +60,9 @@ export function ChallengeParticipantsCard({
         creatorIds: [...selected] as Id<"creators">[],
       });
       setDraft(null);
-      toast.success("Participantes enregistrées");
+      toast.success(tr("participantesEnregistrees"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -70,18 +72,16 @@ export function ChallengeParticipantsCard({
     <Card data-testid="challenge-participants">
       <CardHeader>
         <CardTitle className="text-base">
-          Participantes ({selected.size})
+          {tr("participantes", { size: selected.size })}
         </CardTitle>
         <CardDescription>
-          Elles seules voient ce défi. Une créatrice ajoutée en cours de route le
-          voit immédiatement ; une qui a déjà produit ne peut plus en être
-          retirée.
+          {tr("ellesSeulesVoientCeDefi")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
           {creators === undefined && (
-            <p className="p-2 text-xs text-slate-400">Chargement…</p>
+            <p className="p-2 text-xs text-slate-400">{tr("chargement")}</p>
           )}
           {(creators ?? []).map((c) => (
             <label
@@ -100,13 +100,13 @@ export function ChallengeParticipantsCard({
               />
               <span className="text-slate-700">{c.name}</span>
               {c.status === "onboarding" && (
-                <span className="text-xs text-amber-600">en onboarding</span>
+                <span className="text-xs text-amber-600">{tr("enOnboarding")}</span>
               )}
             </label>
           ))}
           {creators !== undefined && creators.length === 0 && (
             <p className="p-2 text-xs text-slate-400">
-              Aucune créatrice assignable dans ce projet.
+              {tr("aucuneCreatriceAssignableDansCe")}
             </p>
           )}
         </div>
@@ -114,7 +114,7 @@ export function ChallengeParticipantsCard({
           <div className="flex justify-end">
             <Button onClick={handleSave} disabled={saving || !dirty}>
               {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Enregistrer
+              {tr("enregistrer")}
             </Button>
           </div>
         )}

@@ -9,25 +9,27 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTranslations } from "next-intl";
 
 /**
  * Batch H — skeleton pour la vue list. Mêmes colonnes que InspirationsList
  * pour cohérence visuelle pendant le fetch.
  */
 export function InspirationsListSkeleton({ count = 6 }: { count?: number }) {
+  const tr = useTranslations("admin.library.InspirationsListSkeleton");
   return (
     <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
       <Table>
         <TableHeader className="bg-slate-50">
           <TableRow>
             <TableHead className="w-[60px]" />
-            <TableHead className="w-[80px]">Type</TableHead>
-            <TableHead className="w-[100px]">Plateforme</TableHead>
-            <TableHead>Titre</TableHead>
-            <TableHead className="w-[140px]">Dossier</TableHead>
-            <TableHead className="w-[180px]">Stats</TableHead>
+            <TableHead className="w-[80px]">{tr("type")}</TableHead>
+            <TableHead className="w-[100px]">{tr("plateforme")}</TableHead>
+            <TableHead>{tr("titre")}</TableHead>
+            <TableHead className="w-[140px]">{tr("dossier")}</TableHead>
+            <TableHead className="w-[180px]">{tr("stats")}</TableHead>
             <TableHead className="w-[50px]" />
-            <TableHead className="w-[90px]">Date</TableHead>
+            <TableHead className="w-[90px]">{tr("date")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

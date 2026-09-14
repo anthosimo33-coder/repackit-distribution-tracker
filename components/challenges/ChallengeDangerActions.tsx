@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { EyeIcon, EyeOffIcon, Loader2Icon, Trash2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTranslations } from "next-intl";
 
 /**
  * SUPPRIMER OU MASQUER UN DÉFI — un bouton, deux issues, et c'est ce que le défi
@@ -47,6 +48,7 @@ export function ChallengeDangerActions({
   hidden: boolean;
   redirectTo: string;
 }) {
+  const tr = useTranslations("admin.challenges.ChallengeDangerActions");
   const router = useRouter();
   const faits = useProjectQuery(api.challenges.getChallengeFacts, { id });
   const remove = useProjectMutation(api.challenges.deleteChallenge);
@@ -60,10 +62,10 @@ export function ChallengeDangerActions({
     setBusy(true);
     try {
       await remove({ id });
-      toast.success("Défi supprimé");
+      toast.success(tr("defiSupprime"));
       router.push(redirectTo);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
       setBusy(false);
     }
   }
@@ -74,12 +76,12 @@ export function ChallengeDangerActions({
       await setHidden({ id, hidden: next });
       toast.success(
         next
-          ? "Défi masqué — les créatrices ne le voient plus"
-          : "Défi réaffiché",
+          ? tr("defiMasqueLesCreatricesNe")
+          : tr("defiReaffiche"),
       );
       setOuvert(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -94,7 +96,7 @@ export function ChallengeDangerActions({
           onClick={() => void basculerMasque(false)}
         >
           <EyeIcon className="size-4" />
-          Réafficher aux créatrices
+          {tr("reafficherAuxCreatrices")}
         </Button>
       ) : null}
       <Button
@@ -104,7 +106,7 @@ export function ChallengeDangerActions({
         onClick={() => setOuvert(true)}
       >
         <Trash2Icon className="size-4" />
-        Supprimer le défi
+        {tr("supprimerLeDefi")}
       </Button>
 
       <AlertDialog open={ouvert} onOpenChange={setOuvert}>
@@ -112,31 +114,29 @@ export function ChallengeDangerActions({
           {faits.deletable ? (
             <>
               <AlertDialogHeader>
-                <AlertDialogTitle>Supprimer ce défi ?</AlertDialogTitle>
+                <AlertDialogTitle>{tr("supprimerCeDefi")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Rien n&apos;a été produit :{" "}
+                  {tr("rienNAEteProduit")}{" "}
                   {faits.videos === 0
-                    ? "aucune vidéo n'a été lancée"
-                    : `ses ${faits.videos} vidéo${faits.videos > 1 ? "s sont encore à faire" : " est encore à faire"}`}
-                  , aucune n&apos;est publiée ni payée, et personne n&apos;a
-                  gagné. Le défi
+                    ? tr("aucuneVideoNAEte")
+                    : tr("sesVideosEncoreAFaire", { count: faits.videos })}
+                  {tr("aucuneNEstPublieeNi")}
                   {faits.participants > 0
-                    ? `, ses ${faits.participants} participante${faits.participants > 1 ? "s" : ""}`
-                    : ""}{" "}
-                  et ses vidéos disparaissent
+                    ? tr("sesParticipante", { participants: faits.participants })
+                    : ""}{" "}{tr("etSesVideosDisparaissent")}
                   {faits.participants > 0
-                    ? " — et elles ne le voient plus dans leur espace."
+                    ? ` ${tr("etEllesNeLeVoient")}`
                     : "."}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogCancel>{tr("annuler")}</AlertDialogCancel>
                 <AlertDialogAction
                   disabled={busy}
                   onClick={() => void supprimer()}
                 >
                   {busy && <Loader2Icon className="size-3.5 animate-spin" />}
-                  Supprimer définitivement
+                  {tr("supprimerDefinitivement")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </>
@@ -144,44 +144,38 @@ export function ChallengeDangerActions({
             <>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  Ce défi ne peut pas être supprimé
+                  {tr("ceDefiNePeutPas")}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Il porte des faits :{" "}
+                  {tr("ilPorteDesFaits")}{" "}
                   <strong>
-                    {faits.published} vidéo{faits.published > 1 ? "s" : ""}{" "}
-                    publiée{faits.published > 1 ? "s" : ""}
+                    {tr("videoPubliee", { published: faits.published })}
                   </strong>
                   {faits.wins > 0 ? (
                     <>
-                      {" "}
-                      et{" "}
+                      {" "}{tr("et")}{" "}
                       <strong>
-                        {faits.wins} victoire{faits.wins > 1 ? "s" : ""}
+                        {tr("victoire", { wins: faits.wins })}
                       </strong>
                     </>
                   ) : null}
-                  . Les effacer casserait le lien entre ces vidéos et leur cycle
-                  de paie.
+                  {tr("lesEffacerCasseraitLeLien")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-900">
                 <EyeOffIcon className="mt-0.5 size-4 shrink-0" />
                 <div>
-                  À la place, il peut être <strong>masqué</strong> : il disparaît
-                  de l&apos;espace des créatrices. Ses vidéos, ses paiements et
-                  ses victoires restent intacts, et il reste listé ici pour
-                  pouvoir être réaffiché.
+                  {tr("aLaPlaceIlPeut")}{" "}<strong>{tr("masque")}</strong>{" "}{tr("ilDisparaitDeLEspace")}
                 </div>
               </div>
               <AlertDialogFooter>
-                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogCancel>{tr("annuler")}</AlertDialogCancel>
                 <AlertDialogAction
                   disabled={busy || hidden}
                   onClick={() => void basculerMasque(true)}
                 >
                   {busy && <Loader2Icon className="size-3.5 animate-spin" />}
-                  {hidden ? "Déjà masqué" : "Masquer aux créatrices"}
+                  {hidden ? tr("dejaMasque") : tr("masquerAuxCreatrices")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </>

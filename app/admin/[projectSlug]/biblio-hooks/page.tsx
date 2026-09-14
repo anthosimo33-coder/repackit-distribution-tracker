@@ -29,6 +29,8 @@ import {
   snapshotQueryArgs,
 } from "@/components/snapshot-age-selector/SnapshotAgeContext";
 import { GitBranchIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 // P10 — mécanique/niveau (outillage éditorial interne) ne sont plus exposés
 // dans l'UI : ni filtres, ni regroupement, ni badges. Les champs restent en
@@ -61,6 +63,8 @@ function useDebounced<T>(value: T, delay: number): T {
  * carouselId=). Évite un double-redirect via /p/[carouselId].
  */
 export default function BiblioHooksPage() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.library.BiblioHooksPage");
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounced(search, 300);
   const [langue, setLangue] = useState<string>("FR");
@@ -86,14 +90,14 @@ export default function BiblioHooksPage() {
     <div className="space-y-6">
       <header className="space-y-1">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Bibliothèque Hooks
+          {tr("bibliothequeHooks")}
         </h1>
         <p className="text-sm text-slate-500">
           {hooks === undefined || totalCount === undefined
-            ? "Chargement..."
+            ? tr("chargement")
             : hooks.length === totalCount
-              ? `${formatNumber(totalCount)} hooks`
-              : `${formatNumber(hooks.length)} sur ${formatNumber(totalCount)} hooks`}
+              ? tr("hooks", { count: formatNumber(totalCount, loc) })
+              : tr("surHooks", { count: formatNumber(hooks.length, loc), count2: formatNumber(totalCount, loc) })}
         </p>
       </header>
 
@@ -103,22 +107,22 @@ export default function BiblioHooksPage() {
             htmlFor="hook-search"
             className="text-xs font-medium text-slate-600"
           >
-            Recherche
+            {tr("recherche")}
           </label>
           <Input
             id="hook-search"
-            placeholder="Texte du hook..."
+            placeholder={tr("texteDuHook")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
 
         <FilterSelect
-          label="Langue"
+          label={tr("langue")}
           value={langue}
           onChange={setLangue}
           options={[...LANGUES]}
-          allLabel="Toutes"
+          allLabel={tr("toutes")}
           width="w-[120px]"
         />
 
@@ -128,7 +132,7 @@ export default function BiblioHooksPage() {
             checked={hideUsed}
             onCheckedChange={setHideUsed}
           />
-          <span className="text-sm text-slate-700">Masquer publiés</span>
+          <span className="text-sm text-slate-700">{tr("masquerPublies")}</span>
         </label>
 
         <label className="flex cursor-pointer items-center gap-2 self-end pb-2">
@@ -137,11 +141,11 @@ export default function BiblioHooksPage() {
             checked={hideDraft}
             onCheckedChange={setHideDraft}
           />
-          <span className="text-sm text-slate-700">Masquer les à venir</span>
+          <span className="text-sm text-slate-700">{tr("masquerLesAVenir")}</span>
         </label>
 
         <Button variant="outline" onClick={reset}>
-          Reset filtres
+          {tr("resetFiltres")}
         </Button>
       </div>
 
@@ -169,22 +173,25 @@ export default function BiblioHooksPage() {
 // Refinement Shorts — biblio hooks = carrousel only (SR puis Short retirés
 // du comptage). Les badges ne reflètent plus que les carrousels.
 function PublishedBadge({ carousels }: { carousels: number }) {
+  const tr = useTranslations("admin.library.PublishedBadge");
   return (
     <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-      Utilisé {carousels} fois
+      {tr("utiliseFois", { carousels: carousels })}
     </Badge>
   );
 }
 
 function DraftBadge({ carousels }: { carousels: number }) {
+  const tr = useTranslations("admin.library.DraftBadge");
   return (
     <Badge variant="outline" className="text-amber-700">
-      +{carousels} carr. à venir
+      {tr("carrAVenir", { carousels: carousels })}
     </Badge>
   );
 }
 
 function HookCard({ hook }: { hook: HookWithUsage }) {
+  const tr = useTranslations("admin.library.HookCard");
   const projectPath = useProjectPath();
   // Refinement Shorts — biblio hooks = exclusivement carrousel (SR puis
   // Short retirés du comptage). Les badges/variantes Short et SR ne sont
@@ -209,8 +216,7 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
             )}
             {hook.variantsCountCarousel > 0 && (
               <Badge className="border-violet-200 bg-violet-50 text-violet-700">
-                {hook.variantsCountCarousel} variante
-                {hook.variantsCountCarousel > 1 ? "s" : ""} carrousel
+                {tr("varianteCarrousel", { variantsCountCarousel: hook.variantsCountCarousel })}
               </Badge>
             )}
           </div>
@@ -231,7 +237,7 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
           )}
           className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
         >
-          Créer carrousel →
+          {tr("creerCarrousel")}
         </Link>
       </CardContent>
     </Card>
@@ -254,6 +260,8 @@ function HookVariantsPopover({
   count: number;
   mediaType: "carousel" | "short" | "screenrecorder";
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.library.HookVariantsPopover");
   const [open, setOpen] = useState(false);
   // Cohérence biblio-hooks ↔ tracker : les verdicts des variantes suivent la
   // période d'âge globale (SnapshotAgeSelector), comme le tracker.
@@ -319,7 +327,7 @@ function HookVariantsPopover({
           </div>
         ) : variants.length === 0 ? (
           <p className="px-3 py-4 text-center text-xs text-slate-500">
-            Aucune variante.
+            {tr("aucuneVariante")}
           </p>
         ) : (
           <ul className="space-y-0.5">
@@ -346,7 +354,7 @@ function HookVariantsPopover({
                         <span className="tabular-nums">
                           {v.saveRate === null
                             ? "—"
-                            : formatPercent(v.saveRate)}
+                            : formatPercent(v.saveRate, undefined, loc)}
                         </span>
                         <span className="text-slate-400">·</span>
                       </>
@@ -371,6 +379,7 @@ function formatShortDate(timestamp: number): string {
 }
 
 function UsageDetail({ hook }: { hook: HookWithUsage }) {
+  const tr = useTranslations("admin.library.UsageDetail");
   const accounts = hook.accountsUsed;
   const visibleAccounts = accounts.slice(0, 3);
   const extraAccounts = accounts.length - visibleAccounts.length;
@@ -382,13 +391,13 @@ function UsageDetail({ hook }: { hook: HookWithUsage }) {
           <span className="font-mono">{visibleAccounts.join(" · ")}</span>
           {extraAccounts > 0 && (
             <span className="ml-1 text-slate-400">
-              +{extraAccounts} autre{extraAccounts > 1 ? "s" : ""}
+              {tr("autre", { extraAccounts: extraAccounts })}
             </span>
           )}
         </div>
       )}
       {hook.lastPublishedAt !== null && (
-        <div>Dernière publi : {formatLongDate(hook.lastPublishedAt)}</div>
+        <div>{tr("dernierePubli", { date: formatLongDate(hook.lastPublishedAt) })}</div>
       )}
     </div>
   );
@@ -413,11 +422,12 @@ function LoadingSkeleton() {
 }
 
 function EmptyState({ onReset }: { onReset: () => void }) {
+  const tr = useTranslations("admin.library.EmptyState");
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white py-16">
-      <p className="text-slate-500">Aucun hook ne correspond à ces filtres.</p>
+      <p className="text-slate-500">{tr("aucunHookNeCorrespondA")}</p>
       <Button variant="outline" size="sm" onClick={onReset}>
-        Reset les filtres
+        {tr("resetLesFiltres")}
       </Button>
     </div>
   );

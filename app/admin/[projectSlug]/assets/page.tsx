@@ -39,10 +39,12 @@ import {
   SparklesIcon,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { useTranslations } from "next-intl";
 
 type Folder = FunctionReturnType<typeof api.assets.listAssetFolders>[number];
 
 export default function AssetsPage() {
+  const tr = useTranslations("admin.library.AssetsPage");
   const folders = useProjectQuery(api.assets.listAssetFolders, {});
   const projectPath = useProjectPath();
   const [createOpen, setCreateOpen] = useState(false);
@@ -53,17 +55,15 @@ export default function AssetsPage() {
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Assets
+            {tr("assets")}
           </h1>
           <p className="text-sm text-slate-500">
-            Bibliothèque d&apos;images et vidéos en dossiers, à lier aux
-            assignments pour
-            téléchargement par les créateurs.
+            {tr("bibliothequeDImagesEtVideos")}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <PlusIcon className="mr-2 size-4" />
-          Nouveau dossier
+          {tr("nouveauDossier")}
         </Button>
       </header>
 
@@ -74,8 +74,7 @@ export default function AssetsPage() {
           <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
             <ImagesIcon className="size-12 text-slate-300" strokeWidth={1.5} />
             <p className="text-sm text-slate-500">
-              Aucun dossier. Crée un dossier pour y uploader des images et
-              vidéos.
+              {tr("aucunDossierCreeUnDossier")}
             </p>
           </CardContent>
         </Card>
@@ -94,13 +93,13 @@ export default function AssetsPage() {
                       {f.name}
                     </p>
                     <p className="flex items-center gap-1.5 text-xs text-slate-500">
-                      {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
+                      {tr("fichier", { assetCount: f.assetCount })}
                       {f.postprocessImages === true && (
                         <span
                           className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900"
-                          title="Les images déposées sont nettoyées de leurs métadonnées et ré-encodées"
+                          title={tr("lesImagesDeposeesSontNettoyees")}
                         >
-                          <SparklesIcon className="size-3" />À publier
+                          <SparklesIcon className="size-3" />{tr("aPublier")}
                         </span>
                       )}
                     </p>
@@ -133,12 +132,13 @@ function FolderActions({
   folder: Folder;
   onRename: () => void;
 }) {
+  const tr = useTranslations("admin.library.FolderActions");
   const remove = useProjectMutation(api.assets.deleteAssetFolder);
 
   async function onDelete() {
     try {
       await remove({ id: folder._id });
-      toast.success("Dossier supprimé.");
+      toast.success(tr("dossierSupprime"));
     } catch (e) {
       toast.error(convexErrorMessage(e));
     }
@@ -157,12 +157,12 @@ function FolderActions({
         {/* « Modifier » et pas « Renommer » : le dialog porte AUSSI le réglage
             « Contenu à publier », qu'on ne penserait jamais à chercher
             derrière un intitulé de renommage. */}
-        <DropdownMenuItem onClick={onRename}>Modifier</DropdownMenuItem>
+        <DropdownMenuItem onClick={onRename}>{tr("modifier")}</DropdownMenuItem>
         <DropdownMenuItem
           onClick={onDelete}
           className="text-rose-600 focus:text-rose-700"
         >
-          Supprimer
+          {tr("supprimer")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -178,6 +178,7 @@ function FolderDialog({
   onOpenChange: (o: boolean) => void;
   folder: Folder | null;
 }) {
+  const tr = useTranslations("admin.library.FolderDialog");
   const create = useProjectMutation(api.assets.createAssetFolder);
   const rename = useProjectMutation(api.assets.renameAssetFolder);
   const setPostprocess = useProjectMutation(api.assets.setAssetFolderPostprocess);
@@ -197,7 +198,7 @@ function FolderDialog({
 
   async function onSubmit() {
     if (name.trim().length === 0) {
-      toast.error("Le nom est requis.");
+      toast.error(tr("leNomEstRequis"));
       return;
     }
     setBusy(true);
@@ -207,10 +208,10 @@ function FolderDialog({
         if ((folder.postprocessImages === true) !== postprocessImages) {
           await setPostprocess({ id: folder._id, postprocessImages });
         }
-        toast.success("Dossier mis à jour.");
+        toast.success(tr("dossierMisAJour"));
       } else {
         await create({ name, postprocessImages });
-        toast.success("Dossier créé.");
+        toast.success(tr("dossierCree"));
       }
       onOpenChange(false);
     } catch (e) {
@@ -225,36 +226,33 @@ function FolderDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {isEdit ? "Modifier le dossier" : "Nouveau dossier"}
+            {isEdit ? tr("modifierLeDossier") : tr("nouveauDossier")}
           </DialogTitle>
           <DialogDescription>
-            Un dossier regroupe des images et vidéos à fournir aux créateurs.
+            {tr("unDossierRegroupeDesImages")}
           </DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-1.5">
-          <Label htmlFor="folder-name">Nom</Label>
+          <Label htmlFor="folder-name">{tr("nom")}</Label>
           <Input
             id="folder-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex. Logos & overlays"
+            placeholder={tr("exLogosOverlays")}
           />
         </div>
         <label className="flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-3">
           <Switch
             checked={postprocessImages}
             onCheckedChange={setPostprocessImages}
-            aria-label="Contenu à publier — nettoyer les métadonnées des images"
+            aria-label={tr("contenuAPublierNettoyerLes")}
             className="mt-0.5"
           />
           <span className="min-w-0 text-xs text-slate-600">
             <span className="block text-sm font-medium text-slate-900">
-              Contenu à publier
+              {tr("contenuAPublier")}
             </span>
-            Les images déposées seront nettoyées de leurs métadonnées (C2PA,
-            EXIF, XMP) et ré-encodées en JPEG. À laisser DÉSACTIVÉ pour du
-            matériel source que les créatrices retravaillent : la recompression
-            est irréversible.
+            {tr("lesImagesDeposeesSerontNettoyees")}
           </span>
         </label>
         <DialogFooter>
@@ -263,11 +261,11 @@ function FolderDialog({
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onSubmit} disabled={busy}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            {isEdit ? "Enregistrer" : "Créer"}
+            {isEdit ? tr("enregistrer") : tr("creer")}
           </Button>
         </DialogFooter>
       </DialogContent>

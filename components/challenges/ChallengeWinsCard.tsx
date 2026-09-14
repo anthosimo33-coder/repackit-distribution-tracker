@@ -26,7 +26,10 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, TrophyIcon } from "lucide-react";
 import { formatDateFr } from "@/convex/dateFr";
 import type { Id } from "@/convex/_generated/dataModel";
-import { formatViews, rewardLabel, type ChallengeReward } from "./challenge-format";
+import { formatViews, type ChallengeReward } from "./challenge-format";
+import { useChallengeLabels } from "./use-challenge-labels";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type Win = {
   _id: Id<"challengeWins">;
@@ -60,6 +63,9 @@ export function ChallengeWinsCard({
   wins: Win[];
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.challenges.ChallengeWinsCard");
+  const L = useChallengeLabels();
   const cancel = useProjectMutation(api.challengeSync.cancelChallengeWin);
   const [target, setTarget] = useState<Win | null>(null);
   const [reason, setReason] = useState("");
@@ -70,11 +76,11 @@ export function ChallengeWinsCard({
     setBusy(true);
     try {
       await cancel({ winId: target._id, reason: reason.trim() });
-      toast.success("Victoire annulée — la place est de nouveau ouverte");
+      toast.success(tr("victoireAnnuleeLaPlaceEst"));
       setTarget(null);
       setReason("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -83,16 +89,15 @@ export function ChallengeWinsCard({
   return (
     <Card data-testid="challenge-wins">
       <CardHeader>
-        <CardTitle className="text-base">Victoires ({wins.length})</CardTitle>
+        <CardTitle className="text-base">{tr("victoires", { count: wins.length })}</CardTitle>
         <CardDescription>
-          Actées au relevé de 23h30. Une victoire ne se reprend jamais toute
-          seule — même si le score retombe ou qu&apos;une autre passe devant.
+          {tr("acteesAuReleveDe23h30")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
         {wins.length === 0 && (
           <p className="text-sm text-slate-500">
-            Aucune victoire pour l&apos;instant.
+            {tr("aucuneVictoirePourLInstant")}
           </p>
         )}
         {wins.map((w) => (
@@ -120,12 +125,11 @@ export function ChallengeWinsCard({
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-slate-500">
-                {formatViews(w.scoreAtWin)} vues au relevé du{" "}
-                {formatDateFr(w.wonAt)} · {rewardLabel(w.reward, undefined, currency)}
+                {tr("vuesAuReleveDu", { count: formatViews(w.scoreAtWin, loc), date: formatDateFr(w.wonAt, loc), value: L.reward(w.reward, undefined, currency) })}
               </p>
               {w.cancelledAt !== null && (
                 <p className="mt-1 text-xs text-rose-600">
-                  Annulée le {formatDateFr(w.cancelledAt)} — {w.cancelReason}
+                  {tr("annuleeLe", { date: formatDateFr(w.cancelledAt, loc), cancelReason: w.cancelReason ?? "" })}
                 </p>
               )}
             </div>
@@ -138,7 +142,7 @@ export function ChallengeWinsCard({
                   setReason("");
                 }}
               >
-                Annuler
+                {tr("annuler")}
               </Button>
             )}
           </div>
@@ -148,36 +152,34 @@ export function ChallengeWinsCard({
       <Dialog open={target !== null} onOpenChange={(v) => !v && setTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Annuler la victoire de {target?.creatorName}</DialogTitle>
+            <DialogTitle>{tr("annulerLaVictoireDe", { creatorName: target?.creatorName ?? "" })}</DialogTitle>
             <DialogDescription>
-              La place redevient ouverte : la prochaine évaluation peut
-              l&apos;attribuer à quelqu&apos;un d&apos;autre — ou à la même
-              personne si elle est toujours en tête.
+              {tr("laPlaceRedevientOuverteLa")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="cancel-reason">Motif (obligatoire)</Label>
+            <Label htmlFor="cancel-reason">{tr("motifObligatoire")}</Label>
             <Textarea
               id="cancel-reason"
               rows={3}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Pourquoi cette victoire est annulée."
+              placeholder={tr("pourquoiCetteVictoireEstAnnulee")}
             />
             <p className="text-xs text-slate-400">
-              Le motif reste dans l&apos;historique du défi.
+              {tr("leMotifResteDansL")}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setTarget(null)}>
-              Retour
+              {tr("retour")}
             </Button>
             <Button
               onClick={handleCancel}
               disabled={busy || reason.trim().length === 0}
             >
               {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Annuler la victoire
+              {tr("annulerLaVictoire")}
             </Button>
           </DialogFooter>
         </DialogContent>

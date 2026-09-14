@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { LayoutGridIcon, ListIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 /**
  * Batch H — toggle Grid/List pour /inspirations. URL param ?view=grid|list
@@ -15,17 +16,18 @@ export function ViewToggle({
   value: "grid" | "list";
   onChange: (next: "grid" | "list") => void;
 }) {
+  const tr = useTranslations("admin.library.ViewToggle");
   return (
     <div
       role="group"
-      aria-label="Vue grille ou liste"
+      aria-label={tr("vueGrilleOuListe")}
       className="inline-flex items-center rounded-md border border-slate-200 bg-white p-0.5"
     >
       <Button
         type="button"
         variant={value === "grid" ? "default" : "ghost"}
         size="icon-sm"
-        aria-label="Vue grille"
+        aria-label={tr("vueGrille")}
         aria-pressed={value === "grid"}
         onClick={() => onChange("grid")}
       >
@@ -35,7 +37,7 @@ export function ViewToggle({
         type="button"
         variant={value === "list" ? "default" : "ghost"}
         size="icon-sm"
-        aria-label="Vue liste"
+        aria-label={tr("vueListe")}
         aria-pressed={value === "list"}
         onClick={() => onChange("list")}
       >

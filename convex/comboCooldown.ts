@@ -84,6 +84,7 @@ export function assertValidComboCooldownDays(
     days > COMBO_COOLDOWN_DAYS_MAX
   ) {
     throw new Error(
+      // i18n-exempt: message de refus SERVEUR (mutation admin) — lot « erreurs serveur »
       `Durée de cooldown invalide : un entier entre ${COMBO_COOLDOWN_DAYS_MIN} et ${COMBO_COOLDOWN_DAYS_MAX} jours.`,
     );
   }

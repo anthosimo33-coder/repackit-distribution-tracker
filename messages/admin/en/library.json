@@ -1,1 +1,332 @@
-{}
+{
+  "AssetFolderDetailPage": {
+    "assets": "Assets",
+    "imagesJpgPngWebp10": "JPG/PNG/WebP images (10 MB) · MP4/MOV/WebM videos (100 MB). Link this folder to an assignment from the Assignments page.",
+    "lesImagesDeposeesIciSont": "Images uploaded here are stripped of their metadata (C2PA, EXIF, XMP) and re-encoded to JPEG on ingest. Recompression is irreversible — don't put source material here.",
+    "contenuAPublier": "Content to publish.",
+    "aucunFichierDansCeDossier": "No file in this folder.",
+    "video": "Video",
+    "dossierIntrouvable": "Folder not found",
+    "supprimer": "Delete {fileName}",
+    "fichierSupprime": "File deleted."
+  },
+  "AssetsPage": {
+    "assets": "Assets",
+    "bibliothequeDImagesEtVideos": "Library of images and videos in folders, to link to assignments for creators to download.",
+    "nouveauDossier": "New folder",
+    "aucunDossierCreeUnDossier": "No folder. Create one to upload images and videos.",
+    "fichier": "{assetCount} {assetCount, plural, one {file} other {files}}",
+    "aPublier": "To publish",
+    "lesImagesDeposeesSontNettoyees": "Images uploaded here are stripped of their metadata and re-encoded"
+  },
+  "FolderActions": {
+    "modifier": "Edit",
+    "supprimer": "Delete",
+    "dossierSupprime": "Folder deleted."
+  },
+  "FolderDialog": {
+    "unDossierRegroupeDesImages": "A folder groups images and videos to hand to creators.",
+    "nom": "Name",
+    "lesImagesDeposeesSerontNettoyees": "Images uploaded here will be stripped of their metadata (C2PA, EXIF, XMP) and re-encoded to JPEG. Leave it OFF for source material creators rework: recompression is irreversible.",
+    "contenuAPublier": "Content to publish",
+    "annuler": "Cancel",
+    "modifierLeDossier": "Edit the folder",
+    "nouveauDossier": "New folder",
+    "exLogosOverlays": "E.g. Logos & overlays",
+    "contenuAPublierNettoyerLes": "Content to publish — strip image metadata",
+    "enregistrer": "Save",
+    "creer": "Create",
+    "leNomEstRequis": "The name is required.",
+    "dossierMisAJour": "Folder updated.",
+    "dossierCree": "Folder created."
+  },
+  "BiblioHooksPage": {
+    "bibliothequeHooks": "Hook library",
+    "recherche": "Search",
+    "masquerPublies": "Hide published",
+    "masquerLesAVenir": "Hide upcoming",
+    "resetFiltres": "Reset filters",
+    "chargement": "Loading...",
+    "hooks": "{count} hooks",
+    "surHooks": "{count} of {count2} hooks",
+    "texteDuHook": "Hook text...",
+    "langue": "Language",
+    "toutes": "All"
+  },
+  "PublishedBadge": {
+    "utiliseFois": "Used {carousels} times"
+  },
+  "DraftBadge": {
+    "carrAVenir": "+{carousels} upcoming carousels"
+  },
+  "HookCard": {
+    "varianteCarrousel": "{variantsCountCarousel} carousel {variantsCountCarousel, plural, one {variant} other {variants}}",
+    "creerCarrousel": "Create carousel →"
+  },
+  "HookVariantsPopover": {
+    "aucuneVariante": "No variant."
+  },
+  "UsageDetail": {
+    "autre": "+{extraAccounts} {extraAccounts, plural, one {other} other {others}}",
+    "dernierePubli": "Last post: {date}"
+  },
+  "EmptyState": {
+    "aucunHookNeCorrespondA": "No hook matches these filters.",
+    "resetLesFiltres": "Reset the filters"
+  },
+  "InspirationsPageInner": {
+    "aucuneInspirationNeCorrespondA": "No inspiration matches these filters.",
+    "essaieDeReinitialiserOuD": "Try resetting or widening your criteria."
+  },
+  "AssetUploader": {
+    "glisseDesImagesOuVideos": "Drop images or videos here",
+    "imagesJpgPngWebp10": "JPG/PNG/WebP images (10 MB) · MP4/MOV/WebM videos (100 MB, ~1 min)",
+    "parcourir": "Browse",
+    "nettoyageDesMetadonnees": "Stripping metadata…",
+    "preparation": "Preparing…",
+    "uploadEnCours": "Uploading… {progress}%",
+    "selectionnerDesImagesOuVideos": "Select images or videos",
+    "erreurDUpload": "Upload failed.",
+    "fichierAjoute": "{ok} {ok, plural, one {file} other {files}} added."
+  },
+  "GuideModuleEditForm": {
+    "ecrisLeContenuEnMarkdown": "Write the content in markdown — the preview shows what the creator will see.",
+    "titre": "Title *",
+    "caracteres": "{count}/{TITLE_MAX} characters",
+    "contenuMarkdown": "Content (markdown)",
+    "apercuCreateur": "Creator preview",
+    "lApercuDuRenduApparaitra": "The rendered preview will appear here.",
+    "langue": "Language *",
+    "chaqueLangueASonPropre": "Each language has its own set of modules. This module only appears in the {value} guide",
+    "cEstLeGuideWarmup": "This is the warm-up guide",
+    "leBoutonGuideWarmupDe": "The “Warm-up guide” button on the accounts screen opens this module.",
+    "lActiverIciLeRetire": ": turning it on here removes it from the module that had it.",
+    "unSeulParLangue": "One per language",
+    "annuler": "Cancel",
+    "modifierLeModule": "Edit the module",
+    "nouveauModule": "New module",
+    "exCommentJeSuisPaye": "E.g.: How I get paid",
+    "titreEcrisTonContenuIci": "# Title Write your content here…",
+    "langue2": "Language",
+    "leChangerLeDeplaceEn": "— changing it moves it to the end of the other set.",
+    "etNeToucheARien": ", and touches nothing in the other.",
+    "publie": "Published",
+    "brouillon": "Draft",
+    "visibleParLesCreateursDu": "Visible to the project's creators.",
+    "invisibleCoteCreateurTantQue": "Invisible to creators while it's a draft.",
+    "sauvegarder": "Save",
+    "creer": "Create",
+    "moduleMisAJour": "Module updated",
+    "moduleCree": "Module created",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "GuideModulesManager": {
+    "commentCaMarche": "How it works",
+    "lesModulesDeFormationAffiches": "The training modules shown to creators (markdown, per project). Drafts stay invisible to creators. Each language has its own set of modules, independent from the other.",
+    "aucunModule": "No module",
+    "creeTonPremierModulePour": "Create your first module to explain how it works to creators.",
+    "nouveauModule": "New module",
+    "guide": "{label} guide",
+    "guideWarmup": "Warm-up guide",
+    "supprimer": "Delete “{title}”?",
+    "actionIrreversibleLeModuleSera": "This can't be undone. The module will be permanently deleted.",
+    "annuler": "Cancel",
+    "supprimer2": "Delete",
+    "aucunModule2": "no module",
+    "module": "{count} {count, plural, one {module} other {modules}}",
+    "nouveauModuleGuide": "New module — {label} guide",
+    "aucunModuleDansCetteLangue": "No module in this language.",
+    "aucunModuleDansCetteLangue2": "No module in this language: creators reading in {label} see the French guide, with a banner telling them so.",
+    "monter": "Move {title} up",
+    "descendre": "Move {title} down",
+    "publie": "Published",
+    "brouillon": "Draft",
+    "modifier": "Edit {title}",
+    "supprimer3": "Delete {title}",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "moduleSupprime": "Module deleted"
+  },
+  "FolderCombobox": {
+    "aucunDossier": "No folder",
+    "creer": "Create “{trimmedQuery}”",
+    "chercheOuCreeUnDossier": "Search or create a folder...",
+    "aucunDossierCreeLeCi": "No folder — create it below.",
+    "aucunDossierTrouve": "No folder found.",
+    "dossierCree": "Folder \"{trimmedQuery}\" created",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "FolderEditDialogForm": {
+    "nom": "Name *",
+    "caracteres": "{count}/{MAX_NAME_LENGTH} characters",
+    "description": "Description",
+    "couleur": "Color",
+    "annuler": "Cancel",
+    "modifierLeDossier": "Edit the folder",
+    "nouveauDossier": "New folder",
+    "metsAJourLeNom": "Update the name, description or color.",
+    "creeUnDossierPourOrganiser": "Create a folder to organize your inspirations.",
+    "exHooksGrowth": "E.g. Growth hooks",
+    "optionnel": "Optional",
+    "couleur2": "Color {label}",
+    "sauvegarder": "Save",
+    "creer": "Create",
+    "dossierModifie": "Folder updated",
+    "dossierCree": "Folder created",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "FolderManagerSection": {
+    "retourAuxInspirations": "Back to inspirations",
+    "dossiers": "Folders",
+    "organiseTesInspirationsEnCollections": "Organize your inspirations into themed collections.",
+    "nouveauDossier": "New folder",
+    "aucunDossier": "No folder",
+    "creeTonPremierDossierPour": "Create your first folder to organize your inspirations.",
+    "supprimer": "Delete “{name}”?",
+    "annuler": "Cancel",
+    "supprimer2": "Delete",
+    "changerLaCouleurDe": "Change the color of {name}",
+    "couleur": "Color {label}",
+    "renommer": "Rename {name}",
+    "supprimer3": "Delete {name}",
+    "actionIrreversibleLeDossierSera": "This can't be undone. The folder will be deleted.",
+    "couleurMiseAJour": "Color updated",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "dossierSupprimeInspirationSDeplacee": "Folder deleted — {moved} inspiration(s) moved to Unsorted",
+    "dossierSupprime": "Folder deleted",
+    "serontDeplacees": "will be moved",
+    "seraDeplacee": "will be moved",
+    "inspirationsDeplacees": "{count} {count, plural, one {inspiration will move} other {inspirations will move}} to Unsorted. The folder will be deleted."
+  },
+  "InspirationCard": {
+    "sansTitre": "(Untitled)",
+    "inspiration": "Inspiration",
+    "retirerDesFavoris": "Remove from favorites",
+    "ajouterAuxFavoris": "Add to favorites",
+    "ouvrirLaPublication": "Open the post",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "DialogNotFound": {
+    "inspirationIntrouvable": "Inspiration not found",
+    "cetteInspirationAEteSupprimee": "This inspiration was deleted or no longer exists.",
+    "fermer": "Close"
+  },
+  "InspirationDialogForm": {
+    "url": "URL *",
+    "detection": "Detected:",
+    "modifier": "Edit",
+    "plateforme": "Platform",
+    "type": "Type",
+    "titre": "Title",
+    "notes": "Notes",
+    "thumbnail": "Thumbnail",
+    "dossier": "Folder",
+    "tags": "Tags",
+    "entreeVirguleOuTabPour": "Enter, comma or Tab to confirm. Backspace to remove.",
+    "favori": "Favorite",
+    "supprimer": "Delete",
+    "annuler": "Cancel",
+    "quitterSansEnregistrer": "Leave without saving?",
+    "tesModificationsNeSerontPas": "Your changes won't be saved.",
+    "continuerLEdition": "Keep editing",
+    "quitter": "Leave",
+    "supprimerCetteInspiration": "Delete this inspiration?",
+    "actionIrreversibleLInspirationSera": "This can't be undone. The inspiration will be permanently deleted.",
+    "modifierLInspiration": "Edit the inspiration",
+    "nouvelleInspiration": "New inspiration",
+    "metsAJourLesDetails": "Update this inspiration's details.",
+    "captureUneVideoOuUn": "Capture a video or an account that inspires you.",
+    "plateformeNonDetecteeSelectionneManuelle": "Platform not detected — select it manually.",
+    "overrideManuel": "Manual override.",
+    "optionnel": "Optional",
+    "ceQuiTAMarque": "What struck you, what you take from it...",
+    "sauvegarder": "Save",
+    "enregistrer": "Save",
+    "inspirationModifiee": "Inspiration updated",
+    "inspirationCreee": "Inspiration created",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "inspirationSupprimee": "Inspiration deleted",
+    "urlPlaceholder": "https://www.tiktok.com/@... or https://www.instagram.com/..."
+  },
+  "InspirationStatsAccordion": {
+    "statsOptionnel": "Stats (optional)",
+    "vues": "Views",
+    "likes": "Likes",
+    "commentaires": "Comments",
+    "abonnes": "Followers",
+    "dateDeCapture": "Capture date"
+  },
+  "InspirationsEmptyState": {
+    "aucuneInspiration": "No inspiration",
+    "captureUneVideoOuUn": "Capture a video or an account that inspires you.",
+    "nouvelleInspiration": "+ New inspiration"
+  },
+  "InspirationsFilters": {
+    "recherche": "Search",
+    "favorisSeulement": "Favorites only",
+    "reinitialiser": "Reset",
+    "dossier": "Folder",
+    "plateforme": "Platform",
+    "type": "Type",
+    "tags": "Tags",
+    "aucunTag": "No tag",
+    "tous": "All",
+    "titreNotesUrl": "Title, notes, URL…"
+  },
+  "InspirationsHeader": {
+    "inspirations": "Inspirations",
+    "bibliothequeDeVideosEtComptes": "Library of videos and accounts that inspire you.",
+    "filtres": "Filters",
+    "dossiers": "Folders",
+    "nouvelleInspiration": "New inspiration"
+  },
+  "InspirationsList": {
+    "type": "Type",
+    "plateforme": "Platform",
+    "titre": "Title",
+    "dossier": "Folder",
+    "stats": "Stats",
+    "date": "Date",
+    "sansTitre": "(Untitled)",
+    "actions": "Actions",
+    "ouvrirLaPublication": "Open the post",
+    "retirerDesFavoris": "Remove from favorites",
+    "ajouterAuxFavoris": "Add to favorites",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "ThumbnailCell": {
+    "inspiration": "Inspiration"
+  },
+  "StatsCell": {
+    "abonnes": "{count} followers"
+  },
+  "InspirationsListSkeleton": {
+    "type": "Type",
+    "plateforme": "Platform",
+    "titre": "Title",
+    "dossier": "Folder",
+    "stats": "Stats",
+    "date": "Date"
+  },
+  "TagsInput": {
+    "retirerLeTag": "Remove the tag {tag}",
+    "growthB2b": "growth, b2b…",
+    "ajouterUnTag": "Add a tag",
+    "maximumTags": "Maximum {max} tags"
+  },
+  "ViewToggle": {
+    "vueGrilleOuListe": "Grid or list view",
+    "vueGrille": "Grid view",
+    "vueListe": "List view"
+  },
+  "assetError": {
+    "wrongType": "Unsupported format. JPG/PNG/WebP images or MP4/MOV/WebM videos only.",
+    "empty": "Empty file or invalid size.",
+    "imageTooBig": "Image too large (10 MB max).",
+    "videoTooBig": "Video too large (100 MB max).",
+    "invalid": "invalid file."
+  },
+  "inspirationType": {
+    "video": "Video",
+    "account": "Account"
+  }
+}

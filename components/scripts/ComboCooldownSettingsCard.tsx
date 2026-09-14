@@ -17,6 +17,7 @@ import {
   COMBO_COOLDOWN_DAYS_MAX,
   COMBO_COOLDOWN_DAYS_MIN,
 } from "@/convex/comboCooldown";
+import { useTranslations } from "next-intl";
 
 /**
  * COOLDOWN DE COMBO du projet — le seul endroit où cette durée se règle.
@@ -35,6 +36,7 @@ import {
  * cumulent, et seule celle-ci est réglable. C'est dit à l'écran.
  */
 export function ComboCooldownSettingsCard() {
+  const tr = useTranslations("admin.scripts.ComboCooldownSettingsCard");
   const settings = useProjectQuery(api.projects.getComboCooldownSettings, {});
   const save = useProjectMutation(api.projects.setComboCooldownDays);
   const [draft, setDraft] = useState<string | null>(null);
@@ -61,9 +63,9 @@ export function ComboCooldownSettingsCard() {
     try {
       await save({ days: parse(current) });
       setDraft(null);
-      toast.success("Cooldown enregistré");
+      toast.success(tr("cooldownEnregistre"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -80,46 +82,40 @@ export function ComboCooldownSettingsCard() {
         </span>
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-slate-900">
-            Cooldown d&apos;un script, en jours
+            {tr("cooldownDUnScriptEn")}
           </h2>
           <p className="text-xs text-slate-500">
-            Un script déjà programmé (ou sorti) à moins de ce nombre de jours
-            d&apos;une date visée n&apos;est pas réattribuable à cette date —
-            même sur un autre compte, même chez une autre créatrice.
+            {tr("unScriptDejaProgrammeOu")}
           </p>
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="combo-cooldown-days">Jours</Label>
+        <Label htmlFor="combo-cooldown-days">{tr("jours")}</Label>
         <Input
           id="combo-cooldown-days"
           inputMode="numeric"
-          placeholder={`défaut : ${settings.fallback}`}
+          placeholder={tr("defaut", { fallback: settings.fallback })}
           value={current}
           aria-invalid={invalid}
           onChange={(e) => setDraft(e.target.value)}
         />
         <p className="text-xs text-slate-400" data-testid="combo-cooldown-effective">
           {current.trim() === ""
-            ? `non défini — ${settings.fallback} jour${settings.fallback > 1 ? "s" : ""} appliqué${settings.fallback > 1 ? "s" : ""}`
+            ? tr("nonDefiniJourApplique", { fallback: settings.fallback })
             : parsed === 0
-              ? "0 — cooldown désactivé : un même script peut repartir le jour même sur un autre compte"
-              : `${parsed} jour${(parsed ?? 0) > 1 ? "s" : ""} appliqué${(parsed ?? 0) > 1 ? "s" : ""}`}
+              ? tr("n0CooldownDesactiveUnMeme")
+              : tr("jourApplique", { parsed: parsed ?? 0, value: parsed ?? 0 })}
         </p>
         {invalid && (
           <p className="text-xs text-rose-600">
-            Un entier entre {COMBO_COOLDOWN_DAYS_MIN} et{" "}
-            {COMBO_COOLDOWN_DAYS_MAX}, ou vide pour le défaut.
+            {tr("unEntierEntreEtOu", { COMBO_COOLDOWN_DAYS_MIN: COMBO_COOLDOWN_DAYS_MIN, COMBO_COOLDOWN_DAYS_MAX: COMBO_COOLDOWN_DAYS_MAX })}
           </p>
         )}
       </div>
 
       <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
-        Ce réglage ne change <strong>que les tirages à venir</strong> : un combo
-        déjà attribué est figé sur son assignation. Il ne touche pas non plus à
-        l&apos;<strong>unicité à vie</strong> — une créatrice ne reçoit jamais
-        deux fois le même script sur la même plateforme, quel que soit ce nombre.
+        {tr("ceReglageNeChange")}{" "}<strong>{tr("queLesTiragesAVenir")}</strong>{" "}{tr("unComboDejaAttribueEst")}<strong>{tr("uniciteAVie")}</strong>{" "}{tr("uneCreatriceNeRecoitJamais")}
       </p>
 
       <div className="flex justify-end">
@@ -128,7 +124,7 @@ export function ComboCooldownSettingsCard() {
           disabled={saving || invalid || draft === null}
         >
           {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          Enregistrer
+          {tr("enregistrer")}
         </Button>
       </div>
     </div>

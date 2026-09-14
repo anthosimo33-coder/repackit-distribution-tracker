@@ -30,7 +30,7 @@ import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 import { convexErrorMessage } from "@/lib/convex-error";
-import { assembleScript, KIND_LABELS } from "@/lib/scriptAssembly";
+import { assembleScript, KIND_LABEL_KEYS } from "@/lib/scriptAssembly";
 import {
   SCRIPT_COMBO_SLOTS,
   type ScriptComboSlot,
@@ -63,6 +63,7 @@ export function EditBrickTextDialog({
   creatorName: string;
 }) {
   const tr = useTranslations("admin.assignments.EditBrickTextDialog");
+  const tKind = useTranslations("admin.scripts.brickKind");
   const campaign = useProjectQuery(
     api.scripts.getCampaign,
     open ? { id: campaignId } : "skip",
@@ -147,12 +148,12 @@ export function EditBrickTextDialog({
                 onValueChange={(v) => v && setSlot(v as ScriptComboSlot)}
               >
                 <SelectTrigger id="brick-slot" className="w-40">
-                  <SelectValue>{KIND_LABELS[slot]}</SelectValue>
+                  <SelectValue>{tKind(KIND_LABEL_KEYS[slot])}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {SCRIPT_COMBO_SLOTS.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {KIND_LABELS[s]}
+                      {tKind(KIND_LABEL_KEYS[s])}
                     </SelectItem>
                   ))}
                 </SelectContent>

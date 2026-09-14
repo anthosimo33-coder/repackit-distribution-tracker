@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useTranslations } from "next-intl";
 
 export type StatsValues = {
   views: string;
@@ -51,6 +52,7 @@ export function InspirationStatsAccordion({
   handlers: StatsHandlers;
   defaultOpen?: boolean;
 }) {
+  const tr = useTranslations("admin.library.InspirationStatsAccordion");
   const [open, setOpen] = useState(defaultOpen);
 
   function handleToggle() {
@@ -69,7 +71,7 @@ export function InspirationStatsAccordion({
         aria-expanded={open}
         className="flex w-full items-center justify-between rounded-t-md px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
       >
-        <span>Stats (optionnel)</span>
+        <span>{tr("statsOptionnel")}</span>
         {open ? (
           <ChevronDownIcon className="size-4 text-slate-400" />
         ) : (
@@ -80,7 +82,7 @@ export function InspirationStatsAccordion({
         <div className="space-y-3 border-t border-slate-200 p-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="stats-views">Vues</Label>
+              <Label htmlFor="stats-views">{tr("vues")}</Label>
               <Input
                 id="stats-views"
                 type="number"
@@ -91,7 +93,7 @@ export function InspirationStatsAccordion({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="stats-likes">Likes</Label>
+              <Label htmlFor="stats-likes">{tr("likes")}</Label>
               <Input
                 id="stats-likes"
                 type="number"
@@ -102,7 +104,7 @@ export function InspirationStatsAccordion({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="stats-comments">Commentaires</Label>
+              <Label htmlFor="stats-comments">{tr("commentaires")}</Label>
               <Input
                 id="stats-comments"
                 type="number"
@@ -113,7 +115,7 @@ export function InspirationStatsAccordion({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="stats-followers">Abonnés</Label>
+              <Label htmlFor="stats-followers">{tr("abonnes")}</Label>
               <Input
                 id="stats-followers"
                 type="number"
@@ -125,7 +127,7 @@ export function InspirationStatsAccordion({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="stats-captured-at">Date de capture</Label>
+            <Label htmlFor="stats-captured-at">{tr("dateDeCapture")}</Label>
             <Input
               id="stats-captured-at"
               type="date"

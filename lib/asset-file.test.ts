@@ -60,7 +60,7 @@ describe("validateAssetFile", () => {
       size: ASSET_IMAGE_MAX_BYTES + 1,
     });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Image trop lourde/);
+    expect(r.error).toBe("imageTooBig");
   });
 
   it("vidéo > 100 Mo rejetée", () => {
@@ -69,13 +69,13 @@ describe("validateAssetFile", () => {
       size: ASSET_VIDEO_MAX_BYTES + 1,
     });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Vidéo trop lourde/);
+    expect(r.error).toBe("videoTooBig");
   });
 
   it("type non supporté rejeté", () => {
     const r = validateAssetFile({ contentType: "video/avi", size: 1024 });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Format non supporté/);
+    expect(r.error).toBe("wrongType");
   });
 
   it("taille nulle rejetée", () => {

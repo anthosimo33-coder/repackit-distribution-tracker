@@ -41,6 +41,7 @@ import {
 } from "@/lib/folder-colors";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Batch G — page admin folders (?view=folders). CRUD complet : créer,
@@ -54,6 +55,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
  * d'édition, qui requiert plus de friction).
  */
 export function FolderManagerSection({ onBack }: { onBack: () => void }) {
+  const tr = useTranslations("admin.library.FolderManagerSection");
   const folders = useProjectQuery(api.folders.listFolders, {});
   const updateFolder = useProjectMutation(api.folders.updateFolder);
   const deleteFolder = useProjectMutation(api.folders.deleteFolder);
@@ -87,9 +89,9 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
   async function handleColorChange(id: Id<"folders">, color: FolderColorKey) {
     try {
       await updateFolder({ id, color });
-      toast.success("Couleur mise à jour");
+      toast.success(tr("couleurMiseAJour"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -101,12 +103,12 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
       const moved = result?.unsetCount ?? 0;
       toast.success(
         moved > 0
-          ? `Dossier supprimé — ${moved} inspiration(s) déplacée(s) vers Non classé`
-          : "Dossier supprimé",
+          ? tr("dossierSupprimeInspirationSDeplacee", { moved: moved })
+          : tr("dossierSupprime"),
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }
@@ -122,18 +124,18 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
             className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
           >
             <ArrowLeftIcon className="size-4" />
-            Retour aux inspirations
+            {tr("retourAuxInspirations")}
           </button>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Dossiers
+            {tr("dossiers")}
           </h1>
           <p className="text-sm text-slate-500">
-            Organise tes inspirations en collections thématiques.
+            {tr("organiseTesInspirationsEnCollections")}
           </p>
         </div>
         <Button onClick={openCreate}>
           <PlusIcon className="size-4" />
-          Nouveau dossier
+          {tr("nouveauDossier")}
         </Button>
       </div>
 
@@ -151,15 +153,15 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
           />
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-slate-900">
-              Aucun dossier
+              {tr("aucunDossier")}
             </h2>
             <p className="text-sm text-slate-500">
-              Crée ton premier dossier pour organiser tes inspirations.
+              {tr("creeTonPremierDossierPour")}
             </p>
           </div>
           <Button onClick={openCreate}>
             <PlusIcon className="size-4" />
-            Nouveau dossier
+            {tr("nouveauDossier")}
           </Button>
         </div>
       ) : (
@@ -195,7 +197,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Changer la couleur de ${f.name}`}
+                          aria-label={tr("changerLaCouleurDe", { name: f.name })}
                         >
                           <PaletteIcon className="size-4" />
                         </Button>
@@ -211,7 +213,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
                             key={c.key}
                             type="button"
                             onClick={() => handleColorChange(f._id, c.key)}
-                            aria-label={`Couleur ${c.label}`}
+                            aria-label={tr("couleur", { label: c.label })}
                             className={cn(
                               "relative flex size-8 items-center justify-center rounded-md transition-colors hover:bg-slate-50",
                             )}
@@ -228,7 +230,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Renommer ${f.name}`}
+                    aria-label={tr("renommer", { name: f.name })}
                     onClick={() => openEdit(f._id)}
                   >
                     <PencilIcon className="size-4" />
@@ -236,7 +238,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Supprimer ${f.name}`}
+                    aria-label={tr("supprimer3", { name: f.name })}
                     onClick={() =>
                       setDeleteTarget({
                         id: f._id,
@@ -272,16 +274,16 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Supprimer &laquo;&nbsp;{deleteTarget?.name}&nbsp;&raquo; ?
+              {tr("supprimer", { name: deleteTarget?.name ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget && deleteTarget.count > 0
-                ? `${deleteTarget.count} inspiration${deleteTarget.count > 1 ? "s" : ""} ${deleteTarget.count > 1 ? "seront déplacées" : "sera déplacée"} vers Non classé. Le dossier sera supprimé.`
-                : "Action irréversible. Le dossier sera supprimé."}
+                ? tr("inspirationsDeplacees", { count: deleteTarget.count })
+                : tr("actionIrreversibleLeDossierSera")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDelete}
@@ -290,7 +292,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
               {deleting && (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
               )}
-              Supprimer
+              {tr("supprimer2")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

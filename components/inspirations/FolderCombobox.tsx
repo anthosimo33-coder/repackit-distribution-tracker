@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Batch F — adapté de HookCombobox. Liste les folders + permet création
@@ -44,6 +45,7 @@ export function FolderCombobox({
   value: Id<"folders"> | null;
   onChange: (folderId: Id<"folders"> | null) => void;
 }) {
+  const tr = useTranslations("admin.library.FolderCombobox");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -57,6 +59,7 @@ export function FolderCombobox({
       (f) => f.name.toLowerCase() === trimmedQuery.toLowerCase(),
     ) ?? false;
   const showCreateItem =
+    // i18n-exempt: code TypeScript, pas du texte
     trimmedQuery.length > 0 && trimmedQuery.length <= 80 && !exactMatch;
 
   async function handleCreate() {
@@ -65,11 +68,11 @@ export function FolderCombobox({
     try {
       const newId = await createFolder({ name: trimmedQuery });
       onChange(newId);
-      toast.success(`Dossier "${trimmedQuery}" créé`);
+      toast.success(tr("dossierCree", { trimmedQuery: trimmedQuery }));
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setCreating(false);
     }
@@ -94,7 +97,7 @@ export function FolderCombobox({
               ) : (
                 <>
                   <FolderOpenIcon className="size-4 shrink-0 text-slate-300" />
-                  <span className="text-slate-500">Aucun dossier</span>
+                  <span className="text-slate-500">{tr("aucunDossier")}</span>
                 </>
               )}
             </span>
@@ -108,7 +111,7 @@ export function FolderCombobox({
       >
         <Command>
           <CommandInput
-            placeholder="Cherche ou crée un dossier..."
+            placeholder={tr("chercheOuCreeUnDossier")}
             value={query}
             onValueChange={setQuery}
           />
@@ -123,8 +126,8 @@ export function FolderCombobox({
               <>
                 <CommandEmpty>
                   {showCreateItem
-                    ? "Aucun dossier — crée-le ci-dessous."
-                    : "Aucun dossier trouvé."}
+                    ? tr("aucunDossierCreeLeCi")
+                    : tr("aucunDossierTrouve")}
                 </CommandEmpty>
                 <CommandGroup>
                   <CommandItem
@@ -136,7 +139,7 @@ export function FolderCombobox({
                     }}
                   >
                     <FolderOpenIcon className="size-4 text-slate-400" />
-                    <span className="text-slate-600">Aucun dossier</span>
+                    <span className="text-slate-600">{tr("aucunDossier")}</span>
                     {value === null && (
                       <CheckIcon className="ml-auto size-4 opacity-100" />
                     )}
@@ -169,7 +172,7 @@ export function FolderCombobox({
                         disabled={creating}
                       >
                         <PlusIcon className="size-4 text-slate-700" />
-                        <span>Créer &laquo;&nbsp;{trimmedQuery}&nbsp;&raquo;</span>
+                        <span>{tr("creer", { trimmedQuery: trimmedQuery })}</span>
                       </CommandItem>
                     </CommandGroup>
                   </>

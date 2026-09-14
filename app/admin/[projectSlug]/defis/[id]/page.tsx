@@ -39,19 +39,19 @@ import { ChallengeDangerActions } from "@/components/challenges/ChallengeDangerA
 import { ChallengeParticipantsCard } from "@/components/challenges/ChallengeParticipantsCard";
 import { ChallengeWinsCard } from "@/components/challenges/ChallengeWinsCard";
 import {
-  deadlineLabel,
   formatViews,
   maxCommitment,
-  modeHelp,
-  modeLabel,
-  rewardLabel,
-  statusLabel,
   statusTone,
-  winnerRuleLabel,
 } from "@/components/challenges/challenge-format";
 import { usePermissions } from "@/components/project/use-permissions";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useChallengeLabels } from "@/components/challenges/use-challenge-labels";
 
 export default function ChallengeDetailPage() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.challenges.ChallengeDetailPage");
+  const L = useChallengeLabels();
   const droitsNav = usePermissions();
   const params = useParams<{ id: string }>();
   const id = params.id as Id<"challenges">;
@@ -75,7 +75,7 @@ export default function ChallengeDetailPage() {
         <BackLink href={projectPath("/defis")} />
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-500">
-            Défi introuvable.
+            {tr("defiIntrouvable")}
           </CardContent>
         </Card>
       </div>
@@ -98,7 +98,7 @@ export default function ChallengeDetailPage() {
       toast.success(okMsg);
       then?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -120,14 +120,13 @@ export default function ChallengeDetailPage() {
                 statusTone(c.status),
               )}
             >
-              {statusLabel(c.status)}
+              {L.status(c.status)}
             </span>
           </div>
           <p className="text-sm text-slate-500">
-            {formatViews(c.targetViews)} vues · {modeLabel(c.mode)} ·{" "}
-            {rewardLabel(c.reward, rule, payCurrency)} · {winnerRuleLabel(rule)}
+            {tr("vues", { count: formatViews(c.targetViews, loc), value: L.mode(c.mode), value2: L.reward(c.reward, rule, payCurrency), value3: L.winnerRule(rule) })}
           </p>
-          <p className="text-xs text-slate-400">{modeHelp(c.mode)}</p>
+          <p className="text-xs text-slate-400">{L.modeHelp(c.mode)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* SUPPRIMER / MASQUER — à TOUS les statuts, parce que c'est ce que le
@@ -144,9 +143,9 @@ export default function ChallengeDetailPage() {
           {c.status === "draft" && (
             <Button
               disabled={busy}
-              onClick={() => act(() => open({ id }), "Défi ouvert")}
+              onClick={() => act(() => open({ id }), tr("defiOuvert"))}
             >
-              Ouvrir le défi
+              {tr("ouvrirLeDefi")}
             </Button>
           )}
           {c.status === "active" && (
@@ -163,17 +162,17 @@ export default function ChallengeDetailPage() {
                   act(async () => {
                     const r = await evaluate({ id });
                     return r;
-                  }, "Évaluation faite")
+                  }, tr("evaluationFaite"))
                 }
               >
-                Évaluer maintenant
+                {tr("evaluerMaintenant")}
               </Button>
               <Button
                 variant="outline"
                 disabled={busy}
-                onClick={() => act(() => close({ id }), "Défi clos")}
+                onClick={() => act(() => close({ id }), tr("defiClos"))}
               >
-                Clore
+                {tr("clore")}
               </Button>
             </>
           )}
@@ -187,27 +186,27 @@ export default function ChallengeDetailPage() {
       )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Deadline">
-          {formatDateFr(c.deadline)}
+        <Stat label={tr("deadline")}>
+          {formatDateFr(c.deadline, loc)}
           <span className="ml-2 text-xs font-normal text-slate-400">
-            {deadlineLabel(c.deadline, now)}
+            {L.deadline(c.deadline, now)}
           </span>
         </Stat>
-        <Stat label="Participantes">{ranking.length}</Stat>
-        <Stat label="Gagnantes actées">
+        <Stat label={tr("participantes")}>{ranking.length}</Stat>
+        <Stat label={tr("gagnantesActees")}>
           {liveWins.length}
           <span className="text-sm font-normal text-slate-400">
             {rule.kind === "all" ? " / ∞" : ` / ${rule.kind === "first" ? 1 : rule.n}`}
           </span>
         </Stat>
-        <Stat label="Engagement max">
-          {engagement !== null ? formatMoney(engagement, payCurrency) : "—"}
+        <Stat label={tr("engagementMax")}>
+          {engagement !== null ? formatMoney(engagement, payCurrency, loc) : "—"}
           <span className="block text-xs font-normal text-slate-400">
             {engagement !== null
-              ? "si toutes les places sont prises"
+              ? tr("siToutesLesPlacesSont")
               : rule.kind === "all"
-                ? "sans plafond (« toutes »)"
-                : "coût réel non renseigné"}
+                ? tr("sansPlafondToutes")
+                : tr("coutReelNonRenseigne")}
           </span>
         </Stat>
       </div>
@@ -219,18 +218,16 @@ export default function ChallengeDetailPage() {
         <Card data-testid="challenge-preview">
           <CardHeader>
             <CardTitle className="text-base">
-              Au prochain relevé (23h30 Paris)
+              {tr("auProchainReleve23h30Paris")}
             </CardTitle>
             <CardDescription>
-              Ce qui serait acté si le relevé tombait maintenant. Rien n&apos;est
-              écrit tant qu&apos;il n&apos;a pas eu lieu.
+              {tr("ceQuiSeraitActeSi")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             {preview.wouldWin.length === 0 ? (
               <p className="text-sm text-slate-500">
-                Aucune nouvelle gagnante — personne n&apos;a franchi la barre, ou
-                toutes les places sont prises.
+                {tr("aucuneNouvelleGagnantePersonneN")}
               </p>
             ) : (
               <ul className="space-y-1 text-sm">
@@ -239,7 +236,7 @@ export default function ChallengeDetailPage() {
                     <TrophyIcon className="size-4 text-amber-500" />
                     <span className="font-medium text-slate-800">{w.name}</span>
                     <span className="tabular-nums text-slate-500">
-                      {formatViews(w.score)} vues
+                      {tr("vues2", { count: formatViews(w.score, loc) })}
                     </span>
                   </li>
                 ))}
@@ -251,10 +248,9 @@ export default function ChallengeDetailPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Classement</CardTitle>
+          <CardTitle className="text-base">{tr("classement")}</CardTitle>
           <CardDescription>
-            Le MÊME classement que celui affiché aux créatrices, et celui qui
-            décide des victoires — une seule implémentation.
+            {tr("leMemeClassementQueCelui")}
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
@@ -262,11 +258,11 @@ export default function ChallengeDetailPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">#</TableHead>
-                <TableHead>Créatrice</TableHead>
-                <TableHead>Score</TableHead>
-                <TableHead>Progression</TableHead>
-                <TableHead>Vidéos</TableHead>
-                <TableHead>État</TableHead>
+                <TableHead>{tr("creatrice")}</TableHead>
+                <TableHead>{tr("score")}</TableHead>
+                <TableHead>{tr("progression")}</TableHead>
+                <TableHead>{tr("videos")}</TableHead>
+                <TableHead>{tr("etat")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -279,7 +275,7 @@ export default function ChallengeDetailPage() {
                     </TableCell>
                     <TableCell className="font-medium">{r.name}</TableCell>
                     <TableCell className="tabular-nums">
-                      {formatViews(r.score)}
+                      {formatViews(r.score, loc)}
                     </TableCell>
                     <TableCell className="w-40">
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
@@ -301,12 +297,12 @@ export default function ChallengeDetailPage() {
                       {won ? (
                         <span className="inline-flex items-center gap-1 font-medium text-amber-700">
                           <TrophyIcon className="size-3.5" />
-                          Gagnante
+                          {tr("gagnante")}
                         </span>
                       ) : r.crossed ? (
-                        <span className="text-emerald-700">Barre franchie</span>
+                        <span className="text-emerald-700">{tr("barreFranchie")}</span>
                       ) : (
-                        <span className="text-slate-400">En cours</span>
+                        <span className="text-slate-400">{tr("enCours")}</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -315,7 +311,7 @@ export default function ChallengeDetailPage() {
               {ranking.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-sm text-slate-500">
-                    Aucune participante. Ajoute-les ci-dessous.
+                    {tr("aucuneParticipanteAjouteLesCi")}
                   </TableCell>
                 </TableRow>
               )}
@@ -343,21 +339,20 @@ export default function ChallengeDetailPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
-            Vidéos du défi ({videos.length})
+            {tr("videosDuDefi", { count: videos.length })}
           </CardTitle>
           <CardDescription>
-            Seules celles-ci comptent dans le score. Elles sont par ailleurs
-            payées dans le cycle normal, au barème « {c.pricingName ?? "—"} ».
+            {tr("videosDuDefiAide", { pricing: c.pricingName ?? "—" })}
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto p-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Créatrice</TableHead>
-                <TableHead>Vues</TableHead>
-                <TableHead>Statut</TableHead>
-                <TableHead>Compte au score</TableHead>
+                <TableHead>{tr("creatrice")}</TableHead>
+                <TableHead>{tr("vues3")}</TableHead>
+                <TableHead>{tr("statut")}</TableHead>
+                <TableHead>{tr("compteAuScore")}</TableHead>
                 <TableHead className="w-32" />
               </TableRow>
             </TableHeader>
@@ -366,18 +361,18 @@ export default function ChallengeDetailPage() {
                 <TableRow key={v.assignmentId}>
                   <TableCell className="font-medium">{v.creatorName}</TableCell>
                   <TableCell className="tabular-nums">
-                    {formatViews(v.views)}
+                    {formatViews(v.views, loc)}
                   </TableCell>
                   <TableCell className="text-sm text-slate-500">
                     {v.status}
                   </TableCell>
                   <TableCell className="text-sm">
                     {v.counted ? (
-                      <span className="text-emerald-700">oui</span>
+                      <span className="text-emerald-700">{tr("oui")}</span>
                     ) : v.removedAt !== null ? (
-                      <span className="text-slate-400">retirée du défi</span>
+                      <span className="text-slate-400">{tr("retireeDuDefi")}</span>
                     ) : (
-                      <span className="text-slate-400">pas encore publiée</span>
+                      <span className="text-slate-400">{tr("pasEncorePubliee")}</span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -398,12 +393,12 @@ export default function ChallengeDetailPage() {
                               removed: v.removedAt === null,
                             }),
                           v.removedAt === null
-                            ? "Vidéo retirée du défi (elle reste publiée)"
-                            : "Vidéo réintégrée au défi",
+                            ? tr("videoRetireeDuDefiElle")
+                            : tr("videoReintegreeAuDefi"),
                         )
                       }
                     >
-                      {v.removedAt === null ? "Retirer du défi" : "Réintégrer"}
+                      {v.removedAt === null ? tr("retirerDuDefi") : tr("reintegrer")}
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -411,7 +406,7 @@ export default function ChallengeDetailPage() {
               {videos.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="py-8 text-center text-sm text-slate-500">
-                    Aucune vidéo soumise pour l&apos;instant.
+                    {tr("aucuneVideoSoumisePourL")}
                   </TableCell>
                 </TableRow>
               )}
@@ -424,13 +419,14 @@ export default function ChallengeDetailPage() {
 }
 
 function BackLink({ href }: { href: string }) {
+  const tr = useTranslations("admin.challenges.BackLink");
   return (
     <Link
       href={href}
       className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
     >
       <ArrowLeftIcon className="size-4" />
-      Défis
+      {tr("defis")}
     </Link>
   );
 }

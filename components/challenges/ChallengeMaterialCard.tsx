@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { AlertTriangleIcon, Loader2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTranslations } from "next-intl";
 
 /** Ancien format encore porté par le défi (briques), s'il n'a pas de script. */
 export type ChallengeLegacyMaterial = {
@@ -56,6 +57,7 @@ export function ChallengeMaterialCard({
   legacy: ChallengeLegacyMaterial;
   instructions: string | null;
 }) {
+  const tr = useTranslations("admin.challenges.ChallengeMaterialCard");
   const update = useProjectMutation(api.challenges.updateChallenge);
   const [texte, setTexte] = useState(script ?? legacy?.brouillon ?? "");
   const [instr, setInstr] = useState(instructions ?? "");
@@ -68,9 +70,9 @@ export function ChallengeMaterialCard({
     setSaving(true);
     try {
       await update({ id: challengeId, script: texte, instructions: instr });
-      toast.success("Script enregistré");
+      toast.success(tr("scriptEnregistre"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -79,11 +81,9 @@ export function ChallengeMaterialCard({
   return (
     <Card data-testid="challenge-material">
       <CardHeader>
-        <CardTitle className="text-base">Script du défi</CardTitle>
+        <CardTitle className="text-base">{tr("scriptDuDefi")}</CardTitle>
         <CardDescription>
-          Un seul texte, le même pour toutes les participantes. Il est recopié
-          sur chaque vidéo au moment où elle est lancée — le corriger ensuite ne
-          réécrit pas le brief de celles qui ont déjà commencé.
+          {tr("unSeulTexteLeMeme")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -91,21 +91,17 @@ export function ChallengeMaterialCard({
           <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs leading-relaxed text-amber-900">
             <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
             <div>
-              <strong>Ce défi est encore à l&apos;ancien format</strong>{" "}
-              ({legacy.hookCount} hook{legacy.hookCount > 1 ? "s" : ""} en
-              rotation depuis une campagne). Le texte ci-dessous est son{" "}
-              <strong>premier hook monté</strong>, proposé comme point de
-              départ : relis-le avant d&apos;enregistrer, les autres hooks ne
-              seront pas repris.
+              <strong>{tr("ceDefiEstEncoreA")}</strong>{" "}{tr("hookEnRotationDepuisUne", { hookCount: legacy.hookCount })}{" "}
+              <strong>{tr("premierHookMonte")}</strong>{tr("proposeCommePointDeDepart")}
             </div>
           </div>
         )}
 
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between">
-            <Label htmlFor="challenge-script">Script</Label>
+            <Label htmlFor="challenge-script">{tr("script")}</Label>
             <span className="text-xs tabular-nums text-slate-400">
-              {texte.length} caractères
+              {tr("caracteres", { count: texte.length })}
             </span>
           </div>
           <Textarea
@@ -114,34 +110,33 @@ export function ChallengeMaterialCard({
             onChange={(e) => setTexte(e.target.value)}
             rows={14}
             className="font-mono text-[13px] leading-relaxed"
-            placeholder="Écris le script d'une traite : accroche, corps, appel à l'action…"
+            placeholder={tr("ecrisLeScriptDUne")}
           />
           <p className="text-xs leading-relaxed text-slate-500">
-            Tant qu&apos;il est vide, aucune vidéo ne peut être lancée sur ce
-            défi.
+            {tr("tantQuIlEstVide")}
           </p>
         </div>
 
         <div className="space-y-1.5">
           <Label htmlFor="challenge-instructions">
-            Instructions de production
+            {tr("instructionsDeProduction")}
           </Label>
           <Textarea
             id="challenge-instructions"
             value={instr}
             onChange={(e) => setInstr(e.target.value)}
             rows={3}
-            placeholder="Consignes de tournage — pas le texte à dire."
+            placeholder={tr("consignesDeTournagePasLe")}
           />
           <p className="text-xs leading-relaxed text-slate-500">
-            Recopiées sur chaque vidéo du défi, à côté du script.
+            {tr("recopieesSurChaqueVideoDu")}
           </p>
         </div>
 
         <div className="flex justify-end">
           <Button size="sm" onClick={handleSave} disabled={saving || !modifie}>
             {saving && <Loader2Icon className="size-3.5 animate-spin" />}
-            Enregistrer le script
+            {tr("enregistrerLeScript")}
           </Button>
         </div>
       </CardContent>

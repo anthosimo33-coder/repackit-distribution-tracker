@@ -28,9 +28,24 @@ export const SCRIPT_KINDS: readonly ScriptKind[] = [
  * seul le libellé change. Toute string qui nomme cette brique doit passer par
  * ici : elle est féminine (« une description »), là où « CTA » était masculin.
  */
-export const KIND_LABELS: Record<ScriptKind, string> = {
+/** Clés de libellé des briques à l'écran : `admin.scripts.brickKind.<clé>`. */
+export const KIND_LABEL_KEYS: Record<ScriptKind, ScriptKind> = {
+  hook: "hook",
+  flux: "flux",
+  cta: "cta",
+};
+
+/**
+ * Titres des sections du script ASSEMBLÉ. Ils ne sont pas de l'interface : ils
+ * sont écrits DANS le texte monté, stocké en base et relu par la créatrice —
+ * les traduire réécrirait des scripts déjà assignés.
+ */
+const KIND_TITLES: Record<ScriptKind, string> = {
+  // i18n-exempt: titre écrit dans le TEXTE du script (donnée persistée), pas un libellé d'écran
   hook: "Hook",
+  // i18n-exempt: titre écrit dans le TEXTE du script (donnée persistée), pas un libellé d'écran
   flux: "Flux",
+  // i18n-exempt: titre écrit dans le TEXTE du script (donnée persistée), pas un libellé d'écran
   cta: "Description",
 };
 
@@ -65,7 +80,7 @@ export function assembleScript(
   // Titres tirés de KIND_LABELS (source unique) et ordre de SCRIPT_KINDS : un
   // renommage d'affichage ne se patche pas ici en plus.
   const sections: Array<[string, string]> = SCRIPT_KINDS.map((kind) => [
-    KIND_LABELS[kind],
+    KIND_TITLES[kind],
     input[kind],
   ]);
   if (labels) {

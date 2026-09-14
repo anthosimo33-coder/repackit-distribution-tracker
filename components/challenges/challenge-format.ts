@@ -4,13 +4,12 @@ import { winnerSlots, type WinnerRule } from "@/convex/challengeScore";
 import { formatMoney } from "@/lib/format-rate";
 
 /**
- * Libellés partagés des défis — CÔTÉ ADMIN uniquement.
+ * Libellés partagés des défis — CÔTÉ ÉQUIPE.
  *
- * Les écrans admin ne sont pas traduits (convention du dépôt : l'i18n couvre le
- * parcours créateur). Les libellés créatrice vivent dans `messages/{fr,en}.json`
- * et ne passent JAMAIS par ce module — sans quoi une chaîne française
- * remonterait dans l'espace d'une créatrice anglophone, ce que la garde i18n ne
- * verrait pas (elle surveille les composants du portail, pas ce fichier).
+ * Depuis septembre 2026 l'espace d'équipe est traduit : ce module rend donc des
+ * CLÉS (`admin.challenges.*`) ou prend la langue en paramètre, jamais une phrase
+ * française. Les libellés CRÉATRICE, eux, vivent dans `messages/{fr,en}.json` et
+ * ne passent pas par ici.
  */
 
 export type ChallengeReward = {
@@ -24,19 +23,14 @@ export type ChallengeListRow = FunctionReturnType<
   typeof api.challenges.listChallenges
 >[number];
 
-/** « 100 000 vues » — séparateur français, jamais un nombre brut collé. */
-export function formatViews(n: number): string {
-  return new Intl.NumberFormat("fr-FR").format(Math.max(0, Math.round(n)));
+/** « 100 000 vues » — séparateur de la langue, jamais un nombre brut collé. */
+export function formatViews(n: number, locale: string = "fr-FR"): string {
+  return new Intl.NumberFormat(locale).format(Math.max(0, Math.round(n)));
 }
 
-export function modeLabel(mode: string): string {
-  return mode === "single" ? "Une seule vidéo" : "Cumulé";
-}
-
-export function modeHelp(mode: string): string {
-  return mode === "single"
-    ? "Une seule de ses vidéos doit atteindre la barre."
-    : "La somme des vues de ses vidéos du défi.";
+/** Clé de libellé du mode : `admin.challenges.mode.<clé>`. */
+export function modeKey(mode: string): "single" | "cumul" {
+  return mode === "single" ? "single" : "cumul";
 }
 
 /**
@@ -53,25 +47,34 @@ export function modeHelp(mode: string): string {
  */
 export function rewardLabel(
   reward: ChallengeReward,
-  rule?: WinnerRule,
-  currency?: string | null,
+  rule: WinnerRule | undefined,
+  currency: string | null | undefined,
+  copy: RewardCopy,
 ): string {
   const base =
     reward.type === "cash"
-      ? formatMoney(reward.amount ?? 0, currency)
-      : (reward.libelle ?? "Récompense en nature");
+      ? formatMoney(reward.amount ?? 0, currency, copy.locale)
+      : (reward.libelle ?? copy.natureDefault);
   if (!rule) return base;
-  return winnerSlots(rule) === 1 ? base : `${base} par gagnante`;
+  return winnerSlots(rule) === 1 ? base : copy.perWinner(base);
 }
 
-export function winnerRuleLabel(rule: WinnerRule): string {
+/** Ce que l'écran passe pour rendre une récompense dans sa langue. */
+export type RewardCopy = {
+  locale: string;
+  natureDefault: string;
+  perWinner: (base: string) => string;
+};
+
+/** Clé + paramètre du libellé de règle : `admin.challenges.winnerRule.<clé>`. */
+export function winnerRuleKey(rule: WinnerRule): { key: "first" | "topN" | "all"; n?: number } {
   switch (rule.kind) {
     case "first":
-      return "La première";
+      return { key: "first" };
     case "topN":
-      return `Les ${rule.n} premières`;
+      return { key: "topN", n: rule.n };
     case "all":
-      return "Toutes celles qui franchissent";
+      return { key: "all" };
   }
 }
 
@@ -89,15 +92,10 @@ export function maxCommitment(
   return unit * slots;
 }
 
-export function statusLabel(status: string): string {
-  switch (status) {
-    case "draft":
-      return "Brouillon";
-    case "active":
-      return "En cours";
-    default:
-      return "Clos";
-  }
+/** Clé de libellé du statut : `admin.challenges.status.<clé>`. */
+export function statusKey(status: string): "draft" | "active" | "closed" {
+  if (status === "draft") return "draft";
+  return status === "active" ? "active" : "closed";
 }
 
 export function statusTone(status: string): string {
@@ -111,12 +109,14 @@ export function statusTone(status: string): string {
   }
 }
 
-/** « dans 3 j », « aujourd'hui », « terminé ». */
-export function deadlineLabel(deadline: number, now: number): string {
+/** Unité + compte de l'échéance : la phrase vit dans `admin.challenges.deadline`. */
+export function deadlineParts(
+  deadline: number,
+  now: number,
+): { unit: "over" | "d" | "h"; count: number } {
   const ms = deadline - now;
-  if (ms <= 0) return "terminé";
+  if (ms <= 0) return { unit: "over", count: 0 };
   const days = Math.floor(ms / 86_400_000);
-  if (days >= 1) return `dans ${days} j`;
-  const hours = Math.max(1, Math.floor(ms / 3_600_000));
-  return `dans ${hours} h`;
+  if (days >= 1) return { unit: "d", count: days };
+  return { unit: "h", count: Math.max(1, Math.floor(ms / 3_600_000)) };
 }

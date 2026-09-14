@@ -1,1 +1,235 @@
-{}
+{
+  "ScriptAnalyticsPage": {
+    "retourALaCampagne": "Back to the campaign",
+    "analytics": "Analytics",
+    "performanceParVariableDeScript": "Performance by script variable. Median views (robust to outliers). Verdict from {JUGEABLE_THRESHOLD} posts per brick.",
+    "detailDesChiffres": "The numbers in detail",
+    "medianesBrutesParVariableEt": "Raw medians by variable and by combo. The decisions above come from these."
+  },
+  "VerdictBadge": {
+    "aPousser": "Push",
+    "aCouper": "Cut",
+    "neutre": "Neutral",
+    "enTest": "testing"
+  },
+  "CollectState": {
+    "aucunePublicationDeScriptMesuree": "No script post measured at {windowLabel}.",
+    "essaieUneAutreFenetreOu": "Try another window, or come back when posts have views at that mark.",
+    "encoreEnCollecteDeDonnees": "Still collecting data.",
+    "lesRecommandationsApparaitrontDesQu": "Recommendations appear as soon as a brick reaches {JUGEABLE_THRESHOLD} published posts. (Bulk testing needs volume to decide.)",
+    "briqueLaPlusAvancee": "Furthest brick: {label} — {postCount}/{JUGEABLE_THRESHOLD}."
+  },
+  "StrongSignalsBlock": {
+    "signauxFortsAValider": "Strong signals to confirm",
+    "briquesCombosQuiExplosentLa": "Bricks/combos blowing past the campaign median before they're judgeable. Confirm by hand — no automatic action (a single hit can be an accident).",
+    "laMedianeDeCampagnePosts": "×{value} the campaign median · {postCount} posts · confirm by hand"
+  },
+  "DecisionsSection": {
+    "decisions": "Decisions",
+    "recommandationsDeBulkTestingA": "Bulk-testing recommendations at {windowLabel}. “Push” = assign more of it; “cut” = stop assigning it. The system recommends, it never re-assigns on its own."
+  },
+  "StatusBadge": {
+    "posts": "{postCount} posts",
+    "enTest": "testing ({postCount}/{JUGEABLE_THRESHOLD})"
+  },
+  "BrickSection": {
+    "aucuneBriqueActive": "No active brick."
+  },
+  "BrickDrilldown": {
+    "aucunPostMesureA": "No post measured at {windowLabel}.",
+    "masquerLesPosts": "Hide the posts",
+    "voirLesPostMesureA": "See the {postCount} {postCount, plural, one {post} other {posts}} measured at {windowLabel}"
+  },
+  "ComboSection": {
+    "combosComplets": "Full combos ({count})",
+    "laPlupartDesCombosPrecis": "Most precise combos are below the threshold ({JUGEABLE_THRESHOLD}): that's expected. “Signal” = judgeable AND above the campaign median.",
+    "signal": "signal",
+    "rejouer": "Replay"
+  },
+  "WindowSelector": {
+    "fenetreDeVues": "View window"
+  },
+  "ScriptCampaignDetailPage": {
+    "scripts": "Scripts",
+    "campagneIntrouvable": "Campaign not found.",
+    "combinaisonPossible": "{total, plural, one {possible combination} other {possible combinations}}",
+    "hooksFluxCta": "({hook} hooks × {flux} flows × {cta} descriptions)",
+    "analytics": "Analytics",
+    "importerDesHooks": "Import hooks",
+    "apercuDUnScript": "Preview a script",
+    "assignerCetteCampagne": "Assign this campaign",
+    "activesSeulement": "Active only",
+    "avecConsigne": "💡 With a note",
+    "aucuneCreatrice": "— no creator —",
+    "masquerLesIndisponibles": "Hide unavailable ones",
+    "cetteCreatriceNAAucun": "This creator has no declared account — no uniqueness collision can be computed.",
+    "sur": "of {count} {value}",
+    "active": "· {activeCount} active",
+    "ajouter": "Add",
+    "typeDeBrique": "Brick type",
+    "chercherDansLeTexteDes": "Search in the text of the {value}…",
+    "chercherUneBrique": "Search a brick",
+    "disponiblePour": "Available for",
+    "dispoPour": "Available for…",
+    "dispoPour2": "Available for {value}",
+    "briquesDeLaCampagne": "Campaign bricks",
+    "aucuneBrique": "No “{value}” brick.",
+    "aucuneBriqueNeCorrespondAux": "No brick matches the filters.",
+    "editionDeLaBriqueSelectionnee": "Editing the selected brick"
+  },
+  "BrickRow": {
+    "consigne": "💡 note",
+    "inactive": "inactive",
+    "run": "{postCount} {postCount, plural, one {run} other {runs}}",
+    "selectionnerLaBrique": "Select the brick",
+    "activerLaBrique": "Turn the brick on",
+    "medianeDesVuesAuDernier": "Median views, at each post's last reading, and the slope of the latest runs",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "BrickEditor": {
+    "choisisUneBriqueDansLa": "Pick a brick from the list, or add one.",
+    "modificationsNonEnregistrees": "unsaved changes",
+    "texte": "Text",
+    "partDansLeScript": "— goes into the script",
+    "instruction": "Note",
+    "optionnelleLueParLaCreatrice": "— optional, read by the creator",
+    "afficheeSousCeBlocDans": "Shown under this block in the creator's brief, never in the text to say nor in the description. Clearing the field removes it.",
+    "nomCourtInterne": "Short name (internal)",
+    "dansLaVideo": "In the video",
+    "sEnregistreChangerDeLigne": "⌘S saves — so does moving to another line.",
+    "graduer": "Graduate",
+    "nouvelleBrique": "New brick",
+    "modifier": "Edit",
+    "exLElementPrecisQui": "E.g. the precise element that justifies the check.",
+    "exFlux2ScanClone": "E.g. Flow 2 — scan & clone",
+    "supprimer": "Delete",
+    "ajouter": "Add",
+    "enregistrer": "Save",
+    "leNomCourtEstRequis": "The short name is required.",
+    "briqueMiseAJour": "Brick updated",
+    "briqueAjoutee": "Brick added",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "briqueSupprimee": "Brick deleted"
+  },
+  "CreatorPreview": {
+    "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",
+    "ceQueVerraLaCreatrice": "What the creator will see",
+    "enCoursDEdition": "— {value} being edited"
+  },
+  "BulkBar": {
+    "selectionne": "{count, plural, one {{kindLabel} selected} other {{kindLabel} selected}}",
+    "activer": "Turn on",
+    "desactiver": "Turn off",
+    "consigne": "Note…",
+    "supprimer": "Delete",
+    "consignePourBrique": "Note for {count} {count, plural, one {brick} other {bricks}}",
+    "laMemeConsigneEstPosee": "The SAME note is set on the whole selection, replacing whatever is there. Leaving it empty REMOVES the note.",
+    "annuler": "Cancel",
+    "appliquer": "Apply",
+    "supprimerBrique": "Delete {count} {count, plural, one {brick} other {bricks}}?",
+    "irreversibleLesScriptsDejaAssignes": "Irreversible. Scripts ALREADY assigned don't move — their text is frozen — but these bricks won't be drawn again.",
+    "consigne2": "Note",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "sActivees": "s turned on",
+    "activee": "turned on",
+    "sDesactivees": "s turned off",
+    "desactivee": "turned off",
+    "consignePosee": "Note set",
+    "consigneRetiree": "Note removed",
+    "sSupprimees": "s deleted",
+    "supprimee": "deleted"
+  },
+  "ImportHooksDialog": {
+    "importerDesHooks": "Import hooks",
+    "lesHooksSelectionnesSontCopies": "The selected hooks are COPIED as bricks (the library stays intact).",
+    "laBibliothequeDeHooksEst": "The hook library is empty.",
+    "annuler": "Cancel",
+    "importer": "Import ({size})",
+    "selectionneAuMoinsUnHook": "Pick at least one hook.",
+    "hookImporte": "{imported} {imported, plural, one {hook} other {hooks}} imported.",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "PreviewDialog": {
+    "apercuDUnScriptMonte": "Preview of an assembled script",
+    "activeAuMoinsUneBrique": "Turn on at least one brick of each type to preview.",
+    "ceQueVerraLaCreatrice": "What the creator will see: 🎬 hook + flow go in the video, 📝 the description goes under the post.",
+    "leRenduFinalDUne": "The final render of a video (what the creator sees), without the separate bricks."
+  },
+  "ScriptsPage": {
+    "scripts": "Scripts",
+    "campagnesCombinatoiresHookFluxCta": "Combinatorial campaigns: hook + flow + cta.",
+    "nouvelleCampagne": "New campaign",
+    "aucuneCampagneCreeTaPremiere": "No campaign. Create your first script campaign.",
+    "campagne": "Campaign",
+    "statut": "Status",
+    "active": "Active",
+    "archivee": "Archived"
+  },
+  "CampaignActions": {
+    "modifier": "Edit",
+    "supprimer": "Delete",
+    "reactiver": "Reactivate",
+    "archiver": "Archive",
+    "reactivee": "Reactivated",
+    "archivee": "Archived",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "campagneSupprimee": "Campaign deleted"
+  },
+  "CampaignDialog": {
+    "uneCampagneRegroupeLesHooks": "A campaign groups the hooks, flows and descriptions of one test angle.",
+    "nom": "Name",
+    "annuler": "Cancel",
+    "modifierLaCampagne": "Edit the campaign",
+    "nouvelleCampagne": "New campaign",
+    "exAngleGainDeTemps": "E.g. “Time saved” angle",
+    "enregistrer": "Save",
+    "creer": "Create",
+    "leNomEstRequis": "The name is required.",
+    "campagneMiseAJour": "Campaign updated",
+    "campagneCreee": "Campaign created",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "BrickSparkline": {
+    "derniersRunsDuPlusAncien": "last {count} runs, oldest to newest; latest: {value} views"
+  },
+  "HookAvailabilityBadge": {
+    "libre": "Free",
+    "cooldown": "Cooldown → {date}",
+    "fenetreDeCooldownAL": "Project-wide cooldown window (all creators combined)",
+    "uniciteAVieCetteCreatrice": "Lifetime uniqueness: this creator has already had this hook on this platform"
+  },
+  "ComboCooldownSettingsButton": {
+    "cooldown": "Cooldown",
+    "cooldownDesScriptsCeProjet": "Script cooldown — this project",
+    "aQuelEcartUnMeme": "How far apart the same script can go out again on another account."
+  },
+  "ComboCooldownSettingsCard": {
+    "cooldownDUnScriptEn": "Script cooldown, in days",
+    "unScriptDejaProgrammeOu": "A script already scheduled (or out) within this many days of a target date can't be reassigned to that date — even on another account, even for another creator.",
+    "jours": "Days",
+    "unEntierEntreEtOu": "A whole number between {COMBO_COOLDOWN_DAYS_MIN} and {COMBO_COOLDOWN_DAYS_MAX}, or empty for the default.",
+    "ceReglageNeChange": "This setting only changes",
+    "unComboDejaAttribueEst": ": a combo already assigned is frozen on its assignment. It doesn't touch",
+    "uneCreatriceNeRecoitJamais": "either — a creator never gets the same script twice on the same platform, whatever this number is.",
+    "queLesTiragesAVenir": "future draws",
+    "uniciteAVie": "lifetime uniqueness",
+    "enregistrer": "Save",
+    "defaut": "default: {fallback}",
+    "nonDefiniJourApplique": "not set — {fallback} {fallback, plural, one {day} other {days}} applied",
+    "n0CooldownDesactiveUnMeme": "0 — cooldown off: the same script can go out again the same day on another account",
+    "jourApplique": "{parsed} {value, plural, one {day} other {days}} applied",
+    "cooldownEnregistre": "Cooldown saved",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "brickKind": {
+    "hook": "Hook",
+    "flux": "Flow",
+    "cta": "Description"
+  },
+  "decision": {
+    "aPousser": "Push {label}{hasRatio, select, yes { — median {ratio} vs peers} other {}}, on {posts} posts.",
+    "aCouper": "Cut {label}{hasEcart, select, yes { — median {ecart} below peers} other {}}, on {posts} posts.",
+    "neutre": "{label} — average{hasEcart, select, yes { ({ecart})} other {}}, keep it in rotation. {posts} posts.",
+    "enTest": "{label} — testing, {posts}/{seuil} posts."
+  }
+}

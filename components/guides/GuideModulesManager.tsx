@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Section admin « Comment ça marche » — CRUD + réordonnancement des modules
@@ -54,6 +55,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
  * n'échange qu'entre pairs de même langue.
  */
 export function GuideModulesManager() {
+  const tr = useTranslations("admin.library.GuideModulesManager");
   const modules = useProjectQuery(api.guideModules.listModulesForAdmin, {});
   const moveModule = useProjectMutation(api.guideModules.moveModule);
   const deleteModule = useProjectMutation(api.guideModules.deleteModule);
@@ -94,7 +96,7 @@ export function GuideModulesManager() {
     try {
       await moveModule({ id, direction });
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setMovingId(null);
     }
@@ -105,10 +107,10 @@ export function GuideModulesManager() {
     setDeleting(true);
     try {
       await deleteModule({ id: deleteTarget.id });
-      toast.success("Module supprimé");
+      toast.success(tr("moduleSupprime"));
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }
@@ -119,12 +121,10 @@ export function GuideModulesManager() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Comment ça marche
+            {tr("commentCaMarche")}
           </h1>
           <p className="text-sm text-slate-500">
-            Les modules de formation affichés aux créateurs (markdown, par
-            projet). Les brouillons restent invisibles côté créateur. Chaque
-            langue a son jeu de modules, indépendant de l&apos;autre.
+            {tr("lesModulesDeFormationAffiches")}
           </p>
         </div>
       </header>
@@ -140,16 +140,15 @@ export function GuideModulesManager() {
           <BookOpenIcon className="size-14 text-slate-300" strokeWidth={1.5} />
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-slate-900">
-              Aucun module
+              {tr("aucunModule")}
             </h2>
             <p className="text-sm text-slate-500">
-              Crée ton premier module pour expliquer le fonctionnement aux
-              créateurs.
+              {tr("creeTonPremierModulePour")}
             </p>
           </div>
           <Button onClick={() => openCreate()}>
             <PlusIcon className="size-4" />
-            Nouveau module
+            {tr("nouveauModule")}
           </Button>
         </div>
       ) : (
@@ -164,29 +163,29 @@ export function GuideModulesManager() {
               <section key={loc} className="space-y-3">
                 <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2">
                   <h2 className="text-sm font-semibold text-slate-700">
-                    Guide {label}
+                    {tr("guide", { label: label })}
                     <span className="ml-2 font-normal text-slate-400">
                       {set.length === 0
-                        ? "aucun module"
-                        : `${set.length} module${set.length > 1 ? "s" : ""}`}
+                        ? tr("aucunModule2")
+                        : tr("module", { count: set.length })}
                     </span>
                   </h2>
                   <Button
                     variant="outline"
                     size="sm"
-                    aria-label={`Nouveau module — guide ${label}`}
+                    aria-label={tr("nouveauModuleGuide", { label: label })}
                     onClick={() => openCreate(loc)}
                   >
                     <PlusIcon className="size-4" />
-                    Nouveau module
+                    {tr("nouveauModule")}
                   </Button>
                 </div>
 
                 {set.length === 0 ? (
                   <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-sm text-slate-500">
                     {loc === DEFAULT_LOCALE
-                      ? "Aucun module dans cette langue."
-                      : `Aucun module dans cette langue : les créateurs qui lisent en ${label} voient le guide français, avec un bandeau qui le leur dit.`}
+                      ? tr("aucunModuleDansCetteLangue")
+                      : tr("aucunModuleDansCetteLangue2", { label: label })}
                   </p>
                 ) : (
                   <ul className="space-y-2">
@@ -199,7 +198,7 @@ export function GuideModulesManager() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`Monter ${m.title}`}
+                            aria-label={tr("monter", { title: m.title })}
                             disabled={idx === 0 || movingId !== null}
                             onClick={() => handleMove(m._id, "up")}
                             className="h-5"
@@ -209,7 +208,7 @@ export function GuideModulesManager() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`Descendre ${m.title}`}
+                            aria-label={tr("descendre", { title: m.title })}
                             disabled={idx === set.length - 1 || movingId !== null}
                             onClick={() => handleMove(m._id, "down")}
                             className="h-5"
@@ -227,7 +226,7 @@ export function GuideModulesManager() {
                             variant="outline"
                             className="border-amber-300 bg-amber-50 text-amber-800"
                           >
-                            Guide warmup
+                            {tr("guideWarmup")}
                           </Badge>
                         )}
                         <Badge
@@ -235,13 +234,13 @@ export function GuideModulesManager() {
                             m.status === "published" ? "default" : "secondary"
                           }
                         >
-                          {m.status === "published" ? "Publié" : "Brouillon"}
+                          {m.status === "published" ? tr("publie") : tr("brouillon")}
                         </Badge>
                         <div className="flex shrink-0 gap-1">
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`Modifier ${m.title}`}
+                            aria-label={tr("modifier", { title: m.title })}
                             onClick={() =>
                               openEdit({
                                 _id: m._id,
@@ -258,7 +257,7 @@ export function GuideModulesManager() {
                           <Button
                             variant="ghost"
                             size="icon-sm"
-                            aria-label={`Supprimer ${m.title}`}
+                            aria-label={tr("supprimer3", { title: m.title })}
                             onClick={() =>
                               setDeleteTarget({ id: m._id, title: m.title })
                             }
@@ -295,21 +294,21 @@ export function GuideModulesManager() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Supprimer &laquo;&nbsp;{deleteTarget?.title}&nbsp;&raquo; ?
+              {tr("supprimer", { title: deleteTarget?.title ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Action irréversible. Le module sera définitivement supprimé.
+              {tr("actionIrreversibleLeModuleSera")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDelete}
               disabled={deleting}
             >
               {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Supprimer
+              {tr("supprimer2")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
