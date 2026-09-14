@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isValidPostWindow,
   formatPostWindow,
+  postWindowBoundsFor,
   postWindowSentence,
   POST_WINDOW_PRESETS,
   formatWindowStart,
@@ -116,5 +117,32 @@ describe("affichage et ordre côté admin", () => {
       "midi",
       "casse",
     ]);
+  });
+});
+
+describe("postWindowBoundsFor — l'heure dans la langue de la créatrice", () => {
+  it("rend la forme française historique en fr", () => {
+    expect(postWindowBoundsFor({ startMin: 21 * 60, endMin: 23 * 60 + 5 }, "fr-FR")).toEqual({
+      start: "21h",
+      end: "23h05",
+      range: "21h-23h05",
+    });
+  });
+
+  it("rend l'heure US en en — midi, minuit et minutes compris", () => {
+    expect(postWindowBoundsFor({ startMin: 21 * 60 + 30, endMin: 23 * 60 }, "en-US")).toEqual({
+      start: "9:30pm",
+      end: "11pm",
+      range: "9:30pm–11pm",
+    });
+    expect(postWindowBoundsFor({ startMin: 11 * 60, endMin: 13 * 60 }, "en-US")?.range).toBe(
+      "11am–1pm",
+    );
+    expect(postWindowBoundsFor({ startMin: 0, endMin: 12 * 60 }, "en-US")?.range).toBe("12am–12pm");
+  });
+
+  it("rend null sans plage, quelle que soit la langue", () => {
+    expect(postWindowBoundsFor(undefined, "en-US")).toBeNull();
+    expect(postWindowBoundsFor({ startMin: 600, endMin: 600 }, "fr-FR")).toBeNull();
   });
 });

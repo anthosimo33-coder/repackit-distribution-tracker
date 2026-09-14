@@ -51,15 +51,6 @@ const RUSH_LIMITS: DriveUploadLimits = {
   kinds: ["video"],
 };
 
-const RUSH_COPY: DriveUploadCopy = {
-  title: "Dépose tes prises ici",
-  hint: "Vidéos uniquement (iPhone .mov accepté) — des prises courtes, 5 à 10 secondes",
-  button: "Choisir mes vidéos",
-  tooBig: (name) =>
-    `${name} : trop lourd (1 Go max). Une prise de quelques secondes fait ~30 Mo.`,
-  wrongKind: (name) => `${name} : seules les vidéos sont acceptées.`,
-};
-
 /** Teinte du badge par état. Le libellé, lui, vient de convex/rushStatus.ts. */
 const STATUS_VARIANT: Record<
   RushStatus,
@@ -82,6 +73,14 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export function TalentSpaceScreen() {
   const tt = useTranslations("talent");
+  const td = useTranslations("drive.rush");
+  const rushCopy: DriveUploadCopy = {
+    title: td("title"),
+    hint: td("hint"),
+    button: td("button"),
+    tooBig: (name) => td("tooBig", { name }),
+    wrongKind: (name) => td("wrongKind", { name }),
+  };
   const tLabel = useLabel();
   const loc = useIntlLocale();
   const { projectId } = useTalentProject();
@@ -150,7 +149,7 @@ export function TalentSpaceScreen() {
               confirm: (args) => confirmDeposit({ projectId, ...args }),
             }}
             limits={RUSH_LIMITS}
-            copy={RUSH_COPY}
+            copy={rushCopy}
           />
         )}
       </section>

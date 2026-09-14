@@ -74,6 +74,7 @@ import {
   stripInterpolations,
   looksLikeSentence,
 } from "./i18n-detect.mjs";
+import { astFindings, stripLineComments } from "./i18n-ast.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -282,26 +283,15 @@ for (const rel of SCOPE) {
     //
     // On suit donc l'état « dans un commentaire de bloc » d'une ligne à l'autre,
     // et on retire aussi les commentaires ouverts par `{/*`.
-    let code = line;
-    if (inBlockComment) {
-      const end = code.indexOf("*/");
-      if (end === -1) return;
-      code = code.slice(end + 2);
-      inBlockComment = false;
-    }
-    // Blocs ouverts sur cette ligne : `/* … */`, `{/* … */}` — et non refermés.
-    for (;;) {
-      const open = code.search(/\{?\/\*/);
-      if (open === -1) break;
-      const close = code.indexOf("*/", open);
-      if (close === -1) {
-        code = code.slice(0, open);
-        inBlockComment = true;
-        break;
-      }
-      code = code.slice(0, open) + code.slice(close + 2);
-    }
-    code = code.replace(/\/\/.*$/, "");
+    //
+    // BUG CORRIGÉ (2026-09-14) — la recherche de `/*` ne savait pas ce qu'est
+    // une chaîne. `accept: "video/*,image/*"` ouvrait donc un bloc jamais
+    // refermé, et TOUT LE RESTE du fichier devenait un « commentaire » :
+    // `FichiersScreen` passait pour extrait avec un écran entier en français.
+    // Le retrait suit désormais les guillemets (cf `stripLineComments`).
+    const stripped = stripLineComments(line, inBlockComment);
+    inBlockComment = stripped.inBlock;
+    const code = stripped.code;
     if (code.trim() === "") return;
     cleanLines[i] = code;
 
@@ -349,6 +339,24 @@ for (const rel of SCOPE) {
   // (`Record<string, Id<"creators">>`), et l'espace entre deux d'entre eux est
   // du code — « , id: Id » sortait de `creator-data.ts` à ce titre.
   if (!rel.endsWith(".tsx")) continue;
+
+  // ── Passe SYNTAXIQUE : le texte rendu, lu par le compilateur ─────────────────
+  // Elle voit ce que les regex ratent par construction — mot seul sans accent,
+  // mot seul dans un ternaire, attribut de libellé inconnu. Cf `i18n-ast.mjs`.
+  // Une ligne déjà signalée par les passes précédentes ne l'est pas deux fois.
+  const seenLines = new Set(
+    findings.filter((f) => f.file === rel).map((f) => f.line),
+  );
+  for (const hit of astFindings(readFileSync(file, "utf8"), rel)) {
+    if (seenLines.has(hit.line)) continue;
+    seenLines.add(hit.line);
+    findings.push({
+      file: rel,
+      line: hit.line,
+      text: hit.text.length > 70 ? `${hit.text.slice(0, 70)}…` : hit.text,
+    });
+  }
+
   const joined = cleanLines.join("\n");
   for (const span of scanSpans(joined)) {
     // Une prose JSX tient en quelques lignes ; au-delà, on a sauté par-dessus du

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { formatPostWindow } from "@/convex/postWindow";
+import { postWindowBoundsFor } from "@/convex/postWindow";
 import { plannedDayKey } from "@/convex/calendarStatus";
 import Link from "next/link";
 import {
@@ -16,7 +16,6 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { fr } from "date-fns/locale";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,8 +32,9 @@ import {
 import { portalHref } from "@/lib/view-as";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
+import { dateFnsLocale, WEEKDAY_KEYS } from "@/lib/date-fns-locale";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
-const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 type CalRow = {
   _id: Id<"assignments">;
@@ -64,6 +64,9 @@ export function CreatorPublicationCalendar({
   base: string;
 }) {
   const tcal = useTranslations("portal.calendar");
+  const twd = useTranslations("calendar.weekday");
+  const tw = useTranslations("postWindow");
+  const loc = useIntlLocale();
   const tLabel = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
 
@@ -125,8 +128,8 @@ export function CreatorPublicationCalendar({
               <ChevronLeftIcon className="size-4" />
             </Button>
             <span className="min-w-28 text-center text-sm font-medium capitalize text-slate-700">
-              {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
-              {format(currentMonth, "MMMM yyyy", { locale: fr })}
+              {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue vient de dateFnsLocale(loc). */}
+              {format(currentMonth, "MMMM yyyy", { locale: dateFnsLocale(loc) })}
             </span>
             <Button
               variant="ghost"
@@ -141,12 +144,12 @@ export function CreatorPublicationCalendar({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid grid-cols-7 gap-px">
-          {WEEKDAYS.map((w) => (
+          {WEEKDAY_KEYS.map((w) => (
             <div
               key={w}
               className="pb-1 text-center text-[11px] font-medium text-slate-400"
             >
-              {w}
+              {twd(w)}
             </div>
           ))}
           {days.map((day) => {
@@ -182,8 +185,8 @@ export function CreatorPublicationCalendar({
                         key={row._id}
                         href={portalHref(base, `/assignments/${row._id}`)}
                         title={
-                          formatPostWindow(row.postWindow) !== null
-                            ? `${row.formatName} · ${tLabel(meta.labelKey)} · entre ${formatPostWindow(row.postWindow)!.replace("-", " et ")}`
+                          postWindowBoundsFor(row.postWindow, loc) !== null
+                            ? `${row.formatName} · ${tLabel(meta.labelKey)} · ${tw("between", postWindowBoundsFor(row.postWindow, loc)!)}`
                             : `${row.formatName} · ${tLabel(meta.labelKey)}`
                         }
                         className={cn(

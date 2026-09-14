@@ -143,6 +143,7 @@
     "lib/creator-schedule.ts",
     "lib/creator-tools.ts",
     "lib/creator-video-filters.ts",
+    "lib/date-fns-locale.ts",
     "lib/day-part.ts",
     "lib/earnings.ts",
     "lib/embed.ts",

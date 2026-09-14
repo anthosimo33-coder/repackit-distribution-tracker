@@ -227,7 +227,7 @@ function VideoRow({
             ))}
             {v.publishedAt !== null && (
               <span className="text-xs text-slate-400">
-                {tv("publishedAgo", { ago: publishedAgo(v.publishedAt, now) })}
+                {tv("publishedAgo", publishedAgo(v.publishedAt, now))}
               </span>
             )}
             {v.status === "paid" && (

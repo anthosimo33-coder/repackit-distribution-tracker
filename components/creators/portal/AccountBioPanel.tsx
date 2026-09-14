@@ -100,7 +100,7 @@ export function AccountBioPanel({
           ) : (
             <CopyIcon className="mr-1.5 size-3.5" />
           )}
-          Copier
+          {tbio("copyShort")}
         </Button>
       </div>
 
@@ -119,7 +119,7 @@ export function AccountBioPanel({
           ) : (
             <CheckCircle2Icon className="mr-2 size-4" />
           )}
-          J&apos;ai appliqué cette bio
+          {tbio("applied")}
         </Button>
       )}
     </div>

@@ -199,7 +199,7 @@ function DeclarerCompte() {
               id="clip-handle"
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
-              placeholder="@monpseudo"
+              placeholder={tc("handlePlaceholder")}
               required
             />
             <p className="text-xs text-slate-500">

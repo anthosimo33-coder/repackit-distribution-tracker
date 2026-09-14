@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { formatPostWindow } from "@/convex/postWindow";
+import { postWindowBoundsFor } from "@/convex/postWindow";
 import { ArrowRightIcon, CalendarCheckIcon, SendIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -59,6 +59,7 @@ export function TodayPostBanner({
 }) {
   const t = useTranslations("portal");
   const loc = useIntlLocale();
+  const tw = useTranslations("postWindow");
   const mine = list.filter((a) => !a.managedByAdmin && a.postDate != null);
   if (mine.length === 0) return null;
 
@@ -101,9 +102,9 @@ export function TodayPostBanner({
                     {/* Plage horaire : rendue SEULEMENT si elle existe. Sans elle
                         (cas des assignations d'avant le champ), la ligne reste
                         strictement identique à avant — pas de tiret orphelin. */}
-                    {formatPostWindow(a.postWindow) !== null && (
+                    {postWindowBoundsFor(a.postWindow, loc) !== null && (
                       <span className="ml-2 font-normal text-primary">
-                        entre {formatPostWindow(a.postWindow)!.replace("-", " et ")}
+                        {tw("between", postWindowBoundsFor(a.postWindow, loc)!)}
                       </span>
                     )}
                   </span>
@@ -134,13 +135,11 @@ export function TodayPostBanner({
           </p>
           {next ? (
             <p className="text-slate-500">
-              {formatPostWindow(next.postWindow) !== null
+              {postWindowBoundsFor(next.postWindow, loc) !== null
                 ? t("todayPost.nextWindow", {
                     date: longDate(next.postDate!, loc),
-                    window: formatPostWindow(next.postWindow)!.replace(
-                      "-",
-                      loc.startsWith("fr") ? " et " : " and ",
-                    ),
+                    start: postWindowBoundsFor(next.postWindow, loc)!.start,
+                    end: postWindowBoundsFor(next.postWindow, loc)!.end,
                     format: next.formatName,
                   })
                 : t("todayPost.next", {

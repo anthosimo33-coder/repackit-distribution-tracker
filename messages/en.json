@@ -230,7 +230,8 @@
     },
     "modelVideo": {
       "title": "Video to recreate",
-      "playAria": "Play the video {title}"
+      "playAria": "Play the video {title}",
+      "linkBadge": "Link"
     },
     "progression": {
       "nextTier": "Next tier",
@@ -247,7 +248,8 @@
       "viewsToGo": "{count, plural, one {{views} view to go.} other {{views} views to go.}}",
       "subtitle": "Your total views unlock {project}'s rewards.",
       "thresholdViews": "{views} views",
-      "unlockedOn": " · unlocked on {date}"
+      "unlockedOn": " · unlocked on {date}",
+      "cashUnlocked": "+ {amount} unlocked"
     },
     "script": {
       "copyDescription": "Copy the description",
@@ -277,7 +279,7 @@
       "title": "Today you're posting",
       "nothing": "Nothing to post today.",
       "next": "Next post {date}: {format}.",
-      "nextWindow": "Next post {date} between {window}: {format}."
+      "nextWindow": "Next post {date} between {start} and {end}: {format}."
     },
     "comptes": {
       "emptyReadOnly": "This creator hasn't declared an account yet.",
@@ -298,7 +300,13 @@
         "video": "Video",
         "photo": "Photo",
         "other": "File"
-      }
+      },
+      "title": "Content upload",
+      "viewAsBody": "Files uploaded by the creator are available directly in the project's Google Drive. There's no file view in the app.",
+      "unavailableBody": "File upload isn't available for this project.",
+      "subtitle": "Upload your videos and photos here. They go straight to your folder — no Drive account needed.",
+      "deposited": "What you've uploaded",
+      "empty": "You haven't uploaded anything yet."
     },
     "nav": {
       "guide": "Guide"
@@ -451,7 +459,8 @@
       "unknownLink": "Unrecognized link. If it's the one for your post, send it anyway — it'll be checked.",
       "confirmPublish": "Confirm publication",
       "managedNotice": "— the team publishes this content. There's nothing for you to submit or publish; the post and its performance will show up in “My videos”.",
-      "seePostOn": "View the {platform} post"
+      "seePostOn": "View the {platform} post",
+      "start": "Start"
     },
     "sidebar": {
       "dashboard": "Dashboard",
@@ -554,7 +563,7 @@
       "emptyBody": "As soon as you submit a video, it shows up here with its status, then its tracking (views + earnings) once it's live.",
       "emptyFilter": "No videos in this filter.",
       "unavailable": "Video tracking isn't available for this project.",
-      "publishedAgo": "Published {ago}",
+      "publishedAgo": "{unit, select, today {Published today} yesterday {Published yesterday} days {{count, plural, one {Published # day ago} other {Published # days ago}}} weeks {{count, plural, one {Published # week ago} other {Published # weeks ago}}} months {{count, plural, one {Published # month ago} other {Published # months ago}}} other {{count, plural, one {Published # year ago} other {Published # years ago}}}}",
       "submittedWaiting": "Video submitted — waiting for the team to approve it.",
       "payWindowClosed": "earning window closed",
       "viewsOutsideWindow": "{count} views past day 30 — tracked, not paid",
@@ -570,7 +579,8 @@
       "url": "Account URL",
       "cancel": "Cancel",
       "expectedHandle": "Expected @:",
-      "submit": "Declare"
+      "submit": "Declare",
+      "handlePlaceholder": "@my_account"
     },
     "assignmentDetail": {
       "backToDashboard": "Back to the dashboard",
@@ -586,7 +596,8 @@
       "modelVideos": "Videos to recreate",
       "assets": "Assets to use",
       "download": "Download",
-      "pay": "Pay"
+      "pay": "Pay",
+      "progressRo": "Progress"
     },
     "warmupCard": {
       "checkDone": "Today's check is done ✓",
@@ -630,7 +641,9 @@
       "error": "Something went wrong.",
       "toUpdate": "Bio to update",
       "toKeep": "Current bio to keep",
-      "copy": "Copy the bio"
+      "copy": "Copy the bio",
+      "copyShort": "Copy",
+      "applied": "I've applied this bio"
     },
     "noProject": {
       "title": "No project available",
@@ -930,7 +943,8 @@
       "midi": "Midday",
       "apresmidi": "Afternoon",
       "soir": "Evening"
-    }
+    },
+    "between": "between {start} and {end}"
   },
   "videoFilter": {
     "all": "All my videos",
@@ -1026,7 +1040,10 @@
     "accountMatch": "✓ Account matches (@{handle})",
     "accountMismatch": "⚠️ This link points to @{detected}, not {expected}.",
     "expectedAccount": "the expected account",
-    "accountRefused": "Account refused — {reason}"
+    "accountRefused": "Account refused — {reason}",
+    "handlePlaceholder": "@myhandle",
+    "postLinkFor": "{platform} post link",
+    "publishedSave": "I've posted — save"
   },
   "phase": {
     "label": {
@@ -1111,7 +1128,21 @@
     "httpInterrupted": "Upload interrupted (HTTP {status}).",
     "httpRefused": "Drive refused the upload (HTTP {status}).",
     "fileSent": "{name} sent",
-    "progress": "Uploading {percent}%"
+    "progress": "Uploading {percent}%",
+    "partner": {
+      "title": "Drop your videos and photos here",
+      "hint": "Videos and photos (iPhone .mov / .heic supported) — up to 5 GB",
+      "button": "Choose files",
+      "tooBig": "{name}: too large (5 GB max).",
+      "wrongKind": "{name}: only videos and photos are accepted."
+    },
+    "rush": {
+      "title": "Drop your takes here",
+      "hint": "Videos only (iPhone .mov supported) — short takes, 5 to 10 seconds",
+      "button": "Choose my videos",
+      "tooBig": "{name}: too large (1 GB max). A take of a few seconds is about 30 MB.",
+      "wrongKind": "{name}: only videos are accepted."
+    }
   },
   "leaderboard": {
     "me": "You",
@@ -1206,5 +1237,16 @@
     "ERR_PAYMENT_ALREADY_PAID": "This cycle is already settled: a partial payment no longer applies.",
     "ERR_PAYMENT_REVERT_USED": "This cycle has already been reverted once: there is no second revert.",
     "ERR_ADVANCE_INVALID": "A partial payment must be a positive amount."
+  },
+  "calendar": {
+    "weekday": {
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat",
+      "sun": "Sun"
+    }
   }
 }

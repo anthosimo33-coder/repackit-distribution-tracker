@@ -271,7 +271,7 @@ export default function AssignmentDetailScreen({
                 <Card className="order-2">
                   <CardHeader>
                     <CardTitle className="text-base">
-                      {readOnly ? "Avancement" : ta("mySubmission")}
+                      {readOnly ? ta("progressRo") : ta("mySubmission")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-5">
