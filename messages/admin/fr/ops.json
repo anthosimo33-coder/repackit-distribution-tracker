@@ -1,1 +1,165 @@
-{}
+{
+  "AddRadarAccountDialog": {
+    "ajoutImpossible": "Ajout impossible.",
+    "ajouter": "Ajouter",
+    "ajouterUnCompte": "Ajouter un compte",
+    "annuler": "Annuler",
+    "colleUnUnHandleOu": "Colle un @, un handle, ou une URL de profil (tiktok.com/@compte). Ses dernières vidéos seront récupérées automatiquement.",
+    "compte": "Compte",
+    "compteAjouteSynchronisationLancee": "Compte ajouté — synchronisation lancée",
+    "exConcurrentInspiHumour": "Ex : concurrent, inspi humour…",
+    "noteTagOptionnel": "Note / tag (optionnel)",
+    "suivreUnCompteTiktok": "Suivre un compte TikTok"
+  },
+  "CacheBanner": {
+    "resultatsEnCacheAucunAppel": "Résultats en cache ({value}) — aucun appel Apify consommé.",
+    "resultatsFrais": "Résultats frais ({value}).",
+    "videoRecupereeBrutes": "{count} {count, plural, one {vidéo} other {vidéos}} · {totalFetched} {totalFetched, plural, one {récupérée} other {récupérées}} brutes"
+  },
+  "EmbedDialog": {
+    "ouvrirSurTiktok": "Ouvrir sur TikTok",
+    "siLaVideoNeSe": "Si la vidéo ne se lance pas (privée ou restreinte), ouvre-la sur TikTok.",
+    "videoTiktok": "Vidéo TikTok"
+  },
+  "GridCard": {
+    "lireLaVideoDe": "Lire la vidéo de @{value}",
+    "videoTiktok": "Vidéo TikTok"
+  },
+  "HashtagRow": {
+    "posts": "{count} posts",
+    "trend": {
+      "down": "en baisse",
+      "stable": "stable",
+      "up": "en hausse"
+    },
+    "videosRecentes14Jours": "Vidéos récentes (< 14 jours)",
+    "vues": "{count} vues"
+  },
+  "ListRow": {
+    "eng": "· {value} eng.",
+    "lireLaVideoDe": "Lire la vidéo de @{value}",
+    "ouvrirSurTiktok": "Ouvrir sur TikTok",
+    "videoTiktok": "Vidéo TikTok"
+  },
+  "OutlierRow": {
+    "ajoutAuSuiviImpossible": "Ajout au suivi impossible.",
+    "ajoutEnInspirationImpossible": "Ajout en inspiration impossible.",
+    "ajouteAuSuiviRadar": "@{handle} ajouté au suivi Radar",
+    "ajouterEnInspiration": "Ajouter en inspiration",
+    "compteDejaSuivi": "Compte déjà suivi",
+    "compteInconnu": "Compte inconnu",
+    "compteRecurrent": "COMPTE RÉCURRENT · {accountOutlierCount}",
+    "dejaEnInspiration": "Déjà en inspiration",
+    "dejaSuivi": "@{handle} déjà suivi",
+    "enregistrer": "Enregistrer",
+    "handleIndisponible": "Handle indisponible",
+    "lireLaVideoDe": "Lire la vidéo de @{value}",
+    "notePersoOptionnelle": "Note perso (optionnelle)",
+    "ouvrirSurTiktok": "Ouvrir sur TikTok",
+    "suivre": "Suivre @{handle}",
+    "suivreCeCompte": "Suivre ce compte",
+    "titreEtiquetteOptionnel": "Titre / étiquette (optionnel)",
+    "videoAjouteeAuxInspirations": "Vidéo ajoutée aux inspirations",
+    "videoTiktok": "Vidéo TikTok"
+  },
+  "RadarAccountCard": {
+    "abonnes": "{count} abonnés ·",
+    "enregistrer": "Enregistrer",
+    "miseAJourImpossible": "Mise à jour impossible.",
+    "modifierLaNoteDe": "Modifier la note de @{handle}",
+    "noteMiseAJour": "Note mise à jour",
+    "noteTag": "Note / tag",
+    "retirer": "Retirer @{handle}",
+    "sync": "Sync {value}",
+    "synchronisationDeLancee": "Synchronisation de @{handle} lancée",
+    "synchronisationImpossible": "Synchronisation impossible.",
+    "synchroniser": "Synchroniser @{handle}",
+    "video": "{videoCount} {videoCount, plural, one {vidéo} other {vidéos}}"
+  },
+  "RadarAccountsList": {
+    "annuler": "Annuler",
+    "leCompteSeraRetireDu": "Le compte sera retiré du Radar. Action irréversible.",
+    "lesVideosSuiviesDeCe": "Les {videoCount} vidéos suivies de ce compte seront supprimées du Radar. Action irréversible.",
+    "retire": "@{handle} retiré",
+    "retirer": "Retirer @{handle} ?",
+    "retirer2": "Retirer",
+    "suppressionImpossible": "Suppression impossible."
+  },
+  "RadarOutliers": {
+    "abonnesMin": "Abonnés min",
+    "aucunOutlier": "Aucun outlier",
+    "aucuneVideoAnglophoneExploitablePour": "Aucune vidéo anglophone exploitable pour ce mot-clé. Essaie une autre formulation.",
+    "aucuneVideoDeCompteAbonnes": "Aucune vidéo de compte ≥ {count} abonnés. Baisse le plancher « abonnés min » pour réafficher le lot.",
+    "cesComptesOntFait2": "Ces comptes ont fait ≥ 2 vidéos outlier sur ce mot-clé — formats à disséquer en priorité.",
+    "comptesRecurrents": "Comptes récurrents",
+    "motCleDeRechercheD": "Mot-clé de recherche d'outliers",
+    "motCleExMakeMoney": "Mot-clé (ex. make money online)",
+    "plancherDAbonnesFiltreD": "Plancher d'abonnés (filtre d'affichage)",
+    "plancherTropHaut": "Plancher trop haut",
+    "recherche": "Recherche…",
+    "rechercheDOutliers": "Recherche d'outliers",
+    "rechercheImpossible": "Recherche impossible.",
+    "rechercheImpossibleQuotaApifyOu": "Recherche impossible (quota Apify ou acteur indisponible).",
+    "rechercher": "Rechercher",
+    "resultatsServisDepuisLeCache": "Résultats servis depuis le cache — aucun appel consommé.",
+    "tapeUnMotClePour": "Tape un mot-clé pour repérer les vidéos qui surperforment et les comptes qui valident un format.",
+    "tiktok3DerniersMoisLes": "TikTok 🇺🇸 · 3 derniers mois · les comptes qui pètent ≥ 2 fois sont des formats validés. Recherche mise en cache 24 h. Le plancher « abonnés min » filtre l'affichage (gratuit, aucun appel).",
+    "videosParSurperformance": "Vidéos par surperformance"
+  },
+  "RadarPage": {
+    "ajouteUnCompteTiktokPour": "Ajoute un compte TikTok pour suivre ses dernières vidéos.",
+    "aucunCompteSuivi": "Aucun compte suivi",
+    "compteSuivi": "{count, plural, one {compte} other {comptes}} {count, plural, one {suivi} other {suivis}}",
+    "comptesSuivis": "Comptes suivis",
+    "limiteConseilleeAtteinteQuotaApify": "Limite conseillée atteinte — quota Apify à surveiller.",
+    "outliers": "Outliers",
+    "radar": "Radar",
+    "tendances": "Tendances",
+    "veilleTiktokSuisDesComptes": "Veille TikTok — suis des comptes en favori et leurs dernières vidéos."
+  },
+  "RadarSyncButton": {
+    "recupererLesDernieresVideosDes": "Récupérer les dernières vidéos des comptes suivis",
+    "synchroniser": "Synchroniser"
+  },
+  "RadarTrends": {
+    "actualiser": "Actualiser",
+    "aucunHashtagTendanceEnCache": "Aucun hashtag tendance en cache pour ce pays. Clique « Actualiser ».",
+    "chargementDesTendancesImpossible": "Chargement des tendances impossible.",
+    "maj": "· maj {value}",
+    "n7DerniersJours": "7 derniers jours",
+    "paysDesTendances": "Pays des tendances"
+  },
+  "RadarVideoGrid": {
+    "aucuneVideo": "Aucune vidéo.",
+    "lesVideos": "les vidéos",
+    "trier": "Trier {quoi}"
+  },
+  "RadarVideoWall": {
+    "aucuneVideoPopulairePourL": "Aucune vidéo populaire pour l'instant.",
+    "aucuneVideoRecenteLanceUne": "Aucune vidéo récente. Lance une synchronisation.",
+    "dernieresVideos": "Dernières vidéos",
+    "filtrerParCompte": "Filtrer par compte",
+    "topVues": "Top vues",
+    "tousLesComptes": "Tous les comptes"
+  },
+  "RadarViewToggle": {
+    "vueGrille": "Vue grille",
+    "vueListe": "Vue liste"
+  },
+  "RecurringAccountCard": {
+    "abonnes": "{count} abonnés",
+    "compte": "compte",
+    "videosOutlier": "{outlierCount} vidéos outlier"
+  },
+  "TrendVideosPanel": {
+    "aucuneVideoRecente14Jours": "Aucune vidéo récente (< 14 jours) pour ce hashtag.",
+    "impossibleDeChargerLesVideos": "Impossible de charger les vidéos de ce hashtag.",
+    "reessayer": "Réessayer"
+  },
+  "radarSort": {
+    "engagement": "Engagement",
+    "likes": "Plus likées",
+    "published": "Plus récentes",
+    "views": "Plus vues"
+  }
+}

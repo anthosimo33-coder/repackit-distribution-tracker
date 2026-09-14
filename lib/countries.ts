@@ -71,22 +71,29 @@ export function countryFlag(code: string | null | undefined): string | null {
 }
 
 /**
- * Code → « 🇷🇸 Serbie ». `null` quand le code est absent.
+ * Code → « 🇷🇸 Serbie », dans la langue passée (défaut : le français). `null`
+ * quand le code est absent.
  *
  * Un code HORS liste fermée est rendu tel quel, sans drapeau : c'est une donnée
  * qu'on n'a pas écrite nous-mêmes, la montrer brute vaut mieux que l'habiller.
  */
-export function countryLabel(code: string | null | undefined): string | null {
+export function countryLabel(
+  code: string | null | undefined,
+  locale: string = "fr-FR",
+): string | null {
   if (!code) return null;
   const cc = code.trim().toUpperCase();
   if (!CODES.has(cc)) return code;
-  return `${countryFlag(cc)} ${isoCountryLabel(cc)}`;
+  return `${countryFlag(cc)} ${isoCountryLabel(cc, locale)}`;
 }
 
 /**
  * Le NOM seul, sans drapeau — pour un texte courant où l'emoji détonnerait.
  */
-export function countryName(code: string | null | undefined): string | null {
+export function countryName(
+  code: string | null | undefined,
+  locale: string = "fr-FR",
+): string | null {
   if (!code) return null;
-  return isoCountryLabel(code);
+  return isoCountryLabel(code, locale);
 }

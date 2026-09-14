@@ -12,6 +12,7 @@ import { RadarAccountsList } from "@/components/admin/radar/RadarAccountsList";
 import { RadarVideoWall } from "@/components/admin/radar/RadarVideoWall";
 import { RadarTrends } from "@/components/admin/radar/RadarTrends";
 import { RadarOutliers } from "@/components/admin/radar/RadarOutliers";
+import { useTranslations } from "next-intl";
 
 /**
  * RADAR — veille TikTok (ADMIN UNIQUEMENT). Section séparée du tracking
@@ -21,6 +22,7 @@ import { RadarOutliers } from "@/components/admin/radar/RadarOutliers";
  * ne peut atteindre aucune fonction Radar.
  */
 export default function RadarPage() {
+  const tr = useTranslations("admin.ops.RadarPage");
   const data = useProjectQuery(api.radar.listRadarAccounts, {});
   const accounts = data?.accounts;
   const limit = data?.limit ?? 8;
@@ -34,11 +36,10 @@ export default function RadarPage() {
           </span>
           <div className="space-y-1">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-              Radar
+              {tr("radar")}
             </h1>
             <p className="text-sm text-slate-500">
-              Veille TikTok — suis des comptes en favori et leurs dernières
-              vidéos.
+              {tr("veilleTiktokSuisDesComptes")}
             </p>
           </div>
         </div>
@@ -52,15 +53,15 @@ export default function RadarPage() {
         <TabsList>
           <TabsTrigger value="comptes">
             <UsersIcon className="size-4" />
-            Comptes suivis
+            {tr("comptesSuivis")}
           </TabsTrigger>
           <TabsTrigger value="tendances">
             <TrendingUpIcon className="size-4" />
-            Tendances
+            {tr("tendances")}
           </TabsTrigger>
           <TabsTrigger value="outliers">
             <ZapIcon className="size-4" />
-            Outliers
+            {tr("outliers")}
           </TabsTrigger>
         </TabsList>
 
@@ -84,13 +85,11 @@ export default function RadarPage() {
                     )}
                   >
                     {accounts.length} / {limit}
-                  </span>{" "}
-                  compte{accounts.length > 1 ? "s" : ""} suivi
-                  {accounts.length > 1 ? "s" : ""}
+                  </span>{" "}{tr("compteSuivi", { count: accounts.length })}
                 </p>
                 {accounts.length >= limit && (
                   <p className="text-xs text-amber-600">
-                    Limite conseillée atteinte — quota Apify à surveiller.
+                    {tr("limiteConseilleeAtteinteQuotaApify")}
                   </p>
                 )}
               </div>
@@ -103,10 +102,10 @@ export default function RadarPage() {
                   />
                   <div className="space-y-1">
                     <h2 className="text-base font-semibold text-slate-900">
-                      Aucun compte suivi
+                      {tr("aucunCompteSuivi")}
                     </h2>
                     <p className="text-sm text-slate-500">
-                      Ajoute un compte TikTok pour suivre ses dernières vidéos.
+                      {tr("ajouteUnCompteTiktokPour")}
                     </p>
                   </div>
                   <AddRadarAccountDialog />

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/command";
 import { COUNTRY_CODES, countryFlag, countryLabel, countryName } from "@/lib/countries";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /** Valeur sentinelle : « aucun pays ciblé ». */
 export const COUNTRY_NONE = "none";
@@ -58,17 +59,19 @@ export function CountryPicker({
   suggestions?: readonly string[];
   ariaLabel?: string;
 }) {
+  const loc = useIntlLocale();
   const tr = useTranslations("admin.common.CountryPicker");
   const [open, setOpen] = useState(false);
 
   // Tri par NOM LOCALISÉ, pas par code : une liste ordonnée « AD, AE, AF »
-  // n'est alphabétique que pour une machine.
+  // n'est alphabétique que pour une machine. La langue du lecteur décide à la
+  // fois du nom et de l'ordre (« Allemagne » ≠ « Germany »).
   const tous = useMemo(
     () =>
       [...COUNTRY_CODES]
-        .map((code) => ({ code, nom: countryName(code) ?? code }))
-        .sort((a, b) => a.nom.localeCompare(b.nom, "fr")),
-    [],
+        .map((code) => ({ code, nom: countryName(code, loc) ?? code }))
+        .sort((a, b) => a.nom.localeCompare(b.nom, loc)),
+    [loc],
   );
 
   // Les suggestions sont RETIRÉES de la grande liste : un même pays rendu deux
@@ -82,9 +85,9 @@ export function CountryPicker({
         vus.add(c);
         return true;
       })
-      .map((code) => ({ code, nom: countryName(code) ?? code }))
-      .sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
-  }, [suggestions, tous]);
+      .map((code) => ({ code, nom: countryName(code, loc) ?? code }))
+      .sort((a, b) => a.nom.localeCompare(b.nom, loc));
+  }, [suggestions, tous, loc]);
   const enTeteCodes = new Set(enTete.map((c) => c.code));
 
   const ligne = (c: { code: string; nom: string }) => (
@@ -123,7 +126,7 @@ export function CountryPicker({
                 {tr("nonDefini")}
               </span>
             ) : (
-              <span className="truncate">{countryLabel(value)}</span>
+              <span className="truncate">{countryLabel(value, loc)}</span>
             )}
             <ChevronsUpDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
           </Button>

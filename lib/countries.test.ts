@@ -50,6 +50,16 @@ describe("libellés de pays", () => {
     expect(countryLabel("FR")).toBe("🇫🇷 France");
   });
 
+  it("suit la langue du lecteur", () => {
+    // Un manager anglophone lisait « 🇺🇸 États-Unis » dans le sélecteur du
+    // Radar : le nom venait d'ICU, mais toujours en français.
+    expect(countryLabel("US", "en")).toBe("🇺🇸 United States");
+    expect(countryLabel("DE", "en")).toBe("🇩🇪 Germany");
+    expect(countryName("DE", "en")).toBe("Germany");
+    // Présence en regard : sans langue, le repli reste le français.
+    expect(countryLabel("DE")).toBe("🇩🇪 Allemagne");
+  });
+
   it("normalise la casse et les espaces", () => {
     expect(countryLabel(" ch ")).toBe(countryLabel("CH"));
   });
