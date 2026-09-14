@@ -37,7 +37,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   PlusIcon,
@@ -48,6 +47,7 @@ import {
 import { ComboCooldownSettingsButton } from "@/components/scripts/ComboCooldownSettingsButton";
 import type { FunctionReturnType } from "convex/server";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type Campaign = FunctionReturnType<typeof api.scripts.listCampaigns>[number];
 
@@ -164,6 +164,7 @@ function CampaignActions({
   campaign: Campaign;
   onEdit: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.scripts.CampaignActions");
   const update = useProjectMutation(api.scripts.updateCampaign);
   const remove = useProjectMutation(api.scripts.deleteCampaign);
@@ -177,7 +178,7 @@ function CampaignActions({
       });
       toast.success(isArchived ? tr("reactivee") : tr("archivee"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -186,7 +187,7 @@ function CampaignActions({
       await remove({ id: campaign._id });
       toast.success(tr("campagneSupprimee"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -225,6 +226,7 @@ function CampaignDialog({
   onOpenChange: (o: boolean) => void;
   campaign: Campaign | null;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.scripts.CampaignDialog");
   const create = useProjectMutation(api.scripts.createCampaign);
   const update = useProjectMutation(api.scripts.updateCampaign);
@@ -257,7 +259,7 @@ function CampaignDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

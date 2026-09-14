@@ -465,18 +465,14 @@ export const createCompte = permissionMutation("accounts.manage")({
       )
       .collect();
     if (samePlatform.some((c) => c.handle === args.handle)) {
-      throw new ConvexError(
-        `Compte ${args.handle} existe déjà sur ${args.plateforme}`,
-      );
+      throw err(ERR.ACCOUNT_ALREADY_EXISTS, `Compte ${args.handle} existe déjà sur ${args.plateforme}`, { handle: args.handle, platform: args.plateforme });
     }
     const status: CompteStatus = args.status ?? "actif";
     if (status === "warmup" && args.warmupStartedAt === undefined) {
       throw err(ERR.WARMUP_START_REQUIRED, "Date de début warmup requise.");
     }
     if (status !== "warmup" && args.warmupStartedAt !== undefined) {
-      throw new ConvexError(
-        "La date de warmup n'est valide que pour le statut warmup.",
-      );
+      throw err(ERR.WARMUP_DATE_NEEDS_WARMUP, "La date de warmup n'est valide que pour le statut warmup.");
     }
     const now = Date.now();
     return await ctx.db.insert("comptes", {
@@ -605,10 +601,14 @@ export const updateCompte = permissionMutation("accounts.manage")({
           (c) => c._id !== compte._id && c.handle === args.handle,
         )
       ) {
+        // Code DÉDIÉ : ce n'est pas le verrou « compte déjà utilisé »
+        // (ACCOUNT_RENAME_LOCKED, qui compte des publications) mais une
+        // collision de handle. Sous l'ancien code, le client rendait « 0
+        // publications l'utilisent » à la place de la vraie raison.
         throw err(
-          ERR.ACCOUNT_RENAME_LOCKED,
+          ERR.ACCOUNT_RENAME_COLLISION,
           `Un compte ${args.handle} existe déjà sur ${compte.plateforme}. Renommer ici fusionnerait deux comptes distincts.`,
-          { count: 0 },
+          { handle: args.handle, platform: compte.plateforme },
         );
       }
       const pubs = await ctx.db
@@ -891,7 +891,7 @@ export const refuseCompte = permissionMutation("accounts.manage")({
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, compte.creatorId);
     const motif = reason.trim();
     if (motif.length === 0) {
-      throw new ConvexError("Un motif de refus est requis.");
+      throw err(ERR.REJECTION_REASON_REQUIRED, "Un motif de refus est requis.");
     }
     if (compte.refusedAt !== undefined) {
       return { ok: true, alreadyRefused: true };
@@ -1047,7 +1047,7 @@ export const updateWarmupProtocol = permissionMutation("accounts.manage")({
 
     const targetDays = args.targetDays ?? current.targetDays;
     if (!Number.isInteger(targetDays) || targetDays < 1 || targetDays > 60) {
-      throw new ConvexError("La durée cible doit être un entier entre 1 et 60.");
+      throw err(ERR.WARMUP_DURATION_INVALID, "La durée cible doit être un entier entre 1 et 60.");
     }
     const instructions = args.instructions ?? current.instructions;
 

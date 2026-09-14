@@ -12,6 +12,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ERR, err } from "./errorCodes";
 
 /**
  * P6 Formats — bibliothèque de briefs par projet (CRUD admin). Les vidéos
@@ -276,17 +277,17 @@ export const getTalentBriefAsAdmin = adminViewAsTalentQuery({
 
 function validateRate(rate: NonNullable<Doc<"formats">["rateModel"]>) {
   if (!Number.isFinite(rate.basePerPost) || rate.basePerPost < 0) {
-    throw new ConvexError("Le tarif de base doit être un nombre ≥ 0.");
+    throw err(ERR.FORMAT_BASE_RATE_INVALID, "Le tarif de base doit être un nombre ≥ 0.");
   }
   if (
     rate.viewBonusPer1k !== undefined &&
     (!Number.isFinite(rate.viewBonusPer1k) || rate.viewBonusPer1k < 0)
   ) {
-    throw new ConvexError("Le bonus aux vues doit être un nombre ≥ 0.");
+    throw err(ERR.FORMAT_VIEW_BONUS_INVALID, "Le bonus aux vues doit être un nombre ≥ 0.");
   }
   for (const b of rate.bounties ?? []) {
     if (b.thresholdViews < 0 || b.amount < 0) {
-      throw new ConvexError("Les paliers de prime doivent être ≥ 0.");
+      throw err(ERR.FORMAT_TIERS_INVALID, "Les paliers de prime doivent être ≥ 0.");
     }
   }
 }
@@ -342,7 +343,7 @@ export const createFormat = permissionMutation("scripts.manage")({
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
-    if (name.length === 0) throw new ConvexError("Le nom du format est requis.");
+    if (name.length === 0) throw err(ERR.FORMAT_NAME_REQUIRED, "Le nom du format est requis.");
     // Un format NAÎT SANS GRILLE — champ absent, pas `{ basePerPost: 0 }`. La
     // nuance est ce qui protège la paie : `assignFormat` refuse d'assigner un
     // format dont la grille n'a jamais été renseignée, alors qu'un zéro EXPLICITE

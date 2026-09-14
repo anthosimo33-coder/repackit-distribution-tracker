@@ -16,10 +16,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * CIBLAGE NOMINATIF — qui voit le défi.
@@ -43,6 +43,7 @@ export function ChallengeParticipantsCard({
   /** Défi clos : la liste devient une lecture. */
   locked: boolean;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.challenges.ChallengeParticipantsCard");
   const creators = useProjectQuery(api.assignments.listAssignableCreators, {});
   const save = useProjectMutation(api.challenges.setChallengeParticipants);
@@ -62,7 +63,7 @@ export function ChallengeParticipantsCard({
       setDraft(null);
       toast.success(tr("participantesEnregistrees"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }

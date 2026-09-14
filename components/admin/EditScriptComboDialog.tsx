@@ -28,13 +28,13 @@ import {
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { assembleScript, KIND_LABEL_KEYS } from "@/lib/scriptAssembly";
 import {
   SCRIPT_COMBO_SLOTS,
   type ScriptComboSlot,
 } from "@/lib/script-combo-edit";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const NONE = "__none__";
 
@@ -63,6 +63,7 @@ export function EditScriptComboDialog({
   };
   creatorName: string;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.EditScriptComboDialog");
   const tKind = useTranslations("admin.scripts.brickKind");
   const campaign = useProjectQuery(
@@ -137,7 +138,7 @@ export function EditScriptComboDialog({
       toast.success(tr("comboCorrigeScriptMisA"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setBusy(false);
     }

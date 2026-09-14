@@ -9,8 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon, TimerIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Durée de warmup DU PROJET, par plateforme.
@@ -43,6 +43,7 @@ const PLATFORMS = [
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
 
 export function WarmupSettingsCard() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.WarmupSettingsCard");
   const settings = useProjectQuery(api.projects.getWarmupSettings, {});
   const save = useProjectMutation(api.projects.setWarmupSettings);
@@ -78,7 +79,7 @@ export function WarmupSettingsCard() {
       setDraft(null);
       toast.success(tr("dureesDeWarmupEnregistrees"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }

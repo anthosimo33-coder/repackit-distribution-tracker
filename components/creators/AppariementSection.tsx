@@ -18,9 +18,9 @@ import {
 } from "@/components/ui/select";
 import { AlertTriangleIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { resolveCreatorKind } from "@/convex/roles";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /** Valeur du sélecteur pour « aucun clippeur » — `null` n'est pas une valeur de Select. */
 const AUCUN = "__aucun__";
@@ -39,6 +39,7 @@ const AUCUN = "__aucun__";
  * visibles d'aucun clippeur, donc son travail ne part nulle part.
  */
 export function AppariementSection() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.creators.AppariementSection");
   const creators = useProjectQuery(api.creators.listCreators, {});
   const updateCreator = useProjectMutation(api.creators.updateCreator);
@@ -80,7 +81,7 @@ export function AppariementSection() {
         value === AUCUN ? tr("appariementRetire") : tr("talentApparie"),
       );
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("appariementImpossible")));
+      toast.error(showError(e, tr("appariementImpossible")));
     } finally {
       setBusyId(null);
     }

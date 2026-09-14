@@ -38,12 +38,12 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { PersonneCombobox } from "@/components/comptes/PersonneCombobox";
 import type { Compte } from "@/components/comptes/CompteDialog";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatNumber } from "@/lib/format";
+import { useConvexError } from "@/lib/use-convex-error";
 
 
 /** Sous-ensemble de listCreators utile au sélecteur de propriétaire. */
@@ -183,6 +183,7 @@ export function CompteReassignDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.CompteReassignDialog");
   const loc = useIntlLocale();
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
@@ -246,7 +247,7 @@ export function CompteReassignDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

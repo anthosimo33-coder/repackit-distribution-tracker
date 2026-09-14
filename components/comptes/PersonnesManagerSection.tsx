@@ -27,8 +27,8 @@ import {
   UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Page admin des personnes (gestionnaires), accessible via
@@ -40,6 +40,7 @@ import { useTranslations } from "next-intl";
  * actions rename / delete.
  */
 export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.PersonnesManagerSection");
   const personnes = useProjectQuery(api.personnes.listPersonnes, {});
   const deletePersonne = useProjectMutation(api.personnes.deletePersonne);
@@ -83,7 +84,7 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }

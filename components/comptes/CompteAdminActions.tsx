@@ -25,13 +25,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontalIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { getEffectiveStatus } from "@/lib/compte-status";
 import { CompteReassignDialog } from "@/components/comptes/CompteReassignDialog";
 import type { Compte } from "@/components/comptes/CompteDialog";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatNumber } from "@/lib/format";
+import { useConvexError } from "@/lib/use-convex-error";
 
 
 /**
@@ -56,6 +56,7 @@ export function CompteAdminActions({
   /** Appelé après une suppression réussie (la fiche détail doit repartir). */
   onDeleted?: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.CompteAdminActions");
   const loc = useIntlLocale();
   const archive = useProjectMutation(api.comptes.archiveCompte);
@@ -83,7 +84,7 @@ export function CompteAdminActions({
         toast.success(tr("archive", { handle: compte.handle }));
       }
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -95,7 +96,7 @@ export function CompteAdminActions({
       setConfirmOpen(false);
       onDeleted?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +110,7 @@ export function CompteAdminActions({
       toast.success(tr("archiveHistoriqueConserve", { handle: compte.handle }));
       setConfirmOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

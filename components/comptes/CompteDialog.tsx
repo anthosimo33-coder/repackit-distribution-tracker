@@ -34,7 +34,6 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { CalendarIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   getEffectiveStatus,
@@ -51,6 +50,7 @@ import { useTranslations } from "next-intl";
 import { useLabel } from "@/lib/use-label";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 // listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
 // et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
@@ -115,6 +115,7 @@ export default function CompteDialog({
   mode: "add" | "edit";
   compte?: Compte;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.CompteDialog");
   const tLabel = useLabel();
@@ -223,7 +224,7 @@ export default function CompteDialog({
       toast.success(tr("passeEnActif", { handle: compte.handle }));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -289,7 +290,7 @@ export default function CompteDialog({
       setWarmupStartedAt(null);
       setTargetCountry(COUNTRY_NONE);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

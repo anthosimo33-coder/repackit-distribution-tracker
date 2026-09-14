@@ -34,8 +34,8 @@ import {
 import { GuideMarkdown } from "@/components/ui/GuideMarkdown";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const TITLE_MAX = 120;
 const CONTENT_MAX = 50_000;
@@ -104,6 +104,7 @@ function GuideModuleEditForm({
   initialLocale: Locale;
   onClose: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.GuideModuleEditForm");
   const isEdit = mode === "edit";
   const [title, setTitle] = useState(initialModule?.title ?? "");
@@ -155,7 +156,7 @@ function GuideModuleEditForm({
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

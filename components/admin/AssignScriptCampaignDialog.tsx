@@ -36,7 +36,6 @@ import {
   formatPostWindow,
   type PostWindow,
 } from "@/convex/postWindow";
-import { convexErrorMessage } from "@/lib/convex-error";
 import {
   PER_CREATOR,
   displayedPricingChoice,
@@ -53,6 +52,7 @@ import {
 } from "@/components/admin/ChosenComboPicker";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
@@ -136,6 +136,7 @@ export function AssignScriptCampaignDialog({
     postDate: number;
   };
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.AssignScriptCampaignDialog");
   const tLabel = useLabel();
@@ -429,7 +430,7 @@ export function AssignScriptCampaignDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
+      toast.error(showError(err, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

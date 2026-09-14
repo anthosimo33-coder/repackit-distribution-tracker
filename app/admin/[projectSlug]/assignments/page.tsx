@@ -54,7 +54,6 @@ import {
   TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import type { Id } from "@/convex/_generated/dataModel";
 import { AssignmentModelVideosDialog } from "@/components/admin/AssignmentModelVideosDialog";
 import { AssignmentScriptDialog } from "@/components/admin/AssignmentScriptDialog";
@@ -102,6 +101,7 @@ import {
 } from "@/lib/assignment-status";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 function formatDate(ts: number, locale: string = "fr-FR") {
   return new Date(ts).toLocaleDateString(locale);
@@ -133,6 +133,7 @@ export default function AssignmentsPage() {
 }
 
 function AssignmentsPageInner() {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentsPageInner");
   const tLabel = useLabel();
@@ -272,7 +273,7 @@ function AssignmentsPageInner() {
         toast.info(tr("aDejaEteRelanceIl", { creatorName: creatorName }));
       }
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("relanceImpossible")));
+      toast.error(showError(e, tr("relanceImpossible")));
     } finally {
       setNudgingId(null);
     }
@@ -288,7 +289,7 @@ function AssignmentsPageInner() {
       toast.success(tr("assignmentSupprimeLeComboEst"));
       setDeleteId(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setDeleting(false);
     }

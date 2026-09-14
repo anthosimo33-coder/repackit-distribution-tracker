@@ -28,13 +28,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { formatMoney } from "@/lib/format-rate";
 import { formatViews, maxCommitment } from "./challenge-format";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Création d'un défi. Le défi naît en BROUILLON : on le crée, puis on lui donne
@@ -74,6 +74,7 @@ export function CreateChallengeDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.challenges.CreateChallengeDialog");
   const router = useRouter();
@@ -178,7 +179,7 @@ export function CreateChallengeDialog({
       onOpenChange(false);
       router.push(projectPath(`/defis/${challengeId}`));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }

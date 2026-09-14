@@ -16,11 +16,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Édite la DATE DE PUBLICATION planifiée d'un assignment EXISTANT depuis la page
@@ -41,6 +41,7 @@ export function AssignmentPostDateDialog({
   creatorName: string;
   currentPostDate?: number;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentPostDateDialog");
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
@@ -58,7 +59,7 @@ export function AssignmentPostDateDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setBusy(false);
     }

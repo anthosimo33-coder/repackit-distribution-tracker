@@ -22,11 +22,11 @@ import {
 } from "@/components/ui/dialog";
 import { AlertTriangleIcon, ExternalLinkIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { formatDate } from "@/lib/format";
 import { handleWarning } from "@/convex/handleHygiene";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * FILE DE VALIDATION des comptes déclarés par un clippeur.
@@ -42,6 +42,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
  * permanent en tête d'écran serait du bruit sur la page la plus consultée.
  */
 export function ComptesAValiderSection() {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.accounts.ComptesAValiderSection");
   const tWarn = useTranslations("admin.accounts.handleWarning");
@@ -65,7 +66,7 @@ export function ComptesAValiderSection() {
       await updateCompte({ id, status: "actif" });
       toast.success(tr("valideSonCompteurDePhase", { handle: handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("validationImpossible")));
+      toast.error(showError(e, tr("validationImpossible")));
     } finally {
       setBusyId(null);
     }
@@ -80,7 +81,7 @@ export function ComptesAValiderSection() {
       setRefusing(null);
       setMotif("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("refusImpossible")));
+      toast.error(showError(e, tr("refusImpossible")));
     } finally {
       setBusyId(null);
     }

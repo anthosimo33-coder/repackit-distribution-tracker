@@ -29,7 +29,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import {
   FolderIcon,
   ImagesIcon,
@@ -40,6 +39,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type Folder = FunctionReturnType<typeof api.assets.listAssetFolders>[number];
 
@@ -132,6 +132,7 @@ function FolderActions({
   folder: Folder;
   onRename: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.FolderActions");
   const remove = useProjectMutation(api.assets.deleteAssetFolder);
 
@@ -140,7 +141,7 @@ function FolderActions({
       await remove({ id: folder._id });
       toast.success(tr("dossierSupprime"));
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     }
   }
 
@@ -178,6 +179,7 @@ function FolderDialog({
   onOpenChange: (o: boolean) => void;
   folder: Folder | null;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.FolderDialog");
   const create = useProjectMutation(api.assets.createAssetFolder);
   const rename = useProjectMutation(api.assets.renameAssetFolder);
@@ -215,7 +217,7 @@ function FolderDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setBusy(false);
     }

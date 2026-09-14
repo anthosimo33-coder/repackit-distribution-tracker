@@ -8,6 +8,7 @@ import { syncBonusForPublication } from "./pricing";
 import { v, ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { passesWarmupMode } from "./warmupMode";
+import { ERR, err } from "./errorCodes";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -227,13 +228,11 @@ export const createSnapshot = permissionMutation("tracker.manage")({
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.publicationId);
     if (!pub || pub.projectId !== ctx.projectId) {
-      throw new ConvexError("Publication introuvable.");
+      throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
     }
 
     if (args.capturedAt < pub.datePubli) {
-      throw new ConvexError(
-        "Date de capture antérieure à la date de publication.",
-      );
+      throw err(ERR.SNAPSHOT_BEFORE_PUBLICATION, "Date de capture antérieure à la date de publication.");
     }
 
     const daysSincePublication = Math.floor(
@@ -274,7 +273,7 @@ export const updateSnapshot = permissionMutation("tracker.manage")({
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);
     if (!snap || snap.projectId !== ctx.projectId) {
-      throw new ConvexError("Snapshot introuvable.");
+      throw err(ERR.SNAPSHOT_NOT_FOUND, "Snapshot introuvable.");
     }
 
     const patch: Record<string, unknown> = {};
@@ -286,11 +285,9 @@ export const updateSnapshot = permissionMutation("tracker.manage")({
 
     if (args.capturedAt !== undefined) {
       const pub = await ctx.db.get(snap.publicationId);
-      if (!pub) throw new ConvexError("Publication introuvable.");
+      if (!pub) throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
       if (args.capturedAt < pub.datePubli) {
-        throw new ConvexError(
-          "Date de capture antérieure à la date de publication.",
-        );
+        throw err(ERR.SNAPSHOT_BEFORE_PUBLICATION, "Date de capture antérieure à la date de publication.");
       }
       patch.capturedAt = args.capturedAt;
       patch.daysSincePublication = Math.floor(
@@ -311,7 +308,7 @@ export const deleteSnapshot = permissionMutation("tracker.manage")({
   handler: async (ctx, args) => {
     const snap = await ctx.db.get(args.id);
     if (!snap || snap.projectId !== ctx.projectId) {
-      throw new ConvexError("Snapshot introuvable.");
+      throw err(ERR.SNAPSHOT_NOT_FOUND, "Snapshot introuvable.");
     }
     const publicationId = snap.publicationId;
     await ctx.db.delete(args.id);

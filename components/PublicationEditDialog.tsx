@@ -47,10 +47,10 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -75,6 +75,7 @@ export function PublicationEditDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.PublicationEditDialog");
   const mediaType = getMediaType(publication);
@@ -137,7 +138,7 @@ export function PublicationEditDialog({
       onOpenChange(false);
     } catch (e) {
       toast.error(
-        convexErrorMessage(e, tr("erreurLorsDeLaMise")),
+        showError(e, tr("erreurLorsDeLaMise")),
       );
     } finally {
       setSavingInfos(false);
@@ -151,7 +152,7 @@ export function PublicationEditDialog({
       toast.success(tr("snapshotSupprime"));
       setDeletingSnapshot(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("erreurLorsDeLaSuppression")));
+      toast.error(showError(e, tr("erreurLorsDeLaSuppression")));
     }
   }
 
@@ -386,6 +387,7 @@ function SnapshotFormDialog({
   isVideo: boolean;
   onClose: () => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.SnapshotFormDialog");
   const createSnapshot = useProjectMutation(api.metricSnapshots.createSnapshot);
@@ -451,7 +453,7 @@ function SnapshotFormDialog({
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("erreurLorsDeLEnregistrement")));
+      toast.error(showError(e, tr("erreurLorsDeLEnregistrement")));
     } finally {
       setSubmitting(false);
     }

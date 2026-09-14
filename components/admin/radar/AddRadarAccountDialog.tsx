@@ -17,8 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2Icon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Ajout d'un compte favori au Radar. Accepte un @, un handle nu, ou une URL de
@@ -26,6 +26,7 @@ import { useTranslations } from "next-intl";
  * limite douce est atteinte, on ajoute quand même et on affiche un avertissement.
  */
 export function AddRadarAccountDialog() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.ops.AddRadarAccountDialog");
   const addAccount = useProjectMutation(api.radar.addRadarAccount);
   const [open, setOpen] = useState(false);
@@ -48,7 +49,7 @@ export function AddRadarAccountDialog() {
       setNote("");
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("ajoutImpossible")));
+      toast.error(showError(e, tr("ajoutImpossible")));
     } finally {
       setSubmitting(false);
     }

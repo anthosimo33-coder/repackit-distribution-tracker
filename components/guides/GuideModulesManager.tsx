@@ -38,8 +38,8 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Section admin « Comment ça marche » — CRUD + réordonnancement des modules
@@ -55,6 +55,7 @@ import { useTranslations } from "next-intl";
  * n'échange qu'entre pairs de même langue.
  */
 export function GuideModulesManager() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.GuideModulesManager");
   const modules = useProjectQuery(api.guideModules.listModulesForAdmin, {});
   const moveModule = useProjectMutation(api.guideModules.moveModule);
@@ -96,7 +97,7 @@ export function GuideModulesManager() {
     try {
       await moveModule({ id, direction });
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setMovingId(null);
     }
@@ -110,7 +111,7 @@ export function GuideModulesManager() {
       toast.success(tr("moduleSupprime"));
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }

@@ -14,11 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AssetUploader } from "@/components/admin/AssetUploader";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { ArrowLeftIcon, SparklesIcon, Trash2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 export default function AssetFolderDetailPage() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.AssetFolderDetailPage");
   const params = useParams<{ folderId: string }>();
   const folderId = params.folderId as Id<"assetFolders">;
@@ -34,7 +35,7 @@ export default function AssetFolderDetailPage() {
       await removeAsset({ id });
       toast.success(tr("fichierSupprime"));
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     }
   }
 

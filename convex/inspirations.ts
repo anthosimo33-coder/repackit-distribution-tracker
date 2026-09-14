@@ -6,6 +6,7 @@ import {
 import { internal } from "./_generated/api";
 import { v, ConvexError } from "convex/values";
 import { deleteStorageBestEffort } from "./storageCleanup";
+import { ERR, err } from "./errorCodes";
 
 const plateformeValidator = v.union(
   v.literal("TikTok"),
@@ -151,7 +152,7 @@ export const createInspiration = permissionMutation("library.manage")({
   },
   handler: async (ctx, args) => {
     if (args.url.trim().length === 0) {
-      throw new ConvexError("URL requise.");
+      throw err(ERR.URL_REQUIRED, "URL requise.");
     }
     const now = Date.now();
     const id = await ctx.db.insert("inspirations", {
@@ -213,11 +214,11 @@ export const updateInspiration = permissionMutation("library.manage")({
   },
   handler: async (ctx, args) => {
     if (args.url !== undefined && args.url.trim().length === 0) {
-      throw new ConvexError("URL ne peut pas être vide.");
+      throw err(ERR.URL_CANNOT_BE_EMPTY, "URL ne peut pas être vide.");
     }
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) {
-      throw new ConvexError("Inspiration introuvable.");
+      throw err(ERR.INSPIRATION_NOT_FOUND, "Inspiration introuvable.");
     }
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };

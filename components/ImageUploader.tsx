@@ -7,9 +7,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Loader2Icon, UploadIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -37,6 +37,7 @@ export function ImageUploader({
   onChange: (storageId: Id<"_storage"> | null) => void;
   disabled?: boolean;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.ImageUploader");
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -70,7 +71,7 @@ export function ImageUploader({
       onChange(storageId);
     } catch (e) {
       toast.error(
-        convexErrorMessage(e, tr("erreurLorsDeLUpload")),
+        showError(e, tr("erreurLorsDeLUpload")),
       );
     } finally {
       setUploading(false);

@@ -71,30 +71,24 @@ export const generatePasswordResetLink = permissionMutation("creators.manage")({
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     // Un lien de reset donne la main sur le COMPTE de la créatrice : c'est le
     // geste le plus fort du bloc, il ne sort pas du périmètre.
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     if (!creator.userId) {
-      throw new ConvexError(
-        "Ce créateur n'a pas encore finalisé son compte. Utilise « Régénérer l'invitation ».",
-      );
+      throw err(ERR.ACCOUNT_NOT_FINALIZED, "Ce créateur n'a pas encore finalisé son compte. Utilise « Régénérer l'invitation ».");
     }
     const user = await ctx.db.get(creator.userId);
     if (!user) {
-      throw new ConvexError("Compte de connexion introuvable.");
+      throw err(ERR.LOGIN_ACCOUNT_NOT_FOUND, "Compte de connexion introuvable.");
     }
     if (user.role === "superadmin") {
-      throw new ConvexError(
-        "Réinitialisation non autorisée pour un compte superadmin.",
-      );
+      throw err(ERR.RESET_FORBIDDEN_SUPERADMIN, "Réinitialisation non autorisée pour un compte superadmin.");
     }
     const account = await passwordAccountFor(ctx, creator.userId);
     if (account === null) {
-      throw new ConvexError(
-        "Ce compte n'a pas de mot de passe (connexion externe) — reset impossible.",
-      );
+      throw err(ERR.ACCOUNT_HAS_NO_PASSWORD, "Ce compte n'a pas de mot de passe (connexion externe) — reset impossible.");
     }
 
     // Un seul lien actif : on supprime les anciens tokens de ce user.

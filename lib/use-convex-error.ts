@@ -2,7 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { convexErrorCode, convexErrorPayload } from "./convex-error";
-import { PHASE_INLINE_KEYS, formatUtcDay } from "@/convex/accountPhase";
+import { formatUtcDay } from "@/convex/accountPhase";
 
 /**
  * Rend un rejet métier Convex DANS LA LANGUE DU LECTEUR.
@@ -33,21 +33,28 @@ export function useConvexError(): (error: unknown, fallback?: string) => string 
     const code = convexErrorCode(error);
     if (code !== null) {
       const params = { ...(payload?.params ?? {}) };
-      // `at` est un instant BRUT : le serveur ne peut pas le formater dans la
-      // langue du lecteur, il l'envoie tel quel et on le rend ici. Le `date`
-      // français qui l'accompagne ne sert qu'au message de repli.
-      if (typeof params.at === "number") {
-        params.date = formatUtcDay(params.at, locale);
-        delete params.at;
+      // Un instant est envoyé BRUT (`at`, ou `<quoi>At`) : le serveur ne peut
+      // pas le formater dans la langue du lecteur. On le rend ici, sous le nom
+      // `date` / `<quoi>Date`. Le français du message serveur ne sert qu'au
+      // repli.
+      for (const [name, value] of Object.entries(params)) {
+        if (typeof value !== "number") continue;
+        if (name !== "at" && !name.endsWith("At")) continue;
+        params[name === "at" ? "date" : `${name.slice(0, -2)}Date`] =
+          formatUtcDay(value, locale);
+        delete params[name];
       }
-      // `phaseKey` est une CLÉ, pas un libellé : le serveur ne connaît pas la
-      // langue, il envoie la clé de la phase et on la résout ici. Sans ça,
+      // Un paramètre `<quoi>Key` porte une CLÉ, pas un libellé : le serveur ne
+      // connaît pas la langue, il envoie la clé et on la résout ici. Sans ça,
       // « en phase de chauffe » resterait français au milieu d'une phrase
-      // anglaise.
-      if (typeof params.phaseKey === "string") {
-        const key = params.phaseKey as (typeof PHASE_INLINE_KEYS)[keyof typeof PHASE_INLINE_KEYS];
-        params.phase = t(key as Parameters<typeof t>[0]);
-        delete params.phaseKey;
+      // anglaise. Le morceau traduit s'appelle `<quoi>` dans le message.
+      for (const [name, value] of Object.entries(params)) {
+        if (typeof value !== "string" || !name.endsWith("Key")) continue;
+        const base = name.slice(0, -3);
+        params[base] = t.has(value as Parameters<typeof t.has>[0])
+          ? t(value as Parameters<typeof t>[0])
+          : value;
+        delete params[name];
       }
       const hasKey = tError.has(
         code as Parameters<typeof tError.has>[0],

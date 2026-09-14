@@ -56,7 +56,6 @@ import {
   type CreatorKind,
 } from "@/convex/roles";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   CREATOR_STATUS_ORDER,
@@ -91,6 +90,7 @@ import { usePermissions } from "@/components/project/use-permissions";
 import { canObserveCreatorSpace } from "@/lib/view-as-access";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 /** Conditions de rémunération — SECONDE lecture, gardée par `creators.pay_terms`.
@@ -114,6 +114,7 @@ export function CreatorDetailView({
    *  évite d'afficher des champs vides qu'on ne pourrait ni lire ni enregistrer. */
   canEditPayTerms: boolean;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tA = useTranslations("admin.creators.CreatorDetailView");
   const tZoneNs = useTranslations("admin.creators.timezone");
@@ -258,7 +259,7 @@ export function CreatorDetailView({
       toast.success(tA("createurRattacheAuProjet"));
       setAddTarget("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, tA("echecDuRattachementAuProjet")));
+      toast.error(showError(e, tA("echecDuRattachementAuProjet")));
     } finally {
       setAdding(false);
     }
@@ -323,7 +324,7 @@ export function CreatorDetailView({
       }
       toast.success(tA("createurMisAJour"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tA("echecDeLaMiseA")));
+      toast.error(showError(e, tA("echecDeLaMiseA")));
     } finally {
       setSaving(false);
     }
@@ -334,7 +335,7 @@ export function CreatorDetailView({
       await regenerate({ creatorId: creator._id });
       toast.success(tA("nouveauLienGenereLAncien"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tA("echecDeLaGenerationDu")));
+      toast.error(showError(e, tA("echecDeLaGenerationDu")));
     }
   }
 
@@ -344,7 +345,7 @@ export function CreatorDetailView({
       const { token } = await generateResetLink({ creatorId: creator._id });
       setResetToken(token);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tA("echecDeLaGenerationDu2")));
+      toast.error(showError(e, tA("echecDeLaGenerationDu2")));
     } finally {
       setGeneratingReset(false);
     }
@@ -1080,6 +1081,7 @@ function BonusGridSection({
   /** Devise de la PAIE créatrices (dollars), threadée depuis CreatorDetailView. */
   currency?: string | null;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.BonusGridSection");
   // ⚠️ CES DEUX LECTURES SONT SOUS `pricing.manage`, PAS sous `creators.pay_terms`.
@@ -1111,7 +1113,7 @@ function BonusGridSection({
       });
       toast.success(tr("grilleDeBonusMiseA"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLaMiseA")));
+      toast.error(showError(e, tr("echecDeLaMiseA")));
     } finally {
       setSaving(false);
     }

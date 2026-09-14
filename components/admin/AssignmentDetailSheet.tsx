@@ -62,7 +62,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { calendarStatus, type CalendarStatus } from "@/lib/calendar-status";
 import { CALENDAR_STATUS_META } from "@/components/calendar/calendar-status-meta";
 import {
@@ -83,6 +82,7 @@ import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -118,6 +118,7 @@ export function AssignmentDetailSheet({
   row: AssignmentRow;
   now: number;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentDetailSheet");
   const tLabel = useLabel();
@@ -191,7 +192,7 @@ export function AssignmentDetailSheet({
       setConfirmDelete(false);
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setDeleting(false);
     }
@@ -203,7 +204,7 @@ export function AssignmentDetailSheet({
       await setPostWindow({ id: row._id, postWindow: next });
       toast.success(next ? tr("creneauMisAJour") : tr("creneauRetire"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLaMiseA")));
+      toast.error(showError(e, tr("echecDeLaMiseA")));
     } finally {
       setSavingWindow(false);
     }
@@ -220,7 +221,7 @@ export function AssignmentDetailSheet({
       );
       setDateOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setSavingDate(false);
     }
@@ -778,6 +779,7 @@ function CorrectUrlButton({
   platform: "TikTok" | "Instagram" | "YouTube";
   currentUrl: string;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.CorrectUrlButton");
   const correct = useProjectMutation(api.assignments.correctPublishedUrl);
   const [open, setOpen] = useState(false);
@@ -797,7 +799,7 @@ function CorrectUrlButton({
       );
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

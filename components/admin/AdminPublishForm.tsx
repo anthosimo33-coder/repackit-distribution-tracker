@@ -10,13 +10,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { convexErrorCode, convexErrorMessage } from "@/lib/convex-error";
+import { convexErrorCode } from "@/lib/convex-error";
 import { ERR } from "@/convex/errorCodes";
 import {
   accountUrlCheck,
   type UrlPlateforme,
 } from "@/lib/post-url-account";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /** Plateforme attendue par la mutation de publication (dérivée → toujours en phase). */
 type Plateforme =
@@ -100,6 +101,7 @@ export function AdminPublishForm({
   buttonTestId?: string;
   onPublished?: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AdminPublishForm");
   const publish = useProjectMutation(api.assignments.confirmPublicationAsAdmin);
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -137,7 +139,7 @@ export function AdminPublishForm({
       setBackdate(null);
       onPublished?.();
     } catch (e) {
-      const msg = convexErrorMessage(e, tr("echecDeLaPublication"));
+      const msg = showError(e, tr("echecDeLaPublication"));
       // Date antérieure à la création : ce n'est pas une saisie fautive, c'est une
       // RÉGULARISATION (post publié hors de l'app). On montre les deux horodatages
       // rendus par le serveur et on laisse l'admin trancher — jamais un mur.

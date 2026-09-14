@@ -40,8 +40,8 @@ import {
   getFolderColor,
 } from "@/lib/folder-colors";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Page admin des ICPs, accessible via /comptes?view=icps. CRUD complet :
@@ -49,6 +49,7 @@ import { useTranslations } from "next-intl";
  * Shorts assignés). Calque FolderManagerSection.
  */
 export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.IcpsManagerSection");
   const icps = useProjectQuery(api.icps.listIcps, {});
   const updateIcp = useProjectMutation(api.icps.updateIcp);
@@ -85,7 +86,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
       await updateIcp({ id, color });
       toast.success(tr("couleurMiseAJour"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -102,7 +103,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }

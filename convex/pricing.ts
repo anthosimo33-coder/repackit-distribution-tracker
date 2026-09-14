@@ -1568,16 +1568,16 @@ function pricingWriteFields(args: PricingInput) {
 
 function validatePricingFields(args: PricingInput): PricingInput {
   const name = args.name.trim();
-  if (name.length === 0) throw new ConvexError("Le nom du pricing est requis.");
+  if (name.length === 0) throw err(ERR.PRICING_NAME_REQUIRED, "Le nom du pricing est requis.");
   if (!Number.isInteger(args.nbVideosCible) || args.nbVideosCible < 1) {
-    throw new ConvexError("nbVideosCible doit être un entier ≥ 1.");
+    throw err(ERR.PRICING_TARGET_VIDEOS_INVALID, "nbVideosCible doit être un entier ≥ 1.");
   }
   for (const [label, val] of [
     ["montantFixe", args.montantFixe],
     ["tauxCPM", args.tauxCPM],
   ] as const) {
     if (!Number.isFinite(val) || val < 0) {
-      throw new ConvexError(`${label} doit être un nombre ≥ 0.`);
+      throw err(ERR.PRICING_FIELD_INVALID, `${label} doit être un nombre ≥ 0.`, { label });
     }
   }
   // SEUIL DE VUES DU FIXE — entier ≥ 0, et 0 vaut « aucune condition ». On
@@ -1586,7 +1586,7 @@ function validatePricingFields(args: PricingInput): PricingInput {
   // en base, sinon la clé de regroupement du moteur les distinguerait un jour.
   if (args.seuilVuesFixe !== undefined) {
     if (!Number.isFinite(args.seuilVuesFixe) || args.seuilVuesFixe < 0) {
-      throw new ConvexError("seuilVuesFixe doit être un nombre ≥ 0.");
+      throw err(ERR.PRICING_VIEW_THRESHOLD_INVALID, "seuilVuesFixe doit être un nombre ≥ 0.");
     }
     if (args.seuilVuesFixe > 0 && args.montantFixe <= 0) {
       throw new ConvexError(
@@ -1615,26 +1615,24 @@ function validatePricingFields(args: PricingInput): PricingInput {
 function validateBonusTiers(tiers: BonusTier[]): void {
   for (const t of tiers) {
     if (!Number.isFinite(t.seuilVues) || t.seuilVues < 0) {
-      throw new ConvexError("Le seuil de vues d'un palier doit être ≥ 0.");
+      throw err(ERR.TIER_THRESHOLD_INVALID, "Le seuil de vues d'un palier doit être ≥ 0.");
     }
     if (t.rewardType === "cash") {
       if (!Number.isFinite(t.montant ?? NaN) || (t.montant ?? -1) < 0) {
-        throw new ConvexError("Un palier cash exige un montant $ ≥ 0.");
+        throw err(ERR.TIER_CASH_INVALID, "Un palier cash exige un montant $ ≥ 0.");
       }
     } else {
       if (!(t.libelle ?? "").trim()) {
-        throw new ConvexError("Un palier nature exige un libellé (ex. iPhone).");
+        throw err(ERR.TIER_KIND_LABEL_REQUIRED, "Un palier nature exige un libellé (ex. iPhone).");
       }
       // Facultatif, mais s'il est fourni il doit être un vrai montant : un coût
       // négatif ou NaN entrerait tel quel dans le coût complet du moteur.
       if (t.coutReel !== undefined && (!Number.isFinite(t.coutReel) || t.coutReel < 0)) {
-        throw new ConvexError("Le coût réel d'un palier nature doit être ≥ 0.");
+        throw err(ERR.TIER_REAL_COST_INVALID, "Le coût réel d'un palier nature doit être ≥ 0.");
       }
     }
     if (t.rewardType === "cash" && t.coutReel !== undefined) {
-      throw new ConvexError(
-        "Le coût réel ne concerne que les paliers nature (le cash porte déjà son montant).",
-      );
+      throw err(ERR.TIER_REAL_COST_KIND_ONLY, "Le coût réel ne concerne que les paliers nature (le cash porte déjà son montant).");
     }
   }
 }
@@ -1878,16 +1876,16 @@ const TEMPLATE_ARGS = {
 
 function validateTemplate(args: { name: string; tiers: BonusTier[] }) {
   const name = args.name.trim();
-  if (name.length === 0) throw new ConvexError("Le nom du modèle est requis.");
+  if (name.length === 0) throw err(ERR.TEMPLATE_NAME_REQUIRED, "Le nom du modèle est requis.");
   if (args.tiers.length === 0) {
-    throw new ConvexError("Un modèle sans palier n'a rien à recopier.");
+    throw err(ERR.TEMPLATE_NEEDS_TIER, "Un modèle sans palier n'a rien à recopier.");
   }
   // Mêmes contrôles qu'un barème : un modèle qui ne passerait pas la validation
   // d'un pricing serait une échelle piégée, refusée seulement à l'application.
   validateBonusTiers(args.tiers);
   const seuils = args.tiers.map((t) => t.seuilVues);
   if (new Set(seuils).size !== seuils.length) {
-    throw new ConvexError("Deux paliers ne peuvent pas partager le même seuil.");
+    throw err(ERR.TEMPLATE_TIER_DUPLICATE, "Deux paliers ne peuvent pas partager le même seuil.");
   }
   // Trié à l'écriture : une échelle se lit de bas en haut, et le tri retire une
   // source de fausse divergence entre deux modèles identiques mal saisis.

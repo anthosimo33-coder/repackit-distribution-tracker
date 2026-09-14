@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2Icon, Loader2Icon, UsersIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import {
   getEffectiveStatus,
   getEffectiveWarmupDuration,
@@ -17,6 +16,7 @@ import {
 } from "@/lib/compte-status";
 import { warmupProgress, checkedToday } from "@/lib/warmup";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Panneau ADMIN d'un compte GÉRÉ par l'équipe (fiche compte). L'équipe tient le
@@ -27,6 +27,7 @@ import { useTranslations } from "next-intl";
  * gérés » de la page Validation).
  */
 export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.ManagedAccountAdminPanel");
   const markCheckAsAdmin = useProjectMutation(
     api.comptes.markWarmupCheckAsAdmin,
@@ -55,7 +56,7 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
       await markCheckAsAdmin({ id: compte._id });
       toast.success(tr("checkDuJourValideEquipe"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -71,7 +72,7 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
       });
       toast.success(tr("passeEnActif", { handle: compte.handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

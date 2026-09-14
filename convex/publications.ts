@@ -27,6 +27,7 @@ import {
   purgePublicationImage,
   purgeUnreferencedImage,
 } from "./storageCleanup";
+import { ERR, err } from "./errorCodes";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -257,9 +258,7 @@ export const createPublication = permissionMutation("tracker.manage")({
         args.nbSlides === undefined ||
         args.slides === undefined
       ) {
-        throw new ConvexError(
-          "Carrousel : format, nbSlides et slides sont requis.",
-        );
+        throw err(ERR.CAROUSEL_FIELDS_REQUIRED, "Carrousel : format, nbSlides et slides sont requis.");
       }
     }
     // Short : pas d'exigence stricte sur script (peut être saisi plus tard
@@ -271,33 +270,27 @@ export const createPublication = permissionMutation("tracker.manage")({
     if (mediaType === "screenrecorder") {
       const trimmed = (args.titre ?? "").trim();
       if (trimmed.length < 3 || trimmed.length > 200) {
-        throw new ConvexError(
-          "ScreenRecorder : titre requis (3-200 caractères).",
-        );
+        throw err(ERR.SCREENREC_TITLE_REQUIRED, "ScreenRecorder : titre requis (3-200 caractères).");
       }
       if (args.image === undefined || args.image === null) {
-        throw new ConvexError("ScreenRecorder : image requise.");
+        throw err(ERR.SCREENREC_IMAGE_REQUIRED, "ScreenRecorder : image requise.");
       }
       // Refinement ScreenRecorder — recordingDevice + isRepackaging required.
       // isRepackaging accepte true OU false explicite (le user voit le
       // toggle), mais pas undefined (= pas choisi). recordingDevice : pas
       // de default, force l'utilisateur à choisir explicitement.
       if (args.recordingDevice === undefined) {
-        throw new ConvexError(
-          "ScreenRecorder : appareil d'enregistrement requis.",
-        );
+        throw err(ERR.SCREENREC_DEVICE_REQUIRED, "ScreenRecorder : appareil d'enregistrement requis.");
       }
       if (args.isRepackaging === undefined) {
-        throw new ConvexError(
-          "ScreenRecorder : indique si c'est un repackaging RepackIt.",
-        );
+        throw err(ERR.SCREENREC_REPACK_REQUIRED, "ScreenRecorder : indique si c'est un repackaging RepackIt.");
       }
     }
 
     // Refinement Shorts — l'ICP est REQUIS à la création d'un Short. Pour
     // carousel/screenrecorder, icpId est ignoré silencieusement (pas stocké).
     if (mediaType === "short" && args.icpId === undefined) {
-      throw new ConvexError("ICP requis pour un Short.");
+      throw err(ERR.ICP_REQUIRED_FOR_SHORT, "ICP requis pour un Short.");
     }
 
     // Anti-shadowban Shorts — validation sourceId × plateforme. UNIQUEMENT pour
@@ -306,7 +299,7 @@ export const createPublication = permissionMutation("tracker.manage")({
     if (mediaType === "short" && args.sourceId !== undefined) {
       const normalized = normalizeSourceId(args.sourceId);
       if (normalized === "") {
-        throw new ConvexError("SourceId vide ou invalide.");
+        throw err(ERR.SOURCE_ID_INVALID, "SourceId vide ou invalide.");
       }
       const existing = await findExistingSourcePublications(
         ctx,
@@ -320,14 +313,10 @@ export const createPublication = permissionMutation("tracker.manage")({
         if (onPlatform.length === 0) continue;
         const e = onPlatform[0].publication;
         if (plateforme === "TikTok") {
-          throw new ConvexError(
-            `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`,
-          );
+          throw err(ERR.SHORT_ALREADY_ON_TIKTOK, `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`, { compte: e.compte, at: e.datePubli });
         }
         if (args.confirmDuplicateOverride !== true) {
-          throw new ConvexError(
-            `Ce short est déjà posté sur ${plateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`,
-          );
+          throw err(ERR.SHORT_ALREADY_ON_PLATFORM, `Ce short est déjà posté sur ${plateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`, { plateforme, compte: e.compte, at: e.datePubli });
         }
       }
     }
@@ -335,9 +324,7 @@ export const createPublication = permissionMutation("tracker.manage")({
     // Couple plateforme/mediaType : carrousel non autorisé sur YouTube.
     for (const plateforme of args.plateformes) {
       if (!isFormatAllowedOnPlatform(mediaType, plateforme)) {
-        throw new ConvexError(
-          `Format ${mediaType} non autorisé sur ${plateforme}.`,
-        );
+        throw err(ERR.MEDIA_TYPE_NOT_ALLOWED, `Format ${mediaType} non autorisé sur ${plateforme}.`, { mediaType, plateforme });
       }
     }
 
@@ -752,17 +739,15 @@ export const updatePublishedAccount = permissionMutation("tracker.manage")({
   handler: async (ctx, args) => {
     const pub = await ctx.db.get(args.id);
     if (!pub || pub.projectId !== ctx.projectId) {
-      throw new ConvexError("Publication introuvable.");
+      throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
     }
 
     const isPub = typeof pub.postUrl === "string" && pub.postUrl.length > 0;
     if (!isPub) {
-      throw new ConvexError(
-        "Modification du compte uniquement possible après publication.",
-      );
+      throw err(ERR.ACCOUNT_EDIT_AFTER_PUBLISH, "Modification du compte uniquement possible après publication.");
     }
     if (pub.accountModified === true) {
-      throw new ConvexError("Le compte ne peut être modifié qu'une seule fois.");
+      throw err(ERR.ACCOUNT_EDIT_ONCE, "Le compte ne peut être modifié qu'une seule fois.");
     }
 
     const comptes = await ctx.db
@@ -773,9 +758,7 @@ export const updatePublishedAccount = permissionMutation("tracker.manage")({
       .collect();
     const match = comptes.find((c) => c.handle === args.newCompte);
     if (!match) {
-      throw new ConvexError(
-        `Le compte ${args.newCompte} n'existe pas sur ${pub.plateforme}.`,
-      );
+      throw err(ERR.ACCOUNT_NOT_ON_PLATFORM, `Le compte ${args.newCompte} n'existe pas sur ${pub.plateforme}.`, { newCompte: args.newCompte, plateforme: pub.plateforme });
     }
 
     await ctx.db.patch(args.id, {
@@ -1062,7 +1045,7 @@ export const setPublicationWarmup = permissionMutation("tracker.manage")({
   handler: async (ctx, { publicationId, isWarmup }) => {
     const pub = await ctx.db.get(publicationId);
     if (!pub || pub.projectId !== ctx.projectId) {
-      throw new ConvexError("Publication introuvable.");
+      throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
     }
     const payCtx = await publicationPayContext(ctx, pub);
     if (payCtx.locked) {
@@ -1137,7 +1120,7 @@ export const setPublicationRemuneration = permissionMutation("payments.manage")(
   handler: async (ctx, { publicationId, remunere }) => {
     const pub = await ctx.db.get(publicationId);
     if (!pub || pub.projectId !== ctx.projectId) {
-      throw new ConvexError("Publication introuvable.");
+      throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
     }
     const payCtx = await publicationPayContext(ctx, pub);
     if (payCtx.locked) {
@@ -1424,9 +1407,7 @@ export const updateDraft = permissionMutation("legacy.access")({
     for (const r of rows) {
       const isPub = typeof r.postUrl === "string" && r.postUrl.length > 0;
       if (isPub) {
-        throw new ConvexError(
-          "Carrousel partiellement publié, édition impossible. Vide d'abord les liens de publication ou supprime les rows publiées.",
-        );
+        throw err(ERR.CAROUSEL_PARTLY_PUBLISHED, "Carrousel partiellement publié, édition impossible. Vide d'abord les liens de publication ou supprime les rows publiées.");
       }
     }
 
@@ -1457,9 +1438,7 @@ export const updateDraft = permissionMutation("legacy.access")({
     if (args.patch.plateforme !== undefined) {
       const rowMediaType: MediaTypeServer = rows[0].mediaType ?? "carousel";
       if (!isFormatAllowedOnPlatform(rowMediaType, args.patch.plateforme)) {
-        throw new ConvexError(
-          `Format ${rowMediaType} non autorisé sur ${args.patch.plateforme}.`,
-        );
+        throw err(ERR.MEDIA_TYPE_NOT_ALLOWED, `Format ${rowMediaType} non autorisé sur ${args.patch.plateforme}.`, { mediaType: rowMediaType, plateforme: args.patch.plateforme });
       }
     }
 
@@ -1498,7 +1477,7 @@ export const updateDraft = permissionMutation("legacy.access")({
         const normalized = normalizeSourceId(args.sourceId);
         if (rowMediaType === "short") {
           if (normalized === "") {
-            throw new ConvexError("SourceId vide ou invalide.");
+            throw err(ERR.SOURCE_ID_INVALID, "SourceId vide ou invalide.");
           }
           const existing = await findExistingSourcePublications(
             ctx,
@@ -1513,14 +1492,10 @@ export const updateDraft = permissionMutation("legacy.access")({
             if (onPlatform.length === 0) continue;
             const e = onPlatform[0].publication;
             if (r.plateforme === "TikTok") {
-              throw new ConvexError(
-                `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`,
-              );
+              throw err(ERR.SHORT_ALREADY_ON_TIKTOK, `Ce short a déjà été posté sur TikTok (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Risque shadowban.`, { compte: e.compte, at: e.datePubli });
             }
             if (args.confirmDuplicateOverride !== true) {
-              throw new ConvexError(
-                `Ce short est déjà posté sur ${r.plateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`,
-              );
+              throw err(ERR.SHORT_ALREADY_ON_PLATFORM, `Ce short est déjà posté sur ${r.plateforme} (compte ${e.compte} le ${formatDateFr(e.datePubli)}). Confirmer l'override.`, { plateforme: r.plateforme, compte: e.compte, at: e.datePubli });
             }
           }
         }

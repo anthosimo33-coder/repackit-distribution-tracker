@@ -43,6 +43,7 @@ import {
 // réutilisée aussi par comptes.targetCountry (aucune duplication de la liste).
 import { TREND_COUNTRIES as SUPPORTED_TREND_COUNTRIES, assertCountry } from "./countries";
 import { hasRole } from "./roles";
+import { ERR, err } from "./errorCodes";
 
 /**
  * Limite douce de comptes favoris (garde-fou quota Apify). NON bloquante : à
@@ -110,12 +111,12 @@ const adminAction = customAction(action, {
   args: { projectId: v.id("projects") },
   input: async (ctx, { projectId }) => {
     const userId = await getAuthUserId(ctx);
-    if (userId === null) throw new ConvexError("Non authentifié.");
+    if (userId === null) throw err(ERR.NOT_AUTHENTICATED, "Non authentifié.");
     const ok: boolean = await ctx.runQuery(
       internal.radar.requireAdminForRadarAction,
       { userId, projectId },
     );
-    if (!ok) throw new ConvexError("Réservé aux administrateurs du projet.");
+    if (!ok) throw err(ERR.ADMIN_ONLY, "Réservé aux administrateurs du projet.");
     return { ctx: { userId, projectId }, args: {} };
   },
 });
@@ -177,7 +178,7 @@ export const listRadarVideos = permissionQuery("radar.use")({
     let targetIds: Id<"radarAccounts">[];
     if (accountId !== undefined) {
       if (!accountById.has(accountId)) {
-        throw new ConvexError("Compte Radar introuvable dans ce projet.");
+        throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
       }
       targetIds = [accountId];
     } else {
@@ -240,9 +241,7 @@ export const addRadarAccount = permissionMutation("radar.use")({
   ): Promise<{ accountId: Id<"radarAccounts">; warning: string | null }> => {
     const handle = normalizeTikTokHandle(input);
     if (handle === null) {
-      throw new ConvexError(
-        "Handle TikTok invalide. Colle un @, un handle, ou une URL de profil (tiktok.com/@compte).",
-      );
+      throw err(ERR.RADAR_HANDLE_INVALID, "Handle TikTok invalide. Colle un @, un handle, ou une URL de profil (tiktok.com/@compte).");
     }
     const existing = await ctx.db
       .query("radarAccounts")
@@ -251,7 +250,7 @@ export const addRadarAccount = permissionMutation("radar.use")({
       )
       .first();
     if (existing !== null) {
-      throw new ConvexError(`@${handle} est déjà suivi.`);
+      throw err(ERR.RADAR_ACCOUNT_ALREADY_FOLLOWED, `@${handle} est déjà suivi.`, { handle });
     }
 
     const current = await ctx.db
@@ -288,7 +287,7 @@ export const updateRadarAccountNote = permissionMutation("radar.use")({
   handler: async (ctx, { accountId, note }): Promise<null> => {
     const account = await ctx.db.get(accountId);
     if (account === null || account.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte Radar introuvable dans ce projet.");
+      throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
     }
     await ctx.db.patch(accountId, { note: cleanNote(note) });
     return null;
@@ -301,7 +300,7 @@ export const removeRadarAccount = permissionMutation("radar.use")({
   handler: async (ctx, { accountId }): Promise<null> => {
     const account = await ctx.db.get(accountId);
     if (account === null || account.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte Radar introuvable dans ce projet.");
+      throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
     }
     const videos = await ctx.db
       .query("radarVideos")
@@ -332,7 +331,7 @@ export const requestRadarAccountSync = permissionMutation("radar.use")({
   handler: async (ctx, { accountId }): Promise<{ scheduled: true }> => {
     const account = await ctx.db.get(accountId);
     if (account === null || account.projectId !== ctx.projectId) {
-      throw new ConvexError("Compte Radar introuvable dans ce projet.");
+      throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
     }
     await ctx.scheduler.runAfter(0, internal.radar.runRadarSync, {
       projectId: ctx.projectId,
@@ -1026,7 +1025,7 @@ export const searchOutliers = adminAction({
   }> => {
     const norm = normalizeSearchKeyword(keyword);
     if (norm === null) {
-      throw new ConvexError("Saisis un mot-clé à rechercher.");
+      throw err(ERR.SEARCH_KEYWORD_REQUIRED, "Saisis un mot-clé à rechercher.");
     }
 
     // 1. Cache 24 h (global) : resert sans appel Apify si frais.

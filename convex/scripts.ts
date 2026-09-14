@@ -27,6 +27,8 @@ import { resolveCreatorKind } from "./roles";
 import {
   describeIneligibleBrick,
   describeNoEligibleCombo,
+  noEligibleComboParams,
+  rushBrickRefusalParams,
   eligibleBricksForRush,
   isBrickRushEligible,
   isGuardedKind,
@@ -42,6 +44,7 @@ import {
 } from "./graduation";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { ERR, err } from "./errorCodes";
 
 /**
  * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
@@ -84,7 +87,7 @@ async function requireCampaign(
 ): Promise<Doc<"scriptCampaigns">> {
   const c = await ctx.db.get(id);
   if (!c || c.projectId !== projectId) {
-    throw new ConvexError("Campagne introuvable.");
+    throw err(ERR.CAMPAIGN_NOT_FOUND, "Campagne introuvable.");
   }
   return c;
 }
@@ -145,17 +148,13 @@ function validateImposedCombo(
   const pick = (id: Id<"scriptBricks">, kind: "hook" | "flux" | "cta") => {
     const b = byId.get(id as string);
     if (!b || b.campaignId !== campaignId) {
-      throw new ConvexError(
-        `Brique ${kind} introuvable (supprimée ?) — choisis-en une autre.`,
-      );
+      throw err(ERR.BRICK_SLOT_NOT_FOUND, `Brique ${kind} introuvable (supprimée ?) — choisis-en une autre.`, { kind });
     }
     if (b.kind !== kind) {
-      throw new ConvexError(`Brique ${kind} de type inattendu (${b.kind}).`);
+      throw err(ERR.BRICK_SLOT_WRONG_KIND, `Brique ${kind} de type inattendu (${b.kind}).`, { kind, kind2: b.kind });
     }
     if (!b.active) {
-      throw new ConvexError(
-        `Brique ${kind} désactivée — choisis-en une autre.`,
-      );
+      throw err(ERR.BRICK_SLOT_DISABLED, `Brique ${kind} désactivée — choisis-en une autre.`, { kind });
     }
     return b;
   };
@@ -522,9 +521,7 @@ async function assertComboFreeForCreatorPlatforms(
       .find((p) => target.has(p));
     if (conflict) {
       const creator = await ctx.db.get(input.creatorId);
-      throw new ConvexError(
-        `Ce combo est déjà utilisé pour ${creator?.name ?? "ce créateur"} sur ${conflict}.`,
-      );
+      throw err(ERR.COMBO_ALREADY_USED, `Ce combo est déjà utilisé pour ${creator?.name ?? "ce créateur"} sur ${conflict}.`, { name: creator?.name ?? "ce créateur", conflict });
     }
   }
 
@@ -553,11 +550,18 @@ async function assertComboFreeForCreatorPlatforms(
       if (compte) handles.push(compte.handle);
     }
     const oue = handles.length > 0 ? handles.join(", ") : "un autre compte";
-    throw new ConvexError(
+    throw err(
+      ERR.COMBO_IN_COOLDOWN,
       `Ce script est déjà programmé sur ${oue} le ${formatDateFr(anchor)} ` +
         `(cooldown de ${cooldownDays} jour${cooldownDays > 1 ? "s" : ""}). ` +
         `Il redevient disponible le ` +
         `${formatDateFr(anchor + cooldownDays * DAY_MS)}.`,
+      {
+        handles: oue,
+        at: anchor,
+        days: cooldownDays,
+        freeAt: anchor + cooldownDays * DAY_MS,
+      },
     );
   }
 }
@@ -788,7 +792,7 @@ export const getReplaySource = permissionQuery("scripts.manage")({
       (args.publicationId === undefined) ===
       (args.assignmentId === undefined)
     ) {
-      throw new ConvexError("Fournis publicationId OU assignmentId (une seule).");
+      throw err(ERR.REPLAY_SOURCE_AMBIGUOUS, "Fournis publicationId OU assignmentId (une seule).");
     }
 
     let assignment: Doc<"assignments"> | null = null;
@@ -871,7 +875,7 @@ export const createCampaign = permissionMutation("scripts.manage")({
   handler: async (ctx, args) => {
     const name = args.name.trim();
     if (name.length === 0) {
-      throw new ConvexError("Le nom de la campagne est requis.");
+      throw err(ERR.CAMPAIGN_NAME_REQUIRED, "Le nom de la campagne est requis.");
     }
     const now = Date.now();
     return await ctx.db.insert("scriptCampaigns", {
@@ -897,7 +901,7 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     const patch: Partial<Doc<"scriptCampaigns">> = { updatedAt: Date.now() };
     if (args.name !== undefined) {
       const name = args.name.trim();
-      if (name.length === 0) throw new ConvexError("Le nom est requis.");
+      if (name.length === 0) throw err(ERR.NAME_REQUIRED, "Le nom est requis.");
       patch.name = name;
     }
     if (args.demoBlock !== undefined) patch.demoBlock = args.demoBlock;
@@ -921,9 +925,7 @@ export const deleteCampaign = permissionMutation("scripts.manage")({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     if (projectAssignments.some((a) => a.scriptCombo?.campaignId === id)) {
-      throw new ConvexError(
-        "Campagne référencée par des assignments : archive-la plutôt que de la supprimer.",
-      );
+      throw err(ERR.CAMPAIGN_REFERENCED, "Campagne référencée par des assignments : archive-la plutôt que de la supprimer.");
     }
     const bricks = await ctx.db
       .query("scriptBricks")
@@ -966,7 +968,7 @@ export const createBrick = permissionMutation("scripts.manage")({
     await requireCampaign(ctx, args.campaignId, ctx.projectId);
     const label = args.label.trim();
     if (label.length === 0) {
-      throw new ConvexError("Le label de la brique est requis.");
+      throw err(ERR.BRICK_LABEL_REQUIRED, "Le label de la brique est requis.");
     }
     return await ctx.db.insert("scriptBricks", {
       projectId: ctx.projectId,
@@ -1000,12 +1002,12 @@ export const updateBrick = permissionMutation("scripts.manage")({
   handler: async (ctx, args) => {
     const brick = await ctx.db.get(args.id);
     if (!brick || brick.projectId !== ctx.projectId) {
-      throw new ConvexError("Brique introuvable.");
+      throw err(ERR.BRICK_NOT_FOUND, "Brique introuvable.");
     }
     const patch: Partial<Doc<"scriptBricks">> = {};
     if (args.label !== undefined) {
       const label = args.label.trim();
-      if (label.length === 0) throw new ConvexError("Le label est requis.");
+      if (label.length === 0) throw err(ERR.LABEL_REQUIRED, "Le label est requis.");
       patch.label = label;
     }
     if (args.content !== undefined) patch.content = args.content;
@@ -1056,11 +1058,9 @@ export const deleteBrick = permissionMutation("scripts.manage")({
 const MAX_BULK_BRICKS = 200;
 
 function assertBulkSize(ids: readonly unknown[]) {
-  if (ids.length === 0) throw new ConvexError("Aucune brique sélectionnée.");
+  if (ids.length === 0) throw err(ERR.BULK_EMPTY, "Aucune brique sélectionnée.");
   if (ids.length > MAX_BULK_BRICKS) {
-    throw new ConvexError(
-      `Trop de briques d'un coup (${ids.length} > ${MAX_BULK_BRICKS}).`,
-    );
+    throw err(ERR.BULK_TOO_MANY, `Trop de briques d'un coup (${ids.length} > ${MAX_BULK_BRICKS}).`, { length: ids.length, p2: MAX_BULK_BRICKS });
   }
 }
 
@@ -1243,7 +1243,7 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
   handler: async (ctx, args) => {
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
     if (campaign.status === "archived") {
-      throw new ConvexError("Campagne archivée : réactive-la pour l'assigner.");
+      throw err(ERR.CAMPAIGN_ARCHIVED, "Campagne archivée : réactive-la pour l'assigner.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
     if (
@@ -1251,10 +1251,10 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
       args.videosPerCreator < 1 ||
       args.videosPerCreator > 50
     ) {
-      throw new ConvexError("Nombre de vidéos invalide (1–50).");
+      throw err(ERR.VIDEO_COUNT_INVALID, "Nombre de vidéos invalide (1–50).");
     }
     if (!args.pricingId) {
-      throw new ConvexError("Un barème de paie est requis.");
+      throw err(ERR.PRICING_REQUIRED, "Un barème de paie est requis.");
     }
     // Lignage de rejeu : la source doit exister DANS le projet (défensif ; l'UI ne
     // l'envoie que depuis une vraie assignation source). N'impose rien sur son
@@ -1263,33 +1263,29 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
     if (args.replayedFrom !== undefined) {
       replaySrc = await ctx.db.get(args.replayedFrom);
       if (!replaySrc || replaySrc.projectId !== ctx.projectId) {
-        throw new ConvexError("Assignation source du rejeu introuvable.");
+        throw err(ERR.REPLAY_SOURCE_NOT_FOUND, "Assignation source du rejeu introuvable.");
       }
     }
     // Rejeu à l'identique : exige une source portant un script FIGÉ (scriptCombo +
     // comboKey) — on le REPRODUIT tel quel (cf branche de sélection ci-dessous).
     if (args.replayVerbatim) {
       if (!replaySrc) {
-        throw new ConvexError("Rejeu à l'identique : source du rejeu requise.");
+        throw err(ERR.REPLAY_SOURCE_REQUIRED, "Rejeu à l'identique : source du rejeu requise.");
       }
       if (!replaySrc.scriptCombo || !replaySrc.comboKey) {
-        throw new ConvexError(
-          "Rejeu à l'identique impossible : la source n'a pas de script figé.",
-        );
+        throw err(ERR.REPLAY_SOURCE_NO_SCRIPT, "Rejeu à l'identique impossible : la source n'a pas de script figé.");
       }
     }
 
     const creator = await ctx.db.get(args.creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     if (
       creator.userId === undefined ||
       (creator.status !== "active" && creator.status !== "onboarding")
     ) {
-      throw new ConvexError(
-        `Créateur non assignable (${creator.name} : non onboardé ou inactif).`,
-      );
+      throw err(ERR.CREATOR_NOT_ASSIGNABLE, `Créateur non assignable (${creator.name} : non onboardé ou inactif).`, { name: creator.name });
     }
     // Chantier C — cibles multi-plateformes (1 vidéo de script → N posts).
     await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
@@ -1382,9 +1378,7 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
     } else {
       const combos = generateCombosServer(allBricks);
       if (combos.length === 0) {
-        throw new ConvexError(
-          "Aucun combo disponible (un type de brique manque, ou aucun hook actif).",
-        );
+        throw err(ERR.NO_COMBO_AVAILABLE, "Aucun combo disponible (un type de brique manque, ou aucun hook actif).");
       }
       totalCombos = combos.length;
       // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
@@ -1428,13 +1422,15 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
           if (targetAt === undefined) return;
           const freeAt = firstFreeSlotServer(projectRows, targetAt, cooldownDays);
           if (freeAt === null) return;
-          throw new ConvexError(
+          throw err(
+            ERR.NO_SCRIPT_FREE_THAT_DAY,
             `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
               `tous ceux de cette campagne sont déjà programmés à ` +
               `${cooldownDays} jour${cooldownDays > 1 ? "s" : ""} ou moins. ` +
               `Le premier se libère le ` +
               `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
               `ou ajoute des briques à la campagne.`,
+            { at: targetAt, days: cooldownDays, freeAt },
           );
         },
       });
@@ -1489,9 +1485,7 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
       // qui afficherait « entre 23h et 21h » à la créatrice.
       const postWindow = args.postWindows?.[i];
       if (postWindow !== undefined && !isValidPostWindow(postWindow)) {
-        throw new ConvexError(
-          "Plage horaire invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.",
-        );
+        throw err(ERR.TIME_WINDOW_INVALID, "Plage horaire invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.");
       }
       const insertedId = await ctx.db.insert("assignments", {
         projectId: ctx.projectId,
@@ -1576,9 +1570,7 @@ const SLOT = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
 /** Garde partagé : refuse l'édition si un lien de publication existe déjà. */
 function assertScriptEditable(a: Doc<"assignments">): void {
   if (representativePostedAt(a) !== null) {
-    throw new ConvexError(
-      "Le script ne peut plus être modifié : le post est déjà publié.",
-    );
+    throw err(ERR.SCRIPT_LOCKED_PUBLISHED, "Le script ne peut plus être modifié : le post est déjà publié.");
   }
 }
 
@@ -1601,12 +1593,12 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const combo = a.scriptCombo;
     if (!combo) {
-      throw new ConvexError("Cet assignment n'est pas un script.");
+      throw err(ERR.ASSIGNMENT_NOT_SCRIPT, "Cet assignment n'est pas un script.");
     }
     assertScriptEditable(a);
     // Nouvelle brique : même projet + même campagne + bon kind + active.
@@ -1616,13 +1608,13 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
       newBrick.projectId !== ctx.projectId ||
       newBrick.campaignId !== combo.campaignId
     ) {
-      throw new ConvexError("Brique introuvable dans la campagne.");
+      throw err(ERR.BRICK_NOT_IN_CAMPAIGN, "Brique introuvable dans la campagne.");
     }
     if (newBrick.kind !== args.slot) {
-      throw new ConvexError(`La brique doit être de type « ${args.slot} ».`);
+      throw err(ERR.BRICK_WRONG_SLOT, `La brique doit être de type « ${args.slot} ».`, { slot: args.slot });
     }
     if (!newBrick.active) {
-      throw new ConvexError("La brique choisie est désactivée.");
+      throw err(ERR.BRICK_DISABLED, "La brique choisie est désactivée.");
     }
 
     const hookBrickId =
@@ -1637,7 +1629,7 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
       ctx.db.get(ctaBrickId),
     ]);
     if (!hook || !flux || !cta) {
-      throw new ConvexError("Brique du combo introuvable.");
+      throw err(ERR.COMBO_BRICK_NOT_FOUND, "Brique du combo introuvable.");
     }
     const assembledScript = assembleNoLabels({
       hook: hook.content,
@@ -1699,20 +1691,20 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignment introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const combo = a.scriptCombo;
     if (!combo) {
-      throw new ConvexError("Cet assignment n'est pas un script.");
+      throw err(ERR.ASSIGNMENT_NOT_SCRIPT, "Cet assignment n'est pas un script.");
     }
     assertScriptEditable(a);
     const text = args.newText.trim();
     if (text.length === 0) {
-      throw new ConvexError("Le texte de la brique est requis.");
+      throw err(ERR.BRICK_TEXT_REQUIRED, "Le texte de la brique est requis.");
     }
     if (text.length > MAX_BRICK_TEXT) {
-      throw new ConvexError(`Texte trop long (max ${MAX_BRICK_TEXT} caractères).`);
+      throw err(ERR.BRICK_TEXT_TOO_LONG, `Texte trop long (max ${MAX_BRICK_TEXT} caractères).`, { p1: MAX_BRICK_TEXT });
     }
 
     // Brique d'origine du slot → on en HÉRITE le kind (jamais écrasée).
@@ -1724,7 +1716,7 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
           : combo.ctaBrickId;
     const orig = await ctx.db.get(currentId);
     if (!orig) {
-      throw new ConvexError("Brique d'origine introuvable.");
+      throw err(ERR.SOURCE_BRICK_NOT_FOUND, "Brique d'origine introuvable.");
     }
 
     // FORK : nouvelle brique en bibliothèque (même kind, texte modifié). La
@@ -1752,7 +1744,7 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       ctx.db.get(ctaBrickId),
     ]);
     if (!hook || !flux || !cta) {
-      throw new ConvexError("Brique du combo introuvable.");
+      throw err(ERR.COMBO_BRICK_NOT_FOUND, "Brique du combo introuvable.");
     }
     const assembledScript = assembleNoLabels({
       hook: hook.content,
@@ -1980,53 +1972,45 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
   ): Promise<{ assignmentId: Id<"assignments"> }> => {
     const rush = await ctx.db.get(args.rushId);
     if (!rush || rush.projectId !== ctx.projectId) {
-      throw new ConvexError("Rush introuvable dans ce projet.");
+      throw err(ERR.RUSH_NOT_IN_PROJECT, "Rush introuvable dans ce projet.");
     }
     // Machine à états : un rush déjà retenu, publié, refusé ou expiré ne repart
     // pas (cf convex/rushStatus.ts — les états terminaux ont vu leur binaire purgé).
     if (!canTransition(rush.status, "assigned")) {
-      throw new ConvexError(
-        "Ce rush n'est plus assignable (déjà retenu, publié, refusé ou expiré).",
-      );
+      throw err(ERR.RUSH_NOT_ASSIGNABLE, "Ce rush n'est plus assignable (déjà retenu, publié, refusé ou expiré).");
     }
 
     const talent = await ctx.db.get(rush.talentId);
     if (!talent || talent.projectId !== ctx.projectId) {
-      throw new ConvexError("Talent introuvable dans ce projet.");
+      throw err(ERR.TALENT_NOT_IN_PROJECT, "Talent introuvable dans ce projet.");
     }
     // Appariement requis — message qui NOMME le geste manquant plutôt qu'un code.
     if (!talent.clipperId) {
-      throw new ConvexError(
-        `${talent.name} n'est apparié à aucun clippeur : rattache-lui un clippeur depuis sa fiche avant d'assigner un script.`,
-      );
+      throw err(ERR.TALENT_NOT_PAIRED, `${talent.name} n'est apparié à aucun clippeur : rattache-lui un clippeur depuis sa fiche avant d'assigner un script.`, { name: talent.name });
     }
     const clipper = await ctx.db.get(talent.clipperId);
     if (!clipper || clipper.projectId !== ctx.projectId) {
-      throw new ConvexError("Clippeur introuvable dans ce projet.");
+      throw err(ERR.CLIPPER_NOT_IN_PROJECT, "Clippeur introuvable dans ce projet.");
     }
     // L'assignation créée appartient au CLIPPEUR : c'est lui qui doit être dans
     // le périmètre, quel que soit le manager qui suit le talent.
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, clipper._id);
     if (resolveCreatorKind(clipper.kind) !== "clipper") {
-      throw new ConvexError(
-        `${clipper.name} n'est plus un clippeur : refais l'appariement de ${talent.name}.`,
-      );
+      throw err(ERR.CLIPPER_NO_LONGER, `${clipper.name} n'est plus un clippeur : refais l'appariement de ${talent.name}.`, { name: clipper.name, name2: talent.name });
     }
     if (
       clipper.userId === undefined ||
       (clipper.status !== "active" && clipper.status !== "onboarding")
     ) {
-      throw new ConvexError(
-        `Clippeur non assignable (${clipper.name} : non onboardé ou inactif).`,
-      );
+      throw err(ERR.CLIPPER_NOT_ASSIGNABLE, `Clippeur non assignable (${clipper.name} : non onboardé ou inactif).`, { name: clipper.name });
     }
 
     const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
     if (campaign.status === "archived") {
-      throw new ConvexError("Campagne archivée : réactive-la pour l'assigner.");
+      throw err(ERR.CAMPAIGN_ARCHIVED, "Campagne archivée : réactive-la pour l'assigner.");
     }
     if (args.targets.length === 0) {
-      throw new ConvexError("Choisis au moins un compte de publication.");
+      throw err(ERR.PUBLISH_ACCOUNT_REQUIRED, "Choisis au moins un compte de publication.");
     }
     // Cibles : mêmes gardes que le flux partenaire (appartenance au clippeur,
     // disponibilité du compte, homogénéité géré/non géré).
@@ -2059,7 +2043,11 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
       for (const id of chosen) {
         const b = allBricks.find((x) => x._id === id);
         if (b && !isBrickRushEligible(b)) {
-          throw new ConvexError(describeIneligibleBrick(b));
+          throw err(
+            ERR.BRICK_NOT_RUSH_ELIGIBLE,
+            describeIneligibleBrick(b),
+            rushBrickRefusalParams(b),
+          );
         }
       }
     } else {
@@ -2070,12 +2058,21 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
       if (combos.length === 0) {
         // Message qui NOMME les briques à corriger — « aucun combo disponible »
         // tout court laisse l'admin sans geste possible.
-        throw new ConvexError(
-          describeNoEligibleCombo(
-            allBricks.filter(
-              (b) => isGuardedKind(b.kind) && !isBrickRushEligible(b),
-            ),
-          ),
+        const refuses = allBricks.filter(
+          (b) => isGuardedKind(b.kind) && !isBrickRushEligible(b),
+        );
+        const params = noEligibleComboParams(refuses);
+        throw err(
+          params.empty ? ERR.NO_ACTIVE_HOOK_OR_BODY : ERR.NO_ELIGIBLE_COMBO,
+          describeNoEligibleCombo(refuses),
+          params.empty
+            ? undefined
+            : {
+                kindKey: params.kindKey,
+                causeKey: params.causeKey,
+                extract: params.extract,
+                more: params.more,
+              },
         );
       }
       // Unicité : règle PARTENAIRE (créateur, plateforme), conservée telle quelle.
@@ -2094,9 +2091,7 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
       );
       const picked = pickCombosServer(combos, usedKeys, 1);
       if (picked.length === 0) {
-        throw new ConvexError(
-          "Tous les scripts affichables de cette campagne ont déjà été utilisés sur ces comptes.",
-        );
+        throw err(ERR.ALL_SCRIPTS_USED, "Tous les scripts affichables de cette campagne ont déjà été utilisés sur ces comptes.");
       }
       combo = picked[0];
     }
@@ -2212,10 +2207,10 @@ export const graduateHook = permissionMutation("scripts.manage")({
   }> => {
     const brick = await ctx.db.get(brickId);
     if (!brick || brick.projectId !== ctx.projectId) {
-      throw new ConvexError("Hook introuvable.");
+      throw err(ERR.HOOK_NOT_FOUND, "Hook introuvable.");
     }
     if (brick.kind !== "hook") {
-      throw new ConvexError("Seul un hook peut être gradué.");
+      throw err(ERR.ONLY_HOOK_GRADUATES, "Seul un hook peut être gradué.");
     }
 
     const campaigns = await ctx.db
@@ -2228,12 +2223,10 @@ export const graduateHook = permissionMutation("scripts.manage")({
     if (!target) {
       // Message ACTIONNABLE : la campagne cible est identifiée par son nom, son
       // absence est une situation normale sur un projet neuf.
-      throw new ConvexError(
-        `Aucune campagne « ${PROVEN_CAMPAIGN_NAME} » sur ce projet — crée-la d'abord.`,
-      );
+      throw err(ERR.PROVEN_CAMPAIGN_MISSING, `Aucune campagne « ${PROVEN_CAMPAIGN_NAME} » sur ce projet — crée-la d'abord.`, { p1: PROVEN_CAMPAIGN_NAME });
     }
     if (target._id === brick.campaignId) {
-      throw new ConvexError("Ce hook est déjà dans les ouvertures prouvées.");
+      throw err(ERR.HOOK_ALREADY_PROVEN, "Ce hook est déjà dans les ouvertures prouvées.");
     }
 
     // Idempotence par le TEXTE (la copie a forcément un autre id). Les briques

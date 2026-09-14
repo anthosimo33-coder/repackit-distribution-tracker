@@ -47,7 +47,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { normalizeCreatorLocale, localeOrDefault} from "./locales";
-import { convexErrorText } from "./errorCodes";
+import { ERR, convexErrorText, err } from "./errorCodes";
 import { faceUrlsByCreator, purgeCompteAvatar } from "./compteAvatar";
 
 /**
@@ -396,17 +396,17 @@ export const inviteCreator = permissionMutation("creators.manage")({
     const name = args.name.trim();
     const email = args.email.trim().toLowerCase();
     if (name.length === 0) {
-      throw new ConvexError("Le nom du créateur est requis.");
+      throw err(ERR.CREATOR_NAME_REQUIRED, "Le nom du créateur est requis.");
     }
     if (!EMAIL_RE.test(email)) {
-      throw new ConvexError("Email invalide.");
+      throw err(ERR.EMAIL_INVALID, "Email invalide.");
     }
     const existing = await ctx.db
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     if (existing.some((c) => c.email.toLowerCase() === email)) {
-      throw new ConvexError("Un créateur avec cet email existe déjà.");
+      throw err(ERR.CREATOR_EMAIL_TAKEN, "Un créateur avec cet email existe déjà.");
     }
     const now = Date.now();
     const creatorId = await ctx.db.insert("creators", {
@@ -463,11 +463,11 @@ export const regenerateInvitation = permissionMutation("creators.manage")({
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     if (creator.status !== "invited") {
-      throw new ConvexError("Ce créateur a déjà accepté son invitation.");
+      throw err(ERR.INVITATION_ALREADY_ACCEPTED, "Ce créateur a déjà accepté son invitation.");
     }
     await killInvitations(ctx, creatorId);
     const now = Date.now();
@@ -579,13 +579,13 @@ export const updateCreator = permissionMutation("creators.manage")({
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     const patch: Partial<Doc<"creators">> = {};
     if (args.name !== undefined) {
       const name = args.name.trim();
-      if (name.length === 0) throw new ConvexError("Le nom est requis.");
+      if (name.length === 0) throw err(ERR.NAME_REQUIRED, "Le nom est requis.");
       patch.name = name;
     }
     // Apparier un talent à un clippeur hors périmètre lui confierait le travail
@@ -601,9 +601,7 @@ export const updateCreator = permissionMutation("creators.manage")({
       } else {
         const tz = args.timezone.trim();
         if (!isSupportedTimezone(tz)) {
-          throw new ConvexError(
-            `Fuseau horaire inconnu : ${tz}. Attendu un identifiant IANA, par exemple America/New_York.`,
-          );
+          throw err(ERR.TIMEZONE_UNKNOWN, `Fuseau horaire inconnu : ${tz}. Attendu un identifiant IANA, par exemple America/New_York.`, { tz });
         }
         patch.timezone = tz;
         patch.timezoneSource = "admin";
@@ -747,18 +745,14 @@ export const updateCreator = permissionMutation("creators.manage")({
         // clippeur à un clippeur n'a aucun sens et laisserait un champ mort que
         // personne ne relirait.
         if (resolveCreatorKind(creator.kind) !== "talent") {
-          throw new ConvexError(
-            "Seul un talent peut être apparié à un clippeur.",
-          );
+          throw err(ERR.ONLY_TALENT_PAIRS, "Seul un talent peut être apparié à un clippeur.");
         }
         const clipper = await ctx.db.get(args.clipperId);
         if (!clipper || clipper.projectId !== ctx.projectId) {
-          throw new ConvexError("Clippeur introuvable dans le projet.");
+          throw err(ERR.CLIPPER_NOT_IN_PROJECT, "Clippeur introuvable dans le projet.");
         }
         if (resolveCreatorKind(clipper.kind) !== "clipper") {
-          throw new ConvexError(
-            `${clipper.name} n'est pas un clippeur : impossible de lui rattacher un talent.`,
-          );
+          throw err(ERR.NOT_A_CLIPPER, `${clipper.name} n'est pas un clippeur : impossible de lui rattacher un talent.`, { name: clipper.name });
         }
         patch.clipperId = args.clipperId;
       }
@@ -827,7 +821,7 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
   handler: async (ctx, args) => {
     const creator = await ctx.db.get(args.id);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable.");
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     const patch: Partial<Doc<"creators">> = {};
@@ -837,7 +831,7 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
       } else {
         const pricing = await ctx.db.get(args.bonusPricingId);
         if (!pricing || pricing.projectId !== ctx.projectId) {
-          throw new ConvexError("Pricing de bonus introuvable dans le projet.");
+          throw err(ERR.BONUS_PRICING_NOT_FOUND, "Pricing de bonus introuvable dans le projet.");
         }
         patch.bonusPricingId = args.bonusPricingId;
       }
@@ -846,7 +840,7 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
       const valeur = args[champ];
       if (valeur === undefined) continue;
       if (valeur !== null && (!Number.isFinite(valeur) || valeur < 0)) {
-        throw new ConvexError("Le tarif doit être un nombre ≥ 0.");
+        throw err(ERR.RATE_INVALID, "Le tarif doit être un nombre ≥ 0.");
       }
       patch[champ] = valeur === null ? undefined : valeur;
     }
@@ -1360,7 +1354,7 @@ export const getCreatorTimezone = permissionQuery("creators.read")({
   handler: async (ctx, { id }) => {
     const creator = await ctx.db.get(id);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     return creatorZone(ctx, id);
@@ -1555,7 +1549,7 @@ export const addCreatorToProject = permissionMutation("creators.manage")({
   handler: async (ctx, { creatorUserId }): Promise<{ creatorId: Id<"creators"> }> => {
     const user = await ctx.db.get(creatorUserId);
     if (!user) {
-      throw new ConvexError("Compte créateur introuvable.");
+      throw err(ERR.CREATOR_ACCOUNT_NOT_FOUND, "Compte créateur introuvable.");
     }
     // Identité de référence : une fiche existante de ce créateur (n'importe quel
     // projet). Sans fiche, ce compte n'est pas un créateur → refus.
@@ -1565,7 +1559,7 @@ export const addCreatorToProject = permissionMutation("creators.manage")({
       .collect();
     const source = fiches[0];
     if (!source) {
-      throw new ConvexError("Ce compte n'est pas un créateur.");
+      throw err(ERR.NOT_A_CREATOR_ACCOUNT, "Ce compte n'est pas un créateur.");
     }
     // Pas de doublon : déjà rattaché (quel que soit le rôle) au projet cible.
     const existing = await ctx.db
@@ -1575,7 +1569,7 @@ export const addCreatorToProject = permissionMutation("creators.manage")({
       )
       .first();
     if (existing) {
-      throw new ConvexError("Ce créateur est déjà rattaché à ce projet.");
+      throw err(ERR.CREATOR_ALREADY_IN_PROJECT, "Ce créateur est déjà rattaché à ce projet.");
     }
     const now = Date.now();
     const creatorId = await ctx.db.insert("creators", {
@@ -1869,18 +1863,14 @@ async function assertRefSlugFree(
       .collect()
   ).filter((c) => c._id !== selfId && normalizeRef(c.refSlug ?? null) === next);
   if (others.length > 0) {
-    throw new ConvexError(
-      `La ref « ${next} » est déjà portée par ${others[0].name}. Une ref ne peut appartenir qu'à une seule personne.`,
-    );
+    throw err(ERR.REF_TAKEN_BY_CREATOR, `La ref « ${next} » est déjà portée par ${others[0].name}. Une ref ne peut appartenir qu'à une seule personne.`, { next, name: others[0].name });
   }
   const project = await ctx.db.get(projectId);
   const influencer = (project?.influencerRefs ?? []).find(
     (i) => normalizeRef(i.ref) === next,
   );
   if (influencer) {
-    throw new ConvexError(
-      `La ref « ${next} » est déclarée pour l'influenceuse ${influencer.name}. Une ref ne peut appartenir qu'à une seule personne.`,
-    );
+    throw err(ERR.REF_TAKEN_BY_INFLUENCER, `La ref « ${next} » est déclarée pour l'influenceuse ${influencer.name}. Une ref ne peut appartenir qu'à une seule personne.`, { next, name: influencer.name });
   }
 }
 

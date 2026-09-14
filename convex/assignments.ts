@@ -571,9 +571,7 @@ export const setAssignmentPostWindow = permissionMutation("assignments.manage")(
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (args.postWindow !== undefined && !isValidPostWindow(args.postWindow)) {
-      throw new ConvexError(
-        "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.",
-      );
+      throw err(ERR.TIME_WINDOW_INVALID, "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.");
     }
     await ctx.db.patch(args.id, { postWindow: args.postWindow });
     return { ok: true };
@@ -674,9 +672,7 @@ export const addModelVideoToAssignment = permissionMutation("assignments.manage"
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const url = normalizeModelVideoUrlServer(args.url);
     if (!url) {
-      throw new ConvexError(
-        "L'URL de la vidéo modèle est invalide (lien http(s) attendu).",
-      );
+      throw err(ERR.MODEL_VIDEO_URL_INVALID, "L'URL de la vidéo modèle est invalide (lien http(s) attendu).");
     }
     const existing = a.modelVideos ?? [];
     // Dédoublonnage par URL (les 2 voies UI — URL libre + inspiration — peuvent
@@ -684,7 +680,7 @@ export const addModelVideoToAssignment = permissionMutation("assignments.manage"
     const dup = existing.find((mv) => mv.url === url);
     if (dup) return { id: dup.id, duplicate: true };
     if (existing.length >= MAX_MODEL_VIDEOS) {
-      throw new ConvexError(`Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`);
+      throw err(ERR.MODEL_VIDEOS_TOO_MANY, `Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`, { p1: MAX_MODEL_VIDEOS });
     }
     const title = args.title?.trim();
     const note = args.note?.trim();
@@ -901,9 +897,7 @@ export const deleteAssignment = permissionMutation("assignments.manage")({
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (!DELETABLE_STATUSES.has(a.status)) {
-      throw new ConvexError(
-        "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).",
-      );
+      throw err(ERR.ASSIGNMENT_DELETE_LOCKED, "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).");
     }
     // Purge vidéo orpheline (Convex + Stream) + hard-delete → comboKey libéré.
     await purgeAndDeleteAssignment(ctx, a);
@@ -1209,7 +1203,7 @@ async function materializeScriptPublication(
   opts: { url: string; platform: Plateforme; datePubli: number },
 ): Promise<Id<"publications">> {
   if (!a.scriptCombo || a.comboKey === undefined) {
-    throw new ConvexError("Combo de script manquant — matérialisation impossible.");
+    throw err(ERR.SCRIPT_COMBO_MISSING, "Combo de script manquant — matérialisation impossible.");
   }
   let compte: string;
   if (a.accountId) {
@@ -1344,7 +1338,7 @@ export const reviewVideoApprove = permissionMutation("review.manage")({
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
     if (a.status !== "video_submitted") {
-      throw new ConvexError("Seules les vidéos en revue peuvent être validées.");
+      throw err(ERR.VIDEO_NOT_IN_REVIEW_APPROVE, "Seules les vidéos en revue peuvent être validées.");
     }
     await ctx.db.patch(id, { status: "to_publish" });
     // Notification créateur — hors transaction : un échec d'email ne remet pas
@@ -1374,11 +1368,11 @@ export const reviewVideoReject = permissionMutation("review.manage")({
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status !== "video_submitted") {
-      throw new ConvexError("Seules les vidéos en revue peuvent être refusées.");
+      throw err(ERR.VIDEO_NOT_IN_REVIEW_REJECT, "Seules les vidéos en revue peuvent être refusées.");
     }
     const fb = feedback.trim();
     if (fb.length === 0) {
-      throw new ConvexError("Un motif de refus est requis.");
+      throw err(ERR.REJECTION_REASON_REQUIRED, "Un motif de refus est requis.");
     }
     await ctx.db.patch(id, {
       status: "video_rejected",
@@ -1423,14 +1417,14 @@ export const nudgeAssignment = permissionMutation("assignments.manage")({
   handler: async (ctx, { assignmentId }) => {
     const a = await ctx.db.get(assignmentId);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Mission introuvable.");
+      throw err(ERR.MISSION_NOT_FOUND, "Mission introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     const relançable = (UNFINISHED_STATUSES as readonly string[]).includes(
       a.status,
     );
     if (!relançable) {
-      throw new ConvexError("Cette mission n'attend pas le créateur.");
+      throw err(ERR.MISSION_NOT_WAITING_CREATOR, "Cette mission n'attend pas le créateur.");
     }
     const now = Date.now();
     if (
@@ -1970,21 +1964,17 @@ export const computeViewBonus = permissionMutation("payments.manage")({
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status !== "published") {
-      throw new ConvexError("Le bonus se calcule sur un assignment publié.");
+      throw err(ERR.BONUS_NEEDS_PUBLISHED, "Le bonus se calcule sur un assignment publié.");
     }
     if (a.pricingSnapshot !== undefined) {
-      throw new ConvexError(
-        "Bonus dérivé automatiquement du pricing (CPM + seuil) — non applicable manuellement.",
-      );
+      throw err(ERR.BONUS_IS_AUTOMATIC, "Bonus dérivé automatiquement du pricing (CPM + seuil) — non applicable manuellement.");
     }
     const hasPub = (a.targets ?? []).some((t) => t.publicationId !== undefined);
     if (!hasPub) {
-      throw new ConvexError(
-        "Pas de publication matérialisée (format custom ?) — bonus non applicable.",
-      );
+      throw err(ERR.BONUS_NO_PUBLICATION, "Pas de publication matérialisée (format custom ?) — bonus non applicable.");
     }
     if (!Number.isFinite(views) || views < 0) {
-      throw new ConvexError("Nombre de vues invalide.");
+      throw err(ERR.VIEW_COUNT_INVALID, "Nombre de vues invalide.");
     }
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
     // Chantier C — `views` = SOMME des vues des N plateformes (le bonus CPM

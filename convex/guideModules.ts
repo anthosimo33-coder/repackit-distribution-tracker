@@ -10,6 +10,7 @@ import type { Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { DEFAULT_LOCALE, normalizeLocale, type Locale } from "./locales";
 import { moduleLocale, selectModulesForLocale } from "./guideModuleLocale";
+import { ERR, err } from "./errorCodes";
 
 /**
  * « Comment ça marche » v2 — système de MODULES markdown par projet (remplace le
@@ -150,17 +151,17 @@ export const listModulesAsAdmin = adminViewAsQuery({
 function normalizeTitle(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    throw new ConvexError("Titre du module requis.");
+    throw err(ERR.MODULE_TITLE_REQUIRED, "Titre du module requis.");
   }
   if (trimmed.length > TITLE_MAX) {
-    throw new ConvexError(`Titre trop long (max ${TITLE_MAX} caractères).`);
+    throw err(ERR.MODULE_TITLE_TOO_LONG, `Titre trop long (max ${TITLE_MAX} caractères).`, { p1: TITLE_MAX });
   }
   return trimmed;
 }
 
 function checkContent(content: string): string {
   if (content.length > CONTENT_MAX) {
-    throw new ConvexError(`Contenu trop long (max ${CONTENT_MAX} caractères).`);
+    throw err(ERR.MODULE_CONTENT_TOO_LONG, `Contenu trop long (max ${CONTENT_MAX} caractères).`, { p1: CONTENT_MAX });
   }
   return content;
 }
@@ -175,7 +176,7 @@ function checkContent(content: string): string {
 function normalizeModuleLocale(raw: string | undefined): Locale {
   if (raw === undefined) return DEFAULT_LOCALE;
   const loc = normalizeLocale(raw);
-  if (loc === null) throw new ConvexError(`Langue inconnue : ${raw}.`);
+  if (loc === null) throw err(ERR.MODULE_LOCALE_UNKNOWN, `Langue inconnue : ${raw}.`, { raw });
   return loc;
 }
 
@@ -241,7 +242,7 @@ export const updateModule = permissionMutation("guide.manage")({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) {
-      throw new ConvexError("Module introuvable.");
+      throw err(ERR.MODULE_NOT_FOUND, "Module introuvable.");
     }
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
     if (args.title !== undefined) patch.title = normalizeTitle(args.title);
@@ -306,7 +307,7 @@ export const deleteModule = permissionMutation("guide.manage")({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) {
-      throw new ConvexError("Module introuvable.");
+      throw err(ERR.MODULE_NOT_FOUND, "Module introuvable.");
     }
     await ctx.db.delete(args.id);
   },
@@ -330,7 +331,7 @@ export const moveModule = permissionMutation("guide.manage")({
   handler: async (ctx, args) => {
     const current = await ctx.db.get(args.id);
     if (!current || current.projectId !== ctx.projectId) {
-      throw new ConvexError("Module introuvable.");
+      throw err(ERR.MODULE_NOT_FOUND, "Module introuvable.");
     }
     const locale = moduleLocale(current);
     const siblings = (

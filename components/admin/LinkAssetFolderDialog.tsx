@@ -19,9 +19,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Lie UN OU PLUSIEURS dossiers d'assets à un assignment (multi-select). Le
@@ -41,6 +41,7 @@ export function LinkAssetFolderDialog({
   currentFolderIds: Id<"assetFolders">[];
   creatorName: string;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.LinkAssetFolderDialog");
   const folders = useProjectQuery(
     api.assets.listAssetFolders,
@@ -81,7 +82,7 @@ export function LinkAssetFolderDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setBusy(false);
     }

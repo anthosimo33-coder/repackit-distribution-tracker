@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/dialog";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
 import {
@@ -89,6 +88,7 @@ import type { FunctionReturnType } from "convex/server";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * BANC DE MONTAGE — l'écran d'une campagne de scripts.
@@ -629,6 +629,7 @@ function BrickRow({
   /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
   availability?: HookAvailability;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.scripts.BrickRow");
   const tLabel = useLabel();
@@ -641,7 +642,7 @@ function BrickRow({
     try {
       await update({ id: brick._id, active });
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -782,6 +783,7 @@ function BrickEditor({
   onDeleted: () => void;
   onGraduate: (id: Id<"scriptBricks">) => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.scripts.BrickEditor");
   const tKind = useTranslations("admin.scripts.brickKind");
   const tLabel = useLabel();
@@ -843,7 +845,7 @@ function BrickEditor({
       onDirtyChange(false);
       return true;
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
       return false;
     } finally {
       setBusy(false);
@@ -869,7 +871,7 @@ function BrickEditor({
       toast.success(tr("briqueSupprimee"));
       onDeleted();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -1151,6 +1153,7 @@ function BulkBar({
   onDone: () => void;
   kindLabel: string;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.scripts.BulkBar");
   const setActive = useProjectMutation(api.scripts.setBricksActive);
   const setInstruction = useProjectMutation(api.scripts.setBricksInstruction);
@@ -1167,7 +1170,7 @@ function BulkBar({
       toast.success(done);
       onDone();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -1312,6 +1315,7 @@ function ImportHooksDialog({
   onOpenChange: (o: boolean) => void;
   campaignId: Id<"scriptCampaigns">;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.scripts.ImportHooksDialog");
   const hooks = useProjectQuery(api.hooks.listHooks, open ? {} : "skip");
   const importHooks = useProjectMutation(api.scripts.importHooks);
@@ -1349,7 +1353,7 @@ function ImportHooksDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

@@ -22,8 +22,8 @@ import { FOLDER_COLORS, type FolderColorKey } from "@/lib/folder-colors";
 import { Loader2Icon, CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -101,6 +101,7 @@ function IcpEditDialogForm({
   onCreated?: (id: Id<"icps">) => void;
   onClose: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.IcpEditDialogForm");
   const isEdit = mode === "edit";
   const [nom, setNom] = useState(initialIcp?.nom ?? initialNom ?? "");
@@ -143,7 +144,7 @@ function IcpEditDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

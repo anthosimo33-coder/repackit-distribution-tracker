@@ -66,9 +66,9 @@ import {
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const DAY_MS = 86_400_000;
 
@@ -596,6 +596,7 @@ function DeactivateHookDialog({
   target: { brickId: Id<"scriptBricks">; content: string } | null;
   onOpenChange: (o: boolean) => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.dashboard.DeactivateHookDialog");
   const update = useProjectMutation(api.scripts.updateBrick);
   const [busy, setBusy] = useState(false);
@@ -608,7 +609,7 @@ function DeactivateHookDialog({
       toast.success(tr("hookDesactiveIlSortDes"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("desactivationImpossible")));
+      toast.error(showError(e, tr("desactivationImpossible")));
     } finally {
       setBusy(false);
     }

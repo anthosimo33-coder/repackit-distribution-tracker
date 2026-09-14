@@ -67,3 +67,37 @@ describe("convexErrorCode — brancher sur le CODE, jamais sur le texte", () => 
     expect(convexErrorMessage(undefined)).toBe("Une erreur est survenue.");
   });
 });
+
+/**
+ * UN CODE SANS PHRASE EST UN REFUS EN FRANÇAIS.
+ *
+ * `useConvexError` rend `error.<code>` quand la clé existe, et RETOMBE
+ * silencieusement sur le message serveur — qui est français — quand elle
+ * manque. Rien ne casse, rien ne s'affiche en rouge : le lecteur anglais lit
+ * juste du français. Le seul filet possible est donc cet appariement, tenu par
+ * le test plutôt que par l'attention.
+ */
+describe("codes de rejet ↔ catalogues", () => {
+  const codes = Object.values(ERR);
+
+  it.each(["fr", "en"] as const)("%s : une phrase par code", async (locale) => {
+    const catalogue = (
+      await (locale === "fr"
+        ? import("../messages/fr.json")
+        : import("../messages/en.json"))
+    ).default.error as Record<string, string>;
+    const sans = codes.filter((c) => typeof catalogue[c] !== "string");
+    expect(sans).toEqual([]);
+  });
+
+  it("aucune phrase orpheline", async () => {
+    // Une clé sans code est du texte mort : plus personne ne peut la faire
+    // sortir, et elle survit aux relectures parce qu'elle a l'air utile.
+    const fr = (await import("../messages/fr.json")).default.error as Record<
+      string,
+      string
+    >;
+    const connus = new Set<string>([...codes, "generic"]);
+    expect(Object.keys(fr).filter((k) => !connus.has(k))).toEqual([]);
+  });
+});

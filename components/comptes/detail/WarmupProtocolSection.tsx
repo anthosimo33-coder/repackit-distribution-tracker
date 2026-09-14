@@ -11,7 +11,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { CheckIcon, Loader2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import type { Compte } from "@/components/comptes/CompteDialog";
 import {
   getEffectiveWarmupDuration,
@@ -19,6 +18,7 @@ import {
 } from "@/lib/compte-status";
 import { warmupProgress, missedDays, lastCheck } from "@/lib/warmup";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * P5 — section admin « Protocole de warmup » d'une fiche compte : keywords
@@ -27,6 +27,7 @@ import { useTranslations } from "next-intl";
  * dernière activité) + « Passer en actif ».
  */
 export function WarmupProtocolSection({ compte }: { compte: Compte }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.WarmupProtocolSection");
   const updateProtocol = useProjectMutation(api.comptes.updateWarmupProtocol);
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
@@ -96,7 +97,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       });
       toast.success(tr("protocoleEnregistre"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -112,7 +113,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       });
       toast.success(tr("passeEnActif", { handle: compte.handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setActivating(false);
     }

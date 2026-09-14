@@ -14,6 +14,7 @@ import {
 import { newWinnersAt, type WinnerRule } from "./challengeScore";
 import { periodOf } from "./payments";
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
+import { ERR, err } from "./errorCodes";
 
 /**
  * DÉFIS — l'ÉVALUATION, et elle a lieu au RELEVÉ. Nulle part ailleurs.
@@ -142,12 +143,12 @@ export const cancelChallengeWin = permissionMutation("challenges.run")({
   handler: async (ctx, { winId, reason }): Promise<{ ok: true }> => {
     const win = await ctx.db.get(winId);
     if (!win || win.projectId !== ctx.projectId) {
-      throw new ConvexError("Victoire introuvable.");
+      throw err(ERR.CHALLENGE_WIN_NOT_FOUND, "Victoire introuvable.");
     }
     if (win.cancelledAt !== undefined) return { ok: true }; // idempotent
     const motif = reason.trim();
     if (motif.length === 0) {
-      throw new ConvexError("Un motif d'annulation est requis.");
+      throw err(ERR.CANCEL_REASON_REQUIRED, "Un motif d'annulation est requis.");
     }
     // ── VERROU DE PAIE — la prime est-elle déjà partie ? ─────────────────────
     //

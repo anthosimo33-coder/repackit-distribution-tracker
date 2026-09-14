@@ -37,7 +37,6 @@ import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
 import { formatNumber } from "@/lib/format";
 import { countTomorrow, reviewSlot, type ReviewSlot } from "@/lib/review-queue";
@@ -59,6 +58,7 @@ import {
 import { usePermissions } from "@/components/project/use-permissions";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type VideoSubmittedRow =
   FunctionReturnType<typeof api.assignments.listVideoSubmitted>[number];
@@ -331,6 +331,7 @@ function VideoReviewCard({
   /** Cible du lien profond `?soumission=` : surlignée et amenée à l'écran. */
   highlighted?: boolean;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.validation.VideoReviewCard");
   const approve = useProjectMutation(api.assignments.reviewVideoApprove);
@@ -396,7 +397,7 @@ function VideoReviewCard({
           : tr("videoValideeLeCreateurPeut"),
       );
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLaValidationDe")));
+      toast.error(showError(e, tr("echecDeLaValidationDe")));
     } finally {
       setBusy(false);
     }
@@ -414,7 +415,7 @@ function VideoReviewCard({
       setRejectOpen(false);
       setFeedback("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDuRefusDeLa")));
+      toast.error(showError(e, tr("echecDuRefusDeLa")));
     } finally {
       setBusy(false);
     }
@@ -689,6 +690,7 @@ function BonusRow({
   /** Devise de la PAIE créatrices (dollars), threadée depuis ValidationPage. */
   currency?: string | null;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.validation.BonusRow");
   const compute = useProjectMutation(api.assignments.computeViewBonus);
@@ -713,7 +715,7 @@ function BonusRow({
       toast.success(tr("bonusCredite", { amount: formatMoney(res.bonus, currency, loc) }));
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDuCalculDuBonus")));
+      toast.error(showError(e, tr("echecDuCalculDuBonus")));
     } finally {
       setBusy(false);
     }

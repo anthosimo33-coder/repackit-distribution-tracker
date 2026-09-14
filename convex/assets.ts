@@ -5,6 +5,7 @@ import {
 } from "./functions";
 import { ConvexError, v } from "convex/values";
 import { purgeAssetBlobs } from "./storageCleanup";
+import { ERR, err } from "./errorCodes";
 
 /**
  * Assets — bibliothèque de FICHIERS en dossiers (matériel à télécharger par le
@@ -55,16 +56,16 @@ export const createAssetFolder = permissionMutation("library.manage")({
   args: { name: v.string(), postprocessImages: v.optional(v.boolean()) },
   handler: async (ctx, args) => {
     const name = args.name.trim();
-    if (name.length === 0) throw new ConvexError("Nom de dossier requis.");
+    if (name.length === 0) throw err(ERR.FOLDER_NAME_REQUIRED, "Nom de dossier requis.");
     if (name.length > MAX_NAME_LENGTH) {
-      throw new ConvexError(`Nom trop long (max ${MAX_NAME_LENGTH}).`);
+      throw err(ERR.FOLDER_NAME_TOO_LONG, `Nom trop long (max ${MAX_NAME_LENGTH}).`, { p1: MAX_NAME_LENGTH });
     }
     const existing = await ctx.db
       .query("assetFolders")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     if (existing.some((f) => f.name.toLowerCase() === name.toLowerCase())) {
-      throw new ConvexError(`Dossier « ${name} » existe déjà.`);
+      throw err(ERR.FOLDER_ALREADY_EXISTS, `Dossier « ${name} » existe déjà.`, { name });
     }
     return await ctx.db.insert("assetFolders", {
       projectId: ctx.projectId,
@@ -85,7 +86,7 @@ export const setAssetFolderPostprocess = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
     if (!folder || folder.projectId !== ctx.projectId) {
-      throw new ConvexError("Dossier introuvable.");
+      throw err(ERR.FOLDER_NOT_FOUND, "Dossier introuvable.");
     }
     await ctx.db.patch(args.id, {
       postprocessImages: args.postprocessImages,
@@ -99,12 +100,12 @@ export const renameAssetFolder = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
     if (!folder || folder.projectId !== ctx.projectId) {
-      throw new ConvexError("Dossier introuvable.");
+      throw err(ERR.FOLDER_NOT_FOUND, "Dossier introuvable.");
     }
     const name = args.name.trim();
-    if (name.length === 0) throw new ConvexError("Nom de dossier requis.");
+    if (name.length === 0) throw err(ERR.FOLDER_NAME_REQUIRED, "Nom de dossier requis.");
     if (name.length > MAX_NAME_LENGTH) {
-      throw new ConvexError(`Nom trop long (max ${MAX_NAME_LENGTH}).`);
+      throw err(ERR.FOLDER_NAME_TOO_LONG, `Nom trop long (max ${MAX_NAME_LENGTH}).`, { p1: MAX_NAME_LENGTH });
     }
     const all = await ctx.db
       .query("assetFolders")
@@ -115,7 +116,7 @@ export const renameAssetFolder = permissionMutation("library.manage")({
         (f) => f._id !== args.id && f.name.toLowerCase() === name.toLowerCase(),
       )
     ) {
-      throw new ConvexError(`Dossier « ${name} » existe déjà.`);
+      throw err(ERR.FOLDER_ALREADY_EXISTS, `Dossier « ${name} » existe déjà.`, { name });
     }
     await ctx.db.patch(args.id, { name });
     return { ok: true };
@@ -132,7 +133,7 @@ export const deleteAssetFolder = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const folder = await ctx.db.get(args.id);
     if (!folder || folder.projectId !== ctx.projectId) {
-      throw new ConvexError("Dossier introuvable.");
+      throw err(ERR.FOLDER_NOT_FOUND, "Dossier introuvable.");
     }
     const assets = await ctx.db
       .query("assets")
@@ -213,7 +214,7 @@ export const createAsset = permissionMutation("library.manage")({
       // Blob orphelin (uploadé mais dossier invalide) → purge.
       await ctx.storage.delete(args.storageId);
       if (superseded) await ctx.storage.delete(superseded);
-      throw new ConvexError("Dossier introuvable.");
+      throw err(ERR.FOLDER_NOT_FOUND, "Dossier introuvable.");
     }
     const max = maxBytesForAssetType(args.contentType);
     const invalid =
@@ -224,9 +225,7 @@ export const createAsset = permissionMutation("library.manage")({
     if (invalid) {
       await ctx.storage.delete(args.storageId);
       if (superseded) await ctx.storage.delete(superseded);
-      throw new ConvexError(
-        "Fichier refusé : images JPG/PNG/WebP (10 Mo) ou vidéos MP4/MOV/WebM (100 Mo).",
-      );
+      throw err(ERR.ASSET_FILE_REJECTED, "Fichier refusé : images JPG/PNG/WebP (10 Mo) ou vidéos MP4/MOV/WebM (100 Mo).");
     }
     // L'original n'a plus de raison d'exister une fois sa version nettoyée validée.
     if (superseded) await ctx.storage.delete(superseded);
