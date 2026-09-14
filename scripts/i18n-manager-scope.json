@@ -332,6 +332,7 @@
     "lib/timezone-choices.ts",
     "lib/tracker-data.ts",
     "lib/tracker-filters.ts",
+    "lib/use-format-labels.ts",
     "lib/use-media-query.ts",
     "lib/video-download.ts",
     "lib/view-as-access.ts",

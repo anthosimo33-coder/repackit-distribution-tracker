@@ -79,7 +79,8 @@
     "nonAutorisesSur": "{formatLabel} not allowed on {invalidPlatform}.",
     "idPasEncorePretAttends": "ID not ready yet, give it a second…",
     "creeSurPlateforme": "{formatLabel} {nextCarouselId} created on {count} {count, plural, one {platform} other {platforms}}",
-    "erreurLorsDeLaCreation": "Creation failed"
+    "erreurLorsDeLaCreation": "Creation failed",
+    "publication": "Post"
   },
   "ProgressBar": {
     "etape": "Step {displayedStep} / {total} — {value}",
@@ -757,7 +758,9 @@
   "SnapshotAgeSelector": {
     "periode": "Period",
     "ageDuSnapshot": "Snapshot age",
-    "jourPersonnalise": "Custom day"
+    "jourPersonnalise": "Custom day",
+    "latest": "Latest",
+    "custom": "Custom"
   },
   "PostsList": {
     "post": "Post",
@@ -775,5 +778,23 @@
     "pending": "Waiting for the first reading",
     "failed": "Not measured",
     "failedWithReason": "Not measured — {reason}"
+  },
+  "dayOffset": "D+{days}",
+  "format": {
+    "carousel": {
+      "singular": "Carousel",
+      "plural": "Carousels",
+      "description": "5 to 8 text slides for TikTok and Instagram. RepackIt's original format."
+    },
+    "short": {
+      "singular": "Short",
+      "plural": "Shorts",
+      "description": "Short vertical video (TikTok, Reels, YouTube Shorts). One continuous script."
+    },
+    "screenrecorder": {
+      "singular": "ScreenRecorder",
+      "plural": "ScreenRecorders",
+      "description": "Screen capture with a title and a companion image (3 platforms)."
+    }
   }
 }

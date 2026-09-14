@@ -31,7 +31,11 @@
     "vuesCumulees": "{value} vues cumulées",
     "sansPublication": "{count} sans publication",
     "collision": "— sur {plateforme}, {handles} {count, plural, one {existe en double} other {ne diffèrent que par la casse ou la ponctuation}}. Leurs vues sont les mêmes des deux côtés : ce total est compté deux fois. À réunir en un seul compte.",
-    "et": " et "
+    "et": " et ",
+    "chargement": "Chargement…",
+    "actifs": "{count} {count, plural, one {actif} other {actifs}}",
+    "enWarmup": "{count} warmup",
+    "enShadowban": "{count} shadowban"
   },
   "LigneCompte": {
     "jamaisPublie": "jamais publié",
@@ -46,7 +50,8 @@
     "compte": "{effectif} {effectif, plural, one {compte} other {comptes}}",
     "post": "{posts} {posts, plural, one {post} other {posts}}",
     "vues": "{value} vues",
-    "partDesVuesDuProjet": "{pct} % des vues du projet"
+    "partDesVuesDuProjet": "{pct} % des vues du projet",
+    "pctPart": "{pct} %"
   },
   "EmptyState": {
     "aucunCompteAjouteTonPremier": "Aucun compte. Ajoute ton premier compte TikTok ou Instagram.",

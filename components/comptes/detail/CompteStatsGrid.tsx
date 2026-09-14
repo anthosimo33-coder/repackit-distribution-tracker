@@ -5,10 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { getMediaType } from "@/lib/media-type";
 import { passesWarmupMode } from "@/lib/warmup-mode";
-import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import type { FormatKey } from "@/lib/format-config";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 const FORMAT_ORDER: FormatKey[] = ["carousel", "short", "screenrecorder"];
 
@@ -25,6 +26,7 @@ export function CompteStatsGrid({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.accounts.CompteStatsGrid");
+  const fmt = useFormatLabels();
   const stats = useMemo(() => {
     const byFormat: Record<FormatKey, number> = {
       carousel: 0,
@@ -59,7 +61,7 @@ export function CompteStatsGrid({
                 className="flex items-center justify-between gap-2 text-sm"
               >
                 <span className="text-slate-500">
-                  {FORMAT_CONFIGS[key].plural}
+                  {fmt.plural(key)}
                 </span>
                 <span className="font-semibold tabular-nums text-slate-900">
                   {stats.byFormat[key]}

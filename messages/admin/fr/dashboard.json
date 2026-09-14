@@ -142,7 +142,9 @@
     "sansFormat": "Sans format",
     "archivee": "{name} (archivée)",
     "archive": "{name} (archivé)",
-    "engagementFormule": "(likes + comments) / {views} vues {scope, select, only {warmup} other {hors warmup}}"
+    "engagementFormule": "(likes + comments) / {views} vues {scope, select, only {warmup} other {hors warmup}}",
+    "horsCampagne": "Hors campagne",
+    "autres": "Autres"
   },
   "WarmupFilterSelect": {
     "warmup": "Warmup",

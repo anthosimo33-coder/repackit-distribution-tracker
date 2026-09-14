@@ -81,9 +81,13 @@ function compare<T extends CompteLike>(
   return cmp * (dir === "asc" ? 1 : -1);
 }
 
-function titreDe<T extends CompteLike>(ligne: T, axe: GroupAxis): string {
+function titreDe<T extends CompteLike>(
+  ligne: T,
+  axe: GroupAxis,
+  interne: string,
+): string {
   if (axe === "plateforme") return ligne.plateforme;
-  return ligne.creator?.name ?? INTERNE_LABEL;
+  return ligne.creator?.name ?? interne;
 }
 
 /**
@@ -106,6 +110,8 @@ export function groupComptes<T extends CompteLike>(
    * l'appelant n'a rien filtré.
    */
   totalProjet?: number,
+  /** Titre du groupe sans propriétaire, dans la langue du lecteur. */
+  interne: string = INTERNE_LABEL,
 ): CompteGroup<T>[] {
   const totalVues = comptes.reduce((s, c) => s + c.perf.vuesCumulees, 0);
   const denominateur = totalProjet ?? totalVues;
@@ -129,7 +135,7 @@ export function groupComptes<T extends CompteLike>(
   // donc l'ordre des groupes découle du tri au lieu d'être reconstruit à côté.
   const parClef = new Map<string, T[]>();
   for (const l of triees) {
-    const k = titreDe(l, axe);
+    const k = titreDe(l, axe, interne);
     const liste = parClef.get(k);
     if (liste) liste.push(l);
     else parClef.set(k, [l]);

@@ -359,7 +359,7 @@ function HookVariantsPopover({
                         <span className="text-slate-400">·</span>
                       </>
                     )}
-                    <span>{formatShortDate(v.datePubli)}</span>
+                    <span>{formatShortDate(v.datePubli, loc)}</span>
                   </div>
                 </button>
               </li>
@@ -371,14 +371,15 @@ function HookVariantsPopover({
   );
 }
 
-function formatShortDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString("fr-FR", {
+function formatShortDate(timestamp: number, locale: string): string {
+  return new Date(timestamp).toLocaleDateString(locale, {
     day: "2-digit",
     month: "short",
   });
 }
 
 function UsageDetail({ hook }: { hook: HookWithUsage }) {
+  const loc = useIntlLocale();
   const tr = useTranslations("admin.library.UsageDetail");
   const accounts = hook.accountsUsed;
   const visibleAccounts = accounts.slice(0, 3);
@@ -397,14 +398,14 @@ function UsageDetail({ hook }: { hook: HookWithUsage }) {
         </div>
       )}
       {hook.lastPublishedAt !== null && (
-        <div>{tr("dernierePubli", { date: formatLongDate(hook.lastPublishedAt) })}</div>
+        <div>{tr("dernierePubli", { date: formatLongDate(hook.lastPublishedAt, loc) })}</div>
       )}
     </div>
   );
 }
 
-function formatLongDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleDateString("fr-FR", {
+function formatLongDate(timestamp: number, locale: string): string {
+  return new Date(timestamp).toLocaleDateString(locale, {
     day: "numeric",
     month: "long",
     year: "numeric",

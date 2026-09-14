@@ -20,6 +20,7 @@ import type { Dispatch } from "react";
 import type { NouveauAction, NouveauData, Step } from "../useNouveauState";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 /**
  * StepRecap — étape 5 du modal. Récap lecture seule + boutons "Modifier"
@@ -35,6 +36,7 @@ export function StepRecap({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.StepRecap");
+  const fmt = useFormatLabels();
   const allHooks = useProjectQuery(api.hooks.listHooks, {});
   // Batch D — résolution image preview pour le récap ScreenRecorder.
   const imagePreview = useQuery(
@@ -88,7 +90,7 @@ export function StepRecap({
         {config ? (
           <div className="flex items-center gap-2">
             <config.icon className="size-4 text-slate-700" />
-            <span className="font-medium">{config.singular}</span>
+            <span className="font-medium">{fmt.singular(data.mediaType as FormatKey)}</span>
           </div>
         ) : (
           <span className="italic text-slate-400">{tr("nonSelectionne")}</span>

@@ -25,6 +25,7 @@ import {
   isFormatAllowedOnPlatform,
   publicationPayContext,
   lockedMessage,
+  lockedParams,
   retrackPublication,
 } from "./publications";
 import { SNYTCH_SLUG } from "./projects";
@@ -624,14 +625,15 @@ export function buildModelVideoItemsServer(
   for (const input of inputs) {
     const url = normalizeModelVideoUrlServer(input.url);
     if (!url) {
-      throw new ConvexError(
+      throw err(
+        ERR.MODEL_VIDEO_URL_INVALID,
         "L'URL d'une vidéo modèle est invalide (lien http(s) attendu).",
       );
     }
     if (seen.has(url)) continue; // dédoublonnage par URL (idempotent)
     seen.add(url);
     if (items.length >= MAX_MODEL_VIDEOS) {
-      throw new ConvexError(`Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`);
+      throw err(ERR.MODEL_VIDEOS_TOO_MANY, `Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`, { p1: MAX_MODEL_VIDEOS });
     }
     const title = input.title?.trim();
     const note = input.note?.trim();
@@ -836,7 +838,8 @@ export const cancelAssignment = permissionMutation("assignments.manage")({
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
     if (!DELETABLE_STATUSES.has(a.status)) {
-      throw new ConvexError(
+      throw err(
+        ERR.ASSIGNMENT_CANCEL_LOCKED,
         "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
       );
     }
@@ -3444,7 +3447,7 @@ export const correctPublishedUrl = permissionMutation("review.manage")({
     if (pub) {
       const payCtx = await publicationPayContext(ctx, pub);
       if (payCtx.locked) {
-        throw new ConvexError(lockedMessage("le lien de suivi", payCtx));
+        throw err(ERR.PAY_CYCLE_LOCKED, lockedMessage("le lien de suivi", payCtx), lockedParams("refusal.locked.trackingLink", payCtx));
       }
     }
 

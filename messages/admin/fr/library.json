@@ -118,7 +118,8 @@
     "creer": "Créer",
     "moduleMisAJour": "Module mis à jour",
     "moduleCree": "Module créé",
-    "uneErreurEstSurvenue": "Une erreur est survenue."
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "markdownHint": "Markdown : # Titre, ## Sous-titre, **gras**, *italique*, `code`, - liste, 1. liste numérotée, [lien](https://…). Une ligne vide sépare les paragraphes."
   },
   "GuideModulesManager": {
     "commentCaMarche": "Comment ça marche",

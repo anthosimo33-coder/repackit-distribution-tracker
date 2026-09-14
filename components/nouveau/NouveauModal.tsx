@@ -37,6 +37,7 @@ import { StepRecap } from "./steps/StepRecap";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 import { useConvexError } from "@/lib/use-convex-error";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 const STEP_KEYS = {
   1: "format",
@@ -89,6 +90,7 @@ export function NouveauModal({
 }) {
   const showError = useConvexError();
   const tr = useTranslations("admin.common.NouveauModal");
+  const fmt = useFormatLabels();
   const { state, dispatch, goto, next, prev, isStep5 } = useNouveauState({
     initialMediaType,
     initialHookId,
@@ -332,8 +334,9 @@ export function NouveauModal({
     );
     if (invalidPlatform) {
       const formatLabel =
-        FORMAT_CONFIGS[state.data.mediaType as FormatKey]?.plural ??
-        state.data.mediaType;
+        state.data.mediaType in FORMAT_CONFIGS
+          ? fmt.plural(state.data.mediaType as FormatKey)
+          : state.data.mediaType;
       toast.error(tr("nonAutorisesSur", { formatLabel: formatLabel, invalidPlatform: invalidPlatform }));
       goto(4);
       return;
@@ -420,8 +423,9 @@ export function NouveauModal({
         });
       }
       const formatLabel =
-        FORMAT_CONFIGS[state.data.mediaType as FormatKey]?.singular ??
-        "Publication";
+        state.data.mediaType in FORMAT_CONFIGS
+          ? fmt.singular(state.data.mediaType as FormatKey)
+          : tr("publication");
       toast.success(
         tr("creeSurPlateforme", { formatLabel: formatLabel, nextCarouselId: nextCarouselId, count: effectivePlatforms.length }),
       );

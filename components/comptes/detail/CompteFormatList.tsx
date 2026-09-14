@@ -14,12 +14,13 @@ import { PlatformBadge, VerdictBadge } from "@/components/VerdictBadge";
 import { computeVerdict } from "@/lib/verdict";
 import { formatNumber, formatDate } from "@/lib/format";
 import { isLate, isPublished } from "@/lib/publication-status";
-import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import type { FormatKey } from "@/lib/format-config";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 type SortKey = "date" | "vues" | "likes";
 type SortDir = "asc" | "desc";
@@ -41,6 +42,7 @@ export function CompteFormatList({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.accounts.CompteFormatList");
+  const fmt = useFormatLabels();
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const isCarousel = mediaType === "carousel";
@@ -76,7 +78,7 @@ export function CompteFormatList({
   if (publications.length === 0) {
     return (
       <p className="rounded-md border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
-        {tr("aucunPourCeCompte", { value: FORMAT_CONFIGS[mediaType].singular.toLowerCase() })}
+        {tr("aucunPourCeCompte", { value: fmt.singular(mediaType).toLowerCase() })}
       </p>
     );
   }

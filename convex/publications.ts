@@ -427,8 +427,10 @@ export const createFromAssignment = internalMutation({
     // Defense-in-depth : carousel interdit YouTube (la garde primaire est à la
     // soumission, cf submitAssignment).
     if (!isFormatAllowedOnPlatform(args.mediaType, args.plateforme)) {
-      throw new ConvexError(
+      throw err(
+        ERR.MEDIA_TYPE_NOT_ALLOWED,
         `Format ${args.mediaType} non autorisé sur ${args.plateforme}.`,
+        { mediaType: args.mediaType, plateforme: args.plateforme },
       );
     }
     // Compteur d'ID PAR PROJET, identique à getNextPublicationId.
@@ -854,6 +856,26 @@ function frDate(ms: number): string {
  * Message de refus DATÉ. « Impossible » n'apprend rien : on dit quel cycle est
  * en cause, sur quelles bornes, et depuis quand il est payé.
  */
+/**
+ * Le verrou de paie en PARAMÈTRES, pour que le client écrive la phrase dans sa
+ * langue. Les parties absentes (bornes, date de paiement) passent par un
+ * `select` ; leurs instants valent 0 quand ils manquent, jamais rendus.
+ */
+export function lockedParams(
+  whatKey: string,
+  ctxInfo: { cycleStart: number | null; cycleEnd: number | null; paidAt: number | null },
+): { whatKey: string; hasRange: string; startAt: number; endAt: number; paid: string; paidAt: number } {
+  const range = ctxInfo.cycleStart !== null && ctxInfo.cycleEnd !== null;
+  return {
+    whatKey,
+    hasRange: range ? "yes" : "no",
+    startAt: ctxInfo.cycleStart ?? 0,
+    endAt: ctxInfo.cycleEnd ?? 0,
+    paid: ctxInfo.paidAt !== null ? "yes" : "no",
+    paidAt: ctxInfo.paidAt ?? 0,
+  };
+}
+
 export function lockedMessage(
   quoi: string,
   ctxInfo: { cycleStart: number | null; cycleEnd: number | null; paidAt: number | null },
@@ -1049,7 +1071,7 @@ export const setPublicationWarmup = permissionMutation("tracker.manage")({
     }
     const payCtx = await publicationPayContext(ctx, pub);
     if (payCtx.locked) {
-      throw new ConvexError(lockedMessage("le réglage warmup", payCtx));
+      throw err(ERR.PAY_CYCLE_LOCKED, lockedMessage("le réglage warmup", payCtx), lockedParams("refusal.locked.warmupSetting", payCtx));
     }
     if ((pub.isWarmup === true) === isWarmup) {
       return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
@@ -1124,7 +1146,7 @@ export const setPublicationRemuneration = permissionMutation("payments.manage")(
     }
     const payCtx = await publicationPayContext(ctx, pub);
     if (payCtx.locked) {
-      throw new ConvexError(lockedMessage("la rémunération", payCtx));
+      throw err(ERR.PAY_CYCLE_LOCKED, lockedMessage("la rémunération", payCtx), lockedParams("refusal.locked.remuneration", payCtx));
     }
     const isWarmup = pub.isWarmup === true;
     if (isRemunerated({ isWarmup, remunere: pub.remunere }) === remunere) {

@@ -20,6 +20,7 @@ import { formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
 import type { DisplayMetrics } from "@/convex/metricsDisplay";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type Publication = Doc<"publications"> & { displayMetrics?: DisplayMetrics };
 
@@ -59,13 +60,14 @@ function KpiCard({
   kpiKey: KpiKey;
   value: number | null;
 }) {
+  const loc = useIntlLocale();
   const formatter = KPI_FORMATTERS[kpiKey];
   const display =
     value === null
       ? "—"
       : formatter === "percent"
-        ? formatPercent(value)
-        : formatNumber(value);
+        ? formatPercent(value, undefined, loc)
+        : formatNumber(value, loc);
   return (
     <Card>
       <CardContent className="p-4">

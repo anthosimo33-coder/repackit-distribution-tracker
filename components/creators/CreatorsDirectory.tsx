@@ -151,14 +151,15 @@ function ecrire(k: string, v: string) {
 }
 
 /**
- * « il y a 4 j » — l'ancienneté d'un post, en JOURS DE PARIS.
+ * L'ancienneté d'un post, en JOURS DE PARIS (0 = aujourd'hui). La phrase
+ * (« il y a 4 j » / « 4d ago ») vit dans le catalogue : `admin.creators.anciennete`.
  *
  * Le repère est épinglé sur Europe/Paris comme partout ailleurs dans ce dépôt :
  * le runtime Convex est en UTC et `postDate` est stocké à minuit Paris, si bien
  * qu'un décompte en heure locale du navigateur ferait basculer une partie des
  * posts d'un jour (cf convex/calendarStatus.ts).
  */
-function anciennete(ts: number, maintenant: number): string {
+function joursDepuis(ts: number, maintenant: number): number {
   const jour = (t: number) =>
     Math.floor(
       Date.parse(
@@ -170,10 +171,7 @@ function anciennete(ts: number, maintenant: number): string {
         }).format(new Date(t)) + "T00:00:00Z",
       ) / 86_400_000,
     );
-  const n = jour(maintenant) - jour(ts);
-  if (n <= 0) return "aujourd'hui";
-  if (n === 1) return "hier";
-  return `il y a ${n} j`;
+  return Math.max(0, jour(maintenant) - jour(ts));
 }
 
 export function CreatorsDirectory({
@@ -186,6 +184,7 @@ export function CreatorsDirectory({
   const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.CreatorsDirectory");
+  const tCreators = useTranslations("admin.creators");
   const tRegionNs = useTranslations("admin.creators.region");
   const tStatus = useTranslations("admin.creators.status");
   const tKindPluralNs = useTranslations("admin.creators.kindPlural");
@@ -866,7 +865,7 @@ export function CreatorsDirectory({
                               <span className="text-slate-400">{tr("jamaisPublie")}</span>
                             ) : (
                               <span title={formatDateFr(l.activite.lastPostAt, loc)}>
-                                {anciennete(l.activite.lastPostAt, maintenant)}
+                                {tCreators("anciennete", { n: joursDepuis(l.activite.lastPostAt, maintenant) })}
                               </span>
                             )}
                           </TableCell>
@@ -1061,6 +1060,7 @@ function HeureLocale({
   source: string | null;
   maintenant: number;
 }) {
+  const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.HeureLocale");
   const tZoneNs = useTranslations("admin.creators.timezone");
   const tZone = (key: string) => tZoneNs(key as Parameters<typeof tZoneNs>[0]);
@@ -1072,7 +1072,7 @@ function HeureLocale({
       </span>
     );
   }
-  const heure = localTimeIn(zone, maintenant);
+  const heure = localTimeIn(zone, maintenant, loc);
   const confirme = source === "confirmed";
   return (
     <span
@@ -1147,6 +1147,7 @@ function CarteCreatrice({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.CarteCreatrice");
+  const tCreators = useTranslations("admin.creators");
   const tStatus = useTranslations("admin.creators.status");
   const badge = creatorStatusBadge(ligne.status);
   return (
@@ -1208,7 +1209,7 @@ function CarteCreatrice({
         <span className="text-xs text-slate-400">
           {ligne.activite.lastPostAt === null
             ? tr("jamaisPublie")
-            : anciennete(ligne.activite.lastPostAt, maintenant)}
+            : tCreators("anciennete", { n: joursDepuis(ligne.activite.lastPostAt, maintenant) })}
         </span>
       </div>
       {montrerGains && ligne.gains !== null && (

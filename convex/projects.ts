@@ -18,6 +18,8 @@ import { normalizeRef } from "./conversionAttribution";
 import { warmupTargetDaysOf } from "./warmup";
 import {
   COMBO_COOLDOWN_DAYS_FALLBACK,
+  COMBO_COOLDOWN_DAYS_MAX,
+  COMBO_COOLDOWN_DAYS_MIN,
   assertValidComboCooldownDays,
   comboCooldownDaysOf,
 } from "./comboCooldown";
@@ -1039,8 +1041,10 @@ export const setComboCooldownDays = permissionMutation("project.settings")({
     try {
       clean = assertValidComboCooldownDays(days);
     } catch (e) {
-      throw new ConvexError(
+      throw err(
+        ERR.COOLDOWN_DAYS_INVALID,
         e instanceof Error ? e.message : "Durée de cooldown invalide.",
+        { min: COMBO_COOLDOWN_DAYS_MIN, max: COMBO_COOLDOWN_DAYS_MAX },
       );
     }
     await ctx.db.patch(ctx.projectId, { comboCooldownDays: clean });

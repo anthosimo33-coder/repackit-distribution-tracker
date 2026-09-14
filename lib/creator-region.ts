@@ -153,13 +153,18 @@ export function shortZoneLabel(zone: string, label?: string): string {
  * rendre. Jamais de repli sur l'heure de l'équipe : une heure fausse à côté d'un
  * nom de ville est pire que pas d'heure du tout.
  */
-export function localTimeIn(zone: string, at: number = Date.now()): string | null {
+export function localTimeIn(
+  zone: string,
+  at: number = Date.now(),
+  locale: string = "fr-FR",
+): string | null {
   try {
-    return new Intl.DateTimeFormat("fr-FR", {
+    // L'horloge suit la langue du lecteur : « 14:20 » en français, « 2:20 PM »
+    // en anglais.
+    return new Intl.DateTimeFormat(locale, {
       timeZone: zone,
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false,
     }).format(new Date(at));
   } catch {
     return null;

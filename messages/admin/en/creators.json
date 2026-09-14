@@ -354,5 +354,6 @@
     "partner": "Partner",
     "talent": "Talent",
     "clipper": "Clipper"
-  }
+  },
+  "anciennete": "{n, plural, =0 {today} =1 {yesterday} other {#d ago}}"
 }

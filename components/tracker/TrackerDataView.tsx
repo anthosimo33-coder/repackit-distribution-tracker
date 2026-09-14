@@ -43,7 +43,6 @@ import {
   type DailyByGroup,
   type WarmupFilter,
   shapeCampaignRows,
-  CAMPAIGN_NONE_LABEL,
 } from "@/lib/tracker-data";
 import { QuadrantChart } from "./QuadrantChart";
 import {
@@ -327,7 +326,7 @@ export function TrackerDataView() {
           (posts ?? []).map(
             (p): CategoryItem => ({
               key: p.campaignId ?? CAMPAIGN_NONE,
-              label: p.campaignName ?? CAMPAIGN_NONE_LABEL,
+              label: p.campaignName ?? tr("horsCampagne"),
               vues: p.vues,
               likes: p.likes,
               comments: p.comments,
@@ -336,8 +335,11 @@ export function TrackerDataView() {
           ),
           warmup,
         ),
+        undefined,
+        tr("horsCampagne"),
+        tr("autres"),
       ),
-    [posts, warmup],
+    [posts, warmup, tr],
   );
 
   const sortedPosts = useMemo(
@@ -694,7 +696,7 @@ function ChartsPanel({
           key === ""
             ? tr("sansMarche")
             : (libelle.get(key) ?? key).length === 2
-              ? isoCountryLabel(libelle.get(key) ?? key)
+              ? isoCountryLabel(libelle.get(key) ?? key, loc)
               : (libelle.get(key) ?? key),
       }));
   }, [byMarket, marketLabels]);

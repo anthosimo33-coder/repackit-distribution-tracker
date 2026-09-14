@@ -219,8 +219,9 @@ function ComptesPageInner() {
   );
 
   const groupes = useMemo(
-    () => groupComptes(visibles, groupe, sortKey, sortDir, totalVuesProjet),
-    [visibles, groupe, sortKey, sortDir, totalVuesProjet],
+    () =>
+      groupComptes(visibles, groupe, sortKey, sortDir, totalVuesProjet, tr("interne")),
+    [visibles, groupe, sortKey, sortDir, totalVuesProjet, tr],
   );
 
   /**
@@ -284,10 +285,10 @@ function ComptesPageInner() {
   }
 
   const subtitle = (() => {
-    if (comptes === undefined) return "Chargement…";
-    const parts = [`${counts.actif} actif${counts.actif > 1 ? "s" : ""}`];
-    if (counts.warmup > 0) parts.push(`${counts.warmup} warmup`);
-    if (counts.shadowban > 0) parts.push(`${counts.shadowban} shadowban`);
+    if (comptes === undefined) return tr("chargement");
+    const parts = [tr("actifs", { count: counts.actif })];
+    if (counts.warmup > 0) parts.push(tr("enWarmup", { count: counts.warmup }));
+    if (counts.shadowban > 0) parts.push(tr("enShadowban", { count: counts.shadowban }));
     if (counts.archived > 0)
       parts.push(tr("archive", { archived: counts.archived }));
     if (jamaisPublie > 0)
@@ -787,7 +788,7 @@ function EnteteGroupe({
             />
           </span>
           <span className="w-9 text-right text-xs tabular-nums text-slate-400">
-            {pct} %
+            {tr("pctPart", { pct })}
           </span>
         </span>
       )}

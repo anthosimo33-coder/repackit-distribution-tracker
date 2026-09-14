@@ -325,7 +325,7 @@ export const setFormatRateModel = permissionMutation("pricing.manage")({
   handler: async (ctx, { id, rateModel }) => {
     const format = await ctx.db.get(id);
     if (!format || format.projectId !== ctx.projectId) {
-      throw new ConvexError("Format introuvable.");
+      throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
     }
     validateRate(rateModel);
     await ctx.db.patch(id, { rateModel, updatedAt: Date.now() });
@@ -380,12 +380,12 @@ export const updateFormat = permissionMutation("scripts.manage")({
   handler: async (ctx, args) => {
     const format = await ctx.db.get(args.id);
     if (!format || format.projectId !== ctx.projectId) {
-      throw new ConvexError("Format introuvable.");
+      throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
     }
     const patch: Partial<Doc<"formats">> = { updatedAt: Date.now() };
     if (args.name !== undefined) {
       const name = args.name.trim();
-      if (name.length === 0) throw new ConvexError("Le nom est requis.");
+      if (name.length === 0) throw err(ERR.NAME_REQUIRED, "Le nom est requis.");
       patch.name = name;
     }
     if (args.type !== undefined) patch.type = args.type;
@@ -414,10 +414,11 @@ export const deleteFormat = permissionMutation("scripts.manage")({
   handler: async (ctx, { id }) => {
     const format = await ctx.db.get(id);
     if (!format || format.projectId !== ctx.projectId) {
-      throw new ConvexError("Format introuvable.");
+      throw err(ERR.FORMAT_NOT_FOUND, "Format introuvable.");
     }
     if (await isFormatReferenced(ctx, id)) {
-      throw new ConvexError(
+      throw err(
+        ERR.FORMAT_REFERENCED,
         "Ce format est référencé. Archive-le plutôt que de le supprimer.",
       );
     }

@@ -118,7 +118,8 @@
     "creer": "Create",
     "moduleMisAJour": "Module updated",
     "moduleCree": "Module created",
-    "uneErreurEstSurvenue": "Something went wrong."
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "markdownHint": "Markdown: # Title, ## Subtitle, **bold**, *italic*, `code`, - list, 1. numbered list, [link](https://…). A blank line separates paragraphs."
   },
   "GuideModulesManager": {
     "commentCaMarche": "How it works",

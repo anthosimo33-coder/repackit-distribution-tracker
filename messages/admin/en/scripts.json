@@ -53,7 +53,7 @@
     "scripts": "Scripts",
     "campagneIntrouvable": "Campaign not found.",
     "combinaisonPossible": "{total, plural, one {possible combination} other {possible combinations}}",
-    "hooksFluxCta": "({hook} hooks × {flux} flows × {cta} descriptions)",
+    "hooksFluxCta": "({hook, plural, one {# hook} other {# hooks}} × {flux, plural, one {# flow} other {# flows}} × {cta, plural, one {# description} other {# descriptions}})",
     "analytics": "Analytics",
     "importerDesHooks": "Import hooks",
     "apercuDUnScript": "Preview a script",

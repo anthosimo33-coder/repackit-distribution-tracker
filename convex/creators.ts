@@ -687,9 +687,16 @@ export const updateCreator = permissionMutation("creators.manage")({
         bloquants.push(`${impact.payments} ligne(s) de paiement`);
       }
       if (bloquants.length > 0) {
-        throw new ConvexError(
+        throw err(
+          ERR.POPULATION_LOCKED,
           `Impossible de changer la population de ${creator.name} : ${bloquants.join(", ")} y sont rattaché(e)s. ` +
             "Un créateur qui a déjà travaillé garde sa population — crée une nouvelle fiche si besoin.",
+          {
+            name: creator.name,
+            comptes: impact.comptes,
+            publications: impact.publications,
+            payments: impact.payments,
+          },
         );
       }
       patch.kind = cible === "partner" ? undefined : cible;
@@ -1381,8 +1388,10 @@ export const confirmMyTimezone = creatorMutation({
   handler: async (ctx, { timezone }) => {
     const tz = timezone.trim();
     if (!isSupportedTimezone(tz)) {
-      throw new ConvexError(
+      throw err(
+        ERR.TIMEZONE_UNKNOWN,
         `Fuseau horaire inconnu : ${timezone}. Attendu un identifiant IANA, par exemple America/New_York.`,
+        { tz: timezone },
       );
     }
     await ctx.db.patch(ctx.creatorId, {

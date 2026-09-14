@@ -230,7 +230,7 @@ export async function assembleChallengeScript(
     ctx.db.get(material.ctaBrickId),
   ]);
   if (!hook || !flux || !cta) {
-    throw new ConvexError("Brique du script du défi introuvable.");
+    throw err(ERR.CHALLENGE_BRICK_NOT_FOUND, "Brique du script du défi introuvable.");
   }
   return assembleNoLabels({
     hook: hook.content,
@@ -249,7 +249,7 @@ export async function requireChallenge(
 ): Promise<Doc<"challenges">> {
   const c = await ctx.db.get(id);
   if (!c || c.projectId !== projectId) {
-    throw new ConvexError("Défi introuvable dans le projet.");
+    throw err(ERR.CHALLENGE_NOT_FOUND, "Défi introuvable dans le projet.");
   }
   return c;
 }
@@ -395,10 +395,12 @@ export const createChallenge = permissionMutation("challenges.money")({
     // ordinaires. Un barème à fixe non nul rouvrirait exactement la dilution
     // qu'on a écartée — refusé ici plutôt que constaté sur une feuille de paie.
     if (pricing.montantFixe !== 0) {
-      throw new ConvexError(
+      throw err(
+        ERR.CHALLENGE_PRICING_FIXED_NOT_ZERO,
         `Le barème d'un défi doit avoir un montant fixe de 0 (« ${pricing.name} » vaut ${pricing.montantFixe}). ` +
           "Les vidéos d'un défi sont payées au CPM, plus la prime — sans quoi elles " +
           "consommeraient le budget fixe des vidéos normales.",
+        { name: pricing.name, amount: pricing.montantFixe },
       );
     }
 
@@ -503,7 +505,8 @@ export const updateChallenge = permissionMutation("challenges.money")({
       args.reward !== undefined ||
       args.winnerRule !== undefined;
     if (contractual && locked) {
-      throw new ConvexError(
+      throw err(
+        ERR.CHALLENGE_TERMS_LOCKED,
         "Défi déjà ouvert : l'objectif, le mode, la récompense et le nombre de " +
           "gagnantes ne sont plus modifiables. Ce sont les termes annoncés aux " +
           "participantes.",
@@ -644,10 +647,12 @@ export const deleteChallenge = permissionMutation("challenges.money")({
       ]
         .filter(Boolean)
         .join(" et ");
-      throw new ConvexError(
+      throw err(
+        ERR.CHALLENGE_DELETE_LOCKED,
         `Ce défi porte ${quoi} : les supprimer casserait le lien entre ces vidéos ` +
           "et leur cycle de paie. Masque-le plutôt — il disparaît de l'espace des " +
           "créatrices, ses vidéos et ses paiements restent intacts.",
+        { published: faits.published, wins: faits.wins },
       );
     }
     for (const a of faits.deletable) await ctx.db.delete(a._id);
@@ -839,14 +844,12 @@ export async function createChallengeAssignment(
 ): Promise<{ assignmentId: Id<"assignments"> }> {
   const { challenge } = input;
   if (challenge.status !== "active") {
-    throw new ConvexError(
-      challenge.status === "draft"
-        ? "Ce défi n'est pas encore ouvert."
-        : "Ce défi est clos : il n'accepte plus de vidéo.",
-    );
+    throw challenge.status === "draft"
+      ? err(ERR.CHALLENGE_NOT_OPEN_YET, "Ce défi n'est pas encore ouvert.")
+      : err(ERR.CHALLENGE_CLOSED, "Ce défi est clos : il n'accepte plus de vidéo.");
   }
   if (Date.now() > challenge.deadline) {
-    throw new ConvexError("La deadline de ce défi est passée.");
+    throw err(ERR.CHALLENGE_DEADLINE_OVER, "La deadline de ce défi est passée.");
   }
   const participation = await ctx.db
     .query("challengeParticipants")
@@ -855,10 +858,11 @@ export async function createChallengeAssignment(
     )
     .first();
   if (!participation) {
-    throw new ConvexError("Cette créatrice ne participe pas à ce défi.");
+    throw err(ERR.CHALLENGE_NOT_PARTICIPANT, "Cette créatrice ne participe pas à ce défi.");
   }
   if (!challenge.script) {
-    throw new ConvexError(
+    throw err(
+      ERR.CHALLENGE_NO_SCRIPT,
       "Ce défi n'a pas encore de script : écris-le avant d'y produire.",
     );
   }

@@ -142,7 +142,9 @@
     "sansFormat": "No format",
     "archivee": "{name} (archived)",
     "archive": "{name} (archived)",
-    "engagementFormule": "(likes + comments) / {views} {scope, select, only {warm-up} other {non-warm-up}} views"
+    "engagementFormule": "(likes + comments) / {views} {scope, select, only {warm-up} other {non-warm-up}} views",
+    "horsCampagne": "No campaign",
+    "autres": "Others"
   },
   "WarmupFilterSelect": {
     "warmup": "Warm-up",

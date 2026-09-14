@@ -3,9 +3,10 @@
 import { useMemo, useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { getMediaType } from "@/lib/media-type";
-import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import type { FormatKey } from "@/lib/format-config";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
 import { CompteFormatList } from "./CompteFormatList";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 const FORMAT_ORDER: FormatKey[] = ["carousel", "short", "screenrecorder"];
 
@@ -45,13 +46,14 @@ export function CompteFormatLists({
   }, [publications]);
 
   const [tab, setTab] = useState<FormatKey>(() => pickDefaultTab(publications));
+  const fmt = useFormatLabels();
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as FormatKey)}>
       <TabsList>
         {FORMAT_ORDER.map((key) => (
           <TabsTrigger key={key} value={key}>
-            {FORMAT_CONFIGS[key].plural} ({groups[key].length})
+            {fmt.plural(key)} ({groups[key].length})
           </TabsTrigger>
         ))}
       </TabsList>

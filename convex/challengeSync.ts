@@ -177,10 +177,12 @@ export const cancelChallengeWin = permissionMutation("challenges.run")({
       return p.period === cyclePeriodKey(cycleWindow(anchor, k).cycleStart);
     });
     if (paid.length > 0) {
-      throw new ConvexError(
+      throw err(
+        ERR.CHALLENGE_WIN_PAID,
         "Cette victoire n'est plus annulable : sa prime a déjà été versée " +
           `(période ${win.attributionPeriod}). Annuler ici ferait diverger ` +
           "l'écran de ce qui a réellement été payé.",
+        { period: win.attributionPeriod },
       );
     }
     await ctx.db.patch(winId, {
