@@ -67,6 +67,8 @@ import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 const DAY_MS = 86_400_000;
 
@@ -106,17 +108,20 @@ function tomorrowMidnightLocal(now: number): number {
  * doit pas la recevoir (cf AUDIT_ROLE_MANAGER.md, F1/F2).
  */
 
-function relativeAge(ts: number, now: number): string {
+/** Ancienneté en UNITÉ + COMPTE : la phrase vit dans `admin.dashboard.age.*`. */
+function relativeAge(ts: number, now: number): { unit: "now" | "d" | "h" | "min"; count: number } {
   const diff = now - ts;
-  if (diff < 60_000) return "à l'instant";
+  if (diff < 60_000) return { unit: "now", count: 0 };
   const days = Math.floor(diff / DAY_MS);
-  if (days >= 1) return `il y a ${days} j`;
+  if (days >= 1) return { unit: "d", count: days };
   const hours = Math.floor(diff / 3_600_000);
-  if (hours >= 1) return `il y a ${hours} h`;
-  return `il y a ${Math.floor(diff / 60_000)} min`;
+  if (hours >= 1) return { unit: "h", count: hours };
+  return { unit: "min", count: Math.floor(diff / 60_000) };
 }
 
 export function ActionDashboard() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.ActionDashboard");
   const projectPath = useProjectPath();
   // Paie créatrices → devise du projet ($). Absente → montant sans symbole.
   const payCurrency = useProject().project.payCurrency;
@@ -276,11 +281,10 @@ export function ActionDashboard() {
           </span>
           <div className="space-y-1">
             <h2 className="text-lg font-medium text-slate-900">
-              Invite tes premiers créateurs pour commencer
+              {tr("inviteTesPremiersCreateursPour")}
             </h2>
             <p className="text-sm text-slate-500">
-              Une fois des créateurs ajoutés et des contenus assignés, leurs
-              soumissions et deadlines apparaîtront ici.
+              {tr("uneFoisDesCreateursAjoutes")}
             </p>
           </div>
           <Link
@@ -288,7 +292,7 @@ export function ActionDashboard() {
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <UserPlusIcon className="size-4" />
-            Ajouter un créateur
+            {tr("ajouterUnCreateur")}
           </Link>
         </CardContent>
       </Card>
@@ -311,9 +315,9 @@ export function ActionDashboard() {
           <ActionCard
             href={projectPath("/validation")}
             icon={CheckCircle2Icon}
-            label="À valider"
+            label={tr("aValider")}
             value={String(submitted.length)}
-            hint="soumissions en attente"
+            hint={tr("soumissionsEnAttente")}
             accent
           />
         )}
@@ -321,9 +325,9 @@ export function ActionDashboard() {
           <ActionCard
             href={projectPath("/comptes")}
             icon={FlameIcon}
-            label="Warmups en retard"
+            label={tr("warmupsEnRetard")}
             value={String(warmupLate.length)}
-            hint="comptes avec jours manqués"
+            hint={tr("comptesAvecJoursManques")}
             warn={warmupLate.length > 0}
           />
         )}
@@ -331,9 +335,9 @@ export function ActionDashboard() {
           <ActionCard
             href={projectPath("/comptes")}
             icon={CheckCircle2Icon}
-            label="Warmups à valider"
+            label={tr("warmupsAValider")}
             value={String(warmupReady.length)}
-            hint="chauffe finie, en attente"
+            hint={tr("chauffeFinieEnAttente")}
             accent={warmupReady.length > 0}
           />
         )}
@@ -344,9 +348,9 @@ export function ActionDashboard() {
           <ActionCard
             href={projectPath("/paiements")}
             icon={WalletIcon}
-            label="Dû"
-            value={formatMoney(dueTotal, payCurrency)}
-            hint="cycles non payés"
+            label={tr("du")}
+            value={formatMoney(dueTotal, payCurrency, loc)}
+            hint={tr("cyclesNonPayes")}
           />
         )}
       </div>
@@ -358,7 +362,7 @@ export function ActionDashboard() {
         seuils dans convex/decisionThresholds.ts.
       */}
       {decisions !== undefined && (
-        <Section title="À décider">
+        <Section title={tr("aDecider")}>
           <DecideList
             decisions={decisions}
             onStrike={(creatorId) => setStrikeCreator(creatorId)}
@@ -375,10 +379,10 @@ export function ActionDashboard() {
           accessible via « Voir tout ». */}
       {decisions !== undefined && (
         <Section
-          title="Posts des dernières 48 h"
+          title={tr("postsDesDernieres48H")}
           action={
             voitCreateurs
-              ? { label: "Voir tout", href: projectPath("/createurs") }
+              ? { label: tr("voirTout"), href: projectPath("/createurs") }
               : undefined
           }
         >
@@ -395,7 +399,7 @@ export function ActionDashboard() {
           le chemin court (pas de referrer in-app TikTok) : une créatrice sans
           ref est un état à part, jamais un zéro. */}
       {droits.has("business.read") && (
-        <Section title="Ce que ça a rapporté">
+        <Section title={tr("ceQueCaARapporte")}>
           <ConversionSection data={conversion} />
         </Section>
       )}
@@ -442,6 +446,8 @@ function DecideList({
   onGraduate: (brickId: Id<"scriptBricks">) => void;
   onDeactivate: (brickId: Id<"scriptBricks">, content: string) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.DecideList");
   const { openDoors, graduations, deadHooks, alarms, provenCampaign } = decisions;
   const total =
     openDoors.length + graduations.length + deadHooks.length + alarms.length;
@@ -450,7 +456,7 @@ function DecideList({
     return (
       <EmptyRow
         icon={CheckCircle2Icon}
-        label="Rien à décider ce soir. Prochain relevé après le sync de 23h30."
+        label={tr("rienADeciderCeSoir")}
       />
     );
   }
@@ -461,7 +467,7 @@ function DecideList({
         <>
           <GroupHeader
             icon={DoorOpenIcon}
-            label="Portes ouvertes"
+            label={tr("portesOuvertes")}
             count={openDoors.length}
             tone="text-violet-700"
           />
@@ -471,16 +477,16 @@ function DecideList({
                 key={d.post.publicationId}
                 title={`${d.post.compte}${d.post.creatorName ? ` — ${d.post.creatorName}` : ""}`}
                 subtitle={[
-                  `${formatNumber(d.post.vues)} vues`,
-                  `${formatPercent(d.likeRate)} likes`,
-                  `${formatNumber(d.post.saves ?? 0)} saves`,
-                  `+${formatNumber(d.post.followersDelta ?? 0)} abonnés`,
+                  `${formatNumber(d.post.vues, loc)} vues`,
+                  `${formatPercent(d.likeRate, undefined, loc)} likes`,
+                  `${formatNumber(d.post.saves ?? 0, loc)} saves`,
+                  tr("abonnes", { count: formatNumber(d.post.followersDelta ?? 0, loc) }),
                 ].join(" · ")}
                 action={
                   d.post.creatorId !== null && provenCampaign !== null ? (
                     <InlineAction
                       icon={DoorOpenIcon}
-                      label="Programmer la frappe"
+                      label={tr("programmerLaFrappe")}
                       busy={false}
                       onClick={() => onStrike(d.post.creatorId as Id<"creators">)}
                     />
@@ -496,7 +502,7 @@ function DecideList({
         <>
           <GroupHeader
             icon={GraduationCapIcon}
-            label="À graduer"
+            label={tr("aGraduer")}
             count={graduations.length}
             tone="text-primary"
           />
@@ -506,17 +512,17 @@ function DecideList({
                 key={g.brickId}
                 title={g.content}
                 subtitle={[
-                  `meilleur run ${formatNumber(g.best.vues)} vues`,
-                  `${formatPercent(rateOf(g.best.likes, g.best.vues) ?? 0)} likes`,
+                  `meilleur run ${formatNumber(g.best.vues, loc)} vues`,
+                  `${formatPercent(rateOf(g.best.likes, g.best.vues) ?? 0, undefined, loc)} likes`,
                   g.best.saves !== null
-                    ? `${formatPercent(rateOf(g.best.saves, g.best.vues) ?? 0)} saves`
+                    ? `${formatPercent(rateOf(g.best.saves, g.best.vues) ?? 0, undefined, loc)} saves`
                     : "saves —",
                   `${g.runs} run${g.runs > 1 ? "s" : ""}`,
                 ].join(" · ")}
                 action={
                   <InlineAction
                     icon={GraduationCapIcon}
-                    label="Graduer"
+                    label={tr("graduer")}
                     busy={false}
                     onClick={() => onGraduate(g.brickId)}
                   />
@@ -531,7 +537,7 @@ function DecideList({
         <>
           <GroupHeader
             icon={ZapOffIcon}
-            label="Hooks morts"
+            label={tr("hooksMorts")}
             count={deadHooks.length}
             tone="text-slate-500"
           />
@@ -540,11 +546,11 @@ function DecideList({
               <WorklistRow
                 key={h.brickId}
                 title={h.content}
-                subtitle={`${h.runs} runs publiés, meilleur ${formatNumber(h.bestViews)} vues — aucun ne prend (${h.campaignName})`}
+                subtitle={tr("runsPubliesMeilleurVuesAucun", { runs: h.runs, count: formatNumber(h.bestViews, loc), campaignName: h.campaignName })}
                 action={
                   <InlineAction
                     icon={ZapOffIcon}
-                    label="Désactiver"
+                    label={tr("desactiver")}
                     busy={false}
                     onClick={() => onDeactivate(h.brickId, h.content)}
                   />
@@ -559,7 +565,7 @@ function DecideList({
         <>
           <GroupHeader
             icon={AlertTriangleIcon}
-            label="Alarmes compte"
+            label={tr("alarmesCompte")}
             count={alarms.length}
             tone="text-rose-700"
           />
@@ -568,7 +574,7 @@ function DecideList({
               <WorklistRow
                 key={a.compte}
                 title={`${a.compte}${a.creatorName ? ` — ${a.creatorName}` : ""}`}
-                subtitle={`${a.streak} posts consécutifs sous les seuils — stop promos, warmup prouvé pendant 5-7 jours`}
+                subtitle={tr("postsConsecutifsSousLesSeuils", { streak: a.streak })}
               />
             ))}
           </div>
@@ -590,6 +596,7 @@ function DeactivateHookDialog({
   target: { brickId: Id<"scriptBricks">; content: string } | null;
   onOpenChange: (o: boolean) => void;
 }) {
+  const tr = useTranslations("admin.dashboard.DeactivateHookDialog");
   const update = useProjectMutation(api.scripts.updateBrick);
   const [busy, setBusy] = useState(false);
 
@@ -598,10 +605,10 @@ function DeactivateHookDialog({
     setBusy(true);
     try {
       await update({ id: target.brickId, active: false });
-      toast.success("Hook désactivé — il sort des rotations.");
+      toast.success(tr("hookDesactiveIlSortDes"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Désactivation impossible"));
+      toast.error(convexErrorMessage(e, tr("desactivationImpossible")));
     } finally {
       setBusy(false);
     }
@@ -611,10 +618,9 @@ function DeactivateHookDialog({
     <Dialog open={target !== null} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Désactiver ce hook</DialogTitle>
+          <DialogTitle>{tr("desactiverCeHook")}</DialogTitle>
           <DialogDescription>
-            Il sort des rotations automatiques ; ses runs passés et leurs
-            statistiques restent intacts. Réactivable depuis la page campagne.
+            {tr("ilSortDesRotationsAutomatiques")}
           </DialogDescription>
         </DialogHeader>
         {target && (
@@ -624,7 +630,7 @@ function DeactivateHookDialog({
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onConfirm} disabled={busy}>
             {busy ? (
@@ -632,7 +638,7 @@ function DeactivateHookDialog({
             ) : (
               <ZapOffIcon className="size-4" />
             )}
-            Désactiver
+            {tr("desactiver")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -651,6 +657,8 @@ function Recent48h({
   alarms: DashboardDecisions["alarms"];
   now: number;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.Recent48h");
   // Repli par créatrice — état LOCAL, défaut déplié (l'écran sert à lire, le
   // repli sert à ranger les créatrices déjà vues ce soir).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -683,7 +691,7 @@ function Recent48h({
     return (
       <EmptyRow
         icon={CalendarClockIcon}
-        label="Aucun post publié dans les dernières 48 h."
+        label={tr("aucunPostPublieDansLes")}
       />
     );
   }
@@ -730,20 +738,18 @@ function Recent48h({
               </span>
               <AccountStateBadge state={state} />
               <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-500">
-                {g.posts.length} post{g.posts.length > 1 ? "s" : ""} ·{" "}
-                {(g.posts.length / 2).toFixed(1).replace(".", ",")}/j ·{" "}
-                {formatNumber(vues48)} vues ·{" "}
+                {tr("postJVues", { count: g.posts.length, value: (g.posts.length / 2).toFixed(1).replace(".", ","), count2: formatNumber(vues48, loc) })}{" "}
                 {followers !== null ? (
                   <span className={followers >= 0 ? "text-emerald-700" : "text-rose-700"}>
                     {followers >= 0 ? "+" : ""}
-                    {formatNumber(followers)} abonnés
+                    {tr("abonnes", { count: formatNumber(followers, loc) })}
                   </span>
                 ) : (
                   <span
                     className="italic text-slate-400"
-                    title="Le delta d'abonnés demande deux relevés nocturnes — en cours de collecte."
+                    title={tr("leDeltaDAbonnesDemande")}
                   >
-                    abonnés : collecte…
+                    {tr("abonnesCollecte")}
                   </span>
                 )}
               </span>
@@ -763,8 +769,8 @@ function Recent48h({
 }
 
 /** "16/08" — jour Paris d'un relevé, pour dater une valeur qui n'est pas d'aujourd'hui. */
-function shortParisDay(ms: number): string {
-  return new Date(ms).toLocaleDateString("fr-FR", {
+function shortParisDay(ms: number, locale: string = "fr-FR"): string {
+  return new Date(ms).toLocaleDateString(locale, {
     day: "2-digit",
     month: "2-digit",
     timeZone: "Europe/Paris",
@@ -772,6 +778,9 @@ function shortParisDay(ms: number): string {
 }
 
 function PostRow({ post: p, now }: { post: Post48h; now: number }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.PostRow");
+  const tAge = useTranslations("admin.dashboard.age");
   const likeRate = rateOf(p.likes, p.vues);
   const savesState = savesAvailability(p.saves, p.plateforme);
   const saveRate = savesState === "measured" ? rateOf(p.saves, p.vues) : null;
@@ -779,8 +788,8 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
   // (le sync tourne à 23h30). On le DATE plutôt que de masquer la valeur : une
   // donnée datée vaut mieux qu'un tiret. Rien à dater si le relevé est du jour.
   const sourceDay =
-    p.snapshotAt !== null && shortParisDay(p.snapshotAt) !== shortParisDay(now)
-      ? shortParisDay(p.snapshotAt)
+    p.snapshotAt !== null && shortParisDay(p.snapshotAt, loc) !== shortParisDay(now, loc)
+      ? shortParisDay(p.snapshotAt, loc)
       : null;
 
   return (
@@ -788,36 +797,36 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm text-slate-900">
-            {p.label || "(sans titre)"}
+            {p.label || tr("sansTitre")}
           </span>
           <TypeBadge type={p.type} />
         </div>
         <div className="truncate text-xs text-slate-400">
-          {p.compte} · {relativeAge(p.postedAt, now)}
+          {p.compte} · {tAge("label", relativeAge(p.postedAt, now))}
         </div>
       </div>
       <Metric
-        value={formatNumber(p.vues)}
-        label={sourceDay ? `vues · au ${sourceDay}` : "vues"}
-        title={sourceDay ? `Dernier relevé le ${sourceDay} à 23h30 — le prochain sync met à jour.` : undefined}
+        value={formatNumber(p.vues, loc)}
+        label={sourceDay ? tr("vuesAu", { sourceDay: sourceDay }) : tr("vues")}
+        title={sourceDay ? tr("dernierReleveLeA23h30", { sourceDay: sourceDay }) : undefined}
       />
       {/* LA colonne du tableau : un post qui monte vs un post qui s'éteint. */}
       <div className="w-20 shrink-0 text-right">
         {p.delta24h !== null ? (
           <div className="text-sm font-semibold tabular-nums text-slate-900">
-            +{formatNumber(p.delta24h)}
+            +{formatNumber(p.delta24h, loc)}
           </div>
         ) : (
           <div
             className="text-sm italic text-slate-400"
-            title="Pas encore deux relevés espacés — delta au prochain sync de 23h30."
+            title={tr("pasEncoreDeuxRelevesEspaces")}
           >
             —
           </div>
         )}
         <div className="text-[10px] text-slate-400">Δ 24 h</div>
       </div>
-      <RateCell rate={likeRate} tone={likeRateTone(likeRate)} label="likes" />
+      <RateCell rate={likeRate} tone={likeRateTone(likeRate)} label={tr("likes")} />
       {savesState === "collecting" ? (
         // RÉSERVÉ aux posts qui n'ont AUCUN relevé portant des saves. Un post
         // dont le dernier relevé date d'hier affiche sa valeur DATÉE (ci-dessous),
@@ -825,20 +834,22 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
         <div className="w-16 shrink-0 text-right">
           <div
             className="text-xs italic text-slate-400"
-            title="Aucun relevé avec saves pour ce post — en cours de collecte."
+            title={tr("aucunReleveAvecSavesPour")}
           >
-            collecte…
+            {tr("collecte")}
           </div>
-          <div className="text-[10px] text-slate-400">saves</div>
+          <div className="text-[10px] text-slate-400">{tr("saves")}</div>
         </div>
       ) : (
         <RateCell
           rate={saveRate}
           tone={savesState === "unavailable" ? "unknown" : saveRateTone(saveRate)}
-          label={sourceDay && savesState === "measured" ? `saves · au ${sourceDay}` : "saves"}
+          label={sourceDay && savesState === "measured" ? tr("savesAu", { sourceDay: sourceDay }) : tr("saves")}
           title={
             savesState === "measured" && p.saves !== null
-              ? `${formatNumber(p.saves)} save${p.saves > 1 ? "s" : ""}${sourceDay ? ` au ${sourceDay}` : ""}`
+              ? sourceDay
+                ? tr("savesCountAu", { count: p.saves, views: formatNumber(p.saves, loc), sourceDay })
+                : tr("savesCount", { count: p.saves, views: formatNumber(p.saves, loc) })
               : undefined
           }
         />
@@ -883,63 +894,70 @@ function RateCell({
   label: string;
   title?: string;
 }) {
+  const loc = useIntlLocale();
   return (
     <div className="w-16 shrink-0 text-right" title={title}>
       <div className={cn("text-xs tabular-nums", RATE_TONE_CLASS[tone])}>
-        {rate === null ? "—" : formatPercent(rate)}
+        {rate === null ? "—" : formatPercent(rate, undefined, loc)}
       </div>
       <div className="text-[10px] text-slate-400">{label}</div>
     </div>
   );
 }
 
-const VERDICT_DISPLAY: Record<Verdict, { label: string; className: string }> = {
-  pending: { label: "en attente", className: "text-slate-400 italic" },
-  "open-door": { label: "porte ouverte", className: "text-violet-700 font-medium" },
-  rising: { label: "monte", className: "text-emerald-700 font-medium" },
-  fading: { label: "s'éteint", className: "text-slate-400" },
-  below: { label: "sous les seuils", className: "text-rose-600" },
-};
+// Libellés dans `admin.dashboard.verdict.*`.
+const VERDICT_DISPLAY = {
+  pending: { key: "pending", className: "text-slate-400 italic" },
+  "open-door": { key: "openDoor", className: "text-violet-700 font-medium" },
+  rising: { key: "rising", className: "text-emerald-700 font-medium" },
+  fading: { key: "fading", className: "text-slate-400" },
+  below: { key: "below", className: "text-rose-600" },
+} as const satisfies Record<Verdict, { key: string; className: string }>;
 
 function VerdictBadge({ verdict }: { verdict: Verdict }) {
+  const tv = useTranslations("admin.dashboard.verdict");
   const d = VERDICT_DISPLAY[verdict];
   return (
     <span className={cn("w-24 shrink-0 text-right text-xs", d.className)}>
-      {d.label}
+      {tv(d.key)}
     </span>
   );
 }
 
-const TYPE_DISPLAY: Record<string, { label: string; className: string }> = {
-  prouve: { label: "prouvé", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  lab: { label: "LAB", className: "border-sky-200 bg-sky-50 text-sky-700" },
-  warmup: { label: "warmup", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  promo: { label: "promo", className: "border-violet-200 bg-violet-50 text-violet-700" },
+// Libellés dans `admin.dashboard.postType.*`.
+const TYPE_DISPLAY: Record<string, { key: string; className: string }> = {
+  prouve: { key: "prouve", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  lab: { key: "lab", className: "border-sky-200 bg-sky-50 text-sky-700" },
+  warmup: { key: "warmup", className: "border-amber-200 bg-amber-50 text-amber-700" },
+  promo: { key: "promo", className: "border-violet-200 bg-violet-50 text-violet-700" },
 };
 
 function TypeBadge({ type }: { type: string }) {
+  const tt = useTranslations("admin.dashboard.postType");
   const d = TYPE_DISPLAY[type] ?? TYPE_DISPLAY.promo;
   return (
     <Badge variant="outline" className={cn("shrink-0 text-[10px]", d.className)}>
-      {d.label}
+      {tt(d.key as "prouve")}
     </Badge>
   );
 }
 
+// Libellés dans `admin.dashboard.accountState.*`.
 const ACCOUNT_STATE_DISPLAY: Record<
   AccountState,
-  { label: string; className: string }
+  { key: "window" | "cruise" | "alarm"; className: string }
 > = {
-  window: { label: "Fenêtre active", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  cruise: { label: "Croisière", className: "border-slate-200 bg-slate-50 text-slate-600" },
-  alarm: { label: "Alarme", className: "border-rose-200 bg-rose-50 text-rose-700" },
+  window: { key: "window", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+  cruise: { key: "cruise", className: "border-slate-200 bg-slate-50 text-slate-600" },
+  alarm: { key: "alarm", className: "border-rose-200 bg-rose-50 text-rose-700" },
 };
 
 function AccountStateBadge({ state }: { state: AccountState }) {
+  const ts = useTranslations("admin.dashboard.accountState");
   const d = ACCOUNT_STATE_DISPLAY[state];
   return (
     <Badge variant="outline" className={cn("shrink-0", d.className)}>
-      {d.label}
+      {ts(d.key)}
     </Badge>
   );
 }
@@ -1160,8 +1178,8 @@ type ConversionData = FunctionReturnType<
 
 /** Horodatage → "30/08 à 12h30" (Paris) — la fraîcheur d'une colonne se lit à
  *  l'heure, pas à la journée. */
-function frDateTime(ms: number): string {
-  return new Intl.DateTimeFormat("fr-FR", {
+function frDateTime(ms: number, locale: string = "fr-FR"): string {
+  return new Intl.DateTimeFormat(locale, {
     timeZone: "Europe/Paris",
     day: "2-digit",
     month: "2-digit",
@@ -1179,13 +1197,14 @@ function frDate(iso: string): string {
 }
 
 function ConversionSection({ data }: { data: ConversionData | undefined }) {
+  const tr = useTranslations("admin.dashboard.ConversionSection");
   const projectPath = useProjectPath();
   if (data === undefined) return <Skeleton className="h-24" />;
   if (data === null) {
     return (
       <EmptyRow
         icon={CalendarClockIcon}
-        label="Pas encore de données — première collecte après le sync de 23h30."
+        label={tr("pasEncoreDeDonneesPremiere")}
       />
     );
   }
@@ -1204,20 +1223,15 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
       {conflicts.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
           <strong>
-            {conflicts.length} ref{conflicts.length > 1 ? "s" : ""} portée
-            {conflicts.length > 1 ? "s" : ""} par plusieurs personnes.
-          </strong>{" "}
-          Chacune affiche les MÊMES chiffres, et le total ne le montre pas —
-          il somme les refs, pas les lignes.{" "}
+            {tr("refPorteeParPlusieursPersonnes", { count: conflicts.length })}
+          </strong>{" "}{tr("chacuneAfficheLesMemesChiffres")}{" "}
           {conflicts
             .map((c) => `« ${c.ref} » : ${c.holders.join(", ")}`)
             .join(" · ")}
         </div>
       )}
       <div className="text-xs text-slate-400">
-        Depuis le {frDate(data.firstDate)} — {data.collectedDays} jour
-        {data.collectedDays > 1 ? "s" : ""} collecté
-        {data.collectedDays > 1 ? "s" : ""} · attribution par ref snytch.co
+        {tr("depuisLeJourCollecteAttribution", { date: frDate(data.firstDate), collectedDays: data.collectedDays })}
       </div>
       {/* DEUX CADENCES dans le même tableau, écrites plutôt que sues. Les
           visiteurs viennent d'un relevé PostHog quotidien de 23 h ; les ventes
@@ -1225,15 +1239,15 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
           ligne, une colonne arrêtée à la veille et une colonne à l'heure se
           lisent comme si elles décrivaient le même instant. */}
       <div className="text-xs text-slate-400">
-        <span className="text-slate-500">Visiteurs et inscrits</span>{" "}
+        <span className="text-slate-500">{tr("visiteursEtInscrits")}</span>{" "}
         {data.visitorsThroughDate === null
-          ? "en attente du premier relevé PostHog"
-          : `arrêtés au ${frDate(data.visitorsThroughDate)} (relevé quotidien de 23h)`}{" "}
+          ? tr("enAttenteDuPremierReleve")
+          : tr("arretesAuReleveQuotidienDe", { date: frDate(data.visitorsThroughDate) })}{" "}
         ·{" "}
-        <span className="text-slate-500">ventes et revenu</span>{" "}
+        <span className="text-slate-500">{tr("ventesEtRevenu")}</span>{" "}
         {data.salesSyncMs === null
-          ? "en attente de la synchro Whop"
-          : `à jour, synchro Whop du ${frDateTime(data.salesSyncMs)}`}
+          ? tr("enAttenteDeLaSynchro")
+          : tr("aJourSynchroWhopDu", { date: frDateTime(data.salesSyncMs) })}
       </div>
       <div className="divide-y divide-slate-100">
         {d.rows.map((row) => (
@@ -1256,9 +1270,9 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
         {d.unattributed !== null && (
           <div className="flex items-center gap-3 py-2">
             <div className="min-w-0 flex-1 text-sm text-slate-500">
-              Sans source
+              {tr("sansSource")}
               <div className="text-xs text-slate-400">
-                trafic et ventes non attribués à une ref
+                {tr("traficEtVentesNonAttribues")}
               </div>
             </div>
             <ConversionCells
@@ -1276,9 +1290,9 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
             « Total » reste la somme de TOUT, donc réconciliable avec Whop. */}
         <div className="flex items-center gap-3 py-2">
           <div className="min-w-0 flex-1 text-sm font-medium text-slate-700">
-            Total attribué
+            {tr("totalAttribue")}
             <div className="text-xs text-slate-400">
-              refs rattachées à quelqu&apos;un — créatrice ou influenceuse
+              {tr("refsRattacheesAQuelquUn")}
             </div>
           </div>
           <ConversionCells
@@ -1291,9 +1305,9 @@ function ConversionSection({ data }: { data: ConversionData | undefined }) {
         </div>
         <div className="flex items-center gap-3 py-2">
           <div className="min-w-0 flex-1 text-sm font-semibold text-slate-900">
-            Total
+            {tr("total")}
             <div className="text-xs font-normal text-slate-400">
-              orphelines et sans source comprises
+              {tr("orphelinesEtSansSourceComprises")}
             </div>
           </div>
           <ConversionCells
@@ -1323,6 +1337,7 @@ function ConversionRow({
   /** Données antérieures à l'existence de la créatrice → attribution douteuse. */
   suspect?: boolean;
 }) {
+  const tr = useTranslations("admin.dashboard.ConversionRow");
   if (row.kind === "no-ref") {
     // PAS un zéro : sans ref dans la bio, l'attribution est aveugle sur elle.
     // Le lien mène à sa fiche, où la ref se configure.
@@ -1335,13 +1350,13 @@ function ConversionRow({
           <Link
             href={href}
             className="text-xs italic text-amber-700 hover:underline"
-            title="L'attribution repose entièrement sur le chemin court snytch.co/<ref> — configurer la ref sur sa fiche."
+            title={tr("lAttributionReposeEntierementSur")}
           >
-            pas de ref configurée
+            {tr("pasDeRefConfiguree")}
           </Link>
         ) : (
           <span className="text-xs italic text-amber-700">
-            pas de ref configurée
+            {tr("pasDeRefConfiguree")}
           </span>
         )}
       </div>
@@ -1366,30 +1381,30 @@ function ConversionRow({
             variant="outline"
             className={`ml-1.5 align-middle text-[10px] ${creatorStatusBadge("churned").className}`}
           >
-            {creatorStatusBadge("churned").label}
+            {tr("statutParti")}
           </Badge>
         )}
         {row.kind === "influencer" && (
-          <div className="text-xs text-slate-400">influenceuse</div>
+          <div className="text-xs text-slate-400">{tr("influenceuse")}</div>
         )}
         {row.kind === "ref-only" && (
           <div className="text-xs text-slate-400">
-            ref rattachée à personne
+            {tr("refRattacheeAPersonne")}
           </div>
         )}
         {span !== undefined && (
           <div className="text-xs text-slate-400">
             {span.first === span.last
-              ? `le ${frDate(span.first)}`
-              : `du ${frDate(span.first)} au ${frDate(span.last)}`}
+              ? tr("le", { date: frDate(span.first) })
+              : tr("duAu", { date: frDate(span.first), date2: frDate(span.last) })}
           </div>
         )}
         {suspect === true && (
           <div
             className="text-xs italic text-amber-700"
-            title="Cette ref porte des conversions ANTÉRIEURES à l'arrivée de la créatrice : le slug a pu servir à quelqu'un d'autre avant elle. La date de pose d'une ref n'étant pas stockée, l'attribution all-time ne peut pas trancher."
+            title={tr("cetteRefPorteDesConversions")}
           >
-            données antérieures à son arrivée — attribution à vérifier
+            {tr("donneesAnterieuresASonArrivee")}
           </div>
         )}
       </div>
@@ -1418,22 +1433,24 @@ function ConversionCells({
   revenue: number | null;
   currency: string | null;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.ConversionCells");
   return (
     <>
       <Metric
-        value={visitors === null ? "—" : formatNumber(visitors)}
-        label="visiteurs"
+        value={visitors === null ? "—" : formatNumber(visitors, loc)}
+        label={tr("visiteurs")}
       />
       <Metric
-        value={signups === null ? "—" : formatNumber(signups)}
-        label="signups"
+        value={signups === null ? "—" : formatNumber(signups, loc)}
+        label={tr("signups")}
       />
-      <Metric value={sales === null ? "—" : formatNumber(sales)} label="ventes" />
+      <Metric value={sales === null ? "—" : formatNumber(sales, loc)} label={tr("ventes")} />
       <div className="w-20 shrink-0 text-right">
         <div className="text-sm font-semibold tabular-nums text-slate-900">
-          {revenue === null ? "—" : formatMoney(revenue, currency ?? undefined)}
+          {revenue === null ? "—" : formatMoney(revenue, currency ?? undefined, loc)}
         </div>
-        <div className="text-[10px] text-slate-400">revenu</div>
+        <div className="text-[10px] text-slate-400">{tr("revenu")}</div>
       </div>
     </>
   );

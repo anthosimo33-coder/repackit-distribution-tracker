@@ -53,7 +53,7 @@ describe("validateContractFile", () => {
     for (const t of ["image/png", "video/mp4", "text/plain", ""]) {
       const r = validateContractFile({ contentType: t, size: 1_432_118 });
       expect(r.ok).toBe(false);
-      expect(r.error).toContain("PDF");
+      expect(r.error).toBe("wrongType");
     }
   });
 
@@ -77,6 +77,6 @@ describe("validateContractFile", () => {
       size: CONTRACT_MAX_BYTES + 1,
     });
     expect(r.ok).toBe(false);
-    expect(r.error).toContain("20 Mo");
+    expect(r.error).toBe("tooBig");
   });
 });

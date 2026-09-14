@@ -18,7 +18,6 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { fr } from "date-fns/locale";
 import {
   Building2Icon,
   ChevronLeftIcon,
@@ -50,8 +49,10 @@ import {
 } from "@/components/calendar/calendar-status-meta";
 import { countryFlag } from "@/lib/countries";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale, WEEKDAY_KEYS } from "@/lib/date-fns-locale";
 
-const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 /** Ligne d'assignment minimale attendue par le calendrier (sous-ensemble du
  *  retour listAssignments — passer la row complète est compatible). */
@@ -132,6 +133,9 @@ export function AssignmentsCalendar({
   onOpen: (id: Id<"assignments">) => void;
   statusFilter?: CalendarStatusFilter;
 }) {
+  const loc = useIntlLocale();
+  const tA = useTranslations("admin.assignments.AssignmentsCalendar");
+  const twd = useTranslations("calendar.weekday");
   const tLabel = useLabel();
   const [currentMonth, setCurrentMonth] = useState(() => new Date(now));
   // Sous 768 px, une case de la grille fait ~46 px de large : la vignette
@@ -273,15 +277,14 @@ export function AssignmentsCalendar({
           <>
             <span aria-hidden>📌</span>
             <span>
-              Aujourd&apos;hui :{" "}
+              {tA("aujourdHui")}{" "}
               <span className="font-semibold text-slate-900">
                 {todayToPublish}
-              </span>{" "}
-              post{todayToPublish > 1 ? "s" : ""} à publier
+              </span>{" "}{tA("postAPublier", { todayToPublish: todayToPublish })}
             </span>
           </>
         ) : (
-          <span>Rien à publier aujourd&apos;hui.</span>
+          <span>{tA("rienAPublierAujourdHui")}</span>
         )}
       </div>
 
@@ -297,7 +300,7 @@ export function AssignmentsCalendar({
         >
           <CardContent className="p-3 sm:p-4">
             <div className="text-xs font-medium text-slate-500">
-              Taux à l&apos;heure
+              {tA("tauxALHeure")}
             </div>
             <div
               className={cn(
@@ -314,19 +317,19 @@ export function AssignmentsCalendar({
                 : `${Math.round(stats.rate * 100)}%`}
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {`${stats.onTime}/${stats.past} post${stats.past > 1 ? "s" : ""} passé${stats.past > 1 ? "s" : ""}`}
+              {tA("postPasse", { onTime: stats.onTime, past: stats.past })}
             </div>
             {/* Le taux passe au rouge sous un seuil — autant dire lequel. Sans
                 cette ligne, « 65 % » portait un jugement dont la règle
                 n'existait que dans une constante du fichier. */}
             <div className="text-xs text-slate-400">
-              {`objectif ${Math.round(ON_TIME_THRESHOLD * 100)} %`}
+              {tA("objectif", { value: Math.round(ON_TIME_THRESHOLD * 100) })}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-3 sm:p-4">
-            <div className="text-xs font-medium text-slate-500">À l&apos;heure</div>
+            <div className="text-xs font-medium text-slate-500">{tA("aLHeure")}</div>
             <div className="mt-0.5 text-xl font-semibold text-emerald-600 sm:mt-1 sm:text-2xl">
               {stats.onTime}
             </div>
@@ -335,20 +338,19 @@ export function AssignmentsCalendar({
         <Card>
           <CardContent className="p-3 sm:p-4">
             <div className="text-xs font-medium text-slate-500">
-              En retard + manqués
+              {tA("enRetardManques")}
             </div>
             <div className="mt-0.5 text-xl font-semibold text-rose-600 sm:mt-1 sm:text-2xl">
               {stats.late + stats.missed}
             </div>
             <div className="mt-0.5 text-xs text-slate-400">
-              {stats.late} en retard · {stats.missed} manqué
-              {stats.missed > 1 ? "s" : ""}
+              {tA("enRetardManque", { late: stats.late, missed: stats.missed })}
             </div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-3 sm:p-4">
-            <div className="text-xs font-medium text-slate-500">À venir</div>
+            <div className="text-xs font-medium text-slate-500">{tA("aVenir")}</div>
             <div className="mt-0.5 text-xl font-semibold text-slate-700 sm:mt-1 sm:text-2xl">
               {stats.scheduled}
             </div>
@@ -362,13 +364,9 @@ export function AssignmentsCalendar({
           poste réglé sur un autre fuseau voyait AVANT des statuts différents —
           sans cette ligne, le décalage se découvre par un ticket. */}
       <p className="text-xs text-slate-400">
-        Statuts calculés en heure de Paris.
+        {tA("statutsCalculesEnHeureDe")}
         {sansDate.total > 0 &&
-          ` ${sansDate.total} livrable${sansDate.total > 1 ? "s" : ""} sans date de publication ${sansDate.total > 1 ? "ne sont" : "n'est"} dans aucun de ces compteurs${
-            sansDate.aFaire > 0
-              ? ` — dont ${sansDate.aFaire} pas encore publié${sansDate.aFaire > 1 ? "s" : ""}, donc ${sansDate.aFaire > 1 ? "invisibles" : "invisible"} du calendrier`
-              : ""
-          }.`}
+          ` ${tA("sansDate", { total: sansDate.total, aFaire: sansDate.aFaire })}`}
       </p>
 
       {/* LÉGENDE — sur les deux formats.
@@ -403,11 +401,11 @@ export function AssignmentsCalendar({
         </span>
         <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
           <UserRoundIcon className="size-3 shrink-0 opacity-60" aria-hidden />
-          compte créatrice (elle publie)
+          {tA("compteCreatriceEllePublie")}
         </span>
         <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
           <Building2Icon className="size-3 shrink-0 opacity-60" aria-hidden />
-          compte géré (tu publies)
+          {tA("compteGereTuPublies")}
         </span>
       </div>
 
@@ -417,7 +415,7 @@ export function AssignmentsCalendar({
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold capitalize text-slate-900">
               {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
-              {format(currentMonth, "MMMM yyyy", { locale: fr })}
+              {format(currentMonth, "MMMM yyyy", { locale: dateFnsLocale(loc) })}
             </h2>
             <div className="flex items-center gap-1">
               {/* Cible tactile : 40 px sur téléphone (28 px au doigt, c'est un
@@ -426,7 +424,7 @@ export function AssignmentsCalendar({
                 variant="ghost"
                 size="icon-sm"
                 className="size-10 sm:size-7"
-                aria-label="Mois précédent"
+                aria-label={tA("moisPrecedent")}
                 onClick={() => setCurrentMonth((m) => subMonths(m, 1))}
               >
                 <ChevronLeftIcon className="size-4" />
@@ -435,7 +433,7 @@ export function AssignmentsCalendar({
                 variant="ghost"
                 size="icon-sm"
                 className="size-10 sm:size-7"
-                aria-label="Mois suivant"
+                aria-label={tA("moisSuivant")}
                 onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
               >
                 <ChevronRightIcon className="size-4" />
@@ -444,12 +442,12 @@ export function AssignmentsCalendar({
           </div>
 
           <div className="grid grid-cols-7 gap-px">
-            {WEEKDAYS.map((w) => (
+            {WEEKDAY_KEYS.map((w) => (
               <div
                 key={w}
                 className="pb-1 text-center text-[11px] font-medium text-slate-400"
               >
-                {w}
+                {twd(w)}
               </div>
             ))}
             {days.map((day) => {
@@ -472,8 +470,10 @@ export function AssignmentsCalendar({
                     onClick={() => setDayKey(key)}
                     aria-label={
                       items.length === 0
-                        ? `${format(day, "d MMMM", { locale: fr })} — aucun post`
-                        : `${format(day, "d MMMM", { locale: fr })} — ${items.length} post${items.length > 1 ? "s" : ""}`
+                        ? // i18n-exempt: « d MMMM » est un MASQUE date-fns, pas du texte
+                          tA("aucunPost", { value: format(day, "d MMMM", { locale: dateFnsLocale(loc) }) })
+                        : // i18n-exempt: « d MMMM » est un MASQUE date-fns, pas du texte
+                          tA("post2", { value: format(day, "d MMMM", { locale: dateFnsLocale(loc) }), count: items.length })
                     }
                     className={cn(
                       "flex min-h-14 flex-col items-center gap-1 rounded-md border p-1 transition-colors",
@@ -557,12 +557,12 @@ export function AssignmentsCalendar({
 
 
           <p className="text-xs text-slate-400">
-            {visible.length} post{visible.length > 1 ? "s" : ""}
-            {statusLabel ? ` « ${statusLabel} »` : " planifié"}
-            {!statusLabel && visible.length > 1 ? "s" : ""} affiché
-            {visible.length > 1 ? "s" : ""}{" "}
-            (filtres appliqués). Les assignments sans date de publication
-            n&apos;apparaissent pas.
+            {tA("visibleCount", {
+              count: visible.length,
+              status: statusLabel
+                ? `« ${statusLabel} »`
+                : tA("planifie", { count: visible.length }),
+            })}
           </p>
         </CardContent>
       </Card>
@@ -581,14 +581,14 @@ export function AssignmentsCalendar({
                 Septembre ») : en français, seule la première lettre en prend une. */}
             <SheetTitle className="first-letter:uppercase">
               {dayKey
-                ? format(new Date(`${dayKey}T00:00:00`), "EEEE d MMMM", {
-                    locale: fr,
+                ? // i18n-exempt: « EEEE d MMMM » est un MASQUE date-fns, pas du texte
+                  format(new Date(`${dayKey}T00:00:00`), "EEEE d MMMM", {
+                    locale: dateFnsLocale(loc),
                   })
                 : ""}
             </SheetTitle>
             <SheetDescription>
-              {dayItems.length} post{dayItems.length > 1 ? "s" : ""} planifié
-              {dayItems.length > 1 ? "s" : ""}
+              {tA("postPlanifie", { count: dayItems.length })}
             </SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
@@ -634,6 +634,7 @@ function CalendarPost({
   onOpen: (id: Id<"assignments">) => void;
   variant?: "chip" | "row";
 }) {
+  const tr = useTranslations("admin.assignments.CalendarPost");
   const wide = variant === "row";
   const tLabel = useLabel();
   const meta = CALENDAR_STATUS_META[status];
@@ -646,8 +647,8 @@ function CalendarPost({
   }));
   const creneau = formatPostWindow(row.postWindow);
   const title = `${row.creatorName} · ${rowLabel(row)} · ${tLabel(meta.labelKey)}${
-    creneau !== null ? ` · créneau ${creneau}` : ""
-  } · ${managed ? "compte géré (tu publies)" : "compte créatrice (elle publie)"}`;
+    creneau !== null ? ` ${tr("creneau", { creneau: creneau })}` : ""
+  } · ${managed ? tr("compteGereTuPublies") : tr("compteCreatriceEllePublie")}`;
 
   return (
     <div className="relative">
@@ -721,8 +722,8 @@ function CalendarPost({
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          title={`Ouvrir le post ${published.platform}`}
-          aria-label={`Ouvrir le post publié ${published.platform}`}
+          title={tr("ouvrirLePost", { platform: published.platform })}
+          aria-label={tr("ouvrirLePostPublie", { platform: published.platform })}
           className={cn(
             "absolute rounded text-current opacity-60 transition-opacity hover:opacity-100",
             wide

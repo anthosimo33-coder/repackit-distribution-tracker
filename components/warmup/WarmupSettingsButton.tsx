@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { WarmupSettingsCard } from "./WarmupSettingsCard";
 import { usePermissions } from "@/components/project/use-permissions";
+import { useTranslations } from "next-intl";
 
 /**
  * Réglage des durées de warmup, ouvert depuis l'écran /comptes.
@@ -22,6 +23,7 @@ import { usePermissions } from "@/components/project/use-permissions";
  * et suit le même pattern (Sheet latéral).
  */
 export function WarmupSettingsButton() {
+  const tr = useTranslations("admin.accounts.WarmupSettingsButton");
   // Réglage de PROJET (durée de chauffe) : le manager pilote les comptes,
   // il ne fixe pas la règle qui s'applique à toutes les créatrices.
   const droits = usePermissions();
@@ -32,15 +34,15 @@ export function WarmupSettingsButton() {
         render={
           <Button variant="outline">
             <SlidersHorizontalIcon className="mr-2 size-4" />
-            Durées de warmup
+            {tr("dureesDeWarmup")}
           </Button>
         }
       />
       <SheetContent side="right" className="w-full gap-0 p-0 data-[side=right]:sm:max-w-lg">
         <SheetHeader className="border-b border-slate-100 p-4">
-          <SheetTitle>Durées de warmup — ce projet</SheetTitle>
+          <SheetTitle>{tr("dureesDeWarmupCeProjet")}</SheetTitle>
           <SheetDescription>
-            Combien de checks avant qu&apos;un compte sorte de chauffe.
+            {tr("combienDeChecksAvantQu")}
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-4">

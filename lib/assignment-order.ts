@@ -153,6 +153,7 @@ function longestRun(keys: string[]): number {
 }
 
 /** 2. + 3. — peigne équitable, rotations réparées, meilleure série, tirage seedé. */
+// i18n-exempt: générique TypeScript (`>(items: T[], opts: InterleaveOptions<`), pas du texte
 function spread<T>(items: T[], opts: InterleaveOptions<T>): T[] {
   if (items.length < 2) return items;
 

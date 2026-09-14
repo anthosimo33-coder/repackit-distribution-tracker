@@ -5,6 +5,7 @@ import { CheckIcon, CopyIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * P1 Créateurs — champ lecture seule du lien /join + copie en 1 clic.
@@ -23,13 +24,14 @@ export function CopyableLink({
   // Segment de route du lien : "join" (invitation, défaut) ou "reset-password"
   // (reset mot de passe admin). On ne stocke jamais l'URL complète en base.
   segment = "join",
-  ariaLabel = "Lien d'invitation",
+  ariaLabel,
 }: {
   token: string;
   className?: string;
   segment?: "join" | "reset-password";
   ariaLabel?: string;
 }) {
+  const tr = useTranslations("admin.creators.CopyableLink");
   const [copied, setCopied] = useState(false);
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
@@ -52,14 +54,14 @@ export function CopyableLink({
         value={url}
         onFocus={(e) => e.currentTarget.select()}
         className="font-mono text-xs"
-        aria-label={ariaLabel}
+        aria-label={ariaLabel ?? tr("lienDInvitation")}
       />
       <Button
         type="button"
         variant="outline"
         size="icon"
         onClick={copy}
-        aria-label="Copier le lien"
+        aria-label={tr("copierLeLien")}
       >
         {copied ? (
           <CheckIcon className="size-4 text-emerald-600" />

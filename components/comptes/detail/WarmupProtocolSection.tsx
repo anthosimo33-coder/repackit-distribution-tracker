@@ -18,6 +18,7 @@ import {
   type Plateforme,
 } from "@/lib/compte-status";
 import { warmupProgress, missedDays, lastCheck } from "@/lib/warmup";
+import { useTranslations } from "next-intl";
 
 /**
  * P5 — section admin « Protocole de warmup » d'une fiche compte : keywords
@@ -26,6 +27,7 @@ import { warmupProgress, missedDays, lastCheck } from "@/lib/warmup";
  * dernière activité) + « Passer en actif ».
  */
 export function WarmupProtocolSection({ compte }: { compte: Compte }) {
+  const tr = useTranslations("admin.accounts.WarmupProtocolSection");
   const updateProtocol = useProjectMutation(api.comptes.updateWarmupProtocol);
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
 
@@ -81,7 +83,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
   async function handleSave() {
     const td = Number(targetDays);
     if (!Number.isInteger(td) || td < 1 || td > 60) {
-      toast.error("La durée cible doit être un entier entre 1 et 60.");
+      toast.error(tr("laDureeCibleDoitEtre"));
       return;
     }
     setSaving(true);
@@ -92,9 +94,9 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
         instructions,
         targetDays: td,
       });
-      toast.success("Protocole enregistré");
+      toast.success(tr("protocoleEnregistre"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -108,9 +110,9 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
         status: "actif",
         warmupStartedAt: null,
       });
-      toast.success(`${compte.handle} passé en actif`);
+      toast.success(tr("passeEnActif", { handle: compte.handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setActivating(false);
     }
@@ -119,7 +121,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-        <CardTitle>Protocole de warmup</CardTitle>
+        <CardTitle>{tr("protocoleDeWarmup")}</CardTitle>
         <Button
           variant="outline"
           size="sm"
@@ -131,30 +133,30 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
           ) : (
             <CheckIcon className="mr-1.5 size-3.5" />
           )}
-          Passer en actif
+          {tr("passerEnActif")}
         </Button>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Compliance */}
         <div className="grid grid-cols-3 gap-3">
           <Stat
-            label="Progression"
-            value={progress ? `Jour ${progress.day}/${progress.targetDays}` : "—"}
+            label={tr("progression")}
+            value={progress ? tr("jour", { day: progress.day, targetDays: progress.targetDays }) : "—"}
           />
           <Stat
-            label="Jours manqués"
+            label={tr("joursManques")}
             value={String(missed)}
             tone={missed > 0 ? "warn" : "ok"}
           />
-          <Stat label="Dernier check" value={last ?? "Aucun"} />
+          <Stat label={tr("dernierCheck")} value={last ?? "Aucun"} />
         </div>
 
         {/* Keywords */}
         <div className="space-y-2">
-          <Label>Mots-clés</Label>
+          <Label>{tr("motsCles")}</Label>
           <div className="flex flex-wrap gap-1.5">
             {keywords.length === 0 && (
-              <span className="text-sm text-slate-400">Aucun mot-clé.</span>
+              <span className="text-sm text-slate-400">{tr("aucunMotCle")}</span>
             )}
             {keywords.map((k) => (
               <Badge key={k} variant="secondary" className="gap-1 font-normal">
@@ -162,7 +164,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
                 <button
                   type="button"
                   onClick={() => removeKeyword(k)}
-                  aria-label={`Retirer ${k}`}
+                  aria-label={tr("retirer", { k: k })}
                   className="text-slate-400 hover:text-slate-700"
                 >
                   <XIcon className="size-3" />
@@ -180,31 +182,31 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
                   addKeyword();
                 }
               }}
-              placeholder="Ajouter un mot-clé puis Entrée"
-              aria-label="Ajouter un mot-clé"
+              placeholder={tr("ajouterUnMotClePuis")}
+              aria-label={tr("ajouterUnMotCle")}
             />
             <Button type="button" variant="outline" onClick={addKeyword}>
-              Ajouter
+              {tr("ajouter")}
             </Button>
           </div>
         </div>
 
         {/* Instructions */}
         <div className="space-y-1.5">
-          <Label htmlFor="warmup-instructions">Instructions (markdown)</Label>
+          <Label htmlFor="warmup-instructions">{tr("instructionsMarkdown")}</Label>
           <Textarea
             id="warmup-instructions"
             rows={6}
             value={instructions}
             onChange={(e) => setInstructions(e.target.value)}
-            placeholder="Routine quotidienne, comptes à suivre, durée de visionnage…"
+            placeholder={tr("routineQuotidienneComptesASuivre")}
             className="font-mono text-xs"
           />
         </div>
 
         {/* targetDays */}
         <div className="space-y-1.5">
-          <Label htmlFor="warmup-target">Durée cible (jours)</Label>
+          <Label htmlFor="warmup-target">{tr("dureeCibleJours")}</Label>
           <Input
             id="warmup-target"
             type="number"
@@ -215,14 +217,14 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
             className="w-28"
           />
           <p className="text-xs text-slate-500">
-            Pré-rempli depuis la plateforme — surchargeable.
+            {tr("preRempliDepuisLaPlateforme")}
           </p>
         </div>
 
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={saving}>
             {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Enregistrer le protocole
+            {tr("enregistrerLeProtocole")}
           </Button>
         </div>
       </CardContent>

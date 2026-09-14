@@ -13,7 +13,6 @@ import {
   startOfWeek,
   subMonths,
 } from "date-fns";
-import { fr } from "date-fns/locale";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,8 +21,10 @@ import { FORMAT_CONFIGS } from "@/lib/format-config";
 import { isLate, isPublished } from "@/lib/publication-status";
 import { cn } from "@/lib/utils";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale, WEEKDAY_KEYS } from "@/lib/date-fns-locale";
 
-const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 // Identité couleur par format (l'icône reste le marqueur principal). Le statut
 // module le rendu : publié = solide, à venir = pâle, en retard = rose pâle.
@@ -46,6 +47,9 @@ export function CompteCalendar({
   publications: PublicationWithImage[];
   onView: (p: PublicationWithImage) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.accounts.CompteCalendar");
+  const twd = useTranslations("calendar.weekday");
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
 
   const days = useMemo(() => {
@@ -102,13 +106,13 @@ export function CompteCalendar({
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold capitalize text-slate-900">
             {/* i18n-exempt: « MMMM yyyy » est un MASQUE date-fns, pas du texte — la langue du rendu vient de la locale passée à format(), jamais de cette chaîne. */}
-            {format(currentMonth, "MMMM yyyy", { locale: fr })}
+            {format(currentMonth, "MMMM yyyy", { locale: dateFnsLocale(loc) })}
           </h2>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Mois précédent"
+              aria-label={tr("moisPrecedent")}
               onClick={() => setCurrentMonth((m) => subMonths(m, 1))}
             >
               <ChevronLeftIcon className="size-4" />
@@ -116,7 +120,7 @@ export function CompteCalendar({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Mois suivant"
+              aria-label={tr("moisSuivant")}
               onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
             >
               <ChevronRightIcon className="size-4" />
@@ -125,12 +129,12 @@ export function CompteCalendar({
         </div>
 
         <div className="grid grid-cols-7 gap-px">
-          {WEEKDAYS.map((w) => (
+          {WEEKDAY_KEYS.map((w) => (
             <div
               key={w}
               className="pb-1 text-center text-[11px] font-medium text-slate-400"
             >
-              {w}
+              {twd(w)}
             </div>
           ))}
           {days.map((day) => {
@@ -172,7 +176,7 @@ export function CompteCalendar({
         </div>
 
         <p className="text-xs text-slate-400">
-          {monthCount} publication{monthCount > 1 ? "s" : ""} ce mois-ci
+          {tr("publicationCeMoisCi", { monthCount: monthCount })}
         </p>
       </CardContent>
     </Card>
@@ -186,6 +190,7 @@ function CalendarBadge({
   pub: PublicationWithImage;
   onView: (p: PublicationWithImage) => void;
 }) {
+  const tr = useTranslations("admin.accounts.CalendarBadge");
   const mediaType = getMediaType(pub);
   const Icon = FORMAT_CONFIGS[mediaType].icon;
   const published = isPublished(pub);
@@ -198,7 +203,7 @@ function CalendarBadge({
       type="button"
       onClick={() => onView(pub)}
       title={`${label} · ${time} · ${pub.plateforme}${
-        late ? " · En retard" : ""
+        late ? ` ${tr("enRetard2")}` : ""
       }`}
       className={cn(
         "flex w-full items-center gap-1 rounded border px-1 py-0.5 text-left text-[10px] font-medium leading-tight transition-opacity hover:opacity-80",
@@ -211,7 +216,7 @@ function CalendarBadge({
     >
       <Icon className="size-3 shrink-0" />
       <span className="hidden truncate sm:inline">
-        {late ? "En retard" : pub.carouselId}
+        {late ? tr("enRetard") : pub.carouselId}
       </span>
     </button>
   );

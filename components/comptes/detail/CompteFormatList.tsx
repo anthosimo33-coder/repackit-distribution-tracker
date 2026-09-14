@@ -18,6 +18,8 @@ import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import { cn } from "@/lib/utils";
 import { ArrowDownIcon, ArrowUpDownIcon, ArrowUpIcon } from "lucide-react";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type SortKey = "date" | "vues" | "likes";
 type SortDir = "asc" | "desc";
@@ -37,6 +39,8 @@ export function CompteFormatList({
   mediaType: FormatKey;
   onView: (p: PublicationWithImage) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.accounts.CompteFormatList");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const isCarousel = mediaType === "carousel";
@@ -72,7 +76,7 @@ export function CompteFormatList({
   if (publications.length === 0) {
     return (
       <p className="rounded-md border border-dashed border-slate-200 py-10 text-center text-sm text-slate-400">
-        Aucun {FORMAT_CONFIGS[mediaType].singular.toLowerCase()} pour ce compte.
+        {tr("aucunPourCeCompte", { value: FORMAT_CONFIGS[mediaType].singular.toLowerCase() })}
       </p>
     );
   }
@@ -83,30 +87,30 @@ export function CompteFormatList({
         <TableHeader>
           <TableRow>
             <SortHeader
-              label="Date"
+              label={tr("date")}
               active={sortKey === "date"}
               dir={sortDir}
               onClick={() => toggleSort("date")}
             />
-            <TableHead>ID</TableHead>
-            <TableHead>Hook</TableHead>
-            <TableHead>Plateforme</TableHead>
-            <TableHead>Statut</TableHead>
+            <TableHead>{tr("id")}</TableHead>
+            <TableHead>{tr("hook")}</TableHead>
+            <TableHead>{tr("plateforme")}</TableHead>
+            <TableHead>{tr("statut")}</TableHead>
             <SortHeader
-              label="Vues"
+              label={tr("vues")}
               active={sortKey === "vues"}
               dir={sortDir}
               onClick={() => toggleSort("vues")}
               align="right"
             />
             <SortHeader
-              label="Likes"
+              label={tr("likes")}
               active={sortKey === "likes"}
               dir={sortDir}
               onClick={() => toggleSort("likes")}
               align="right"
             />
-            {isCarousel && <TableHead>Verdict</TableHead>}
+            {isCarousel && <TableHead>{tr("verdict")}</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -119,7 +123,7 @@ export function CompteFormatList({
                 onClick={() => onView(p)}
               >
                 <TableCell className="whitespace-nowrap text-sm text-slate-500">
-                  {formatDate(p.datePubli)}
+                  {formatDate(p.datePubli, loc)}
                 </TableCell>
                 <TableCell className="font-mono text-xs text-slate-500">
                   {p.carouselId}
@@ -134,10 +138,10 @@ export function CompteFormatList({
                   <StatusBadge pub={p} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm text-slate-700">
-                  {formatNumber(p.displayMetrics?.vues ?? null)}
+                  {formatNumber(p.displayMetrics?.vues ?? null, loc)}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm text-slate-700">
-                  {formatNumber(p.displayMetrics?.likes ?? null)}
+                  {formatNumber(p.displayMetrics?.likes ?? null, loc)}
                 </TableCell>
                 {isCarousel && (
                   <TableCell>
@@ -154,23 +158,24 @@ export function CompteFormatList({
 }
 
 function StatusBadge({ pub }: { pub: PublicationWithImage }) {
+  const tr = useTranslations("admin.accounts.StatusBadge");
   if (isPublished(pub)) {
     return (
       <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-        Publié
+        {tr("publie")}
       </Badge>
     );
   }
   if (isLate(pub)) {
     return (
       <Badge className="border-rose-200 bg-rose-50 text-rose-700">
-        En retard
+        {tr("enRetard")}
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="text-slate-500">
-      À venir
+      {tr("aVenir")}
     </Badge>
   );
 }

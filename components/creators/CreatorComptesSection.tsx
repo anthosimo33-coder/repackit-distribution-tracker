@@ -24,6 +24,7 @@ import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import { ManagedCompteDialog } from "@/components/comptes/ManagedCompteDialog";
 import { countryLabel } from "@/lib/countries";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
@@ -37,6 +38,7 @@ export function CreatorComptesSection({
 }: {
   creatorId: Id<"creators">;
 }) {
+  const tr = useTranslations("admin.creators.CreatorComptesSection");
   const tLabel = useLabel();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const projectPath = useProjectPath();
@@ -47,7 +49,7 @@ export function CreatorComptesSection({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-        <CardTitle>Comptes</CardTitle>
+        <CardTitle>{tr("comptes")}</CardTitle>
         {/* Créer un compte GÉRÉ par l'équipe (rattaché à cette créatrice) :
             l'équipe le tient, elle ne fait que suivre. */}
         <Button
@@ -57,7 +59,7 @@ export function CreatorComptesSection({
           data-testid="create-managed-compte"
         >
           <PlusIcon className="mr-1.5 size-4" />
-          Compte géré
+          {tr("compteGere")}
         </Button>
       </CardHeader>
       <CardContent>
@@ -65,7 +67,7 @@ export function CreatorComptesSection({
           <Skeleton className="h-20 w-full" />
         ) : mine.length === 0 ? (
           <p className="text-sm text-slate-400">
-            Aucun compte déclaré par ce créateur.
+            {tr("aucunCompteDeclareParCe")}
           </p>
         ) : (
           <ul className="divide-y divide-slate-100">
@@ -99,10 +101,10 @@ export function CreatorComptesSection({
                     {c.managedByAdmin && (
                       <span
                         className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[0.65rem] font-semibold text-slate-600"
-                        title="Compte géré par l'équipe"
+                        title={tr("compteGereParLEquipe")}
                       >
                         <UsersIcon className="size-3" />
-                        Géré
+                        {tr("gere")}
                       </span>
                     )}
                     {/* Pays ciblé (label informatif #110) — masqué si non défini,
@@ -110,7 +112,7 @@ export function CreatorComptesSection({
                     {c.targetCountry && (
                       <span
                         className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[0.65rem] font-semibold text-slate-600"
-                        title="Pays ciblé"
+                        title={tr("paysCible")}
                       >
                         {countryLabel(c.targetCountry)}
                       </span>
@@ -119,7 +121,7 @@ export function CreatorComptesSection({
                   <div className="flex items-center gap-3">
                     {progress && (
                       <span className="text-xs text-slate-500">
-                        Jour {progress.day}/{progress.targetDays}
+                        {tr("jour", { day: progress.day, targetDays: progress.targetDays })}
                       </span>
                     )}
                     <span

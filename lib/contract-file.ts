@@ -36,25 +36,26 @@ export function resolveContractContentType(file: {
 
 export interface ContractValidationResult {
   ok: boolean;
-  error?: string;
+  /** Clé du motif de refus : `admin.creators.contractError.<clé>`. */
+  error?: "wrongType" | "empty" | "tooBig";
 }
 
 /**
- * Valide un fichier candidat : PDF ET taille ≤ 20 Mo. Message d'erreur lisible
- * (FR — écran admin) si invalide.
+ * Valide un fichier candidat : PDF ET taille ≤ 20 Mo. Rend la CLÉ du motif de
+ * refus — l'écran le rend dans la langue de la personne.
  */
 export function validateContractFile(file: {
   contentType: string;
   size: number;
 }): ContractValidationResult {
   if (file.contentType !== CONTRACT_CONTENT_TYPE) {
-    return { ok: false, error: "Format non supporté : PDF uniquement." };
+    return { ok: false, error: "wrongType" };
   }
   if (!Number.isFinite(file.size) || file.size <= 0) {
-    return { ok: false, error: "Fichier vide ou taille invalide." };
+    return { ok: false, error: "empty" };
   }
   if (file.size > CONTRACT_MAX_BYTES) {
-    return { ok: false, error: "PDF trop lourd (20 Mo max)." };
+    return { ok: false, error: "tooBig" };
   }
   return { ok: true };
 }

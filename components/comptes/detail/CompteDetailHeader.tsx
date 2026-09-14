@@ -24,6 +24,7 @@ import { RestartWarmupButton } from "./RestartWarmupButton";
 import { countryLabel } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 import { useLabel } from "@/lib/use-label";
+import { useTranslations } from "next-intl";
 
 /**
  * Header de la vue détail compte : retour /comptes, handle + plateforme +
@@ -33,6 +34,7 @@ import { useLabel } from "@/lib/use-label";
  * supprimer, partagé avec la table /comptes).
  */
 export function CompteDetailHeader({ compte }: { compte: Compte }) {
+  const tr = useTranslations("admin.accounts.CompteDetailHeader");
   const tLabel = useLabel();
   const [editOpen, setEditOpen] = useState(false);
   const projectPath = useProjectPath();
@@ -55,14 +57,14 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
       <div className="space-y-2">
         <Link
           href={projectPath("/comptes")}
-          aria-label="Retour aux comptes"
+          aria-label={tr("retourAuxComptes")}
           className={cn(
             buttonVariants({ variant: "ghost", size: "sm" }),
             "-ml-2 h-7 gap-1 px-2 text-slate-500",
           )}
         >
           <ChevronLeftIcon className="size-4" />
-          Comptes
+          {tr("comptes")}
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-mono text-3xl font-semibold tracking-tight text-slate-900">
@@ -84,7 +86,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
             <span
               data-testid="compte-country-badge"
               className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-600"
-              title="Pays ciblé (label interne, informatif)"
+              title={tr("paysCibleLabelInterneInformatif")}
             >
               {countryLabel(compte.targetCountry)}
             </span>
@@ -97,7 +99,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
               onClick={() => setEditOpen(true)}
             >
               <CheckIcon className="mr-1.5 size-3.5" />
-              Passer en actif
+              {tr("passerEnActif")}
             </Button>
           )}
           {/* Rattachement : propriétaire (créatrice ou interne) + gestionnaire.
@@ -106,18 +108,18 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
           <span className="text-sm text-slate-500" data-testid="compte-owner">
             {compte.creator ? (
               <>
-                Créatrice{" "}
+                {tr("creatrice")}{" "}
                 <span className="font-medium text-slate-700">
                   {compte.creator.name}
                 </span>
               </>
             ) : (
-              "Compte interne"
+              tr("compteInterne")
             )}
           </span>
           {compte.personne && (
             <span className="text-sm text-slate-500">
-              Géré par{" "}
+              {tr("gerePar")}{" "}
               <span className="font-medium text-slate-700">
                 {compte.personne.prenom} {compte.personne.nom}
               </span>
@@ -135,7 +137,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
         )}
         <Button variant="outline" onClick={() => setEditOpen(true)}>
           <PencilIcon className="mr-2 size-4" />
-          Modifier le compte
+          {tr("modifierLeCompte")}
         </Button>
         {/* Réassigner / Archiver / Supprimer — même menu que la table /comptes.
             Après suppression la fiche n'existe plus → retour à la liste. */}

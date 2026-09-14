@@ -41,6 +41,7 @@ import {
 } from "@/lib/folder-colors";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Page admin des ICPs, accessible via /comptes?view=icps. CRUD complet :
@@ -48,6 +49,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
  * Shorts assignés). Calque FolderManagerSection.
  */
 export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
+  const tr = useTranslations("admin.accounts.IcpsManagerSection");
   const icps = useProjectQuery(api.icps.listIcps, {});
   const updateIcp = useProjectMutation(api.icps.updateIcp);
   const deleteIcp = useProjectMutation(api.icps.deleteIcp);
@@ -81,9 +83,9 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
   async function handleColorChange(id: Id<"icps">, color: FolderColorKey) {
     try {
       await updateIcp({ id, color });
-      toast.success("Couleur mise à jour");
+      toast.success(tr("couleurMiseAJour"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -95,12 +97,12 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
       const unset = result?.unsetCount ?? 0;
       toast.success(
         unset > 0
-          ? `ICP supprimé — ${unset} Short${unset > 1 ? "s" : ""} désassigné${unset > 1 ? "s" : ""}`
-          : "ICP supprimé",
+          ? tr("icpSupprimeShortDesassigne", { unset: unset })
+          : tr("icpSupprime"),
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }
@@ -116,18 +118,18 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
             className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
           >
             <ArrowLeftIcon className="size-4" />
-            Retour aux comptes
+            {tr("retourAuxComptes")}
           </button>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            ICPs
+            {tr("icps")}
           </h1>
           <p className="text-sm text-slate-500">
-            Profils d&apos;audience cible assignables à tes Shorts.
+            {tr("profilsDAudienceCibleAssignables")}
           </p>
         </div>
         <Button onClick={openCreate}>
           <PlusIcon className="size-4" />
-          Nouvel ICP
+          {tr("nouvelIcp")}
         </Button>
       </div>
 
@@ -142,15 +144,15 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
           <TargetIcon className="size-16 text-slate-300" strokeWidth={1.5} />
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-slate-900">
-              Aucun ICP
+              {tr("aucunIcp")}
             </h2>
             <p className="text-sm text-slate-500">
-              Crée ton premier ICP pour cibler tes Shorts.
+              {tr("creeTonPremierIcpPour")}
             </p>
           </div>
           <Button onClick={openCreate}>
             <PlusIcon className="size-4" />
-            Nouvel ICP
+            {tr("nouvelIcp")}
           </Button>
         </div>
       ) : (
@@ -180,7 +182,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
                   )}
                 </div>
                 <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-700">
-                  {i.shortsCount} Short{i.shortsCount > 1 ? "s" : ""}
+                  {tr("short", { shortsCount: i.shortsCount })}
                 </span>
                 <div className="flex shrink-0 gap-1">
                   <Popover>
@@ -189,7 +191,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          aria-label={`Changer la couleur de ${i.nom}`}
+                          aria-label={tr("changerLaCouleurDe", { nom: i.nom })}
                         >
                           <PaletteIcon className="size-4" />
                         </Button>
@@ -202,7 +204,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
                             key={c.key}
                             type="button"
                             onClick={() => handleColorChange(i._id, c.key)}
-                            aria-label={`Couleur ${c.label}`}
+                            aria-label={tr("couleur", { label: c.label })}
                             className={cn(
                               "relative flex size-8 items-center justify-center rounded-md transition-colors hover:bg-slate-50",
                             )}
@@ -221,7 +223,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Renommer ${i.nom}`}
+                    aria-label={tr("renommer", { nom: i.nom })}
                     onClick={() => openEdit(i._id)}
                   >
                     <PencilIcon className="size-4" />
@@ -229,7 +231,7 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Supprimer ${i.nom}`}
+                    aria-label={tr("supprimer3", { nom: i.nom })}
                     onClick={() =>
                       setDeleteTarget({
                         id: i._id,
@@ -265,23 +267,23 @@ export function IcpsManagerSection({ onBack }: { onBack: () => void }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Supprimer {deleteTarget?.nom} ?
+              {tr("supprimer", { nom: deleteTarget?.nom ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget && deleteTarget.count > 0
-                ? `${deleteTarget.count} Short${deleteTarget.count > 1 ? "s" : ""} ${deleteTarget.count > 1 ? "seront désassignés" : "sera désassigné"}. Action irréversible.`
-                : "Action irréversible. L'ICP sera supprimé."}
+                ? tr("shortsDesassignes", { count: deleteTarget.count })
+                : tr("actionIrreversibleLIcpSera")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDelete}
               disabled={deleting}
             >
               {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Supprimer
+              {tr("supprimer2")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

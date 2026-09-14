@@ -27,24 +27,32 @@
  *    lirait comme une donnée manquante alors que le pays est bien là.
  */
 
-/** Résolveur ICU, construit une fois — l'instancier par ligne coûte cher. */
-let resolver: Intl.DisplayNames | null = null;
-function displayNames(): Intl.DisplayNames | null {
-  if (resolver === null) {
+/**
+ * Résolveurs ICU, construits une fois PAR LANGUE — les instancier par ligne
+ * coûte cher, et l'espace d'équipe se lit aussi en anglais.
+ */
+const resolvers = new Map<string, Intl.DisplayNames | null>();
+function displayNames(locale: string): Intl.DisplayNames | null {
+  if (!resolvers.has(locale)) {
     try {
-      resolver = new Intl.DisplayNames(["fr"], { type: "region" });
+      resolvers.set(locale, new Intl.DisplayNames([locale], { type: "region" }));
     } catch {
-      return null; // runtime sans ICU : on retombera sur le code brut
+      resolvers.set(locale, null); // runtime sans ICU : on retombera sur le code brut
     }
   }
-  return resolver;
+  return resolvers.get(locale) ?? null;
 }
 
 /** Libellé lisible d'un code pays ISO 3166-1 alpha-2. */
-export function isoCountryLabel(code: string | null | undefined): string {
+export function isoCountryLabel(
+  code: string | null | undefined,
+  locale: string = "fr-FR",
+  // i18n-exempt: repli FR de référence ; l'écran passe son propre libellé traduit
+  vide: string = "Pays non renseigné",
+): string {
   const brut = (code ?? "").trim();
-  if (brut === "") return "Pays non renseigné";
-  const dn = displayNames();
+  if (brut === "") return vide;
+  const dn = displayNames(locale);
   if (dn === null) return brut;
   try {
     // `of` exige deux lettres MAJUSCULES : « fr » rendrait « fr » tel quel, et

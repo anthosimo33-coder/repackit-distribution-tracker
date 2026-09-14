@@ -94,6 +94,7 @@ export function buildCampaignOptions(
   if (sansCampagne > 0) {
     out.push({
       value: NO_CAMPAIGN,
+      // i18n-exempt: repli FR ; l'écran remplace ce libellé par `admin.assignments.AssignmentsFilters.sansCampagne`
       label: "Sans campagne",
       count: sansCampagne,
       section: "archived",

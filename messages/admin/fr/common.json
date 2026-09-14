@@ -203,7 +203,8 @@
     "creerLeProjet": "Créer le projet",
     "monProjet": "Mon projet",
     "projetCree": "Projet « {value} » créé.",
-    "creationDuProjetImpossible": "Création du projet impossible."
+    "creationDuProjetImpossible": "Création du projet impossible.",
+    "slugPlaceholder": "mon-projet"
   },
   "ProjectSwitcher": {
     "projets": "Projets",
@@ -679,7 +680,8 @@
     "uneErreurEstSurvenue": "Une erreur est survenue.",
     "handleRequis": "Handle requis",
     "misAJour": "{finalHandle} mis à jour",
-    "ajouteSur": "{finalHandle} ajouté sur {plateforme}"
+    "ajouteSur": "{finalHandle} ajouté sur {plateforme}",
+    "handlePlaceholder": "@compte_pro"
   },
   "CreatorCombobox": {
     "interneEquipe": "Interne (équipe)",

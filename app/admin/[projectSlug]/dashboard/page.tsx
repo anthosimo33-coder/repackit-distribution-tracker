@@ -6,6 +6,8 @@ import { YouTubeSyncButton } from "@/components/admin/YouTubeSyncButton";
 import { ApifySyncButton } from "@/components/admin/ApifySyncButton";
 import { TrackerDataView } from "@/components/tracker/TrackerDataView";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type DashboardView = "action" | "tracker";
 
@@ -19,9 +21,11 @@ type DashboardView = "action" | "tracker";
  *    (sélecteur J+N + cartes héritées).
  */
 export default function DashboardPage() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.DashboardPage");
   const [view, setView] = useState<DashboardView>("action");
 
-  const today = new Date().toLocaleDateString("fr-FR", {
+  const today = new Date().toLocaleDateString(loc, {
     day: "2-digit",
     month: "long",
     year: "numeric",
@@ -32,12 +36,12 @@ export default function DashboardPage() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            {view === "action" ? "Bonjour" : "Vue tracker"}
+            {view === "action" ? tr("bonjour") : tr("vueTracker")}
           </h1>
           <p className="text-sm text-slate-500">
             {view === "action"
-              ? "Voici ce qui demande ton attention."
-              : `${today} — data des posts publiés`}
+              ? tr("voiciCeQuiDemandeTon")
+              : tr("dataDesPostsPublies", { today: today })}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -59,14 +63,15 @@ function ViewToggle({
   value: DashboardView;
   onChange: (v: DashboardView) => void;
 }) {
+  const tr = useTranslations("admin.dashboard.ViewToggle");
   const options: { value: DashboardView; label: string }[] = [
-    { value: "action", label: "Action" },
-    { value: "tracker", label: "Tracker" },
+    { value: "action", label: tr("action") },
+    { value: "tracker", label: tr("tracker") },
   ];
   return (
     <div
       role="radiogroup"
-      aria-label="Vue du dashboard"
+      aria-label={tr("vueDuDashboard")}
       className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
     >
       {options.map((opt) => (

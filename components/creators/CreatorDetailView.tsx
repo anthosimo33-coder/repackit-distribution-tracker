@@ -52,7 +52,6 @@ import {
 } from "lucide-react";
 import {
   CREATOR_KINDS,
-  KIND_LABELS,
   resolveCreatorKind,
   type CreatorKind,
 } from "@/convex/roles";
@@ -61,7 +60,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import {
   CREATOR_STATUS_ORDER,
-  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHOD_KEYS,
   creatorStatusBadge,
   type CreatorStatus,
 } from "@/lib/creator-status";
@@ -86,10 +85,12 @@ import {
   normalizeLocale,
   type Locale,
 } from "@/i18n/locales";
-import { utcOffsetLabel, zoneLabel } from "@/lib/timezone-choices";
+import { utcOffsetLabel, zoneLabelWith, zoneLabelKey } from "@/lib/timezone-choices";
 import { TimezonePicker, TZ_NONE } from "@/components/creators/TimezonePicker";
 import { usePermissions } from "@/components/project/use-permissions";
 import { canObserveCreatorSpace } from "@/lib/view-as-access";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type Creator = NonNullable<FunctionReturnType<typeof api.creators.getCreator>>;
 /** Conditions de rémunération — SECONDE lecture, gardée par `creators.pay_terms`.
@@ -113,6 +114,16 @@ export function CreatorDetailView({
    *  évite d'afficher des champs vides qu'on ne pourrait ni lire ni enregistrer. */
   canEditPayTerms: boolean;
 }) {
+  const loc = useIntlLocale();
+  const tA = useTranslations("admin.creators.CreatorDetailView");
+  const tZoneNs = useTranslations("admin.creators.timezone");
+  const tKind = useTranslations("admin.creators.kind");
+  const tStatus = useTranslations("admin.creators.status");
+  const tPaymentNs = useTranslations("admin.creators.paymentMethod");
+  const tPayment = (key: string) => tPaymentNs(key as Parameters<typeof tPaymentNs>[0]);
+  // La table des fuseaux porte des clés `string` (module pur) : même compromis
+  // documenté que `lib/use-label`.
+  const tZone = (key: string) => tZoneNs(key as Parameters<typeof tZoneNs>[0]);
   // La grille de bonus lit les BARÈMES (`pricing.manage`) : deux droits, pas un.
   // Un manager peut porter `creators.pay_terms` sans `pricing.manage`.
   const droits = usePermissions();
@@ -198,10 +209,10 @@ export function CreatorDetailView({
   // contradiction, et on ne sait pas quelle heure fait foi.
   const timezoneLabel =
     timezone !== ""
-      ? zoneLabel(timezone)
+      ? zoneLabelWith(tZone, timezone)
       : zoneInfo?.timezone
-        ? `Non défini — déduit : ${zoneLabel(zoneInfo.timezone)}`
-        : "Non défini";
+        ? tA("nonDefiniDeduit", { value: zoneLabelWith(tZone, zoneInfo.timezone) })
+        : tA("nonDefini");
   // Tarif de la personne — un seul des deux selon sa population (cf bloc JSX).
   const [population, setPopulation] = useState<string>(kind);
   const [tarif, setTarif] = useState(
@@ -244,10 +255,10 @@ export function CreatorDetailView({
         projectId: addTarget as Id<"projects">,
         creatorUserId: creator.userId,
       });
-      toast.success("Créateur rattaché au projet.");
+      toast.success(tA("createurRattacheAuProjet"));
       setAddTarget("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec du rattachement au projet"));
+      toast.error(convexErrorMessage(e, tA("echecDuRattachementAuProjet")));
     } finally {
       setAdding(false);
     }
@@ -310,9 +321,9 @@ export function CreatorDetailView({
           ...(kind === "talent" ? { monthlyRetainer: tarifVoulu } : {}),
         });
       }
-      toast.success("Créateur mis à jour");
+      toast.success(tA("createurMisAJour"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la mise à jour du créateur"));
+      toast.error(convexErrorMessage(e, tA("echecDeLaMiseA")));
     } finally {
       setSaving(false);
     }
@@ -321,9 +332,9 @@ export function CreatorDetailView({
   async function handleRegenerate() {
     try {
       await regenerate({ creatorId: creator._id });
-      toast.success("Nouveau lien généré — l'ancien est désactivé");
+      toast.success(tA("nouveauLienGenereLAncien"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la génération du lien"));
+      toast.error(convexErrorMessage(e, tA("echecDeLaGenerationDu")));
     }
   }
 
@@ -333,7 +344,7 @@ export function CreatorDetailView({
       const { token } = await generateResetLink({ creatorId: creator._id });
       setResetToken(token);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la génération du lien de réinitialisation"));
+      toast.error(convexErrorMessage(e, tA("echecDeLaGenerationDu2")));
     } finally {
       setGeneratingReset(false);
     }
@@ -367,10 +378,10 @@ export function CreatorDetailView({
                 badge.className,
               )}
             >
-              {badge.label}
+              {tStatus(badge.key)}
             </span>
             <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-600">
-              {KIND_LABELS[kind].singular}
+              {tKind(kind)}
             </span>
           </div>
           {/* Ligne d'état : ce qu'on veut savoir AVANT d'ouvrir un onglet. Le
@@ -386,18 +397,23 @@ export function CreatorDetailView({
                 className={cn(zoneInfo.source === "confirmed" ? "" : "text-amber-700")}
                 title={
                   zoneInfo.source === "confirmed"
-                    ? zoneInfo.timezone + " — confirmé par elle"
-                    : zoneInfo.timezone + " — à confirmer"
+                    ? zoneInfo.timezone + ` ${tA("confirmeParElle2")}`
+                    : zoneInfo.timezone + ` ${tA("aConfirmer")}`
                 }
               >
-                {shortZoneLabel(zoneInfo.timezone)}
-                {heureLocale ? " · " + heureLocale + " chez elle" : ""}
+                {shortZoneLabel(
+                  zoneInfo.timezone,
+                  zoneLabelKey(zoneInfo.timezone) === null
+                    ? undefined
+                    : zoneLabelWith(tZone, zoneInfo.timezone),
+                )}
+                {heureLocale ? tA("heureChezElle", { heure: heureLocale }) : ""}
               </span>
             ) : (
-              <span className="text-amber-700">Fuseau non renseigné</span>
+              <span className="text-amber-700">{tA("fuseauNonRenseigne")}</span>
             )}
             <span className="text-slate-300">·</span>
-            <span>ajouté le {formatDateFr(creator.createdAt)}</span>
+            <span>{tA("ajouteLe", { date: formatDateFr(creator.createdAt, loc) })}</span>
           </div>
         </div>
         {/* Voir l'espace du créateur tel qu'il le voit, en LECTURE SEULE (scopé
@@ -415,7 +431,7 @@ export function CreatorDetailView({
             data-testid="view-as-creator"
           >
             <EyeIcon className="mr-2 size-4" />
-            Voir son espace
+            {tA("voirSonEspace")}
           </Link>
         )}
       </div>
@@ -427,39 +443,39 @@ export function CreatorDetailView({
           (gains du cycle, sous `payments.manage`). */}
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-4">
         <Chiffre
-          libelle="Comptes"
+          libelle={tA("comptes")}
           valeur={stats === undefined ? null : String(stats.comptes)}
         />
         <Chiffre
-          libelle="Publications"
+          libelle={tA("publications")}
           valeur={stats === undefined ? null : String(stats.publications)}
         />
         <Chiffre
-          libelle="Dernier post"
+          libelle={tA("dernierPost")}
           valeur={
             stats === undefined
               ? null
               : stats.lastPostAt === null
                 ? "—"
-                : formatDateFr(stats.lastPostAt)
+                : formatDateFr(stats.lastPostAt, loc)
           }
-          detail={stats?.lastPostAt === null ? "jamais publié" : undefined}
+          detail={stats?.lastPostAt === null ? tA("jamaisPublie") : undefined}
         />
         {peutVoirGains && (
           <Chiffre
-            libelle="Cycle en cours"
+            libelle={tA("cycleEnCours")}
             valeur={
               cycle === undefined
                 ? null
                 : cycle === null
                   ? "—"
-                  : formatMoney(cycle.totalDue, payCurrency)
+                  : formatMoney(cycle.totalDue, payCurrency, loc)
             }
             detail={
               cycle
-                ? formatDateFr(cycle.cycleStart) + " → " + formatDateFr(cycle.cycleEnd)
+                ? formatDateFr(cycle.cycleStart, loc) + " → " + formatDateFr(cycle.cycleEnd, loc)
                 : cycle === null
-                  ? "aucun cycle"
+                  ? tA("aucunCycle")
                   : undefined
             }
           />
@@ -468,12 +484,12 @@ export function CreatorDetailView({
 
       <Tabs defaultValue="profil">
         <TabsList variant="line">
-          <TabsTrigger value="profil">Profil</TabsTrigger>
-          <TabsTrigger value="activite">Activité</TabsTrigger>
+          <TabsTrigger value="profil">{tA("profil")}</TabsTrigger>
+          <TabsTrigger value="activite">{tA("activite")}</TabsTrigger>
           {canEditPayTerms && (
-            <TabsTrigger value="remuneration">Rémunération</TabsTrigger>
+            <TabsTrigger value="remuneration">{tA("remuneration")}</TabsTrigger>
           )}
-          <TabsTrigger value="acces">Accès &amp; projets</TabsTrigger>
+          <TabsTrigger value="acces">{tA("accesProjets")}</TabsTrigger>
         </TabsList>
 
         {/* ── PROFIL ──────────────────────────────────────────────────────
@@ -483,12 +499,12 @@ export function CreatorDetailView({
           <div className="max-w-3xl space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Informations</CardTitle>
+              <CardTitle>{tA("informations")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="name">Nom</Label>
+                  <Label htmlFor="name">{tA("nom")}</Label>
                   <Input
                     id="name"
                     value={name}
@@ -496,11 +512,11 @@ export function CreatorDetailView({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="email">{tA("email")}</Label>
                   <Input id="email" value={creator.email} readOnly disabled />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="phone">Téléphone</Label>
+                  <Label htmlFor="phone">{tA("telephone")}</Label>
                   <Input
                     id="phone"
                     value={phone}
@@ -508,20 +524,20 @@ export function CreatorDetailView({
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="status">Statut</Label>
+                  <Label htmlFor="status">{tA("statut")}</Label>
                   <Select
                     value={status}
                     onValueChange={(v) => v && setStatus(v as CreatorStatus)}
                   >
-                    <SelectTrigger id="status" aria-label="Statut">
+                    <SelectTrigger id="status" aria-label={tA("statut")}>
                       <SelectValue>
-                        {creatorStatusBadge(status).label}
+                        {tStatus(creatorStatusBadge(status).key)}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
                       {CREATOR_STATUS_ORDER.map((s) => (
                         <SelectItem key={s} value={s}>
-                          {creatorStatusBadge(s).label}
+                          {tStatus(creatorStatusBadge(s).key)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -535,8 +551,7 @@ export function CreatorDetailView({
                   */}
                   {status === "onboarding" && (
                     <p className="text-xs text-muted-foreground">
-                      Passe en « Actif » automatiquement dès qu&apos;un de ses
-                      comptes est validé.
+                      {tA("passeEnActifAutomatiquementDes")}
                     </p>
                   )}
                 </div>
@@ -552,12 +567,12 @@ export function CreatorDetailView({
                   donc pas la préférence d'un créateur qui a déjà choisi la sienne.
                 */}
                 <div className="space-y-1.5">
-                  <Label htmlFor="creator-locale">Langue</Label>
+                  <Label htmlFor="creator-locale">{tA("langue")}</Label>
                   <Select
                     value={locale}
                     onValueChange={(v) => v && setLocale(v as Locale)}
                   >
-                    <SelectTrigger id="creator-locale" aria-label="Langue">
+                    <SelectTrigger id="creator-locale" aria-label={tA("langue")}>
                       <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -569,9 +584,7 @@ export function CreatorDetailView({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-slate-500">
-                    Langue des e-mails, de son espace, et de l&apos;aperçu « Voir son
-                    espace ». Une fois son compte créé, sa propre préférence (Profil)
-                    prend le dessus.
+                    {tA("langueDesEMailsDe")}
                   </p>
                 </div>
                 {/*
@@ -589,7 +602,7 @@ export function CreatorDetailView({
                 */}
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2">
-                    <Label htmlFor="creator-timezone">Fuseau horaire</Label>
+                    <Label htmlFor="creator-timezone">{tA("fuseauHoraire")}</Label>
                     {zoneInfo && zoneInfo.timezone !== null && (
                       <span
                         className={
@@ -599,17 +612,17 @@ export function CreatorDetailView({
                         }
                       >
                         {zoneInfo.source === "confirmed"
-                          ? "confirmé par elle"
+                          ? tA("confirmeParElle")
                           : zoneInfo.source === "admin"
-                            ? "saisi — à confirmer"
+                            ? tA("saisiAConfirmer")
                             : zoneInfo.stored
-                              ? "déduit puis FIGÉ — à confirmer"
-                              : "déduit du pays — à confirmer"}
+                              ? tA("deduitPuisFigeAConfirmer")
+                              : tA("deduitDuPaysAConfirmer")}
                       </span>
                     )}
                     {zoneInfo && zoneInfo.timezone === null && (
                       <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                        à définir
+                        {tA("aDefinir")}
                       </span>
                     )}
                   </div>
@@ -619,9 +632,7 @@ export function CreatorDetailView({
                     onChange={(v) => setTimezone(v === TZ_NONE ? "" : v)}
                   />
                   <p className="text-xs text-slate-500">
-                    Sert de référence aux dates : jours de warmup, échéances et
-                    relances. Un pays ne détermine pas un fuseau — les États-Unis en
-                    ont six — donc mieux vaut « non défini » qu&apos;une supposition.
+                    {tA("sertDeReferenceAuxDates")}
                     {/*
                       DEUX états très différents sous le même mot « déduit », et
                       l'admin doit savoir lequel : une valeur FIGÉE ne se corrigera
@@ -632,19 +643,12 @@ export function CreatorDetailView({
                     {zoneInfo?.stored && zoneInfo.source === "inferred" && (
                       <>
                         {" "}
-                        <strong>{zoneInfo.timezone}</strong> a été déduit du pays de
-                        ses comptes puis <strong>figé</strong> à son premier check de
-                        warmup : il ne suivra plus le pays de ses comptes. Choisis
-                        une valeur ci-dessus pour le corriger.
+                        <strong>{zoneInfo.timezone}</strong>{" "}{tA("aEteDeduitDuPays")}{" "}<strong>{tA("fige")}</strong>{" "}{tA("aSonPremierCheckDe")}
                       </>
                     )}
                     {zoneInfo?.timezone && !zoneInfo.stored && (
                       <>
-                        {" "}
-                        En attendant, <strong>{zoneInfo.timezone}</strong> est déduit
-                        du pays de ses comptes. Rien n&apos;est encore enregistré :
-                        la valeur suivra le pays, et se figera à son premier check de
-                        warmup.
+                        {" "}{tA("enAttendant")}{" "}<strong>{zoneInfo.timezone}</strong>{" "}{tA("estDeduitDuPaysDe")}
                       </>
                     )}
                   </p>
@@ -654,35 +658,32 @@ export function CreatorDetailView({
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Population</CardTitle>
+              <CardTitle>{tA("population")}</CardTitle>
               <CardDescription>
-                Corrige une invitation faite avec la mauvaise population. Possible
-                tant que la fiche est vierge — dès qu&apos;un compte, une publication
-                ou une ligne de paie y est rattaché, la population est figée.
+                {tA("corrigeUneInvitationFaiteAvec")}
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="max-w-xs space-y-1.5">
-                <Label htmlFor="population">Population</Label>
+                <Label htmlFor="population">{tA("population")}</Label>
                 <Select
                   value={population}
                   onValueChange={(v) => v && setPopulation(v)}
                 >
-                  <SelectTrigger id="population" aria-label="Population">
-                    <SelectValue>{KIND_LABELS[population as CreatorKind]?.singular ?? "—"}</SelectValue>
+                  <SelectTrigger id="population" aria-label={tA("population")}>
+                    <SelectValue>{tKind(population as CreatorKind)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {CREATOR_KINDS.map((k) => (
                       <SelectItem key={k} value={k}>
-                        {KIND_LABELS[k].singular}
+                        {tKind(k)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {population !== kind && (
                   <p className="text-xs text-amber-700">
-                    Changera aussi l&apos;espace auquel cette personne accède au
-                    prochain login. Enregistre pour appliquer.
+                    {tA("changeraAussiLEspaceAuquel")}
                   </p>
                 )}
               </div>
@@ -697,16 +698,14 @@ export function CreatorDetailView({
           {kind === "partner" && (
           <Card>
             <CardHeader>
-              <CardTitle>@ à créer par réseau</CardTitle>
+              <CardTitle>{tA("aCreerParReseau")}</CardTitle>
               <CardDescription>
-                Le ou les @ que ce créateur doit créer sur ses réseaux (affichés dans
-                « Mes comptes », à côté des consignes de warmup). Laisse vide un
-                réseau pour ne rien demander.
+                {tA("leOuLesQueCe")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label htmlFor="handle-tiktok">@ TikTok à créer</Label>
+                <Label htmlFor="handle-tiktok">{tA("tiktokACreer")}</Label>
                 <Input
                   id="handle-tiktok"
                   maxLength={64}
@@ -716,7 +715,7 @@ export function CreatorDetailView({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="handle-youtube">@ YouTube à créer</Label>
+                <Label htmlFor="handle-youtube">{tA("youtubeACreer")}</Label>
                 <Input
                   id="handle-youtube"
                   maxLength={64}
@@ -726,7 +725,7 @@ export function CreatorDetailView({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="handle-instagram">@ Instagram à créer</Label>
+                <Label htmlFor="handle-instagram">{tA("instagramACreer")}</Label>
                 <Input
                   id="handle-instagram"
                   maxLength={64}
@@ -740,42 +739,39 @@ export function CreatorDetailView({
           )}
           <Card>
             <CardHeader>
-              <CardTitle>Attribution snytch.co</CardTitle>
+              <CardTitle>{tA("attributionSnytchCo")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1.5">
-              <Label htmlFor="ref-slug">Ref du chemin court</Label>
+              <Label htmlFor="ref-slug">{tA("refDuCheminCourt")}</Label>
               <Input
                 id="ref-slug"
                 maxLength={64}
-                placeholder="kelly (pour snytch.co/kelly)"
+                placeholder={tA("refPlaceholder")}
                 value={refSlug}
                 onChange={(e) => setRefSlug(e.target.value)}
               />
               <p className="text-xs text-slate-400">
-                La clé d&apos;attribution des visiteurs et des ventes. Sans elle, la
-                créatrice apparaît « pas de ref configurée » dans la section
-                conversion — le trafic in-app TikTok ne transmet pas de referrer,
-                tout repose sur ce chemin.
+                {tA("laCleDAttributionDes")}
               </p>
             </CardContent>
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Notes admin</CardTitle>
+              <CardTitle>{tA("notesAdmin")}</CardTitle>
             </CardHeader>
             <CardContent>
               <Textarea
                 value={adminNotes}
                 onChange={(e) => setAdminNotes(e.target.value)}
                 rows={4}
-                placeholder="Notes internes (non visibles par le créateur)…"
+                placeholder={tA("notesInternesNonVisiblesPar")}
               />
             </CardContent>
           </Card>
           <div className="flex justify-end">
             <Button onClick={handleSave} disabled={saving}>
               {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Enregistrer
+              {tA("enregistrer")}
             </Button>
           </div>
           </div>
@@ -785,17 +781,15 @@ export function CreatorDetailView({
         {peutSupprimer && (
         <Card className="border-rose-200">
           <CardHeader>
-            <CardTitle className="text-rose-700">Zone de danger</CardTitle>
+            <CardTitle className="text-rose-700">{tA("zoneDeDanger")}</CardTitle>
             <CardDescription>
-              Supprime définitivement ce créateur : ses comptes et missions en
-              cours sont effacés (combos libérés) ; ses publications et son
-              historique de paiement sont conservés sous son nom. Irréversible.
+              {tA("supprimeDefinitivementCeCreateurSes")}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
               <Trash2Icon className="mr-2 size-4" />
-              Supprimer le créateur
+              {tA("supprimerLeCreateur")}
             </Button>
           </CardContent>
         </Card>
@@ -820,38 +814,38 @@ export function CreatorDetailView({
             {canEditPayTerms && (
             <Card>
               <CardHeader>
-                <CardTitle>Moyen de paiement</CardTitle>
+                <CardTitle>{tA("moyenDePaiement")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
-                    <Label htmlFor="paymentMethod">Méthode</Label>
+                    <Label htmlFor="paymentMethod">{tA("methode")}</Label>
                     <Select
                       value={paymentMethod}
                       onValueChange={(v) => v && setPaymentMethod(v)}
                     >
-                      <SelectTrigger id="paymentMethod" aria-label="Méthode de paiement">
+                      <SelectTrigger id="paymentMethod" aria-label={tA("methodeDePaiement")}>
                         <SelectValue>
                           {paymentMethod === NONE
-                            ? "Non défini"
-                            : PAYMENT_METHOD_LABELS[paymentMethod]}
+                            ? tA("nonDefini")
+                            : tPayment(PAYMENT_METHOD_KEYS[paymentMethod])}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>Non défini</SelectItem>
+                        <SelectItem value={NONE}>{tA("nonDefini")}</SelectItem>
                         {PAYMENT_METHODS.map((m) => (
                           <SelectItem key={m} value={m}>
-                            {PAYMENT_METHOD_LABELS[m]}
+                            {tPayment(PAYMENT_METHOD_KEYS[m])}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="paymentDetails">Coordonnées</Label>
+                    <Label htmlFor="paymentDetails">{tA("coordonnees")}</Label>
                     <Input
                       id="paymentDetails"
-                      placeholder="IBAN, email PayPal, adresse USDT…"
+                      placeholder={tA("ibanEmailPaypalAdresseUsdt")}
                       value={paymentDetails}
                       onChange={(e) => setPaymentDetails(e.target.value)}
                     />
@@ -867,8 +861,8 @@ export function CreatorDetailView({
                     <div className="space-y-1.5">
                       <Label htmlFor="tarif">
                         {kind === "clipper"
-                          ? "Tarif par clip"
-                          : "Forfait mensuel"}
+                          ? tA("tarifParClip")
+                          : tA("forfaitMensuel")}
                       </Label>
                       <Input
                         id="tarif"
@@ -876,7 +870,7 @@ export function CreatorDetailView({
                         min={0}
                         step="0.01"
                         inputMode="decimal"
-                        placeholder="Non défini"
+                        placeholder={tA("nonDefini")}
                         value={tarif}
                         onChange={(e) => setTarif(e.target.value)}
                       />
@@ -886,8 +880,8 @@ export function CreatorDetailView({
                           dus se calculent dans convex/talentRetainer.monthsDue. */}
                       <p className="text-xs text-slate-500">
                         {kind === "clipper"
-                          ? "Figé sur chaque clip au moment où il est assigné — le modifier ne change aucun clip déjà commandé."
-                          : "Forfait mensuel — mois d'entrée et de sortie payés en entier, aucun prorata. Dû pour chaque mois écoulé quel que soit le nombre de rushes déposés ; le compte de rushes s'affiche à côté du montant, dans Paiements. Le modifier n'affecte aucun mois déjà payé."}
+                          ? tA("figeSurChaqueClipAu")
+                          : tA("forfaitMensuelMoisDEntree")}
                       </p>
                     </div>
                   </div>
@@ -925,20 +919,17 @@ export function CreatorDetailView({
           {creator.invitation && (
             <Card>
               <CardHeader>
-                <CardTitle>Lien d&apos;activation</CardTitle>
+                <CardTitle>{tA("lienDActivation")}</CardTitle>
                 <CardDescription>
-                  Expire le{" "}
-                  {new Date(creator.invitation.expiresAt).toLocaleDateString(
-                    "fr-FR",
-                  )}
-                  . Régénère-le s&apos;il est expiré ou perdu (l&apos;ancien lien
-                  cesse aussitôt de fonctionner).
+                  {tA("expireLeRegenereLeS", { date: new Date(creator.invitation.expiresAt).toLocaleDateString(
+                    loc,
+                  ) })}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <CopyableLink token={creator.invitation.token} />
                 <Button variant="outline" onClick={handleRegenerate}>
-                  Régénérer le lien
+                  {tA("regenererLeLien")}
                 </Button>
               </CardContent>
             </Card>
@@ -950,11 +941,9 @@ export function CreatorDetailView({
           {creator.userId && (
             <Card>
               <CardHeader>
-                <CardTitle>Mot de passe</CardTitle>
+                <CardTitle>{tA("motDePasse")}</CardTitle>
                 <CardDescription>
-                  Le créateur a perdu son mot de passe ? Génère un lien de
-                  réinitialisation à usage unique (valable 48 h) et envoie-le lui
-                  (WhatsApp). Tu ne vois jamais son mot de passe.
+                  {tA("leCreateurAPerduSon")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -968,7 +957,7 @@ export function CreatorDetailView({
                   ) : (
                     <KeyRoundIcon className="mr-2 size-4" />
                   )}
-                  Réinitialiser le mot de passe
+                  {tA("reinitialiserLeMotDePasse")}
                 </Button>
               </CardContent>
             </Card>
@@ -980,34 +969,33 @@ export function CreatorDetailView({
           {creator.userId && (
             <Card>
               <CardHeader>
-                <CardTitle>Autres projets</CardTitle>
+                <CardTitle>{tA("autresProjets")}</CardTitle>
                 <CardDescription>
-                  Rattache ce créateur (même compte, même login) à un autre de tes
-                  projets. Ses comptes, assignments et gains y seront distincts.
+                  {tA("rattacheCeCreateurMemeCompte")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {addableProjects === undefined ? (
-                  <p className="text-sm text-slate-400">Chargement…</p>
+                  <p className="text-sm text-slate-400">{tA("chargement")}</p>
                 ) : addableProjects.length === 0 ? (
                   <p className="text-sm text-slate-500">
-                    Aucun autre projet disponible (déjà membre de tous tes projets).
+                    {tA("aucunAutreProjetDisponibleDeja")}
                   </p>
                 ) : (
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                     <div className="flex-1 space-y-1.5">
-                      <Label htmlFor="add-project">Projet</Label>
+                      <Label htmlFor="add-project">{tA("projet")}</Label>
                       <Select
                         value={addTarget}
                         onValueChange={(v) => v && setAddTarget(v)}
                       >
-                        <SelectTrigger id="add-project" aria-label="Projet cible">
-                          <SelectValue placeholder="Choisir un projet…">
+                        <SelectTrigger id="add-project" aria-label={tA("projetCible")}>
+                          <SelectValue placeholder={tA("choisirUnProjet")}>
                             {addTarget
                               ? addableProjects.find(
                                   (p) => p.projectId === addTarget,
                                 )?.name
-                              : "Choisir un projet…"}
+                              : tA("choisirUnProjet")}
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -1029,7 +1017,7 @@ export function CreatorDetailView({
                       ) : (
                         <FolderPlusIcon className="mr-2 size-4" />
                       )}
-                      Ajouter au projet
+                      {tA("ajouterAuProjet")}
                     </Button>
                   </div>
                 )}
@@ -1046,17 +1034,17 @@ export function CreatorDetailView({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Lien de réinitialisation</DialogTitle>
+            <DialogTitle>{tA("lienDeReinitialisation")}</DialogTitle>
             <DialogDescription>
-              Envoie ce lien au créateur (WhatsApp). Il est valable 48 h, à
-              usage unique : une fois utilisé, il cesse de fonctionner.
+              {tA("envoieCeLienAuCreateur")}
             </DialogDescription>
           </DialogHeader>
           {resetToken && (
             <CopyableLink
               token={resetToken}
+              // i18n-exempt: segment de route, pas du texte
               segment="reset-password"
-              ariaLabel="Lien de réinitialisation"
+              ariaLabel={tA("lienDeReinitialisation")}
             />
           )}
         </DialogContent>
@@ -1092,6 +1080,8 @@ function BonusGridSection({
   /** Devise de la PAIE créatrices (dollars), threadée depuis CreatorDetailView. */
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.creators.BonusGridSection");
   // ⚠️ CES DEUX LECTURES SONT SOUS `pricing.manage`, PAS sous `creators.pay_terms`.
   // La section est rendue quand on peut éditer les conditions de rémunération —
   // mais lire la LISTE DES BARÈMES et le statut de paliers est un autre droit.
@@ -1119,9 +1109,9 @@ function BonusGridSection({
         id: creatorId,
         bonusPricingId: value === NO_GRID ? null : (value as Id<"pricings">),
       });
-      toast.success("Grille de bonus mise à jour");
+      toast.success(tr("grilleDeBonusMiseA"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la mise à jour de la grille de bonus"));
+      toast.error(convexErrorMessage(e, tr("echecDeLaMiseA")));
     } finally {
       setSaving(false);
     }
@@ -1130,29 +1120,28 @@ function BonusGridSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Bonus (paliers sur cumul de vues)</CardTitle>
+        <CardTitle>{tr("bonusPaliersSurCumulDe")}</CardTitle>
         <CardDescription>
-          Les paliers du pricing choisi se débloquent sur le CUMUL total des vues
-          de ce créateur (à vie). Cash = compté ; nature = récompense à remettre.
+          {tr("lesPaliersDuPricingChoisi")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-1.5">
-          <Label>Grille de paliers</Label>
+          <Label>{tr("grilleDePaliers")}</Label>
           <Select
             value={current ?? NO_GRID}
             onValueChange={(v) => v && !saving && setGrid(v)}
           >
-            <SelectTrigger aria-label="Grille de bonus">
+            <SelectTrigger aria-label={tr("grilleDeBonus")}>
               <SelectValue>
                 {current
                   ? ((pricings ?? []).find((p) => p._id === current)?.name ??
-                    "Pricing")
-                  : "Aucune"}
+                    tr("pricing"))
+                  : tr("aucune")}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NO_GRID}>Aucune</SelectItem>
+              <SelectItem value={NO_GRID}>{tr("aucune")}</SelectItem>
               {(pricings ?? []).map((p) => (
                 <SelectItem key={p._id} value={p._id}>
                   {p.name}
@@ -1164,30 +1153,26 @@ function BonusGridSection({
         {bonus && bonus.tiers.length > 0 && (
           <div className="space-y-1 text-sm">
             <p className="text-slate-600">
-              Cumul :{" "}
+              {tr("cumul")}{" "}
               <span className="font-semibold tabular-nums">
-                {bonus.cumulViews.toLocaleString("fr-FR")} vues
+                {tr("vues", { value: bonus.cumulViews.toLocaleString(loc) })}
               </span>
             </p>
             {bonus.cashUnlockedTotal > 0 && (
               <p className="text-emerald-700">
-                Cash débloqué : {formatMoney(bonus.cashUnlockedTotal, currency)}
+                {tr("cashDebloque", { amount: formatMoney(bonus.cashUnlockedTotal, currency, loc) })}
               </p>
             )}
             {bonus.natureUnlocked.length > 0 && (
               <p className="text-violet-700">
-                Récompenses nature dues :{" "}
-                {bonus.natureUnlocked.map((r) => r.libelle).join(", ")}
+                {tr("recompensesNatureDues", { value: bonus.natureUnlocked.map((r) => r.libelle).join(", ") })}
               </p>
             )}
             {bonus.nextTier && (
               <p className="text-slate-500">
-                Prochain palier dans{" "}
-                {(bonus.viewsToNext ?? 0).toLocaleString("fr-FR")} vues (
-                {bonus.nextTier.rewardType === "cash"
-                  ? formatMoney(bonus.nextTier.montant ?? 0, currency)
-                  : bonus.nextTier.libelle}
-                ).
+                {tr("prochainPalierDansVues", { value: (bonus.viewsToNext ?? 0).toLocaleString(loc), value2: bonus.nextTier.rewardType === "cash"
+                  ? formatMoney(bonus.nextTier.montant ?? 0, currency, loc)
+                  : (bonus.nextTier.libelle ?? "") })}
               </p>
             )}
           </div>

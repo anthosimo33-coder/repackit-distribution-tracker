@@ -113,12 +113,14 @@ export function hasHandleWarning(audit: HandleAudit): boolean {
  * Phrase d'avertissement, ou `null` si rien à signaler. Formulée comme une
  * observation et sa conséquence — jamais comme un refus, que l'admin seul décide.
  */
-export function handleWarningMessage(audit: HandleAudit): string | null {
+export function handleWarning(
+  audit: HandleAudit,
+): { key: "product" | "talent"; mot: string } | null {
   if (audit.mentionsProduct !== null) {
-    return `Ce pseudo contient « ${audit.mentionsProduct} » : un compte qui annonce la marque se lit en une seconde, et le hook ne peut plus fonctionner.`;
+    return { key: "product", mot: audit.mentionsProduct };
   }
   if (audit.mentionsTalent !== null) {
-    return `Ce pseudo contient « ${audit.mentionsTalent} », le nom d'un talent : le compte est rattachable à sa personne.`;
+    return { key: "talent", mot: audit.mentionsTalent };
   }
   return null;
 }

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { RepeatIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
+import { useTranslations } from "next-intl";
 
 /**
  * Lecture seule du SCRIPT MONTÉ d'un assignment de script. Affiche
@@ -40,6 +41,7 @@ export function AssignmentScriptDialog({
   creatorName: string;
   platforms: string[];
 }) {
+  const tr = useTranslations("admin.assignments.AssignmentScriptDialog");
   const [replayOpen, setReplayOpen] = useState(false);
   // Le TEXTE est demandé À L'OUVERTURE, pas embarqué dans la liste : il pesait
   // 240 Kio sur les 860 Kio de la page pour 478 lignes dont on ouvre celle-ci.
@@ -52,9 +54,9 @@ export function AssignmentScriptDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Script monté — {creatorName}</DialogTitle>
+          <DialogTitle>{tr("scriptMonte", { creatorName: creatorName })}</DialogTitle>
           <DialogDescription>
-            {comboSummary ?? "Script de la vidéo"}
+            {comboSummary ?? tr("scriptDeLaVideo")}
             {platforms.length > 0 ? ` · ${platforms.join(", ")}` : ""}
           </DialogDescription>
           <Button
@@ -64,7 +66,7 @@ export function AssignmentScriptDialog({
             onClick={() => setReplayOpen(true)}
           >
             <RepeatIcon className="size-4" />
-            Rejouer ce script
+            {tr("rejouerCeScript")}
           </Button>
         </DialogHeader>
 
@@ -73,7 +75,7 @@ export function AssignmentScriptDialog({
             <Skeleton className="h-40 w-full" />
           ) : script === null ? (
             <p className="text-sm text-slate-500">
-              Script indisponible — il a pu être retiré depuis.
+              {tr("scriptIndisponibleIlAPu")}
             </p>
           ) : (
             <SimpleMarkdown content={script.assembledScript} />

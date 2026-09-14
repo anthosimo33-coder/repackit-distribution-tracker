@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { fr } from "date-fns/locale";
 import { Loader2Icon } from "lucide-react";
 import { useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
@@ -19,6 +18,9 @@ import {
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale } from "@/lib/date-fns-locale";
 
 /**
  * Édite la DATE DE PUBLICATION planifiée d'un assignment EXISTANT depuis la page
@@ -39,6 +41,8 @@ export function AssignmentPostDateDialog({
   creatorName: string;
   currentPostDate?: number;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.AssignmentPostDateDialog");
   const setPostDate = useProjectMutation(api.assignments.setAssignmentPostDate);
   const [busy, setBusy] = useState(false);
   const selected = currentPostDate ? new Date(currentPostDate) : undefined;
@@ -49,8 +53,8 @@ export function AssignmentPostDateDialog({
       await setPostDate({ id: assignmentId, postDate: next });
       toast.success(
         next
-          ? "Date de publication mise à jour."
-          : "Date de publication retirée.",
+          ? tr("dateDePublicationMiseA")
+          : tr("dateDePublicationRetiree"),
       );
       onOpenChange(false);
     } catch (e) {
@@ -65,11 +69,10 @@ export function AssignmentPostDateDialog({
       <DialogContent className="sm:max-w-fit">
         <DialogHeader className="min-w-0">
           <DialogTitle className="break-words">
-            Date de publication — {creatorName}
+            {tr("dateDePublication", { creatorName: creatorName })}
           </DialogTitle>
           <DialogDescription>
-            Le jour où cette vidéo doit être postée. Distincte de l&apos;échéance
-            de production.
+            {tr("leJourOuCetteVideo")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex justify-center">
@@ -77,7 +80,7 @@ export function AssignmentPostDateDialog({
             mode="single"
             selected={selected}
             onSelect={(d) => d && void save(dayStartMs(d))}
-            locale={fr}
+            locale={dateFnsLocale(loc)}
             weekStartsOn={1}
             defaultMonth={selected}
           />
@@ -90,14 +93,14 @@ export function AssignmentPostDateDialog({
             className="text-slate-500"
           >
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Retirer la date
+            {tr("retirerLaDate")}
           </Button>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Fermer
+            {tr("fermer")}
           </Button>
         </DialogFooter>
       </DialogContent>

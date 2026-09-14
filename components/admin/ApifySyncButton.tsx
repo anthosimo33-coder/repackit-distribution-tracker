@@ -2,6 +2,7 @@
 
 import { api } from "@/convex/_generated/api";
 import { SyncButton } from "@/components/admin/SyncButton";
+import { useTranslations } from "next-intl";
 
 /**
  * Déclenchement MANUEL du relevé des vues TikTok/Instagram via Apify (sans
@@ -9,11 +10,12 @@ import { SyncButton } from "@/components/admin/SyncButton";
  * toast d'erreur) est partagée.
  */
 export function ApifySyncButton() {
+  const tr = useTranslations("admin.dashboard.ApifySyncButton");
   return (
     <SyncButton
       mutation={api.apifySync.requestApifySync}
-      idleLabel="Synchroniser TikTok/Insta"
-      title="Synchroniser les vues TikTok/Instagram maintenant"
+      idleLabel={tr("synchroniserTiktokInsta")}
+      title={tr("synchroniserLesVuesTiktokInstagram")}
     />
   );
 }

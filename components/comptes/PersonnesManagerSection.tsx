@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Page admin des personnes (gestionnaires), accessible via
@@ -39,6 +40,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
  * actions rename / delete.
  */
 export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
+  const tr = useTranslations("admin.accounts.PersonnesManagerSection");
   const personnes = useProjectQuery(api.personnes.listPersonnes, {});
   const deletePersonne = useProjectMutation(api.personnes.deletePersonne);
 
@@ -76,12 +78,12 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
       const unset = result?.unsetCount ?? 0;
       toast.success(
         unset > 0
-          ? `Personne supprimée — ${unset} compte${unset > 1 ? "s" : ""} désassigné${unset > 1 ? "s" : ""}`
-          : "Personne supprimée",
+          ? tr("personneSupprimeeCompteDesassigne", { unset: unset })
+          : tr("personneSupprimee"),
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }
@@ -97,18 +99,18 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
             className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
           >
             <ArrowLeftIcon className="size-4" />
-            Retour aux comptes
+            {tr("retourAuxComptes")}
           </button>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-            Personnes
+            {tr("personnes")}
           </h1>
           <p className="text-sm text-slate-500">
-            Gère les gestionnaires assignables à tes comptes.
+            {tr("gereLesGestionnairesAssignablesA")}
           </p>
         </div>
         <Button onClick={openCreate}>
           <PlusIcon className="size-4" />
-          Nouvelle personne
+          {tr("nouvellePersonne")}
         </Button>
       </div>
 
@@ -123,15 +125,15 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
           <UsersIcon className="size-16 text-slate-300" strokeWidth={1.5} />
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-slate-900">
-              Aucune personne
+              {tr("aucunePersonne")}
             </h2>
             <p className="text-sm text-slate-500">
-              Crée ta première personne pour assigner des gestionnaires.
+              {tr("creeTaPremierePersonnePour")}
             </p>
           </div>
           <Button onClick={openCreate}>
             <PlusIcon className="size-4" />
-            Nouvelle personne
+            {tr("nouvellePersonne")}
           </Button>
         </div>
       ) : (
@@ -150,13 +152,13 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-700">
-                  {p.compteCount} compte{p.compteCount > 1 ? "s" : ""}
+                  {tr("compte", { compteCount: p.compteCount })}
                 </span>
                 <div className="flex shrink-0 gap-1">
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Renommer ${label}`}
+                    aria-label={tr("renommer", { label: label })}
                     onClick={() => openEdit(p._id)}
                   >
                     <PencilIcon className="size-4" />
@@ -164,7 +166,7 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label={`Supprimer ${label}`}
+                    aria-label={tr("supprimer3", { label: label })}
                     onClick={() =>
                       setDeleteTarget({
                         id: p._id,
@@ -200,23 +202,23 @@ export function PersonnesManagerSection({ onBack }: { onBack: () => void }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Supprimer {deleteTarget?.label} ?
+              {tr("supprimer", { label: deleteTarget?.label ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget && deleteTarget.count > 0
-                ? `${deleteTarget.count} compte${deleteTarget.count > 1 ? "s" : ""} ${deleteTarget.count > 1 ? "seront désassignés" : "sera désassigné"}. Action irréversible.`
-                : "Action irréversible. La personne sera supprimée."}
+                ? tr("comptesDesassignes", { count: deleteTarget.count })
+                : tr("actionIrreversibleLaPersonneSera")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDelete}
               disabled={deleting}
             >
               {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Supprimer
+              {tr("supprimer2")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

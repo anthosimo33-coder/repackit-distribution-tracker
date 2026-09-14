@@ -34,6 +34,7 @@ import {
   SCRIPT_COMBO_SLOTS,
   type ScriptComboSlot,
 } from "@/lib/script-combo-edit";
+import { useTranslations } from "next-intl";
 
 const NONE = "__none__";
 
@@ -62,6 +63,7 @@ export function EditScriptComboDialog({
   };
   creatorName: string;
 }) {
+  const tr = useTranslations("admin.assignments.EditScriptComboDialog");
   const campaign = useProjectQuery(
     api.scripts.getCampaign,
     open ? { id: campaignId } : "skip",
@@ -121,7 +123,7 @@ export function EditScriptComboDialog({
 
   async function onConfirm() {
     if (newBrickId === NONE) {
-      toast.error("Choisis une brique de remplacement.");
+      toast.error(tr("choisisUneBriqueDeRemplacement"));
       return;
     }
     setBusy(true);
@@ -131,7 +133,7 @@ export function EditScriptComboDialog({
         slot,
         newBrickId: newBrickId as Id<"scriptBricks">,
       });
-      toast.success("Combo corrigé — script mis à jour.");
+      toast.success(tr("comboCorrigeScriptMisA"));
       onOpenChange(false);
     } catch (e) {
       toast.error(convexErrorMessage(e));
@@ -144,10 +146,9 @@ export function EditScriptComboDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Modifier le combo — {creatorName}</DialogTitle>
+          <DialogTitle>{tr("modifierLeCombo", { creatorName: creatorName })}</DialogTitle>
           <DialogDescription>
-            Remplace UNE brique (hook, flux ou description). Une seule correction
-            possible, avant publication. Le pricing n&apos;est pas impacté.
+            {tr("remplaceUneBriqueHookFlux")}
           </DialogDescription>
         </DialogHeader>
 
@@ -157,7 +158,7 @@ export function EditScriptComboDialog({
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="slot">Brique à remplacer</Label>
+                <Label htmlFor="slot">{tr("briqueARemplacer")}</Label>
                 <Select
                   value={slot}
                   onValueChange={(v) => v && changeSlot(v as ScriptComboSlot)}
@@ -175,17 +176,17 @@ export function EditScriptComboDialog({
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="newBrick">Nouvelle brique</Label>
+                <Label htmlFor="newBrick">{tr("nouvelleBrique")}</Label>
                 <Select
                   value={newBrickId}
                   onValueChange={(v) => v && setNewBrickId(v)}
                 >
-                  <SelectTrigger id="newBrick" aria-label="Nouvelle brique">
+                  <SelectTrigger id="newBrick" aria-label={tr("nouvelleBrique")}>
                     <SelectValue>
                       {newBrickId === NONE
-                        ? "Choisir…"
+                        ? tr("choisir")
                         : (options.find((b) => b._id === newBrickId)?.label ??
-                          "Brique")}
+                          tr("brique"))}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -201,14 +202,13 @@ export function EditScriptComboDialog({
 
             {options.length === 0 && (
               <p className="text-sm text-amber-600">
-                Aucune autre brique « {KIND_LABELS[slot].toLowerCase()} » active
-                dans la campagne.
+                {tr("aucuneAutreBriqueActiveDans", { value: KIND_LABELS[slot].toLowerCase() })}
               </p>
             )}
 
             {preview && (
               <div className="space-y-1.5">
-                <Label>Aperçu du script corrigé</Label>
+                <Label>{tr("apercuDuScriptCorrige")}</Label>
                 <div
                   className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3"
                   data-testid="edit-combo-preview"
@@ -226,11 +226,11 @@ export function EditScriptComboDialog({
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onConfirm} disabled={busy || newBrickId === NONE}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Corriger le combo
+            {tr("corrigerLeCombo")}
           </Button>
         </DialogFooter>
       </DialogContent>

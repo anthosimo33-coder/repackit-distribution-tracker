@@ -16,6 +16,7 @@ import {
   type Plateforme,
 } from "@/lib/compte-status";
 import { warmupProgress, checkedToday } from "@/lib/warmup";
+import { useTranslations } from "next-intl";
 
 /**
  * Panneau ADMIN d'un compte GÉRÉ par l'équipe (fiche compte). L'équipe tient le
@@ -26,6 +27,7 @@ import { warmupProgress, checkedToday } from "@/lib/warmup";
  * gérés » de la page Validation).
  */
 export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
+  const tr = useTranslations("admin.accounts.ManagedAccountAdminPanel");
   const markCheckAsAdmin = useProjectMutation(
     api.comptes.markWarmupCheckAsAdmin,
   );
@@ -51,9 +53,9 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
     setBusy(true);
     try {
       await markCheckAsAdmin({ id: compte._id });
-      toast.success("Check du jour validé ✓ (équipe)");
+      toast.success(tr("checkDuJourValideEquipe"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -67,9 +69,9 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
         status: "actif",
         warmupStartedAt: null,
       });
-      toast.success(`${compte.handle} passé en actif`);
+      toast.success(tr("passeEnActif", { handle: compte.handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }
@@ -80,14 +82,12 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <UsersIcon className="size-4 text-slate-500" />
-          Compte géré par l&apos;équipe
+          {tr("compteGereParLEquipe")}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-slate-600">
-          L&apos;équipe tient ce compte : coche le warmup ici, puis active-le. La
-          créatrice le suit en lecture (scripts + posts + perfs) sans jamais
-          publier.
+          {tr("lEquipeTientCeCompte")}
         </p>
 
         {isWarmup ? (
@@ -96,19 +96,19 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2 text-sm">
                   <span className="font-medium text-slate-700">
-                    Jour {progress.day} / {progress.targetDays}
+                    {tr("jour", { day: progress.day, targetDays: progress.targetDays })}
                   </span>
                   {warmupDone ? (
                     <span className="text-xs font-medium text-blue-600">
-                      Warmup terminé — active le compte
+                      {tr("warmupTermineActiveLeCompte")}
                     </span>
                   ) : doneToday ? (
                     <span className="text-xs font-medium text-emerald-600">
-                      Fait aujourd&apos;hui ✓
+                      {tr("faitAujourdHui")}
                     </span>
                   ) : (
                     <span className="text-xs font-semibold text-amber-600">
-                      À cocher aujourd&apos;hui
+                      {tr("aCocherAujourdHui")}
                     </span>
                   )}
                 </div>
@@ -140,7 +140,7 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
                   ) : (
                     <CheckCircle2Icon className="mr-2 size-4" />
                   )}
-                  {doneToday ? "Warmup du jour fait ✓" : "Cocher le warmup du jour"}
+                  {doneToday ? tr("warmupDuJourFait") : tr("cocherLeWarmupDuJour")}
                 </Button>
               )}
               {warmupDone && (
@@ -151,19 +151,18 @@ export function ManagedAccountAdminPanel({ compte }: { compte: Compte }) {
                   data-testid="admin-activate-managed"
                 >
                   {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                  Activer le compte
+                  {tr("activerLeCompte")}
                 </Button>
               )}
             </div>
           </div>
         ) : status === "actif" ? (
           <p className="text-sm font-medium text-emerald-700">
-            Compte actif — prêt à recevoir des assignments (ils partiront direct
-            « à publier »).
+            {tr("compteActifPretARecevoir")}
           </p>
         ) : (
           <p className="text-sm text-slate-500">
-            Compte {status}. Aucun warmup à cocher.
+            {tr("compteAucunWarmupACocher", { status: status })}
           </p>
         )}
       </CardContent>

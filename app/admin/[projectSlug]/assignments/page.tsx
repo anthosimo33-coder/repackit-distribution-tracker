@@ -81,6 +81,7 @@ import { useProject } from "@/components/project/ProjectProvider";
 import { useIsCompact } from "@/lib/use-media-query";
 import {
   buildCampaignOptions,
+  NO_CAMPAIGN,
   campaignTriggerLabel,
   matchesCampaignFilter,
   sanitizeCampaignSelection,
@@ -99,9 +100,11 @@ import {
   urgencyRank,
   type AssignmentStatus,
 } from "@/lib/assignment-status";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
-function formatDate(ts: number) {
-  return new Date(ts).toLocaleDateString("fr-FR");
+function formatDate(ts: number, locale: string = "fr-FR") {
+  return new Date(ts).toLocaleDateString(locale);
 }
 
 /** Clé de mémorisation du dernier mode d'affichage (défaut = calendrier). */
@@ -130,6 +133,8 @@ export default function AssignmentsPage() {
 }
 
 function AssignmentsPageInner() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.AssignmentsPageInner");
   const tLabel = useLabel();
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   const projectSlug = useProject().project.slug;
@@ -262,12 +267,12 @@ function AssignmentsPageInner() {
     try {
       const res = await nudge({ assignmentId: id });
       if (res.sent) {
-        toast.success(`${creatorName} relancé par email.`);
+        toast.success(tr("relanceParEmail", { creatorName: creatorName }));
       } else {
-        toast.info(`${creatorName} a déjà été relancé il y a moins de 24 h.`);
+        toast.info(tr("aDejaEteRelanceIl", { creatorName: creatorName }));
       }
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Relance impossible"));
+      toast.error(convexErrorMessage(e, tr("relanceImpossible")));
     } finally {
       setNudgingId(null);
     }
@@ -280,7 +285,7 @@ function AssignmentsPageInner() {
     setDeleting(true);
     try {
       await deleteAssignment({ id: deleteId });
-      toast.success("Assignment supprimé — le combo est de nouveau disponible.");
+      toast.success(tr("assignmentSupprimeLeComboEst"));
       setDeleteId(null);
     } catch (e) {
       toast.error(convexErrorMessage(e));
@@ -314,7 +319,9 @@ function AssignmentsPageInner() {
     () =>
       campaignOptions.map((o) => ({
         value: o.value,
-        label: o.label,
+        // Le bucket « sans campagne » est le seul libellé du lot : il vient du
+        // catalogue, les autres sont des noms de campagne.
+        label: o.value === NO_CAMPAIGN ? tr("sansCampagne") : o.label,
         count: o.count,
         section: o.section,
         muted: o.section === "archived",
@@ -324,7 +331,7 @@ function AssignmentsPageInner() {
   const campaignTrigger = campaignTriggerLabel(
     campaignIds,
     campaignOptions,
-    "Toutes campagnes",
+    tr("toutesCampagnes"),
   );
 
   // RESTAURATION du filtre campagne — après chargement, pour pouvoir purger les
@@ -483,12 +490,12 @@ function AssignmentsPageInner() {
     <div ref={rootRef} className="space-y-4 sm:space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
-          Assignments
+          {tr("assignments")}
         </h1>
         <p className="text-sm text-slate-500">
           {assignments === undefined
-            ? "Chargement…"
-            : `${rows.length} / ${assignments.length} livrable${assignments.length > 1 ? "s" : ""}`}
+            ? tr("chargement")
+            : tr("livrable", { count: rows.length, count2: assignments.length })}
         </p>
       </header>
 
@@ -513,8 +520,8 @@ function AssignmentsPageInner() {
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Créatrice, campagne, @compte…"
-              aria-label="Rechercher une assignation"
+              placeholder={tr("creatriceCampagneCompte")}
+              aria-label={tr("rechercherUneAssignation")}
               // La croix native de `type="search"` (WebKit) doublonnerait avec
               // la nôtre : deux croix côte à côte, dont une seule tombe sous le
               // pouce. On garde le type (clavier « rechercher » sur mobile) et
@@ -525,7 +532,7 @@ function AssignmentsPageInner() {
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                aria-label="Effacer la recherche"
+                aria-label={tr("effacerLaRecherche")}
                 className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-slate-400 hover:text-slate-700"
               >
                 <XIcon className="size-4" />
@@ -551,7 +558,7 @@ function AssignmentsPageInner() {
               onClick={() => setFiltersOpen(true)}
             >
               <SlidersHorizontalIcon className="size-3.5" />
-              Filtres
+              {tr("filtres")}
               {activeFilterCount > 0 && (
                 <span className="inline-flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
                   {activeFilterCount}
@@ -583,13 +590,13 @@ function AssignmentsPageInner() {
           {/* Bascule Liste / Calendrier (mêmes filtres partagés). */}
           <div
             role="radiogroup"
-            aria-label="Mode d'affichage"
+            aria-label={tr("modeDAffichage")}
             className="ml-auto inline-flex rounded-md border border-slate-200 bg-white p-0.5"
           >
             {(
               [
-                { value: "list", label: "Liste", Icon: ListIcon },
-                { value: "calendar", label: "Calendrier", Icon: CalendarDaysIcon },
+                { value: "list", label: tr("liste"), Icon: ListIcon },
+                { value: "calendar", label: tr("calendrier"), Icon: CalendarDaysIcon },
               ] as const
             ).map((opt) => (
               <button
@@ -619,7 +626,7 @@ function AssignmentsPageInner() {
         <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
           <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto p-4">
             <SheetHeader className="p-0">
-              <SheetTitle>Filtres</SheetTitle>
+              <SheetTitle>{tr("filtres")}</SheetTitle>
             </SheetHeader>
             <AssignmentsFilters
               layout="stacked"
@@ -645,7 +652,7 @@ function AssignmentsPageInner() {
               className="w-full"
               onClick={() => setFiltersOpen(false)}
             >
-              Voir {rows.length} résultat{rows.length > 1 ? "s" : ""}
+              {tr("voirResultat", { count: rows.length })}
             </Button>
           </SheetContent>
         </Sheet>
@@ -663,7 +670,7 @@ function AssignmentsPageInner() {
       ) : rows.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-500">
-            Aucun assignment{assignments.length > 0 ? " pour ce filtre" : ""}.
+            {tr("aucunAssignment")}{assignments.length > 0 ? ` ${tr("pourCeFiltre")}` : ""}.
           </CardContent>
         </Card>
       ) : compact ? (
@@ -687,15 +694,15 @@ function AssignmentsPageInner() {
                     gestes qui décrivent le même objet, la consigne envoyée à la
                     créatrice. */}
                 <TableRow>
-                  <TableHead>Créateur</TableHead>
-                  <TableHead>Mission</TableHead>
-                  <TableHead>Compte</TableHead>
-                  <TableHead>Échéance</TableHead>
-                  <TableHead>Post</TableHead>
-                  <TableHead>Statut</TableHead>
-                  <TableHead>Brief</TableHead>
+                  <TableHead>{tr("createur")}</TableHead>
+                  <TableHead>{tr("mission")}</TableHead>
+                  <TableHead>{tr("compte")}</TableHead>
+                  <TableHead>{tr("echeance")}</TableHead>
+                  <TableHead>{tr("post")}</TableHead>
+                  <TableHead>{tr("statut")}</TableHead>
+                  <TableHead>{tr("brief")}</TableHead>
                   <TableHead className="text-right">
-                    <span className="sr-only">Actions</span>
+                    <span className="sr-only">{tr("actions")}</span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -745,14 +752,14 @@ function AssignmentsPageInner() {
                                     onClick={() => setScriptId(a._id)}
                                   >
                                     <FileTextIcon className="size-3.5" />
-                                    Voir le script
+                                    {tr("voirLeScript")}
                                   </Button>
                                   {!editable && (
                                     // Publié → verrouillé (même règle que le
                                     // panneau) : on l'explicite, pas d'absence muette.
                                     <span className="flex items-center gap-1 text-xs text-slate-400">
                                       <LockIcon className="size-3 shrink-0" />
-                                      Publié — verrouillé
+                                      {tr("publieVerrouille")}
                                     </span>
                                   )}
                                 </div>
@@ -797,11 +804,11 @@ function AssignmentsPageInner() {
                       </TableCell>
                       <TableCell className="text-sm">
                         <span className={cn(overdue && "font-semibold text-rose-700")}>
-                          {formatDate(a.dueDate)}
+                          {formatDate(a.dueDate, loc)}
                         </span>
                         {overdue && (
                           <span className="ml-1 text-xs font-semibold text-rose-600">
-                            (retard)
+                            {tr("retard")}
                           </span>
                         )}
                         {/* Relance, SOUS la date et non à côté : en ligne, ce
@@ -827,7 +834,7 @@ function AssignmentsPageInner() {
                               ) : (
                                 <BellIcon className="size-3" />
                               )}
-                              Relancer
+                              {tr("relancer")}
                             </Button>
                           )}
                       </TableCell>
@@ -840,10 +847,10 @@ function AssignmentsPageInner() {
                             a.postDate ? "text-slate-700" : "text-slate-500",
                           )}
                           onClick={() => setPostDateId(a._id)}
-                          aria-label="Modifier la date de publication"
+                          aria-label={tr("modifierLaDateDePublication")}
                         >
                           <CalendarIcon className="size-4" />
-                          {a.postDate ? formatDate(a.postDate) : "—"}
+                          {a.postDate ? formatDate(a.postDate, loc) : "—"}
                         </Button>
                       </TableCell>
                       <TableCell>
@@ -861,7 +868,7 @@ function AssignmentsPageInner() {
                               plus loin. */}
                           {a.submittedAt && (
                             <div className="text-xs text-slate-400">
-                              Soumis {formatDate(a.submittedAt)}
+                              {tr("soumis", { date: formatDate(a.submittedAt, loc) })}
                             </div>
                           )}
                         </div>
@@ -876,8 +883,8 @@ function AssignmentsPageInner() {
                             size="sm"
                             className="h-8 gap-1 px-1.5 text-slate-600"
                             onClick={() => setManageId(a._id)}
-                            aria-label="Gérer les vidéos modèles"
-                            title="Vidéos modèles"
+                            aria-label={tr("gererLesVideosModeles")}
+                            title={tr("videosModeles")}
                           >
                             <ClapperboardIcon className="size-4" />
                             {a.modelVideos && a.modelVideos.length > 0
@@ -889,8 +896,8 @@ function AssignmentsPageInner() {
                             size="sm"
                             className="h-8 gap-1 px-1.5 text-slate-600"
                             onClick={() => setAssetLinkId(a._id)}
-                            aria-label="Lier des dossiers d'assets"
-                            title="Dossiers d'assets"
+                            aria-label={tr("lierDesDossiersDAssets")}
+                            title={tr("dossiersDAssets")}
                           >
                             <ImagesIcon className="size-4" />
                             {a.linkedFolderIds.length > 0
@@ -905,8 +912,8 @@ function AssignmentsPageInner() {
                               a.overlayText ? "text-amber-700" : "text-slate-600",
                             )}
                             onClick={() => setOverlayId(a._id)}
-                            aria-label="Texte à incruster en haut de la vidéo"
-                            title={a.overlayText ?? "Ajouter un texte overlay"}
+                            aria-label={tr("texteAIncrusterEnHaut")}
+                            title={a.overlayText ?? tr("ajouterUnTexteOverlay")}
                           >
                             <TypeIcon className="size-4" />
                             {a.overlayText ? "•" : "+"}
@@ -920,8 +927,8 @@ function AssignmentsPageInner() {
                               a.instructions ? "text-indigo-700" : "text-slate-600",
                             )}
                             onClick={() => setInstructionsId(a._id)}
-                            aria-label="Instructions pour la créatrice"
-                            title={a.instructions ?? "Ajouter des instructions"}
+                            aria-label={tr("instructionsPourLaCreatrice")}
+                            title={a.instructions ?? tr("ajouterDesInstructions")}
                           >
                             <ClipboardListIcon className="size-4" />
                             {a.instructions ? "•" : "+"}
@@ -945,7 +952,7 @@ function AssignmentsPageInner() {
                               size="sm"
                               className="size-8 p-0 text-slate-400 hover:text-rose-600"
                               onClick={() => setDeleteId(a._id)}
-                              aria-label="Supprimer cet assignment"
+                              aria-label={tr("supprimerCetAssignment2")}
                             >
                               <Trash2Icon className="size-4" />
                             </Button>
@@ -955,8 +962,8 @@ function AssignmentsPageInner() {
                               size="sm"
                               className="size-8 p-0 text-slate-300"
                               disabled
-                              aria-label="Suppression indisponible (assignment publié ou payé)"
-                              title="Un assignment publié ou payé ne peut pas être supprimé."
+                              aria-label={tr("suppressionIndisponibleAssignmentPublieO")}
+                              title={tr("unAssignmentPublieOuPaye")}
                             >
                               <Trash2Icon className="size-4" />
                             </Button>
@@ -1084,14 +1091,13 @@ function AssignmentsPageInner() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer cet assignment ?</AlertDialogTitle>
+            <AlertDialogTitle>{tr("supprimerCetAssignment")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Le combo sera libéré et pourra être réassigné au créateur sur la
-              même plateforme. Cette action est irréversible.
+              {tr("leComboSeraLibereEt")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={(e) => {
@@ -1103,7 +1109,7 @@ function AssignmentsPageInner() {
               disabled={deleting}
             >
               {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Supprimer
+              {tr("supprimer")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

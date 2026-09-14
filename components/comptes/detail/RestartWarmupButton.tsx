@@ -19,6 +19,7 @@ import {
 import { getWarmupDuration, type Plateforme } from "@/lib/compte-status";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 /**
  * Bouton admin « Relancer le warmup » + confirmation (AlertDialog). Remet le
@@ -35,6 +36,7 @@ export function RestartWarmupButton({
   compteId: Id<"comptes">;
   plateforme: Plateforme;
 }) {
+  const tr = useTranslations("admin.accounts.RestartWarmupButton");
   const restart = useProjectMutation(api.comptes.restartWarmup);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -44,10 +46,10 @@ export function RestartWarmupButton({
     setBusy(true);
     try {
       await restart({ id: compteId });
-      toast.success(`Warmup relancé — échauffement reparti pour ${days} jours.`);
+      toast.success(tr("warmupRelanceEchauffementRepartiPour", { days: days }));
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la relance du warmup"));
+      toast.error(convexErrorMessage(e, tr("echecDeLaRelanceDu")));
     } finally {
       setBusy(false);
     }
@@ -57,22 +59,20 @@ export function RestartWarmupButton({
     <>
       <Button variant="outline" onClick={() => setOpen(true)}>
         <RotateCcwIcon className="mr-2 size-4" />
-        Relancer le warmup
+        {tr("relancerLeWarmup")}
       </Button>
       <AlertDialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Relancer le warmup de ce compte ?
+              {tr("relancerLeWarmupDeCe")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Il repassera en échauffement pour {days} jours et le créateur ne
-              pourra plus y publier jusqu&apos;à la fin du warmup. Les
-              publications et assignments existants ne sont pas supprimés.
+              {tr("ilRepasseraEnEchauffementPour", { days: days })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={busy}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
@@ -81,7 +81,7 @@ export function RestartWarmupButton({
               disabled={busy}
             >
               {busy && <Loader2Icon className="mr-1.5 size-3.5 animate-spin" />}
-              Confirmer
+              {tr("confirmer")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

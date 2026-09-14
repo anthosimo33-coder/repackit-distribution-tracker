@@ -23,6 +23,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * ESPACE TALENT — les deux réglages qui le mettent en service : le dépôt de
@@ -44,6 +45,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
  */
 
 export function TalentSettingsCard() {
+  const tr = useTranslations("admin.validation.TalentSettingsCard");
   const reglages = useProjectQuery(api.projects.getTalentSettings, {});
   const formats = useProjectQuery(api.formats.listFormats, {});
   const setSettings = useProjectMutation(api.projects.setTalentSettings);
@@ -70,9 +72,9 @@ export function TalentSettingsCard() {
     setBusy(true);
     try {
       await setSettings(patch);
-      toast.success("Réglages enregistrés");
+      toast.success(tr("reglagesEnregistres"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de l'enregistrement"));
+      toast.error(convexErrorMessage(e, tr("echecDeLEnregistrement")));
     } finally {
       setBusy(false);
     }
@@ -106,13 +108,13 @@ export function TalentSettingsCard() {
           })),
       });
       await setSettings({ talentBriefFormatId: formatId });
-      toast.success("Brief créé et mis en service");
+      toast.success(tr("briefCreeEtMisEn"));
       setCreation(false);
       setNom("");
       setBrief("");
       setExemples("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la création du brief"));
+      toast.error(convexErrorMessage(e, tr("echecDeLaCreationDu")));
     } finally {
       setBusy(false);
     }
@@ -121,14 +123,14 @@ export function TalentSettingsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Espace talent</CardTitle>
+        <CardTitle>{tr("espaceTalent")}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <Label htmlFor="depot">Dépôt de fichiers</Label>
+            <Label htmlFor="depot">{tr("depotDeFichiers")}</Label>
             <p className="text-xs text-slate-500">
-              Sans lui, les talents de ce projet ne peuvent rien envoyer.
+              {tr("sansLuiLesTalentsDe")}
             </p>
           </div>
           <Switch
@@ -140,9 +142,9 @@ export function TalentSettingsCard() {
         </div>
 
         <div className="min-w-0 space-y-1.5">
-          <Label htmlFor="brief">Brief permanent</Label>
+          <Label htmlFor="brief">{tr("briefPermanent")}</Label>
           <p className="text-xs text-slate-500">
-            Lu par tous les talents, à chaque dépôt.
+            {tr("luParTousLesTalents")}
           </p>
           {actifs.length > 0 && (
             <Select
@@ -155,22 +157,22 @@ export function TalentSettingsCard() {
                 })
               }
             >
-              <SelectTrigger id="brief" aria-label="Brief permanent">
+              <SelectTrigger id="brief" aria-label={tr("briefPermanent")}>
                 {/*
                   ENFANTS OBLIGATOIRES. `SelectPrimitive.Value` sans enfants rend
                   la VALEUR BRUTE — ici un id Convex. C'est la convention du
                   dépôt (tous les autres sélecteurs passent leur libellé) et le
                   seul endroit où l'oubli ne se voit pas en écrivant le code.
                 */}
-                <SelectValue placeholder="Aucun brief">
+                <SelectValue placeholder={tr("aucunBrief")}>
                   {briefActuel === null
-                    ? "Aucun brief"
+                    ? tr("aucunBrief")
                     : (actifs.find((f) => f._id === briefActuel)?.name ??
-                      "Brief introuvable (supprimé ?)")}
+                      tr("briefIntrouvableSupprime"))}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">Aucun brief</SelectItem>
+                <SelectItem value="none">{tr("aucunBrief")}</SelectItem>
                 {actifs.map((f) => (
                   <SelectItem key={f._id} value={f._id}>
                     {f.name}
@@ -188,7 +190,7 @@ export function TalentSettingsCard() {
               onClick={() => setCreation(true)}
               className="mt-2"
             >
-              {actifs.length === 0 ? "Écrire le brief" : "Écrire un nouveau brief"}
+              {actifs.length === 0 ? tr("ecrireLeBrief") : tr("ecrireUnNouveauBrief")}
             </Button>
           ) : (
             <div className="mt-2 space-y-3 rounded-lg border border-slate-200 p-3">
@@ -198,27 +200,27 @@ export function TalentSettingsCard() {
                 opposable — c'est lui que la talent avait sous les yeux.
               */}
               <div className="min-w-0 space-y-1.5">
-                <Label htmlFor="brief-nom">Nom</Label>
+                <Label htmlFor="brief-nom">{tr("nom")}</Label>
                 <Input
                   id="brief-nom"
                   value={nom}
                   onChange={(e) => setNom(e.target.value)}
-                  placeholder="Ex. : Brief tournage — août"
+                  placeholder={tr("exBriefTournageAout")}
                 />
               </div>
               <div className="min-w-0 space-y-1.5">
-                <Label htmlFor="brief-texte">Brief (markdown)</Label>
+                <Label htmlFor="brief-texte">{tr("briefMarkdown")}</Label>
                 <Textarea
                   id="brief-texte"
                   rows={8}
                   value={brief}
                   onChange={(e) => setBrief(e.target.value)}
-                  placeholder={"## Comment filmer\n\n- Lumière naturelle\n- Plan serré, téléphone à la verticale"}
+                  placeholder={tr("commentFilmerLumiereNaturellePlan")}
                 />
               </div>
               <div className="min-w-0 space-y-1.5">
                 <Label htmlFor="brief-exemples">
-                  Vidéos d&apos;exemple (une URL par ligne)
+                  {tr("videosDExempleUneUrl")}
                 </Label>
                 <Textarea
                   id="brief-exemples"
@@ -235,7 +237,7 @@ export function TalentSettingsCard() {
                   disabled={busy || !nom.trim() || !brief.trim()}
                   onClick={() => void creerEtDesigner()}
                 >
-                  Créer et mettre en service
+                  {tr("creerEtMettreEnService")}
                 </Button>
                 <Button
                   type="button"
@@ -243,7 +245,7 @@ export function TalentSettingsCard() {
                   size="sm"
                   onClick={() => setCreation(false)}
                 >
-                  Annuler
+                  {tr("annuler")}
                 </Button>
               </div>
             </div>

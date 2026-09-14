@@ -3,6 +3,7 @@
 import { ClapperboardIcon, ExternalLinkIcon, ImagesIcon } from "lucide-react";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
+import { useTranslations } from "next-intl";
 
 /** Vidéo « à reproduire » attachée à l'assignation (assignments.modelVideos). */
 type ModelVideoItem = {
@@ -33,6 +34,7 @@ export function AssignmentAttachments({
   modelVideos: ModelVideoItem[];
   variant?: "panel" | "list";
 }) {
+  const tr = useTranslations("admin.assignments.AssignmentAttachments");
   const hasVideos = modelVideos.length > 0;
   const hasAssets = assetFolderNames.length > 0;
   if (!hasVideos && !hasAssets) return null;
@@ -71,8 +73,7 @@ export function AssignmentAttachments({
               {assetFolderNames.join(" · ")}
               {assetFolderCount > 0 && (
                 <span className="text-slate-400">
-                  {" "}
-                  ({assetFolderCount} fichier{assetFolderCount > 1 ? "s" : ""})
+                  {" "}{tr("fichier", { assetFolderCount: assetFolderCount })}
                 </span>
               )}
             </span>
@@ -89,7 +90,7 @@ export function AssignmentAttachments({
         <section className="space-y-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
             <ClapperboardIcon className="size-4 text-slate-400" />
-            Vidéos modèles
+            {tr("videosModeles")}
           </h3>
           <div className="grid gap-4 sm:grid-cols-2">
             {modelVideos.map((mv) => (
@@ -106,7 +107,7 @@ export function AssignmentAttachments({
         <section className="space-y-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-700">
             <ImagesIcon className="size-4 text-slate-400" />
-            Assets
+            {tr("assets")}
           </h3>
           <div className="flex flex-wrap items-center gap-1.5">
             {assetFolderNames.map((name) => (
@@ -119,7 +120,7 @@ export function AssignmentAttachments({
             ))}
             {assetFolderCount > 0 && (
               <span className="text-xs text-slate-400">
-                {assetFolderCount} fichier{assetFolderCount > 1 ? "s" : ""}
+                {tr("fichier2", { assetFolderCount: assetFolderCount })}
               </span>
             )}
           </div>

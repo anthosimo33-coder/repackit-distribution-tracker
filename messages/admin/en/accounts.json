@@ -1,1 +1,267 @@
-{}
+{
+  "ComptesPageInner": {
+    "comptes": "Accounts",
+    "personnes": "People",
+    "icps": "ICPs",
+    "ajouterUnCompte": "Add an account",
+    "mesureDedoublee": "Double-counted",
+    "tousCreateurs": "All creators",
+    "interne": "Internal",
+    "aucunComptePourCeFiltre": "No account for this filter.",
+    "plateforme": "Platform",
+    "etat": "State",
+    "createur": "Creator",
+    "chauffeEnSouffrance": "{enSouffrance} {enSouffrance, plural, one {warm-up} other {warm-ups}} struggling",
+    "checkDeWarmupAFaire": "{count} warm-up {count, plural, one {check} other {checks}} to do today",
+    "etAutre": "… and {value} {value, plural, one {other} other {others}}",
+    "rechercherUnHandleUnCreateur": "Search a handle, a creator…",
+    "rechercherUnCompte": "Search an account",
+    "filtrerParCreateur": "Filter by creator",
+    "filtrerParPlateforme": "Filter by platform",
+    "toutes": "All",
+    "filtrerParStatut": "Filter by status",
+    "tous": "All",
+    "grouperLesComptes": "Group the accounts",
+    "parCreateur": "By creator",
+    "handle": "Handle",
+    "vues": "Views",
+    "posts": "Posts",
+    "dernierPost": "Last post",
+    "archive": "{archived} archived",
+    "vuesCumulees": "{value} total views",
+    "sansPublication": "{count} with no post",
+    "collision": "— on {plateforme}, {handles} {count, plural, one {exists twice} other {differ only by case or punctuation}}. Their views are the same on both sides: this total is counted twice. To merge into a single account.",
+    "et": " and "
+  },
+  "LigneCompte": {
+    "jamaisPublie": "never published",
+    "interne": "Internal",
+    "paysCible": "Target country",
+    "dernierCheck": "Last check {last}",
+    "aucunCheckPose": "No check yet",
+    "compteActifQuiNA": "Active account with no post yet",
+    "gestionnaire": "Manager"
+  },
+  "EnteteGroupe": {
+    "compte": "{effectif} {effectif, plural, one {account} other {accounts}}",
+    "post": "{posts} {posts, plural, one {post} other {posts}}",
+    "vues": "{value} views",
+    "partDesVuesDuProjet": "{pct}% of the project's views"
+  },
+  "EmptyState": {
+    "aucunCompteAjouteTonPremier": "No account. Add your first TikTok or Instagram account.",
+    "ajouterUnCompte": "Add an account"
+  },
+  "ComptesAValiderSection": {
+    "comptesAValider": "Accounts to approve",
+    "voirLeCompte": "View the account",
+    "declareLe": "{clipperName} · declared on {date}",
+    "valider": "Approve",
+    "refuser": "Reject",
+    "refuser2": "Reject {handle}",
+    "leCompteEstArchiveEt": "The account is archived and the reason kept. Without a reason, in three weeks nobody will know why this account is dead.",
+    "motif": "Reason",
+    "annuler": "Cancel",
+    "refuserLeCompte": "Reject the account",
+    "lePseudoAnnonceLaMarque": "The handle announces the brand — to recreate under another name.",
+    "valideSonCompteurDePhase": "{handle} approved — its phase counter starts.",
+    "validationImpossible": "Couldn't approve.",
+    "refuse": "{handle} rejected.",
+    "refusImpossible": "Couldn't reject."
+  },
+  "PersonnesManagerSection": {
+    "retourAuxComptes": "Back to accounts",
+    "personnes": "People",
+    "gereLesGestionnairesAssignablesA": "Manage the people you can assign as account managers.",
+    "nouvellePersonne": "New person",
+    "aucunePersonne": "No person",
+    "creeTaPremierePersonnePour": "Create your first person to assign managers.",
+    "compte": "{compteCount} {compteCount, plural, one {account} other {accounts}}",
+    "supprimer": "Delete {label}?",
+    "annuler": "Cancel",
+    "supprimer2": "Delete",
+    "renommer": "Rename {label}",
+    "supprimer3": "Delete {label}",
+    "actionIrreversibleLaPersonneSera": "This can't be undone. The person will be deleted.",
+    "personneSupprimeeCompteDesassigne": "Person deleted — {unset} {unset, plural, one {account} other {accounts}} unassigned",
+    "personneSupprimee": "Person deleted",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "serontDesassignes": "will be unassigned",
+    "seraDesassigne": "will be unassigned",
+    "comptesDesassignes": "{count} {count, plural, one {account will be unassigned} other {accounts will be unassigned}}. This can't be undone."
+  },
+  "AccountBioSection": {
+    "bioAMettre": "Bio to set",
+    "texteDeBioARecopier": "Bio text for the creator to copy",
+    "touteModificationRenotifieLeCreateur": "Any change re-notifies the creator: the account goes back to “to apply” until they confirm.",
+    "enregistrerLaBio": "Save the bio",
+    "appliqueeLe": "Applied on {value}",
+    "appliquee": "Applied",
+    "enAttenteDApplication": "Waiting to be applied",
+    "bioAAfficherSurLe": "Bio to show on the account (link, hook, hashtags…)",
+    "modifieeLe": "Edited on {value}",
+    "aucuneBioDefiniePourL": "No bio set yet.",
+    "bioEnregistree": "Bio saved",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "CompteCalendar": {
+    "publicationCeMoisCi": "{monthCount} {monthCount, plural, one {post} other {posts}} this month",
+    "moisPrecedent": "Previous month",
+    "moisSuivant": "Next month"
+  },
+  "CalendarBadge": {
+    "enRetard": "Late",
+    "enRetard2": "· Late"
+  },
+  "CompteDetailHeader": {
+    "comptes": "Accounts",
+    "passerEnActif": "Set to active",
+    "creatrice": "Creator",
+    "gerePar": "Managed by",
+    "modifierLeCompte": "Edit the account",
+    "retourAuxComptes": "Back to accounts",
+    "paysCibleLabelInterneInformatif": "Target country (internal label, informational)",
+    "compteInterne": "Internal account"
+  },
+  "CompteFormatList": {
+    "aucunPourCeCompte": "No {value} for this account.",
+    "id": "ID",
+    "hook": "Hook",
+    "plateforme": "Platform",
+    "statut": "Status",
+    "verdict": "Verdict",
+    "date": "Date",
+    "vues": "Views",
+    "likes": "Likes"
+  },
+  "StatusBadge": {
+    "publie": "Published",
+    "enRetard": "Late",
+    "aVenir": "Upcoming"
+  },
+  "CompteStatsGrid": {
+    "detailParFormat": "Breakdown by format",
+    "publications": "Posts",
+    "vuesTotales": "Total views",
+    "likesTotaux": "Total likes"
+  },
+  "ManagedAccountAdminPanel": {
+    "compteGereParLEquipe": "Account managed by the team",
+    "lEquipeTientCeCompte": "The team runs this account: tick the warm-up here, then activate it. The creator follows read-only (scripts + posts + performance) and never publishes.",
+    "jour": "Day {day} / {targetDays}",
+    "warmupTermineActiveLeCompte": "Warm-up done — activate the account",
+    "faitAujourdHui": "Done today ✓",
+    "aCocherAujourdHui": "To tick today",
+    "activerLeCompte": "Activate the account",
+    "compteActifPretARecevoir": "Account active — ready to receive assignments (they'll go straight to “to publish”).",
+    "compteAucunWarmupACocher": "Account {status}. No warm-up to tick.",
+    "warmupDuJourFait": "Today's warm-up done ✓",
+    "cocherLeWarmupDuJour": "Tick today's warm-up",
+    "checkDuJourValideEquipe": "Today's check done ✓ (team)",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "passeEnActif": "{handle} set to active"
+  },
+  "RestartWarmupButton": {
+    "relancerLeWarmup": "Restart the warm-up",
+    "relancerLeWarmupDeCe": "Restart this account's warm-up?",
+    "ilRepasseraEnEchauffementPour": "It goes back to warming up for {days} days and the creator can't publish on it until the warm-up ends. Existing posts and assignments aren't deleted.",
+    "annuler": "Cancel",
+    "confirmer": "Confirm",
+    "warmupRelanceEchauffementRepartiPour": "Warm-up restarted — warming up again for {days} days.",
+    "echecDeLaRelanceDu": "Couldn't restart the warm-up"
+  },
+  "WarmupProtocolSection": {
+    "protocoleDeWarmup": "Warm-up protocol",
+    "passerEnActif": "Set to active",
+    "motsCles": "Keywords",
+    "aucunMotCle": "No keyword.",
+    "ajouter": "Add",
+    "instructionsMarkdown": "Instructions (markdown)",
+    "dureeCibleJours": "Target length (days)",
+    "preRempliDepuisLaPlateforme": "Pre-filled from the platform — can be overridden.",
+    "enregistrerLeProtocole": "Save the protocol",
+    "progression": "Progress",
+    "joursManques": "Missed days",
+    "dernierCheck": "Last check",
+    "retirer": "Remove {k}",
+    "ajouterUnMotClePuis": "Add a keyword then Enter",
+    "ajouterUnMotCle": "Add a keyword",
+    "routineQuotidienneComptesASuivre": "Daily routine, accounts to follow, watch time…",
+    "laDureeCibleDoitEtre": "The target length must be a whole number between 1 and 60.",
+    "protocoleEnregistre": "Protocol saved",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "passeEnActif": "{handle} set to active",
+    "jour": "Day {day}/{targetDays}"
+  },
+  "IcpsManagerSection": {
+    "retourAuxComptes": "Back to accounts",
+    "icps": "ICPs",
+    "profilsDAudienceCibleAssignables": "Target audience profiles you can assign to your Shorts.",
+    "nouvelIcp": "New ICP",
+    "aucunIcp": "No ICP",
+    "creeTonPremierIcpPour": "Create your first ICP to target your Shorts.",
+    "short": "{shortsCount} {shortsCount, plural, one {Short} other {Shorts}}",
+    "supprimer": "Delete {nom}?",
+    "annuler": "Cancel",
+    "supprimer2": "Delete",
+    "changerLaCouleurDe": "Change the color of {nom}",
+    "couleur": "Color {label}",
+    "renommer": "Rename {nom}",
+    "supprimer3": "Delete {nom}",
+    "actionIrreversibleLIcpSera": "This can't be undone. The ICP will be deleted.",
+    "couleurMiseAJour": "Color updated",
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "icpSupprimeShortDesassigne": "ICP deleted — {unset} {unset, plural, one {Short} other {Shorts}} unassigned",
+    "icpSupprime": "ICP deleted",
+    "serontDesassignes": "will be unassigned",
+    "seraDesassigne": "will be unassigned",
+    "shortsDesassignes": "{count} {count, plural, one {Short will be unassigned} other {Shorts will be unassigned}}. This can't be undone."
+  },
+  "WarmupSettingsButton": {
+    "dureesDeWarmup": "Warm-up lengths",
+    "dureesDeWarmupCeProjet": "Warm-up lengths — this project",
+    "combienDeChecksAvantQu": "How many checks before an account leaves warm-up."
+  },
+  "WarmupSettingsCard": {
+    "dureeDeWarmupParPlateforme": "Warm-up length, by platform",
+    "leNombreDeChecksA": "The number of checks to tick before an account in this project leaves warm-up.",
+    "unePlateformeQueCeProjet": "a platform this project doesn't use: it will take the default.",
+    "laisseVide": "Leave empty",
+    "ceReglageNeChange": "This setting only changes",
+    "lesComptesDejaEnWarmup": ". Accounts already warming up keep the length frozen at their start.",
+    "queLesChauffesAVenir": "future warm-ups",
+    "enregistrer": "Save",
+    "defaut": "default: {value}",
+    "nonDefiniJoursAppliques": "not set — {value} days applied",
+    "jours": "{value} days",
+    "dureesDeWarmupEnregistrees": "Warm-up lengths saved",
+    "uneErreurEstSurvenue": "Something went wrong."
+  },
+  "statusFilter": {
+    "all": "All",
+    "actif": "Active",
+    "warmup": "Warm-up",
+    "shadowban": "Shadowban",
+    "archived": "Archived"
+  },
+  "groupBy": {
+    "creator": "By creator",
+    "plateforme": "By platform",
+    "none": "No grouping"
+  },
+  "chauffe": {
+    "mesure": "{age}d, {checks} {checks, plural, one {check} other {checks}}",
+    "enSouffrance": "struggling · {mesure}",
+    "aValider": "to approve",
+    "progression": "D{day}/{target}"
+  },
+  "bioState": {
+    "none": "No bio set",
+    "pending": "Waiting to be applied",
+    "applied": "Applied"
+  },
+  "handleWarning": {
+    "product": "This handle contains “{mot}”: an account that announces the brand reads in a second, and the hook can no longer work.",
+    "talent": "This handle contains “{mot}”, a talent's name: the account can be traced back to them."
+  }
+}

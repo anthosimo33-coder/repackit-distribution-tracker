@@ -27,6 +27,8 @@ import {
   resolveContractContentType,
   validateContractFile,
 } from "@/lib/contract-file";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /** Taille lisible — un contrat pèse quelques centaines de Ko, jamais un Go. */
 function formatSize(bytes: number): string {
@@ -50,6 +52,9 @@ export function CreatorContractsSection({
 }: {
   creatorId: Id<"creators">;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.creators.CreatorContractsSection");
+  const tErr = useTranslations("admin.creators.contractError");
   const contracts = useProjectQuery(api.creatorContracts.listCreatorContracts, {
     creatorId,
   });
@@ -72,7 +77,7 @@ export function CreatorContractsSection({
       size: file.size,
     });
     if (!check.ok) {
-      toast.error(check.error);
+      toast.error(tErr(check.error!));
       return;
     }
     setBusy(true);
@@ -83,6 +88,7 @@ export function CreatorContractsSection({
         headers: { "Content-Type": CONTRACT_CONTENT_TYPE },
         body: file,
       });
+      // i18n-exempt: message technique jamais affiché (le toast rend le repli traduit)
       if (!res.ok) throw new Error(`Upload échoué (HTTP ${res.status}).`);
       const { storageId } = (await res.json()) as {
         storageId: Id<"_storage">;
@@ -94,9 +100,9 @@ export function CreatorContractsSection({
         contentType: CONTRACT_CONTENT_TYPE,
         size: file.size,
       });
-      toast.success("Contrat déposé.");
+      toast.success(tr("contratDepose"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Dépôt impossible."));
+      toast.error(convexErrorMessage(e, tr("depotImpossible")));
     } finally {
       setBusy(false);
       // Sans ce reset, redéposer LE MÊME fichier après une erreur ne
@@ -106,15 +112,15 @@ export function CreatorContractsSection({
   }
 
   async function remove(id: Id<"creatorContracts">, fileName: string) {
-    if (!window.confirm(`Supprimer « ${fileName} » ? Le PDF sera effacé.`)) {
+    if (!window.confirm(tr("supprimerLePdfSeraEfface", { fileName: fileName }))) {
       return;
     }
     setDeleting(id);
     try {
       await removeContract({ id });
-      toast.success("Contrat supprimé.");
+      toast.success(tr("contratSupprime"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Suppression impossible."));
+      toast.error(convexErrorMessage(e, tr("suppressionImpossible")));
     } finally {
       setDeleting(null);
     }
@@ -123,11 +129,9 @@ export function CreatorContractsSection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Contrat</CardTitle>
+        <CardTitle>{tr("contrat")}</CardTitle>
         <CardDescription>
-          Le contrat signé pour ce projet, en PDF (20 Mo max). La créatrice le
-          retrouve dans son espace, onglet Profil. Un avenant s&apos;ajoute à la
-          liste — il ne remplace pas le précédent.
+          {tr("leContratSignePourCe")}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -160,7 +164,7 @@ export function CreatorContractsSection({
           />
           <UploadIcon className="size-5 text-slate-400" />
           <p className="text-sm text-slate-500">
-            Glisse le PDF ici, ou choisis-le.
+            {tr("glisseLePdfIciOu")}
           </p>
           <Button
             variant="outline"
@@ -170,7 +174,7 @@ export function CreatorContractsSection({
             data-testid="upload-contract"
           >
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            {busy ? "Dépôt en cours…" : "Déposer un contrat"}
+            {busy ? tr("depotEnCours") : tr("deposerUnContrat")}
           </Button>
         </div>
 
@@ -178,7 +182,7 @@ export function CreatorContractsSection({
           <Skeleton className="h-16 w-full" />
         ) : contracts.length === 0 ? (
           <p className="text-sm text-slate-400">
-            Aucun contrat déposé pour ce projet.
+            {tr("aucunContratDeposePourCe")}
           </p>
         ) : (
           <ul className="divide-y divide-slate-100">
@@ -204,12 +208,11 @@ export function CreatorContractsSection({
                       </a>
                     ) : (
                       <p className="truncate text-sm font-medium text-slate-400">
-                        {c.fileName} — fichier introuvable
+                        {tr("fichierIntrouvable", { fileName: c.fileName })}
                       </p>
                     )}
                     <p className="text-xs text-slate-400">
-                      Déposé le {formatDateFr(c.uploadedAt)} ·{" "}
-                      {formatSize(c.size)}
+                      {tr("deposeLe", { date: formatDateFr(c.uploadedAt, loc), value: formatSize(c.size) })}
                     </p>
                   </div>
                 </div>
@@ -219,7 +222,7 @@ export function CreatorContractsSection({
                   className="shrink-0 text-slate-400 hover:text-rose-600"
                   disabled={deleting === c._id}
                   onClick={() => void remove(c._id, c.fileName)}
-                  aria-label="Supprimer le contrat"
+                  aria-label={tr("supprimerLeContrat")}
                 >
                   {deleting === c._id ? (
                     <Loader2Icon className="size-4 animate-spin" />

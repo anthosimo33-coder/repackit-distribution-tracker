@@ -27,19 +27,18 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import {
   CREATOR_KINDS,
-  KIND_LABELS,
   type CreatorKind,
 } from "@/convex/roles";
 import { CopyableLink } from "./CopyableLink";
+import { useTranslations } from "next-intl";
 
 /** Une ligne d'explication par population — ce que la personne verra en se
  *  connectant. Vit ici (formulation UI), pas dans convex/roles (algèbre). */
-const KIND_HINTS: Record<CreatorKind, string> = {
-  partner:
-    "Publie sur ses propres comptes, avec ses missions et sa rémunération au CPM.",
-  talent: "Dépose ses rushes bruts depuis son téléphone. Ne voit aucun script.",
-  clipper:
-    "Déclare ses comptes, monte les rushes de ses talents, publie et colle le lien.",
+// Une clé par population : `admin.creators.kindHint.<population>`.
+const KIND_HINT_KEYS: Record<CreatorKind, string> = {
+  partner: "partner",
+  talent: "talent",
+  clipper: "clipper",
 };
 
 /**
@@ -59,6 +58,10 @@ export function InviteCreatorDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const tr = useTranslations("admin.creators.InviteCreatorDialog");
+  const tKind = useTranslations("admin.creators.kind");
+  const tHintNs = useTranslations("admin.creators.kindHint");
+  const tHint = (key: string) => tHintNs(key as Parameters<typeof tHintNs>[0]);
   const inviteCreator = useProjectMutation(api.creators.inviteCreator);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -95,9 +98,9 @@ export function InviteCreatorDialog({
         locale,
       });
       setToken(result.token);
-      toast.success(`${name.trim()} invité — ${KIND_LABELS[kind].singular}`);
+      toast.success(tr("invite", { value: name.trim(), singular: tKind(kind) }));
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -107,18 +110,18 @@ export function InviteCreatorDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Inviter un créateur</DialogTitle>
+          <DialogTitle>{tr("inviterUnCreateur")}</DialogTitle>
           <DialogDescription>
             {token === null
-              ? "Crée la fiche créateur et génère un lien d'activation."
-              : "Envoie ce lien au créateur. Il choisit son mot de passe et accède à son espace."}
+              ? tr("creeLaFicheCreateurEt")
+              : tr("envoieCeLienAuCreateur")}
           </DialogDescription>
         </DialogHeader>
 
         {token === null ? (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="creator-name">Nom *</Label>
+              <Label htmlFor="creator-name">{tr("nom")}</Label>
               <Input
                 id="creator-name"
                 required
@@ -128,7 +131,7 @@ export function InviteCreatorDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="creator-email">Email *</Label>
+              <Label htmlFor="creator-email">{tr("email")}</Label>
               <Input
                 id="creator-email"
                 type="email"
@@ -138,31 +141,33 @@ export function InviteCreatorDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Rôle *</Label>
+              <Label>{tr("role")}</Label>
               <Select
                 value={kind}
                 onValueChange={(v) => v !== null && setKind(v as CreatorKind)}
               >
-                <SelectTrigger aria-label="Rôle" className="w-full">
-                  <SelectValue>{KIND_LABELS[kind].singular}</SelectValue>
+                <SelectTrigger aria-label={tr("role2")} className="w-full">
+                  <SelectValue>{tKind(kind)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {CREATOR_KINDS.map((k) => (
                     <SelectItem key={k} value={k}>
-                      {KIND_LABELS[k].singular}
+                      {tKind(k)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-slate-500">{KIND_HINTS[kind]}</p>
+              <p className="text-xs text-slate-500">
+                {tHint(KIND_HINT_KEYS[kind])}
+              </p>
             </div>
             <div className="space-y-1.5">
-              <Label>Langue *</Label>
+              <Label>{tr("langue")}</Label>
               <Select
                 value={locale}
                 onValueChange={(v) => v !== null && setLocale(v as Locale)}
               >
-                <SelectTrigger aria-label="Langue" className="w-full">
+                <SelectTrigger aria-label={tr("langue2")} className="w-full">
                   <SelectValue>{LOCALE_LABELS[locale]}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -174,7 +179,7 @@ export function InviteCreatorDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-slate-500">
-                Langue de l&apos;e-mail d&apos;invitation et de son espace.
+                {tr("langueDeLEMail")}
               </p>
             </div>
             <DialogFooter>
@@ -184,28 +189,27 @@ export function InviteCreatorDialog({
                 onClick={() => handleOpenChange(false)}
                 disabled={submitting}
               >
-                Annuler
+                {tr("annuler")}
               </Button>
               <Button type="submit" disabled={submitting}>
                 {submitting && (
                   <Loader2Icon className="mr-2 size-4 animate-spin" />
                 )}
-                Inviter
+                {tr("inviter")}
               </Button>
             </DialogFooter>
           </form>
         ) : (
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Lien d&apos;activation</Label>
+              <Label>{tr("lienDActivation")}</Label>
               <CopyableLink token={token} />
               <p className="text-xs text-slate-500">
-                Valable 14 jours. Tu pourras le régénérer depuis la fiche du
-                créateur s&apos;il expire.
+                {tr("valable14JoursTuPourras")}
               </p>
             </div>
             <DialogFooter>
-              <Button onClick={() => handleOpenChange(false)}>Terminé</Button>
+              <Button onClick={() => handleOpenChange(false)}>{tr("termine")}</Button>
             </DialogFooter>
           </div>
         )}

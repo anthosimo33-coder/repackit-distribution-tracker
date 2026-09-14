@@ -1,1 +1,267 @@
-{}
+{
+  "ComptesPageInner": {
+    "comptes": "Comptes",
+    "personnes": "Personnes",
+    "icps": "ICPs",
+    "ajouterUnCompte": "Ajouter un compte",
+    "mesureDedoublee": "Mesure dédoublée",
+    "tousCreateurs": "Tous créateurs",
+    "interne": "Interne",
+    "aucunComptePourCeFiltre": "Aucun compte pour ce filtre.",
+    "plateforme": "Plateforme",
+    "etat": "État",
+    "createur": "Créateur",
+    "chauffeEnSouffrance": "{enSouffrance} {enSouffrance, plural, one {chauffe} other {chauffes}} en souffrance",
+    "checkDeWarmupAFaire": "{count} {count, plural, one {check} other {checks}} de warmup à faire aujourd'hui",
+    "etAutre": "… et {value} {value, plural, one {autre} other {autres}}",
+    "rechercherUnHandleUnCreateur": "Rechercher un handle, un créateur…",
+    "rechercherUnCompte": "Rechercher un compte",
+    "filtrerParCreateur": "Filtrer par créateur",
+    "filtrerParPlateforme": "Filtrer par plateforme",
+    "toutes": "Toutes",
+    "filtrerParStatut": "Filtrer par statut",
+    "tous": "Tous",
+    "grouperLesComptes": "Grouper les comptes",
+    "parCreateur": "Par créateur",
+    "handle": "Handle",
+    "vues": "Vues",
+    "posts": "Posts",
+    "dernierPost": "Dernier post",
+    "archive": "{archived} {archived, plural, one {archivé} other {archivés}}",
+    "vuesCumulees": "{value} vues cumulées",
+    "sansPublication": "{count} sans publication",
+    "collision": "— sur {plateforme}, {handles} {count, plural, one {existe en double} other {ne diffèrent que par la casse ou la ponctuation}}. Leurs vues sont les mêmes des deux côtés : ce total est compté deux fois. À réunir en un seul compte.",
+    "et": " et "
+  },
+  "LigneCompte": {
+    "jamaisPublie": "jamais publié",
+    "interne": "Interne",
+    "paysCible": "Pays ciblé",
+    "dernierCheck": "Dernier check {last}",
+    "aucunCheckPose": "Aucun check posé",
+    "compteActifQuiNA": "Compte actif qui n'a encore aucune publication",
+    "gestionnaire": "Gestionnaire"
+  },
+  "EnteteGroupe": {
+    "compte": "{effectif} {effectif, plural, one {compte} other {comptes}}",
+    "post": "{posts} {posts, plural, one {post} other {posts}}",
+    "vues": "{value} vues",
+    "partDesVuesDuProjet": "{pct} % des vues du projet"
+  },
+  "EmptyState": {
+    "aucunCompteAjouteTonPremier": "Aucun compte. Ajoute ton premier compte TikTok ou Instagram.",
+    "ajouterUnCompte": "Ajouter un compte"
+  },
+  "ComptesAValiderSection": {
+    "comptesAValider": "Comptes à valider",
+    "voirLeCompte": "Voir le compte",
+    "declareLe": "{clipperName} · déclaré le {date}",
+    "valider": "Valider",
+    "refuser": "Refuser",
+    "refuser2": "Refuser {handle}",
+    "leCompteEstArchiveEt": "Le compte est archivé et le motif conservé. Sans motif, on ne saura plus dans trois semaines pourquoi ce compte est mort.",
+    "motif": "Motif",
+    "annuler": "Annuler",
+    "refuserLeCompte": "Refuser le compte",
+    "lePseudoAnnonceLaMarque": "Le pseudo annonce la marque — à recréer sous un autre nom.",
+    "valideSonCompteurDePhase": "{handle} validé — son compteur de phase démarre.",
+    "validationImpossible": "Validation impossible.",
+    "refuse": "{handle} refusé.",
+    "refusImpossible": "Refus impossible."
+  },
+  "PersonnesManagerSection": {
+    "retourAuxComptes": "Retour aux comptes",
+    "personnes": "Personnes",
+    "gereLesGestionnairesAssignablesA": "Gère les gestionnaires assignables à tes comptes.",
+    "nouvellePersonne": "Nouvelle personne",
+    "aucunePersonne": "Aucune personne",
+    "creeTaPremierePersonnePour": "Crée ta première personne pour assigner des gestionnaires.",
+    "compte": "{compteCount} {compteCount, plural, one {compte} other {comptes}}",
+    "supprimer": "Supprimer {label} ?",
+    "annuler": "Annuler",
+    "supprimer2": "Supprimer",
+    "renommer": "Renommer {label}",
+    "supprimer3": "Supprimer {label}",
+    "actionIrreversibleLaPersonneSera": "Action irréversible. La personne sera supprimée.",
+    "personneSupprimeeCompteDesassigne": "Personne supprimée — {unset} {unset, plural, one {compte} other {comptes}} {unset, plural, one {désassigné} other {désassignés}}",
+    "personneSupprimee": "Personne supprimée",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "serontDesassignes": "seront désassignés",
+    "seraDesassigne": "sera désassigné",
+    "comptesDesassignes": "{count} {count, plural, one {compte sera désassigné} other {comptes seront désassignés}}. Action irréversible."
+  },
+  "AccountBioSection": {
+    "bioAMettre": "Bio à mettre",
+    "texteDeBioARecopier": "Texte de bio à recopier par le créateur",
+    "touteModificationRenotifieLeCreateur": "Toute modification renotifie le créateur : le compte repasse en « à appliquer » jusqu'à ce qu'il confirme.",
+    "enregistrerLaBio": "Enregistrer la bio",
+    "appliqueeLe": "Appliquée le {value}",
+    "appliquee": "Appliquée",
+    "enAttenteDApplication": "En attente d'application",
+    "bioAAfficherSurLe": "Bio à afficher sur le compte (lien, accroche, hashtags…)",
+    "modifieeLe": "Modifiée le {value}",
+    "aucuneBioDefiniePourL": "Aucune bio définie pour l'instant.",
+    "bioEnregistree": "Bio enregistrée",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "CompteCalendar": {
+    "publicationCeMoisCi": "{monthCount} {monthCount, plural, one {publication} other {publications}} ce mois-ci",
+    "moisPrecedent": "Mois précédent",
+    "moisSuivant": "Mois suivant"
+  },
+  "CalendarBadge": {
+    "enRetard": "En retard",
+    "enRetard2": "· En retard"
+  },
+  "CompteDetailHeader": {
+    "comptes": "Comptes",
+    "passerEnActif": "Passer en actif",
+    "creatrice": "Créatrice",
+    "gerePar": "Géré par",
+    "modifierLeCompte": "Modifier le compte",
+    "retourAuxComptes": "Retour aux comptes",
+    "paysCibleLabelInterneInformatif": "Pays ciblé (label interne, informatif)",
+    "compteInterne": "Compte interne"
+  },
+  "CompteFormatList": {
+    "aucunPourCeCompte": "Aucun {value} pour ce compte.",
+    "id": "ID",
+    "hook": "Hook",
+    "plateforme": "Plateforme",
+    "statut": "Statut",
+    "verdict": "Verdict",
+    "date": "Date",
+    "vues": "Vues",
+    "likes": "Likes"
+  },
+  "StatusBadge": {
+    "publie": "Publié",
+    "enRetard": "En retard",
+    "aVenir": "À venir"
+  },
+  "CompteStatsGrid": {
+    "detailParFormat": "Détail par format",
+    "publications": "Publications",
+    "vuesTotales": "Vues totales",
+    "likesTotaux": "Likes totaux"
+  },
+  "ManagedAccountAdminPanel": {
+    "compteGereParLEquipe": "Compte géré par l'équipe",
+    "lEquipeTientCeCompte": "L'équipe tient ce compte : coche le warmup ici, puis active-le. La créatrice le suit en lecture (scripts + posts + perfs) sans jamais publier.",
+    "jour": "Jour {day} / {targetDays}",
+    "warmupTermineActiveLeCompte": "Warmup terminé — active le compte",
+    "faitAujourdHui": "Fait aujourd'hui ✓",
+    "aCocherAujourdHui": "À cocher aujourd'hui",
+    "activerLeCompte": "Activer le compte",
+    "compteActifPretARecevoir": "Compte actif — prêt à recevoir des assignments (ils partiront direct « à publier »).",
+    "compteAucunWarmupACocher": "Compte {status}. Aucun warmup à cocher.",
+    "warmupDuJourFait": "Warmup du jour fait ✓",
+    "cocherLeWarmupDuJour": "Cocher le warmup du jour",
+    "checkDuJourValideEquipe": "Check du jour validé ✓ (équipe)",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "passeEnActif": "{handle} passé en actif"
+  },
+  "RestartWarmupButton": {
+    "relancerLeWarmup": "Relancer le warmup",
+    "relancerLeWarmupDeCe": "Relancer le warmup de ce compte ?",
+    "ilRepasseraEnEchauffementPour": "Il repassera en échauffement pour {days} jours et le créateur ne pourra plus y publier jusqu'à la fin du warmup. Les publications et assignments existants ne sont pas supprimés.",
+    "annuler": "Annuler",
+    "confirmer": "Confirmer",
+    "warmupRelanceEchauffementRepartiPour": "Warmup relancé — échauffement reparti pour {days} jours.",
+    "echecDeLaRelanceDu": "Échec de la relance du warmup"
+  },
+  "WarmupProtocolSection": {
+    "protocoleDeWarmup": "Protocole de warmup",
+    "passerEnActif": "Passer en actif",
+    "motsCles": "Mots-clés",
+    "aucunMotCle": "Aucun mot-clé.",
+    "ajouter": "Ajouter",
+    "instructionsMarkdown": "Instructions (markdown)",
+    "dureeCibleJours": "Durée cible (jours)",
+    "preRempliDepuisLaPlateforme": "Pré-rempli depuis la plateforme — surchargeable.",
+    "enregistrerLeProtocole": "Enregistrer le protocole",
+    "progression": "Progression",
+    "joursManques": "Jours manqués",
+    "dernierCheck": "Dernier check",
+    "retirer": "Retirer {k}",
+    "ajouterUnMotClePuis": "Ajouter un mot-clé puis Entrée",
+    "ajouterUnMotCle": "Ajouter un mot-clé",
+    "routineQuotidienneComptesASuivre": "Routine quotidienne, comptes à suivre, durée de visionnage…",
+    "laDureeCibleDoitEtre": "La durée cible doit être un entier entre 1 et 60.",
+    "protocoleEnregistre": "Protocole enregistré",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "passeEnActif": "{handle} passé en actif",
+    "jour": "Jour {day}/{targetDays}"
+  },
+  "IcpsManagerSection": {
+    "retourAuxComptes": "Retour aux comptes",
+    "icps": "ICPs",
+    "profilsDAudienceCibleAssignables": "Profils d'audience cible assignables à tes Shorts.",
+    "nouvelIcp": "Nouvel ICP",
+    "aucunIcp": "Aucun ICP",
+    "creeTonPremierIcpPour": "Crée ton premier ICP pour cibler tes Shorts.",
+    "short": "{shortsCount} {shortsCount, plural, one {Short} other {Shorts}}",
+    "supprimer": "Supprimer {nom} ?",
+    "annuler": "Annuler",
+    "supprimer2": "Supprimer",
+    "changerLaCouleurDe": "Changer la couleur de {nom}",
+    "couleur": "Couleur {label}",
+    "renommer": "Renommer {nom}",
+    "supprimer3": "Supprimer {nom}",
+    "actionIrreversibleLIcpSera": "Action irréversible. L'ICP sera supprimé.",
+    "couleurMiseAJour": "Couleur mise à jour",
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "icpSupprimeShortDesassigne": "ICP supprimé — {unset} {unset, plural, one {Short} other {Shorts}} {unset, plural, one {désassigné} other {désassignés}}",
+    "icpSupprime": "ICP supprimé",
+    "serontDesassignes": "seront désassignés",
+    "seraDesassigne": "sera désassigné",
+    "shortsDesassignes": "{count} {count, plural, one {Short sera désassigné} other {Shorts seront désassignés}}. Action irréversible."
+  },
+  "WarmupSettingsButton": {
+    "dureesDeWarmup": "Durées de warmup",
+    "dureesDeWarmupCeProjet": "Durées de warmup — ce projet",
+    "combienDeChecksAvantQu": "Combien de checks avant qu'un compte sorte de chauffe."
+  },
+  "WarmupSettingsCard": {
+    "dureeDeWarmupParPlateforme": "Durée de warmup, par plateforme",
+    "leNombreDeChecksA": "Le nombre de checks à poser avant qu'un compte de ce projet sorte de chauffe.",
+    "unePlateformeQueCeProjet": "une plateforme que ce projet n'utilise pas : elle prendra le défaut.",
+    "laisseVide": "Laisse vide",
+    "ceReglageNeChange": "Ce réglage ne change",
+    "lesComptesDejaEnWarmup": ". Les comptes déjà en warmup gardent la durée figée à leur démarrage.",
+    "queLesChauffesAVenir": "que les chauffes à venir",
+    "enregistrer": "Enregistrer",
+    "defaut": "défaut : {value}",
+    "nonDefiniJoursAppliques": "non défini — {value} jours appliqués",
+    "jours": "{value} jours",
+    "dureesDeWarmupEnregistrees": "Durées de warmup enregistrées",
+    "uneErreurEstSurvenue": "Une erreur est survenue."
+  },
+  "statusFilter": {
+    "all": "Tous",
+    "actif": "Actifs",
+    "warmup": "Warmup",
+    "shadowban": "Shadowban",
+    "archived": "Archivés"
+  },
+  "groupBy": {
+    "creator": "Par créateur",
+    "plateforme": "Par plateforme",
+    "none": "Sans regroupement"
+  },
+  "chauffe": {
+    "mesure": "{age} j, {checks} {checks, plural, one {check} other {checks}}",
+    "enSouffrance": "en souffrance · {mesure}",
+    "aValider": "à valider",
+    "progression": "J{day}/{target}"
+  },
+  "bioState": {
+    "none": "Aucune bio définie",
+    "pending": "En attente d'application",
+    "applied": "Appliquée"
+  },
+  "handleWarning": {
+    "product": "Ce pseudo contient « {mot} » : un compte qui annonce la marque se lit en une seconde, et le hook ne peut plus fonctionner.",
+    "talent": "Ce pseudo contient « {mot} », le nom d'un talent : le compte est rattachable à sa personne."
+  }
+}

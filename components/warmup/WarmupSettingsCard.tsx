@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon, TimerIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Durée de warmup DU PROJET, par plateforme.
@@ -29,15 +30,20 @@ import { convexErrorMessage } from "@/lib/convex-error";
  * NE TOUCHE PAS AUX CHAUFFES EN COURS : la durée est figée sur chaque compte à
  * son démarrage. C'est écrit à l'écran, pour qu'on ne l'attende pas en vain.
  */
+// i18n-exempt: noms de plateformes, identiques dans toutes les langues
 const PLATFORMS = [
+  // i18n-exempt: nom de plateforme
   { key: "tiktok", label: "TikTok" },
+  // i18n-exempt: nom de plateforme
   { key: "instagram", label: "Instagram" },
+  // i18n-exempt: nom de plateforme
   { key: "youtube", label: "YouTube" },
 ] as const;
 
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
 
 export function WarmupSettingsCard() {
+  const tr = useTranslations("admin.accounts.WarmupSettingsCard");
   const settings = useProjectQuery(api.projects.getWarmupSettings, {});
   const save = useProjectMutation(api.projects.setWarmupSettings);
   const [draft, setDraft] = useState<Record<PlatformKey, string> | null>(null);
@@ -70,9 +76,9 @@ export function WarmupSettingsCard() {
         youtube: parse(current.youtube),
       });
       setDraft(null);
-      toast.success("Durées de warmup enregistrées");
+      toast.success(tr("dureesDeWarmupEnregistrees"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -86,12 +92,10 @@ export function WarmupSettingsCard() {
         </span>
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-slate-900">
-            Durée de warmup, par plateforme
+            {tr("dureeDeWarmupParPlateforme")}
           </h2>
           <p className="text-xs text-slate-500">
-            Le nombre de checks à poser avant qu&apos;un compte de ce projet
-            sorte de chauffe. <strong>Laisse vide</strong> une plateforme que ce
-            projet n&apos;utilise pas : elle prendra le défaut.
+            {tr("leNombreDeChecksA")}{" "}<strong>{tr("laisseVide")}</strong>{" "}{tr("unePlateformeQueCeProjet")}
           </p>
         </div>
       </div>
@@ -106,7 +110,7 @@ export function WarmupSettingsCard() {
               <Input
                 id={`warmup-${key}`}
                 inputMode="numeric"
-                placeholder={`défaut : ${settings.effective[key]}`}
+                placeholder={tr("defaut", { value: settings.effective[key] })}
                 value={raw}
                 aria-invalid={bad}
                 onChange={(e) =>
@@ -115,8 +119,8 @@ export function WarmupSettingsCard() {
               />
               <p className="text-xs text-slate-400">
                 {raw.trim() === ""
-                  ? `non défini — ${settings.effective[key]} jours appliqués`
-                  : `${raw.trim()} jours`}
+                  ? tr("nonDefiniJoursAppliques", { value: settings.effective[key] })
+                  : tr("jours", { value: raw.trim() })}
               </p>
             </div>
           );
@@ -124,14 +128,13 @@ export function WarmupSettingsCard() {
       </div>
 
       <p className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
-        Ce réglage ne change <strong>que les chauffes à venir</strong>. Les
-        comptes déjà en warmup gardent la durée figée à leur démarrage.
+        {tr("ceReglageNeChange")}{" "}<strong>{tr("queLesChauffesAVenir")}</strong>{tr("lesComptesDejaEnWarmup")}
       </p>
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={saving || invalid || draft === null}>
           {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          Enregistrer
+          {tr("enregistrer")}
         </Button>
       </div>
     </div>

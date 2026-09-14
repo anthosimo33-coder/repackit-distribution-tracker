@@ -21,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 /**
  * Lie UN OU PLUSIEURS dossiers d'assets à un assignment (multi-select). Le
@@ -40,6 +41,7 @@ export function LinkAssetFolderDialog({
   currentFolderIds: Id<"assetFolders">[];
   creatorName: string;
 }) {
+  const tr = useTranslations("admin.assignments.LinkAssetFolderDialog");
   const folders = useProjectQuery(
     api.assets.listAssetFolders,
     open ? {} : "skip",
@@ -74,8 +76,8 @@ export function LinkAssetFolderDialog({
       });
       toast.success(
         selected.size === 0
-          ? "Dossiers déliés."
-          : `${selected.size} dossier${selected.size > 1 ? "s" : ""} lié${selected.size > 1 ? "s" : ""}.`,
+          ? tr("dossiersDelies")
+          : tr("dossierLie", { size: selected.size }),
       );
       onOpenChange(false);
     } catch (e) {
@@ -89,10 +91,9 @@ export function LinkAssetFolderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Dossiers d&apos;assets — {creatorName}</DialogTitle>
+          <DialogTitle>{tr("dossiersDAssets", { creatorName: creatorName })}</DialogTitle>
           <DialogDescription>
-            Lie un ou plusieurs dossiers à cet assignment. Le créateur pourra
-            télécharger leurs fichiers depuis son brief.
+            {tr("lieUnOuPlusieursDossiers")}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,7 +101,7 @@ export function LinkAssetFolderDialog({
           <Skeleton className="h-32 w-full" />
         ) : folders.length === 0 ? (
           <p className="py-6 text-center text-sm text-slate-400">
-            Aucun dossier d&apos;assets — crées-en un dans Assets.
+            {tr("aucunDossierDAssetsCrees")}
           </p>
         ) : (
           <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
@@ -117,7 +118,7 @@ export function LinkAssetFolderDialog({
                   {f.name}
                 </span>
                 <span className="shrink-0 text-xs text-slate-400">
-                  {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
+                  {tr("fichier", { assetCount: f.assetCount })}
                 </span>
               </label>
             ))}
@@ -130,11 +131,11 @@ export function LinkAssetFolderDialog({
             onClick={() => onOpenChange(false)}
             disabled={busy}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={onSave} disabled={busy}>
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Enregistrer
+            {tr("enregistrer")}
           </Button>
         </DialogFooter>
       </DialogContent>

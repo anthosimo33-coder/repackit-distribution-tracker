@@ -26,6 +26,7 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import type { Plateforme } from "@/lib/compte-status";
+import { useTranslations } from "next-intl";
 
 /**
  * Compte GÉRÉ PAR L'ÉQUIPE — l'admin déclare un compte social pour une créatrice
@@ -43,6 +44,7 @@ export function ManagedCompteDialog({
   onOpenChange: (o: boolean) => void;
   creatorId: Id<"creators">;
 }) {
+  const tr = useTranslations("admin.creators.ManagedCompteDialog");
   const declareManaged = useProjectMutation(api.comptes.declareManagedCompte);
   const [plateforme, setPlateforme] = useState<Plateforme>("TikTok");
   const [handle, setHandle] = useState("");
@@ -62,7 +64,7 @@ export function ManagedCompteDialog({
   async function submit() {
     const trimmed = handle.trim();
     if (!trimmed || trimmed === "@") {
-      toast.error("Handle requis.");
+      toast.error(tr("handleRequis"));
       return;
     }
     setSubmitting(true);
@@ -73,10 +75,10 @@ export function ManagedCompteDialog({
         handle: trimmed,
         url: url.trim() || undefined,
       });
-      toast.success(`Compte géré ${trimmed} créé sur ${plateforme}`);
+      toast.success(tr("compteGereCreeSur", { trimmed: trimmed, plateforme: plateforme }));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -86,22 +88,20 @@ export function ManagedCompteDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Créer un compte géré par l&apos;équipe</DialogTitle>
+          <DialogTitle>{tr("creerUnCompteGerePar")}</DialogTitle>
           <DialogDescription>
-            Compte tenu par l&apos;équipe (warmup, publication, lien) et rattaché
-            à cette créatrice : elle voit les scripts, les posts publiés et leurs
-            performances, sans rien publier elle-même.
+            {tr("compteTenuParLEquipe")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Plateforme</Label>
+            <Label>{tr("plateforme")}</Label>
             <Select
               value={plateforme}
               onValueChange={(v) => v !== null && setPlateforme(v as Plateforme)}
             >
-              <SelectTrigger aria-label="Plateforme">
+              <SelectTrigger aria-label={tr("plateforme")}>
                 <SelectValue>{plateforme}</SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -115,19 +115,19 @@ export function ManagedCompteDialog({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="managed-handle">Handle</Label>
+            <Label htmlFor="managed-handle">{tr("handle")}</Label>
             <Input
               id="managed-handle"
-              placeholder="@compte_pro"
+              placeholder={tr("handlePlaceholder")}
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
             />
             <p className="text-xs text-slate-500">
-              Le @ est ajouté automatiquement si tu l&apos;oublies.
+              {tr("leEstAjouteAutomatiquementSi")}
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="managed-url">URL du compte (optionnel)</Label>
+            <Label htmlFor="managed-url">{tr("urlDuCompteOptionnel")}</Label>
             <Input
               id="managed-url"
               placeholder="https://www.tiktok.com/@compte_pro"
@@ -143,11 +143,11 @@ export function ManagedCompteDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={submit} disabled={submitting}>
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Créer le compte géré
+            {tr("creerLeCompteGere")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -16,6 +16,7 @@ import {
   accountUrlCheck,
   type UrlPlateforme,
 } from "@/lib/post-url-account";
+import { useTranslations } from "next-intl";
 
 /** Plateforme attendue par la mutation de publication (dérivée → toujours en phase). */
 type Plateforme =
@@ -45,29 +46,29 @@ function AccountCheckLine({
   platform: Plateforme;
   expected: string | null;
 }) {
+  const tr = useTranslations("admin.assignments.AccountCheckLine");
   if (url.trim() === "") return null;
   const check = accountUrlCheck(url, platform as UrlPlateforme, expected);
   if (check.status === "match") {
     return (
       <p className="text-xs text-emerald-600">
-        ✓ Compte cohérent (@{check.detected})
+        {tr("compteCoherent", { detected: check.detected ?? "" })}
       </p>
     );
   }
   if (check.status === "mismatch") {
     return (
       <p className="text-xs font-medium text-amber-700">
-        ⚠️ L&apos;URL pointe vers @{check.detected}, pas {expected ? `@${expected}` : "le compte attendu"} — vérifie
-        avant de publier.
+        {tr("lUrlPointeVersPas", { detected: check.detected ?? "" })}{" "}{expected ? `@${expected}` : tr("leCompteAttendu")}{" "}{tr("verifieAvantDePublier")}
       </p>
     );
   }
   // unverifiable — EXPLICITE (un silence se lirait comme une validation).
   const why =
     check.reason === "shortlink"
-      ? "Lien raccourci — compte non vérifiable ici."
+      ? tr("lienRaccourciCompteNonVerifiable")
       : check.reason === "no-handle-in-url"
-        ? "Compte non présent dans l'URL — non vérifiable."
+        ? tr("compteNonPresentDansL")
         : null;
   return why ? <p className="text-xs text-slate-500">{why}</p> : null;
 }
@@ -99,6 +100,7 @@ export function AdminPublishForm({
   buttonTestId?: string;
   onPublished?: () => void;
 }) {
+  const tr = useTranslations("admin.assignments.AdminPublishForm");
   const publish = useProjectMutation(api.assignments.confirmPublicationAsAdmin);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const today = todayLocal();
@@ -113,7 +115,7 @@ export function AdminPublishForm({
       url: (urls[t.platform] ?? "").trim(),
     }));
     if (payload.some((u) => u.url.length === 0)) {
-      toast.error("Colle l'URL du post pour chaque plateforme.");
+      toast.error(tr("colleLUrlDuPost"));
       return;
     }
     // Date réelle envoyée UNIQUEMENT si antérieure à aujourd'hui (correction). Le
@@ -130,12 +132,12 @@ export function AdminPublishForm({
         ...(publishedAt !== undefined ? { publishedAt } : {}),
         ...(allowBackdate ? { allowBackdate: true } : {}),
       });
-      toast.success("Publié — la créatrice voit le post et ses performances.");
+      toast.success(tr("publieLaCreatriceVoitLe"));
       setUrls({});
       setBackdate(null);
       onPublished?.();
     } catch (e) {
-      const msg = convexErrorMessage(e, "Échec de la publication");
+      const msg = convexErrorMessage(e, tr("echecDeLaPublication"));
       // Date antérieure à la création : ce n'est pas une saisie fautive, c'est une
       // RÉGULARISATION (post publié hors de l'app). On montre les deux horodatages
       // rendus par le serveur et on laisse l'admin trancher — jamais un mur.
@@ -150,8 +152,7 @@ export function AdminPublishForm({
     <div className="space-y-3">
       {!managed && (
         <p className="text-xs text-slate-500">
-          Normalement la créatrice colle le lien depuis son espace. En secours, tu
-          peux le coller ici — même effet (publié, suivi des vues).
+          {tr("normalementLaCreatriceColleLe")}
         </p>
       )}
       {notReady && (
@@ -159,8 +160,7 @@ export function AdminPublishForm({
           className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-700"
           data-testid="admin-publish-not-ready"
         >
-          ⚠️ Cette vidéo n&apos;est pas marquée comme prête. Saisir le lien la
-          passera directement en <strong>publiée</strong>.
+          {tr("cetteVideoNEstPas")}{" "}<strong>{tr("publiee")}</strong>.
         </p>
       )}
       <div className="space-y-2">
@@ -198,7 +198,7 @@ export function AdminPublishForm({
       </div>
       <div className="space-y-1">
         <Label htmlFor={`admin-date-${assignmentId}`} className="text-xs">
-          Date de publication réelle
+          {tr("dateDePublicationReelle")}
         </Label>
         <Input
           id={`admin-date-${assignmentId}`}
@@ -211,8 +211,7 @@ export function AdminPublishForm({
           }}
         />
         <p className="text-xs text-slate-500">
-          Par défaut aujourd&apos;hui. Corrige-la si le post a été publié avant
-          (l&apos;ancre de paie suit la date réelle, pas la saisie).
+          {tr("parDefautAujourdHuiCorrige")}
         </p>
       </div>
       {backdate && (
@@ -222,8 +221,7 @@ export function AdminPublishForm({
         >
           <p className="font-medium">⚠️ {backdate}</p>
           <p>
-            Normal si tu régularises un post publié hors de l&apos;app. La date
-            réelle sera conservée telle quelle.
+            {tr("normalSiTuRegularisesUn")}
           </p>
           <Button
             type="button"
@@ -233,7 +231,7 @@ export function AdminPublishForm({
             onClick={() => void onPublish(true)}
             data-testid="admin-publish-backdate-confirm"
           >
-            Publier quand même à cette date
+            {tr("publierQuandMemeACette")}
           </Button>
         </div>
       )}
@@ -248,7 +246,7 @@ export function AdminPublishForm({
         ) : (
           <SendIcon className="mr-2 size-4" />
         )}
-        {managed ? "Publier (coller le lien)" : "Publier à la place de la créatrice"}
+        {managed ? tr("publierCollerLeLien") : tr("publierALaPlaceDe")}
       </Button>
     </div>
   );

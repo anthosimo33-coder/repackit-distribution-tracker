@@ -39,6 +39,7 @@ import {
   type AssignmentStatus,
 } from "@/lib/assignment-status";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 type AssignmentRow =
   FunctionReturnType<typeof api.assignments.listAssignments>[number];
@@ -110,6 +111,7 @@ export function AssignmentMobileList({
   actions: AssignmentRowActions;
   expanded?: boolean;
 }) {
+  const tr = useTranslations("admin.assignments.AssignmentMobileList");
   const groups = useMemo(() => {
     const out: { creatorId: string; creatorName: string; rows: AssignmentRow[] }[] =
       [];
@@ -174,7 +176,7 @@ export function AssignmentMobileList({
               </span>
               {late > 0 && (
                 <span className="shrink-0 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
-                  {late} en retard
+                  {tr("enRetard", { late: late })}
                 </span>
               )}
               <span className="shrink-0 text-xs text-slate-500">
@@ -203,7 +205,7 @@ export function AssignmentMobileList({
                         })
                       }
                     >
-                      Voir les {rest} restantes
+                      {tr("voirLesRestantes", { rest: rest })}
                     </Button>
                   </li>
                 )}
@@ -232,6 +234,7 @@ function AssignmentCard({
   now: number;
   actions: AssignmentRowActions;
 }) {
+  const tr = useTranslations("admin.assignments.AssignmentCard");
   const tLabel = useLabel();
   const status = row.status as AssignmentStatus;
   const st = ASSIGNMENT_STATUS[status];
@@ -274,7 +277,7 @@ function AssignmentCard({
           {row.comboImposed && (
             <span
               className="size-1.5 shrink-0 rounded-full bg-indigo-500"
-              title="Combinaison imposée"
+              title={tr("combinaisonImposee")}
               aria-hidden
             />
           )}
@@ -304,7 +307,7 @@ function AssignmentCard({
             )}
           >
             {formatDay(row.dueDate)}
-            {overdue && " en retard"}
+            {overdue && ` ${tr("enRetard")}`}
           </span>
           {row.postDate != null && (
             <span className="inline-flex shrink-0 items-center gap-0.5 tabular-nums text-slate-500">
@@ -335,7 +338,7 @@ function AssignmentCard({
           className="size-9 shrink-0 text-rose-600 hover:bg-rose-100"
           onClick={() => actions.onNudge(row._id, row.creatorName)}
           disabled={nudging}
-          aria-label="Relancer"
+          aria-label={tr("relancer")}
           data-testid={`nudge-${row._id}`}
         >
           {nudging ? (
@@ -379,6 +382,7 @@ export function AssignmentRowMenu({
   hasScript: boolean;
   variant?: "full" | "row";
 }) {
+  const tr = useTranslations("admin.assignments.AssignmentRowMenu");
   const deletable = canDeleteAssignment(row.status as AssignmentStatus);
   const modelCount = row.modelVideos?.length ?? 0;
   const withBriefItems = variant === "full";
@@ -391,7 +395,7 @@ export function AssignmentRowMenu({
             variant="ghost"
             size="icon"
             className="size-9 shrink-0 text-slate-500"
-            aria-label="Actions"
+            aria-label={tr("actions")}
           >
             <MoreHorizontalIcon className="size-4" />
           </Button>
@@ -400,17 +404,17 @@ export function AssignmentRowMenu({
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuItem onClick={() => actions.onDetail(row._id)}>
           <PanelRightOpenIcon className="size-4" />
-          Ouvrir le détail
+          {tr("ouvrirLeDetail")}
         </DropdownMenuItem>
         {withBriefItems && hasScript && (
           <DropdownMenuItem onClick={() => actions.onScript(row._id)}>
             <FileTextIcon className="size-4" />
-            Voir le script
+            {tr("voirLeScript")}
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => actions.onPostDate(row._id)}>
           <CalendarIcon className="size-4" />
-          Date de publication
+          {tr("dateDePublication")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {hasScript &&
@@ -418,11 +422,11 @@ export function AssignmentRowMenu({
             <>
               <DropdownMenuItem onClick={() => actions.onEditCombo(row._id)}>
                 <PencilIcon className="size-4" />
-                Modifier le combo
+                {tr("modifierLeCombo")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => actions.onEditText(row._id)}>
                 <TypeIcon className="size-4" />
-                Éditer le texte
+                {tr("editerLeTexte")}
               </DropdownMenuItem>
             </>
           ) : (
@@ -430,27 +434,27 @@ export function AssignmentRowMenu({
             // les entrées : une absence muette se lit comme un bug.
             <DropdownMenuItem disabled>
               <LockIcon className="size-4" />
-              Script publié — verrouillé
+              {tr("scriptPublieVerrouille")}
             </DropdownMenuItem>
           ))}
         {withBriefItems && (
           <>
             <DropdownMenuItem onClick={() => actions.onModelVideos(row._id)}>
               <ClapperboardIcon className="size-4" />
-              Vidéos modèles{modelCount > 0 ? ` (${modelCount})` : ""}
+              {tr("videosModeles")}{modelCount > 0 ? ` (${modelCount})` : ""}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => actions.onAssets(row._id)}>
               <ImagesIcon className="size-4" />
-              Dossiers d&apos;assets
+              {tr("dossiersDAssets")}
               {row.linkedFolderIds.length > 0 ? ` (${row.assetFolderCount})` : ""}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => actions.onOverlay(row._id)}>
               <TypeIcon className="size-4" />
-              Texte overlay{row.overlayText ? " ·" : ""}
+              {tr("texteOverlay")}{row.overlayText ? " ·" : ""}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => actions.onInstructions(row._id)}>
               <ClipboardListIcon className="size-4" />
-              Instructions{row.instructions ? " ·" : ""}
+              {tr("instructions")}{row.instructions ? " ·" : ""}
             </DropdownMenuItem>
           </>
         )}
@@ -461,7 +465,7 @@ export function AssignmentRowMenu({
           onClick={() => deletable && actions.onDelete(row._id)}
         >
           <Trash2Icon className="size-4" />
-          {deletable ? "Supprimer" : "Suppression indisponible"}
+          {deletable ? tr("supprimer") : tr("suppressionIndisponible")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

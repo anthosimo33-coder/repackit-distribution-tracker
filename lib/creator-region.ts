@@ -40,18 +40,17 @@ export type RegionKey = (typeof REGION_KEYS)[number];
  */
 export const REGION_ORDER: RegionKey[] = [...REGION_KEYS];
 
-// i18n-exempt: libellés d'un écran ADMIN (non traduit) — même régime que
-// lib/timezone-choices.ts, dont ce module est le prolongement.
-export const REGION_LABELS: Record<RegionKey, string> = {
-  europe: "Europe",
-  us: "États-Unis",
-  canada: "Canada",
-  latam: "Amérique latine",
-  africa: "Afrique",
-  asia: "Asie",
-  oceania: "Océanie",
-  other: "Autre fuseau",
-  unknown: "Fuseau non renseigné",
+/** Clés de libellé des régions : `admin.creators.region.<clé>`. */
+export const REGION_LABEL_KEYS: Record<RegionKey, string> = {
+  europe: "europe",
+  us: "us",
+  canada: "canada",
+  latam: "latam",
+  africa: "africa",
+  asia: "asia",
+  oceania: "oceania",
+  other: "other",
+  unknown: "unknown",
 };
 
 /** Index zone → région, construit depuis la liste du sélecteur admin. */
@@ -143,9 +142,8 @@ export function creatorRegion(
  * Un fuseau hors liste rend son dernier segment lisible (`America/Santiago` →
  * « Santiago ») plutôt que l'identifiant entier.
  */
-export function shortZoneLabel(zone: string): string {
-  const known = TIMEZONE_CHOICES.find((c) => c.zone === zone);
-  if (known) return known.label.replace(/\s*[—(].*$/, "").trim();
+export function shortZoneLabel(zone: string, label?: string): string {
+  if (label !== undefined) return label.replace(/\s*[—(].*$/, "").trim();
   const last = zone.split("/").pop() ?? zone;
   return last.replace(/_/g, " ");
 }
