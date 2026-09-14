@@ -10,8 +10,8 @@
  *   - sa collecte échoue                     → on ne sait pas, et on sait pourquoi.
  *
  * Le 2026-08-31, sept publications Snytch cumulaient 78 476 vues réelles en
- * étant affichées « 0 vue » — et rémunérées comme telles. Le repli maison
- * (cf `convex/tiktokFallback.ts`) en récupère la plupart ; ce module traite ce
+ * étant affichées « 0 vue » — et rémunérées comme telles. Le relevé par page publique
+ * (cf `convex/tiktokInternal.ts`) en récupère la plupart ; ce module traite ce
  * qui restera toujours : ce qu'aucune collecte ne pourra lire, comme un post
  * réglé « visible par son autrice uniquement ».
  *

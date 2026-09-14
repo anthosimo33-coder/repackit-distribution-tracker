@@ -11,6 +11,8 @@
  * action qui appelle une API payante.
  */
 
+import { PAY_WINDOW_DAYS } from "./payWindow";
+
 const DAY_MS = 86_400_000;
 
 /** Heure PARIS du relevé nocturne (cf `convex/crons.ts`). */
@@ -41,7 +43,10 @@ export const ACTIVE_ACCOUNT_WINDOW_DAYS = 30;
  */
 export const MANUAL_SYNC_GUARD_MS = 2 * 60 * 60 * 1000;
 
-/** Taille d'un lot = `MAX_URLS_PER_RUN` d'apifyApi : 1 lot = 1 run = 1 facture. */
+/**
+ * Taille d'un lot. Instagram : `MAX_URLS_PER_RUN` d'apifyApi, 1 lot = 1 run
+ * facturé. TikTok : 25 pages publiques lues d'affilée, puis une pause.
+ */
 export const MAX_URLS_PER_LOT = 25;
 
 /**
@@ -111,6 +116,91 @@ export function selectNightlyPublications<T extends ScopedPublication>(
   const actifs = activeComptes(pubs, now);
   const frais = freshlySyncedComptes(pubs, now);
   return pubs.filter((p) => actifs.has(p.compte) && !frais.has(p.compte));
+}
+
+/**
+ * Jusqu'à cet âge INCLUS, une vidéo TikTok/Instagram est relevée chaque nuit.
+ * C'est la période où elle prend l'essentiel de ses vues, et celle que lisent
+ * les colonnes J+1 à J+14 et le quadrant (fenêtre de 14 jours).
+ */
+export const DAILY_RESYNC_MAX_AGE_DAYS = 14;
+
+/**
+ * Au-delà de 14 jours : un relevé par SEMAINE — 45 % des posts relevés chaque
+ * nuit avaient plus de 14 jours le 2026-09-12, pour des vues qui ne bougent
+ * presque plus.
+ *
+ * ⚠️ 7 j MOINS 6 h, pas 7 j pile. `lastSyncAt` est l'heure de la CAPTURE (entre
+ * 23h30 et ~00h30 Paris selon la longueur de la chaîne), `now` celle du
+ * DÉMARRAGE du run : sept nuits plus tard, l'écart vaut 7 j moins quelques
+ * minutes, et une borne à 7 j pile repousserait chaque vieille vidéo à la
+ * huitième nuit. Six nuits restent sous la borne (6 j < 6 j 18 h).
+ *
+ * La cadence se lit sur le DERNIER RELEVÉ, pas sur l'âge modulo 7 : une nuit
+ * ratée (crédit épuisé, TikTok qui refuse) est rattrapée dès la nuit suivante
+ * au lieu d'attendre la semaine d'après.
+ */
+export const WEEKLY_RESYNC_MS = 7 * DAY_MS - 6 * 60 * 60 * 1000;
+
+/**
+ * Âges relevés quelle que soit la cadence : la veille et le jour de clôture de
+ * la fenêtre de PAIE (`PAY_WINDOW_DAYS`).
+ *
+ * La paie retient les vues du DERNIER relevé dont `daysSincePublication ≤ 30`
+ * (cf `convex/payWindow.ts`). En hebdomadaire seul, ce dernier relevé pourrait
+ * tomber à J+24 : six jours de vues perdus pour la créatrice. Deux jours et non
+ * un : un relevé capturé après minuit Paris est horodaté J+31 et sort de la
+ * fenêtre — celui de J+29 garde alors l'assiette à un jour près.
+ */
+export const PAY_WINDOW_CLOSING_AGES: readonly number[] = [
+  PAY_WINDOW_DAYS - 1,
+  PAY_WINDOW_DAYS,
+];
+
+/** Âge d'une publication en jours entiers au moment `now`. */
+export function ageInDays(datePubli: number, now: number): number {
+  return Math.floor((now - datePubli) / DAY_MS);
+}
+
+/** Pourquoi une publication est relevée cette nuit — ou pas. */
+export type ResyncReason =
+  | "recent"
+  | "pay-window-closing"
+  | "challenge"
+  | "never-synced"
+  | "weekly"
+  | "not-due";
+
+/**
+ * Cadence d'UNE publication TikTok/Instagram. YouTube n'est pas concerné : son
+ * API est gratuite, rien ne justifie de relever moins souvent.
+ *
+ * `liveChallengePubs` : publications rattachées à un défi ACTIF. Un défi se
+ * joue au relevé (« la première à franchir ») — relever ses vidéos une fois par
+ * semaine fausserait le départage, quel que soit leur âge.
+ */
+export function resyncReason(
+  p: ScopedPublication & { _id: string },
+  now: number,
+  liveChallengePubs: ReadonlySet<string>,
+): ResyncReason {
+  const age = ageInDays(p.datePubli, now);
+  if (age <= DAILY_RESYNC_MAX_AGE_DAYS) return "recent";
+  if (PAY_WINDOW_CLOSING_AGES.includes(age)) return "pay-window-closing";
+  if (liveChallengePubs.has(p._id)) return "challenge";
+  if (p.lastSyncAt === undefined) return "never-synced";
+  return now - p.lastSyncAt >= WEEKLY_RESYNC_MS ? "weekly" : "not-due";
+}
+
+/** Publications à relever cette nuit selon leur cadence (ordre conservé). */
+export function selectDueTonight<T extends ScopedPublication & { _id: string }>(
+  pubs: readonly T[],
+  now: number,
+  liveChallengePubs: ReadonlySet<string>,
+): T[] {
+  return pubs.filter(
+    (p) => resyncReason(p, now, liveChallengePubs) !== "not-due",
+  );
 }
 
 /**

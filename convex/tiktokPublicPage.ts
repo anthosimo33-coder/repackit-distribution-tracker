@@ -1,6 +1,7 @@
 /**
- * REPLI MAISON — lecture des compteurs d'un post TikTok dans le payload PUBLIC
- * de sa page, quand l'actor Apify déclare le post indisponible.
+ * RELEVÉ MAISON — lecture des compteurs d'un post TikTok dans le payload PUBLIC
+ * de sa page. Source PRINCIPALE du relevé TikTok depuis le 2026-09-14 (cf
+ * `convex/tiktokInternal.ts`) ; Apify n'est plus appelé qu'en secours.
  *
  * ── Pourquoi ce module existe ────────────────────────────────────────────────
  * `clockworks/tiktok-scraper` rend `POST_NOT_FOUND_OR_PRIVATE` sur des posts
@@ -10,11 +11,11 @@
  * et que la paie les rémunérait sur zéro (cf `convex/pricing.ts`). Le run A/B
  * a éliminé la forme de l'URL : l'échec est dans l'actor, pas dans nos données.
  *
- * ⚠️ CE MODULE NE REMPLACE PAS APIFY, ET NE DOIT PAS LE FAIRE. Il ne se
- * déclenche que sur les posts qu'Apify ABANDONNE. Ce qu'on paie chez Apify,
- * c'est la rotation de proxys ; ce repli marche parce qu'il est RARE. Le
- * généraliser aux ~220 posts de chaque nuit, depuis une IP unique, c'est le
- * motif qui fait blacklister — donc c'est le casser.
+ * ── Pourquoi il est devenu la source principale ──────────────────────────────
+ * Apify coûtait ~1,85 $ par nuit (0,0037 $ par post TikTok) et le plan gratuit
+ * s'épuisait en trois nuits. Ce module tournait déjà en prod depuis les
+ * serveurs Convex (jusqu'à 60 pages par nuit) sans blocage constaté. La
+ * cadence, le coupe-circuit et le secours Apify vivent dans `tiktokInternal`.
  *
  * ── La forme du payload, relevée sur la prod ─────────────────────────────────
  *   <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" …>{ __DEFAULT_SCOPE__: {
@@ -34,7 +35,7 @@
  * helper que le relevé Apify, qui rejette aussi les négatifs.
  */
 
-import { toCount } from "./apifyItem";
+import { toCount, hasAnyCount, type AuthorProfile } from "./apifyItem";
 
 /** Compteurs d'un post, tels que la page publique les porte. */
 export type TikTokPublicStats = {
@@ -48,6 +49,13 @@ export type TikTokPublicStats = {
   title: string | null;
   /** `author.uniqueId`, pour contrôler qu'on lit bien le bon post. */
   authorHandle: string | null;
+  /**
+   * Compteurs du COMPTE (`authorStats`) et photo (`author.avatarLarger`),
+   * servis sur la même page — même forme que le profil lu chez Apify, pour que
+   * l'abandon d'Apify ne coupe ni les abonnés ni les photos de profil. `null`
+   * quand la page ne porte ni compteur ni photo.
+   */
+  author: AuthorProfile | null;
 };
 
 export type TikTokPublicResult =
@@ -69,12 +77,31 @@ export type TikTokPublicResult =
  */
 export const SELF_SEE_STATUS_CODE = 10204;
 
+/**
+ * `10231 / cross_border_violation` — TikTok ne sert pas ce post hors de sa
+ * région. Constaté le 2026-09-14 sur 3 publications, depuis la France comme
+ * depuis Convex : c'est le post qui est restreint, pas notre IP qui est bloquée.
+ */
+export const CROSS_BORDER_STATUS_CODE = 10231;
+
 /** Libellé humain d'un refus, pour l'écran et le journal. */
 export function refusalLabel(statusCode: number, statusMsg: string): string {
-  if (statusCode === SELF_SEE_STATUS_CODE || statusMsg.includes("status_self_see")) {
+  // Le MESSAGE d'abord : TikTok sert le même 10204 pour « visible par son
+  // autrice », « supprimé » et « n'existe pas » (relevé le 2026-09-14 sur 416
+  // posts). Lire le code seul peignait un post supprimé « visible par son
+  // autrice uniquement ».
+  if (statusMsg.includes("delete") || statusMsg.includes("doesn't exist")) {
+    return "supprimé";
+  }
+  if (statusMsg.includes("status_self_see")) {
     return "visible par son autrice uniquement";
   }
-  if (statusMsg.includes("delete")) return "supprimé";
+  if (statusMsg.includes("cross_border")) {
+    return "bloqué hors de sa région par TikTok";
+  }
+  // Message absent ou inconnu : le code, en dernier recours.
+  if (statusCode === SELF_SEE_STATUS_CODE) return "visible par son autrice uniquement";
+  if (statusCode === CROSS_BORDER_STATUS_CODE) return "bloqué hors de sa région par TikTok";
   return `refusé par TikTok (${statusCode})`;
 }
 
@@ -86,6 +113,19 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+/**
+ * Photo de profil : la plus grande servie. URL SIGNÉE du CDN TikTok, qui expire
+ * — elle ne sert qu'à aller chercher le blob (cf convex/compteAvatar.ts).
+ */
+function avatarOf(author: Record<string, unknown>): string | null {
+  for (const c of [author.avatarLarger, author.avatarMedium, author.avatarThumb]) {
+    if (typeof c !== "string") continue;
+    const url = c.trim();
+    if (url.startsWith("https://")) return url;
+  }
+  return null;
 }
 
 /**
@@ -146,6 +186,19 @@ export function parseTikTokPublicPage(
   }
   const desc = typeof item.desc === "string" ? item.desc.trim() : "";
   const author = asRecord(item.author);
+  const authorStats = asRecord(item.authorStats);
+  const handle =
+    typeof author.uniqueId === "string" && author.uniqueId.length > 0
+      ? author.uniqueId
+      : null;
+  const profil: AuthorProfile = {
+    handle,
+    followers: toCount(authorStats.followerCount),
+    following: toCount(authorStats.followingCount),
+    // `heartCount` d'abord : `heart` est l'ancien nom, encore servi en double.
+    totalLikes: toCount(authorStats.heartCount ?? authorStats.heart),
+    avatarUrl: avatarOf(author),
+  };
 
   return {
     kind: "stats",
@@ -156,10 +209,9 @@ export function parseTikTokPublicPage(
       saves: toCount(stats.collectCount),
       shares: toCount(stats.shareCount),
       title: desc.length > 0 ? desc : null,
-      authorHandle:
-        typeof author.uniqueId === "string" && author.uniqueId.length > 0
-          ? author.uniqueId
-          : null,
+      authorHandle: handle,
+      author:
+        hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
     },
   };
 }
@@ -176,6 +228,9 @@ const BROWSER_HEADERS: Record<string, string> = {
   "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
   Accept: "text/html,application/xhtml+xml",
 };
+
+/** Délai maximal d'une page avant de la tenir pour illisible. */
+export const PAGE_TIMEOUT_MS = 20_000;
 
 /**
  * Va chercher la page du post et en lit les compteurs.
@@ -197,7 +252,12 @@ export async function fetchTikTokPublicStats(
   const clean = postUrl.split("?")[0];
   let res: Response;
   try {
-    res = await fetchImpl(clean, { headers: BROWSER_HEADERS });
+    // Borne dure : une page qui ne répond pas ne doit pas geler le lot entier
+    // (et avec lui la durée maximale de l'action Convex).
+    res = await fetchImpl(clean, {
+      headers: BROWSER_HEADERS,
+      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+    });
   } catch (e) {
     return { kind: "unreadable", reason: `réseau : ${String(e).slice(0, 120)}` };
   }

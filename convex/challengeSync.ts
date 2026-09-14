@@ -1,4 +1,4 @@
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import {
   permissionMutation,
@@ -6,6 +6,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
+  challengeAssignments,
   challengeWinsOf,
   computeChallengeRanking,
   freezeFinalRanking,
@@ -54,6 +55,32 @@ export const runChallengeEvaluation = internalAction({
     return ctx.runMutation(internal.challengeSync.evaluateChallenges, {
       at: at ?? Date.now(),
     });
+  },
+});
+
+/**
+ * Publications rattachées à un défi ACTIF — le relevé nocturne les relève
+ * chaque nuit quel que soit leur âge (cf `convex/syncScope.ts`). Un défi se
+ * départage au relevé : une vidéo relevée une fois par semaine y serait
+ * désavantagée. Même périmètre que `evaluateChallenges` (statut `active`).
+ */
+export const listLiveChallengePublicationIds = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<string[]> => {
+    const actives = await ctx.db
+      .query("challenges")
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+    const ids = new Set<string>();
+    for (const c of actives) {
+      for (const a of await challengeAssignments(ctx, c._id)) {
+        for (const t of a.targets ?? []) {
+          if (t.publicationId) ids.add(t.publicationId);
+        }
+        if (a.publicationId) ids.add(a.publicationId);
+      }
+    }
+    return [...ids];
   },
 });
 
