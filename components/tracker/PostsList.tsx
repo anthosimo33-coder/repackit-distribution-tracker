@@ -17,7 +17,7 @@ import {
 import { PlatformBadge } from "@/components/VerdictBadge";
 import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 import { formatNumber, formatPercent, formatDate } from "@/lib/format";
-import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
+import type { FormatKey } from "@/lib/format-config";
 import { engagementRate } from "@/lib/tracker-data";
 import type {
   QuadrantQualification,
@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 /**
  * Table PRÉSENTATIONNELLE des posts publiés (vues/likes/comments/engagement +
@@ -186,6 +187,7 @@ export function PostsList({
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.PostsList");
+  const fmt = useFormatLabels();
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <Table>
@@ -255,7 +257,7 @@ export function PostsList({
                     <span>{p.creatorName ?? tr("sansCreateur")}</span>
                     <span aria-hidden>·</span>
                     <span>
-                      {p.formatName ?? FORMAT_CONFIGS[p.mediaType].singular}
+                      {p.formatName ?? fmt.singular(p.mediaType)}
                     </span>
                     <span aria-hidden>·</span>
                     <span className="whitespace-nowrap">

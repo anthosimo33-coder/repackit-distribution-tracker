@@ -115,6 +115,15 @@ describe("groupComptes — axe créateur", () => {
   });
 });
 
+describe("groupComptes — le groupe sans propriétaire", () => {
+  it("porte le libellé passé par l'écran, dans la langue du lecteur", () => {
+    const g = groupComptes(PARC, "creator", "handle", "asc", undefined, "Internal");
+    expect(g.map((x) => x.titre)).toContain("Internal");
+    // Présence en regard : le libellé français par défaut a bien disparu.
+    expect(g.map((x) => x.titre)).not.toContain("Interne");
+  });
+});
+
 describe("groupComptes — l'ordre suit le tri demandé", () => {
   it("repasse en alphabétique sur le tri par handle", () => {
     const g = groupComptes(PARC, "creator", "handle", "asc");

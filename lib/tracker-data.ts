@@ -306,6 +306,8 @@ export function shapeCampaignRows(
    * même arbitrage, une seule implémentation.
    */
   noneLabel: string = CAMPAIGN_NONE_LABEL,
+  /** « Autres » dans la langue du lecteur. */
+  othersLabel: string = CAMPAIGN_OTHERS_LABEL,
 ): CategoryAggregate[] {
   const horsCampagne = rows.filter((r) => r.label === noneLabel);
   const nommees = rows.filter((r) => r.label !== noneLabel && r.vues > 0);
@@ -315,7 +317,7 @@ export function shapeCampaignRows(
   const reste = nommees.slice(topN);
   const autres: CategoryAggregate = {
     key: "__autres__",
-    label: `${CAMPAIGN_OTHERS_LABEL} (${reste.length})`,
+    label: `${othersLabel} (${reste.length})`,
     vues: reste.reduce((s, r) => s + r.vues, 0),
     likes: reste.reduce((s, r) => s + r.likes, 0),
     comments: reste.reduce((s, r) => s + r.comments, 0),

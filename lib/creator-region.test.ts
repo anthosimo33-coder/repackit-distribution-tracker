@@ -121,6 +121,13 @@ describe("localTimeIn", () => {
     expect(localTimeIn("America/Sao_Paulo", t)).toBe("09:00");
   });
 
+  it("suit la langue du lecteur : 24 h en français, AM/PM en anglais", () => {
+    const t = Date.parse("2026-09-08T12:00:00Z");
+    expect(localTimeIn("Europe/Paris", t, "en")).toMatch(/^0?2:00\sPM$/);
+    // Présence en regard : sans langue, le repli reste l'horloge française.
+    expect(localTimeIn("Europe/Paris", t)).toBe("14:00");
+  });
+
   it("rend null sur un fuseau illisible, jamais l'heure de l'équipe", () => {
     expect(localTimeIn("Pas/Un_Fuseau")).toBeNull();
   });

@@ -40,12 +40,13 @@ import {
 } from "@/lib/assignment-status";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type AssignmentRow =
   FunctionReturnType<typeof api.assignments.listAssignments>[number];
 
-const formatDay = (ts: number) =>
-  new Date(ts).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+const formatDay = (ts: number, locale: string) =>
+  new Date(ts).toLocaleDateString(locale, { day: "2-digit", month: "2-digit" });
 
 /**
  * Au-delà de ce nombre de livrables, les groupes s'ouvrent FERMÉS. En dessous,
@@ -234,6 +235,7 @@ function AssignmentCard({
   now: number;
   actions: AssignmentRowActions;
 }) {
+  const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentCard");
   const tLabel = useLabel();
   const status = row.status as AssignmentStatus;
@@ -306,13 +308,13 @@ function AssignmentCard({
               overdue ? "font-semibold text-rose-700" : "text-slate-500",
             )}
           >
-            {formatDay(row.dueDate)}
+            {formatDay(row.dueDate, loc)}
             {overdue && ` ${tr("enRetard")}`}
           </span>
           {row.postDate != null && (
             <span className="inline-flex shrink-0 items-center gap-0.5 tabular-nums text-slate-500">
               <CalendarIcon className="size-3" />
-              {formatDay(row.postDate)}
+              {formatDay(row.postDate, loc)}
             </span>
           )}
           {target && (

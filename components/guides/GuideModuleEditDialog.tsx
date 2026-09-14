@@ -90,9 +90,6 @@ export function GuideModuleEditDialog({
   );
 }
 
-const MARKDOWN_HINT =
-  "Markdown : # Titre, ## Sous-titre, **gras**, *italique*, `code`, - liste, 1. liste numérotée, [lien](https://…). Une ligne vide sépare les paragraphes.";
-
 function GuideModuleEditForm({
   mode,
   initialModule,
@@ -199,7 +196,7 @@ function GuideModuleEditForm({
             onChange={(e) => setContent(e.target.value)}
             className="font-mono text-xs"
           />
-          <p className="text-xs text-slate-400">{MARKDOWN_HINT}</p>
+          <p className="text-xs text-slate-400">{tr("markdownHint")}</p>
         </div>
         <div className="min-w-0 space-y-1.5">
           <Label>{tr("apercuCreateur")}</Label>

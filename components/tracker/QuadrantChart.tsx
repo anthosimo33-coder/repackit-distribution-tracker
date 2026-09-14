@@ -56,6 +56,7 @@ import {
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { TrackerPost } from "./PostsList";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Carte « Vues × Intent ».
@@ -125,6 +126,7 @@ export function QuadrantChart({
   hiddenWarmupDates: readonly number[] | null;
   onSelectPost: (id: Id<"publications">) => void;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("tracker.quadrant");
   const [periodDays, setPeriodDays] = useState<QuadrantPeriodDays>(
     DEFAULT_QUADRANT_PERIOD_DAYS,
@@ -205,8 +207,8 @@ export function QuadrantChart({
             <p className="max-w-2xl text-xs text-slate-500">
               {t("subtitle", {
                 multiplier: DISTRIBUTION_MULTIPLIER,
-                minViews: formatNumber(MIN_SAMPLE_VIEWS),
-                saveRate: formatPercent(INTENT_SAVE_RATE, 1),
+                minViews: formatNumber(MIN_SAMPLE_VIEWS, loc),
+                saveRate: formatPercent(INTENT_SAVE_RATE, 1, loc),
               })}
             </p>
           </div>
@@ -281,7 +283,7 @@ export function QuadrantChart({
                 }}
               >
                 {t("threshold.y", {
-                  saveRate: formatPercent(INTENT_SAVE_RATE, 1),
+                  saveRate: formatPercent(INTENT_SAVE_RATE, 1, loc),
                 })}
               </span>
 
@@ -307,7 +309,7 @@ export function QuadrantChart({
                   className="absolute -translate-x-1/2 text-[10px] text-slate-400"
                   style={{ left: `${tick.pos * 100}%` }}
                 >
-                  {`×${String(tick.value).replace(".", ",")}`}
+                  {`×${formatNumber(tick.value, loc)}`}
                 </span>
               ))}
             </div>
@@ -479,6 +481,7 @@ function Point({
   ) => void;
   onSelect: () => void;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("tracker.quadrant");
   const style = datum.quadrant ? ZONE_STYLE[datum.quadrant] : null;
 
@@ -494,8 +497,8 @@ function Point({
       aria-label={t("point.aria", {
         label: datum.label.length > 0 ? datum.label : t("tooltip.noLabel"),
         compte: datum.compte,
-        vues: formatNumber(datum.vues),
-        saves: formatNumber(datum.saves),
+        vues: formatNumber(datum.vues, loc),
+        saves: formatNumber(datum.saves, loc),
       })}
       // L'infobulle SUIT le curseur tant qu'il reste sur le point : sur une
       // cible de 12 px, l'écart entre le bord et le centre suffit à décaler la
@@ -562,6 +565,7 @@ function PointTip({
   anchorY: number;
   boundsRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const loc = useIntlLocale();
   const t = useTranslations("tracker.quadrant");
   const ref = useRef<HTMLDivElement>(null);
 
@@ -610,22 +614,22 @@ function PointTip({
       </p>
       <p className="truncate text-slate-500">
         {datum.creatorName ?? t("tooltip.noCreator")} · {datum.compte} ·{" "}
-        {formatDate(datum.datePubli)}
+        {formatDate(datum.datePubli, loc)}
       </p>
       <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-slate-600">
         <dt>{t("tooltip.views")}</dt>
-        <dd className="text-right tabular-nums">{formatNumber(datum.vues)}</dd>
+        <dd className="text-right tabular-nums">{formatNumber(datum.vues, loc)}</dd>
         <dt>{t("tooltip.saves")}</dt>
-        <dd className="text-right tabular-nums">{formatNumber(datum.saves)}</dd>
+        <dd className="text-right tabular-nums">{formatNumber(datum.saves, loc)}</dd>
         <dt>{t("tooltip.saveRate")}</dt>
         <dd className="text-right tabular-nums">
-          {formatPercent(datum.scoreIntent, 2)}
+          {formatPercent(datum.scoreIntent, 2, loc)}
         </dd>
         <dt>{t("tooltip.distribution")}</dt>
         <dd className="text-right tabular-nums">
           {t("tooltip.distributionValue", {
-            score: datum.x.toFixed(1).replace(".", ","),
-            baseline: formatNumber(datum.baselineViews),
+            score: formatNumber(Math.round(datum.x * 10) / 10, loc),
+            baseline: formatNumber(datum.baselineViews, loc),
           })}
         </dd>
       </dl>
@@ -682,6 +686,7 @@ function PeriodSelect({
  * et un bouton ne s'accroche pas à du `<text>` SVG.
  */
 function AxisCaptions() {
+  const loc = useIntlLocale();
   const t = useTranslations("tracker.quadrant");
   const captions = [
     {
@@ -695,7 +700,7 @@ function AxisCaptions() {
     {
       caption: t("axisY"),
       sujet: t("info.subjectY"),
-      body: t("info.axisY", { saveRate: formatPercent(INTENT_SAVE_RATE, 1) }),
+      body: t("info.axisY", { saveRate: formatPercent(INTENT_SAVE_RATE, 1, loc) }),
     },
   ];
   return (

@@ -59,7 +59,7 @@ export function DayDetailSheet({
         data-testid="day-detail-sheet"
       >
         <SheetHeader className="border-b border-slate-100 p-4">
-          <SheetTitle>{day === null ? "" : jourLisible(day)}</SheetTitle>
+          <SheetTitle>{day === null ? "" : jourLisible(day, loc)}</SheetTitle>
           <SheetDescription>
             {detail === undefined
               ? tr("chargement")
@@ -97,7 +97,7 @@ export function DayDetailSheet({
                           r.creatorName,
                           r.market === null
                             ? tr("sansMarche")
-                            : marcheLisible(r.market),
+                            : marcheLisible(r.market, loc),
                         ]
                           .filter(Boolean)
                           .join(" · ")}
@@ -122,9 +122,9 @@ export function DayDetailSheet({
 }
 
 /** « 2026-09-01 » → « mardi 1 septembre 2026 ». */
-function jourLisible(iso: string): string {
+function jourLisible(iso: string, locale: string): string {
   const [y, m, d] = iso.split("-").map(Number);
-  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("fr-FR", {
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(locale, {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -137,6 +137,6 @@ function jourLisible(iso: string): string {
  * Un marché composé porte déjà son nom ; un code pays doit être traduit. On les
  * distingue par la longueur : les codes ISO font deux lettres.
  */
-function marcheLisible(market: string): string {
-  return market.length === 2 ? isoCountryLabel(market) : market;
+function marcheLisible(market: string, locale: string): string {
+  return market.length === 2 ? isoCountryLabel(market, locale) : market;
 }

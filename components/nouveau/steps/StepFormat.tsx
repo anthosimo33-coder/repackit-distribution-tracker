@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { NouveauAction } from "../useNouveauState";
 import { useTranslations } from "next-intl";
+import { useFormatLabels } from "@/lib/use-format-labels";
 
 /**
  * StepFormat — étape 1 du modal. 3 cards cliquables (Carrousel / Short /
@@ -29,6 +30,7 @@ export function StepFormat({
   onChosen: () => void;
 }) {
   const tr = useTranslations("admin.common.StepFormat");
+  const fmt = useFormatLabels();
   const formatKeys: FormatKey[] = ["carousel", "short", "screenrecorder"];
 
   return (
@@ -78,10 +80,10 @@ export function StepFormat({
                   </div>
                   <div>
                     <div className="text-base font-semibold text-slate-900">
-                      {config.singular}
+                      {fmt.singular(key)}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      {config.cardDescription}
+                      {fmt.description(key)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-1">

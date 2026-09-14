@@ -739,7 +739,7 @@ function Recent48h({
               </span>
               <AccountStateBadge state={state} />
               <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-500">
-                {tr("postJVues", { count: g.posts.length, value: (g.posts.length / 2).toFixed(1).replace(".", ","), count2: formatNumber(vues48, loc) })}{" "}
+                {tr("postJVues", { count: g.posts.length, value: formatNumber(Math.round((g.posts.length / 2) * 10) / 10, loc), count2: formatNumber(vues48, loc) })}{" "}
                 {followers !== null ? (
                   <span className={followers >= 0 ? "text-emerald-700" : "text-rose-700"}>
                     {followers >= 0 ? "+" : ""}

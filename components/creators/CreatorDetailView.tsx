@@ -202,7 +202,7 @@ export function CreatorDetailView({
   // Heure qu'il est CHEZ ELLE. Figée au rendu (pas de minuterie) : sur une fiche
   // qu'on ouvre pour la modifier, une horloge qui bat n'apporte rien.
   const heureLocale = zoneInfo?.timezone
-    ? localTimeIn(zoneInfo.timezone)
+    ? localTimeIn(zoneInfo.timezone, undefined, loc)
     : null;
   // Rien de stocké : le champ dit « non défini » ET ce qui sert en attendant.
   // Sans ça, le sélecteur affiche « Non défini » pendant que la pastille dit

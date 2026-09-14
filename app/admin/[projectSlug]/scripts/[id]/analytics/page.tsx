@@ -41,11 +41,12 @@ import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type Window = "j3" | "j7" | "j14" | "j30";
-const WINDOWS: { key: Window; label: string }[] = [
-  { key: "j3", label: "J+3" },
-  { key: "j7", label: "J+7" },
-  { key: "j14", label: "J+14" },
-  { key: "j30", label: "J+30" },
+// Libellé « J+3 » / « D+3 » : `admin.common.dayOffset`.
+const WINDOWS: { key: Window; days: number }[] = [
+  { key: "j3", days: 3 },
+  { key: "j7", days: 7 },
+  { key: "j14", days: 14 },
+  { key: "j30", days: 30 },
 ];
 
 type BrickPerf = FunctionReturnType<typeof api.scriptAnalytics.perfByBrick>[number];
@@ -68,6 +69,7 @@ const DIMENSION_LABEL_KEY: Record<string, string> = {
 
 export default function ScriptAnalyticsPage() {
   const tr = useTranslations("admin.scripts.ScriptAnalyticsPage");
+  const tDay = useTranslations("admin.common");
   const params = useParams<{ id: string }>();
   const campaignId = params.id as Id<"scriptCampaigns">;
   const projectPath = useProjectPath();
@@ -91,7 +93,9 @@ export default function ScriptAnalyticsPage() {
     bricks === undefined ||
     combos === undefined ||
     decisions === undefined;
-  const windowLabel = WINDOWS.find((w) => w.key === window)?.label ?? "";
+  const windowDays = WINDOWS.find((w) => w.key === window)?.days;
+  const windowLabel =
+    windowDays === undefined ? "" : tDay("dayOffset", { days: windowDays });
 
   return (
     <div className="space-y-6">
@@ -167,6 +171,7 @@ function WindowSelector({
   onChange: (w: Window) => void;
 }) {
   const tr = useTranslations("admin.scripts.WindowSelector");
+  const tDay = useTranslations("admin.common");
   return (
     <div
       className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5"
@@ -186,7 +191,7 @@ function WindowSelector({
               : "text-slate-500 hover:text-slate-900",
           )}
         >
-          {w.label}
+          {tDay("dayOffset", { days: w.days })}
         </button>
       ))}
     </div>
@@ -203,15 +208,21 @@ const VERDICT_ORDER: Record<string, number> = {
 };
 
 /** Écart signé en % (ex. "+30 %", "−40 %"), aligné sur le moteur. */
-function signedPct(fraction: number): string {
+function signedPct(fraction: number, locale: string): string {
   const sign = fraction >= 0 ? "+" : "−";
-  return `${sign}${Math.round(Math.abs(fraction) * 100)} %`;
+  // L'espace avant « % » est une règle typographique FRANÇAISE.
+  const pct = locale.startsWith("fr") ? " %" : "%";
+  return `${sign}${Math.round(Math.abs(fraction) * 100)}${pct}`;
 }
 
 /** Ratio médiane/pairs (ex. "×2,3"), null si non calculable. */
-function ratioText(median: number | null, peerMedian: number | null): string | null {
+function ratioText(
+  median: number | null,
+  peerMedian: number | null,
+  locale: string,
+): string | null {
   if (median === null || peerMedian === null || peerMedian <= 0) return null;
-  return `×${(median / peerMedian).toFixed(1).replace(".", ",")}`;
+  return `×${formatNumber(Math.round((median / peerMedian) * 10) / 10, locale)}`;
 }
 
 function VerdictBadge({ verdict }: { verdict: BrickDecision["verdict"] }) {
@@ -254,9 +265,10 @@ function VerdictBadge({ verdict }: { verdict: BrickDecision["verdict"] }) {
  */
 function useDecisionHeadline() {
   const t = useTranslations("admin.scripts.decision");
+  const loc = useIntlLocale();
   return (d: BrickDecision): string => {
-    const r = ratioText(d.viewsMedian, d.peerMedian);
-    const ecart = d.deltaVsPeerMedian !== null ? signedPct(d.deltaVsPeerMedian) : "";
+    const r = ratioText(d.viewsMedian, d.peerMedian, loc);
+    const ecart = d.deltaVsPeerMedian !== null ? signedPct(d.deltaVsPeerMedian, loc) : "";
     switch (d.verdict) {
       case "a_pousser":
         return t("aPousser", {
@@ -418,7 +430,7 @@ function StrongSignalsBlock({ signals }: { signals: StrongSignal[] }) {
                 {s.label}
               </p>
               <p className="text-xs text-slate-500">
-                {tr("laMedianeDeCampagnePosts", { value: s.multipleOfGlobal.toFixed(1).replace(".", ","), postCount: s.postCount })}
+                {tr("laMedianeDeCampagnePosts", { value: formatNumber(Math.round(s.multipleOfGlobal * 10) / 10, loc), postCount: s.postCount })}
               </p>
             </div>
             <span className="shrink-0 tabular-nums text-sm font-semibold text-slate-900">

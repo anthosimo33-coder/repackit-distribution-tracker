@@ -29,11 +29,11 @@ import {
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
+import { formatBytes } from "@/lib/snytch-drive";
 
-/** Taille lisible — un contrat pèse quelques centaines de Ko, jamais un Go. */
-function formatSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} Mo`;
+/** Taille lisible — « 340 Ko » / « 340 KB », selon la langue du lecteur. */
+function formatSize(bytes: number, locale: string): string {
+  return formatBytes(Math.max(bytes, 1024), locale);
 }
 
 /**
@@ -213,7 +213,7 @@ export function CreatorContractsSection({
                       </p>
                     )}
                     <p className="text-xs text-slate-400">
-                      {tr("deposeLe", { date: formatDateFr(c.uploadedAt, loc), value: formatSize(c.size) })}
+                      {tr("deposeLe", { date: formatDateFr(c.uploadedAt, loc), value: formatSize(c.size, loc) })}
                     </p>
                   </div>
                 </div>

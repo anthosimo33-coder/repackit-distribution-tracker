@@ -31,7 +31,11 @@
     "vuesCumulees": "{value} total views",
     "sansPublication": "{count} with no post",
     "collision": "— on {plateforme}, {handles} {count, plural, one {exists twice} other {differ only by case or punctuation}}. Their views are the same on both sides: this total is counted twice. To merge into a single account.",
-    "et": " and "
+    "et": " and ",
+    "chargement": "Loading…",
+    "actifs": "{count} active",
+    "enWarmup": "{count} in warm-up",
+    "enShadowban": "{count} shadowbanned"
   },
   "LigneCompte": {
     "jamaisPublie": "never published",
@@ -46,7 +50,8 @@
     "compte": "{effectif} {effectif, plural, one {account} other {accounts}}",
     "post": "{posts} {posts, plural, one {post} other {posts}}",
     "vues": "{value} views",
-    "partDesVuesDuProjet": "{pct}% of the project's views"
+    "partDesVuesDuProjet": "{pct}% of the project's views",
+    "pctPart": "{pct}%"
   },
   "EmptyState": {
     "aucunCompteAjouteTonPremier": "No account. Add your first TikTok or Instagram account.",

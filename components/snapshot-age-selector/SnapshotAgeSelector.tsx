@@ -6,17 +6,21 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 
-const LABELS: Record<SnapshotAge, string> = {
-  j1: "J+1",
-  j3: "J+3",
-  j7: "J+7",
-  j14: "J+14",
-  j30: "J+30",
-  j60: "J+60",
-  j90: "J+90",
-  latest: "Latest",
-  custom: "Custom",
-};
+/**
+ * Libellé d'une période. « J+7 » est une convention FRANÇAISE (jour) : en
+ * anglais c'est « D+7 ». Le nombre se lit dans la clé (`j7` → 7), la forme vit
+ * dans le catalogue.
+ */
+function useAgeLabel(): (age: SnapshotAge) => string {
+  const tDay = useTranslations("admin.common");
+  const tr = useTranslations("admin.common.SnapshotAgeSelector");
+  return (age) =>
+    age === "latest"
+      ? tr("latest")
+      : age === "custom"
+        ? tr("custom")
+        : tDay("dayOffset", { days: Number(age.slice(1)) });
+}
 
 const ORDER: readonly SnapshotAge[] = [...FIXED_AGES, "latest", "custom"];
 
@@ -27,6 +31,7 @@ const ORDER: readonly SnapshotAge[] = [...FIXED_AGES, "latest", "custom"];
  */
 export function SnapshotAgeSelector({ compact = false }: { compact?: boolean }) {
   const tr = useTranslations("admin.common.SnapshotAgeSelector");
+  const label = useAgeLabel();
   const { age, customDay, setAge, setCustomDay } = useSnapshotAge();
 
   return (
@@ -54,7 +59,7 @@ export function SnapshotAgeSelector({ compact = false }: { compact?: boolean }) 
                 : "text-slate-600 hover:text-slate-900",
             )}
           >
-            {LABELS[opt]}
+            {label(opt)}
           </button>
         ))}
       </div>
