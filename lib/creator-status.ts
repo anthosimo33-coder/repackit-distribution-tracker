@@ -18,43 +18,45 @@ export const CREATOR_STATUS_ORDER: CreatorStatus[] = [
   "churned",
 ];
 
-const META: Record<CreatorStatus, { label: string; className: string }> = {
+/** Clés de libellé (`admin.creators.status.<clé>`) + habillage de la pastille. */
+const META: Record<CreatorStatus, { key: CreatorStatus; className: string }> = {
   invited: {
-    label: "Invité",
+    key: "invited",
     className: "border-amber-200 bg-amber-50 text-amber-700",
   },
   onboarding: {
-    label: "Onboarding",
+    key: "onboarding",
     className: "border-sky-200 bg-sky-50 text-sky-700",
   },
   active: {
-    label: "Actif",
+    key: "active",
     className: "border-emerald-200 bg-emerald-50 text-emerald-700",
   },
   paused: {
-    label: "En pause",
+    key: "paused",
     className: "border-slate-200 bg-slate-50 text-slate-600",
   },
   churned: {
-    label: "Parti",
+    key: "churned",
     className: "border-rose-200 bg-rose-50 text-rose-700",
   },
 };
 
-export function creatorStatusLabel(status: CreatorStatus): string {
-  return META[status].label;
+export function creatorStatusKey(status: CreatorStatus): CreatorStatus {
+  return META[status].key;
 }
 
 export function creatorStatusBadge(status: CreatorStatus): {
-  label: string;
+  key: CreatorStatus;
   className: string;
 } {
   return META[status];
 }
 
-export const PAYMENT_METHOD_LABELS: Record<string, string> = {
-  sepa: "Virement SEPA",
-  paypal: "PayPal",
-  usdt: "USDT",
-  autre: "Autre",
+/** Clés de libellé des moyens de paiement : `admin.creators.paymentMethod.<clé>`. */
+export const PAYMENT_METHOD_KEYS: Record<string, string> = {
+  sepa: "sepa",
+  paypal: "paypal",
+  usdt: "usdt",
+  autre: "autre",
 };

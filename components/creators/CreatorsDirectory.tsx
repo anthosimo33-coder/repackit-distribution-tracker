@@ -52,20 +52,22 @@ import { cn } from "@/lib/utils";
 import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/locales";
 import {
   CREATOR_KINDS,
-  KIND_LABELS,
   resolveCreatorKind,
   type CreatorKind,
 } from "@/convex/roles";
 import {
-  REGION_LABELS,
+  REGION_LABEL_KEYS,
   REGION_ORDER,
   creatorRegion,
   localTimeIn,
   shortZoneLabel,
   type RegionKey,
 } from "@/lib/creator-region";
+import { zoneLabelKey } from "@/lib/timezone-choices";
 import { joinUrl } from "./CopyableLink";
 import { CycleLeaderStrip } from "./CycleLeaderStrip";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * ANNUAIRE DES CRÉATRICES — recherche, filtres, regroupement, liste.
@@ -109,24 +111,12 @@ type Axe = (typeof AXES)[number];
 const GROUPES = ["region", "status", "locale", "kind", "none"] as const;
 type Groupe = (typeof GROUPES)[number];
 
-const GROUPE_LABELS: Record<Groupe, string> = {
-  region: "Région",
-  status: "Statut",
-  locale: "Langue",
-  kind: "Population",
-  none: "Rien",
-};
+// Libellés : `admin.creators.groupBy.<valeur>`.
 
 const TRIS = ["recent", "name", "gains", "lastPost", "publications"] as const;
 type Tri = (typeof TRIS)[number];
 
-const TRI_LABELS: Record<Tri, string> = {
-  recent: "Ajout le plus récent",
-  name: "Nom (A → Z)",
-  gains: "Gains du cycle",
-  lastPost: "Dernier post",
-  publications: "Publications",
-};
+// Libellés : `admin.creators.sortBy.<valeur>`.
 
 /** Valeur de chaque axe pour une ligne — la seule définition, filtres et groupes. */
 const VALEUR_AXE: Record<Axe, (l: Ligne) => string> = {
@@ -193,6 +183,17 @@ export function CreatorsDirectory({
   onInvite: () => void;
   onDelete: (cible: { id: Id<"creators">; name: string }) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.creators.CreatorsDirectory");
+  const tRegionNs = useTranslations("admin.creators.region");
+  const tStatus = useTranslations("admin.creators.status");
+  const tKindPluralNs = useTranslations("admin.creators.kindPlural");
+  const tKindPlural = (key: string) => tKindPluralNs(key as Parameters<typeof tKindPluralNs>[0]);
+  const tRegion = (key: string) => tRegionNs(key as Parameters<typeof tRegionNs>[0]);
+  const tGroup = useTranslations("admin.creators.CreatorsDirectory.groupBy");
+  const tSort = useTranslations("admin.creators.CreatorsDirectory.sortBy");
+  const tKind = useTranslations("admin.creators.kind");
+  const tKindShort = useTranslations("admin.creators.kindShort");
   const droits = usePermissions();
   const projectPath = useProjectPath();
   const projectSlug = useProjectSlug();
@@ -248,6 +249,7 @@ export function CreatorsDirectory({
       try {
         const brut: unknown = JSON.parse(f);
         if (brut && typeof brut === "object") {
+          // i18n-exempt: génériques TypeScript (`new Set<string>()`), pas du texte
           const prochain = { kind: new Set<string>(), locale: new Set<string>(), region: new Set<string>(), status: new Set<string>() };
           for (const a of AXES) {
             const vals = (brut as Record<string, unknown>)[a];
@@ -439,7 +441,11 @@ export function CreatorsDirectory({
     ];
     return clefs.map((k) => ({
       clef: k,
-      titre: titreGroupe(groupe, k),
+      titre: titreGroupe(groupe, k, {
+        region: tRegion,
+        status: (key) => tStatus(key as CreatorStatus),
+        kind: (key) => tKindPlural(key as CreatorKind),
+      }),
       lignes: parClef.get(k)!,
     }));
   }, [visibles, groupe, tri]);
@@ -471,10 +477,10 @@ export function CreatorsDirectory({
         selectionnees.map((l) => l.email).join(", "),
       );
       toast.success(
-        `${selectionnees.length} e-mail${selectionnees.length > 1 ? "s" : ""} copié${selectionnees.length > 1 ? "s" : ""}`,
+        tr("eMailCopie", { count: selectionnees.length }),
       );
     } catch {
-      toast.error("Copie impossible");
+      toast.error(tr("copieImpossible"));
     }
   }
 
@@ -493,23 +499,23 @@ export function CreatorsDirectory({
       "Fuseau",
       "Comptes",
       "Publications",
-      "Dernier post",
-      "Ajoute le",
+      tr("dernierPost"),
+      tr("ajouteLe"),
     ];
     const echappe = (v: string) => `"${v.replace(/"/g, '""')}"`;
     const corps = selectionnees.map((l) =>
       [
         l.name,
         l.email,
-        KIND_LABELS[resolveCreatorKind(l.kind)].singular,
-        creatorStatusBadge(l.status).label,
+        tKind(resolveCreatorKind(l.kind)),
+        tStatus(creatorStatusBadge(l.status).key),
         LOCALE_LABELS[l.locale as Locale] ?? l.locale,
-        REGION_LABELS[l.region],
+        tRegion(REGION_LABEL_KEYS[l.region]),
         l.activite.zone ?? "",
         String(l.activite.comptes),
         String(l.activite.publications),
-        l.activite.lastPostAt ? formatDateFr(l.activite.lastPostAt) : "",
-        formatDateFr(l.createdAt),
+        l.activite.lastPostAt ? formatDateFr(l.activite.lastPostAt, loc) : "",
+        formatDateFr(l.createdAt, loc),
       ]
         .map(echappe)
         .join(";"),
@@ -529,9 +535,9 @@ export function CreatorsDirectory({
   async function copierLien(token: string) {
     try {
       await navigator.clipboard.writeText(joinUrl(token));
-      toast.success("Lien copié");
+      toast.success(tr("lienCopie"));
     } catch {
-      toast.error("Copie impossible");
+      toast.error(tr("copieImpossible"));
     }
   }
 
@@ -540,7 +546,7 @@ export function CreatorsDirectory({
       const { token } = await regenerate({ creatorId });
       await copierLien(token);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -567,8 +573,8 @@ export function CreatorsDirectory({
             type="search"
             value={recherche}
             onChange={(e) => setRecherche(e.target.value)}
-            placeholder="Chercher un nom, un e-mail, un @…"
-            aria-label="Chercher un créateur"
+            placeholder={tr("chercherUnNomUnE")}
+            aria-label={tr("chercherUnCreateur")}
             className="h-9 pl-8"
           />
         </div>
@@ -581,18 +587,18 @@ export function CreatorsDirectory({
         {montrerPopulation && (
           <div data-testid="filtre-population">
           <FilterMultiSelect
-            label="Population"
-            allLabel="Toutes"
+            label={tr("population")}
+            allLabel={tr("toutes")}
             selectedValues={filtres.kind}
             onChange={(v) => changerFiltre("kind", v)}
-            options={optionsDe(CREATOR_KINDS, effectifs("kind"), (k) => KIND_LABELS[k].singular)}
+            options={optionsDe(CREATOR_KINDS, effectifs("kind"), (k) => tKind(k))}
           />
           </div>
         )}
         <div data-testid="filtre-langue">
         <FilterMultiSelect
-          label="Langue"
-          allLabel="Toutes"
+          label={tr("langue")}
+          allLabel={tr("toutes")}
           selectedValues={filtres.locale}
           onChange={(v) => changerFiltre("locale", v)}
           options={optionsDe(LOCALES, effectifs("locale"), (l) => LOCALE_LABELS[l])}
@@ -600,30 +606,30 @@ export function CreatorsDirectory({
         </div>
         <div data-testid="filtre-region">
         <FilterMultiSelect
-          label="Région"
-          allLabel="Toutes"
+          label={tr("region")}
+          allLabel={tr("toutes")}
           selectedValues={filtres.region}
           onChange={(v) => changerFiltre("region", v)}
-          options={optionsDe(REGION_ORDER, effectifs("region"), (r) => REGION_LABELS[r])}
+          options={optionsDe(REGION_ORDER, effectifs("region"), (r) => tRegion(REGION_LABEL_KEYS[r]))}
         />
         </div>
         <div data-testid="filtre-statut">
         <FilterMultiSelect
-          label="Statut"
-          allLabel="Tous"
+          label={tr("statut")}
+          allLabel={tr("tous")}
           selectedValues={filtres.status}
           onChange={(v) => changerFiltre("status", v)}
           options={optionsDe(
             CREATOR_STATUS_ORDER,
             effectifs("status"),
-            (s) => creatorStatusBadge(s).label,
+            (s) => tStatus(creatorStatusBadge(s).key),
           )}
         />
         </div>
 
         <div className="ml-auto flex items-end gap-2">
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-slate-600">Grouper par</span>
+            <span className="text-xs font-medium text-slate-600">{tr("grouperPar")}</span>
             <select
               value={groupe}
               onChange={(e) => changerGroupe(e.target.value as Groupe)}
@@ -632,13 +638,13 @@ export function CreatorsDirectory({
             >
               {GROUPES.filter((g) => g !== "kind" || montrerPopulation).map((g) => (
                 <option key={g} value={g}>
-                  {GROUPE_LABELS[g]}
+                  {tGroup(g)}
                 </option>
               ))}
             </select>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-slate-600">Trier par</span>
+            <span className="text-xs font-medium text-slate-600">{tr("trierPar")}</span>
             <select
               value={tri}
               onChange={(e) => changerTri(e.target.value as Tri)}
@@ -646,16 +652,16 @@ export function CreatorsDirectory({
             >
               {TRIS.filter((t) => t !== "gains" || montrerGains).map((t) => (
                 <option key={t} value={t}>
-                  {TRI_LABELS[t]}
+                  {tSort(t)}
                 </option>
               ))}
             </select>
           </label>
           <div className="flex gap-0.5 rounded-md bg-slate-100 p-0.5">
-            <ViewButton actif={vue === "list"} onClick={() => changerVue("list")} label="Vue liste">
+            <ViewButton actif={vue === "list"} onClick={() => changerVue("list")} label={tr("vueListe")}>
               <ListIcon className="size-4" />
             </ViewButton>
-            <ViewButton actif={vue === "cards"} onClick={() => changerVue("cards")} label="Vue cartes">
+            <ViewButton actif={vue === "cards"} onClick={() => changerVue("cards")} label={tr("vueCartes")}>
               <LayoutGridIcon className="size-4" />
             </ViewButton>
           </div>
@@ -666,45 +672,43 @@ export function CreatorsDirectory({
       {selectionnees.length > 0 && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/25 bg-primary/5 px-3.5 py-2">
           <span className="text-sm font-medium text-slate-800">
-            {selectionnees.length} sélectionné
-            {selectionnees.length > 1 ? "s" : ""}
+            {tr("selectionne", { count: selectionnees.length })}
           </span>
           <Button variant="outline" size="sm" onClick={copierEmails}>
-            Copier les e-mails
+            {tr("copierLesEMails")}
           </Button>
           <Button variant="outline" size="sm" onClick={exporterCsv}>
-            Exporter en CSV
+            {tr("exporterEnCsv")}
           </Button>
           <button
             type="button"
             onClick={() => setSelection(new Set())}
             className="ml-auto text-xs font-medium text-slate-500 hover:text-slate-900"
           >
-            Tout désélectionner
+            {tr("toutDeselectionner")}
           </button>
         </div>
       )}
 
       <p className="text-sm text-slate-500">
         {visibles.length === lignes.length
-          ? `${lignes.length} créateur${lignes.length > 1 ? "s" : ""}`
-          : `${visibles.length} sur ${lignes.length} créateur${lignes.length > 1 ? "s" : ""}`}
+          ? tr("createur", { count: lignes.length })
+          : tr("surCreateur", { count: visibles.length, count2: lignes.length })}
       </p>
 
       {lignes.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
             <p className="text-sm text-slate-500">
-              Aucun créateur. Invite ton premier créateur — il sera opérationnel
-              en deux minutes.
+              {tr("aucunCreateurInviteTonPremier")}
             </p>
-            <Button onClick={onInvite}>Inviter un créateur</Button>
+            <Button onClick={onInvite}>{tr("inviterUnCreateur")}</Button>
           </CardContent>
         </Card>
       ) : visibles.length === 0 ? (
         <Card>
           <CardContent className="py-14 text-center text-sm text-slate-500">
-            Aucun créateur ne correspond. Retire un filtre ou vide la recherche.
+            {tr("aucunCreateurNeCorrespondRetire")}
           </CardContent>
         </Card>
       ) : vue === "list" ? (
@@ -718,21 +722,21 @@ export function CreatorsDirectory({
                       type="checkbox"
                       checked={toutSelectionne}
                       onChange={basculerTout}
-                      aria-label="Tout sélectionner"
+                      aria-label={tr("toutSelectionner")}
                       className="size-3.5 accent-primary"
                     />
                   </TableHead>
-                  <TableHead>Nom</TableHead>
-                  <TableHead>Email</TableHead>
-                  {montrerPopulation && <TableHead>Population</TableHead>}
-                  <TableHead className="whitespace-nowrap">Langue</TableHead>
-                  <TableHead className="whitespace-nowrap">Statut</TableHead>
-                  <TableHead className="whitespace-nowrap">Heure locale</TableHead>
-                  <TableHead className="text-right">Comptes</TableHead>
-                  <TableHead className="text-right">Publis</TableHead>
-                  <TableHead className="whitespace-nowrap">Dernier post</TableHead>
+                  <TableHead>{tr("nom")}</TableHead>
+                  <TableHead>{tr("email")}</TableHead>
+                  {montrerPopulation && <TableHead>{tr("population")}</TableHead>}
+                  <TableHead className="whitespace-nowrap">{tr("langue")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{tr("statut")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{tr("heureLocale")}</TableHead>
+                  <TableHead className="text-right">{tr("comptes")}</TableHead>
+                  <TableHead className="text-right">{tr("publis")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{tr("dernierPost")}</TableHead>
                   {montrerGains && (
-                    <TableHead className="text-right">Gains du cycle</TableHead>
+                    <TableHead className="text-right">{tr("gainsDuCycle")}</TableHead>
                   )}
                   <TableHead className="w-12" />
                 </TableRow>
@@ -762,7 +766,6 @@ export function CreatorsDirectory({
                     )}
                     {g.lignes.map((l) => {
                       const badge = creatorStatusBadge(l.status);
-                      const pop = KIND_LABELS[resolveCreatorKind(l.kind)];
                       return (
                         <TableRow key={String(l._id)}>
                           <TableCell>
@@ -776,7 +779,7 @@ export function CreatorsDirectory({
                               // sous-chaîne — en trouve alors trois au lieu
                               // d'une. Les specs visent le testid, scopé à la
                               // ligne.
-                              aria-label="Sélectionner ce créateur"
+                              aria-label={tr("selectionnerCeCreateur")}
                               data-testid="row-select"
                               className="size-3.5 accent-primary"
                             />
@@ -813,9 +816,7 @@ export function CreatorsDirectory({
                           {montrerPopulation && (
                             <TableCell>
                               <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-3 py-0.5 text-xs font-semibold text-indigo-700">
-                                {pop.singular === "Créateur partenaire"
-                                  ? "Partenaire"
-                                  : pop.singular}
+                                {tKindShort(resolveCreatorKind(l.kind))}
                               </span>
                             </TableCell>
                           )}
@@ -832,7 +833,7 @@ export function CreatorsDirectory({
                                 badge.className,
                               )}
                             >
-                              {badge.label}
+                              {tStatus(badge.key)}
                             </span>
                           </TableCell>
                           <TableCell>
@@ -861,9 +862,9 @@ export function CreatorsDirectory({
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-sm text-slate-500">
                             {l.activite.lastPostAt === null ? (
-                              <span className="text-slate-400">jamais publié</span>
+                              <span className="text-slate-400">{tr("jamaisPublie")}</span>
                             ) : (
-                              <span title={formatDateFr(l.activite.lastPostAt)}>
+                              <span title={formatDateFr(l.activite.lastPostAt, loc)}>
                                 {anciennete(l.activite.lastPostAt, maintenant)}
                               </span>
                             )}
@@ -873,7 +874,7 @@ export function CreatorsDirectory({
                               {l.gains === null ? (
                                 <span className="font-normal text-slate-300">—</span>
                               ) : (
-                                formatMoney(l.gains, payCurrency)
+                                formatMoney(l.gains, payCurrency, loc)
                               )}
                             </TableCell>
                           )}
@@ -885,7 +886,7 @@ export function CreatorsDirectory({
                                     variant="ghost"
                                     size="sm"
                                     className="size-8 p-0"
-                                    aria-label="Actions"
+                                    aria-label={tr("actions")}
                                     data-testid="row-actions"
                                   >
                                     <MoreHorizontalIcon className="size-4" />
@@ -898,10 +899,10 @@ export function CreatorsDirectory({
                                     <DropdownMenuItem
                                       onClick={() => copierLien(l.invitation!.token)}
                                     >
-                                      Copier le lien
+                                      {tr("copierLeLien")}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => regenerer(l._id)}>
-                                      Régénérer le lien
+                                      {tr("regenererLeLien")}
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
                                   </>
@@ -911,7 +912,7 @@ export function CreatorsDirectory({
                                   className="text-rose-600 focus:bg-rose-50 focus:text-rose-700"
                                 >
                                   <Trash2Icon className="mr-2 size-4" />
-                                  Supprimer le créateur
+                                  {tr("supprimerLeCreateur")}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -979,16 +980,21 @@ function optionsDe<T extends string>(
   }));
 }
 
-function titreGroupe(groupe: Groupe, clef: string): string {
+/** Titre d'un groupe — les libellés viennent du catalogue, via l'écran. */
+function titreGroupe(
+  groupe: Groupe,
+  clef: string,
+  t: { region: (k: string) => string; status: (k: string) => string; kind: (k: string) => string },
+): string {
   switch (groupe) {
     case "region":
-      return REGION_LABELS[clef as RegionKey] ?? clef;
+      return t.region(REGION_LABEL_KEYS[clef as RegionKey]) ?? clef;
     case "status":
-      return creatorStatusBadge(clef as CreatorStatus).label;
+      return t.status(creatorStatusBadge(clef as CreatorStatus).key);
     case "locale":
       return LOCALE_LABELS[clef as Locale] ?? clef;
     case "kind":
-      return KIND_LABELS[clef as CreatorKind]?.plural ?? clef;
+      return t.kind(clef) ?? clef;
     default:
       return clef;
   }
@@ -1009,6 +1015,8 @@ function EnteteGroupe({
   /** Groupe « fuseau non renseigné » : une file de travail, pas une région. */
   alerte?: boolean;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.creators.EnteteGroupe");
   return (
     <div
       data-testid="entete-groupe"
@@ -1024,11 +1032,11 @@ function EnteteGroupe({
       </span>
       <span className="text-slate-300">·</span>
       <span className="text-xs tabular-nums text-slate-500">
-        {effectif} créateur{effectif > 1 ? "s" : ""}
+        {tr("createur", { effectif: effectif })}
       </span>
       {total !== null && total > 0 && (
         <span className="ml-auto text-xs tabular-nums text-slate-500">
-          {formatMoney(total, currency)} ce cycle
+          {tr("ceCycle", { amount: formatMoney(total, currency, loc) })}
         </span>
       )}
     </div>
@@ -1052,11 +1060,14 @@ function HeureLocale({
   source: string | null;
   maintenant: number;
 }) {
+  const tr = useTranslations("admin.creators.HeureLocale");
+  const tZoneNs = useTranslations("admin.creators.timezone");
+  const tZone = (key: string) => tZoneNs(key as Parameters<typeof tZoneNs>[0]);
   if (!zone) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700">
         <ClockIcon className="size-3" />
-        Non renseigné
+        {tr("nonRenseigne")}
       </span>
     );
   }
@@ -1067,14 +1078,19 @@ function HeureLocale({
       className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-slate-600"
       title={
         confirme
-          ? `${zone} — confirmé par elle`
-          : `${zone} — ${source === "inferred" ? "déduit du pays de ses comptes" : "saisi à la main"}, à confirmer`
+          ? tr("confirmeParElle", { zone: zone })
+          : tr("aConfirmer", {
+              zone,
+              source: source === "inferred" ? "inferred" : "manual",
+            })
       }
     >
       {!confirme && (
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-amber-400" />
       )}
-      <span className="text-slate-700">{shortZoneLabel(zone)}</span>
+      <span className="text-slate-700">
+        {shortZoneLabel(zone, zoneLabelKey(zone) === null ? undefined : tZone(zoneLabelKey(zone)!))}
+      </span>
       {heure && (
         <span className="tabular-nums text-slate-400">{heure}</span>
       )}
@@ -1128,6 +1144,9 @@ function CarteCreatrice({
   selectionnee: boolean;
   onToggle: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.creators.CarteCreatrice");
+  const tStatus = useTranslations("admin.creators.status");
   const badge = creatorStatusBadge(ligne.status);
   return (
     <div
@@ -1141,7 +1160,7 @@ function CarteCreatrice({
           type="checkbox"
           checked={selectionnee}
           onChange={onToggle}
-          aria-label="Sélectionner ce créateur"
+          aria-label={tr("selectionnerCeCreateur")}
           className="mt-1 size-3.5 shrink-0 accent-primary"
         />
         <CreatorAvatar
@@ -1168,7 +1187,7 @@ function CarteCreatrice({
             badge.className,
           )}
         >
-          {badge.label}
+          {tStatus(badge.key)}
         </span>
         <span className="text-[11px] font-medium text-slate-500">
           {LOCALE_LABELS[ligne.locale as Locale] ?? ligne.locale}
@@ -1183,21 +1202,19 @@ function CarteCreatrice({
 
       <div className="flex items-baseline justify-between gap-2 border-t border-slate-100 pt-2.5">
         <span className="text-xs text-slate-500 tabular-nums">
-          {ligne.activite.comptes} compte{ligne.activite.comptes > 1 ? "s" : ""} ·{" "}
-          {ligne.activite.publications} publi
-          {ligne.activite.publications > 1 ? "s" : ""}
+          {tr("comptePubli", { comptes: ligne.activite.comptes, publications: ligne.activite.publications })}
         </span>
         <span className="text-xs text-slate-400">
           {ligne.activite.lastPostAt === null
-            ? "jamais publié"
+            ? tr("jamaisPublie")
             : anciennete(ligne.activite.lastPostAt, maintenant)}
         </span>
       </div>
       {montrerGains && ligne.gains !== null && (
         <div className="text-sm font-semibold tabular-nums text-slate-900">
-          {formatMoney(ligne.gains, currency)}
+          {formatMoney(ligne.gains, currency, loc)}
           <span className="ml-1.5 text-xs font-normal text-slate-400">
-            ce cycle
+            {tr("ceCycle")}
           </span>
         </div>
       )}

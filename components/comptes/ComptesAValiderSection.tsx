@@ -24,7 +24,9 @@ import { AlertTriangleIcon, ExternalLinkIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatDate } from "@/lib/format";
-import { handleWarningMessage } from "@/convex/handleHygiene";
+import { handleWarning } from "@/convex/handleHygiene";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * FILE DE VALIDATION des comptes déclarés par un clippeur.
@@ -40,6 +42,9 @@ import { handleWarningMessage } from "@/convex/handleHygiene";
  * permanent en tête d'écran serait du bruit sur la page la plus consultée.
  */
 export function ComptesAValiderSection() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.accounts.ComptesAValiderSection");
+  const tWarn = useTranslations("admin.accounts.handleWarning");
   const file = useProjectQuery(api.comptes.listComptesAValider, {});
   const updateCompte = useProjectMutation(api.comptes.updateCompte);
   const refuseCompte = useProjectMutation(api.comptes.refuseCompte);
@@ -58,9 +63,9 @@ export function ComptesAValiderSection() {
       // Réutilise la mutation existante : c'est ELLE qui pose l'ancre de phase
       // au premier passage en actif. La file n'invente aucune écriture.
       await updateCompte({ id, status: "actif" });
-      toast.success(`${handle} validé — son compteur de phase démarre.`);
+      toast.success(tr("valideSonCompteurDePhase", { handle: handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Validation impossible."));
+      toast.error(convexErrorMessage(e, tr("validationImpossible")));
     } finally {
       setBusyId(null);
     }
@@ -71,11 +76,11 @@ export function ComptesAValiderSection() {
     setBusyId(refusing.id);
     try {
       await refuseCompte({ id: refusing.id, reason: motif });
-      toast.success(`${refusing.handle} refusé.`);
+      toast.success(tr("refuse", { handle: refusing.handle }));
       setRefusing(null);
       setMotif("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Refus impossible."));
+      toast.error(convexErrorMessage(e, tr("refusImpossible")));
     } finally {
       setBusyId(null);
     }
@@ -85,14 +90,14 @@ export function ComptesAValiderSection() {
     <section className="space-y-3">
       <div className="flex items-center gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          Comptes à valider
+          {tr("comptesAValider")}
         </h2>
         <Badge variant="secondary">{file.length}</Badge>
       </div>
       <Card>
         <CardContent className="divide-y divide-slate-100 p-0">
           {file.map((c) => {
-            const avertissement = handleWarningMessage(c.audit);
+            const avertissement = handleWarning(c.audit);
             return (
               <div
                 key={c._id}
@@ -110,17 +115,19 @@ export function ComptesAValiderSection() {
                         className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
                       >
                         <ExternalLinkIcon className="size-3" />
-                        Voir le compte
+                        {tr("voirLeCompte")}
                       </a>
                     )}
                   </div>
                   <p className="text-xs text-slate-500">
-                    {c.clipperName} · déclaré le {formatDate(c.declaredAt)}
+                    {tr("declareLe", { clipperName: c.clipperName, date: formatDate(c.declaredAt, loc) })}
                   </p>
                   {avertissement !== null && (
                     <p className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                       <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
-                      <span className="min-w-0">{avertissement}</span>
+                      <span className="min-w-0">
+                        {tWarn(avertissement.key, { mot: avertissement.mot })}
+                      </span>
                     </p>
                   )}
                 </div>
@@ -133,7 +140,7 @@ export function ComptesAValiderSection() {
                     {busyId === c._id && (
                       <Loader2Icon className="size-4 animate-spin" />
                     )}
-                    Valider
+                    {tr("valider")}
                   </Button>
                   <Button
                     size="sm"
@@ -144,7 +151,7 @@ export function ComptesAValiderSection() {
                       setMotif("");
                     }}
                   >
-                    Refuser
+                    {tr("refuser")}
                   </Button>
                 </div>
               </div>
@@ -159,31 +166,30 @@ export function ComptesAValiderSection() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Refuser {refusing?.handle}</DialogTitle>
+            <DialogTitle>{tr("refuser2", { handle: refusing?.handle ?? "" })}</DialogTitle>
             <DialogDescription>
-              Le compte est archivé et le motif conservé. Sans motif, on ne saura
-              plus dans trois semaines pourquoi ce compte est mort.
+              {tr("leCompteEstArchiveEt")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="motif-refus">Motif</Label>
+            <Label htmlFor="motif-refus">{tr("motif")}</Label>
             <Textarea
               id="motif-refus"
               value={motif}
               onChange={(e) => setMotif(e.target.value)}
-              placeholder="Le pseudo annonce la marque — à recréer sous un autre nom."
+              placeholder={tr("lePseudoAnnonceLaMarque")}
               rows={3}
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRefusing(null)}>
-              Annuler
+              {tr("annuler")}
             </Button>
             <Button
               onClick={confirmerRefus}
               disabled={motif.trim().length === 0 || busyId !== null}
             >
-              Refuser le compte
+              {tr("refuserLeCompte")}
             </Button>
           </DialogFooter>
         </DialogContent>

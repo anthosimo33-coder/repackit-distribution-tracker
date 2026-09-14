@@ -82,7 +82,8 @@
     "lAttributionReposeEntierementSur": "Attribution relies entirely on the short path snytch.co/'<ref>' — set the ref on their profile.",
     "le": "on {date}",
     "duAu": "from {date} to {date2}",
-    "cetteRefPorteDesConversions": "This ref carries conversions from BEFORE the creator joined: the slug may have been used by someone else earlier. Since a ref's start date isn't stored, all-time attribution can't settle it."
+    "cetteRefPorteDesConversions": "This ref carries conversions from BEFORE the creator joined: the slug may have been used by someone else earlier. Since a ref's start date isn't stored, all-time attribution can't settle it.",
+    "statutParti": "Gone"
   },
   "ConversionCells": {
     "revenu": "revenue",

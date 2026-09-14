@@ -82,7 +82,8 @@
     "lAttributionReposeEntierementSur": "L'attribution repose entièrement sur le chemin court snytch.co/'<ref>' — configurer la ref sur sa fiche.",
     "le": "le {date}",
     "duAu": "du {date} au {date2}",
-    "cetteRefPorteDesConversions": "Cette ref porte des conversions ANTÉRIEURES à l'arrivée de la créatrice : le slug a pu servir à quelqu'un d'autre avant elle. La date de pose d'une ref n'étant pas stockée, l'attribution all-time ne peut pas trancher."
+    "cetteRefPorteDesConversions": "Cette ref porte des conversions ANTÉRIEURES à l'arrivée de la créatrice : le slug a pu servir à quelqu'un d'autre avant elle. La date de pose d'une ref n'étant pas stockée, l'attribution all-time ne peut pas trancher.",
+    "statutParti": "Parti"
   },
   "ConversionCells": {
     "revenu": "revenu",

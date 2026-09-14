@@ -9,6 +9,8 @@ import {
 import { formatMoney } from "@/lib/format-rate";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * TÊTE DU CYCLE — le podium replié en une ligne.
@@ -38,6 +40,8 @@ export function CycleLeaderStrip({
   /** Devise de la PAIE créatrices (dollars). Absente ⇒ montant sans symbole. */
   currency?: string | null;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.creators.CycleLeaderStrip");
   const [ouvert, setOuvert] = useState(false);
 
   if (data === undefined) {
@@ -54,7 +58,7 @@ export function CycleLeaderStrip({
       <div className="flex items-stretch">
         <div className="flex shrink-0 items-center gap-2 border-r border-slate-200 px-3.5 py-2.5 text-xs font-semibold text-slate-600">
           <TrophyIcon className="size-3.5 text-amber-500" />
-          <span className="hidden sm:inline">Tête du cycle</span>
+          <span className="hidden sm:inline">{tr("teteDuCycle")}</span>
         </div>
         <ul className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto px-4 py-2">
           {top.map((e) => (
@@ -81,7 +85,7 @@ export function CycleLeaderStrip({
                 {e.name}
               </span>
               <span className="text-sm font-semibold tabular-nums text-slate-900">
-                {formatMoney(e.totalDue, currency)}
+                {formatMoney(e.totalDue, currency, loc)}
               </span>
             </li>
           ))}
@@ -92,7 +96,7 @@ export function CycleLeaderStrip({
           aria-expanded={ouvert}
           className="flex shrink-0 items-center gap-1.5 border-l border-slate-200 px-3.5 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-slate-50"
         >
-          {ouvert ? "Replier" : "Classement complet"}
+          {ouvert ? tr("replier") : tr("classementComplet")}
           <ChevronDownIcon
             className={cn(
               "size-3.5 transition-transform",

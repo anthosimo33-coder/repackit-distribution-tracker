@@ -10,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeftIcon } from "lucide-react";
 import { CreatorDetailView } from "@/components/creators/CreatorDetailView";
+import { useTranslations } from "next-intl";
 
 /**
  * P1 Créateurs — fiche détaillée. Le créateur est résolu serveur via
@@ -28,6 +29,7 @@ export default function CreatorDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const tr = useTranslations("admin.creators.CreatorDetailPage");
   const { id } = use(params);
   const router = useRouter();
   const projectPath = useProjectPath();
@@ -56,7 +58,7 @@ export default function CreatorDetailPage({
         className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-900"
       >
         <ArrowLeftIcon className="size-4" />
-        Retour aux créateurs
+        {tr("retourAuxCreateurs")}
       </Link>
 
       {creator === undefined ||

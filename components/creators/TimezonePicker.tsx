@@ -24,8 +24,9 @@ import {
   utcOffsetLabel,
   zoneArea,
   zoneCity,
-  zoneLabel,
+  zoneLabelWith,
 } from "@/lib/timezone-choices";
+import { useTranslations } from "next-intl";
 
 /** Valeur sentinelle : « fuseau non défini ». */
 export const TZ_NONE = "none";
@@ -55,7 +56,7 @@ export function TimezonePicker({
   value,
   onChange,
   id,
-  ariaLabel = "Fuseau horaire",
+  ariaLabel,
 }: {
   /** Identifiant IANA, ou `TZ_NONE`. */
   value: string;
@@ -63,6 +64,11 @@ export function TimezonePicker({
   id?: string;
   ariaLabel?: string;
 }) {
+  const tr = useTranslations("admin.creators.TimezonePicker");
+  const tZoneNs = useTranslations("admin.creators.timezone");
+  // La table des fuseaux porte des clés `string` (module pur) : même compromis
+  // documenté que `lib/use-label`.
+  const tZone = (key: string) => tZoneNs(key as Parameters<typeof tZoneNs>[0]);
   const [open, setOpen] = useState(false);
 
   const misEnAvant = new Set(TIMEZONE_CHOICES.map((c) => c.zone));
@@ -108,7 +114,7 @@ export function TimezonePicker({
   const libelleCourant =
     value === TZ_NONE || value === ""
       ? null
-      : `${zoneLabel(value)}${utcOffsetLabel(value) ? ` — ${utcOffsetLabel(value)}` : ""}`;
+      : `${zoneLabelWith(tZone, value)}${utcOffsetLabel(value) ? ` — ${utcOffsetLabel(value)}` : ""}`;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -119,13 +125,13 @@ export function TimezonePicker({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            aria-label={ariaLabel}
+            aria-label={ariaLabel ?? tr("fuseauHoraire")}
             className="w-full justify-between text-left font-normal"
           >
             {libelleCourant === null ? (
               <span className="flex items-center gap-2 text-slate-500">
                 <ClockIcon className="size-4 shrink-0 text-slate-300" />
-                Non défini
+                {tr("nonDefini")}
               </span>
             ) : (
               <span className="truncate">{libelleCourant}</span>
@@ -139,30 +145,30 @@ export function TimezonePicker({
         align="start"
       >
         <Command filter={scoreRecherche}>
-          <CommandInput placeholder="Cherche une ville ou un décalage…" />
+          <CommandInput placeholder={tr("chercheUneVilleOuUn")} />
           <CommandList>
-            <CommandEmpty>Aucun fuseau ne correspond.</CommandEmpty>
+            <CommandEmpty>{tr("aucunFuseauNeCorrespond")}</CommandEmpty>
             <CommandGroup>
               <CommandItem
-                value="non défini aucun"
+                value={tr("noneSearchTerms")}
                 onSelect={() => {
                   onChange(TZ_NONE);
                   setOpen(false);
                 }}
               >
                 <ClockIcon className="size-4 text-slate-400" />
-                <span className="text-slate-600">Non défini</span>
+                <span className="text-slate-600">{tr("nonDefini")}</span>
                 {(value === TZ_NONE || value === "") && (
                   <CheckIcon className="ml-auto size-4" />
                 )}
               </CommandItem>
             </CommandGroup>
             <CommandSeparator />
-            <CommandGroup heading="Fréquents">
-              {TIMEZONE_CHOICES.map((c) => ligne(c.zone, c.label))}
+            <CommandGroup heading={tr("frequents")}>
+              {TIMEZONE_CHOICES.map((c) => ligne(c.zone, tZone(c.key)))}
             </CommandGroup>
             <CommandSeparator />
-            <CommandGroup heading="Tous les fuseaux">
+            <CommandGroup heading={tr("tousLesFuseaux")}>
               {reste.map((z) =>
                 ligne(z, zoneArea(z) ? `${zoneCity(z)} — ${zoneArea(z)}` : zoneCity(z)),
               )}

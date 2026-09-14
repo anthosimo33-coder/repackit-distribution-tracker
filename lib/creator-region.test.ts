@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   REGION_ORDER,
-  REGION_LABELS,
+  REGION_LABEL_KEYS,
   creatorRegion,
   shortZoneLabel,
   localTimeIn,
 } from "./creator-region";
 import { TIMEZONE_CHOICES } from "./timezone-choices";
+import fr from "../messages/admin/fr/creators.json";
 
 /**
  * RÉGION DÉRIVÉE DU FUSEAU — ce que ces tests protègent.
@@ -78,23 +79,29 @@ describe("creatorRegion", () => {
       expect(creatorRegion(vide)).not.toBe("europe");
     }
     // Et elle est nommée pour ce qu'elle est : une fiche à compléter.
-    expect(REGION_LABELS.unknown).toMatch(/non renseigné/i);
+    expect(REGION_LABEL_KEYS.unknown).toBe("unknown");
   });
 
   it("« non renseigné » ferme la marche — c'est une file, pas une région", () => {
     expect(REGION_ORDER[REGION_ORDER.length - 1]).toBe("unknown");
     // Chaque région atteignable a un libellé, sinon un groupe s'afficherait
     // avec sa clé technique.
-    for (const k of REGION_ORDER) expect(REGION_LABELS[k]).toBeTruthy();
+    for (const k of REGION_ORDER) expect((fr.region as Record<string, string>)[REGION_LABEL_KEYS[k]]).toBeTruthy();
   });
 });
 
 describe("shortZoneLabel", () => {
+  /** Libellé du catalogue, comme l'écran le passe (ici en français). */
+  const label = (zone: string): string =>
+    (fr.timezone as Record<string, string>)[
+      TIMEZONE_CHOICES.find((c) => c.zone === zone)!.key
+    ];
+
   it("retire le pays, déjà porté par le titre de groupe", () => {
-    expect(shortZoneLabel("America/Sao_Paulo")).toBe("São Paulo");
-    expect(shortZoneLabel("Europe/Paris")).toBe("Paris");
-    expect(shortZoneLabel("America/New_York")).toBe("New York");
-    expect(shortZoneLabel("America/Phoenix")).toBe("Phoenix");
+    expect(shortZoneLabel("America/Sao_Paulo", label("America/Sao_Paulo"))).toBe("São Paulo");
+    expect(shortZoneLabel("Europe/Paris", label("Europe/Paris"))).toBe("Paris");
+    expect(shortZoneLabel("America/New_York", label("America/New_York"))).toBe("New York");
+    expect(shortZoneLabel("America/Phoenix", label("America/Phoenix"))).toBe("Phoenix");
   });
 
   it("rend lisible un fuseau hors liste plutôt que son identifiant brut", () => {

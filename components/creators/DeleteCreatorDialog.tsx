@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Confirmation RENFORCÉE de suppression d'un créateur (opération la plus
@@ -44,6 +45,7 @@ export function DeleteCreatorDialog({
   onOpenChange: (open: boolean) => void;
   onDeleted?: () => void;
 }) {
+  const tr = useTranslations("admin.creators.DeleteCreatorDialog");
   const impact = useProjectQuery(
     api.creators.getCreatorDeletionImpact,
     open ? { id: creatorId } : "skip",
@@ -66,18 +68,18 @@ export function DeleteCreatorDialog({
     try {
       const r = await deleteCreator({ id: creatorId });
       if (r.alreadyGone) {
-        toast.success("Créateur déjà supprimé.");
+        toast.success(tr("createurDejaSupprime"));
       } else {
         const d = r.deleted;
         toast.success(
-          `${r.name} supprimé — ${d.comptes} compte${d.comptes > 1 ? "s" : ""}, ${d.assignments} mission${d.assignments > 1 ? "s" : ""} en cours. Historique conservé.`,
+          tr("supprimeCompteMissionEnCours", { name: r.name, comptes: d.comptes, assignments: d.assignments }),
         );
       }
       setTyped("");
       onOpenChange(false);
       onDeleted?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Échec de la suppression du créateur"));
+      toast.error(convexErrorMessage(e, tr("echecDeLaSuppressionDu")));
     } finally {
       setBusy(false);
     }
@@ -105,21 +107,16 @@ export function DeleteCreatorDialog({
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Supprimer {creatorName} ?</AlertDialogTitle>
+          <AlertDialogTitle>{tr("supprimer", { creatorName: creatorName })}</AlertDialogTitle>
           <AlertDialogDescription>
             {willDelete ? (
               <>
-                <span className="font-medium text-foreground">{willDelete}</span>{" "}
-                seront définitivement supprimés (combos libérés). Les{" "}
-                <span className="font-medium text-foreground">{willKeep}</span>{" "}
-                seront conservés sous le nom «&nbsp;{creatorName}&nbsp;». Action
-                irréversible.
+                <span className="font-medium text-foreground">{willDelete}</span>{" "}{tr("serontDefinitivementSupprimesCombosLiber")}{" "}
+                <span className="font-medium text-foreground">{willKeep}</span>{" "}{tr("serontConservesSousLeNom", { creatorName: creatorName })}
               </>
             ) : (
               <>
-                Les comptes et missions en cours de ce créateur seront
-                définitivement supprimés ; ses publications et son historique de
-                paiement seront conservés sous son nom. Action irréversible.
+                {tr("lesComptesEtMissionsEn")}
               </>
             )}
           </AlertDialogDescription>
@@ -127,8 +124,7 @@ export function DeleteCreatorDialog({
 
         <div className="space-y-1.5">
           <Label htmlFor="confirm-creator-name">
-            Tape «&nbsp;<span className="font-semibold">{creatorName}</span>
-            &nbsp;» pour confirmer
+            {tr("tape")}{" "}<span className="font-semibold">{creatorName}</span>{" "}{tr("pourConfirmer")}
           </Label>
           <Input
             id="confirm-creator-name"
@@ -137,12 +133,12 @@ export function DeleteCreatorDialog({
             placeholder={creatorName}
             autoComplete="off"
             disabled={busy}
-            aria-label="Nom du créateur à confirmer"
+            aria-label={tr("nomDuCreateurAConfirmer")}
           />
         </div>
 
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>Annuler</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>{tr("annuler")}</AlertDialogCancel>
           <AlertDialogAction
             variant="destructive"
             disabled={!confirmed || busy}
@@ -153,7 +149,7 @@ export function DeleteCreatorDialog({
             }}
           >
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Supprimer définitivement
+            {tr("supprimerDefinitivement")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

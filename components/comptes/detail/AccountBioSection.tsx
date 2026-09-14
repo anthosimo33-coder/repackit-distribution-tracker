@@ -13,12 +13,15 @@ import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
 import type { Compte } from "@/components/comptes/CompteDialog";
 import { bioStateLabel } from "@/lib/account-bio";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
-const dtf = new Intl.DateTimeFormat("fr-FR", {
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
+const dtf = (locale: string) =>
+  new Intl.DateTimeFormat(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 
 /**
  * Admin — section « Bio à mettre » d'une fiche compte (compte lié à un créateur).
@@ -27,6 +30,9 @@ const dtf = new Intl.DateTimeFormat("fr-FR", {
  * par le créateur est affiché ici (Appliquée + date / En attente).
  */
 export function AccountBioSection({ compte }: { compte: Compte }) {
+  const tr = useTranslations("admin.accounts.AccountBioSection");
+  const tState = useTranslations("admin.accounts.bioState");
+  const loc = useIntlLocale();
   const setBio = useProjectMutation(api.comptes.setAccountBio);
   const [draft, setDraft] = useState(compte.bioToApply ?? "");
   const [saving, setSaving] = useState(false);
@@ -38,9 +44,9 @@ export function AccountBioSection({ compte }: { compte: Compte }) {
     setSaving(true);
     try {
       await setBio({ id: compte._id, bio: draft });
-      toast.success("Bio enregistrée");
+      toast.success(tr("bioEnregistree"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }
@@ -49,7 +55,7 @@ export function AccountBioSection({ compte }: { compte: Compte }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
-        <CardTitle>Bio à mettre</CardTitle>
+        <CardTitle>{tr("bioAMettre")}</CardTitle>
         {state.tone !== "none" && (
           <span
             data-testid="admin-bio-status"
@@ -67,16 +73,16 @@ export function AccountBioSection({ compte }: { compte: Compte }) {
             )}
             {state.tone === "applied"
               ? compte.bioAppliedAt
-                ? `Appliquée le ${dtf.format(compte.bioAppliedAt)}`
-                : "Appliquée"
-              : "En attente d'application"}
+                ? tr("appliqueeLe", { value: dtf(loc).format(compte.bioAppliedAt) })
+                : tr("appliquee")
+              : tr("enAttenteDApplication")}
           </span>
         )}
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="space-y-1.5">
           <Label htmlFor="account-bio">
-            Texte de bio à recopier par le créateur
+            {tr("texteDeBioARecopier")}
           </Label>
           <Textarea
             id="account-bio"
@@ -84,22 +90,21 @@ export function AccountBioSection({ compte }: { compte: Compte }) {
             rows={4}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Bio à afficher sur le compte (lien, accroche, hashtags…)"
+            placeholder={tr("bioAAfficherSurLe")}
           />
           <p className="text-xs text-slate-500">
-            Toute modification renotifie le créateur : le compte repasse en
-            « à appliquer » jusqu&apos;à ce qu&apos;il confirme.
+            {tr("touteModificationRenotifieLeCreateur")}
           </p>
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-slate-400">
             {compte.bioUpdatedAt
-              ? `Modifiée le ${dtf.format(compte.bioUpdatedAt)}`
-              : "Aucune bio définie pour l'instant."}
+              ? tr("modifieeLe", { value: dtf(loc).format(compte.bioUpdatedAt) })
+              : tr("aucuneBioDefiniePourL")}
           </span>
           <Button onClick={handleSave} disabled={saving || !dirty}>
             {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Enregistrer la bio
+            {tr("enregistrerLaBio")}
           </Button>
         </div>
       </CardContent>

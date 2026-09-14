@@ -40,31 +40,33 @@ import type { RegionKey } from "./creator-region";
  * les fuseaux possibles — le navigateur d'une créatrice peut en confirmer
  * n'importe lequel).
  */
-// i18n-exempt: libellés d'un sélecteur ADMIN (écran non traduit) — cf en-tête
+/**
+ * Les libellés vivent dans le catalogue (`admin.creators.timezone.<clé>`) : cet
+ * écran est lu par les managers, dans leur langue.
+ */
 export const TIMEZONE_CHOICES: {
   zone: string;
-  label: string;
+  key: string;
   region: RegionKey;
 }[] = [
-  { zone: "America/New_York", label: "New York — côte est (US)" , region: "us" },
-  { zone: "America/Chicago", label: "Chicago — centre (US)" , region: "us" },
-  { zone: "America/Denver", label: "Denver — montagnes (US)" , region: "us" },
-  { zone: "America/Phoenix", label: "Phoenix — Arizona (US, sans heure d'été)" , region: "us" },
-  { zone: "America/Los_Angeles", label: "Los Angeles — côte ouest (US)" , region: "us" },
-  { zone: "America/Anchorage", label: "Anchorage — Alaska (US)" , region: "us" },
-  { zone: "Pacific/Honolulu", label: "Honolulu — Hawaï (US)" , region: "us" },
-  { zone: "America/Toronto", label: "Toronto (Canada)" , region: "canada" },
-  { zone: "America/Vancouver", label: "Vancouver (Canada)" , region: "canada" },
-  { zone: "America/Sao_Paulo", label: "São Paulo (Brésil)" , region: "latam" },
-  { zone: "America/Argentina/Buenos_Aires", label: "Buenos Aires (Argentine)" , region: "latam" },
-  { zone: "Europe/Paris", label: "Paris (France)" , region: "europe" },
-  { zone: "Europe/London", label: "Londres (Royaume-Uni)" , region: "europe" },
-  { zone: "Europe/Madrid", label: "Madrid (Espagne)" , region: "europe" },
-  { zone: "Europe/Berlin", label: "Berlin (Allemagne)" , region: "europe" },
-  { zone: "Europe/Rome", label: "Rome (Italie)" , region: "europe" },
-  { zone: "Australia/Sydney", label: "Sydney (Australie)" , region: "oceania" },
+  { zone: "America/New_York", key: "newYork", region: "us" },
+  { zone: "America/Chicago", key: "chicago", region: "us" },
+  { zone: "America/Denver", key: "denver", region: "us" },
+  { zone: "America/Phoenix", key: "phoenix", region: "us" },
+  { zone: "America/Los_Angeles", key: "losAngeles", region: "us" },
+  { zone: "America/Anchorage", key: "anchorage", region: "us" },
+  { zone: "Pacific/Honolulu", key: "honolulu", region: "us" },
+  { zone: "America/Toronto", key: "toronto", region: "canada" },
+  { zone: "America/Vancouver", key: "vancouver", region: "canada" },
+  { zone: "America/Sao_Paulo", key: "saoPaulo", region: "latam" },
+  { zone: "America/Argentina/Buenos_Aires", key: "buenosAires", region: "latam" },
+  { zone: "Europe/Paris", key: "paris", region: "europe" },
+  { zone: "Europe/London", key: "london", region: "europe" },
+  { zone: "Europe/Madrid", key: "madrid", region: "europe" },
+  { zone: "Europe/Berlin", key: "berlin", region: "europe" },
+  { zone: "Europe/Rome", key: "rome", region: "europe" },
+  { zone: "Australia/Sydney", key: "sydney", region: "oceania" },
 ];
-
 /**
  * Décalage courant d'un fuseau, en « UTC+2 » / « UTC−4 » — pour l'afficher à
  * côté du nom sans faire deviner.
@@ -84,14 +86,25 @@ export function utcOffsetLabel(
   const signe = min < 0 ? "−" : "+";
   const h = Math.floor(Math.abs(min) / 60);
   const m = Math.abs(min) % 60;
+  // i18n-exempt: « UTC+2 » est une notation, pas du texte
   return m === 0
     ? `UTC${signe}${h}`
+    // i18n-exempt: « UTC+2:30 » est une notation, pas du texte
     : `UTC${signe}${h}:${String(m).padStart(2, "0")}`;
 }
 
-/** Libellé lisible d'un fuseau, ou l'identifiant brut s'il est hors liste. */
-export function zoneLabel(zone: string): string {
-  return TIMEZONE_CHOICES.find((c) => c.zone === zone)?.label ?? zone;
+/** Clé de libellé d'un fuseau, `null` s'il est hors liste (on rend l'identifiant). */
+export function zoneLabelKey(zone: string): string | null {
+  return TIMEZONE_CHOICES.find((c) => c.zone === zone)?.key ?? null;
+}
+
+/**
+ * Libellé lisible d'un fuseau, dans la langue du lecteur. `t` est le traducteur
+ * de `admin.creators.timezone` ; hors liste, on rend l'identifiant IANA.
+ */
+export function zoneLabelWith(t: (key: string) => string, zone: string): string {
+  const key = zoneLabelKey(zone);
+  return key === null ? zone : t(key);
 }
 
 /**

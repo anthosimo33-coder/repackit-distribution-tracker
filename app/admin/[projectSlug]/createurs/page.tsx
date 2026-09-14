@@ -8,6 +8,7 @@ import { InviteCreatorDialog } from "@/components/creators/InviteCreatorDialog";
 import { DeleteCreatorDialog } from "@/components/creators/DeleteCreatorDialog";
 import { CreatorsDirectory } from "@/components/creators/CreatorsDirectory";
 import { AppariementSection } from "@/components/creators/AppariementSection";
+import { useTranslations } from "next-intl";
 
 /**
  * ÉCRAN CRÉATEURS — coquille.
@@ -22,6 +23,7 @@ import { AppariementSection } from "@/components/creators/AppariementSection";
  * elle n'existe pas, et l'écran commence donc par les créateurs.
  */
 export default function CreateursPage() {
+  const tr = useTranslations("admin.creators.CreateursPage");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
     id: Id<"creators">;
@@ -32,11 +34,11 @@ export default function CreateursPage() {
     <div className="space-y-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-          Créateurs
+          {tr("createurs")}
         </h1>
         <Button onClick={() => setInviteOpen(true)}>
           <PlusIcon className="mr-2 size-4" />
-          Inviter un créateur
+          {tr("inviterUnCreateur")}
         </Button>
       </header>
 

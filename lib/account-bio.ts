@@ -74,15 +74,18 @@ export function computeBioPatch(
 
 export type BioTone = "none" | "pending" | "applied";
 
-/** Libellé + tonalité de l'état bio (admin & créateur partagent le vocabulaire). */
-export function bioStateLabel(state: BioState): { label: string; tone: BioTone } {
+/**
+ * Tonalité de l'état bio, et la CLÉ de son libellé — admin et créateur
+ * partagent le vocabulaire, chacun dans sa langue (`admin.accounts.bioState.*`).
+ */
+export function bioStateLabel(state: BioState): { key: BioTone; tone: BioTone } {
   if (state.bioToApply === undefined || state.bioStatus === undefined) {
-    return { label: "Aucune bio définie", tone: "none" };
+    return { key: "none", tone: "none" };
   }
   if (state.bioStatus === "to_apply") {
-    return { label: "En attente d'application", tone: "pending" };
+    return { key: "pending", tone: "pending" };
   }
-  return { label: "Appliquée", tone: "applied" };
+  return { key: "applied", tone: "applied" };
 }
 
 /** Une bio est « à mettre à jour » (notif créateur) ssi posée ET en to_apply. */

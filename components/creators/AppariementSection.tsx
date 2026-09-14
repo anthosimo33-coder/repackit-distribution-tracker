@@ -20,6 +20,7 @@ import { AlertTriangleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { resolveCreatorKind } from "@/convex/roles";
+import { useTranslations } from "next-intl";
 
 /** Valeur du sélecteur pour « aucun clippeur » — `null` n'est pas une valeur de Select. */
 const AUCUN = "__aucun__";
@@ -38,6 +39,7 @@ const AUCUN = "__aucun__";
  * visibles d'aucun clippeur, donc son travail ne part nulle part.
  */
 export function AppariementSection() {
+  const tr = useTranslations("admin.creators.AppariementSection");
   const creators = useProjectQuery(api.creators.listCreators, {});
   const updateCreator = useProjectMutation(api.creators.updateCreator);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -75,10 +77,10 @@ export function AppariementSection() {
         clipperId: value === AUCUN ? null : (value as Id<"creators">),
       });
       toast.success(
-        value === AUCUN ? "Appariement retiré." : "Talent apparié.",
+        value === AUCUN ? tr("appariementRetire") : tr("talentApparie"),
       );
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Appariement impossible."));
+      toast.error(convexErrorMessage(e, tr("appariementImpossible")));
     } finally {
       setBusyId(null);
     }
@@ -90,13 +92,12 @@ export function AppariementSection() {
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          Appariement clippeur ↔ talent
+          {tr("appariementClippeurTalent")}
         </h2>
         {nonApparies > 0 && (
           <Badge className="gap-1" variant="outline">
             <AlertTriangleIcon className="size-3" />
-            {nonApparies} talent{nonApparies > 1 ? "s" : ""} non apparié
-            {nonApparies > 1 ? "s" : ""}
+            {tr("talentNonApparie", { nonApparies: nonApparies })}
           </Badge>
         )}
       </div>
@@ -105,7 +106,7 @@ export function AppariementSection() {
         <CardContent className="space-y-4 pt-6">
           {talents.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Aucun talent pour l&apos;instant.
+              {tr("aucunTalentPourLInstant")}
             </p>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -120,8 +121,7 @@ export function AppariementSection() {
                     </p>
                     {!t.clipperId && (
                       <p className="text-xs text-amber-700">
-                        Non apparié — ses rushes ne sont visibles d&apos;aucun
-                        clippeur.
+                        {tr("nonApparieSesRushesNe")}
                       </p>
                     )}
                   </div>
@@ -132,17 +132,17 @@ export function AppariementSection() {
                   >
                     <SelectTrigger
                       className="w-52"
-                      aria-label={`Clippeur de ${t.name}`}
+                      aria-label={tr("clippeurDe", { name: t.name })}
                     >
                       <SelectValue>
                         {t.clipperId
                           ? (clippeurs.find((c) => c._id === t.clipperId)?.name ??
-                            "Clippeur inconnu")
-                          : "Aucun clippeur"}
+                            tr("clippeurInconnu"))
+                          : tr("aucunClippeur")}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={AUCUN}>Aucun clippeur</SelectItem>
+                      <SelectItem value={AUCUN}>{tr("aucunClippeur")}</SelectItem>
                       {clippeurs.map((c) => (
                         <SelectItem key={c._id} value={c._id}>
                           {c.name}
@@ -158,7 +158,7 @@ export function AppariementSection() {
           {clippeurs.length > 0 && (
             <div className="space-y-1 border-t border-slate-100 pt-3">
               <p className="text-xs font-medium text-slate-600">
-                Côté clippeurs
+                {tr("coteClippeurs")}
               </p>
               <ul className="space-y-0.5 text-xs text-slate-500">
                 {clippeurs.map((c) => {
@@ -172,8 +172,8 @@ export function AppariementSection() {
                         }
                       >
                         {n === 0
-                          ? "aucun talent"
-                          : `${n} talent${n > 1 ? "s" : ""}`}
+                          ? tr("aucunTalent")
+                          : tr("talent", { n: n })}
                       </span>
                     </li>
                   );

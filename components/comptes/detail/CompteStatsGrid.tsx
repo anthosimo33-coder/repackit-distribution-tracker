@@ -7,6 +7,8 @@ import { getMediaType } from "@/lib/media-type";
 import { passesWarmupMode } from "@/lib/warmup-mode";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import type { PublicationWithImage } from "@/components/PublicationDetailDialog";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 const FORMAT_ORDER: FormatKey[] = ["carousel", "short", "screenrecorder"];
 
@@ -21,6 +23,8 @@ export function CompteStatsGrid({
 }: {
   publications: PublicationWithImage[];
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.accounts.CompteStatsGrid");
   const stats = useMemo(() => {
     const byFormat: Record<FormatKey, number> = {
       carousel: 0,
@@ -44,7 +48,7 @@ export function CompteStatsGrid({
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      <StatCard label="Publications" value={formatNumber(stats.total)} />
+      <StatCard label={tr("publications")} value={formatNumber(stats.total, loc)} />
 
       <Card>
         <CardContent className="p-4">
@@ -63,12 +67,12 @@ export function CompteStatsGrid({
               </div>
             ))}
           </div>
-          <div className="mt-2 text-xs text-slate-500">Détail par format</div>
+          <div className="mt-2 text-xs text-slate-500">{tr("detailParFormat")}</div>
         </CardContent>
       </Card>
 
-      <StatCard label="Vues totales" value={formatNumber(stats.vues)} />
-      <StatCard label="Likes totaux" value={formatNumber(stats.likes)} />
+      <StatCard label={tr("vuesTotales")} value={formatNumber(stats.vues, loc)} />
+      <StatCard label={tr("likesTotaux")} value={formatNumber(stats.likes, loc)} />
     </div>
   );
 }

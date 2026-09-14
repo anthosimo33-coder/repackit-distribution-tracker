@@ -63,37 +63,27 @@ import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import { ComptesAValiderSection } from "@/components/comptes/ComptesAValiderSection";
 import { useLabel } from "@/lib/use-label";
 import type { FunctionReturnType } from "convex/server";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { formatNumber } from "@/lib/format";
 
 type StatusFilter = "all" | CompteStatus;
 
-const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
-  { value: "all", label: "Tous" },
-  { value: "actif", label: "Actifs" },
-  { value: "warmup", label: "Warmup" },
-  { value: "shadowban", label: "Shadowban" },
-  { value: "archived", label: "Archivés" },
-];
+// Libellés : `admin.accounts.statusFilter.<valeur>`.
+const STATUS_FILTER_OPTIONS = ["all", "actif", "warmup", "shadowban", "archived"] as const satisfies readonly StatusFilter[];
 
 type PlateformeFilter = "all" | "TikTok" | "Instagram" | "YouTube";
-const PLATEFORME_FILTER_OPTIONS: { value: PlateformeFilter; label: string }[] = [
-  { value: "all", label: "Toutes" },
-  { value: "TikTok", label: "TikTok" },
-  { value: "Instagram", label: "Instagram" },
-  { value: "YouTube", label: "YouTube" },
-];
+// Seul « all » est un libellé : les trois autres sont des noms de plateformes.
+const PLATEFORME_FILTER_OPTIONS = ["all", "TikTok", "Instagram", "YouTube"] as const satisfies readonly PlateformeFilter[];
 
-const GROUP_OPTIONS: { value: GroupAxis; label: string }[] = [
-  { value: "creator", label: "Par créateur" },
-  { value: "plateforme", label: "Par plateforme" },
-  { value: "none", label: "Sans regroupement" },
-];
+// Libellés : `admin.accounts.groupBy.<valeur>`.
+const GROUP_OPTIONS = ["creator", "plateforme", "none"] as const satisfies readonly GroupAxis[];
 
 // "all" | "internal" (comptes sans créateur) | <creatorId>.
 type CreatorFilter = string;
 
-const nfFR = new Intl.NumberFormat("fr-FR");
-function formatDateShort(ts: number | null): string {
-  return ts === null ? "—" : new Date(ts).toLocaleDateString("fr-FR");
+function formatDateShort(ts: number | null, locale: string): string {
+  return ts === null ? "—" : new Date(ts).toLocaleDateString(locale);
 }
 
 /**
@@ -133,6 +123,11 @@ export default function ComptesPage() {
  * plateforme.
  */
 function ComptesPageInner() {
+  const tr = useTranslations("admin.accounts.ComptesPageInner");
+  const loc = useIntlLocale();
+  const tStatus = useTranslations("admin.accounts.statusFilter");
+  const tGroup = useTranslations("admin.accounts.groupBy");
+  const etiquetteChauffe = useEtiquetteChauffe();
   const tLabel = useLabel();
   const router = useRouter();
   const projectPath = useProjectPath();
@@ -294,13 +289,13 @@ function ComptesPageInner() {
     if (counts.warmup > 0) parts.push(`${counts.warmup} warmup`);
     if (counts.shadowban > 0) parts.push(`${counts.shadowban} shadowban`);
     if (counts.archived > 0)
-      parts.push(`${counts.archived} archivé${counts.archived > 1 ? "s" : ""}`);
+      parts.push(tr("archive", { archived: counts.archived }));
     if (jamaisPublie > 0)
       // Invariable : la ligne est une suite de compteurs (« 27 actifs · 4
       // warmup · 6 sans publication »), pas une phrase.
-      parts.push(`${jamaisPublie} sans publication`);
+      parts.push(tr("sansPublication", { count: jamaisPublie }));
     if (totalVuesProjet > 0)
-      parts.push(`${nfFR.format(totalVuesProjet)} vues cumulées`);
+      parts.push(tr("vuesCumulees", { value: formatNumber(totalVuesProjet, loc) }));
     return parts.join(" · ");
   })();
 
@@ -317,7 +312,7 @@ function ComptesPageInner() {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Comptes
+            {tr("comptes")}
           </h1>
           <p className="text-sm text-slate-500">{subtitle}</p>
         </div>
@@ -326,15 +321,15 @@ function ComptesPageInner() {
           <WarmupSettingsButton />
           <Button variant="outline" onClick={() => navigate("personnes")}>
             <UsersIcon className="mr-2 size-4" />
-            Personnes
+            {tr("personnes")}
           </Button>
           <Button variant="outline" onClick={() => navigate("icps")}>
             <TargetIcon className="mr-2 size-4" />
-            ICPs
+            {tr("icps")}
           </Button>
           <Button onClick={() => setAddOpen(true)}>
             <PlusIcon className="mr-2 size-4" />
-            Ajouter un compte
+            {tr("ajouterUnCompte")}
           </Button>
         </div>
       </header>
@@ -358,8 +353,8 @@ function ComptesPageInner() {
             className={`font-semibold ${enSouffrance > 0 ? "text-rose-900" : "text-amber-900"}`}
           >
             {enSouffrance > 0
-              ? `${enSouffrance} chauffe${enSouffrance > 1 ? "s" : ""} en souffrance`
-              : `${aTraiter.length} check${aTraiter.length > 1 ? "s" : ""} de warmup à faire aujourd'hui`}
+              ? tr("chauffeEnSouffrance", { enSouffrance: enSouffrance })
+              : tr("checkDeWarmupAFaire", { count: aTraiter.length })}
           </span>
           <div className="flex flex-wrap items-center gap-1.5">
             {aTraiter.slice(0, 6).map(({ compte: c, etat }) => (
@@ -386,7 +381,7 @@ function ComptesPageInner() {
             ))}
             {aTraiter.length > 6 && (
               <span className="text-xs text-slate-500">
-                {`… et ${aTraiter.length - 6} autre${aTraiter.length - 6 > 1 ? "s" : ""}`}
+                {tr("etAutre", { value: aTraiter.length - 6 })}
               </span>
             )}
           </div>
@@ -401,14 +396,12 @@ function ComptesPageInner() {
           key={`${col.plateforme}-${col.handles.join("|")}`}
           className="rounded-xl border border-rose-200 bg-rose-50/70 px-3.5 py-2.5 text-sm text-rose-900"
         >
-          <span className="font-semibold">Mesure dédoublée</span>{" "}
-          {`— sur ${col.plateforme}, ${col.handles
-            .map((h) => `« ${h} »`)
-            .join(" et ")} ${
-            col.handles.length > 1
-              ? "ne diffèrent que par la casse"
-              : "existe en double"
-          }. Leurs vues sont les mêmes des deux côtés : ce total est compté deux fois. À réunir en un seul compte.`}
+          <span className="font-semibold">{tr("mesureDedoublee")}</span>{" "}
+          {tr("collision", {
+            plateforme: col.plateforme,
+            handles: col.handles.map((h) => `« ${h} »`).join(tr("et")),
+            count: col.handles.length,
+          })}
         </div>
       ))}
 
@@ -419,8 +412,8 @@ function ComptesPageInner() {
             type="search"
             value={recherche}
             onChange={(e) => setRecherche(e.target.value)}
-            placeholder="Rechercher un handle, un créateur…"
-            aria-label="Rechercher un compte"
+            placeholder={tr("rechercherUnHandleUnCreateur")}
+            aria-label={tr("rechercherUnCompte")}
             className="h-9 pl-8"
           />
         </div>
@@ -428,19 +421,19 @@ function ComptesPageInner() {
           value={creatorFilter}
           onValueChange={(v) => v !== null && setCreatorFilter(v)}
         >
-          <SelectTrigger className="w-40" aria-label="Filtrer par créateur">
+          <SelectTrigger className="w-40" aria-label={tr("filtrerParCreateur")}>
             <SelectValue>
               {creatorFilter === "all"
-                ? "Tous créateurs"
+                ? tr("tousCreateurs")
                 : creatorFilter === "internal"
-                  ? "Interne"
+                  ? tr("interne")
                   : (creatorOptions.find((o) => o.id === creatorFilter)?.name ??
-                    "Créateur")}
+                    tr("createur"))}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous créateurs</SelectItem>
-            <SelectItem value="internal">Interne</SelectItem>
+            <SelectItem value="all">{tr("tousCreateurs")}</SelectItem>
+            <SelectItem value="internal">{tr("interne")}</SelectItem>
             {creatorOptions.map((o) => (
               <SelectItem key={o.id} value={o.id}>
                 {o.name}
@@ -454,17 +447,15 @@ function ComptesPageInner() {
             v !== null && setPlateformeFilter(v as PlateformeFilter)
           }
         >
-          <SelectTrigger className="w-32" aria-label="Filtrer par plateforme">
+          <SelectTrigger className="w-32" aria-label={tr("filtrerParPlateforme")}>
             <SelectValue>
-              {PLATEFORME_FILTER_OPTIONS.find(
-                (o) => o.value === plateformeFilter,
-              )?.label ?? "Toutes"}
+              {plateformeFilter === "all" ? tr("toutes") : plateformeFilter}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {PLATEFORME_FILTER_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+              <SelectItem key={o} value={o}>
+                {o === "all" ? tr("toutes") : o}
               </SelectItem>
             ))}
           </SelectContent>
@@ -473,16 +464,13 @@ function ComptesPageInner() {
           value={statusFilter}
           onValueChange={(v) => v !== null && setStatusFilter(v as StatusFilter)}
         >
-          <SelectTrigger className="w-36" aria-label="Filtrer par statut">
-            <SelectValue>
-              {STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)
-                ?.label ?? "Tous"}
-            </SelectValue>
+          <SelectTrigger className="w-36" aria-label={tr("filtrerParStatut")}>
+            <SelectValue>{tStatus(statusFilter)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {STATUS_FILTER_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+              <SelectItem key={o} value={o}>
+                {tStatus(o)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -491,16 +479,13 @@ function ComptesPageInner() {
           value={groupe}
           onValueChange={(v) => v !== null && setGroupe(v as GroupAxis)}
         >
-          <SelectTrigger className="w-44" aria-label="Grouper les comptes">
-            <SelectValue>
-              {GROUP_OPTIONS.find((o) => o.value === groupe)?.label ??
-                "Par créateur"}
-            </SelectValue>
+          <SelectTrigger className="w-44" aria-label={tr("grouperLesComptes")}>
+            <SelectValue>{tGroup(groupe)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {GROUP_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
+              <SelectItem key={o} value={o}>
+                {tGroup(o)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -514,7 +499,7 @@ function ComptesPageInner() {
       ) : visibles.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-slate-500">
-            Aucun compte pour ce filtre.
+            {tr("aucunComptePourCeFiltre")}
           </CardContent>
         </Card>
       ) : (
@@ -524,17 +509,17 @@ function ComptesPageInner() {
               <TableHeader>
                 <TableRow>
                   <SortHeader
-                    label="Handle"
+                    label={tr("handle")}
                     sortKey="handle"
                     activeKey={sortKey}
                     dir={sortDir}
                     onSort={toggleSort}
                   />
-                  <TableHead>Plateforme</TableHead>
-                  <TableHead>État</TableHead>
-                  <TableHead>Créateur</TableHead>
+                  <TableHead>{tr("plateforme")}</TableHead>
+                  <TableHead>{tr("etat")}</TableHead>
+                  <TableHead>{tr("createur")}</TableHead>
                   <SortHeader
-                    label="Vues"
+                    label={tr("vues")}
                     sortKey="vues"
                     activeKey={sortKey}
                     dir={sortDir}
@@ -542,7 +527,7 @@ function ComptesPageInner() {
                     align="right"
                   />
                   <SortHeader
-                    label="Posts"
+                    label={tr("posts")}
                     sortKey="posts"
                     activeKey={sortKey}
                     dir={sortDir}
@@ -550,7 +535,7 @@ function ComptesPageInner() {
                     align="right"
                   />
                   <SortHeader
-                    label="Dernier post"
+                    label={tr("dernierPost")}
                     sortKey="dernierPost"
                     activeKey={sortKey}
                     dir={sortDir}
@@ -637,6 +622,9 @@ function LigneCompte({
   creatorRedondant: boolean;
   onEdit: () => void;
 }) {
+  const tr = useTranslations("admin.accounts.LigneCompte");
+  const loc = useIntlLocale();
+  const etiquetteChauffe = useEtiquetteChauffe();
   const badge = getStatusBadge(c);
   const statut = getEffectiveStatus(c);
   const etat = warmupStateOf(c, maintenant);
@@ -661,7 +649,7 @@ function LigneCompte({
           {c.targetCountry && (
             <span
               className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600"
-              title="Pays ciblé"
+              title={tr("paysCible")}
             >
               {countryLabel(c.targetCountry)}
             </span>
@@ -690,7 +678,7 @@ function LigneCompte({
           {etat.kind === "enSouffrance" && (
             <span
               className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
-              title={last ? `Dernier check ${last}` : "Aucun check posé"}
+              title={last ? tr("dernierCheck", { last: last }) : tr("aucunCheckPose")}
             >
               {etiquetteChauffe(etat, { nommerLEtat: true })}
             </span>
@@ -700,15 +688,15 @@ function LigneCompte({
           {jamaisPublie && (
             <span
               className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-500"
-              title="Compte actif qui n'a encore aucune publication"
+              title={tr("compteActifQuiNA")}
             >
-              jamais publié
+              {tr("jamaisPublie")}
             </span>
           )}
           {c.personne && (
             <span
               className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700"
-              title="Gestionnaire"
+              title={tr("gestionnaire")}
             >
               {c.personne.prenom} {c.personne.nom}
             </span>
@@ -725,19 +713,19 @@ function LigneCompte({
             {c.creator.name}
           </span>
         ) : (
-          <span className="text-slate-400">Interne</span>
+          <span className="text-slate-400">{tr("interne")}</span>
         )}
       </TableCell>
       {/* « 0 » et non « — » : un compte sans publication a zéro vue, ce n'est
           pas une donnée absente — et une spec compte ces deux cellules. */}
       <TableCell className="text-right font-medium tabular-nums text-slate-900">
-        {nfFR.format(c.perf.vuesCumulees)}
+        {formatNumber(c.perf.vuesCumulees, loc)}
       </TableCell>
       <TableCell className="text-right tabular-nums text-slate-700">
         {c.perf.nbPublies}
       </TableCell>
       <TableCell className="text-sm text-slate-500">
-        {formatDateShort(c.perf.dernierPost)}
+        {formatDateShort(c.perf.dernierPost, loc)}
       </TableCell>
       <TableCell onClick={(e) => e.stopPropagation()}>
         <CompteAdminActions compte={c} onEdit={onEdit} />
@@ -765,6 +753,8 @@ function EnteteGroupe({
   /** 0..1 — jamais NaN, la garde est dans groupComptes. */
   part: number;
 }) {
+  const tr = useTranslations("admin.accounts.EnteteGroupe");
+  const loc = useIntlLocale();
   const pct = Math.round(part * 100);
   return (
     <div
@@ -775,21 +765,21 @@ function EnteteGroupe({
         {titre}
       </span>
       <span className="text-xs tabular-nums text-slate-500">
-        {effectif} compte{effectif > 1 ? "s" : ""}
+        {tr("compte", { effectif: effectif })}
       </span>
       {posts > 0 && (
         <span className="text-xs tabular-nums text-slate-400">
-          {posts} post{posts > 1 ? "s" : ""}
+          {tr("post", { posts: posts })}
         </span>
       )}
       {vues > 0 && (
         <span className="ml-auto flex items-center gap-2">
           <span className="text-xs tabular-nums text-slate-600">
-            {nfFR.format(vues)} vues
+            {tr("vues", { value: formatNumber(vues, loc) })}
           </span>
           <span
             className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200"
-            title={`${pct} % des vues du projet`}
+            title={tr("partDesVuesDuProjet", { pct })}
           >
             <span
               className="block h-full rounded-full bg-primary"
@@ -810,23 +800,21 @@ function EnteteGroupe({
  * 0 check » — parce que c'est lui qui dit à qui téléphoner en premier. En
  * cours, la progression suffit.
  */
-function etiquetteChauffe(
-  etat: WarmupState,
+function useEtiquetteChauffe() {
+  const t = useTranslations("admin.accounts.chauffe");
   /**
    * Le bandeau annonce déjà « N chauffes en souffrance » dans son titre :
    * répéter les mots sur chaque pastille en dessous ne dit rien de plus. Sur la
    * ligne du tableau, en revanche, rien ne les porte — il les faut.
    */
-  opts: { nommerLEtat?: boolean } = {},
-): string {
-  if (etat.kind === "enSouffrance") {
-    const mesure = `${etat.age} j, ${etat.checks} check${
-      etat.checks > 1 ? "s" : ""
-    }`;
-    return opts.nommerLEtat ? `en souffrance · ${mesure}` : mesure;
-  }
-  if (etat.kind === "aValider") return "à valider";
-  return `J${etat.day}/${etat.targetDays}`;
+  return (etat: WarmupState, opts: { nommerLEtat?: boolean } = {}): string => {
+    if (etat.kind === "enSouffrance") {
+      const mesure = t("mesure", { age: etat.age ?? 0, checks: etat.checks });
+      return opts.nommerLEtat ? t("enSouffrance", { mesure }) : mesure;
+    }
+    if (etat.kind === "aValider") return t("aValider");
+    return t("progression", { day: etat.day, target: etat.targetDays });
+  };
 }
 
 function SortHeader({
@@ -873,15 +861,16 @@ function SortHeader({
 }
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
+  const tr = useTranslations("admin.accounts.EmptyState");
   return (
     <Card>
       <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
         <p className="text-sm text-slate-500">
-          Aucun compte. Ajoute ton premier compte TikTok ou Instagram.
+          {tr("aucunCompteAjouteTonPremier")}
         </p>
         <Button onClick={onAdd}>
           <PlusIcon className="mr-2 size-4" />
-          Ajouter un compte
+          {tr("ajouterUnCompte")}
         </Button>
       </CardContent>
     </Card>

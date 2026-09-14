@@ -1381,7 +1381,7 @@ function ConversionRow({
             variant="outline"
             className={`ml-1.5 align-middle text-[10px] ${creatorStatusBadge("churned").className}`}
           >
-            {creatorStatusBadge("churned").label}
+            {tr("statutParti")}
           </Badge>
         )}
         {row.kind === "influencer" && (

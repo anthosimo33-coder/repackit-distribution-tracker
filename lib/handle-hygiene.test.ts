@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   auditCompteHandle,
-  handleWarningMessage,
+  handleWarning,
   hasHandleWarning,
 } from "../convex/handleHygiene";
+import fr from "../messages/admin/fr/accounts.json";
+import en from "../messages/admin/en/accounts.json";
 
 /**
  * Audit du pseudo d'un compte déclaré. Les tests qui comptent sont ceux des deux
@@ -116,18 +118,29 @@ describe("auditCompteHandle — ce qu'il ne doit PAS signaler", () => {
   });
 });
 
-describe("le message est une observation, jamais un refus", () => {
+describe("l'avertissement est une observation, jamais un refus", () => {
+  /** La phrase rendue par l'écran, dans la langue demandée. */
+  const phrase = (handle: string, locale: "fr" | "en") => {
+    const w = handleWarning(auditCompteHandle(handle, CTX));
+    if (w === null) return null;
+    const cat = locale === "fr" ? fr : en;
+    return (cat.handleWarning as Record<string, string>)[w.key].replace("{mot}", w.mot);
+  };
+
   it("produit : nomme le terme trouvé et la conséquence", () => {
-    const m = handleWarningMessage(auditCompteHandle("@snytchfan", CTX));
+    const m = phrase("@snytchfan", "fr");
     expect(m).toContain("Snytch");
     expect(m).toContain("hook");
     // C'est une aide à la décision : le mot « refus » n'a rien à y faire.
     expect(m).not.toMatch(/refus/i);
     expect(m).not.toMatch(/interdit/i);
+    // Et la version anglaise dit la même chose, sans français.
+    expect(phrase("@snytchfan", "en")).toContain("hook");
+    expect(phrase("@snytchfan", "en")).not.toMatch(/pseudo/i);
   });
 
   it("talent : dit ce que ça expose", () => {
-    const m = handleWarningMessage(auditCompteHandle("@kelly.leydie", CTX));
+    const m = phrase("@kelly.leydie", "fr");
     expect(m).toContain("Kelly");
     expect(m).toContain("talent");
   });
@@ -135,11 +148,11 @@ describe("le message est une observation, jamais un refus", () => {
   it("le produit prime sur le talent quand les deux sont présents", () => {
     // Un seul message : le plus grave d'abord, sinon l'écran empile deux phrases
     // pour une seule décision.
-    const m = handleWarningMessage(auditCompteHandle("@kelly.snytch", CTX));
+    const m = phrase("@kelly.snytch", "fr");
     expect(m).toContain("Snytch");
   });
 
   it("rien à signaler → null (l'écran n'affiche pas de bloc vide)", () => {
-    expect(handleWarningMessage(auditCompteHandle("@neutre", CTX))).toBeNull();
+    expect(handleWarning(auditCompteHandle("@neutre", CTX))).toBeNull();
   });
 });

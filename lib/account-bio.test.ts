@@ -5,6 +5,8 @@ import {
   isBioPending,
   type BioState,
 } from "./account-bio";
+import fr from "../messages/admin/fr/accounts.json";
+import en from "../messages/admin/en/accounts.json";
 
 const NOW = 1_700_000_000_000;
 const LATER = NOW + 86_400_000;
@@ -84,22 +86,24 @@ describe("computeBioPatch — transitions d'état", () => {
 
 describe("bioStateLabel & isBioPending", () => {
   it("aucune bio → none / pas pending", () => {
-    expect(bioStateLabel({})).toEqual({ label: "Aucune bio définie", tone: "none" });
+    expect(bioStateLabel({})).toEqual({ key: "none", tone: "none" });
+    // La phrase, elle, vit dans le catalogue — dans les deux langues.
+    expect(fr.bioState.none).toBe("Aucune bio définie");
+    expect(en.bioState.none).toBe("No bio set");
     expect(isBioPending({})).toBe(false);
   });
 
   it("to_apply → pending", () => {
     const s: BioState = { bioToApply: "x", bioStatus: "to_apply" };
-    expect(bioStateLabel(s)).toEqual({
-      label: "En attente d'application",
-      tone: "pending",
-    });
+    expect(bioStateLabel(s)).toEqual({ key: "pending", tone: "pending" });
+    expect(fr.bioState.pending).toBe("En attente d'application");
     expect(isBioPending(s)).toBe(true);
   });
 
   it("applied → applied / pas pending", () => {
     const s: BioState = { bioToApply: "x", bioStatus: "applied" };
-    expect(bioStateLabel(s)).toEqual({ label: "Appliquée", tone: "applied" });
+    expect(bioStateLabel(s)).toEqual({ key: "applied", tone: "applied" });
+    expect(fr.bioState.applied).toBe("Appliquée");
     expect(isBioPending(s)).toBe(false);
   });
 });
