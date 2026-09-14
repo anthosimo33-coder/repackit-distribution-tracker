@@ -102,3 +102,79 @@ describe("détecteur i18n — étendues et interpolations", () => {
     );
   });
 });
+
+// ─── Passe syntaxique (2026-09-14) ──────────────────────────────────────────
+// Chaque motif ci-dessous s'affichait EN FRANÇAIS dans l'espace créatrice
+// anglais alors que la garde annonçait 175/175 fichiers extraits.
+import { astFindings, stripLineComments } from "./i18n-ast.mjs";
+
+const astTexts = (src) => astFindings(src).map((f) => f.text);
+
+describe("détecteur i18n — trou 5 : `/*` dans une chaîne", () => {
+  it("ne prend pas `video/*` pour l'ouverture d'un commentaire", () => {
+    const r = stripLineComments('  accept: "video/*,image/*,.mov",', false);
+    expect(r.inBlock).toBe(false);
+    expect(r.code).toContain("video/*");
+  });
+
+  it("retire toujours un vrai bloc, et en reporte l'état", () => {
+    expect(stripLineComments("a /* b */ c", false)).toEqual({ code: "a  c", inBlock: false });
+    expect(stripLineComments("x /* ouvert", false).inBlock).toBe(true);
+    expect(stripLineComments("fin */ y", true)).toEqual({ code: " y", inBlock: false });
+  });
+
+  it("garde une URL entière (le `//` d'une chaîne n'est pas un commentaire)", () => {
+    expect(stripLineComments('const u = "https://x.fr"; // note', false).code).toBe(
+      'const u = "https://x.fr"; ',
+    );
+  });
+
+  it("voit le texte d'un fichier APRÈS une chaîne contenant `/*`", () => {
+    const src = 'const A = { accept: "video/*" };\nexport const X = () => <h1>Dépôt de contenu</h1>;';
+    expect(astTexts(src)).toContain("Dépôt de contenu");
+  });
+});
+
+describe("détecteur i18n — passe syntaxique : ce qui est RENDU", () => {
+  it("voit un mot seul, sans accent, entre balises", () => {
+    expect(astTexts("const X = () => <Button>\n  <Icon />\n  Copier\n</Button>;")).toEqual(["Copier"]);
+  });
+
+  it("voit un mot seul dans un ternaire rendu", () => {
+    expect(astTexts('const X = () => <p>{ro ? "Avancement" : t("mine")}</p>;')).toEqual([
+      "Avancement",
+    ]);
+  });
+
+  it("voit un attribut de libellé hors de la liste connue", () => {
+    expect(astTexts('const X = () => <Card badge="Lien" variant="outline" />;')).toEqual(["Lien"]);
+  });
+
+  it("voit le fragment de template et le texte voisin d'une interpolation", () => {
+    expect(astTexts("const X = () => <b title={`${a} · entre ${b}`}>+ {m} débloqués</b>;")).toEqual(
+      expect.arrayContaining(["· entre", "débloqués"]),
+    );
+  });
+
+  it("n'entre pas dans un appel, une comparaison ni un index", () => {
+    expect(
+      astTexts(
+        'const X = () => <p className={cn("Grand", x)}>{t("Titre")}{s === "Actif" ? n : m}{L["Clé"]}</p>;',
+      ),
+    ).toEqual([]);
+  });
+
+  it("ignore les attributs techniques et les jetons", () => {
+    expect(
+      astTexts(
+        'const X = () => <iframe allow="autoplay; encrypted-media" src="/x" data-state="Open" style={{ a: "var(--r)" }} />;',
+      ),
+    ).toEqual([]);
+  });
+
+  it("respecte l'exemption ligne à ligne", () => {
+    expect(
+      astTexts("const X = () => (\n  <p>\n    {/* i18n-exempt: marque */}\n    TikTok\n  </p>\n);"),
+    ).toEqual([]);
+  });
+});
