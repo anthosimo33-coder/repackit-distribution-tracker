@@ -2,12 +2,13 @@
 
 import { cn } from "@/lib/utils";
 import type { Period } from "@/lib/analytics-stats";
+import { useTranslations } from "next-intl";
 
-const OPTIONS: ReadonlyArray<{ value: Period; label: string }> = [
-  { value: "J7", label: "7j" },
-  { value: "J30", label: "30j" },
-  { value: "J90", label: "90j" },
-  { value: "All", label: "Tous" },
+const OPTIONS: ReadonlyArray<{ value: Period; days: number | null }> = [
+  { value: "J7", days: 7 },
+  { value: "J30", days: 30 },
+  { value: "J90", days: 90 },
+  { value: "All", days: null },
 ];
 
 /**
@@ -24,11 +25,12 @@ export function ChartPeriodToggle({
   value: Period;
   onChange: (next: Period) => void;
 }) {
+  const tr = useTranslations("admin.common.ChartPeriodToggle");
   return (
     <div
       className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
       role="radiogroup"
-      aria-label="Fenêtre du graphe"
+      aria-label={tr("fenetreDuGraphe")}
     >
       {OPTIONS.map((opt) => (
         <button
@@ -44,7 +46,7 @@ export function ChartPeriodToggle({
               : "text-slate-600 hover:text-slate-900",
           )}
         >
-          {opt.label}
+          {opt.days === null ? tr("all") : tr("days", { days: opt.days })}
         </button>
       ))}
     </div>

@@ -20,8 +20,10 @@
  * déterministe sans Intl) et correct pour `dueDate`, stocké à 21:59 UTC = 23:59
  * Paris le MÊME jour. Le bon fuseau dépend du champ, pas d'une règle unique.
  */
-export function formatDateFr(ts: number): string {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+export function formatDateFr(ts: number, locale: string = "fr-FR"): string {
+  // L'espace d'équipe passe la langue du lecteur : 09/14/26 en anglais US. Le
+  // serveur (e-mails, libellés persistés) ne la passe jamais — le défaut reste.
+  return new Date(ts).toLocaleDateString(locale.startsWith("en") ? "en-US" : "fr-FR", {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
@@ -42,8 +44,8 @@ export function formatDateFr(ts: number): string {
  * façon redondante — une ligne de paie est déjà rangée sous son cycle. Le défaut
  * à corriger est le fuseau, pas le format.
  */
-export function formatDayMonthFr(ts: number): string {
-  return new Date(ts).toLocaleDateString("fr-FR", {
+export function formatDayMonthFr(ts: number, locale: string = "fr-FR"): string {
+  return new Date(ts).toLocaleDateString(locale.startsWith("en") ? "en-US" : "fr-FR", {
     day: "2-digit",
     month: "2-digit",
     timeZone: "Europe/Paris",

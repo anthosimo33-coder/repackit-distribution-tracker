@@ -42,6 +42,7 @@ function NewButtonInner({
   isCollapsed: boolean;
   onNavigate?: () => void;
 }) {
+  const tr = useTranslations("admin.common.NewButtonInner");
   const t = useTranslations("nav");
   const router = useRouter();
   const pathname = usePathname();
@@ -75,7 +76,7 @@ function NewButtonInner({
     <Tooltip>
       <TooltipTrigger render={button} />
       <TooltipContent side="right" sideOffset={8}>
-        Nouveau
+        {tr("nouveau")}
       </TooltipContent>
     </Tooltip>
   );

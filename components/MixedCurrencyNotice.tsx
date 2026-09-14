@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangleIcon, InfoIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 /**
  * Signalement VISIBLE d'un mélange de devises sur le revenu Whop. Calqué sur
@@ -49,6 +50,7 @@ export function MixedCurrencyNotice({
   currencies?: string[];
   className?: string;
 }) {
+  const tr = useTranslations("admin.common.MixedCurrencyNotice");
   const converted = (conversions?.length ?? 0) > 0;
   if (!mixed && !present && !converted) return null;
   const list =
@@ -76,11 +78,9 @@ export function MixedCurrencyNotice({
         {converted && !mixed ? (
           <>
             <strong>
-              Plusieurs devises encaissées{list ? ` (${list})` : ""}.
-            </strong>{" "}
-            Les montants sont ramenés en{" "}
-            {(currency ?? "").toUpperCase() || "une seule devise"} au taux du
-            projet
+              {tr("plusieursDevisesEncaissees")}{list ? ` (${list})` : ""}.
+            </strong>{" "}{tr("lesMontantsSontRamenesEn")}{" "}
+            {(currency ?? "").toUpperCase() || tr("singleCurrency")}{" "}{tr("auTauxDuProjet")}
             {conversions && conversions.length > 0
               ? ` (${conversions
                   .map(
@@ -89,23 +89,15 @@ export function MixedCurrencyNotice({
                   )
                   .join(" · ")})`
               : ""}
-            , posé à la main et jamais rafraîchi : lisez-les comme un ordre de
-            grandeur. Le détail par devise, lui, est exact.
+            {tr("poseALaMainEt")}
           </>
         ) : mixed ? (
           <>
-            <strong>Plusieurs devises encaissées{list ? ` (${list})` : ""}.</strong>{" "}
-            Les montants ne sont pas additionnables : ils sont volontairement
-            laissés à zéro plutôt que mélangés. Aucun total de revenu, de marge
-            ni de RPM n&apos;est exploitable tant qu&apos;une devise encaissée
-            n&apos;a pas de taux de change réglé sur le projet.
+            <strong>{tr("plusieursDevisesEncaissees")}{list ? ` (${list})` : ""}.</strong>{" "}{tr("lesMontantsNeSontPas")}
           </>
         ) : (
           <>
-            <strong>Deux devises présentes{list ? ` (${list})` : ""}.</strong> Une
-            seule est encaissée : les montants ci-dessous restent justes. Les
-            lignes de l&apos;autre devise (échec, remboursement ou litige) sont
-            exclues des totaux, jamais converties.
+            <strong>{tr("deuxDevisesPresentes")}{list ? ` (${list})` : ""}.</strong>{" "}{tr("uneSeuleEstEncaisseeLes")}
           </>
         )}
       </div>

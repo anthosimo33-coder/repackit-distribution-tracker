@@ -25,8 +25,10 @@
  */
 
 /** Nom INTERNE de la campagne laboratoire (source des graduations). */
+// i18n-exempt: NOM de campagne en base (comparé à la donnée), pas un libellé
 export const LAB_CAMPAIGN_NAME = "Format Warmup LAB";
 /** Nom INTERNE de la campagne des ouvertures prouvées (cible). */
+// i18n-exempt: NOM de campagne en base (comparé à la donnée), pas un libellé
 export const PROVEN_CAMPAIGN_NAME = "Format Warmup - Ouvertures prouvées";
 
 /**

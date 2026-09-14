@@ -18,6 +18,8 @@ import { PencilIcon } from "lucide-react";
 import Image from "next/image";
 import type { Dispatch } from "react";
 import type { NouveauAction, NouveauData, Step } from "../useNouveauState";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * StepRecap — étape 5 du modal. Récap lecture seule + boutons "Modifier"
@@ -31,6 +33,8 @@ export function StepRecap({
   data: NouveauData;
   dispatch: Dispatch<NouveauAction>;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.StepRecap");
   const allHooks = useProjectQuery(api.hooks.listHooks, {});
   // Batch D — résolution image preview pour le récap ScreenRecorder.
   const imagePreview = useQuery(
@@ -69,7 +73,7 @@ export function StepRecap({
       ? RECORDING_DEVICE_ICONS[data.recordingDevice]
       : null;
 
-  const dateLabel = new Date(data.datePubli).toLocaleDateString("fr-FR", {
+  const dateLabel = new Date(data.datePubli).toLocaleDateString(loc, {
     day: "2-digit",
     month: "long",
     year: "numeric",
@@ -78,7 +82,7 @@ export function StepRecap({
   return (
     <div className="space-y-4">
       <Section
-        title="Format"
+        title={tr("format2")}
         onEdit={() => dispatch({ type: "GOTO", step: 1 as Step })}
       >
         {config ? (
@@ -87,13 +91,13 @@ export function StepRecap({
             <span className="font-medium">{config.singular}</span>
           </div>
         ) : (
-          <span className="italic text-slate-400">Non sélectionné</span>
+          <span className="italic text-slate-400">{tr("nonSelectionne")}</span>
         )}
       </Section>
 
       {!isSR && (
         <Section
-          title="Hook"
+          title={tr("hook")}
           onEdit={() => dispatch({ type: "GOTO", step: 2 as Step })}
         >
           {hookText ? (
@@ -102,18 +106,18 @@ export function StepRecap({
               <div className="flex gap-1.5">
                 {hookLangue && <Badge variant="outline">{hookLangue}</Badge>}
                 <Badge variant="outline" className="text-slate-500">
-                  {data.hookMode === "biblio" ? "Bibliothèque" : "Custom"}
+                  {data.hookMode === "biblio" ? tr("bibliotheque") : tr("custom")}
                 </Badge>
               </div>
             </div>
           ) : (
-            <span className="italic text-slate-400">Non saisi</span>
+            <span className="italic text-slate-400">{tr("nonSaisi")}</span>
           )}
         </Section>
       )}
 
       <Section
-        title="Contenu"
+        title={tr("contenu")}
         onEdit={() => dispatch({ type: "GOTO", step: 3 as Step })}
       >
         <div className="space-y-2 text-sm">
@@ -122,18 +126,17 @@ export function StepRecap({
           {data.mediaType === "carousel" && (
             <>
               <div>
-                <span className="text-slate-500">Format :</span>{" "}
-                <span className="font-mono font-medium">{data.format}</span>{" "}
-                · {data.nbSlides} slides
+                <span className="text-slate-500">{tr("format")}</span>{" "}
+                <span className="font-mono font-medium">{data.format}</span>{" "}{tr("slides", { nbSlides: data.nbSlides })}
               </div>
               <div className="space-y-1">
                 {data.slides.map((s, i) => (
                   <div key={i} className="text-xs text-slate-600">
-                    <span className="text-slate-400">Slide {i + 1} :</span>{" "}
+                    <span className="text-slate-400">{tr("slide", { value: i + 1 })}</span>{" "}
                     {s.trim() ? (
                       s.length > 80 ? s.slice(0, 80) + "…" : s
                     ) : (
-                      <span className="italic text-slate-400">(vide)</span>
+                      <span className="italic text-slate-400">{tr("vide")}</span>
                     )}
                   </div>
                 ))}
@@ -143,17 +146,17 @@ export function StepRecap({
           {data.mediaType === "short" && (
             <div className="space-y-2 text-xs text-slate-600">
               <div className="flex items-center gap-2">
-                <span className="text-slate-400">Source :</span>
+                <span className="text-slate-400">{tr("source")}</span>
                 {data.sourceId.trim() ? (
                   <span className="font-mono text-slate-900">
                     {data.sourceId}
                   </span>
                 ) : (
-                  <span className="italic text-slate-400">Non saisie</span>
+                  <span className="italic text-slate-400">{tr("nonSaisie")}</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-400">ICP ciblé :</span>
+                <span className="text-slate-400">{tr("icpCible")}</span>
                 {selectedIcp && icpColor ? (
                   <Badge variant="outline" className="gap-1.5">
                     <span
@@ -166,18 +169,18 @@ export function StepRecap({
                   </Badge>
                 ) : (
                   <span className="italic text-slate-400">
-                    Non sélectionné
+                    {tr("nonSelectionne")}
                   </span>
                 )}
               </div>
               <div>
-                <span className="text-slate-400">Script :</span>{" "}
+                <span className="text-slate-400">{tr("script")}</span>{" "}
                 {data.script.trim() ? (
                   data.script.length > 200
                     ? data.script.slice(0, 200) + "…"
                     : data.script
                 ) : (
-                  <span className="italic text-slate-400">(vide)</span>
+                  <span className="italic text-slate-400">{tr("vide")}</span>
                 )}
               </div>
             </div>
@@ -185,32 +188,32 @@ export function StepRecap({
           {data.mediaType === "screenrecorder" && (
             <div className="space-y-2 text-xs text-slate-600">
               <div>
-                <span className="text-slate-400">Titre :</span>{" "}
+                <span className="text-slate-400">{tr("titre")}</span>{" "}
                 {data.titre.trim() ? (
                   <span className="font-medium text-slate-900">
                     {data.titre}
                   </span>
                 ) : (
-                  <span className="italic text-slate-400">(vide)</span>
+                  <span className="italic text-slate-400">{tr("vide")}</span>
                 )}
               </div>
               <div>
-                <span className="text-slate-400">Image :</span>{" "}
+                <span className="text-slate-400">{tr("image")}</span>{" "}
                 {data.image && imagePreview ? (
                   <Image
                     src={imagePreview}
-                    alt="Preview"
+                    alt={tr("preview")}
                     width={160}
                     height={90}
                     unoptimized
                     className="mt-1 aspect-video rounded border border-slate-200 object-cover"
                   />
                 ) : (
-                  <span className="italic text-slate-400">(absente)</span>
+                  <span className="italic text-slate-400">{tr("absente")}</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-400">Appareil :</span>
+                <span className="text-slate-400">{tr("appareil")}</span>
                 {data.recordingDevice && DeviceIcon ? (
                   <Badge variant="outline" className="gap-1">
                     <DeviceIcon className="size-3" />
@@ -218,32 +221,32 @@ export function StepRecap({
                   </Badge>
                 ) : (
                   <span className="italic text-slate-400">
-                    Non sélectionné
+                    {tr("nonSelectionne")}
                   </span>
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-slate-400">Type :</span>
+                <span className="text-slate-400">{tr("type")}</span>
                 {data.isRepackaging === true ? (
                   <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                    Repackaging RepackIt
+                    {tr("repackagingRepackit")}
                   </Badge>
                 ) : data.isRepackaging === false ? (
                   <Badge variant="outline" className="text-slate-600">
-                    Autre capture
+                    {tr("autreCapture")}
                   </Badge>
                 ) : (
-                  <span className="italic text-slate-400">Non choisi</span>
+                  <span className="italic text-slate-400">{tr("nonChoisi")}</span>
                 )}
               </div>
               <div>
-                <span className="text-slate-400">Script :</span>{" "}
+                <span className="text-slate-400">{tr("script")}</span>{" "}
                 {data.script.trim() ? (
                   data.script.length > 200
                     ? data.script.slice(0, 200) + "…"
                     : data.script
                 ) : (
-                  <span className="italic text-slate-400">(optionnel)</span>
+                  <span className="italic text-slate-400">{tr("optionnel")}</span>
                 )}
               </div>
             </div>
@@ -252,33 +255,33 @@ export function StepRecap({
       </Section>
 
       <Section
-        title="Publication"
+        title={tr("publication")}
         onEdit={() => dispatch({ type: "GOTO", step: 4 as Step })}
       >
         <div className="space-y-1.5 text-sm">
           <div>
-            <span className="text-slate-500">Plateformes :</span>{" "}
+            <span className="text-slate-500">{tr("plateformes")}</span>{" "}
             {data.plateformes.length > 0 ? (
               <span className="font-medium">{data.plateformes.join(", ")}</span>
             ) : (
-              <span className="italic text-slate-400">Aucune</span>
+              <span className="italic text-slate-400">{tr("aucune")}</span>
             )}
           </div>
           <div>
-            <span className="text-slate-500">Compte :</span>{" "}
+            <span className="text-slate-500">{tr("compte")}</span>{" "}
             {data.compte ? (
               <span className="font-mono font-medium">{data.compte}</span>
             ) : (
-              <span className="italic text-slate-400">Non sélectionné</span>
+              <span className="italic text-slate-400">{tr("nonSelectionne")}</span>
             )}
           </div>
           <div>
-            <span className="text-slate-500">Date :</span>{" "}
+            <span className="text-slate-500">{tr("date")}</span>{" "}
             <span className="font-medium">{dateLabel}</span>
           </div>
           {data.notes.trim() && (
             <div>
-              <span className="text-slate-500">Notes :</span>{" "}
+              <span className="text-slate-500">{tr("notes")}</span>{" "}
               <span className="text-slate-700">{data.notes}</span>
             </div>
           )}
@@ -302,6 +305,7 @@ function Section({
   onEdit: () => void;
   children: React.ReactNode;
 }) {
+  const tr = useTranslations("admin.common.Section");
   return (
     <div className="rounded-md border border-slate-200 bg-white p-3">
       <div className="mb-2 flex items-center justify-between">
@@ -315,7 +319,7 @@ function Section({
           className="text-slate-500 hover:text-slate-900"
         >
           <PencilIcon className="size-3" />
-          Modifier
+          {tr("modifier")}
         </Button>
       </div>
       {children}

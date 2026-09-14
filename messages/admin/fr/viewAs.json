@@ -1,1 +1,27 @@
-{}
+{
+  "ViewAsProvider": {
+    "createurIntrouvable": "Créateur introuvable",
+    "ceCreateurNExistePas": "Ce créateur n'existe pas dans ce projet.",
+    "retourAuxCreateurs": "Retour aux créateurs"
+  },
+  "ViewAsBanner": {
+    "tuRegardesLEspaceDe": "Tu regardes l'espace de",
+    "quitter": "Quitter",
+    "ceCreateur": "ce créateur",
+    "readOnly": "(lecture seule)",
+    "readOnlyNoMoney": "(lecture seule, sans ses gains)"
+  },
+  "ScreenOutsideSpace": {
+    "cetEcranNExistePas": "Cet écran n'existe pas dans son espace.",
+    "nAPasCettePage": "n'a pas cette page — son espace n'a pas la même forme que celui d'un créateur partenaire.",
+    "revenirASonEspace": "Revenir à son espace",
+    "cettePersonne": "Cette personne"
+  },
+  "ScreenWithoutMoney": {
+    "sesGainsNeTeSont": "Ses gains ne te sont pas ouverts.",
+    "observerLEspaceDe": "Observer l'espace de",
+    "neDonnePasAccesA": "ne donne pas accès à l'argent qu'on y trouve : ses paiements, le gain de chaque vidéo et le montant de ses paliers demandent le droit « Paiements ». Le reste de son espace reste consultable.",
+    "revenirASonEspace": "Revenir à son espace",
+    "thisPerson": "cette personne"
+  }
+}

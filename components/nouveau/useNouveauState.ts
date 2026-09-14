@@ -5,18 +5,22 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { MediaType } from "@/lib/media-type";
 import type { RecordingDevice } from "@/lib/format-config";
 
+// i18n-exempt: valeurs d'énumération STOCKÉES (mécanique, niveau, angle), pas des libellés
 export type Mecanique =
   | "Erreur"
   | "Volume"
   | "Comparaison"
   | "Contradiction"
+  // i18n-exempt: valeur d'énumération stockée
   | "Universalité"
   | "Question";
+// i18n-exempt: valeur d'énumération stockée
 export type Niveau = "Broad-A" | "Broad-B" | "Niché";
 export type Langue = "FR" | "EN";
 export type Angle =
   | "Psycho"
   | "Accusatoire"
+  // i18n-exempt: valeur d'énumération stockée
   | "Pédagogique"
   | "Observation"
   | "Provocant";

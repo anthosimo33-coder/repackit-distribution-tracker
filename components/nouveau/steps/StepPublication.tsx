@@ -26,7 +26,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fr } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
 import { FORMAT_CONFIGS, type FormatKey } from "@/lib/format-config";
 import {
@@ -35,6 +34,9 @@ import {
 } from "@/lib/compte-status";
 import { cn } from "@/lib/utils";
 import type { NouveauAction, NouveauData } from "../useNouveauState";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale } from "@/lib/date-fns-locale";
 
 export type SourceStatus = FunctionReturnType<
   typeof api.publications.getSourceStatus
@@ -61,6 +63,8 @@ export function StepPublication({
   confirmOverride: boolean;
   onConfirmOverrideChange: (value: boolean) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.StepPublication");
   const projectPath = useProjectPath();
   // On récupère TOUS les comptes (pas seulement les actifs) pour pouvoir
   // afficher, quand aucun n'est sélectionnable, combien sont en warmup /
@@ -113,14 +117,14 @@ export function StepPublication({
   const platformLabel =
     data.plateformes.length === 1
       ? data.plateformes[0]
-      : "les plateformes sélectionnées";
+      : tr("lesPlateformesSelectionnees");
 
   const datePubliDate = new Date(data.datePubli);
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <div className="space-y-1.5">
-        <Label>Plateformes</Label>
+        <Label>{tr("plateformes")}</Label>
         <div className="flex flex-col gap-2 pt-2">
           {allowedPlatforms.map((p) => {
             const blocked = blockedSet.has(p);
@@ -130,7 +134,7 @@ export function StepPublication({
                 key={p}
                 title={
                   blocked
-                    ? `Bloqué : déjà posté sur ${p} (risque shadowban)`
+                    ? tr("bloqueDejaPosteSurRisque", { p: p })
                     : undefined
                 }
                 className={cn(
@@ -150,12 +154,12 @@ export function StepPublication({
                 <span className="text-sm">{p}</span>
                 {blocked && (
                   <Badge className="border-rose-200 bg-rose-50 text-rose-700">
-                    Bloqué — déjà posté
+                    {tr("bloqueDejaPoste")}
                   </Badge>
                 )}
                 {warning && !blocked && (
                   <Badge className="border-amber-200 bg-amber-50 text-amber-700">
-                    ⚠ Déjà posté sur {p}
+                    {tr("dejaPosteSur", { p: p })}
                   </Badge>
                 )}
               </label>
@@ -171,30 +175,28 @@ export function StepPublication({
               }
             />
             <span className="text-xs text-amber-900">
-              Je confirme malgré l&apos;avertissement (repost sur{" "}
-              {selectedWarnings.join(", ")}).
+              {tr("jeConfirmeMalgreLAvertissement", { value: selectedWarnings.join(", ") })}
             </span>
           </label>
         )}
       </div>
       <div className="space-y-1.5">
-        <Label>Compte</Label>
+        <Label>{tr("compte")}</Label>
         {comptesData === undefined ? (
           <Skeleton className="h-9 w-full" />
         ) : filteredComptes.length === 0 ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-            Aucun compte actif sur {platformLabel}.
+            {tr("aucunCompteActifSur", { platformLabel: platformLabel })}
             {(warmupCount > 0 || shadowbanCount > 0) && (
               <>
-                {" "}
-                {warmupCount} en warmup, {shadowbanCount} en shadowban.
+                {" "}{tr("enWarmupEnShadowban", { warmupCount: warmupCount, shadowbanCount: shadowbanCount })}
               </>
             )}{" "}
             <Link
               href={projectPath("/comptes")}
               className="font-medium underline underline-offset-2"
             >
-              Gérer les comptes
+              {tr("gererLesComptes")}
             </Link>
             .
           </div>
@@ -206,7 +208,7 @@ export function StepPublication({
             }
           >
             <SelectTrigger>
-              <SelectValue>{data.compte || "Sélectionne un compte"}</SelectValue>
+              <SelectValue>{data.compte || tr("selectionneUnCompte")}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               {filteredComptes.map((c) => (
@@ -222,7 +224,7 @@ export function StepPublication({
         )}
       </div>
       <div className="space-y-1.5">
-        <Label>Date de publication</Label>
+        <Label>{tr("dateDePublication")}</Label>
         <Popover>
           <PopoverTrigger
             render={
@@ -231,7 +233,7 @@ export function StepPublication({
                 className="w-full justify-start text-left font-normal"
               >
                 <CalendarIcon className="mr-2 size-4" />
-                {datePubliDate.toLocaleDateString("fr-FR", {
+                {datePubliDate.toLocaleDateString(loc, {
                   day: "2-digit",
                   month: "long",
                   year: "numeric",
@@ -247,18 +249,18 @@ export function StepPublication({
                 d &&
                 dispatch({ type: "SET_DATE_PUBLI", datePubli: d.getTime() })
               }
-              locale={fr}
+              locale={dateFnsLocale(loc)}
               weekStartsOn={1}
             />
           </PopoverContent>
         </Popover>
       </div>
       <div className="space-y-1.5 md:col-span-2">
-        <Label htmlFor="notes">Notes</Label>
+        <Label htmlFor="notes">{tr("notes")}</Label>
         <Textarea
           id="notes"
           rows={2}
-          placeholder="Optionnel..."
+          placeholder={tr("optionnel")}
           value={data.notes}
           onChange={(e) =>
             dispatch({ type: "SET_NOTES", notes: e.target.value })

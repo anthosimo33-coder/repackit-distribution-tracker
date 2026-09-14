@@ -20,6 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -103,6 +104,7 @@ function PersonneEditDialogForm({
   onCreated?: (id: Id<"personnes">) => void;
   onClose: () => void;
 }) {
+  const tr = useTranslations("admin.common.PersonneEditDialogForm");
   const isEdit = mode === "edit";
   const [prenom, setPrenom] = useState(
     initialPersonne?.prenom ?? initialPrenom ?? "",
@@ -132,18 +134,18 @@ function PersonneEditDialogForm({
           prenom: trimmedPrenom,
           nom: trimmedNom,
         });
-        toast.success("Personne modifiée");
+        toast.success(tr("personneModifiee"));
       } else {
         const newId = await createPersonne({
           prenom: trimmedPrenom,
           nom: trimmedNom,
         });
-        toast.success(`${trimmedPrenom} ${trimmedNom} ajouté·e`);
+        toast.success(tr("ajouteE", { trimmedPrenom: trimmedPrenom, trimmedNom: trimmedNom }));
         onCreated?.(newId);
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -153,22 +155,22 @@ function PersonneEditDialogForm({
     <>
       <DialogHeader>
         <DialogTitle>
-          {isEdit ? "Modifier la personne" : "Nouvelle personne"}
+          {isEdit ? tr("modifierLaPersonne") : tr("nouvellePersonne")}
         </DialogTitle>
         <DialogDescription>
           {isEdit
-            ? "Mets à jour le prénom ou le nom."
-            : "Ajoute une personne pour l'assigner comme gestionnaire de comptes."}
+            ? tr("metsAJourLePrenom")
+            : tr("ajouteUnePersonnePourL")}
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-1.5">
-        <Label htmlFor="personne-prenom">Prénom *</Label>
+        <Label htmlFor="personne-prenom">{tr("prenom")}</Label>
         <Input
           id="personne-prenom"
           autoFocus
           maxLength={MAX_NAME_LENGTH}
-          placeholder="Ex: Antoine"
+          placeholder={tr("exAntoine")}
           value={prenom}
           onChange={(e) => setPrenom(e.target.value)}
           onKeyDown={(e) => {
@@ -178,11 +180,11 @@ function PersonneEditDialogForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="personne-nom">Nom *</Label>
+        <Label htmlFor="personne-nom">{tr("nom")}</Label>
         <Input
           id="personne-nom"
           maxLength={MAX_NAME_LENGTH}
-          placeholder="Ex: Durand"
+          placeholder={tr("exDurand")}
           value={nom}
           onChange={(e) => setNom(e.target.value)}
           onKeyDown={(e) => {
@@ -193,11 +195,11 @@ function PersonneEditDialogForm({
 
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={submitting}>
-          Annuler
+          {tr("annuler")}
         </Button>
         <Button onClick={handleSave} disabled={!canSubmit}>
           {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          Enregistrer
+          {tr("enregistrer")}
         </Button>
       </DialogFooter>
     </>

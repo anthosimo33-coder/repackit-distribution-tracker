@@ -62,15 +62,35 @@ export function collectAvailability(pub: CollectState): CollectAvailability {
  * plus précis que tout ce qu'on pourrait redire ici, et c'est exactement ce que
  * la personne qui regarde l'écran a besoin de savoir.
  */
+export type CollectAvailabilityCopy = {
+  pending: string;
+  failed: string;
+  failedWithReason: (reason: string) => string;
+};
+
+/**
+ * Phrases de référence en français. L'écran passe les siennes, traduites
+ * (`admin.common.MeasuredOrDash`) ; ce module reste pur.
+ */
+const COPY_FR: CollectAvailabilityCopy = {
+  // i18n-exempt: repli de référence d'un module pur ; l'écran passe sa copie traduite
+  pending: "En attente du premier relevé",
+  // i18n-exempt: repli de référence d'un module pur ; l'écran passe sa copie traduite
+  failed: "Non mesuré",
+  // i18n-exempt: repli de référence d'un module pur ; l'écran passe sa copie traduite
+  failedWithReason: (reason) => `Non mesuré — ${reason}`,
+};
+
 export function collectAvailabilityLabel(
   availability: CollectAvailability,
   reason?: string,
+  copy: CollectAvailabilityCopy = COPY_FR,
 ): string | null {
   if (availability === "measured") return null;
-  if (availability === "pending") return "En attente du premier relevé";
+  if (availability === "pending") return copy.pending;
   return reason !== undefined && reason.trim() !== ""
-    ? `Non mesuré — ${reason}`
-    : "Non mesuré";
+    ? copy.failedWithReason(reason)
+    : copy.failed;
 }
 
 /**

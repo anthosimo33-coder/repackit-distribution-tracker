@@ -23,6 +23,7 @@ import { Loader2Icon, CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -100,6 +101,7 @@ function IcpEditDialogForm({
   onCreated?: (id: Id<"icps">) => void;
   onClose: () => void;
 }) {
+  const tr = useTranslations("admin.common.IcpEditDialogForm");
   const isEdit = mode === "edit";
   const [nom, setNom] = useState(initialIcp?.nom ?? initialNom ?? "");
   const [description, setDescription] = useState(
@@ -115,6 +117,7 @@ function IcpEditDialogForm({
 
   const trimmed = nom.trim();
   const canSubmit =
+    // i18n-exempt: code TypeScript, pas du texte
     trimmed.length > 0 && trimmed.length <= MAX_NAME_LENGTH && !submitting;
 
   async function handleSave() {
@@ -128,19 +131,19 @@ function IcpEditDialogForm({
           description: description.trim() || undefined,
           color,
         });
-        toast.success("ICP modifié");
+        toast.success(tr("icpModifie"));
       } else {
         const newId = await createIcp({
           nom: trimmed,
           description: description.trim() || undefined,
           color,
         });
-        toast.success(`ICP "${trimmed}" créé`);
+        toast.success(tr("icpCree", { trimmed: trimmed }));
         onCreated?.(newId);
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -149,49 +152,49 @@ function IcpEditDialogForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{isEdit ? "Modifier l'ICP" : "Nouvel ICP"}</DialogTitle>
+        <DialogTitle>{isEdit ? tr("modifierLIcp") : tr("nouvelIcp")}</DialogTitle>
         <DialogDescription>
           {isEdit
-            ? "Mets à jour le nom, la description ou la couleur."
-            : "Crée un profil d'audience cible assignable à tes Shorts."}
+            ? tr("metsAJourLeNom")
+            : tr("creeUnProfilDAudience")}
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-1.5">
-        <Label htmlFor="icp-nom">Nom *</Label>
+        <Label htmlFor="icp-nom">{tr("nom")}</Label>
         <Input
           id="icp-nom"
           autoFocus
           maxLength={MAX_NAME_LENGTH}
-          placeholder="Ex: Mid-tier FR"
+          placeholder={tr("exMidTierFr")}
           value={nom}
           onChange={(e) => setNom(e.target.value)}
         />
         <p className="text-xs text-slate-500">
-          {trimmed.length}/{MAX_NAME_LENGTH} caractères
+          {tr("caracteres", { count: trimmed.length, MAX_NAME_LENGTH: MAX_NAME_LENGTH })}
         </p>
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="icp-description">Description</Label>
+        <Label htmlFor="icp-description">{tr("description")}</Label>
         <Textarea
           id="icp-description"
           rows={3}
-          placeholder="Optionnel"
+          placeholder={tr("optionnel")}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label>Couleur</Label>
+        <Label>{tr("couleur")}</Label>
         <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
           {FOLDER_COLORS.map((c) => (
             <button
               key={c.key}
               type="button"
               onClick={() => setColor(c.key)}
-              aria-label={`Couleur ${c.label}`}
+              aria-label={tr("couleur2", { label: c.label })}
               aria-pressed={color === c.key}
               className={cn(
                 "relative flex aspect-square items-center justify-center rounded-md border-2 transition-all",
@@ -211,11 +214,11 @@ function IcpEditDialogForm({
 
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={submitting}>
-          Annuler
+          {tr("annuler")}
         </Button>
         <Button onClick={handleSave} disabled={!canSubmit}>
           {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-          Enregistrer
+          {tr("enregistrer")}
         </Button>
       </DialogFooter>
     </>

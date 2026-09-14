@@ -23,6 +23,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * P3 — switcher de projet en tête de sidebar. Liste les projets de
@@ -39,6 +40,7 @@ export function ProjectSwitcher({
   isCollapsed: boolean;
   onNavigate?: () => void;
 }) {
+  const tr = useTranslations("admin.common.ProjectSwitcher");
   const router = useRouter();
   const { project } = useProject();
   const projects = useQuery(api.projects.listMyProjects, {});
@@ -59,7 +61,7 @@ export function ProjectSwitcher({
         "flex w-full items-center rounded-md border border-slate-200 bg-white text-left transition-colors hover:bg-slate-50",
         isCollapsed ? "justify-center p-1.5" : "gap-2 px-2 py-1.5",
       )}
-      aria-label="Changer de projet"
+      aria-label={tr("changerDeProjet")}
     >
       <ProjectAvatar
         name={project.name}
@@ -105,9 +107,9 @@ export function ProjectSwitcher({
           sideOffset={6}
         >
           <DropdownMenuGroup>
-            <DropdownMenuLabel>Projets</DropdownMenuLabel>
+            <DropdownMenuLabel>{tr("projets")}</DropdownMenuLabel>
             {projects === undefined ? (
-              <DropdownMenuItem disabled>Chargement…</DropdownMenuItem>
+              <DropdownMenuItem disabled>{tr("chargement")}</DropdownMenuItem>
             ) : (
               projects.map((p) => (
                 <DropdownMenuItem
@@ -147,7 +149,7 @@ export function ProjectSwitcher({
                 className="gap-2 text-slate-600"
               >
                 <PlusIcon className="size-4" />
-                Créer un projet
+                {tr("creerUnProjet")}
               </DropdownMenuItem>
             </>
           )}

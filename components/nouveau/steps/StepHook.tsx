@@ -25,6 +25,7 @@ import type {
   NouveauAction,
   NouveauData,
 } from "../useNouveauState";
+import { useTranslations } from "next-intl";
 
 const LANGUES: Langue[] = ["FR", "EN"];
 
@@ -49,6 +50,7 @@ export function StepHook({
   data: NouveauData;
   dispatch: Dispatch<NouveauAction>;
 }) {
+  const tr = useTranslations("admin.common.StepHook");
   const allHooks = useProjectQuery(api.hooks.listHooks, {});
 
   const biblioFiltered = useMemo(
@@ -73,7 +75,7 @@ export function StepHook({
       {isShort && (
         <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
           <Label htmlFor="source-id-combobox">
-            Source (nom de fichier Drive){" "}
+            {tr("sourceNomDeFichierDrive")}{" "}
             <span className="text-rose-500">*</span>
           </Label>
           <SourceIdCombobox
@@ -97,14 +99,14 @@ export function StepHook({
         }
       >
         <TabsList>
-          <TabsTrigger value="biblio">Bibliothèque</TabsTrigger>
-          <TabsTrigger value="custom">Custom</TabsTrigger>
+          <TabsTrigger value="biblio">{tr("bibliotheque")}</TabsTrigger>
+          <TabsTrigger value="custom">{tr("custom")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="biblio" className="mt-4 space-y-3">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium uppercase tracking-wider text-slate-500">
-              Langue
+              {tr("langue")}
             </span>
             <div className="inline-flex rounded-md border border-slate-200 bg-white p-0.5">
               {LANGUES.map((l) => (
@@ -148,7 +150,7 @@ export function StepHook({
 
         <TabsContent value="custom" className="mt-4 space-y-3">
           <div className="space-y-1.5">
-            <Label>Langue</Label>
+            <Label>{tr("langue")}</Label>
             <Select
               value={data.customHook.langue}
               onValueChange={(v) =>
@@ -172,7 +174,7 @@ export function StepHook({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="custom-text">Texte du hook</Label>
+            <Label htmlFor="custom-text">{tr("texteDuHook")}</Label>
             <Textarea
               id="custom-text"
               rows={2}
@@ -183,7 +185,7 @@ export function StepHook({
                   patch: { text: e.target.value },
                 })
               }
-              placeholder="Tape ton hook custom..."
+              placeholder={tr("tapeTonHookCustom")}
             />
           </div>
         </TabsContent>

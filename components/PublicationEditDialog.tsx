@@ -29,7 +29,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { fr } from "date-fns/locale";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,19 +48,13 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale } from "@/lib/date-fns-locale";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const SNAPSHOT_PRESETS: { label: string; days: number | "today" }[] = [
-  { label: "J+1", days: 1 },
-  { label: "J+3", days: 3 },
-  { label: "J+7", days: 7 },
-  { label: "J+14", days: 14 },
-  { label: "J+30", days: 30 },
-  { label: "J+60", days: 60 },
-  { label: "J+90", days: 90 },
-  { label: "Aujourd'hui", days: "today" },
-];
+const SNAPSHOT_PRESETS: (number | "today")[] = [1, 3, 7, 14, 30, 60, 90, "today"];
 
 function parseNumOrNull(s: string): number | null {
   if (s.trim() === "") return null;
@@ -82,6 +75,8 @@ export function PublicationEditDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.PublicationEditDialog");
   const mediaType = getMediaType(publication);
   const isShort = mediaType === "short";
   const isScreenRecorder = mediaType === "screenrecorder";
@@ -120,11 +115,11 @@ export function PublicationEditDialog({
 
   async function handleSaveInfos() {
     if (isShort && icpId === null) {
-      toast.error("ICP requis pour le Short.");
+      toast.error(tr("icpRequisPourLeShort"));
       return;
     }
     if (isShort && !sourceId.trim()) {
-      toast.error("Source requise pour le Short.");
+      toast.error(tr("sourceRequisePourLeShort"));
       return;
     }
     setSavingInfos(true);
@@ -138,11 +133,11 @@ export function PublicationEditDialog({
         sourceId: isShort ? sourceId.trim() : undefined,
         postUrl: postUrl.trim(),
       });
-      toast.success("Infos publication mises à jour");
+      toast.success(tr("infosPublicationMisesAJour"));
       onOpenChange(false);
     } catch (e) {
       toast.error(
-        convexErrorMessage(e, "Erreur lors de la mise à jour"),
+        convexErrorMessage(e, tr("erreurLorsDeLaMise")),
       );
     } finally {
       setSavingInfos(false);
@@ -153,10 +148,10 @@ export function PublicationEditDialog({
     if (!deletingSnapshot) return;
     try {
       await deleteSnapshot({ id: deletingSnapshot._id });
-      toast.success("Snapshot supprimé");
+      toast.success(tr("snapshotSupprime"));
       setDeletingSnapshot(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur lors de la suppression"));
+      toast.error(convexErrorMessage(e, tr("erreurLorsDeLaSuppression")));
     }
   }
 
@@ -165,7 +160,7 @@ export function PublicationEditDialog({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>
-            Mettre à jour — {publication.carouselId} ({publication.plateforme})
+            {tr("mettreAJour", { carouselId: publication.carouselId, plateforme: publication.plateforme })}
           </DialogTitle>
           <DialogDescription className="italic">
             {publication.hookText}
@@ -176,7 +171,7 @@ export function PublicationEditDialog({
         <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-900">
-              Snapshots de métriques
+              {tr("snapshotsDeMetriques")}
             </h3>
             <Button
               size="sm"
@@ -188,7 +183,7 @@ export function PublicationEditDialog({
               }}
             >
               <PlusIcon className="size-4" />
-              Ajouter un snapshot
+              {tr("ajouterUnSnapshot")}
             </Button>
           </div>
 
@@ -199,8 +194,7 @@ export function PublicationEditDialog({
             </div>
           ) : snapshots.length === 0 ? (
             <p className="rounded-md border border-dashed border-slate-200 px-3 py-6 text-center text-sm text-slate-400">
-              Aucun snapshot. Ajoute la première mesure (vues, likes…) avec un
-              bouton rapide J+1 / J+7 / J+30.
+              {tr("aucunSnapshotAjouteLaPremiere")}
             </p>
           ) : (
             <ul className="space-y-1.5">
@@ -213,19 +207,19 @@ export function PublicationEditDialog({
                     J+{s.daysSincePublication}
                   </Badge>
                   <span className="shrink-0 text-xs text-slate-500">
-                    {formatDate(s.capturedAt)}
+                    {formatDate(s.capturedAt, loc)}
                   </span>
                   <span className="flex-1 truncate text-xs text-slate-600">
-                    {formatNumber(s.vues)} vues · {formatNumber(s.likes)} likes
-                    {s.saves != null && ` · ${formatNumber(s.saves)} saves`}
+                    {tr("vuesLikes", { count: formatNumber(s.vues, loc), count2: formatNumber(s.likes, loc) })}
+                    {s.saves != null && ` ${tr("saves", { count: formatNumber(s.saves, loc) })}`}
                     {s.subsGained != null &&
-                      ` · ${formatNumber(s.subsGained)} subs`}
+                      ` ${tr("subs", { count: formatNumber(s.subsGained, loc) })}`}
                     {s.comments != null &&
-                      ` · ${formatNumber(s.comments)} comm.`}
+                      ` ${tr("comm", { count: formatNumber(s.comments, loc) })}`}
                   </span>
                   <button
                     type="button"
-                    aria-label="Éditer le snapshot"
+                    aria-label={tr("editerLeSnapshot")}
                     className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     onClick={() => {
                       setEditingSnapshot(s);
@@ -236,7 +230,7 @@ export function PublicationEditDialog({
                   </button>
                   <button
                     type="button"
-                    aria-label="Supprimer le snapshot"
+                    aria-label={tr("supprimerLeSnapshot")}
                     className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                     onClick={() => setDeletingSnapshot(s)}
                   >
@@ -253,22 +247,22 @@ export function PublicationEditDialog({
         {/* ─── Infos publication (hors snapshots) ─── */}
         <section className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="post-url">Lien de publication</Label>
+            <Label htmlFor="post-url">{tr("lienDePublication")}</Label>
             <Input
               id="post-url"
               type="url"
-              placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
+              placeholder={tr("postUrlPlaceholder")}
               value={postUrl}
               onChange={(e) => setPostUrl(e.target.value)}
             />
             <p className="text-xs text-slate-500">
-              Vider le lien repasse la publication en « à venir ».
+              {tr("viderLeLienRepasseLa")}
             </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="comments-audit">Comments AUDIT</Label>
+              <Label htmlFor="comments-audit">{tr("commentsAudit")}</Label>
               <Input
                 id="comments-audit"
                 type="number"
@@ -280,7 +274,7 @@ export function PublicationEditDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="profile-visits">Profile visits</Label>
+              <Label htmlFor="profile-visits">{tr("profileVisits")}</Label>
               <Input
                 id="profile-visits"
                 type="number"
@@ -294,7 +288,7 @@ export function PublicationEditDialog({
 
           {isShort && (
             <div className="space-y-1.5">
-              <Label>Source (nom de fichier Drive)</Label>
+              <Label>{tr("sourceNomDeFichierDrive")}</Label>
               <SourceIdCombobox
                 value={sourceId}
                 onChange={setSourceId}
@@ -305,19 +299,19 @@ export function PublicationEditDialog({
 
           {isShort && (
             <div className="space-y-1.5">
-              <Label>ICP ciblé</Label>
+              <Label>{tr("icpCible")}</Label>
               <IcpCombobox value={icpId} onChange={setIcpId} required />
             </div>
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="edit-notes">Notes</Label>
+            <Label htmlFor="edit-notes">{tr("notes")}</Label>
             <Textarea
               id="edit-notes"
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optionnel..."
+              placeholder={tr("optionnel")}
             />
           </div>
         </section>
@@ -328,11 +322,11 @@ export function PublicationEditDialog({
             onClick={() => onOpenChange(false)}
             disabled={savingInfos}
           >
-            Fermer
+            {tr("fermer")}
           </Button>
           <Button onClick={handleSaveInfos} disabled={savingInfos}>
             {savingInfos && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Enregistrer les infos
+            {tr("enregistrerLesInfos")}
           </Button>
         </DialogFooter>
 
@@ -356,20 +350,20 @@ export function PublicationEditDialog({
         >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Supprimer ce snapshot ?</AlertDialogTitle>
+              <AlertDialogTitle>{tr("supprimerCeSnapshot")}</AlertDialogTitle>
               <AlertDialogDescription>
                 {deletingSnapshot
-                  ? `Snapshot J+${deletingSnapshot.daysSincePublication} du ${formatDate(deletingSnapshot.capturedAt)}. Cette action est irréversible.`
+                  ? tr("snapshotJDuCetteAction", { daysSincePublication: deletingSnapshot.daysSincePublication, date: formatDate(deletingSnapshot.capturedAt, loc) })
                   : ""}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Annuler</AlertDialogCancel>
+              <AlertDialogCancel>{tr("annuler")}</AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
                 onClick={confirmDeleteSnapshot}
               >
-                Supprimer
+                {tr("supprimer")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -392,6 +386,8 @@ function SnapshotFormDialog({
   isVideo: boolean;
   onClose: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.SnapshotFormDialog");
   const createSnapshot = useProjectMutation(api.metricSnapshots.createSnapshot);
   const updateSnapshot = useProjectMutation(api.metricSnapshots.updateSnapshot);
 
@@ -421,11 +417,11 @@ function SnapshotFormDialog({
   async function handleSave() {
     const v = parseNumOrNull(vues);
     if (v === null || v < 0) {
-      toast.error("Vues requises (≥ 0).");
+      toast.error(tr("vuesRequises0"));
       return;
     }
     if (capturedAt.getTime() < publication.datePubli) {
-      toast.error("Date de capture antérieure à la date de publication.");
+      toast.error(tr("dateDeCaptureAnterieureA"));
       return;
     }
     const payload = {
@@ -443,7 +439,7 @@ function SnapshotFormDialog({
           capturedAt: capturedAt.getTime(),
           ...payload,
         });
-        toast.success("Snapshot modifié");
+        toast.success(tr("snapshotModifie"));
       } else {
         await createSnapshot({
           publicationId: publication._id,
@@ -451,11 +447,11 @@ function SnapshotFormDialog({
           source: "manual",
           ...payload,
         });
-        toast.success("Snapshot ajouté");
+        toast.success(tr("snapshotAjoute"));
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur lors de l'enregistrement"));
+      toast.error(convexErrorMessage(e, tr("erreurLorsDeLEnregistrement")));
     } finally {
       setSubmitting(false);
     }
@@ -466,34 +462,33 @@ function SnapshotFormDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {editing ? "Modifier le snapshot" : "Nouveau snapshot"}
+            {editing ? tr("modifierLeSnapshot") : tr("nouveauSnapshot")}
           </DialogTitle>
           <DialogDescription>
-            {publication.carouselId} ({publication.plateforme}) — capture à
-            J+{Math.max(0, daysSince)}.
+            {tr("captureAJ", { carouselId: publication.carouselId, plateforme: publication.plateforme, value: Math.max(0, daysSince) })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-1.5">
-          <Label>Date de capture rapide</Label>
+          <Label>{tr("dateDeCaptureRapide")}</Label>
           <div className="flex flex-wrap gap-1.5">
-            {SNAPSHOT_PRESETS.map((p) => (
+            {SNAPSHOT_PRESETS.map((days) => (
               <Button
-                key={p.label}
+                key={days}
                 type="button"
                 variant="outline"
                 size="sm"
                 className="h-7 px-2 text-xs"
-                onClick={() => applyPreset(p.days)}
+                onClick={() => applyPreset(days)}
               >
-                {p.label}
+                {days === "today" ? tr("presetToday") : tr("presetDay", { days })}
               </Button>
             ))}
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label>Date de capture</Label>
+          <Label>{tr("dateDeCapture")}</Label>
           <Popover>
             <PopoverTrigger
               render={
@@ -502,7 +497,7 @@ function SnapshotFormDialog({
                   className="w-full justify-start text-left font-normal"
                 >
                   <CalendarIcon className="mr-2 size-4" />
-                  {capturedAt.toLocaleDateString("fr-FR", {
+                  {capturedAt.toLocaleDateString(loc, {
                     day: "2-digit",
                     month: "long",
                     year: "numeric",
@@ -515,7 +510,7 @@ function SnapshotFormDialog({
                 mode="single"
                 selected={capturedAt}
                 onSelect={(d) => d && setCapturedAt(d)}
-                locale={fr}
+                locale={dateFnsLocale(loc)}
                 weekStartsOn={1}
               />
             </PopoverContent>
@@ -524,7 +519,7 @@ function SnapshotFormDialog({
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="space-y-1.5">
-            <Label htmlFor="snap-vues">Vues</Label>
+            <Label htmlFor="snap-vues">{tr("vues")}</Label>
             <Input
               id="snap-vues"
               type="number"
@@ -535,7 +530,7 @@ function SnapshotFormDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="snap-likes">Likes</Label>
+            <Label htmlFor="snap-likes">{tr("likes")}</Label>
             <Input
               id="snap-likes"
               type="number"
@@ -547,7 +542,7 @@ function SnapshotFormDialog({
           </div>
           {isCarousel && (
             <div className="space-y-1.5">
-              <Label htmlFor="snap-saves">Saves</Label>
+              <Label htmlFor="snap-saves">{tr("saves")}</Label>
               <Input
                 id="snap-saves"
                 type="number"
@@ -560,7 +555,7 @@ function SnapshotFormDialog({
           )}
           {isVideo && (
             <div className="space-y-1.5">
-              <Label htmlFor="snap-subs">Subs gagnés</Label>
+              <Label htmlFor="snap-subs">{tr("subsGagnes")}</Label>
               <Input
                 id="snap-subs"
                 type="number"
@@ -572,7 +567,7 @@ function SnapshotFormDialog({
             </div>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="snap-comments">Comments</Label>
+            <Label htmlFor="snap-comments">{tr("comments")}</Label>
             <Input
               id="snap-comments"
               type="number"
@@ -586,11 +581,11 @@ function SnapshotFormDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={submitting}>
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={handleSave} disabled={submitting}>
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Enregistrer
+            {tr("enregistrer")}
           </Button>
         </DialogFooter>
       </DialogContent>

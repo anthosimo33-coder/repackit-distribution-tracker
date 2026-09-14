@@ -32,7 +32,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { fr } from "date-fns/locale";
 import { VerdictBadge, PlatformBadge } from "@/components/VerdictBadge";
 import {
   calculateAuditConversion,
@@ -93,6 +92,9 @@ function RecordingDeviceInlineBadge({ device }: { device: RecordingDevice }) {
 // filtrage UI ici (le draft autorise n'importe quelle des 3 plateformes,
 // le serveur reject si incohérent avec le mediaType existant).
 import { ALL_PLATFORMS, type Platform as Plateforme } from "@/lib/format-config";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
+import { dateFnsLocale } from "@/lib/date-fns-locale";
 
 function Field({
   label,
@@ -160,12 +162,12 @@ export function PublicationDetailDialog({
   );
 }
 
-/** Date FR courte (UTC) — cohérente avec le message de verrou côté serveur. */
-function frDate(ms: number): string {
+/** Date courte (UTC) — cohérente avec le message de verrou côté serveur ; MM/JJ en anglais US. */
+function frDate(ms: number, locale: string): string {
   const d = new Date(ms);
   const dd = String(d.getUTCDate()).padStart(2, "0");
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-  return `${dd}/${mm}/${d.getUTCFullYear()}`;
+  return locale.startsWith("en") ? `${mm}/${dd}/${d.getUTCFullYear()}` : `${dd}/${mm}/${d.getUTCFullYear()}`;
 }
 
 /**
@@ -188,6 +190,7 @@ function frDate(ms: number): string {
  * Admin-only par construction (surface admin + adminMutation).
  */
 function PayFlagsControl({ publication }: { publication: PublicationWithImage }) {
+  const tr = useTranslations("admin.common.PayFlagsControl");
   const state = useProjectQuery(api.publications.getPublicationPayFlags, {
     publicationId: publication._id,
   });
@@ -227,9 +230,9 @@ function PayFlagsControl({ publication }: { publication: PublicationWithImage })
         run(
           () => setWarmup({ publicationId: publication._id, isWarmup: next }),
           next
-            ? "Warmup posé — post retiré des vues promo"
-            : "Warmup retiré — post recompté en promo",
-          "Impossible de modifier le warmup.",
+            ? tr("warmupPosePostRetireDes")
+            : tr("warmupRetirePostRecompteEn"),
+          tr("impossibleDeModifierLeWarmup"),
         )
       }
       onRemunerationChange={(next) =>
@@ -237,9 +240,9 @@ function PayFlagsControl({ publication }: { publication: PublicationWithImage })
           () =>
             setRemuneration({ publicationId: publication._id, remunere: next }),
           next
-            ? "Post rémunéré — recompté dans la paie"
-            : "Rémunération retirée — post sorti de la paie",
-          "Impossible de modifier la rémunération.",
+            ? tr("postRemunereRecompteDansLa")
+            : tr("remunerationRetireePostSortiDe"),
+          tr("impossibleDeModifierLaRemuneration"),
         )
       }
     />
@@ -280,47 +283,43 @@ export function PayFlagsControlView({
   onWarmupChange,
   onRemunerationChange,
 }: PayFlagsView) {
+  const tr = useTranslations("admin.common.PayFlagsControlView");
+  const loc = useIntlLocale();
   const state = { cycleStart, cycleEnd, paidAt };
   return (
     <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/60 p-3">
       {/* ── État EFFECTIF en tête : la conclusion, pas les ingrédients ───── */}
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium text-slate-900">
-          État de ce post
+          {tr("etatDeCePost")}
         </span>
         <Badge variant={isRemunerated ? "default" : "outline"}>
-          {isRemunerated ? "Payé" : "Non payé"}
+          {isRemunerated ? tr("paye") : tr("nonPaye")}
         </Badge>
         <Badge variant={isWarmup ? "outline" : "secondary"}>
-          {isWarmup ? "Hors promo (warmup)" : "Compté en promo"}
+          {isWarmup ? tr("horsPromoWarmup") : tr("compteEnPromo")}
         </Badge>
       </div>
 
       {diverges && (
         <p className="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-          Réglage manuel : ce post s&apos;écarte de la règle par défaut
-          («&nbsp;payé sauf si warmup&nbsp;»). Les deux bascules ci-dessous sont
-          donc indépendantes l&apos;une de l&apos;autre.
+          {tr("reglageManuelCePostS")}
         </p>
       )}
 
       {locked && (
         <p className="rounded bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-700">
-          Cycle de paie
+          {tr("cycleDePaie")}
           {state?.cycleStart != null && state?.cycleEnd != null
-            ? ` du ${frDate(state.cycleStart)} au ${frDate(state.cycleEnd)}`
-            : ""}{" "}
-          clos
-          {state?.paidAt != null ? `, payé le ${frDate(state.paidAt)}` : ""}{" "}
-          — les deux réglages sont figés. Le montant versé n&apos;est jamais
-          recalculé.
+            ? ` ${tr("cycleRange", { start: frDate(state.cycleStart, loc), end: frDate(state.cycleEnd, loc) })}`
+            : ""}{" "}{tr("clos")}
+          {state?.paidAt != null ? tr("payeLe", { date: frDate(state.paidAt, loc) }) : ""}{" "}{tr("lesDeuxReglagesSontFiges")}
         </p>
       )}
 
       {!locked && !payLinked && (
         <p className="text-xs text-slate-400">
-          Post non rattaché à une vidéo — ces réglages n&apos;ont aucun effet sur
-          la paie.
+          {tr("postNonRattacheAUne")}
         </p>
       )}
 
@@ -329,21 +328,20 @@ export function PayFlagsControlView({
         <div className="space-y-0.5">
           <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
             <FlameIcon className="size-4 text-amber-600" />
-            Warmup
+            {tr("warmup")}
           </div>
           <p className="text-xs text-slate-500">
-            Le contenu ne mentionne pas l&apos;app. Retire ce post des{" "}
-            <strong>vues promo</strong> et du cumul des paliers.{" "}
+            {tr("leContenuNeMentionnePas")}{" "}
+            <strong>{tr("vuesPromo")}</strong>{" "}{tr("etDuCumulDesPaliers")}{" "}
             {diverges ? (
               // La mise en garde ne vaut QUE si un écart manuel a été posé —
               // l'afficher toujours ferait croire que le warmup ne touche jamais
               // la paie, ce qui est faux dans le cas courant.
               <>
-                La rémunération étant réglée à la main ci-dessous, cette bascule
-                ne change <strong>pas</strong> la paie.
+                {tr("laRemunerationEtantRegleeA")}{" "}<strong>{tr("pas")}</strong>{" "}{tr("laPaie")}
               </>
             ) : (
-              <>Sans réglage manuel ci-dessous, la paie suit.</>
+              <>{tr("sansReglageManuelCiDessous")}</>
             )}
           </p>
         </div>
@@ -351,7 +349,7 @@ export function PayFlagsControlView({
           checked={isWarmup}
           disabled={locked || pending}
           onCheckedChange={onWarmupChange}
-          aria-label="Marquer ce post comme warmup"
+          aria-label={tr("marquerCePostCommeWarmup")}
         />
       </div>
 
@@ -360,19 +358,17 @@ export function PayFlagsControlView({
         <div className="space-y-0.5">
           <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
             <CoinsIcon className="size-4 text-emerald-600" />
-            Rémunéré
+            {tr("remunere")}
           </div>
           <p className="text-xs text-slate-500">
-            Ce post compte dans la <strong>paie</strong> de la créatrice (fixe et
-            CPM). Le désactiver le sort du montant dû sur les cycles encore
-            ouverts.
+            {tr("cePostCompteDansLa")}{" "}<strong>{tr("paie")}</strong>{" "}{tr("deLaCreatriceFixeEt")}
           </p>
         </div>
         <Switch
           checked={isRemunerated}
           disabled={locked || pending}
           onCheckedChange={onRemunerationChange}
-          aria-label="Marquer ce post comme rémunéré"
+          aria-label={tr("marquerCePostCommeRemunere")}
         />
       </div>
     </div>
@@ -392,6 +388,8 @@ function PublishedView({
   onOpenChange: (open: boolean) => void;
   onEdit: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.PublishedView");
   // Batch 2 Modif 4c — coercion mediaType pour le rendu conditionnel.
   // Batch D — branche screenrecorder ajoutée : titre + image en plus.
   // Pour les métriques, ScreenRecorder partage le shape Short
@@ -438,7 +436,7 @@ function PublishedView({
               onClick={() => setReplayOpen(true)}
             >
               <RepeatIcon className="size-4" />
-              Rejouer ce script
+              {tr("rejouerCeScript")}
             </Button>
           )}
         </DialogHeader>
@@ -458,7 +456,7 @@ function PublishedView({
           */}
           <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3">
             <div className="text-xs font-medium text-emerald-700">
-              Lien de publication
+              {tr("lienDePublication")}
             </div>
             <a
               href={publication.postUrl}
@@ -473,8 +471,7 @@ function PublishedView({
               publication.lastYouTubeSyncAt !== undefined && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-emerald-700">
                   <RefreshCwIcon className="size-3 shrink-0" />
-                  Vues synchronisées auto · dernier relevé le{" "}
-                  {formatDate(publication.lastYouTubeSyncAt)}
+                  {tr("vuesSynchroniseesAutoDernierReleve", { date: formatDate(publication.lastYouTubeSyncAt, loc) })}
                 </p>
               )}
           </div>
@@ -487,7 +484,7 @@ function PublishedView({
               la URL Convex en plein écran (target=_blank). */}
           {isScreenRecorder && publication.imageUrl && (
             <div className="space-y-2">
-              <div className="text-xs font-medium text-slate-500">Image</div>
+              <div className="text-xs font-medium text-slate-500">{tr("image")}</div>
               <a
                 href={publication.imageUrl}
                 target="_blank"
@@ -497,7 +494,7 @@ function PublishedView({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={publication.imageUrl}
-                  alt={publication.titre ?? "ScreenRecorder image"}
+                  alt={publication.titre ?? tr("screenrecorderImage")}
                   className="aspect-video w-full object-cover"
                 />
               </a>
@@ -505,7 +502,7 @@ function PublishedView({
           )}
           {isScreenRecorder && publication.titre && (
             <div>
-              <div className="text-xs font-medium text-slate-500">Titre</div>
+              <div className="text-xs font-medium text-slate-500">{tr("titre")}</div>
               <p className="mt-1 text-base font-semibold text-slate-900">
                 {publication.titre}
               </p>
@@ -520,40 +517,40 @@ function PublishedView({
             */}
             {!isVideoFormat && (
               <>
-                <Field label="Format">{publication.format}</Field>
-                <Field label="Langue">{publication.langue}</Field>
+                <Field label={tr("format")}>{publication.format}</Field>
+                <Field label={tr("langue")}>{publication.langue}</Field>
               </>
             )}
             {/* Nettoyage : Source (+ badge « ⚠ Sans source ») et ICP ciblé
                 retirés — tous deux restent affichés dans les colonnes Source
                 et ICP du tracker, filtrables, et éditables sur un draft. */}
-            {isShort && <Field label="Langue">{publication.langue}</Field>}
+            {isShort && <Field label={tr("langue")}>{publication.langue}</Field>}
             {isScreenRecorder && publication.recordingDevice && (
-              <Field label="Appareil">
+              <Field label={tr("appareil")}>
                 <RecordingDeviceInlineBadge
                   device={publication.recordingDevice}
                 />
               </Field>
             )}
             {isScreenRecorder && publication.isRepackaging !== undefined && (
-              <Field label="Type">
+              <Field label={tr("type")}>
                 {publication.isRepackaging === true ? (
                   <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
-                    Repackaging RepackIt
+                    {tr("repackagingRepackit")}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="text-slate-600">
-                    Autre capture
+                    {tr("autreCapture")}
                   </Badge>
                 )}
               </Field>
             )}
-            <Field label="Compte">
+            <Field label={tr("compte")}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-xs">{publication.compte}</span>
                 {publication.accountModified ? (
                   <Badge variant="outline" className="text-slate-500">
-                    Modifié
+                    {tr("modifie")}
                   </Badge>
                 ) : (
                   <Button
@@ -563,13 +560,13 @@ function PublishedView({
                     onClick={() => setAccountEditOpen(true)}
                   >
                     <PencilIcon className="size-3" />
-                    Modifier
+                    {tr("modifier")}
                   </Button>
                 )}
               </div>
             </Field>
-            <Field label="Date publi">
-              {new Date(publication.datePubli).toLocaleDateString("fr-FR", {
+            <Field label={tr("datePubli")}>
+              {new Date(publication.datePubli).toLocaleDateString(loc, {
                 day: "2-digit",
                 month: "long",
                 year: "numeric",
@@ -581,7 +578,7 @@ function PublishedView({
                 depuis un assignment (P8) n'a pas de slides non plus → masqué
                 plutôt qu'un tiret. */}
             {!isVideoFormat && publication.nbSlides !== undefined && (
-              <Field label="Nb slides">{publication.nbSlides}</Field>
+              <Field label={tr("nbSlides")}>{publication.nbSlides}</Field>
             )}
           </div>
 
@@ -596,7 +593,7 @@ function PublishedView({
           {isVideoFormat && publication.script && (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
-                Script
+                {tr("script")}
               </div>
               <div className="whitespace-pre-wrap rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
                 {publication.script}
@@ -606,7 +603,7 @@ function PublishedView({
           {!isVideoFormat && (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
-                Slides ({(publication.slides ?? []).length})
+                {tr("slides", { count: (publication.slides ?? []).length })}
               </div>
               <ol className="space-y-2">
                 {(publication.slides ?? []).map((s) => (
@@ -619,7 +616,7 @@ function PublishedView({
                     </span>
                     <span className="whitespace-pre-wrap text-slate-700">
                       {s.texte || (
-                        <em className="text-slate-400">(vide)</em>
+                        <em className="text-slate-400">{tr("vide")}</em>
                       )}
                     </span>
                   </li>
@@ -630,42 +627,42 @@ function PublishedView({
 
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-              Métriques
+              {tr("metriques")}
               {dm?.snapshotUsed ? (
                 <Badge variant="outline" className="font-mono text-[10px]">
-                  Snapshot J+{dm.snapshotUsed.daysSincePublication}
+                  {tr("snapshotDay", { days: dm.snapshotUsed.daysSincePublication })}
                   {!dm.matchExact && " ≈"}
                 </Badge>
               ) : (
-                <span className="text-slate-400">(aucun snapshot)</span>
+                <span className="text-slate-400">{tr("aucunSnapshot")}</span>
               )}
             </div>
             <div className="grid grid-cols-2 gap-3 rounded-md border border-slate-200 bg-white p-3 text-sm sm:grid-cols-4">
-              <Field label="Vues">{formatNumber(vues)}</Field>
+              <Field label={tr("vues")}>{formatNumber(vues, loc)}</Field>
               {isVideoFormat ? (
                 <>
-                  <Field label="Likes">
-                    {formatNumber(dm?.likes ?? null)}
+                  <Field label={tr("likes")}>
+                    {formatNumber(dm?.likes ?? null, loc)}
                   </Field>
-                  <Field label="Subs gagnés">
-                    {formatNumber(dm?.subsGained ?? null)}
+                  <Field label={tr("subsGagnes")}>
+                    {formatNumber(dm?.subsGained ?? null, loc)}
                   </Field>
                 </>
               ) : (
-                <Field label="Saves">{formatNumber(dm?.saves ?? null)}</Field>
+                <Field label={tr("saves")}>{formatNumber(dm?.saves ?? null, loc)}</Field>
               )}
-              <Field label="Comments total">
-                {formatNumber(dm?.comments ?? null)}
+              <Field label={tr("commentsTotal")}>
+                {formatNumber(dm?.comments ?? null, loc)}
               </Field>
-              <Field label="Comments AUDIT">
+              <Field label={tr("commentsAudit")}>
                 {publication.plateforme === "Instagram" ? (
-                  formatNumber(publication.commentsAudit)
+                  formatNumber(publication.commentsAudit, loc)
                 ) : (
                   <span className="text-slate-400">n/a</span>
                 )}
               </Field>
-              <Field label="Profile visits">
-                {formatNumber(publication.profileVisits)}
+              <Field label={tr("profileVisits")}>
+                {formatNumber(publication.profileVisits, loc)}
               </Field>
             </div>
           </div>
@@ -674,13 +671,13 @@ function PublishedView({
               dialog « Modifier les stats ». */}
           <div>
             <div className="mb-2 text-xs font-medium text-slate-500">
-              Snapshots ({snaps?.length ?? 0})
+              {tr("snapshots", { value: snaps?.length ?? 0 })}
             </div>
             {snaps === undefined ? (
               <Skeleton className="h-12 w-full" />
             ) : snaps.length === 0 ? (
               <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
-                Aucun snapshot. Ajoute des mesures via « Modifier les stats ».
+                {tr("aucunSnapshotAjouteDesMesures")}
               </p>
             ) : (
               <ul className="space-y-1.5">
@@ -693,16 +690,15 @@ function PublishedView({
                       J+{s.daysSincePublication}
                     </Badge>
                     <span className="shrink-0 text-slate-500">
-                      {formatDate(s.capturedAt)}
+                      {formatDate(s.capturedAt, loc)}
                     </span>
                     <span className="flex-1 truncate text-slate-600">
-                      {formatNumber(s.vues)} vues · {formatNumber(s.likes)}{" "}
-                      likes
-                      {s.saves != null && ` · ${formatNumber(s.saves)} saves`}
+                      {tr("vuesLikes", { count: formatNumber(s.vues, loc), count2: formatNumber(s.likes, loc) })}
+                      {s.saves != null && ` ${tr("saves2", { count: formatNumber(s.saves, loc) })}`}
                       {s.subsGained != null &&
-                        ` · ${formatNumber(s.subsGained)} subs`}
+                        ` ${tr("subs", { count: formatNumber(s.subsGained, loc) })}`}
                       {s.comments != null &&
-                        ` · ${formatNumber(s.comments)} comm.`}
+                        ` ${tr("comm", { count: formatNumber(s.comments, loc) })}`}
                     </span>
                   </li>
                 ))}
@@ -729,28 +725,28 @@ function PublishedView({
           {(!isVideoFormat || publication.plateforme === "Instagram") && (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
-                Stats calculées
+                {tr("statsCalculees")}
               </div>
               <div className="flex flex-wrap items-center gap-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
                 {!isVideoFormat && (
                   <div>
-                    <span className="text-slate-500">Save rate :</span>{" "}
+                    <span className="text-slate-500">{tr("saveRate")}</span>{" "}
                     <span className="font-semibold">
-                      {formatPercent(saveRate)}
+                      {formatPercent(saveRate, undefined, loc)}
                     </span>
                   </div>
                 )}
                 {publication.plateforme === "Instagram" && (
                   <div>
-                    <span className="text-slate-500">Conv. AUDIT :</span>{" "}
+                    <span className="text-slate-500">{tr("convAudit")}</span>{" "}
                     <span className="font-semibold">
-                      {formatPercent(auditConv, 3)}
+                      {formatPercent(auditConv, 3, loc)}
                     </span>
                   </div>
                 )}
                 {!isVideoFormat && (
                   <div className="flex items-center gap-2">
-                    <span className="text-slate-500">Verdict :</span>
+                    <span className="text-slate-500">{tr("verdict")}</span>
                     <VerdictBadge verdict={verdict} />
                   </div>
                 )}
@@ -761,7 +757,7 @@ function PublishedView({
           {publication.notes && (
             <div>
               <div className="mb-1 text-xs font-medium text-slate-500">
-                Notes
+                {tr("notes")}
               </div>
               <p className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
                 {publication.notes}
@@ -772,9 +768,9 @@ function PublishedView({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Fermer
+            {tr("fermer")}
           </Button>
-          <Button onClick={onEdit}>Modifier les stats</Button>
+          <Button onClick={onEdit}>{tr("modifierLesStats")}</Button>
         </DialogFooter>
 
         <AccountEditSubDialog
@@ -801,6 +797,7 @@ function AccountEditSubDialog({
   onOpenChange: (open: boolean) => void;
   publication: PublicationWithImage;
 }) {
+  const tr = useTranslations("admin.common.AccountEditSubDialog");
   const [newCompte, setNewCompte] = useState(publication.compte);
   const [submitting, setSubmitting] = useState(false);
   const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
@@ -821,10 +818,10 @@ function AccountEditSubDialog({
     setSubmitting(true);
     try {
       await updateAccount({ id: publication._id, newCompte });
-      toast.success("Compte de publication modifié");
+      toast.success(tr("compteDePublicationModifie"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -834,18 +831,18 @@ function AccountEditSubDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Modifier le compte de publication</DialogTitle>
+          <DialogTitle>{tr("modifierLeCompteDePublication")}</DialogTitle>
           <DialogDescription className="text-amber-700">
-            Cette modification est unique et définitive.
+            {tr("cetteModificationEstUniqueEt")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-1.5">
-          <Label>Compte ({publication.plateforme})</Label>
+          <Label>{tr("compte", { plateforme: publication.plateforme })}</Label>
           {comptesData === undefined ? (
             <div className="h-9 animate-pulse rounded-md bg-slate-100" />
           ) : filtered.length === 0 ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-              Aucun compte actif sur {publication.plateforme}.
+              {tr("aucunCompteActifSur", { plateforme: publication.plateforme })}
             </p>
           ) : (
             <Select
@@ -871,14 +868,14 @@ function AccountEditSubDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button
             onClick={confirm}
             disabled={submitting || filtered.length === 0}
           >
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Confirmer
+            {tr("confirmer")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -897,6 +894,8 @@ function DraftEditView({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.DraftEditView");
   // Batch 2 Modif 4c — coercion mediaType pour brancher slides ↔ script.
   // Le mediaType d'un draft ne change pas (cf décision 8 : pas de switch
   // de format après création), donc on le calcule au mount et on garde.
@@ -970,19 +969,19 @@ function DraftEditView({
 
   async function handleSave() {
     if (!compte) {
-      toast.error("Compte requis");
+      toast.error(tr("compteRequis"));
       return;
     }
     // Refinement Shorts — script optionnel désormais (saisissable plus
     // tard) ; en revanche l'ICP ciblé est requis, y compris en édition
     // rétroactive d'un Short pré-existant.
     if (isShort && icpId === null) {
-      toast.error("ICP requis pour le Short.");
+      toast.error(tr("icpRequisPourLeShort"));
       return;
     }
     // Anti-shadowban — sourceId requis pour un Short (y compris backfill draft).
     if (isShort && !sourceId.trim()) {
-      toast.error("Source requise pour le Short.");
+      toast.error(tr("sourceRequisePourLeShort"));
       return;
     }
     // Batch D + Refinement SR — ScreenRecorder : titre 3-200 + image +
@@ -990,19 +989,19 @@ function DraftEditView({
     if (isScreenRecorder) {
       const t = titre.trim();
       if (t.length < 3 || t.length > 200) {
-        toast.error("Titre requis (3-200 caractères).");
+        toast.error(tr("titreRequis3200Caracteres"));
         return;
       }
       if (image === null || image === undefined) {
-        toast.error("Image requise pour ScreenRecorder.");
+        toast.error(tr("imageRequisePourScreenrecorder"));
         return;
       }
       if (recordingDevice === undefined) {
-        toast.error("Appareil d'enregistrement requis.");
+        toast.error(tr("appareilDEnregistrementRequis"));
         return;
       }
       if (isRepackaging === undefined) {
-        toast.error("Indique si c'est un repackaging RepackIt.");
+        toast.error(tr("indiqueSiCEstUn"));
         return;
       }
     }
@@ -1012,7 +1011,7 @@ function DraftEditView({
     if (comptesData !== undefined) {
       const compteValid = filteredComptes.find((c) => c.handle === compte);
       if (!compteValid) {
-        toast.error(`Le compte ${compte} n'existe pas sur ${plateforme}.`);
+        toast.error(tr("leCompteNExistePas", { compte: compte, plateforme: plateforme }));
         return;
       }
     }
@@ -1075,10 +1074,10 @@ function DraftEditView({
         });
       }
 
-      toast.success("Brouillon enregistré");
+      toast.success(tr("brouillonEnregistre"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Erreur lors de l'édition"));
+      toast.error(convexErrorMessage(e, tr("erreurLorsDeLEdition")));
     } finally {
       setSubmitting(false);
     }
@@ -1091,7 +1090,7 @@ function DraftEditView({
           <DialogTitle className="flex items-center gap-3">
             <span className="font-mono">{publication.carouselId}</span>
             <Badge className="border-amber-200 bg-amber-50 text-amber-700">
-              À venir
+              {tr("aVenir")}
             </Badge>
           </DialogTitle>
         </DialogHeader>
@@ -1099,7 +1098,7 @@ function DraftEditView({
         <div className="space-y-4">
           <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
             <div className="text-xs font-medium text-slate-500">
-              Hook (non éditable)
+              {tr("hookNonEditable")}
             </div>
             <p className="mt-1 text-sm font-medium text-slate-900">
               {publication.hookText}
@@ -1108,7 +1107,7 @@ function DraftEditView({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Plateforme</Label>
+              <Label>{tr("plateforme")}</Label>
               <Select
                 value={plateforme}
                 onValueChange={(v) =>
@@ -1128,12 +1127,12 @@ function DraftEditView({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Compte</Label>
+              <Label>{tr("compte")}</Label>
               {comptesData === undefined ? (
                 <div className="h-9 animate-pulse rounded-md bg-slate-100" />
               ) : filteredComptes.length === 0 ? (
                 <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
-                  Aucun compte actif sur {plateforme}.
+                  {tr("aucunCompteActifSur", { plateforme: plateforme })}
                 </p>
               ) : (
                 <Select
@@ -1154,7 +1153,7 @@ function DraftEditView({
               )}
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>Date de publication prévue</Label>
+              <Label>{tr("dateDePublicationPrevue")}</Label>
               <Popover>
                 <PopoverTrigger
                   render={
@@ -1163,7 +1162,7 @@ function DraftEditView({
                       className="w-full justify-start text-left font-normal"
                     >
                       <CalendarIcon className="mr-2 size-4" />
-                      {datePubli.toLocaleDateString("fr-FR", {
+                      {datePubli.toLocaleDateString(loc, {
                         day: "2-digit",
                         month: "long",
                         year: "numeric",
@@ -1176,7 +1175,7 @@ function DraftEditView({
                     mode="single"
                     selected={datePubli}
                     onSelect={(d) => d && setDatePubli(d)}
-                    locale={fr}
+                    locale={dateFnsLocale(loc)}
                     weekStartsOn={1}
                   />
                 </PopoverContent>
@@ -1194,17 +1193,17 @@ function DraftEditView({
           {isScreenRecorder && (
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="edit-titre">Titre</Label>
+                <Label htmlFor="edit-titre">{tr("titre")}</Label>
                 <Input
                   id="edit-titre"
                   value={titre}
                   onChange={(e) => setTitre(e.target.value)}
-                  placeholder="Titre du ScreenRecorder (3-200 caractères)"
+                  placeholder={tr("titreDuScreenrecorder3200")}
                   maxLength={200}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Image</Label>
+                <Label>{tr("image")}</Label>
                 <ImageUploader
                   value={image ?? null}
                   imageUrl={publication.imageUrl ?? null}
@@ -1216,7 +1215,7 @@ function DraftEditView({
                 radio identiques à StepContenu.tsx du modal nouveau.
               */}
               <div className="space-y-1.5">
-                <Label>Appareil d&apos;enregistrement</Label>
+                <Label>{tr("appareilDEnregistrement")}</Label>
                 <div className="grid grid-cols-2 gap-3">
                   {RECORDING_DEVICES.map((device) => {
                     const Icon = RECORDING_DEVICE_ICONS[device];
@@ -1246,7 +1245,7 @@ function DraftEditView({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label>Type de capture</Label>
+                <Label>{tr("typeDeCapture")}</Label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
@@ -1259,7 +1258,7 @@ function DraftEditView({
                     )}
                     aria-pressed={isRepackaging === true}
                   >
-                    <div className="font-medium">Repackaging RepackIt</div>
+                    <div className="font-medium">{tr("repackagingRepackit")}</div>
                   </button>
                   <button
                     type="button"
@@ -1272,7 +1271,7 @@ function DraftEditView({
                     )}
                     aria-pressed={isRepackaging === false}
                   >
-                    <div className="font-medium">Autre capture</div>
+                    <div className="font-medium">{tr("autreCapture")}</div>
                   </button>
                 </div>
               </div>
@@ -1280,30 +1279,30 @@ function DraftEditView({
           )}
           {isShort && (
             <div className="space-y-1.5">
-              <Label>Source (nom de fichier Drive)</Label>
+              <Label>{tr("sourceNomDeFichierDrive")}</Label>
               <SourceIdCombobox
                 value={sourceId}
                 onChange={setSourceId}
                 required
               />
               <p className="text-xs text-slate-500">
-                Requis — anti-doublon par plateforme (shadowban).
+                {tr("requisAntiDoublonParPlateforme")}
               </p>
             </div>
           )}
           {isShort && (
             <div className="space-y-1.5">
-              <Label>ICP ciblé</Label>
+              <Label>{tr("icpCible")}</Label>
               <IcpCombobox value={icpId} onChange={setIcpId} required />
               <p className="text-xs text-slate-500">
-                Requis — l&apos;audience visée par ce Short.
+                {tr("requisLAudienceViseePar")}
               </p>
             </div>
           )}
           {isVideoFormat ? (
             <div className="space-y-1.5">
               <Label htmlFor="edit-script">
-                {isScreenRecorder ? "Script (optionnel)" : "Script de la vidéo"}
+                {isScreenRecorder ? tr("scriptOptionnel") : tr("scriptDeLaVideo")}
               </Label>
               <Textarea
                 id="edit-script"
@@ -1311,20 +1310,20 @@ function DraftEditView({
                 value={script}
                 placeholder={
                   isScreenRecorder
-                    ? "Script de la narration — optionnel."
-                    : "Texte intégral du Short…"
+                    ? tr("scriptDeLaNarrationOptionnel")
+                    : tr("texteIntegralDuShort")
                 }
                 onChange={(e) => setScript(e.target.value)}
                 className="whitespace-pre-wrap"
               />
               <p className="text-xs text-slate-500">
-                Texte continu, pas de slides découpées.
+                {tr("texteContinuPasDeSlides")}
               </p>
             </div>
           ) : (
             <div>
               <div className="mb-2 text-xs font-medium text-slate-500">
-                Slides ({slides.length})
+                {tr("slides", { count: slides.length })}
               </div>
               <div className="space-y-2">
                 {slides.map((s, i) => (
@@ -1333,13 +1332,13 @@ function DraftEditView({
                       htmlFor={`edit-slide-${i}`}
                       className="text-xs text-slate-600"
                     >
-                      Slide {s.position}
+                      {tr("slide", { position: s.position })}
                     </Label>
                     <Textarea
                       id={`edit-slide-${i}`}
                       rows={2}
                       value={s.texte}
-                      placeholder={`Texte de la slide ${s.position}…`}
+                      placeholder={tr("texteDeLaSlide", { position: s.position })}
                       onChange={(e) => {
                         const next = [...slides];
                         next[i] = { ...s, texte: e.target.value };
@@ -1354,25 +1353,23 @@ function DraftEditView({
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="post-url-detail">Lien de publication</Label>
+            <Label htmlFor="post-url-detail">{tr("lienDePublication")}</Label>
             <Input
               id="post-url-detail"
               type="url"
-              placeholder="https://www.tiktok.com/@... ou https://www.instagram.com/..."
+              placeholder={tr("postUrlPlaceholder")}
               value={postUrl}
               onChange={(e) => setPostUrl(e.target.value)}
             />
             <p className="text-xs text-slate-500">
-              Renseigner le lien fait passer cette row en « publié » et
-              débloque l&apos;édition des métriques. La saisie vide la maintient
-              en « à venir ».
+              {tr("renseignerLeLienFaitPasser")}
             </p>
           </div>
 
           {publication.notes && (
             <div>
               <div className="mb-1 text-xs font-medium text-slate-500">
-                Notes
+                {tr("notes")}
               </div>
               <p className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
                 {publication.notes}
@@ -1394,11 +1391,11 @@ function DraftEditView({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={handleSave} disabled={submitting}>
             {submitting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-            Enregistrer
+            {tr("enregistrer")}
           </Button>
         </DialogFooter>
       </DialogContent>

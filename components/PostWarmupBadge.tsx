@@ -2,6 +2,7 @@ import { FlameIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * Pastille "Warmup" d'un POST (rentabilité P1) — signale d'un coup d'œil un post
@@ -13,6 +14,7 @@ import { cn } from "@/lib/utils";
  * paie ».
  */
 export function PostWarmupBadge({ className }: { className?: string }) {
+  const tr = useTranslations("admin.common.PostWarmupBadge");
   return (
     <Badge
       variant="outline"
@@ -20,10 +22,10 @@ export function PostWarmupBadge({ className }: { className?: string }) {
         "gap-1 border-amber-200 bg-amber-50 text-amber-700",
         className,
       )}
-      title="Post warmup — exclu de la rémunération (fixe, CPM et paliers bonus)"
+      title={tr("postWarmupExcluDeLa")}
     >
       <FlameIcon />
-      Warmup
+      {tr("warmup")}
     </Badge>
   );
 }

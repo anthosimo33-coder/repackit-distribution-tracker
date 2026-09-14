@@ -75,6 +75,7 @@ import {
   looksLikeSentence,
 } from "./i18n-detect.mjs";
 import { astFindings, stripLineComments } from "./i18n-ast.mjs";
+import { icuArgs } from "./i18n-icu.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
@@ -451,7 +452,11 @@ function flatValues(obj, prefix = "", out = {}) {
 const frVals = flatValues(fr);
 const enVals = flatValues(en);
 const untranslated = Object.keys(frVals).filter(
-  (k) => k in enVals && enVals[k] === frVals[k] && !SAME_IN_EN.has(k),
+  (k) =>
+    k in enVals &&
+    ((enVals[k] === frVals[k] && !SAME_IN_EN.has(k)) ||
+      // Marqueur d'extraction laissé en place : la valeur n'a jamais été traduite.
+      String(enVals[k]).startsWith("__TODO__")),
 );
 // Une clé de la liste blanche qui n'est PLUS identique doit en sortir : sinon la
 // liste se transforme en tapis, exactement comme la baseline.
@@ -464,20 +469,32 @@ const staleSameInEn = [...SAME_IN_EN].filter(
 // plural,` devenu `{n, plural,`) ou une de ses branches. next-intl lève alors à
 // l'exécution, sur l'écran du créateur, et seulement dans la locale traduite —
 // le genre de panne qu'aucun rendu FR ne révèle.
-const ICU_RE = /\{\s*(\w+)\s*,\s*(plural|select|selectordinal)\s*,/g;
 const icuMismatch = [];
 for (const k of Object.keys(frVals)) {
   if (!(k in enVals)) continue;
-  const sig = (s) => {
-    ICU_RE.lastIndex = 0;
-    const found = [];
-    let m;
-    while ((m = ICU_RE.exec(String(s))) !== null) found.push(`${m[1]}:${m[2]}`);
-    return found.sort().join(",");
-  };
-  const a = sig(frVals[k]);
-  const b = sig(enVals[k]);
-  if (a !== b) icuMismatch.push({ key: k, fr: a || "(aucune)", en: b || "(aucune)" });
+  // Deux défauts lèvent ou trompent à l'exécution, et seulement dans la langue
+  // traduite :
+  //   1. l'anglais cite une variable que le code ne passe pas (renommée :
+  //      `{count, plural,` devenu `{n, plural,`) — next-intl lève ;
+  //   2. l'anglais PERD une variable de pluriel du français — la phrase ne dit
+  //      plus combien.
+  // Ce qui n'est PAS un défaut : une langue qui accorde plusieurs mots sur le
+  // même compteur (« 3 assignments créés ») là où l'autre n'en accorde qu'un,
+  // ou n'a pas besoin de pluriel du tout (« 3 selected »).
+  const frArgs = icuArgs(frVals[k]);
+  const enArgs = icuArgs(enVals[k]);
+  const unknown = [...enArgs.keys()].filter((a) => !frArgs.has(a));
+  const lost = [...frArgs]
+    .filter(([, types]) => types.has("plural") || types.has("select") || types.has("selectordinal"))
+    .map(([name]) => name)
+    .filter((name) => !enArgs.has(name));
+  if (unknown.length > 0 || lost.length > 0) {
+    icuMismatch.push({
+      key: k,
+      fr: [...frArgs.keys()].sort().join(",") || "(aucune)",
+      en: `${[...enArgs.keys()].sort().join(",") || "(aucune)"}${unknown.length ? ` — inconnue(s) : ${unknown.join(",")}` : ""}${lost.length ? ` — pluriel perdu : ${lost.join(",")}` : ""}`,
+    });
+  }
 }
 
 // ─── Entités HTML dans les catalogues ────────────────────────────────────────
@@ -590,7 +607,7 @@ if (staleSameInEn.length > 0) {
 if (icuMismatch.length > 0) {
   failed = true;
   console.error(
-    `\n✖ ${icuMismatch.length} clé(s) ont des structures ICU divergentes entre FR et EN :`,
+    `\n✖ ${icuMismatch.length} clé(s) ont des variables ICU incompatibles entre FR et EN :`,
   );
   for (const v of icuMismatch) {
     console.error(`    ${v.key}\n      fr: ${v.fr}\n      en: ${v.en}`);

@@ -6,6 +6,8 @@ import { ViewAsProvider } from "@/components/portal/ViewAsProvider";
 import { ViewAsShell } from "@/components/portal/ViewAsShell";
 import { DEFAULT_LOCALE, normalizeLocale, type Locale } from "@/i18n/locales";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getMessages } from "next-intl/server";
+import { loadBaseMessages } from "@/i18n/messages";
 
 /**
  * Admin « voir l'espace d'un créateur » (LECTURE SEULE) — layout du mode vue.
@@ -62,8 +64,14 @@ export default async function ViewAsLayout({
   const { projectSlug, id } = await params;
   const creatorId = id as Id<"creators">;
   const locale = await creatorLocale(projectSlug, creatorId);
-  const messages = (await import(`../../../../../messages/${locale}.json`))
-    .default;
+  // Le catalogue de la personne OBSERVÉE… plus l'espace d'équipe dans la langue
+  // de l'OBSERVATEUR : les panneaux « écran hors de son espace » et « sans ses
+  // gains » vivent sous ce provider mais s'adressent à celui qui regarde.
+  const viewerMessages = await getMessages();
+  const messages = {
+    ...(await loadBaseMessages(locale)),
+    admin: (viewerMessages as { admin?: unknown }).admin,
+  };
 
   return (
     <ProjectProvider slug={projectSlug}>

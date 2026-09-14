@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { AlertTriangleIcon, RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useTranslations } from "next-intl";
 
 /**
  * Frontière d'ERREUR de l'app interne.
@@ -38,6 +39,7 @@ export default function AdminProjectError({
   error: Error & { digest?: string };
   unstable_retry: () => void;
 }) {
+  const tr = useTranslations("admin.common.AdminProjectError");
   useEffect(() => {
     // Le seul endroit où l'erreur est encore lisible : la console du navigateur.
     // Sans ça, un rapport utilisateur se résume à « ça n'a pas marché ».
@@ -52,11 +54,10 @@ export default function AdminProjectError({
             <AlertTriangleIcon className="mt-0.5 size-5 shrink-0 text-amber-600" />
             <div className="space-y-1">
               <h1 className="text-lg font-semibold text-slate-900">
-                Cette page n&apos;a pas pu s&apos;afficher
+                {tr("cettePageNAPas")}
               </h1>
               <p className="text-sm text-slate-600">
-                Le chargement des données s&apos;est interrompu. Les autres pages
-                restent accessibles depuis le menu.
+                {tr("leChargementDesDonneesS")}
               </p>
             </div>
           </div>
@@ -67,12 +68,12 @@ export default function AdminProjectError({
             </p>
           )}
           {error.digest && (
-            <p className="text-xs text-slate-400">Référence : {error.digest}</p>
+            <p className="text-xs text-slate-400">{tr("reference", { digest: error.digest })}</p>
           )}
 
           <Button type="button" onClick={() => unstable_retry()} className="gap-1.5">
             <RotateCcwIcon className="size-4" />
-            Réessayer
+            {tr("reessayer")}
           </Button>
         </CardContent>
       </Card>

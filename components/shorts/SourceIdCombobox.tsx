@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import { useProjectQuery, useProjectMutation } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { normalizeSourceId } from "@/lib/source-id";
 import { CheckIcon, ChevronsUpDownIcon, FilmIcon, PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 /**
  * SourceIdCombobox — sélection / saisie libre d'un sourceId de Short.
@@ -43,13 +44,15 @@ export function SourceIdCombobox({
   value,
   onChange,
   required = false,
-  placeholder = "Source (nom de fichier Drive)…",
+  placeholder: placeholderProp,
 }: {
   value: string;
   onChange: (newValue: string) => void;
   required?: boolean;
   placeholder?: string;
 }) {
+  const tr = useTranslations("admin.common.SourceIdCombobox");
+  const placeholder = placeholderProp ?? tr("defaultPlaceholder");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -57,12 +60,11 @@ export function SourceIdCombobox({
 
   const trimmedQuery = query.trim();
   const normalizedQuery = normalizeSourceId(trimmedQuery);
-  const exactMatch = useMemo(
-    () =>
-      (sources ?? []).some((s) => s.sourceId === normalizedQuery) &&
-      normalizedQuery !== "",
-    [sources, normalizedQuery],
-  );
+  // Calcul direct plutôt que useMemo : le compilateur React refuse de préserver
+  // la mémo dès que `trimmedQuery` est passé à `t()` plus bas.
+  const exactMatch =
+    (sources ?? []).some((s) => s.sourceId === normalizedQuery) &&
+    normalizedQuery !== "";
   const showCreateItem = trimmedQuery.length > 0 && !exactMatch;
 
   function selectValue(raw: string) {
@@ -88,7 +90,7 @@ export function SourceIdCombobox({
                 <>
                   <FilmIcon className="size-4 shrink-0 text-slate-300" />
                   <span className="text-slate-500">
-                    {required ? placeholder : "Aucune source"}
+                    {required ? placeholder : tr("aucuneSource")}
                   </span>
                 </>
               )}
@@ -103,7 +105,7 @@ export function SourceIdCombobox({
       >
         <Command>
           <CommandInput
-            placeholder="Cherche ou saisis une source…"
+            placeholder={tr("chercheOuSaisisUneSource")}
             value={query}
             onValueChange={setQuery}
           />
@@ -118,8 +120,8 @@ export function SourceIdCombobox({
               <>
                 <CommandEmpty>
                   {trimmedQuery.length > 0
-                    ? "Aucune source existante."
-                    : "Tape un nom de source."}
+                    ? tr("aucuneSourceExistante")
+                    : tr("tapeUnNomDeSource")}
                 </CommandEmpty>
                 {!required && value !== "" && (
                   <CommandGroup>
@@ -128,7 +130,7 @@ export function SourceIdCombobox({
                       onSelect={() => selectValue("")}
                     >
                       <FilmIcon className="size-4 text-slate-400" />
-                      <span className="text-slate-600">Aucune source</span>
+                      <span className="text-slate-600">{tr("aucuneSource")}</span>
                     </CommandItem>
                   </CommandGroup>
                 )}
@@ -158,7 +160,7 @@ export function SourceIdCombobox({
                             {s.displaySourceId}
                           </div>
                           <div className="text-xs text-slate-500">
-                            Déjà sur {covered.join(", ")} ({s.coverage.total}/3)
+                            {tr("dejaSur3", { value: covered.join(", "), total: s.coverage.total })}
                           </div>
                         </div>
                       </CommandItem>
@@ -175,7 +177,7 @@ export function SourceIdCombobox({
                       >
                         <PlusIcon className="size-4 text-slate-700" />
                         <span>
-                          Utiliser &laquo;&nbsp;{trimmedQuery}&nbsp;&raquo;
+                          {tr("utiliser", { trimmedQuery: trimmedQuery })}
                         </span>
                       </CommandItem>
                     </CommandGroup>

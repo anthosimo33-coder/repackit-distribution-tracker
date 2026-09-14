@@ -7,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { AssignScriptCampaignDialog } from "@/components/admin/AssignScriptCampaignDialog";
 import type { ReplaySource } from "@/components/admin/ChosenComboPicker";
+import { useTranslations } from "next-intl";
 
 /**
  * « Rejouer ce script » depuis une source qui n'a en main qu'un id : une ligne du
@@ -29,11 +30,12 @@ export function ReplayScriptLauncher({
   source: ReplaySourceRef | null;
   onClose: () => void;
 }) {
+  const tr = useTranslations("admin.common.ReplayScriptLauncher");
   const data = useProjectQuery(api.scripts.getReplaySource, source ?? "skip");
 
   useEffect(() => {
     if (source && data === null) {
-      toast.error("Ce post n'a pas de script à rejouer.");
+      toast.error(tr("cePostNAPas"));
       onClose();
     }
   }, [source, data, onClose]);

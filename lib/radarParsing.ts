@@ -357,12 +357,17 @@ export function parseTrendHashtags(apiResponse: unknown): ParsedTrendHashtag[] {
     if (hashtag === null) continue;
     out.push({
       hashtag,
+      // i18n-exempt: nom de colonne de l'API Apify, pas du texte
       hashtagId: cleanText(item["Hashtag ID"], 50),
       rank: toCount(item["Rank"]) ?? i + 1,
       posts: toCount(item["Posts"]),
+      // i18n-exempt: nom de colonne de l'API Apify, pas du texte
       videoViews: toCount(item["Video Views"]),
+      // i18n-exempt: nom de colonne de l'API Apify, pas du texte
       trendDirection: trendDir(item["Trend Direction"]),
+      // i18n-exempt: nom de colonne de l'API Apify, pas du texte
       topCreators: parseTopCreators(item["Top Creators"]),
+      // i18n-exempt: nom de colonne de l'API Apify, pas du texte
       tiktokUrl: cleanText(item["TikTok URL"], 300),
       period: cleanText(item["Period"], 30),
     });

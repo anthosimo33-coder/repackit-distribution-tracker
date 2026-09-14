@@ -28,17 +28,10 @@ import type {
   NouveauAction,
   NouveauData,
 } from "../useNouveauState";
+import { useTranslations } from "next-intl";
 
-const FORMATS = [
-  { value: "A", label: "A · X erreurs / mythes / vérités" },
-  { value: "B", label: "B · Volume analysé" },
-  { value: "C", label: "C · Comparaison A vs B" },
-  { value: "D", label: "D · Comprendre pourquoi tu cliques (framework vulgarisé)" },
-  { value: "E", label: "E · Pourquoi cette vidéo a cartonné" },
-  { value: "F", label: "F · Pop culture / Lien improbable" },
-  { value: "G", label: "G · Même créateur, 2 vidéos opposées" },
-  { value: "H", label: "H · Coulisses / Build in public" },
-] as const;
+// Libellés dans `admin.common.StepContenu.formats.<lettre>`.
+const FORMATS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 
 /**
  * StepContenu — étape 3 du modal. Switch sur mediaType :
@@ -59,6 +52,7 @@ export function StepContenu({
   data: NouveauData;
   dispatch: Dispatch<NouveauAction>;
 }) {
+  const tr = useTranslations("admin.common.StepContenu");
   // Résolution lazy de l'imageUrl pour ScreenRecorder : on cherche dans
   // listPublications les pubs avec storageId === data.image. Si présent
   // (ex: l'utilisateur a uploadé l'image, on a le storageId mais pas
@@ -74,7 +68,7 @@ export function StepContenu({
   if (!data.mediaType) {
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
-        Format non sélectionné.
+        {tr("formatNonSelectionne")}
       </div>
     );
   }
@@ -92,26 +86,26 @@ export function StepContenu({
     return (
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="sr-titre">Titre</Label>
+          <Label htmlFor="sr-titre">{tr("titre")}</Label>
           <Input
             id="sr-titre"
             value={data.titre}
             onChange={(e) =>
               dispatch({ type: "SET_TITRE", titre: e.target.value })
             }
-            placeholder="Titre du ScreenRecorder (3-200 caractères)"
+            placeholder={tr("titreDuScreenrecorder3200")}
             maxLength={200}
           />
           {data.titre.trim().length > 0 &&
             data.titre.trim().length < 3 && (
               <p className="text-xs text-amber-700">
-                Le titre doit faire au moins 3 caractères.
+                {tr("leTitreDoitFaireAu")}
               </p>
             )}
         </div>
 
         <div className="space-y-1.5">
-          <Label>Image</Label>
+          <Label>{tr("image")}</Label>
           <ImageUploader
             value={data.image}
             imageUrl={previewUrl ?? null}
@@ -122,7 +116,7 @@ export function StepContenu({
         </div>
 
         <div className="space-y-1.5">
-          <Label>Appareil d&apos;enregistrement</Label>
+          <Label>{tr("appareilDEnregistrement")}</Label>
           <div className="grid grid-cols-2 gap-3">
             {RECORDING_DEVICES.map((device) => {
               const Icon = RECORDING_DEVICE_ICONS[device];
@@ -156,7 +150,7 @@ export function StepContenu({
         </div>
 
         <div className="space-y-1.5">
-          <Label>Type de capture</Label>
+          <Label>{tr("typeDeCapture")}</Label>
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
@@ -171,9 +165,9 @@ export function StepContenu({
               )}
               aria-pressed={data.isRepackaging === true}
             >
-              <div className="font-medium">Repackaging RepackIt</div>
+              <div className="font-medium">{tr("repackagingRepackit")}</div>
               <div className="mt-1 text-xs text-slate-500">
-                Capture liée à un repack RepackIt existant.
+                {tr("captureLieeAUnRepack")}
               </div>
             </button>
             <button
@@ -189,20 +183,20 @@ export function StepContenu({
               )}
               aria-pressed={data.isRepackaging === false}
             >
-              <div className="font-medium">Autre capture</div>
+              <div className="font-medium">{tr("autreCapture")}</div>
               <div className="mt-1 text-xs text-slate-500">
-                Capture standalone, hors repack.
+                {tr("captureStandaloneHorsRepack")}
               </div>
             </button>
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="script">Script (optionnel)</Label>
+          <Label htmlFor="script">{tr("scriptOptionnel")}</Label>
           <Textarea
             id="script"
             rows={8}
-            placeholder="Script de la narration — optionnel à la création, peut être ajouté plus tard."
+            placeholder={tr("scriptDeLaNarrationOptionnel")}
             value={data.script}
             onChange={(e) =>
               dispatch({ type: "SET_SCRIPT", script: e.target.value })
@@ -219,30 +213,29 @@ export function StepContenu({
     return (
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <Label>ICP ciblé</Label>
+          <Label>{tr("icpCible")}</Label>
           <IcpCombobox
             value={data.icpId ?? null}
             onChange={(id) => dispatch({ type: "SET_ICP", icpId: id })}
             required
           />
           <p className="text-xs text-slate-500">
-            Requis — l&apos;audience visée par ce Short.
+            {tr("requisLAudienceViseePar")}
           </p>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="script">Script</Label>
+          <Label htmlFor="script">{tr("script")}</Label>
           <Textarea
             id="script"
             rows={12}
-            placeholder="Écris ton script complet — le hook reste pré-rempli en haut..."
+            placeholder={tr("ecrisTonScriptCompletLe")}
             value={data.script}
             onChange={(e) =>
               dispatch({ type: "SET_SCRIPT", script: e.target.value })
             }
           />
           <p className="text-xs text-slate-500">
-            Texte continu, pas de slides découpées. Peut être complété plus
-            tard.
+            {tr("texteContinuPasDeSlides")}
           </p>
         </div>
       </div>
@@ -254,7 +247,7 @@ export function StepContenu({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {isCarousel && (
           <div className="space-y-1.5 md:col-span-2">
-            <Label>Format</Label>
+            <Label>{tr("format")}</Label>
             <Select
               value={data.format}
               onValueChange={(v) =>
@@ -267,13 +260,13 @@ export function StepContenu({
             >
               <SelectTrigger>
                 <SelectValue>
-                  {FORMATS.find((f) => f.value === data.format)?.label}
+                  {data.format ? tr(`formats.${data.format}`) : null}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {FORMATS.map((f) => (
-                  <SelectItem key={f.value} value={f.value}>
-                    {f.label}
+                  <SelectItem key={f} value={f}>
+                    {tr(`formats.${f}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -282,7 +275,7 @@ export function StepContenu({
         )}
         {isCarousel && (
           <div className="space-y-1.5">
-            <Label htmlFor="nb-slides">Nombre de slides</Label>
+            <Label htmlFor="nb-slides">{tr("nombreDeSlides")}</Label>
             <Input
               id="nb-slides"
               type="number"
@@ -303,15 +296,15 @@ export function StepContenu({
       {isCarousel ? (
         <div className="space-y-3">
           <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
-            Slides
+            {tr("slides")}
           </div>
           {data.slides.map((s, i) => (
             <div key={i} className="space-y-1.5">
-              <Label htmlFor={`slide-${i}`}>Slide {i + 1}</Label>
+              <Label htmlFor={`slide-${i}`}>{tr("slide", { value: i + 1 })}</Label>
               <Textarea
                 id={`slide-${i}`}
                 rows={2}
-                placeholder={`Texte de la slide ${i + 1}...`}
+                placeholder={tr("texteDeLaSlide", { value: i + 1 })}
                 value={s}
                 onChange={(e) =>
                   dispatch({
@@ -326,19 +319,18 @@ export function StepContenu({
         </div>
       ) : (
         <div className="space-y-1.5">
-          <Label htmlFor="script">Script</Label>
+          <Label htmlFor="script">{tr("script")}</Label>
           <Textarea
             id="script"
             rows={12}
-            placeholder="Écris ton script complet — le hook reste pré-rempli en haut..."
+            placeholder={tr("ecrisTonScriptCompletLe")}
             value={data.script}
             onChange={(e) =>
               dispatch({ type: "SET_SCRIPT", script: e.target.value })
             }
           />
           <p className="text-xs text-slate-500">
-            Texte continu, pas de slides découpées. Saisis le texte intégral
-            du Short.
+            {tr("texteContinuPasDeSlides2")}
           </p>
         </div>
       )}

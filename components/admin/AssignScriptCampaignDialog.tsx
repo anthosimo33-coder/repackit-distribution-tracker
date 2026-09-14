@@ -51,6 +51,8 @@ import {
   type ChosenBricks,
   type ReplaySource,
 } from "@/components/admin/ChosenComboPicker";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
@@ -96,13 +98,12 @@ function phaseHint(
         sortieDeChauffeAt: number | null;
       }
     | undefined,
-): string | null {
+): { until: number | null } | null {
   if (!c || c.phase === null || c.postsPerDay === null || c.postsPerDay > 0) {
     return null;
   }
-  return c.sortieDeChauffeAt !== null
-    ? `En chauffe jusqu'au ${formatDate(c.sortieDeChauffeAt)} — la publication sera refusée.`
-    : "Aucune publication possible dans cette phase.";
+  // La phrase est rendue par l'écran, dans la langue du lecteur.
+  return { until: c.sortieDeChauffeAt };
 }
 
 export function AssignScriptCampaignDialog({
@@ -135,6 +136,8 @@ export function AssignScriptCampaignDialog({
     postDate: number;
   };
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.AssignScriptCampaignDialog");
   const tLabel = useLabel();
   const creators = useProjectQuery(
     api.assignments.listAssignableCreators,
@@ -350,33 +353,33 @@ export function AssignScriptCampaignDialog({
 
   async function handleSubmit() {
     if (creatorId === NONE) {
-      toast.error("Choisis un créateur.");
+      toast.error(tr("choisisUnCreateur"));
       return;
     }
     if (targets.length === 0) {
-      toast.error("Choisis au moins un compte cible (1 plateforme).");
+      toast.error(tr("choisisAuMoinsUnCompte"));
       return;
     }
     const videosPerCreator = Number(videos);
     if (!Number.isInteger(videosPerCreator) || videosPerCreator < 1) {
-      toast.error("Nombre de vidéos invalide.");
+      toast.error(tr("nombreDeVideosInvalide"));
       return;
     }
     const dueMs = new Date(`${due}T23:59:59`).getTime();
     if (!Number.isFinite(dueMs)) {
-      toast.error("Échéance invalide.");
+      toast.error(tr("echeanceInvalide"));
       return;
     }
     if (pricingForSingle === NONE) {
-      toast.error("Le barème de paie est requis.");
+      toast.error(tr("leBaremeDePaieEst"));
       return;
     }
     if (comboMode === "chosen" && !imposedCombo) {
-      toast.error("Choisis les 3 briques du combo (hook, flux, description).");
+      toast.error(tr("choisisLes3BriquesDu"));
       return;
     }
     if (!slotsComplete) {
-      toast.error("Place chaque vidéo sur un jour du calendrier.");
+      toast.error(tr("placeChaqueVideoSurUn2"));
       return;
     }
     setSubmitting(true);
@@ -390,6 +393,7 @@ export function AssignScriptCampaignDialog({
         pricingId: pricingForSingle as Id<"pricings">,
         overlayText: overlayText.trim() || undefined,
         assetFolderIds:
+          // i18n-exempt: code TypeScript (`> 0 ? (… as Id<…>)`), pas du texte
           selectedFolderIds.size > 0
             ? ([...selectedFolderIds] as Id<"assetFolders">[])
             : undefined,
@@ -414,7 +418,7 @@ export function AssignScriptCampaignDialog({
           : {}),
       });
       toast.success(
-        `${res.created} vidéo${res.created > 1 ? "s" : ""} × ${targets.length} post${targets.length > 1 ? "s" : ""} assignée${res.created > 1 ? "s" : ""}.`,
+        tr("videoPostAssignee", { created: res.created, count: targets.length }),
       );
       if (res.shortages.length > 0) {
         toast.warning(
@@ -425,7 +429,7 @@ export function AssignScriptCampaignDialog({
       }
       onOpenChange(false);
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -543,25 +547,25 @@ export function AssignScriptCampaignDialog({
 
   /** Validations partagées avec le mode single, avant d'ouvrir le récap. */
   function bulkPreflightError(): string | null {
-    if (selectedRows.length === 0) return "Sélectionne au moins un créateur.";
+    if (selectedRows.length === 0) return tr("selectionneAuMoinsUnCreateur");
     if (!Number.isInteger(videosNum) || videosNum < 1) {
-      return "Nombre de vidéos invalide.";
+      return tr("nombreDeVideosInvalide");
     }
     if (!Number.isFinite(new Date(`${due}T23:59:59`).getTime())) {
-      return "Échéance invalide.";
+      return tr("echeanceInvalide");
     }
-    if (pricingChoice === NONE) return "Le barème de paie est requis.";
+    if (pricingChoice === NONE) return tr("leBaremeDePaieEst");
     if (sansBareme.length > 0) {
-      return `Sans barème sur leur fiche : ${sansBareme
+      return tr("sansBaremeSurLeurFiche", { value: sansBareme
         .map((r) => r.creator.name)
         .slice(0, 3)
-        .join(", ")}${sansBareme.length > 3 ? "…" : ""}. Pose-leur une grille (écran Barèmes) ou choisis un barème pour ce lot.`;
+        .join(", "), value2: sansBareme.length > 3 ? "…" : "" });
     }
     if (comboMode === "chosen" && !imposedCombo) {
-      return "Choisis les 3 briques du combo (hook, flux, description).";
+      return tr("choisisLes3BriquesDu");
     }
     if (!slotsComplete)
-      return "Place chaque vidéo sur un jour du calendrier.";
+      return tr("placeChaqueVideoSurUn2");
     return null;
   }
 
@@ -599,6 +603,7 @@ export function AssignScriptCampaignDialog({
           pricingId: b.pricingId as Id<"pricings">,
           overlayText: overlayText.trim() || undefined,
           assetFolderIds:
+            // i18n-exempt: code TypeScript (`> 0 ? (… as Id<…>)`), pas du texte
             selectedFolderIds.size > 0
               ? ([...selectedFolderIds] as Id<"assetFolders">[])
               : undefined,
@@ -638,20 +643,20 @@ export function AssignScriptCampaignDialog({
     const okCount = batch.length - failed.length;
     if (created > 0) {
       toast.success(
-        `${created} assignment${created > 1 ? "s" : ""} créé${created > 1 ? "s" : ""} pour ${okCount} créateur${okCount > 1 ? "s" : ""}.`,
+        tr("assignmentCreePourCreateur", { created: created, okCount: okCount }),
       );
     }
     if (shortNames.length > 0) {
       toast.warning(
-        `Combos uniques insuffisants pour : ${shortNames.slice(0, 3).join(", ")}${shortNames.length > 3 ? "…" : ""}.`,
+        tr("combosUniquesInsuffisantsPour", { value: shortNames.slice(0, 3).join(", "), value2: shortNames.length > 3 ? "…" : "" }),
       );
     }
     if (failed.length > 0) {
       toast.error(
-        `${failed.length} échec${failed.length > 1 ? "s" : ""} : ${failed
+        tr("echecIlsRestentSelectionnes", { count: failed.length, value2: failed
           .slice(0, 3)
           .map((f) => f.name)
-          .join(", ")}${failed.length > 3 ? "…" : ""}. Ils restent sélectionnés.`,
+          .join(", "), value3: failed.length > 3 ? "…" : "" }),
       );
     } else {
       onOpenChange(false);
@@ -721,15 +726,15 @@ export function AssignScriptCampaignDialog({
         <DialogHeader>
           <DialogTitle>
             {replaySource
-              ? `Rejouer un script — « ${campaignName} »`
-              : `Assigner « ${campaignName} »`}
+              ? tr("rejouerUnScript", { campaignName: campaignName })
+              : tr("assigner3", { campaignName: campaignName })}
           </DialogTitle>
           <DialogDescription>
             {total > 0
               ? comboMode === "chosen"
-                ? `${Number(videos) || 0} vidéo(s) → ${total} post(s) — même combinaison imposée.`
-                : `${Number(videos) || 0} vidéo(s) → ${total} post(s) — combos distincts (anti-coordination).`
-              : "1 vidéo → N posts. Choisis le créateur puis 1 compte par plateforme."}
+                ? tr("videoSPostSMeme", { value: Number(videos) || 0, total: total })
+                : tr("videoSPostSCombos", { value: Number(videos) || 0, total: total })
+              : tr("n1VideoNPostsChoisis")}
           </DialogDescription>
         </DialogHeader>
 
@@ -738,13 +743,13 @@ export function AssignScriptCampaignDialog({
               (choix explicite d'un compte par plateforme) reste inchangé. */}
           <div
             role="radiogroup"
-            aria-label="Mode d'assignation"
+            aria-label={tr("modeDAssignation")}
             className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
           >
             {(
               [
-                { value: "single", label: "1 créateur" },
-                { value: "bulk", label: "Plusieurs créateurs" },
+                { value: "single", label: tr("n1Createur") },
+                { value: "bulk", label: tr("plusieursCreateurs") },
               ] as const
             ).map((opt) => (
               <button
@@ -772,13 +777,13 @@ export function AssignScriptCampaignDialog({
           <div className="space-y-2">
             <div
               role="radiogroup"
-              aria-label="Combinaison"
+              aria-label={tr("combinaison")}
               className="inline-flex rounded-md border border-slate-200 bg-white p-0.5"
             >
               {(
                 [
-                  { value: "auto", label: "Combinaison auto" },
-                  { value: "chosen", label: "Combinaison choisie" },
+                  { value: "auto", label: tr("combinaisonAuto") },
+                  { value: "chosen", label: tr("combinaisonChoisie") },
                 ] as const
               ).map((opt) => (
                 <button
@@ -815,24 +820,24 @@ export function AssignScriptCampaignDialog({
           {/* Créateur (un seul) */}
           {mode === "single" && (
           <div className="space-y-1.5">
-            <Label>Créateur</Label>
+            <Label>{tr("createur")}</Label>
             {creators === undefined ? (
               <Skeleton className="h-9 w-full" />
             ) : creators.length === 0 ? (
               <p className="text-sm text-slate-500">
-                Aucun créateur assignable (onboardé + actif).
+                {tr("aucunCreateurAssignableOnboardeActif")}
               </p>
             ) : (
               <Select
                 value={creatorId}
                 onValueChange={(v) => v && changeCreator(v)}
               >
-                <SelectTrigger aria-label="Créateur">
+                <SelectTrigger aria-label={tr("createur")}>
                   <SelectValue>
                     {creatorId === NONE
-                      ? "Choisir un créateur…"
+                      ? tr("choisirUnCreateur")
                       : (creators.find((c) => c._id === creatorId)?.name ??
-                        "Créateur")}
+                        tr("createur"))}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -850,7 +855,7 @@ export function AssignScriptCampaignDialog({
           {/* Cibles : 1 compte par plateforme (disponibles uniquement) */}
           {mode === "single" && creatorId !== NONE && (
             <div className="space-y-2">
-              <Label>Cibles (1 compte par plateforme)</Label>
+              <Label>{tr("cibles1CompteParPlateforme")}</Label>
               {available === undefined ? (
                 <Skeleton className="h-24 w-full" />
               ) : (
@@ -865,7 +870,7 @@ export function AssignScriptCampaignDialog({
                       </span>
                       {opts.length === 0 ? (
                         <span className="text-xs text-slate-400">
-                          aucun compte disponible — en warmup
+                          {tr("aucunCompteDisponibleEnWarmup")}
                         </span>
                       ) : (
                         <Select
@@ -876,18 +881,18 @@ export function AssignScriptCampaignDialog({
                         >
                           <SelectTrigger
                             className="flex-1"
-                            aria-label={`Compte ${p}`}
+                            aria-label={tr("compte", { p: p })}
                           >
                             <SelectValue>
                               {picks[p] === NONE
-                                ? "— ne pas publier —"
+                                ? tr("nePasPublier")
                                 : (opts.find((o) => o._id === picks[p])
-                                    ?.handle ?? "Compte")}
+                                    ?.handle ?? tr("compte2"))}
                             </SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value={NONE}>
-                              — ne pas publier —
+                              {tr("nePasPublier")}
                             </SelectItem>
                             {opts.map((o) => (
                               <SelectItem key={o._id} value={o._id}>
@@ -899,7 +904,11 @@ export function AssignScriptCampaignDialog({
                       )}
                       </div>
                       {hint !== null && (
-                        <p className="pl-26 text-xs text-amber-700">{hint}</p>
+                        <p className="pl-26 text-xs text-amber-700">
+                          {hint.until !== null
+                            ? tr("phaseUntil", { date: formatDate(hint.until, loc) })
+                            : tr("phaseNone")}
+                        </p>
                       )}
                     </div>
                   );
@@ -912,7 +921,7 @@ export function AssignScriptCampaignDialog({
           {mode === "bulk" && (
             <div className="space-y-4">
               <div className="space-y-1.5">
-                <Label>Plateformes de publication</Label>
+                <Label>{tr("plateformesDePublication")}</Label>
                 <div className="flex flex-wrap items-center gap-4">
                   {PLATFORMS.map((pf) => (
                     <label
@@ -930,14 +939,13 @@ export function AssignScriptCampaignDialog({
                   ))}
                 </div>
                 <p className="text-xs text-slate-500">
-                  Chaque créateur est assigné sur SON compte disponible de ces
-                  plateformes (les comptes sont propres à chaque créateur).
+                  {tr("chaqueCreateurEstAssigneSur")}
                 </p>
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label>Créateurs</Label>
+                  <Label>{tr("createurs")}</Label>
                   {eligibleRows.length > 0 && (
                     <Button
                       variant="ghost"
@@ -947,8 +955,8 @@ export function AssignScriptCampaignDialog({
                       data-testid="bulk-select-all-creators"
                     >
                       {allEligibleSelected
-                        ? "Tout désélectionner"
-                        : `Tout sélectionner (${eligibleRows.length})`}
+                        ? tr("toutDeselectionner")
+                        : tr("toutSelectionner", { count: eligibleRows.length })}
                     </Button>
                   )}
                 </div>
@@ -956,11 +964,11 @@ export function AssignScriptCampaignDialog({
                   <Skeleton className="h-40 w-full" />
                 ) : bulkPlatforms.size === 0 ? (
                   <p className="text-sm text-amber-600">
-                    Choisis au moins une plateforme.
+                    {tr("choisisAuMoinsUnePlateforme")}
                   </p>
                 ) : bulkRows.length === 0 ? (
                   <p className="text-sm text-slate-500">
-                    Aucun créateur assignable (onboardé + actif).
+                    {tr("aucunCreateurAssignableOnboardeActif")}
                   </p>
                 ) : (
                   <ul className="max-h-56 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
@@ -977,7 +985,7 @@ export function AssignScriptCampaignDialog({
                             checked={selectedCreators.has(r.creator._id)}
                             onCheckedChange={() => toggleCreator(r.creator._id)}
                             disabled={!r.eligible || submitting}
-                            aria-label={`Sélectionner ${r.creator.name}`}
+                            aria-label={tr("selectionner", { name: r.creator.name })}
                           />
                           <span className="flex-1 truncate text-slate-800">
                             {r.creator.name}
@@ -985,7 +993,7 @@ export function AssignScriptCampaignDialog({
                           <span className="shrink-0 text-xs text-slate-500">
                             {r.eligible
                               ? r.targets.map((t) => t.platform).join(" · ")
-                              : "aucun compte disponible"}
+                              : tr("noAccountAvailable")}
                           </span>
                         </label>
                       </li>
@@ -994,10 +1002,7 @@ export function AssignScriptCampaignDialog({
                 )}
                 {selectedRows.length > 0 && (
                   <p className="text-xs text-slate-500">
-                    {selectedRows.length} créateur
-                    {selectedRows.length > 1 ? "s" : ""} · {plannedAssignments}{" "}
-                    assignment{plannedAssignments > 1 ? "s" : ""} ·{" "}
-                    {plannedPosts} post{plannedPosts > 1 ? "s" : ""}.
+                    {tr("createurAssignmentPost", { count: selectedRows.length, plannedAssignments: plannedAssignments, plannedPosts: plannedPosts })}
                   </p>
                 )}
               </div>
@@ -1007,7 +1012,7 @@ export function AssignScriptCampaignDialog({
           {/* Vidéos par créateur + deadline */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="videos">Vidéos à produire</Label>
+              <Label htmlFor="videos">{tr("videosAProduire")}</Label>
               <Input
                 id="videos"
                 type="number"
@@ -1018,7 +1023,7 @@ export function AssignScriptCampaignDialog({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="due">Échéance</Label>
+              <Label htmlFor="due">{tr("echeance")}</Label>
               <Input
                 id="due"
                 type="date"
@@ -1033,7 +1038,7 @@ export function AssignScriptCampaignDialog({
               pour activer « Assigner ». En masse, la MÊME répartition s'applique à
               chaque créateur (ajustable ensuite par ligne dans Assignments). */}
           <div className="space-y-1.5">
-            <Label>Dates de publication</Label>
+            <Label>{tr("datesDePublication")}</Label>
             <AssignmentPlanningCalendar
               count={
                 Number.isInteger(videoCount) &&
@@ -1048,7 +1053,7 @@ export function AssignScriptCampaignDialog({
             />
             {!slotsComplete && (
               <p className="text-xs text-amber-600">
-                Place chaque vidéo sur un jour pour activer l&apos;assignation.
+                {tr("placeChaqueVideoSurUn")}
               </p>
             )}
           </div>
@@ -1062,15 +1067,15 @@ export function AssignScriptCampaignDialog({
                 data-testid="combo-availability"
               >
                 {lacksCombos
-                  ? `Plus assez de combos uniques pour ce créateur sur ${platformsLabel} — ${combosInfo.available} restant${combosInfo.available > 1 ? "s" : ""} pour ${need} demandée${need > 1 ? "s" : ""}. Seuls les combos uniques seront assignés (pas de doublon).`
-                  : `${combosInfo.available} combo${combosInfo.available > 1 ? "s" : ""} unique${combosInfo.available > 1 ? "s" : ""} disponible${combosInfo.available > 1 ? "s" : ""} pour ce créateur sur ${platformsLabel}.`}
+                  ? tr("plusAssezDeCombosUniques", { platformsLabel: platformsLabel, available: combosInfo.available, need: need })
+                  : tr("comboUniqueDisponiblePourCe", { available: combosInfo.available, platformsLabel: platformsLabel })}
               </p>
             )}
 
           {/* QUALIFICATION — ADMIN UNIQUEMENT. Ni la créatrice ni le clippeur ne
               voient ces deux champs (allowlists + tests d'exclusion). */}
           <div className="space-y-1.5" data-testid="qualification">
-            <Label>Qualification (interne, jamais visible côté créatrice)</Label>
+            <Label>{tr("qualificationInterneJamaisVisibleCote")}</Label>
             <div className="flex flex-wrap items-center gap-2">
               {(["warmup", "promo"] as const).map((v) => (
                 <Button
@@ -1084,7 +1089,7 @@ export function AssignScriptCampaignDialog({
                     setContentType(effContentType === v ? null : v);
                   }}
                 >
-                  {v === "warmup" ? "Warmup" : "Promo"}
+                  {v === "warmup" ? tr("warmup") : tr("promo")}
                 </Button>
               ))}
               <label className="ml-2 flex items-center gap-1.5 text-xs text-slate-600">
@@ -1095,15 +1100,16 @@ export function AssignScriptCampaignDialog({
                     setRemunerated(c === true);
                   }}
                 />
-                Rémunérée
+                {tr("remuneree")}
               </label>
             </div>
             <p className="text-xs text-slate-500">
               {effContentType === undefined
-                ? "Non qualifiée — l'assignation reste neutre, comme aujourd'hui."
-                : `${effContentType === "warmup" ? "Warmup" : "Promo"}${
-                    effRemunerated === true ? " · rémunérée" : " · non rémunérée"
-                  } — repris sur la publication à sa création.`}
+                ? tr("nonQualifieeLAssignationReste")
+                : tr("qualifiedSummary", {
+                    type: effContentType,
+                    paid: effRemunerated === true ? "yes" : "no",
+                  })}
             </p>
           </div>
 
@@ -1111,7 +1117,7 @@ export function AssignScriptCampaignDialog({
               Presets du process + saisie libre. Optionnelle : sans plage, la
               créatrice lit « À publier le JJ/MM », sans mention d'heure. */}
           <div className="space-y-1.5" data-testid="plage-horaire">
-            <Label>Créneau de publication (optionnel)</Label>
+            <Label>{tr("creneauDePublicationOptionnel")}</Label>
             <div className="flex flex-wrap items-center gap-2">
               {POST_WINDOW_PRESETS.map((p) => {
                 const actif =
@@ -1134,7 +1140,7 @@ export function AssignScriptCampaignDialog({
               <Input
                 type="time"
                 className="h-7 w-28 text-xs"
-                aria-label="Heure de début"
+                aria-label={tr("heureDeDebut")}
                 value={
                   plage === null
                     ? ""
@@ -1154,7 +1160,7 @@ export function AssignScriptCampaignDialog({
               <Input
                 type="time"
                 className="h-7 w-28 text-xs"
-                aria-label="Heure de fin"
+                aria-label={tr("heureDeFin")}
                 value={
                   plage === null
                     ? ""
@@ -1174,14 +1180,14 @@ export function AssignScriptCampaignDialog({
                   className="h-7 text-xs"
                   onClick={() => setPlage(null)}
                 >
-                  Retirer
+                  {tr("retirer")}
                 </Button>
               )}
             </div>
             <p className="text-xs text-slate-500">
               {formatPostWindow(plage) === null
-                ? "Aucun créneau : la créatrice verra seulement la date."
-                : `La créatrice lira « À publier le JJ/MM entre ${formatPostWindow(plage)!.replace("-", " et ")} ».`}
+                ? tr("aucunCreneauLaCreatriceVerra")
+                : tr("laCreatriceLiraAPublier", { value: formatPostWindow(plage)!.replace("-", " et ") })}
             </p>
           </div>
 
@@ -1192,18 +1198,14 @@ export function AssignScriptCampaignDialog({
               cette chaîne mentirait — on préfère l'annoncer indisponible. */}
           {comboMode === "auto" && mode === "bulk" && (
             <p className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
-              Aperçu des combos indisponible en mode groupé : les tirages
-              s&apos;enchaînent d&apos;un créateur à l&apos;autre (exclusion projet
-              + dates décalées). Passe en mode 1 créateur pour les relire avant
-              création.
+              {tr("apercuDesCombosIndisponibleEn")}
             </p>
           )}
           {comboMode === "auto" && mode === "single" && apercu !== undefined && (
             <div className="space-y-2" data-testid="apercu-combos">
               <div className="flex items-center justify-between">
                 <Label>
-                  Aperçu — {apercu.combos.length} script
-                  {apercu.combos.length > 1 ? "s" : ""} qui {apercu.combos.length > 1 ? "seront tirés" : "sera tiré"}
+                  {tr("apercuScriptQui", { count: apercu.combos.length })}{" "}{apercu.combos.length > 1 ? tr("serontTires") : tr("seraTire")}
                 </Label>
                 {rejetes.length > 0 && (
                   <Button
@@ -1213,8 +1215,7 @@ export function AssignScriptCampaignDialog({
                     className="h-7 text-xs"
                     onClick={() => setRejetes([])}
                   >
-                    Réinitialiser les {rejetes.length} rejet
-                    {rejetes.length > 1 ? "s" : ""}
+                    {tr("reinitialiserLesRejet", { count: rejetes.length })}
                   </Button>
                 )}
               </div>
@@ -1224,14 +1225,12 @@ export function AssignScriptCampaignDialog({
                   réglage se règle à l'aveugle. */}
               <p className="text-xs text-slate-500" data-testid="apercu-cooldown">
                 {apercu.cooldownDays === 0
-                  ? "Cooldown désactivé sur ce projet — seule l’unicité à vie s’applique."
-                  : `Cooldown du projet : ${apercu.cooldownDays} jour${apercu.cooldownDays > 1 ? "s" : ""}.`}
+                  ? tr("cooldownDesactiveSurCeProjet")
+                  : tr("cooldownDuProjetJour", { cooldownDays: apercu.cooldownDays })}
               </p>
               {apercu.shortage && (
                 <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs font-medium text-amber-800">
-                  ⚠️ Le stock ne couvre pas les {videosNum} vidéos demandées :
-                  cooldown, unicité ou rejets manuels. La création refusera avec
-                  la date de libération.
+                  {tr("leStockNeCouvrePas", { videosNum: videosNum })}
                 </p>
               )}
               <ul className="max-h-64 space-y-2 overflow-y-auto">
@@ -1244,7 +1243,7 @@ export function AssignScriptCampaignDialog({
                       <div className="min-w-0 space-y-1">
                         {c.postDate !== null && (
                           <p className="font-medium text-slate-700">
-                            {formatDate(c.postDate)}
+                            {formatDate(c.postDate, loc)}
                           </p>
                         )}
                         <p className="whitespace-pre-wrap text-slate-600">
@@ -1258,8 +1257,8 @@ export function AssignScriptCampaignDialog({
                           }
                         >
                           {c.dernierUsage === null
-                            ? "Libre — jamais programmé sur ce projet"
-                            : `Utilisé sur ${c.dernierUsage.compte} le ${formatDate(c.dernierUsage.le)} — disponible le ${formatDate(c.dernierUsage.disponibleLe)}`}
+                            ? tr("libreJamaisProgrammeSurCe")
+                            : tr("utiliseSurLeDisponibleLe", { compte: c.dernierUsage.compte, date: formatDate(c.dernierUsage.le, loc), date2: formatDate(c.dernierUsage.disponibleLe, loc) })}
                         </p>
                       </div>
                       <Button
@@ -1271,7 +1270,7 @@ export function AssignScriptCampaignDialog({
                           setRejetes((prev) => [...prev, c.comboKey])
                         }
                       >
-                        Retirer
+                        {tr("retirer")}
                       </Button>
                     </div>
                   </li>
@@ -1283,7 +1282,7 @@ export function AssignScriptCampaignDialog({
           {/* Barème de paie (pricing OBLIGATOIRE). */}
           <div>
             <div className="space-y-1.5">
-              <Label htmlFor="pricing">Pricing (barème de paie)</Label>
+              <Label htmlFor="pricing">{tr("pricingBaremeDePaie")}</Label>
               <Select
                 value={pricingChoice}
                 onValueChange={(v) => {
@@ -1295,20 +1294,20 @@ export function AssignScriptCampaignDialog({
                   setPricingId(v);
                 }}
               >
-                <SelectTrigger id="pricing" aria-label="Pricing">
+                <SelectTrigger id="pricing" aria-label={tr("pricing")}>
                   <SelectValue>
                     {pricingChoice === PER_CREATOR
-                      ? "Barème de chaque créatrice"
+                      ? tr("baremeDeChaqueCreatrice")
                       : pricingChoice === NONE
-                        ? "Choisis un barème"
+                        ? tr("choisisUnBareme")
                         : ((pricings ?? []).find((p) => p._id === pricingChoice)
-                            ?.name ?? "Pricing")}
+                            ?.name ?? tr("pricing"))}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {mode === "bulk" && (
                     <SelectItem value={PER_CREATOR}>
-                      Barème de chaque créatrice
+                      {tr("baremeDeChaqueCreatrice")}
                     </SelectItem>
                   )}
                   {(pricings ?? []).map((p) => (
@@ -1320,18 +1319,17 @@ export function AssignScriptCampaignDialog({
               </Select>
               {pricings !== undefined && pricings.length === 0 ? (
                 <p className="text-xs text-amber-600">
-                  Aucun barème de paie — crées-en un dans Pricing d&apos;abord.
+                  {tr("aucunBaremeDePaieCrees")}
                 </p>
               ) : mode === "single" && pricingForSingle === NONE ? (
                 <p className="text-xs text-amber-600">
                   {creatorId === NONE
-                    ? "Le barème de paie est requis."
-                    : "Cette créatrice n'a aucune grille sur sa fiche — choisis un barème, ou pose-lui une grille dans Barèmes."}
+                    ? tr("leBaremeDePaieEst")
+                    : tr("cetteCreatriceNAAucune")}
                 </p>
               ) : mode === "bulk" && sansBareme.length > 0 ? (
                 <p className="text-xs text-amber-600">
-                  Sans grille sur leur fiche :{" "}
-                  {sansBareme.map((r) => r.creator.name).join(", ")}.
+                  {tr("sansGrilleSurLeurFiche", { value: sansBareme.map((r) => r.creator.name).join(", ") })}
                 </p>
               ) : (
                 /* D'où vient la valeur affichée — sinon un barème apparaît tout
@@ -1339,8 +1337,8 @@ export function AssignScriptCampaignDialog({
                 !pricingTouched && (
                   <p className="text-xs text-slate-500">
                     {mode === "bulk"
-                      ? "Chaque créatrice est payée sur sa propre grille. Choisis un barème pour l'imposer à tout le lot."
-                      : "Grille de la créatrice, pré-sélectionnée. Modifiable pour ce lot."}
+                      ? tr("chaqueCreatriceEstPayeeSur")
+                      : tr("grilleDeLaCreatricePre")}
                   </p>
                 )
               )}
@@ -1349,19 +1347,18 @@ export function AssignScriptCampaignDialog({
 
           <div className="space-y-1.5">
             <Label htmlFor="overlay">
-              Texte à incruster en haut de la vidéo (optionnel)
+              {tr("texteAIncrusterEnHaut")}
             </Label>
             <Textarea
               id="overlay"
               rows={2}
               maxLength={200}
-              placeholder="Ex : Réservé aux 100 premiers"
+              placeholder={tr("exReserveAux100Premiers")}
               value={overlayText}
               onChange={(e) => setOverlayText(e.target.value)}
             />
             <p className="text-xs text-slate-500">
-              Apparaîtra en overlay permanent en haut de la vidéo, au-dessus du
-              hook côté créateur.
+              {tr("apparaitraEnOverlayPermanentEn")}
             </p>
           </div>
 
@@ -1374,11 +1371,10 @@ export function AssignScriptCampaignDialog({
           <div className="min-w-0 space-y-3 border-t border-slate-200 pt-4">
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label>Dossiers d&apos;assets (optionnel)</Label>
+                <Label>{tr("dossiersDAssetsOptionnel")}</Label>
                 {selectedFolderIds.size > 0 && (
                   <span className="text-xs text-slate-500">
-                    {selectedFolderIds.size} sélectionné
-                    {selectedFolderIds.size > 1 ? "s" : ""}
+                    {tr("selectionne", { size: selectedFolderIds.size })}
                   </span>
                 )}
               </div>
@@ -1386,7 +1382,7 @@ export function AssignScriptCampaignDialog({
                 <Skeleton className="h-16 w-full" />
               ) : assetFolders.length === 0 ? (
                 <p className="text-xs text-slate-400">
-                  Aucun dossier d&apos;assets — crées-en un dans Assets.
+                  {tr("aucunDossierDAssetsCrees")}
                 </p>
               ) : (
                 <ul className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
@@ -1397,13 +1393,13 @@ export function AssignScriptCampaignDialog({
                           checked={selectedFolderIds.has(f._id)}
                           onCheckedChange={() => toggleFolder(f._id)}
                           disabled={submitting}
-                          aria-label={`Dossier ${f.name}`}
+                          aria-label={tr("dossier", { name: f.name })}
                         />
                         <span className="min-w-0 flex-1 truncate text-slate-800">
                           {f.name}
                         </span>
                         <span className="shrink-0 text-xs text-slate-400">
-                          {f.assetCount} fichier{f.assetCount > 1 ? "s" : ""}
+                          {tr("fichier", { assetCount: f.assetCount })}
                         </span>
                       </label>
                     </li>
@@ -1414,11 +1410,10 @@ export function AssignScriptCampaignDialog({
 
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label>Vidéos exemples (optionnel)</Label>
+                <Label>{tr("videosExemplesOptionnel")}</Label>
                 {selectedVideoIds.size > 0 && (
                   <span className="text-xs text-slate-500">
-                    {selectedVideoIds.size} sélectionnée
-                    {selectedVideoIds.size > 1 ? "s" : ""}
+                    {tr("selectionnee", { size: selectedVideoIds.size })}
                   </span>
                 )}
               </div>
@@ -1426,7 +1421,7 @@ export function AssignScriptCampaignDialog({
                 <Skeleton className="h-16 w-full" />
               ) : videoInspirations.length === 0 ? (
                 <p className="text-xs text-slate-400">
-                  Aucune inspiration vidéo — ajoutes-en dans la veille.
+                  {tr("aucuneInspirationVideoAjoutesEn")}
                 </p>
               ) : (
                 <ul className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
@@ -1437,7 +1432,7 @@ export function AssignScriptCampaignDialog({
                           checked={selectedVideoIds.has(insp._id)}
                           onCheckedChange={() => toggleVideo(insp._id)}
                           disabled={submitting}
-                          aria-label={`Vidéo ${insp.titre ?? insp.url}`}
+                          aria-label={tr("video", { value: insp.titre ?? insp.url })}
                         />
                         {insp.thumbnailUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -1463,8 +1458,7 @@ export function AssignScriptCampaignDialog({
                 </ul>
               )}
               <p className="text-xs text-slate-500">
-                Depuis tes inspirations vidéo — le créateur les voit dans son
-                brief comme « vidéos à reproduire ».
+                {tr("depuisTesInspirationsVideoLe")}
               </p>
             </div>
           </div>
@@ -1476,7 +1470,7 @@ export function AssignScriptCampaignDialog({
             onClick={() => onOpenChange(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           {mode === "single" ? (
             <Button
@@ -1491,7 +1485,7 @@ export function AssignScriptCampaignDialog({
               {submitting && (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
               )}
-              Assigner
+              {tr("assigner")}
             </Button>
           ) : (
             <Button
@@ -1514,7 +1508,7 @@ export function AssignScriptCampaignDialog({
               {submitting && (
                 <Loader2Icon className="mr-2 size-4 animate-spin" />
               )}
-              Assigner ({selectedRows.length})
+              {tr("assigner2", { count: selectedRows.length })}
             </Button>
           )}
         </DialogFooter>
@@ -1529,15 +1523,10 @@ export function AssignScriptCampaignDialog({
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
-                Assigner à {selectedRows.length} créateur
-                {selectedRows.length > 1 ? "s" : ""} ?
+                {tr("assignerACreateur", { count: selectedRows.length })}
               </DialogTitle>
               <DialogDescription>
-                {plannedAssignments} assignment
-                {plannedAssignments > 1 ? "s" : ""} créé
-                {plannedAssignments > 1 ? "s" : ""} ({videosNum} vidéo
-                {videosNum > 1 ? "s" : ""} par créateur) · {plannedPosts} post
-                {plannedPosts > 1 ? "s" : ""} au total.
+                {tr("assignmentCreeVideoParCreateur", { plannedAssignments: plannedAssignments, videosNum: videosNum, plannedPosts: plannedPosts })}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 text-sm text-slate-600">
@@ -1550,7 +1539,7 @@ export function AssignScriptCampaignDialog({
                   data-testid="bulk-date-shift"
                 >
                   <p className="font-medium text-slate-700">
-                    Planning décalé d&apos;un jour par créateur
+                    {tr("planningDecaleDUnJour")}
                   </p>
                   <ul className="mt-1 space-y-0.5 text-slate-600">
                     {selectedRows.slice(0, 4).map((r, i) => (
@@ -1558,7 +1547,7 @@ export function AssignScriptCampaignDialog({
                         {r.creator.name} —{" "}
                         {shiftPostDatesByDays(postDatesPayload, i)
                           .map((d) =>
-                            new Date(d).toLocaleDateString("fr-FR", {
+                            new Date(d).toLocaleDateString(loc, {
                               day: "2-digit",
                               month: "2-digit",
                             }),
@@ -1569,18 +1558,14 @@ export function AssignScriptCampaignDialog({
                     ))}
                     {selectedRows.length > 4 && (
                       <li className="text-slate-400">
-                        … et {selectedRows.length - 4} autre
-                        {selectedRows.length - 4 > 1 ? "s" : ""}, +1 jour chacun
+                        {tr("etAutre1JourChacun", { value: selectedRows.length - 4 })}
                       </li>
                     )}
                   </ul>
                 </div>
               )}
               <p className="text-xs text-slate-500">
-                Une assignation par créateur, échéance au {due}. Si un créateur
-                manque de combos uniques, il en reçoit moins (signalé après
-                coup) ; un créateur en échec n&apos;interrompt pas les autres et
-                reste sélectionné.
+                {tr("uneAssignationParCreateurEcheance", { due: due })}
               </p>
             </div>
             <DialogFooter>
@@ -1589,7 +1574,7 @@ export function AssignScriptCampaignDialog({
                 onClick={() => setConfirmOpen(false)}
                 disabled={submitting}
               >
-                Annuler
+                {tr("annuler")}
               </Button>
               <Button
                 onClick={runBulkAssign}
@@ -1600,8 +1585,8 @@ export function AssignScriptCampaignDialog({
                   <Loader2Icon className="mr-2 size-4 animate-spin" />
                 )}
                 {submitting
-                  ? `Traitement… ${bulkDone}/${bulkTotal}`
-                  : "Confirmer l'assignation"}
+                  ? tr("traitement", { bulkDone: bulkDone, bulkTotal: bulkTotal })
+                  : tr("confirmerLAssignation")}
               </Button>
             </DialogFooter>
           </DialogContent>

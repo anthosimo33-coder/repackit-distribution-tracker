@@ -11,51 +11,60 @@
  * obsolète). Garantit affichage cohérent même si la palette évolue.
  */
 
+// i18n-exempt: les `label` sont des noms de palette Tailwind (Slate, Rose…), identiques en français et en anglais
 export const FOLDER_COLORS = [
   {
     key: "slate",
+    // i18n-exempt: nom de palette Tailwind
     label: "Slate",
     badgeClass: "bg-slate-100 text-slate-700 border-slate-200",
     dotClass: "bg-slate-400",
   },
   {
     key: "rose",
+    // i18n-exempt: nom de palette Tailwind
     label: "Rose",
     badgeClass: "bg-rose-50 text-rose-700 border-rose-200",
     dotClass: "bg-rose-400",
   },
   {
     key: "amber",
+    // i18n-exempt: nom de palette Tailwind
     label: "Amber",
     badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
     dotClass: "bg-amber-400",
   },
   {
     key: "emerald",
+    // i18n-exempt: nom de palette Tailwind
     label: "Emerald",
     badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
     dotClass: "bg-emerald-400",
   },
   {
     key: "sky",
+    // i18n-exempt: nom de palette Tailwind
     label: "Sky",
     badgeClass: "bg-sky-50 text-sky-700 border-sky-200",
     dotClass: "bg-sky-400",
   },
   {
     key: "violet",
+    // i18n-exempt: nom de palette Tailwind
     label: "Violet",
     badgeClass: "bg-violet-50 text-violet-700 border-violet-200",
     dotClass: "bg-violet-400",
   },
   {
     key: "pink",
+    // i18n-exempt: nom de palette Tailwind
     label: "Pink",
     badgeClass: "bg-pink-50 text-pink-700 border-pink-200",
     dotClass: "bg-pink-400",
   },
   {
     key: "indigo",
+    // i18n-exempt: nom de palette Tailwind
     label: "Indigo",
     badgeClass: "bg-indigo-50 text-indigo-700 border-indigo-200",
     dotClass: "bg-indigo-400",

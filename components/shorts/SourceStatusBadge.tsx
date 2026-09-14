@@ -6,6 +6,8 @@ import { api } from "@/convex/_generated/api";
 import { formatDate } from "@/lib/format";
 import { InfoIcon, TriangleAlertIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * SourceStatusBadge — indicateur informatif du statut multi-plateforme d'un
@@ -17,6 +19,8 @@ import { cn } from "@/lib/utils";
  *   est légitime mais doit être conscient (anti-shadowban).
  */
 export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.SourceStatusBadge");
   const trimmed = sourceId.trim();
   const status = useProjectQuery(
     api.publications.getSourceStatus,
@@ -27,7 +31,7 @@ export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
   if (status === undefined) {
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-400">
-        Vérification de la source…
+        {tr("verificationDeLaSource")}
       </div>
     );
   }
@@ -42,7 +46,7 @@ export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
       >
         <InfoIcon className="mt-0.5 size-3.5 shrink-0 text-slate-400" />
         <span>
-          Source inédite. Toutes les plateformes sont disponibles.
+          {tr("sourceInediteToutesLesPlateformes")}
         </span>
       </div>
     );
@@ -51,7 +55,7 @@ export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
   const postedText = status.publications
     .map(
       (p) =>
-        `${p.plateforme} (${p.carouselId} ${p.compte} ${formatDate(p.datePubli)})`,
+        `${p.plateforme} (${p.carouselId} ${p.compte} ${formatDate(p.datePubli, loc)})`,
     )
     .join(" + ");
 
@@ -65,16 +69,16 @@ export function SourceStatusBadge({ sourceId }: { sourceId: string }) {
       <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
       <div className="space-y-0.5">
         <div>
-          <span className="font-medium">Déjà posté sur :</span> {postedText}.
+          <span className="font-medium">{tr("dejaPosteSur")}</span> {postedText}.
         </div>
         {status.availablePlatforms.length > 0 ? (
           <div>
-            <span className="font-medium">Disponible :</span>{" "}
+            <span className="font-medium">{tr("disponible")}</span>{" "}
             {status.availablePlatforms.join(", ")}.
           </div>
         ) : (
           <div className="font-medium">
-            Couverture complète (TikTok + Instagram + YouTube).
+            {tr("couvertureCompleteTiktokInstagramYoutube")}
           </div>
         )}
       </div>

@@ -8,6 +8,7 @@ import { useProjectMutation } from "@/components/project/use-project-convex";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { RefreshCwIcon, CheckIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 /**
  * Bouton de déclenchement MANUEL d'un relevé de vues (sans attendre le cron).
@@ -30,6 +31,7 @@ export function SyncButton({
   idleLabel: string;
   title: string;
 }) {
+  const tr = useTranslations("admin.common.SyncButton");
   const requestSync = useProjectMutation(mutation);
   const [state, setState] = useState<"idle" | "pending" | "done">("idle");
 
@@ -40,7 +42,7 @@ export function SyncButton({
       await requestSync({});
       setState("done");
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Synchronisation échouée"));
+      toast.error(convexErrorMessage(e, tr("synchronisationEchouee")));
       setState("idle");
     }
   }
@@ -62,7 +64,7 @@ export function SyncButton({
           className={cn("size-4", state === "pending" && "animate-spin")}
         />
       )}
-      {state === "done" ? "Sync lancée" : idleLabel}
+      {state === "done" ? tr("syncLancee") : idleLabel}
     </Button>
   );
 }

@@ -19,6 +19,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { COUNTRY_CODES, countryFlag, countryLabel, countryName } from "@/lib/countries";
+import { useTranslations } from "next-intl";
 
 /** Valeur sentinelle : « aucun pays ciblé ». */
 export const COUNTRY_NONE = "none";
@@ -48,7 +49,7 @@ export function CountryPicker({
   value,
   onChange,
   suggestions = [],
-  ariaLabel = "Pays ciblé",
+  ariaLabel,
 }: {
   /** Code ISO, ou `COUNTRY_NONE`. */
   value: string;
@@ -57,6 +58,7 @@ export function CountryPicker({
   suggestions?: readonly string[];
   ariaLabel?: string;
 }) {
+  const tr = useTranslations("admin.common.CountryPicker");
   const [open, setOpen] = useState(false);
 
   // Tri par NOM LOCALISÉ, pas par code : une liste ordonnée « AD, AE, AF »
@@ -112,13 +114,13 @@ export function CountryPicker({
             variant="outline"
             role="combobox"
             aria-expanded={open}
-            aria-label={ariaLabel}
+            aria-label={ariaLabel ?? tr("paysCible")}
             className="w-full justify-between text-left font-normal"
           >
             {value === COUNTRY_NONE ? (
               <span className="flex items-center gap-2 text-slate-500">
                 <GlobeIcon className="size-4 shrink-0 text-slate-300" />
-                Non défini
+                {tr("nonDefini")}
               </span>
             ) : (
               <span className="truncate">{countryLabel(value)}</span>
@@ -132,19 +134,19 @@ export function CountryPicker({
         align="start"
       >
         <Command filter={scoreRecherche}>
-          <CommandInput placeholder="Cherche un pays ou un code…" />
+          <CommandInput placeholder={tr("chercheUnPaysOuUn")} />
           <CommandList>
-            <CommandEmpty>Aucun pays ne correspond.</CommandEmpty>
+            <CommandEmpty>{tr("aucunPaysNeCorrespond")}</CommandEmpty>
             <CommandGroup>
               <CommandItem
-                value="non défini aucun"
+                value={tr("noneSearchTerms")}
                 onSelect={() => {
                   onChange(COUNTRY_NONE);
                   setOpen(false);
                 }}
               >
                 <GlobeIcon className="size-4 text-slate-400" />
-                <span className="text-slate-600">Non défini</span>
+                <span className="text-slate-600">{tr("nonDefini")}</span>
                 {value === COUNTRY_NONE && (
                   <CheckIcon className="ml-auto size-4" />
                 )}
@@ -153,13 +155,13 @@ export function CountryPicker({
             {enTete.length > 0 && (
               <>
                 <CommandSeparator />
-                <CommandGroup heading="Déjà utilisés dans ce projet">
+                <CommandGroup heading={tr("dejaUtilisesDansCeProjet")}>
                   {enTete.map(ligne)}
                 </CommandGroup>
               </>
             )}
             <CommandSeparator />
-            <CommandGroup heading="Tous les pays">
+            <CommandGroup heading={tr("tousLesPays")}>
               {tous.filter((c) => !enTeteCodes.has(c.code)).map(ligne)}
             </CommandGroup>
           </CommandList>

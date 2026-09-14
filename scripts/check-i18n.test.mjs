@@ -196,3 +196,28 @@ describe("détecteur i18n — tables de libellés et locale date-fns", () => {
     expect(astTexts('import { fr } from "date-fns/locale";')).toHaveLength(1);
   });
 });
+
+// ─── Variables ICU (2026-09-14) ──────────────────────────────────────────────
+import { icuArgs } from "./i18n-icu.mjs";
+
+const argsOf = (m) => Object.fromEntries([...icuArgs(m)].map(([k, v]) => [k, [...v].sort()]));
+
+describe("icuArgs — les variables d'un message, pas ses branches", () => {
+  it("ne prend pas une branche d'un seul mot pour une variable", () => {
+    // `{ligne}` a exactement la forme d'une variable simple : c'est ce qu'une
+    // regex confondait.
+    expect(argsOf("{n} {n, plural, one {ligne} other {lignes}} de paie")).toEqual({
+      n: ["plural", "simple"],
+    });
+  });
+
+  it("descend dans les branches imbriquées", () => {
+    expect(
+      argsOf("{unit, select, days {{count, plural, one {# jour} other {# jours}}} other {{name}}}"),
+    ).toEqual({ unit: ["select"], count: ["plural"], name: ["simple"] });
+  });
+
+  it("ignore les accolades citées", () => {
+    expect(argsOf("Tape '{'nom'}' puis {valeur}")).toEqual({ valeur: ["simple"] });
+  });
+});

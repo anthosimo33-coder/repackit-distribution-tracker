@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangleIcon } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 /**
  * Signalement VISIBLE quand la devise de paie d'un projet n'est pas réglée. Sans
@@ -15,6 +16,7 @@ export function PayCurrencyWarning({
   payCurrency?: string | null;
   className?: string;
 }) {
+  const tr = useTranslations("admin.common.PayCurrencyWarning");
   if (payCurrency && payCurrency.trim() !== "") return null;
   return (
     <div
@@ -30,11 +32,9 @@ export function PayCurrencyWarning({
             de paie non réglée.Les montants » et « payCurrencyn'est pas défini ».
             Vu à l'œil sur une capture de l'écran Paiements — l'espace EST dans
             le source, il ne survit pas au JSX. */}
-        <strong>Devise de paie non réglée.</strong>{" "}
-        Les montants de paie s&apos;affichent sans symbole tant que{" "}
-        <code>payCurrency</code>{" "}
-        n&apos;est pas défini sur le projet (mutation{" "}
-        <code>projects:setProjectCurrencyBySlug</code>).
+        <strong>{tr("deviseDePaieNonReglee")}</strong>{" "}{tr("lesMontantsDePaieS")}{" "}
+        <code>{tr("paycurrency")}</code>{" "}{tr("nEstPasDefiniSur")}{" "}
+        <code>{tr("projectsSetprojectcurrencybyslug")}</code>).
       </div>
     </div>
   );

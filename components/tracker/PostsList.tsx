@@ -29,6 +29,8 @@ import {
   ArrowUpIcon,
   ExternalLinkIcon,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Table PRÉSENTATIONNELLE des posts publiés (vues/likes/comments/engagement +
@@ -110,9 +112,14 @@ function Mesure({
   post: TrackerPost;
   children: React.ReactNode;
 }) {
+  const tr = useTranslations("admin.common.Mesure");
   const c = post.collect;
   if (c === undefined || showsMetric(c.availability)) return <>{children}</>;
-  const label = collectAvailabilityLabel(c.availability, c.reason ?? undefined);
+  const label = collectAvailabilityLabel(c.availability, c.reason ?? undefined, {
+    pending: tr("pending"),
+    failed: tr("failed"),
+    failedWithReason: (reason) => tr("failedWithReason", { reason }),
+  });
   return (
     <span className="text-muted-foreground" title={label ?? undefined}>
       —
@@ -177,6 +184,8 @@ export function PostsList({
    *  omis par le drill-down analytics scripts (lignes non cliquables). */
   onRowClick?: (id: Id<"publications">) => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.common.PostsList");
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
       <Table>
@@ -187,7 +196,7 @@ export function PostsList({
               dir={sortDir}
               onClick={() => onToggleSort("date")}
             >
-              Post
+              {tr("post")}
             </SortableHead>
             <SortableHead
               active={sortKey === "vues"}
@@ -195,7 +204,7 @@ export function PostsList({
               onClick={() => onToggleSort("vues")}
               className="text-right"
             >
-              Vues
+              {tr("vues")}
             </SortableHead>
             <SortableHead
               active={sortKey === "likes"}
@@ -203,18 +212,18 @@ export function PostsList({
               onClick={() => onToggleSort("likes")}
               className="text-right"
             >
-              Likes
+              {tr("likes")}
             </SortableHead>
-            <TableHead className="text-right">Comm.</TableHead>
+            <TableHead className="text-right">{tr("comm")}</TableHead>
             <SortableHead
               active={sortKey === "engagement"}
               dir={sortDir}
               onClick={() => onToggleSort("engagement")}
               className="text-right"
             >
-              Engagement
+              {tr("engagement")}
             </SortableHead>
-            <TableHead className="w-10 text-center">Lien</TableHead>
+            <TableHead className="w-10 text-center">{tr("lien")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -234,7 +243,7 @@ export function PostsList({
                       title={p.label}
                     >
                       {p.label || (
-                        <span className="text-slate-400">(sans titre)</span>
+                        <span className="text-slate-400">{tr("sansTitre")}</span>
                       )}
                     </div>
                     {p.isWarmup === true && (
@@ -243,28 +252,28 @@ export function PostsList({
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-500">
                     <PlatformBadge plateforme={p.plateforme} />
-                    <span>{p.creatorName ?? "Sans créateur"}</span>
+                    <span>{p.creatorName ?? tr("sansCreateur")}</span>
                     <span aria-hidden>·</span>
                     <span>
                       {p.formatName ?? FORMAT_CONFIGS[p.mediaType].singular}
                     </span>
                     <span aria-hidden>·</span>
                     <span className="whitespace-nowrap">
-                      {formatDate(p.datePubli)}
+                      {formatDate(p.datePubli, loc)}
                     </span>
                   </div>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  <Mesure post={p}>{formatNumber(p.vues)}</Mesure>
+                  <Mesure post={p}>{formatNumber(p.vues, loc)}</Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  <Mesure post={p}>{formatNumber(p.likes)}</Mesure>
+                  <Mesure post={p}>{formatNumber(p.likes, loc)}</Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  <Mesure post={p}>{formatNumber(p.comments)}</Mesure>
+                  <Mesure post={p}>{formatNumber(p.comments, loc)}</Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  <Mesure post={p}>{formatPercent(eng, 2)}</Mesure>
+                  <Mesure post={p}>{formatPercent(eng, 2, loc)}</Mesure>
                 </TableCell>
                 <TableCell className="text-center">
                   {p.postUrl ? (
@@ -276,8 +285,8 @@ export function PostsList({
                       // détail quand la ligne est cliquable (dashboard).
                       onClick={(e) => e.stopPropagation()}
                       className="inline-flex text-slate-400 hover:text-primary"
-                      aria-label={`Ouvrir le post ${p.carouselId} sur ${p.plateforme}`}
-                      title="Ouvrir le post"
+                      aria-label={tr("ouvrirLePostSur", { carouselId: p.carouselId, plateforme: p.plateforme })}
+                      title={tr("ouvrirLePost")}
                     >
                       <ExternalLinkIcon className="size-4" />
                     </a>

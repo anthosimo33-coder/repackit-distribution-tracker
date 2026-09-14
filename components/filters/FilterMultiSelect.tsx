@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/popover";
 import { ChevronDownIcon, CheckIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslations } from "next-intl";
 
 export type FilterMultiSelectOption = {
   value: string;
@@ -63,6 +64,7 @@ export function FilterMultiSelect({
    */
   triggerLabel?: string;
 }) {
+  const tr = useTranslations("admin.common.FilterMultiSelect");
   const [open, setOpen] = useState(false);
 
   const triggerLabel = useMemo(() => {
@@ -72,7 +74,7 @@ export function FilterMultiSelect({
       const only = Array.from(selectedValues)[0];
       return options.find((o) => o.value === only)?.label ?? only;
     }
-    return `${selectedValues.size} sélectionnés`;
+    return tr("selectionnes", { size: selectedValues.size });
   }, [selectedValues, options, allLabel, triggerLabelOverride]);
 
   const allSelected = selectedValues.size === options.length;
@@ -131,7 +133,7 @@ export function FilterMultiSelect({
               onClick={allSelected ? deselectAll : selectAll}
               className="text-xs font-medium text-slate-600 hover:text-slate-900"
             >
-              {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+              {allSelected ? tr("toutDeselectionner") : tr("toutSelectionner")}
             </button>
             {selectedValues.size > 0 && (
               <span className="text-xs text-slate-400">
