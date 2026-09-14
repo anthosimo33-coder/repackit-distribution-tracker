@@ -20,7 +20,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import type { ModelVideo } from "@/lib/model-videos";
 import type { FunctionReturnType } from "convex/server";
@@ -32,6 +31,7 @@ import {
   VideoIcon,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type VideoInspiration = FunctionReturnType<
   typeof api.inspirations.listInspirations
@@ -56,6 +56,7 @@ export function AssignmentModelVideosDialog({
   creatorName: string;
   modelVideos: ModelVideo[];
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AssignmentModelVideosDialog");
   const add = useProjectMutation(api.assignments.addModelVideoToAssignment);
   const remove = useProjectMutation(
@@ -97,7 +98,7 @@ export function AssignmentModelVideosDialog({
         res.duplicate ? tr("dejaDansLesModeles") : tr("videoModeleAjoutee"),
       );
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setBusy(false);
     }
@@ -115,7 +116,7 @@ export function AssignmentModelVideosDialog({
         res.duplicate ? tr("dejaDansLesModeles") : tr("videoModeleAjoutee"),
       );
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     } finally {
       setBusy(false);
     }
@@ -126,7 +127,7 @@ export function AssignmentModelVideosDialog({
       await remove({ id: assignmentId, videoId });
       toast.success(tr("videoModeleRetiree"));
     } catch (e) {
-      toast.error(convexErrorMessage(e));
+      toast.error(showError(e));
     }
   }
 

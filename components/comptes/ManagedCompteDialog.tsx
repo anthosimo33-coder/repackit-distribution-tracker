@@ -24,9 +24,9 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import type { Plateforme } from "@/lib/compte-status";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Compte GÉRÉ PAR L'ÉQUIPE — l'admin déclare un compte social pour une créatrice
@@ -44,6 +44,7 @@ export function ManagedCompteDialog({
   onOpenChange: (o: boolean) => void;
   creatorId: Id<"creators">;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.creators.ManagedCompteDialog");
   const declareManaged = useProjectMutation(api.comptes.declareManagedCompte);
   const [plateforme, setPlateforme] = useState<Plateforme>("TikTok");
@@ -78,7 +79,7 @@ export function ManagedCompteDialog({
       toast.success(tr("compteGereCreeSur", { trimmed: trimmed, plateforme: plateforme }));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

@@ -30,16 +30,17 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { formatCount, formatRelative } from "./radar-format";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type RadarAccount = FunctionReturnType<
   typeof api.radar.listRadarAccounts
 >["accounts"][number];
 
 export function RadarAccountsList({ accounts }: { accounts: RadarAccount[] }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.ops.RadarAccountsList");
   const [deleteTarget, setDeleteTarget] = useState<RadarAccount | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -53,7 +54,7 @@ export function RadarAccountsList({ accounts }: { accounts: RadarAccount[] }) {
       toast.success(tr("retire", { handle: deleteTarget.handle }));
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("suppressionImpossible")));
+      toast.error(showError(e, tr("suppressionImpossible")));
     } finally {
       setDeleting(false);
     }
@@ -112,6 +113,7 @@ function RadarAccountCard({
   account: RadarAccount;
   onRequestDelete: () => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.ops.RadarAccountCard");
   const updateNote = useProjectMutation(api.radar.updateRadarAccountNote);
@@ -131,7 +133,7 @@ function RadarAccountCard({
       toast.success(tr("noteMiseAJour"));
       setNoteOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("miseAJourImpossible")));
+      toast.error(showError(e, tr("miseAJourImpossible")));
     } finally {
       setSavingNote(false);
     }
@@ -143,7 +145,7 @@ function RadarAccountCard({
       await syncAccount({ accountId: account._id });
       toast.success(tr("synchronisationDeLancee", { handle: account.handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("synchronisationImpossible")));
+      toast.error(showError(e, tr("synchronisationImpossible")));
     } finally {
       setSyncing(false);
     }

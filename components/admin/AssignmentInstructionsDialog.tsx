@@ -17,8 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 // Aligné sur INSTRUCTIONS_MAX_LENGTH (convex/assignments.ts) — le serveur tronque
 // de toute façon ; ici on borne la saisie et on affiche le compteur.
@@ -43,6 +43,7 @@ export function AssignmentInstructionsDialog({
   creatorName: string;
   currentInstructions: string | undefined;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AssignmentInstructionsDialog");
   const setInstructions = useProjectMutation(
     api.assignments.setAssignmentInstructions,
@@ -60,7 +61,7 @@ export function AssignmentInstructionsDialog({
       toast.success(text.trim() ? tr("instructionsEnregistrees") : tr("instructionsRetirees"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

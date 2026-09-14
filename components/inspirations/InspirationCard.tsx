@@ -13,9 +13,9 @@ import { formatOutlierRatio } from "@/components/admin/radar/radar-format";
 import { resolveOutlierRatio } from "@/lib/inspiration-stats";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type InspirationCardData = Doc<"inspirations"> & {
   thumbnailUrl: string | null;
@@ -38,6 +38,7 @@ export function InspirationCard({
   folder?: FolderRef;
   onClick: () => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.library.InspirationCard");
   const tType = useTranslations("admin.library.inspirationType");
@@ -68,7 +69,7 @@ export function InspirationCard({
         isFavorite: !inspiration.isFavorite,
       });
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
+      toast.error(showError(err, tr("uneErreurEstSurvenue")));
     }
   }
 

@@ -10,6 +10,7 @@ import { isInCreatorScope } from "./creatorScope";
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { ERR, err } from "./errorCodes";
 
 /**
  * CONTRATS créateur — le PDF signé, déposé par l'admin sur une fiche, relu par
@@ -68,7 +69,7 @@ export const listCreatorContracts = permissionQuery("creators.pay_terms")({
   handler: async (ctx, { creatorId }) => {
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
     return await contractsFor(ctx, creatorId);
@@ -107,7 +108,7 @@ export const addCreatorContract = permissionMutation("creators.pay_terms")({
     const creator = await ctx.db.get(args.creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
       await ctx.storage.delete(args.storageId);
-      throw new ConvexError("Créateur introuvable dans le projet.");
+      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
     }
     // Hors périmètre : même règle que les autres refus ci-dessous — le blob est
     // purgé AVANT de lever, sinon un contrat resterait en storage sans row.
@@ -122,7 +123,7 @@ export const addCreatorContract = permissionMutation("creators.pay_terms")({
       args.size > CONTRACT_MAX_BYTES
     ) {
       await ctx.storage.delete(args.storageId);
-      throw new ConvexError("Fichier refusé : PDF de 20 Mo maximum.");
+      throw err(ERR.CONTRACT_FILE_REJECTED, "Fichier refusé : PDF de 20 Mo maximum.");
     }
     const fileName =
       args.fileName.trim().slice(0, MAX_NAME_LENGTH) || "contrat.pdf";
@@ -148,7 +149,7 @@ export const deleteCreatorContract = permissionMutation("creators.pay_terms")({
   handler: async (ctx, { id }) => {
     const row = await ctx.db.get(id);
     if (!row || row.projectId !== ctx.projectId) {
-      throw new ConvexError("Contrat introuvable dans le projet.");
+      throw err(ERR.CONTRACT_NOT_FOUND, "Contrat introuvable dans le projet.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, row.creatorId);
     await ctx.db.delete(id);

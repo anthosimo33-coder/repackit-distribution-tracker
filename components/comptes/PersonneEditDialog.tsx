@@ -19,8 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -104,6 +104,7 @@ function PersonneEditDialogForm({
   onCreated?: (id: Id<"personnes">) => void;
   onClose: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.PersonneEditDialogForm");
   const isEdit = mode === "edit";
   const [prenom, setPrenom] = useState(
@@ -145,7 +146,7 @@ function PersonneEditDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

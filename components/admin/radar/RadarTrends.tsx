@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { TREND_COUNTRY_CODES, countryLabel } from "@/lib/countries";
 import {
   RadarVideoGrid,
@@ -37,6 +36,7 @@ import { RadarViewToggle } from "./RadarVideoWall";
 import { formatCount, formatRelative } from "./radar-format";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const DAY_MS = 86_400_000;
 
@@ -46,6 +46,7 @@ type TrendHashtag = TrendData["hashtags"][number];
 type VideoStatus = "loading" | "error" | "ok";
 
 export function RadarTrends() {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.ops.RadarTrends");
   const [country, setCountry] = useState("US");
@@ -65,7 +66,7 @@ export function RadarTrends() {
     try {
       await fetchHashtags({ countryCode: country });
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("chargementDesTendancesImpossible")));
+      toast.error(showError(e, tr("chargementDesTendancesImpossible")));
     } finally {
       setHashtagsLoading(false);
     }

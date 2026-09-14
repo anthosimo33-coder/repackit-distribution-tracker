@@ -17,9 +17,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { getWarmupDuration, type Plateforme } from "@/lib/compte-status";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Bouton admin « Relancer le warmup » + confirmation (AlertDialog). Remet le
@@ -36,6 +36,7 @@ export function RestartWarmupButton({
   compteId: Id<"comptes">;
   plateforme: Plateforme;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.RestartWarmupButton");
   const restart = useProjectMutation(api.comptes.restartWarmup);
   const [open, setOpen] = useState(false);
@@ -49,7 +50,7 @@ export function RestartWarmupButton({
       toast.success(tr("warmupRelanceEchauffementRepartiPour", { days: days }));
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLaRelanceDu")));
+      toast.error(showError(e, tr("echecDeLaRelanceDu")));
     } finally {
       setBusy(false);
     }

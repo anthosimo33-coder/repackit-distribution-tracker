@@ -215,20 +215,18 @@ export const rejectRush = permissionMutation("review.manage")({
   handler: async (ctx, { rushId, reason }): Promise<{ ok: true }> => {
     const rush = await ctx.db.get(rushId);
     if (!rush || rush.projectId !== ctx.projectId) {
-      throw new ConvexError("Rush introuvable dans ce projet.");
+      throw err(ERR.RUSH_NOT_IN_PROJECT, "Rush introuvable dans ce projet.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, rush.talentId);
     if (!canTransition(rush.status, "rejected")) {
-      throw new ConvexError("Ce rush n'est plus refusable (déjà traité).");
+      throw err(ERR.RUSH_NOT_REJECTABLE, "Ce rush n'est plus refusable (déjà traité).");
     }
     const motif = reason.trim();
     if (motif.length === 0) {
-      throw new ConvexError("Un motif de refus est obligatoire.");
+      throw err(ERR.REJECTION_REASON_REQUIRED, "Un motif de refus est obligatoire.");
     }
     if (motif.length > MAX_REJECTION_REASON) {
-      throw new ConvexError(
-        `Motif trop long (${MAX_REJECTION_REASON} caractères maximum).`,
-      );
+      throw err(ERR.REJECTION_REASON_TOO_LONG, `Motif trop long (${MAX_REJECTION_REASON} caractères maximum).`, { p1: MAX_REJECTION_REASON });
     }
     await ctx.db.patch(rushId, {
       status: "rejected",

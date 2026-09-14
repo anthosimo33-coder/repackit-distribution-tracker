@@ -10,11 +10,11 @@ import { Label } from "@/components/ui/label";
 import { CheckCircle2Icon, ClockIcon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import type { Compte } from "@/components/comptes/CompteDialog";
 import { bioStateLabel } from "@/lib/account-bio";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const dtf = (locale: string) =>
   new Intl.DateTimeFormat(locale, {
@@ -30,6 +30,7 @@ const dtf = (locale: string) =>
  * par le créateur est affiché ici (Appliquée + date / En attente).
  */
 export function AccountBioSection({ compte }: { compte: Compte }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.accounts.AccountBioSection");
   const tState = useTranslations("admin.accounts.bioState");
   const loc = useIntlLocale();
@@ -46,7 +47,7 @@ export function AccountBioSection({ compte }: { compte: Compte }) {
       await setBio({ id: compte._id, bio: draft });
       toast.success(tr("bioEnregistree"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }

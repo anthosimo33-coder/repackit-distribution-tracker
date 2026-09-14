@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Loader2Icon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import {
   ASSET_ACCEPTED_TYPES,
   assetKind,
@@ -17,6 +16,7 @@ import {
   validateAssetFile,
 } from "@/lib/asset-file";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 // Accept = types MIME + extensions (certains OS ne renseignent pas le MIME des
 // .mp4/.mov dans le picker → l'extension garantit qu'ils restent sélectionnables).
@@ -107,6 +107,7 @@ export function AssetUploader({
   folderId: Id<"assetFolders">;
   postprocess: boolean;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.AssetUploader");
   const tErr = useTranslations("admin.library.assetError");
   const convex = useConvex();
@@ -239,9 +240,9 @@ export function AssetUploader({
           if (await uploadOne(f)) ok++;
         } catch (e) {
           toast.error(
-            convexErrorMessage(
+            showError(
               e,
-              convexErrorMessage(e, tr("erreurDUpload")),
+              showError(e, tr("erreurDUpload")),
             ),
           );
         }

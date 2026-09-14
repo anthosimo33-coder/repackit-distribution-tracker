@@ -26,9 +26,9 @@ import type {
 import { ExternalLinkIcon, StarIcon } from "lucide-react";
 import { ThumbnailFallback } from "./ThumbnailFallback";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 // Libellés : `admin.library.inspirationType.<type>`.
 
@@ -128,6 +128,7 @@ export function InspirationsList({
   folderMap: Map<Id<"folders">, FolderRef>;
   onCardClick: (id: Id<"inspirations">) => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.library.InspirationsList");
   const tType = useTranslations("admin.library.inspirationType");
@@ -142,7 +143,7 @@ export function InspirationsList({
     try {
       await updateInspiration({ id, isFavorite: !current });
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
+      toast.error(showError(err, tr("uneErreurEstSurvenue")));
     }
   }
 

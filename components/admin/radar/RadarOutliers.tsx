@@ -41,7 +41,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { tiktokCanonicalVideoUrl, tiktokPlayerEmbedUrl } from "@/lib/embed";
 import { applyFollowerFloor } from "@/lib/radarParsing";
 import {
@@ -52,6 +51,7 @@ import {
 } from "./radar-format";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * RADAR Brique 3 — RECHERCHE D'OUTLIERS. L'admin tape un mot-clé : on récupère un
@@ -70,6 +70,7 @@ type SearchVideo = SearchResult["videos"][number];
 type Origin = { cached: boolean; fetchedAt: number | null } | null;
 
 export function RadarOutliers() {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.ops.RadarOutliers");
   const [input, setInput] = useState("");
@@ -130,7 +131,7 @@ export function RadarOutliers() {
         toast.info(tr("resultatsServisDepuisLeCache"));
       }
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("rechercheImpossible")));
+      toast.error(showError(err, tr("rechercheImpossible")));
     } finally {
       setLoading(false);
     }
@@ -396,6 +397,7 @@ function OutlierRow({
   followedHandles: ReadonlySet<string>;
   savedUrls: ReadonlySet<string>;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.ops.OutlierRow");
   const link = video.authorHandle
@@ -427,7 +429,7 @@ function OutlierRow({
       setJustFollowed(true);
       toast.success(tr("ajouteAuSuiviRadar", { handle: handle }));
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("ajoutAuSuiviImpossible")));
+      toast.error(showError(err, tr("ajoutAuSuiviImpossible")));
     } finally {
       setFollowing(false);
     }
@@ -455,7 +457,7 @@ function OutlierRow({
       setInspoOpen(false);
       toast.success(tr("videoAjouteeAuxInspirations"));
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("ajoutEnInspirationImpossible")));
+      toast.error(showError(err, tr("ajoutEnInspirationImpossible")));
     } finally {
       setSaving(false);
     }

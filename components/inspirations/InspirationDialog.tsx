@@ -52,8 +52,8 @@ import {
 import { ALL_PLATFORMS } from "@/lib/format-config";
 import { Loader2Icon, StarIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 // Libellés : `admin.library.inspirationType.<type>`.
 
@@ -171,6 +171,7 @@ function InspirationDialogForm({
   onClose: () => void;
   tagSuggestions: string[];
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.InspirationDialogForm");
   const tType = useTranslations("admin.library.inspirationType");
   const isEdit = mode === "edit";
@@ -394,7 +395,7 @@ function InspirationDialogForm({
       }
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -409,7 +410,7 @@ function InspirationDialogForm({
       setConfirmDeleteOpen(false);
       onClose();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
       setSubmitting(false);
     }
   }

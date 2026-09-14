@@ -40,8 +40,8 @@ import {
   getFolderColor,
 } from "@/lib/folder-colors";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Batch G — page admin folders (?view=folders). CRUD complet : créer,
@@ -55,6 +55,7 @@ import { useTranslations } from "next-intl";
  * d'édition, qui requiert plus de friction).
  */
 export function FolderManagerSection({ onBack }: { onBack: () => void }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.FolderManagerSection");
   const folders = useProjectQuery(api.folders.listFolders, {});
   const updateFolder = useProjectMutation(api.folders.updateFolder);
@@ -91,7 +92,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
       await updateFolder({ id, color });
       toast.success(tr("couleurMiseAJour"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 
@@ -108,7 +109,7 @@ export function FolderManagerSection({ onBack }: { onBack: () => void }) {
       );
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setDeleting(false);
     }

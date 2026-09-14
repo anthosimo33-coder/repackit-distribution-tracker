@@ -19,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { formatDateFr } from "@/convex/dateFr";
 import { FileTextIcon, Loader2Icon, Trash2Icon, UploadIcon } from "lucide-react";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/lib/contract-file";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /** Taille lisible — un contrat pèse quelques centaines de Ko, jamais un Go. */
 function formatSize(bytes: number): string {
@@ -52,6 +52,7 @@ export function CreatorContractsSection({
 }: {
   creatorId: Id<"creators">;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.CreatorContractsSection");
   const tErr = useTranslations("admin.creators.contractError");
@@ -102,7 +103,7 @@ export function CreatorContractsSection({
       });
       toast.success(tr("contratDepose"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("depotImpossible")));
+      toast.error(showError(e, tr("depotImpossible")));
     } finally {
       setBusy(false);
       // Sans ce reset, redéposer LE MÊME fichier après une erreur ne
@@ -120,7 +121,7 @@ export function CreatorContractsSection({
       await removeContract({ id });
       toast.success(tr("contratSupprime"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("suppressionImpossible")));
+      toast.error(showError(e, tr("suppressionImpossible")));
     } finally {
       setDeleting(null);
     }

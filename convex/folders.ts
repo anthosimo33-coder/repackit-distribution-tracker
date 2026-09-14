@@ -4,6 +4,7 @@ import {
   permissionQuery,
 } from "./functions";
 import { v, ConvexError } from "convex/values";
+import { ERR, err } from "./errorCodes";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -42,12 +43,10 @@ export const createFolder = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const trimmed = args.name.trim();
     if (trimmed.length === 0) {
-      throw new ConvexError("Nom de dossier requis.");
+      throw err(ERR.FOLDER_NAME_REQUIRED, "Nom de dossier requis.");
     }
     if (trimmed.length > MAX_NAME_LENGTH) {
-      throw new ConvexError(
-        `Nom de dossier trop long (max ${MAX_NAME_LENGTH} caractères).`,
-      );
+      throw err(ERR.FOLDER_NAME_TOO_LONG_CHARS, `Nom de dossier trop long (max ${MAX_NAME_LENGTH} caractères).`, { p1: MAX_NAME_LENGTH });
     }
     // Dedupe insensible à la casse DANS le projet.
     const existing = await ctx.db
@@ -58,7 +57,7 @@ export const createFolder = permissionMutation("library.manage")({
       (f) => f.name.toLowerCase() === trimmed.toLowerCase(),
     );
     if (dup) {
-      throw new ConvexError(`Dossier "${trimmed}" existe déjà.`);
+      throw err(ERR.FOLDER_ALREADY_EXISTS, `Dossier "${trimmed}" existe déjà.`, { name: trimmed });
     }
     const now = Date.now();
     return await ctx.db.insert("folders", {
@@ -86,7 +85,7 @@ export const updateFolder = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) {
-      throw new ConvexError("Dossier introuvable.");
+      throw err(ERR.FOLDER_NOT_FOUND, "Dossier introuvable.");
     }
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
@@ -94,12 +93,10 @@ export const updateFolder = permissionMutation("library.manage")({
     if (args.name !== undefined) {
       const trimmed = args.name.trim();
       if (trimmed.length === 0) {
-        throw new ConvexError("Nom de dossier requis.");
+        throw err(ERR.FOLDER_NAME_REQUIRED, "Nom de dossier requis.");
       }
       if (trimmed.length > MAX_NAME_LENGTH) {
-        throw new ConvexError(
-          `Nom de dossier trop long (max ${MAX_NAME_LENGTH} caractères).`,
-        );
+        throw err(ERR.FOLDER_NAME_TOO_LONG_CHARS, `Nom de dossier trop long (max ${MAX_NAME_LENGTH} caractères).`, { p1: MAX_NAME_LENGTH });
       }
       if (trimmed.toLowerCase() !== existing.name.toLowerCase()) {
         const all = await ctx.db
@@ -112,7 +109,7 @@ export const updateFolder = permissionMutation("library.manage")({
             f.name.toLowerCase() === trimmed.toLowerCase(),
         );
         if (dup) {
-          throw new ConvexError(`Dossier "${trimmed}" existe déjà.`);
+          throw err(ERR.FOLDER_ALREADY_EXISTS, `Dossier "${trimmed}" existe déjà.`, { name: trimmed });
         }
       }
       patch.name = trimmed;

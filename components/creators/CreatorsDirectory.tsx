@@ -43,7 +43,6 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { creatorStatusBadge, CREATOR_STATUS_ORDER, type CreatorStatus } from "@/lib/creator-status";
 import { formatMoney } from "@/lib/format-rate";
 import { formatDateFr } from "@/convex/dateFr";
@@ -68,6 +67,7 @@ import { joinUrl } from "./CopyableLink";
 import { CycleLeaderStrip } from "./CycleLeaderStrip";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * ANNUAIRE DES CRÉATRICES — recherche, filtres, regroupement, liste.
@@ -183,6 +183,7 @@ export function CreatorsDirectory({
   onInvite: () => void;
   onDelete: (cible: { id: Id<"creators">; name: string }) => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.CreatorsDirectory");
   const tRegionNs = useTranslations("admin.creators.region");
@@ -546,7 +547,7 @@ export function CreatorsDirectory({
       const { token } = await regenerate({ creatorId });
       await copierLien(token);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     }
   }
 

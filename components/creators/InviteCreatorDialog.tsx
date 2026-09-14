@@ -24,13 +24,13 @@ import {
 } from "@/components/ui/select";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import {
   CREATOR_KINDS,
   type CreatorKind,
 } from "@/convex/roles";
 import { CopyableLink } from "./CopyableLink";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /** Une ligne d'explication par population — ce que la personne verra en se
  *  connectant. Vit ici (formulation UI), pas dans convex/roles (algèbre). */
@@ -58,6 +58,7 @@ export function InviteCreatorDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.creators.InviteCreatorDialog");
   const tKind = useTranslations("admin.creators.kind");
   const tHintNs = useTranslations("admin.creators.kindHint");
@@ -100,7 +101,7 @@ export function InviteCreatorDialog({
       setToken(result.token);
       toast.success(tr("invite", { value: name.trim(), singular: tKind(kind) }));
     } catch (err) {
-      toast.error(convexErrorMessage(err, tr("uneErreurEstSurvenue")));
+      toast.error(showError(err, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

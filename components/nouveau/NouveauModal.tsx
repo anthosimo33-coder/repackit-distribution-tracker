@@ -17,7 +17,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import type { MediaType } from "@/lib/media-type";
 import {
   isFormatAllowedOnPlatform,
@@ -37,6 +36,7 @@ import { StepPublication } from "./steps/StepPublication";
 import { StepRecap } from "./steps/StepRecap";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const STEP_KEYS = {
   1: "format",
@@ -87,6 +87,7 @@ export function NouveauModal({
    *  /shorts?carouselId=X. */
   onSuccess?: (carouselId: string, mediaType: MediaType) => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.NouveauModal");
   const { state, dispatch, goto, next, prev, isStep5 } = useNouveauState({
     initialMediaType,
@@ -433,7 +434,7 @@ export function NouveauModal({
       onSuccess?.(nextCarouselId, state.data.mediaType as MediaType);
     } catch (e) {
       toast.error(
-        convexErrorMessage(e, tr("erreurLorsDeLaCreation")),
+        showError(e, tr("erreurLorsDeLaCreation")),
       );
     } finally {
       setSubmitting(false);

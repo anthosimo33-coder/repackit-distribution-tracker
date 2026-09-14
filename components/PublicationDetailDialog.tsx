@@ -68,7 +68,6 @@ import {
 } from "lucide-react";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { Switch } from "@/components/ui/switch";
 import { PostWarmupBadge } from "@/components/PostWarmupBadge";
 
@@ -95,6 +94,7 @@ import { ALL_PLATFORMS, type Platform as Plateforme } from "@/lib/format-config"
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 function Field({
   label,
@@ -190,6 +190,7 @@ function frDate(ms: number, locale: string): string {
  * Admin-only par construction (surface admin + adminMutation).
  */
 function PayFlagsControl({ publication }: { publication: PublicationWithImage }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.PayFlagsControl");
   const state = useProjectQuery(api.publications.getPublicationPayFlags, {
     publicationId: publication._id,
@@ -206,7 +207,7 @@ function PayFlagsControl({ publication }: { publication: PublicationWithImage })
       await action();
       toast.success(ok);
     } catch (e) {
-      toast.error(convexErrorMessage(e, ko));
+      toast.error(showError(e, ko));
     } finally {
       setSaving(false);
     }
@@ -797,6 +798,7 @@ function AccountEditSubDialog({
   onOpenChange: (open: boolean) => void;
   publication: PublicationWithImage;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.common.AccountEditSubDialog");
   const [newCompte, setNewCompte] = useState(publication.compte);
   const [submitting, setSubmitting] = useState(false);
@@ -821,7 +823,7 @@ function AccountEditSubDialog({
       toast.success(tr("compteDePublicationModifie"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }
@@ -894,6 +896,7 @@ function DraftEditView({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.DraftEditView");
   // Batch 2 Modif 4c — coercion mediaType pour brancher slides ↔ script.
@@ -1077,7 +1080,7 @@ function DraftEditView({
       toast.success(tr("brouillonEnregistre"));
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("erreurLorsDeLEdition")));
+      toast.error(showError(e, tr("erreurLorsDeLEdition")));
     } finally {
       setSubmitting(false);
     }

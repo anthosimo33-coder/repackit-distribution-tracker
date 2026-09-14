@@ -22,8 +22,8 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * ESPACE TALENT — les deux réglages qui le mettent en service : le dépôt de
@@ -45,6 +45,7 @@ import { useTranslations } from "next-intl";
  */
 
 export function TalentSettingsCard() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.validation.TalentSettingsCard");
   const reglages = useProjectQuery(api.projects.getTalentSettings, {});
   const formats = useProjectQuery(api.formats.listFormats, {});
@@ -74,7 +75,7 @@ export function TalentSettingsCard() {
       await setSettings(patch);
       toast.success(tr("reglagesEnregistres"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLEnregistrement")));
+      toast.error(showError(e, tr("echecDeLEnregistrement")));
     } finally {
       setBusy(false);
     }
@@ -114,7 +115,7 @@ export function TalentSettingsCard() {
       setBrief("");
       setExemples("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLaCreationDu")));
+      toast.error(showError(e, tr("echecDeLaCreationDu")));
     } finally {
       setBusy(false);
     }

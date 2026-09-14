@@ -21,8 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Confirmation RENFORCÉE de suppression d'un créateur (opération la plus
@@ -45,6 +45,7 @@ export function DeleteCreatorDialog({
   onOpenChange: (open: boolean) => void;
   onDeleted?: () => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.creators.DeleteCreatorDialog");
   const impact = useProjectQuery(
     api.creators.getCreatorDeletionImpact,
@@ -79,7 +80,7 @@ export function DeleteCreatorDialog({
       onOpenChange(false);
       onDeleted?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("echecDeLaSuppressionDu")));
+      toast.error(showError(e, tr("echecDeLaSuppressionDu")));
     } finally {
       setBusy(false);
     }

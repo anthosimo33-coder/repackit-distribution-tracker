@@ -28,7 +28,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { ArrowLeftIcon, TrophyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatDateFr } from "@/convex/dateFr";
@@ -47,8 +46,10 @@ import { usePermissions } from "@/components/project/use-permissions";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useChallengeLabels } from "@/components/challenges/use-challenge-labels";
+import { useConvexError } from "@/lib/use-convex-error";
 
 export default function ChallengeDetailPage() {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.challenges.ChallengeDetailPage");
   const L = useChallengeLabels();
@@ -98,7 +99,7 @@ export default function ChallengeDetailPage() {
       toast.success(okMsg);
       then?.();
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

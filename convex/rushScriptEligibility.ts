@@ -103,6 +103,33 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 /**
+ * Le refus d'une brique, en CLÉS — pour que le client le rende dans sa langue.
+ *
+ * Le serveur ne peut pas écrire la phrase (il ignore la langue du lecteur), et
+ * le texte de la brique, lui, ne se traduit pas : il sort tel quel. On envoie
+ * donc les deux clés (nature de la brique, cause du refus) et l'extrait, et
+ * `useConvexError` recompose.
+ */
+export function rushBrickRefusalParams(brick: EligibilityBrick): {
+  kindKey: string;
+  causeKey: string;
+  extract: string;
+} {
+  const mode = resolveBrickMode(brick.mode);
+  const vide =
+    brick.mode === undefined || brick.mode === null || brick.mode === "";
+  return {
+    kindKey: `refusal.brickKind.${brick.kind}`,
+    causeKey: vide
+      ? "refusal.brickCause.modeMissing"
+      : mode === "dire"
+        ? "refusal.brickCause.modeSpoken"
+        : "refusal.brickCause.modeBoth",
+    extract: extrait(brick.content),
+  };
+}
+
+/**
  * Explique POURQUOI une brique est refusée, en la NOMMANT.
  *
  * « Aucun combo disponible » sans explication est le pire message possible :
@@ -126,6 +153,24 @@ export function describeIneligibleBrick(brick: EligibilityBrick): string {
  * Message d'ensemble quand AUCUN combo n'est assignable, listant les briques à
  * corriger (bornées à 3 pour rester lisible).
  */
+/**
+ * Le refus d'ENSEMBLE, en clés. La phrase nomme la PREMIÈRE brique fautive et
+ * compte les autres : une énumération de trois blocs ne se met pas en ICU, et
+ * la première suffit à savoir quoi corriger (les suivantes reviennent au coup
+ * d'après).
+ */
+export function noEligibleComboParams(ineligible: EligibilityBrick[]):
+  | { empty: true }
+  | { empty: false; kindKey: string; causeKey: string; extract: string; more: number } {
+  const actives = ineligible.filter((b) => b.active);
+  if (actives.length === 0) return { empty: true };
+  return {
+    empty: false,
+    ...rushBrickRefusalParams(actives[0]),
+    more: actives.length - 1,
+  };
+}
+
 export function describeNoEligibleCombo(
   ineligible: EligibilityBrick[],
 ): string {

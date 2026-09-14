@@ -18,12 +18,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { Loader2Icon, GraduationCapIcon } from "lucide-react";
 import { rateOf } from "@/convex/graduation";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Écran de CONFIRMATION d'une graduation : le texte du hook, ses scores, et vers
@@ -46,6 +46,7 @@ export function GraduateHookDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.common.GraduateHookDialog");
   const preview = useProjectQuery(
@@ -69,7 +70,7 @@ export function GraduateHookDialog({
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("graduationImpossible")));
+      toast.error(showError(e, tr("graduationImpossible")));
     } finally {
       setBusy(false);
     }

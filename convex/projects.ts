@@ -24,7 +24,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { convexErrorText } from "./errorCodes";
+import { ERR, convexErrorText, err } from "./errorCodes";
 
 /**
  * P2 Multi-tenant — résolution du projet courant.
@@ -431,7 +431,7 @@ export const setTalentSettings = permissionMutation("project.settings")({
       } else {
         const format = await ctx.db.get(talentBriefFormatId);
         if (!format || format.projectId !== ctx.projectId) {
-          throw new ConvexError("Format introuvable dans ce projet.");
+          throw err(ERR.FORMAT_NOT_IN_PROJECT, "Format introuvable dans ce projet.");
         }
         patch.talentBriefFormatId = talentBriefFormatId;
       }
@@ -629,25 +629,23 @@ export const createProject = superadminMutation({
   handler: async (ctx, args) => {
     const name = args.name.trim();
     if (name.length === 0) {
-      throw new ConvexError("Le nom du projet est requis.");
+      throw err(ERR.PROJECT_NAME_REQUIRED, "Le nom du projet est requis.");
     }
     const slug = args.slug.trim().toLowerCase();
     if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
-      throw new ConvexError(
-        "Slug invalide : minuscules, chiffres et tirets uniquement.",
-      );
+      throw err(ERR.SLUG_INVALID, "Slug invalide : minuscules, chiffres et tirets uniquement.");
     }
     if (RESERVED_SLUGS.has(slug)) {
-      throw new ConvexError(`Slug réservé : « ${slug} ».`);
+      throw err(ERR.SLUG_RESERVED, `Slug réservé : « ${slug} ».`, { slug });
     }
     const existing = await getProjectBySlug(ctx, slug);
     if (existing !== null) {
-      throw new ConvexError(`Un projet « ${slug} » existe déjà.`);
+      throw err(ERR.SLUG_TAKEN, `Un projet « ${slug} » existe déjà.`, { slug });
     }
     const accentColor = args.accentColor?.trim() || "#FF5200";
     const payoutDay = args.payoutDay ?? 5;
     if (!Number.isInteger(payoutDay) || payoutDay < 1 || payoutDay > 28) {
-      throw new ConvexError("Le jour de paie doit être un entier entre 1 et 28.");
+      throw err(ERR.PAYOUT_DAY_INVALID, "Le jour de paie doit être un entier entre 1 et 28.");
     }
     const projectId = await ctx.db.insert("projects", {
       name,
@@ -952,9 +950,7 @@ export const setWarmupSettings = permissionMutation("project.settings")({
     const clean = (v2: number | null, label: string): number | undefined => {
       if (v2 === null) return undefined;
       if (!Number.isInteger(v2) || v2 < WARMUP_DAYS_MIN || v2 > WARMUP_DAYS_MAX) {
-        throw new ConvexError(
-          `Durée ${label} invalide : un entier entre ${WARMUP_DAYS_MIN} et ${WARMUP_DAYS_MAX} jours.`,
-        );
+        throw err(ERR.WARMUP_DAYS_INVALID, `Durée ${label} invalide : un entier entre ${WARMUP_DAYS_MIN} et ${WARMUP_DAYS_MAX} jours.`, { label, p2: WARMUP_DAYS_MIN, p3: WARMUP_DAYS_MAX });
       }
       return v2;
     };

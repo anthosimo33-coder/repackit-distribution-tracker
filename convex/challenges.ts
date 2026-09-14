@@ -32,6 +32,7 @@ import {
   type WinnerRule,
 } from "./challengeScore";
 import { resolveCreatorKind } from "./roles";
+import { ERR, err } from "./errorCodes";
 
 /**
  * DÉFIS — administration : création, matériel, ciblage nominatif, lecture.
@@ -98,24 +99,20 @@ function validateReward(reward: RewardInput): RewardInput {
   if (reward.type === "cash") {
     const amount = reward.amount;
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-      throw new ConvexError(
-        "Récompense monétaire : un montant strictement positif est requis.",
-      );
+      throw err(ERR.REWARD_CASH_INVALID, "Récompense monétaire : un montant strictement positif est requis.");
     }
     return { type: "cash", amount };
   }
   const libelle = (reward.libelle ?? "").trim();
   if (libelle.length === 0) {
-    throw new ConvexError(
-      "Récompense en nature : décris ce qui est offert (ex. « iPhone 16 »).",
-    );
+    throw err(ERR.REWARD_KIND_INVALID, "Récompense en nature : décris ce qui est offert (ex. « iPhone 16 »).");
   }
   const coutReel = reward.coutReel;
   if (
     coutReel !== undefined &&
     (!Number.isFinite(coutReel) || coutReel < 0)
   ) {
-    throw new ConvexError("Coût réel invalide (nombre positif ou vide).");
+    throw err(ERR.REWARD_REAL_COST_INVALID, "Coût réel invalide (nombre positif ou vide).");
   }
   return { type: "nature", libelle, coutReel };
 }
@@ -123,9 +120,7 @@ function validateReward(reward: RewardInput): RewardInput {
 function validateWinnerRule(rule: WinnerRule): WinnerRule {
   if (rule.kind !== "topN") return rule;
   if (!Number.isInteger(rule.n) || rule.n < 1 || rule.n > CHALLENGE_MAX_WINNERS) {
-    throw new ConvexError(
-      `Nombre de gagnantes invalide (entier entre 1 et ${CHALLENGE_MAX_WINNERS}).`,
-    );
+    throw err(ERR.WINNER_COUNT_INVALID, `Nombre de gagnantes invalide (entier entre 1 et ${CHALLENGE_MAX_WINNERS}).`, { p1: CHALLENGE_MAX_WINNERS });
   }
   // `topN` avec n = 1 est EXACTEMENT « la première ». On normalise plutôt que de
   // laisser deux représentations du même défi cohabiter : l'écran afficherait
@@ -135,9 +130,9 @@ function validateWinnerRule(rule: WinnerRule): WinnerRule {
 
 function validateName(raw: string): string {
   const name = raw.trim();
-  if (name.length === 0) throw new ConvexError("Le défi a besoin d'un nom.");
+  if (name.length === 0) throw err(ERR.CHALLENGE_NAME_REQUIRED, "Le défi a besoin d'un nom.");
   if (name.length > CHALLENGE_NAME_MAX) {
-    throw new ConvexError(`Nom trop long (max ${CHALLENGE_NAME_MAX}).`);
+    throw err(ERR.CHALLENGE_NAME_TOO_LONG, `Nom trop long (max ${CHALLENGE_NAME_MAX}).`, { p1: CHALLENGE_NAME_MAX });
   }
   return name;
 }
@@ -156,19 +151,17 @@ function validateTargetViews(targetViews: number): number {
   // contrôle est > 0 — une barre à 0 serait franchie à l'ouverture par tout le
   // monde, y compris par qui n'a rien publié.
   if (!Number.isInteger(targetViews) || targetViews <= 0) {
-    throw new ConvexError(
-      "Objectif de vues invalide : un entier strictement positif.",
-    );
+    throw err(ERR.TARGET_VIEWS_INVALID, "Objectif de vues invalide : un entier strictement positif.");
   }
   return targetViews;
 }
 
 function validateDeadline(deadline: number, now: number): number {
   if (!Number.isFinite(deadline)) {
-    throw new ConvexError("Deadline invalide.");
+    throw err(ERR.DEADLINE_INVALID, "Deadline invalide.");
   }
   if (deadline <= now) {
-    throw new ConvexError("La deadline doit être dans le futur.");
+    throw err(ERR.DEADLINE_IN_PAST, "La deadline doit être dans le futur.");
   }
   return deadline;
 }
@@ -201,9 +194,7 @@ function validateScript(script: string): string | undefined {
   const t = script.trim();
   if (t === "") return undefined;
   if (t.length > CHALLENGE_SCRIPT_MAX) {
-    throw new ConvexError(
-      `Script trop long (${t.length} caractères, maximum ${CHALLENGE_SCRIPT_MAX}).`,
-    );
+    throw err(ERR.CHALLENGE_SCRIPT_TOO_LONG, `Script trop long (${t.length} caractères, maximum ${CHALLENGE_SCRIPT_MAX}).`, { length: t.length, p2: CHALLENGE_SCRIPT_MAX });
   }
   return t;
 }
@@ -393,10 +384,10 @@ export const createChallenge = permissionMutation("challenges.money")({
     const now = Date.now();
     const pricing = await ctx.db.get(args.pricingId);
     if (!pricing || pricing.projectId !== ctx.projectId) {
-      throw new ConvexError("Barème introuvable dans le projet.");
+      throw err(ERR.PRICING_NOT_IN_PROJECT, "Barème introuvable dans le projet.");
     }
     if (pricing.status !== "active") {
-      throw new ConvexError("Barème archivé : réactive-le pour l'utiliser.");
+      throw err(ERR.PRICING_ARCHIVED, "Barème archivé : réactive-le pour l'utiliser.");
     }
     // ⚠️ Le barème d'un défi DOIT avoir un fixe à 0. C'est la décision de paie
     // du chantier : les vidéos de défi forment leur propre groupe (payoutGroupKey
@@ -532,9 +523,7 @@ export const updateChallenge = permissionMutation("challenges.money")({
       // potentiellement empêcher une victoire déjà en train de se jouer.
       const next = validateDeadline(args.deadline, now);
       if (locked && next < c.deadline) {
-        throw new ConvexError(
-          "Défi déjà ouvert : la deadline peut être prolongée, pas raccourcie.",
-        );
+        throw err(ERR.DEADLINE_ONLY_EXTENDS, "Défi déjà ouvert : la deadline peut être prolongée, pas raccourcie.");
       }
       patch.deadline = next;
     }
@@ -557,21 +546,17 @@ export const openChallenge = permissionMutation("challenges.run")({
     const c = await requireChallenge(ctx, id, ctx.projectId);
     if (c.status === "active") return { ok: true }; // idempotent
     if (c.status === "closed") {
-      throw new ConvexError("Défi clos : il ne se rouvre pas.");
+      throw err(ERR.CHALLENGE_CLOSED_FOREVER, "Défi clos : il ne se rouvre pas.");
     }
     const participants = await ctx.db
       .query("challengeParticipants")
       .withIndex("by_challenge", (q) => q.eq("challengeId", id))
       .collect();
     if (participants.length === 0) {
-      throw new ConvexError(
-        "Ajoute au moins une créatrice avant d'ouvrir le défi.",
-      );
+      throw err(ERR.CHALLENGE_NEEDS_PARTICIPANT, "Ajoute au moins une créatrice avant d'ouvrir le défi.");
     }
     if (Date.now() >= c.deadline) {
-      throw new ConvexError(
-        "La deadline est déjà passée : prolonge-la avant d'ouvrir.",
-      );
+      throw err(ERR.CHALLENGE_DEADLINE_PASSED, "La deadline est déjà passée : prolonge-la avant d'ouvrir.");
     }
     await ctx.db.patch(id, { status: "active", openedAt: Date.now() });
     return { ok: true };
@@ -736,21 +721,17 @@ export const setChallengeParticipants = permissionMutation("challenges.run")({
     for (const creatorId of wanted) {
       const creator = await ctx.db.get(creatorId as Id<"creators">);
       if (!creator || creator.projectId !== ctx.projectId) {
-        throw new ConvexError("Créatrice introuvable dans le projet.");
+        throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créatrice introuvable dans le projet.");
       }
       await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
       // Les défis sont réservés aux PARTENAIRES : un talent ne publie jamais, un
       // clippeur publie le travail d'un autre. Les mêmes raisons que pour le
       // classement de gains (cf computeProjectLeaderboard).
       if (resolveCreatorKind(creator.kind) !== "partner") {
-        throw new ConvexError(
-          `${creator.name} n'est pas une créatrice partenaire : les défis ne s'adressent qu'à elles.`,
-        );
+        throw err(ERR.CHALLENGE_PARTNER_ONLY, `${creator.name} n'est pas une créatrice partenaire : les défis ne s'adressent qu'à elles.`, { name: creator.name });
       }
       if (creator.userId === undefined) {
-        throw new ConvexError(
-          `${creator.name} n'a pas encore rejoint : elle ne verrait pas le défi.`,
-        );
+        throw err(ERR.CHALLENGE_CREATOR_NOT_JOINED, `${creator.name} n'a pas encore rejoint : elle ne verrait pas le défi.`, { name: creator.name });
       }
     }
 
@@ -774,9 +755,7 @@ export const setChallengeParticipants = permissionMutation("challenges.run")({
       );
       if (hasVideos || hasWin) {
         const creator = await ctx.db.get(row.creatorId);
-        throw new ConvexError(
-          `${creator?.name ?? "Cette créatrice"} a déjà participé à ce défi : elle ne peut plus en être retirée.`,
-        );
+        throw err(ERR.CHALLENGE_PARTICIPANT_LOCKED, `${creator?.name ?? "Cette créatrice"} a déjà participé à ce défi : elle ne peut plus en être retirée.`, { name: creator?.name ?? "Cette créatrice" });
       }
       await ctx.db.delete(row._id);
     }
@@ -979,11 +958,11 @@ export const setChallengeVideoRemoved = permissionMutation("challenges.run")({
   handler: async (ctx, { assignmentId, removed }): Promise<{ ok: true }> => {
     const a = await ctx.db.get(assignmentId);
     if (!a || a.projectId !== ctx.projectId) {
-      throw new ConvexError("Assignation introuvable.");
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignation introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     if (a.challengeId === undefined) {
-      throw new ConvexError("Cette vidéo ne relève d'aucun défi.");
+      throw err(ERR.VIDEO_NOT_IN_CHALLENGE, "Cette vidéo ne relève d'aucun défi.");
     }
     await ctx.db.patch(assignmentId, {
       challengeRemovedAt: removed ? Date.now() : undefined,

@@ -14,10 +14,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { AlertTriangleIcon, Loader2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /** Ancien format encore porté par le défi (briques), s'il n'a pas de script. */
 export type ChallengeLegacyMaterial = {
@@ -57,6 +57,7 @@ export function ChallengeMaterialCard({
   legacy: ChallengeLegacyMaterial;
   instructions: string | null;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.challenges.ChallengeMaterialCard");
   const update = useProjectMutation(api.challenges.updateChallenge);
   const [texte, setTexte] = useState(script ?? legacy?.brouillon ?? "");
@@ -72,7 +73,7 @@ export function ChallengeMaterialCard({
       await update({ id: challengeId, script: texte, instructions: instr });
       toast.success(tr("scriptEnregistre"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }

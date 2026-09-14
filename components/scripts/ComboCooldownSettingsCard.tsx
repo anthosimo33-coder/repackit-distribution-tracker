@@ -12,12 +12,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2Icon, RepeatIcon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import {
   COMBO_COOLDOWN_DAYS_MAX,
   COMBO_COOLDOWN_DAYS_MIN,
 } from "@/convex/comboCooldown";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * COOLDOWN DE COMBO du projet — le seul endroit où cette durée se règle.
@@ -36,6 +36,7 @@ import { useTranslations } from "next-intl";
  * cumulent, et seule celle-ci est réglable. C'est dit à l'écran.
  */
 export function ComboCooldownSettingsCard() {
+  const showError = useConvexError();
   const tr = useTranslations("admin.scripts.ComboCooldownSettingsCard");
   const settings = useProjectQuery(api.projects.getComboCooldownSettings, {});
   const save = useProjectMutation(api.projects.setComboCooldownDays);
@@ -65,7 +66,7 @@ export function ComboCooldownSettingsCard() {
       setDraft(null);
       toast.success(tr("cooldownEnregistre"));
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSaving(false);
     }

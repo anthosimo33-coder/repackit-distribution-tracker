@@ -4,6 +4,7 @@ import {
   permissionQuery,
 } from "./functions";
 import { v, ConvexError } from "convex/values";
+import { ERR, err } from "./errorCodes";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -36,12 +37,10 @@ export const listPersonnes = permissionQuery("accounts.manage")({
 
 function validateNames(prenom: string, nom: string) {
   if (prenom.length === 0 || nom.length === 0) {
-    throw new ConvexError("Prénom et nom requis.");
+    throw err(ERR.PERSON_NAMES_REQUIRED, "Prénom et nom requis.");
   }
   if (prenom.length > MAX_NAME_LENGTH || nom.length > MAX_NAME_LENGTH) {
-    throw new ConvexError(
-      `Prénom et nom limités à ${MAX_NAME_LENGTH} caractères.`,
-    );
+    throw err(ERR.PERSON_NAMES_TOO_LONG, `Prénom et nom limités à ${MAX_NAME_LENGTH} caractères.`, { p1: MAX_NAME_LENGTH });
   }
 }
 
@@ -63,7 +62,7 @@ export const createPersonne = permissionMutation("accounts.manage")({
         p.nom.toLowerCase() === nom.toLowerCase(),
     );
     if (dup) {
-      throw new ConvexError("Personne déjà existante.");
+      throw err(ERR.PERSON_ALREADY_EXISTS, "Personne déjà existante.");
     }
 
     const now = Date.now();
@@ -90,7 +89,7 @@ export const updatePersonne = permissionMutation("accounts.manage")({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) {
-      throw new ConvexError("Personne introuvable.");
+      throw err(ERR.PERSON_NOT_FOUND, "Personne introuvable.");
     }
 
     const nextPrenom =
@@ -113,7 +112,7 @@ export const updatePersonne = permissionMutation("accounts.manage")({
           p.nom.toLowerCase() === nextNom.toLowerCase(),
       );
       if (dup) {
-        throw new ConvexError("Personne déjà existante.");
+        throw err(ERR.PERSON_ALREADY_EXISTS, "Personne déjà existante.");
       }
     }
 

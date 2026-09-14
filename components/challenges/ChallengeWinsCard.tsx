@@ -22,7 +22,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { Loader2Icon, TrophyIcon } from "lucide-react";
 import { formatDateFr } from "@/convex/dateFr";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -30,6 +29,7 @@ import { formatViews, type ChallengeReward } from "./challenge-format";
 import { useChallengeLabels } from "./use-challenge-labels";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useConvexError } from "@/lib/use-convex-error";
 
 type Win = {
   _id: Id<"challengeWins">;
@@ -63,6 +63,7 @@ export function ChallengeWinsCard({
   wins: Win[];
   currency?: string | null;
 }) {
+  const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.challenges.ChallengeWinsCard");
   const L = useChallengeLabels();
@@ -80,7 +81,7 @@ export function ChallengeWinsCard({
       setTarget(null);
       setReason("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

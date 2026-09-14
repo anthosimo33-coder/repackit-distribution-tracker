@@ -19,10 +19,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { EyeIcon, EyeOffIcon, Loader2Icon, Trash2Icon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * SUPPRIMER OU MASQUER UN DÉFI — un bouton, deux issues, et c'est ce que le défi
@@ -48,6 +48,7 @@ export function ChallengeDangerActions({
   hidden: boolean;
   redirectTo: string;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.challenges.ChallengeDangerActions");
   const router = useRouter();
   const faits = useProjectQuery(api.challenges.getChallengeFacts, { id });
@@ -65,7 +66,7 @@ export function ChallengeDangerActions({
       toast.success(tr("defiSupprime"));
       router.push(redirectTo);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
       setBusy(false);
     }
   }
@@ -81,7 +82,7 @@ export function ChallengeDangerActions({
       );
       setOuvert(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setBusy(false);
     }

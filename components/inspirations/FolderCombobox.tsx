@@ -29,8 +29,8 @@ import {
   PlusIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 /**
  * Batch F — adapté de HookCombobox. Liste les folders + permet création
@@ -45,6 +45,7 @@ export function FolderCombobox({
   value: Id<"folders"> | null;
   onChange: (folderId: Id<"folders"> | null) => void;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.library.FolderCombobox");
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -72,7 +73,7 @@ export function FolderCombobox({
       setOpen(false);
       setQuery("");
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setCreating(false);
     }

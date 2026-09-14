@@ -17,8 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
-import { convexErrorMessage } from "@/lib/convex-error";
 import { useTranslations } from "next-intl";
+import { useConvexError } from "@/lib/use-convex-error";
 
 const OVERLAY_MAX = 200;
 
@@ -40,6 +40,7 @@ export function AssignmentOverlayDialog({
   creatorName: string;
   currentOverlayText: string | undefined;
 }) {
+  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AssignmentOverlayDialog");
   const setOverlay = useProjectMutation(
     api.assignments.setAssignmentOverlayText,
@@ -59,7 +60,7 @@ export function AssignmentOverlayDialog({
       );
       onOpenChange(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, tr("uneErreurEstSurvenue")));
+      toast.error(showError(e, tr("uneErreurEstSurvenue")));
     } finally {
       setSubmitting(false);
     }

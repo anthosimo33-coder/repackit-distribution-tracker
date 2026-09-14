@@ -4,6 +4,7 @@ import {
   permissionQuery,
 } from "./functions";
 import { v, ConvexError } from "convex/values";
+import { ERR, err } from "./errorCodes";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -42,12 +43,10 @@ export const createIcp = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const nom = args.nom.trim();
     if (nom.length === 0) {
-      throw new ConvexError("Nom d'ICP requis.");
+      throw err(ERR.ICP_NAME_REQUIRED, "Nom d'ICP requis.");
     }
     if (nom.length > MAX_NAME_LENGTH) {
-      throw new ConvexError(
-        `Nom d'ICP trop long (max ${MAX_NAME_LENGTH} caractères).`,
-      );
+      throw err(ERR.ICP_NAME_TOO_LONG, `Nom d'ICP trop long (max ${MAX_NAME_LENGTH} caractères).`, { p1: MAX_NAME_LENGTH });
     }
     // Dedupe insensible à la casse sur le nom, DANS le projet.
     const existing = await ctx.db
@@ -56,7 +55,7 @@ export const createIcp = permissionMutation("library.manage")({
       .collect();
     const dup = existing.find((i) => i.nom.toLowerCase() === nom.toLowerCase());
     if (dup) {
-      throw new ConvexError(`ICP "${nom}" existe déjà.`);
+      throw err(ERR.ICP_ALREADY_EXISTS, `ICP "${nom}" existe déjà.`, { nom });
     }
     const now = Date.now();
     return await ctx.db.insert("icps", {
@@ -84,7 +83,7 @@ export const updateIcp = permissionMutation("library.manage")({
   handler: async (ctx, args) => {
     const existing = await ctx.db.get(args.id);
     if (!existing || existing.projectId !== ctx.projectId) {
-      throw new ConvexError("ICP introuvable.");
+      throw err(ERR.ICP_NOT_FOUND, "ICP introuvable.");
     }
 
     const patch: Record<string, unknown> = { updatedAt: Date.now() };
@@ -92,12 +91,10 @@ export const updateIcp = permissionMutation("library.manage")({
     if (args.nom !== undefined) {
       const nom = args.nom.trim();
       if (nom.length === 0) {
-        throw new ConvexError("Nom d'ICP requis.");
+        throw err(ERR.ICP_NAME_REQUIRED, "Nom d'ICP requis.");
       }
       if (nom.length > MAX_NAME_LENGTH) {
-        throw new ConvexError(
-          `Nom d'ICP trop long (max ${MAX_NAME_LENGTH} caractères).`,
-        );
+        throw err(ERR.ICP_NAME_TOO_LONG, `Nom d'ICP trop long (max ${MAX_NAME_LENGTH} caractères).`, { p1: MAX_NAME_LENGTH });
       }
       if (nom.toLowerCase() !== existing.nom.toLowerCase()) {
         const all = await ctx.db
@@ -108,7 +105,7 @@ export const updateIcp = permissionMutation("library.manage")({
           (i) => i._id !== args.id && i.nom.toLowerCase() === nom.toLowerCase(),
         );
         if (dup) {
-          throw new ConvexError(`ICP "${nom}" existe déjà.`);
+          throw err(ERR.ICP_ALREADY_EXISTS, `ICP "${nom}" existe déjà.`, { nom });
         }
       }
       patch.nom = nom;
