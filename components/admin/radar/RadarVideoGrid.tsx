@@ -35,6 +35,8 @@ import {
   formatEngagement,
   formatPublished,
 } from "./radar-format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * RADAR — mur de vidéos RÉUTILISABLE (Brique 1 comptes favoris ET Brique 2
@@ -63,12 +65,8 @@ export interface RadarCardVideo {
 export type RadarViewMode = "list" | "grid";
 export type RadarSortKey = "views" | "published" | "likes" | "engagement";
 
-const SORT_LABELS: Record<RadarSortKey, string> = {
-  views: "Plus vues",
-  published: "Plus récentes",
-  likes: "Plus likées",
-  engagement: "Engagement",
-};
+// Les libellés vivent dans le catalogue : `admin.ops.radarSort.<clé>`.
+const SORT_KEYS: RadarSortKey[] = ["views", "published", "likes", "engagement"];
 
 function sortVideos(
   videos: RadarCardVideo[],
@@ -97,7 +95,7 @@ export function RadarVideoGrid({
   defaultSort = "views",
   title,
   icon: Icon,
-  emptyText = "Aucune vidéo.",
+  emptyText,
 }: {
   videos: RadarCardVideo[] | undefined;
   view: RadarViewMode;
@@ -106,6 +104,8 @@ export function RadarVideoGrid({
   icon?: typeof ClockIcon;
   emptyText?: string;
 }) {
+  const tr = useTranslations("admin.ops.RadarVideoGrid");
+  const tSort = useTranslations("admin.ops.radarSort");
   const [sortKey, setSortKey] = useState<RadarSortKey>(defaultSort);
   const [active, setActive] = useState<RadarCardVideo | null>(null);
   const sorted = useMemo(
@@ -136,14 +136,14 @@ export function RadarVideoGrid({
           <SelectTrigger
             className="w-40"
             size="sm"
-            aria-label={`Trier ${title ?? "les vidéos"}`}
+            aria-label={tr("trier", { quoi: title ?? tr("lesVideos") })}
           >
-            <SelectValue>{SORT_LABELS[sortKey]}</SelectValue>
+            <SelectValue>{tSort(sortKey)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {(Object.keys(SORT_LABELS) as RadarSortKey[]).map((k) => (
+            {SORT_KEYS.map((k) => (
               <SelectItem key={k} value={k}>
-                {SORT_LABELS[k]}
+                {tSort(k)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -168,7 +168,7 @@ export function RadarVideoGrid({
       ) : sorted.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-10 text-center">
           <VideoOffIcon className="size-8 text-slate-300" strokeWidth={1.5} />
-          <p className="text-sm text-slate-500">{emptyText}</p>
+          <p className="text-sm text-slate-500">{emptyText ?? tr("aucuneVideo")}</p>
         </div>
       ) : view === "grid" ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -220,10 +220,11 @@ function Thumb({
 }
 
 function Stat({ icon: Icon, value }: { icon: typeof EyeIcon; value: number }) {
+  const loc = useIntlLocale();
   return (
     <span className="inline-flex items-center gap-1 tabular-nums">
       <Icon className="size-3.5 text-slate-400" />
-      {formatCount(value)}
+      {formatCount(value, loc)}
     </span>
   );
 }
@@ -235,22 +236,24 @@ function GridCard({
   video: RadarCardVideo;
   onPlay: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.GridCard");
   return (
     <div className="group flex flex-col gap-1.5">
       <button
         type="button"
         onClick={onPlay}
-        aria-label={`Lire la vidéo de @${video.authorHandle ?? ""}`}
+        aria-label={tr("lireLaVideoDe", { value: video.authorHandle ?? "" })}
         className="relative block aspect-[9/16] w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-900"
       >
         <Thumb
           url={video.coverUrl}
-          alt={video.caption ?? "Vidéo TikTok"}
+          alt={video.caption ?? tr("videoTiktok")}
           className="opacity-90 transition-opacity group-hover:opacity-100"
         />
         <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-xs font-medium text-white">
           <EyeIcon className="size-3" />
-          {formatCount(video.views)}
+          {formatCount(video.views, loc)}
         </span>
         {formatDuration(video.durationSec) && (
           <span className="absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
@@ -273,7 +276,7 @@ function GridCard({
         {/* Date visible partout (récente ou ancienne). */}
         <p className="flex items-center gap-1 text-[11px] text-slate-400">
           <CalendarIcon className="size-3" />
-          {formatPublished(video.publishedAt)}
+          {formatPublished(video.publishedAt, loc)}
         </p>
         {video.note && (
           <span className="inline-block max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500">
@@ -292,15 +295,17 @@ function ListRow({
   video: RadarCardVideo;
   onPlay: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.ListRow");
   return (
     <li className="flex items-stretch gap-3 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
       <button
         type="button"
         onClick={onPlay}
-        aria-label={`Lire la vidéo de @${video.authorHandle ?? ""}`}
+        aria-label={tr("lireLaVideoDe", { value: video.authorHandle ?? "" })}
         className="relative block aspect-[9/16] h-24 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-900"
       >
-        <Thumb url={video.coverUrl} alt={video.caption ?? "Vidéo TikTok"} />
+        <Thumb url={video.coverUrl} alt={video.caption ?? tr("videoTiktok")} />
         {formatDuration(video.durationSec) && (
           <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] font-medium tabular-nums text-white">
             {formatDuration(video.durationSec)}
@@ -319,7 +324,7 @@ function ListRow({
             @{video.authorHandle}
             <span className="text-slate-300">·</span>
             <CalendarIcon className="size-3 text-slate-400" />
-            {formatPublished(video.publishedAt)}
+            {formatPublished(video.publishedAt, loc)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
@@ -328,7 +333,7 @@ function ListRow({
           <Stat icon={MessageCircleIcon} value={video.comments} />
           <Stat icon={Share2Icon} value={video.shares} />
           <span className="text-slate-400">
-            · {formatEngagement(video.engagement)} eng.
+            {tr("eng", { value: formatEngagement(video.engagement, loc) })}
           </span>
         </div>
       </div>
@@ -340,7 +345,7 @@ function ListRow({
         }
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="Ouvrir sur TikTok"
+        aria-label={tr("ouvrirSurTiktok")}
         className="flex shrink-0 items-center self-start p-1 text-slate-400 hover:text-slate-700"
       >
         <ExternalLinkIcon className="size-4" />
@@ -362,6 +367,7 @@ function EmbedDialog({
   video: RadarCardVideo | null;
   onClose: () => void;
 }) {
+  const tr = useTranslations("admin.ops.EmbedDialog");
   const canonicalUrl =
     video === null
       ? ""
@@ -386,7 +392,7 @@ function EmbedDialog({
               <iframe
                 key={video.tiktokId}
                 src={tiktokPlayerEmbedUrl(video.tiktokId)}
-                title={video.caption ?? "Vidéo TikTok"}
+                title={video.caption ?? tr("videoTiktok")}
                 className="aspect-[9/16] w-full"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowFullScreen
@@ -401,11 +407,10 @@ function EmbedDialog({
                 className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
               >
                 <ExternalLinkIcon className="size-4" />
-                Ouvrir sur TikTok
+                {tr("ouvrirSurTiktok")}
               </a>
               <p className="text-xs text-slate-400">
-                Si la vidéo ne se lance pas (privée ou restreinte), ouvre-la sur
-                TikTok.
+                {tr("siLaVideoNeSe")}
               </p>
             </div>
           </>

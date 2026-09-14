@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2Icon, PlusIcon } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { useTranslations } from "next-intl";
 
 /**
  * Ajout d'un compte favori au Radar. Accepte un @, un handle nu, ou une URL de
@@ -25,6 +26,7 @@ import { convexErrorMessage } from "@/lib/convex-error";
  * limite douce est atteinte, on ajoute quand même et on affiche un avertissement.
  */
 export function AddRadarAccountDialog() {
+  const tr = useTranslations("admin.ops.AddRadarAccountDialog");
   const addAccount = useProjectMutation(api.radar.addRadarAccount);
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -40,13 +42,13 @@ export function AddRadarAccountDialog() {
         input: value,
         note: note.trim() || undefined,
       });
-      toast.success("Compte ajouté — synchronisation lancée");
+      toast.success(tr("compteAjouteSynchronisationLancee"));
       if (warning) toast.warning(warning);
       setInput("");
       setNote("");
       setOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Ajout impossible."));
+      toast.error(convexErrorMessage(e, tr("ajoutImpossible")));
     } finally {
       setSubmitting(false);
     }
@@ -56,23 +58,23 @@ export function AddRadarAccountDialog() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={<Button size="sm" />}>
         <PlusIcon className="size-4" />
-        Ajouter un compte
+        {tr("ajouterUnCompte")}
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Suivre un compte TikTok</DialogTitle>
+          <DialogTitle>{tr("suivreUnCompteTiktok")}</DialogTitle>
           <DialogDescription>
-            Colle un @, un handle, ou une URL de profil (tiktok.com/@compte). Ses
-            dernières vidéos seront récupérées automatiquement.
+            {tr("colleUnUnHandleOu")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
           <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="radar-handle">Compte</Label>
+            <Label htmlFor="radar-handle">{tr("compte")}</Label>
             <Input
               id="radar-handle"
               autoFocus
+              // i18n-exempt: exemple de handle TikTok, pas du texte
               placeholder="@khaby.lame"
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -85,10 +87,10 @@ export function AddRadarAccountDialog() {
             />
           </div>
           <div className="grid min-w-0 gap-1.5">
-            <Label htmlFor="radar-note">Note / tag (optionnel)</Label>
+            <Label htmlFor="radar-note">{tr("noteTagOptionnel")}</Label>
             <Input
               id="radar-note"
-              placeholder="Ex : concurrent, inspi humour…"
+              placeholder={tr("exConcurrentInspiHumour")}
               value={note}
               maxLength={200}
               onChange={(e) => setNote(e.target.value)}
@@ -102,11 +104,11 @@ export function AddRadarAccountDialog() {
             onClick={() => setOpen(false)}
             disabled={submitting}
           >
-            Annuler
+            {tr("annuler")}
           </Button>
           <Button onClick={handleAdd} disabled={submitting || input.trim() === ""}>
             {submitting && <Loader2Icon className="size-4 animate-spin" />}
-            Ajouter
+            {tr("ajouter")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -25,6 +25,7 @@ import { countryLabel } from "@/lib/countries";
 import { cn } from "@/lib/utils";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * Header de la vue détail compte : retour /comptes, handle + plateforme +
@@ -34,6 +35,7 @@ import { useTranslations } from "next-intl";
  * supprimer, partagé avec la table /comptes).
  */
 export function CompteDetailHeader({ compte }: { compte: Compte }) {
+  const loc = useIntlLocale();
   const tr = useTranslations("admin.accounts.CompteDetailHeader");
   const tLabel = useLabel();
   const [editOpen, setEditOpen] = useState(false);
@@ -88,7 +90,7 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
               className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-0.5 text-xs font-semibold text-slate-600"
               title={tr("paysCibleLabelInterneInformatif")}
             >
-              {countryLabel(compte.targetCountry)}
+              {countryLabel(compte.targetCountry, loc)}
             </span>
           )}
           {warmupComplete && (

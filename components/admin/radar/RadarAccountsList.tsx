@@ -32,12 +32,15 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatCount, formatRelative } from "./radar-format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type RadarAccount = FunctionReturnType<
   typeof api.radar.listRadarAccounts
 >["accounts"][number];
 
 export function RadarAccountsList({ accounts }: { accounts: RadarAccount[] }) {
+  const tr = useTranslations("admin.ops.RadarAccountsList");
   const [deleteTarget, setDeleteTarget] = useState<RadarAccount | null>(null);
   const [deleting, setDeleting] = useState(false);
   const removeAccount = useProjectMutation(api.radar.removeRadarAccount);
@@ -47,10 +50,10 @@ export function RadarAccountsList({ accounts }: { accounts: RadarAccount[] }) {
     setDeleting(true);
     try {
       await removeAccount({ accountId: deleteTarget._id });
-      toast.success(`@${deleteTarget.handle} retiré`);
+      toast.success(tr("retire", { handle: deleteTarget.handle }));
       setDeleteTarget(null);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Suppression impossible."));
+      toast.error(convexErrorMessage(e, tr("suppressionImpossible")));
     } finally {
       setDeleting(false);
     }
@@ -77,23 +80,23 @@ export function RadarAccountsList({ accounts }: { accounts: RadarAccount[] }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Retirer @{deleteTarget?.handle} ?
+              {tr("retirer", { handle: deleteTarget?.handle ?? "" })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget && deleteTarget.videoCount > 0
-                ? `Les ${deleteTarget.videoCount} vidéos suivies de ce compte seront supprimées du Radar. Action irréversible.`
-                : "Le compte sera retiré du Radar. Action irréversible."}
+                ? tr("lesVideosSuiviesDeCe", { videoCount: deleteTarget.videoCount })
+                : tr("leCompteSeraRetireDu")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Annuler</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               onClick={handleDelete}
               disabled={deleting}
             >
               {deleting && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              Retirer
+              {tr("retirer2")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -109,6 +112,8 @@ function RadarAccountCard({
   account: RadarAccount;
   onRequestDelete: () => void;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.RadarAccountCard");
   const updateNote = useProjectMutation(api.radar.updateRadarAccountNote);
   const syncAccount = useProjectMutation(api.radar.requestRadarAccountSync);
   const [noteOpen, setNoteOpen] = useState(false);
@@ -123,10 +128,10 @@ function RadarAccountCard({
         accountId: account._id,
         note: noteDraft.trim() || undefined,
       });
-      toast.success("Note mise à jour");
+      toast.success(tr("noteMiseAJour"));
       setNoteOpen(false);
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Mise à jour impossible."));
+      toast.error(convexErrorMessage(e, tr("miseAJourImpossible")));
     } finally {
       setSavingNote(false);
     }
@@ -136,9 +141,9 @@ function RadarAccountCard({
     setSyncing(true);
     try {
       await syncAccount({ accountId: account._id });
-      toast.success(`Synchronisation de @${account.handle} lancée`);
+      toast.success(tr("synchronisationDeLancee", { handle: account.handle }));
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Synchronisation impossible."));
+      toast.error(convexErrorMessage(e, tr("synchronisationImpossible")));
     } finally {
       setSyncing(false);
     }
@@ -168,12 +173,12 @@ function RadarAccountCard({
         </div>
         <p className="text-xs text-slate-500">
           {account.authorFansSnapshot !== null
-            ? `${formatCount(account.authorFansSnapshot)} abonnés · `
+            ? `${tr("abonnes", { count: formatCount(account.authorFansSnapshot, loc) })} `
             : ""}
-          {account.videoCount} vidéo{account.videoCount > 1 ? "s" : ""}
+          {tr("video", { videoCount: account.videoCount })}
         </p>
         <p className="text-xs text-slate-400">
-          Sync {formatRelative(account.lastSyncAt)}
+          {tr("sync", { value: formatRelative(account.lastSyncAt, loc) })}
         </p>
         {account.note && (
           <span className="mt-1 inline-block max-w-full truncate rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-600">
@@ -185,7 +190,7 @@ function RadarAccountCard({
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Synchroniser @${account.handle}`}
+          aria-label={tr("synchroniser", { handle: account.handle })}
           onClick={handleSync}
           disabled={syncing}
         >
@@ -197,7 +202,7 @@ function RadarAccountCard({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={`Modifier la note de @${account.handle}`}
+                aria-label={tr("modifierLaNoteDe", { handle: account.handle })}
                 onClick={() => setNoteDraft(account.note ?? "")}
               >
                 <PencilIcon className="size-4" />
@@ -207,7 +212,7 @@ function RadarAccountCard({
           <PopoverContent align="end" className="w-64 space-y-2 p-2">
             <Input
               autoFocus
-              placeholder="Note / tag"
+              placeholder={tr("noteTag")}
               value={noteDraft}
               maxLength={200}
               onChange={(e) => setNoteDraft(e.target.value)}
@@ -225,14 +230,14 @@ function RadarAccountCard({
               disabled={savingNote}
             >
               {savingNote && <Loader2Icon className="size-4 animate-spin" />}
-              Enregistrer
+              {tr("enregistrer")}
             </Button>
           </PopoverContent>
         </Popover>
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Retirer @${account.handle}`}
+          aria-label={tr("retirer", { handle: account.handle })}
           onClick={onRequestDelete}
           className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
         >

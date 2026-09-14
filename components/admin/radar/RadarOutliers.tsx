@@ -50,6 +50,8 @@ import {
   formatPublished,
   formatRelative,
 } from "./radar-format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * RADAR Brique 3 — RECHERCHE D'OUTLIERS. L'admin tape un mot-clé : on récupère un
@@ -68,6 +70,8 @@ type SearchVideo = SearchResult["videos"][number];
 type Origin = { cached: boolean; fetchedAt: number | null } | null;
 
 export function RadarOutliers() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.RadarOutliers");
   const [input, setInput] = useState("");
   const [floorInput, setFloorInput] = useState("");
   const [submitted, setSubmitted] = useState<string | null>(null);
@@ -117,16 +121,16 @@ export function RadarOutliers() {
     try {
       const r = await search({ keyword });
       if (!r.ok) {
-        toast.error("Recherche impossible (quota Apify ou acteur indisponible).");
+        toast.error(tr("rechercheImpossibleQuotaApifyOu"));
         return;
       }
       setSubmitted(keyword.toLowerCase().replace(/\s+/g, " "));
       setOrigin({ cached: r.cached, fetchedAt: r.fetchedAt });
       if (r.cached) {
-        toast.info("Résultats servis depuis le cache — aucun appel consommé.");
+        toast.info(tr("resultatsServisDepuisLeCache"));
       }
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Recherche impossible."));
+      toast.error(convexErrorMessage(err, tr("rechercheImpossible")));
     } finally {
       setLoading(false);
     }
@@ -153,9 +157,9 @@ export function RadarOutliers() {
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Mot-clé (ex. make money online)"
+            placeholder={tr("motCleExMakeMoney")}
             className="pl-9"
-            aria-label="Mot-clé de recherche d'outliers"
+            aria-label={tr("motCleDeRechercheD")}
             disabled={loading}
             maxLength={100}
           />
@@ -165,7 +169,7 @@ export function RadarOutliers() {
             htmlFor="radar-floor"
             className="whitespace-nowrap text-xs text-slate-500"
           >
-            Abonnés min
+            {tr("abonnesMin")}
           </label>
           <Input
             id="radar-floor"
@@ -176,19 +180,17 @@ export function RadarOutliers() {
             onChange={(e) => setFloorInput(e.target.value)}
             placeholder="0"
             className="w-24"
-            aria-label="Plancher d'abonnés (filtre d'affichage)"
+            aria-label={tr("plancherDAbonnesFiltreD")}
           />
         </div>
         <Button type="submit" disabled={loading || input.trim() === ""} className="gap-1.5">
           <SearchIcon className={cn("size-4", loading && "animate-pulse")} />
-          {loading ? "Recherche…" : "Rechercher"}
+          {loading ? tr("recherche") : tr("rechercher")}
         </Button>
       </form>
 
       <p className="text-xs text-slate-400">
-        TikTok 🇺🇸 · 3 derniers mois · les comptes qui pètent ≥ 2 fois sont des
-        formats validés. Recherche mise en cache 24 h. Le plancher « abonnés min »
-        filtre l&apos;affichage (gratuit, aucun appel).
+        {tr("tiktok3DerniersMoisLes")}
       </p>
 
       {showSkeleton ? (
@@ -200,20 +202,20 @@ export function RadarOutliers() {
       ) : submitted === null ? (
         <EmptyState
           icon={SearchIcon}
-          title="Recherche d'outliers"
-          text="Tape un mot-clé pour repérer les vidéos qui surperforment et les comptes qui valident un format."
+          title={tr("rechercheDOutliers")}
+          text={tr("tapeUnMotClePour")}
         />
       ) : result == null || result.videos.length === 0 ? (
         <EmptyState
           icon={SearchIcon}
-          title="Aucun outlier"
-          text="Aucune vidéo anglophone exploitable pour ce mot-clé. Essaie une autre formulation."
+          title={tr("aucunOutlier")}
+          text={tr("aucuneVideoAnglophoneExploitablePour")}
         />
       ) : (displayedVideos ?? []).length === 0 ? (
         <EmptyState
           icon={UsersIcon}
-          title="Plancher trop haut"
-          text={`Aucune vidéo de compte ≥ ${formatCount(minFollowers)} abonnés. Baisse le plancher « abonnés min » pour réafficher le lot.`}
+          title={tr("plancherTropHaut")}
+          text={tr("aucuneVideoDeCompteAbonnes", { count: formatCount(minFollowers, loc) })}
         />
       ) : (
         <div className="space-y-5">
@@ -227,14 +229,13 @@ export function RadarOutliers() {
             <section className="space-y-2">
               <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
                 <RepeatIcon className="size-4 text-emerald-600" />
-                Comptes récurrents
+                {tr("comptesRecurrents")}
                 <span className="text-xs font-normal text-slate-400">
                   ({recurringAccounts.length})
                 </span>
               </h3>
               <p className="text-xs text-slate-500">
-                Ces comptes ont fait ≥ 2 vidéos outlier sur ce mot-clé — formats à
-                disséquer en priorité.
+                {tr("cesComptesOntFait2")}
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {recurringAccounts.map((a) => (
@@ -247,7 +248,7 @@ export function RadarOutliers() {
           <section className="space-y-2">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900">
               <FlameIcon className="size-4 text-slate-500" />
-              Vidéos par surperformance
+              {tr("videosParSurperformance")}
               <span className="text-xs font-normal text-slate-400">
                 ({(displayedVideos ?? []).length})
               </span>
@@ -283,6 +284,8 @@ function CacheBanner({
   result: SearchResult;
   count: number;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.CacheBanner");
   const cached = origin?.cached ?? false;
   return (
     <div
@@ -294,17 +297,15 @@ function CacheBanner({
       )}
     >
       <span className="font-medium">
-        {count} vidéo{count > 1 ? "s" : ""} · {result.totalFetched} récupérée
-        {result.totalFetched > 1 ? "s" : ""} brutes
+        {tr("videoRecupereeBrutes", { count: count, totalFetched: result.totalFetched })}
       </span>
       <span className="text-slate-400">·</span>
       {cached ? (
         <span>
-          Résultats en cache ({formatRelative(result.fetchedAt)}) — aucun appel
-          Apify consommé.
+          {tr("resultatsEnCacheAucunAppel", { value: formatRelative(result.fetchedAt, loc) })}
         </span>
       ) : (
-        <span>Résultats frais ({formatRelative(result.fetchedAt)}).</span>
+        <span>{tr("resultatsFrais", { value: formatRelative(result.fetchedAt, loc) })}</span>
       )}
     </div>
   );
@@ -345,6 +346,8 @@ function groupRecurringAccounts(videos: readonly SearchVideo[]): RecurringAccoun
 }
 
 function RecurringAccountCard({ account }: { account: RecurringAccount }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.RecurringAccountCard");
   return (
     <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
@@ -357,17 +360,17 @@ function RecurringAccountCard({ account }: { account: RecurringAccount }) {
           rel="noopener noreferrer"
           className="block truncate text-sm font-semibold text-slate-900 hover:underline"
         >
-          @{account.handle ?? "compte"}
+          @{account.handle ?? tr("compte")}
         </a>
         <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
           <span className="font-medium text-emerald-700">
-            {account.outlierCount} vidéos outlier
+            {tr("videosOutlier", { outlierCount: account.outlierCount })}
           </span>
-          {account.fans != null && <span>{formatCount(account.fans)} abonnés</span>}
+          {account.fans != null && <span>{tr("abonnes", { count: formatCount(account.fans, loc) })}</span>}
         </p>
       </div>
       <span className="shrink-0 rounded-md bg-emerald-600 px-2 py-1 text-sm font-bold tabular-nums text-white">
-        {formatOutlierRatio(account.bestRatio)}
+        {formatOutlierRatio(account.bestRatio, loc)}
       </span>
     </div>
   );
@@ -393,6 +396,8 @@ function OutlierRow({
   followedHandles: ReadonlySet<string>;
   savedUrls: ReadonlySet<string>;
 }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.OutlierRow");
   const link = video.authorHandle
     ? tiktokCanonicalVideoUrl(video.authorHandle, video.tiktokId)
     : video.url;
@@ -420,9 +425,9 @@ function OutlierRow({
     try {
       await addAccount({ input: handle });
       setJustFollowed(true);
-      toast.success(`@${handle} ajouté au suivi Radar`);
+      toast.success(tr("ajouteAuSuiviRadar", { handle: handle }));
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Ajout au suivi impossible."));
+      toast.error(convexErrorMessage(err, tr("ajoutAuSuiviImpossible")));
     } finally {
       setFollowing(false);
     }
@@ -448,9 +453,9 @@ function OutlierRow({
       });
       setJustSaved(true);
       setInspoOpen(false);
-      toast.success("Vidéo ajoutée aux inspirations");
+      toast.success(tr("videoAjouteeAuxInspirations"));
     } catch (err) {
-      toast.error(convexErrorMessage(err, "Ajout en inspiration impossible."));
+      toast.error(convexErrorMessage(err, tr("ajoutEnInspirationImpossible")));
     } finally {
       setSaving(false);
     }
@@ -466,10 +471,10 @@ function OutlierRow({
       <button
         type="button"
         onClick={onPlay}
-        aria-label={`Lire la vidéo de @${video.authorHandle ?? ""}`}
+        aria-label={tr("lireLaVideoDe", { value: video.authorHandle ?? "" })}
         className="relative block aspect-[9/16] h-28 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-900"
       >
-        <Thumb url={video.coverUrl} alt={video.caption ?? "Vidéo TikTok"} />
+        <Thumb url={video.coverUrl} alt={video.caption ?? tr("videoTiktok")} />
         <span className="absolute inset-0 flex items-center justify-center">
           <PlayIcon className="size-6 text-white/90 drop-shadow" />
         </span>
@@ -479,12 +484,12 @@ function OutlierRow({
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="rounded-md bg-slate-900 px-2 py-0.5 text-sm font-bold tabular-nums text-white">
-              {formatOutlierRatio(video.outlierRatio)}
+              {formatOutlierRatio(video.outlierRatio, loc)}
             </span>
             {video.isRecurringAccount && (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                 <RepeatIcon className="size-3" />
-                COMPTE RÉCURRENT · {video.accountOutlierCount}
+                {tr("compteRecurrent", { accountOutlierCount: video.accountOutlierCount })}
               </span>
             )}
           </div>
@@ -499,15 +504,15 @@ function OutlierRow({
           </span>
           <span className="inline-flex items-center gap-1 tabular-nums">
             <EyeIcon className="size-3.5 text-slate-400" />
-            {formatCount(video.views)}
+            {formatCount(video.views, loc)}
           </span>
           <span className="inline-flex items-center gap-1 tabular-nums">
             <UsersIcon className="size-3.5 text-slate-400" />
-            {video.fans != null ? formatCount(video.fans) : "—"}
+            {video.fans != null ? formatCount(video.fans, loc) : "—"}
           </span>
           <span className="inline-flex items-center gap-1">
             <CalendarIcon className="size-3 text-slate-400" />
-            {formatPublished(video.publishedAt)}
+            {formatPublished(video.publishedAt, loc)}
           </span>
         </div>
       </div>
@@ -517,7 +522,7 @@ function OutlierRow({
           href={link}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label="Ouvrir sur TikTok"
+          aria-label={tr("ouvrirSurTiktok")}
           className="flex items-center justify-center p-1.5 text-slate-400 hover:text-slate-700"
         >
           <ExternalLinkIcon className="size-4" />
@@ -528,17 +533,17 @@ function OutlierRow({
           size="icon-sm"
           aria-label={
             handle === null
-              ? "Compte inconnu"
+              ? tr("compteInconnu")
               : followed
-                ? `@${handle} déjà suivi`
-                : `Suivre @${handle}`
+                ? tr("dejaSuivi", { handle: handle })
+                : tr("suivre", { handle: handle })
           }
           title={
             handle === null
-              ? "Handle indisponible"
+              ? tr("handleIndisponible")
               : followed
-                ? "Compte déjà suivi"
-                : "Suivre ce compte"
+                ? tr("compteDejaSuivi")
+                : tr("suivreCeCompte")
           }
           onClick={handleFollow}
           disabled={handle === null || followed || following}
@@ -557,8 +562,8 @@ function OutlierRow({
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Déjà en inspiration"
-            title="Déjà en inspiration"
+            aria-label={tr("dejaEnInspiration")}
+            title={tr("dejaEnInspiration")}
             disabled
             className="text-emerald-600"
           >
@@ -571,8 +576,8 @@ function OutlierRow({
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  aria-label="Ajouter en inspiration"
-                  title="Ajouter en inspiration"
+                  aria-label={tr("ajouterEnInspiration")}
+                  title={tr("ajouterEnInspiration")}
                 >
                   <BookmarkPlusIcon className="size-4" />
                 </Button>
@@ -580,17 +585,17 @@ function OutlierRow({
             />
             <PopoverContent align="end" className="w-72 space-y-2 p-3">
               <p className="text-sm font-semibold text-slate-900">
-                Ajouter en inspiration
+                {tr("ajouterEnInspiration")}
               </p>
               <Input
                 autoFocus
-                placeholder="Titre / étiquette (optionnel)"
+                placeholder={tr("titreEtiquetteOptionnel")}
                 value={titre}
                 maxLength={120}
                 onChange={(e) => setTitre(e.target.value)}
               />
               <Textarea
-                placeholder="Note perso (optionnelle)"
+                placeholder={tr("notePersoOptionnelle")}
                 value={note}
                 maxLength={2000}
                 rows={3}
@@ -603,7 +608,7 @@ function OutlierRow({
                 disabled={saving}
               >
                 {saving && <Loader2Icon className="size-4 animate-spin" />}
-                Enregistrer
+                {tr("enregistrer")}
               </Button>
             </PopoverContent>
           </Popover>
@@ -666,6 +671,7 @@ function EmbedDialog({
   video: SearchVideo | null;
   onClose: () => void;
 }) {
+  const tr = useTranslations("admin.ops.EmbedDialog");
   const canonicalUrl =
     video === null
       ? ""
@@ -690,7 +696,7 @@ function EmbedDialog({
               <iframe
                 key={video.tiktokId}
                 src={tiktokPlayerEmbedUrl(video.tiktokId)}
-                title={video.caption ?? "Vidéo TikTok"}
+                title={video.caption ?? tr("videoTiktok")}
                 className="aspect-[9/16] w-full"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowFullScreen
@@ -705,11 +711,10 @@ function EmbedDialog({
                 className="inline-flex items-center justify-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
               >
                 <ExternalLinkIcon className="size-4" />
-                Ouvrir sur TikTok
+                {tr("ouvrirSurTiktok")}
               </a>
               <p className="text-xs text-slate-400">
-                Si la vidéo ne se lance pas (privée ou restreinte), ouvre-la sur
-                TikTok.
+                {tr("siLaVideoNeSe")}
               </p>
             </div>
           </>

@@ -25,6 +25,7 @@ import { ManagedCompteDialog } from "@/components/comptes/ManagedCompteDialog";
 import { countryLabel } from "@/lib/countries";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 /**
  * P5 — section « Comptes » de la fiche créateur (admin). Alimentée depuis
@@ -38,6 +39,7 @@ export function CreatorComptesSection({
 }: {
   creatorId: Id<"creators">;
 }) {
+  const loc = useIntlLocale();
   const tr = useTranslations("admin.creators.CreatorComptesSection");
   const tLabel = useLabel();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
@@ -114,7 +116,7 @@ export function CreatorComptesSection({
                         className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[0.65rem] font-semibold text-slate-600"
                         title={tr("paysCible")}
                       >
-                        {countryLabel(c.targetCountry)}
+                        {countryLabel(c.targetCountry, loc)}
                       </span>
                     )}
                   </div>

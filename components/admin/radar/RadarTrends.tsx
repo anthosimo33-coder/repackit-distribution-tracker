@@ -35,6 +35,8 @@ import {
 } from "./RadarVideoGrid";
 import { RadarViewToggle } from "./RadarVideoWall";
 import { formatCount, formatRelative } from "./radar-format";
+import { useTranslations } from "next-intl";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 const DAY_MS = 86_400_000;
 
@@ -44,6 +46,8 @@ type TrendHashtag = TrendData["hashtags"][number];
 type VideoStatus = "loading" | "error" | "ok";
 
 export function RadarTrends() {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.RadarTrends");
   const [country, setCountry] = useState("US");
   const [view, setView] = useState<RadarViewMode>("grid");
   const [openHashtag, setOpenHashtag] = useState<string | null>(null);
@@ -61,7 +65,7 @@ export function RadarTrends() {
     try {
       await fetchHashtags({ countryCode: country });
     } catch (e) {
-      toast.error(convexErrorMessage(e, "Chargement des tendances impossible."));
+      toast.error(convexErrorMessage(e, tr("chargementDesTendancesImpossible")));
     } finally {
       setHashtagsLoading(false);
     }
@@ -122,13 +126,13 @@ export function RadarTrends() {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Select value={country} onValueChange={(v) => v && onCountryChange(v)}>
-          <SelectTrigger className="w-52" aria-label="Pays des tendances">
-            <SelectValue>{countryLabel(country) ?? country}</SelectValue>
+          <SelectTrigger className="w-52" aria-label={tr("paysDesTendances")}>
+            <SelectValue>{countryLabel(country, loc) ?? country}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {countryOptions.map((cc) => (
               <SelectItem key={cc} value={cc}>
-                {countryLabel(cc) ?? cc}
+                {countryLabel(cc, loc) ?? cc}
               </SelectItem>
             ))}
           </SelectContent>
@@ -136,8 +140,8 @@ export function RadarTrends() {
 
         <div className="flex items-center gap-3">
           <span className="text-xs text-slate-400">
-            7 derniers jours
-            {data?.fetchedAt != null && ` · maj ${formatRelative(data.fetchedAt)}`}
+            {tr("n7DerniersJours")}
+            {data?.fetchedAt != null && ` ${tr("maj", { value: formatRelative(data.fetchedAt, loc) })}`}
           </span>
           <Button
             type="button"
@@ -150,7 +154,7 @@ export function RadarTrends() {
             <RefreshCwIcon
               className={cn("size-4", hashtagsLoading && "animate-spin")}
             />
-            Actualiser
+            {tr("actualiser")}
           </Button>
         </div>
       </div>
@@ -165,7 +169,7 @@ export function RadarTrends() {
         <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
           <TrendingUpIcon className="size-12 text-slate-300" strokeWidth={1.5} />
           <p className="text-sm text-slate-500">
-            Aucun hashtag tendance en cache pour ce pays. Clique « Actualiser ».
+            {tr("aucunHashtagTendanceEnCache")}
           </p>
         </div>
       ) : (
@@ -189,10 +193,11 @@ export function RadarTrends() {
   );
 }
 
+// Le libellé vit dans le catalogue : `admin.ops.HashtagRow.trend.<clé>`.
 const DIR = {
-  up: { label: "en hausse", Icon: TrendingUpIcon, cls: "text-emerald-600 bg-emerald-50 border-emerald-200" },
-  down: { label: "en baisse", Icon: TrendingDownIcon, cls: "text-rose-600 bg-rose-50 border-rose-200" },
-  stable: { label: "stable", Icon: MinusIcon, cls: "text-slate-500 bg-slate-50 border-slate-200" },
+  up: { Icon: TrendingUpIcon, cls: "text-emerald-600 bg-emerald-50 border-emerald-200" },
+  down: { Icon: TrendingDownIcon, cls: "text-rose-600 bg-rose-50 border-rose-200" },
+  stable: { Icon: MinusIcon, cls: "text-slate-500 bg-slate-50 border-slate-200" },
 } as const;
 
 function HashtagRow({
@@ -214,8 +219,11 @@ function HashtagRow({
   onRetry: () => void;
   viewToggle: React.ReactNode;
 }) {
-  const dir = hashtag.trendDirection
-    ? DIR[hashtag.trendDirection as keyof typeof DIR]
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.ops.HashtagRow");
+  const dirKey = hashtag.trendDirection as keyof typeof DIR | undefined;
+  const dir = dirKey
+    ? DIR[dirKey]
     : null;
   const rising = hashtag.trendDirection === "up";
 
@@ -241,10 +249,10 @@ function HashtagRow({
           </p>
           <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
             {hashtag.videoViews != null && (
-              <span>{formatCount(hashtag.videoViews)} vues</span>
+              <span>{tr("vues", { count: formatCount(hashtag.videoViews, loc) })}</span>
             )}
             {hashtag.posts != null && (
-              <span>{formatCount(hashtag.posts)} posts</span>
+              <span>{tr("posts", { count: formatCount(hashtag.posts, loc) })}</span>
             )}
           </p>
         </div>
@@ -256,7 +264,7 @@ function HashtagRow({
             )}
           >
             <dir.Icon className="size-3" />
-            {dir.label}
+            {dirKey && tr(`trend.${dirKey}`)}
           </span>
         )}
         <ChevronDownIcon
@@ -270,7 +278,7 @@ function HashtagRow({
       {open && (
         <div className="border-t border-slate-100 bg-slate-50/40 p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-xs text-slate-500">Vidéos récentes (&lt; 14 jours)</p>
+            <p className="text-xs text-slate-500">{tr("videosRecentes14Jours")}</p>
             {viewToggle}
           </div>
           <TrendVideosPanel
@@ -327,6 +335,7 @@ function TrendVideosPanel({
   view: RadarViewMode;
   onRetry: () => void;
 }) {
+  const tr = useTranslations("admin.ops.TrendVideosPanel");
   const videos = useProjectQuery(api.radar.listTrendVideos, {
     countryCode: country,
     hashtag,
@@ -337,11 +346,11 @@ function TrendVideosPanel({
       <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-rose-200 bg-rose-50/40 px-6 py-8 text-center">
         <AlertCircleIcon className="size-6 text-rose-400" />
         <p className="text-sm text-slate-600">
-          Impossible de charger les vidéos de ce hashtag.
+          {tr("impossibleDeChargerLesVideos")}
         </p>
         <Button type="button" variant="outline" size="sm" onClick={onRetry}>
           <RefreshCwIcon className="size-4" />
-          Réessayer
+          {tr("reessayer")}
         </Button>
       </div>
     );
@@ -369,8 +378,9 @@ function TrendVideosPanel({
     <RadarVideoGrid
       videos={videos.map(trendToCard)}
       view={view}
+      // i18n-exempt: clé de tri, pas du texte
       defaultSort="views"
-      emptyText="Aucune vidéo récente (< 14 jours) pour ce hashtag."
+      emptyText={tr("aucuneVideoRecente14Jours")}
     />
   );
 }

@@ -19,6 +19,7 @@ import {
   type RadarCardVideo,
   type RadarViewMode,
 } from "./RadarVideoGrid";
+import { useTranslations } from "next-intl";
 
 type RadarAccount = FunctionReturnType<
   typeof api.radar.listRadarAccounts
@@ -46,6 +47,7 @@ function toCard(v: RadarVideo): RadarCardVideo {
 }
 
 export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
+  const tr = useTranslations("admin.ops.RadarVideoWall");
   // "all" ou un Id de compte (string : le Select Base UI infère sur string).
   const [accountFilter, setAccountFilter] = useState<string>("all");
   const [view, setView] = useState<RadarViewMode>("grid");
@@ -67,7 +69,7 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
 
   const filterLabel =
     accountFilter === "all"
-      ? "Tous les comptes"
+      ? tr("tousLesComptes")
       : `@${accounts.find((a) => a._id === accountFilter)?.handle ?? "compte"}`;
 
   return (
@@ -77,11 +79,11 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
           value={accountFilter}
           onValueChange={(v) => v && setAccountFilter(v)}
         >
-          <SelectTrigger className="w-48" aria-label="Filtrer par compte">
+          <SelectTrigger className="w-48" aria-label={tr("filtrerParCompte")}>
             <SelectValue>{filterLabel}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous les comptes</SelectItem>
+            <SelectItem value="all">{tr("tousLesComptes")}</SelectItem>
             {accounts.map((a) => (
               <SelectItem key={a._id} value={a._id}>
                 @{a.handle}
@@ -94,20 +96,22 @@ export function RadarVideoWall({ accounts }: { accounts: RadarAccount[] }) {
       </div>
 
       <RadarVideoGrid
-        title="Dernières vidéos"
+        title={tr("dernieresVideos")}
         icon={ClockIcon}
         videos={recent}
         view={view}
+        // i18n-exempt: clé de tri, pas du texte
         defaultSort="published"
-        emptyText="Aucune vidéo récente. Lance une synchronisation."
+        emptyText={tr("aucuneVideoRecenteLanceUne")}
       />
       <RadarVideoGrid
-        title="Top vues"
+        title={tr("topVues")}
         icon={FlameIcon}
         videos={popular}
         view={view}
+        // i18n-exempt: clé de tri, pas du texte
         defaultSort="views"
-        emptyText="Aucune vidéo populaire pour l'instant."
+        emptyText={tr("aucuneVideoPopulairePourL")}
       />
     </div>
   );
@@ -123,6 +127,7 @@ export function RadarViewToggle({
   onChange: (v: RadarViewMode) => void;
   className?: string;
 }) {
+  const tr = useTranslations("admin.ops.RadarViewToggle");
   return (
     <div
       className={`inline-flex rounded-lg border border-slate-200 p-0.5 ${className ?? ""}`}
@@ -131,7 +136,7 @@ export function RadarViewToggle({
         type="button"
         variant={view === "list" ? "secondary" : "ghost"}
         size="icon-sm"
-        aria-label="Vue liste"
+        aria-label={tr("vueListe")}
         aria-pressed={view === "list"}
         onClick={() => onChange("list")}
       >
@@ -141,7 +146,7 @@ export function RadarViewToggle({
         type="button"
         variant={view === "grid" ? "secondary" : "ghost"}
         size="icon-sm"
-        aria-label="Vue grille"
+        aria-label={tr("vueGrille")}
         aria-pressed={view === "grid"}
         onClick={() => onChange("grid")}
       >

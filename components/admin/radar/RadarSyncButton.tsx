@@ -2,6 +2,7 @@
 
 import { api } from "@/convex/_generated/api";
 import { SyncButton } from "@/components/admin/SyncButton";
+import { useTranslations } from "next-intl";
 
 /**
  * Bouton « Synchroniser » du module Radar — RÉUTILISE le SyncButton générique
@@ -9,11 +10,12 @@ import { SyncButton } from "@/components/admin/SyncButton";
  * api.radar.requestRadarSync (clé RADAR, tous les comptes du projet).
  */
 export function RadarSyncButton() {
+  const tr = useTranslations("admin.ops.RadarSyncButton");
   return (
     <SyncButton
       mutation={api.radar.requestRadarSync}
-      idleLabel="Synchroniser"
-      title="Récupérer les dernières vidéos des comptes suivis"
+      idleLabel={tr("synchroniser")}
+      title={tr("recupererLesDernieresVideosDes")}
     />
   );
 }
