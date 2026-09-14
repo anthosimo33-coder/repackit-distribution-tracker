@@ -1207,6 +1207,33 @@ désormais toute commande qui lance Playwright et passe par `head`/`tail`, y
 compris la forme `> fichier 2>&1 ; tail -4 fichier`. Deuxième hook `PreToolUse`,
 à côté du garde Convex — même raisonnement : une note ne protège de rien.
 
+### 11.14 Le balayage du 2026-09-14 — la garde lit désormais l'arbre syntaxique
+
+Un parcours complet d'une créatrice-manager **en anglais** (toutes les pages,
+texte rendu relevé) a trouvé du français sur des écrans que la garde déclarait
+extraits (175/175) :
+
+| Écran | Rendu anglais | Pourquoi la garde ne voyait rien |
+|---|---|---|
+| Moi → Fichiers (Snytch) | écran **entier** en français + clés brutes `fichiers.kind.video` | `accept: "video/*"` : le `/*` d'une chaîne ouvrait un faux commentaire jusqu'à la fin du fichier (idem `TalentSpaceScreen`) |
+| Fiche mission (à démarrer) | « Je commence » ; « Avancement » en observation | mot seul sans accent ; mot seul dans un ternaire |
+| Comptes → bio | « Copier », « J'ai appliqué cette bio » | mot seul ; texte JSX multi-ligne |
+| Gains / Progression | « + 50.00 débloqués » | fragment voisin d'une interpolation |
+| Vidéos | « Published il y a 3 jours » | phrase construite dans `lib/video-tracking.ts` |
+| Calendrier, bandeau du jour | « septembre 2026 », « Lun Mar… », « entre 21h et 23h » | table `WEEKDAYS`, `locale: fr` en dur, `.replace("-", " et ")` |
+| Exemple vidéo | badge « Lien » | attribut hors de la liste connue |
+
+**Correctif de la garde** (`scripts/i18n-ast.mjs`, testé dans
+`check-i18n.test.mjs`) : une passe par le compilateur TypeScript signale le texte
+JSX, tout littéral qui arrive au rendu depuis une accolade (ternaires, `&&`,
+templates — jamais un appel ni une comparaison), la valeur de tout attribut non
+technique, les tables de libellés d'un mot (`["Lun", "Mar"]`) et l'import de
+`date-fns/locale`. Le retrait des commentaires suit maintenant les guillemets.
+
+**Helpers ajoutés** : `postWindowBoundsFor(w, loc)` (« 9:30pm » / « 21h30 ») et
+`lib/date-fns-locale` (`dateFnsLocale(loc)`, `WEEKDAY_KEYS` + `calendar.weekday.*`).
+`publishedAgo` rend `{ unit, count }`, la phrase est un ICU du catalogue.
+
 ### 11.5 La preview « Voir son espace » rendait dans la langue de l'admin
 
 **Corrigé après coup** (branche `fix/view-as-locale-createur`).

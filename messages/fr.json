@@ -230,7 +230,8 @@
     },
     "modelVideo": {
       "title": "Vidéo à reproduire",
-      "playAria": "Lire la vidéo {title}"
+      "playAria": "Lire la vidéo {title}",
+      "linkBadge": "Lien"
     },
     "progression": {
       "nextTier": "Prochain palier",
@@ -247,7 +248,8 @@
       "viewsToGo": "{count, plural, one {Plus que {views} vue.} other {Plus que {views} vues.}}",
       "subtitle": "Tes vues cumulées débloquent les récompenses de {project}.",
       "thresholdViews": "{views} vues",
-      "unlockedOn": " · débloqué le {date}"
+      "unlockedOn": " · débloqué le {date}",
+      "cashUnlocked": "+ {amount} débloqués"
     },
     "script": {
       "copyDescription": "Copier la description",
@@ -277,7 +279,7 @@
       "title": "Aujourd'hui tu postes",
       "nothing": "Rien à poster aujourd'hui.",
       "next": "Prochain post {date} : {format}.",
-      "nextWindow": "Prochain post {date} entre {window} : {format}."
+      "nextWindow": "Prochain post {date} entre {start} et {end} : {format}."
     },
     "comptes": {
       "emptyReadOnly": "Ce créateur n'a pas encore déclaré de compte.",
@@ -298,7 +300,13 @@
         "video": "Vidéo",
         "photo": "Photo",
         "other": "Fichier"
-      }
+      },
+      "title": "Dépôt de contenu",
+      "viewAsBody": "Les fichiers déposés par le créateur sont accessibles directement dans le Google Drive du projet. Il n'y a pas de vue des fichiers dans l'app.",
+      "unavailableBody": "Le dépôt de fichiers n'est pas disponible pour ce projet.",
+      "subtitle": "Dépose ici tes vidéos et photos. Elles sont envoyées directement dans ton dossier — pas besoin de compte Drive.",
+      "deposited": "Ce que tu as déposé",
+      "empty": "Tu n'as encore rien déposé."
     },
     "nav": {
       "guide": "Guide"
@@ -451,7 +459,8 @@
       "unknownLink": "Lien non reconnu. Si c'est bien celui de ta publication, envoie-le : il sera vérifié.",
       "confirmPublish": "Confirmer la publication",
       "managedNotice": "— l'équipe publie ce contenu. Tu n'as rien à soumettre ni à publier ; le post et ses performances apparaîtront dans « Mes vidéos ».",
-      "seePostOn": "Voir le post {platform}"
+      "seePostOn": "Voir le post {platform}",
+      "start": "Je commence"
     },
     "sidebar": {
       "dashboard": "Tableau de bord",
@@ -554,7 +563,7 @@
       "emptyBody": "Dès que tu soumets une vidéo, elle apparaît ici avec son statut, puis son suivi (vues + gain) une fois en ligne.",
       "emptyFilter": "Aucune vidéo dans ce filtre.",
       "unavailable": "Le suivi des vidéos n'est pas disponible pour ce projet.",
-      "publishedAgo": "Publié {ago}",
+      "publishedAgo": "{unit, select, today {Publié aujourd'hui} yesterday {Publié hier} days {{count, plural, one {Publié il y a # jour} other {Publié il y a # jours}}} weeks {{count, plural, one {Publié il y a # semaine} other {Publié il y a # semaines}}} months {{count, plural, one {Publié il y a # mois} other {Publié il y a # mois}}} other {{count, plural, one {Publié il y a # an} other {Publié il y a # ans}}}}",
       "submittedWaiting": "Vidéo soumise — en attente de la validation de l'équipe.",
       "payWindowClosed": "fenêtre de gain close",
       "viewsOutsideWindow": "{count} vues au-delà de 30 j — suivies, non rémunérées",
@@ -570,7 +579,8 @@
       "url": "URL du compte",
       "cancel": "Annuler",
       "expectedHandle": "@ attendu :",
-      "submit": "Déclarer"
+      "submit": "Déclarer",
+      "handlePlaceholder": "@mon_compte"
     },
     "assignmentDetail": {
       "backToDashboard": "Retour au tableau de bord",
@@ -586,7 +596,8 @@
       "modelVideos": "Vidéos à reproduire",
       "assets": "Assets à utiliser",
       "download": "Télécharger",
-      "pay": "Rémunération"
+      "pay": "Rémunération",
+      "progressRo": "Avancement"
     },
     "warmupCard": {
       "checkDone": "Check du jour validé ✓",
@@ -630,7 +641,9 @@
       "error": "Une erreur est survenue.",
       "toUpdate": "Bio à mettre à jour",
       "toKeep": "Bio actuelle à maintenir",
-      "copy": "Copier la bio"
+      "copy": "Copier la bio",
+      "copyShort": "Copier",
+      "applied": "J'ai appliqué cette bio"
     },
     "noProject": {
       "title": "Aucun projet accessible",
@@ -930,7 +943,8 @@
       "midi": "Midi",
       "apresmidi": "Après-midi",
       "soir": "Soir"
-    }
+    },
+    "between": "entre {start} et {end}"
   },
   "videoFilter": {
     "all": "Toutes mes vidéos",
@@ -1026,7 +1040,10 @@
     "accountMatch": "✓ Compte cohérent (@{handle})",
     "accountMismatch": "⚠️ Ce lien pointe vers @{detected}, pas {expected}.",
     "expectedAccount": "le compte attendu",
-    "accountRefused": "Compte refusé — {reason}"
+    "accountRefused": "Compte refusé — {reason}",
+    "handlePlaceholder": "@monpseudo",
+    "postLinkFor": "Lien du post {platform}",
+    "publishedSave": "J'ai publié — enregistrer"
   },
   "phase": {
     "label": {
@@ -1111,7 +1128,21 @@
     "httpInterrupted": "Upload interrompu (HTTP {status}).",
     "httpRefused": "Drive a refusé l'upload (HTTP {status}).",
     "fileSent": "{name} envoyé",
-    "progress": "Envoi {percent} %"
+    "progress": "Envoi {percent} %",
+    "partner": {
+      "title": "Glisse tes vidéos et photos ici",
+      "hint": "Vidéos et photos (iPhone .mov / .heic acceptés) — jusqu'à 5 Go",
+      "button": "Choisir des fichiers",
+      "tooBig": "{name} : trop lourd (5 Go max).",
+      "wrongKind": "{name} : accepte uniquement vidéos et photos."
+    },
+    "rush": {
+      "title": "Dépose tes prises ici",
+      "hint": "Vidéos uniquement (iPhone .mov accepté) — des prises courtes, 5 à 10 secondes",
+      "button": "Choisir mes vidéos",
+      "tooBig": "{name} : trop lourd (1 Go max). Une prise de quelques secondes fait ~30 Mo.",
+      "wrongKind": "{name} : seules les vidéos sont acceptées."
+    }
   },
   "leaderboard": {
     "me": "Toi",
@@ -1206,5 +1237,16 @@
     "ERR_PAYMENT_ALREADY_PAID": "Ce cycle est déjà soldé : un acompte n'a plus d'objet.",
     "ERR_PAYMENT_REVERT_USED": "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
     "ERR_ADVANCE_INVALID": "Le montant d'un acompte doit être positif."
+  },
+  "calendar": {
+    "weekday": {
+      "mon": "Lun",
+      "tue": "Mar",
+      "wed": "Mer",
+      "thu": "Jeu",
+      "fri": "Ven",
+      "sat": "Sam",
+      "sun": "Dim"
+    }
   }
 }

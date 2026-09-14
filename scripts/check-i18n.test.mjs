@@ -178,3 +178,21 @@ describe("détecteur i18n — passe syntaxique : ce qui est RENDU", () => {
     ).toEqual([]);
   });
 });
+
+describe("détecteur i18n — tables de libellés et locale date-fns", () => {
+  it("voit une table de libellés d'un mot (`WEEKDAYS`)", () => {
+    expect(astTexts('const W = ["Lun", "Mar", "Mer"];\nconst X = () => <p>{W[0]}</p>;')).toEqual([
+      "Lun",
+      "Mar",
+      "Mer",
+    ]);
+  });
+
+  it("laisse passer une liste de plateformes", () => {
+    expect(astTexts('const P = ["TikTok", "Instagram", "YouTube"] as const;')).toEqual([]);
+  });
+
+  it("refuse une locale date-fns importée en dur", () => {
+    expect(astTexts('import { fr } from "date-fns/locale";')).toHaveLength(1);
+  });
+});

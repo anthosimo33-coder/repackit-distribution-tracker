@@ -53,19 +53,24 @@ export function aggregateVideoStats(
 }
 
 /**
- * Ancienneté « publié il y a X » (fr), calculée par rapport à `now`. Pur et
- * déterministe (les deux timestamps sont fournis) → testable. Le libellé se
- * préfixe côté UI par « Publié ».
+ * Ancienneté d'une publication, calculée par rapport à `now`. Pur et
+ * déterministe (les deux timestamps sont fournis) → testable.
+ *
+ * Rend une UNITÉ et un COMPTE, jamais une phrase : la phrase vit dans le
+ * catalogue (`portal.videos.publishedAgo`). L'ancienne version rendait
+ * « il y a 3 jours », que l'écran préfixait de « Published » en anglais.
  */
-export function publishedAgo(publishedAt: number, now: number): string {
+export type PublishedAgo = {
+  unit: "today" | "yesterday" | "days" | "weeks" | "months" | "years";
+  count: number;
+};
+
+export function publishedAgo(publishedAt: number, now: number): PublishedAgo {
   const days = Math.floor(Math.max(0, now - publishedAt) / 86_400_000);
-  if (days <= 0) return "aujourd'hui";
-  if (days === 1) return "hier";
-  if (days < 7) return `il y a ${days} jours`;
-  if (days < 14) return "il y a 1 semaine";
-  if (days < 30) return `il y a ${Math.floor(days / 7)} semaines`;
-  if (days < 60) return "il y a 1 mois";
-  if (days < 365) return `il y a ${Math.floor(days / 30)} mois`;
-  const years = Math.floor(days / 365);
-  return years === 1 ? "il y a 1 an" : `il y a ${years} ans`;
+  if (days <= 0) return { unit: "today", count: 0 };
+  if (days === 1) return { unit: "yesterday", count: 1 };
+  if (days < 7) return { unit: "days", count: days };
+  if (days < 30) return { unit: "weeks", count: Math.floor(days / 7) };
+  if (days < 365) return { unit: "months", count: Math.max(1, Math.floor(days / 30)) };
+  return { unit: "years", count: Math.floor(days / 365) };
 }

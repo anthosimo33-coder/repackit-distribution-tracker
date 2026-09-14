@@ -65,6 +65,37 @@ export function formatPostWindow(w: PostWindow | null | undefined): string | nul
 }
 
 /**
+ * Heure dans la convention de la LANGUE : « 21h30 » en français, « 9:30pm » en
+ * anglais US. `hhmm` reste la forme française historique (admin, e-mails).
+ */
+export function hourFor(min: number, loc: string): string {
+  if (!loc.startsWith("en")) return hhmm(min);
+  const h24 = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  const suffix = h24 < 12 ? "am" : "pm";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return m === 0 ? `${h12}${suffix}` : `${h12}:${String(m).padStart(2, "0")}${suffix}`;
+}
+
+/**
+ * Bornes d'une plage formatées dans la langue — `null` si la plage est absente
+ * ou invalide. L'appelant les place dans sa phrase traduite (« entre {start} et
+ * {end} » / « between {start} and {end} ») : aucun mot de liaison ici.
+ *
+ * ⚠️ Remplace le `formatPostWindow(w)!.replace("-", " et ")` des écrans
+ * créatrice, qui rendait « 21h et 23h » à une créatrice anglophone.
+ */
+export function postWindowBoundsFor(
+  w: PostWindow | null | undefined,
+  loc: string,
+): { start: string; end: string; range: string } | null {
+  if (!isValidPostWindow(w)) return null;
+  const start = hourFor(w.startMin, loc);
+  const end = hourFor(w.endMin, loc);
+  return { start, end, range: loc.startsWith("en") ? `${start}–${end}` : `${start}-${end}` };
+}
+
+/**
  * Phrase complète pour la créatrice.
  *
  * ⚠️ LE CAS SANS PLAGE EST LE CAS NORMAL : les 191 assignments antérieurs à ce

@@ -81,6 +81,16 @@ export function isDisplayText(v) {
   return true;
 }
 
+/** Texte JSX entre balises : deux lettres suffisent, hors entité seule. */
+export function isRenderedText(v) {
+  const t = String(v).replace(/\s+/g, " ").trim();
+  if (!/[A-Za-zÀ-ÿ]{2}/.test(t)) return false;
+  return !/^(&[a-z]+;\s*)+$/i.test(t);
+}
+
+/** Valeurs d'énumération qui sont des NOMS PROPRES, identiques dans toute langue. */
+const PLATFORM_NAMES = new Set(["TikTok", "Instagram", "YouTube", "Whop", "PostHog", "Telegram", "Google", "Drive"]);
+
 const EXEMPT_RE = /(?:\/\/|\{?\/\*)\s*i18n-exempt:\s*\S+/;
 
 /**
@@ -126,17 +136,43 @@ export function astFindings(src, fileName = "x.tsx") {
   const sf = ts.createSourceFile(fileName, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const lines = src.split("\n");
   const found = [];
-  const push = (node, raw) => {
+  const push = (node, raw, { rendered = false } = {}) => {
     const text = String(raw).replace(/\s+/g, " ").trim();
-    if (!isDisplayText(text)) return;
+    // Un TEXTE JSX est rendu par définition : même un mot en minuscules
+    // (« entre », « vues ») est de la copie. Le filtre des identifiants ne vaut
+    // que pour les littéraux, qui peuvent être des jetons.
+    if (rendered ? !isRenderedText(text) : !isDisplayText(text)) return;
     const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line;
     if (EXEMPT_RE.test(lines[line] ?? "") || EXEMPT_RE.test(lines[line - 1] ?? "")) return;
     found.push({ line: line + 1, text });
   };
 
   const visit = (node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === "date-fns/locale"
+    ) {
+      // Une locale date-fns importée en dur fige la langue des mois et des
+      // jours (« septembre 2026 » dans un calendrier anglais) : on passe par
+      // `lib/date-fns-locale`, qui la choisit selon la langue active.
+      const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line;
+      if (!EXEMPT_RE.test(lines[line] ?? "") && !EXEMPT_RE.test(lines[line - 1] ?? "")) {
+        found.push({ line: line + 1, text: "import de date-fns/locale — utiliser lib/date-fns-locale" });
+      }
+    } else if (
+      ts.isArrayLiteralExpression(node) &&
+      node.elements.length >= 2 &&
+      node.elements.every((e) => ts.isStringLiteral(e) && /^[A-ZÀ-Ý][a-zà-ÿ]/.test(e.text)) &&
+      !node.elements.every((e) => PLATFORM_NAMES.has(e.text))
+    ) {
+      // Table de LIBELLÉS (`["Lun", "Mar", …]`, `["Publier", "Annuler"]`) : le
+      // trou n°1 historique, un mot seul sans accent hors de toute position de
+      // rendu. Une liste de marques s'exempte.
+      for (const e of node.elements) push(e, e.text);
+    }
     if (node.kind === ts.SyntaxKind.JsxText) {
-      push(node, node.getText(sf));
+      push(node, node.getText(sf), { rendered: true });
     } else if (ts.isJsxExpression(node) && node.expression) {
       const parent = node.parent;
       const inChildren = ts.isJsxElement(parent) || ts.isJsxFragment(parent);

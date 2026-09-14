@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { createTranslator } from "next-intl";
+import fr from "../messages/fr.json";
+import en from "../messages/en.json";
 import {
   videoTrackingStatus,
   aggregateVideoStats,
@@ -55,16 +58,46 @@ describe("aggregateVideoStats — récap (période)", () => {
 });
 
 describe("publishedAgo", () => {
-  it("aujourd'hui / hier / jours / semaines / mois", () => {
-    expect(publishedAgo(NOW, NOW)).toBe("aujourd'hui");
-    expect(publishedAgo(NOW - DAY, NOW)).toBe("hier");
-    expect(publishedAgo(NOW - 3 * DAY, NOW)).toBe("il y a 3 jours");
-    expect(publishedAgo(NOW - 8 * DAY, NOW)).toBe("il y a 1 semaine");
-    expect(publishedAgo(NOW - 20 * DAY, NOW)).toBe("il y a 2 semaines");
-    expect(publishedAgo(NOW - 45 * DAY, NOW)).toBe("il y a 1 mois");
-    expect(publishedAgo(NOW - 100 * DAY, NOW)).toBe("il y a 3 mois");
+  it("aujourd'hui / hier / jours / semaines / mois / ans", () => {
+    expect(publishedAgo(NOW, NOW)).toEqual({ unit: "today", count: 0 });
+    expect(publishedAgo(NOW - DAY, NOW)).toEqual({ unit: "yesterday", count: 1 });
+    expect(publishedAgo(NOW - 3 * DAY, NOW)).toEqual({ unit: "days", count: 3 });
+    expect(publishedAgo(NOW - 8 * DAY, NOW)).toEqual({ unit: "weeks", count: 1 });
+    expect(publishedAgo(NOW - 20 * DAY, NOW)).toEqual({ unit: "weeks", count: 2 });
+    expect(publishedAgo(NOW - 45 * DAY, NOW)).toEqual({ unit: "months", count: 1 });
+    expect(publishedAgo(NOW - 100 * DAY, NOW)).toEqual({ unit: "months", count: 3 });
+    expect(publishedAgo(NOW - 800 * DAY, NOW)).toEqual({ unit: "years", count: 2 });
   });
   it("futur/clamp → aujourd'hui (jamais négatif)", () => {
-    expect(publishedAgo(NOW + DAY, NOW)).toBe("aujourd'hui");
+    expect(publishedAgo(NOW + DAY, NOW)).toEqual({ unit: "today", count: 0 });
+  });
+});
+
+describe("publishedAgo — la phrase, dans chaque langue", () => {
+  // La phrase vit dans le catalogue : on la rend comme l'écran, par next-intl.
+  // Avant, l'anglais lisait « Published il y a 3 jours ».
+  const say = (locale: "fr" | "en", at: number) =>
+    createTranslator({
+      locale,
+      messages: locale === "fr" ? fr : en,
+      namespace: "portal.videos",
+    })("publishedAgo", publishedAgo(at, NOW));
+
+  it("en anglais, aucune unité ne retombe sur du français", () => {
+    expect(say("en", NOW)).toBe("Published today");
+    expect(say("en", NOW - DAY)).toBe("Published yesterday");
+    expect(say("en", NOW - 3 * DAY)).toBe("Published 3 days ago");
+    expect(say("en", NOW - 8 * DAY)).toBe("Published 1 week ago");
+    expect(say("en", NOW - 45 * DAY)).toBe("Published 1 month ago");
+    expect(say("en", NOW - 800 * DAY)).toBe("Published 2 years ago");
+  });
+
+  it("en français, la phrase d'avant est inchangée", () => {
+    expect(say("fr", NOW)).toBe("Publié aujourd'hui");
+    expect(say("fr", NOW - DAY)).toBe("Publié hier");
+    expect(say("fr", NOW - 3 * DAY)).toBe("Publié il y a 3 jours");
+    expect(say("fr", NOW - 20 * DAY)).toBe("Publié il y a 2 semaines");
+    expect(say("fr", NOW - 100 * DAY)).toBe("Publié il y a 3 mois");
+    expect(say("fr", NOW - 400 * DAY)).toBe("Publié il y a 1 an");
   });
 });

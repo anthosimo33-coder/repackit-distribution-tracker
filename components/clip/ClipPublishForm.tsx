@@ -255,7 +255,7 @@ export function ClipPublishForm({
           return (
             <div key={t.platform} className="space-y-1">
               <Label htmlFor={`clip-url-${t.platform}`} className="text-xs">
-                Lien du post {t.platform}
+                {tc("postLinkFor", { platform: t.platform })}
                 {t.accountHandle ? (
                   <span className="ml-1 font-mono text-slate-400">
                     {t.accountHandle}
@@ -320,7 +320,7 @@ export function ClipPublishForm({
         ) : (
           <SendIcon className="mr-2 size-4" />
         )}
-        J&apos;ai publié — enregistrer
+        {tc("publishedSave")}
       </Button>
     </div>
   );

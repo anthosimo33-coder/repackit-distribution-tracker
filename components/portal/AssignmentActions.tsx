@@ -393,7 +393,7 @@ export function AssignmentActions({
         ) : (
           <PlayIcon className="mr-2 size-4" />
         )}
-        Je commence
+        {t("assignment.start")}
       </Button>
     );
   }

@@ -102,7 +102,9 @@ function BonusTierPanel({
           <div className="flex flex-wrap gap-1.5 pt-1">
             {status.cashUnlockedTotal > 0 && (
               <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                + {formatMoney(status.cashUnlockedTotal, currency, loc)} débloqués
+                {t("progression.cashUnlocked", {
+                  amount: formatMoney(status.cashUnlockedTotal, currency, loc),
+                })}
               </span>
             )}
             {status.natureUnlocked.map((r, i) => (

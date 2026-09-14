@@ -15,6 +15,7 @@ import { FilmIcon, ImageIcon, FilesIcon, InboxIcon } from "lucide-react";
 import { isSnytchProject, classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import { useTranslations } from "next-intl";
 
 /**
  * « Dépôt de contenu » — écran créateur SNYTCH UNIQUEMENT. Le créateur dépose
@@ -27,29 +28,26 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 
 // Table de CLÉS i18n, pas de libellés : la valeur stockée (`kind`) ne bouge
 // pas, seule sa traduction est résolue au rendu.
-const KIND_LABEL_KEY: Record<"video" | "photo" | "other", string> = {
-  video: "fichiers.kind.video",
-  photo: "fichiers.kind.photo",
-  other: "fichiers.kind.other",
-};
+//
+// ⚠️ La table était affichée TELLE QUELLE (`{KIND_LABEL_KEY[kind]}`) : chaque
+// fichier déposé portait « fichiers.kind.video » en toutes lettres, en français
+// comme en anglais, depuis l'extraction du 2026-08-22. Les clés sont désormais
+// complètes et passent par `t()`.
+const KIND_LABEL_KEY = {
+  video: "kind.video",
+  photo: "kind.photo",
+  other: "kind.other",
+} as const;
 
 /**
- * Bornes et libellés du dépôt PARTENAIRE — repris à l'identique de ce que
- * DriveUploader portait en dur avant d'être partagé avec l'espace talent (5 Go,
- * vidéos + photos, extensions Apple). Aucun changement de comportement ici.
+ * Bornes du dépôt PARTENAIRE — reprises à l'identique de ce que DriveUploader
+ * portait en dur avant d'être partagé avec l'espace talent (5 Go, vidéos +
+ * photos, extensions Apple). Les libellés vivent dans `drive.partner.*`.
  */
 const PARTNER_LIMITS: DriveUploadLimits = {
   maxBytes: 5 * 1024 * 1024 * 1024,
   accept: "video/*,image/*,.mov,.MOV,.heic,.HEIC,.heif",
   kinds: ["video", "photo"],
-};
-
-const PARTNER_COPY: DriveUploadCopy = {
-  title: "Glisse tes vidéos et photos ici",
-  hint: "Vidéos et photos (iPhone .mov / .heic acceptés) — jusqu'à 5 Go",
-  button: "Choisir des fichiers",
-  tooBig: (name) => `${name} : trop lourd (5 Go max).`,
-  wrongKind: (name) => `${name} : accepte uniquement vidéos et photos.`,
 };
 
 function Notice({ title, body }: { title: string; body: string }) {
@@ -68,7 +66,16 @@ function Notice({ title, body }: { title: string; body: string }) {
 }
 
 export default function FichiersScreen() {
+  const t = useTranslations("portal.fichiers");
+  const td = useTranslations("drive.partner");
   const loc = useIntlLocale();
+  const partnerCopy: DriveUploadCopy = {
+    title: td("title"),
+    hint: td("hint"),
+    button: td("button"),
+    tooBig: (name) => td("tooBig", { name }),
+    wrongKind: (name) => td("wrongKind", { name }),
+  };
   const { current } = useCreatorProject();
   const va = useViewAs();
   const snytch = isSnytchProject(current.slug);
@@ -82,20 +89,14 @@ export default function FichiersScreen() {
   // Mode admin « voir l'espace d'un créateur » : pas de vue fichiers in-app.
   if (va) {
     return (
-      <Notice
-        title="Dépôt de contenu"
-        body="Les fichiers déposés par le créateur sont accessibles directement dans le Google Drive du projet. Il n'y a pas de vue des fichiers dans l'app."
-      />
+      <Notice title={t("title")} body={t("viewAsBody")} />
     );
   }
 
   // Défense en profondeur : la nav ne pointe ici que pour Snytch.
   if (!snytch) {
     return (
-      <Notice
-        title="Dépôt de contenu"
-        body="Le dépôt de fichiers n'est pas disponible pour ce projet."
-      />
+      <Notice title={t("title")} body={t("unavailableBody")} />
     );
   }
 
@@ -103,12 +104,9 @@ export default function FichiersScreen() {
     <div className="mx-auto max-w-2xl space-y-6">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
-          Dépôt de contenu
+          {t("title")}
         </h1>
-        <p className="text-sm text-slate-500">
-          Dépose ici tes vidéos et photos. Elles sont envoyées directement dans
-          ton dossier — pas besoin de compte Drive.
-        </p>
+        <p className="text-sm text-slate-500">{t("subtitle")}</p>
       </header>
 
       <DriveUploader
@@ -119,12 +117,12 @@ export default function FichiersScreen() {
             confirmUpload({ projectId: current.projectId, ...args }),
         }}
         limits={PARTNER_LIMITS}
-        copy={PARTNER_COPY}
+        copy={partnerCopy}
       />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Ce que tu as déposé
+          {t("deposited")}
         </h2>
         {files === undefined ? (
           <Skeleton className="h-24 w-full" />
@@ -132,7 +130,7 @@ export default function FichiersScreen() {
           <Card>
             <CardContent className="flex flex-col items-center gap-2 py-8 text-center text-sm text-slate-500">
               <InboxIcon className="size-6 text-slate-300" />
-              Tu n&apos;as encore rien déposé.
+              {t("empty")}
             </CardContent>
           </Card>
         ) : (
@@ -158,7 +156,7 @@ export default function FichiersScreen() {
                       {f.fileName}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {KIND_LABEL_KEY[kind]} · {formatBytes(f.sizeBytes, loc)} ·{" "}
+                      {t(KIND_LABEL_KEY[kind])} · {formatBytes(f.sizeBytes, loc)} ·{" "}
                       {formatDate(f.uploadedAt, loc)}
                     </p>
                   </div>

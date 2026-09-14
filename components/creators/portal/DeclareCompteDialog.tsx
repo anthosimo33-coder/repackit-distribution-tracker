@@ -130,7 +130,7 @@ export function DeclareCompteDialog({
             <Label htmlFor="declare-handle">{td("handle")}</Label>
             <Input
               id="declare-handle"
-              placeholder="@mon_compte"
+              placeholder={td("handlePlaceholder")}
               required
               value={handle}
               onChange={(e) => setHandle(e.target.value)}

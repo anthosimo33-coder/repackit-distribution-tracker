@@ -64,7 +64,7 @@ export function ModelVideoEmbed({ video }: { video: ModelVideo }) {
 
   // Plateforme inconnue → carte lien brute (fallback historique).
   if (!platform) {
-    return <PlainLinkCard video={video} badge="Lien" />;
+    return <PlainLinkCard video={video} badge={t("modelVideo.linkBadge")} />;
   }
 
   const ytId = platform === "YouTube" ? extractYouTubeId(video.url) : null;

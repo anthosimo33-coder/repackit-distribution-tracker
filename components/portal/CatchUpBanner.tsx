@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { portalHref } from "@/lib/view-as";
 import { formatPlannedDay } from "@/lib/calendar-status";
 import { isToCatchUp, sortBySchedule } from "@/lib/creator-schedule";
-import { formatPostWindow } from "@/convex/postWindow";
+import { postWindowBoundsFor } from "@/convex/postWindow";
 import { representativePostedAt } from "@/lib/calendar-status";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useTranslations } from "next-intl";
@@ -91,7 +91,7 @@ export function CatchUpBanner({
         </div>
         <ul className="space-y-1.5">
           {retards.map((a) => {
-            const plage = formatPostWindow(a.postWindow);
+            const plage = postWindowBoundsFor(a.postWindow, loc)?.range ?? null;
             return (
               <li key={a._id}>
                 <Link
