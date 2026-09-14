@@ -19,9 +19,11 @@ import {
   type ApifyPlatform,
 } from "./apifyApi";
 import {
-  recoverMissingTikTokPosts,
-  type FallbackTarget,
-} from "./tiktokFallback";
+  APIFY_RESCUE_BUDGET,
+  BREAKER_CLOSED,
+  collectTikTokInternally,
+  rescueWithApify,
+} from "./tiktokInternal";
 import { recomputeLatestMetrics } from "./metricSnapshots";
 import { TRACKING_WINDOW_DAYS } from "./syncScope";
 import { unmatchableUrlReason } from "./postUrlShape";
@@ -39,14 +41,22 @@ import { syncBonusForPublication } from "./pricing";
  * déclenchement manuel est gated admin (requestApifySync). Aucun token Apify ne
  * fuit côté créateur.
  *
- * SANS APIFY_API_TOKEN → désactivation PROPRE (log + skip, pas de crash), comme
- * le fallback YouTube sans clé.
+ * TikTok est lu sur la PAGE PUBLIQUE du post depuis le 2026-09-14, Apify n'y
+ * sert plus que de secours (cf convex/tiktokInternal.ts). Instagram reste chez
+ * Apify. SANS APIFY_API_TOKEN : TikTok continue par la page, Instagram est
+ * inscrit en échec avec son motif — jamais de crash.
  *
  * ⚠️ TS7022 — runDailySync appelle ctx.runQuery/runMutation(internal.*) : type
  * de retour ANNOTÉ (ApifySyncSummary) pour casser le cycle d'inférence.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Temps accordé aux pages TikTok dans la sync MANUELLE. Une action Convex vit
+ * 10 minutes au plus ; 5 laissent la place à Instagram et au secours Apify.
+ */
+const MANUAL_TIKTOK_BUDGET_MS = 5 * 60 * 1000;
 
 /** Fenêtre de tracking partagée avec YouTube — définition unique dans
  *  convex/syncScope.ts (plus deux constantes « à garder synchrones »). */
@@ -81,8 +91,10 @@ export interface ApifySyncSummary {
   errors: number;
   /** Runs Apify lancés (≈ unité de coût). */
   runs: number;
-  /** Posts rattrapés par le REPLI maison après un abandon d'Apify. */
+  /** Posts TikTok relevés par leur page publique (gratuit). */
   recovered: number;
+  /** Posts TikTok non tentés faute de temps — repris au relevé de nuit. */
+  deferred: number;
   /** Posts perdus malgré le repli — échec persisté sur la publication. */
   failed: number;
 }
@@ -514,25 +526,6 @@ export const runDailySync = internalAction({
   args: { projectId: v.optional(v.id("projects")) },
   handler: async (ctx, { projectId }): Promise<ApifySyncSummary> => {
     const apiToken = process.env.APIFY_API_TOKEN;
-    if (!apiToken) {
-      console.error(
-        "[apify-sync] APIFY_API_TOKEN absent — relevé TikTok/Insta annulé. " +
-          "Posez le token : npx convex env set APIFY_API_TOKEN <token>.",
-      );
-      return {
-        ok: false,
-        reason: "missing-api-token",
-        scanned: 0,
-        matched: 0,
-        synced: 0,
-        unavailable: 0,
-        errors: 0,
-        runs: 0,
-        recovered: 0,
-        failed: 0,
-      };
-    }
-
     const now = Date.now();
     const cutoff = now - ACTIVE_WINDOW_DAYS * DAY_MS;
     const summary: ApifySyncSummary = {
@@ -544,6 +537,7 @@ export const runDailySync = internalAction({
       errors: 0,
       runs: 0,
       recovered: 0,
+      deferred: 0,
       failed: 0,
     };
 
@@ -565,8 +559,9 @@ export const runDailySync = internalAction({
         compte: string;
         projectId: Id<"projects">;
       }[] = [];
-      const urls: string[] = [];
-      for (const p of pubs) {
+      // Les plus RÉCENTES d'abord : si le temps manque (TikTok), ce sont les
+      // vidéos qui bougent le plus qui passent.
+      for (const p of [...pubs].sort((a, b) => b.datePubli - a.datePubli)) {
         const key = keyFor(p.postUrl);
         // URL non rapprochable : inscrite comme échec de collecte AVEC son motif
         // (même traitement que le relevé nocturne, cf convex/nightlyViewsSync).
@@ -594,30 +589,89 @@ export const runDailySync = internalAction({
           compte: p.compte,
           projectId: p.projectId,
         });
-        urls.push(p.postUrl);
       }
       summary.matched += targets.length;
       if (targets.length === 0) continue;
-      // (projet, @) → photo, un seul téléchargement par compte (cf le relevé
-      // nocturne, même forme).
-      const avatars = new Map<
-        string,
-        { projectId: Id<"projects">; handle: string; sourceUrl: string }
-      >();
+
+      if (plateforme === "TikTok") {
+        // PAGE PUBLIQUE d'abord, dans la limite de MANUAL_TIKTOK_BUDGET_MS : une
+        // action Convex a une durée maximale, et une page toutes les ~2 s ne
+        // relève pas un gros projet d'un bloc. Le reste n'est PAS un échec :
+        // il attend le relevé de nuit, qui découpe en lots.
+        const interne = await collectTikTokInternally(
+          ctx,
+          targets,
+          now,
+          BREAKER_CLOSED,
+          { deadline: Date.now() + MANUAL_TIKTOK_BUDGET_MS },
+        );
+        if (interne.avatars.length > 0) {
+          await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
+            candidats: interne.avatars.map((a) => ({ ...a, plateforme })),
+          });
+        }
+        const secours = await rescueWithApify(
+          ctx,
+          interne.aSecourir,
+          now,
+          apiToken,
+          APIFY_RESCUE_BUDGET,
+        );
+        summary.recovered += interne.releves.length;
+        summary.synced += interne.releves.length + secours.releves.length;
+        summary.runs += secours.runs;
+        summary.deferred += interne.nonTentes.length;
+        summary.failed += interne.refused + secours.failed;
+        console.info(
+          `[apify-sync] TikTok — ${targets.length} post(s) : ${interne.releves.length} par la page, ` +
+            `${secours.releves.length} par Apify (${secours.runs} run(s)), ${interne.refused} refusé(s), ` +
+            `${secours.failed} perdu(s), ${interne.nonTentes.length} reporté(s) au relevé de nuit` +
+            (interne.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${interne.breaker.trippedReason}` : "") +
+            ".",
+        );
+        continue;
+      }
+
+      if (!apiToken) {
+        console.error(
+          "[apify-sync] APIFY_API_TOKEN absent — relevé Instagram annulé. " +
+            "Posez le token : npx convex env set APIFY_API_TOKEN <token>.",
+        );
+        for (const t of targets) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: t.publicationId,
+            at: now,
+            reason: "pas de relevé Instagram (APIFY_API_TOKEN absent)",
+          });
+        }
+        summary.ok = false;
+        summary.reason = "missing-api-token";
+        summary.failed += targets.length;
+        continue;
+      }
 
       const { stats, unavailable, errors, runs } =
-        await fetchApifyViewsForPlatform(plateforme, urls, apiToken);
+        await fetchApifyViewsForPlatform(
+          plateforme,
+          targets.map((t) => t.url),
+          apiToken,
+        );
       summary.unavailable += unavailable.length;
       summary.errors += errors.length;
       summary.runs += runs;
 
-      // Même point de bascule que le cron : ce `continue` était l'endroit exact
-      // où un post abandonné par Apify disparaissait sans laisser de trace.
-      const manques: FallbackTarget[] = [];
       for (const t of targets) {
         const stat = stats[t.key];
         if (stat === undefined) {
-          manques.push({ publicationId: t.publicationId, key: t.key, url: t.url });
+          // Instagram n'a pas de lecture publique : le post est inscrit en
+          // échec avec son motif, jamais laissé à « 0 vue » sans explication.
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: t.publicationId,
+            at: now,
+            reason:
+              "Apify n'a pas rendu le post (aucun repli sur cette plateforme)",
+          });
+          summary.failed += 1;
           continue;
         }
         const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
@@ -631,44 +685,6 @@ export const runDailySync = internalAction({
           source,
         });
         if (r.action !== "skipped") summary.synced += 1;
-
-        // PHOTO DE PROFIL — le relevé manuel la collecte comme le nocturne.
-        // Sans ça, le bouton « Synchroniser » relevait les vues mais laissait
-        // les visages aux initiales, et il fallait attendre 23h30 pour voir
-        // quoi que ce soit : un chemin de moins pour observer ce qu'on vient
-        // de déployer.
-        if (stat.author?.avatarUrl) {
-          avatars.set(`${t.projectId}|${t.compte}`, {
-            projectId: t.projectId,
-            handle: t.compte,
-            sourceUrl: stat.author.avatarUrl,
-          });
-        }
-      }
-
-      if (avatars.size > 0) {
-        await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
-          candidats: [...avatars.values()].map((a) => ({ ...a, plateforme })),
-        });
-      }
-
-      if (manques.length > 0) {
-        if (plateforme === "TikTok") {
-          const r = await recoverMissingTikTokPosts(ctx, manques, now);
-          summary.recovered += r.recovered;
-          summary.synced += r.recovered;
-          summary.failed += r.refused + r.unreadable + r.deferred;
-        } else {
-          for (const t of manques) {
-            await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-              publicationId: t.publicationId,
-              at: now,
-              reason:
-                "Apify n'a pas rendu le post (aucun repli sur cette plateforme)",
-            });
-          }
-          summary.failed += manques.length;
-        }
       }
 
       if (errors.length > 0) {

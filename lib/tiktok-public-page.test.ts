@@ -62,7 +62,54 @@ describe("parseTikTokPublicPage — le post est servi", () => {
       title:
         "Heureusement que le site Snytch.co existe pour les filles comme nous.",
       authorHandle: "marine.bn07",
+      // La page ne porte ni `authorStats` ni photo : pas de profil inventé.
+      author: null,
     });
+  });
+
+  it("lit les compteurs du COMPTE et sa photo, servis sur la même page", () => {
+    // Forme relevée le 2026-09-14 sur @ang_creates : compteurs en nombres,
+    // `heart` ET `heartCount`, photo signée du CDN TikTok.
+    const html = page({
+      itemInfo: {
+        itemStruct: {
+          id: "7685485877107182879",
+          desc: "pov : tu cherches encore ton ex sur 4 applis",
+          author: {
+            uniqueId: "ang_creates",
+            avatarLarger:
+              "https://p16-common-sign.tiktokcdn-eu.com/tos-useast8-avt-0068-euttp/abc~tplv-tiktokx-cropcenter:1080:1080.jpeg?x-expires=1789639200&x-signature=Zk3",
+            avatarThumb:
+              "https://p16-common-sign.tiktokcdn-eu.com/tos-useast8-avt-0068-euttp/abc~tplv-tiktokx-cropcenter:100:100.jpeg?x-expires=1789639200",
+          },
+          authorStats: {
+            followerCount: 2,
+            followingCount: 12,
+            heart: 314,
+            heartCount: 314,
+            videoCount: 10,
+          },
+          stats: { playCount: 113, diggCount: 3, commentCount: 0, collectCount: "0", shareCount: 1 },
+        },
+      },
+      statusCode: 0,
+      statusMsg: "",
+    });
+    const r = parseTikTokPublicPage(html, "7685485877107182879");
+    expect(r.kind).toBe("stats");
+    if (r.kind !== "stats") return;
+    expect(r.stats.author).toEqual({
+      handle: "ang_creates",
+      followers: 2,
+      following: 12,
+      totalLikes: 314,
+      // La PLUS GRANDE photo, pas la vignette.
+      avatarUrl:
+        "https://p16-common-sign.tiktokcdn-eu.com/tos-useast8-avt-0068-euttp/abc~tplv-tiktokx-cropcenter:1080:1080.jpeg?x-expires=1789639200&x-signature=Zk3",
+    });
+    // Un « 0 » de saves est une MESURE, pas une absence.
+    expect(r.stats.saves).toBe(0);
+    expect(r.stats.views).toBe(113);
   });
 
   it("REFUSE de rendre les compteurs d'un autre post (vidéos recommandées)", () => {
@@ -108,6 +155,29 @@ describe("parseTikTokPublicPage — TikTok refuse", () => {
     expect(refusalLabel(r.statusCode, r.statusMsg)).toBe(
       "visible par son autrice uniquement",
     );
+  });
+
+  it("10231 cross_border_violation : restriction du POST, libellée comme telle", () => {
+    // Relevé le 2026-09-14 sur @cintia_secretacc, depuis la France.
+    const html = page({ statusCode: 10231, statusMsg: "cross_border_violation" });
+    const r = parseTikTokPublicPage(html, "7683319137984122133");
+    expect(r.kind).toBe("refused");
+    if (r.kind !== "refused") return;
+    expect(refusalLabel(r.statusCode, r.statusMsg)).toBe(
+      "bloqué hors de sa région par TikTok",
+    );
+  });
+
+  it("10204 est PARTAGÉ : c'est le message qui dit supprimé ou privé", () => {
+    // Les trois motifs relevés le 2026-09-14 sous le même code 10204.
+    expect(refusalLabel(10204, "status_deleted")).toBe("supprimé");
+    expect(refusalLabel(10204, "item doesn't exist")).toBe("supprimé");
+    expect(refusalLabel(10204, "item_privacy_authorization&status_self_see")).toBe(
+      "visible par son autrice uniquement",
+    );
+    // Sans message, le code reste lisible.
+    expect(refusalLabel(10204, "")).toBe("visible par son autrice uniquement");
+    expect(refusalLabel(10999, "")).toBe("refusé par TikTok (10999)");
   });
 
   it("un refus n'est JAMAIS rendu comme des compteurs à zéro", () => {

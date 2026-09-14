@@ -182,7 +182,7 @@ export function unmatchableUrlReason(
   url: string,
   platform: PostUrlPlatform,
 ): string {
-  // i18n-exempt: motif de collecte PERSISTÉ, lu dans le tracker ADMIN — jamais rendu dans un portail créateur (cf convex/tiktokFallback.ts, mêmes motifs en français).
+  // i18n-exempt: motif de collecte PERSISTÉ, lu dans le tracker ADMIN — jamais rendu dans un portail créateur (cf convex/tiktokInternal.ts, mêmes motifs en français).
   const raccourci = `Lien raccourci ${platform} non résolu — l'identifiant de la vidéo n'est pas dans l'URL, nouvelle tentative de résolution programmée`;
   // i18n-exempt: motif de collecte PERSISTÉ, lu dans le tracker ADMIN — jamais rendu dans un portail créateur.
   const illisible = `Lien de post non rapprochable pour ${platform} — ni identifiant de vidéo ni code de publication dans l'URL`;

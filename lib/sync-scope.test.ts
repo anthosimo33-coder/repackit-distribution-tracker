@@ -17,6 +17,9 @@ import {
   groupByProject,
   failedComptes,
   shouldAlert,
+  resyncReason,
+  selectDueTonight,
+  ageInDays,
   ACTIVE_ACCOUNT_WINDOW_DAYS,
   MANUAL_SYNC_GUARD_MS,
   MAX_URLS_PER_LOT,
@@ -272,5 +275,80 @@ describe("comptage et alerte", () => {
 
   it("un run entièrement réussi n'alerte pas", () => {
     expect(shouldAlert([t("@a", 12, 0), t("@b", 4, 1)])).toBe(false);
+  });
+});
+
+describe("resyncReason — cadence des vidéos TikTok/Instagram", () => {
+  // Forme de la prod : publications datées à minuit Paris en UTC+1 fixe
+  // (23:00 UTC la veille), relevé démarré à 23h30 Paris (21:30 UTC en été),
+  // captures étalées sur la chaîne (21:3x-22:0x UTC).
+  const RUN = Date.UTC(2026, 8, 14, 21, 30);
+  const publieeIlYA = (jours: number) => Date.UTC(2026, 8, 14 - jours) - HOUR;
+  /** Capture de la chaîne d'il y a `nuits` nuits, à hh:mm UTC. */
+  const captureIlYA = (nuits: number, h: number, m: number) =>
+    Date.UTC(2026, 8, 14 - nuits, h, m, 7);
+  const video = (id: string, jours: number, lastSyncAt?: number) => ({
+    _id: id,
+    compte: "@marine.bn07",
+    datePubli: publieeIlYA(jours),
+    ...(lastSyncAt === undefined ? {} : { lastSyncAt }),
+  });
+  const aucunDefi = new Set<string>();
+
+  it("l'âge compte en jours entiers à l'heure du run", () => {
+    expect(ageInDays(publieeIlYA(14), RUN)).toBe(14);
+    expect(ageInDays(publieeIlYA(15), RUN)).toBe(15);
+  });
+
+  it("jusqu'à J+14 inclus : chaque nuit, même relevée la veille", () => {
+    const hier = captureIlYA(1, 21, 52);
+    expect(resyncReason(video("j14", 14, hier), RUN, aucunDefi)).toBe("recent");
+    expect(resyncReason(video("j15", 15, hier), RUN, aucunDefi)).toBe("not-due");
+  });
+
+  it("au-delà : relevée SEPT nuits après, même capturée plus tard dans la chaîne", () => {
+    // Capture à 21:58 il y a 7 nuits, run à 21:30 : l'écart vaut 7 j − 28 min.
+    // Une borne à 7 j pile la repousserait à la huitième nuit.
+    expect(resyncReason(video("j23", 23, captureIlYA(7, 21, 58)), RUN, aucunDefi)).toBe("weekly");
+    expect(resyncReason(video("j23", 23, captureIlYA(6, 21, 31)), RUN, aucunDefi)).toBe("not-due");
+  });
+
+  it("une nuit ratée est rattrapée dès la nuit suivante, pas la semaine d'après", () => {
+    expect(resyncReason(video("j40", 40, captureIlYA(8, 21, 44)), RUN, aucunDefi)).toBe("weekly");
+  });
+
+  it("J+29 et J+30 : chaque nuit — la paie retient le dernier relevé ≤ J+30", () => {
+    const hier = captureIlYA(1, 21, 47);
+    expect(resyncReason(video("j29", 29, hier), RUN, aucunDefi)).toBe("pay-window-closing");
+    expect(resyncReason(video("j30", 30, hier), RUN, aucunDefi)).toBe("pay-window-closing");
+    expect(resyncReason(video("j28", 28, hier), RUN, aucunDefi)).toBe("not-due");
+    expect(resyncReason(video("j31", 31, hier), RUN, aucunDefi)).toBe("not-due");
+  });
+
+  it("une vidéo d'un DÉFI actif : chaque nuit, quel que soit son âge", () => {
+    const hier = captureIlYA(1, 21, 39);
+    const defi = new Set(["k97d2mzq3vx1h8n0c4p6s5t7w9"]);
+    expect(resyncReason(video("k97d2mzq3vx1h8n0c4p6s5t7w9", 44, hier), RUN, defi)).toBe("challenge");
+    expect(resyncReason(video("k97autre", 44, hier), RUN, defi)).toBe("not-due");
+  });
+
+  it("jamais relevée : relevée cette nuit", () => {
+    expect(resyncReason(video("j52", 52), RUN, aucunDefi)).toBe("never-synced");
+  });
+
+  it("selectDueTonight garde l'ordre et n'écarte que les vidéos pas encore dues", () => {
+    const hier = captureIlYA(1, 21, 36);
+    const retenues = selectDueTonight(
+      [
+        video("a", 3, hier),
+        video("b", 17, hier),
+        video("c", 30, hier),
+        video("d", 61, captureIlYA(7, 22, 4)),
+        video("e", 61, captureIlYA(2, 21, 33)),
+      ],
+      RUN,
+      aucunDefi,
+    );
+    expect(retenues.map((p) => p._id)).toEqual(["a", "c", "d"]);
   });
 });
