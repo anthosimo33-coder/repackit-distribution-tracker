@@ -10,6 +10,7 @@ import {
   normalizeLocale,
   type Locale,
 } from "./locales";
+import { loadMessages } from "./messages";
 
 /**
  * RÉSOLUTION DE LA LANGUE — côté SERVEUR, avant le premier rendu.
@@ -71,7 +72,7 @@ export default getRequestConfig(async () => {
   const locale = await resolveLocale();
   return {
     locale,
-    messages: (await import(`../messages/${locale}.json`)).default,
+    messages: await loadMessages(locale),
     // Fuseau ÉPINGLÉ. Le produit a trois conventions d'horodatage qui coexistent
     // volontairement (Paris épinglé / UTC délibéré / navigateur), documentées
     // champ par champ ; les unifier réintroduirait le décalage d'un jour sur
