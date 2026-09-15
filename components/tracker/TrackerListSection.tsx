@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsMobile } from "@/components/layout/use-is-mobile";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
@@ -1105,6 +1106,7 @@ function PublicationsSection({
   disabledSortKeys: ReadonlySet<SortKey>;
   idColumnLabel: string;
 }) {
+  const isMobile = useIsMobile();
   return (
     <section className="space-y-2">
       <h2 className="flex items-center gap-2 text-sm font-medium text-slate-700">
@@ -1112,6 +1114,24 @@ function PublicationsSection({
         {title}
         <span className="font-normal text-slate-500">({rows.length})</span>
       </h2>
+      {isMobile ? (
+        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+          {rows.map((p) => (
+            <PublicationCard
+              key={p._id}
+              p={p}
+              visibleColumns={visibleColumns}
+              idColumnLabel={idColumnLabel}
+              onView={onView}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onMarkAsPosted={onMarkAsPosted}
+              onDuplicate={onDuplicate}
+              onReplay={onReplay}
+            />
+          ))}
+        </ul>
+      ) : (
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <Table>
           <TableHeader>
@@ -1392,73 +1412,15 @@ function PublicationsSection({
                   )}
                   {visibleColumns.has("actions") && (
                     <TableCell className="w-16">
-                      <div className="flex items-center justify-end gap-0.5">
-                        {/* Rejeu VISIBLE (pas enfoui dans le menu) — posts issus
-                            d'un script uniquement. Doublé par l'item du menu. */}
-                        {p.scriptCombo && (
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            title="Rejouer ce script"
-                            aria-label="Rejouer ce script"
-                            onClick={() => onReplay(p)}
-                          >
-                            <RepeatIcon />
-                          </Button>
-                        )}
-                        <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <Button variant="ghost" size="icon-sm">
-                              <MoreHorizontalIcon />
-                            </Button>
-                          }
-                        />
-                        <DropdownMenuContent align="end">
-                          {!isPublished(p) && (
-                            <DropdownMenuItem
-                              onClick={() => onMarkAsPosted(p)}
-                              className="font-medium"
-                            >
-                              Marquer comme posté
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => onView(p)}>
-                            {isPublished(p)
-                              ? "Voir détail"
-                              : "Voir détail / éditer"}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => onEdit(p)}
-                            disabled={!isPublished(p)}
-                            title={
-                              !isPublished(p)
-                                ? "Publiez d'abord pour saisir les stats"
-                                : undefined
-                            }
-                          >
-                            Mettre à jour stats
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onDuplicate(p)}>
-                            Dupliquer
-                          </DropdownMenuItem>
-                          {/* Rejouer : seulement les posts issus d'un script
-                              (scriptCombo présent) → pré-remplit la modale. */}
-                          {p.scriptCombo && (
-                            <DropdownMenuItem onClick={() => onReplay(p)}>
-                              Rejouer ce script
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-rose-600 focus:text-rose-700"
-                            onClick={() => onDelete(p)}
-                          >
-                            Supprimer
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      </div>
+                      <ActionsPublication
+                        p={p}
+                        onView={onView}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
+                        onMarkAsPosted={onMarkAsPosted}
+                        onDuplicate={onDuplicate}
+                        onReplay={onReplay}
+                      />
                     </TableCell>
                   )}
                 </TableRow>
@@ -1467,7 +1429,214 @@ function PublicationsSection({
           </TableBody>
         </Table>
       </div>
+      )}
     </section>
+  );
+}
+
+type PublicationHandlers = {
+  onView: (p: Doc<"publications">) => void;
+  onEdit: (p: Doc<"publications">) => void;
+  onDelete: (p: Doc<"publications">) => void;
+  onMarkAsPosted: (p: Doc<"publications">) => void;
+  onDuplicate: (p: Doc<"publications">) => void;
+  onReplay: (p: Doc<"publications">) => void;
+};
+
+/** Rejeu + menu d'une publication — partagés par la ligne et la carte mobile. */
+function ActionsPublication({
+  p,
+  onView,
+  onEdit,
+  onDelete,
+  onMarkAsPosted,
+  onDuplicate,
+  onReplay,
+}: { p: Doc<"publications"> } & PublicationHandlers) {
+  return (
+    <div className="flex items-center justify-end gap-0.5">
+      {/* Rejeu VISIBLE (pas enfoui dans le menu) — posts issus
+          d'un script uniquement. Doublé par l'item du menu. */}
+      {p.scriptCombo && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          title="Rejouer ce script"
+          aria-label="Rejouer ce script"
+          onClick={() => onReplay(p)}
+        >
+          <RepeatIcon />
+        </Button>
+      )}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button variant="ghost" size="icon-sm">
+              <MoreHorizontalIcon />
+            </Button>
+          }
+        />
+        <DropdownMenuContent align="end">
+          {!isPublished(p) && (
+            <DropdownMenuItem
+              onClick={() => onMarkAsPosted(p)}
+              className="font-medium"
+            >
+              Marquer comme posté
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem onClick={() => onView(p)}>
+            {isPublished(p)
+              ? "Voir détail"
+              : "Voir détail / éditer"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onEdit(p)}
+            disabled={!isPublished(p)}
+            title={
+              !isPublished(p)
+                ? "Publiez d'abord pour saisir les stats"
+                : undefined
+            }
+          >
+            Mettre à jour stats
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onDuplicate(p)}>
+            Dupliquer
+          </DropdownMenuItem>
+          {/* Rejouer : seulement les posts issus d'un script
+              (scriptCombo présent) → pré-remplit la modale. */}
+          {p.scriptCombo && (
+            <DropdownMenuItem onClick={() => onReplay(p)}>
+              Rejouer ce script
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-rose-600 focus:text-rose-700"
+            onClick={() => onDelete(p)}
+          >
+            Supprimer
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+    </DropdownMenu>
+    </div>
+  );
+}
+
+/**
+ * Une publication en CARTE — sous 768 px, où les quatorze colonnes du tableau ne
+ * tiennent pas. Mêmes données, mêmes règles « N/A » par format, mêmes actions ;
+ * seul le tri par en-tête n'y est pas (pas d'en-tête) : l'ordre reste celui
+ * choisi sur grand écran, ou l'ordre par défaut.
+ */
+function PublicationCard({
+  p,
+  visibleColumns,
+  idColumnLabel,
+  ...handlers
+}: {
+  p: Doc<"publications">;
+  visibleColumns: ReadonlySet<ColumnKey>;
+  idColumnLabel: string;
+} & PublicationHandlers) {
+  const dm = metricsOf(p);
+  const saveRate = calculateSaveRate(dm.saves, dm.vues);
+  const verdict = isPublished(p) ? calculateVerdict(saveRate) : null;
+  const mt = getMediaType(p);
+  const isShort = mt === "short";
+  const isCarousel = mt === "carousel";
+  const icp =
+    (p as { icp?: { nom: string; color: string | null } | null }).icp ?? null;
+  const imageUrl = (p as { imageUrl?: string | null }).imageUrl ?? null;
+  const texte = visibleColumns.has("titre") ? p.titre : p.hookText;
+  const mesures: { label: string; value: string }[] = [];
+  if (visibleColumns.has("vues"))
+    mesures.push({ label: "vues", value: formatNumber(dm.vues) + (dm.snapshotUsed && !dm.matchExact ? " ≈" : "") });
+  if (visibleColumns.has("saves") && !isShort)
+    mesures.push({ label: "saves", value: formatNumber(dm.saves) });
+  if (visibleColumns.has("saveRate") && !isShort)
+    mesures.push({ label: "save rate", value: formatPercent(saveRate) });
+  if (visibleColumns.has("likes") && !isCarousel)
+    mesures.push({ label: "likes", value: formatNumber(dm.likes) });
+  if (visibleColumns.has("subsGained") && !isCarousel)
+    mesures.push({ label: "subs", value: formatNumber(dm.subsGained) });
+
+  return (
+    <li className="flex gap-3 px-3 py-3">
+      {visibleColumns.has("image") &&
+        (imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt={p.titre ?? "image"}
+            className="size-12 shrink-0 rounded object-cover"
+          />
+        ) : (
+          <div className="size-12 shrink-0 rounded bg-slate-100" />
+        ))}
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+              {visibleColumns.has("carouselId") && (
+                <span className="font-mono text-slate-900" title={idColumnLabel}>
+                  {p.carouselId}
+                </span>
+              )}
+              {p.isWarmup === true && <PostWarmupBadge />}
+              {visibleColumns.has("date") && <span>{formatDate(p.datePubli)}</span>}
+            </div>
+            {texte ? (
+              <p className="mt-0.5 line-clamp-2 text-sm text-slate-900">{texte}</p>
+            ) : null}
+          </div>
+          <div className="-mt-1 -mr-1 shrink-0">
+            <ActionsPublication p={p} {...handlers} />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {visibleColumns.has("plateforme") && <PlatformBadge plateforme={p.plateforme} />}
+          {visibleColumns.has("compte") && p.compte && (
+            <span className="min-w-0 truncate font-mono text-xs text-slate-600">{p.compte}</span>
+          )}
+          {visibleColumns.has("source") && !p.sourceId && (
+            <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+              ⚠ sans source
+            </Badge>
+          )}
+          {visibleColumns.has("source") && p.sourceId && (
+            <span className="font-mono text-xs text-slate-500">{p.sourceId}</span>
+          )}
+          {visibleColumns.has("icp") && icp && (
+            <Badge variant="outline" className="gap-1.5 text-slate-700">
+              <span className={cn("size-2 rounded-full", getFolderColor(icp.color).dotClass)} />
+              <span className="max-w-[120px] truncate">{icp.nom}</span>
+            </Badge>
+          )}
+          {visibleColumns.has("recordingDevice") && p.recordingDevice && (
+            <RecordingDeviceBadge device={p.recordingDevice} />
+          )}
+          {visibleColumns.has("isRepackaging") && p.isRepackaging === true && (
+            <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">Repack</Badge>
+          )}
+          {visibleColumns.has("format") && !isShort && p.format && (
+            <span className="font-mono text-xs text-slate-500">{p.format}</span>
+          )}
+          {visibleColumns.has("verdict") && !isShort && <VerdictBadge verdict={verdict} />}
+        </div>
+        {mesures.length > 0 && (
+          <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+            {mesures.map((m) => (
+              <span key={m.label}>
+                <span className="font-medium tabular-nums text-slate-900">{m.value}</span>{" "}
+                {m.label}
+              </span>
+            ))}
+          </p>
+        )}
+      </div>
+    </li>
   );
 }
 

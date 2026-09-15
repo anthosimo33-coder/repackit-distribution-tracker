@@ -62,6 +62,7 @@ import CompteDialog, { type Compte } from "@/components/comptes/CompteDialog";
 import { CompteAdminActions } from "@/components/comptes/CompteAdminActions";
 import { ComptesAValiderSection } from "@/components/comptes/ComptesAValiderSection";
 import { useLabel } from "@/lib/use-label";
+import { useIsMobile } from "@/components/layout/use-is-mobile";
 import type { FunctionReturnType } from "convex/server";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -133,6 +134,7 @@ function ComptesPageInner() {
   const projectPath = useProjectPath();
   const projectId = useProjectId();
   const searchParams = useSearchParams();
+  const isMobile = useIsMobile();
   const comptes = useProjectQuery(api.comptes.listComptes, {});
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Compte | null>(null);
@@ -503,6 +505,39 @@ function ComptesPageInner() {
             {tr("aucunComptePourCeFiltre")}
           </CardContent>
         </Card>
+      ) : isMobile ? (
+        <Card className="py-0">
+          <CardContent className="p-0">
+            {groupes.map((g) => (
+              <section key={g.clef}>
+                {g.titre !== null && (
+                  <div className="border-b border-slate-100 bg-slate-50 px-4 py-2">
+                    <EnteteGroupe
+                      titre={g.titre}
+                      effectif={g.lignes.length}
+                      vues={g.vues}
+                      posts={g.posts}
+                      part={g.part}
+                    />
+                  </div>
+                )}
+                <ul className="divide-y divide-slate-100">
+                  {g.lignes.map((c) => (
+                    <CarteCompte
+                      key={c._id}
+                      compte={c}
+                      href={projectPath(`/comptes/${c._id}`)}
+                      tLabel={tLabel}
+                      maintenant={maintenant}
+                      creatorRedondant={groupe === "creator"}
+                      onEdit={() => setEditTarget(c)}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </CardContent>
+        </Card>
       ) : (
         <Card>
           <CardContent className="overflow-x-auto p-0">
@@ -623,14 +658,8 @@ function LigneCompte({
   creatorRedondant: boolean;
   onEdit: () => void;
 }) {
-  const tr = useTranslations("admin.accounts.LigneCompte");
   const loc = useIntlLocale();
-  const etiquetteChauffe = useEtiquetteChauffe();
-  const badge = getStatusBadge(c);
   const statut = getEffectiveStatus(c);
-  const etat = warmupStateOf(c, maintenant);
-  const last = lastCheck(c.warmupProtocol?.dailyChecks ?? []);
-  const jamaisPublie = statut === "actif" && c.perf.nbPublies === 0;
 
   return (
     <TableRow className={cn(statut === "archived" && "opacity-50")}>
@@ -643,79 +672,17 @@ function LigneCompte({
         </Link>
       </TableCell>
       <TableCell>
-        <div className="flex flex-wrap items-center gap-2">
-          <PlatformBadge plateforme={c.plateforme} />
-          {/* Pays ciblé (label informatif #110) — masqué si non défini, même
-              style que le badge de la fiche détail. */}
-          {c.targetCountry && (
-            <span
-              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600"
-              title={tr("paysCible")}
-            >
-              {countryLabel(c.targetCountry, loc)}
-            </span>
-          )}
-        </div>
+        <PastillesPlateforme compte={c} />
       </TableCell>
       {/* ÉTAT — trois anciennes colonnes en une. Statut, gestionnaire et
           progression de warmup étaient trois colonnes remplies 27, 5 et 4 fois
           sur 33 : un tiers de la largeur pour presque rien. Les textes restent
           au NIVEAU DE LA LIGNE, ce que les specs interrogent. */}
       <TableCell>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-              badge.className,
-            )}
-          >
-            {tLabel(badge.labelKey, badge.params)}
-          </span>
-          {/* UNIQUEMENT la souffrance. La pastille de statut porte déjà
-              « Warmup J+{done}/{target} » : ajouter « J1/7 » à côté aurait mis
-              deux compteurs différents du même warmup sur la même ligne. Ce
-              qu'elle ne sait pas dire, en revanche, c'est depuis QUAND ça
-              traîne — et c'est ça qui décide de l'ordre des relances. */}
-          {etat.kind === "enSouffrance" && (
-            <span
-              className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
-              title={last ? tr("dernierCheck", { last: last }) : tr("aucunCheckPose")}
-            >
-              {etiquetteChauffe(etat, { nommerLEtat: true })}
-            </span>
-          )}
-          {/* Six comptes actifs sur vingt-sept n'ont jamais rien publié : ils
-              étaient indistinguables d'un compte qui tourne. */}
-          {jamaisPublie && (
-            <span
-              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-500"
-              title={tr("compteActifQuiNA")}
-            >
-              {tr("jamaisPublie")}
-            </span>
-          )}
-          {c.personne && (
-            <span
-              className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700"
-              title={tr("gestionnaire")}
-            >
-              {c.personne.prenom} {c.personne.nom}
-            </span>
-          )}
-        </div>
+        <PastillesEtat compte={c} tLabel={tLabel} maintenant={maintenant} />
       </TableCell>
       <TableCell className={creatorRedondant ? "text-xs" : "text-sm"}>
-        {c.creator ? (
-          <span
-            className={
-              creatorRedondant ? "text-slate-400" : "font-medium text-slate-700"
-            }
-          >
-            {c.creator.name}
-          </span>
-        ) : (
-          <span className="text-slate-400">{tr("interne")}</span>
-        )}
+        <NomCreateur compte={c} redondant={creatorRedondant} />
       </TableCell>
       {/* « 0 » et non « — » : un compte sans publication a zéro vue, ce n'est
           pas une donnée absente — et une spec compte ces deux cellules. */}
@@ -732,6 +699,164 @@ function LigneCompte({
         <CompteAdminActions compte={c} onEdit={onEdit} />
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * La même ligne, en CARTE — sous 768 px, où sept colonnes ne tiennent pas.
+ * Mêmes pastilles, même nom, mêmes chiffres : seule la disposition change.
+ */
+function CarteCompte({
+  compte: c,
+  href,
+  tLabel,
+  maintenant,
+  creatorRedondant,
+  onEdit,
+}: {
+  compte: CompteRow;
+  href: string;
+  tLabel: ReturnType<typeof useLabel>;
+  maintenant: number;
+  creatorRedondant: boolean;
+  onEdit: () => void;
+}) {
+  const tr = useTranslations("admin.accounts.ComptesPageInner");
+  const loc = useIntlLocale();
+  const statut = getEffectiveStatus(c);
+  return (
+    <li
+      className={cn(
+        "space-y-2 px-4 py-3",
+        statut === "archived" && "opacity-50",
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <Link
+          href={href}
+          className="min-w-0 truncate pt-1 font-mono text-sm font-medium text-slate-900 transition-colors hover:text-primary hover:underline"
+        >
+          {c.handle}
+        </Link>
+        <div className="shrink-0">
+          <CompteAdminActions compte={c} onEdit={onEdit} />
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PastillesPlateforme compte={c} />
+        <PastillesEtat compte={c} tLabel={tLabel} maintenant={maintenant} />
+      </div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-slate-500">
+        <span className={creatorRedondant ? "text-xs" : "text-sm"}>
+          <NomCreateur compte={c} redondant={creatorRedondant} />
+        </span>
+        <span className="tabular-nums">
+          <span className="font-medium text-slate-900">
+            {formatNumber(c.perf.vuesCumulees, loc)}
+          </span>{" "}
+          {tr("vues").toLowerCase()} · {c.perf.nbPublies}{" "}
+          {tr("posts").toLowerCase()} · {formatDateShort(c.perf.dernierPost, loc)}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+function PastillesPlateforme({ compte: c }: { compte: CompteRow }) {
+  const tr = useTranslations("admin.accounts.LigneCompte");
+  const loc = useIntlLocale();
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <PlatformBadge plateforme={c.plateforme} />
+      {/* Pays ciblé (label informatif #110) — masqué si non défini, même
+          style que le badge de la fiche détail. */}
+      {c.targetCountry && (
+        <span
+          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600"
+          title={tr("paysCible")}
+        >
+          {countryLabel(c.targetCountry, loc)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PastillesEtat({
+  compte: c,
+  tLabel,
+  maintenant,
+}: {
+  compte: CompteRow;
+  tLabel: ReturnType<typeof useLabel>;
+  maintenant: number;
+}) {
+  const tr = useTranslations("admin.accounts.LigneCompte");
+  const etiquetteChauffe = useEtiquetteChauffe();
+  const badge = getStatusBadge(c);
+  const statut = getEffectiveStatus(c);
+  const etat = warmupStateOf(c, maintenant);
+  const last = lastCheck(c.warmupProtocol?.dailyChecks ?? []);
+  const jamaisPublie = statut === "actif" && c.perf.nbPublies === 0;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+          badge.className,
+        )}
+      >
+        {tLabel(badge.labelKey, badge.params)}
+      </span>
+      {/* UNIQUEMENT la souffrance. La pastille de statut porte déjà
+          « Warmup J+{done}/{target} » : ajouter « J1/7 » à côté aurait mis
+          deux compteurs différents du même warmup sur la même ligne. Ce
+          qu'elle ne sait pas dire, en revanche, c'est depuis QUAND ça
+          traîne — et c'est ça qui décide de l'ordre des relances. */}
+      {etat.kind === "enSouffrance" && (
+        <span
+          className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
+          title={last ? tr("dernierCheck", { last: last }) : tr("aucunCheckPose")}
+        >
+          {etiquetteChauffe(etat, { nommerLEtat: true })}
+        </span>
+      )}
+      {/* Six comptes actifs sur vingt-sept n'ont jamais rien publié : ils
+          étaient indistinguables d'un compte qui tourne. */}
+      {jamaisPublie && (
+        <span
+          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-500"
+          title={tr("compteActifQuiNA")}
+        >
+          {tr("jamaisPublie")}
+        </span>
+      )}
+      {c.personne && (
+        <span
+          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700"
+          title={tr("gestionnaire")}
+        >
+          {c.personne.prenom} {c.personne.nom}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function NomCreateur({
+  compte: c,
+  redondant,
+}: {
+  compte: CompteRow;
+  redondant: boolean;
+}) {
+  const tr = useTranslations("admin.accounts.LigneCompte");
+  return c.creator ? (
+    <span className={redondant ? "text-slate-400" : "font-medium text-slate-700"}>
+      {c.creator.name}
+    </span>
+  ) : (
+    <span className="text-slate-400">{tr("interne")}</span>
   );
 }
 

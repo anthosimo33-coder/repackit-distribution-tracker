@@ -34,6 +34,7 @@ import {
   HubNoticeStack,
   paywallScopeItem,
   posthogOutageItem,
+  HUB_TABLE_MOBILE,
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
@@ -483,7 +484,7 @@ export function OffresTab({
               </div>
 
               {disputes.length > 0 ? (
-                <Table>
+                <Table className={HUB_TABLE_MOBILE}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Client</TableHead>
@@ -546,7 +547,7 @@ export function OffresTab({
             <p className="text-xs text-slate-400">— aucun paywall émis.</p>
           ) : (
             <>
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Type de paywall</TableHead>
@@ -620,7 +621,7 @@ export function OffresTab({
                   décider.
                 </HubNotice>
               ) : null}
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Bras</TableHead>
@@ -863,7 +864,7 @@ export function OffresTab({
                   d&apos;un bras à l&apos;autre qui ne conclut plus.
                 </HubNotice>
               ) : null}
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Bras</TableHead>
@@ -959,7 +960,7 @@ export function OffresTab({
                   des deux agrégats a changé de définition sans l&apos;autre.
                 </HubNotice>
               ) : null}
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Bras</TableHead>
@@ -1140,7 +1141,7 @@ export function OffresTab({
                 <p className="text-xs font-medium text-slate-500">
                   Paywalls forcés (l&apos;app bloque tant qu&apos;on n&apos;a pas payé)
                 </p>
-                <Table>
+                <Table className={HUB_TABLE_MOBILE}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Paywall</TableHead>
@@ -1173,7 +1174,7 @@ export function OffresTab({
                 <p className="text-xs font-medium text-slate-500">
                   Paywall volontaire (jamais comparé aux forcés)
                 </p>
-                <Table>
+                <Table className={HUB_TABLE_MOBILE}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Paywall</TableHead>
@@ -1209,7 +1210,7 @@ export function OffresTab({
               </div>
             </div>
           ) : (
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Paywall</TableHead>
@@ -1262,7 +1263,7 @@ export function OffresTab({
               </p>
             ) : (
               <>
-                <Table>
+                <Table className={HUB_TABLE_MOBILE}>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Offre</TableHead>
@@ -1373,7 +1374,7 @@ export function OffresTab({
               subtitle="Inscriptions, usage réel, passage au payant."
               info={EXPLAIN.planGratuit}
             />
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableBody>
                 <TableRow>
                   <TableCell className="text-xs text-slate-600">Inscriptions</TableCell>
@@ -1440,7 +1441,7 @@ export function OffresTab({
             </HubNotice>
           ) : (
             <>
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Type de scan</TableHead>
@@ -1494,7 +1495,7 @@ export function OffresTab({
               des events, ils s&apos;ajoutent à la main (analyticsHub:addOfferChange).
             </HubNotice>
           ) : (
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Date</TableHead>

@@ -136,21 +136,21 @@ function TalentRecap({
         {recap.months.map((m) => (
           <li
             key={m.period}
-            className="flex items-center justify-between gap-3 border-t border-slate-100 pt-1 text-xs"
+            className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-slate-100 pt-1 text-xs"
           >
-            <span className="text-slate-600">
+            <span className="min-w-0 text-slate-600">
               {m.label}
               {m.current && (
-                <span className="ml-2 text-slate-400">en cours</span>
+                <span className="ml-2 whitespace-nowrap text-slate-400">en cours</span>
               )}
               {/* Le compte de rushes est AFFICHÉ, jamais calculé dans le
                   montant : un mois à 0 rush est dû, et c'est précisément le cas
                   où l'admin doit le voir avant de cliquer. */}
-              <span className="ml-2 text-slate-400">
+              <span className="ml-2 whitespace-nowrap text-slate-400">
                 {m.rushCount} rush{m.rushCount > 1 ? "es" : ""}
               </span>
             </span>
-            <span className="flex items-center gap-2">
+            <span className="ml-auto flex shrink-0 items-center gap-2">
               <span className="tabular-nums text-slate-900">
                 {formatMoney(m.amount, currency)}
               </span>

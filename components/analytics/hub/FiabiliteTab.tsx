@@ -14,7 +14,7 @@ import {
 import { formatNumber, formatDate } from "@/lib/format";
 import { buildCoherenceChecks, type CoherenceStatus } from "@/lib/analytics-hub";
 import { coherenceInputsFrom } from "@/lib/coherence-inputs";
-import { HubCardHeader, KpiTile, dash } from "./HubPrimitives";
+import { HubCardHeader, KpiTile, dash, HUB_TABLE_MOBILE } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ReliabilityData } from "./types";
 
@@ -106,7 +106,7 @@ export function FiabiliteTab({
             subtitle="Chaque event du contrat, son volume et sa santé. Une carte qui dépend d'un event manquant affiche son état, pas un zéro."
           />
           <div className="overflow-x-auto">
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Event</TableHead>
@@ -212,7 +212,7 @@ export function FiabiliteTab({
               subtitle="Vérifiés à chaque synchro. Un écart remplace les chiffres au lieu de les afficher."
               info={EXPLAIN.gardeFous}
             />
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Contrôle</TableHead>
@@ -282,7 +282,7 @@ export function FiabiliteTab({
               title="Ce qui n'est pas mesurable"
               subtitle="Affiché plutôt que masqué : un trou caché fait décider sur du vide."
             />
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableBody>
                 {/* MESURÉ, celui-là — les autres lignes disent pourquoi une chose
                     est hors de portée ; celle-ci CHIFFRE le trou. Une assignation
@@ -368,7 +368,7 @@ export function FiabiliteTab({
               </div>
               {reliability.membershipDuplicates.duplicates.length > 0 ? (
                 <div className="overflow-x-auto">
-                  <Table>
+                  <Table className={HUB_TABLE_MOBILE}>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Personne (utilisateur Whop)</TableHead>
@@ -406,7 +406,7 @@ export function FiabiliteTab({
             title="Fraîcheur des données"
             subtitle="Chaque source avec sa dernière synchro. Une donnée périmée est signalée avant d'être lue (au-delà de 12 h)."
           />
-          <Table>
+          <Table className={HUB_TABLE_MOBILE}>
             <TableHeader>
               <TableRow>
                 <TableHead>Source</TableHead>

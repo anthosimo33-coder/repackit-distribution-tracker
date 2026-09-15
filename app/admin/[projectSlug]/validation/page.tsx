@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsMobile } from "@/components/layout/use-is-mobile";
 import { Suspense, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -159,6 +160,7 @@ function ValidationPageInner() {
   const tr = useTranslations("admin.validation.ValidationPageInner");
   // Devise de la PAIE créatrices (dollars) — pour les montants de bonus affichés.
   const payCurrency = useProject().project.payCurrency;
+  const isMobile = useIsMobile();
   const toReview = useProjectQuery(api.assignments.listVideoSubmitted, {});
   // Ancre temporelle FIGÉE au montage : « demain » doit être le même demain pour
   // l'en-tête et pour chaque carte. Un Date.now() par appel les ferait diverger
@@ -250,6 +252,15 @@ function ValidationPageInner() {
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {tr("publieesRecemment")}
           </h2>
+          {isMobile ? (
+            <Card className="py-0">
+              <ul className="divide-y divide-slate-100">
+                {published.map((p) => (
+                  <PublishedTableRow key={p._id} p={p} mobile />
+                ))}
+              </ul>
+            </Card>
+          ) : (
           <Card>
             <CardContent className="overflow-x-auto p-0">
               <Table>
@@ -269,6 +280,7 @@ function ValidationPageInner() {
               </Table>
             </CardContent>
           </Card>
+          )}
         </section>
       )}
 
@@ -285,6 +297,19 @@ function ValidationPageInner() {
             <CardContent className="py-10 text-center text-sm text-slate-500">
               {tr("aucunPostPubliePourL")}
             </CardContent>
+          </Card>
+        ) : isMobile ? (
+          <Card className="py-0">
+            <ul className="divide-y divide-slate-100">
+              {bonusRows.map((r) => (
+                <BonusRow
+                  key={r.assignmentId}
+                  r={r}
+                  currency={payCurrency}
+                  mobile
+                />
+              ))}
+            </ul>
           </Card>
         ) : (
           <Card>
@@ -636,48 +661,63 @@ function VideoReviewCard({
   );
 }
 
-function PublishedTableRow({ p }: { p: PublishedRow }) {
+/**
+ * Une publication récente. `mobile` : la même information en CARTE (liste
+ * `<ul>`), sous 768 px — quatre colonnes n'y tiennent pas.
+ */
+function PublishedTableRow({ p, mobile = false }: { p: PublishedRow; mobile?: boolean }) {
   const loc = useIntlLocale();
+  const date = p.publishedAt ? formatDate(p.publishedAt, loc) : "—";
+  const liens =
+    p.targets.length === 0 ? (
+      "—"
+    ) : (
+      <div className="flex flex-col gap-1">
+        {p.targets.map((t) =>
+          t.publishedUrl ? (
+            <a
+              key={t.platform}
+              href={t.publishedUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 text-sm text-primary hover:underline"
+            >
+              {t.platform}
+              {t.accountHandle ? (
+                <span className="min-w-0 font-mono text-xs break-all text-slate-400">
+                  {t.accountHandle}
+                </span>
+              ) : null}
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
+          ) : (
+            <span key={t.platform} className="text-xs text-slate-400">
+              {t.platform} —
+            </span>
+          ),
+        )}
+      </div>
+    );
+  if (mobile) {
+    return (
+      <li className="space-y-1.5 px-4 py-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="min-w-0 font-medium text-slate-900">{p.creatorName}</span>
+          <span className="shrink-0 text-xs text-slate-500">{date}</span>
+        </div>
+        <p className="text-sm text-slate-700">{p.label}</p>
+        {liens}
+      </li>
+    );
+  }
   return (
     <TableRow>
       <TableCell className="font-medium text-slate-900">
         {p.creatorName}
       </TableCell>
       <TableCell className="text-slate-700">{p.label}</TableCell>
-      <TableCell className="text-slate-500">
-        {p.publishedAt ? formatDate(p.publishedAt, loc) : "—"}
-      </TableCell>
-      <TableCell>
-        {p.targets.length === 0 ? (
-          "—"
-        ) : (
-          <div className="flex flex-col gap-1">
-            {p.targets.map((t) =>
-              t.publishedUrl ? (
-                <a
-                  key={t.platform}
-                  href={t.publishedUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                >
-                  {t.platform}
-                  {t.accountHandle ? (
-                    <span className="font-mono text-xs text-slate-400">
-                      {t.accountHandle}
-                    </span>
-                  ) : null}
-                  <ExternalLinkIcon className="size-3.5" />
-                </a>
-              ) : (
-                <span key={t.platform} className="text-xs text-slate-400">
-                  {t.platform} —
-                </span>
-              ),
-            )}
-          </div>
-        )}
-      </TableCell>
+      <TableCell className="text-slate-500">{date}</TableCell>
+      <TableCell>{liens}</TableCell>
     </TableRow>
   );
 }
@@ -685,8 +725,11 @@ function PublishedTableRow({ p }: { p: PublishedRow }) {
 function BonusRow({
   r,
   currency,
+  mobile = false,
 }: {
   r: BonusRowData;
+  /** Rendu en CARTE (`<li>`) sous 768 px, au lieu d'une ligne de tableau. */
+  mobile?: boolean;
   /** Devise de la PAIE créatrices (dollars), threadée depuis ValidationPage. */
   currency?: string | null;
 }) {
@@ -721,6 +764,89 @@ function BonusRow({
     }
   }
 
+  const bouton = (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={openDialog}
+      disabled={!r.hasSnapshot}
+      title={
+        r.hasSnapshot
+          ? undefined
+          : tr("aucunSnapshotDeVuesPour")
+      }
+    >
+      <TrendingUpIcon className="mr-2 size-4" />
+      {r.existingBonus !== null ? tr("recalculer") : tr("calculerLeBonus")}
+    </Button>
+  );
+  const dialogue = (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{tr("bonusDeVues", { creatorName: r.creatorName })}</DialogTitle>
+          <DialogDescription>
+            {tr("prerempliAvecLesVuesDu")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="bonus-views">{tr("vues")}</Label>
+          <Input
+            id="bonus-views"
+            type="number"
+            min={0}
+            value={views}
+            onChange={(e) => setViews(e.target.value)}
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setOpen(false)}
+            disabled={busy}
+          >
+            {tr("annuler")}
+          </Button>
+          <Button onClick={onCompute} disabled={busy}>
+            {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            {r.existingBonus !== null ? tr("recalculer") : tr("calculer")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+  const vues = (
+    <>
+      {r.latestViews !== null ? (
+        formatNumber(r.latestViews, loc)
+      ) : (
+        <span className="text-xs text-slate-400">{tr("aucunSnapshot")}</span>
+      )}
+    </>
+  );
+  const bonus = r.existingBonus !== null ? formatMoney(r.existingBonus, currency, loc) : "—";
+
+  if (mobile) {
+    return (
+      <li className="space-y-2 px-4 py-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="min-w-0 font-medium text-slate-900">{r.creatorName}</span>
+          <span className="shrink-0 text-xs text-slate-500">
+            {tr("post", { postCount: r.postCount })}
+          </span>
+        </div>
+        <p className="text-sm text-slate-700">{r.formatName}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm tabular-nums text-slate-700">
+            {vues} · <span className="font-medium">{bonus}</span>
+          </span>
+          {bouton}
+        </div>
+        {dialogue}
+      </li>
+    );
+  }
+
   return (
     <TableRow>
       <TableCell className="font-medium text-slate-900">
@@ -730,65 +856,11 @@ function BonusRow({
       <TableCell className="text-sm text-slate-500">
         {tr("post", { postCount: r.postCount })}
       </TableCell>
-      <TableCell className="text-right tabular-nums">
-        {r.latestViews !== null ? (
-          formatNumber(r.latestViews, loc)
-        ) : (
-          <span className="text-xs text-slate-400">{tr("aucunSnapshot")}</span>
-        )}
-      </TableCell>
-      <TableCell className="text-right tabular-nums text-slate-700">
-        {r.existingBonus !== null ? formatMoney(r.existingBonus, currency, loc) : "—"}
-      </TableCell>
+      <TableCell className="text-right tabular-nums">{vues}</TableCell>
+      <TableCell className="text-right tabular-nums text-slate-700">{bonus}</TableCell>
       <TableCell className="text-right">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={openDialog}
-          disabled={!r.hasSnapshot}
-          title={
-            r.hasSnapshot
-              ? undefined
-              : tr("aucunSnapshotDeVuesPour")
-          }
-        >
-          <TrendingUpIcon className="mr-2 size-4" />
-          {r.existingBonus !== null ? tr("recalculer") : tr("calculerLeBonus")}
-        </Button>
-
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{tr("bonusDeVues", { creatorName: r.creatorName })}</DialogTitle>
-              <DialogDescription>
-                {tr("prerempliAvecLesVuesDu")}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-2">
-              <Label htmlFor="bonus-views">{tr("vues")}</Label>
-              <Input
-                id="bonus-views"
-                type="number"
-                min={0}
-                value={views}
-                onChange={(e) => setViews(e.target.value)}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => setOpen(false)}
-                disabled={busy}
-              >
-                {tr("annuler")}
-              </Button>
-              <Button onClick={onCompute} disabled={busy}>
-                {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-                {r.existingBonus !== null ? tr("recalculer") : tr("calculer")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {bouton}
+        {dialogue}
       </TableCell>
     </TableRow>
   );

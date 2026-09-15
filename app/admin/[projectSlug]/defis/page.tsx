@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import { PlusIcon, TrophyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/components/layout/use-is-mobile";
 import { formatDateFr } from "@/convex/dateFr";
 import type { WinnerRule } from "@/convex/challengeScore";
 import { CreateChallengeDialog } from "@/components/challenges/CreateChallengeDialog";
@@ -39,6 +40,7 @@ export default function ChallengesPage() {
   const projectPath = useProjectPath();
   const payCurrency = useProject().project.payCurrency;
   const [createOpen, setCreateOpen] = useState(false);
+  const isMobile = useIsMobile();
   // Ancre temporelle stable au montage : `Date.now()` au render est impur.
   const [now] = useState(() => Date.now());
 
@@ -69,6 +71,61 @@ export default function ChallengesPage() {
               {tr("aucunDefiCreeLePremier")}
             </p>
           </CardContent>
+        </Card>
+      ) : isMobile ? (
+        // Sous 768 px : une carte par défi — sept colonnes n'y tiennent pas.
+        <Card className="py-0">
+          <ul className="divide-y divide-slate-100">
+            {challenges.map((c) => (
+              <li key={c._id} className="space-y-1.5 px-4 py-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <Link
+                    href={projectPath(`/defis/${c._id}`)}
+                    className="min-w-0 font-medium break-words hover:underline"
+                  >
+                    {c.name}
+                  </Link>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                      statusTone(c.status),
+                    )}
+                  >
+                    {L.status(c.status)}
+                  </span>
+                </div>
+                <p className="text-slate-700">
+                  <span className="tabular-nums">
+                    {tr("vues", { count: formatViews(c.targetViews, loc) })}
+                  </span>
+                  <span className="text-xs text-slate-400"> · {L.mode(c.mode)}</span>
+                </p>
+                <p className="text-slate-700">
+                  {L.reward(c.reward, c.winnerRule as WinnerRule, payCurrency)}
+                </p>
+                <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                  <span>
+                    {tr("participantes")}{" "}
+                    <span className="tabular-nums text-slate-900">{c.participantCount}</span>
+                  </span>
+                  <span>
+                    {tr("gagnantes")}{" "}
+                    <span className="tabular-nums text-slate-900">{c.winCount}</span>
+                    {Number.isFinite(c.slots) ? ` / ${c.slots}` : " / ∞"} ·{" "}
+                    {L.winnerRule(c.winnerRule as WinnerRule)}
+                  </span>
+                  <span>
+                    {formatDateFr(c.deadline, loc)} · {L.deadline(c.deadline, now)}
+                  </span>
+                  {c.over && c.status === "active" && (
+                    <span title={tr("deadlinePasseeOuToutesLes")}>
+                      {tr("termineDeFait")}
+                    </span>
+                  )}
+                </p>
+              </li>
+            ))}
+          </ul>
         </Card>
       ) : (
         <Card>

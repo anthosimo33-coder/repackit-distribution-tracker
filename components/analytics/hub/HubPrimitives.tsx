@@ -23,6 +23,16 @@ import { MIN_SAMPLE_SIZE, daysUntil } from "@/lib/analytics-hub";
 import { HubTrendChart, type TrendPoint } from "./HubTrendChart";
 
 /**
+ * Classes d'un tableau du hub sur téléphone : sous sm, les cellules de TEXTE
+ * passent à la ligne (le `whitespace-nowrap` du tableau partagé les faisait
+ * déborder de leur carte de 30 à 400 px). Les chiffres, sans espace, ne cassent
+ * pas. Une matrice trop large pour ça (Pays) garde son défilement, première
+ * colonne figée.
+ */
+export const HUB_TABLE_MOBILE =
+  "max-sm:[&_td]:whitespace-normal max-sm:[&_th]:whitespace-normal";
+
+/**
  * Briques partagées du hub Analytics.
  *
  * Deux règles transverses y sont matérialisées :

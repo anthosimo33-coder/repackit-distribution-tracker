@@ -147,7 +147,9 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
                 key={`${t.platform}-${t.accountHandle ?? ""}`}
                 className="flex items-center justify-between gap-2 text-sm"
               >
-                <span className="text-slate-600">
+                {/* Un handle long passe à la ligne au lieu de pousser le lien
+                    « voir le post » hors de la carte. */}
+                <span className="min-w-0 break-all text-slate-600">
                   {t.platform}
                   {t.accountHandle ? (
                     <span className="ml-1 font-mono text-slate-400">
@@ -160,12 +162,12 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
                     href={t.publishedUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-primary underline"
+                    className="shrink-0 text-xs text-primary underline"
                   >
                     {tc("seePost")}
                   </a>
                 ) : (
-                  <span className="text-xs text-slate-400">{tc("notPublishedYet")}</span>
+                  <span className="shrink-0 text-xs text-slate-400">{tc("notPublishedYet")}</span>
                 )}
               </div>
             ))

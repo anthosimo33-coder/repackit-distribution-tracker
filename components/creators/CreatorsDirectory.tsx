@@ -1,5 +1,6 @@
 "use client";
 
+import { useIsMobile } from "@/components/layout/use-is-mobile";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import type { FunctionReturnType } from "convex/server";
@@ -214,6 +215,10 @@ export function CreatorsDirectory({
   const [groupe, setGroupe] = useState<Groupe>("region");
   const [tri, setTri] = useState<Tri>("recent");
   const [vue, setVue] = useState<"list" | "cards">("list");
+  // Le choix mémorisé n'est PAS réécrit sur téléphone : reposé sur un écran
+  // large, l'écran retrouve la vue qu'on y avait choisie.
+  const isMobile = useIsMobile();
+  const vueEffective = isMobile ? "cards" : vue;
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [filtres, setFiltres] = useState<Record<Axe, Set<string>>>({
     kind: new Set(),
@@ -657,7 +662,9 @@ export function CreatorsDirectory({
               ))}
             </select>
           </label>
-          <div className="flex gap-0.5 rounded-md bg-slate-100 p-0.5">
+          {/* Sur téléphone, la liste n'est pas proposée : douze colonnes ne
+              tiennent pas, les cartes s'imposent (cf `vueEffective`). */}
+          <div className="hidden gap-0.5 rounded-md bg-slate-100 p-0.5 md:flex">
             <ViewButton actif={vue === "list"} onClick={() => changerVue("list")} label={tr("vueListe")}>
               <ListIcon className="size-4" />
             </ViewButton>
@@ -711,7 +718,7 @@ export function CreatorsDirectory({
             {tr("aucunCreateurNeCorrespondRetire")}
           </CardContent>
         </Card>
-      ) : vue === "list" ? (
+      ) : vueEffective === "list" ? (
         <Card>
           <CardContent className="overflow-x-auto p-0">
             <Table>
@@ -943,7 +950,7 @@ export function CreatorsDirectory({
                   currency={payCurrency}
                 />
               )}
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {g.lignes.map((l) => (
                   <CarteCreatrice
                     key={String(l._id)}

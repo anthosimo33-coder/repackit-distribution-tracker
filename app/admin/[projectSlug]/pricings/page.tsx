@@ -437,8 +437,10 @@ function PricingsPageContenu() {
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <div className="min-w-3xl">
-            <div className="grid grid-cols-[minmax(13rem,1.4fr)_6rem_6.5rem_minmax(13rem,1.3fr)_2.25rem] items-center gap-4 border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-[10.5px] font-medium tracking-wider text-slate-400 uppercase">
+          {/* Sous 768 px, la ligne se replie en carte (cf `PricingRow`) : les
+              en-têtes de colonnes n'ont plus de colonnes à nommer. */}
+          <div className="md:min-w-3xl">
+            <div className="hidden md:grid-cols-[minmax(13rem,1.4fr)_6rem_6.5rem_minmax(13rem,1.3fr)_2.25rem] items-center gap-4 md:grid border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-[10.5px] font-medium tracking-wider text-slate-400 uppercase">
               <span>Barème</span>
               <span className="text-right">Fixe / vidéo</span>
               <span className="text-right">CPM</span>
@@ -614,11 +616,13 @@ function PricingRow({
 
   return (
     <div
-      className={`grid grid-cols-[minmax(13rem,1.4fr)_6rem_6.5rem_minmax(13rem,1.3fr)_2.25rem] items-center gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 ${
+      // Mobile : nom + menu sur la 1re ligne, fixe et CPM côte à côte, paliers
+      // en dessous. ≥ md : les cinq colonnes du tableau.
+      className={`grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] items-center gap-x-4 gap-y-2 md:grid-cols-[minmax(13rem,1.4fr)_6rem_6.5rem_minmax(13rem,1.3fr)_2.25rem] md:gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0 ${
         p.status === "archived" ? "bg-slate-50/40" : ""
       } ${isDefaultRow ? "bg-violet-50/30" : ""}`}
     >
-      <div className="min-w-0">
+      <div className="col-span-2 row-start-1 min-w-0 md:col-span-1 md:row-start-auto">
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
@@ -689,11 +693,13 @@ function PricingRow({
         unit={kind === "fixe" || kind === "aucun" ? "pas de CPM" : "/ 1 000 vues"}
       />
 
-      <LadderCell
-        tiers={tiers}
-        money={money}
-        template={templates.find((t) => t._id === p.bonusTemplateId) ?? null}
-      />
+      <div className="col-span-3 min-w-0 md:col-span-1">
+        <LadderCell
+          tiers={tiers}
+          money={money}
+          template={templates.find((t) => t._id === p.bonusTemplateId) ?? null}
+        />
+      </div>
 
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -701,7 +707,7 @@ function PricingRow({
             <button
               type="button"
               aria-label={`Actions du barème ${p.name}`}
-              className="grid size-7 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="col-start-3 row-start-1 grid size-7 place-items-center justify-self-end rounded-md md:col-start-auto md:row-start-auto text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             >
               <MoreHorizontalIcon className="size-4" />
             </button>
@@ -769,7 +775,7 @@ function PricingRow({
  */
 function NumCell({ value, unit }: { value: string | null; unit: string }) {
   return (
-    <div className="text-right tabular-nums">
+    <div className="tabular-nums md:text-right">
       <span
         className={`text-sm font-semibold tracking-tight ${
           value === null ? "text-slate-300" : "text-slate-900"
