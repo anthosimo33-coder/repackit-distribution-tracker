@@ -84,6 +84,9 @@ export function TopHooksTable({
   );
 }
 
+// Sous sm (640 px), chaque tableau ne garde que rang, hook et ses deux mesures
+// clés : identifiant, plateforme, verdict et mesure secondaire s'effacent
+// (`hidden sm:table-cell`), et le tableau tient sans défiler.
 function CarouselTable({
   rows,
   onRowClick,
@@ -97,11 +100,11 @@ function CarouselTable({
         <TableRow>
           <TableHead className="w-12">#</TableHead>
           <TableHead>Hook</TableHead>
-          <TableHead className="font-mono">Carousel</TableHead>
-          <TableHead>Plateforme</TableHead>
+          <TableHead className="hidden sm:table-cell font-mono">Carousel</TableHead>
+          <TableHead className="hidden sm:table-cell">Plateforme</TableHead>
           <TableHead className="text-right">Vues</TableHead>
           <TableHead className="text-right">Save rate</TableHead>
-          <TableHead>Verdict</TableHead>
+          <TableHead className="hidden sm:table-cell">Verdict</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -115,15 +118,15 @@ function CarouselTable({
               #{i + 1}
             </TableCell>
             <TableCell
-              className="max-w-[280px] truncate text-sm"
+              className="max-w-[9rem] truncate text-sm sm:max-w-[280px]"
               title={h.hookText}
             >
               {h.hookText.length > 60
                 ? h.hookText.slice(0, 60) + "…"
                 : h.hookText}
             </TableCell>
-            <TableCell className="font-mono text-xs">{h.carouselId}</TableCell>
-            <TableCell>
+            <TableCell className="hidden sm:table-cell font-mono text-xs">{h.carouselId}</TableCell>
+            <TableCell className="hidden sm:table-cell">
               <PlatformBadge plateforme={h.plateforme} />
             </TableCell>
             <TableCell className="text-right tabular-nums text-xs">
@@ -132,7 +135,7 @@ function CarouselTable({
             <TableCell className="text-right tabular-nums text-sm font-medium">
               {formatPercent(h.saveRate)}
             </TableCell>
-            <TableCell>
+            <TableCell className="hidden sm:table-cell">
               <VerdictBadge verdict={h.verdict} />
             </TableCell>
           </TableRow>
@@ -155,10 +158,10 @@ function ShortTable({
         <TableRow>
           <TableHead className="w-12">#</TableHead>
           <TableHead>Hook</TableHead>
-          <TableHead className="font-mono">Carousel</TableHead>
-          <TableHead>Plateforme</TableHead>
+          <TableHead className="hidden sm:table-cell font-mono">Carousel</TableHead>
+          <TableHead className="hidden sm:table-cell">Plateforme</TableHead>
           <TableHead className="text-right">Vues</TableHead>
-          <TableHead className="text-right">Likes</TableHead>
+          <TableHead className="hidden sm:table-cell text-right">Likes</TableHead>
           <TableHead className="text-right">Subs gagnés</TableHead>
         </TableRow>
       </TableHeader>
@@ -173,21 +176,21 @@ function ShortTable({
               #{i + 1}
             </TableCell>
             <TableCell
-              className="max-w-[280px] truncate text-sm"
+              className="max-w-[9rem] truncate text-sm sm:max-w-[280px]"
               title={h.hookText}
             >
               {h.hookText.length > 60
                 ? h.hookText.slice(0, 60) + "…"
                 : h.hookText}
             </TableCell>
-            <TableCell className="font-mono text-xs">{h.carouselId}</TableCell>
-            <TableCell>
+            <TableCell className="hidden sm:table-cell font-mono text-xs">{h.carouselId}</TableCell>
+            <TableCell className="hidden sm:table-cell">
               <PlatformBadge plateforme={h.plateforme} />
             </TableCell>
             <TableCell className="text-right tabular-nums text-xs">
               {formatNumber(h.vues)}
             </TableCell>
-            <TableCell className="text-right tabular-nums text-xs">
+            <TableCell className="hidden sm:table-cell text-right tabular-nums text-xs">
               {formatNumber(h.likes)}
             </TableCell>
             <TableCell className="text-right tabular-nums text-sm font-medium">
@@ -223,10 +226,10 @@ function ScreenRecorderTable({
         <TableRow>
           <TableHead className="w-12">#</TableHead>
           <TableHead>Hook</TableHead>
-          <TableHead>Titre</TableHead>
-          <TableHead>Plateforme</TableHead>
+          <TableHead className="hidden sm:table-cell">Titre</TableHead>
+          <TableHead className="hidden sm:table-cell">Plateforme</TableHead>
           <TableHead className="text-right">Vues</TableHead>
-          <TableHead className="text-right">Likes</TableHead>
+          <TableHead className="hidden sm:table-cell text-right">Likes</TableHead>
           <TableHead className="text-right">Subs gagnés</TableHead>
         </TableRow>
       </TableHeader>
@@ -244,7 +247,7 @@ function ScreenRecorderTable({
                 #{i + 1}
               </TableCell>
               <TableCell
-                className="max-w-[260px] truncate text-sm"
+                className="max-w-[9rem] truncate text-sm sm:max-w-[260px]"
                 title={h.hookText}
               >
                 {h.hookText.length > 60
@@ -252,18 +255,18 @@ function ScreenRecorderTable({
                   : h.hookText}
               </TableCell>
               <TableCell
-                className="max-w-[200px] truncate text-sm font-medium"
+                className="hidden sm:table-cell max-w-[200px] truncate text-sm font-medium"
                 title={titre}
               >
                 {titre}
               </TableCell>
-              <TableCell>
+              <TableCell className="hidden sm:table-cell">
                 <PlatformBadge plateforme={h.plateforme} />
               </TableCell>
               <TableCell className="text-right tabular-nums text-xs">
                 {formatNumber(h.vues)}
               </TableCell>
-              <TableCell className="text-right tabular-nums text-xs">
+              <TableCell className="hidden sm:table-cell text-right tabular-nums text-xs">
                 {formatNumber(h.likes)}
               </TableCell>
               <TableCell className="text-right tabular-nums text-sm font-medium">

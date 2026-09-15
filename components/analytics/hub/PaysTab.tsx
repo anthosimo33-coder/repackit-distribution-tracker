@@ -10,7 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { HubCardHeader, ColLabel, dash } from "./HubPrimitives";
+import { HubCardHeader, ColLabel, dash, HUB_TABLE_MOBILE } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
@@ -677,10 +677,12 @@ export function PaysTab({
             subtitle="Ce qu'un client rapporte face à ce que le marché coûte. Trié par retour sur investissement."
           />
           <div className="overflow-x-auto">
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Marché</TableHead>
+                  {/* Première colonne FIGÉE : sur téléphone, douze colonnes de
+                      chiffres défilent, et le nom du marché reste lisible. */}
+                  <TableHead className="sticky left-0 z-10 bg-white">Marché</TableHead>
                   <TableHead className="text-right">
                     <ColLabel label="Clients" info={EXPLAIN.marcheClients} />
                   </TableHead>
@@ -724,11 +726,11 @@ export function PaysTab({
                     aria-selected={ouvert === m.key}
                     className={
                       ouvert === m.key
-                        ? "cursor-pointer bg-slate-50"
-                        : "cursor-pointer"
+                        ? "group cursor-pointer bg-slate-50"
+                        : "group cursor-pointer"
                     }
                   >
-                    <TableCell className="text-xs font-medium text-slate-700">
+                    <TableCell className="sticky left-0 z-10 bg-white text-xs font-medium text-slate-700 group-hover:bg-slate-50 group-aria-selected:bg-slate-50">
                       {m.composed ? (
                         <span className="inline-flex items-center gap-1.5">
                           {m.label}
@@ -819,7 +821,7 @@ export function PaysTab({
               subtitle="Pays de connexion du visiteur. Une personne est rattachée au pays de ses visites, et ses achats lui sont comptés d'où qu'ils partent."
             />
             <div className="overflow-x-auto">
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Pays de connexion</TableHead>
@@ -912,7 +914,7 @@ export function PaysTab({
               subtitle="Paiements encaissés et part des tentatives qui aboutissent. Du moins cher au plus cher."
             />
             <div className="overflow-x-auto">
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Plan</TableHead>
@@ -992,7 +994,7 @@ export function PaysTab({
               subtitle="Coût des vidéos publiées le mois, contre revenu encaissé le mois. Tous marchés confondus."
             />
             <div className="overflow-x-auto">
-              <Table>
+              <Table className={HUB_TABLE_MOBILE}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Mois</TableHead>

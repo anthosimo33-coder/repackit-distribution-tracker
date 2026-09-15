@@ -109,7 +109,9 @@ export default function ScriptsPage() {
                     key={c._id}
                     className={cn(c.status === "archived" && "opacity-50")}
                   >
-                    <TableCell className="font-medium text-slate-900">
+                    {/* Le nom passe à la ligne : trois colonnes tiennent alors sur
+                        un téléphone, sans défilement horizontal. */}
+                    <TableCell className="font-medium whitespace-normal break-words text-slate-900">
                       <Link
                         href={projectPath(`/scripts/${c._id}`)}
                         className="transition-colors hover:text-primary hover:underline"

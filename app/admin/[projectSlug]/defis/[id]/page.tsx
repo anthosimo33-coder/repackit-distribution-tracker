@@ -261,8 +261,11 @@ export default function ChallengeDetailPage() {
                 <TableHead className="w-12">#</TableHead>
                 <TableHead>{tr("creatrice")}</TableHead>
                 <TableHead>{tr("score")}</TableHead>
-                <TableHead>{tr("progression")}</TableHead>
-                <TableHead>{tr("videos")}</TableHead>
+                {/* Sous sm, la barre et le nombre de vidéos s'effacent : l'état
+                    dit déjà si la barre est franchie, et quatre colonnes
+                    tiennent sur un téléphone. */}
+                <TableHead className="hidden sm:table-cell">{tr("progression")}</TableHead>
+                <TableHead className="hidden sm:table-cell">{tr("videos")}</TableHead>
                 <TableHead>{tr("etat")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -274,11 +277,11 @@ export default function ChallengeDetailPage() {
                     <TableCell className="tabular-nums text-slate-400">
                       {r.rank}
                     </TableCell>
-                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="font-medium whitespace-normal">{r.name}</TableCell>
                     <TableCell className="tabular-nums">
                       {formatViews(r.score, loc)}
                     </TableCell>
-                    <TableCell className="w-40">
+                    <TableCell className="hidden w-40 sm:table-cell">
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                         <div
                           className={cn(
@@ -291,7 +294,7 @@ export default function ChallengeDetailPage() {
                         />
                       </div>
                     </TableCell>
-                    <TableCell className="tabular-nums text-slate-500">
+                    <TableCell className="hidden tabular-nums text-slate-500 sm:table-cell">
                       {r.videoCount}
                     </TableCell>
                     <TableCell className="text-sm">
@@ -311,7 +314,7 @@ export default function ChallengeDetailPage() {
               })}
               {ranking.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-sm text-slate-500">
+                  <TableCell colSpan={6} className="py-8 text-center text-sm whitespace-normal text-slate-500">
                     {tr("aucuneParticipanteAjouteLesCi")}
                   </TableCell>
                 </TableRow>

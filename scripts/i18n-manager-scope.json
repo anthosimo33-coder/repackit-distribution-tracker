@@ -184,6 +184,7 @@
     "components/layout/NewButton.tsx",
     "components/layout/Sidebar.tsx",
     "components/layout/SidebarLayout.tsx",
+    "components/layout/use-is-mobile.ts",
     "components/nouveau/HookCombobox.tsx",
     "components/nouveau/NewFormatButton.tsx",
     "components/nouveau/NouveauModal.tsx",

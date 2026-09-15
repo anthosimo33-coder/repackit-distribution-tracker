@@ -55,16 +55,18 @@ export function CycleLeaderStrip({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white">
-      <div className="flex items-stretch">
+      {/* Téléphone : les trois de tête en COLONNE et le bouton en dessous — en
+          ligne, ils défilaient dans une bande de 150 px. sm+ : une seule ligne. */}
+      <div className="flex flex-wrap items-stretch sm:flex-nowrap">
         <div className="flex shrink-0 items-center gap-2 border-r border-slate-200 px-3.5 py-2.5 text-xs font-semibold text-slate-600">
           <TrophyIcon className="size-3.5 text-amber-500" />
           <span className="hidden sm:inline">{tr("teteDuCycle")}</span>
         </div>
-        <ul className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto px-4 py-2">
+        <ul className="flex min-w-0 flex-1 flex-col gap-1 px-4 py-2 sm:flex-row sm:items-center sm:gap-5 sm:overflow-x-auto">
           {top.map((e) => (
             <li
               key={e.creatorId}
-              className="flex shrink-0 items-center gap-2 whitespace-nowrap"
+              className="flex min-w-0 items-center gap-2 whitespace-nowrap sm:shrink-0"
             >
               <span
                 aria-hidden
@@ -81,10 +83,10 @@ export function CycleLeaderStrip({
               >
                 {e.rank}
               </span>
-              <span className="text-sm font-medium text-slate-800">
+              <span className="min-w-0 truncate text-sm font-medium text-slate-800">
                 {e.name}
               </span>
-              <span className="text-sm font-semibold tabular-nums text-slate-900">
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
                 {formatMoney(e.totalDue, currency, loc)}
               </span>
             </li>
@@ -94,7 +96,7 @@ export function CycleLeaderStrip({
           type="button"
           onClick={() => setOuvert((o) => !o)}
           aria-expanded={ouvert}
-          className="flex shrink-0 items-center gap-1.5 border-l border-slate-200 px-3.5 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-slate-50"
+          className="flex w-full shrink-0 items-center justify-center gap-1.5 border-t border-slate-200 px-3.5 py-2.5 text-xs font-medium text-primary transition-colors hover:bg-slate-50 sm:w-auto sm:border-t-0 sm:border-l"
         >
           {ouvert ? tr("replier") : tr("classementComplet")}
           <ChevronDownIcon

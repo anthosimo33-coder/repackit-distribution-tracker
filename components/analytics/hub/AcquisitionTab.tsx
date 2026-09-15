@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatViews } from "@/lib/format-rate";
-import { HubCardHeader, HubEmptyState, dash } from "./HubPrimitives";
+import { HubCardHeader, HubEmptyState, dash, HUB_TABLE_MOBILE } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
 import { NatureRewardsCard } from "./NatureRewardsCard";
@@ -68,7 +68,7 @@ export function AcquisitionTab({
           {viewCounters === undefined ? (
             <p className="text-sm text-slate-400">—</p>
           ) : (
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Compteur</TableHead>
@@ -155,7 +155,7 @@ export function AcquisitionTab({
               description="Les statistiques par créatrice apparaissent dès qu'une vidéo non-warmup est publiée."
             />
           ) : (
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Créatrice</TableHead>
@@ -208,7 +208,7 @@ export function AcquisitionTab({
               — aucune publication promo sur la fenêtre.
             </p>
           ) : (
-            <Table>
+            <Table className={HUB_TABLE_MOBILE}>
               <TableHeader>
                 <TableRow>
                   <TableHead>Jour</TableHead>
