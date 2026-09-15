@@ -121,7 +121,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
         <CardTitle>{tr("protocoleDeWarmup")}</CardTitle>
         <Button
           variant="outline"
@@ -139,7 +139,7 @@ export function WarmupProtocolSection({ compte }: { compte: Compte }) {
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Compliance */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
           <Stat
             label={tr("progression")}
             value={progress ? tr("jour", { day: progress.day, targetDays: progress.targetDays }) : "—"}
@@ -243,17 +243,17 @@ function Stat({
   tone?: "default" | "ok" | "warn";
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+    <div className="flex min-w-0 items-baseline justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 sm:block sm:p-3">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
         {label}
       </p>
       <p
         className={
           tone === "warn"
-            ? "mt-1 text-lg font-semibold text-amber-600"
+            ? "font-semibold text-amber-600 sm:mt-1 sm:text-lg"
             : tone === "ok"
-              ? "mt-1 text-lg font-semibold text-emerald-600"
-              : "mt-1 text-lg font-semibold text-slate-900"
+              ? "font-semibold text-emerald-600 sm:mt-1 sm:text-lg"
+              : "font-semibold text-slate-900 sm:mt-1 sm:text-lg"
         }
       >
         {value}

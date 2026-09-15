@@ -627,7 +627,7 @@ export function CreatorsDirectory({
         />
         </div>
 
-        <div className="ml-auto flex items-end gap-2">
+        <div className="ml-auto flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-slate-600">{tr("grouperPar")}</span>
             <select

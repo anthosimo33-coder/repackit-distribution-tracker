@@ -290,7 +290,7 @@ function AnalyticsPageContenu() {
         </HubNotice>
       ) : analytics === undefined ? (
         <div className="space-y-4">
-          <Skeleton className="h-10 w-96" />
+          <Skeleton className="h-10 w-96 max-w-full" />
           <Skeleton className="h-64 w-full" />
         </div>
       ) : (
@@ -327,7 +327,7 @@ function AnalyticsPageContenu() {
           ) : null}
 
           <Tabs defaultValue="overview">
-            <TabsList className="flex-wrap">
+            <TabsList className="flex-wrap justify-start group-data-horizontal/tabs:h-auto">
               <TabsTrigger value="overview">
                 <BarChart3Icon className="size-4" />
                 Vue d&apos;ensemble
