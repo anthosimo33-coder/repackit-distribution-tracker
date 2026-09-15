@@ -347,7 +347,11 @@ export const getCreator = permissionQuery("creators.read")({
       name: creator.name,
       email: creator.email,
       phone: creator.phone,
-      locale: creator.locale,
+      // Langue RÉELLEMENT servie (compte → fiche), pas la fiche brute : une
+      // fois le compte créé, `users.locale` fait foi. Le formulaire part de
+      // cette valeur, sinon « Enregistrer » renverrait la langue de la fiche et
+      // `updateCreator` y verrait un changement que l'admin n'a pas fait.
+      locale: await resolveCreatorLocale(ctx, creator),
       timezone: creator.timezone,
       timezoneSource: creator.timezoneSource,
       kind: creator.kind,
@@ -608,7 +612,26 @@ export const updateCreator = permissionMutation("creators.manage")({
       }
     }
     if (args.locale !== undefined) {
-      patch.locale = normalizeCreatorLocale(args.locale);
+      // LA LANGUE CHOISIE PAR L'ADMIN S'APPLIQUE À L'ESPACE. À l'activation, la
+      // langue de la fiche est recopiée sur le compte (convex/auth.ts), et
+      // `users.locale` prime ensuite : changer la fiche seule ne changeait donc
+      // PLUS RIEN pour une créatrice déjà inscrite (cas réel : fiche passée en
+      // « pt », espace resté en anglais).
+      //
+      // On n'écrit sur le compte que si la langue SERVIE change. Le formulaire
+      // renvoie la langue à chaque « Enregistrer » : sans cette comparaison,
+      // corriger un téléphone écraserait la langue que la créatrice s'est
+      // choisie elle-même depuis son profil.
+      //
+      // « fr » est écrit EXPLICITEMENT sur le compte (la fiche, elle, ne stocke
+      // que la divergence) : un compte sans langue retomberait sur le cookie
+      // NEXT_LOCALE, que /join a posé dans l'ancienne langue.
+      const next = localeOrDefault(args.locale);
+      const served = localeOrDefault(await resolveCreatorLocale(ctx, creator));
+      patch.locale = normalizeCreatorLocale(next);
+      if (next !== served && creator.userId) {
+        await ctx.db.patch(creator.userId, { locale: next });
+      }
     }
     if (args.status !== undefined) patch.status = args.status;
     // ─── ANCRE DE CYCLE D'UN TALENT — la ligne la plus délicate de ce module ──

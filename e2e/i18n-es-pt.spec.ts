@@ -142,3 +142,78 @@ test.describe("i18n — espagnol et portugais, de l'invitation à l'espace", () 
     await ctx.close();
   });
 });
+
+/**
+ * CHANGER LA LANGUE D'UNE CRÉATRICE DÉJÀ INSCRITE — cas réel du 2026-09-15 :
+ * fiche passée de « en » à « pt », espace resté en anglais. À l'activation, la
+ * langue est recopiée sur le compte (`users.locale`), qui prime ensuite ; seule
+ * la fiche changeait.
+ *
+ * Le contre-test compte autant : « Enregistrer » renvoie la langue à chaque fois.
+ * Corriger une note ne doit pas écraser la langue que la créatrice s'est
+ * choisie elle-même.
+ */
+test.describe("i18n — la langue changée par l'admin s'applique à l'espace", () => {
+  test("anglais → portugais après inscription, puis sa propre préférence n'est pas écrasée", async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    const { token, creatorId } = await convex.mutation(api.creators.inviteCreator, {
+      name: `[E2E_TEST] Cíntia Fantato ${ts}`,
+      email: `e2e-locale-switch-${ts}@repackit.test`,
+      locale: "en",
+    });
+    const state = () =>
+      convex.mutation(api.creators.e2eGetCreatorLocaleState, {
+        creatorId,
+        secret: E2E_SECRET,
+      });
+
+    // (1) Elle s'inscrit en anglais : le compte porte « en ».
+    const ctx = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+      locale: "fr-FR",
+    });
+    const creator = await ctx.newPage();
+    await creator.goto(`/join/${token}`);
+    await creator.getByLabel(/password/i).fill("switch-pass-12345");
+    await creator.getByRole("button", { name: /activate my account/i }).click();
+    await creator.waitForURL(/\/app/, { timeout: 30_000 });
+    await expect.poll(state, { timeout: 20_000 }).toEqual({ creatorLocale: "en", userLocale: "en" });
+    await expect(creator.locator("html")).toHaveAttribute("lang", "en");
+
+    // (2) L'admin la passe en portugais depuis sa fiche.
+    await page.goto(adminPath(`/createurs/${creatorId}`));
+    const langue = page.getByRole("combobox", { name: "Langue" });
+    await expect(langue).toHaveText(/English/, { timeout: 20_000 });
+    await langue.click();
+    await page.getByRole("option", { name: "Português" }).click();
+    await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect.poll(state, { timeout: 20_000 }).toEqual({ creatorLocale: "pt", userLocale: "pt" });
+
+    // (3) Son espace, rechargé, est en portugais — sans qu'elle ait rien fait.
+    await creator.reload();
+    await expect(creator.locator("html")).toHaveAttribute("lang", "pt");
+    await expect(creator.getByRole("heading", { name: /Oi/ })).toBeVisible({ timeout: 20_000 });
+    await expect(creator.getByRole("heading", { name: /Hi there|Hi / })).toHaveCount(0);
+
+    // (4) CONTRE-TEST — elle repasse elle-même en anglais depuis son profil…
+    await creator.goto("/app/profil");
+    await creator.getByRole("button", { name: "en", exact: true }).click();
+    await expect.poll(state, { timeout: 20_000 }).toEqual({ creatorLocale: "pt", userLocale: "en" });
+
+    // …puis l'admin corrige seulement une note : la langue qu'elle a choisie tient.
+    await page.reload();
+    await expect(langue).toHaveText(/English/, { timeout: 20_000 });
+    await page.getByPlaceholder(/Notes internes/).fill(`note ${ts}`);
+    await page.getByRole("button", { name: "Enregistrer", exact: true }).click();
+    await expect
+      .poll(async () => (await convex.query(api.creators.getCreator, { id: creatorId }))?.adminNotes)
+      .toBe(`note ${ts}`);
+    expect((await state()).userLocale).toBe("en");
+
+    await ctx.close();
+  });
+});

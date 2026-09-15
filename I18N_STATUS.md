@@ -1406,3 +1406,13 @@ français avec le bandeau. Dry-run puis écriture, une langue à la fois :
 **Non relu par un natif.** Les traductions sont de qualité professionnelle mais
 n'ont pas été relues par un locuteur natif. Les SCRIPTS de mission (données du
 projet) ne sont pas traduits : ils restent dans la langue où l'équipe les écrit.
+
+### 13.1 Changer la langue d'une créatrice déjà inscrite
+
+À l'activation, la langue de la fiche est recopiée sur le compte, et
+`users.locale` prime ensuite. Jusqu'au correctif, changer la langue sur la fiche
+ne changeait donc plus l'espace (cas réel du 2026-09-15 : fiche `pt`, compte
+`en`). Désormais `updateCreator` réécrit `users.locale` quand la langue SERVIE
+change, et `getCreator` rend cette langue servie : enregistrer un autre champ ne
+touche pas la langue que la créatrice s'est choisie depuis son profil. Couvert par
+`e2e/i18n-es-pt.spec.ts` (deux contre-épreuves vues rouges).
