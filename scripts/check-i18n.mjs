@@ -53,7 +53,8 @@
  * HORS PÉRIMÈTRE. Les deux notions sont distinctes, et le fichier de baseline le
  * dit lui-même en en-tête.
  *
- * LES QUATRE RÈGLES DE CATALOGUE :
+ * LES QUATRE RÈGLES DE CATALOGUE (appliquées aussi à `es.json` et `pt.json`,
+ * langues du parcours créateur seul, contre le français ET l'anglais) :
  *   1. mêmes clés dans fr.json et en.json (le FR est la source) ;
  *   2. aucune entité HTML dans une valeur (elle s'afficherait littéralement) ;
  *   3. aucune valeur EN qui recopie le FR, sauf liste blanche explicite
@@ -510,6 +511,72 @@ for (const [locale, vals] of [["fr", frVals], ["en", enVals]]) {
   }
 }
 
+// ─── Langues du PARCOURS CRÉATEUR seul : espagnol, portugais ─────────────────
+// Ajoutées en septembre 2026 pour les créatrices uniquement : elles n'ont PAS
+// d'espace d'équipe (i18n/messages.ts le leur sert en anglais). Leur socle suit
+// les mêmes règles que l'anglais, contre le français :
+//   - mêmes clés ;
+//   - aucune valeur recopiée du français, NI de l'anglais (une copie de l'anglais
+//     est l'erreur la plus probable ici, et elle aussi « s'affiche très bien ») —
+//     sauf liste blanche `scripts/i18n-same-in-<langue>.json` ;
+//   - mêmes structures ICU que le français ;
+//   - ni balise non échappée, ni entité HTML.
+const CREATOR_ONLY_LOCALES = ["es", "pt"];
+const frBaseVals = Object.fromEntries(
+  Object.entries(frVals).filter(([k]) => !k.startsWith("admin.")),
+);
+const creatorLocaleProblems = [];
+for (const locale of CREATOR_ONLY_LOCALES) {
+  const cat = JSON.parse(readFileSync(join(ROOT, `messages/${locale}.json`), "utf8"));
+  if (existsSync(join(ROOT, `messages/admin/${locale}`))) {
+    creatorLocaleProblems.push(
+      `messages/admin/${locale}/ existe : l'espace d'équipe n'est servi qu'en fr/en (teamLocaleOf)`,
+    );
+  }
+  const same = new Set(
+    JSON.parse(readFileSync(join(ROOT, `scripts/i18n-same-in-${locale}.json`), "utf8")).keys,
+  );
+  const vals = flatValues(cat);
+  for (const k of Object.keys(frBaseVals)) {
+    if (!(k in vals)) creatorLocaleProblems.push(`[${locale}] clé manquante : ${k}`);
+  }
+  for (const k of Object.keys(vals)) {
+    if (!(k in frBaseVals)) creatorLocaleProblems.push(`[${locale}] clé en trop : ${k}`);
+  }
+  for (const [k, v] of Object.entries(vals)) {
+    if (!(k in frBaseVals)) continue;
+    const copied = v === frBaseVals[k] || (k in enVals && v === enVals[k]);
+    if ((copied && !same.has(k)) || String(v).startsWith("__TODO__")) {
+      creatorLocaleProblems.push(`[${locale}] non traduit (copie du fr ou de l'en) : ${k}  « ${v} »`);
+    }
+    if (typeof v === "string" && TAG_RE.test(v)) {
+      creatorLocaleProblems.push(`[${locale}] balise non échappée : ${k}`);
+    }
+    const frArgs = icuArgs(frBaseVals[k]);
+    const locArgs = icuArgs(v);
+    const unknown = [...locArgs.keys()].filter((a) => !frArgs.has(a));
+    const lost = [...frArgs]
+      .filter(([, types]) => types.has("plural") || types.has("select") || types.has("selectordinal"))
+      .map(([name]) => name)
+      .filter((name) => !locArgs.has(name));
+    if (unknown.length > 0 || lost.length > 0) {
+      creatorLocaleProblems.push(
+        `[${locale}] variables ICU incompatibles : ${k}${unknown.length ? ` — inconnue(s) : ${unknown.join(",")}` : ""}${lost.length ? ` — pluriel perdu : ${lost.join(",")}` : ""}`,
+      );
+    }
+  }
+  for (const k of same) {
+    if (!(k in vals) || (vals[k] !== frBaseVals[k] && vals[k] !== enVals[k])) {
+      creatorLocaleProblems.push(
+        `[${locale}] scripts/i18n-same-in-${locale}.json : « ${k} » n'est plus identique, retire-la`,
+      );
+    }
+  }
+  for (const v of catalogEntityViolations(cat)) {
+    creatorLocaleProblems.push(`[${locale}] entité HTML : ${v.key}  ${v.entities.join(" ")}`);
+  }
+}
+
 // ─── Entités HTML dans les catalogues ────────────────────────────────────────
 // Le détecteur rend le littéral tel qu'il est écrit dans la SOURCE JSX, où la
 // convention ESLint `react/no-unescaped-entities` impose `&apos;`. Copié tel
@@ -645,6 +712,18 @@ if (icuMismatch.length > 0) {
   console.error("  locale traduite UNIQUEMENT — aucun rendu FR ne le révèle.");
 }
 
+if (creatorLocaleProblems.length > 0) {
+  failed = true;
+  console.error(
+    `\n✖ ${creatorLocaleProblems.length} défaut(s) dans les catalogues espagnol / portugais :`,
+  );
+  for (const p of creatorLocaleProblems) console.error(`    ${p}`);
+  console.error(
+    "\n  Même règle que l'anglais : traduire, ou ajouter la clé à",
+  );
+  console.error("  scripts/i18n-same-in-<langue>.json si la valeur est LÉGITIMEMENT identique.");
+}
+
 if (failed) process.exit(1);
 
 // AVANCEMENT — en FICHIERS du périmètre, jamais en chaînes : le mode large
@@ -662,7 +741,7 @@ const creatorLeft = inBaseline(CREATOR_SCOPE);
 const managerLeft = inBaseline(MANAGER_SCOPE);
 const managerStrings = findings.filter((f) => MANAGER_SCOPE.includes(f.file)).length;
 console.log(
-  `✓ i18n — ${frKeys.size} clés, catalogues alignés, anglais traduit, aucune régression.\n` +
+  `✓ i18n — ${frKeys.size} clés, catalogues alignés, anglais/espagnol/portugais traduits, aucune régression.\n` +
     `  Périmètre créateur : ${CREATOR_SCOPE.length - creatorLeft}/${CREATOR_SCOPE.length} fichiers extraits.\n` +
     `  Espace d'équipe    : ${MANAGER_SCOPE.length - managerLeft}/${MANAGER_SCOPE.length} fichiers extraits.\n` +
     `  Reste : ~${remaining} chaînes dans ${BASELINE.size} fichiers (dont ~${managerStrings} côté équipe).`,

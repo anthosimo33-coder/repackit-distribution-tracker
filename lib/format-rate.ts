@@ -87,7 +87,7 @@ export function formatViews(
   n: number,
   locale: string = FORMAT_LOCALE_DEFAULT,
 ): string {
-  const sep = locale.startsWith("fr") ? " " : "";
+  const sep = locale.startsWith("en") ? "" : " ";
   if (n >= 1_000_000) return `${trimZero(n / 1_000_000, locale)}${sep}M`;
   if (n >= 1_000) return `${trimZero(n / 1_000, locale)}${sep}k`;
   return String(n);
@@ -95,7 +95,8 @@ export function formatViews(
 
 function trimZero(n: number, locale: string): string {
   const s = n.toFixed(1).replace(/\.0$/, "");
-  return locale.startsWith("fr") ? s.replace(".", ",") : s;
+  // Virgule décimale partout sauf en anglais (fr, es, pt).
+  return locale.startsWith("en") ? s : s.replace(".", ",");
 }
 
 /**

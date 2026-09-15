@@ -10,8 +10,21 @@
  * Module SANS dépendance : ni React, ni Next, ni `convex/server`.
  */
 
-export const LOCALES = ["fr", "en"] as const;
+export const LOCALES = ["fr", "en", "es", "pt"] as const;
 export type Locale = (typeof LOCALES)[number];
+
+/**
+ * Langues de l'ESPACE D'ÉQUIPE (`/admin`). L'espagnol et le portugais ont été
+ * ajoutés pour le parcours CRÉATEUR uniquement (septembre 2026) : les ~4 000
+ * libellés d'équipe n'existent qu'en français et en anglais. Un manager dont la
+ * langue est `es`/`pt` lit l'espace d'équipe en anglais (`teamLocaleOf`).
+ */
+export const TEAM_LOCALES = ["fr", "en"] as const satisfies readonly Locale[];
+export type TeamLocale = (typeof TEAM_LOCALES)[number];
+
+export function teamLocaleOf(locale: Locale): TeamLocale {
+  return locale === "fr" ? "fr" : "en";
+}
 
 /**
  * Langue par défaut du produit. Le français n'est pas « une langue parmi

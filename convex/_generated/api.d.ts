@@ -73,6 +73,8 @@ import type * as guideFrFixes from "../guideFrFixes.js";
 import type * as guideModuleLocale from "../guideModuleLocale.js";
 import type * as guideModules from "../guideModules.js";
 import type * as guideModulesEn from "../guideModulesEn.js";
+import type * as guideModulesEs from "../guideModulesEs.js";
+import type * as guideModulesPt from "../guideModulesPt.js";
 import type * as handleHygiene from "../handleHygiene.js";
 import type * as hookAvailability from "../hookAvailability.js";
 import type * as hooks from "../hooks.js";
@@ -242,6 +244,8 @@ declare const fullApi: ApiFromModules<{
   guideModuleLocale: typeof guideModuleLocale;
   guideModules: typeof guideModules;
   guideModulesEn: typeof guideModulesEn;
+  guideModulesEs: typeof guideModulesEs;
+  guideModulesPt: typeof guideModulesPt;
   handleHygiene: typeof handleHygiene;
   hookAvailability: typeof hookAvailability;
   hooks: typeof hooks;

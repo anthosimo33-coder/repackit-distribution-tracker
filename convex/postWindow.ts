@@ -65,10 +65,14 @@ export function formatPostWindow(w: PostWindow | null | undefined): string | nul
 }
 
 /**
- * Heure dans la convention de la LANGUE : « 21h30 » en français, « 9:30pm » en
- * anglais US. `hhmm` reste la forme française historique (admin, e-mails).
+ * Heure dans la convention de la LANGUE : « 21h30 » en français et en portugais
+ * brésilien, « 21:30 » en espagnol, « 9:30pm » en anglais US. `hhmm` reste la
+ * forme française historique (admin, e-mails).
  */
 export function hourFor(min: number, loc: string): string {
+  if (loc.startsWith("es")) {
+    return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
+  }
   if (!loc.startsWith("en")) return hhmm(min);
   const h24 = Math.floor(min / 60) % 24;
   const m = min % 60;

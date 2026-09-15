@@ -42,6 +42,7 @@ import { SidebarItem } from "./SidebarItem";
 import { VersMonEspace } from "./EspaceSwitch";
 import { NewButton } from "./NewButton";
 import { LanguageSelector } from "./LanguageSelector";
+import { TEAM_LOCALES } from "@/i18n/locales";
 import { ProjectSwitcher } from "@/components/project/ProjectSwitcher";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { cn } from "@/lib/utils";
@@ -392,7 +393,7 @@ export function Sidebar({
             {me.email}
           </div>
         )}
-        <LanguageSelector collapsed={collapsed} />
+        <LanguageSelector collapsed={collapsed} locales={TEAM_LOCALES} />
         {collapsed ? (
           <Tooltip>
             <TooltipTrigger

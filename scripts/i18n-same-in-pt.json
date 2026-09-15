@@ -1,0 +1,24 @@
+{
+  "_": "Cles dont la valeur pt est LEGITIMEMENT identique au FR ou a l EN : marques, jargon, mots identiques. Toute autre egalite fait echouer la CI. Une cle qui n est plus identique doit sortir de la liste.",
+  "keys": [
+    "auth.field.email",
+    "clip.phaseUnknown",
+    "estimator.base",
+    "layout.metadata.title",
+    "nav.item.radar",
+    "nav.section.veille",
+    "phase.inline.demo",
+    "phase.label.demo",
+    "portal.modelVideo.linkBadge",
+    "portal.paiements.kind.base",
+    "portal.paiements.kind.cpm",
+    "portal.paiements.total",
+    "portal.profil.email",
+    "portal.profil.method.paypal",
+    "status.compte.shadowban",
+    "status.urgency.soon",
+    "tracker.quadrant.legendQualification.promo",
+    "tracker.quadrant.tooltip.distributionValue",
+    "tracker.quadrant.tooltip.saveRate"
+  ]
+}

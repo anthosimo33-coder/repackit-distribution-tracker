@@ -1,0 +1,1455 @@
+{
+  "layout": {
+    "metadata": {
+      "title": "Jarvis Creator Studio",
+      "description": "Jarvis Creator Studio — estudio de distribución de contenido"
+    }
+  },
+  "nav": {
+    "section": {
+      "pilotage": "Operaciones",
+      "createurs": "Creadores",
+      "contenu": "Contenido",
+      "veille": "Radar",
+      "outils": "Herramientas",
+      "administration": "Administración",
+      "production": "Producción",
+      "argent": "Dinero"
+    },
+    "item": {
+      "dashboard": "Panel",
+      "validation": "Validación",
+      "rushes": "Brutos",
+      "assignments": "Misiones",
+      "pricings": "Tarifas",
+      "paiements": "Pagos",
+      "analytics": "Analítica",
+      "notifications": "Notificaciones",
+      "createurs": "Creadores",
+      "comptes": "Cuentas",
+      "scripts": "Guiones",
+      "inspirations": "Inspiraciones",
+      "assets": "Recursos",
+      "guide": "Cómo funciona",
+      "radar": "Radar",
+      "defis": "Retos",
+      "equipe": "Roles y permisos"
+    },
+    "action": {
+      "new": "Nuevo",
+      "logout": "Cerrar sesión",
+      "expandSidebar": "Expandir la barra lateral",
+      "collapseSidebar": "Contraer la barra lateral",
+      "openInNewTab": "Se abre en una pestaña nueva",
+      "openMenu": "Abrir el menú"
+    },
+    "espace": {
+      "versPortail": {
+        "creator": "Mi espacio de creador",
+        "talent": "Mi espacio de talento",
+        "clipper": "Mi espacio de clipper"
+      },
+      "versPortailSous": "Misiones y pagos",
+      "versEquipe": "Espacio del equipo",
+      "role": {
+        "admin": "Administrador",
+        "manager": "Manager"
+      }
+    }
+  },
+  "settings": {
+    "language": {
+      "label": "Idioma de la interfaz",
+      "ariaLabel": "Cambiar el idioma de la interfaz",
+      "saved": "Idioma guardado.",
+      "error": "No se ha podido guardar el idioma."
+    }
+  },
+  "tracker": {
+    "quadrant": {
+      "title": "Cuadrante Vistas × Intención",
+      "subtitle": "Cada post publicado, cruzado en dos ejes independientes: cuánto se alejó de la mediana de su cuenta (×{multiplier} para contar como «alto») y qué parte de su audiencia lo guardó ({saveRate} para contar como «alto»). Por debajo de {minViews} vistas el save rate no es legible: el post no sube a la mitad alta. Puntuaciones recalculadas en la sincronización nocturna.",
+      "axisX": "Distribución — vistas ÷ mediana de la cuenta (escala log)",
+      "axisY": "Intención — save rate",
+      "empty": "Ningún post se puede situar en este periodo.",
+      "period": {
+        "label": "Ventana mostrada",
+        "days": "Últimos {days} días"
+      },
+      "legend": {
+        "pending": "Pendiente",
+        "breakout": "Ventana de breakout",
+        "colorIsVerdict": "el color indica el veredicto"
+      },
+      "name": {
+        "scale": "Escalar",
+        "intent_faible": "Intención baja",
+        "distribution_faible": "Distribución baja",
+        "archiver": "Archivar"
+      },
+      "tooltip": {
+        "noCreator": "Sin creadora asociada",
+        "noLabel": "(sin título)",
+        "views": "Vistas",
+        "saves": "Guardados",
+        "saveRate": "Save rate",
+        "distribution": "Distribución",
+        "distributionValue": "×{score} de {baseline}",
+        "pending": "Pendiente — menos de {hours} h, demasiado pronto para juzgar.",
+        "unclassified": "Sin clasificar.",
+        "breakout": "Publicado en la ventana de un post grande de la misma cuenta: la distribución puede ser prestada."
+      },
+      "info": {
+        "aria": "Más información — {sujet}",
+        "subjectX": "el eje de distribución",
+        "subjectY": "el eje de intención",
+        "title": "Este gráfico responde a una pregunta: para cada post, ¿dónde está el problema? Un post puede fallar de dos formas distintas: TikTok no lo distribuyó (problema de hook), o se vio pero nadie mostró interés por el producto (problema de introducción del producto). Estos dos fallos se corrigen de forma opuesta: este gráfico los separa para no corregir lo que no es.",
+        "axisX": "¿TikTok empujó este post? Se mide respecto a la mediana de la cuenta en {windowDays} días: un post es 'alto' si hizo al menos ×{multiplier} la mediana de SU cuenta. Es relativo: 10.000 vistas son un pico en una cuenta pequeña y un día normal en una grande.",
+        "axisY": "¿Los espectadores mostraron interés por el producto? Se mide con la tasa de guardados (guardados ÷ vistas), umbral en {saveRate}. Un guardado = 'me lo quedo para después': es la señal más correlacionada con las ventas en nuestro historial. Los likes miden emoción, los guardados miden intención.",
+        "scale": "Distribuido Y guardado: el hook engancha y el producto interesa. Acción: repetir este formato/hook, es un ganador probado.",
+        "intent_faible": "TikTok lo distribuyó pero nadie lo guarda: la gente mira sin interesarse por el producto. El hook es bueno, no lo toques. El problema está en el puente hacia el producto: mención demasiado tardía, poco clara o ausente. Acción: afinar la introducción del producto.",
+        "distribution_faible": "Pocas vistas pero una tasa de guardados alta: el pequeño público alcanzado se interesa mucho por el producto. El ángulo es bueno, mantenlo. Es el hook el que no enganchó lo suficiente para que TikTok lo empujara. Acción: cambiar el hook, mantener el ángulo.",
+        "archiver": "Ni distribución ni interés. Un intento fallido puede ser mala suerte (la distribución de TikTok es una lotería): se archiva tras 2 intentos fallidos, no 1.",
+        "pending": "Un post de menos de {hours}h no se clasifica: sus vistas aún suben y clasificarlo ahora daría un veredicto falso. Clasificación fijada a las {hours}h.",
+        "breakout": "Este post se publicó en las {windowHours}h siguientes a un breakout (≥{minViews}) de la misma cuenta. Sus cifras probablemente están infladas por la redistribución del breakout: lee su clasificación con prudencia, no es necesariamente su rendimiento propio.",
+        "autre": "Post nunca marcado como calentamiento o promo en Jarvia. Hay que calificarlo para que los filtros y las lecturas sean correctos."
+      },
+      "coverage": {
+        "allClassified": "{published} posts publicados en el periodo, todos clasificados.",
+        "summary": "{classified} posts clasificados de {published} publicados en el periodo — {unclassified} sin clasificar:",
+        "cause": {
+          "warmup": "{count, plural, one {# post excluido} other {# posts excluidos}} por el filtro «Sin calentamiento» de la página: contenido de calentamiento, fuera de esta lectura. Pon el filtro Calentamiento en «Todos» para verlos.",
+          "pending": "{count, plural, one {# post de menos de {hours} h} other {# posts de menos de {hours} h}}: demasiado pronto para juzgar.",
+          "not_measured": "{count, plural, one {# post nunca medido} other {# posts nunca medidos}}: ninguna medición de vistas, no es un cero.",
+          "no_baseline": "{count, plural, one {# post en una cuenta sin mediana de referencia} other {# posts en cuentas sin mediana de referencia}}: menos de {minPosts} posts medidos en {windowDays} días.",
+          "no_views": "{count, plural, one {# post con 0 vistas medidas} other {# posts con 0 vistas medidas}}: no hay denominador para un save rate.",
+          "saves_unavailable": "{count, plural, one {# post con intención NO MEDIBLE} other {# posts con intención NO MEDIBLE}}: Instagram y YouTube no exponen los guardados. Ningún ajuste de umbral lo cambiará.",
+          "saves_collecting": "{count, plural, one {# post anterior a la recogida de guardados} other {# posts anteriores a la recogida de guardados}}: la medición llegará para los siguientes.",
+          "not_computed": "{count, plural, one {# post aún sin clasificar} other {# posts aún sin clasificar}}: a la espera de la próxima sincronización nocturna.",
+          "qualification": "{count, plural, one {# post oculto} other {# posts ocultos}} por el filtro Calificación de la tarjeta."
+        }
+      },
+      "action": {
+        "scale": "Repetir",
+        "distribution_faible": "Cambiar el hook",
+        "intent_faible": "Afinar la intro del producto",
+        "archiver": "Archivar tras 2 intentos"
+      },
+      "actionSub": {
+        "scale": "Distribuido y guardado. Formato ganador, para repetir tal cual.",
+        "distribution_faible": "El ángulo interesa, la entrada no engancha. Mantener el ángulo, reescribir el hook.",
+        "intent_faible": "Visto pero no guardado. El hook funciona, el puente hacia el producto falla.",
+        "archiver": "Ni distribución ni interés. Un intento fallido puede ser mala suerte."
+      },
+      "threshold": {
+        "x": "umbral ×{multiplier}",
+        "y": "umbral {saveRate} de guardados"
+      },
+      "axis": {
+        "low": "← poco distribuido",
+        "high": "muy distribuido →"
+      },
+      "qualification": {
+        "label": "Calificación",
+        "all": "Todas"
+      },
+      "zone": {
+        "isolate": "Aislar la casilla {zone}",
+        "showAll": "Mostrar las cuatro casillas",
+        "isolated": "Casilla {zone} aislada — Esc o un nuevo clic para verlo todo."
+      },
+      "point": {
+        "aria": "{label} — {compte}, {vues} vistas, {saves} guardados"
+      },
+      "legendQualification": {
+        "promo": "Promo",
+        "warmup": "Calentamiento",
+        "autre": "Sin calificar"
+      }
+    }
+  },
+  "auth": {
+    "join": {
+      "invalidTitle": "Enlace no válido",
+      "invalidBody": "Este enlace de invitación no es válido, ha caducado o ya se ha usado.",
+      "invalidHint": "Si ya has creado tu cuenta, inicia sesión con tu email y tu contraseña.",
+      "invalidAskAdmin": "Si no, pide un nuevo enlace de invitación a tu administrador.",
+      "welcome": "Hola {name}: elige una contraseña para activar tu cuenta de creador.",
+      "submit": "Activar mi cuenta",
+      "signupFailed": "No se ha podido crear la cuenta (contraseña demasiado corta — 8 caracteres mínimo — o invitación no válida)."
+    },
+    "login": {
+      "subtitleSignIn": "Inicia sesión en tu espacio (admin o creador).",
+      "subtitleSignUp": "Creación de la cuenta inicial (solo en el primer arranque).",
+      "submitSignIn": "Iniciar sesión",
+      "submitSignUp": "Crear la cuenta",
+      "toSignUp": "¿Primer arranque? Crear la cuenta inicial",
+      "toSignIn": "¿Ya tienes cuenta? Iniciar sesión",
+      "badCredentials": "Credenciales no válidas.",
+      "signupFailed": "No se ha podido crear la cuenta (contraseña demasiado corta — 8 caracteres mínimo — o la cuenta ya existe).",
+      "projectNotFound": "Proyecto no encontrado",
+      "projectNotFoundBody": "Ningún proyecto corresponde a este enlace. Revisa la dirección o inicia sesión desde la página general.",
+      "goToGeneralLogin": "Ir al inicio de sesión",
+      "subtitleProject": "Inicia sesión en tu espacio {project}."
+    },
+    "reset": {
+      "invalidTitle": "Enlace no válido",
+      "prompt": "Elige una nueva contraseña.",
+      "newPassword": "Nueva contraseña",
+      "confirmPassword": "Confirmar la contraseña",
+      "tooShort": "La contraseña debe tener al menos 8 caracteres.",
+      "mismatch": "Las dos contraseñas no coinciden.",
+      "failed": "No se ha podido restablecer la contraseña. Pide un nuevo enlace a tu administrador.",
+      "invalidBody": "Este enlace de restablecimiento no es válido o ha caducado. Pide un nuevo enlace a tu administrador.",
+      "title": "Restablece tu contraseña",
+      "promptForProject": "Elige una nueva contraseña para {project}.",
+      "submit": "Restablecer la contraseña",
+      "doneTitle": "Contraseña restablecida",
+      "doneBody": "Ya puedes iniciar sesión con tu nueva contraseña."
+    },
+    "field": {
+      "email": "Email",
+      "password": "Contraseña"
+    }
+  },
+  "portal": {
+    "notFound": {
+      "body": "Esta página no existe.",
+      "backDashboard": "Volver al panel"
+    },
+    "tools": {
+      "title": "Herramientas",
+      "empty": "No hay herramientas disponibles para este proyecto.",
+      "subtitle": "Las herramientas de {project}, se abren en una pestaña nueva."
+    },
+    "verdict": {
+      "pending": "Pendiente"
+    },
+    "stream": {
+      "submitted": "Vídeo enviado (Cloudflare Stream)"
+    },
+    "modelVideo": {
+      "title": "Vídeo que reproducir",
+      "playAria": "Reproducir el vídeo {title}",
+      "linkBadge": "Enlace"
+    },
+    "progression": {
+      "nextTier": "Próximo nivel",
+      "allUnlocked": "Todos los niveles desbloqueados 🎉",
+      "ladder": "Escala de recompensas",
+      "noTiers": "Todavía no hay niveles de recompensa en este proyecto.",
+      "unlocked": "Desbloqueado",
+      "inProgress": "En curso",
+      "victories": "Tus logros",
+      "back": "Volver",
+      "title": "Mi progreso",
+      "empty": "Tu progreso aparecerá aquí en cuanto tengas tus primeras vistas.",
+      "cumulViews": "Vistas acumuladas",
+      "viewsToGo": "{count, plural, one {Solo falta {views} vista.} other {Solo faltan {views} vistas.}}",
+      "subtitle": "Tus vistas acumuladas desbloquean las recompensas de {project}.",
+      "thresholdViews": "{views} vistas",
+      "unlockedOn": " · desbloqueado el {date}",
+      "cashUnlocked": "+ {amount} desbloqueados"
+    },
+    "script": {
+      "copyDescription": "Copiar la descripción",
+      "inVideo": "En el vídeo",
+      "inVideoHint": "Cada parte indica si hay que decirla, mostrarla o las dos cosas.",
+      "inDescription": "En la descripción",
+      "inDescriptionHint": "Copia y pega esto como texto de tu post (hashtags incluidos).",
+      "instruction": "Instrucción"
+    },
+    "copy": {
+      "copy": "Copiar",
+      "copied": "¡Copiado!"
+    },
+    "leaderboard": {
+      "projectTitle": "Clasificación del proyecto",
+      "cycleTitle": "Clasificación del ciclo",
+      "projectSubtitle": "Tu posición según las ganancias del ciclo en curso. Las ganancias de cada creador son visibles: estáis en el mismo proyecto.",
+      "cycleSubtitle": "Ganancias del ciclo en curso de cada creador (ventana personal de 30 días, anclada en su primer post)."
+    },
+    "projectSwitcher": {
+      "change": "Cambiar de proyecto",
+      "mine": "Mis proyectos"
+    },
+    "todayPost": {
+      "empty": "No hay ningún post programado.",
+      "seeNext": "Ver el próximo post",
+      "title": "Hoy publicas",
+      "nothing": "Nada que publicar hoy.",
+      "next": "Próximo post {date}: {format}.",
+      "nextWindow": "Próximo post {date} entre las {start} y las {end}: {format}."
+    },
+    "comptes": {
+      "emptyReadOnly": "Este creador todavía no ha registrado ninguna cuenta.",
+      "emptyCreator": "Registra tu primera cuenta para empezar su calentamiento.",
+      "nothingToday": "Cuenta {status}. Nada que hacer hoy.",
+      "declare": "Registrar una cuenta",
+      "createThese": "Crea estas cuentas en tus redes:",
+      "title": "Mis cuentas",
+      "subtitle": "Registra tus cuentas y sigue su calentamiento.",
+      "createExact": "Crea exactamente estos @: tienen que coincidir con las cuentas que registres después.",
+      "warmupDue": "{count, plural, one {Tienes # calentamiento que hacer hoy: márcalo abajo.} other {Tienes # calentamientos que hacer hoy: márcalos abajo.}}",
+      "bioDue": "{count, plural, one {# bio que actualizar: cópiala en tu cuenta y confirma abajo.} other {# bios que actualizar: cópialas en tus cuentas y confirma abajo.}}",
+      "noneDeclared": "Ninguna cuenta registrada."
+    },
+    "calendarStatus": {},
+    "fichiers": {
+      "kind": {
+        "video": "Vídeo",
+        "photo": "Foto",
+        "other": "Archivo"
+      },
+      "title": "Subida de contenido",
+      "viewAsBody": "Los archivos subidos por el creador están disponibles directamente en el Google Drive del proyecto. No hay vista de archivos en la app.",
+      "unavailableBody": "La subida de archivos no está disponible para este proyecto.",
+      "subtitle": "Sube aquí tus vídeos y fotos. Se envían directamente a tu carpeta: no necesitas cuenta de Drive.",
+      "deposited": "Lo que has subido",
+      "empty": "Todavía no has subido nada."
+    },
+    "nav": {
+      "guide": "Guía"
+    },
+    "dashboard": {
+      "produce": {
+        "title": "{count, plural, one {vídeo por grabar} other {vídeos por grabar}}",
+        "description": "Graba tu vídeo según el brief y luego envía tu MP4."
+      },
+      "warmup": {
+        "title": "{count, plural, one {calentamiento que marcar hoy} other {calentamientos que marcar hoy}}",
+        "description": "Marca la tarea del día para avanzar en el calentamiento.",
+        "cta": "Marcar mis calentamientos"
+      },
+      "publish": {
+        "title": "{count, plural, one {vídeo por publicar} other {vídeos por publicar}}",
+        "description": "Aprobado: publícalo y pega la URL para activar tu pago."
+      },
+      "redo": {
+        "title": "{count, plural, one {vídeo por rehacer} other {vídeos por rehacer}}",
+        "description": "Rechazado por el admin: corrígelo y vuelve a enviarlo."
+      },
+      "step": {
+        "declare": {
+          "title": "Registra tu cuenta",
+          "done": "Cuenta registrada",
+          "todo": "Añade tu @ de TikTok / Instagram / YouTube.",
+          "cta": "Registrar mi cuenta"
+        },
+        "warmup": {
+          "title": "Haz tu calentamiento",
+          "done": "Calentamiento terminado",
+          "progress": "Día {done}/{target}",
+          "locked": "Disponible cuando hayas registrado tu cuenta.",
+          "cta": "Marcar la tarea del día"
+        },
+        "bio": {
+          "title": "Aplica tu bio",
+          "todo": "Te hemos preparado una bio: cópiala en tu perfil.",
+          "done": "Bio aplicada",
+          "cta": "Ver la bio"
+        },
+        "validation": {
+          "title": "Validación de tu cuenta",
+          "done": "Cuenta validada: ya puedes recibir misiones.",
+          "todo": "El equipo valida tu cuenta cuando termina el calentamiento."
+        }
+      },
+      "managedBadge": "Gestionado por el equipo",
+      "videos": {
+        "title": "Mis vídeos publicados",
+        "subtitle": "Tu actividad de vídeos en este ciclo.",
+        "online": "Publicados",
+        "views": "Vistas",
+        "gains": "Ganancias",
+        "detailLink": "Ver el detalle por vídeo"
+      },
+      "earnings": {
+        "title": "Mis ganancias",
+        "subtitle": "Ganado este mes + próximo pago.",
+        "paidIn": "{days, plural, one {Se paga en # día (el {date})} other {Se paga en # días (el {date})}}",
+        "nextPayout": "Próximo pago el {date}"
+      },
+      "managedTitle": "Gestionados por el equipo",
+      "managedBody": "El equipo publica estos vídeos: ábrelos para ver el guion. El post y su rendimiento aparecen en «Mis vídeos».",
+      "onboardTitle": "Para empezar a recibir misiones",
+      "onboardBody": "Completa estos pasos para activar tu cuenta.",
+      "pendingTitle": "Tu cuenta está en validación",
+      "pendingBody": "Tus guiones llegan pronto: el equipo está validando tu cuenta y recibirás tus primeras misiones justo después.",
+      "teamManagesTitle": "Tu equipo gestiona tus cuentas",
+      "teamManagesBody": "No tienes nada que configurar. Encuentra tus vídeos y su rendimiento en «Mis vídeos».",
+      "allClearTitle": "Todo al día",
+      "allClearBody": "Nada que hacer por ahora. Vuelve de vez en cuando: tus nuevas misiones y tus calentamientos aparecerán aquí.",
+      "warmupDoneToday": "Calentamiento en curso: por hoy está hecho ✓",
+      "warmupDailyHint": "Vuelve a marcarlo cada día hasta el final: es lo que deja tu cuenta lista para publicar.",
+      "nextTier": "Próximo nivel",
+      "seeDetail": "Ver el detalle",
+      "greeting": "Hola",
+      "greetingNamed": "Hola, {name}",
+      "subtitle": "Lo que tienes que hacer para {project}.",
+      "dueOn": "Fecha límite {date}"
+    },
+    "profil": {
+      "method": {
+        "sepa": "SEPA (transferencia bancaria)",
+        "paypal": "PayPal",
+        "usdt": "USDT (cripto)",
+        "autre": "Otro"
+      },
+      "placeholder": {
+        "sepa": "IBAN + nombre del titular",
+        "paypal": "Email de PayPal",
+        "usdt": "Dirección del wallet (red)",
+        "autre": "Indica cómo pagarte"
+      },
+      "saved": "Perfil guardado.",
+      "error": "Se ha producido un error.",
+      "identityTitle": "Identidad",
+      "name": "Nombre",
+      "email": "Email",
+      "phone": "Teléfono",
+      "paymentTitle": "Pago",
+      "methodLabel": "Método de pago",
+      "methodPlaceholder": "Elegir…",
+      "detailsLabel": "Datos de pago",
+      "detailsPlaceholder": "IBAN, email, wallet…",
+      "title": "Perfil",
+      "notFound": "Perfil no encontrado.",
+      "identityHint": "El nombre y el email los gestiona el equipo. Para cambiarlos, contacta con un administrador.",
+      "paymentHint": "Indica cómo pagarte. Estos datos los ve el admin que hace las transferencias.",
+      "save": "Guardar",
+      "contractTitle": "Contrato",
+      "contractHint": "El contrato firmado para este proyecto. Subido por el equipo: haz clic para abrirlo o guardarlo.",
+      "contractEmpty": "Todavía no hay contrato.",
+      "contractUploadedOn": "Subido el {date}",
+      "contractMissing": "{fileName} — archivo no encontrado"
+    },
+    "assignment": {
+      "started": "¡Adelante, buen rodaje!",
+      "startFailed": "No se ha podido empezar la misión",
+      "videoSent": "Vídeo enviado: pendiente de validación",
+      "videoSendFailed": "No se ha podido enviar el vídeo",
+      "published": "Publicación confirmada: pago en camino 🎉",
+      "publishFailed": "No se ha podido confirmar la publicación",
+      "myVideo": "Tu vídeo enviado",
+      "ro": {
+        "todo": "El creador todavía no ha empezado la misión.",
+        "inProgress": "En producción: el creador tiene que enviar su vídeo.",
+        "submitted": "Vídeo enviado: pendiente de validación por el admin.",
+        "resubmit": "El creador tiene que volver a enviar un vídeo.",
+        "toPublish": "Vídeo validado: el creador tiene que publicarlo y pegar las URLs."
+      },
+      "redoTitle": "Vídeo por rehacer",
+      "publishedPaid": "Publicado y pagado ✓",
+      "publishedOnly": "Publicado ✓",
+      "uploadTitle": "Envía tu vídeo",
+      "uploadHint": "{count, plural, one {Envía tu MP4 (sin publicar). El admin lo valida antes de que lo publiques en tu cuenta.} other {Envía tu MP4 (sin publicar). El admin lo valida antes de que lo publiques en tus cuentas.}}",
+      "dropHere": "Arrastra tu vídeo aquí",
+      "validatedPublish": "{count, plural, one {Tu vídeo está validado: publícalo en tu cuenta y pega la URL abajo.} other {Tu vídeo está validado: publícalo en cada plataforma y pega las URLs abajo.}}",
+      "publishOn": "Publica en {platform}",
+      "wrongLink": "Este enlace no es un enlace de {platform}.",
+      "managedBadge2": "Gestionado por el equipo",
+      "shootHint": "Graba tu vídeo según el brief y envíalo para validación.",
+      "submitMine": "Enviar mi vídeo",
+      "sentAwaiting": "Vídeo enviado: pendiente de validación por el admin.",
+      "resubmit": "Volver a enviar un vídeo",
+      "urlWrongPlatform": "La URL para {platform} no corresponde a esa plataforma.",
+      "urlIsAccount": "El enlace de {platform} es un enlace de perfil, no de una publicación.",
+      "profileLink": "Es un enlace de perfil, no el enlace de la publicación.",
+      "unknownLink": "Enlace no reconocido. Si es el de tu publicación, envíalo: se comprobará.",
+      "confirmPublish": "Confirmar la publicación",
+      "managedNotice": "— el equipo publica este contenido. No tienes nada que enviar ni publicar; el post y su rendimiento aparecerán en «Mis vídeos».",
+      "seePostOn": "Ver el post de {platform}",
+      "start": "Empiezo"
+    },
+    "sidebar": {
+      "dashboard": "Panel",
+      "missions": "Mis misiones",
+      "comptes": "Mis cuentas",
+      "paiements": "Mis pagos",
+      "profil": "Perfil",
+      "guide": "Cómo funciona",
+      "fichiers": "Mis archivos",
+      "videos": "Mis vídeos",
+      "aria": "Navegación del creador",
+      "logout": "Cerrar sesión"
+    },
+    "bottomNav": {
+      "home": "Inicio",
+      "missions": "Misiones",
+      "more": "Más",
+      "moreTitle": "Otras pantallas",
+      "comptes": "Cuentas",
+      "gains": "Ganancias",
+      "profil": "Perfil",
+      "outils": "Herramientas",
+      "guide": "Guía",
+      "fichiers": "Archivos",
+      "videos": "Vídeos",
+      "aria": "Navegación del portal"
+    },
+    "paiements": {
+      "kind": {
+        "base": "Base",
+        "bonus": "Bonus",
+        "fixed": "Fijo",
+        "cpm": "CPM",
+        "bonus_tier": "Nivel",
+        "clip": "Clip",
+        "retainer": "Tarifa plana",
+        "challenge": "Premio"
+      },
+      "fixe": "Fijo",
+      "cpmAccum": "CPM acumulado (sobre tus vistas)",
+      "bonusTiers": "Bonus por niveles (vistas acumuladas)",
+      "subtotal": "Subtotal de tarifa",
+      "total": "Total",
+      "dueThisCycle": "A pagar este ciclo",
+      "dueForCycle": "A pagar por el ciclo en curso ({range})",
+      "seeProgress": "Ver mi progreso",
+      "liveDetail": "Detalle (en tiempo real)",
+      "pending": "Pendiente",
+      "title": "Mis pagos",
+      "firstPayHint": "Tu primer pago empezará después de tu primera publicación.",
+      "currentCycle": "Detalle del ciclo en curso",
+      "noVideoCycle": "Todavía no hay ningún vídeo publicado en este ciclo.",
+      "history": "Historial",
+      "paidIn": "{days, plural, one {Se paga en # día (el {date})} other {Se paga en # días (el {date})}}",
+      "nextPayout": "Próximo pago el {date}",
+      "line": {
+        "fixed": "{count, plural, one {Fijo — # vídeo publicado} other {Fijo — # vídeos publicados}}",
+        "cpm": "CPM — {views} vistas computadas",
+        "bonusTier": "Bonus por niveles (vistas acumuladas)",
+        "retainer": "Tarifa plana — ciclo {cycle}",
+        "fixedGroup": "Fijo — {done}/{target} vídeos publicados",
+        "outOf": "de {amount}",
+        "tierBonus": "Bonus del nivel {views} vistas",
+        "challenge": "Premio del reto — {name}",
+        "challengeWin": "Premio del reto — {name}"
+      },
+      "tiersTitle": "🏆 Niveles de recompensa",
+      "cumulViews": "{views} vistas acumuladas",
+      "viewsBefore": "{count, plural, one {Solo falta {views} vista para {reward}.} other {Solo faltan {views} vistas para {reward}.}}",
+      "paidLabel": "Pagado",
+      "paidOn": "Pagado el {date}",
+      "rewardFallback": "Recompensa",
+      "preCapNotice": "Remuneración calculada el {paid}, antes de que entrara en vigor el tope de 30 días (el {effective}). Las vistas logradas después de los 30 días todavía cuentan.",
+      "fixeSeuil": {
+        "gauge": "{done} / {target} vistas",
+        "locked": "El fijo del mes se desbloquea con {target} vistas acumuladas en tus vídeos del mes.",
+        "unlocked": "Umbral alcanzado: el fijo del mes está asegurado."
+      }
+    },
+    "videos": {
+      "trackingActive": "Seguimiento activo",
+      "viewsComputing": "Vistas en cálculo",
+      "awaitingApproval": "Pendiente de validación",
+      "rejected": "Rechazado",
+      "approvedToPublish": "Aprobado, por publicar",
+      "views": "Vistas",
+      "gain": "Ganancia",
+      "maxGain": "ganancia máx.",
+      "paid": "Pagado",
+      "managedByTeam": "Gestionado por el equipo",
+      "rejectionReason": "Motivo del rechazo",
+      "rejectedHint": "Tu vídeo ha sido rechazado. Vuelve a la misión para enviarlo de nuevo.",
+      "teamPublishes": "El equipo publica este vídeo: aparecerá aquí como publicado (vistas + ganancia) en cuanto se suba.",
+      "approvedHint": "¡Validado! Publícalo en la plataforma desde tu misión para empezar el seguimiento de vistas y la ganancia.",
+      "title": "Mis vídeos",
+      "subtitle": "El seguimiento de tus vídeos, del envío a la publicación.",
+      "viewsDelayHint": "Vistas actualizadas con regularidad: es normal un pequeño desfase con la plataforma (no es tiempo real exacto).",
+      "filterAria": "Filtrar mis vídeos por estado",
+      "emptyTitle": "Todavía no hay vídeos",
+      "emptyBody": "En cuanto envíes un vídeo, aparecerá aquí con su estado y luego su seguimiento (vistas + ganancia) una vez publicado.",
+      "emptyFilter": "No hay vídeos en este filtro.",
+      "unavailable": "El seguimiento de vídeos no está disponible para este proyecto.",
+      "publishedAgo": "{unit, select, today {Publicado hoy} yesterday {Publicado ayer} days {{count, plural, one {Publicado hace # día} other {Publicado hace # días}}} weeks {{count, plural, one {Publicado hace # semana} other {Publicado hace # semanas}}} months {{count, plural, one {Publicado hace # mes} other {Publicado hace # meses}}} other {{count, plural, one {Publicado hace # año} other {Publicado hace # años}}}}",
+      "submittedWaiting": "Vídeo enviado: pendiente de la validación del equipo.",
+      "payWindowClosed": "ventana de ganancia cerrada",
+      "viewsOutsideWindow": "{count} vistas después de 30 días — con seguimiento, sin remunerar",
+      "payWindowHint": "Las vistas cuentan para tu ganancia durante 30 días después de la publicación. Pasado ese plazo seguimos contándolas, pero la ganancia de este vídeo ya no aumenta."
+    },
+    "declare": {
+      "declared": "Cuenta registrada: calentamiento iniciado",
+      "error": "Se ha producido un error.",
+      "title": "Registrar una cuenta",
+      "subtitle": "El calentamiento empieza en cuanto la registras.",
+      "platform": "Plataforma",
+      "handle": "Usuario *",
+      "url": "URL de la cuenta",
+      "cancel": "Cancelar",
+      "expectedHandle": "@ esperado:",
+      "submit": "Registrar",
+      "handlePlaceholder": "@mi_cuenta"
+    },
+    "assignmentDetail": {
+      "backToDashboard": "Volver al panel",
+      "notFound": "No se encuentra esta misión.",
+      "targets": "Destinos:",
+      "target": "Destino:",
+      "mySubmission": "Tu envío",
+      "overlayTop": "Para sobreimprimir en la parte superior del vídeo",
+      "overlayHint": "Texto que debe quedar fijo en pantalla (no se lee en voz alta).",
+      "videoToShoot": "Vídeo que grabar",
+      "briefGone": "El brief de este formato ya no está disponible.",
+      "instructions": "Indicaciones",
+      "modelVideos": "Vídeos que reproducir",
+      "assets": "Recursos que usar",
+      "download": "Descargar",
+      "pay": "Remuneración",
+      "progressRo": "Avance"
+    },
+    "warmupCard": {
+      "checkDone": "Tarea del día validada ✓",
+      "error": "Se ha producido un error.",
+      "todayDoneBtn": "Calentamiento del día hecho ✓",
+      "todayBtn": "Calentamiento del día hecho",
+      "managedTitle": "Cuenta gestionada por el equipo",
+      "managedBody": "El equipo se ocupa de esta cuenta (calentamiento, publicación, enlace). Aquí no tienes nada que marcar ni publicar: encuentra los vídeos publicados y su rendimiento en «Mis vídeos».",
+      "warmupDone": "Calentamiento terminado: pendiente de validación del admin",
+      "todoToday": "Por hacer hoy",
+      "doneToday": "Hecho hoy ✓",
+      "keywords": "Palabras clave que buscar",
+      "keywordsWait": "A la espera de las palabras clave que defina el admin.",
+      "instructions": "Indicaciones",
+      "dayOf": "Día {day} / {target}"
+    },
+    "celebration": {
+      "reward": "Recompensa",
+      "tierUnlocked": "Nivel desbloqueado",
+      "tierUnlockedBang": "¡Nivel desbloqueado!",
+      "addedToPay": "Añadido a tu próximo pago.",
+      "weContactYou": "Te contactaremos para entregártela.",
+      "great": "¡Genial! 🎉",
+      "extraRewards": "{count, plural, one {+# recompensa más desbloqueada.} other {+# recompensas más desbloqueadas.}}",
+      "reached": "Has alcanzado {views} vistas acumuladas."
+    },
+    "guide": {
+      "title": "Cómo funciona",
+      "subtitle": "La guía de tu espacio de creador.",
+      "soonTitle": "La guía llega pronto",
+      "soonBody": "El contenido de tu espacio se está preparando.",
+      "fallbackNotice": "Por ahora esta guía solo está disponible en francés."
+    },
+    "calendar": {
+      "title": "Mi calendario de publicación",
+      "prevMonth": "Mes anterior",
+      "nextMonth": "Mes siguiente"
+    },
+    "bio": {
+      "confirmed": "Bio confirmada ✓",
+      "error": "Se ha producido un error.",
+      "toUpdate": "Bio que actualizar",
+      "toKeep": "Bio actual que mantener",
+      "copy": "Copiar la bio",
+      "copyShort": "Copiar",
+      "applied": "He aplicado esta bio"
+    },
+    "noProject": {
+      "title": "Ningún proyecto accesible",
+      "body": "Tu cuenta no está vinculada a ningún proyecto. Pide a un administrador que te añada a uno."
+    },
+    "noSpace": {
+      "title": "Ningún espacio disponible",
+      "body": "Tu cuenta no está vinculada a ningún proyecto. Contacta con un administrador.",
+      "notLinked": "No hay ningún proyecto vinculado a tu cuenta. Contacta con un administrador."
+    },
+    "catchUp": {
+      "title": "Por recuperar",
+      "plannedOn": "Previsto el {date}: publícalo lo antes posible",
+      "plannedOnWindow": "Previsto el {date} ({window}): publícalo lo antes posible"
+    },
+    "missions": {
+      "title": "Mis misiones",
+      "subtitle": "Todo lo que te queda por hacer, día a día.",
+      "seeAll": "+{count} más — ver todas mis misiones",
+      "count": "{count, plural, =1 {# misión} other {# misiones}}",
+      "empty": "No hay misiones en curso. Estás al día.",
+      "emptyManaged": "Nada que grabar por ahora: el equipo publica en tus cuentas.",
+      "group": {
+        "catchup": "Por recuperar",
+        "today": "Hoy",
+        "tomorrow": "Mañana",
+        "upcoming": "Próximamente",
+        "later": "Más adelante",
+        "undated": "Sin fecha de publicación",
+        "managed": "Gestionadas por el equipo"
+      },
+      "groupHint": {
+        "catchup": "El día previsto ya pasó y todavía no hay nada publicado.",
+        "undated": "No se ha planificado ninguna fecha de publicación: puedes grabarlas cuando quieras."
+      },
+      "view": {
+        "todo": "Por hacer",
+        "done": "Terminadas"
+      },
+      "doneEmpty": "Todavía no hay misiones publicadas."
+    },
+    "nudge": {
+      "addPaymentInfo": "Añade tus datos de pago",
+      "cantPay": "Sin ellos no podemos pagarte tus {amount}."
+    },
+    "mySpace": "Mi espacio",
+    "challenge": {
+      "title": "Reto",
+      "ends": "Termina el {date}",
+      "endsToday": "Termina hoy",
+      "ended": "Terminado",
+      "goalCumulative": "{target} vistas en total",
+      "goalSingle": "{target} vistas en un solo vídeo",
+      "modeCumulativeHelp": "Sumamos las vistas de todos tus vídeos del reto.",
+      "modeSingleHelp": "Uno solo de tus vídeos tiene que alcanzar la meta por sí mismo.",
+      "myScore": "{score} vistas",
+      "toGo": "Solo faltan {views} vistas",
+      "reached": "Meta alcanzada",
+      "videos": "{count, plural, =0 {ningún vídeo} =1 {1 vídeo} other {# vídeos}}",
+      "rewardCash": "{amount} en juego",
+      "rewardNature": "En juego: {libelle}",
+      "perWinner": "para cada ganadora",
+      "winnersFirst": "Gana la primera que alcance la meta.",
+      "winnersTopN": "Ganan las {n} primeras que alcancen la meta.",
+      "winnersAll": "Ganan todas las que alcancen la meta.",
+      "placesLeft": "{left, plural, =0 {no quedan plazas} =1 {queda 1 plaza} other {quedan # plazas}}",
+      "iWon": "Has ganado 🎉",
+      "leaderboard": "Clasificación",
+      "you": "tú",
+      "won": "ganadora",
+      "submit": "Hago un vídeo",
+      "submitHelp": "Tantos vídeos como quieras: cada uno pasa por la validación habitual.",
+      "noAccount": "Registra una cuenta disponible para participar.",
+      "syncLine": "Vistas registradas el {date} a las {time} · próxima medición en {hours} h",
+      "syncLineSoon": "Vistas registradas el {date} a las {time} · próxima medición en menos de una hora",
+      "syncNever": "Tus vistas se registrarán esta noche a las {time}.",
+      "tiebreakTitle": "Cómo se desempata",
+      "tiebreakIntro": "Tus vistas se registran una vez al día, hacia las {time} (hora de París). El reto se decide en esa medición: es el único momento en que la app sabe cómo va cada una.",
+      "tiebreakRule": "Si varias de vosotras alcanzáis la meta en la misma medición, gana la que tenga más vistas en esa medición.",
+      "tiebreakWhy": "No «la primera en alcanzarla»: entre dos mediciones nadie sabe quién adelantó a quién ni a qué hora, ni tú ni nosotros. Preferimos decirte cómo decidimos antes que inventar una clasificación que no podemos verificar.",
+      "overNoWinner": "Terminado: nadie alcanzó la meta. No se paga nada.",
+      "overOthersWon": "Terminado — {count, plural, =1 {1 ganadora} other {# ganadoras}}.",
+      "othersWon": "{count, plural, =1 {1 plaza ocupada} other {# plazas ocupadas}}: todavía quedan.",
+      "syncLineOver": "Última medición: {date} a las {time}",
+      "finalRanking": "Clasificación final",
+      "leaderboardLive": "Clasificación"
+    },
+    "tabs": {
+      "today": "Hoy",
+      "missions": "Misiones",
+      "gains": "Ganancias",
+      "moi": "Yo"
+    },
+    "home": {
+      "nextAction": "Tu próxima acción",
+      "kind": {
+        "catchupTitle": "Publicar «{name}»",
+        "catchupHint": "Prevista el {date}, todavía sin publicar.",
+        "catchupOthers": "{count, plural, one {+ # más por recuperar} other {+ # más por recuperar}}",
+        "publishTodayTitle": "Publicar «{name}»",
+        "publishTodayHint": "Para publicar hoy.",
+        "redoTitle": "Rehacer «{name}»",
+        "redoHint": "Tu vídeo ha sido rechazado: corrígelo y vuelve a enviarlo.",
+        "warmupTitle": "{count, plural, one {Hacer la tarea de calentamiento del día} other {Hacer las # tareas de calentamiento del día}}",
+        "publishTitle": "Publicar «{name}»",
+        "publishHint": "Validada, para publicar el {date}.",
+        "publishHintNoDate": "Validada: ya puedes publicarla.",
+        "produceTitle": "Grabar «{name}»",
+        "produceHint": "Para enviar antes del {date}",
+        "waitingTitle": "{count, plural, one {Tu vídeo está en validación} other {Tus # vídeos están en validación}}",
+        "waitingHint": "Nada que hacer por ahora: el equipo los está revisando.",
+        "others": "{count, plural, one {+ # misión más del mismo tipo} other {+ # misiones más del mismo tipo}}",
+        "publishTodayBefore": "Para publicar hoy, antes de las {time}."
+      },
+      "cta": {
+        "open": "Abrir la misión",
+        "publish": "Publicar ahora",
+        "shoot": "Empezar",
+        "redo": "Ver los comentarios",
+        "warmup": "Marcar mi calentamiento",
+        "missions": "Ver mis misiones"
+      },
+      "counters": {
+        "toShoot": "por grabar",
+        "toPublish": "por publicar",
+        "toRedo": "por rehacer"
+      },
+      "gainsTitle": "Este ciclo",
+      "rank": {
+        "title": "Clasificación del ciclo",
+        "place": "{rank, selectordinal, other {#.º}} de {total}",
+        "gap": "Te faltan {amount} para alcanzar el puesto de arriba.",
+        "first": "Vas en cabeza del ciclo.",
+        "seeAll": "Ver la clasificación"
+      },
+      "upcoming": "Después",
+      "upcomingAll": "Todas mis misiones",
+      "dayPart": {
+        "morning": "esta mañana",
+        "afternoon": "esta tarde",
+        "evening": "esta noche"
+      },
+      "chips": {
+        "streak": "{count} a tiempo"
+      }
+    },
+    "gains": {
+      "title": "Ganancias",
+      "subtitle": "Lo que has ganado y lo que viene.",
+      "cycle": "Ciclo del {range}",
+      "split": {
+        "fixed": "Fijo",
+        "views": "Vistas",
+        "bonus": "Bonus"
+      },
+      "detail": "Ver el detalle y el historial",
+      "tiersTitle": "Niveles de bonus",
+      "toGo": "Faltan {views} vistas",
+      "rankingTitle": "Clasificación del ciclo",
+      "videosTitle": "Tus vídeos",
+      "videosAll": "Todos mis vídeos",
+      "views": "{views} vistas"
+    },
+    "moi": {
+      "title": "Yo",
+      "account": {
+        "active": "Activa",
+        "warmup": "Calentamiento · día {done} de {target}",
+        "checkToday": "Tarea del día pendiente",
+        "bio": "Bio por aplicar",
+        "archived": "Archivada",
+        "pending": "Pendiente"
+      },
+      "space": "Mi espacio",
+      "payment": "Datos de pago",
+      "paymentTodo": "Por completar",
+      "paymentDone": "Completados",
+      "guideHint": "La guía del proyecto, paso a paso",
+      "filesHint": "Sube tus archivos",
+      "toolsHint": "Las herramientas del proyecto",
+      "profileHint": "Identidad, idioma y contrato"
+    },
+    "mission": {
+      "step": {
+        "shoot": "Grabar",
+        "review": "Validación",
+        "publish": "Publicar",
+        "done": "Publicada"
+      },
+      "dueBefore": "Para enviar antes del {date}",
+      "plannedOn": "Para publicar el {date}",
+      "earn": "Ganas {amount} por vídeo, más un bonus según las vistas.",
+      "back": "Mis misiones"
+    },
+    "celebrate": {
+      "publishedTitle": "¡Publicada!",
+      "publishedEarn": "{amount} en camino a tu próximo pago.",
+      "publishedNoEarn": "Tus vistas cuentan desde ahora.",
+      "rankUpTitle": "¡Pasas al puesto {rank, selectordinal, other {#.º}}!",
+      "rankUpBody": "De {total} creadoras clasificadas en este ciclo.",
+      "streakTitle": "{count} publicaciones a tiempo seguidas",
+      "streakBody": "Mantienes el ritmo. Sigue así.",
+      "warmupDoneTitle": "¡Calentamiento terminado!",
+      "warmupDoneBody": "@{handle} ha terminado su calentamiento.",
+      "close": "Cerrar"
+    },
+    "streak": {
+      "label": "Tu racha",
+      "inARow": "{count, plural, one {publicación a tiempo} other {publicaciones a tiempo seguidas}}",
+      "best": "Récord: {count}",
+      "restart": "Tu récord: {count}. Publica a tiempo para volver a empezar."
+    },
+    "pulse": {
+      "yesterday": "Ayer",
+      "views": "+{views} vistas en tus vídeos",
+      "estimated": "Estimación: faltó una medición de vistas.",
+      "perVideo": "+{views} ayer"
+    },
+    "publishFlow": {
+      "paste": "Pegar",
+      "suggestion": "¿Es este enlace?",
+      "use": "Usar",
+      "copyOpen": "Copiar y abrir {platform}"
+    },
+    "install": {
+      "title": "Instalar la app",
+      "hint": "Tu espacio a un toque desde la pantalla de inicio",
+      "iosHint": "Toca Compartir y luego «Añadir a pantalla de inicio»."
+    }
+  },
+  "status": {
+    "assignment": {
+      "todo": "Por hacer",
+      "in_progress": "En curso",
+      "video_submitted": "Vídeo en revisión",
+      "video_rejected": "Vídeo por rehacer",
+      "to_publish": "Por publicar",
+      "published": "Publicado",
+      "paid": "Pagado",
+      "cancelled": "Abandonado",
+      "submitted": "Enviado",
+      "validated": "Validado",
+      "rejected": "Rechazado"
+    },
+    "urgency": {
+      "overdue": "Con retraso",
+      "soon": "< 48 h",
+      "ok": "A tiempo"
+    },
+    "calendar": {
+      "on_time": "A tiempo",
+      "late": "Con retraso",
+      "missed": "Perdido",
+      "scheduled": "Previsto"
+    },
+    "compte": {
+      "warmup": "Calentamiento",
+      "actif": "Activa",
+      "shadowban": "Shadowban",
+      "archive": "Archivada",
+      "aValider": "Por validar",
+      "warmupProgress": "Calentamiento D+{done}/{target}"
+    },
+    "rush": {
+      "deposited": "Subido",
+      "assigned": "Validado",
+      "published": "Publicado",
+      "rejected": "Rechazado",
+      "expired": "Caducado"
+    },
+    "compteInline": {
+      "warmup": "en calentamiento",
+      "warmupProgress": "en calentamiento d+{done}/{target}",
+      "actif": "activa",
+      "shadowban": "con shadowban",
+      "archive": "archivada",
+      "aValider": "pendiente de validación"
+    }
+  },
+  "scriptMode": {
+    "option": {
+      "dire": "Decir en voz alta",
+      "afficher": "Mostrar en pantalla",
+      "les_deux": "Las dos cosas"
+    },
+    "hint": {
+      "dire": "Para decir en voz alta",
+      "afficher": "Para mostrar como texto en pantalla",
+      "les_deux": "Para decir Y mostrar en pantalla"
+    }
+  },
+  "postWindow": {
+    "midi": "Mediodía (11:00-13:00)",
+    "apresmidi": "Tarde (15:00-17:00)",
+    "soir": "Noche (21:00-23:00)",
+    "short": {
+      "midi": "Mediodía",
+      "apresmidi": "Tarde",
+      "soir": "Noche"
+    },
+    "between": "entre las {start} y las {end}"
+  },
+  "videoFilter": {
+    "all": "Todos mis vídeos",
+    "pending": "Pendientes",
+    "approved": "Aprobados y publicados",
+    "rejected": "Rechazados"
+  },
+  "tools": {
+    "subtitles": "Subtítulos",
+    "carousel": "Carrusel Studio"
+  },
+  "progression": {
+    "reward": "Recompensa",
+    "firstVideo": "Primer vídeo publicado",
+    "videosPublished": "{count} vídeos publicados",
+    "views100k": "100 mil vistas acumuladas",
+    "views1m": "1 M de vistas acumuladas",
+    "viewsGeneric": "{count} vistas acumuladas",
+    "firstTier": "Primer nivel desbloqueado",
+    "rewardsPlural": "recompensas",
+    "hintViews": "vistas acumuladas",
+    "hintRewards": "recompensas"
+  },
+  "warmupGuide": {
+    "button": "Guía de calentamiento",
+    "empty": "La guía de calentamiento de este proyecto todavía no está escrita.",
+    "fallbackNotice": "Por ahora esta guía solo está disponible en francés.",
+    "dialogTitle": "Guía de calentamiento",
+    "dialogDesc": "El procedimiento de calentamiento de este proyecto, sin salir del tracker."
+  },
+  "clip": {
+    "notFound": "No se encuentra este clip.",
+    "backToClips": "Volver a mis clips",
+    "myClips": "Mis clips",
+    "roNotice": "Observación: las acciones del clipper (empezar, enviar el montaje, publicar) no se muestran aquí.",
+    "whereItGoes": "Dónde se publica",
+    "noTarget": "Ningún destino.",
+    "noTargetShort": "Ningún destino",
+    "seePost": "Ver el post",
+    "notPublishedYet": "todavía sin publicar",
+    "overlayText": "Texto para sobreimprimir",
+    "scriptToEdit": "Guion para montar",
+    "instructions": "Indicaciones",
+    "modelVideos": "Vídeos que reproducir",
+    "redoTitle": "Montaje por rehacer",
+    "start": "Empiezo",
+    "startFailed": "No se ha podido empezar este clip",
+    "resend": "Volver a enviar el montaje",
+    "send": "Enviar el montaje",
+    "dropHere": "Arrastra tu montaje aquí",
+    "sent": "Montaje enviado: un admin lo revisa antes de la publicación.",
+    "sendFailed": "No se ha podido enviar",
+    "awaitingReview": "Montaje enviado: pendiente de revisión.",
+    "myEdit": "Mi montaje",
+    "publish": "Publicar",
+    "published": "Publicado: empieza el seguimiento de vistas.",
+    "publishFailed": "No se ha podido publicar",
+    "postDate": "Fecha de publicación del post",
+    "dateShortlink": "Enlace acortado: no contiene la fecha. Compruébala.",
+    "dateNoPlatform": "Esta plataforma no incluye la fecha en su enlace. Compruébala.",
+    "dateUnreadable": "Fecha ilegible en este enlace. Compruébala.",
+    "accountNotApproved": "cuenta todavía no validada: la publicación será rechazada",
+    "dateOutOfWindow": "fecha fuera de la ventana mostrada: el servidor la comprobará",
+    "quotaNoneAtPhase": "— ninguna publicación en esta etapa.",
+    "quotaReached": "Cupo del día alcanzado.",
+    "myAccounts": "Mis cuentas",
+    "declareAccount": "Registrar una cuenta",
+    "platform": "Plataforma",
+    "handle": "Usuario de la cuenta",
+    "profileUrl": "Enlace del perfil (opcional)",
+    "cancel": "Cancelar",
+    "accountDeclared": "Cuenta registrada: un admin tiene que validarla antes de publicar.",
+    "declareFailed": "No se ha podido registrar la cuenta",
+    "noAccount": "Ninguna cuenta registrada. Registra aquella en la que vas a publicar: un admin la validará y luego se calentará durante tres días.",
+    "unpublishedNotice": "Tu vídeo SIN publicar. Un admin lo revisa; una vez validado, podrás pegar el enlace del post.",
+    "awaitingApproval": "Pendiente de validación: no puede publicarse nada hasta que un admin lo valide.",
+    "phaseLine": "Fase de {phase}",
+    "phaseUnknown": "—",
+    "quotaUsed": "{count, plural, one { — # publicación de {quota} para el {date}.} other { — # publicaciones de {quota} para el {date}.}}",
+    "quotaLeft": "{count, plural, one {# publicación posible hoy.} other {# publicaciones posibles hoy.}}",
+    "accountNotActivated": "El admin todavía no ha activado esta cuenta.",
+    "declare": "Registrar",
+    "handleHint": "Evita poner el nombre del producto o de un talento: un usuario que anuncia la marca ya no engancha.",
+    "noClips": "Nada que montar por ahora. Los clips llegan cuando un admin asocia un guion a un bruto de tus talentos.",
+    "dateRead": "Fecha leída en el enlace: {date}. Corrígela si no es esa.",
+    "dateCountsHint": "Es esta fecha la que cuenta para tu cupo, no el momento en que pegas el enlace.",
+    "forDate": "Para el {date}",
+    "counterPhaseZero": "en fase de {phase} ese día: la publicación será rechazada",
+    "counterQuota": "{count, plural, one {# publicación de {max} ese día} other {# publicaciones de {max} ese día}}",
+    "counterQuotaFull": "{count, plural, one {# publicación de {max} ese día — cupo alcanzado} other {# publicaciones de {max} ese día — cupo alcanzado}}",
+    "dueOn": "para entregar el {date}",
+    "missingLinks": "Falta el enlace para {platforms}.",
+    "accountMatch": "✓ Cuenta coherente (@{handle})",
+    "accountMismatch": "⚠️ Este enlace apunta a @{detected}, no a {expected}.",
+    "expectedAccount": "la cuenta esperada",
+    "accountRefused": "Cuenta rechazada — {reason}",
+    "handlePlaceholder": "@miusuario",
+    "postLinkFor": "Enlace del post de {platform}",
+    "publishedSave": "He publicado: guardar"
+  },
+  "phase": {
+    "label": {
+      "chauffe": "Arranque",
+      "warmup": "Calentamiento",
+      "demo": "Demo",
+      "croisiere": "Crucero"
+    },
+    "inline": {
+      "chauffe": "arranque",
+      "warmup": "calentamiento",
+      "demo": "demo",
+      "croisiere": "crucero"
+    }
+  },
+  "uploader": {
+    "dropExample": "Arrastra un vídeo de ejemplo aquí",
+    "badResponse": "Respuesta de subida no válida.",
+    "interrupted": "Subida interrumpida (red).",
+    "badFormat": "Formato de vídeo no válido. Usa MP4, MOV o WebM.",
+    "tooHeavy": "Vídeo demasiado pesado (máx. 300 MB).",
+    "added": "Vídeo añadido",
+    "uploadError": "Error en la subida",
+    "constraints": "MP4, MOV o WebM — máx. 300 MB",
+    "browse": "Examinar",
+    "selectVideo": "Seleccionar un vídeo",
+    "httpFailed": "La subida ha fallado (HTTP {status}).",
+    "progress": "Subiendo {percent} %"
+  },
+  "format": {
+    "brief": "Brief",
+    "hooks": "Hooks que usar",
+    "todo": "Qué hacer",
+    "avoid": "Qué evitar",
+    "examples": "Vídeos de ejemplo",
+    "pay": "Remuneración",
+    "rate": {
+      "base": "{amount} por post",
+      "viewBonus": "+ {amount} / 1.000 vistas",
+      "bounty": "Premio de {amount} a las {views} vistas"
+    }
+  },
+  "talent": {
+    "deposit": "Subir",
+    "myDeposits": "Mis subidas",
+    "examples": "Algunos ejemplos",
+    "myVideos": "Mis vídeos",
+    "subtitle": "Graba tus tomas y súbelas aquí. Nosotros nos ocupamos del resto.",
+    "roNotice": "La subida de tomas le corresponde a la persona: no se puede hacer desde la observación.",
+    "empty": "Todavía no has subido nada.",
+    "howToFilm": "Cómo grabar",
+    "briefNotReady": "Tu brief todavía no está listo. Tu contacto te avisará."
+  },
+  "estimator": {
+    "views": "Número de vistas estimado",
+    "base": "Base",
+    "viewBonus": "Bonus por vistas",
+    "bounties": "Premios por niveles",
+    "total": "Total estimado",
+    "disclaimer": "Estimación orientativa; el pago se hace sobre las vistas reales del post validado.",
+    "baseFixed": "Base (fija por vídeo)",
+    "cpm": "CPM (sobre tus vistas)",
+    "forViews": "Estimación para {views} vistas"
+  },
+  "videoExample": {
+    "unavailable": "Vídeo no disponible",
+    "codecHint": "Formato que este navegador no puede leer (probablemente un .mov HEVC de iPhone): recodificar a MP4 H.264.",
+    "seeYouTube": "Ver en YouTube",
+    "youtubeEx": "Ejemplo de YouTube",
+    "seeVideo": "Ver el vídeo",
+    "tiktokEx": "Ejemplo de TikTok",
+    "seeInstagram": "Ver en Instagram"
+  },
+  "drive": {
+    "badResponse": "Respuesta de Drive no válida (falta el id).",
+    "notEnabled": "La subida de archivos todavía no está activada. Avisa al administrador.",
+    "unavailable": "Subida de archivos no disponible para este proyecto.",
+    "uploadFailed": "La subida ha fallado.",
+    "sending": "Archivos enviándose",
+    "sent": "Enviado",
+    "retry": "Reintentar",
+    "httpInterrupted": "Subida interrumpida (HTTP {status}).",
+    "httpRefused": "Drive ha rechazado la subida (HTTP {status}).",
+    "fileSent": "{name} enviado",
+    "progress": "Enviando {percent} %",
+    "partner": {
+      "title": "Arrastra tus vídeos y fotos aquí",
+      "hint": "Vídeos y fotos (se aceptan .mov / .heic de iPhone) — hasta 5 GB",
+      "button": "Elegir archivos",
+      "tooBig": "{name}: demasiado pesado (máx. 5 GB).",
+      "wrongKind": "{name}: solo se aceptan vídeos y fotos."
+    },
+    "rush": {
+      "title": "Sube tus tomas aquí",
+      "hint": "Solo vídeos (se acepta .mov de iPhone) — tomas cortas, de 5 a 10 segundos",
+      "button": "Elegir mis vídeos",
+      "tooBig": "{name}: demasiado pesado (máx. 1 GB). Una toma de pocos segundos ocupa unos 30 MB.",
+      "wrongKind": "{name}: solo se aceptan vídeos."
+    }
+  },
+  "leaderboard": {
+    "me": "Tú",
+    "cycleTitle": "Clasificación del ciclo",
+    "cycleSubtitle": "Ganancias del ciclo en curso de cada creador (ventana personal de 30 días, anclada en su primer post).",
+    "publishFirst": "Publica tu primer post para entrar en la clasificación.",
+    "noneYet": "Ninguna creadora ha publicado todavía en este ciclo."
+  },
+  "project": {
+    "notFound": "Proyecto no encontrado",
+    "denied": "Acceso denegado",
+    "deniedBody": "Tu cuenta no tiene acceso a este proyecto. Pide a un administrador que te añada.",
+    "backHome": "Volver al inicio",
+    "noneNamed": "No existe ningún proyecto «{slug}»."
+  },
+  "stream": {
+    "transcoding": "Transcodificación en curso: el vídeo se podrá ver aquí en breve (el reproductor aparece automáticamente)."
+  },
+  "error": {
+    "ERR_ACCOUNT_ALREADY_EXISTS": "La cuenta {handle} ya existe en {platform}.",
+    "ERR_ACCOUNT_EDIT_AFTER_PUBLISH": "La cuenta solo se puede modificar después de la publicación.",
+    "ERR_ACCOUNT_EDIT_ONCE": "La cuenta solo se puede modificar una vez.",
+    "ERR_ACCOUNT_HAS_NO_PASSWORD": "Esta cuenta no tiene contraseña.",
+    "ERR_ACCOUNT_IN_USE": "Esta cuenta está en uso ({assignments} misión(es), {publications} publicación(es), {payments} línea(s) de pago): no puedes eliminarla, archívala.",
+    "ERR_ACCOUNT_MANAGED_PUBLISH": "Cuenta gestionada por el equipo: la publicación la gestiona el admin.",
+    "ERR_ACCOUNT_MANAGED_WARMUP": "Cuenta gestionada por el equipo: el calentamiento lo marca el admin.",
+    "ERR_ACCOUNT_NOT_APPROVED_TO_PUBLISH": "La cuenta {handle} no está validada para publicar (calentamiento en curso o cuenta pendiente de revalidación por el admin).",
+    "ERR_ACCOUNT_NOT_FINALIZED": "Este creador todavía no ha terminado de configurar su cuenta. Usa «Regenerar la invitación».",
+    "ERR_ACCOUNT_NOT_FOUND": "Cuenta no encontrada.",
+    "ERR_ACCOUNT_NOT_IN_WARMUP": "Esta cuenta ya no está en calentamiento.",
+    "ERR_ACCOUNT_NOT_MANAGED": "Esta cuenta no la gestiona el equipo (el creador marca su calentamiento).",
+    "ERR_ACCOUNT_NOT_ON_PLATFORM": "La cuenta {newCompte} no existe en {plateforme}.",
+    "ERR_ACCOUNT_PLATFORM_LOCKED": "No se puede cambiar la plataforma de una cuenta ya en uso: archívala y registra una nueva.",
+    "ERR_ACCOUNT_RENAME_COLLISION": "Ya existe una cuenta {handle} en {platform}. Renombrarla aquí fusionaría dos cuentas distintas.",
+    "ERR_ACCOUNT_RENAME_LOCKED": "{count, plural, one {No se puede renombrar esta cuenta: # publicación la usa. Renombrar el usuario dejaría publicaciones huérfanas.} other {No se puede renombrar esta cuenta: # publicaciones la usan. Renombrar el usuario dejaría publicaciones huérfanas.}}",
+    "ERR_ACCOUNT_UNAVAILABLE": "La cuenta {handle} no está disponible (calentamiento en curso o cuenta no validada).",
+    "ERR_ACCOUNT_WRONG_PLATFORM": "La cuenta {handle} no es una cuenta de {platform}.",
+    "ERR_ADMIN_ONLY": "Reservado a los administradores del proyecto.",
+    "ERR_ADVANCE_INVALID": "El importe de un anticipo debe ser positivo.",
+    "ERR_ALL_SCRIPTS_USED": "Todos los guiones mostrables de esta campaña ya se han usado en estas cuentas.",
+    "ERR_ASSET_FILE_REJECTED": "Archivo rechazado: imágenes JPG/PNG/WebP (10 MB) o vídeos MP4/MOV/WebM (100 MB).",
+    "ERR_ASSET_FOLDER_NOT_FOUND": "Carpeta de recursos no encontrada.",
+    "ERR_ASSIGNMENT_ALREADY_STARTED": "Esta misión ya está empezada.",
+    "ERR_ASSIGNMENT_CANCEL_LOCKED": "Esta misión está publicada o pagada: ya no se puede abandonar.",
+    "ERR_ASSIGNMENT_DELETE_LOCKED": "Una misión publicada o pagada no se puede eliminar (historial financiero/analítico).",
+    "ERR_ASSIGNMENT_NOT_FOUND": "Misión no encontrada.",
+    "ERR_ASSIGNMENT_NOT_SCRIPT": "Esta misión no es un guion.",
+    "ERR_ASSIGNMENT_NO_TARGET": "No hay ningún destino en esta misión.",
+    "ERR_BONUS_IS_AUTOMATIC": "Bonus derivado automáticamente de la tarifa (CPM + umbral): no se puede aplicar a mano.",
+    "ERR_BONUS_NEEDS_PUBLISHED": "El bonus se calcula sobre una misión publicada.",
+    "ERR_BONUS_NO_PUBLICATION": "No hay publicación materializada (¿formato personalizado?): el bonus no se aplica.",
+    "ERR_BONUS_PRICING_NOT_FOUND": "Tarifa de bonus no encontrada en el proyecto.",
+    "ERR_BRICK_DISABLED": "La pieza elegida está desactivada.",
+    "ERR_BRICK_LABEL_REQUIRED": "La etiqueta de la pieza es obligatoria.",
+    "ERR_BRICK_NOT_FOUND": "Pieza no encontrada.",
+    "ERR_BRICK_NOT_IN_CAMPAIGN": "Pieza no encontrada en la campaña.",
+    "ERR_BRICK_NOT_RUSH_ELIGIBLE": "La pieza «{extract}» ({kind}) no puede usarse en un bruto: {cause}. Los brutos no tienen sonido: cámbiala a «Mostrar en pantalla».",
+    "ERR_BRICK_SLOT_DISABLED": "Pieza {kind} desactivada: elige otra.",
+    "ERR_BRICK_SLOT_NOT_FOUND": "Pieza {kind} no encontrada (¿eliminada?): elige otra.",
+    "ERR_BRICK_SLOT_WRONG_KIND": "Pieza {kind} de tipo inesperado ({kind2}).",
+    "ERR_BRICK_TEXT_REQUIRED": "El texto de la pieza es obligatorio.",
+    "ERR_BRICK_TEXT_TOO_LONG": "Texto demasiado largo (máx. {p1} caracteres).",
+    "ERR_BRICK_WRONG_SLOT": "La pieza debe ser de tipo «{slot}».",
+    "ERR_BULK_EMPTY": "Ninguna pieza seleccionada.",
+    "ERR_BULK_TOO_MANY": "Demasiadas piezas a la vez ({length} > {p2}).",
+    "ERR_CAMPAIGN_ARCHIVED": "Campaña archivada: reactívala para asignarla.",
+    "ERR_CAMPAIGN_NAME_REQUIRED": "El nombre de la campaña es obligatorio.",
+    "ERR_CAMPAIGN_NOT_FOUND": "Campaña no encontrada.",
+    "ERR_CAMPAIGN_REFERENCED": "Campaña referenciada por misiones: archívala en lugar de eliminarla.",
+    "ERR_CANCEL_REASON_REQUIRED": "Se necesita un motivo de cancelación.",
+    "ERR_CAROUSEL_FIELDS_REQUIRED": "Carrusel: el formato, el número de diapositivas y las diapositivas son obligatorios.",
+    "ERR_CAROUSEL_PARTLY_PUBLISHED": "Carrusel publicado en parte, no se puede editar. Vacía primero los enlaces de publicación o elimina las filas publicadas.",
+    "ERR_CHALLENGE_BRICK_NOT_FOUND": "Pieza del guion del reto no encontrada.",
+    "ERR_CHALLENGE_CLOSED": "Este reto está cerrado: ya no acepta vídeos.",
+    "ERR_CHALLENGE_CLOSED_FOREVER": "Reto cerrado: no se vuelve a abrir.",
+    "ERR_CHALLENGE_CREATOR_NOT_JOINED": "{name} todavía no se ha unido: no vería el reto.",
+    "ERR_CHALLENGE_DEADLINE_OVER": "La fecha límite de este reto ya ha pasado.",
+    "ERR_CHALLENGE_DEADLINE_PASSED": "La fecha límite ya ha pasado: amplíala antes de abrir.",
+    "ERR_CHALLENGE_DELETE_LOCKED": "Este reto tiene {published, plural, =0 {} one {# vídeo publicado} other {# vídeos publicados}}{published, plural, =0 {} other {{wins, plural, =0 {} other { y }}}}{wins, plural, =0 {} one {# victoria} other {# victorias}}: eliminarlos rompería el vínculo entre esos vídeos y su ciclo de pago. Mejor ocúltalo: desaparece del espacio de las creadoras y sus vídeos y pagos quedan intactos.",
+    "ERR_CHALLENGE_NAME_REQUIRED": "El reto necesita un nombre.",
+    "ERR_CHALLENGE_NAME_TOO_LONG": "Nombre demasiado largo (máx. {p1}).",
+    "ERR_CHALLENGE_NEEDS_PARTICIPANT": "Añade al menos una creadora antes de abrir el reto.",
+    "ERR_CHALLENGE_NOT_FOUND": "Reto no encontrado en el proyecto.",
+    "ERR_CHALLENGE_NOT_OPEN_YET": "Este reto todavía no está abierto.",
+    "ERR_CHALLENGE_NOT_PARTICIPANT": "Esta creadora no participa en este reto.",
+    "ERR_CHALLENGE_NO_SCRIPT": "Este reto todavía no tiene guion: escríbelo antes de producir para él.",
+    "ERR_CHALLENGE_PARTICIPANT_LOCKED": "{name} ya ha participado en este reto: ya no se la puede quitar.",
+    "ERR_CHALLENGE_PARTNER_ONLY": "{name} no es una creadora partner: los retos son solo para ellas.",
+    "ERR_CHALLENGE_PRICING_FIXED_NOT_ZERO": "La tarifa de un reto debe tener un importe fijo de 0 («{name}» vale {amount}). Los vídeos de un reto se pagan por CPM, más el premio; si no, consumirían el presupuesto fijo de los vídeos normales.",
+    "ERR_CHALLENGE_SCRIPT_TOO_LONG": "Guion demasiado largo ({length} caracteres, máximo {p2}).",
+    "ERR_CHALLENGE_TERMS_LOCKED": "Reto ya abierto: el objetivo, el modo, la recompensa y el número de ganadoras ya no se pueden modificar. Son las condiciones anunciadas a las participantes.",
+    "ERR_CHALLENGE_WIN_NOT_FOUND": "Victoria no encontrada.",
+    "ERR_CHALLENGE_WIN_PAID": "Esta victoria ya no se puede anular: su premio ya se ha pagado (periodo {period}). Anularla aquí haría que la pantalla no coincidiera con lo que realmente se pagó.",
+    "ERR_CLIPPER_NOT_ASSIGNABLE": "Clipper no asignable ({name}: sin onboarding o inactivo).",
+    "ERR_CLIPPER_NOT_IN_PROJECT": "Clipper no encontrado en este proyecto.",
+    "ERR_CLIPPER_NO_LONGER": "{name} ya no es clipper: vuelve a emparejar a {name2}.",
+    "ERR_CLIP_QUOTA_NOT_VALIDATED": "La cuenta {handle} todavía no estaba validada el {date}: no se puede publicar en esa fecha.",
+    "ERR_CLIP_QUOTA_PHASE_ZERO": "La cuenta {handle} está en fase de {phase} el {date}: no se puede publicar en esa fecha.",
+    "ERR_CLIP_QUOTA_REACHED": "{count, plural, one {Cupo alcanzado para el {date} en {handle}: # publicación de {max} en fase de {phase}.} other {Cupo alcanzado para el {date} en {handle}: # publicaciones de {max} en fase de {phase}.}}",
+    "ERR_COMBO_ALREADY_USED": "Este combo ya se usa para {name} en {conflict}.",
+    "ERR_COMBO_BRICK_NOT_FOUND": "Pieza del combo no encontrada.",
+    "ERR_COMBO_IN_COOLDOWN": "Este guion ya está programado en {handles} el {date} (cooldown de {days, plural, one {# día} other {# días}}). Vuelve a estar disponible el {freeDate}.",
+    "ERR_CONTRACT_FILE_REJECTED": "Archivo rechazado: PDF de 20 MB como máximo.",
+    "ERR_CONTRACT_NOT_FOUND": "Contrato no encontrado en el proyecto.",
+    "ERR_COOLDOWN_DAYS_INVALID": "Duración de cooldown no válida: un número entero entre {min} y {max} días.",
+    "ERR_CREATOR_ACCOUNT_NOT_FOUND": "Cuenta de creador no encontrada.",
+    "ERR_CREATOR_ALREADY_IN_PROJECT": "Este creador ya está vinculado a este proyecto.",
+    "ERR_CREATOR_EMAIL_TAKEN": "Ya existe un creador con este email.",
+    "ERR_CREATOR_NAME_REQUIRED": "El nombre del creador es obligatorio.",
+    "ERR_CREATOR_NOT_ASSIGNABLE": "Creador no asignable ({name}: sin onboarding o inactivo).",
+    "ERR_CREATOR_NOT_FOUND": "Creador no encontrado.",
+    "ERR_CREATOR_NOT_IN_PROJECT": "Creador no encontrado en el proyecto.",
+    "ERR_CREATOR_NOT_IN_THIS_PROJECT": "Creador no encontrado en este proyecto.",
+    "ERR_CREATOR_OUT_OF_SCOPE": "Esta creadora no está en tu ámbito. Pide a un administrador que la añada a tus creadoras.",
+    "ERR_CREATOR_RECORD_NOT_FOUND": "Ficha de creador no encontrada.",
+    "ERR_CYCLE_INVALID": "Ciclo no válido.",
+    "ERR_DEADLINE_INVALID": "Fecha límite no válida.",
+    "ERR_DEADLINE_IN_PAST": "La fecha límite debe estar en el futuro.",
+    "ERR_DEADLINE_ONLY_EXTENDS": "Reto ya abierto: la fecha límite se puede ampliar, no acortar.",
+    "ERR_DEPOSIT_UNAVAILABLE": "Subida no disponible para este proyecto.",
+    "ERR_DRIVE_UNAVAILABLE": "Subida de archivos no disponible para este proyecto.",
+    "ERR_DRIVE_UPLOAD_START_FAILED": "No se ha podido iniciar la subida a Drive. Inténtalo de nuevo.",
+    "ERR_EMAIL_INVALID": "Email no válido.",
+    "ERR_FILE_REF_MISSING": "Falta la referencia del archivo.",
+    "ERR_FOLDER_ALREADY_EXISTS": "La carpeta «{name}» ya existe.",
+    "ERR_FOLDER_NAME_REQUIRED": "El nombre de la carpeta es obligatorio.",
+    "ERR_FOLDER_NAME_TOO_LONG": "Nombre demasiado largo (máx. {p1}).",
+    "ERR_FOLDER_NAME_TOO_LONG_CHARS": "Nombre de carpeta demasiado largo (máx. {p1} caracteres).",
+    "ERR_FOLDER_NOT_FOUND": "Carpeta no encontrada.",
+    "ERR_FORMAT_ARCHIVED": "Formato archivado: reactívalo para asignarlo.",
+    "ERR_FORMAT_BASE_RATE_INVALID": "La tarifa base debe ser un número ≥ 0.",
+    "ERR_FORMAT_NAME_REQUIRED": "El nombre del formato es obligatorio.",
+    "ERR_FORMAT_NOT_FOUND": "Formato no encontrado.",
+    "ERR_FORMAT_NOT_IN_PROJECT": "Formato no encontrado en este proyecto.",
+    "ERR_FORMAT_PLATFORM_MISMATCH": "El formato «{name}» ({type}) no se puede publicar en {platform}.",
+    "ERR_FORMAT_RATE_NOT_SET": "La tabla de remuneración de este formato nunca se ha completado. Complétala antes de asignar; si no, la misión quedaría fijada en 0.",
+    "ERR_FORMAT_REFERENCED": "Este formato está en uso. Archívalo en lugar de eliminarlo.",
+    "ERR_FORMAT_TIERS_INVALID": "Los niveles de premio deben ser ≥ 0.",
+    "ERR_FORMAT_VIEW_BONUS_INVALID": "El bonus por vistas debe ser un número ≥ 0.",
+    "ERR_HANDLE_REQUIRED": "Usuario obligatorio.",
+    "ERR_HOOK_ALREADY_PROVEN": "Este hook ya está entre las aperturas probadas.",
+    "ERR_HOOK_NOT_FOUND": "Hook no encontrado.",
+    "ERR_ICP_ALREADY_EXISTS": "El ICP «{nom}» ya existe.",
+    "ERR_ICP_NAME_REQUIRED": "Nombre de ICP obligatorio.",
+    "ERR_ICP_NAME_TOO_LONG": "Nombre de ICP demasiado largo (máx. {p1} caracteres).",
+    "ERR_ICP_NOT_FOUND": "ICP no encontrado.",
+    "ERR_ICP_REQUIRED_FOR_SHORT": "Se necesita un ICP para un Short.",
+    "ERR_INSPIRATION_NOT_FOUND": "Inspiración no encontrada.",
+    "ERR_INVITATION_ALREADY_ACCEPTED": "Este creador ya ha aceptado su invitación.",
+    "ERR_LABEL_REQUIRED": "La etiqueta es obligatoria.",
+    "ERR_LOGIN_ACCOUNT_NOT_FOUND": "Cuenta de acceso no encontrada.",
+    "ERR_MANAGED_ACCOUNT_NEEDS_CREATOR": "Una cuenta gestionada por el equipo debe estar vinculada a una creadora.",
+    "ERR_MEDIA_TYPE_NOT_ALLOWED": "Formato {mediaType} no permitido en {plateforme}.",
+    "ERR_MISSION_NOT_FOUND": "Misión no encontrada.",
+    "ERR_MISSION_NOT_WAITING_CREATOR": "Esta misión no está esperando al creador.",
+    "ERR_MODEL_VIDEOS_TOO_MANY": "Demasiados vídeos modelo (máx. {p1}).",
+    "ERR_MODEL_VIDEO_URL_INVALID": "La URL del vídeo modelo no es válida (se espera un enlace http(s)).",
+    "ERR_MODULE_CONTENT_TOO_LONG": "Contenido demasiado largo (máx. {p1} caracteres).",
+    "ERR_MODULE_LOCALE_UNKNOWN": "Idioma desconocido: {raw}.",
+    "ERR_MODULE_NOT_FOUND": "Módulo no encontrado.",
+    "ERR_MODULE_TITLE_REQUIRED": "Título del módulo obligatorio.",
+    "ERR_MODULE_TITLE_TOO_LONG": "Título demasiado largo (máx. {p1} caracteres).",
+    "ERR_NAME_REQUIRED": "El nombre es obligatorio.",
+    "ERR_NOT_AUTHENTICATED": "No has iniciado sesión.",
+    "ERR_NOT_A_CLIPPER": "{name} no es clipper: no se le puede vincular un talento.",
+    "ERR_NOT_A_CREATOR_ACCOUNT": "Esta cuenta no es de creador.",
+    "ERR_NO_ACTIVE_HOOK_OR_BODY": "Ningún guion asignable: esta campaña no tiene gancho ni cuerpo activos.",
+    "ERR_NO_BIO_TO_APPLY": "No hay ninguna bio que aplicar en esta cuenta.",
+    "ERR_NO_COMBO_AVAILABLE": "No hay ningún combo disponible (falta un tipo de pieza o no hay ningún hook activo).",
+    "ERR_NO_ELIGIBLE_COMBO": "Ningún guion asignable. La pieza «{extract}» ({kind}) no puede usarse en un bruto: {cause}. Los brutos no tienen sonido: cámbiala a «Mostrar en pantalla».{more, plural, =0 {} one { (+ # pieza más que corregir)} other { (+ # piezas más que corregir)}}",
+    "ERR_NO_PAY_CYCLE": "Ningún ciclo: este creador no tiene ni publicación ni fecha de activación.",
+    "ERR_NO_SCRIPT_FREE_THAT_DAY": "No queda ningún guion disponible para el {date}: todos los de esta campaña ya están programados a {days, plural, one {# día} other {# días}} o menos. El primero se libera el {freeDate}: vuelve a planificar a partir de esa fecha o añade piezas a la campaña.",
+    "ERR_ONLY_HOOK_GRADUATES": "Solo un hook puede graduarse.",
+    "ERR_ONLY_TALENT_PAIRS": "Solo un talento puede emparejarse con un clipper.",
+    "ERR_OPERATION_NOT_ALLOWED": "Operación no permitida.",
+    "ERR_PASSWORD_TOO_SHORT": "La contraseña debe tener al menos 8 caracteres.",
+    "ERR_PAYMENT_ALREADY_PAID": "Este ciclo ya está liquidado: un anticipo ya no tiene sentido.",
+    "ERR_PAYMENT_NOT_FOUND": "Pago no encontrado.",
+    "ERR_PAYMENT_NOT_PAID": "Este ciclo no está marcado como pagado.",
+    "ERR_PAYMENT_REVERT_USED": "Este ciclo ya se anuló una vez: no existe una segunda anulación.",
+    "ERR_PAYOUT_DAY_INVALID": "El día de pago debe ser un número entero entre 1 y 28.",
+    "ERR_PAY_CYCLE_LOCKED": "El ciclo de pago{hasRange, select, yes { del {startDate} al {endDate}} other {}} de este post está cerrado{paid, select, yes {, pagado el {paidDate}} other { (ya pagado)}}: {what} está fijado. El importe ya pagado nunca se recalcula; modificar este ajuste haría que lo mostrado no coincidiera con lo que realmente se pagó.",
+    "ERR_PERMISSION_DENIED": "No tienes permiso para esta acción. Pídeselo a un administrador.",
+    "ERR_PERSON_ALREADY_EXISTS": "Esta persona ya existe.",
+    "ERR_PERSON_NAMES_REQUIRED": "Nombre y apellido obligatorios.",
+    "ERR_PERSON_NAMES_TOO_LONG": "Nombre y apellido limitados a {p1} caracteres.",
+    "ERR_PERSON_NOT_FOUND": "Persona no encontrada.",
+    "ERR_POPULATION_LOCKED": "No se puede cambiar la población de {name}: hay elementos vinculados ({comptes, plural, one {# cuenta} other {# cuentas}}, {publications, plural, one {# publicación} other {# publicaciones}}, {payments, plural, one {# línea de pago} other {# líneas de pago}}). Un creador que ya ha trabajado conserva su población: crea una ficha nueva si hace falta.",
+    "ERR_PORTAL_ROLE_REJECTED": "Este espacio está reservado a otra población del proyecto.",
+    "ERR_POST_URL_INVALID": "URL del post no válida para {platform} (se espera un enlace http(s)).",
+    "ERR_POST_URL_IS_ACCOUNT": "La URL indicada para {platform} es un enlace de perfil, no de una publicación.",
+    "ERR_POST_URL_MISSING": "Falta la URL para {platform}: todas las plataformas son obligatorias.",
+    "ERR_POST_URL_WRONG_PLATFORM": "La URL indicada para {platform} no corresponde a esa plataforma.",
+    "ERR_PRICING_ARCHIVED": "Tarifa archivada: reactívala para asignarla.",
+    "ERR_PRICING_FIELD_INVALID": "{label} debe ser un número ≥ 0.",
+    "ERR_PRICING_NAME_REQUIRED": "El nombre de la tarifa es obligatorio.",
+    "ERR_PRICING_NOT_IN_PROJECT": "Tarifa no encontrada en el proyecto.",
+    "ERR_PRICING_REQUIRED": "Se necesita una tarifa de pago.",
+    "ERR_PRICING_TARGET_VIDEOS_INVALID": "El número de vídeos objetivo debe ser un entero ≥ 1.",
+    "ERR_PRICING_VIEW_THRESHOLD_INVALID": "El umbral de vistas del fijo debe ser un número ≥ 0.",
+    "ERR_PROJECT_ACCESS_DENIED": "Acceso al proyecto denegado.",
+    "ERR_PROJECT_NAME_REQUIRED": "El nombre del proyecto es obligatorio.",
+    "ERR_PROJECT_NOT_FOUND": "Proyecto no encontrado.",
+    "ERR_PROVEN_CAMPAIGN_MISSING": "No hay ninguna campaña «{p1}» en este proyecto: créala primero.",
+    "ERR_PUBLICATION_NOT_FOUND": "Publicación no encontrada.",
+    "ERR_PUBLISHED_AT_BEFORE_CREATION": "La fecha de publicación es anterior a la creación de la misión.",
+    "ERR_PUBLISHED_AT_IN_FUTURE": "La fecha de publicación no puede estar en el futuro.",
+    "ERR_PUBLISH_ACCOUNT_REQUIRED": "Elige al menos una cuenta de publicación.",
+    "ERR_PUBLISH_BEFORE_APPROVAL": "Solo puedes publicar después de que se valide tu vídeo.",
+    "ERR_RADAR_ACCOUNT_ALREADY_FOLLOWED": "@{handle} ya se sigue.",
+    "ERR_RADAR_ACCOUNT_NOT_FOUND": "Cuenta de Radar no encontrada en este proyecto.",
+    "ERR_RADAR_HANDLE_INVALID": "Usuario de TikTok no válido. Pega un @, un usuario o una URL de perfil (tiktok.com/@cuenta).",
+    "ERR_RATE_INVALID": "La tarifa debe ser un número ≥ 0.",
+    "ERR_REF_TAKEN_BY_CREATOR": "La ref «{next}» ya pertenece a {name}. Una ref solo puede pertenecer a una persona.",
+    "ERR_REF_TAKEN_BY_INFLUENCER": "La ref «{next}» está declarada para la influencer {name}. Una ref solo puede pertenecer a una persona.",
+    "ERR_REJECTION_REASON_REQUIRED": "Se necesita un motivo de rechazo.",
+    "ERR_REJECTION_REASON_TOO_LONG": "Motivo demasiado largo ({p1} caracteres como máximo).",
+    "ERR_REPLAY_SOURCE_AMBIGUOUS": "Indica publicationId O assignmentId (solo uno).",
+    "ERR_REPLAY_SOURCE_NOT_FOUND": "Misión de origen de la repetición no encontrada.",
+    "ERR_REPLAY_SOURCE_NO_SCRIPT": "Repetición idéntica imposible: el origen no tiene un guion fijado.",
+    "ERR_REPLAY_SOURCE_REQUIRED": "Repetición idéntica: se necesita el origen de la repetición.",
+    "ERR_RESET_FORBIDDEN_SUPERADMIN": "Restablecimiento no permitido para una cuenta superadmin.",
+    "ERR_RESET_LINK_INVALID": "Enlace de restablecimiento no válido o caducado.",
+    "ERR_REWARD_CASH_INVALID": "Recompensa en dinero: se necesita un importe estrictamente positivo.",
+    "ERR_REWARD_KIND_INVALID": "Recompensa en especie: describe lo que se ofrece (p. ej., «iPhone 16»).",
+    "ERR_REWARD_REAL_COST_INVALID": "Coste real no válido (número positivo o vacío).",
+    "ERR_RUSH_NOT_ASSIGNABLE": "Este bruto ya no se puede asignar (ya elegido, publicado, rechazado o caducado).",
+    "ERR_RUSH_NOT_IN_PROJECT": "Bruto no encontrado en este proyecto.",
+    "ERR_RUSH_NOT_REJECTABLE": "Este bruto ya no se puede rechazar (ya tratado).",
+    "ERR_SCREENREC_DEVICE_REQUIRED": "ScreenRecorder: dispositivo de grabación obligatorio.",
+    "ERR_SCREENREC_IMAGE_REQUIRED": "ScreenRecorder: imagen obligatoria.",
+    "ERR_SCREENREC_REPACK_REQUIRED": "ScreenRecorder: indica si es un repackaging de RepackIt.",
+    "ERR_SCREENREC_TITLE_REQUIRED": "ScreenRecorder: título obligatorio (3-200 caracteres).",
+    "ERR_SCRIPT_COMBO_MISSING": "Falta el combo del guion: no se puede materializar.",
+    "ERR_SCRIPT_LOCKED_PUBLISHED": "El guion ya no se puede modificar: el post ya está publicado.",
+    "ERR_SEARCH_KEYWORD_REQUIRED": "Escribe una palabra clave que buscar.",
+    "ERR_SHORT_ALREADY_ON_PLATFORM": "Este short ya está publicado en {plateforme} (cuenta {compte} el {date}). Confirma para forzarlo.",
+    "ERR_SHORT_ALREADY_ON_TIKTOK": "Este short ya se publicó en TikTok (cuenta {compte} el {date}). Riesgo de shadowban.",
+    "ERR_SLUG_INVALID": "Slug no válido: solo minúsculas, cifras y guiones.",
+    "ERR_SLUG_RESERVED": "Slug reservado: «{slug}».",
+    "ERR_SLUG_TAKEN": "Ya existe un proyecto «{slug}».",
+    "ERR_SNAPSHOT_BEFORE_PUBLICATION": "Fecha de captura anterior a la fecha de publicación.",
+    "ERR_SNAPSHOT_NOT_FOUND": "Captura no encontrada.",
+    "ERR_SOURCE_BRICK_NOT_FOUND": "Pieza de origen no encontrada.",
+    "ERR_SOURCE_ID_INVALID": "SourceId vacío o no válido.",
+    "ERR_SUPERADMIN_ONLY": "Reservado al superadmin.",
+    "ERR_TALENT_NOT_IN_PROJECT": "Talento no encontrado en este proyecto.",
+    "ERR_TALENT_NOT_PAIRED": "{name} no está emparejado con ningún clipper: vincúlale un clipper desde su ficha antes de asignar un guion.",
+    "ERR_TARGETS_COUNT": "Una misión tiene de 1 a 3 destinos (plataformas).",
+    "ERR_TARGETS_MIXED_OWNERSHIP": "Una misión no puede mezclar cuentas gestionadas por el equipo y cuentas del creador.",
+    "ERR_TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR": "Cuenta de destino no encontrada para este creador.",
+    "ERR_TARGET_ACCOUNT_NOT_IN_PROJECT": "Cuenta de destino no encontrada en el proyecto.",
+    "ERR_TARGET_PLATFORM_DUPLICATE": "Un solo destino por plataforma ({platform} duplicada).",
+    "ERR_TARGET_VIEWS_INVALID": "Objetivo de vistas no válido: un número entero estrictamente positivo.",
+    "ERR_TEMPLATE_NAME_REQUIRED": "El nombre de la plantilla es obligatorio.",
+    "ERR_TEMPLATE_NEEDS_TIER": "Una plantilla sin niveles no tiene nada que copiar.",
+    "ERR_TEMPLATE_TIER_DUPLICATE": "Dos niveles no pueden compartir el mismo umbral.",
+    "ERR_TIER_CASH_INVALID": "Un nivel en dinero exige un importe en $ ≥ 0.",
+    "ERR_TIER_KIND_LABEL_REQUIRED": "Un nivel en especie exige una etiqueta (p. ej., iPhone).",
+    "ERR_TIER_REAL_COST_INVALID": "El coste real de un nivel en especie debe ser ≥ 0.",
+    "ERR_TIER_REAL_COST_KIND_ONLY": "El coste real solo se aplica a los niveles en especie (el dinero ya lleva su importe).",
+    "ERR_TIER_THRESHOLD_INVALID": "El umbral de vistas de un nivel debe ser ≥ 0.",
+    "ERR_TIMEZONE_UNKNOWN": "Zona horaria desconocida: {tz}. Se espera un identificador IANA, por ejemplo America/New_York.",
+    "ERR_TIME_WINDOW_INVALID": "Franja horaria no válida: la hora de inicio debe ser anterior a la de fin, dentro del mismo día.",
+    "ERR_URL_CANNOT_BE_EMPTY": "La URL no puede estar vacía.",
+    "ERR_URL_REQUIRED": "URL obligatoria.",
+    "ERR_VIDEO_COUNT_INVALID": "Número de vídeos no válido (1-50).",
+    "ERR_VIDEO_NOT_IN_CHALLENGE": "Este vídeo no pertenece a ningún reto.",
+    "ERR_VIDEO_NOT_IN_REVIEW_APPROVE": "Solo se pueden validar los vídeos en revisión.",
+    "ERR_VIDEO_NOT_IN_REVIEW_REJECT": "Solo se pueden rechazar los vídeos en revisión.",
+    "ERR_VIDEO_SUBMIT_WRONG_STATE": "No se puede enviar un vídeo en este estado.",
+    "ERR_VIEW_COUNT_INVALID": "Número de vistas no válido.",
+    "ERR_WARMUP_ALREADY_DONE": "Calentamiento ya terminado: pendiente de validación del admin.",
+    "ERR_WARMUP_CHECK_ALREADY_DONE": "La tarea del día ya está hecha.",
+    "ERR_WARMUP_DATE_NEEDS_WARMUP": "La fecha de calentamiento solo es válida para el estado de calentamiento.",
+    "ERR_WARMUP_DAYS_INVALID": "Duración de {label} no válida: un número entero entre {p2} y {p3} días.",
+    "ERR_WARMUP_DURATION_INVALID": "La duración objetivo debe ser un número entero entre 1 y 60.",
+    "ERR_WARMUP_START_REQUIRED": "Fecha de inicio del calentamiento obligatoria.",
+    "ERR_WINNER_COUNT_INVALID": "Número de ganadoras no válido (entero entre 1 y {p1}).",
+    "generic": "Se ha producido un error."
+  },
+  "calendar": {
+    "weekday": {
+      "mon": "Lun",
+      "tue": "Mar",
+      "wed": "Mié",
+      "thu": "Jue",
+      "fri": "Vie",
+      "sat": "Sáb",
+      "sun": "Dom"
+    }
+  },
+  "refusal": {
+    "brickKind": {
+      "hook": "gancho",
+      "flux": "cuerpo",
+      "cta": "llamada a la acción"
+    },
+    "brickCause": {
+      "modeMissing": "su modo no está indicado",
+      "modeSpoken": "está configurada en «Decir en voz alta»",
+      "modeBoth": "está configurada en «Las dos cosas»"
+    },
+    "locked": {
+      "trackingLink": "el enlace de seguimiento",
+      "warmupSetting": "el ajuste de calentamiento",
+      "remuneration": "la remuneración"
+    }
+  }
+}

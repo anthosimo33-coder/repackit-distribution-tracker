@@ -20,10 +20,21 @@
  * déterministe sans Intl) et correct pour `dueDate`, stocké à 21:59 UTC = 23:59
  * Paris le MÊME jour. Le bon fuseau dépend du champ, pas d'une règle unique.
  */
+/**
+ * Étiquette `Intl` d'une date NUMÉRIQUE. Seul l'anglais US inverse l'ordre des
+ * champs ; l'espagnol et le portugais s'écrivent JJ/MM comme le français.
+ */
+function numericDateTag(locale: string): string {
+  if (locale.startsWith("en")) return "en-US";
+  if (locale.startsWith("es")) return "es-ES";
+  if (locale.startsWith("pt")) return "pt-BR";
+  return "fr-FR";
+}
+
 export function formatDateFr(ts: number, locale: string = "fr-FR"): string {
   // L'espace d'équipe passe la langue du lecteur : 09/14/26 en anglais US. Le
   // serveur (e-mails, libellés persistés) ne la passe jamais — le défaut reste.
-  return new Date(ts).toLocaleDateString(locale.startsWith("en") ? "en-US" : "fr-FR", {
+  return new Date(ts).toLocaleDateString(numericDateTag(locale), {
     day: "2-digit",
     month: "2-digit",
     year: "2-digit",
@@ -45,7 +56,7 @@ export function formatDateFr(ts: number, locale: string = "fr-FR"): string {
  * à corriger est le fuseau, pas le format.
  */
 export function formatDayMonthFr(ts: number, locale: string = "fr-FR"): string {
-  return new Date(ts).toLocaleDateString(locale.startsWith("en") ? "en-US" : "fr-FR", {
+  return new Date(ts).toLocaleDateString(numericDateTag(locale), {
     day: "2-digit",
     month: "2-digit",
     timeZone: "Europe/Paris",

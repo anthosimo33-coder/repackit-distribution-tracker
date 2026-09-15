@@ -228,6 +228,6 @@ describe("formatUtcDay — le libellé et le seau du quota parlent du même jour
     );
     // Langue absente ou inconnue ⇒ français, le défaut du produit.
     expect(formatUtcDay(LUNDI, undefined)).toBe("lundi 10 août");
-    expect(formatUtcDay(LUNDI, "es")).toBe("lundi 10 août");
+    expect(formatUtcDay(LUNDI, "de")).toBe("lundi 10 août");
   });
 });

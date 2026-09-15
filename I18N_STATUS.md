@@ -1373,3 +1373,36 @@ Sortie attendue : `146/146 fichiers extraits`, `~0 chaînes`, catalogues aligné
 et anglais traduit. La commande échoue si une chaîne française réapparaît dans le
 périmètre, si `en.json` recopie `fr.json` hors liste blanche, ou si une structure
 ICU diverge entre les deux catalogues.
+
+---
+
+## 13. Espagnol et portugais — parcours créateur seul (septembre 2026)
+
+Deux langues ajoutées à l'invitation et à l'espace créatrice : `es` (espagnol
+neutre, tutoiement, mise en forme `es-ES`) et `pt` (portugais **brésilien**,
+« você », mise en forme `pt-BR`). **L'espace d'équipe reste FR/EN.**
+
+| Zone | Ce qui a été fait |
+|---|---|
+| Langues | `convex/locales.ts` : `LOCALES = fr, en, es, pt` ; `TEAM_LOCALES = fr, en` et `teamLocaleOf` (es/pt → en) |
+| Catalogues | `messages/es.json`, `messages/pt.json` — 1 158 clés chacun, traduites depuis fr+en |
+| Espace d'équipe | pas de `messages/admin/es|pt` : `loadMessages` sert l'anglais ; le sélecteur de la sidebar admin ne propose que FR/EN |
+| E-mails | les 8 copies de `convex/emailMessages.ts` ont une branche es et pt ; montants `1.234,50 US$` / `US$ 1.234,50` |
+| Mise en forme | `formatUtcDay` (« lunes, 10 de agosto »), heures (21:30 es / 21h30 pt), `formatDateFr`, `formatPercent`, `formatViews`, `formatMoneyDate`, date-fns `es`/`ptBR` — les branches `startsWith("en"/"fr")` ne font plus tomber une 3e langue dans la branche de l'autre |
+| Guide | `convex/guideModulesEs.ts`, `convex/guideModulesPt.ts` — 11 modules chacun, traduits du jeu anglais EN PROD au 2026-09-15 (warm-up fusionné) ; posés par `migrations:seedGuideModulesLocale` |
+| Garde | `scripts/check-i18n.mjs` applique aux socles es/pt : mêmes clés que fr, aucune copie du fr NI de l'en (liste blanche `scripts/i18n-same-in-es|pt.json`), ICU compatible, ni balise ni entité |
+| Tests | `lib/locales-es-pt.test.ts` (vu rouge) ; `e2e/i18n-es-pt.spec.ts` — invitation es par le dialogue admin, invitation pt, /join et espace dans la langue (vu rouge) |
+
+**POST-DEPLOY — guide** : sans le seed, une lectrice es/pt lit le guide en
+français avec le bandeau. Dry-run puis écriture, une langue à la fois :
+
+```bash
+./scripts/convex-prod.sh run migrations:seedGuideModulesLocale '{"locale":"es"}'
+./scripts/convex-prod.sh run migrations:seedGuideModulesLocale '{"locale":"es","commit":true}'
+./scripts/convex-prod.sh run migrations:seedGuideModulesLocale '{"locale":"pt"}'
+./scripts/convex-prod.sh run migrations:seedGuideModulesLocale '{"locale":"pt","commit":true}'
+```
+
+**Non relu par un natif.** Les traductions sont de qualité professionnelle mais
+n'ont pas été relues par un locuteur natif. Les SCRIPTS de mission (données du
+projet) ne sont pas traduits : ils restent dans la langue où l'équipe les écrit.
