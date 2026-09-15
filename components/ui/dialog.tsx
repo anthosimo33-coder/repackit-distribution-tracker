@@ -56,7 +56,13 @@ function DialogContent({
           // Mobile : quasi pleine largeur + hauteur bornée à la fenêtre (modals
           // hauts comme l'upload MP4 scrollent au lieu de déborder). dvh suit la
           // hauteur réelle (barres mobiles). sm+ : carte centrée classique.
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // `grid-cols-[minmax(0,1fr)]` : sans colonne déclarée, la grille prenait
+          // la largeur MIN-CONTENT de son contenu le plus large (un sélecteur à
+          // long libellé, un calendrier) et la modale sortait de l'écran — il
+          // fallait penser `min-w-0` sur chaque enfant, dans chaque modale.
+          // `[overflow-wrap:anywhere]` : un handle ou une URL sans espace casse
+          // plutôt que de sortir de la modale.
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] grid-cols-[minmax(0,1fr)] [overflow-wrap:anywhere] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

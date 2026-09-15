@@ -125,7 +125,9 @@ export function InfoDot({
       </PopoverTrigger>
       <PopoverContent
         side={side}
-        className="w-72 max-w-[calc(100vw-2rem)] text-xs leading-relaxed text-slate-600"
+        // Borné en hauteur : certaines explications font 60 lignes, plus que
+        // l'écran d'un téléphone — le popover défile au lieu d'en sortir.
+        className="max-h-[min(70dvh,32rem)] w-72 max-w-[calc(100vw-2rem)] overflow-y-auto text-xs leading-relaxed text-slate-600"
       >
         {children}
       </PopoverContent>

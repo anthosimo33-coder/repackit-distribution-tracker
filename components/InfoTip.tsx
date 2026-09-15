@@ -96,7 +96,7 @@ export function InfoTip({
         side={side}
         onPointerEnter={annuler}
         onPointerLeave={fermerBientot}
-        className="w-80 text-xs leading-relaxed text-slate-700"
+        className="max-h-[min(70dvh,32rem)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto text-xs leading-relaxed text-slate-700"
       >
         {children}
       </PopoverContent>

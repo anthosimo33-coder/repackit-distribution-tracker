@@ -104,7 +104,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-0.5">
+    <div className="min-w-0 space-y-0.5">
       <div className="text-xs font-medium text-slate-500">{label}</div>
       <div className="text-sm text-slate-900">{children}</div>
     </div>
@@ -548,7 +548,7 @@ function PublishedView({
             )}
             <Field label={tr("compte")}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs">{publication.compte}</span>
+                <span className="min-w-0 font-mono text-xs break-all">{publication.compte}</span>
                 {publication.accountModified ? (
                   <Badge variant="outline" className="text-slate-500">
                     {tr("modifie")}

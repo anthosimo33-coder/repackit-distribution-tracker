@@ -172,11 +172,11 @@ export function AdminPublishForm({
             <div key={t.platform} className="space-y-1">
               <Label
                 htmlFor={`admin-url-${assignmentId}-${t.platform}`}
-                className="text-xs"
+                className="flex-wrap gap-x-1 text-xs"
               >
-                {t.platform}
+                <span className="shrink-0">{t.platform}</span>
                 {t.accountHandle ? (
-                  <span className="ml-1 font-mono text-slate-400">
+                  <span className="min-w-0 font-mono text-slate-400">
                     {t.accountHandle}
                   </span>
                 ) : null}

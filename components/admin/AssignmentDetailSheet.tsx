@@ -231,7 +231,9 @@ export function AssignmentDetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="w-full gap-0 p-0 sm:max-w-lg"
+        // Téléphone : pleine largeur (le 3/4 par défaut d'un Sheet laissait
+        // 270 px à un panneau dense).
+        className="w-full gap-0 p-0 data-[side=right]:w-full sm:max-w-lg"
         data-testid="assignment-detail-sheet"
       >
         <SheetHeader className="border-b border-slate-100 p-4">
@@ -336,7 +338,7 @@ export function AssignmentDetailSheet({
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
           {/* Contexte */}
-          <dl className="grid grid-cols-[7rem_1fr] items-center gap-x-3 gap-y-3 text-sm">
+          <dl className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-sm">
             <DetailRow label={tr("compte")}>
               {row.targets.length === 0 ? (
                 <span className="text-slate-400">—</span>
@@ -347,13 +349,13 @@ export function AssignmentDetailSheet({
                     return (
                       <div
                         key={t.platform}
-                        className="flex items-center gap-1.5"
+                        className="flex flex-wrap items-center gap-x-1.5"
                       >
                         <span className="text-xs text-slate-400">
                           {t.platform}
                         </span>
                         {flag && <span aria-hidden>{flag}</span>}
-                        <span className="font-mono text-slate-600">
+                        <span className="min-w-0 font-mono break-all text-slate-600">
                           {t.accountHandle ?? "—"}
                         </span>
                       </div>
