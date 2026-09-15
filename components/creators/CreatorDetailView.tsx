@@ -161,9 +161,8 @@ export function CreatorDetailView({
     payTerms?.paymentDetails ?? "",
   );
   const [adminNotes, setAdminNotes] = useState(creator.adminNotes ?? "");
-  // Langue de la fiche. `undefined` en base = français implicite (on ne stocke
-  // que la DIVERGENCE, cf normalizeCreatorLocale) — le <Select> affiche donc le
-  // défaut du produit, et n'écrit que si l'admin choisit autre chose.
+  // Langue SERVIE (compte, sinon fiche — cf getCreator). `null` = français
+  // implicite : le <Select> affiche le défaut du produit.
   const [locale, setLocale] = useState<Locale>(
     normalizeLocale(creator.locale) ?? DEFAULT_LOCALE,
   );
@@ -564,8 +563,10 @@ export function CreatorDetailView({
 
                   Elle sert AVANT que le compte existe (l'e-mail d'invitation part
                   quand `creators.userId` est encore undefined). Une fois le compte
-                  créé, `users.locale` fait foi : changer la fiche ici ne réécrit
-                  donc pas la préférence d'un créateur qui a déjà choisi la sienne.
+                  créé, la changer ici change AUSSI la langue de son espace
+                  (`updateCreator` réécrit `users.locale`). Le champ part de la
+                  langue réellement servie (`getCreator`), si bien qu'enregistrer
+                  un autre champ ne touche pas la langue qu'elle s'est choisie.
                 */}
                 <div className="space-y-1.5">
                   <Label htmlFor="creator-locale">{tA("langue")}</Label>
