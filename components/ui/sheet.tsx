@@ -106,7 +106,8 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
     <SheetPrimitive.Title
       data-slot="sheet-title"
       className={cn(
-        "font-heading text-base font-medium text-foreground",
+        // pr-8 : le titre ne passe pas sous le bouton de fermeture (absolu, en haut à droite).
+        "pr-8 font-heading text-base font-medium text-foreground",
         className
       )}
       {...props}

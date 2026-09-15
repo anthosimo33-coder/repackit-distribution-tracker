@@ -136,12 +136,12 @@ export default function GainsScreen() {
               </div>
               <dl className="grid grid-cols-3 gap-3">
                 {split.map((x) => (
-                  <div key={x.key} className="space-y-0.5">
+                  <div key={x.key} className="min-w-0 space-y-0.5">
                     <dt className="flex items-center gap-1.5 text-xs text-slate-500">
                       <span className={cn("size-2 rounded-sm", x.color)} />
                       {t(`gains.split.${x.key}`)}
                     </dt>
-                    <dd className="text-base font-semibold tabular-nums text-slate-900">
+                    <dd className="text-sm font-semibold tabular-nums break-words text-slate-900 sm:text-base">
                       {formatMoney(x.amount, currency, loc)}
                     </dd>
                   </div>

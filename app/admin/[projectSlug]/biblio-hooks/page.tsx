@@ -316,7 +316,7 @@ function HookVariantsPopover({
         }
       />
       <PopoverContent
-        className="max-h-96 w-[420px] overflow-y-auto p-1"
+        className="max-h-96 w-[420px] max-w-[calc(100vw-2rem)] overflow-y-auto p-1"
         align="start"
       >
         {variants === undefined ? (

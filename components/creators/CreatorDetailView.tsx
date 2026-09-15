@@ -368,7 +368,7 @@ export function CreatorDetailView({
           className="size-12"
           textClassName="text-lg"
         />
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-w-0 grow basis-56 flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">
               {creator.name}
@@ -484,7 +484,7 @@ export function CreatorDetailView({
       </div>
 
       <Tabs defaultValue="profil">
-        <TabsList variant="line">
+        <TabsList variant="line" className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
           <TabsTrigger value="profil">{tA("profil")}</TabsTrigger>
           <TabsTrigger value="activite">{tA("activite")}</TabsTrigger>
           {canEditPayTerms && (

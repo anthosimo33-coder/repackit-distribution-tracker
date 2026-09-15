@@ -21,11 +21,11 @@ export default function ShortsPage() {
   const projectPath = useProjectPath();
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between">
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-3">
         <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
           Shorts
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href={projectPath("/shorts/sources")}
             className={cn(buttonVariants({ variant: "outline" }), "gap-1.5")}

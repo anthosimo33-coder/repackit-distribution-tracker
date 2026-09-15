@@ -195,7 +195,7 @@ export function CreateChallengeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
+        <div className="grid min-w-0 grid-cols-1 gap-4">
           <div className="grid min-w-0 gap-1.5">
             <Label htmlFor="ch-name">{tr("nom")}</Label>
             <Input
@@ -217,7 +217,7 @@ export function CreateChallengeDialog({
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="grid min-w-0 gap-1.5">
               <Label htmlFor="ch-target">{tr("objectifDeVues")}</Label>
               <Input
@@ -252,7 +252,7 @@ export function CreateChallengeDialog({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="grid min-w-0 gap-1.5">
               <Label>{tr("recompense")}</Label>
               <Select
@@ -290,7 +290,7 @@ export function CreateChallengeDialog({
             </div>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
             {rewardType === "cash" ? (
               <div className="grid min-w-0 gap-1.5">
                 <Label htmlFor="ch-amount">{tr("montantParGagnante")}</Label>
@@ -365,7 +365,7 @@ export function CreateChallengeDialog({
             )}
           </p>
 
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="grid min-w-0 gap-1.5">
               <Label htmlFor="ch-deadline">{tr("deadline")}</Label>
               <Input

@@ -131,7 +131,7 @@ function UnitCell({
 /** L'opérateur entre deux cellules : il porte le sens de lecture de la ligne. */
 function UnitOp({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-center px-2 text-sm text-slate-400">
+    <div className="hidden items-center justify-center px-2 text-sm text-slate-400 sm:flex">
       {children}
     </div>
   );
@@ -649,7 +649,9 @@ export function OverviewTab({
           Le dénominateur est écrit UNE fois sous le bloc — il est le même pour
           les quatre cellules, et il occupait trois sous-titres de trois lignes. */}
       <Card className="overflow-hidden p-0">
-        <div className="flex flex-wrap items-stretch divide-x divide-slate-100">
+        {/* Mobile : grille 2×2 sans opérateurs (l'équation sur une ligne ne
+            tient pas à 390 px) ; sm+ : l'équation écrite en ligne. */}
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap sm:items-stretch sm:divide-x sm:divide-slate-100">
           <UnitCell
             label="Revenu par client"
             value={cur.revenuePer === null ? "—" : formatMoney(cur.revenuePer, currency)}

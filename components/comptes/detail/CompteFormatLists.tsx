@@ -50,7 +50,7 @@ export function CompteFormatLists({
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as FormatKey)}>
-      <TabsList>
+      <TabsList className="max-w-full flex-wrap justify-start group-data-horizontal/tabs:h-auto">
         {FORMAT_ORDER.map((key) => (
           <TabsTrigger key={key} value={key}>
             {fmt.plural(key)} ({groups[key].length})

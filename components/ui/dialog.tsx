@@ -127,7 +127,8 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
     <DialogPrimitive.Title
       data-slot="dialog-title"
       className={cn(
-        "font-heading text-base leading-none font-medium",
+        // pr-8 : un titre long ne passe pas sous le bouton de fermeture (absolu, en haut à droite).
+        "pr-8 font-heading text-base leading-none font-medium",
         className
       )}
       {...props}

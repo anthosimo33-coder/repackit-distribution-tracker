@@ -100,7 +100,7 @@ export function GraduateHookDialog({
               {preview.content}
             </blockquote>
 
-            <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
               <Score label={tr("vues")} value={best ? formatNumber(best.vues, loc) : "—"} />
               <Score
                 label={tr("likeRate")}
