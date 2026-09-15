@@ -110,7 +110,7 @@ function EtatDuCompte({
           : tc("quotaUsed", {
               count: postsAujourdhui,
               quota,
-              date: formatUtcDay(at, loc.startsWith("fr") ? "fr" : "en"),
+              date: formatUtcDay(at, loc),
             })}
       </p>
       {quota > 0 && (

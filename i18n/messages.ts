@@ -1,4 +1,4 @@
-import type { Locale } from "./locales";
+import { teamLocaleOf, type Locale } from "./locales";
 
 /**
  * CATALOGUES — le socle, plus l'espace d'équipe découpé par zone.
@@ -42,13 +42,17 @@ export async function loadBaseMessages(locale: Locale) {
   return (await import(`../messages/${locale}.json`)).default;
 }
 
-/** Le socle + l'espace d'équipe. */
+/**
+ * Le socle + l'espace d'équipe. L'espace d'équipe n'existe qu'en FR/EN : une
+ * langue créatrice seule (`es`, `pt`) le reçoit en anglais (`teamLocaleOf`).
+ */
 export async function loadMessages(locale: Locale) {
   const base = await loadBaseMessages(locale);
+  const team = teamLocaleOf(locale);
   const entries = await Promise.all(
     ADMIN_AREAS.map(
       async (area) =>
-        [area, (await import(`../messages/admin/${locale}/${area}.json`)).default] as const,
+        [area, (await import(`../messages/admin/${team}/${area}.json`)).default] as const,
     ),
   );
   return { ...base, admin: Object.fromEntries(entries) };

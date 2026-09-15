@@ -12,7 +12,10 @@ import {
 } from "./pricing";
 import { periodOf } from "./payments";
 import { GUIDE_MODULES_EN } from "./guideModulesEn";
+import { GUIDE_MODULES_ES } from "./guideModulesEs";
+import { GUIDE_MODULES_PT } from "./guideModulesPt";
 import { moduleLocale } from "./guideModuleLocale";
+import { LOCALES } from "./locales";
 import { warmupTargetDaysOf, defaultTargetDays } from "./warmup";
 import {
   WARMUP_GUIDE_BY_PROJECT,
@@ -817,6 +820,106 @@ export const seedGuideModulesEn = internalMutation({
 
 
 /**
+ * GUIDE ESPAGNOL ET PORTUGAIS — pose le jeu d'UNE langue créatrice
+ * (`convex/guideModulesEs.ts`, `convex/guideModulesPt.ts`), projet par projet.
+ *
+ * Même contrat que `seedGuideModulesEn`, dont elle est la généralisation :
+ *   - n'insère que des lignes dans la langue demandée — aucun `patch`, aucun
+ *     `delete`, le français et l'anglais sont inatteignables par construction ;
+ *   - IDEMPOTENTE par (projet, langue, titre) : une relance ne crée pas de
+ *     doublon et n'écrase pas un module retouché dans l'éditeur depuis ;
+ *   - `status: "published"` d'entrée, jeu complet : un jeu à moitié posé
+ *     servirait un guide à trous au lieu du repli ;
+ *   - pose `slot: "warmup"` sur le module warm-up, SAUF si un module de cette
+ *     langue le porte déjà (l'invariant « un porteur par langue » tient, cf
+ *     auditWarmupSlot).
+ *
+ * dryRun par défaut ; la liste rendue est EXACTEMENT ce qui sera écrit :
+ *   ./scripts/convex-prod.sh run migrations:seedGuideModulesLocale '{"locale":"es"}'
+ *   ./scripts/convex-prod.sh run migrations:seedGuideModulesLocale '{"locale":"es","commit":true}'
+ *   (idem avec "pt")
+ */
+export const seedGuideModulesLocale = internalMutation({
+  args: {
+    locale: v.union(v.literal("es"), v.literal("pt")),
+    commit: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { locale, commit }) => {
+    const dryRun = commit !== true;
+    const jeux = locale === "es" ? GUIDE_MODULES_ES : GUIDE_MODULES_PT;
+    const willInsert: {
+      projet: string;
+      order: number;
+      titre: string;
+      slot: string | null;
+      caracteres: number;
+    }[] = [];
+    const dejaPresents: { projet: string; titre: string }[] = [];
+    const projetsIntrouvables: string[] = [];
+    let autresLanguesAvant = 0;
+
+    for (const [slug, seeds] of Object.entries(jeux)) {
+      const project = await getProjectBySlug(ctx, slug);
+      if (project === null) {
+        projetsIntrouvables.push(slug);
+        continue;
+      }
+      const existing = await ctx.db
+        .query("guideModules")
+        .withIndex("by_project", (q) => q.eq("projectId", project._id))
+        .collect();
+      autresLanguesAvant += existing.filter((m) => moduleLocale(m) !== locale).length;
+      const dansLaLangue = existing.filter((m) => moduleLocale(m) === locale);
+      const titres = new Set(dansLaLangue.map((m) => m.title));
+      let slotPris = dansLaLangue.some((m) => m.slot === "warmup");
+
+      for (const seed of seeds) {
+        if (titres.has(seed.title)) {
+          dejaPresents.push({ projet: slug, titre: seed.title });
+          continue;
+        }
+        const slot = seed.slot === "warmup" && !slotPris ? "warmup" : undefined;
+        if (slot) slotPris = true;
+        willInsert.push({
+          projet: slug,
+          order: seed.order,
+          titre: seed.title,
+          slot: slot ?? null,
+          caracteres: seed.contentMarkdown.length,
+        });
+        if (!dryRun) {
+          const now = Date.now();
+          await ctx.db.insert("guideModules", {
+            projectId: project._id,
+            title: seed.title,
+            contentMarkdown: seed.contentMarkdown,
+            order: seed.order,
+            status: "published",
+            locale,
+            ...(slot ? { slot } : {}),
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      locale,
+      // Compté, pas affirmé : doit être identique avant et après — la preuve
+      // chiffrée que les jeux des autres langues n'ont pas bougé.
+      modulesAutresLanguesAvant: autresLanguesAvant,
+      dejaPresents,
+      projetsIntrouvables,
+      willInsert,
+      inserted: dryRun ? 0 : willInsert.length,
+    };
+  },
+});
+
+
+/**
  * CORRECTION DU GUIDE FRANÇAIS — coquilles, puces perdues, plateformes.
  *
  * Le guide vit en BASE : corriger une coquille, c'est patcher une ligne, pas
@@ -1150,7 +1253,7 @@ export const auditWarmupSlot = internalQuery({
         .query("guideModules")
         .withIndex("by_project", (q) => q.eq("projectId", p._id))
         .collect();
-      for (const locale of ["fr", "en"]) {
+      for (const locale of LOCALES) {
         const porteurs = modules
           .filter((m) => m.slot === "warmup" && moduleLocale(m) === locale)
           .map((m) => m.title);

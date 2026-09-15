@@ -30,8 +30,17 @@ import { cn } from "@/lib/utils";
  * (cookie + refresh), on signale seulement que la préférence n'a pas pu être
  * mémorisée. Un backend indisponible ne doit pas empêcher quelqu'un de lire
  * l'interface dans sa langue.
+ *
+ * `locales` : l'espace d'équipe ne propose que FR/EN (ses catalogues n'existent
+ * pas en espagnol ni en portugais) ; le profil créatrice propose tout.
  */
-export function LanguageSelector({ collapsed }: { collapsed?: boolean }) {
+export function LanguageSelector({
+  collapsed,
+  locales = LOCALES,
+}: {
+  collapsed?: boolean;
+  locales?: readonly Locale[];
+}) {
   const t = useTranslations("settings.language");
   const current = useLocale() as Locale;
   const setMyLocale = useMutation(api.i18n.setMyLocale);
@@ -67,7 +76,7 @@ export function LanguageSelector({ collapsed }: { collapsed?: boolean }) {
         aria-label={t("ariaLabel")}
         className="flex items-center gap-0.5"
       >
-        {LOCALES.map((loc) => (
+        {locales.map((loc) => (
           <button
             key={loc}
             type="button"

@@ -30,6 +30,10 @@ import { DEFAULT_LOCALE, normalizeLocale, type Locale } from "@/convex/locales";
 export const INTL_TAG: Record<Locale, string> = {
   fr: "fr-FR",
   en: "en-US",
+  // Espagnol neutre, mise en forme d'Espagne (1.234,56 — JJ/MM/AA).
+  es: "es-ES",
+  // Portugais BRÉSILIEN : le vocabulaire du catalogue l'est aussi (você, celular).
+  pt: "pt-BR",
 };
 
 /**

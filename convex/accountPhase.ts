@@ -1,4 +1,4 @@
-import { localeOrDefault } from "./locales";
+import { localeOrDefault, type Locale } from "./locales";
 import { ERR, err } from "./errorCodes";
 /**
  * PHASE ET QUOTA d'un compte de CLIPPEUR — source unique de la règle.
@@ -164,18 +164,27 @@ export function utcDayRange(at: number): { start: number; end: number } {
   return { start, end: start + DAY_MS };
 }
 
-const JOURS = {
-  // i18n-exempt: table de données FR — la table EN est juste à côté, formatUtcDay choisit
+const JOURS: Record<Locale, readonly string[]> = {
+  // i18n-exempt: table de données FR — une table par langue, formatUtcDay choisit
   fr: ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"],
   en: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
-} as const;
+  // i18n-exempt: table de données ES — une table par langue, formatUtcDay choisit
+  es: ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"],
+  // i18n-exempt: table de données PT — une table par langue, formatUtcDay choisit
+  pt: ["domingo","segunda-feira","terça-feira","quarta-feira","quinta-feira","sexta-feira","sábado"],
+};
 
-const MOIS = {
-  // i18n-exempt: table de données FR — la table EN est juste à côté, formatUtcDay choisit
+const MOIS: Record<Locale, readonly string[]> = {
+  // i18n-exempt: table de données FR — une table par langue, formatUtcDay choisit
   fr: ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"],
   en: ["January","February","March","April","May","June","July","August",
        "September","October","November","December"],
-} as const;
+  es: ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
+       "septiembre","octubre","noviembre","diciembre"],
+  // i18n-exempt: table de données PT — une table par langue, formatUtcDay choisit
+  pt: ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto",
+       "setembro","outubro","novembro","dezembro"],
+};
 
 /**
  * Journée UTC en toutes lettres — « lundi 10 août ».
@@ -201,9 +210,13 @@ export function formatUtcDay(at: number, locale: unknown = "fr"): string {
   // L'ORDRE DES MOTS change avec la langue, pas seulement les mots :
   //   fr → « lundi 10 août »        (jour quantième mois)
   //   en → « Monday, August 10 »    (jour, mois quantième)
+  //   es → « lunes, 10 de agosto » ; pt → « segunda-feira, 10 de agosto »
   // Et l'ordinal « 1er » n'a pas d'équivalent en anglais US courant.
   if (l === "en") {
     return `${JOURS.en[d.getUTCDay()]}, ${MOIS.en[d.getUTCMonth()]} ${quantieme}`;
+  }
+  if (l === "es" || l === "pt") {
+    return `${JOURS[l][d.getUTCDay()]}, ${quantieme} de ${MOIS[l][d.getUTCMonth()]}`;
   }
   return `${JOURS.fr[d.getUTCDay()]} ${quantieme === 1 ? "1er" : quantieme} ${
     MOIS.fr[d.getUTCMonth()]

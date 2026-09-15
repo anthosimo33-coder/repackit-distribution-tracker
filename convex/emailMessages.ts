@@ -9,19 +9,22 @@ import { localeOrDefault, type Locale } from "./locales";
  * maillons ici — la langue arrive en argument, depuis la fiche du DESTINATAIRE,
  * et le défaut doit être explicite (`localeOrDefault`).
  *
- * Les SEPT e-mails sont traduits (INVITE, APPROVED, REJECTED, PAID, ASSIGNED,
- * NUDGE, REMINDER). L'invitation compte double : c'est le premier contact d'un
- * créateur US, reçu AVANT sa première connexion — donc avant tout écran, avant
- * tout `NEXT_LOCALE`. En français, le parcours est perdu au premier geste.
+ * Les e-mails sont traduits dans les QUATRE langues livrées (fr, en, es, pt) :
+ * INVITE, APPROVED, REJECTED, PAID, REVERTED, ASSIGNED, NUDGE, REMINDER. Le type
+ * `Record<Locale, …>` refuse de compiler une langue oubliée.
  *
- * Les valeurs anglaises sont ici de VRAIES traductions : ces e-mails doivent
- * être lisibles par quelqu'un qui ne parle pas français.
+ * L'invitation compte double : c'est le premier contact d'un créateur étranger,
+ * reçu AVANT sa première connexion — donc avant tout écran, avant tout
+ * `NEXT_LOCALE`. En français, le parcours est perdu au premier geste.
+ *
+ * Les valeurs anglaises, espagnoles et portugaises sont de VRAIES traductions :
+ * ces e-mails doivent être lisibles par quelqu'un qui ne parle pas français.
  *
  * ⚠️ RIEN NE SURVEILLE CE FICHIER. Il est hors de la clôture d'imports (le
  * runtime Convex n'est jamais importé côté client, règle A6), donc hors du
- * périmètre généré : ajouter un huitième e-mail sans branche `en`, ou y recopier
- * du français, ne casse AUCUN test et n'allume AUCUNE garde. Toute PR qui touche
- * ce fichier se relit branche `en` par branche `en`, à la main.
+ * périmètre généré : le type impose une branche par langue, mais y recopier du
+ * français ne casse AUCUN test et n'allume AUCUNE garde. Toute PR qui touche
+ * ce fichier se relit langue par langue, à la main.
  * Voir `I18N_STATUS.md` §11.7 — dette identifiée : étendre les règles de
  * catalogue (parité des clés, `en` ≠ `fr`) à ces `Record<Locale, …>`.
  */
@@ -60,6 +63,30 @@ const INVITE: Record<Locale, InviteEmailCopy> = {
     footerNote:
       "This link is personal and can only be used once. If it has expired, just write to me and I'll send you a new one.",
   },
+  es: {
+    subject: "Te damos la bienvenida a Jarvia 👋",
+    greeting: (name) => `Hola ${name}:`,
+    intro:
+      "Tu espacio de creador está listo. Ahí encontrarás tus misiones, tus vídeos " +
+      "y tus ganancias, todo en un mismo lugar.",
+    linkHint:
+      "Con el enlace de abajo puedes elegir tu contraseña y empezar.",
+    ctaLabel: "Activar mi acceso",
+    footerNote:
+      "El enlace es personal y de un solo uso. Si ha caducado, escríbeme y te envío uno nuevo.",
+  },
+  pt: {
+    subject: "Boas-vindas à Jarvia 👋",
+    greeting: (name) => `Oi ${name},`,
+    intro:
+      "Seu espaço de criador está pronto. Lá você encontra suas missões, seus vídeos " +
+      "e seus ganhos, tudo no mesmo lugar.",
+    linkHint:
+      "Pelo link abaixo você escolhe sua senha e já pode começar.",
+    ctaLabel: "Ativar meu acesso",
+    footerNote:
+      "O link é pessoal e só pode ser usado uma vez. Se ele expirou, me escreva que eu envio outro.",
+  },
 };
 
 export function inviteEmailCopy(locale: unknown): InviteEmailCopy {
@@ -84,6 +111,7 @@ export function emailDate(ms: number, locale: unknown): string {
   const dd = String(d.getUTCDate()).padStart(2, "0");
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   const yyyy = d.getUTCFullYear();
+  // Seul l'anglais US met le mois en tête ; es et pt s'écrivent comme le français.
   return localeOrDefault(locale) === "en"
     ? `${mm}/${dd}/${yyyy}`
     : `${dd}/${mm}/${yyyy}`;
@@ -97,9 +125,17 @@ export function emailDate(ms: number, locale: unknown): string {
 export function emailAmount(n: number, locale: unknown): string {
   const rounded = Math.round(n * 100) / 100;
   const [int, dec] = rounded.toFixed(2).split(".");
-  if (localeOrDefault(locale) === "en") {
+  const l = localeOrDefault(locale);
+  if (l === "en") {
     const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return dec === "00" ? `$${grouped}` : `$${grouped}.${dec}`;
+  }
+  if (l === "es" || l === "pt") {
+    // « US$ » : en espagnol comme en portugais du Brésil, « $ » seul se lit
+    // aussi comme la devise locale (peso, real). Groupement par point.
+    const dotted = int.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    const n = dec === "00" ? dotted : `${dotted},${dec}`;
+    return l === "pt" ? `US$ ${n}` : `${n} US$`;
   }
   const spaced = int.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
   return dec === "00" ? `${spaced} $` : `${spaced},${dec} $`;
@@ -132,6 +168,20 @@ const APPROVED: Record<Locale, ApprovedCopy> = {
       `${m === null ? "All good, your video is approved." : `All good on ${m}, your video is approved.`} You can go ahead and publish it from your space.`,
     ctaLabel: "View the assignment",
   },
+  es: {
+    subject: "Tu vídeo está aprobado ✅",
+    greeting: (name) => `Hola ${name}:`,
+    body: (m) =>
+      `${m === null ? "Todo bien, tu vídeo está aprobado." : `Todo bien con ${m}, tu vídeo está aprobado.`} Ya puedes publicarlo desde tu espacio.`,
+    ctaLabel: "Ver la misión",
+  },
+  pt: {
+    subject: "Seu vídeo foi aprovado ✅",
+    greeting: (name) => `Oi ${name},`,
+    body: (m) =>
+      `${m === null ? "Tudo certo, seu vídeo foi aprovado." : `Tudo certo com ${m}, seu vídeo foi aprovado.`} Você já pode publicá-lo pelo seu espaço.`,
+    ctaLabel: "Ver a missão",
+  },
 };
 
 export interface RejectedCopy {
@@ -162,6 +212,24 @@ const REJECTED: Record<Locale, RejectedCopy> = {
       "Nothing serious. Fix it and resubmit straight from your assignment.",
     ctaLabel: "Fix my video",
   },
+  es: {
+    subject: "Un pequeño ajuste en tu vídeo",
+    greeting: (name) => `Hola ${name}:`,
+    intro: (m) =>
+      `${m === null ? "He visto tu último vídeo" : `He visto tu vídeo para ${m}`} y hay una o dos cosas que ajustar antes de publicarlo:`,
+    closing:
+      "Nada grave: lo corriges y lo vuelves a enviar directamente desde tu misión.",
+    ctaLabel: "Corregir mi vídeo",
+  },
+  pt: {
+    subject: "Um pequeno ajuste no seu vídeo",
+    greeting: (name) => `Oi ${name},`,
+    intro: (m) =>
+      `${m === null ? "Assisti ao seu último vídeo" : `Assisti ao seu vídeo para ${m}`} e tem uma ou duas coisas para ajustar antes de publicar:`,
+    closing:
+      "Nada grave: é só corrigir e reenviar direto pela sua missão.",
+    ctaLabel: "Corrigir meu vídeo",
+  },
 };
 
 export interface PaidCopy {
@@ -190,6 +258,22 @@ const PAID: Record<Locale, PaidCopy> = {
     body: (p, m) => `Your cycle from ${p} is paid: ${m}.`,
     detail: "The video-by-video breakdown is in your space.",
     ctaLabel: "View my payments",
+  },
+  es: {
+    subject: (money) => `${money} en camino 💸`,
+    greeting: (name) => `Hola ${name}:`,
+    period: (from, to) => `${from} al ${to}`,
+    body: (p, m) => `Tu ciclo del ${p} está pagado: ${m}.`,
+    detail: "El detalle vídeo por vídeo está en tu espacio.",
+    ctaLabel: "Ver mis pagos",
+  },
+  pt: {
+    subject: (money) => `${money} a caminho 💸`,
+    greeting: (name) => `Oi ${name},`,
+    period: (from, to) => `${from} a ${to}`,
+    body: (p, m) => `Seu ciclo de ${p} foi pago: ${m}.`,
+    detail: "O detalhe vídeo por vídeo está no seu espaço.",
+    ctaLabel: "Ver meus pagamentos",
   },
 };
 
@@ -228,6 +312,24 @@ const REVERTED: Record<Locale, RevertedCopy> = {
     detail: "It's back in your space, and I'll send it with the next payout.",
     ctaLabel: "View my payments",
   },
+  es: {
+    subject: "Corrección en tu último pago",
+    greeting: (name) => `Hola ${name}:`,
+    period: (from, to) => `${from} al ${to}`,
+    body: (p, m) =>
+      `Un pequeño error por mi parte: marqué tu ciclo del ${p} como pagado (${m}) cuando todavía no lo estaba. El importe vuelve a estar pendiente, no se pierde nada.`,
+    detail: "Vuelve a aparecer en tu espacio y te lo envío en la próxima transferencia.",
+    ctaLabel: "Ver mis pagos",
+  },
+  pt: {
+    subject: "Correção no seu último pagamento",
+    greeting: (name) => `Oi ${name},`,
+    period: (from, to) => `${from} a ${to}`,
+    body: (p, m) =>
+      `Um pequeno erro meu: marquei seu ciclo de ${p} como pago (${m}) quando ele ainda não tinha sido pago. O valor volta a ficar pendente, nada foi perdido.`,
+    detail: "Ele aparece de novo no seu espaço, e eu envio no próximo pagamento.",
+    ctaLabel: "Ver meus pagamentos",
+  },
 };
 
 export interface AssignedCopy {
@@ -258,6 +360,26 @@ const ASSIGNED: Record<Locale, AssignedCopy> = {
     schedule: (d) =>
       `The script, the brief and the due date (${d}) are in your space.`,
     ctaLabel: (n) => (n > 1 ? "View my assignments" : "View my assignment"),
+  },
+  es: {
+    subject: (n) =>
+      n > 1 ? `${n} vídeos nuevos para ti 🎬` : "Nueva misión para ti 🎬",
+    greeting: (name) => `Hola ${name}:`,
+    body: (n, m) =>
+      `Tienes ${n > 1 ? `${n} vídeos nuevos por grabar` : "un vídeo nuevo por grabar"}${m === null ? "" : ` para ${m}`}.`,
+    schedule: (d) =>
+      `El guion, las indicaciones y la fecha límite (${d}) están en tu espacio.`,
+    ctaLabel: (n) => (n > 1 ? "Ver mis misiones" : "Ver mi misión"),
+  },
+  pt: {
+    subject: (n) =>
+      n > 1 ? `${n} vídeos novos para você 🎬` : "Nova missão para você 🎬",
+    greeting: (name) => `Oi ${name},`,
+    body: (n, m) =>
+      `Você tem ${n > 1 ? `${n} vídeos novos para gravar` : "um vídeo novo para gravar"}${m === null ? "" : ` para ${m}`}.`,
+    schedule: (d) =>
+      `O roteiro, as orientações e o prazo (${d}) estão no seu espaço.`,
+    ctaLabel: (n) => (n > 1 ? "Ver minhas missões" : "Ver minha missão"),
   },
 };
 
@@ -296,6 +418,30 @@ const NUDGE: Record<Locale, NudgeCopy> = {
       "If you need anything to move forward, or more time, reply to me and we'll sort it out.",
     fallbackMission: "your assignment",
     ctaLabel: (r) => (r ? "Fix my video" : "Open my assignment"),
+  },
+  es: {
+    subject: (r) => (r ? "Tienes un comentario pendiente" : "¿Cómo vas? 🙂"),
+    greeting: (name) => `Hola ${name}:`,
+    rejectedBody: (m) =>
+      `Te dejé un comentario sobre tu vídeo para ${m}: puedes corregirlo y volver a enviarlo cuando quieras.`,
+    rejectedClosing: "Si algo no está claro, respóndeme y lo hablamos.",
+    pendingBody: (m, d) => `Te escribo para ver cómo va ${m}, prevista para el ${d}.`,
+    pendingClosing:
+      "Si necesitas cualquier cosa para avanzar o más tiempo, respóndeme y encontraremos una solución.",
+    fallbackMission: "tu misión",
+    ctaLabel: (r) => (r ? "Corregir mi vídeo" : "Abrir mi misión"),
+  },
+  pt: {
+    subject: (r) => (r ? "Você tem um retorno para ver" : "Como estão as coisas? 🙂"),
+    greeting: (name) => `Oi ${name},`,
+    rejectedBody: (m) =>
+      `Deixei um retorno sobre seu vídeo para ${m}: você pode corrigir e reenviar quando quiser.`,
+    rejectedClosing: "Se algo não ficou claro, me responda e a gente conversa.",
+    pendingBody: (m, d) => `Passando para saber como está ${m}, com prazo em ${d}.`,
+    pendingClosing:
+      "Se precisar de qualquer coisa para avançar ou de mais tempo, me responda que a gente encontra uma solução.",
+    fallbackMission: "sua missão",
+    ctaLabel: (r) => (r ? "Corrigir meu vídeo" : "Abrir minha missão"),
   },
 };
 
@@ -378,6 +524,58 @@ const REMINDER: Record<Locale, ReminderCopy> = {
     groupClosing:
       "You can upload your videos straight from your space. If something is in the way or you need more time, just reply to me.",
     groupCtaLabel: "See my assignments",
+  },
+  es: {
+    subject: (late) =>
+      late ? "Estamos esperando tu vídeo 👀" : "Tu misión está por vencer",
+    greeting: (name) => `Hola ${name}:`,
+    lateBody: (m, d) =>
+      `${m} estaba prevista para el ${d} y todavía no la hemos recibido.`,
+    lateClosing:
+      "Si tienes algún problema o necesitas más tiempo, respóndeme directamente y encontraremos una solución.",
+    upcomingBody: (m, d) => `Un pequeño recordatorio: ${m} está prevista para el ${d}.`,
+    upcomingClosing: "Puedes subir tu vídeo directamente desde tu espacio.",
+    fallbackMissionLead: "Tu misión",
+    fallbackMissionInline: "tu misión",
+    ctaLabel: "Abrir mi misión",
+    groupSubject: (n, late) =>
+      late > 0
+        ? `Estamos esperando ${late > 1 ? `${late} vídeos` : "un vídeo"} 👀`
+        : `${n} misiones están por vencer`,
+    groupIntro: (n, late) =>
+      late > 0
+        ? `Tienes <strong>${n} misiones</strong> en curso, y <strong>${late}</strong> ya han pasado su fecha límite:`
+        : `Un pequeño recordatorio: <strong>${n} misiones</strong> están por vencer.`,
+    groupLateTag: "con retraso",
+    groupClosing:
+      "Puedes subir tus vídeos directamente desde tu espacio. Si tienes algún problema o necesitas más tiempo, respóndeme.",
+    groupCtaLabel: "Ver mis misiones",
+  },
+  pt: {
+    subject: (late) =>
+      late ? "Estamos esperando seu vídeo 👀" : "Sua missão está perto do prazo",
+    greeting: (name) => `Oi ${name},`,
+    lateBody: (m, d) =>
+      `${m} tinha prazo em ${d} e ainda não recebemos.`,
+    lateClosing:
+      "Se tiver algum problema ou precisar de mais tempo, me responda direto que a gente encontra uma solução.",
+    upcomingBody: (m, d) => `Só um lembrete: ${m} tem prazo em ${d}.`,
+    upcomingClosing: "Você pode enviar seu vídeo direto pelo seu espaço.",
+    fallbackMissionLead: "Sua missão",
+    fallbackMissionInline: "sua missão",
+    ctaLabel: "Abrir minha missão",
+    groupSubject: (n, late) =>
+      late > 0
+        ? `Estamos esperando ${late > 1 ? `${late} vídeos` : "um vídeo"} 👀`
+        : `${n} missões estão perto do prazo`,
+    groupIntro: (n, late) =>
+      late > 0
+        ? `Você tem <strong>${n} missões</strong> em andamento, e <strong>${late}</strong> já passaram do prazo:`
+        : `Só um lembrete: <strong>${n} missões</strong> estão perto do prazo.`,
+    groupLateTag: "atrasada",
+    groupClosing:
+      "Você pode enviar seus vídeos direto pelo seu espaço. Se tiver algum problema ou precisar de mais tempo, me responda.",
+    groupCtaLabel: "Ver minhas missões",
   },
 };
 

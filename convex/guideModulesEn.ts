@@ -25,6 +25,8 @@ export type GuideModuleSeed = {
   order: number;
   title: string;
   contentMarkdown: string;
+  /** `"warmup"` sur le module qu'ouvre le bouton du tracker (jeux es/pt). */
+  slot?: string;
 };
 
 /** Jeu anglais du projet `repackit` — 5 modules, même ordre que le français. */

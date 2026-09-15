@@ -1,4 +1,4 @@
-import { enUS, fr } from "date-fns/locale";
+import { enUS, es, fr, ptBR } from "date-fns/locale";
 import type { Locale as DateFnsLocale } from "date-fns";
 
 /**
@@ -12,11 +12,14 @@ import type { Locale as DateFnsLocale } from "date-fns";
  * Prend l'étiquette de `useIntlLocale()` (`fr-FR`, `en-US`) ou la langue nue.
  */
 export function dateFnsLocale(loc: string): DateFnsLocale {
-  return loc.startsWith("en") ? enUS : fr;
+  if (loc.startsWith("en")) return enUS;
+  if (loc.startsWith("es")) return es;
+  if (loc.startsWith("pt")) return ptBR;
+  return fr;
 }
 
 /**
  * Les sept jours, LUNDI EN PREMIER (la grille des calendriers commence lundi
- * dans les deux langues), sous forme de clés du catalogue `calendar.weekday`.
+ * dans toutes les langues), sous forme de clés du catalogue `calendar.weekday`.
  */
 export const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;

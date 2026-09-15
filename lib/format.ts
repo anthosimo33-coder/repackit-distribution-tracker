@@ -41,7 +41,9 @@ export function formatPercent(
     maximumFractionDigits: decimals,
     useGrouping: false,
   }).format(n * 100);
-  return locale.startsWith("fr") ? `${num} %` : `${num}%`;
+  // Espace insécable avant « % » en français et en espagnol ; collé en anglais
+  // et en portugais brésilien.
+  return locale.startsWith("fr") || locale.startsWith("es") ? `${num} %` : `${num}%`;
 }
 
 /**
@@ -80,6 +82,7 @@ export function formatMoneyDate(
   return new Date(timestamp).toLocaleDateString(locale, {
     day: "2-digit",
     month: "2-digit",
-    year: locale.startsWith("fr") ? "2-digit" : "numeric",
+    // L'ambiguïté ne vient que de l'ordre MM/JJ : seul l'anglais US allonge.
+    year: locale.startsWith("en") ? "numeric" : "2-digit",
   });
 }

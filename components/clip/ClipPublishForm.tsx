@@ -65,7 +65,7 @@ function LigneDateLue({ read }: { read: PostDateRead }) {
   if (read.at !== null) {
     return (
       <p className="text-xs text-emerald-700">
-        {tc("dateRead", { date: formatUtcDay(read.at, loc.startsWith("fr") ? "fr" : "en") })}
+        {tc("dateRead", { date: formatUtcDay(read.at, loc) })}
       </p>
     );
   }
@@ -301,7 +301,7 @@ export function ClipPublishForm({
       {/* COMPTEUR — il suit la DATE CHOISIE, jamais « aujourd'hui ». */}
       <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
         <p className="text-xs font-medium text-slate-900">
-          {tc("forDate", { date: formatUtcDay(instantChoisi, loc.startsWith("fr") ? "fr" : "en") })}
+          {tc("forDate", { date: formatUtcDay(instantChoisi, loc) })}
         </p>
         <ul className="mt-1 space-y-0.5">
           {compteurs.map((c) =>
