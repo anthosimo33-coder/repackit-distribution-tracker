@@ -802,7 +802,7 @@ function AccountEditSubDialog({
   const tr = useTranslations("admin.common.AccountEditSubDialog");
   const [newCompte, setNewCompte] = useState(publication.compte);
   const [submitting, setSubmitting] = useState(false);
-  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptesData = useProjectQuery(api.comptes.listComptesChoix, { actifOnly: true });
   const filtered = useMemo(
     () =>
       (comptesData ?? []).filter(
@@ -946,7 +946,7 @@ function DraftEditView({
   const [postUrl, setPostUrl] = useState(publication.postUrl ?? "");
   const [submitting, setSubmitting] = useState(false);
 
-  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptesData = useProjectQuery(api.comptes.listComptesChoix, { actifOnly: true });
   const filteredComptes = useMemo(
     () => comptesData?.filter((c) => c.plateforme === plateforme) ?? [],
     [comptesData, plateforme],

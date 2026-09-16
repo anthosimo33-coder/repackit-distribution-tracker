@@ -121,7 +121,7 @@ export function NouveauModal({
     open ? droits.skipUnless("library.manage", {}) : "skip",
   );
   const comptesData = useProjectQuery(
-    api.comptes.listComptes,
+    api.comptes.listComptesChoix,
     open ? droits.skipUnless("accounts.manage", { actifOnly: true }) : "skip",
   );
   // Préfixe d'ID par mediaType (C### / S### / SR###). Skip tant que le format

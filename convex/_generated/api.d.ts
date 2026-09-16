@@ -26,6 +26,7 @@ import type * as challengePortal from "../challengePortal.js";
 import type * as challengeScore from "../challengeScore.js";
 import type * as challengeSync from "../challengeSync.js";
 import type * as challenges from "../challenges.js";
+import type * as changedFields from "../changedFields.js";
 import type * as clipQuota from "../clipQuota.js";
 import type * as clipperAssignmentFields from "../clipperAssignmentFields.js";
 import type * as clipperReadiness from "../clipperReadiness.js";
@@ -200,6 +201,7 @@ declare const fullApi: ApiFromModules<{
   challengeScore: typeof challengeScore;
   challengeSync: typeof challengeSync;
   challenges: typeof challenges;
+  changedFields: typeof changedFields;
   clipQuota: typeof clipQuota;
   clipperAssignmentFields: typeof clipperAssignmentFields;
   clipperReadiness: typeof clipperReadiness;

@@ -2469,6 +2469,21 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_planId", ["projectId", "planId"]),
 
+  /**
+   * DERNIER PASSAGE D'UNE SYNCHRO — une row par (projet, source).
+   *
+   * La synchro Whop n'écrit plus que les lignes qui changent (chaque réécriture
+   * à l'identique relançait les écrans analytics ouverts, 20 fois par heure).
+   * Sa fraîcheur ne peut donc plus se lire sur `max(updatedAt)` des paiements :
+   * ce max ne bouge pas quand rien de neuf n'arrive. Ce marqueur date le
+   * passage lui-même. Lu via `lastWhopSyncMs` (convex/changedFields.ts).
+   */
+  syncMarkers: defineTable({
+    projectId: v.id("projects"),
+    source: v.literal("whop"),
+    lastSyncAt: v.number(),
+  }).index("by_project_source", ["projectId", "source"]),
+
   // État des ABONNEMENTS Whop (memberships) — source qui FAIT FOI pour le churn.
   // whopPayments dit qui a payé ; whopMemberships dit qui a encore accès, qui a
   // résilié (annulé mais accès valide) et qui a expiré (accès perdu = vrai churn).

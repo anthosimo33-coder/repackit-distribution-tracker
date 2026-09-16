@@ -344,7 +344,7 @@ export function TrackerListSection({
     api.publications.listPublications,
     snapshotQueryArgs({ age, customDay }),
   );
-  const comptes = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptes = useProjectQuery(api.comptes.listComptesChoix, { actifOnly: true });
   // Options du filtre ICP (Short uniquement). Query inconditionnelle (légère).
   const icps = useProjectQuery(api.icps.listIcps, {});
   // Batch B — listPresets sans args. Le filtre par mediaTypeScope se fait
@@ -1737,7 +1737,7 @@ function DuplicateCarouselDialog({
   const [compte, setCompte] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const comptesData = useProjectQuery(api.comptes.listComptes, { actifOnly: true });
+  const comptesData = useProjectQuery(api.comptes.listComptesChoix, { actifOnly: true });
   const filteredComptes = useMemo(
     () =>
       plateforme === ""

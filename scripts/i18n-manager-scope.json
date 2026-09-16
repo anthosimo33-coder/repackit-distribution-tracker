@@ -244,6 +244,7 @@
     "convex/comboCooldown.ts",
     "convex/conversionAttribution.ts",
     "convex/creatorActivity.ts",
+    "convex/creatorAvatar.ts",
     "convex/creatorScope.ts",
     "convex/dateFr.ts",
     "convex/decisionThresholds.ts",

@@ -187,7 +187,7 @@ export default function ScriptCampaignDetailPage() {
   const editorRef = useRef<BrickEditorHandle | null>(null);
 
   const creators = useProjectQuery(api.creators.listCreators, {});
-  const comptes = useProjectQuery(api.comptes.listComptes, {});
+  const comptes = useProjectQuery(api.comptes.listComptesChoix, {});
   const hookUsages = useProjectQuery(
     api.scripts.hookUsagesForCampaign,
     availableFor === NO_CREATOR ? "skip" : { campaignId: id },

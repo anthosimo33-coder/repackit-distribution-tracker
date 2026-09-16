@@ -51,3 +51,17 @@ export async function collectProjectWhopPayments(
   const { kept, internalMemberIds } = excludeInternalWhop(all, cfg);
   return { payments: kept, all, internalMemberIds, cfg };
 }
+
+/** Dernier passage marqué de la synchro Whop, `null` si jamais marqué. */
+export async function readWhopSyncMarker(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<number | null> {
+  const row = await ctx.db
+    .query("syncMarkers")
+    .withIndex("by_project_source", (q) =>
+      q.eq("projectId", projectId).eq("source", "whop"),
+    )
+    .first();
+  return row?.lastSyncAt ?? null;
+}

@@ -25,6 +25,7 @@ import {
 } from "./payWindow";
 import { ERR, err } from "./errorCodes";
 import { resolveCreatorKind } from "./roles";
+import { matchCompteByHandle } from "./creatorAvatar";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -963,9 +964,9 @@ export async function syncBonusUnlocks(
 
 /**
  * Sync des paliers du créateur PROPRIÉTAIRE d'une publication (après mise à jour
- * de ses vues). Résout l'assignment (scan by_project → target.publicationId) →
- * creatorId → syncBonusUnlocks. No-op si non trouvé. Appelé depuis les écritures
- * de snapshots (manuel + cron).
+ * de ses vues). Résout l'assignment (chemin rapide par le compte, sinon scan
+ * by_project → target.publicationId) → creatorId → syncBonusUnlocks. No-op si
+ * non trouvé. Appelé depuis les écritures de snapshots (manuel + cron).
  */
 export async function syncBonusForPublication(
   ctx: MutationCtx,
@@ -973,17 +974,68 @@ export async function syncBonusForPublication(
 ): Promise<void> {
   const pub = await ctx.db.get(publicationId);
   if (!pub) return;
-  const assignments = await ctx.db
-    .query("assignments")
-    .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
-    .collect();
-  const a = assignments.find(
-    (x) =>
-      (x.targets ?? []).some((t) => t.publicationId === publicationId) ||
-      x.publicationId === publicationId,
-  );
+  const a =
+    (await assignmentOfPublicationViaCompte(ctx, pub)) ??
+    (await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
+      .collect()
+    ).find((x) => targetsPublication(x, publicationId));
   if (!a) return;
   await syncBonusUnlocks(ctx, pub.projectId, a.creatorId);
+}
+
+function targetsPublication(
+  a: Doc<"assignments">,
+  publicationId: Id<"publications">,
+): boolean {
+  return (
+    (a.targets ?? []).some((t) => t.publicationId === publicationId) ||
+    a.publicationId === publicationId
+  );
+}
+
+/**
+ * CHEMIN RAPIDE — l'assignation d'une publication, cherchée d'abord chez la
+ * propriétaire ACTUELLE de son compte.
+ *
+ * Le chemin complet relit TOUTES les assignations du projet (~1,4 MB en prod le
+ * 2026-09-16) et tourne à CHAQUE relevé : ~360 fois par nuit, 7 GB sur 9 jours
+ * de facture. Les comptes du projet sur la plateforme (~30 KB) puis les
+ * assignations d'UNE créatrice (médiane 10) suffisent presque toujours.
+ *
+ * Ce n'est qu'un raccourci : il rend l'assignation qui cible VRAIMENT la
+ * publication, sinon `null` et l'appelant retombe sur le chemin complet. Le cas
+ * qui l'y renvoie : un compte réassigné depuis (la réassignation est
+ * prospective, l'assignation historique reste à l'ancienne propriétaire).
+ * Même résultat que le chemin complet tant qu'une publication n'est ciblée que
+ * par une assignation — 0 exception sur 735 publications en prod le 2026-09-16.
+ */
+async function assignmentOfPublicationViaCompte(
+  ctx: QueryCtx | MutationCtx,
+  pub: Doc<"publications">,
+): Promise<Doc<"assignments"> | null> {
+  const compte = matchCompteByHandle(
+    await ctx.db
+      .query("comptes")
+      .withIndex("by_project_plateforme", (q) =>
+        q.eq("projectId", pub.projectId).eq("plateforme", pub.plateforme),
+      )
+      .collect(),
+    pub.compte,
+    pub.plateforme,
+  );
+  if (!compte?.creatorId) return null;
+  const creatorId = compte.creatorId;
+  const siennes = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+    .collect();
+  return (
+    siennes.find(
+      (x) => x.projectId === pub.projectId && targetsPublication(x, pub._id),
+    ) ?? null
+  );
 }
 
 export interface PricingBreakdown extends MonthlyPayout {
