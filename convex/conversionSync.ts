@@ -13,7 +13,11 @@ import { runHogQL, type PosthogTarget } from "./posthogApi";
 import { internalAccountsFor, notInternalClause } from "./internalAccounts";
 import { parisDayKey, parisMidnightUtc } from "./viewsDaily";
 import { parisHour } from "./calendarStatus";
-import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import {
+  collectProjectWhopPayments,
+  readWhopSyncMarker,
+} from "./whopPaymentsAccess";
+import { lastWhopSyncMs } from "./changedFields";
 import { whopNetContribution } from "./whopRevenue";
 import {
   mergeDayRows,
@@ -536,9 +540,13 @@ export const readConversionAllTime = permissionQuery("business.read")({
     const refOfMembership = new Map<string, string | null>(
       memberships.map((m) => [m.whopMembershipId, normalizeRef(m.ref ?? null)]),
     );
-    let salesSyncMs: number | null = null;
+    // Fraîcheur des ventes : dernier passage marqué de la synchro (une ligne
+    // inchangée n'est plus réécrite, cf lastWhopSyncMs).
+    const salesSyncMs = lastWhopSyncMs(
+      await readWhopSyncMarker(ctx, ctx.projectId),
+      payments,
+    );
     for (const p of payments) {
-      salesSyncMs = Math.max(salesSyncMs ?? 0, p.updatedAt);
       if (p.status !== "paid") continue;
       const net = whopNetContribution(p);
       const ref = p.membershipId

@@ -150,7 +150,7 @@ export default function CompteDialog({
   // sélecteur. La query est celle de la page Comptes d'où le dialog s'ouvre :
   // Convex la sert depuis son cache, sans aller-retour. Absente (dialog ouvert
   // depuis une fiche créatrice), le sélecteur rend simplement la liste entière.
-  const comptes = useProjectQuery(api.comptes.listComptes, {});
+  const comptes = useProjectQuery(api.comptes.listComptesChoix, {});
   const paysDejaUtilises = useMemo(
     () => [
       ...new Set(

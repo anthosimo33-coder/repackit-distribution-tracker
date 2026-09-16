@@ -375,6 +375,53 @@ export const listComptes = permissionQuery("accounts.manage")({
 });
 
 /**
+ * COMPTES POUR UN SÉLECTEUR — la version LÉGÈRE de `listComptes`.
+ *
+ * Les listes déroulantes (tracker, publication, duplication, filtre de compte,
+ * disponibilité d'un hook, pays déjà posés) ne lisent que l'identité d'un
+ * compte. `listComptes`
+ * relit en plus TOUTES les publications et assignations du projet pour la perf
+ * et l'usage : ~1,5 MB par exécution, relancée à chaque écriture sur l'une ou
+ * l'autre table. Ici, la seule table `comptes`.
+ *
+ * Même garde, même périmètre manager, même filtre de statut et même tri que
+ * `listComptes` : seul l'enrichissement disparaît.
+ */
+export const listComptesChoix = permissionQuery("accounts.manage")({
+  args: {
+    actifOnly: v.optional(v.boolean()),
+    statusFilter: v.optional(statusValidator),
+  },
+  handler: async (ctx, args) => {
+    let results = filterByCreatorScope(
+      await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
+    const filter: CompteStatus | undefined =
+      args.statusFilter ?? (args.actifOnly ? "actif" : undefined);
+    if (filter) results = results.filter((c) => effectiveStatus(c) === filter);
+    return results
+      .sort((a, b) =>
+        a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
+      )
+      .map((c) => ({
+        _id: c._id,
+        handle: c.handle,
+        plateforme: c.plateforme,
+        creatorId: c.creatorId,
+        status: c.status,
+        actif: c.actif,
+        // Pays déjà posés, remontés en tête du sélecteur de pays (CompteDialog).
+        targetCountry: c.targetCountry,
+      }));
+  },
+});
+
+/**
  * Chantier C — comptes d'UN créateur annotés `available`. Alimente les
  * sélecteurs de cibles à la création d'assignment : seuls les comptes
  * disponibles sont choisissables ; une plateforme sans compte disponible est

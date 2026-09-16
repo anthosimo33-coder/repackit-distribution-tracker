@@ -148,7 +148,7 @@ export function TrackerDataView() {
 
   // Options des filtres (indépendantes des filtres actifs → toujours switchables).
   const creators = useProjectQuery(api.creators.listCreators, {});
-  const comptes = useProjectQuery(api.comptes.listComptes, {});
+  const comptes = useProjectQuery(api.comptes.listComptesChoix, {});
   const campaigns = useProjectQuery(api.scripts.listCampaigns, {});
   const formats = useProjectQuery(api.formats.listFormats, {});
 

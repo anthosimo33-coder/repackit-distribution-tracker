@@ -10,8 +10,9 @@ import {
 } from "./functions";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import {
   fetchWhopPayments,
   fetchWhopPlans,
@@ -20,6 +21,7 @@ import {
 import { projectFx,
   summarizeWhopRevenue } from "./whopRevenue";
 import { monthKeyParis } from "./dateFr";
+import { changedFields } from "./changedFields";
 import {
   shouldNotifyDispute,
   shouldNotifyRenewalFailure,
@@ -166,134 +168,156 @@ export const listWhopProjects = internalQuery({
  * ANTI-MÉLANGE : on ne réaffecte jamais un paiement d'un autre projet (garde sur
  * projectId), un whopId reste rattaché à son projet d'import.
  */
+type UpsertWhopPaymentsResult = {
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+};
+
+/** Cœur de l'upsert des paiements — partagé par la synchro et son semeur e2e. */
+async function upsertWhopPaymentsCore(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  payments: Infer<typeof whopPaymentArg>[],
+): Promise<UpsertWhopPaymentsResult> {
+  let inserted = 0;
+  let updated = 0;
+  let unchanged = 0;
+  let skipped = 0;
+  const now = Date.now();
+  for (const p of payments) {
+    const existing = await ctx.db
+      .query("whopPayments")
+      .withIndex("by_whopId", (q) => q.eq("whopId", p.whopId))
+      .first();
+
+    // ANTI-MÉLANGE d'abord : un paiement déjà rattaché à un AUTRE projet est
+    // écarté sans rien déclencher. Sans cette garde en tête de boucle, il
+    // serait vu comme une ligne neuve et pourrait notifier le mauvais projet.
+    if (existing && existing.projectId !== projectId) {
+      skipped += 1;
+      continue;
+    }
+
+    // NOTIFICATIONS hors-app — repérées ici parce que c'est le seul endroit qui
+    // voit l'AVANT et l'APRÈS. On notifie au PASSAGE dans l'état, jamais sur
+    // l'état : sans ça, la re-synchro horaire ré-alerterait chaque heure tant
+    // qu'un litige reste ouvert. Décision entièrement dans
+    // convex/whopNotifyTriggers.ts (pur, testé) ; ici on ne fait que planifier.
+    //
+    // Les envois passent par ctx.scheduler : ils sont donc hors de cette
+    // transaction, et un canal en panne ne peut pas faire échouer la synchro.
+    const nextSnapshot = {
+      status: p.status,
+      billingReason: p.billingReason,
+      retryable: p.retryable,
+      disputeDueAt: p.disputeDueAt,
+      paidAt: p.paidAt,
+    };
+    const prevSnapshot = existing
+      ? {
+          status: existing.status,
+          billingReason: existing.billingReason,
+          retryable: existing.retryable,
+          disputeDueAt: existing.disputeDueAt,
+          paidAt: existing.paidAt,
+        }
+      : null;
+    if (shouldNotifyDispute(prevSnapshot, nextSnapshot, now)) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.notifications.notifyWhopDispute,
+        {
+          projectId,
+          memberName: p.memberName ?? null,
+          reason: p.disputeReason ?? null,
+          dueAt: p.disputeDueAt ?? null,
+        },
+      );
+    }
+    if (shouldNotifyRenewalFailure(prevSnapshot, nextSnapshot, now)) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.notifications.notifyWhopRenewalFailed,
+        {
+          projectId,
+          memberName: p.memberName ?? null,
+          failureMessage: p.failureMessage ?? null,
+        },
+      );
+    }
+
+    if (existing) {
+      // N'ÉCRIRE QUE CE QUI CHANGE : la synchro relit TOUS les paiements
+      // chaque heure, et une réécriture à l'identique relançait les écrans
+      // analytics ouverts à chaque lot (cf convex/changedFields.ts).
+      // `updatedAt` n'est posé que sur un vrai changement ; la fraîcheur de
+      // la synchro se lit sur `syncMarkers`.
+      const diff = changedFields(existing, {
+        status: p.status,
+        rawStatus: p.rawStatus,
+        currency: p.currency,
+        grossAmount: p.grossAmount,
+        feeAmount: p.feeAmount,
+        netAmount: p.netAmount,
+        refundedAmount: p.refundedAmount,
+        paidAt: p.paidAt,
+        planId: p.planId,
+        membershipId: p.membershipId,
+        billingReason: p.billingReason,
+        failureMessage: p.failureMessage,
+        retryable: p.retryable,
+        billingCountry: p.billingCountry,
+        memberName: p.memberName,
+        // Litige résolu → l'API ne renvoie plus d'échéance : le champ se VIDE
+        // (patch à undefined = suppression), le litige disparaît de la carte.
+        disputeDueAt: p.disputeDueAt,
+        disputeReason: p.disputeReason,
+      });
+      if (diff === null) {
+        unchanged += 1;
+        continue;
+      }
+      await ctx.db.patch(existing._id, { ...diff, updatedAt: now });
+      updated += 1;
+    } else {
+      await ctx.db.insert("whopPayments", {
+        projectId,
+        whopId: p.whopId,
+        status: p.status,
+        rawStatus: p.rawStatus,
+        currency: p.currency,
+        grossAmount: p.grossAmount,
+        feeAmount: p.feeAmount,
+        netAmount: p.netAmount,
+        refundedAmount: p.refundedAmount,
+        paidAt: p.paidAt,
+        planId: p.planId,
+        membershipId: p.membershipId,
+        billingReason: p.billingReason,
+        failureMessage: p.failureMessage,
+        retryable: p.retryable,
+        billingCountry: p.billingCountry,
+        memberName: p.memberName,
+        disputeDueAt: p.disputeDueAt,
+        disputeReason: p.disputeReason,
+        importedAt: now,
+        updatedAt: now,
+      });
+      inserted += 1;
+    }
+  }
+  return { inserted, updated, unchanged, skipped };
+}
+
 export const upsertWhopPayments = internalMutation({
   args: {
     projectId: v.id("projects"),
     payments: v.array(whopPaymentArg),
   },
-  handler: async (
-    ctx,
-    { projectId, payments },
-  ): Promise<{ inserted: number; updated: number; skipped: number }> => {
-    let inserted = 0;
-    let updated = 0;
-    let skipped = 0;
-    const now = Date.now();
-    for (const p of payments) {
-      const existing = await ctx.db
-        .query("whopPayments")
-        .withIndex("by_whopId", (q) => q.eq("whopId", p.whopId))
-        .first();
-
-      // ANTI-MÉLANGE d'abord : un paiement déjà rattaché à un AUTRE projet est
-      // écarté sans rien déclencher. Sans cette garde en tête de boucle, il
-      // serait vu comme une ligne neuve et pourrait notifier le mauvais projet.
-      if (existing && existing.projectId !== projectId) {
-        skipped += 1;
-        continue;
-      }
-
-      // NOTIFICATIONS hors-app — repérées ici parce que c'est le seul endroit qui
-      // voit l'AVANT et l'APRÈS. On notifie au PASSAGE dans l'état, jamais sur
-      // l'état : sans ça, la re-synchro horaire ré-alerterait chaque heure tant
-      // qu'un litige reste ouvert. Décision entièrement dans
-      // convex/whopNotifyTriggers.ts (pur, testé) ; ici on ne fait que planifier.
-      //
-      // Les envois passent par ctx.scheduler : ils sont donc hors de cette
-      // transaction, et un canal en panne ne peut pas faire échouer la synchro.
-      const nextSnapshot = {
-        status: p.status,
-        billingReason: p.billingReason,
-        retryable: p.retryable,
-        disputeDueAt: p.disputeDueAt,
-        paidAt: p.paidAt,
-      };
-      const prevSnapshot = existing
-        ? {
-            status: existing.status,
-            billingReason: existing.billingReason,
-            retryable: existing.retryable,
-            disputeDueAt: existing.disputeDueAt,
-            paidAt: existing.paidAt,
-          }
-        : null;
-      if (shouldNotifyDispute(prevSnapshot, nextSnapshot, now)) {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.notifications.notifyWhopDispute,
-          {
-            projectId,
-            memberName: p.memberName ?? null,
-            reason: p.disputeReason ?? null,
-            dueAt: p.disputeDueAt ?? null,
-          },
-        );
-      }
-      if (shouldNotifyRenewalFailure(prevSnapshot, nextSnapshot, now)) {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.notifications.notifyWhopRenewalFailed,
-          {
-            projectId,
-            memberName: p.memberName ?? null,
-            failureMessage: p.failureMessage ?? null,
-          },
-        );
-      }
-
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          status: p.status,
-          rawStatus: p.rawStatus,
-          currency: p.currency,
-          grossAmount: p.grossAmount,
-          feeAmount: p.feeAmount,
-          netAmount: p.netAmount,
-          refundedAmount: p.refundedAmount,
-          paidAt: p.paidAt,
-          planId: p.planId,
-          membershipId: p.membershipId,
-          billingReason: p.billingReason,
-          failureMessage: p.failureMessage,
-          retryable: p.retryable,
-          billingCountry: p.billingCountry,
-          memberName: p.memberName,
-          // Litige résolu → l'API ne renvoie plus d'échéance : le champ se VIDE
-          // (patch à undefined = suppression), le litige disparaît de la carte.
-          disputeDueAt: p.disputeDueAt,
-          disputeReason: p.disputeReason,
-          updatedAt: now,
-        });
-        updated += 1;
-      } else {
-        await ctx.db.insert("whopPayments", {
-          projectId,
-          whopId: p.whopId,
-          status: p.status,
-          rawStatus: p.rawStatus,
-          currency: p.currency,
-          grossAmount: p.grossAmount,
-          feeAmount: p.feeAmount,
-          netAmount: p.netAmount,
-          refundedAmount: p.refundedAmount,
-          paidAt: p.paidAt,
-          planId: p.planId,
-          membershipId: p.membershipId,
-          billingReason: p.billingReason,
-          failureMessage: p.failureMessage,
-          retryable: p.retryable,
-          billingCountry: p.billingCountry,
-          memberName: p.memberName,
-          disputeDueAt: p.disputeDueAt,
-          disputeReason: p.disputeReason,
-          importedAt: now,
-          updatedAt: now,
-        });
-        inserted += 1;
-      }
-    }
-    return { inserted, updated, skipped };
-  },
+  handler: async (ctx, { projectId, payments }): Promise<UpsertWhopPaymentsResult> =>
+    upsertWhopPaymentsCore(ctx, projectId, payments),
 });
 
 /**
@@ -388,6 +412,23 @@ export const e2eSeedWhopMembership = e2eMutation({
     }),
 });
 
+/**
+ * E2E — la VRAIE ingestion des paiements (pas un semeur) : c'est elle qui ne
+ * doit rien réécrire quand rien n'a changé. Même cœur que la synchro horaire.
+ */
+export const e2eUpsertWhopPayments = e2eMutation({
+  args: { projectId: v.id("projects"), payments: v.array(whopPaymentArg) },
+  handler: async (ctx, { projectId, payments }): Promise<UpsertWhopPaymentsResult> =>
+    upsertWhopPaymentsCore(ctx, projectId, payments),
+});
+
+/** E2E — date un passage de synchro, à l'instant choisi par la spec. */
+export const e2eMarkWhopSynced = e2eMutation({
+  args: { projectId: v.id("projects"), at: v.number() },
+  handler: async (ctx, { projectId, at }): Promise<null> =>
+    writeWhopSyncMarker(ctx, projectId, at),
+});
+
 export const upsertWhopPlans = internalMutation({
   args: {
     projectId: v.id("projects"),
@@ -411,15 +452,25 @@ export const upsertWhopPlans = internalMutation({
           q.eq("projectId", projectId).eq("planId", p.planId),
         )
         .first();
-      const patch = {
+      const fields = {
         name: p.name,
         price: p.price,
         currency: p.currency,
         interval: p.interval,
-        updatedAt: now,
       };
-      if (existing) await ctx.db.patch(existing._id, patch);
-      else await ctx.db.insert("whopPlans", { projectId, planId: p.planId, ...patch });
+      if (existing) {
+        // Même règle que les paiements : rien de changé, rien d'écrit.
+        const diff = changedFields(existing, fields);
+        if (diff === null) continue;
+        await ctx.db.patch(existing._id, { ...diff, updatedAt: now });
+      } else {
+        await ctx.db.insert("whopPlans", {
+          projectId,
+          planId: p.planId,
+          ...fields,
+          updatedAt: now,
+        });
+      }
       upserted += 1;
     }
     return { upserted };
@@ -475,21 +526,54 @@ export const upsertWhopMemberships = internalMutation({
         abForced: m.abForced,
         distinctId: m.distinctId,
         ref: m.ref,
-        updatedAt: now,
       };
-      if (existing) await ctx.db.patch(existing._id, fields);
-      else
+      if (existing) {
+        // Même règle que les paiements : rien de changé, rien d'écrit.
+        const diff = changedFields(existing, fields);
+        if (diff === null) continue;
+        await ctx.db.patch(existing._id, { ...diff, updatedAt: now });
+      } else {
         await ctx.db.insert("whopMemberships", {
           projectId,
           whopMembershipId: m.whopMembershipId,
           ...fields,
+          updatedAt: now,
           importedAt: now,
         });
+      }
       upserted += 1;
     }
     return { upserted };
   },
 });
+
+/** Date le dernier passage de la synchro Whop (cf table `syncMarkers`). */
+export const markWhopSynced = internalMutation({
+  args: { projectId: v.id("projects"), at: v.number() },
+  handler: async (ctx, { projectId, at }): Promise<null> =>
+    writeWhopSyncMarker(ctx, projectId, at),
+});
+
+async function writeWhopSyncMarker(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  at: number,
+): Promise<null> {
+  const existing = await ctx.db
+    .query("syncMarkers")
+    .withIndex("by_project_source", (q) =>
+      q.eq("projectId", projectId).eq("source", "whop"),
+    )
+    .first();
+  if (existing) await ctx.db.patch(existing._id, { lastSyncAt: at });
+  else
+    await ctx.db.insert("syncMarkers", {
+      projectId,
+      source: "whop",
+      lastSyncAt: at,
+    });
+  return null;
+}
 
 export interface WhopSyncSummary {
   ok: boolean;
@@ -560,6 +644,16 @@ export const runHourlySync = internalAction({
         });
         imported += r.inserted;
         updated += r.updated;
+      }
+      // Le PASSAGE est daté, qu'il ait changé une ligne ou non : sans lui,
+      // l'onglet Fiabilité lirait « synchro périmée » dès qu'une heure
+      // n'apporte rien de neuf. Mêmes conditions que l'ancien signal
+      // (`updatedAt` posé sur chaque ligne relue) : des paiements ont été lus.
+      if (!result.error || result.payments.length > 0) {
+        await ctx.runMutation(internal.whopSync.markWhopSynced, {
+          projectId: proj._id,
+          at: Date.now(),
+        });
       }
 
       // Libellés d'offres (point 3) — un appel /plans, NON bloquant : un échec ne

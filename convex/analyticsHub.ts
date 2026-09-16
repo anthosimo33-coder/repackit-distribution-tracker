@@ -54,7 +54,11 @@ import {
 // `internalAccountsFor` n'est plus appelé ici : la config A4 arrive désormais
 // par collectProjectWhopPayments (point de passage unique).
 import { isInternalWhopMembership } from "./internalAccounts";
-import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import {
+  collectProjectWhopPayments,
+  readWhopSyncMarker,
+} from "./whopPaymentsAccess";
+import { lastWhopSyncMs } from "./changedFields";
 import { countPersons, dailyNewPersons } from "./whopClients";
 import { normalizeRef } from "./conversionAttribution";
 import {
@@ -2459,10 +2463,13 @@ export const getReliability = permissionQuery("business.read")({
       // désormais les devises PRÉSENTES, et sur le lot COMPLET : une devise qui
       // n'existe que sur un compte interne reste une devise présente en base.
       currencyCount = summarizeWhopRevenue(allPayments).currenciesPresent.length;
-      // Fraîcheur de synchro : sur TOUT le lot, le cron ingère aussi les internes.
-      for (const p of allPayments) {
-        whopSyncMs = Math.max(whopSyncMs ?? 0, p.updatedAt);
-      }
+      // Fraîcheur de synchro : le dernier PASSAGE marqué, et sur TOUT le lot
+      // (le cron ingère aussi les internes) pour ce qui a été écrit sans
+      // marqueur. Cf lastWhopSyncMs : une ligne inchangée n'est plus réécrite.
+      whopSyncMs = lastWhopSyncMs(
+        await readWhopSyncMarker(ctx, ctx.projectId),
+        allPayments,
+      );
       // Premier paiement encaissé par membership (date de « début » du client).
       const firstPaid = new Map<string, number>();
       /**

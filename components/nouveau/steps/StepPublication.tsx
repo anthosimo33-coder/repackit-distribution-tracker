@@ -70,7 +70,7 @@ export function StepPublication({
   // afficher, quand aucun n'est sélectionnable, combien sont en warmup /
   // shadowban sur les plateformes ciblées. Le dropdown ne propose que les
   // comptes "actif" (isSelectableForPublication).
-  const comptesData = useProjectQuery(api.comptes.listComptes, {});
+  const comptesData = useProjectQuery(api.comptes.listComptesChoix, {});
 
   // Plateformes déjà couvertes par ce sourceId (Short). blocked = TikTok (strict
   // bloquant) ; warning = Instagram/YouTube (repost autorisé après confirmation).
