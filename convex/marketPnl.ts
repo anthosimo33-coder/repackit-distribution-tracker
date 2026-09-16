@@ -8,7 +8,12 @@ import {
   loadCreatorPayrollSources,
 } from "./pricing";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
-import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
+import {
+  projectFx,
+  summarizeWhopRevenue,
+  type WhopRevenueSummary,
+} from "./whopRevenue";
+import { grossInReference, netInReference } from "./marketMoney";
 import {
   marketValueByCountry,
   marketSurvivalByCountry,
@@ -321,6 +326,12 @@ export const getMarketPnl = permissionQuery("business.read")({
      *  fenêtre d'une autre longueur ne compare rien. */
     const avantDe = from - (to - from);
     const precedent = new Map<string, { clients: number; net: number }>();
+    /** Référentiel de change sur TOUT l'historique — cf convex/marketMoney. */
+    let referentiel: WhopRevenueSummary = summarizeWhopRevenue([], fx);
+    const netDe = (lignes: readonly Doc<"whopPayments">[]): number =>
+      netInReference(lignes, referentiel);
+    const brutDe = (p: Doc<"whopPayments">): number =>
+      grossInReference(p, referentiel);
     // ⚠️ LES LIGNES PRIMENT SUR LE DRAPEAU. `whopConfigured` dit à l'écran s'il
     // faut expliquer l'absence de revenu ; il ne décide pas de la LECTURE. Une
     // row de paiement présente est un fait, et la gater sur la config faisait
@@ -332,6 +343,7 @@ export const getMarketPnl = permissionQuery("business.read")({
         ctx.projectId,
         project?.slug ?? "",
       );
+      referentiel = summarizeWhopRevenue(payments, fx);
       // ANCRE CLIENT : le pays de son PREMIER paiement encaissé, la même ancre
       // que « client acquis » ailleurs dans le hub. Calculée sur TOUT
       // l'historique, pas sur la période : un client acquis en juillet reste
@@ -386,7 +398,7 @@ export const getMarketPnl = permissionQuery("business.read")({
         for (const [pays, lignes] of parPaysAvant) {
           precedent.set(pays, {
             clients: lignes.filter((p) => estPremierPaiement.has(p.whopId)).length,
-            net: summarizeWhopRevenue(lignes, fx).net,
+            net: netDe(lignes),
           });
         }
       }
@@ -404,7 +416,7 @@ export const getMarketPnl = permissionQuery("business.read")({
             client: k,
             country: paysDuClient.get(k) ?? normalizeBillingCountry(p.billingCountry),
             paidAt: p.paidAt,
-            net: summarizeWhopRevenue([p], fx).net,
+            net: netDe([p]),
           };
         }),
         maintenant,
@@ -471,7 +483,7 @@ export const getMarketPnl = permissionQuery("business.read")({
         c.paid += 1;
         if (estPremierPaiement.has(p.whopId)) c.clients += 1;
         const pr = prixDuPlan.get(plan) ?? { somme: 0, n: 0 };
-        pr.somme += p.grossAmount;
+        pr.somme += brutDe(p);
         pr.n += 1;
         prixDuPlan.set(plan, pr);
       }
@@ -486,7 +498,7 @@ export const getMarketPnl = permissionQuery("business.read")({
           (p.planId ?? "") === c.planId &&
           (paysDuPaiement.get(p.whopId) ?? null) === c.country,
       );
-      c.net = summarizeWhopRevenue(lignes, fx).net;
+      c.net = netDe(lignes);
       cellules.set(cle, c);
     }
     // NOM LISIBLE DU PLAN — depuis l'agrégat A/B, qui mappe déjà l'identifiant
@@ -553,7 +565,7 @@ export const getMarketPnl = permissionQuery("business.read")({
       const pays = paysDuPaiement.get(p.whopId) ?? null;
       const point = pointFor(pays, monthKeyParis(p.paidAt));
       point.revenueNet = round2(
-        point.revenueNet + summarizeWhopRevenue([p], fx).net,
+        point.revenueNet + netDe([p]),
       );
     }
 
@@ -589,7 +601,7 @@ export const getMarketPnl = permissionQuery("business.read")({
         failures: r?.failures ?? 0,
         attempts: r?.attempts ?? 0,
         paid: r?.paid ?? 0,
-        revenueNet: r ? summarizeWhopRevenue(r.rows, fx).net : 0,
+        revenueNet: r ? netDe(r.rows) : 0,
         previousClients: av?.clients ?? 0,
         previousRevenueNet: av?.net ?? 0,
         cohortClients: v?.cohortClients ?? 0,

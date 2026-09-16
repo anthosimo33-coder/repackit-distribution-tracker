@@ -252,6 +252,7 @@
     "convex/internalAccounts.ts",
     "convex/marketCost.ts",
     "convex/marketGroups.ts",
+    "convex/marketMoney.ts",
     "convex/marketPnl.ts",
     "convex/marketValue.ts",
     "convex/metricsDisplay.ts",
