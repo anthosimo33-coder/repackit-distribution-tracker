@@ -866,6 +866,22 @@ export function buildQueries(
       "buildQueries : une fenêtre personnalisée exige windowOnFirstSub, sinon les renouvellements passent pour des nouveaux clients.",
     );
   }
+  /**
+   * PREMIÈRE RECHERCHE APRÈS PAIEMENT — même piège que les requêtes A/B.
+   * `subscription_completed` est réémis à CHAQUE renouvellement : rétrécir le
+   * balayage ferait d'un renouvellement de la période le « premier paiement »,
+   * et la « première recherche » serait celle d'un client installé depuis des
+   * semaines. Le balayage reste donc sur 90 jours (il porte le vrai premier
+   * paiement et la recherche qui le suit, même tombée après la fin de la
+   * période) ; c'est la COHORTE qui suit la fenêtre : les payants dont le
+   * premier paiement tombe dedans.
+   */
+  const FSP_COHORT = fenetree
+    ? `t_first_sub >= instr_start AND ${windowOnFirstSub}`
+    : `t_first_sub >= instr_start`;
+  const FSP_EXCLUDED = fenetree
+    ? `t_first_sub < instr_start AND ${windowOnFirstSub}`
+    : `t_first_sub < instr_start`;
   const AB_ACQUIRED = fenetree
     ? `t_first_sub >= ab_start AND ${windowOnFirstSub}`
     : `t_first_sub >= ab_start`;
@@ -1878,17 +1894,17 @@ FROM (
   firstSearchAfterPay: `
 WITH (SELECT min(timestamp) FROM events WHERE event = 'handle_search_result'${notCounted}) AS instr_start
 SELECT
-  countIf(t_paid >= instr_start) AS paid,
-  countIf(t_paid < instr_start) AS paid_excluded,
-  countIf(t_paid >= instr_start AND has_search > 0) AS searched,
-  quantileIf(0.5)(delay_s, t_paid >= instr_start AND delay_s > 0) AS med_delay_s,
-  quantileIf(0.9)(delay_s, t_paid >= instr_start AND delay_s > 0) AS p90_delay_s,
-  countIf(t_paid >= instr_start AND has_cancel > 0) AS cancel_joinable,
-  groupArrayIf(first_result, t_paid >= instr_start AND has_search > 0) AS result_list,
+  countIf(${FSP_COHORT}) AS paid,
+  countIf(${FSP_EXCLUDED}) AS paid_excluded,
+  countIf(${FSP_COHORT} AND has_search > 0) AS searched,
+  quantileIf(0.5)(delay_s, ${FSP_COHORT} AND delay_s > 0) AS med_delay_s,
+  quantileIf(0.9)(delay_s, ${FSP_COHORT} AND delay_s > 0) AS p90_delay_s,
+  countIf(${FSP_COHORT} AND has_cancel > 0) AS cancel_joinable,
+  groupArrayIf(first_result, ${FSP_COHORT} AND has_search > 0) AS result_list,
   toUnixTimestamp(instr_start) AS instr_start_s
 FROM (
   SELECT person_id,
-    minIf(timestamp, event = 'subscription_completed') AS t_paid,
+    minIf(timestamp, event = 'subscription_completed') AS t_first_sub,
     countIf(event = 'handle_search_result') AS has_search,
     countIf(event = 'subscription_cancelled') AS has_cancel,
     argMinIf(coalesce(nullIf(toString(properties.result), ''), '(sans result)'), timestamp, event = 'handle_search_result') AS first_result,
@@ -1896,7 +1912,7 @@ FROM (
        dateDiff('second', minIf(timestamp, event = 'subscription_completed'), minIf(timestamp, event = 'handle_search_result')),
        NULL) AS delay_s
   FROM events
-  WHERE ${WINDOW}${notCounted}
+  WHERE ${DEFAULT_WINDOW}${notCounted}
     AND event IN ('subscription_completed', 'handle_search_result', 'subscription_cancelled')
   GROUP BY person_id
   HAVING countIf(event = 'subscription_completed') > 0
@@ -2255,8 +2271,76 @@ export function shapeServerSideSplit(rows: unknown[][]): ServerSideSplitPayload 
   };
 }
 
+export function shapeSearchResults(rows: unknown[][]): SearchResultsPayload {
+  return {
+    rows: rows.map((r) => ({ result: cellStr(r, 0), persons: cellNum(r, 1) })),
+  };
+}
+
+export function shapeScanReliability(rows: unknown[][]): ScanReliabilityPayload {
+  return {
+    rows: rows.map((r) => ({
+      reason: cellStr(r, 0),
+      mode: cellStr(r, 1),
+      result: cellStr(r, 2),
+      runs: cellNum(r, 3),
+    })),
+  };
+}
+
+export function shapeScanLatency(rows: unknown[][]): ScanLatencyPayload {
+  return {
+    rows: rows.map((r) => {
+      const n = cellNum(r, 3);
+      return {
+        bucket: cellStr(r, 0),
+        // duration_ms déjà en ms. n = 0 ⇒ pas de mesure (null, pas 0).
+        medianMs: n > 0 ? cellNum(r, 1) : null,
+        p90Ms: n > 0 ? cellNum(r, 2) : null,
+        n,
+      };
+    }),
+  };
+}
+
+export function shapeFriction(rows: unknown[][]): FrictionPayload {
+  return {
+    rows: rows.map((r) => ({ page: cellStr(r, 0), persons: cellNum(r, 1) })),
+  };
+}
+
+export function shapeFrictionByStep(rows: unknown[][]): FrictionByStepPayload {
+  return {
+    rows: rows.map((r) => ({ step: cellStr(r, 0), persons: cellNum(r, 1) })),
+  };
+}
+
+export function shapeFirstSearchAfterPay(rows: unknown[][]): FirstSearchAfterPayPayload {
+  const r = rows[0] ?? [];
+  const searched = cellNum(r, 2);
+  const tally = new Map<string, number>();
+  for (const res of cellStrArr(r, 6)) {
+    tally.set(res, (tally.get(res) ?? 0) + 1);
+  }
+  const instrStartS = cellNum(r, 7);
+  return {
+    paid: cellNum(r, 0),
+    paidExcluded: cellNum(r, 1),
+    // secondes epoch → ms ; 0 ⇒ pas d'instrumentation (null).
+    instrStartMs: instrStartS > 0 ? instrStartS * 1000 : null,
+    searched,
+    // délais en secondes ; searched = 0 ⇒ pas de couple valide (null).
+    medDelaySec: searched > 0 ? cellNum(r, 3) : null,
+    p90DelaySec: searched > 0 ? cellNum(r, 4) : null,
+    cancelJoinable: cellNum(r, 5),
+    results: [...tally.entries()]
+      .map(([result, persons]) => ({ result, persons }))
+      .sort((a, b) => b.persons - a.persons),
+  };
+}
+
 /** Ligne unique → état par event du contrat + présence des propriétés sondées. */
-function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
+export function shapeInstrumentation(rows: unknown[][]): InstrumentationPayload {
   const r = rows[0] ?? [];
   const events = CONTRACT_EVENTS.map((e, i) => {
     const persons = cellNum(r, i * 2);
@@ -2607,41 +2691,21 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.searchResults,
-          (rows): SearchResultsPayload => ({
-            rows: rows.map((r) => ({ result: cellStr(r, 0), persons: cellNum(r, 1) })),
-          }),
+          shapeSearchResults,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.scanReliability,
           apiKey,
           target,
           QUERIES.scanReliability,
-          (rows): ScanReliabilityPayload => ({
-            rows: rows.map((r) => ({
-              reason: cellStr(r, 0),
-              mode: cellStr(r, 1),
-              result: cellStr(r, 2),
-              runs: cellNum(r, 3),
-            })),
-          }),
+          shapeScanReliability,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.scanLatency,
           apiKey,
           target,
           QUERIES.scanLatency,
-          (rows): ScanLatencyPayload => ({
-            rows: rows.map((r) => {
-              const n = cellNum(r, 3);
-              return {
-                bucket: cellStr(r, 0),
-                // duration_ms déjà en ms. n = 0 ⇒ pas de mesure (null, pas 0).
-                medianMs: n > 0 ? cellNum(r, 1) : null,
-                p90Ms: n > 0 ? cellNum(r, 2) : null,
-                n,
-              };
-            }),
-          }),
+          shapeScanLatency,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.scanCost,
@@ -2655,18 +2719,14 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.friction,
-          (rows): FrictionPayload => ({
-            rows: rows.map((r) => ({ page: cellStr(r, 0), persons: cellNum(r, 1) })),
-          }),
+          shapeFriction,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.frictionByStep,
           apiKey,
           target,
           QUERIES.frictionByStep,
-          (rows): FrictionByStepPayload => ({
-            rows: rows.map((r) => ({ step: cellStr(r, 0), persons: cellNum(r, 1) })),
-          }),
+          shapeFrictionByStep,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.activation,
@@ -2694,29 +2754,7 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.firstSearchAfterPay,
-          (rows): FirstSearchAfterPayPayload => {
-            const r = rows[0] ?? [];
-            const searched = cellNum(r, 2);
-            const tally = new Map<string, number>();
-            for (const res of cellStrArr(r, 6)) {
-              tally.set(res, (tally.get(res) ?? 0) + 1);
-            }
-            const instrStartS = cellNum(r, 7);
-            return {
-              paid: cellNum(r, 0),
-              paidExcluded: cellNum(r, 1),
-              // secondes epoch → ms ; 0 ⇒ pas d'instrumentation (null).
-              instrStartMs: instrStartS > 0 ? instrStartS * 1000 : null,
-              searched,
-              // délais en secondes ; searched = 0 ⇒ pas de couple valide (null).
-              medDelaySec: searched > 0 ? cellNum(r, 3) : null,
-              p90DelaySec: searched > 0 ? cellNum(r, 4) : null,
-              cancelJoinable: cellNum(r, 5),
-              results: [...tally.entries()]
-                .map(([result, persons]) => ({ result, persons }))
-                .sort((a, b) => b.persons - a.persons),
-            };
-          },
+          shapeFirstSearchAfterPay,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.internalExcluded,

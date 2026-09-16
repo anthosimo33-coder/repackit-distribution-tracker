@@ -15,7 +15,7 @@
  *
  * COÛT MESURÉ (06/09/2026, API PostHog réelle, concurrence 6) :
  *   - première volée après > 2 min de silence : 10,6 s (8,7 - 11,8)
- *   - volées suivantes : 1,4 s pour un jeu léger, 2,8 à 5,8 s pour les seize
+ *   - volées suivantes : 1,4 s pour un jeu léger, 2,8 à 5,8 s pour les seize (vingt-trois depuis Santé produit)
  *     requêtes servies ici
  * La LARGEUR de la fenêtre ne change rien : ce qui coûte, c'est de repartir à
  * froid. Au-delà de 8 requêtes simultanées PostHog met en file et tout se
@@ -43,9 +43,16 @@ import {
   shapeActivation,
   shapeCheckoutReliability,
   shapeConversion,
+  shapeFirstSearchAfterPay,
   shapeFreePlan,
+  shapeFriction,
+  shapeFrictionByStep,
   shapeFunnel,
+  shapeInstrumentation,
   shapeScanCost,
+  shapeScanLatency,
+  shapeScanReliability,
+  shapeSearchResults,
   shapeServerSideSplit,
   WINDOW_DAYS,
   type AbArmsPayload,
@@ -55,9 +62,16 @@ import {
   type ActivationPayload,
   type CheckoutReliabilityPayload,
   type ConversionPayload,
+  type FirstSearchAfterPayPayload,
   type FreePlanPayload,
+  type FrictionByStepPayload,
+  type FrictionPayload,
   type FunnelPayload,
+  type InstrumentationPayload,
   type ScanCostPayload,
+  type ScanLatencyPayload,
+  type ScanReliabilityPayload,
+  type SearchResultsPayload,
   type ServerSideSplitPayload,
 } from "./posthogSync";
 import {
@@ -171,6 +185,22 @@ export interface WindowedOffres {
   scanCost: ScanCostPayload;
 }
 
+/**
+ * Onglet SANTÉ PRODUIT. `instrumentation` n'y sert qu'à déduire les bloqués par
+ * le paywall (handle_submitted − handle_search_result) : les deux comptes
+ * doivent porter sur la MÊME période que la table de résultats qu'ils
+ * complètent, sinon la ligne déduite soustrait 90 jours à une semaine.
+ */
+export interface WindowedSante {
+  firstSearchAfterPay: FirstSearchAfterPayPayload;
+  searchResults: SearchResultsPayload;
+  scanReliability: ScanReliabilityPayload;
+  scanLatency: ScanLatencyPayload;
+  friction: FrictionPayload;
+  frictionByStep: FrictionByStepPayload;
+  instrumentation: InstrumentationPayload;
+}
+
 export interface WindowedParcours {
   funnels: {
     global: FunnelPayload;
@@ -191,6 +221,8 @@ export interface WindowedParcours {
    * entre les deux.
    */
   offres: WindowedOffres;
+  /** Onglet SANTÉ PRODUIT, même volée pour la même raison. */
+  sante: WindowedSante;
   /** Fenêtre effectivement interrogée — l'écran doit pouvoir la RÉ-AFFICHER. */
   from: string;
   to: string;
@@ -256,7 +288,7 @@ export const getWindowedAnalytics = authedAction({
     };
 
     // ─── CACHE ─────────────────────────────────────────────────────────────
-    // Quinze requêtes HogQL par volée. Mesuré en production le 2026-09-08 :
+    // Quinze requêtes HogQL par volée à l'époque (vingt-trois avec Santé produit). Mesuré en production le 2026-09-08 :
     // p95 38,6 s, pointe 44,4 s, et huit refus `rate_limited (429)`. Le hook
     // client mémorise déjà les plages vues, mais en mémoire de SESSION : un
     // rechargement, un second onglet ou un autre administrateur repayaient
@@ -329,6 +361,13 @@ export const getWindowedAnalytics = authedAction({
           run(Q.paywallById),
           run(Q.freePlan),
           run(Q.scanCost),
+          run(Q.firstSearchAfterPay),
+          run(Q.searchResults),
+          run(Q.scanReliability),
+          run(Q.scanLatency),
+          run(Q.friction),
+          run(Q.frictionByStep),
+          run(Q.instrumentation),
         ],
         CONCURRENCE,
       );
@@ -352,6 +391,13 @@ export const getWindowedAnalytics = authedAction({
       payById,
       free,
       scan,
+      fsp,
+      search,
+      scanRel,
+      scanLat,
+      fric,
+      fricStep,
+      instr,
     ] = lots;
     const resultat: WindowedParcours = {
       funnels: {
@@ -378,6 +424,15 @@ export const getWindowedAnalytics = authedAction({
         },
         freePlan: shapeFreePlan(free),
         scanCost: shapeScanCost(scan),
+      },
+      sante: {
+        firstSearchAfterPay: shapeFirstSearchAfterPay(fsp),
+        searchResults: shapeSearchResults(search),
+        scanReliability: shapeScanReliability(scanRel),
+        scanLatency: shapeScanLatency(scanLat),
+        friction: shapeFriction(fric),
+        frictionByStep: shapeFrictionByStep(fricStep),
+        instrumentation: shapeInstrumentation(instr),
       },
       from,
       to,
