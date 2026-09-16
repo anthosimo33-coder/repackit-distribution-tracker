@@ -74,8 +74,10 @@ describe("windowCacheTtlMs", () => {
 
 describe("windowCacheKey", () => {
   it("distingue deux plages qui ne partagent qu'une borne", () => {
+    // `v2|` : une ligne écrite avant l'ajout de `sante` ne doit pas être
+    // relue, sinon Santé produit servirait les 90 jours du cron 24 h durant.
     expect(windowCacheKey("2026-09-01", "2026-09-08")).toBe(
-      "2026-09-01|2026-09-08",
+      "v2|2026-09-01|2026-09-08",
     );
     expect(windowCacheKey("2026-09-01", "2026-09-08")).not.toBe(
       windowCacheKey("2026-09-01", "2026-09-09"),

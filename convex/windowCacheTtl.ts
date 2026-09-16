@@ -25,7 +25,15 @@ export function windowCacheTtlMs(to: string, now: number): number {
   return to < parisDayKey(now) ? TTL_PASSE_MS : TTL_EN_COURS_MS;
 }
 
+/**
+ * Version de la FORME du résultat mis en cache. À incrémenter dès qu'un champ
+ * s'ajoute à `WindowedParcours` : une ligne écrite avant l'ajout serait relue
+ * sans ce champ, et l'onglet qui le lit retomberait en silence sur les 90 jours
+ * du cron pendant 24 h. v2 = ajout de `sante`.
+ */
+export const WINDOW_CACHE_SHAPE = 2;
+
 /** Clé de cache d'une plage — les jours parisiens tels que le sélecteur les donne. */
 export function windowCacheKey(from: string, to: string): string {
-  return `${from}|${to}`;
+  return `v${WINDOW_CACHE_SHAPE}|${from}|${to}`;
 }

@@ -271,9 +271,9 @@ function AnalyticsPageContenu() {
               Parcours vient de passer, les autres suivront. */}
           <span className="text-slate-400/90">
             La période s&apos;applique à Vue d&apos;ensemble, Acquisition,
-            Parcours, Offres &amp; tests et Rétention (par cohorte
-            d&apos;acquisition). Santé produit et Fiabilité restent sur toute la
-            profondeur disponible.
+            Parcours, Santé produit, Offres &amp; tests et Rétention (par cohorte
+            d&apos;acquisition). Fiabilité reste sur toute la profondeur
+            disponible.
           </span>
         </p>
       </div>
@@ -405,7 +405,10 @@ function AnalyticsPageContenu() {
 
             <TabsContent value="sante" className="mt-6">
               {analytics.configured ? (
-                <SanteProduitTab analytics={analytics} />
+                <SanteProduitTab
+                  analytics={analytics}
+                  windowed={windowedAnalytics}
+                />
               ) : (
                 <NotConfigured />
               )}

@@ -23,6 +23,7 @@ import {
 } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { ProductAnalyticsData } from "./types";
+import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
 
 /**
  * Onglet SANTÉ PRODUIT (B2) — fiabilité des scans (avec le DÉTAIL PAR RAISON, plus
@@ -69,10 +70,24 @@ function personCount(analytics: ProductAnalyticsData, event: string): number | n
 }
 
 export function SanteProduitTab({
-  analytics,
+  analytics: cron,
+  windowed,
 }: {
   analytics: ProductAnalyticsData;
+  /**
+   * Agrégats RECALCULÉS sur la période choisie. `data` absent = on sert le cache
+   * du cron (90 jours), soit parce que la période couvre tout, soit parce que le
+   * recalcul n'est pas revenu.
+   */
+  windowed: WindowedAnalyticsState;
 }) {
+  // Pendant un recalcul, les chiffres précédents restent affichés, grisés (même
+  // règle que Parcours) : un écran vidé se lit comme « aucune donnée ».
+  const analytics = useMemo(
+    () =>
+      windowed.data ? { ...cron, ...windowed.data.sante } : cron,
+    [cron, windowed.data],
+  );
   // Fiabilité des scans ventilée par DÉCLENCHEMENT (`reason`) : baseline /
   // scheduled_light / scheduled_full / manual_refresh (émis depuis le 28/07).
   // scheduled_full est le scan qui détecte les désabonnements → mis en évidence.
@@ -160,6 +175,32 @@ export function SanteProduitTab({
 
   return (
     <div className="space-y-6">
+      {windowed.error !== null ? (
+        <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+          <strong>Recalcul sur la période impossible.</strong> {windowed.error}{" "}
+          Les chiffres ci-dessous portent donc sur toute la profondeur, pas sur la
+          période choisie.
+        </HubNotice>
+      ) : null}
+      {windowed.data?.stale === true && windowed.data.cachedAt !== null ? (
+        <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+          <strong>PostHog a refusé le recalcul</strong> (trop de requêtes). Les
+          chiffres de cette période sont ceux calculés le{" "}
+          {new Date(windowed.data.cachedAt).toLocaleString("fr-FR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          .
+        </HubNotice>
+      ) : null}
+      <div
+        className={
+          windowed.loading ? "space-y-6 opacity-50 transition-opacity" : "space-y-6"
+        }
+        aria-busy={windowed.loading}
+      >
       {/* Réussite de la première recherche après paiement — la demande la plus importante */}
       <Card>
         <CardContent className="space-y-3 p-4">
@@ -187,8 +228,12 @@ export function SanteProduitTab({
                   </>
                 ) : null}
                 Le taux porte sur <strong>{formatNumber(fsp.searched)}</strong>{" "}
-                payant(s) qui ont cherché, sous le seuil de {MIN_SAMPLE_SIZE} : à lire
-                comme une tendance, pas un chiffre stable.
+                payant(s) qui ont cherché
+                {/* La phrase disait « sous le seuil » à 488 payants : le seuil
+                    n'était lu que pour la couleur, jamais pour le texte. */}
+                {fsp.sampleSufficient
+                  ? "."
+                  : `, sous le seuil de ${MIN_SAMPLE_SIZE} : à lire comme une tendance, pas un chiffre stable.`}
                 {fsp.paidExcluded > 0 && fsp.instrStartLabel ? (
                   <>
                     {" "}
@@ -574,6 +619,7 @@ export function SanteProduitTab({
           )}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

@@ -33,6 +33,7 @@ describe("buildQueries — paramétrage de la fenêtre", () => {
     for (const [nom, sql] of Object.entries(fenetre)) {
       if (!base[nom as keyof typeof base].includes(DEFAULT_WINDOW)) continue;
       if (sql.includes("AS ab_exp")) continue; // traitées à part, cf ci-dessous
+      if (nom === "firstSearchAfterPay") continue; // idem, cf ci-dessous
       touchees += 1;
       expect(sql, `${nom} n'a pas reçu la fenêtre libre`).toContain(W);
       expect(sql, `${nom} porte encore la fenêtre par défaut`).not.toContain(
@@ -70,6 +71,19 @@ describe("buildQueries — paramétrage de la fenêtre", () => {
     expect(abArms).toContain("AS ab_exp");
     expect(abArms).toContain(DEFAULT_WINDOW);
     expect(abArms).toContain(W);
+  });
+
+  it("la 1re recherche après paiement garde son balayage et fenêtre la COHORTE", () => {
+    // subscription_completed est réémis à chaque renouvellement : un balayage
+    // rétréci ferait d'un renouvellement de la semaine le « premier paiement ».
+    const base90 = base.firstSearchAfterPay;
+    const sql = buildQueries("", "''", W, WSUB).firstSearchAfterPay;
+    expect(sql).toContain(`WHERE ${DEFAULT_WINDOW}`);
+    expect(sql).not.toContain(W);
+    // Tous les compteurs portent la borne sur le premier paiement…
+    expect(sql.split(WSUB).length - 1).toBe(7);
+    // …et le cron, sans fenêtre, n'en porte aucune.
+    expect(base90).not.toContain("toDateTime(");
   });
 
   it("une fenêtre libre SANS sa version sur t_first_sub est REFUSÉE", () => {
