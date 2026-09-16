@@ -1014,7 +1014,7 @@ export const getPaymentsAsAdmin = adminViewAsMoneyQuery({
  * (`meCreatorId` absent côté admin → tout false). Cycles désynchronisés (chacun
  * ancré sur son 1er post) → chaque ligne porte SA fenêtre (cycleStart/cycleEnd).
  */
-async function computeProjectLeaderboard(
+export async function computeProjectLeaderboard(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   now: number,
@@ -1141,11 +1141,37 @@ export const leaderboard = permissionQuery("payments.manage")({
  * VÉRIFIE que l'appelant est bien créateur de `projectId` (requireCreator → rejet
  * cross-projet, aucune fuite d'un projet où elle n'est pas) et injecte
  * `ctx.creatorId` → `isMe` marque sa propre ligne. Même helper que la vue admin.
+ *
+ * LU DANS LE CACHE (`leaderboardCache`, recalculé toutes les 10 min — cf
+ * convex/leaderboardCache.ts), pas recalculé : cette query est montée dans le
+ * layout du portail, et la recalculer coûtait 45 % de la facture Convex. Sans
+ * row en cache (projet neuf, juste après le déploiement), calcul en direct.
  */
 export const projectLeaderboard = creatorQuery({
   args: {},
-  handler: async (ctx) =>
-    computeProjectLeaderboard(ctx, ctx.projectId, Date.now(), ctx.creatorId),
+  handler: async (ctx) => {
+    const cached = await ctx.db
+      .query("leaderboardCache")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .first();
+    if (!cached) {
+      return computeProjectLeaderboard(
+        ctx,
+        ctx.projectId,
+        Date.now(),
+        ctx.creatorId,
+      );
+    }
+    return cached.rows.map((r) => ({
+      creatorId: r.creatorId,
+      name: r.name,
+      rank: r.rank,
+      totalDue: r.totalDue,
+      cycleStart: r.cycleStart,
+      cycleEnd: r.cycleEnd,
+      isMe: r.creatorId === ctx.creatorId,
+    }));
+  },
 });
 
 // ─── Mutations admin — marquer payé (idempotent) ─────────────────────────────

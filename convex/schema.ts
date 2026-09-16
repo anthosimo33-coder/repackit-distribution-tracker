@@ -2261,6 +2261,35 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_creator_pricing_seuil", ["creatorId", "pricingId", "seuilVues"]),
 
+  /**
+   * CLASSEMENT DU CYCLE PRÉ-CALCULÉ — une row par projet, lue par le portail.
+   *
+   * `projectLeaderboard` était monté dans le LAYOUT du portail (RankUpWatcher) :
+   * chaque page de chaque créatrice le recalculait en relisant tout le projet
+   * (~2 MB), et toute écriture sur une assignation le relançait chez toutes les
+   * créatrices connectées. Le 2026-09-15 : 2 432 exécutions, 45 % de la bande
+   * passante base facturée. Ici on lit UNE row.
+   *
+   * Écrite par convex/leaderboardCache.ts, UNIQUEMENT quand le classement a
+   * changé : une réécriture à l'identique relancerait chez toutes les
+   * créatrices la query qu'on cherche justement à ne plus relancer.
+   * `changedAt` = dernier changement, pas dernier calcul (même raison).
+   */
+  leaderboardCache: defineTable({
+    projectId: v.id("projects"),
+    rows: v.array(
+      v.object({
+        creatorId: v.id("creators"),
+        name: v.string(),
+        rank: v.number(),
+        totalDue: v.number(),
+        cycleStart: v.number(),
+        cycleEnd: v.number(),
+      }),
+    ),
+    changedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
   // ─── P8 — Paiements (accrual par période) ─────────────────────────────────
   // 1 row = la rémunération d'UN créateur pour UNE période "YYYY-MM". Alimentée
   // par la validation admin (lineItem "base" figé sur rateSnapshot.basePerPost)

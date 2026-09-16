@@ -170,4 +170,17 @@ crons.hourly(
   {},
 );
 
+// CLASSEMENT DU CYCLE PRÉ-CALCULÉ — toutes les 10 minutes. Le portail lit le
+// résultat (leaderboardCache) au lieu de recalculer tout le projet à chaque
+// affichage : c'était 45 % de la facture Convex (2026-09-15). Intervalle, pas
+// heure fixe : c'est ce qui borne le retard du portail, quel que soit ce qui a
+// fait bouger un montant (relevé, publication, barème, bascule de cycle).
+// N'écrit rien si le classement n'a pas changé. Cf convex/leaderboardCache.ts.
+crons.interval(
+  "leaderboard-cache-refresh",
+  { minutes: 10 },
+  internal.leaderboardCache.refreshAll,
+  {},
+);
+
 export default crons;

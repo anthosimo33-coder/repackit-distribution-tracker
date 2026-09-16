@@ -84,6 +84,7 @@ import type * as icps from "../icps.js";
 import type * as inspirationThumbnails from "../inspirationThumbnails.js";
 import type * as inspirations from "../inspirations.js";
 import type * as internalAccounts from "../internalAccounts.js";
+import type * as leaderboardCache from "../leaderboardCache.js";
 import type * as likesNegativeMigration from "../likesNegativeMigration.js";
 import type * as locales from "../locales.js";
 import type * as maintenance from "../maintenance.js";
@@ -257,6 +258,7 @@ declare const fullApi: ApiFromModules<{
   inspirationThumbnails: typeof inspirationThumbnails;
   inspirations: typeof inspirations;
   internalAccounts: typeof internalAccounts;
+  leaderboardCache: typeof leaderboardCache;
   likesNegativeMigration: typeof likesNegativeMigration;
   locales: typeof locales;
   maintenance: typeof maintenance;
