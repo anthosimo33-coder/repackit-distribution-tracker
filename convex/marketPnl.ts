@@ -4,9 +4,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import {
   assignmentPublishedAt,
+  assignmentViewsAndMetrics,
   computeLivePricingBreakdown,
   loadCreatorPayrollSources,
+  newViewsCache,
 } from "./pricing";
+import { isPromoPost } from "./viewCounters";
+import { promoCostOfVideo, splitPromoByMarket } from "./marketPromo";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import {
   projectFx,
@@ -83,6 +87,13 @@ export type PlanCountryCell = {
   paid: number;
   attempts: number;
   net: number;
+  /**
+   * Prix moyen encaissé DANS LA DEVISE DU CLIENT, quand elle n'est pas celle du
+   * revenu (« 599 RSD »). `null` si la case est déjà en devise du revenu ou
+   * mélange plusieurs devises. Sans lui, « 5,10 € » ne dit pas qu'on vend 599
+   * dinars — et c'est ce prix-là qu'on règle chez Whop.
+   */
+  localPrice: { amount: number; currency: string } | null;
 };
 
 /** Un point de la courbe : un marché, un mois. */
@@ -93,6 +104,17 @@ export type MarketTrendPoint = {
   revenueNet: number;
 };
 
+/** Ce qu'UNE créatrice a mis sur un marché, sur la période. */
+export type MarketCreator = {
+  creatorId: string;
+  name: string;
+  videos: number;
+  /** Vues MESURÉES de ses posts promo sur ce marché. */
+  promoViews: number;
+  /** Part promo de son coût, en devise de PAIE. */
+  promoCost: number;
+};
+
 export type MarketRow = {
   /** Code pays, ou `null` pour « non défini » (compte sans marché visé). */
   country: string | null;
@@ -100,6 +122,14 @@ export type MarketRow = {
   creators: number;
   videos: number;
   cost: number;
+  /**
+   * Périmètre PROMO — le seul qui se divise par des vues. Coût en devise de
+   * PAIE, vues mesurées des posts non warmup (cf convex/marketPromo).
+   */
+  promoCost: number;
+  promoViews: number;
+  /** Détail par créatrice, trié par vues promo décroissantes. */
+  creatorsDetail: MarketCreator[];
   /**
    * Ids des créatrices qui visent ce marché. Des IDS, pas un compte : une
    * créatrice qui vise deux pays d'un même marché composé ne doit pas y compter
@@ -135,13 +165,22 @@ export type MarketRow = {
  *
  * Clé du pays : `""` pour « non défini ».
  */
+type MarketCostAcc = {
+  cost: number;
+  videos: number;
+  creators: Set<string>;
+  promoCost: number;
+  promoViews: number;
+  parCreatrice: Map<string, MarketCreator>;
+};
+
 async function costByMarket(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   from: number,
   to: number,
 ): Promise<{
-  parPays: Map<string, { cost: number; videos: number; creators: Set<string> }>;
+  parPays: Map<string, MarketCostAcc>;
   parMois: Map<string, number>;
 }> {
   // Pays visé de chaque compte, et vues de chaque publication : les deux clés de
@@ -160,21 +199,31 @@ async function costByMarket(
   const vuesDeLaPubli = new Map<string, number>(
     publications.map((p) => [p._id as string, p.vuesLatest ?? 0]),
   );
+  const publiParId = new Map(publications.map((p) => [p._id as string, p]));
+  // Vues payables / promo payées de chaque vidéo : le même calcul que la paie,
+  // partagé sur la query (publications préchargées).
+  const vuesCache = newViewsCache(publiParId);
 
   const creators = await ctx.db
     .query("creators")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
 
-  const out = new Map<
-    string,
-    { cost: number; videos: number; creators: Set<string> }
-  >();
+  const out = new Map<string, MarketCostAcc>();
   /** Coût par `pays|mois` — la série de la courbe. */
   const serieParMois = new Map<string, number>();
   const touch = (pays: string | null) => {
     const k = pays ?? "";
-    const d = out.get(k) ?? { cost: 0, videos: 0, creators: new Set<string>() };
+    const d =
+      out.get(k) ??
+      {
+        cost: 0,
+        videos: 0,
+        creators: new Set<string>(),
+        promoCost: 0,
+        promoViews: 0,
+        parCreatrice: new Map<string, MarketCreator>(),
+      };
     out.set(k, d);
     return d;
   };
@@ -272,6 +321,55 @@ async function costByMarket(
           b.cost > a1.cost ? b : a1,
         );
         touch(principal.country).videos += 1;
+
+        // ── PÉRIMÈTRE PROMO ─────────────────────────────────────────────
+        const pa = bd.perAssignment.find(
+          (x) => x.assignmentId === (a._id as string),
+        );
+        const vues = await assignmentViewsAndMetrics(ctx, a, Date.now(), vuesCache);
+        const coutPromo = promoCostOfVideo({
+          videoCost: coutVidéo,
+          fixed: pa?.fixed ?? 0,
+          cpm: pa?.cpm ?? 0,
+          payableViews: vues.payableViews,
+          promoPaidViews: vues.bonusTierViews,
+          hasPromoPost: vues.hasPromoPost,
+        });
+        const ciblesPromo = (a.targets ?? []).map((t) => {
+          const pub = t.publicationId
+            ? publiParId.get(t.publicationId as string)
+            : undefined;
+          return {
+            country: paysDuCompte.get(t.accountId as string) ?? null,
+            views: pub?.vuesLatest ?? 0,
+            promo: pub !== undefined && isPromoPost({ isWarmup: pub.isWarmup === true }),
+          };
+        });
+        const parts = splitPromoByMarket(coutPromo, ciblesPromo);
+        for (const part of parts) {
+          const d = touch(part.country);
+          d.promoCost = round2(d.promoCost + part.promoCost);
+          d.promoViews += part.promoViews;
+          const cid = creator._id as string;
+          const c =
+            d.parCreatrice.get(cid) ??
+            {
+              creatorId: cid,
+              name: creator.name,
+              videos: 0,
+              promoViews: 0,
+              promoCost: 0,
+            };
+          c.promoCost = round2(c.promoCost + part.promoCost);
+          c.promoViews += part.promoViews;
+          d.parCreatrice.set(cid, c);
+        }
+        // La vidéo compte pour la créatrice sur le marché PROMO principal.
+        if (parts.length > 0) {
+          const top = parts.reduce((x, y) => (y.promoViews > x.promoViews ? y : x));
+          const c = touch(top.country).parCreatrice.get(creator._id as string);
+          if (c) c.videos += 1;
+        }
       }
     }
   }
@@ -460,6 +558,8 @@ export const getMarketPnl = permissionQuery("business.read")({
     // paiement à des paiements encaissés, dans la même table.
     const cellules = new Map<string, PlanCountryCell>();
     const prixDuPlan = new Map<string, { somme: number; n: number }>();
+    /** Devise(s) encaissée(s) par case, et prix local cumulé. */
+    const localDeCase = new Map<string, { devises: Set<string>; somme: number; n: number }>();
     for (const p of paiementsPeriode) {
       if (p.status !== "paid" && p.status !== "failed") continue;
       const plan = p.planId ?? "";
@@ -477,6 +577,7 @@ export const getMarketPnl = permissionQuery("business.read")({
           paid: 0,
           attempts: 0,
           net: 0,
+          localPrice: null,
         };
       c.attempts += 1;
       if (p.status === "paid") {
@@ -486,6 +587,11 @@ export const getMarketPnl = permissionQuery("business.read")({
         pr.somme += brutDe(p);
         pr.n += 1;
         prixDuPlan.set(plan, pr);
+        const loc = localDeCase.get(cle) ?? { devises: new Set<string>(), somme: 0, n: 0 };
+        loc.devises.add((p.currency ?? "").trim().toLowerCase());
+        loc.somme += p.grossAmount;
+        loc.n += 1;
+        localDeCase.set(cle, loc);
       }
       cellules.set(cle, c);
     }
@@ -524,6 +630,14 @@ export const getMarketPnl = permissionQuery("business.read")({
         // libellé reste lisible ; une query qui jette ne l'est pas.
       }
     }
+    const deviseRevenu = (referentiel.currency ?? "").toLowerCase();
+    const prixLocal = (cle: string): PlanCountryCell["localPrice"] => {
+      const loc = localDeCase.get(cle);
+      if (!loc || loc.n === 0 || loc.devises.size !== 1) return null;
+      const [devise] = [...loc.devises];
+      if (devise === "" || devise === deviseRevenu) return null;
+      return { amount: round2(loc.somme / loc.n), currency: devise.toUpperCase() };
+    };
     const planCells: PlanCountryCell[] = [...cellules.values()]
       .map((c) => {
         const pr = prixDuPlan.get(c.planId);
@@ -539,6 +653,7 @@ export const getMarketPnl = permissionQuery("business.read")({
           net: c.net,
           planLabel: nomDuPlan.get(c.planId) ?? null,
           price: pr && pr.n > 0 ? round2(pr.somme / pr.n) : 0,
+          localPrice: prixLocal(`${c.planId}|${c.country ?? ""}`),
         };
       })
       .sort((a, b) => a.price - b.price || b.clients - a.clients);
@@ -596,6 +711,11 @@ export const getMarketPnl = permissionQuery("business.read")({
         creatorIds: [...(c?.creators ?? [])],
         videos: c?.videos ?? 0,
         cost: round2(c?.cost ?? 0),
+        promoCost: round2(c?.promoCost ?? 0),
+        promoViews: c?.promoViews ?? 0,
+        creatorsDetail: [...(c?.parCreatrice.values() ?? [])].sort(
+          (x, y) => y.promoViews - x.promoViews,
+        ),
         clients: r?.clients ?? 0,
         renewals: r?.renewals ?? 0,
         failures: r?.failures ?? 0,

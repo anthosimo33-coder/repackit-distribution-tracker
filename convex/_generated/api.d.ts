@@ -91,6 +91,7 @@ import type * as marketCost from "../marketCost.js";
 import type * as marketGroups from "../marketGroups.js";
 import type * as marketMoney from "../marketMoney.js";
 import type * as marketPnl from "../marketPnl.js";
+import type * as marketPromo from "../marketPromo.js";
 import type * as marketValue from "../marketValue.js";
 import type * as memberPermissions from "../memberPermissions.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
@@ -263,6 +264,7 @@ declare const fullApi: ApiFromModules<{
   marketGroups: typeof marketGroups;
   marketMoney: typeof marketMoney;
   marketPnl: typeof marketPnl;
+  marketPromo: typeof marketPromo;
   marketValue: typeof marketValue;
   memberPermissions: typeof memberPermissions;
   metricSnapshots: typeof metricSnapshots;

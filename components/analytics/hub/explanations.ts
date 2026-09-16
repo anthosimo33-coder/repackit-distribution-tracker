@@ -150,6 +150,18 @@ export const EXPLAIN = {
     "Chaque bulle est un marché, placé sur ce qu'un client y coûte et sur ce qu'il y rapporte à 90 jours. La diagonale est le seuil : au dessus, un client rapporte plus qu'il n'a coûté. Un marché sans aucun client n'y figure pas, faute d'avoir une valeur à porter en hauteur.",
   marcheCourbe:
     "Le revenu cumulé d'un client depuis son premier paiement, et en pointillé ce qu'il a coûté à gagner. La courbe franchit le pointillé le jour du remboursement. Chaque point a son propre effectif, donc la courbe n'est pas un groupe de clients suivi dans le temps mais la meilleure lecture possible à chaque âge.",
+  marcheVuesPromo:
+    "Les vues des posts promo publiés sur ce marché pendant la période. Le warmup est exclu : il ne parle pas de l'app et n'est pas payé, le compter gonflerait les vues sans rien vendre. Le marché est celui visé par le compte qui a publié.",
+  marcheCout1000:
+    "Ce que coûtent 1 000 vues promo sur ce marché : le coût promo des créatrices divisé par les vues promo, converti en euros au taux du projet. Il continue de bouger tant que le relevé ajoute des vues aux vidéos récentes.",
+  marcheRpmAcquisition:
+    "Ce que valent les clients gagnés sur la période, pour 1 000 vues promo. Chaque nouveau client compte pour la valeur à 30 jours d'un client de ce marché ; quand trop peu de clients ont cet âge, le panier moyen la remplace et la case est marquée comme estimée. C'est le chiffre à comparer au coût pour 1 000 vues.",
+  marcheRpmEncaisse:
+    "Le revenu net encaissé pendant la période, pour 1 000 vues promo. Il compte aussi les renouvellements de clients gagnés avant : il avantage les marchés anciens, et ne sert donc pas seul à décider.",
+  marcheRetourAcquisition:
+    "La valeur des clients gagnés divisée par le coût promo des créatrices. Au dessus de 1, les vues rapportent plus qu'elles ne coûtent. Au dessus de 2 avec au moins 20 clients, le marché est à accélérer ; sous 0,5, à couper, sauf si c'est le paiement qui casse.",
+  marcheOuCaCasse:
+    "La part des visiteurs qui ouvrent le checkout, puis la part des checkouts qui deviennent des clients, mesurées par PostHog sur le pays de connexion. Un marché dont l'audience ouvre le checkout mais ne paie pas a un problème de paiement, pas de marché : il passe en « Réparer » plutôt qu'en « Couper ».",
   marcheComposeur:
     "Un marché composé additionne le coût et le revenu de ses pays, et se lit ensuite comme une seule ligne. Un pays ne peut appartenir qu'à un seul marché, sinon son coût serait compté deux fois. Les marchés sont partagés par toute l'équipe, la bascule par pays ou par marché reste propre à votre écran.",
 } as const;

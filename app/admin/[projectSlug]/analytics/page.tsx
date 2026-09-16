@@ -31,6 +31,7 @@ import {
   clampWindow,
   dataRangeOf,
   parisDayKey,
+  presetWindow,
   type AnalyticsWindow,
 } from "@/lib/analytics-window";
 import { windowedAttribution } from "@/lib/attribution-window";
@@ -99,10 +100,25 @@ function AnalyticsPageContenu() {
   const requestSync = useProjectMutation(api.posthogSync.requestPosthogSync);
   const [syncing, setSyncing] = useState(false);
   const [now] = useState(() => Date.now());
-  // Fenêtre d'analyse : bornes de JOURS Europe/Paris, inclusives. `null` tant que
-  // la série quotidienne n'est pas chargée — on n'invente pas une fenêtre sur des
-  // données absentes, les cartes affichent un tiret.
-  const [window, setWindow] = useState<AnalyticsWindow | null>(null);
+  const dataRange = useMemo(
+    () =>
+      dataRangeOf(
+        (analytics?.overview.daily ?? []).map((d) => parisDayKey(d.ts)),
+      ),
+    [analytics],
+  );
+  // Fenêtre d'analyse : bornes de JOURS Europe/Paris, inclusives. `choix` est ce
+  // que l'utilisateur a pris dans le sélecteur (préréglage ou dates libres) ;
+  // tant qu'il n'a rien choisi, la fenêtre vaut les 30 DERNIERS JOURS de données.
+  // Pourquoi 30 et non « tout » : les verdicts de l'onglet Pays et les taux de
+  // conversion ont besoin d'assez de volume, et « tout » mélange des périodes
+  // que des changements d'offre ont rendues incomparables. `null` tant que la
+  // série quotidienne n'est pas chargée — on n'invente pas de fenêtre.
+  const [choix, setWindow] = useState<AnalyticsWindow | null>(null);
+  const window = useMemo(
+    () => choix ?? (dataRange ? presetWindow("30d", dataRange) : null),
+    [choix, dataRange],
+  );
   // Rétention : la période réduit les clients à leur COHORTE D'ACQUISITION,
   // côté serveur. C'est une requête Convex (notre base), pas PostHog : elle est
   // réactive et coûte une lecture, aucune latence à masquer.
@@ -111,16 +127,6 @@ function AnalyticsPageContenu() {
     window ? { from: window.from, to: window.to } : {},
   );
   const churn = churnQ.data;
-  const dataRange = useMemo(
-    () =>
-      dataRangeOf(
-        (analytics?.overview.daily ?? []).map((d) => parisDayKey(d.ts)),
-      ),
-    [analytics],
-  );
-  // Défaut = TOUT ce qui existe. L'ancien défaut « 90 jours » promettait une
-  // profondeur que PostHog n'a pas (46 jours au 2026-09-06) : deux des trois
-  // boutons rendaient le même écran.
   // L'attribution FENÊTRÉE, dérivée UNE fois pour tous les onglets qui la lisent
   // (Acquisition, Rétention). Sans ce point unique, chaque onglet referait le
   // filtrage à sa façon — et deux écrans finiraient par montrer deux coûts pour

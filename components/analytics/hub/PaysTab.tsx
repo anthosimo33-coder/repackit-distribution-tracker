@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronDownIcon } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -10,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { HubCardHeader, ColLabel, dash, HUB_TABLE_MOBILE } from "./HubPrimitives";
+import { HubCardHeader, dash, HUB_TABLE_MOBILE } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
@@ -44,9 +45,12 @@ import { partitionMarches } from "@/lib/market-groups";
 import type { MarketGroup } from "@/convex/marketGroups";
 import {
   aggregateMarket,
-  type MarketDerived,
   type MarketFacts,
 } from "@/lib/market-aggregate";
+import { decideMarket, type MarketVerdict } from "@/lib/market-decision";
+import { MarketDecisionBoard, type DecidedMarket } from "./MarketDecisionBoard";
+import { MarketRoiTable } from "./MarketRoiTable";
+import { MarketRpmPlot } from "./MarketRpmPlot";
 
 /**
  * ONGLET PAYS — ce qu'un marché coûte en créatrices, contre ce qu'il rapporte.
@@ -82,139 +86,6 @@ export type MarketPnl = {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /**
- * ── LES CELLULES QUI ONT UNE RÈGLE ──────────────────────────────────────────
- * Chacune porte une distinction que `dash()` seul ne saurait pas rendre : un
- * zéro qui est un fait contre une valeur inconnue, un effectif trop maigre pour
- * qu'un taux se lise, un « jamais » qui ne veut pas dire jamais.
- */
-
-/** Variation contre la période d'avant. Rien avant ⇒ rien d'affiché. */
-function Variation({ value }: { value: number | null }) {
-  // Sous 3 %, on n'affiche rien plutôt qu'un « +1 % » qui invite à conclure.
-  if (value === null || Math.abs(value) < 0.03) return null;
-  const monte = value > 0;
-  return (
-    <span
-      className={`ml-1 text-[10px] ${monte ? "text-emerald-600" : "text-rose-600"}`}
-      title={`Contre la période précédente de même durée`}
-    >
-      {monte ? "▲" : "▼"}
-      {Math.abs(Math.round(value * 100))}%
-    </span>
-  );
-}
-
-/**
- * Coût d'acquisition. `0` n'est PAS un tiret : il dit qu'aucune créatrice ne
- * vise ce marché, ce qui est une information et non une absence de mesure.
- */
-function CoutParClient({
-  value,
-  revenueCurrency,
-}: {
-  value: number | null;
-  revenueCurrency: string | null;
-}) {
-  if (value === null) return <>—</>;
-  if (value === 0) return <span className="text-slate-400">aucun</span>;
-  return <>{formatMoney(value, revenueCurrency ?? undefined)}</>;
-}
-
-/**
- * Valeur de cohorte : le montant, et TOUJOURS l'effectif sur lequel il porte.
- * Sous le seuil, l'effectif reste visible : « — 4 » dit qu'on a quatre clients
- * et pas assez pour conclure, là où un tiret nu se lirait « aucune donnée ».
- */
-function Valeur({
-  point,
-  revenueCurrency,
-}: {
-  point: { value: number | null; mature: number } | undefined;
-  revenueCurrency: string | null;
-}) {
-  if (!point || point.mature === 0) return <>—</>;
-  return (
-    <>
-      {point.value === null ? (
-        <span className="text-slate-400">—</span>
-      ) : (
-        formatMoney(point.value, revenueCurrency ?? undefined)
-      )}{" "}
-      <span className="text-[10px] text-slate-400">{point.mature}</span>
-    </>
-  );
-}
-
-/** Survie : trois barres (30, 60, 90 j) et le taux à 90 jours. */
-function Survie({
-  steps,
-}: {
-  steps: { day: number; rate: number | null; mature: number }[];
-}) {
-  const connus = steps.filter((s) => s.rate !== null);
-  if (connus.length === 0) return <>—</>;
-  const dernier = [...connus].pop()!;
-  return (
-    <span className="inline-flex items-center gap-1.5 align-middle">
-      <span className="inline-flex h-3.5 items-end gap-px">
-        {steps.map((s) => (
-          <span
-            key={s.day}
-            title={`${s.day} jours : ${
-              s.rate === null ? `trop peu de recul (${s.mature})` : pctFromFraction(s.rate)
-            }`}
-            className="block w-1 rounded-[1px] bg-slate-300"
-            style={{ height: `${Math.max(2, (s.rate ?? 0) * 14)}px` }}
-          />
-        ))}
-      </span>
-      <span className="text-[11px] text-slate-500">
-        {pctFromFraction(dernier.rate ?? 0)}
-      </span>
-    </span>
-  );
-}
-
-/** Le jour du remboursement, ou ce qui l'empêche de se lire. */
-function Remboursement({
-  value,
-}: {
-  value: { day: number | null; state: "gratuit" | "ok" | "jamais" | "inconnu" };
-}) {
-  if (value.state === "gratuit")
-    return <span className="text-emerald-600">immédiat</span>;
-  if (value.state === "jamais")
-    return (
-      <span className="text-rose-600" title="Pas dans les 90 jours mesurés">
-        jamais
-      </span>
-    );
-  if (value.state === "inconnu" || value.day === null)
-    return <span className="text-slate-400">—</span>;
-  return <span className="text-emerald-600">J+{value.day}</span>;
-}
-
-/**
- * Un RATIO en français. `toFixed` rend « 1.71 » avec un point, au milieu d'une
- * colonne où les montants s'écrivent « 6,67 € » : la ligne se lit alors comme
- * si deux systèmes de nombres s'y croisaient.
- */
-function ratioFr(n: number, decimales = 2): string {
-  return n.toLocaleString("fr-FR", {
-    minimumFractionDigits: decimales,
-    maximumFractionDigits: decimales,
-  });
-}
-
-/** Retour sur investissement : la couleur tranche à 1,00. */
-function Retour({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-slate-400">—</span>;
-  const classe =
-    value >= 1 ? "text-emerald-600" : value >= 0.6 ? "text-amber-600" : "text-rose-600";
-  return <span className={`font-medium ${classe}`}>{ratioFr(value)}</span>;
-}
-
-/**
  * DU SERVEUR À L'AGRÉGATION — le pont, et les deux populations qu'il respecte.
  *
  * `MarketRow` porte l'argent (pays de FACTURATION) ; `CountrySteps` porte le
@@ -234,6 +105,7 @@ function factsOf(
   plans: PlanCountryCell[],
 ): MarketFacts {
   const converti = toDisplayAmount(r.cost, ctx);
+  const promoConverti = toDisplayAmount(r.promoCost, ctx);
   const t = r.country === null ? undefined : trafic.get(r.country);
   return {
     country: r.country,
@@ -252,6 +124,14 @@ function factsOf(
     survival: r.survival,
     visitors: t?.visitors ?? 0,
     trafficClients: t?.clients ?? 0,
+    checkouts: t?.checkouts ?? 0,
+    promoCost: r.promoCost,
+    promoCostComparable:
+      promoConverti !== null && promoConverti.rate !== null
+        ? promoConverti.value
+        : null,
+    promoViews: r.promoViews,
+    creatorsDetail: r.creatorsDetail,
     plans: plans
       .filter((c) => c.country === r.country)
       .map((c) => ({
@@ -259,6 +139,7 @@ function factsOf(
         label: c.planLabel,
         price: c.price,
         clients: c.clients,
+        localPrice: c.localPrice,
       })),
   };
 }
@@ -302,6 +183,17 @@ function stepsOf(segments: FunnelSegments | undefined): CountrySteps[] {
   });
 }
 
+/** Ordre des lignes : ce qu'il faut faire d'abord. */
+const ORDRE_VERDICT: MarketVerdict[] = [
+  "accelerer",
+  "reparer",
+  "surveiller",
+  "couper",
+  "trop_tot",
+  "sans_depense",
+  "inconnu",
+];
+
 export function PaysTab({
   pnl,
   traffic,
@@ -329,6 +221,20 @@ export function PaysTab({
    * souligne la même ligne ailleurs, et ouvre le même tiroir.
    */
   const [ouvert, setOuvert] = useState<string | null>(null);
+  /** Ligne DÉPLIÉE du tableau de décision (créatrices, entonnoir, plans). */
+  const [deplie, setDeplie] = useState<string | null>(null);
+  /** Analyse détaillée (valeur, survie, trafic, plans, mois) : repliée par défaut. */
+  const [analyse, setAnalyse] = useState(false);
+  const tableau = useRef<HTMLDivElement>(null);
+  const ouvrirLigne = (key: string) => {
+    setDeplie(key);
+    tableau.current?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "start",
+    });
+  };
   const ctx: CurrencyContext = {
     payCurrency: pnl?.payCurrency,
     revenueCurrency: pnl?.revenueCurrency,
@@ -380,7 +286,7 @@ export function PaysTab({
    * par les mêmes seuils d'effectif. C'est ce qui garantit qu'une valeur affichée
    * pour « Balkans » obéit aux mêmes règles que celle affichée pour la France.
    */
-  const marches: MarketDerived[] = useMemo(() => {
+  const marches: DecidedMarket[] = useMemo(() => {
     const trafic = new Map(stepsOf(traffic).map((t) => [t.country, t]));
     const cells = pnl?.planCells ?? [];
     const parPays = new Map(
@@ -433,14 +339,18 @@ export function PaysTab({
       );
     }
 
-    return derives.sort((a, b) => {
-      // Le RETOUR d'abord : c'est la question posée. Un marché sans dépense
-      // n'en a pas et passe après, trié sur son revenu.
-      if (a.retour === null && b.retour === null) return b.revenueNet - a.revenueNet;
-      if (a.retour === null) return 1;
-      if (b.retour === null) return -1;
-      return b.retour - a.retour;
-    });
+    // Trié par VERDICT (ce qu'il faut faire), puis par retour d'acquisition. La
+    // ligne hors marché ferme toujours la liste.
+    return derives
+      .map((m) => ({ ...m, decision: decideMarket(m) }))
+      .sort((a, b) => {
+        if (a.key === "") return 1;
+        if (b.key === "") return -1;
+        const va = ORDRE_VERDICT.indexOf(a.decision.verdict);
+        const vb = ORDRE_VERDICT.indexOf(b.decision.verdict);
+        if (va !== vb) return va - vb;
+        return (b.acquisitionReturn ?? -1) - (a.acquisitionReturn ?? -1);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pnl, traffic, groups, maille]);
 
@@ -560,6 +470,84 @@ export function PaysTab({
         </CardContent>
       </Card>
 
+      <MarketDecisionBoard
+        marches={marches}
+        devise={pnl.revenueCurrency}
+        onOpen={ouvrirLigne}
+      />
+
+      <div ref={tableau} className="scroll-mt-4">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HubCardHeader
+              title="Marché par marché"
+              subtitle="Clique un marché : ses créatrices, son entonnoir et les plans vendus."
+            />
+            <MarketComposer
+              groups={groups ?? []}
+              countries={paysConnus}
+              maille={maille}
+              onMaille={setMaille}
+            />
+            <MarketRoiTable
+              marches={marches}
+              devise={pnl.revenueCurrency}
+              ctx={ctx}
+              ouvert={deplie}
+              onToggle={(k) => setDeplie((d) => (d === k ? null : k))}
+              onDetail={setOuvert}
+            />
+            <p className="text-xs text-slate-400">
+              Vues et coûts sur les posts <strong>promo</strong> uniquement, montants
+              convertis en euros au taux du projet. Le <strong>coût</strong> suit le
+              marché visé par le compte de la créatrice, le <strong>revenu</strong>{" "}
+              le pays de facturation du client : les marchés composés rapprochent les
+              deux. La valeur à 30 jours porte sur tous les clients du marché, pas
+              seulement ceux de la période.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          <HubCardHeader
+            title="Ce que coûtent 1 000 vues, ce qu'elles valent"
+            subtitle="Chaque bulle est un marché. Clique pour ouvrir sa ligne."
+            info={EXPLAIN.marcheRpmAcquisition}
+          />
+          <MarketRpmPlot
+            marches={marches}
+            devise={pnl.revenueCurrency}
+            onSelect={ouvrirLigne}
+          />
+        </CardContent>
+      </Card>
+
+      <div className="space-y-4">
+        <button
+          type="button"
+          onClick={() => setAnalyse((a) => !a)}
+          aria-expanded={analyse}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:border-slate-300"
+        >
+          <span className="space-y-0.5">
+            <span className="block text-sm font-semibold text-slate-900">
+              Analyse détaillée
+            </span>
+            <span className="block text-xs text-slate-500">
+              Marge, valeur d&apos;un client dans le temps, remboursement, trafic par
+              pays, plans vendus, évolution mensuelle.
+            </span>
+          </span>
+          <ChevronDownIcon
+            className={`size-4 shrink-0 text-slate-400 transition-transform motion-reduce:transition-none ${
+              analyse ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        {analyse ? (
+          <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="flex flex-col gap-1 p-4">
@@ -614,13 +602,6 @@ export function PaysTab({
         </Card>
       </div>
 
-      <MarketComposer
-        groups={groups ?? []}
-        countries={paysConnus}
-        maille={maille}
-        onMaille={setMaille}
-      />
-
       <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
         <Card>
           <CardContent className="space-y-3 p-4">
@@ -667,145 +648,6 @@ export function PaysTab({
             selection={ouvert}
             onSelect={setOuvert}
           />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="space-y-3 p-4">
-          <HubCardHeader
-            title="Le retour, marché par marché"
-            subtitle="Ce qu'un client rapporte face à ce que le marché coûte. Trié par retour sur investissement."
-          />
-          <div className="overflow-x-auto">
-            <Table className={HUB_TABLE_MOBILE}>
-              <TableHeader>
-                <TableRow>
-                  {/* Première colonne FIGÉE : sur téléphone, douze colonnes de
-                      chiffres défilent, et le nom du marché reste lisible. */}
-                  <TableHead className="sticky left-0 z-10 bg-white">Marché</TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Clients" info={EXPLAIN.marcheClients} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Coût / client" info={EXPLAIN.marcheCoutClient} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Panier" info={EXPLAIN.marchePanier} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Cycles" info={EXPLAIN.marcheCycles} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Valeur 30 j" info={EXPLAIN.marcheValeur30} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Valeur 90 j" info={EXPLAIN.marcheValeur90} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Survie" info={EXPLAIN.marcheSurvie} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Remboursé" info={EXPLAIN.marcheRemboursement} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Coût" info={EXPLAIN.marcheCout} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Revenu net" info={EXPLAIN.marcheRevenuNet} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <ColLabel label="Retour" info={EXPLAIN.marcheRetour} />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {marches.map((m) => (
-                  <TableRow
-                    key={m.key || "(hors marché)"}
-                    onClick={() => setOuvert(m.key)}
-                    aria-selected={ouvert === m.key}
-                    className={
-                      ouvert === m.key
-                        ? "group cursor-pointer bg-slate-50"
-                        : "group cursor-pointer"
-                    }
-                  >
-                    <TableCell className="sticky left-0 z-10 bg-white text-xs font-medium text-slate-700 group-hover:bg-slate-50 group-aria-selected:bg-slate-50">
-                      {m.composed ? (
-                        <span className="inline-flex items-center gap-1.5">
-                          {m.label}
-                          <span className="rounded bg-slate-100 px-1 py-px font-mono text-[10px] text-slate-500">
-                            {m.countries.filter((c) => c !== null).join("+")}
-                          </span>
-                        </span>
-                      ) : (
-                        <MarketLabel code={m.countries[0] ?? null} />
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {m.clients > 0 ? formatNumber(m.clients) : "—"}
-                      <Variation value={m.deltaClients} />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      <CoutParClient
-                        value={m.cac}
-                        revenueCurrency={pnl.revenueCurrency}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {dash(m.basket, (n) =>
-                        formatMoney(n, pnl.revenueCurrency ?? undefined),
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {dash(m.cycles, (n) => ratioFr(n, 1))}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      <Valeur
-                        point={m.value.find((v) => v.day === 30)}
-                        revenueCurrency={pnl.revenueCurrency}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      <Valeur
-                        point={m.value.find((v) => v.day === 90)}
-                        revenueCurrency={pnl.revenueCurrency}
-                      />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      <Survie steps={m.survival} />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      <Remboursement value={m.payback} />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {m.cost > 0 ? argent(m.cost) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      {m.revenueNet > 0
-                        ? formatMoney(m.revenueNet, pnl.revenueCurrency ?? undefined)
-                        : "—"}
-                      <Variation value={m.deltaRevenue} />
-                    </TableCell>
-                    <TableCell className="text-right text-xs tabular-nums">
-                      <Retour value={m.retour} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <p className="text-xs text-slate-400">
-            <strong>Deux horloges sur la même ligne.</strong> Le coût, le revenu
-            et les clients suivent la période choisie en haut ; la valeur à 30 et
-            90 jours et la survie portent sur tous les clients du marché, parce
-            qu&apos;elles décrivent le marché et non la fenêtre. Le{" "}
-            <strong>coût</strong> vient du marché visé par le compte de la
-            créatrice, le <strong>revenu</strong> de l&apos;adresse de facturation
-            du client : deux notions de pays, mises face à face parce que
-            c&apos;est la décision qu&apos;on prend, jamais divisées l&apos;une par
-            l&apos;autre.
-          </p>
         </CardContent>
       </Card>
 
@@ -1045,6 +887,9 @@ export function PaysTab({
           </CardContent>
         </Card>
       ) : null}
+          </div>
+        ) : null}
+      </div>
       <MarketDetailSheet
         marche={marches.find((m) => m.key === ouvert) ?? null}
         ctx={ctx}

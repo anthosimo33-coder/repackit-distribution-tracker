@@ -36,6 +36,11 @@ function pays(p: Partial<MarketFacts> & { country: string }): MarketFacts {
     visitors: p.visitors ?? 0,
     trafficClients: p.trafficClients ?? 0,
     plans: p.plans ?? [],
+    promoCost: p.promoCost,
+    promoCostComparable: p.promoCostComparable,
+    promoViews: p.promoViews,
+    checkouts: p.checkouts,
+    creatorsDetail: p.creatorsDetail,
   };
 }
 const courbe = (v: [number, number][]) =>
@@ -235,5 +240,63 @@ describe("remboursement — le jour où un client a remboursé son coût", () =>
     // Assertion de PRÉSENCE : avec un coût, le même marché rembourse vraiment.
     expect(remboursement(v([[4, 4.99], [4, 8.1], [4, 11.2], [4, 14], [4, 16.4], [3, 18.4]]), 10, 4).state)
       .toBe("ok");
+  });
+});
+
+describe("aggregateMarket — RPM par marché, périmètre promo", () => {
+  it("le RPM d'un marché composé divise des SOMMES, pas une moyenne de RPM", () => {
+    // Serbie : 1,20 € de clients pour 10 000 vues (0,12 €/1 000).
+    // Bosnie : 30,00 € pour 2 000 vues (15 €/1 000). Moyenne des RPM : 7,56 €.
+    // Vrai RPM : 31,20 € / 12 000 vues × 1 000 = 2,60 €.
+    const rs = pays({
+      country: "RS", clients: 1, payments: 1, revenueNet: 1.2,
+      promoCost: 5.5, promoCostComparable: 4.73, promoViews: 10_000,
+    });
+    const ba = pays({
+      country: "BA", clients: 2, payments: 2, revenueNet: 30,
+      promoCost: 2.1, promoCostComparable: 1.81, promoViews: 2000,
+    });
+    const g = aggregateMarket([rs, ba], { key: "g:b", label: "Balkans", composed: true });
+    expect(g.rpmCollected).toBeCloseTo(2.6, 5);
+    expect(g.rpmCollected).not.toBeCloseTo(7.56, 1);
+    expect(g.costPer1000).toBeCloseTo((6.54 / 12_000) * 1000, 5);
+  });
+
+  it("valeur des clients : valeur à 30 j quand elle est mûre, sinon panier ESTIMÉ", () => {
+    const mur = pays({
+      country: "FR", clients: 98, payments: 177, revenueNet: 1999.03,
+      curve: courbe([[0,0],[0,0],[786.6,60],[0,0],[0,0],[0,0]]),
+      promoCostComparable: 313.72, promoCost: 364.79, promoViews: 412_000,
+    });
+    const m = seul(mur);
+    expect(m.acquisitionValue?.estimated).toBe(false);
+    expect(m.acquisitionValue?.amount).toBeCloseTo(98 * 13.11, 6);
+    expect(m.rpmAcquisition).toBeCloseTo((98 * 13.11 / 412_000) * 1000, 5);
+    expect(m.acquisitionReturn).toBeCloseTo((98 * 13.11) / 313.72, 5);
+
+    const jeune = seul(pays({ country: "US", clients: 1, payments: 1, revenueNet: 9.67 }));
+    expect(jeune.acquisitionValue).toEqual({ amount: 9.67, estimated: true });
+  });
+
+  it("sans vues promo, aucun RPM (jamais une division par zéro affichée)", () => {
+    const m = seul(pays({ country: "CL", promoCost: 6.7, promoCostComparable: 5.76 }));
+    expect(m.rpmCollected).toBeNull();
+    expect(m.costPer1000).toBeNull();
+  });
+
+  it("une créatrice sur deux pays du même marché n'apparaît qu'une fois", () => {
+    const c = (promoViews: number, promoCost: number) => ({
+      creatorId: "k57a1b2c3d4e5f6", name: "Milica Jovanović", videos: 1, promoViews, promoCost,
+    });
+    const g = aggregateMarket(
+      [
+        pays({ country: "RS", creatorsDetail: [c(8400, 4.2)] }),
+        pays({ country: "BA", creatorsDetail: [c(1260, 0.63)] }),
+      ],
+      { key: "g:b", label: "Balkans", composed: true },
+    );
+    expect(g.creatorsDetail).toEqual([
+      { creatorId: "k57a1b2c3d4e5f6", name: "Milica Jovanović", videos: 2, promoViews: 9660, promoCost: 4.83 },
+    ]);
   });
 });

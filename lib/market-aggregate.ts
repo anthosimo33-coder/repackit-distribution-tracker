@@ -56,8 +56,42 @@ export type MarketFacts = {
   visitors: number;
   trafficClients: number;
   /** ── Ce qu'ils achètent ── */
-  plans: { planId: string; label: string | null; price: number; clients: number }[];
+  plans: {
+    planId: string;
+    label: string | null;
+    price: number;
+    clients: number;
+    localPrice?: { amount: number; currency: string } | null;
+  }[];
+  /**
+   * ── PÉRIMÈTRE PROMO, le seul qui se divise par des vues ──
+   * Optionnels : absents, ils valent zéro (aperçu du composeur, anciens jeux).
+   */
+  /** Coût promo en devise de PAIE. */
+  promoCost?: number;
+  /** Le même, converti en devise du revenu ; `null` sans taux. */
+  promoCostComparable?: number | null;
+  promoViews?: number;
+  /** Checkouts PostHog (pays de connexion), pour dire OÙ l'entonnoir casse. */
+  checkouts?: number;
+  creatorsDetail?: MarketCreatorFacts[];
 };
+
+/** Ce qu'une créatrice a mis sur un pays (cf convex/marketPnl.MarketCreator). */
+export type MarketCreatorFacts = {
+  creatorId: string;
+  name: string;
+  videos: number;
+  promoViews: number;
+  /** Devise de PAIE. */
+  promoCost: number;
+};
+
+/**
+ * Valeur des clients gagnés sur la période. `estimated` : la valeur à 30 jours
+ * du marché n'a pas assez d'effectif mûr, le panier moyen la remplace.
+ */
+export type AcquisitionValue = { amount: number; estimated: boolean };
 
 export type ValeurCohorte = {
   day: number;
@@ -112,7 +146,31 @@ export type MarketDerived = {
   /** Clients ÷ visiteurs, `null` sous le seuil d'effectif. */
   conversion: number | null;
   /** Part de chaque plan dans les clients, du moins cher au plus cher. */
-  plans: { planId: string; label: string | null; price: number; share: number }[];
+  plans: {
+    planId: string;
+    label: string | null;
+    price: number;
+    share: number;
+    clients: number;
+    localPrice: { amount: number; currency: string } | null;
+  }[];
+  /** ── Périmètre PROMO ── */
+  promoCost: number;
+  promoCostComparable: number | null;
+  promoViews: number;
+  checkouts: number;
+  /** Coût promo pour 1 000 vues promo (devise du revenu). */
+  costPer1000: number | null;
+  /** Valeur des clients gagnés : clients × valeur à 30 j (ou panier, estimé). */
+  acquisitionValue: AcquisitionValue | null;
+  /** Valeur des clients gagnés pour 1 000 vues promo. */
+  rpmAcquisition: number | null;
+  /** Revenu net encaissé pour 1 000 vues promo (renouvellements compris). */
+  rpmCollected: number | null;
+  /** Valeur des clients gagnés ÷ coût promo. */
+  acquisitionReturn: number | null;
+  /** Créatrices du marché, fusionnées entre pays, par vues promo décroissantes. */
+  creatorsDetail: MarketCreatorFacts[];
 };
 
 const arrondi2 = (n: number) => Math.round(n * 100) / 100;
@@ -164,6 +222,29 @@ export function aggregateMarket(
   const visitors = somme((m) => m.visitors);
   const trafficClients = somme((m) => m.trafficClients);
 
+  // ── PÉRIMÈTRE PROMO — mêmes règles : sommer, puis diviser une fois ──────
+  const promoCost = somme((m) => m.promoCost ?? 0);
+  const promoTousComparables =
+    faits.length > 0 &&
+    faits.every((m) => (m.promoCost ?? 0) === 0 || m.promoCostComparable != null);
+  const promoCostComparable = promoTousComparables
+    ? somme((m) => m.promoCostComparable ?? 0)
+    : null;
+  const promoViews = somme((m) => m.promoViews ?? 0);
+  const checkouts = somme((m) => m.checkouts ?? 0);
+  const valeur30 = value.find((v) => v.day === 30)?.value ?? null;
+  const basket = payments > 0 ? revenueNet / payments : null;
+  const acquisitionValue: AcquisitionValue | null =
+    clients === 0
+      ? { amount: 0, estimated: false }
+      : valeur30 !== null
+        ? { amount: clients * valeur30, estimated: false }
+        : basket !== null
+          ? { amount: clients * basket, estimated: true }
+          : null;
+  const pour1000 = (n: number | null) =>
+    n === null || promoViews <= 0 ? null : (n / promoViews) * 1000;
+
   return {
     key: opts.key,
     label: opts.label,
@@ -190,7 +271,39 @@ export function aggregateMarket(
     trafficClients,
     conversion: visitors >= MIN_VISITORS ? trafficClients / visitors : null,
     plans: fusionPlans(faits),
+    promoCost: arrondi2(promoCost),
+    promoCostComparable:
+      promoCostComparable === null ? null : arrondi2(promoCostComparable),
+    promoViews,
+    checkouts,
+    costPer1000: pour1000(promoCostComparable),
+    acquisitionValue,
+    rpmAcquisition: pour1000(acquisitionValue?.amount ?? null),
+    rpmCollected: pour1000(revenueNet),
+    acquisitionReturn:
+      acquisitionValue === null ||
+      promoCostComparable === null ||
+      promoCostComparable <= 0
+        ? null
+        : acquisitionValue.amount / promoCostComparable,
+    creatorsDetail: fusionCreatrices(faits),
   };
+}
+
+/** Une créatrice qui vise deux pays d'un marché composé n'y est qu'une fois. */
+function fusionCreatrices(faits: readonly MarketFacts[]): MarketCreatorFacts[] {
+  const t = new Map<string, MarketCreatorFacts>();
+  for (const m of faits) {
+    for (const c of m.creatorsDetail ?? []) {
+      const vu = t.get(c.creatorId);
+      if (vu) {
+        vu.videos += c.videos;
+        vu.promoViews += c.promoViews;
+        vu.promoCost = arrondi2(vu.promoCost + c.promoCost);
+      } else t.set(c.creatorId, { ...c });
+    }
+  }
+  return [...t.values()].sort((a, b) => b.promoViews - a.promoViews);
 }
 
 /**
@@ -237,12 +350,37 @@ export function remboursement(
 
 /** Part de chaque plan dans les clients du marché, du moins cher au plus cher. */
 function fusionPlans(faits: readonly MarketFacts[]) {
-  const t = new Map<string, { planId: string; label: string | null; price: number; clients: number }>();
+  type Acc = {
+    planId: string;
+    label: string | null;
+    price: number;
+    clients: number;
+    localPrice: { amount: number; currency: string } | null;
+  };
+  const t = new Map<string, Acc>();
   for (const m of faits) {
     for (const p of m.plans) {
       const vu = t.get(p.planId);
-      if (vu) vu.clients += p.clients;
-      else t.set(p.planId, { ...p });
+      if (vu) {
+        vu.clients += p.clients;
+        // Deux pays, deux devises locales : aucune n'est « la » devise du plan.
+        const lp = p.localPrice ?? null;
+        if (
+          vu.localPrice === null ||
+          lp === null ||
+          vu.localPrice.currency !== lp.currency
+        ) {
+          vu.localPrice = null;
+        }
+      } else {
+        t.set(p.planId, {
+          planId: p.planId,
+          label: p.label,
+          price: p.price,
+          clients: p.clients,
+          localPrice: p.localPrice ?? null,
+        });
+      }
     }
   }
   const total = [...t.values()].reduce((s, p) => s + p.clients, 0);
@@ -253,5 +391,7 @@ function fusionPlans(faits: readonly MarketFacts[]) {
       label: p.label,
       price: p.price,
       share: total > 0 ? p.clients / total : 0,
+      clients: p.clients,
+      localPrice: p.localPrice,
     }));
 }
