@@ -9,6 +9,7 @@ import {
   type DataRange,
 } from "@/lib/analytics-window";
 import { hogWindowClause } from "@/lib/hog-window";
+import { convexErrorMessage } from "@/lib/convex-error";
 import type { WindowedParcours } from "@/convex/analyticsWindowed";
 
 /**
@@ -21,10 +22,11 @@ import type { WindowedParcours } from "@/convex/analyticsWindowed";
  * ⚠️ CE HOOK EXISTE POUR CACHER UNE LATENCE, PAS POUR L'IGNORER. Mesuré sur la
  * vraie API PostHog le 06/09/2026 : une volée coûte 10,6 s à froid (plus de deux
  * minutes sans requête) et 1,4 s ensuite. La largeur de la fenêtre n'y change
- * rien. Quatre mécanismes, chacun contre un symptôme précis :
+ * rien. Trois mécanismes, chacun contre un symptôme précis :
  *
- *  1. PRÉCHAUFFE au montage — la volée part pendant que l'écran se lit, donc le
- *     premier vrai changement de dates tombe sur du chaud (~1 s au lieu de 10).
+ *  (La PRÉCHAUFFE au montage a été retirée le 2026-09-16 : elle doublait les
+ *  requêtes simultanées au moment précis où l'utilisateur choisit une période,
+ *  et PostHog n'en accepte que trois par projet — tout sortait en 429.)
  *  2. DÉBOUNCE de 600 ms — faire glisser les dates ne lance pas cinq volées.
  *  3. CACHE PAR PLAGE, le temps de la session — un aller-retour entre deux
  *     périodes déjà vues ne coûte aucune requête.
@@ -106,33 +108,14 @@ export function useWindowedAnalytics(
         .catch((e: unknown) => {
           setPending({
             key,
-            error: e instanceof Error ? e.message : "Recalcul impossible.",
+            // Jamais `e.message` : c'est la chaîne brute du client Convex
+            // (« [Request ID: …] Server Error »), qui ne dit rien.
+            error: convexErrorMessage(e, "Recalcul impossible."),
           });
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [key, window, already, run]);
-
-  // PRÉCHAUFFE : au montage, une volée sur la profondeur complète réveille la
-  // connexion PostHog. Son résultat n'est pas affiché (l'écran sert le cache du
-  // cron), il ne sert qu'à ce que le PREMIER choix de période soit rapide.
-  const preheated = useRef(false);
-  useEffect(() => {
-    if (preheated.current || !range) return;
-    preheated.current = true;
-    const clause = hogWindowClause(range.first, range.last);
-    const sur = hogWindowClause(range.first, range.last, "t_first_sub");
-    if (clause === null || sur === null) return;
-    void run({
-      window: clause,
-      windowOnFirstSub: sur,
-      from: range.first,
-      to: range.last,
-    }).catch(() => {
-      // Silencieux : une préchauffe ratée n'est pas une panne, elle coûte juste
-      // la lenteur qu'on cherchait à éviter.
-    });
-  }, [range, run]);
 
   const suivi = pending !== null && pending.key === key ? pending : null;
   return {

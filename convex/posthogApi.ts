@@ -57,18 +57,50 @@ async function readPosthogError(res: Response): Promise<string> {
 }
 
 /**
+ * Attentes avant chaque NOUVEL essai après un 429. PostHog limite un projet à
+ * TROIS requêtes simultanées ; au-delà elles attendent 30 s en file, puis sont
+ * refusées. Un refus est donc presque toujours transitoire : il suffit qu'une
+ * requête voisine se termine. Le 2026-09-16 à 08:43 UTC, le cron et deux volées
+ * du hub se sont chevauchés et TOUS les agrégats sont sortis en 429 — sans un
+ * seul nouvel essai. Borné (≈ 8 s au pire par requête) : le cron enchaîne une
+ * trentaine de requêtes et ne doit pas franchir la limite d'une action.
+ */
+export const RETRY_429_DELAYS_MS = [2_000, 6_000] as const;
+
+/**
  * Exécute UNE requête HogQL et retourne ses lignes. Ne throw JAMAIS : toute
  * erreur (réseau, 401 clé invalide, 429 rate limit, JSON illisible) revient dans
  * `error` avec `rows: []` — l'appelant décide de garder la valeur cachée
- * précédente. `fetchImpl` est injectable pour les tests.
+ * précédente. Un 429 est retenté (cf RETRY_429_DELAYS_MS) avant d'être rendu.
+ * `fetchImpl` et `sleep` sont injectables pour les tests.
  */
 export async function runHogQL(
   apiKey: string,
   target: PosthogTarget,
   query: string,
-  opts: { fetchImpl?: typeof fetch } = {},
+  opts: {
+    fetchImpl?: typeof fetch;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): Promise<HogQLResult> {
-  const fetchImpl = opts.fetchImpl ?? fetch;
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  for (let attempt = 0; ; attempt++) {
+    const res = await runHogQLOnce(apiKey, target, query, opts.fetchImpl ?? fetch);
+    const delay = RETRY_429_DELAYS_MS[attempt];
+    if (res.error !== RATE_LIMITED || delay === undefined) return res;
+    await sleep(delay);
+  }
+}
+
+const RATE_LIMITED = "rate_limited (429)";
+
+async function runHogQLOnce(
+  apiKey: string,
+  target: PosthogTarget,
+  query: string,
+  fetchImpl: typeof fetch,
+): Promise<HogQLResult> {
   const url = `${baseUrl(target.host)}/api/projects/${encodeURIComponent(
     target.posthogProjectId,
   )}/query/`;
@@ -92,7 +124,7 @@ export async function runHogQL(
     };
   }
   if (res.status === 429) {
-    return { rows: [], columns: [], error: "rate_limited (429)" };
+    return { rows: [], columns: [], error: RATE_LIMITED };
   }
   if (!res.ok) {
     return { rows: [], columns: [], error: await readPosthogError(res) };

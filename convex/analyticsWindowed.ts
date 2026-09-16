@@ -18,8 +18,13 @@
  *   - volées suivantes : 1,4 s pour un jeu léger, 2,8 à 5,8 s pour les seize (vingt-trois depuis Santé produit)
  *     requêtes servies ici
  * La LARGEUR de la fenêtre ne change rien : ce qui coûte, c'est de repartir à
- * froid. Au-delà de 8 requêtes simultanées PostHog met en file et tout se
- * dégrade — 45 s mesurées à 12. D'où SIX.
+ * froid.
+ *
+ * ⚠️ CONCURRENCE : PostHog DOCUMENTE trois requêtes simultanées par projet ;
+ * au-delà, file d'attente de 30 s puis refus 429. La valeur six venait d'une
+ * mesure où la file tenait encore. Le 2026-09-16 à 08:43 UTC, une volée à six,
+ * la préchauffe (six de plus) et le cron se sont chevauchés : TOUS les agrégats
+ * du cron et la volée sont sortis en 429. D'où TROIS, et plus de préchauffe.
  *
  * Les trois requêtes d'A/B test ne profitent PAS du rétrécissement : leur
  * balayage reste sur quatre-vingt-dix jours par nécessité (cf buildQueries),
@@ -27,7 +32,7 @@
  * plus rapides, et c'est le prix d'un « nouveau client » qui reste juste.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { authedAction } from "./functions";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
@@ -82,7 +87,7 @@ import {
 } from "./internalAccounts";
 
 /** Nombre de requêtes lancées de front. Voir la mesure en tête de fichier. */
-const CONCURRENCE = 6;
+const CONCURRENCE = 3;
 
 /**
  * Garde de permission utilisable depuis une ACTION. Une action ne lit pas la
@@ -323,7 +328,18 @@ export const getWindowedAnalytics = authedAction({
     // seul le second doit faire échouer l'appel.
     const run = (sql: string) => async (): Promise<unknown[][]> => {
       const res = await runHogQL(apiKey, target, sql);
-      if (res.error !== null) throw new Error(`PostHog : ${res.error}`);
+      // ConvexError et non Error : en production Convex masque le message d'une
+      // Error (« Server Error »), et l'écran ne pouvait plus dire POURQUOI.
+      if (res.error !== null) {
+        throw new ConvexError({
+          code: res.error.startsWith("rate_limited")
+            ? "posthog_rate_limited"
+            : "posthog_error",
+          message: res.error.startsWith("rate_limited")
+            ? "PostHog refuse temporairement les requêtes (trop de requêtes simultanées). Réessaie dans une minute."
+            : `PostHog : ${res.error}`,
+        });
+      }
       return res.rows;
     };
     const t0 = Date.now();
