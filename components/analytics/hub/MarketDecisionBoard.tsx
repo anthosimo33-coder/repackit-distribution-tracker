@@ -12,6 +12,8 @@ import {
   type MarketVerdict,
 } from "@/lib/market-decision";
 import { VERDICT_UI, compactViews, returnLabel } from "./marketVerdictUi";
+import { InfoDot } from "./HubPrimitives";
+import { EXPLAIN } from "./explanations";
 
 export type DecidedMarket = MarketDerived & { decision: MarketDecision };
 
@@ -90,22 +92,26 @@ export function MarketDecisionBoard({
             label="Coût / 1 000 vues"
             value={argent(pour1000(cout))}
             hint={`${argent(cout)} de créatrices · ${compactViews(vues)} vues promo`}
+            info={EXPLAIN.paysResumeCout1000}
           />
           <Tuile
             label="RPM acquisition"
             value={argent(pour1000(valeur))}
             hint="valeur des clients gagnés, pour 1 000 vues"
+            info={EXPLAIN.paysResumeRpmAcquisition}
           />
           <Tuile
             label="Retour"
             value={returnLabel(retour)}
             tone={retour === null ? undefined : retour >= 1 ? "good" : "bad"}
             hint="valeur à 30 j des clients ÷ coût promo"
+            info={EXPLAIN.paysResumeRetour}
           />
           <Tuile
             label="RPM encaissé"
             value={argent(pour1000(revenu))}
             hint="revenu net, renouvellements compris"
+            info={EXPLAIN.paysResumeRpmEncaisse}
           />
         </CardContent>
       </Card>
@@ -145,7 +151,10 @@ export function MarketDecisionBoard({
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h3 className="text-base font-semibold text-slate-900">Décision</h3>
+          <h3 className="flex items-center gap-1.5 text-base font-semibold text-slate-900">
+            Décision
+            <InfoDot label="Décision">{EXPLAIN.paysDecision}</InfoDot>
+          </h3>
           <p className="text-xs text-slate-500">
             Retour = valeur à 30 j des clients gagnés ÷ coût promo · pas de verdict
             sous {formatMoney(DECISION.minSpend, devise ?? undefined)} dépensés
@@ -226,16 +235,20 @@ function Tuile({
   value,
   hint,
   tone,
+  info,
 }: {
   label: string;
   value: string;
   hint: string;
   tone?: "good" | "bad";
+  /** Explication simple, ouverte au clic sur le « i ». */
+  info: string;
 }) {
   return (
     <div className="flex flex-col gap-0.5 border-slate-100 px-4 py-3 even:border-l lg:border-l lg:first:border-l-0">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <span className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
         {label}
+        <InfoDot label={label}>{info}</InfoDot>
       </span>
       <span
         className={`font-mono text-2xl font-semibold tabular-nums ${
