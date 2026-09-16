@@ -39,7 +39,7 @@ async function videoPubliee(opts: {
   vues: number;
   /** Publication ANTIDATÉE — exerce la branche « mois révolu » du coût. */
   publishedAt?: number;
-}): Promise<void> {
+}): Promise<Id<"publications">> {
   const r = await admin.mutation(api.assignments.assignFormat, {
     formatId: opts.formatId,
     creatorId: opts.creatorId,
@@ -67,6 +67,7 @@ async function videoPubliee(opts: {
     capturedAt: Date.now(),
     source: "tiktok",
   });
+  return pubId;
 }
 
 /**
@@ -150,6 +151,90 @@ test.describe("Rentabilité par marché", () => {
     });
     expect((await ligneDe("RS"))?.cost ?? 0).toBe(0);
     expect((await ligneDe("BR"))?.cost).toBe(102);
+  });
+
+  test("le RPM se calcule sur le périmètre PROMO : le warmup sort des vues", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now() + 5;
+    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+      name: `[E2E_TEST] Promo ${ts}`,
+      montantFixe: 60,
+      nbVideosCible: 30,
+      tauxCPM: 2,
+    });
+    const formatId = (await createFormatWithRate(admin, {
+      name: `[E2E_TEST] Promo ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 0 },
+    })) as Id<"formats">;
+    const C = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] Milica Promo ${ts}`,
+      email: `e2e-promo-${ts}@repackit.test`,
+      password: `promo-${ts}-12345`,
+    });
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: `@e2epromo${ts}`,
+    });
+    // Un pays que les autres tests ne touchent pas : la ligne ne porte que ça.
+    await admin.mutation(api.comptes.updateCompte, {
+      id: target.accountId,
+      targetCountry: "ME",
+    });
+    await videoPubliee({
+      creatorId: C.creatorId,
+      target,
+      formatId,
+      pricingId,
+      url: `https://www.tiktok.com/@e2epromo${ts}/video/7${ts}`,
+      vues: 48_730,
+    });
+    const warmup = await videoPubliee({
+      creatorId: C.creatorId,
+      target,
+      formatId,
+      pricingId,
+      url: `https://www.tiktok.com/@e2epromo${ts}/video/8${ts}`,
+      vues: 31_260,
+    });
+    const lire = async () =>
+      (
+        await admin.query(api.marketPnl.getMarketPnl, {
+          from: ts - DAY,
+          to: Date.now() + DAY,
+        })
+      ).rows.find((r) => r.country === "ME")!;
+    // Contrôle de PRÉSENCE : tant que les deux posts sont promo, les deux
+    // comptent. Sans cette lecture, un filtre qui écarterait n'importe quoi
+    // passerait pour le filtre warmup.
+    expect((await lire()).promoViews).toBe(79_990);
+
+    // Warmup RÉMUNÉRÉ (le cas Kelly) : la vidéo reste payée, donc dans le coût
+    // total, mais elle ne vend pas — ni ses vues ni son coût n'entrent dans le
+    // RPM. Un warmup non rémunéré ne prouverait rien : il sort déjà de la paie.
+    await admin.mutation(api.publications.setPublicationWarmup, {
+      publicationId: warmup,
+      isWarmup: true,
+    });
+    await admin.mutation(api.publications.setPublicationRemuneration, {
+      publicationId: warmup,
+      remunere: true,
+    });
+    const me = await lire();
+    // Coût total : (2 + 2 × 48,73) + (2 + 2 × 31,26) = 99,46 + 64,52 = 163,98 $.
+    expect(me.cost).toBeCloseTo(163.98, 2);
+    // Périmètre promo : la seule vidéo promo.
+    expect(me.promoViews).toBe(48_730);
+    expect(me.promoCost).toBeCloseTo(99.46, 2);
+    expect(me.creatorsDetail).toHaveLength(1);
+    expect(me.creatorsDetail[0].name).toBe(`[E2E_TEST] Milica Promo ${ts}`);
+    expect(me.creatorsDetail[0].promoViews).toBe(48_730);
+    expect(me.creatorsDetail[0].videos).toBe(1);
+    // Contrôle de PRÉSENCE : la vidéo warmup existe bien sur ce marché — le
+    // compteur de vidéos la voit, seul le périmètre promo l'écarte.
+    expect(me.videos).toBeGreaterThanOrEqual(1);
   });
 
   test("un compte sans pays cible garde son coût dans une ligne à part", async () => {
