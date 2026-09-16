@@ -162,6 +162,16 @@ export const EXPLAIN = {
     "La valeur des clients gagnés divisée par le coût promo des créatrices. Au dessus de 1, les vues rapportent plus qu'elles ne coûtent. Au dessus de 2 avec au moins 20 clients, le marché est à accélérer ; sous 0,5, à couper, sauf si c'est le paiement qui casse.",
   marcheOuCaCasse:
     "La part des visiteurs qui ouvrent le checkout, puis la part des checkouts qui deviennent des clients, mesurées par PostHog sur le pays de connexion. Un marché dont l'audience ouvre le checkout mais ne paie pas a un problème de paiement, pas de marché : il passe en « Réparer » plutôt qu'en « Couper ».",
+  paysResumeCout1000:
+    "Ce que tu paies aux créatrices pour obtenir 1 000 vues promo, tous marchés confondus. Plus il est bas, moins les vues coûtent cher. Le warmup n'est compté ni dans le coût ni dans les vues, et le coût en dollars est converti en euros.",
+  paysResumeRpmAcquisition:
+    "Ce que valent les nouveaux clients gagnés sur la période, ramené à 1 000 vues promo. Chaque nouveau client compte pour ce qu'un client de son marché rapporte en moyenne pendant ses 30 premiers jours. C'est le chiffre à comparer au coût pour 1 000 vues : s'il est plus haut, les vues rapportent plus qu'elles ne coûtent.",
+  paysResumeRetour:
+    "Combien rapporte chaque euro donné aux créatrices : la valeur des nouveaux clients divisée par le coût promo. À ×1 on rentre dans ses frais, au dessus on gagne de l'argent, en dessous on en perd. Par exemple ×4 veut dire qu'un euro dépensé ramène quatre euros de clients.",
+  paysResumeRpmEncaisse:
+    "L'argent réellement encaissé sur la période (après frais Whop et remboursements), ramené à 1 000 vues promo. Il compte aussi les renouvellements de clients arrivés avant la période, donc il n'est pas entièrement dû aux vidéos de la période. Il sert de repère à côté du RPM acquisition, qui lui ne regarde que les nouveaux clients.",
+  paysDecision:
+    "Chaque marché est rangé selon des règles fixes, écrites en haut de chaque colonne. Accélérer veut dire y mettre plus de créatrices, Réparer veut dire que les gens arrivent jusqu'au paiement mais ne paient pas, Couper veut dire que les vues coûtent bien plus qu'elles ne rapportent. Sous 30 euros dépensés, il est trop tôt pour juger.",
   marcheComposeur:
     "Un marché composé additionne le coût et le revenu de ses pays, et se lit ensuite comme une seule ligne. Un pays ne peut appartenir qu'à un seul marché, sinon son coût serait compté deux fois. Les marchés sont partagés par toute l'équipe, la bascule par pays ou par marché reste propre à votre écran.",
 } as const;
