@@ -37,7 +37,10 @@ import {
 import {
   aggregateByCategory,
   computeGlobalStats,
+  countPostsByPlatform,
   DEFAULT_WARMUP_FILTER,
+  TRACKER_PLATFORMS,
+  type TrackerPlatform,
   type CategoryItem,
   type DailyPoint,
   type DailyByGroup,
@@ -64,7 +67,6 @@ import { BarChart3Icon, ListIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 
-const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
 const CREATOR_NONE = "__none__";
 const FORMAT_NONE = "__none__";
 const CAMPAIGN_NONE = "__none__";
@@ -261,6 +263,11 @@ export function TrackerDataView() {
     [posts, warmup],
   );
 
+  const postsByPlatform = useMemo(
+    () => countPostsByPlatform(posts ?? []),
+    [posts],
+  );
+
   const byPlatform = useMemo(
     () =>
       aggregateByCategory(
@@ -430,7 +437,7 @@ export function TrackerDataView() {
             label={tr("plateforme")}
             selectedValues={plateformes}
             onChange={setPlateformes}
-            options={PLATFORMS.map((p) => ({ value: p, label: p }))}
+            options={TRACKER_PLATFORMS.map((p) => ({ value: p, label: p }))}
             allLabel={tr("toutes")}
             width="w-full"
           />
@@ -466,13 +473,14 @@ export function TrackerDataView() {
 
       {/* ZONE 2 — Stats globales */}
       {posts === undefined ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {Array.from({ length: 5 }).map((_, i) => (
             <Skeleton key={i} className="h-24" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <PostCountCard total={posts.length} byPlatform={postsByPlatform} />
           <StatCard label={tr("vues")} value={formatNumber(stats.vues, loc)} />
           <StatCard label={tr("likes")} value={formatNumber(stats.likes, loc)} />
           <StatCard label={tr("commentaires")} value={formatNumber(stats.comments, loc)} />
@@ -488,12 +496,7 @@ export function TrackerDataView() {
       )}
 
       {/* ZONE 3 — Toggle Liste / Charts */}
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">
-          {posts === undefined
-            ? tr("chargement")
-            : tr("postPublie", { count: posts.length })}
-        </p>
+      <div className="flex items-center justify-end gap-3">
         <ModeToggle value={mode} onChange={setMode} />
       </div>
 
@@ -1045,6 +1048,71 @@ function ChartPlaceholder({
     >
       {children}
     </div>
+  );
+}
+
+/** Pastille de la barre : TikTok en noir comme son badge dans la liste. */
+const PLATFORM_SWATCH: Record<TrackerPlatform, string> = {
+  TikTok: "bg-slate-900",
+  Instagram: "bg-pink-500",
+  YouTube: "bg-red-500",
+};
+
+/**
+ * Nombre de posts + répartition par plateforme (barre segmentée + légende).
+ * Suit les filtres : filtrer sur une plateforme la réduit à un seul segment,
+ * ce qui confirme d'un coup d'œil ce que couvrent les autres cartes.
+ */
+function PostCountCard({
+  total,
+  byPlatform,
+}: {
+  total: number;
+  byPlatform: ReturnType<typeof countPostsByPlatform>;
+}) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.TrackerDataView");
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="text-2xl font-bold tabular-nums text-slate-900 sm:text-3xl">
+          {formatNumber(total, loc)}
+        </div>
+        <div className="mt-1 text-sm text-slate-500">
+          {tr("postsPublies", { count: total })}
+        </div>
+        {byPlatform.length > 0 && (
+          <>
+            <div
+              className="mt-3 flex h-1.5 gap-0.5 overflow-hidden rounded-full"
+              aria-hidden="true"
+            >
+              {byPlatform.map((r) => (
+                <div
+                  key={r.platform}
+                  className={PLATFORM_SWATCH[r.platform]}
+                  style={{ width: `${r.share * 100}%` }}
+                />
+              ))}
+            </div>
+            <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+              {byPlatform.map((r) => (
+                <li key={r.platform} className="flex items-center gap-1.5">
+                  <span
+                    className={cn("size-2 rounded-sm", PLATFORM_SWATCH[r.platform])}
+                    aria-hidden="true"
+                  />
+                  {r.platform}
+                  <span className="tabular-nums text-slate-700">
+                    {formatNumber(r.count, loc)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

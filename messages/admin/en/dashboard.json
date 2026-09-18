@@ -137,7 +137,7 @@
     "commentaires": "Comments",
     "engagementRate": "Engagement rate",
     "chargement": "Loading…",
-    "postPublie": "{count} {count, plural, one {post} other {posts}} published",
+    "postsPublies": "{count, plural, one {Published post} other {Published posts}}",
     "sansCreateur": "No creator",
     "sansFormat": "No format",
     "archivee": "{name} (archived)",

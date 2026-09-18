@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  countPostsByPlatform,
   engagementRate,
   computeGlobalStats,
   aggregateByCategory,
@@ -229,5 +230,28 @@ describe("aggregateByCategory", () => {
 
   it("empty input → empty output", () => {
     expect(aggregateByCategory([])).toEqual([]);
+  });
+});
+
+describe("countPostsByPlatform", () => {
+  const p = (plateforme: "TikTok" | "Instagram" | "YouTube") => ({ plateforme });
+
+  it("compte par plateforme dans l'ordre fixe, quel que soit l'ordre des posts", () => {
+    const posts = [p("YouTube"), p("TikTok"), p("Instagram"), p("TikTok"), p("TikTok")];
+    expect(countPostsByPlatform(posts)).toEqual([
+      { platform: "TikTok", count: 3, share: 3 / 5 },
+      { platform: "Instagram", count: 1, share: 1 / 5 },
+      { platform: "YouTube", count: 1, share: 1 / 5 },
+    ]);
+  });
+
+  it("omet une plateforme absente au lieu d'afficher 0", () => {
+    const res = countPostsByPlatform([p("TikTok"), p("YouTube")]);
+    expect(res.map((r) => r.platform)).toEqual(["TikTok", "YouTube"]);
+    expect(res.some((r) => r.platform === "Instagram")).toBe(false);
+  });
+
+  it("aucun post → aucune ligne (pas de division par zéro)", () => {
+    expect(countPostsByPlatform([])).toEqual([]);
   });
 });
