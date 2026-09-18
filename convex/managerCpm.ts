@@ -19,7 +19,8 @@
  * ── CE QUE CE N'EST PAS ─────────────────────────────────────────────────────
  * - Pas un taux FIGÉ : le CPM est lu en direct. Le changer re-chiffre tout
  *   l'historique de cette créatrice pour ce manager — c'est dit à l'écran.
- * - Pas un paiement : aucun cycle, aucun « marqué payé ». C'est un relevé.
+ * - Pas un cycle figé : « marquer payé » enregistre un VERSEMENT additif par
+ *   mois (table `managerPayouts`), et le reste dû se recalcule (cf plus bas).
  * - Pas le périmètre : `creatorScope` dit sur qui le manager AGIT, `managerCpms`
  *   sur qui il est PAYÉ. L'écran propose les créatrices du périmètre, mais un
  *   CPM posé reste compté si le périmètre change ensuite — retirer une créatrice
@@ -179,4 +180,64 @@ export function parseCpmTrace(
   const cpm = Number(rest.slice(sep + 1));
   if (!Number.isFinite(cpm)) return null;
   return { creatorId: rest.slice(0, sep), cpm };
+}
+
+// ─── Versements (« marquer payé ») ───────────────────────────────────────────
+// Le dû n'est jamais figé : un versement s'ADDITIONNE, et le reste à payer se
+// recalcule. Les montants se comparent au CENTIME — 45,909 dû et 45,91 versé,
+// c'est payé, pas « 0,001 restant ».
+
+export function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export type ManagerPayoutLite = { period: string; amount: number; cancelled: boolean };
+
+export type ManagerPeriodStatus = {
+  period: string;
+  /** Dû du jour, au centime. */
+  due: number;
+  /** Σ des versements actifs du mois. */
+  paid: number;
+  /** due − paid ; négatif = trop-perçu (taux baissé après versement). */
+  remaining: number;
+  state: "unpaid" | "partial" | "paid" | "overpaid";
+};
+
+export function managerPeriodStatus(
+  rows: readonly ManagerPayRow[],
+  payouts: readonly ManagerPayoutLite[],
+  period: string,
+): ManagerPeriodStatus {
+  const due = roundCents(sumManagerPayRows(rows, period).amount);
+  const paid = roundCents(
+    payouts
+      .filter((p) => !p.cancelled && p.period === period)
+      .reduce((s, p) => s + p.amount, 0),
+  );
+  const remaining = roundCents(due - paid);
+  const state =
+    remaining < 0
+      ? "overpaid"
+      : remaining === 0
+        ? paid > 0
+          ? "paid"
+          : "unpaid"
+        : paid > 0
+          ? "partial"
+          : "unpaid";
+  return { period, due, paid, remaining, state };
+}
+
+/** Mois du relevé ET mois ayant un versement (un mois versé reste listé). */
+export function managerPayAllPeriods(
+  rows: readonly ManagerPayRow[],
+  payouts: readonly ManagerPayoutLite[],
+): string[] {
+  return [
+    ...new Set([
+      ...rows.map((r) => r.period),
+      ...payouts.filter((p) => !p.cancelled).map((p) => p.period),
+    ]),
+  ].sort((a, b) => b.localeCompare(a));
 }

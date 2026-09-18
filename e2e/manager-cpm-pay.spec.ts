@@ -4,7 +4,14 @@ import { ConvexHttpClient } from "convex/browser";
 import { ConvexError } from "convex/values";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { adminPath, createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import {
+  adminPath,
+  createE2eClient,
+  E2E_EMAIL,
+  E2E_PASSWORD,
+  E2E_SECRET,
+} from "./helpers/authed-client";
+import { managerPayPeriodOf, managerPeriodStatus } from "../convex/managerCpm";
 import { availableTarget } from "./helpers/targets";
 import { createCreatorSession } from "./helpers/creator-client";
 import { createFormatWithRate } from "./helpers/formats";
@@ -126,9 +133,13 @@ test.describe("Manager — rémunération au CPM", () => {
         vues,
         likes: Math.round(vues / 21),
       });
+      return { pubId: publicationIds[0], publishedAt };
     }
-    await publieAvecVues(kelly, "kelly", 48_317);
+    const pubKelly = await publieAvecVues(kelly, "kelly", 48_317);
     await publieAvecVues(ines, "ines", 103_559);
+    // Mois de publication tel que le serveur le calcule (UTC) — jamais « le mois
+    // courant » supposé : à J-3, un test lancé le 2 du mois tomberait sur le précédent.
+    const mois = managerPayPeriodOf(pubKelly.publishedAt);
 
     // ── Un manager qui gère les deux ─────────────────────────────────────────
     const email = `e2e-mcpm-manager-${ts}@repackit.test`;
@@ -244,6 +255,106 @@ test.describe("Manager — rémunération au CPM", () => {
     await expect(p.getByRole("cell", { name: `[E2E_TEST] Ines Petrovic ${ts}` })).toBeVisible();
     await expect(p.getByText(/103\s?559/).first()).toBeVisible();
     await expect(p.getByText(/45,91/).first()).toBeVisible();
+    // Rien de versé : le mois est « À payer » (présence du statut avant qu'il change).
+    await expect(p.getByText("À payer", { exact: true })).toBeVisible();
+    // Et le manager n'a AUCUN bouton de paiement sur sa propre paie.
+    await expect(p.getByRole("button", { name: "Marquer payé" })).toHaveCount(0);
+    const slug = new URL(p.url()).pathname.split("/")[2];
+
+    // ── 6. Le superadmin marque le mois payé, avec le VRAI bouton ─────────────
+    const sctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    const sp = await sctx.newPage();
+    await sp.goto("/login");
+    await sp.getByLabel("Email").fill(E2E_EMAIL);
+    await sp.getByLabel("Mot de passe").fill(E2E_PASSWORD);
+    await sp.getByRole("button", { name: /se connecter/i }).click();
+    await sp.waitForURL("**/admin/**", { timeout: 30_000 });
+    await sp.goto(`/admin/${slug}/equipe`);
+    const bloc = sp
+      .getByLabel("Rémunération au CPM")
+      .filter({ hasText: "2 taux posés" })
+      .filter({ has: sp.getByText(`[E2E_TEST] Kelly Moreau ${ts}`) });
+    await expect(bloc).toHaveCount(1, { timeout: 30_000 });
+    await bloc.getByRole("button", { name: "Voir son relevé" }).click();
+    await bloc.getByRole("button", { name: "Marquer payé" }).click();
+    await expect(sp.getByRole("alertdialog")).toContainText("45,91");
+    await sp.getByRole("alertdialog").getByRole("button", { name: "Marquer payé" }).click();
+    await expect(bloc.getByText("Payé", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(bloc.getByRole("button", { name: "Marquer payé" })).toHaveCount(0);
+    await sctx.close();
+
+    // ── 7. Côté serveur : versé, au centime, et seulement par le superadmin ───
+    const apres = await mgr.query(api.managerPay.getMyManagerPay, { projectId });
+    const actifs = apres!.payouts.filter((x) => !x.cancelled);
+    expect(actifs).toHaveLength(1);
+    expect(actifs[0].amount).toBe(45.91);
+    expect(managerPeriodStatus(apres!.rows, apres!.payouts, mois).state).toBe("paid");
+    // Rien à payer ⇒ refus (pas de second versement du même dû).
+    expect(
+      await codeDe(
+        admin.mutation(api.managerPay.markManagerPeriodPaid, {
+          membershipId,
+          period: mois,
+          expectedAmount: 45.91,
+        }),
+      ),
+    ).not.toBe("PAS DE REFUS");
+
+    // Les vidéos de Kelly continuent de monter : 52 000 vues ⇒ dû 46,65, reste 0,74.
+    await admin.mutation(api.metricSnapshots.createSnapshot, {
+      publicationId: pubKelly.pubId,
+      capturedAt: pubKelly.publishedAt + 2.5 * DAY,
+      vues: 52_000,
+      likes: 2_476,
+    });
+    const complement = await mgr.query(api.managerPay.getMyManagerPay, { projectId });
+    const st = managerPeriodStatus(complement!.rows, complement!.payouts, mois);
+    expect(st.state).toBe("partial");
+    expect(st.remaining).toBe(0.74);
+
+    // Le manager ne peut pas se marquer payé.
+    expect(
+      await codeDe(
+        mgr.mutation(api.managerPay.markManagerPeriodPaid, {
+          projectId,
+          membershipId,
+          period: mois,
+          expectedAmount: 0.74,
+        }),
+      ),
+    ).toBe("ERR_SUPERADMIN_ONLY");
+    // Un montant périmé (celui d'avant les nouvelles vues) est refusé…
+    expect(
+      await codeDe(
+        admin.mutation(api.managerPay.markManagerPeriodPaid, {
+          membershipId,
+          period: mois,
+          expectedAmount: 45.91,
+        }),
+      ),
+    ).not.toBe("PAS DE REFUS");
+    // …le bon est accepté.
+    await admin.mutation(api.managerPay.markManagerPeriodPaid, {
+      membershipId,
+      period: mois,
+      expectedAmount: 0.74,
+    });
+    const solde = await mgr.query(api.managerPay.getMyManagerPay, { projectId });
+    expect(managerPeriodStatus(solde!.rows, solde!.payouts, mois).state).toBe("paid");
+
+    // Annuler le premier versement : le mois redevient dû de 45,91.
+    const premier = solde!.payouts.find((x) => x.amount === 45.91)!;
+    await admin.mutation(api.managerPay.cancelManagerPayout, { payoutId: premier._id });
+    const annule = await mgr.query(api.managerPay.getMyManagerPay, { projectId });
+    const stAnnule = managerPeriodStatus(annule!.rows, annule!.payouts, mois);
+    expect(stAnnule.paid).toBe(0.74);
+    expect(stAnnule.remaining).toBe(45.91);
+    expect(annule!.payouts.find((x) => x._id === premier._id)!.cancelled).toBe(true);
+
+    // ── 8. Le manager voit le reste et le versement annulé, barré ─────────────
+    await p.reload();
+    await expect(p.getByText("Reste 45,91")).toBeVisible({ timeout: 20_000 });
+    await expect(p.getByText("annulé", { exact: true })).toBeVisible();
 
     await ctx.close();
   });

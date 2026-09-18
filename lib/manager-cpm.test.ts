@@ -3,6 +3,8 @@ import {
   buildManagerPayRows,
   cpmTrace,
   managerCpmProblem,
+  managerPayAllPeriods,
+  managerPeriodStatus,
   managerPayAmount,
   managerPayByCreator,
   managerPayPeriodOf,
@@ -113,5 +115,74 @@ describe("journal des CPM", () => {
   });
   it("absent = aucune ligne", () => {
     expect(cpmTrace(undefined)).toEqual([]);
+  });
+});
+
+describe("versements — reste à payer", () => {
+  // Kelly : 48 317 vues à 0,20 (9,6634) + Inès : 103 559 vues à 0,35 (36,24565)
+  // en septembre ⇒ dû 45,91 au centime.
+  const rows = buildManagerPayRows(
+    [
+      { creatorId: KELLY, publishedAt: SEPT, payableViews: 48_317, totalViews: 51_904 },
+      { creatorId: INES, publishedAt: SEPT, payableViews: 103_559, totalViews: 103_559 },
+    ],
+    [
+      { creatorId: KELLY, cpm: 0.2 },
+      { creatorId: INES, cpm: 0.35 },
+    ],
+  );
+
+  it("rien de versé : tout est à payer", () => {
+    expect(managerPeriodStatus(rows, [], "2026-09")).toEqual({
+      period: "2026-09",
+      due: 45.91,
+      paid: 0,
+      remaining: 45.91,
+      state: "unpaid",
+    });
+  });
+
+  it("versement du reste exact ⇒ payé, au centime près", () => {
+    const st = managerPeriodStatus(
+      rows,
+      [{ period: "2026-09", amount: 45.91, cancelled: false }],
+      "2026-09",
+    );
+    expect(st.remaining).toBe(0);
+    expect(st.state).toBe("paid");
+  });
+
+  it("acompte ⇒ partiel ; un versement ANNULÉ ne compte pas", () => {
+    const st = managerPeriodStatus(
+      rows,
+      [
+        { period: "2026-09", amount: 30.5, cancelled: false },
+        { period: "2026-09", amount: 15.41, cancelled: true },
+        { period: "2026-08", amount: 99, cancelled: false },
+      ],
+      "2026-09",
+    );
+    expect(st.paid).toBe(30.5);
+    expect(st.remaining).toBe(15.41);
+    expect(st.state).toBe("partial");
+  });
+
+  it("taux baissé après versement ⇒ trop-perçu, jamais un reste négatif caché", () => {
+    const st = managerPeriodStatus(
+      rows,
+      [{ period: "2026-09", amount: 50.12, cancelled: false }],
+      "2026-09",
+    );
+    expect(st.remaining).toBe(-4.21);
+    expect(st.state).toBe("overpaid");
+  });
+
+  it("un mois versé sans vidéo reste listé ; un versement annulé seul non", () => {
+    expect(
+      managerPayAllPeriods(rows, [
+        { period: "2026-07", amount: 12.4, cancelled: false },
+        { period: "2026-06", amount: 3.1, cancelled: true },
+      ]),
+    ).toEqual(["2026-09", "2026-07"]);
   });
 });

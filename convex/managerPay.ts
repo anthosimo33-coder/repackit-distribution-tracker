@@ -23,9 +23,14 @@
  * publications lues une par une : un manager de trois créatrices ne doit pas
  * relire les ~450 publications du projet, ni être réveillé par chacune d'elles.
  */
-import { v } from "convex/values";
-import { authedQuery, requireProjectAccess, superadminQuery } from "./functions";
-import type { QueryCtx } from "./_generated/server";
+import { ConvexError, v } from "convex/values";
+import {
+  authedQuery,
+  requireProjectAccess,
+  superadminMutation,
+  superadminQuery,
+} from "./functions";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasRole } from "./roles";
 import {
@@ -33,7 +38,12 @@ import {
   assignmentViewsAndMetrics,
   newViewsCache,
 } from "./pricing";
-import { buildManagerPayRows, type ManagerPayRow } from "./managerCpm";
+import {
+  buildManagerPayRows,
+  managerPeriodStatus,
+  roundCents,
+  type ManagerPayRow,
+} from "./managerCpm";
 
 export type ManagerPayPayload = {
   /** Devise de paie du projet (`projects.payCurrency`), `null` si non réglée. */
@@ -42,10 +52,18 @@ export type ManagerPayPayload = {
   creators: { creatorId: Id<"creators">; name: string; cpm: number }[];
   /** Une ligne par (créatrice, mois de publication). */
   rows: ManagerPayRow[];
+  /** Versements faits à ce manager, annulés compris (l'écran les distingue). */
+  payouts: {
+    _id: Id<"managerPayouts">;
+    period: string;
+    amount: number;
+    paidAt: number;
+    cancelled: boolean;
+  }[];
 };
 
 async function managerPayFor(
-  ctx: QueryCtx,
+  ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
   membership: Doc<"memberships">,
 ): Promise<ManagerPayPayload> {
@@ -89,12 +107,109 @@ async function managerPayFor(
       });
     }
   }
+  const payouts = await ctx.db
+    .query("managerPayouts")
+    .withIndex("by_project_manager", (q) =>
+      q.eq("projectId", projectId).eq("managerUserId", membership.userId),
+    )
+    .collect();
   return {
     currency: project?.payCurrency ?? null,
     creators: creators.sort((a, b) => a.name.localeCompare(b.name, "fr")),
     rows: buildManagerPayRows(videos, cpms),
+    payouts: payouts
+      .map((p) => ({
+        _id: p._id,
+        period: p.period,
+        amount: p.amount,
+        paidAt: p.paidAt,
+        cancelled: p.cancelledAt !== undefined,
+      }))
+      .sort((a, b) => b.paidAt - a.paidAt),
   };
 }
+
+/** Le membership manager d'un projet, ou rejette. */
+async function managerMembership(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  membershipId: Id<"memberships">,
+) {
+  const m = await ctx.db.get(membershipId);
+  if (m === null || m.projectId !== projectId || !hasRole(m, "manager")) {
+    throw new ConvexError("Manager introuvable dans ce projet.");
+  }
+  return m;
+}
+
+/**
+ * MARQUER PAYÉ UN MOIS — enregistre un versement du RESTE à payer, recalculé ici.
+ *
+ * `expectedAmount` = le montant que l'écran affichait. S'il ne correspond plus
+ * au reste recalculé (des vues sont tombées entre-temps, un taux a changé), on
+ * refuse : on ne verse pas un autre montant que celui qu'on a lu et confirmé.
+ *
+ * Un mois encore ouvert peut être payé : ses vues continueront de monter, et
+ * le complément réapparaîtra en « reste à payer » — il se paie de la même façon.
+ */
+export const markManagerPeriodPaid = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    membershipId: v.id("memberships"),
+    period: v.string(),
+    expectedAmount: v.number(),
+  },
+  handler: async (ctx, { projectId, membershipId, period, expectedAmount }) => {
+    const m = await managerMembership(ctx, projectId, membershipId);
+    const pay = await managerPayFor(ctx, projectId, m);
+    const status = managerPeriodStatus(pay.rows, pay.payouts, period);
+    if (status.remaining <= 0) {
+      throw new ConvexError("Rien à payer sur ce mois.");
+    }
+    if (roundCents(expectedAmount) !== status.remaining) {
+      throw new ConvexError(
+        `Le montant a changé depuis l'affichage (reste dû : ${status.remaining}). ` +
+          "Vérifie le nouveau montant et recommence.",
+      );
+    }
+    const cpmOf = new Map(pay.creators.map((c) => [c.creatorId as string, c.cpm]));
+    const id = await ctx.db.insert("managerPayouts", {
+      projectId,
+      managerUserId: m.userId,
+      period,
+      amount: status.remaining,
+      currency: pay.currency ?? undefined,
+      lines: pay.rows
+        .filter((r) => r.period === period)
+        .map((r) => ({
+          creatorId: r.creatorId as Id<"creators">,
+          payableViews: r.payableViews,
+          cpm: cpmOf.get(r.creatorId) ?? 0,
+          due: roundCents(r.amount),
+        })),
+      paidAt: Date.now(),
+      actorUserId: ctx.userId,
+    });
+    return { payoutId: id, amount: status.remaining };
+  },
+});
+
+/**
+ * ANNULER UN VERSEMENT — une erreur de clic ou un virement qui n'est pas parti.
+ * Le versement sort des sommes (le mois redevient dû), la ligne reste en base.
+ */
+export const cancelManagerPayout = superadminMutation({
+  args: { projectId: v.id("projects"), payoutId: v.id("managerPayouts") },
+  handler: async (ctx, { projectId, payoutId }) => {
+    const p = await ctx.db.get(payoutId);
+    if (p === null || p.projectId !== projectId) {
+      throw new ConvexError("Versement introuvable.");
+    }
+    if (p.cancelledAt !== undefined) return { cancelled: true };
+    await ctx.db.patch(payoutId, { cancelledAt: Date.now(), cancelledBy: ctx.userId });
+    return { cancelled: true };
+  },
+});
 
 /**
  * MA rémunération — pour le manager connecté. `null` si la personne n'est pas

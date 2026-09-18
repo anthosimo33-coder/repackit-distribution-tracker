@@ -999,7 +999,10 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
             Aucun taux enregistré : rien à relever pour l&apos;instant.
           </p>
         ) : (
-          <ManagerPayReport data={releve} />
+          <ManagerPayReport
+            data={releve}
+            admin={{ membershipId: membre.membershipId, managerLabel: membre.email }}
+          />
         ))}
     </div>
   );

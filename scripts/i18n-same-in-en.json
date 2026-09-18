@@ -158,6 +158,7 @@
     "admin.library.TagsInput.maximumTags",
     "admin.library.ThumbnailCell.inspiration",
     "admin.money.ManagerPayReport.cpm",
+    "admin.money.ManagerPayReport.date",
     "admin.money.ManagerPayReport.total",
     "admin.ops.HashtagRow.posts",
     "admin.ops.HashtagRow.trend.stable",
