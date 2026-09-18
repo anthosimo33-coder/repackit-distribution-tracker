@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { tiktokVideoIdFromUrl } from "../convex/postUrlDate";
+import { tiktokAnonymousPlayerUrl } from "./embed";
 import {
   PUBLIC_POSTS_LIMIT,
   SHARE_BLOCKS,
@@ -74,6 +76,7 @@ const BRAND: ProjectionConfig = {
   blocks: [...SHARE_BLOCKS],
   showCreatorNames: false,
   postLinks: false,
+  playableVideos: false,
   warmup: "all",
 };
 
@@ -293,5 +296,52 @@ describe("période et statut", () => {
       seen.add(t);
     }
     expect(seen.size).toBe(500);
+  });
+});
+
+describe("vidéo lisible sur la page — sans @handle", () => {
+  it("sert l'id TikTok seul : ni URL, ni handle, même avec les liens décochés", () => {
+    const v = projectPublicTracker(POSTS, { ...BRAND, playableVideos: true });
+    const kelly = v.posts?.find((p) => p.vues === 41_237);
+    // PRÉSENCE : la vidéo est bien lisible.
+    expect(kelly?.video).toEqual({ platform: "tiktok", id: "7412345678901234567" });
+    expect(kelly?.url).toBeNull();
+    // ABSENCE : rien dans la réponse ne nomme le compte.
+    const raw = JSON.stringify(v);
+    expect(raw).not.toContain("kelly.snytch_fr");
+    expect(raw).not.toContain("sarah.lefevre.ugc");
+    expect(raw).not.toContain("tiktok.com");
+  });
+
+  it("Instagram n'a pas de lecteur anonyme : pas de vidéo, pas d'URL", () => {
+    const v = projectPublicTracker(POSTS, { ...BRAND, playableVideos: true });
+    const ines = v.posts?.find((p) => p.vues === 198_402);
+    expect(ines?.plateforme).toBe("Instagram");
+    expect(ines?.video).toBeNull();
+    expect(JSON.stringify(v)).not.toContain("instagram.com");
+  });
+
+  it("option décochée → aucune vidéo, aucun id", () => {
+    const v = projectPublicTracker(POSTS, BRAND);
+    expect(v.posts?.every((p) => p.video === null)).toBe(true);
+    expect(JSON.stringify(v)).not.toContain("7412345678901234567");
+  });
+
+  it("extrait l'id des formes réelles, refuse ce qui n'en a pas", () => {
+    expect(
+      tiktokVideoIdFromUrl("https://www.tiktok.com/@kelly.snytch_fr/video/7412345678901234567?is_from_webapp=1&sender_device=pc"),
+    ).toBe("7412345678901234567");
+    expect(tiktokVideoIdFromUrl("https://m.tiktok.com/v/7412345678901234567.html")).toBe("7412345678901234567");
+    expect(tiktokVideoIdFromUrl("https://vm.tiktok.com/ZMhvqK2aB/")).toBeNull();
+    expect(tiktokVideoIdFromUrl("https://www.tiktok.com/@kelly.snytch_fr")).toBeNull();
+    expect(tiktokVideoIdFromUrl("https://www.instagram.com/reel/C9xYzAbCdEf/")).toBeNull();
+    expect(tiktokVideoIdFromUrl("https://evil.example/tiktok.com/video/7412345678901234567")).toBeNull();
+  });
+
+  it("le lecteur masque le nom du son (« son original - <handle> »)", () => {
+    const u = tiktokAnonymousPlayerUrl("7412345678901234567");
+    expect(u).toContain("/player/v1/7412345678901234567");
+    expect(u).toContain("music_info=0");
+    expect(u).toContain("description=0");
   });
 });

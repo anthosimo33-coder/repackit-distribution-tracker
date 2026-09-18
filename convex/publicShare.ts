@@ -33,6 +33,7 @@
  * écrit à la main en base.
  */
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
+import { tiktokVideoIdFromUrl } from "./postUrlDate";
 
 /** Les dashboards partageables. Un seul pour l'instant ; l'union grandira. */
 export const SHARE_DASHBOARDS = ["tracker"] as const;
@@ -225,6 +226,12 @@ export type PublicTrackerView = {
         likes: number;
         comments: number;
         url: string | null;
+        /**
+         * Vidéo lisible SUR la page (lecteur TikTok intégré). Seulement l'id :
+         * l'URL, elle, porte le @handle. null = option décochée, ou plateforme
+         * sans lecteur anonyme (Instagram et YouTube affichent le compte).
+         */
+        video: { platform: "tiktok"; id: string } | null;
         creator: PublicCreatorRef;
       }[]
     | null;
@@ -260,6 +267,8 @@ export type ProjectionConfig = {
   showCreatorNames: boolean;
   /** Lien vers le post sur la plateforme. ⚠️ L'URL porte le @handle du compte. */
   postLinks: boolean;
+  /** Vidéo lisible sur la page, sans @handle (TikTok seulement). */
+  playableVideos: boolean;
   warmup: WarmupMode;
 };
 
@@ -351,6 +360,13 @@ export function projectPublicTracker(
       .sort((a, b) => b.vues - a.vues);
   }
 
+  const videoOf = (p: InternalSharePost) => {
+    if (!cfg.playableVideos || p.postUrl === null) return null;
+    if (p.plateforme !== "TikTok") return null;
+    const id = tiktokVideoIdFromUrl(p.postUrl);
+    return id === null ? null : { platform: "tiktok" as const, id };
+  };
+
   let publicPosts: PublicTrackerView["posts"] = null;
   if (blocks.has("posts")) {
     publicPosts = [...posts]
@@ -364,6 +380,7 @@ export function projectPublicTracker(
         likes: p.likes,
         comments: p.comments,
         url: cfg.postLinks ? p.postUrl : null,
+        video: videoOf(p),
         creator: creatorOf(p),
       }));
   }

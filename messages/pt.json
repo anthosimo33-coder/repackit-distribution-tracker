@@ -1488,7 +1488,9 @@
       "empty": "Nenhum post publicado neste período.",
       "untitled": "(sem título)",
       "open": "Ver o post",
-      "interactions": "{likes} curtidas · {comments} coment."
+      "interactions": "{likes} curtidas · {comments} coment.",
+      "watch": "Ver o vídeo",
+      "closeVideo": "Fechar o vídeo"
     },
     "period": {
       "all": "Desde o início",

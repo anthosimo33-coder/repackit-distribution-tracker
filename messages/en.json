@@ -1488,7 +1488,9 @@
       "empty": "No posts published in this period.",
       "untitled": "(untitled)",
       "open": "View post",
-      "interactions": "{likes} likes · {comments} comments"
+      "interactions": "{likes} likes · {comments} comments",
+      "watch": "Watch video",
+      "closeVideo": "Close video"
     },
     "period": {
       "all": "All time",

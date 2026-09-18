@@ -133,9 +133,14 @@ export type TrackerQueryArgs = {
   warmup?: WarmupFilter;
 };
 
-export function TrackerDataView() {
-  const loc = useIntlLocale();
-  const tr = useTranslations("admin.dashboard.TrackerDataView");
+/**
+ * L'état des filtres du Tracker, REMONTÉ dans la page (dashboard/page.tsx).
+ *
+ * Deux raisons : le mode partage démonte la vue, et les filtres doivent
+ * survivre à l'aller-retour ; et le mode partage PART des filtres en cours
+ * (« je partage ce que je regarde »), il doit donc pouvoir les lire.
+ */
+export function useTrackerFilterState() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   // Filtres de dimension MULTI-SELECT : Set vide = pas de filtre (tous).
@@ -148,6 +153,25 @@ export function TrackerDataView() {
   // posts de chauffe gonflaient vues/likes/commentaires et faussaient
   // l'engagement. Filtre d'AFFICHAGE : le flag et la paie ne bougent pas.
   const [warmup, setWarmup] = useState<WarmupFilter>(DEFAULT_WARMUP_FILTER);
+  return {
+    dateFrom, setDateFrom, dateTo, setDateTo,
+    creatorIds, setCreatorIds, comptes_, setComptes,
+    plateformes, setPlateformes, formatIds, setFormatIds,
+    campaignIds, setCampaignIds, warmup, setWarmup,
+  };
+}
+
+export type TrackerFilterState = ReturnType<typeof useTrackerFilterState>;
+
+export function TrackerDataView({ filters }: { filters: TrackerFilterState }) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.TrackerDataView");
+  const {
+    dateFrom, setDateFrom, dateTo, setDateTo,
+    creatorIds, setCreatorIds, comptes_, setComptes,
+    plateformes, setPlateformes, formatIds, setFormatIds,
+    campaignIds, setCampaignIds, warmup, setWarmup,
+  } = filters;
 
   const [mode, setMode] = useState<ViewMode>("list");
   const [sortKey, setSortKey] = useState<SortKey>("vues");

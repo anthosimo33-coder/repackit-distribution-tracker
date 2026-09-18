@@ -47,6 +47,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConvexError } from "@/lib/use-convex-error";
+import { shareStartFromTracker } from "@/lib/share-start";
+import type { TrackerFilterState } from "@/components/tracker/TrackerDataView";
 import { cn } from "@/lib/utils";
 import { PublicTrackerView } from "./PublicTrackerView";
 import { ShareLinksSheet } from "./ShareLinksSheet";
@@ -57,6 +59,13 @@ type Expiry = "30" | "90" | "never";
 type Warmup = "exclude" | "all" | "only";
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+
+/** Aujourd'hui, "YYYY-MM-DD", dans le fuseau de l'écran (celui des champs date du Tracker). */
+function todayLocal(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 /** Une sélection vide = pas de filtre : elle n'est pas envoyée. */
 function listOrUndefined(s: ReadonlySet<string>): string[] | undefined {
@@ -77,22 +86,49 @@ function listOrUndefined(s: ReadonlySet<string>): string[] | undefined {
  *   - une créatrice → périmètre verrouillé sur elle (côté serveur), pas de
  *     bloc « par créatrice ».
  */
-export function TrackerShareMode({ onExit }: { onExit: () => void }) {
+export function TrackerShareMode({
+  initialFilters,
+  onExit,
+}: {
+  /** Filtres posés sur le Tracker : le lien part de ce qu'on regarde. */
+  initialFilters: TrackerFilterState;
+  onExit: () => void;
+}) {
   const t = useTranslations("admin.dashboard.ShareMode");
   const errorText = useConvexError();
 
+  // Lu UNE fois au montage : ensuite, le périmètre du lien vit sa vie.
+  const [start] = useState(() =>
+    shareStartFromTracker(
+      {
+        dateFrom: initialFilters.dateFrom,
+        dateTo: initialFilters.dateTo,
+        creatorIds: initialFilters.creatorIds,
+        comptes: initialFilters.comptes_,
+        plateformes: initialFilters.plateformes,
+        formatIds: initialFilters.formatIds,
+        campaignIds: initialFilters.campaignIds,
+        warmup: initialFilters.warmup,
+      },
+      todayLocal(),
+    ),
+  );
   const [audience, setAudience] = useState<Audience>("brand");
   const [creatorId, setCreatorId] = useState<string>("");
-  const [preset, setPreset] = useState<PeriodPreset>("30");
-  const [fixedFrom, setFixedFrom] = useState("");
-  const [fixedTo, setFixedTo] = useState("");
-  const [campaignIds, setCampaignIds] = useState<Set<string>>(new Set());
-  const [plateformes, setPlateformes] = useState<Set<string>>(new Set());
-  const [creatorIds, setCreatorIds] = useState<Set<string>>(new Set());
-  const [warmup, setWarmup] = useState<Warmup>("exclude");
+  const [preset, setPreset] = useState<PeriodPreset>(start.preset);
+  const [fixedFrom, setFixedFrom] = useState(start.fixedFrom);
+  const [fixedTo, setFixedTo] = useState(start.fixedTo);
+  const [campaignIds, setCampaignIds] = useState<Set<string>>(start.campaignIds);
+  const [plateformes, setPlateformes] = useState<Set<string>>(start.plateformes);
+  const [creatorIds, setCreatorIds] = useState<Set<string>>(start.creatorIds);
+  const [comptes, setComptes] = useState<Set<string>>(start.comptes);
+  const [warmup, setWarmup] = useState<Warmup>(start.warmup);
   const [blocks, setBlocks] = useState<Set<ShareBlock>>(new Set(SHARE_BLOCKS));
   const [showCreatorNames, setShowCreatorNames] = useState(false);
   const [postLinks, setPostLinks] = useState(false);
+  // Lire la vidéo SUR la page, sans @handle : cochée par défaut, c'est ce
+  // qui remplace le lien externe pour une marque.
+  const [playableVideos, setPlayableVideos] = useState(true);
   const [device, setDevice] = useState<"desktop" | "phone">("desktop");
   const [name, setName] = useState("");
   const [expiry, setExpiry] = useState<Expiry>("30");
@@ -102,6 +138,7 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
 
   const creators = useProjectQuery(api.creators.listCreators, {});
   const campaigns = useProjectQuery(api.scripts.listCampaigns, {});
+  const comptesChoix = useProjectQuery(api.comptes.listComptesChoix, {});
   const shares = useProjectQuery(api.publicShares.listShares, {});
   const createShare = useProjectMutation(api.publicShares.createShare);
 
@@ -140,6 +177,7 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
           audience === "brand"
             ? (listOrUndefined(creatorIds) as Id<"creators">[] | undefined)
             : undefined,
+        comptes: listOrUndefined(comptes),
         plateformes: listOrUndefined(plateformes) as
           | ("TikTok" | "Instagram" | "YouTube")[]
           | undefined,
@@ -151,18 +189,21 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
       blocks: effectiveBlocks,
       showCreatorNames: audience === "brand" && showCreatorNames,
       postLinks,
+      playableVideos,
     };
   }, [
     period,
     audience,
     creatorId,
     creatorIds,
+    comptes,
     plateformes,
     campaignIds,
     warmup,
     effectiveBlocks,
     showCreatorNames,
     postLinks,
+    playableVideos,
   ]);
 
   const defaultName =
@@ -244,6 +285,9 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
     postLinks
       ? { tone: "warn", text: t("recap.linksRevealHandles") }
       : { tone: "ok", text: t("recap.noHandles") },
+    ...(playableVideos
+      ? [{ tone: "ok" as const, text: t("recap.videos") }]
+      : []),
     { tone: "ok", text: t("recap.noMoney") },
     { tone: "ok", text: t("recap.live") },
   ];
@@ -256,6 +300,10 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
     label: c.name,
   }));
   const creatorItems = Object.fromEntries(creatorOptions.map((o) => [o.value, o.label]));
+  const compteOptions = (comptesChoix ?? []).map((c) => ({
+    value: c.handle,
+    label: c.handle,
+  }));
   const campaignOptions = (campaigns ?? []).map((c) => ({
     value: c._id as string,
     label: c.name,
@@ -389,6 +437,16 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
             width="w-full"
           />
         </div>
+        <div className="w-44">
+          <FilterMultiSelect
+            label={t("accounts")}
+            selectedValues={comptes}
+            onChange={setComptes}
+            options={compteOptions}
+            allLabel={t("allAccounts")}
+            width="w-full"
+          />
+        </div>
         {audience === "brand" && (
           <div className="w-44">
             <FilterMultiSelect
@@ -421,6 +479,14 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
           </Select>
         </div>
       </div>
+
+      {(start.carried || start.dropped.length > 0) && (
+        <p className="-mt-2 text-xs text-slate-500" data-testid="share-carried">
+          {start.carried && t("carried")}
+          {start.dropped.includes("format") && ` ${t("droppedFormat")}`}
+          {start.dropped.includes("periodEndOnly") && ` ${t("droppedPeriodEnd")}`}
+        </p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* ── Aperçu : exactement la page publique ─────────────────────── */}
@@ -504,6 +570,13 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
                 onChange={setShowCreatorNames}
               />
             )}
+            <ToggleRow
+              id="share-videos"
+              label={t("options.videos")}
+              hint={t("options.videosHint")}
+              checked={playableVideos}
+              onChange={setPlayableVideos}
+            />
             <ToggleRow
               id="share-links"
               label={t("options.links")}

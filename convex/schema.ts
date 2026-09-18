@@ -1691,6 +1691,9 @@ export default defineSchema({
     blocks: v.array(v.string()),
     showCreatorNames: v.boolean(),
     postLinks: v.boolean(),
+    // Vidéo lisible sur la page, sans @handle. Absent = liens créés avant
+    // l'option : pas de vidéo (on n'ajoute rien à un lien déjà envoyé).
+    playableVideos: v.optional(v.boolean()),
     expiresAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     createdBy: v.id("users"),

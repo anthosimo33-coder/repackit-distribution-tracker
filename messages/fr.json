@@ -1488,7 +1488,9 @@
       "empty": "Aucun post publié sur cette période.",
       "untitled": "(sans titre)",
       "open": "Voir le post",
-      "interactions": "{likes} likes · {comments} comm."
+      "interactions": "{likes} likes · {comments} comm.",
+      "watch": "Voir la vidéo",
+      "closeVideo": "Fermer la vidéo"
     },
     "period": {
       "all": "Depuis le début",

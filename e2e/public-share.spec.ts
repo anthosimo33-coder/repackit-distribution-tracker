@@ -112,6 +112,7 @@ test.describe("Partage public du Tracker", () => {
       blocks: ["kpi_views", "kpi_engagement", "by_creator", "posts", "quadrant"],
       showCreatorNames: false,
       postLinks: false,
+      playableVideos: true,
       expiresInDays: 30,
     });
     expect(brand.token).toMatch(/^[0-9A-Za-z]{22}$/);
@@ -134,6 +135,11 @@ test.describe("Partage public du Tracker", () => {
       expect(raw, secret).not.toContain(secret);
     }
     expect(pub.blocks).not.toContain("quadrant");
+    // Vidéo lisible sur la page : l'id seul, l'URL (qui porte le handle) non.
+    expect(pub.view.posts?.map((p) => p.video?.id).sort()).toEqual(
+      [`74${ts}`, `74${ts}`].sort(),
+    );
+    expect(pub.view.posts?.every((p) => p.url === null)).toBe(true);
     expect(pub.view.kpi).not.toHaveProperty("likes");
     expect(pub.view.byPlatform).toBeNull();
 
@@ -154,6 +160,13 @@ test.describe("Partage public du Tracker", () => {
     await expect(vpage.getByText("Créatrice A").first()).toBeVisible();
     await expect(vpage.getByText("Propulsé par Jarvia")).toBeVisible();
     await expect(vpage.getByText("Kelly")).toHaveCount(0);
+    // Le lecteur intégré : l'id de la vidéo, le nom du son masqué, pas de handle.
+    await vpage.getByRole("button", { name: "Voir la vidéo" }).first().click();
+    const player = vpage.getByTestId("share-video-player");
+    await expect(player).toHaveAttribute("src", new RegExp(`/player/v1/74${ts}\\?.*music_info=0`));
+    await expect(player).not.toHaveAttribute("src", /snytch_fr/);
+    await vpage.getByRole("button", { name: "Fermer la vidéo" }).click();
+    await expect(player).toHaveCount(0);
     // L'aperçu de lien (WhatsApp, Slack) : balise posée ET image servie sans session.
     await expect(vpage.locator('meta[property="og:image"]')).toHaveAttribute(
       "content",
@@ -204,12 +217,22 @@ test.describe("Partage public du Tracker", () => {
     // ── Le mode partage, côté équipe ────────────────────────────────────
     await page.goto(adminPath("/dashboard"));
     await page.getByRole("radio", { name: "Tracker" }).click();
+    // Un filtre posé sur le Tracker est REPRIS par le mode partage…
+    await page.locator("#tracker-from").fill("2026-08-03");
+    await page.locator("#tracker-to").fill("2026-09-09");
     await page.getByRole("button", { name: "Partager" }).click();
     await expect(page.getByTestId("share-mode")).toBeVisible();
+    await expect(page.getByTestId("share-carried")).toContainText("repris des filtres du Tracker");
+    await expect(page.getByRole("radio", { name: "Dates fixes" })).toHaveAttribute("aria-checked", "true");
+    await expect(page.locator("#share-from")).toHaveValue("2026-08-03");
+    await expect(page.locator("#share-to")).toHaveValue("2026-09-09");
     const postsBlock = page.locator('[data-share-block="posts"]');
     await expect(postsBlock).toHaveAttribute("data-share-on", "true");
     await postsBlock.getByRole("button", { name: /Cacher ce bloc/ }).click();
     await expect(postsBlock).toHaveAttribute("data-share-on", "false");
     await expect(page.getByTestId("share-recap")).toContainText("Aucun montant");
+    // …et le Tracker les retrouve en sortant du mode partage.
+    await page.getByRole("button", { name: "Quitter" }).click();
+    await expect(page.locator("#tracker-from")).toHaveValue("2026-08-03");
   });
 });
