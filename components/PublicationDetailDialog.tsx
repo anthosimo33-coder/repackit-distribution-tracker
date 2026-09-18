@@ -63,6 +63,7 @@ import {
   FlameIcon,
   Loader2Icon,
   PencilIcon,
+  MegaphoneIcon,
   RefreshCwIcon,
   RepeatIcon,
 } from "lucide-react";
@@ -199,6 +200,7 @@ function PayFlagsControl({ publication }: { publication: PublicationWithImage })
   const setRemuneration = useProjectMutation(
     api.publications.setPublicationRemuneration,
   );
+  const setSparkAd = useProjectMutation(api.publications.setPublicationSparkAd);
   const [saving, setSaving] = useState(false);
 
   async function run(action: () => Promise<unknown>, ok: string, ko: string) {
@@ -221,6 +223,7 @@ function PayFlagsControl({ publication }: { publication: PublicationWithImage })
       isWarmup={isWarmup}
       isRemunerated={state?.isRemunerated ?? !isWarmup}
       diverges={state?.diverges ?? false}
+      sparkAd={state?.sparkAd ?? null}
       locked={state?.locked ?? false}
       payLinked={state?.payLinked ?? true}
       cycleStart={state?.cycleStart ?? null}
@@ -246,14 +249,33 @@ function PayFlagsControl({ publication }: { publication: PublicationWithImage })
           tr("impossibleDeModifierLaRemuneration"),
         )
       }
+      onSparkAdChange={(day) =>
+        run(
+          () => setSparkAd({ publicationId: publication._id, day }),
+          day === null ? tr("sparkAdRetiree") : tr("sparkAdPosee"),
+          tr("impossibleDeModifierLaSparkAd"),
+        )
+      }
     />
   );
+}
+
+/** État « poussé en pub » servi par getPublicationPayFlags (null = organique). */
+export interface SparkAdView {
+  day: string;
+  effect: "frozen" | "pending" | "none";
+  frozenViews: number;
+  measuredViews: number;
+  viewsAfterLaunch: number;
+  snapshotAt: number | null;
+  postAgeDays: number;
 }
 
 export interface PayFlagsView {
   isWarmup: boolean;
   isRemunerated: boolean;
   diverges: boolean;
+  sparkAd: SparkAdView | null;
   locked: boolean;
   payLinked: boolean;
   cycleStart: number | null;
@@ -262,6 +284,8 @@ export interface PayFlagsView {
   pending: boolean;
   onWarmupChange: (next: boolean) => void;
   onRemunerationChange: (next: boolean) => void;
+  /** "YYYY-MM-DD" (heure de Paris) pour poser/déplacer, `null` pour retirer. */
+  onSparkAdChange: (day: string | null) => void;
 }
 
 /**
@@ -275,6 +299,7 @@ export function PayFlagsControlView({
   isWarmup,
   isRemunerated,
   diverges,
+  sparkAd,
   locked,
   payLinked,
   cycleStart,
@@ -283,6 +308,7 @@ export function PayFlagsControlView({
   pending,
   onWarmupChange,
   onRemunerationChange,
+  onSparkAdChange,
 }: PayFlagsView) {
   const tr = useTranslations("admin.common.PayFlagsControlView");
   const loc = useIntlLocale();
@@ -300,6 +326,16 @@ export function PayFlagsControlView({
         <Badge variant={isWarmup ? "outline" : "secondary"}>
           {isWarmup ? tr("horsPromoWarmup") : tr("compteEnPromo")}
         </Badge>
+        {sparkAd && (
+          <Badge
+            variant="outline"
+            data-testid="spark-ad-badge"
+            className="border-sky-200 bg-sky-50 text-sky-800"
+          >
+            <MegaphoneIcon className="size-3" />
+            {tr("sparkAdDepuis", { date: dayLabel(sparkAd.day, loc) })}
+          </Badge>
+        )}
       </div>
 
       {diverges && (
@@ -372,6 +408,156 @@ export function PayFlagsControlView({
           aria-label={tr("marquerCePostCommeRemunere")}
         />
       </div>
+
+      {/* ── Réglage 3 : POUSSÉ EN PUB (spark ad → gel de l'assiette) ──────── */}
+      <SparkAdRow
+        sparkAd={sparkAd}
+        disabled={locked || pending}
+        onChange={onSparkAdChange}
+      />
+    </div>
+  );
+}
+
+/** "YYYY-MM-DD" → JJ/MM/AAAA (MM/JJ en anglais US), sans passer par un fuseau. */
+function dayLabel(day: string, locale: string): string {
+  const [y, m, d] = day.split("-");
+  return locale.startsWith("en") ? `${m}/${d}/${y}` : `${d}/${m}/${y}`;
+}
+
+/** Aujourd'hui à Paris, forme "YYYY-MM-DD" (défaut du sélecteur de date). */
+function parisToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date());
+}
+
+/**
+ * Ligne « Poussé en pub ». Trois lectures possibles, et l'écran dit laquelle :
+ * gel effectif (chiffres), lancement à venir, ou date SANS EFFET sur la paie
+ * (post déjà au-delà de J+30) — on ne laisse jamais croire à une protection.
+ */
+function SparkAdRow({
+  sparkAd,
+  disabled,
+  onChange,
+}: {
+  sparkAd: SparkAdView | null;
+  disabled: boolean;
+  onChange: (day: string | null) => void;
+}) {
+  const tr = useTranslations("admin.common.PayFlagsControlView");
+  const loc = useIntlLocale();
+  const [day, setDay] = useState<string>(sparkAd?.day ?? parisToday());
+  const [editing, setEditing] = useState(false);
+  const n = (v: number) => v.toLocaleString(loc);
+  const showForm = sparkAd === null || editing;
+  return (
+    <div
+      className="space-y-2 border-t border-slate-200 pt-2"
+      data-testid="spark-ad-row"
+    >
+      <div className="flex items-center gap-1.5 text-sm font-medium text-slate-900">
+        <MegaphoneIcon className="size-4 text-sky-600" />
+        {tr("sparkAdTitre")}
+      </div>
+      {sparkAd === null && (
+        <p className="text-xs text-slate-500">{tr("sparkAdExplication")}</p>
+      )}
+
+      {sparkAd?.effect === "frozen" && (
+        <>
+          <p className="text-xs text-slate-500">
+            {sparkAd.snapshotAt !== null
+              ? tr("sparkAdReleveRetenu", {
+                  date: new Intl.DateTimeFormat(loc, {
+                    timeZone: "Europe/Paris",
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }).format(new Date(sparkAd.snapshotAt)),
+                })
+              : tr("sparkAdAucunReleve")}
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              [tr("sparkAdVuesPayees"), sparkAd.frozenViews, "spark-ad-frozen"],
+              [tr("sparkAdVuesActuelles"), sparkAd.measuredViews, "spark-ad-measured"],
+              [tr("sparkAdHorsPaie"), sparkAd.viewsAfterLaunch, "spark-ad-after"],
+            ].map(([label, value, id]) => (
+              <div key={id as string} className="rounded bg-white px-2 py-1.5">
+                <p className="text-[0.7rem] text-slate-500">{label}</p>
+                <p className="text-sm font-semibold tabular-nums text-slate-900" data-testid={id as string}>
+                  {n(value as number)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {sparkAd?.effect === "pending" && (
+        <p className="text-xs text-slate-500">
+          {tr("sparkAdAVenir", { date: dayLabel(sparkAd.day, loc) })}
+        </p>
+      )}
+      {sparkAd?.effect === "none" && (
+        <p
+          className="rounded bg-slate-100 px-2 py-1.5 text-xs text-slate-700"
+          data-testid="spark-ad-no-effect"
+        >
+          {tr("sparkAdSansEffet", { jours: sparkAd.postAgeDays })}
+        </p>
+      )}
+
+      {showForm ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            type="date"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+            className="h-8 w-40"
+            aria-label={tr("sparkAdDateLabel")}
+            disabled={disabled}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled || day === ""}
+            onClick={() => {
+              onChange(day);
+              setEditing(false);
+            }}
+          >
+            {tr("sparkAdGeler")}
+          </Button>
+          {editing && (
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              {tr("sparkAdAnnuler")}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => {
+              setDay(sparkAd!.day);
+              setEditing(true);
+            }}
+          >
+            {tr("sparkAdChangerDate")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          >
+            {tr("sparkAdRetirer")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

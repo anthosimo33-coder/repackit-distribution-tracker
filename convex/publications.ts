@@ -16,6 +16,8 @@ import { formatDateFr } from "./dateFr";
 import { isTikTokShortlink } from "./modelVideoEmbeds";
 import { cycleIndexOf, cycleWindow, cyclePeriodKey } from "./payCycle";
 import { assignmentPublishedAt, syncBonusForPublication } from "./pricing";
+import { adCutsPayWindow, payWindowEndsAt } from "./payWindow";
+import { parisDayOf, parisDayStart } from "./managerCpm";
 import {
   divergesFromWarmup,
   isRemunerated,
@@ -915,6 +917,7 @@ export const getPublicationPayFlags = permissionQuery("tracker.manage")({
       isWarmup: flags.isWarmup,
       isRemunerated: isRemunerated(flags),
       diverges: divergesFromWarmup(flags),
+      sparkAd: await sparkAdState(ctx, pub),
       locked,
       payLinked,
       cycleStart,
@@ -1059,6 +1062,87 @@ export const e2eReadFlagChanges = e2eMutation({
     return rows
       .sort((a, b) => a.at - b.at)
       .map((r) => ({ flag: r.flag, before: r.before, after: r.after }));
+  },
+});
+
+/**
+ * État « poussé en pub » d'un post, pour le panneau admin. `null` = organique.
+ *
+ * `effect` dit ce que la date CHANGE réellement, pour que l'écran ne laisse pas
+ * croire à une protection qui n'existe pas :
+ *   - `frozen`  : la pub coupe avant J+31, l'assiette est figée au relevé avant ;
+ *   - `pending` : date posée mais pas encore atteinte (lancement demain) ;
+ *   - `none`    : la pub part après J+30 — la paie était déjà figée, la date ne
+ *                 change plus que le score de défi.
+ * Les chiffres sont ceux du moteur (même borne, même `min` que retainedViews).
+ */
+async function sparkAdState(ctx: QueryCtx, pub: Doc<"publications">) {
+  const launchedAt = pub.sparkAdLaunchedAt;
+  if (launchedAt === undefined) return null;
+  const measuredViews = Math.max(0, pub.vuesLatest ?? 0);
+  const cuts = adCutsPayWindow(pub.datePubli, launchedAt);
+  const bound = cuts ? launchedAt : payWindowEndsAt(pub.datePubli);
+  const snap = await ctx.db
+    .query("metricSnapshots")
+    .withIndex("by_publication_and_capturedAt", (q) =>
+      q.eq("publicationId", pub._id).lt("capturedAt", bound),
+    )
+    .order("desc")
+    .first();
+  const frozenViews = Math.min(measuredViews, Math.max(0, snap?.vues ?? 0));
+  return {
+    day: parisDayOf(launchedAt),
+    launchedAt,
+    effect: !cuts ? "none" : Date.now() < launchedAt ? "pending" : "frozen",
+    frozenViews,
+    measuredViews,
+    viewsAfterLaunch: measuredViews - frozenViews,
+    snapshotAt: snap?.capturedAt ?? null,
+    postAgeDays: Math.floor((Date.now() - pub.datePubli) / 86_400_000),
+  } as const;
+}
+
+/**
+ * ADMIN — pose, déplace ou retire la date de lancement d'une SPARK AD sur ce
+ * post (`day` "YYYY-MM-DD" heure de Paris, `null` = retirer).
+ *
+ * Fait FINANCIER (il change l'assiette de paie) → `payments.manage`, comme la
+ * rémunération, et MÊME VERROU : un cycle payé a figé son montant.
+ *
+ * Un jour ANTÉRIEUR au jour de publication est refusé : la pub ne peut pas
+ * pousser un post qui n'existait pas, et accepter la date gèlerait l'assiette à
+ * zéro en silence.
+ */
+export const setPublicationSparkAd = permissionMutation("payments.manage")({
+  args: {
+    publicationId: v.id("publications"),
+    day: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, { publicationId, day }) => {
+    const pub = await ctx.db.get(publicationId);
+    if (!pub || pub.projectId !== ctx.projectId) {
+      throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
+    }
+    const payCtx = await publicationPayContext(ctx, pub);
+    if (payCtx.locked) {
+      throw err(ERR.PAY_CYCLE_LOCKED, lockedMessage("la date de pub", payCtx), lockedParams("refusal.locked.sparkAd", payCtx));
+    }
+    let launchedAt: number | undefined;
+    if (day !== null) {
+      const start = parisDayStart(day);
+      if (start === null || day < parisDayOf(pub.datePubli)) {
+        throw err(
+          ERR.SPARK_AD_DATE_INVALID,
+          "La date de lancement de la pub ne peut pas précéder la publication du post.",
+        );
+      }
+      launchedAt = start;
+    }
+    if (pub.sparkAdLaunchedAt === launchedAt) return { ok: true };
+    await ctx.db.patch(publicationId, { sparkAdLaunchedAt: launchedAt });
+    // L'assiette des paliers vient de bouger → re-sync (idempotent).
+    await syncBonusForPublication(ctx, publicationId);
+    return { ok: true };
   },
 });
 

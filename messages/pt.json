@@ -1326,6 +1326,7 @@
     "ERR_PAYMENT_REVERT_USED": "Este ciclo já foi anulado uma vez: não existe uma segunda anulação.",
     "ERR_PAYOUT_DAY_INVALID": "O dia de pagamento precisa ser um número inteiro entre 1 e 28.",
     "ERR_PAY_CYCLE_LOCKED": "O ciclo de pagamento{hasRange, select, yes { de {startDate} a {endDate}} other {}} deste post está encerrado{paid, select, yes {, pago em {paidDate}} other { (já pago)}}: {what} está fixado. O valor já pago nunca é recalculado; alterar este ajuste faria a exibição divergir do que foi realmente pago.",
+    "ERR_SPARK_AD_DATE_INVALID": "Data de lançamento do anúncio inválida: não pode ser anterior à publicação.",
     "ERR_PERMISSION_DENIED": "Você não tem permissão para esta ação. Peça a um administrador.",
     "ERR_PERSON_ALREADY_EXISTS": "Esta pessoa já existe.",
     "ERR_PERSON_NAMES_REQUIRED": "Nome e sobrenome obrigatórios.",
@@ -1450,7 +1451,8 @@
     "locked": {
       "trackingLink": "o link de acompanhamento",
       "warmupSetting": "o ajuste de aquecimento",
-      "remuneration": "a remuneração"
+      "remuneration": "a remuneração",
+      "sparkAd": "a data do anúncio"
     }
   }
 }

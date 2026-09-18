@@ -1326,6 +1326,7 @@
     "ERR_PAYMENT_REVERT_USED": "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
     "ERR_PAYOUT_DAY_INVALID": "Le jour de paie doit être un entier entre 1 et 28.",
     "ERR_PAY_CYCLE_LOCKED": "Le cycle de paie{hasRange, select, yes { du {startDate} au {endDate}} other {}} de ce post est clos{paid, select, yes {, payé le {paidDate}} other { (déjà payé)}} : {what} y est figé. Le montant déjà versé n'est jamais recalculé — modifier ce réglage ferait diverger l'affichage de ce qui a réellement été payé.",
+    "ERR_SPARK_AD_DATE_INVALID": "La date de lancement de la pub est invalide : elle ne peut pas précéder la publication du post.",
     "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",
     "ERR_PERSON_ALREADY_EXISTS": "Personne déjà existante.",
     "ERR_PERSON_NAMES_REQUIRED": "Prénom et nom requis.",
@@ -1450,7 +1451,8 @@
     "locked": {
       "trackingLink": "le lien de suivi",
       "warmupSetting": "le réglage warmup",
-      "remuneration": "la rémunération"
+      "remuneration": "la rémunération",
+      "sparkAd": "la date de pub"
     }
   }
 }

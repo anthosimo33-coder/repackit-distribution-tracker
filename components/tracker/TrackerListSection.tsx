@@ -50,6 +50,7 @@ import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { PublicationDetailDialog } from "@/components/PublicationDetailDialog";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { PostWarmupBadge } from "@/components/PostWarmupBadge";
+import { SparkAdBadge } from "@/components/SparkAdBadge";
 import { calculateSaveRate, calculateVerdict } from "@/lib/verdict";
 import { formatDate, formatNumber, formatPercent } from "@/lib/format";
 import { isPublished } from "@/lib/publication-status";
@@ -1269,6 +1270,9 @@ function PublicationsSection({
                         {p.isWarmup === true && (
                           <PostWarmupBadge className="font-sans" />
                         )}
+                        {p.sparkAdLaunchedAt !== undefined && (
+                          <SparkAdBadge className="font-sans" />
+                        )}
                       </span>
                     </TableCell>
                   )}
@@ -1585,6 +1589,7 @@ function PublicationCard({
                 </span>
               )}
               {p.isWarmup === true && <PostWarmupBadge />}
+              {p.sparkAdLaunchedAt !== undefined && <SparkAdBadge />}
               {visibleColumns.has("date") && <span>{formatDate(p.datePubli)}</span>}
             </div>
             {texte ? (

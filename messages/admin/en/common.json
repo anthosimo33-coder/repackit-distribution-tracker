@@ -276,7 +276,22 @@
     "payeLe": ", paid on {date}",
     "marquerCePostCommeWarmup": "Mark this post as warm-up",
     "marquerCePostCommeRemunere": "Mark this post as paid",
-    "cycleRange": "from {start} to {end}"
+    "cycleRange": "from {start} to {end}",
+    "sparkAdDepuis": "Running as an ad since {date}",
+    "sparkAdTitre": "Boosted as an ad (Spark Ad)",
+    "sparkAdExplication": "From the launch day on, views stop counting: pay, bonus tiers, manager CPM and challenge score stop at the last reading before the ad. View tracking continues.",
+    "sparkAdReleveRetenu": "Pay is based on the {date} reading, the last one before launch.",
+    "sparkAdAucunReleve": "No reading before launch: no views are counted toward this post's pay.",
+    "sparkAdVuesPayees": "Paid views (frozen)",
+    "sparkAdVuesActuelles": "Current views",
+    "sparkAdHorsPaie": "Not paid (ad)",
+    "sparkAdAVenir": "Launch set for {date}: pay follows views until the day before, then freezes.",
+    "sparkAdSansEffet": "This post is {jours} days old: its views had already stopped counting toward pay by the ad date (30-day cap). The date only changes its challenge score.",
+    "sparkAdDateLabel": "Ad launch day",
+    "sparkAdGeler": "Freeze at this date",
+    "sparkAdAnnuler": "Cancel",
+    "sparkAdChangerDate": "Change date",
+    "sparkAdRetirer": "Remove"
   },
   "PublishedView": {
     "rejouerCeScript": "Replay this script",
@@ -382,7 +397,10 @@
     "impossibleDeModifierLeWarmup": "Couldn't change the warm-up.",
     "postRemunereRecompteDansLa": "Post paid — counted in pay again",
     "remunerationRetireePostSortiDe": "Pay removed — post taken out of pay",
-    "impossibleDeModifierLaRemuneration": "Couldn't change the pay setting."
+    "impossibleDeModifierLaRemuneration": "Couldn't change the pay setting.",
+    "sparkAdPosee": "Ad date saved — pay frozen at the reading before launch",
+    "sparkAdRetiree": "Ad date removed — pay follows views again",
+    "impossibleDeModifierLaSparkAd": "Couldn't update the ad date"
   },
   "PublicationEditDialog": {
     "mettreAJour": "Update — {carouselId} ({plateforme})",
@@ -796,5 +814,9 @@
       "plural": "ScreenRecorders",
       "description": "Screen capture with a title and a companion image (3 platforms)."
     }
+  },
+  "SparkAdBadge": {
+    "pub": "Ad",
+    "titre": "Boosted as a Spark Ad — pay frozen at the last reading before launch"
   }
 }

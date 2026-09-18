@@ -276,7 +276,22 @@
     "payeLe": ", payé le {date}",
     "marquerCePostCommeWarmup": "Marquer ce post comme warmup",
     "marquerCePostCommeRemunere": "Marquer ce post comme rémunéré",
-    "cycleRange": "du {start} au {end}"
+    "cycleRange": "du {start} au {end}",
+    "sparkAdDepuis": "En pub depuis le {date}",
+    "sparkAdTitre": "Poussé en pub (spark ad)",
+    "sparkAdExplication": "À partir du jour de lancement, les vues ne comptent plus : paie, paliers, CPM manager et score de défi s'arrêtent au dernier relevé avant la pub. Le suivi des vues continue.",
+    "sparkAdReleveRetenu": "Paie calculée sur le relevé du {date}, dernier avant le lancement.",
+    "sparkAdAucunReleve": "Aucun relevé avant le lancement : aucune vue n'est retenue pour la paie de ce post.",
+    "sparkAdVuesPayees": "Vues payées (gelées)",
+    "sparkAdVuesActuelles": "Vues actuelles",
+    "sparkAdHorsPaie": "Hors paie (pub)",
+    "sparkAdAVenir": "Lancement prévu le {date} : la paie suit les vues jusqu'à la veille, puis se fige.",
+    "sparkAdSansEffet": "Ce post a {jours} jours : ses vues ne comptaient déjà plus dans la paie à la date de la pub (plafond J+30). La date ne change que son score de défi.",
+    "sparkAdDateLabel": "Jour de lancement de la pub",
+    "sparkAdGeler": "Geler à cette date",
+    "sparkAdAnnuler": "Annuler",
+    "sparkAdChangerDate": "Changer la date",
+    "sparkAdRetirer": "Retirer"
   },
   "PublishedView": {
     "rejouerCeScript": "Rejouer ce script",
@@ -382,7 +397,10 @@
     "impossibleDeModifierLeWarmup": "Impossible de modifier le warmup.",
     "postRemunereRecompteDansLa": "Post rémunéré — recompté dans la paie",
     "remunerationRetireePostSortiDe": "Rémunération retirée — post sorti de la paie",
-    "impossibleDeModifierLaRemuneration": "Impossible de modifier la rémunération."
+    "impossibleDeModifierLaRemuneration": "Impossible de modifier la rémunération.",
+    "sparkAdPosee": "Date de pub enregistrée — paie figée au relevé d'avant le lancement",
+    "sparkAdRetiree": "Date de pub retirée — la paie suit de nouveau les vues",
+    "impossibleDeModifierLaSparkAd": "Impossible de modifier la date de pub"
   },
   "PublicationEditDialog": {
     "mettreAJour": "Mettre à jour — {carouselId} ({plateforme})",
@@ -796,5 +814,9 @@
       "plural": "ScreenRecorders",
       "description": "Capture d'écran avec titre et image d'accompagnement (3 plateformes)."
     }
+  },
+  "SparkAdBadge": {
+    "pub": "Pub",
+    "titre": "Poussé en spark ad — paie figée au dernier relevé avant le lancement"
   }
 }

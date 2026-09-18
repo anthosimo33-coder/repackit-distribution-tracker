@@ -277,7 +277,23 @@ async function challengeVideoOf(
     if (seen.has(pid)) continue;
     seen.add(pid);
     const pub = await ctx.db.get(pid);
-    if (pub) views += pub.vuesLatest ?? 0;
+    if (!pub) continue;
+    const measured = pub.vuesLatest ?? 0;
+    // Post poussé en pub : le score s'arrête au dernier relevé AVANT le
+    // lancement, sinon on classerait la pub, pas la créatrice. Pas de plafond
+    // J+30 ici (décision « le score compte ce que la créatrice voit »).
+    if (pub.sparkAdLaunchedAt !== undefined && Date.now() >= pub.sparkAdLaunchedAt) {
+      const before = await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_publication_and_capturedAt", (q) =>
+          q.eq("publicationId", pid).lt("capturedAt", pub.sparkAdLaunchedAt!),
+        )
+        .order("desc")
+        .first();
+      views += Math.min(measured, Math.max(0, before?.vues ?? 0));
+    } else {
+      views += measured;
+    }
   }
   return {
     views,
