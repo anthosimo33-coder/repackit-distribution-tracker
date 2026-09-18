@@ -297,18 +297,20 @@ async function assertValidConfig(
 
 /** L'aperçu du mode partage : EXACTEMENT ce que la page publique recevra. */
 export const previewShare = permissionQuery("content.share")({
-  args: { ...configArgs, name: v.string() },
-  handler: async (ctx, args): Promise<PublicSharePayload | null> => {
+  // Configuration GROUPÉE, pas étalée : la garde anti-fuite refuse tout spread
+  // dans une query (cf trackerViewsDayDetail, même contrainte).
+  args: { config: v.object(configArgs), name: v.string() },
+  handler: async (ctx, { config, name }): Promise<PublicSharePayload | null> => {
     const cfg: ShareConfig = {
-      audience: args.audience,
-      creatorId: args.creatorId,
-      perimeter: args.perimeter,
-      blocks: args.blocks,
-      showCreatorNames: args.showCreatorNames,
-      postLinks: args.postLinks,
+      audience: config.audience,
+      creatorId: config.creatorId,
+      perimeter: config.perimeter,
+      blocks: config.blocks,
+      showCreatorNames: config.audience === "brand" && config.showCreatorNames,
+      postLinks: config.postLinks,
     };
     if (cfg.audience === "creator" && cfg.creatorId === undefined) return null;
-    return await buildPublicPayload(ctx, ctx.projectId, cfg, args.name, Date.now());
+    return await buildPublicPayload(ctx, ctx.projectId, cfg, name, Date.now());
   },
 });
 
