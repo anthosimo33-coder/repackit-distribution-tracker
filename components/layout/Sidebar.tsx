@@ -17,6 +17,7 @@ import {
   ClipboardListIcon,
   CoinsIcon,
   FilmIcon,
+  HandCoinsIcon,
   HelpCircleIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -197,6 +198,18 @@ export function Sidebar({
       label: t("item.paiements"),
       ...item(projectPath("/paiements")),
     },
+    // SA paie au CPM (convex/managerCpm.ts) — pour le manager seul. Ce n'est
+    // pas un bloc du catalogue : on ne l'accorde pas, c'est sa rémunération.
+    // Un admin n'en a pas (il la regarde depuis « Rôles et droits »).
+    ...(droits.role === "manager"
+      ? [
+          {
+            icon: HandCoinsIcon,
+            label: t("item.maRemuneration"),
+            ...item(projectPath("/ma-remuneration")),
+          },
+        ]
+      : []),
   ];
 
   // CRÉATEURS — gestion des créateurs et de leurs comptes.

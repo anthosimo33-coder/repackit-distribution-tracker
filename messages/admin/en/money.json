@@ -1,1 +1,25 @@
-{}
+{
+  "ManagerPayPage": {
+    "titre": "My earnings",
+    "sousTitre": "You are paid a CPM on the views of the videos assigned to the creators you manage.",
+    "pasManager": "This screen is for managers only: it shows their CPM earnings.",
+    "aucunCpm": "No CPM has been set for you on this project yet. As soon as a rate is set for a creator, their views and your earnings will show up here."
+  },
+  "ManagerPayReport": {
+    "periode": "Period",
+    "toutesPeriodes": "All time",
+    "remuneration": "Earnings",
+    "vuesPayees": "Paid views",
+    "vuesTotales": "Total views",
+    "videos": "Videos",
+    "creatrice": "Creator",
+    "cpm": "CPM",
+    "cpmValeur": "{cpm} per 1,000 views",
+    "montant": "Amount",
+    "parMois": "By publication month",
+    "mois": "Month",
+    "total": "Total",
+    "aucuneVideo": "No published video in this period.",
+    "explication": "Basis: the paid views of published videos (unpaid warm-up posts excluded, views counted over the 30-day pay window), multiplied by your CPM for each creator. The month is the video's publication month; a recent month keeps growing as long as its videos get views."
+  }
+}

@@ -1,1 +1,25 @@
-{}
+{
+  "ManagerPayPage": {
+    "titre": "Ma rémunération",
+    "sousTitre": "Tu es payé au CPM sur les vues des vidéos assignées aux créatrices que tu gères.",
+    "pasManager": "Cet écran est réservé aux managers : il relève leur rémunération au CPM.",
+    "aucunCpm": "Aucun CPM n'est encore fixé pour toi sur ce projet. Dès qu'un taux est posé pour une créatrice, ses vues et ta rémunération apparaissent ici."
+  },
+  "ManagerPayReport": {
+    "periode": "Période",
+    "toutesPeriodes": "Depuis le début",
+    "remuneration": "Rémunération",
+    "vuesPayees": "Vues rémunérées",
+    "vuesTotales": "Vues totales",
+    "videos": "Vidéos",
+    "creatrice": "Créatrice",
+    "cpm": "CPM",
+    "cpmValeur": "{cpm} / 1 000 vues",
+    "montant": "Montant",
+    "parMois": "Par mois de publication",
+    "mois": "Mois",
+    "total": "Total",
+    "aucuneVideo": "Aucune vidéo publiée sur cette période.",
+    "explication": "Base : les vues rémunérées des vidéos publiées (posts de chauffe non payés exclus, vues retenues sur la fenêtre de paie de 30 jours), multipliées par ton CPM pour chaque créatrice. Le mois est celui de la publication de la vidéo ; le montant d'un mois récent continue de monter tant que ses vidéos font des vues."
+  }
+}

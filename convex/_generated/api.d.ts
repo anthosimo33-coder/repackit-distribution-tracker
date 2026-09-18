@@ -89,6 +89,8 @@ import type * as leaderboardCache from "../leaderboardCache.js";
 import type * as likesNegativeMigration from "../likesNegativeMigration.js";
 import type * as locales from "../locales.js";
 import type * as maintenance from "../maintenance.js";
+import type * as managerCpm from "../managerCpm.js";
+import type * as managerPay from "../managerPay.js";
 import type * as marketCost from "../marketCost.js";
 import type * as marketGroups from "../marketGroups.js";
 import type * as marketMoney from "../marketMoney.js";
@@ -264,6 +266,8 @@ declare const fullApi: ApiFromModules<{
   likesNegativeMigration: typeof likesNegativeMigration;
   locales: typeof locales;
   maintenance: typeof maintenance;
+  managerCpm: typeof managerCpm;
+  managerPay: typeof managerPay;
   marketCost: typeof marketCost;
   marketGroups: typeof marketGroups;
   marketMoney: typeof marketMoney;

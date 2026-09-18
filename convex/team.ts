@@ -46,6 +46,19 @@ import {
   creatorIdOfScopeTrace,
   scopeTrace,
 } from "./creatorScope";
+import {
+  MANAGER_CPM_MAX,
+  cpmTrace,
+  managerCpmProblem,
+  parseCpmTrace,
+  type ManagerCpmProblem,
+} from "./managerCpm";
+
+const CPM_PROBLEM_FR: Record<ManagerCpmProblem, string> = {
+  not_a_number: "Le CPM doit être un nombre.",
+  not_positive: "Le CPM doit être supérieur à zéro.",
+  too_high: `Le CPM ne peut pas dépasser ${MANAGER_CPM_MAX} pour 1 000 vues.`,
+};
 
 /** Validateur des rôles : la liste fermée, jamais `v.string()`. */
 const ROLE_VALIDATOR = v.union(
@@ -134,6 +147,8 @@ export const listMembers = superadminQuery({
         // `null` = toutes les créatrices ; une liste (même vide) = celles-là.
         // Rendu tel que stocké : l'écran doit distinguer « absent » de « vide ».
         creatorScope: m.creatorScope ?? null,
+        // CPM par créatrice (convex/managerCpm). `[]` = ne rapporte rien.
+        managerCpms: m.managerCpms ?? [],
         effective: [...grantedPermissions(stored)],
         // Valeurs stockées qui n'ouvrent RIEN. Affichées telles quelles.
         ignored: stored.filter((p) => !isPermissionId(p)),
@@ -492,6 +507,67 @@ export const setMemberCreatorScope = superadminMutation({
   },
 });
 
+/**
+ * POSE LA RÉMUNÉRATION AU CPM D'UN MANAGER — un taux par créatrice.
+ *
+ * L'écran soumet l'ENSEMBLE (même doctrine que `setMemberCreatorScope`) : une
+ * créatrice absente de la liste ne rapporte plus rien. Réservé aux managers — un
+ * admin n'est pas payé par ce mécanisme, et lui poser un taux le prétendrait.
+ *
+ * Refuse une créatrice d'un autre projet, un doublon, et un taux hors bornes
+ * (`managerCpmProblem`). Un changement de taux s'écrit au journal : c'est de
+ * l'argent, il doit pouvoir dire qui l'a décidé et quand.
+ */
+export const setManagerCpms = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    membershipId: v.id("memberships"),
+    entries: v.array(v.object({ creatorId: v.id("creators"), cpm: v.number() })),
+  },
+  handler: async (ctx, { projectId, membershipId, entries }) => {
+    const m = await membershipOf(ctx, membershipId, projectId);
+    if (!hasRole(m, "manager")) {
+      throw new ConvexError(
+        `Ce membre n'a pas le rôle manager (${[...rolesOf(m)].join(", ") || "aucun rôle"}) : ` +
+          "la rémunération au CPM ne s'applique qu'aux managers.",
+      );
+    }
+    const vus = new Set<string>();
+    const apres: { creatorId: Id<"creators">; cpm: number }[] = [];
+    for (const e of entries) {
+      if (vus.has(e.creatorId)) {
+        throw new ConvexError("Une créatrice apparaît deux fois dans la liste.");
+      }
+      vus.add(e.creatorId);
+      const probleme = managerCpmProblem(e.cpm);
+      if (probleme !== null) throw new ConvexError(CPM_PROBLEM_FR[probleme]);
+      const c = await ctx.db.get(e.creatorId);
+      if (c === null || c.projectId !== projectId) {
+        throw new ConvexError("Une des créatrices choisies n'est pas dans ce projet.");
+      }
+      // Au centime près : c'est la précision affichée partout. Un taux à 0,125
+      // s'afficherait 0,13 et paierait autre chose que ce qu'on lit.
+      const cpm = Math.round(e.cpm * 100) / 100;
+      if (cpm <= 0) throw new ConvexError("Le CPM doit être d'au moins un centime.");
+      apres.push({ creatorId: e.creatorId, cpm });
+    }
+    const avant = (await ctx.db.get(membershipId))?.managerCpms;
+    await ctx.db.patch(membershipId, {
+      managerCpms: apres.length > 0 ? apres : undefined,
+    });
+    const traced = await traceDiff(
+      ctx,
+      projectId,
+      m.userId,
+      cpmTrace(avant),
+      cpmTrace(apres),
+      "écran",
+      ctx.userId,
+    );
+    return { managerCpms: apres, traced: traced.length };
+  },
+});
+
 /** Le journal d'une personne sur un projet — le plus récent d'abord. */
 export const listChanges = superadminQuery({
   args: { projectId: v.id("projects"), userId: v.id("users") },
@@ -507,16 +583,20 @@ export const listChanges = superadminQuery({
       const actor = r.actorUserId ? await ctx.db.get(r.actorUserId) : null;
       // Une ligne de périmètre porte un id de fiche : on la relit par le NOM,
       // sinon le journal dirait « périmètre:k57… » à quelqu'un qui cherche Kelly.
-      const scopedId = creatorIdOfScopeTrace(r.permission);
+      // Une ligne de CPM aussi : « CPM 0,2 — Kelly », jamais l'id brut.
+      const cpmLine = parseCpmTrace(r.permission);
+      const scopedId = cpmLine?.creatorId ?? creatorIdOfScopeTrace(r.permission);
       const scoped = scopedId ? ctx.db.normalizeId("creators", scopedId) : null;
       const fiche = scoped ? await ctx.db.get(scoped) : null;
       out.push({
         permission:
           r.permission === SCOPE_ALL_TRACE
             ? "Périmètre : toutes les créatrices"
-            : scopedId
-              ? `Périmètre : ${fiche?.name ?? "créatrice supprimée"}`
-              : r.permission,
+            : cpmLine
+              ? `CPM ${String(cpmLine.cpm).replace(".", ",")} / 1 000 vues : ${fiche?.name ?? "créatrice supprimée"}`
+              : scopedId
+                ? `Périmètre : ${fiche?.name ?? "créatrice supprimée"}`
+                : r.permission,
         granted: r.granted,
         at: r.at,
         // L'e-mail quand le geste est signé, l'étiquette sinon (« cli »).
