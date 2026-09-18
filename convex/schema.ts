@@ -706,6 +706,12 @@ export default defineSchema({
     // isWarmup=true + remunere=true → PAYÉ (remunere) mais HORS promo (isWarmup,
     // cf vues_promo LOT 3/4). Posé par l'ADMIN ; même verrou de paie que isWarmup.
     remunere: v.optional(v.boolean()),
+    // POST POUSSÉ EN PUB (spark ad) — minuit Paris du jour de lancement, posé
+    // par l'admin. À partir de là l'assiette de paie (CPM, paliers, CPM manager)
+    // et le score de défi sont figés au dernier relevé AVANT (cf
+    // convex/payWindow.payCutoffAt). Le relevé, lui, continue : on garde la
+    // mesure. Absent = post organique, paie inchangée. Même verrou que isWarmup.
+    sparkAdLaunchedAt: v.optional(v.number()),
     // ─── S3 — Raccord combo de script ↔ publication ────────────────────────
     // Copié depuis assignment.scriptCombo + comboKey À LA MATÉRIALISATION d'un
     // post de SCRIPT validé (validateAssignment, branche script). C'EST le lien

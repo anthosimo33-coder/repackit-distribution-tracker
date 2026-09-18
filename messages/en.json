@@ -1326,6 +1326,7 @@
     "ERR_PAYMENT_REVERT_USED": "This cycle has already been reverted once: there is no second revert.",
     "ERR_PAYOUT_DAY_INVALID": "The payout day has to be a whole number between 1 and 28.",
     "ERR_PAY_CYCLE_LOCKED": "This post's pay cycle{hasRange, select, yes { from {startDate} to {endDate}} other {}} is closed{paid, select, yes {, paid on {paidDate}} other { (already paid)}}: {what} is locked. The amount already paid is never recomputed — changing this setting would make the display drift from what was actually paid.",
+    "ERR_SPARK_AD_DATE_INVALID": "Invalid ad launch date: it can't be before the post was published.",
     "ERR_PERMISSION_DENIED": "You don't have this permission. Ask an administrator for access.",
     "ERR_PERSON_ALREADY_EXISTS": "This person already exists.",
     "ERR_PERSON_NAMES_REQUIRED": "First and last name required.",
@@ -1450,7 +1451,8 @@
     "locked": {
       "trackingLink": "the tracking link",
       "warmupSetting": "the warm-up setting",
-      "remuneration": "the pay"
+      "remuneration": "the pay",
+      "sparkAd": "the ad date"
     }
   }
 }

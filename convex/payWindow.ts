@@ -105,6 +105,54 @@ export function payWindowIsClosed(datePubli: number, now: number): boolean {
   return now >= payWindowEndsAt(datePubli);
 }
 
+/**
+ * POST POUSSÉ EN PUB (spark ad) — la seconde borne de l'assiette.
+ *
+ * Une spark ad diffuse le post ORGANIQUE lui-même : les vues payées par la pub
+ * s'ajoutent à son compteur public, que le relevé lit comme n'importe quelle
+ * vue. Sans cette borne, la créatrice (et son manager) seraient rémunérés sur la
+ * diffusion que l'on a soi-même achetée.
+ *
+ * LA RÈGLE. À partir de `adLaunchedAt` (minuit Paris du jour de lancement,
+ * saisi par l'admin), l'assiette est figée au DERNIER relevé pris AVANT — même
+ * mécanique que J+30, avec une borne plus tôt. La borne effective est la plus
+ * proche des deux : une pub lancée après J+30 ne change rien (déjà figé).
+ *
+ * ⚠️ ICI LE ZÉRO EST ASSUMÉ, contrairement à `unmeasured`. Un post poussé en pub
+ * sans aucun relevé avant le lancement ne peut pas être séparé de sa pub : payer
+ * ses vues mesurées reviendrait à payer la pub. L'écran admin le DIT (0 vue
+ * retenue, aucun relevé avant la pub).
+ */
+export function adCutsPayWindow(
+  datePubli: number,
+  adLaunchedAt: number | null | undefined,
+): adLaunchedAt is number {
+  return (
+    adLaunchedAt !== null &&
+    adLaunchedAt !== undefined &&
+    adLaunchedAt < payWindowEndsAt(datePubli)
+  );
+}
+
+/** Premier instant EXCLU de l'assiette : J+31 ou le lancement de pub, le plus tôt. */
+export function payCutoffAt(
+  datePubli: number,
+  adLaunchedAt?: number | null,
+): number {
+  return adCutsPayWindow(datePubli, adLaunchedAt)
+    ? adLaunchedAt
+    : payWindowEndsAt(datePubli);
+}
+
+/** L'assiette du post est-elle figée à l'instant `now` (J+30 OU pub) ? */
+export function payCutoffReached(
+  datePubli: number,
+  adLaunchedAt: number | null | undefined,
+  now: number,
+): boolean {
+  return now >= payCutoffAt(datePubli, adLaunchedAt);
+}
+
 /** Le relevé retenu : le DERNIER de la fenêtre. `null` = aucun. */
 export type WindowSnapshot = {
   vues: number;
@@ -119,9 +167,11 @@ export type RetainedViews = {
    * `open`       : fenêtre en cours, la paie suit les vues (cas nominal) ;
    * `closed`     : fenêtre close, l'assiette est figée au relevé retenu ;
    * `unmeasured` : fenêtre close mais jamais relevée dedans → on retient les
-   *                vues mesurées, et l'écran doit le DIRE (≠ plafonné).
+   *                vues mesurées, et l'écran doit le DIRE (≠ plafonné) ;
+   * `adFrozen`   : post poussé en pub avant J+30 → assiette figée au dernier
+   *                relevé avant le lancement (0 s'il n'y en a aucun).
    */
-  status: "open" | "closed" | "unmeasured";
+  status: "open" | "closed" | "unmeasured" | "adFrozen";
   /** Jour du relevé retenu (`closed` uniquement), pour l'affichage. */
   retainedAtDay: number | null;
   /** Vues acquises HORS fenêtre (mesurées − retenues), ≥ 0. */
@@ -139,11 +189,36 @@ export function retainedViews(input: {
   datePubli: number;
   /** Vues mesurées les plus récentes (`publications.vuesLatest`). */
   measuredViews: number;
-  /** Dernier relevé de la fenêtre, `null` s'il n'y en a aucun. */
+  /**
+   * Dernier relevé AVANT la borne (`payCutoffAt`), `null` s'il n'y en a aucun.
+   * L'appelant le lit avec la MÊME borne que celle passée ici.
+   */
   windowSnapshot: WindowSnapshot | null;
   now: number;
+  /** Lancement de la spark ad (`publications.sparkAdLaunchedAt`), absent sinon. */
+  adLaunchedAt?: number | null;
 }): RetainedViews {
   const measured = Math.max(0, input.measuredViews);
+  if (!payCutoffReached(input.datePubli, input.adLaunchedAt, input.now)) {
+    return {
+      views: measured,
+      status: "open",
+      retainedAtDay: null,
+      viewsOutsideWindow: 0,
+    };
+  }
+  if (adCutsPayWindow(input.datePubli, input.adLaunchedAt)) {
+    const views = Math.min(
+      measured,
+      Math.max(0, input.windowSnapshot?.vues ?? 0),
+    );
+    return {
+      views,
+      status: "adFrozen",
+      retainedAtDay: input.windowSnapshot?.daysSincePublication ?? null,
+      viewsOutsideWindow: measured - views,
+    };
+  }
   if (!payWindowIsClosed(input.datePubli, input.now)) {
     return {
       views: measured,
@@ -179,6 +254,10 @@ export function retainedViews(input: {
  * `closed` reste faux tant qu'aucun post rémunéré n'a de fenêtre close ET
  * mesurée : un post `unmeasured` n'est pas plafonné (on retient ses vues), donc
  * il n'y a rien à annoncer.
+ *
+ * ⚠️ UN POST `adFrozen` N'Y ENTRE PAS. Ce calcul nourrit le message « plus de
+ * 30 jours » de l'espace créatrice ; y compter la pub lui ferait lire un plafond
+ * J+30 sur une vidéo de 10 jours. Le gel pub reste une information admin.
  */
 export function aggregatePayWindow(
   posts: readonly { retained: RetainedViews; isPaid: boolean }[],
@@ -187,6 +266,7 @@ export function aggregatePayWindow(
   let viewsOutsideWindow = 0;
   for (const p of posts) {
     if (!p.isPaid) continue;
+    if (p.retained.status === "adFrozen") continue;
     if (p.retained.status === "closed") closed = true;
     viewsOutsideWindow += p.retained.viewsOutsideWindow;
   }

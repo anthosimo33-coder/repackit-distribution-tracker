@@ -18,8 +18,8 @@ import { isRemunerated, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
 import {
   aggregatePayWindow,
-  payWindowEndsAt,
-  payWindowIsClosed,
+  payCutoffAt,
+  payCutoffReached,
   retainedViews,
   type RetainedViews,
 } from "./payWindow";
@@ -552,13 +552,17 @@ export async function assignmentViewsAndMetrics(
     // cas. Le `now` est le MÊME que celui passé à `retainedViews` juste après :
     // les deux doivent lire la même fenêtre, sinon on se met à sauter des
     // lectures dont le calcul, lui, aurait besoin.
-    const windowSnapshot = payWindowIsClosed(pub.datePubli, now)
+    //
+    // La borne est J+31 OU le lancement d'une spark ad, le plus tôt des deux
+    // (cf payCutoffAt) — la MÊME valeur est passée à `retainedViews`.
+    const adLaunchedAt = pub.sparkAdLaunchedAt ?? null;
+    const windowSnapshot = payCutoffReached(pub.datePubli, adLaunchedAt, now)
       ? await ctx.db
           .query("metricSnapshots")
           .withIndex("by_publication_and_capturedAt", (q) =>
             q
               .eq("publicationId", pid)
-              .lt("capturedAt", payWindowEndsAt(pub.datePubli)),
+              .lt("capturedAt", payCutoffAt(pub.datePubli, adLaunchedAt)),
           )
           .order("desc")
           .first()
@@ -568,6 +572,7 @@ export async function assignmentViewsAndMetrics(
       measuredViews: measured,
       windowSnapshot,
       now,
+      adLaunchedAt,
     });
     const flags = {
       isWarmup: pub.isWarmup === true,
@@ -657,10 +662,16 @@ export async function payableViewsAsOf(
     seen.add(pid);
     const pub = cache?.pubs?.get(pid as string) ?? (await ctx.db.get(pid));
     if (!pub) continue;
+    // Post poussé en pub : rien de ce qui suit le lancement ne compte, même
+    // pour un mois clos après (cf payCutoffAt).
+    const bound =
+      pub.sparkAdLaunchedAt !== undefined
+        ? Math.min(asOfMs + 1, pub.sparkAdLaunchedAt)
+        : asOfMs + 1;
     const snap = await ctx.db
       .query("metricSnapshots")
       .withIndex("by_publication_and_capturedAt", (q) =>
-        q.eq("publicationId", pid).lte("capturedAt", asOfMs),
+        q.eq("publicationId", pid).lt("capturedAt", bound),
       )
       .order("desc")
       .first();

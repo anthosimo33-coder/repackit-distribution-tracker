@@ -55,6 +55,7 @@
     "components/ProfitabilityCard.tsx",
     "components/PublicationDetailDialog.tsx",
     "components/PublicationEditDialog.tsx",
+    "components/SparkAdBadge.tsx",
     "components/admin/ActionDashboard.tsx",
     "components/admin/AdminPublishForm.tsx",
     "components/admin/ApifySyncButton.tsx",
