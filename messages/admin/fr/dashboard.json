@@ -137,7 +137,7 @@
     "commentaires": "Commentaires",
     "engagementRate": "Engagement rate",
     "chargement": "Chargement…",
-    "postPublie": "{count} {count, plural, one {post} other {posts}} {count, plural, one {publié} other {publiés}}",
+    "postsPublies": "{count, plural, one {Post publié} other {Posts publiés}}",
     "sansCreateur": "Sans créateur",
     "sansFormat": "Sans format",
     "archivee": "{name} (archivée)",

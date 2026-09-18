@@ -178,6 +178,26 @@ export function computeGlobalStats(
   };
 }
 
+/** Plateformes du tracker, dans l'ordre d'affichage. */
+export const TRACKER_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+export type TrackerPlatform = (typeof TRACKER_PLATFORMS)[number];
+
+/**
+ * Nombre de posts par plateforme, dans l'ordre de TRACKER_PLATFORMS, SANS les
+ * plateformes à zéro (la carte n'affiche pas « YouTube 0 »). `share` = part du
+ * total, pour la largeur de la barre ; la somme des `count` = posts.length.
+ */
+export function countPostsByPlatform(
+  posts: readonly { plateforme: TrackerPlatform }[],
+): { platform: TrackerPlatform; count: number; share: number }[] {
+  const counts = new Map<TrackerPlatform, number>();
+  for (const p of posts) counts.set(p.plateforme, (counts.get(p.plateforme) ?? 0) + 1);
+  return TRACKER_PLATFORMS.flatMap((platform) => {
+    const count = counts.get(platform) ?? 0;
+    return count === 0 ? [] : [{ platform, count, share: count / posts.length }];
+  });
+}
+
 export type CategoryItem = MetricTriple & {
   /** Clé de regroupement (id de créateur, nom de plateforme, mediaType…). */
   key: string;
