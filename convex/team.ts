@@ -486,11 +486,28 @@ export const setMemberCreatorScope = superadminMutation({
           "le périmètre ne s'applique qu'aux managers.",
       );
     }
-    const apres = creatorScope === null ? null : [...new Set(creatorScope)];
-    for (const id of apres ?? []) {
-      const c = await ctx.db.get(id);
-      if (c === null || c.projectId !== projectId) {
-        throw new ConvexError("Une des créatrices choisies n'est pas dans ce projet.");
+    // Une fiche SUPPRIMÉE depuis est retirée sans bruit : elle n'existe plus, il
+    // n'y a rien à gérer, et l'écran ne peut même plus l'afficher. La refuser
+    // bloquait tout enregistrement de la liste sans que personne sache qui
+    // décocher. Une fiche d'un AUTRE projet, elle, est refusée — nommément.
+    let retirees = 0;
+    let apres: Id<"creators">[] | null = null;
+    if (creatorScope !== null) {
+      apres = [];
+      for (const id of new Set(creatorScope)) {
+        const c = await ctx.db.get(id);
+        if (c === null) {
+          retirees += 1;
+          continue;
+        }
+        if (c.projectId !== projectId) {
+          const autre = await ctx.db.get(c.projectId);
+          throw new ConvexError(
+            `« ${c.name} » est une créatrice du projet ${autre?.name ?? "d'un autre projet"}, ` +
+              "pas de celui-ci : décoche-la.",
+          );
+        }
+        apres.push(id);
       }
     }
     const avant = (await ctx.db.get(membershipId))?.creatorScope;
@@ -505,7 +522,7 @@ export const setMemberCreatorScope = superadminMutation({
       "écran",
       ctx.userId,
     );
-    return { creatorScope: apres, traced: traced.length };
+    return { creatorScope: apres, traced: traced.length, retirees };
   },
 });
 
@@ -544,8 +561,11 @@ export const setManagerCpms = superadminMutation({
       const probleme = managerCpmProblem(e.cpm);
       if (probleme !== null) throw new ConvexError(CPM_PROBLEM_FR[probleme]);
       const c = await ctx.db.get(e.creatorId);
-      if (c === null || c.projectId !== projectId) {
-        throw new ConvexError("Une des créatrices choisies n'est pas dans ce projet.");
+      // Fiche supprimée : plus aucune vidéo à venir, rien à tarifer. On l'ignore
+      // (son historique de taux est gardé tel quel pour ses vidéos conservées).
+      if (c === null) continue;
+      if (c.projectId !== projectId) {
+        throw new ConvexError(`« ${c.name} » n'est pas une créatrice de ce projet.`);
       }
       // Au centime près : c'est la précision affichée partout. Un taux à 0,125
       // s'afficherait 0,13 et paierait autre chose que ce qu'on lit.

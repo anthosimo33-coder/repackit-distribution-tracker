@@ -1125,6 +1125,23 @@ export const deleteCreator = permissionMutation("creators.delete")({
       }
     }
 
+    // 5 bis. Retirer la fiche des PÉRIMÈTRES des managers du projet. Sinon l'id
+    //    reste dans leur liste, invisible à l'écran (plus de fiche à afficher),
+    //    et fait refuser le prochain enregistrement de cette liste. Le taux de
+    //    CPM (`managerCpms`), lui, est CONSERVÉ : les vidéos gardées de cette
+    //    créatrice ont déjà rapporté au manager, l'historique ne doit pas fondre.
+    const projectMemberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect();
+    for (const m of projectMemberships) {
+      if (m.creatorScope?.includes(id)) {
+        await ctx.db.patch(m._id, {
+          creatorScope: m.creatorScope.filter((c) => c !== id),
+        });
+      }
+    }
+
     // 6. Supprimer la fiche créateur (hard-delete).
     await ctx.db.delete(id);
 

@@ -634,10 +634,18 @@ function PerimetreCreatrices({ membre }: { membre: Membre }) {
   const [recherche, setRecherche] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Ids cochés dont la fiche n'existe plus (créatrice supprimée depuis) : ils
+  // ne s'affichent pas, ne comptent pas, et partent au prochain enregistrement.
+  const supprimees =
+    candidates === undefined
+      ? []
+      : choix.filter((id) => !candidates.some((c) => c._id === id));
+  const choixValides = choix.filter((id) => !supprimees.includes(id));
   const modifie =
     toutes !== (stocke === null) ||
     (!toutes &&
-      (choix.length !== (stocke ?? []).length ||
+      (supprimees.length > 0 ||
+        choix.length !== (stocke ?? []).length ||
         choix.some((c) => !(stocke ?? []).includes(c))));
 
   const visibles = useMemo(() => {
@@ -650,11 +658,17 @@ function PerimetreCreatrices({ membre }: { membre: Membre }) {
   async function go() {
     setBusy(true);
     try {
-      await enregistrer({
+      const res = await enregistrer({
         membershipId: membre.membershipId,
-        creatorScope: toutes ? null : choix,
+        creatorScope: toutes ? null : choixValides,
       });
-      toast.success(`Créatrices de ${membre.email} mises à jour`);
+      setChoix(choixValides);
+      toast.success(
+        `Créatrices de ${membre.email} mises à jour` +
+          (res.retirees > 0 || supprimees.length > 0
+            ? ` — fiche supprimée retirée de sa liste`
+            : ""),
+      );
     } catch (e) {
       toast.error(convexErrorMessage(e, "Échec de la mise à jour des créatrices"));
     } finally {
@@ -705,7 +719,21 @@ function PerimetreCreatrices({ membre }: { membre: Membre }) {
             geste sur elle. Le Dashboard et le Tracker restent à l&apos;échelle du
             projet. Une créatrice qu&apos;il invite lui-même s&apos;ajoute ici.
           </p>
-          {choix.length === 0 && (
+          {supprimees.length > 0 && (
+            <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+              <div>
+                <strong>
+                  {supprimees.length === 1
+                    ? "1 créatrice de sa liste a été supprimée"
+                    : `${supprimees.length} créatrices de sa liste ont été supprimées`}
+                </strong>{" "}
+                (sa fiche n&apos;existe plus, elle ne peut donc pas s&apos;afficher ici).
+                Elle sera retirée de sa liste au prochain enregistrement.
+              </div>
+            </div>
+          )}
+          {choixValides.length === 0 && (
             <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
               <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
               <div>
@@ -723,7 +751,7 @@ function PerimetreCreatrices({ membre }: { membre: Membre }) {
               className="h-8 max-w-xs"
             />
             <span className="text-xs text-slate-400">
-              {choix.length} cochée{choix.length > 1 ? "s" : ""}
+              {choixValides.length} cochée{choixValides.length > 1 ? "s" : ""}
             </span>
           </div>
           {candidates === undefined ? (
