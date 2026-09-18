@@ -60,6 +60,11 @@ export async function cleanupTestData() {
       () => client.mutation(api.personnes.cleanupTestPersonnes, { secret }),
     ],
     ["icps", () => client.mutation(api.icps.cleanupTestIcps, { secret })],
+    // Liens publics de test (marqueur [E2E_TEST] dans le nom).
+    [
+      "publicShares",
+      () => client.mutation(api.publicShares.cleanupTestShares, { secret }),
+    ],
     // Paiements (P8) — liés aux créateurs de test, supprimés avant eux.
     [
       "payments",

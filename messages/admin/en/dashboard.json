@@ -3,7 +3,8 @@
     "bonjour": "Hi",
     "vueTracker": "Tracker view",
     "voiciCeQuiDemandeTon": "Here's what needs your attention.",
-    "dataDesPostsPublies": "{today} — data from published posts"
+    "dataDesPostsPublies": "{today} — data from published posts",
+    "partager": "Share"
   },
   "ViewToggle": {
     "vueDuDashboard": "Dashboard view",
@@ -206,5 +207,112 @@
     "exclude": "Excluding warm-up",
     "all": "All",
     "only": "Warm-up only"
+  },
+  "ShareMode": {
+    "title": "Share mode",
+    "for": "For",
+    "audience": {
+      "label": "Recipient",
+      "brand": "A brand",
+      "creator": "A creator",
+      "pickCreator": "Pick the creator"
+    },
+    "links": "{count, plural, =0 {Shared links} one {# active link} other {# active links}}",
+    "exit": "Exit",
+    "period": {
+      "label": "Period",
+      "days": "{days} d",
+      "fixed": "Fixed dates",
+      "all": "All time",
+      "from": "From",
+      "to": "To"
+    },
+    "campaigns": "Campaigns",
+    "platforms": "Platforms",
+    "creators": "Creators",
+    "all": "All",
+    "warmup": {
+      "label": "Warmup",
+      "exclude": "Excluding warmup",
+      "all": "Everything",
+      "only": "Warmup only"
+    },
+    "previewLabel": "What they'll see — click an eye to show or hide a block",
+    "device": {
+      "label": "Preview size",
+      "desktop": "Desktop",
+      "phone": "Phone"
+    },
+    "pickDates": "Pick both dates of the period.",
+    "block": {
+      "include": "Show this block",
+      "exclude": "Hide this block",
+      "quadrantTitle": "Views × intent quadrant",
+      "quadrantBody": "Internal: its verdicts are never shared."
+    },
+    "recap": {
+      "title": "This link will show",
+      "blocks": "{count, plural, =0 {No blocks} one {# block} other {# blocks}}, quadrant excluded",
+      "onlyCreator": "Only {name}'s posts: other creators don't exist for her",
+      "pickCreator": "Pick the creator who will receive this link.",
+      "namesShown": "Creators' real names",
+      "anonymized": "Anonymized creators (Creator A, B, C…)",
+      "linksRevealHandles": "Links to the posts: they reveal the accounts (@handle)",
+      "noHandles": "No account @handle",
+      "noMoney": "No amounts, ever (no pay, no earnings)",
+      "live": "Numbers refresh on every visit, scope stays fixed",
+      "posts": "{count, plural, =0 {No posts} one {# post} other {# posts}} in scope today"
+    },
+    "options": {
+      "names": "Show creators' names",
+      "links": "Links to the posts",
+      "linksHint": "A TikTok or Instagram link contains the account's @handle."
+    },
+    "name": "Link name",
+    "defaultNameBrand": "Performance report",
+    "defaultNameCreator": "Your performance — {name}",
+    "expiry": {
+      "label": "Expires",
+      "30": "In 30 days",
+      "90": "In 90 days",
+      "never": "Never"
+    },
+    "create": "Create link",
+    "noBlock": "Show at least one block.",
+    "createError": "Couldn't create the link.",
+    "created": {
+      "title": "Link created",
+      "body": "Anyone with this link sees exactly the preview, without an account. You can revoke it anytime.",
+      "url": "Link address",
+      "copy": "Copy",
+      "copied": "Copied",
+      "open": "Open",
+      "done": "Done"
+    }
+  },
+  "ShareLinks": {
+    "title": "Shared links",
+    "description": "This project's public links. Revoking cuts access immediately.",
+    "empty": "No links yet.",
+    "audienceBrand": "Brand",
+    "audienceCreator": "Creator: {name}",
+    "createdOn": "created {date}",
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "revoked": "Revoked",
+      "unavailable": "Unavailable"
+    },
+    "neverOpened": "Never opened",
+    "opens": "{count, plural, one {# visit} other {# visits}} · last on {date}",
+    "expiresOn": "expires {date}",
+    "copy": "Copy link",
+    "copied": "Copied",
+    "open": "Open",
+    "revoke": "Revoke",
+    "confirmRevoke": "Confirm revoke",
+    "cancel": "Cancel",
+    "revoked": "Link revoked",
+    "revokeError": "Couldn't revoke the link."
   }
 }

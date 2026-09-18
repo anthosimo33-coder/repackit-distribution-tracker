@@ -1382,7 +1382,7 @@
     "ERR_SEARCH_KEYWORD_REQUIRED": "Type a keyword to search for.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campaign not found in the project.",
     "ERR_SHARE_CREATOR_REQUIRED": "Pick the creator who will receive this link.",
-    "ERR_SHARE_EXPIRY_PAST": "The expiry date is already in the past.",
+    "ERR_SHARE_EXPIRY_INVALID": "Invalid expiry: 1 to 365 days.",
     "ERR_SHARE_NAME_INVALID": "Give the link a name (120 characters max).",
     "ERR_SHARE_NOT_FOUND": "Link not found.",
     "ERR_SHARE_NO_BLOCK": "Pick at least one block to share.",
@@ -1461,5 +1461,44 @@
       "remuneration": "the pay",
       "sparkAd": "the ad date"
     }
+  },
+  "publicShare": {
+    "poweredBy": "Powered by Jarvia",
+    "noCreator": "No creator",
+    "creatorAnon": "Creator {letter}",
+    "kpi": {
+      "views": "Views",
+      "likes": "Likes",
+      "comments": "Comments",
+      "engagement": "Engagement"
+    },
+    "daily": {
+      "title": "Views gained per day",
+      "empty": "Not enough data points yet to draw the curve."
+    },
+    "byPlatform": {
+      "title": "Views by platform"
+    },
+    "byCreator": {
+      "title": "Views by creator"
+    },
+    "posts": {
+      "title": "Top posts",
+      "count": "{count, plural, one {# published post} other {# published posts}}",
+      "empty": "No posts published in this period.",
+      "untitled": "(untitled)",
+      "open": "View post",
+      "interactions": "{likes} likes · {comments} comments"
+    },
+    "period": {
+      "all": "All time",
+      "range": "{from} → {to}"
+    },
+    "updated": "updated {ago}",
+    "invalid": {
+      "title": "This link is no longer available",
+      "body": "It has expired or been turned off. Ask the person who sent it for a new one."
+    },
+    "loading": "Loading…"
   }
 }

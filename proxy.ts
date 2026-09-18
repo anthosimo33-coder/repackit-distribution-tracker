@@ -37,6 +37,10 @@ const isPublicPage = createRouteMatcher([
   // Reset mot de passe (Voie B) : lien à usage unique, pré-session comme /join.
   "/reset-password",
   "/reset-password/(.*)",
+  // Lien public d'un dashboard (/s/<token>) : lu par une marque ou une
+  // créatrice SANS compte, et par les robots d'aperçu (WhatsApp, Slack…) qui
+  // viennent chercher la page et son image. Le jeton est la seule clé.
+  "/s/(.*)",
 ]);
 
 // « Rester connecté » 90 jours : rend le cookie d'auth PERSISTANT. Sans maxAge,

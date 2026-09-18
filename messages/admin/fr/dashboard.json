@@ -3,7 +3,8 @@
     "bonjour": "Bonjour",
     "vueTracker": "Vue tracker",
     "voiciCeQuiDemandeTon": "Voici ce qui demande ton attention.",
-    "dataDesPostsPublies": "{today} — data des posts publiés"
+    "dataDesPostsPublies": "{today} — data des posts publiés",
+    "partager": "Partager"
   },
   "ViewToggle": {
     "vueDuDashboard": "Vue du dashboard",
@@ -206,5 +207,112 @@
     "exclude": "Hors warmup",
     "all": "Tous",
     "only": "Warmup seulement"
+  },
+  "ShareMode": {
+    "title": "Mode partage",
+    "for": "Pour",
+    "audience": {
+      "label": "Destinataire",
+      "brand": "Une marque",
+      "creator": "Une créatrice",
+      "pickCreator": "Choisir la créatrice"
+    },
+    "links": "{count, plural, =0 {Liens partagés} one {# lien actif} other {# liens actifs}}",
+    "exit": "Quitter",
+    "period": {
+      "label": "Période",
+      "days": "{days} j",
+      "fixed": "Dates fixes",
+      "all": "Tout",
+      "from": "Du",
+      "to": "Au"
+    },
+    "campaigns": "Campagnes",
+    "platforms": "Plateformes",
+    "creators": "Créatrices",
+    "all": "Toutes",
+    "warmup": {
+      "label": "Chauffe",
+      "exclude": "Hors chauffe",
+      "all": "Tout",
+      "only": "Chauffe seulement"
+    },
+    "previewLabel": "Ce qu'ils verront — clique sur un œil pour montrer ou cacher un bloc",
+    "device": {
+      "label": "Format de l'aperçu",
+      "desktop": "Ordinateur",
+      "phone": "Téléphone"
+    },
+    "pickDates": "Choisis les deux dates de la période.",
+    "block": {
+      "include": "Montrer ce bloc",
+      "exclude": "Cacher ce bloc",
+      "quadrantTitle": "Quadrant vues × intent",
+      "quadrantBody": "Interne : ses verdicts ne sont jamais partagés."
+    },
+    "recap": {
+      "title": "Ce lien va montrer",
+      "blocks": "{count, plural, =0 {Aucun bloc} one {# bloc} other {# blocs}}, quadrant exclu",
+      "onlyCreator": "Uniquement les posts de {name} : les autres créatrices n'existent pas pour elle",
+      "pickCreator": "Choisis la créatrice qui recevra ce lien.",
+      "namesShown": "Les vrais noms des créatrices",
+      "anonymized": "Créatrices anonymisées (Créatrice A, B, C…)",
+      "linksRevealHandles": "Des liens vers les posts : ils révèlent les comptes (@handle)",
+      "noHandles": "Aucun @handle de compte",
+      "noMoney": "Aucun montant, jamais (ni paie, ni gains)",
+      "live": "Chiffres à jour à chaque ouverture, périmètre figé",
+      "posts": "{count, plural, =0 {Aucun post} one {# post} other {# posts}} dans le périmètre aujourd'hui"
+    },
+    "options": {
+      "names": "Montrer les noms des créatrices",
+      "links": "Liens vers les posts",
+      "linksHint": "Le lien TikTok ou Instagram contient le @handle du compte."
+    },
+    "name": "Nom du lien",
+    "defaultNameBrand": "Rapport de performance",
+    "defaultNameCreator": "Tes performances — {name}",
+    "expiry": {
+      "label": "Expiration",
+      "30": "Dans 30 jours",
+      "90": "Dans 90 jours",
+      "never": "Jamais"
+    },
+    "create": "Créer le lien",
+    "noBlock": "Montre au moins un bloc.",
+    "createError": "Le lien n'a pas pu être créé.",
+    "created": {
+      "title": "Lien créé",
+      "body": "Toute personne qui a ce lien voit exactement l'aperçu, sans compte. Tu peux le révoquer à tout moment.",
+      "url": "Adresse du lien",
+      "copy": "Copier",
+      "copied": "Copié",
+      "open": "Ouvrir",
+      "done": "Terminé"
+    }
+  },
+  "ShareLinks": {
+    "title": "Liens partagés",
+    "description": "Les liens publics de ce projet. Révoquer coupe l'accès immédiatement.",
+    "empty": "Aucun lien pour l'instant.",
+    "audienceBrand": "Marque",
+    "audienceCreator": "Créatrice : {name}",
+    "createdOn": "créé le {date}",
+    "status": {
+      "active": "Actif",
+      "expired": "Expiré",
+      "revoked": "Révoqué",
+      "unavailable": "Indisponible"
+    },
+    "neverOpened": "Jamais ouvert",
+    "opens": "{count, plural, one {# ouverture} other {# ouvertures}} · dernière le {date}",
+    "expiresOn": "expire le {date}",
+    "copy": "Copier le lien",
+    "copied": "Copié",
+    "open": "Ouvrir",
+    "revoke": "Révoquer",
+    "confirmRevoke": "Confirmer la révocation",
+    "cancel": "Annuler",
+    "revoked": "Lien révoqué",
+    "revokeError": "La révocation a échoué."
   }
 }

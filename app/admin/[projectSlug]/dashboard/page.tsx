@@ -5,6 +5,10 @@ import { ActionDashboard } from "@/components/admin/ActionDashboard";
 import { YouTubeSyncButton } from "@/components/admin/YouTubeSyncButton";
 import { ApifySyncButton } from "@/components/admin/ApifySyncButton";
 import { TrackerDataView } from "@/components/tracker/TrackerDataView";
+import { TrackerShareMode } from "@/components/share/TrackerShareMode";
+import { usePermissions } from "@/components/project/use-permissions";
+import { Button } from "@/components/ui/button";
+import { Share2Icon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -24,6 +28,11 @@ export default function DashboardPage() {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.dashboard.DashboardPage");
   const [view, setView] = useState<DashboardView>("action");
+  // Mode partage : le Tracker cède la place à son aperçu public (cf
+  // TrackerShareMode). Réservé au bloc `content.share`.
+  const [sharing, setSharing] = useState(false);
+  const droits = usePermissions();
+  const canShare = droits.has("content.share");
 
   const today = new Date().toLocaleDateString(loc, {
     day: "2-digit",
@@ -44,14 +53,28 @@ export default function DashboardPage() {
               : tr("dataDesPostsPublies", { today: today })}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {view === "tracker" && <YouTubeSyncButton />}
-          {view === "tracker" && <ApifySyncButton />}
-          <ViewToggle value={view} onChange={setView} />
-        </div>
+        {!sharing && (
+          <div className="flex items-center gap-3">
+            {view === "tracker" && <YouTubeSyncButton />}
+            {view === "tracker" && <ApifySyncButton />}
+            {view === "tracker" && canShare && (
+              <Button size="sm" onClick={() => setSharing(true)}>
+                <Share2Icon className="size-4" aria-hidden />
+                {tr("partager")}
+              </Button>
+            )}
+            <ViewToggle value={view} onChange={setView} />
+          </div>
+        )}
       </header>
 
-      {view === "action" ? <ActionDashboard /> : <TrackerDataView />}
+      {view === "action" ? (
+        <ActionDashboard />
+      ) : sharing ? (
+        <TrackerShareMode onExit={() => setSharing(false)} />
+      ) : (
+        <TrackerDataView />
+      )}
     </div>
   );
 }

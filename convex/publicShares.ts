@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import {
+  e2eMutation,
   permissionMutation,
   permissionQuery,
   publicMutation,
@@ -318,7 +319,9 @@ export const createShare = permissionMutation("content.share")({
   args: {
     ...configArgs,
     name: v.string(),
-    expiresAt: v.optional(v.number()),
+    // En JOURS, et l'échéance est calculée ICI : l'horloge qui compte est celle
+    // du serveur, pas celle du poste qui crée le lien.
+    expiresInDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const name = args.name.trim();
@@ -326,9 +329,18 @@ export const createShare = permissionMutation("content.share")({
       throw err(ERR.SHARE_NAME_INVALID, "Donne un nom au lien (120 caractères au plus).");
     }
     const now = Date.now();
-    if (args.expiresAt !== undefined && args.expiresAt <= now) {
-      throw err(ERR.SHARE_EXPIRY_PAST, "La date d'expiration est déjà passée.");
+    if (
+      args.expiresInDays !== undefined &&
+      !(Number.isInteger(args.expiresInDays) &&
+        args.expiresInDays >= 1 &&
+        args.expiresInDays <= 365)
+    ) {
+      throw err(ERR.SHARE_EXPIRY_INVALID, "Expiration : de 1 à 365 jours.");
     }
+    const expiresAt =
+      args.expiresInDays === undefined
+        ? undefined
+        : now + args.expiresInDays * 24 * 60 * 60 * 1000;
     const cfg: ShareConfig = {
       audience: args.audience,
       creatorId: args.audience === "creator" ? args.creatorId : undefined,
@@ -359,7 +371,7 @@ export const createShare = permissionMutation("content.share")({
       blocks: cfg.blocks,
       showCreatorNames: cfg.showCreatorNames,
       postLinks: cfg.postLinks,
-      expiresAt: args.expiresAt,
+      expiresAt,
       createdBy: ctx.userId,
       createdAt: now,
       openCount: 0,
@@ -379,6 +391,11 @@ export const listShares = permissionQuery("content.share")({
     const out = [];
     for (const s of rows.sort((a, b) => b.createdAt - a.createdAt)) {
       const creator = s.creatorId ? await ctx.db.get(s.creatorId) : null;
+      // Un lien de créatrice dont la fiche a disparu ne montre plus rien
+      // (cf buildPublicPayload) : l'afficher « Actif » serait mentir.
+      const orphan =
+        s.audience === "creator" &&
+        (creator === null || creator.projectId !== ctx.projectId);
       out.push({
         _id: s._id,
         token: s.token,
@@ -392,7 +409,15 @@ export const listShares = permissionQuery("content.share")({
         createdAt: s.createdAt,
         expiresAt: s.expiresAt ?? null,
         revokedAt: s.revokedAt ?? null,
-        active: shareStatus(s, now) === "valid",
+        status:
+          s.revokedAt !== undefined
+            ? ("revoked" as const)
+            : shareStatus(s, now) === "invalid"
+              ? ("expired" as const)
+              : orphan
+                ? ("unavailable" as const)
+                : ("active" as const),
+        active: shareStatus(s, now) === "valid" && !orphan,
         openCount: s.openCount,
         lastOpenedAt: s.lastOpenedAt ?? null,
       });
@@ -469,5 +494,20 @@ export const recordShareOpen = publicMutation({
     if (shareStatus(s, now) === "invalid") return null;
     await ctx.db.patch(s._id, { openCount: s.openCount + 1, lastOpenedAt: now });
     return null;
+  },
+});
+
+/** Nettoyage e2e : les liens dont le nom porte le marqueur de test. */
+export const cleanupTestShares = e2eMutation({
+  args: {},
+  handler: async (ctx) => {
+    let deleted = 0;
+    for (const s of await ctx.db.query("publicShares").collect()) {
+      if (s.name.startsWith("[E2E_TEST]")) {
+        await ctx.db.delete(s._id);
+        deleted++;
+      }
+    }
+    return { deleted };
   },
 });

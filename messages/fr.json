@@ -1382,7 +1382,7 @@
     "ERR_SEARCH_KEYWORD_REQUIRED": "Saisis un mot-clé à rechercher.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campagne introuvable dans le projet.",
     "ERR_SHARE_CREATOR_REQUIRED": "Choisis la créatrice qui recevra ce lien.",
-    "ERR_SHARE_EXPIRY_PAST": "La date d'expiration est déjà passée.",
+    "ERR_SHARE_EXPIRY_INVALID": "Expiration invalide : de 1 à 365 jours.",
     "ERR_SHARE_NAME_INVALID": "Donne un nom au lien (120 caractères au plus).",
     "ERR_SHARE_NOT_FOUND": "Lien introuvable.",
     "ERR_SHARE_NO_BLOCK": "Choisis au moins un bloc à partager.",
@@ -1461,5 +1461,44 @@
       "remuneration": "la rémunération",
       "sparkAd": "la date de pub"
     }
+  },
+  "publicShare": {
+    "poweredBy": "Propulsé par Jarvia",
+    "noCreator": "Sans créatrice",
+    "creatorAnon": "Créatrice {letter}",
+    "kpi": {
+      "views": "Vues",
+      "likes": "Likes",
+      "comments": "Commentaires",
+      "engagement": "Engagement"
+    },
+    "daily": {
+      "title": "Vues gagnées par jour",
+      "empty": "Pas encore assez de relevés pour tracer la courbe."
+    },
+    "byPlatform": {
+      "title": "Vues par plateforme"
+    },
+    "byCreator": {
+      "title": "Vues par créatrice"
+    },
+    "posts": {
+      "title": "Meilleurs posts",
+      "count": "{count, plural, one {# post publié} other {# posts publiés}}",
+      "empty": "Aucun post publié sur cette période.",
+      "untitled": "(sans titre)",
+      "open": "Voir le post",
+      "interactions": "{likes} likes · {comments} comm."
+    },
+    "period": {
+      "all": "Depuis le début",
+      "range": "{from} → {to}"
+    },
+    "updated": "mis à jour {ago}",
+    "invalid": {
+      "title": "Ce lien n'est plus disponible",
+      "body": "Il a expiré ou a été désactivé. Demandez-en un nouveau à la personne qui vous l'a envoyé."
+    },
+    "loading": "Chargement…"
   }
 }

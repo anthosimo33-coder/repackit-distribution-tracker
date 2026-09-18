@@ -1382,7 +1382,7 @@
     "ERR_SEARCH_KEYWORD_REQUIRED": "Escribe una palabra clave que buscar.",
     "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campaña no encontrada en el proyecto.",
     "ERR_SHARE_CREATOR_REQUIRED": "Elige la creadora que recibirá este enlace.",
-    "ERR_SHARE_EXPIRY_PAST": "La fecha de caducidad ya pasó.",
+    "ERR_SHARE_EXPIRY_INVALID": "Caducidad no válida: de 1 a 365 días.",
     "ERR_SHARE_NAME_INVALID": "Ponle un nombre al enlace (120 caracteres como máximo).",
     "ERR_SHARE_NOT_FOUND": "Enlace no encontrado.",
     "ERR_SHARE_NO_BLOCK": "Elige al menos un bloque para compartir.",
@@ -1461,5 +1461,44 @@
       "remuneration": "la remuneración",
       "sparkAd": "la fecha del anuncio"
     }
+  },
+  "publicShare": {
+    "poweredBy": "Con la tecnología de Jarvia",
+    "noCreator": "Sin creadora",
+    "creatorAnon": "Creadora {letter}",
+    "kpi": {
+      "views": "Vistas",
+      "likes": "Me gusta",
+      "comments": "Comentarios",
+      "engagement": "Interacción"
+    },
+    "daily": {
+      "title": "Vistas ganadas por día",
+      "empty": "Aún no hay suficientes datos para trazar la curva."
+    },
+    "byPlatform": {
+      "title": "Vistas por plataforma"
+    },
+    "byCreator": {
+      "title": "Vistas por creadora"
+    },
+    "posts": {
+      "title": "Mejores publicaciones",
+      "count": "{count, plural, one {# publicación} other {# publicaciones}}",
+      "empty": "No hay publicaciones en este periodo.",
+      "untitled": "(sin título)",
+      "open": "Ver la publicación",
+      "interactions": "{likes} me gusta · {comments} coment."
+    },
+    "period": {
+      "all": "Desde el inicio",
+      "range": "{from} → {to}"
+    },
+    "updated": "actualizado {ago}",
+    "invalid": {
+      "title": "Este enlace ya no está disponible",
+      "body": "Caducó o fue desactivado. Pide uno nuevo a la persona que te lo envió."
+    },
+    "loading": "Cargando…"
   }
 }
