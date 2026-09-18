@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useEffect, useState } from "react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useTranslations } from "next-intl";
 import { Loader2Icon, LinkIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -17,6 +17,25 @@ export function PublicSharePage({ token }: { token: string }) {
   const t = useTranslations("publicShare");
   const share = useQuery(api.publicShares.getPublicShare, { token });
   const recordOpen = useMutation(api.publicShares.recordShareOpen);
+  const loadThumbs = useAction(api.publicShares.getShareThumbnails);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+
+  // Miniatures du podium : demandées au SERVEUR, qui seul parle à TikTok (sa
+  // réponse nomme le compte). Relancé si le top 3 change.
+  const videoKey =
+    share?.status === "valid"
+      ? (share.view.posts ?? []).map((p) => p.video?.id ?? "").join(",")
+      : "";
+  useEffect(() => {
+    if (videoKey.replace(/,/g, "") === "") return;
+    let alive = true;
+    loadThumbs({ token })
+      .then((m) => alive && setThumbs(m))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [videoKey, token, loadThumbs]);
 
   // Une ouverture par onglet : un rechargement ne recompte pas. Sans stockage
   // (navigation privée, stockage bloqué), on compte — mieux vaut un compteur un
@@ -57,8 +76,8 @@ export function PublicSharePage({ token }: { token: string }) {
 
   return (
     <main className="min-h-dvh bg-slate-50">
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
-        <PublicTrackerView payload={share} />
+      <div className="mx-auto max-w-2xl px-3 py-4 sm:px-4 sm:py-10">
+        <PublicTrackerView payload={share} thumbs={thumbs} />
       </div>
     </main>
   );

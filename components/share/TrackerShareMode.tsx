@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
+import { useAction } from "convex/react";
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
@@ -141,6 +142,8 @@ export function TrackerShareMode({
   const comptesChoix = useProjectQuery(api.comptes.listComptesChoix, {});
   const shares = useProjectQuery(api.publicShares.listShares, {});
   const createShare = useProjectMutation(api.publicShares.createShare);
+  const loadThumbs = useAction(api.publicShares.previewThumbnails);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
 
   const creatorName =
     creators?.find((c) => (c._id as string) === creatorId)?.name ?? null;
@@ -229,6 +232,20 @@ export function TrackerShareMode({
   if (config === null && lastPreview !== null) setLastPreview(null);
   const last = preview ?? lastPreview;
   const shown = last === null ? null : { ...last, name: finalName };
+
+  // Miniatures du podium de l'aperçu (même source serveur que la page).
+  const videoKey = (last?.view.posts ?? []).map((p) => p.video?.id ?? "").join(",");
+  useEffect(() => {
+    const ids = videoKey.split(",").filter(Boolean);
+    if (ids.length === 0) return;
+    let alive = true;
+    loadThumbs({ ids })
+      .then((m) => alive && setThumbs(m))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [videoKey, loadThumbs]);
 
   function toggleBlock(b: ShareBlock) {
     setBlocks((prev) => {
@@ -519,6 +536,7 @@ export function TrackerShareMode({
               <div className={cn(preview === undefined && "opacity-60 transition-opacity")}>
                 <PublicTrackerView
                   payload={shown}
+                  thumbs={thumbs}
                   compact={device === "phone"}
                   edit={{
                     enabled: new Set(effectiveBlocks),

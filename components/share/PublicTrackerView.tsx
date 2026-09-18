@@ -26,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { tiktokAnonymousPlayerUrl } from "@/lib/embed";
+import { pieSlices } from "@/lib/share-pie";
 import type {
   PublicCreatorRef,
   PublicSharePayload,
@@ -39,6 +40,11 @@ import { cn } from "@/lib/utils";
  * LE rendu d'un lien public. Deux montages, un seul composant :
  *   - la page `/s/<token>`, pour le visiteur ;
  *   - l'aperçu du mode partage, pour l'équipe (`edit` fourni).
+ *
+ * Mise en page (décision produit du 2026-09-18) : la bannière aux couleurs du
+ * projet porte le chiffre de tête, puis le PODIUM des 3 vidéos les plus vues
+ * (lisibles sur place), le CAMEMBERT des vues par créatrice, la répartition par
+ * plateforme et la courbe.
  *
  * Il ne reçoit que la réponse projetée par le serveur (convex/publicShare.ts) :
  * un bloc absent de `payload.blocks` n'a pas de données ici, et n'en aura pas.
@@ -60,22 +66,32 @@ type EditProps = {
   };
 };
 
+type Post = NonNullable<PublicSharePayload["view"]["posts"]>[number];
+
+/** Couleurs des parts : l'accent du projet en dégradé, « Autres » en gris. */
+const SLICE_OPACITY = [1, 0.72, 0.5, 0.34, 0.2];
+const OTHERS_COLOR = "#cbd5e1";
+
 export function PublicTrackerView({
   payload,
   edit,
   compact = false,
+  thumbs = {},
 }: {
   payload: PublicSharePayload;
   edit?: EditProps;
   /** Rendu téléphone (aperçu) : une colonne, même sur grand écran. */
   compact?: boolean;
+  /** Miniatures du podium, par id de vidéo TikTok (absentes = fond neutre). */
+  thumbs?: Readonly<Record<string, string>>;
 }) {
   const t = useTranslations("publicShare");
   const loc = useIntlLocale();
   const served = new Set(payload.blocks);
+  const view = payload.view;
+  const accent = payload.accentColor;
   // Vidéo ouverte dans le lecteur intégré (id TikTok), une à la fois.
   const [playing, setPlaying] = useState<{ id: string; label: string } | null>(null);
-  const view = payload.view;
 
   /** Un bloc est dessiné s'il est servi, ou s'il est proposable en édition. */
   const shows = (b: ShareBlock) =>
@@ -88,66 +104,132 @@ export function PublicTrackerView({
     return t("creatorAnon", { letter: anonLetter(c.index) });
   };
 
-  const kpis: { block: ShareBlock; label: string; value: string | null }[] = [
-    {
-      block: "kpi_views",
-      label: t("kpi.views"),
-      value: view.kpi?.views !== undefined ? formatNumber(view.kpi.views, loc) : null,
-    },
+  const strip: { block: ShareBlock; label: string; value: string | null }[] = [
     {
       block: "kpi_likes",
       label: t("kpi.likes"),
-      value: view.kpi?.likes !== undefined ? formatNumber(view.kpi.likes, loc) : null,
+      value: view.kpi?.likes !== undefined ? compactNumber(view.kpi.likes, loc) : null,
     },
     {
       block: "kpi_comments",
       label: t("kpi.comments"),
       value:
-        view.kpi?.comments !== undefined ? formatNumber(view.kpi.comments, loc) : null,
+        view.kpi?.comments !== undefined ? compactNumber(view.kpi.comments, loc) : null,
     },
     {
       block: "kpi_engagement",
       label: t("kpi.engagement"),
       value:
         view.kpi && "engagement" in view.kpi
-          ? formatPercent(view.kpi.engagement ?? null, 2, loc)
+          ? formatPercent(view.kpi.engagement ?? null, 1, loc)
           : null,
     },
   ];
-  const visibleKpis = kpis.filter((k) => shows(k.block));
-
-  const twoCols = !compact;
+  const stripCells = strip.filter((k) => shows(k.block));
 
   return (
     <div className="space-y-4">
-      <Header payload={payload} />
+      <Banner
+        payload={payload}
+        edit={edit}
+        viewsShown={shows("kpi_views")}
+        viewsOn={isOn("kpi_views")}
+        hasStrip={stripCells.length > 0}
+      />
 
-      {visibleKpis.length > 0 && (
+      {stripCells.length > 0 && (
         <div
           className={cn(
-            "grid gap-3",
-            // Autant de colonnes que de chiffres : deux chiffres partagés
-            // prennent la largeur, pas la moitié d'une grille à quatre.
-            visibleKpis.length === 1 ? "grid-cols-1" : "grid-cols-2",
-            twoCols && visibleKpis.length === 3 && "md:grid-cols-3",
-            twoCols && visibleKpis.length === 4 && "md:grid-cols-4",
+            "relative z-10 mx-3 -mt-12 grid rounded-2xl border border-slate-200 bg-white py-3 shadow-sm",
+            stripCells.length === 1 && "grid-cols-1",
+            stripCells.length === 2 && "grid-cols-2",
+            stripCells.length === 3 && "grid-cols-3",
           )}
         >
-          {visibleKpis.map((k) => (
-            <Block
-              key={k.block}
-              block={k.block}
-              edit={edit}
-              on={isOn(k.block)}
-              title={k.label}
-            >
-              <p className="text-xs font-medium text-slate-500">{k.label}</p>
-              <p className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 tabular-nums">
-                {k.value ?? "—"}
-              </p>
-            </Block>
-          ))}
+          {stripCells.map((k, i) => {
+            const on = isOn(k.block);
+            return (
+              <div
+                key={k.block}
+                className={cn(
+                  "relative px-2 text-center",
+                  i > 0 && "border-l border-slate-100",
+                  edit && !on && "opacity-40",
+                )}
+                data-share-block={k.block}
+                data-share-on={edit ? String(on) : undefined}
+              >
+                <p className="text-lg font-semibold tabular-nums text-slate-900">
+                  {edit && !on ? "—" : (k.value ?? "—")}
+                </p>
+                <p className="text-[11px] text-slate-500 lowercase">{k.label}</p>
+                {edit && <EyeToggle edit={edit} block={k.block} on={on} title={k.label} small />}
+              </div>
+            );
+          })}
         </div>
+      )}
+
+      {shows("posts") && (
+        <Block
+          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+          block="posts"
+          edit={edit}
+          on={isOn("posts")}
+          title={t("top.title")}
+          bare
+        >
+          <h2 className="px-1 text-sm font-semibold text-slate-900">{t("top.title")}</h2>
+          {view.posts && view.posts.length === 0 && (
+            <p className="py-8 text-center text-sm text-slate-400">{t("posts.empty")}</p>
+          )}
+          {view.posts && view.posts.length > 0 && (
+            <Podium
+              posts={view.posts}
+              thumbs={thumbs}
+              compact={compact}
+              creatorLabel={creatorLabel}
+              onPlay={(p) =>
+                p.video &&
+                setPlaying({
+                  id: p.video.id,
+                  label: p.label.trim() === "" ? t("posts.untitled") : p.label,
+                })
+              }
+            />
+          )}
+        </Block>
+      )}
+
+      {shows("by_creator") && (
+        <Block
+          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+          block="by_creator"
+          edit={edit}
+          on={isOn("by_creator")}
+          title={t("byCreator.title")}
+        >
+          <h2 className="text-sm font-semibold text-slate-900">{t("byCreator.title")}</h2>
+          {view.byCreator && (
+            <CreatorPie
+              rows={view.byCreator.map((r) => ({ label: creatorLabel(r.creator), value: r.vues }))}
+              accent={accent}
+            />
+          )}
+        </Block>
+      )}
+
+      {shows("by_platform") && (
+        <Block
+          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+          block="by_platform"
+          edit={edit}
+          on={isOn("by_platform")}
+          title={t("byPlatform.title")}
+        >
+          <h2 className="text-sm font-semibold text-slate-900">{t("byPlatform.title")}</h2>
+          {view.byPlatform && <PlatformBar rows={view.byPlatform} accent={accent} />}
+        </Block>
       )}
 
       {shows("daily") && (
@@ -155,18 +237,20 @@ export function PublicTrackerView({
           // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
           block="daily"
           edit={edit}
-          on={isOn("daily")} title={t("daily.title")}>
-          <h3 className="text-sm font-semibold text-slate-900">{t("daily.title")}</h3>
+          on={isOn("daily")}
+          title={t("daily.title")}
+        >
+          <h2 className="text-sm font-semibold text-slate-900">{t("daily.title")}</h2>
           {payload.daily === null ? null : payload.daily.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">{t("daily.empty")}</p>
           ) : (
-            <div className="mt-3 h-52">
+            <div className="mt-3 h-44">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={payload.daily} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="share-daily" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={payload.accentColor} stopOpacity={0.28} />
-                      <stop offset="100%" stopColor={payload.accentColor} stopOpacity={0} />
+                      <stop offset="0%" stopColor={accent} stopOpacity={0.28} />
+                      <stop offset="100%" stopColor={accent} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
@@ -190,13 +274,7 @@ export function PublicTrackerView({
                     formatter={(v) => [formatNumber(Number(v), loc), t("kpi.views")]}
                     labelFormatter={(l) => longDay(String(l), loc)}
                   />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke={payload.accentColor}
-                    strokeWidth={2}
-                    fill="url(#share-daily)"
-                  />
+                  <Area type="monotone" dataKey="value" stroke={accent} strokeWidth={2} fill="url(#share-daily)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -204,145 +282,14 @@ export function PublicTrackerView({
         </Block>
       )}
 
-      {(shows("by_platform") || shows("by_creator")) && (
-        <div
-          className={cn(
-            "grid gap-3",
-            twoCols && shows("by_platform") && shows("by_creator") && "md:grid-cols-2",
-          )}
-        >
-          {shows("by_platform") && (
-            <Block
-              // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
-              block="by_platform"
-              edit={edit}
-              on={isOn("by_platform")}
-              title={t("byPlatform.title")}
-            >
-              <h3 className="text-sm font-semibold text-slate-900">{t("byPlatform.title")}</h3>
-              {view.byPlatform && (
-                <Bars
-                  rows={view.byPlatform.map((r) => ({ label: r.label, value: r.vues }))}
-                  color={payload.accentColor}
-                  locale={loc}
-                />
-              )}
-            </Block>
-          )}
-          {shows("by_creator") && (
-            <Block
-              // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
-              block="by_creator"
-              edit={edit}
-              on={isOn("by_creator")}
-              title={t("byCreator.title")}
-            >
-              <h3 className="text-sm font-semibold text-slate-900">{t("byCreator.title")}</h3>
-              {view.byCreator && (
-                <Bars
-                  rows={view.byCreator.map((r) => ({
-                    label: creatorLabel(r.creator),
-                    value: r.vues,
-                  }))}
-                  color={payload.accentColor}
-                  locale={loc}
-                />
-              )}
-            </Block>
-          )}
-        </div>
-      )}
-
       {edit && (
-        <div className="flex items-center gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
+        <div className="flex items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
           <LockIcon className="size-4 shrink-0 text-slate-400" aria-hidden />
           <div className="min-w-0">
             <p className="text-sm font-medium text-slate-500">{edit.labels.internalTitle}</p>
             <p className="text-xs text-slate-400">{edit.labels.internalBody}</p>
           </div>
         </div>
-      )}
-
-      {shows("posts") && (
-        <Block
-          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
-          block="posts"
-          edit={edit}
-          on={isOn("posts")} title={t("posts.title")}>
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-sm font-semibold text-slate-900">{t("posts.title")}</h3>
-            <p className="text-xs text-slate-500">
-              {t("posts.count", { count: view.postCount })}
-            </p>
-          </div>
-          {view.posts && view.posts.length === 0 && (
-            <p className="py-8 text-center text-sm text-slate-400">{t("posts.empty")}</p>
-          )}
-          {view.posts && view.posts.length > 0 && (
-            <ol className="mt-2 divide-y divide-slate-100">
-              {view.posts.map((p, i) => (
-                <li key={i} className="flex items-center gap-3 py-2.5">
-                  <span className="w-5 shrink-0 text-right text-xs tabular-nums text-slate-400">
-                    {i + 1}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-slate-900">
-                      {p.label.trim() === "" ? t("posts.untitled") : p.label}
-                    </p>
-                    <p className="truncate text-xs text-slate-500">
-                      {[
-                        p.plateforme,
-                        shortDate(p.datePubli, loc),
-                        p.creator ? creatorLabel(p.creator) : null,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums text-slate-900">
-                      {compactNumber(p.vues, loc)}
-                    </p>
-                    <p className="text-[11px] tabular-nums text-slate-400">
-                      {t("posts.interactions", {
-                        likes: compactNumber(p.likes, loc),
-                        comments: compactNumber(p.comments, loc),
-                      })}
-                    </p>
-                  </div>
-                  {p.video !== null && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPlaying({
-                          id: p.video!.id,
-                          label: p.label.trim() === "" ? t("posts.untitled") : p.label,
-                        })
-                      }
-                      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-700"
-                      aria-label={t("posts.watch")}
-                      title={t("posts.watch")}
-                    >
-                      <PlayIcon className="size-3.5 translate-x-px fill-current" />
-                    </button>
-                  )}
-                  {p.url !== null && (
-                    <a
-                      href={p.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      aria-label={t("posts.open")}
-                      title={t("posts.open")}
-                    >
-                      <ExternalLinkIcon className="size-4" />
-                    </a>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-        </Block>
       )}
 
       <p className="pt-2 text-center text-xs text-slate-400">{t("poweredBy")}</p>
@@ -379,9 +326,24 @@ export function PublicTrackerView({
   );
 }
 
-function Header({ payload }: { payload: PublicSharePayload }) {
+// ─── Bannière ───────────────────────────────────────────────────────────────
+
+function Banner({
+  payload,
+  edit,
+  viewsShown,
+  viewsOn,
+  hasStrip,
+}: {
+  payload: PublicSharePayload;
+  edit?: EditProps;
+  viewsShown: boolean;
+  viewsOn: boolean;
+  hasStrip: boolean;
+}) {
   const t = useTranslations("publicShare");
   const loc = useIntlLocale();
+  const views = payload.view.kpi?.views;
   const period =
     payload.period.kind === "all" || payload.period.from === null
       ? t("period.all")
@@ -390,36 +352,285 @@ function Header({ payload }: { payload: PublicSharePayload }) {
           to: shortDate(payload.period.to ?? payload.period.from, loc),
         });
   return (
-    <header className="flex items-center gap-3">
-      {payload.projectLogoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={payload.projectLogoUrl}
-          alt=""
-          className="size-11 shrink-0 rounded-xl object-cover"
-        />
-      ) : (
-        <span
-          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-lg font-semibold text-white"
-          style={{ backgroundColor: payload.accentColor }}
-          aria-hidden
-        >
-          {payload.projectName.slice(0, 1).toUpperCase()}
-        </span>
-      )}
-      <div className="min-w-0">
-        <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900">
-          {payload.name}
-        </h1>
-        <p className="truncate text-xs text-slate-500">
-          {[payload.projectName, period, payload.updatedAt !== null ? t("updated", { ago: ago(payload.updatedAt, loc) }) : null]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
+    <header
+      className={cn("relative overflow-hidden rounded-3xl px-5 pt-5 text-white", hasStrip ? "pb-16" : "pb-6")}
+      style={{ backgroundColor: payload.accentColor }}
+      // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+      data-share-block="kpi_views"
+      data-share-on={edit ? String(viewsOn) : undefined}
+    >
+      <div className="flex items-center gap-2 text-xs text-white/85">
+        {payload.projectLogoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={payload.projectLogoUrl} alt="" className="size-6 rounded-md object-cover" />
+        ) : (
+          <span className="flex size-6 items-center justify-center rounded-md bg-white/25 text-[11px] font-semibold" aria-hidden>
+            {payload.projectName.slice(0, 1).toUpperCase()}
+          </span>
+        )}
+        <span className="truncate">{payload.projectName}</span>
       </div>
+      <h1 className="mt-3 text-lg font-semibold leading-snug">{payload.name}</h1>
+      <p className="text-xs text-white/75">
+        {[period, payload.updatedAt !== null ? t("updated", { ago: ago(payload.updatedAt, loc) }) : null]
+          .filter(Boolean)
+          .join(" · ")}
+      </p>
+      {viewsShown && (
+        <div className={cn("mt-4", edit && !viewsOn && "opacity-40")}>
+          <p className="text-5xl font-semibold leading-none tracking-tight tabular-nums">
+            {edit && !viewsOn ? "—" : views !== undefined ? compactNumber(views, loc) : "—"}
+          </p>
+          <p className="mt-1.5 text-sm text-white/85">
+            {t("videosCount", { count: payload.view.postCount })}
+          </p>
+        </div>
+      )}
+      {edit && viewsShown && (
+        <EyeToggle
+          edit={edit}
+          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+          block="kpi_views"
+          on={viewsOn}
+          title={t("kpi.views")}
+          onDark
+        />
+      )}
     </header>
   );
 }
+
+// ─── Podium du top 3 ────────────────────────────────────────────────────────
+
+const RANK_STYLE = [
+  "bg-amber-300 text-amber-950", // or
+  "bg-slate-200 text-slate-800", // argent
+  "bg-orange-200 text-orange-900", // bronze
+];
+
+function Podium({
+  posts,
+  thumbs,
+  compact,
+  creatorLabel,
+  onPlay,
+}: {
+  posts: Post[];
+  thumbs: Readonly<Record<string, string>>;
+  compact: boolean;
+  creatorLabel: (c: PublicCreatorRef) => string;
+  onPlay: (p: Post) => void;
+}) {
+  const t = useTranslations("publicShare");
+  const loc = useIntlLocale();
+  const ranked = posts.slice(0, 3).map((p, i) => ({ p, rank: i + 1 }));
+  // Podium : le n°1 au centre quand il y a trois marches.
+  const order = ranked.length === 3 ? [ranked[1], ranked[0], ranked[2]] : ranked;
+  return (
+    <ol
+      className={cn(
+        "mx-auto mt-3 grid items-end gap-2 sm:gap-3",
+        // Vignettes 9:16 bornées : sur ordinateur, trois colonnes pleines
+        // feraient des vidéos de 800 px de haut.
+        ranked.length === 1 && "max-w-[170px] grid-cols-1",
+        ranked.length === 2 && "max-w-[350px] grid-cols-2",
+        ranked.length === 3 && (compact ? "grid-cols-3" : "max-w-[520px] grid-cols-3"),
+      )}
+    >
+      {order.map(({ p, rank }) => {
+        const thumb = p.video ? thumbs[p.video.id] : undefined;
+        const label = p.label.trim() === "" ? t("posts.untitled") : p.label;
+        const tile = (
+          <>
+            {thumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={thumb} alt="" className="absolute inset-0 size-full object-cover" />
+            ) : null}
+            <span className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+            <span
+              className={cn(
+                "absolute top-2 left-2 flex size-6 items-center justify-center rounded-full text-xs font-bold",
+                RANK_STYLE[rank - 1],
+              )}
+            >
+              {rank}
+            </span>
+            {p.video && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="flex size-10 items-center justify-center rounded-full bg-white/25 backdrop-blur-sm">
+                  <PlayIcon className="size-4 translate-x-px fill-white text-white" />
+                </span>
+              </span>
+            )}
+            <span className="absolute bottom-2 left-2 text-sm font-semibold text-white tabular-nums">
+              {compactNumber(p.vues, loc)}
+            </span>
+          </>
+        );
+        return (
+          <li key={rank} className={cn(rank !== 1 && ranked.length === 3 && "origin-bottom scale-90")}>
+            {p.video ? (
+              <button
+                type="button"
+                onClick={() => onPlay(p)}
+                className="relative block aspect-[9/16] w-full overflow-hidden rounded-2xl bg-slate-800 ring-offset-2 focus-visible:ring-2"
+                aria-label={`${t("posts.watch")} — ${t("top.rank", { rank })} — ${label}`}
+                title={label}
+              >
+                {tile}
+              </button>
+            ) : (
+              <div className="relative aspect-[9/16] w-full overflow-hidden rounded-2xl bg-slate-800" title={label}>
+                {tile}
+              </div>
+            )}
+            <div className="mt-1.5 flex items-center justify-center gap-1 text-center">
+              <p className="truncate text-xs text-slate-500">
+                {[p.plateforme, p.creator ? creatorLabel(p.creator) : null].filter(Boolean).join(" · ")}
+              </p>
+              {p.url !== null && (
+                <a
+                  href={p.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-slate-400 hover:text-slate-700"
+                  aria-label={t("posts.open")}
+                  title={t("posts.open")}
+                >
+                  <ExternalLinkIcon className="size-3.5" />
+                </a>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// ─── Camembert par créatrice ────────────────────────────────────────────────
+
+function CreatorPie({ rows, accent }: { rows: { label: string; value: number }[]; accent: string }) {
+  const t = useTranslations("publicShare");
+  const loc = useIntlLocale();
+  const [hover, setHover] = useState<number | null>(null);
+  const slices = pieSlices(rows.map((r, i) => ({ key: i, value: r.value })));
+  if (slices.length === 0) {
+    return <p className="py-8 text-center text-sm text-slate-400">{t("posts.empty")}</p>;
+  }
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  const colorOf = (i: number) => (slices[i].key === null ? OTHERS_COLOR : accent);
+  const opacityOf = (i: number) => (slices[i].key === null ? 1 : (SLICE_OPACITY[i] ?? 0.2));
+  const labelOf = (i: number) => {
+    const k = slices[i].key;
+    return k === null ? t("pie.others") : rows[k].label;
+  };
+
+  // Anneau : on trace chaque part comme un arc épais (pas de dépendance).
+  const R = 54;
+  const r = 32;
+  const START = -Math.PI / 2;
+  const arcs = slices.map((s, i) => {
+    const before = slices.slice(0, i).reduce((acc, x) => acc + x.value, 0) / total;
+    const frac = s.value / total;
+    const a0 = START + before * 2 * Math.PI;
+    const a1 = a0 + frac * 2 * Math.PI;
+    return { i, d: donutArc(60, 60, R, r, a0, a1, frac) };
+  });
+  const center = hover === null ? null : slices[hover];
+
+  return (
+    <div className="mt-3 flex items-center gap-4 sm:justify-center sm:gap-8">
+      <svg viewBox="0 0 120 120" className="size-32 shrink-0" role="img" aria-label={t("byCreator.title")}>
+        {arcs.map(({ i, d }) => (
+          <path
+            key={i}
+            d={d}
+            fill={colorOf(i)}
+            fillOpacity={opacityOf(i)}
+            stroke="white"
+            strokeWidth={1.5}
+            opacity={hover === null || hover === i ? 1 : 0.35}
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
+            className="transition-opacity"
+          />
+        ))}
+        {/* i18n-exempt: attribut SVG d'alignement, pas du texte */}
+        <text x="60" y="58" textAnchor="middle" className="fill-slate-900 text-[15px] font-semibold">
+          {center === null ? compactNumber(total, loc) : `${center.percent} %`}
+        </text>
+        {/* i18n-exempt: attribut SVG d'alignement, pas du texte */}
+        <text x="60" y="73" textAnchor="middle" className="fill-slate-500 text-[9px]">
+          {center === null ? t("pie.center") : compactNumber(center.value, loc)}
+        </text>
+      </svg>
+      <ul className="min-w-0 flex-1 space-y-1.5 sm:max-w-xs" data-testid="share-pie-legend">
+        {slices.map((s, i) => (
+          <li
+            key={i}
+            className="flex items-center justify-between gap-2 text-xs"
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: colorOf(i), opacity: opacityOf(i) }}
+              />
+              <span className="truncate text-slate-700">{labelOf(i)}</span>
+            </span>
+            <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+              {formatPercent(s.percent / 100, 0, loc)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function donutArc(cx: number, cy: number, R: number, r: number, a0: number, a1: number, frac: number): string {
+  // Une part unique (100 %) : deux demi-arcs, un arc SVG ne sait pas boucler.
+  if (frac >= 0.9999) {
+    return [
+      `M ${cx} ${cy - R} A ${R} ${R} 0 1 1 ${cx} ${cy + R} A ${R} ${R} 0 1 1 ${cx} ${cy - R}`,
+      `M ${cx} ${cy - r} A ${r} ${r} 0 1 0 ${cx} ${cy + r} A ${r} ${r} 0 1 0 ${cx} ${cy - r} Z`,
+    ].join(" ");
+  }
+  const P = (a: number, rad: number) => `${cx + rad * Math.cos(a)} ${cy + rad * Math.sin(a)}`;
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  return `M ${P(a0, R)} A ${R} ${R} 0 ${large} 1 ${P(a1, R)} L ${P(a1, r)} A ${r} ${r} 0 ${large} 0 ${P(a0, r)} Z`;
+}
+
+// ─── Répartition par plateforme ─────────────────────────────────────────────
+
+function PlatformBar({ rows, accent }: { rows: { label: string; vues: number }[]; accent: string }) {
+  const loc = useIntlLocale();
+  const slices = pieSlices(rows.map((r, i) => ({ key: i, value: r.vues })), 3);
+  if (slices.length === 0) return null;
+  const opacity = [1, 0.5, 0.25];
+  return (
+    <div className="mt-3">
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100">
+        {slices.map((s, i) => (
+          <div key={i} style={{ width: `${s.percent}%`, backgroundColor: accent, opacity: opacity[i] }} />
+        ))}
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {slices.map((s, i) => (
+          <li key={i} className="flex items-center gap-1.5">
+            <span className="size-2 rounded-full" style={{ backgroundColor: accent, opacity: opacity[i] }} />
+            <span className="text-slate-600">{s.key === null ? "—" : rows[s.key].label}</span>
+            <span className="font-semibold tabular-nums text-slate-900">{formatPercent(s.percent / 100, 0, loc)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Blocs et œil d'édition ─────────────────────────────────────────────────
 
 /** Une carte de bloc. En édition : œil pour l'inclure ou l'exclure, pointillés si exclu. */
 function Block({
@@ -427,86 +638,69 @@ function Block({
   edit,
   on,
   title,
+  bare = false,
   children,
 }: {
   block: ShareBlock;
   edit?: EditProps;
   on: boolean;
   title: string;
+  /** Sans cadre (le podium respire mieux sans carte autour). */
+  bare?: boolean;
   children: ReactNode;
 }) {
   const off = edit !== undefined && !on;
   return (
     <section
       className={cn(
-        "relative rounded-xl border bg-white p-4 transition-opacity",
-        off ? "border-dashed border-slate-300 bg-slate-50" : "border-slate-200",
+        "relative transition-opacity",
+        bare && !off ? "px-1" : "rounded-2xl border bg-white p-4",
+        off ? "border-dashed border-slate-300 bg-slate-50" : !bare && "border-slate-200",
         edit && "pr-12",
       )}
       data-share-block={block}
       data-share-on={edit ? String(on) : undefined}
     >
-      {off ? (
-        <p className="text-sm font-medium text-slate-400">{title}</p>
-      ) : (
-        children
-      )}
-      {edit && (
-        <button
-          type="button"
-          onClick={() => edit.onToggle(block)}
-          aria-pressed={on}
-          aria-label={`${on ? edit.labels.exclude : edit.labels.include} — ${title}`}
-          title={on ? edit.labels.exclude : edit.labels.include}
-          className={cn(
-            "absolute top-3 right-3 flex size-8 items-center justify-center rounded-full border transition-colors",
-            on
-              ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
-              : "border-slate-300 bg-white text-slate-400 hover:text-slate-600",
-          )}
-        >
-          {on ? <EyeIcon className="size-4" /> : <EyeOffIcon className="size-4" />}
-        </button>
-      )}
+      {off ? <p className="text-sm font-medium text-slate-400">{title}</p> : children}
+      {edit && <EyeToggle edit={edit} block={block} on={on} title={title} />}
     </section>
   );
 }
 
-function Bars({
-  rows,
-  color,
-  locale,
+function EyeToggle({
+  edit,
+  block,
+  on,
+  title,
+  small = false,
+  onDark = false,
 }: {
-  rows: { label: string; value: number }[];
-  color: string;
-  locale: string;
+  edit: EditProps;
+  block: ShareBlock;
+  on: boolean;
+  title: string;
+  small?: boolean;
+  onDark?: boolean;
 }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  const total = rows.reduce((s, r) => s + r.value, 0);
   return (
-    <ul className="mt-3 space-y-2.5">
-      {rows.slice(0, 8).map((r, i) => (
-        <li key={i}>
-          <div className="flex items-baseline justify-between gap-2 text-xs">
-            <span className="truncate text-slate-700">{r.label}</span>
-            <span className="shrink-0 tabular-nums text-slate-500">
-              {compactNumber(r.value, locale)}
-              {total > 0 && (
-                <span className="ml-1.5 text-slate-400">
-                  {formatPercent(r.value / total, 0, locale)}
-                </span>
-              )}
-            </span>
-          </div>
-          <div className="mt-1 h-1.5 rounded-full bg-slate-100">
-            <div
-              className="h-1.5 rounded-full"
-              style={{ width: `${(r.value / max) * 100}%`, backgroundColor: color }}
-            />
-          </div>
-        </li>
-      ))}
-    </ul>
+    <button
+      type="button"
+      onClick={() => edit.onToggle(block)}
+      aria-pressed={on}
+      aria-label={`${on ? edit.labels.exclude : edit.labels.include} — ${title}`}
+      title={on ? edit.labels.exclude : edit.labels.include}
+      className={cn(
+        "absolute flex items-center justify-center rounded-full border transition-colors",
+        small ? "-top-1 right-1 size-6" : "top-3 right-3 size-8",
+        onDark
+          ? "border-white/40 bg-white/15 text-white hover:bg-white/25"
+          : on
+            ? "border-primary/30 bg-primary/10 text-primary hover:bg-primary/15"
+            : "border-slate-300 bg-white text-slate-400 hover:text-slate-600",
+      )}
+    >
+      {on ? <EyeIcon className={small ? "size-3" : "size-4"} /> : <EyeOffIcon className={small ? "size-3" : "size-4"} />}
+    </button>
   );
 }
 
@@ -526,7 +720,7 @@ function anonLetter(index: number): string {
 function compactNumber(n: number, locale: string): string {
   return new Intl.NumberFormat(locale, {
     notation: n >= 10_000 ? "compact" : "standard",
-    maximumFractionDigits: 1,
+    maximumFractionDigits: n >= 1_000_000 ? 2 : 1,
   }).format(n);
 }
 

@@ -1501,6 +1501,15 @@
       "title": "This link is no longer available",
       "body": "It has expired or been turned off. Ask the person who sent it for a new one."
     },
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "top": {
+      "title": "Top 3 videos",
+      "rank": "#{rank}"
+    },
+    "videosCount": "{count, plural, =0 {views, no videos} one {views on # video} other {views on # videos}}",
+    "pie": {
+      "others": "Others",
+      "center": "views"
+    }
   }
 }

@@ -1501,6 +1501,15 @@
       "title": "Este enlace ya no está disponible",
       "body": "Caducó o fue desactivado. Pide uno nuevo a la persona que te lo envió."
     },
-    "loading": "Cargando…"
+    "loading": "Cargando…",
+    "top": {
+      "title": "Top 3 de vídeos",
+      "rank": "n.º {rank}"
+    },
+    "videosCount": "{count, plural, =0 {vistas, ningún vídeo} one {vistas en # vídeo} other {vistas en # vídeos}}",
+    "pie": {
+      "others": "Otras",
+      "center": "vistas"
+    }
   }
 }

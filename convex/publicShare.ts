@@ -58,8 +58,41 @@ export type ShareBlock = (typeof SHARE_BLOCKS)[number];
 
 export type ShareAudience = "brand" | "creator";
 
-/** Nombre de posts montrés au plus dans le bloc « posts ». */
-export const PUBLIC_POSTS_LIMIT = 20;
+/**
+ * Nombre de posts montrés dans le bloc « posts » : le TOP 3 par vues (podium de
+ * la page publique, décision produit du 2026-09-18). Les liens déjà envoyés
+ * passent au top 3 avec la page, c'est voulu.
+ */
+export const PUBLIC_POSTS_LIMIT = 3;
+
+/** Un identifiant de vidéo TikTok bien formé (garde des actions publiques). */
+export function isTikTokVideoId(id: string): boolean {
+  return /^\d{6,25}$/.test(id);
+}
+
+/**
+ * Miniature d'une vidéo depuis la réponse oEmbed de TikTok. On n'en garde QUE
+ * l'image : la même réponse porte `author_unique_id` et `author_name`, qui ne
+ * doivent jamais atteindre le visiteur d'un lien anonymisé. L'échéance vient
+ * du paramètre signé `x-expires` de l'image (≈ 48 h constatées).
+ */
+export function thumbnailFromOembed(
+  body: unknown,
+): { url: string; expiresAt: number | null } | null {
+  if (body === null || typeof body !== "object") return null;
+  const url = (body as { thumbnail_url?: unknown }).thumbnail_url;
+  if (typeof url !== "string" || !/^https:\/\/[^/]*tiktokcdn[^/]*\//.test(url)) {
+    return null;
+  }
+  let expiresAt: number | null = null;
+  try {
+    const raw = new URL(url).searchParams.get("x-expires");
+    if (raw !== null && /^\d+$/.test(raw)) expiresAt = Number(raw) * 1000;
+  } catch {
+    return null;
+  }
+  return { url, expiresAt };
+}
 
 /** Ne garde que les blocs connus, sans doublon, dans l'ordre canonique. */
 export function sanitizeBlocks(blocks: readonly string[]): ShareBlock[] {

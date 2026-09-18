@@ -816,3 +816,11 @@ export const publicQuery = query;
  * que sur la ligne désignée par un jeton VALIDE et ne renvoie rien.
  */
 export const publicMutation = mutation;
+
+/**
+ * Jumelle en ACTION. Un seul usage : les miniatures du top 3 d'un lien public
+ * (`publicShares.getShareThumbnails`), désigné par un jeton VALIDE. L'action
+ * appelle TikTok côté serveur pour que le visiteur ne reçoive que l'image —
+ * la réponse de TikTok, elle, nomme le compte.
+ */
+export const publicAction = action;

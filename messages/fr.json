@@ -1501,6 +1501,15 @@
       "title": "Ce lien n'est plus disponible",
       "body": "Il a expiré ou a été désactivé. Demandez-en un nouveau à la personne qui vous l'a envoyé."
     },
-    "loading": "Chargement…"
+    "loading": "Chargement…",
+    "top": {
+      "title": "Top 3 des vidéos",
+      "rank": "n°{rank}"
+    },
+    "videosCount": "{count, plural, =0 {vues, aucune vidéo} one {vues sur # vidéo} other {vues sur # vidéos}}",
+    "pie": {
+      "others": "Autres",
+      "center": "vues"
+    }
   }
 }
