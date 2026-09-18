@@ -32,6 +32,7 @@ import {
   MANAGER_CPM_MAX,
   currentCpmEntries,
   managerCpmProblem,
+  parisDayOf,
   type ManagerCpmProblem,
 } from "@/convex/managerCpm";
 import { convexErrorMessage } from "@/lib/convex-error";
@@ -806,6 +807,9 @@ const CPM_PROBLEME: Record<ManagerCpmProblem, string> = {
   too_high: `Un CPM ne dépasse pas ${MANAGER_CPM_MAX} pour 1 000 vues`,
 };
 
+/** Une ligne de saisie : taux (texte) et date d'effet ("YYYY-MM-DD", "" = depuis toujours). */
+type Saisie = { cpm: string; jour: string };
+
 /** Saisie d'un CPM → nombre, virgule acceptée. `null` = champ vide. */
 function lireCpm(saisie: string): number | null {
   const t = saisie.trim().replace(",", ".");
@@ -833,24 +837,32 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
     api.managerPay.getManagerPay,
     voirReleve ? { membershipId: membre.membershipId } : "skip",
   );
-  // L'HISTORIQUE est stocké ; on édite le taux d'AUJOURD'HUI. Une créatrice
-  // arrêtée (entrée à 0) a un champ vide, mais reste listée : ses vidéos déjà
-  // publiées lui rapportent encore.
+  // Figé au montage : « aujourd'hui » à Paris, borne haute des dates d'effet.
+  const [aujourdhui] = useState(() => parisDayOf(Date.now()));
+  // L'HISTORIQUE est stocké ; on édite l'entrée EN VIGUEUR : son taux et sa date
+  // d'effet. Une créatrice arrêtée (entrée à 0) a un taux vide mais reste listée :
+  // ses vidéos déjà publiées lui rapportent encore.
   const enVigueur = useMemo(
     () => currentCpmEntries(membre.managerCpms),
     [membre.managerCpms],
   );
   const stocke = useMemo(
     () =>
-      new Map(
-        [...enVigueur.values()]
-          .filter((e) => e.cpm > 0)
-          .map((e) => [e.creatorId, String(e.cpm).replace(".", ",")]),
+      new Map<string, Saisie>(
+        [...enVigueur.values()].map((e) => [
+          e.creatorId,
+          {
+            cpm: e.cpm > 0 ? String(e.cpm).replace(".", ",") : "",
+            // "" = depuis toujours (premier taux sans date).
+            jour: e.from !== undefined ? parisDayOf(e.from) : "",
+          },
+        ]),
       ),
     [enVigueur],
   );
-  const [saisies, setSaisies] = useState<Map<string, string>>(stocke);
+  const [saisies, setSaisies] = useState<Map<string, Saisie>>(stocke);
   const [pourToutes, setPourToutes] = useState("");
+  const [jourPourToutes, setJourPourToutes] = useState(aujourdhui);
   const [recherche, setRecherche] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -869,8 +881,8 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
     );
   }, [candidates, perimetre, enVigueur, recherche]);
 
-  const erreurs = [...saisies.entries()].flatMap(([id, val]) => {
-    const n = lireCpm(val);
+  const erreurs = [...saisies.entries()].flatMap(([id, s]) => {
+    const n = lireCpm(s.cpm);
     if (n === null) return [];
     const p = managerCpmProblem(n);
     return p === null ? [] : [{ id, p }];
@@ -880,22 +892,53 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
     const n = lireCpm(val ?? "");
     return n === null ? null : Math.round(n * 100) / 100;
   };
-  const modifie = [...new Set([...saisies.keys(), ...stocke.keys()])].some(
-    (id) => norme(saisies.get(id)) !== norme(stocke.get(id)),
-  );
-  const nbTaux = [...saisies.values()].filter((v) => lireCpm(v) !== null).length;
+  const vide: Saisie = { cpm: "", jour: "" };
+  const modifie = [...new Set([...saisies.keys(), ...stocke.keys()])].some((id) => {
+    const a = saisies.get(id) ?? vide;
+    const b = stocke.get(id) ?? vide;
+    return norme(a.cpm) !== norme(b.cpm) || (norme(a.cpm) !== null && a.jour !== b.jour);
+  });
+  const nbTaux = [...saisies.values()].filter((v) => lireCpm(v.cpm) !== null).length;
 
+  /** Nouveau taux tapé : s'il change, il vaut à partir d'AUJOURD'HUI par défaut. */
+  function changerTaux(id: string, cpm: string) {
+    setSaisies((prev) => {
+      const next = new Map(prev);
+      const cur = prev.get(id) ?? vide;
+      const avant = stocke.get(id) ?? vide;
+      const change = norme(cpm) !== norme(avant.cpm);
+      const jour = change && cur.jour === avant.jour ? aujourdhui : cur.jour;
+      next.set(id, { cpm, jour });
+      return next;
+    });
+  }
+
+  function changerJour(id: string, jour: string) {
+    setSaisies((prev) => new Map(prev).set(id, { ...(prev.get(id) ?? vide), jour }));
+  }
+
+  /**
+   * « Appliquer » : le taux (s'il est saisi) ET la date d'effet à toutes les
+   * créatrices listées. Taux vide = on ne change que la date des taux déjà posés
+   * (« en fait, ces taux valent depuis hier »).
+   */
   function appliquerPartout() {
     const n = lireCpm(pourToutes);
-    if (n === null) return;
-    const p = managerCpmProblem(n);
-    if (p !== null) {
-      toast.error(CPM_PROBLEME[p]);
-      return;
+    if (n !== null) {
+      const p = managerCpmProblem(n);
+      if (p !== null) {
+        toast.error(CPM_PROBLEME[p]);
+        return;
+      }
     }
     setSaisies((prev) => {
       const next = new Map(prev);
-      for (const c of listees) next.set(c._id, pourToutes.trim());
+      for (const c of listees) {
+        const cur = prev.get(c._id) ?? vide;
+        const cpm = n !== null ? pourToutes.trim() : cur.cpm;
+        if (lireCpm(cpm) === null) continue;
+        next.set(c._id, { cpm, jour: jourPourToutes });
+      }
       return next;
     });
   }
@@ -903,9 +946,11 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
   async function go() {
     setBusy(true);
     try {
-      const entries = [...saisies.entries()].flatMap(([creatorId, val]) => {
-        const cpm = lireCpm(val);
-        return cpm === null ? [] : [{ creatorId: creatorId as Id<"creators">, cpm }];
+      const entries = [...saisies.entries()].flatMap(([creatorId, s]) => {
+        const cpm = lireCpm(s.cpm);
+        return cpm === null
+          ? []
+          : [{ creatorId: creatorId as Id<"creators">, cpm, fromDay: s.jour === "" ? null : s.jour }];
       });
       await enregistrer({ membershipId: membre.membershipId, entries });
       toast.success(`Rémunération de ${membre.email} mise à jour`);
@@ -936,13 +981,14 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
         </Button>
       </div>
       <p className="text-xs text-slate-500">
-        Pour chaque créatrice, ce que le manager touche pour 1 000 vues rémunérées
-        de ses vidéos assignées{devise ? ` (en ${devise})` : ""}. Champ vide = elle
-        ne lui rapporte rien. <strong>Un changement de taux ne vaut que pour les
-        vidéos publiées à partir de maintenant</strong> : les vidéos déjà publiées
-        gardent leur ancien taux, et vider un champ arrête la rémunération pour les
-        vidéos suivantes seulement. Le tout premier taux d&apos;une créatrice couvre
-        aussi ses vidéos déjà publiées. Il voit ses chiffres dans « Ma rémunération ».
+        Pour chaque créatrice : ce que le manager touche pour 1 000 vues rémunérées
+        de ses vidéos assignées{devise ? ` (en ${devise})` : ""}, et{" "}
+        <strong>à partir de quelle date</strong> (vidéos publiées à partir de ce
+        jour, minuit heure de Paris). Taux vide = elle ne lui rapporte rien. Un
+        nouveau taux prend la date du jour par défaut ; les vidéos publiées avant
+        gardent leur ancien taux. Changer seulement la date corrige le taux en
+        cours. Date vide = depuis toujours (premier taux seulement). Il voit ses
+        chiffres dans « Ma rémunération ».
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -952,13 +998,22 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
           placeholder="ex. 0,20"
           inputMode="decimal"
           aria-label="CPM pour toutes les créatrices listées"
-          className="h-8 w-28"
+          className="h-8 w-24"
+        />
+        <span className="text-xs text-slate-500">à partir du</span>
+        <Input
+          type="date"
+          value={jourPourToutes}
+          max={aujourdhui}
+          onChange={(e) => setJourPourToutes(e.target.value)}
+          aria-label="Date d'effet pour toutes les créatrices listées"
+          className="h-8 w-40"
         />
         <Button
           size="sm"
           variant="outline"
           onClick={appliquerPartout}
-          disabled={lireCpm(pourToutes) === null || listees.length === 0}
+          disabled={listees.length === 0 || (lireCpm(pourToutes) === null && nbTaux === 0)}
         >
           Appliquer aux {listees.length} créatrice{listees.length > 1 ? "s" : ""} listée
           {listees.length > 1 ? "s" : ""}
@@ -996,26 +1051,26 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
               : "Aucune créatrice dans son périmètre : coche d'abord celles qu'il gère."}
         </p>
       ) : (
-        <div className="grid max-h-72 gap-1.5 overflow-y-auto sm:grid-cols-2">
+        <div className="grid max-h-96 gap-1.5 overflow-y-auto lg:grid-cols-2">
           {listees.map((c) => {
             const id = `cpm-${membre.membershipId}-${c._id}`;
-            const val = saisies.get(c._id) ?? "";
+            const s = saisies.get(c._id) ?? vide;
+            const aUnTaux = lireCpm(s.cpm) !== null;
+            const cur = enVigueur.get(c._id);
             const horsPerimetre = perimetre !== null && !perimetre.has(c._id);
             return (
               <div
                 key={c._id}
                 className={cn(
-                  "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm",
-                  val.trim() !== "" ? "border-amber-300" : "border-slate-200",
+                  "flex min-w-0 flex-wrap items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm",
+                  aUnTaux ? "border-amber-300" : "border-slate-200",
                 )}
               >
                 <label htmlFor={id} className="min-w-0 flex-1">
                   <span className="block truncate text-slate-900">{c.name}</span>
-                  {enVigueur.get(c._id)?.from !== undefined && (
+                  {cur !== undefined && cur.cpm === 0 && cur.from !== undefined && (
                     <span className="block text-[11px] text-slate-400">
-                      {enVigueur.get(c._id)!.cpm > 0
-                        ? `depuis le ${formatDate(enVigueur.get(c._id)!.from!)}`
-                        : `arrêtée le ${formatDate(enVigueur.get(c._id)!.from!)}`}
+                      arrêtée le {formatDate(cur.from)}
                     </span>
                   )}
                 </label>
@@ -1026,15 +1081,26 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
                 )}
                 <Input
                   id={id}
-                  value={val}
-                  onChange={(e) =>
-                    setSaisies((prev) => new Map(prev).set(c._id, e.target.value))
-                  }
+                  value={s.cpm}
+                  onChange={(e) => changerTaux(c._id, e.target.value)}
                   placeholder="—"
                   inputMode="decimal"
-                  className="h-7 w-20 text-right"
+                  className="h-7 w-16 text-right"
                 />
-                <span className="shrink-0 text-xs text-slate-400">/ 1k</span>
+                <span className="shrink-0 text-xs text-slate-400">/ 1k dès le</span>
+                <Input
+                  type="date"
+                  value={s.jour}
+                  max={aujourdhui}
+                  disabled={!aUnTaux}
+                  onChange={(e) => changerJour(c._id, e.target.value)}
+                  aria-label={`Date d'effet du taux (${c.name})`}
+                  title={s.jour === "" ? "Vide = depuis toujours" : undefined}
+                  className="h-7 w-36"
+                />
+                {aUnTaux && s.jour === "" && (
+                  <span className="shrink-0 text-[11px] text-slate-400">depuis toujours</span>
+                )}
               </div>
             );
           })}

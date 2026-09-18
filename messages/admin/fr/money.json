@@ -48,6 +48,7 @@
     "echecAnnulation": "Échec de l'annulation",
     "explicationVersements": "« Marquer payé » enregistre un versement du reste dû. Si les vidéos d'un mois déjà payé font encore des vues, le complément réapparaît en « reste à payer ».",
     "cpmArrete": "arrêté le {date}",
-    "cpmDepuis": "depuis le {date} (avant : {ancien})"
+    "cpmDepuis": "depuis le {date} (avant : {ancien})",
+    "cpmDepuisSeul": "depuis le {date}"
   }
 }

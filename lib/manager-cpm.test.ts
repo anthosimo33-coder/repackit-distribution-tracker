@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildManagerPayRows,
+  applyCpmEdits,
   cpmAt,
   cpmTrace,
+  parisDayStart,
   currentCpms,
   managerCpmProblem,
   nextCpmHistory,
@@ -110,7 +112,7 @@ describe("journal des CPM", () => {
   it("aller-retour d'une ligne", () => {
     const [line] = cpmTrace([{ creatorId: KELLY, cpm: 0.35 }]);
     expect(line).toBe(`cpm:${KELLY}:0.35`);
-    expect(parseCpmTrace(line)).toEqual({ creatorId: KELLY, cpm: 0.35 });
+    expect(parseCpmTrace(line)).toEqual({ creatorId: KELLY, cpm: 0.35, fromDay: null });
   });
   it("une ligne de périmètre ou un bloc n'est pas un CPM", () => {
     expect(parseCpmTrace(`périmètre:${KELLY}`)).toBeNull();
@@ -254,6 +256,92 @@ describe("taux daté — un nouveau taux ne touche pas les anciennes vidéos", (
   });
 
   it("le journal ne trace que le taux ACTIF", () => {
-    expect(cpmTrace(history)).toEqual([`cpm:${KELLY}:0.3`]);
+    // Le 10/10/2026 à 14:32 UTC = le 10/10 à Paris.
+    expect(cpmTrace(history)).toEqual([`cpm:${KELLY}:0.3@2026-10-10`]);
+    expect(parseCpmTrace(`cpm:${KELLY}:0.3@2026-10-10`)).toEqual({
+      creatorId: KELLY,
+      cpm: 0.3,
+      fromDay: "2026-10-10",
+    });
+  });
+});
+
+describe("date d'effet choisie", () => {
+  // « Maintenant » = 18/09/2026 11:52 Paris.
+  const NOW = Date.UTC(2026, 8, 18, 9, 52);
+  const HIER = "2026-09-17";
+  const HIER_MINUIT = Date.UTC(2026, 8, 16, 22, 0); // 17/09 00:00 Paris (UTC+2)
+  const ok = (r: ReturnType<typeof applyCpmEdits>) => {
+    if ("problem" in r) throw new Error(`problème inattendu : ${r.problem.code}`);
+    return r.history;
+  };
+
+  it("minuit de Paris, été comme hiver", () => {
+    expect(parisDayStart(HIER)).toBe(HIER_MINUIT);
+    expect(parisDayStart("2026-12-03")).toBe(Date.UTC(2026, 11, 2, 23, 0));
+    expect(parisDayStart("2026-02-30")).toBeNull();
+  });
+
+  it("LE CAS DU 18/09 : 9 taux posés « depuis toujours », on corrige en « à partir d'hier »", () => {
+    const poses = [
+      { creatorId: KELLY, cpm: 0.2 },
+      { creatorId: INES, cpm: 0.2 },
+    ];
+    const corrige = ok(
+      applyCpmEdits(
+        poses,
+        poses.map((p) => ({ ...p, fromDay: HIER })),
+        NOW,
+      ),
+    );
+    // Correction EN PLACE : pas de deuxième entrée, et plus de « depuis toujours ».
+    expect(corrige).toEqual([
+      { creatorId: KELLY, cpm: 0.2, from: HIER_MINUIT },
+      { creatorId: INES, cpm: 0.2, from: HIER_MINUIT },
+    ]);
+    // Une vidéo d'avant-hier ne rapporte plus rien ; une d'hier soir, si.
+    expect(cpmAt(corrige, KELLY, Date.UTC(2026, 8, 16, 18, 40))).toBeUndefined();
+    expect(cpmAt(corrige, KELLY, Date.UTC(2026, 8, 17, 19, 5))).toBe(0.2);
+  });
+
+  it("premier taux daté d'hier : les vidéos d'avant ne comptent pas", () => {
+    const h = ok(applyCpmEdits([], [{ creatorId: KELLY, cpm: 0.35, fromDay: HIER }], NOW));
+    expect(h).toEqual([{ creatorId: KELLY, cpm: 0.35, from: HIER_MINUIT }]);
+  });
+
+  it("nouveau taux à une date passée : ajouté, l'ancien reste pour les vidéos d'avant", () => {
+    const h = ok(
+      applyCpmEdits(
+        [{ creatorId: KELLY, cpm: 0.2 }],
+        [{ creatorId: KELLY, cpm: 0.3, fromDay: HIER }],
+        NOW,
+      ),
+    );
+    expect(h).toEqual([
+      { creatorId: KELLY, cpm: 0.2 },
+      { creatorId: KELLY, cpm: 0.3, from: HIER_MINUIT },
+    ]);
+  });
+
+  it("refuse une date future", () => {
+    const r = applyCpmEdits([], [{ creatorId: KELLY, cpm: 0.2, fromDay: "2026-09-19" }], NOW);
+    expect("problem" in r && r.problem.code).toBe("future");
+  });
+
+  it("refuse une date qui remonte avant le taux précédent", () => {
+    const h = [
+      { creatorId: KELLY, cpm: 0.2 },
+      { creatorId: KELLY, cpm: 0.3, from: HIER_MINUIT },
+    ];
+    // Corriger la date du 0,30 au 03/09 : OK (toujours après « depuis toujours »).
+    expect("history" in applyCpmEdits(h, [{ creatorId: KELLY, cpm: 0.3, fromDay: "2026-09-03" }], NOW)).toBe(true);
+    // Un NOUVEAU taux avant le 17/09 : refusé, il passerait sous l'entrée en vigueur.
+    const r = applyCpmEdits(h, [{ creatorId: KELLY, cpm: 0.4, fromDay: "2026-09-12" }], NOW);
+    expect(r).toEqual({
+      problem: { code: "before_previous", creatorId: KELLY, previousFrom: HIER_MINUIT },
+    });
+    // « Depuis toujours » sur un 2e taux : refusé (réécrirait le 0,20 d'avant).
+    const t = applyCpmEdits(h, [{ creatorId: KELLY, cpm: 0.3, fromDay: null }], NOW);
+    expect("problem" in t && t.problem.code).toBe("before_previous");
   });
 });

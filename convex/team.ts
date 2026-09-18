@@ -28,6 +28,7 @@ import {
   type PermissionId,
 } from "./permissions";
 import { PERMISSION_COVERAGE } from "./permissionCoverage";
+import { formatDateFr } from "./dateFr";
 import { ROLE_ADMIN_TRACE, traceDiff } from "./memberPermissions";
 import {
   KIND_LABELS,
@@ -49,8 +50,9 @@ import {
 import {
   MANAGER_CPM_MAX,
   cpmTrace,
+  applyCpmEdits,
   currentCpms,
-  nextCpmHistory,
+  type CpmEdit,
   managerCpmProblem,
   parseCpmTrace,
   type ManagerCpmProblem,
@@ -541,7 +543,15 @@ export const setManagerCpms = superadminMutation({
   args: {
     projectId: v.id("projects"),
     membershipId: v.id("memberships"),
-    entries: v.array(v.object({ creatorId: v.id("creators"), cpm: v.number() })),
+    entries: v.array(
+      v.object({
+        creatorId: v.id("creators"),
+        cpm: v.number(),
+        // "YYYY-MM-DD" (Paris) : à partir de quand ce taux vaut. null = depuis
+        // toujours (premier taux seulement). Absent = défaut (cf applyCpmEdits).
+        fromDay: v.optional(v.union(v.null(), v.string())),
+      }),
+    ),
   },
   handler: async (ctx, { projectId, membershipId, entries }) => {
     const m = await membershipOf(ctx, membershipId, projectId);
@@ -552,7 +562,8 @@ export const setManagerCpms = superadminMutation({
       );
     }
     const vus = new Set<string>();
-    const apres: { creatorId: Id<"creators">; cpm: number }[] = [];
+    const apres: CpmEdit[] = [];
+    const nomDe = new Map<string, string>();
     for (const e of entries) {
       if (vus.has(e.creatorId)) {
         throw new ConvexError("Une créatrice apparaît deux fois dans la liste.");
@@ -571,12 +582,32 @@ export const setManagerCpms = superadminMutation({
       // s'afficherait 0,13 et paierait autre chose que ce qu'on lit.
       const cpm = Math.round(e.cpm * 100) / 100;
       if (cpm <= 0) throw new ConvexError("Le CPM doit être d'au moins un centime.");
-      apres.push({ creatorId: e.creatorId, cpm });
+      nomDe.set(e.creatorId, c.name);
+      apres.push(
+        e.fromDay === undefined
+          ? { creatorId: e.creatorId, cpm }
+          : { creatorId: e.creatorId, cpm, fromDay: e.fromDay },
+      );
     }
     const avant = (await ctx.db.get(membershipId))?.managerCpms ?? [];
-    // HISTORIQUE : un taux changé s'AJOUTE, daté de maintenant — les vidéos déjà
-    // publiées gardent leur ancien taux (cf convex/managerCpm.nextCpmHistory).
-    const historique = nextCpmHistory(avant, apres, Date.now()) as {
+    // HISTORIQUE DATÉ : un nouveau taux s'AJOUTE à partir de sa date — les vidéos
+    // publiées avant gardent leur ancien taux (cf convex/managerCpm.applyCpmEdits).
+    const resultat = applyCpmEdits(avant, apres, Date.now());
+    if ("problem" in resultat) {
+      const pb = resultat.problem;
+      const nom = nomDe.get(pb.creatorId) ?? "une créatrice";
+      throw new ConvexError(
+        pb.code === "future"
+          ? `${nom} : la date d'effet ne peut pas être dans le futur.`
+          : pb.code === "bad_day"
+            ? `${nom} : date d'effet illisible.`
+            : pb.previousFrom === null
+              ? `${nom} : « depuis toujours » n'est possible que pour son tout premier taux — choisis une date.`
+              : `${nom} : la date doit être après le ${formatDateFr(pb.previousFrom)}, ` +
+                "date du taux précédent (les vidéos d'avant gardent leur ancien taux).",
+      );
+    }
+    const historique = resultat.history as {
       creatorId: Id<"creators">;
       cpm: number;
       from?: number;
@@ -622,7 +653,9 @@ export const listChanges = superadminQuery({
           r.permission === SCOPE_ALL_TRACE
             ? "Périmètre : toutes les créatrices"
             : cpmLine
-              ? `CPM ${String(cpmLine.cpm).replace(".", ",")} / 1 000 vues : ${fiche?.name ?? "créatrice supprimée"}`
+              ? `CPM ${String(cpmLine.cpm).replace(".", ",")} / 1 000 vues` +
+                (cpmLine.fromDay ? ` à partir du ${cpmLine.fromDay.split("-").reverse().join("/")}` : "") +
+                ` : ${fiche?.name ?? "créatrice supprimée"}`
               : scopedId
                 ? `Périmètre : ${fiche?.name ?? "créatrice supprimée"}`
                 : r.permission,

@@ -48,6 +48,7 @@
     "echecAnnulation": "Couldn't cancel the payment",
     "explicationVersements": "“Mark as paid” records a payment of what's left to pay. If the videos of a month already paid keep getting views, the difference shows up again as “left to pay”.",
     "cpmArrete": "stopped on {date}",
-    "cpmDepuis": "since {date} (was {ancien})"
+    "cpmDepuis": "since {date} (was {ancien})",
+    "cpmDepuisSeul": "since {date}"
   }
 }
