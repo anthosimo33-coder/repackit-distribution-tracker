@@ -110,9 +110,11 @@ export function ManagerPayReport({
         <span className="block">
           {c.cpm > 0 ? cpmLabel(c.cpm) : tr("cpmArrete", { date: date ?? "—" })}
         </span>
-        {c.cpm > 0 && date && prev && (
+        {c.cpm > 0 && date && (
           <span className="block text-[11px] text-slate-400">
-            {tr("cpmDepuis", { date, ancien: money(prev.cpm) })}
+            {prev
+              ? tr("cpmDepuis", { date, ancien: money(prev.cpm) })
+              : tr("cpmDepuisSeul", { date })}
           </span>
         )}
       </>

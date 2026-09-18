@@ -24,9 +24,10 @@
  * toutes ses vidéos d'avant à 0,20, pour toujours. « Arrêter » une créatrice =
  * une entrée à 0 : ses vidéos déjà publiées restent payées, les suivantes non.
  *
- * ⚠️ LE PREMIER TAUX d'une créatrice n'a pas de `from` : il couvre aussi les
- * vidéos publiées avant qu'on le pose (c'est le taux de départ, il n'y a pas
- * d'« ancien taux » à préserver). Seuls les CHANGEMENTS sont datés.
+ * La date d'effet se CHOISIT (écran « Rôles et droits », minuit heure de Paris),
+ * y compris dans le passé (« à partir d'hier ») : cf `applyCpmEdits`. Sans date,
+ * le premier taux couvre tout le passé (`from` absent) et un changement vaut à
+ * partir de maintenant.
  * - Pas un cycle figé : « marquer payé » enregistre un VERSEMENT additif par
  *   mois (table `managerPayouts`), et le reste dû se recalcule (cf plus bas).
  * - Pas le périmètre : `creatorScope` dit sur qui le manager AGIT, `managerCpms`
@@ -34,6 +35,8 @@
  *   CPM posé reste compté si le périmètre change ensuite — retirer une créatrice
  *   d'un périmètre ne doit pas effacer ce qu'elle a déjà rapporté.
  */
+
+import { parisMidnightUtc } from "./viewsDaily";
 
 /** Plafond de saisie, en devise de paie pour 1 000 vues. Anti faute de frappe. */
 export const MANAGER_CPM_MAX = 50;
@@ -85,30 +88,133 @@ export function currentCpms(entries: readonly ManagerCpmEntry[]): ManagerCpmEntr
     .map((e) => ({ creatorId: e.creatorId, cpm: e.cpm }));
 }
 
+/** Jour calendaire "YYYY-MM-DD" à Paris d'un instant — la forme d'un `<input type="date">`. */
+export function parisDayOf(ts: number): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date(ts));
+}
+
+/** Minuit Paris d'un jour "YYYY-MM-DD", ou `null` si la chaîne n'est pas une date. */
+export function parisDayStart(day: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) return null;
+  const ts = parisMidnightUtc(Number(m[1]), Number(m[2]), Number(m[3]));
+  return parisDayOf(ts) === day ? ts : null;
+}
+
 /**
- * Le nouvel historique après une saisie. `desired` = les taux voulus AUJOURD'HUI
- * (une créatrice absente = à arrêter). N'ajoute une entrée QUE si le taux change :
- * réenregistrer les mêmes taux ne crée aucune date.
- *   - jamais eu de taux          → entrée SANS `from` (couvre le passé) ;
- *   - taux différent, ou arrêt   → entrée datée `now` (le passé ne bouge pas).
+ * Une saisie de taux pour UNE créatrice.
+ *   - `fromDay` "YYYY-MM-DD" : le taux vaut pour les vidéos publiées à partir de
+ *     ce jour (minuit, heure de Paris) ;
+ *   - `fromDay` null : « depuis toujours » — permis seulement pour le PREMIER
+ *     taux d'une créatrice (sinon on réécrirait le passé d'un ancien taux) ;
+ *   - `fromDay` absent : comportement par défaut (premier taux = depuis
+ *     toujours, changement = à partir de maintenant).
  */
+export type CpmEdit = { creatorId: string; cpm: number; fromDay?: string | null };
+
+export type CpmEditProblem =
+  | { code: "bad_day"; creatorId: string }
+  | { code: "future"; creatorId: string }
+  /** La date tombe avant (ou au jour de) l'entrée précédente de cette créatrice. */
+  | { code: "before_previous"; creatorId: string; previousFrom: number | null };
+
+/**
+ * Le nouvel historique après une saisie, ou le PROBLÈME qui l'interdit.
+ * `edits` = les taux voulus (une créatrice absente = arrêtée à partir de `now`).
+ *
+ * Par créatrice, comparé à son entrée EN VIGUEUR :
+ *   - même taux, même date           → rien (réenregistrer ne crée aucune date) ;
+ *   - même taux, autre date          → CORRECTION de la date de cette entrée
+ *                                      (ex. « en fait, c'était à partir d'hier ») ;
+ *   - autre taux, même date          → CORRECTION du taux de cette entrée ;
+ *   - autre taux, date plus récente  → NOUVELLE entrée : les vidéos d'avant
+ *                                      gardent l'ancien taux.
+ * Une date ne peut jamais remonter AVANT l'entrée précédente : l'historique
+ * resterait lisible, mais une période serait payée deux fois différemment selon
+ * l'ordre de lecture. Une date dans le futur est refusée aussi.
+ */
+export function applyCpmEdits(
+  history: readonly ManagerCpmEntry[],
+  edits: readonly CpmEdit[],
+  now: number,
+): { history: ManagerCpmEntry[] } | { problem: CpmEditProblem } {
+  const out = [...history];
+  const current = currentCpmEntries(history);
+  const seen = new Set<string>();
+  for (const e of edits) {
+    seen.add(e.creatorId);
+    let from: number | undefined;
+    if (typeof e.fromDay === "string") {
+      const start = parisDayStart(e.fromDay);
+      if (start === null) return { problem: { code: "bad_day", creatorId: e.creatorId } };
+      if (start > now) return { problem: { code: "future", creatorId: e.creatorId } };
+      from = start;
+    }
+    const cur = current.get(e.creatorId);
+    if (cur === undefined) {
+      out.push(from === undefined ? { creatorId: e.creatorId, cpm: e.cpm } : { creatorId: e.creatorId, cpm: e.cpm, from });
+      continue;
+    }
+    // L'entrée d'AVANT celle en vigueur : la borne basse de toute correction.
+    const prev = out
+      .filter((x) => x.creatorId === e.creatorId && x !== cur)
+      .reduce<ManagerCpmEntry | undefined>(
+        (best, x) =>
+          best === undefined || (x.from ?? -Infinity) > (best.from ?? -Infinity) ? x : best,
+        undefined,
+      );
+    const idx = out.indexOf(cur);
+    const replace = (entry: ManagerCpmEntry) => {
+      if (prev !== undefined && (entry.from ?? -Infinity) <= (prev.from ?? -Infinity)) {
+        return { code: "before_previous" as const, creatorId: e.creatorId, previousFrom: prev.from ?? null };
+      }
+      out[idx] = entry;
+      return null;
+    };
+    const withFrom = (cpm: number, f: number | undefined): ManagerCpmEntry =>
+      f === undefined ? { creatorId: e.creatorId, cpm } : { creatorId: e.creatorId, cpm, from: f };
+
+    if (e.fromDay === undefined) {
+      // Défaut historique : même taux → rien ; autre taux → à partir de maintenant.
+      if (cur.cpm !== e.cpm) out.push(withFrom(e.cpm, now));
+      continue;
+    }
+    const sameDate = (cur.from ?? null) === (from ?? null);
+    if (cur.cpm === e.cpm && sameDate) continue;
+    if (sameDate || cur.cpm === e.cpm) {
+      // Correction de l'entrée en vigueur (son taux OU sa date).
+      const p = replace(withFrom(e.cpm, from));
+      if (p) return { problem: p };
+      continue;
+    }
+    // Autre taux ET autre date.
+    if (from === undefined) {
+      // « Depuis toujours » avec un nouveau taux = réécrire tout le passé :
+      // seulement si c'est le seul taux qu'elle ait jamais eu.
+      const p = replace(withFrom(e.cpm, undefined));
+      if (p) return { problem: p };
+      continue;
+    }
+    if (from <= (cur.from ?? -Infinity)) {
+      return { problem: { code: "before_previous", creatorId: e.creatorId, previousFrom: cur.from ?? null } };
+    }
+    out.push(withFrom(e.cpm, from));
+  }
+  for (const [creatorId, cur] of current) {
+    if (!seen.has(creatorId) && cur.cpm !== 0) out.push({ creatorId, cpm: 0, from: now });
+  }
+  return { history: out };
+}
+
+/** `applyCpmEdits` sans date choisie — le comportement par défaut. */
 export function nextCpmHistory(
   history: readonly ManagerCpmEntry[],
   desired: readonly { creatorId: string; cpm: number }[],
   now: number,
 ): ManagerCpmEntry[] {
-  const current = currentCpmEntries(history);
-  const want = new Map(desired.map((d) => [d.creatorId, d.cpm]));
-  const out = [...history];
-  for (const [creatorId, cpm] of want) {
-    const cur = current.get(creatorId);
-    if (cur === undefined) out.push({ creatorId, cpm });
-    else if (cur.cpm !== cpm) out.push({ creatorId, cpm, from: now });
-  }
-  for (const [creatorId, cur] of current) {
-    if (!want.has(creatorId) && cur.cpm !== 0) out.push({ creatorId, cpm: 0, from: now });
-  }
-  return out;
+  const r = applyCpmEdits(history, desired, now);
+  if ("problem" in r) throw new Error(r.problem.code);
+  return r.history;
 }
 
 /**
@@ -247,22 +353,33 @@ export function managerPayPeriods(rows: readonly ManagerPayRow[]): string[] {
 
 export const CPM_TRACE_PREFIX = "cpm:";
 
-/** Trace des taux ACTIFS aujourd'hui — le journal raconte le changement de taux. */
+/**
+ * Trace des taux ACTIFS aujourd'hui, avec leur date d'effet : le journal raconte
+ * un changement de taux ET une correction de date (« en fait, depuis hier »).
+ * Forme : « cpm:<créatrice>:<taux> » ou « cpm:<créatrice>:<taux>@<YYYY-MM-DD> ».
+ */
 export function cpmTrace(entries: readonly ManagerCpmEntry[] | null | undefined): string[] {
-  return currentCpms(entries ?? []).map((e) => `${CPM_TRACE_PREFIX}${e.creatorId}:${e.cpm}`);
+  return [...currentCpmEntries(entries ?? []).values()]
+    .filter((e) => e.cpm > 0)
+    .map(
+      (e) =>
+        `${CPM_TRACE_PREFIX}${e.creatorId}:${e.cpm}` +
+        (e.from !== undefined ? `@${parisDayOf(e.from)}` : ""),
+    );
 }
 
-/** `{ creatorId, cpm }` d'une ligne de journal de CPM, sinon `null`. */
+/** `{ creatorId, cpm, fromDay }` d'une ligne de journal de CPM, sinon `null`. */
 export function parseCpmTrace(
   permission: string,
-): { creatorId: string; cpm: number } | null {
+): { creatorId: string; cpm: number; fromDay: string | null } | null {
   if (!permission.startsWith(CPM_TRACE_PREFIX)) return null;
   const rest = permission.slice(CPM_TRACE_PREFIX.length);
   const sep = rest.lastIndexOf(":");
   if (sep <= 0) return null;
-  const cpm = Number(rest.slice(sep + 1));
+  const [taux, fromDay] = rest.slice(sep + 1).split("@");
+  const cpm = Number(taux);
   if (!Number.isFinite(cpm)) return null;
-  return { creatorId: rest.slice(0, sep), cpm };
+  return { creatorId: rest.slice(0, sep), cpm, fromDay: fromDay ?? null };
 }
 
 // ─── Versements (« marquer payé ») ───────────────────────────────────────────
