@@ -801,10 +801,18 @@ export const adminViewAsTalentQuery = adminViewAsPopulationQuery("talent");
 export const adminViewAsClipperQuery = adminViewAsPopulationQuery("clipper");
 
 /**
- * P1 Créateurs — endpoint GENUINEMENT PUBLIC (pré-session). Réservé au flow
- * d'invitation : la page /join doit lire l'invitation par token AVANT que le
- * compte n'existe (aucune identité possible). Comme /login, pas d'auth. Seul
- * `creators.getInvitationPreview` doit l'utiliser, et ne retourner AUCUNE
- * info qui leak l'existence/état d'un token (cf no-leak du chantier).
+ * P1 Créateurs — endpoint GENUINEMENT PUBLIC (pré-session). Réservé aux pages
+ * atteintes SANS compte, par un jeton ou un slug que le visiteur détient déjà :
+ * invitation (/join), reset de mot de passe, login brandé, et lien public d'un
+ * dashboard (/s/<token>, cf convex/publicShares.ts). Chaque appelant ne
+ * retourne AUCUNE info qui leak l'existence/état d'un token (cf no-leak du
+ * chantier) : un jeton inconnu, expiré ou révoqué donne la même réponse.
  */
 export const publicQuery = query;
+
+/**
+ * Jumelle en ÉCRITURE de `publicQuery`. Un seul usage : le compteur
+ * d'ouvertures d'un lien public (`publicShares.recordShareOpen`), qui n'écrit
+ * que sur la ligne désignée par un jeton VALIDE et ne renvoie rien.
+ */
+export const publicMutation = mutation;

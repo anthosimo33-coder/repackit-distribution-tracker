@@ -183,6 +183,14 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     routes: ["/dashboard"],
   },
   {
+    id: "content.share",
+    section: "Contenu",
+    label: "Partager des dashboards",
+    description:
+      "Créer des liens publics vers une partie du Tracker, pour une marque ou une créatrice, et les révoquer.",
+    defaultForManager: false,
+  },
+  {
     id: "radar.use",
     section: "Contenu",
     label: "Radar",
@@ -287,6 +295,7 @@ export const PERMISSION_ID_LITERALS = [
   "guide.manage",
   "tracker.manage",
   "content.analytics",
+  "content.share",
   "radar.use",
   "creators.pay_terms",
   "pricing.manage",

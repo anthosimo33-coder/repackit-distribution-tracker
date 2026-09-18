@@ -14,9 +14,9 @@ import {
  * usages n'ont aucune raison de rester alignés tout seuls — d'où ces tests.
  */
 describe("catalogue de permissions", () => {
-  it("porte 21 blocs, sans doublon d'identifiant", () => {
-    expect(PERMISSION_CATALOGUE).toHaveLength(21);
-    expect(new Set(PERMISSION_IDS).size).toBe(21);
+  it("porte 22 blocs, sans doublon d'identifiant", () => {
+    expect(PERMISSION_CATALOGUE).toHaveLength(22);
+    expect(new Set(PERMISSION_IDS).size).toBe(22);
   });
 
   it("garde la liste d'objets et la liste de littéraux ALIGNÉES", () => {
