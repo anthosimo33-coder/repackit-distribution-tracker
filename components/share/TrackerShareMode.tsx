@@ -18,9 +18,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import {
   SHARE_BLOCKS,
   blocksForAudience,
+  type PublicSharePayload,
   type ShareBlock,
 } from "@/convex/publicShare";
-import type { PublicSharePayload } from "@/convex/publicShares";
 import {
   useProjectMutation,
   useProjectQuery,
@@ -57,6 +57,11 @@ type Expiry = "30" | "90" | "never";
 type Warmup = "exclude" | "all" | "only";
 
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+
+/** Une sélection vide = pas de filtre : elle n'est pas envoyée. */
+function listOrUndefined(s: ReadonlySet<string>): string[] | undefined {
+  return s.size === 0 ? undefined : [...s];
+}
 
 /**
  * MODE PARTAGE du Tracker — on règle un lien public SUR son rendu réel.
@@ -132,17 +137,15 @@ export function TrackerShareMode({ onExit }: { onExit: () => void }) {
       perimeter: {
         period,
         creatorIds:
-          audience === "brand" && creatorIds.size > 0
-            ? ([...creatorIds] as Id<"creators">[])
+          audience === "brand"
+            ? (listOrUndefined(creatorIds) as Id<"creators">[] | undefined)
             : undefined,
-        plateformes:
-          plateformes.size > 0
-            ? ([...plateformes] as ("TikTok" | "Instagram" | "YouTube")[])
-            : undefined,
-        campaignIds:
-          campaignIds.size > 0
-            ? ([...campaignIds] as Id<"scriptCampaigns">[])
-            : undefined,
+        plateformes: listOrUndefined(plateformes) as
+          | ("TikTok" | "Instagram" | "YouTube")[]
+          | undefined,
+        campaignIds: listOrUndefined(campaignIds) as
+          | Id<"scriptCampaigns">[]
+          | undefined,
         warmup,
       },
       blocks: effectiveBlocks,

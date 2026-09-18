@@ -154,6 +154,14 @@ test.describe("Partage public du Tracker", () => {
     await expect(vpage.getByText("Créatrice A").first()).toBeVisible();
     await expect(vpage.getByText("Propulsé par Jarvia")).toBeVisible();
     await expect(vpage.getByText("Kelly")).toHaveCount(0);
+    // L'aperçu de lien (WhatsApp, Slack) : balise posée ET image servie sans session.
+    await expect(vpage.locator('meta[property="og:image"]')).toHaveAttribute(
+      "content",
+      new RegExp(`/s/${brand.token}/opengraph-image`),
+    );
+    const og = await visitor.request.get(`/s/${brand.token}/opengraph-image`);
+    expect(og.status()).toBe(200);
+    expect(og.headers()["content-type"]).toBe("image/png");
 
     // ── Lien CRÉATRICE : verrouillé sur elle, même avec un périmètre large ──
     const forKelly = await admin.mutation(api.publicShares.createShare, {

@@ -12,8 +12,11 @@ import {
   YAxis,
 } from "recharts";
 import { EyeIcon, EyeOffIcon, ExternalLinkIcon, LockIcon } from "lucide-react";
-import type { PublicSharePayload } from "@/convex/publicShares";
-import type { PublicCreatorRef, ShareBlock } from "@/convex/publicShare";
+import type {
+  PublicCreatorRef,
+  PublicSharePayload,
+  ShareBlock,
+} from "@/convex/publicShare";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { cn } from "@/lib/utils";
@@ -132,7 +135,11 @@ export function PublicTrackerView({
       )}
 
       {shows("daily") && (
-        <Block block="daily" edit={edit} on={isOn("daily")} title={t("daily.title")}>
+        <Block
+          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+          block="daily"
+          edit={edit}
+          on={isOn("daily")} title={t("daily.title")}>
           <h3 className="text-sm font-semibold text-slate-900">{t("daily.title")}</h3>
           {payload.daily === null ? null : payload.daily.length === 0 ? (
             <p className="py-10 text-center text-sm text-slate-400">{t("daily.empty")}</p>
@@ -190,6 +197,7 @@ export function PublicTrackerView({
         >
           {shows("by_platform") && (
             <Block
+              // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
               block="by_platform"
               edit={edit}
               on={isOn("by_platform")}
@@ -207,6 +215,7 @@ export function PublicTrackerView({
           )}
           {shows("by_creator") && (
             <Block
+              // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
               block="by_creator"
               edit={edit}
               on={isOn("by_creator")}
@@ -239,7 +248,11 @@ export function PublicTrackerView({
       )}
 
       {shows("posts") && (
-        <Block block="posts" edit={edit} on={isOn("posts")} title={t("posts.title")}>
+        <Block
+          // i18n-exempt: identifiant de bloc (clé de ShareBlock), pas du texte
+          block="posts"
+          edit={edit}
+          on={isOn("posts")} title={t("posts.title")}>
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="text-sm font-semibold text-slate-900">{t("posts.title")}</h3>
             <p className="text-xs text-slate-500">

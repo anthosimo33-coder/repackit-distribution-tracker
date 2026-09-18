@@ -23,7 +23,7 @@ import {
   shareStatus,
   shareWindow,
   type InternalSharePost,
-  type PublicTrackerView,
+  type PublicSharePayload,
   type ShareAudience,
   type SharePerimeter,
 } from "./publicShare";
@@ -86,24 +86,6 @@ type ShareConfig = {
   blocks: string[];
   showCreatorNames: boolean;
   postLinks: boolean;
-};
-
-export type PublicSharePayload = {
-  status: "valid";
-  dashboard: "tracker";
-  name: string;
-  projectName: string;
-  projectLogoUrl: string | null;
-  accentColor: string;
-  audience: ShareAudience;
-  /** Lien de créatrice : son prénom, pour le titre. null pour une marque. */
-  creatorName: string | null;
-  period: { kind: "rolling" | "fixed" | "all"; from: number | null; to: number | null };
-  /** Dernier relevé de vues du projet — « à jour il y a 2 h ». */
-  updatedAt: number | null;
-  blocks: string[];
-  view: PublicTrackerView;
-  daily: { date: string; value: number }[] | null;
 };
 
 async function buildPublicPayload(

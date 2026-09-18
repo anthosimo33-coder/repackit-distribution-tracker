@@ -230,6 +230,29 @@ export type PublicTrackerView = {
     | null;
 };
 
+/**
+ * La réponse complète d'un lien public. Vit ICI, dans le module pur, pour que
+ * les écrans l'importent sans tirer convex/publicShares.ts (et ses lectures de
+ * base) dans leur graphe d'imports.
+ */
+export type PublicSharePayload = {
+  status: "valid";
+  dashboard: "tracker";
+  name: string;
+  projectName: string;
+  projectLogoUrl: string | null;
+  accentColor: string;
+  audience: ShareAudience;
+  /** Lien de créatrice : son prénom, pour le titre. null pour une marque. */
+  creatorName: string | null;
+  period: { kind: "rolling" | "fixed" | "all"; from: number | null; to: number | null };
+  /** Dernier relevé de vues du projet — « à jour il y a 2 h ». */
+  updatedAt: number | null;
+  blocks: string[];
+  view: PublicTrackerView;
+  daily: { date: string; value: number }[] | null;
+};
+
 export type ProjectionConfig = {
   audience: ShareAudience;
   blocks: readonly string[];
