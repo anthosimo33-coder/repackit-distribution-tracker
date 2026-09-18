@@ -93,10 +93,31 @@ export function ManagerPayReport({
   const remaining = roundCents(scoped.reduce((s, x) => s + Math.max(0, x.remaining), 0));
   const byCreator = managerPayByCreator(data.rows, selected);
   const nameOf = new Map(data.creators.map((c) => [c.creatorId as string, c.name]));
-  const cpmOf = new Map(data.creators.map((c) => [c.creatorId as string, c.cpm]));
+  const creatorOf = new Map(data.creators.map((c) => [c.creatorId as string, c]));
 
   const money = (n: number) => formatMoney(n, data.currency, loc);
   const cpmLabel = (cpm: number) => tr("cpmValeur", { cpm: money(cpm) });
+  // Le taux d'AUJOURD'HUI, et depuis quand s'il a changé : les vidéos d'avant
+  // restent à l'ancien taux, le relevé doit permettre de le relire.
+  const cpmCell = (creatorId: string) => {
+    const c = creatorOf.get(creatorId);
+    if (!c) return "—";
+    const last = c.history[c.history.length - 1];
+    const prev = c.history[c.history.length - 2];
+    const date = last?.from != null ? formatMoneyDate(last.from, loc) : null;
+    return (
+      <>
+        <span className="block">
+          {c.cpm > 0 ? cpmLabel(c.cpm) : tr("cpmArrete", { date: date ?? "—" })}
+        </span>
+        {c.cpm > 0 && date && prev && (
+          <span className="block text-[11px] text-slate-400">
+            {tr("cpmDepuis", { date, ancien: money(prev.cpm) })}
+          </span>
+        )}
+      </>
+    );
+  };
   const monthLabel = (p: string) => {
     const [y, m] = p.split("-").map(Number);
     return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(loc, {
@@ -183,7 +204,7 @@ export function ManagerPayReport({
                     {formatNumber(r.totalViews, loc)}
                   </TableCell>
                   <TableCell className="hidden text-right text-slate-500 sm:table-cell">
-                    {cpmLabel(cpmOf.get(r.creatorId) ?? 0)}
+                    {cpmCell(r.creatorId)}
                   </TableCell>
                   <TableCell className="text-right font-medium tabular-nums">
                     {money(r.amount)}

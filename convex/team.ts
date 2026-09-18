@@ -49,6 +49,8 @@ import {
 import {
   MANAGER_CPM_MAX,
   cpmTrace,
+  currentCpms,
+  nextCpmHistory,
   managerCpmProblem,
   parseCpmTrace,
   type ManagerCpmProblem,
@@ -147,7 +149,7 @@ export const listMembers = superadminQuery({
         // `null` = toutes les créatrices ; une liste (même vide) = celles-là.
         // Rendu tel que stocké : l'écran doit distinguer « absent » de « vide ».
         creatorScope: m.creatorScope ?? null,
-        // CPM par créatrice (convex/managerCpm). `[]` = ne rapporte rien.
+        // Historique daté des taux (convex/managerCpm). `[]` = ne rapporte rien.
         managerCpms: m.managerCpms ?? [],
         effective: [...grantedPermissions(stored)],
         // Valeurs stockées qui n'ouvrent RIEN. Affichées telles quelles.
@@ -551,20 +553,27 @@ export const setManagerCpms = superadminMutation({
       if (cpm <= 0) throw new ConvexError("Le CPM doit être d'au moins un centime.");
       apres.push({ creatorId: e.creatorId, cpm });
     }
-    const avant = (await ctx.db.get(membershipId))?.managerCpms;
+    const avant = (await ctx.db.get(membershipId))?.managerCpms ?? [];
+    // HISTORIQUE : un taux changé s'AJOUTE, daté de maintenant — les vidéos déjà
+    // publiées gardent leur ancien taux (cf convex/managerCpm.nextCpmHistory).
+    const historique = nextCpmHistory(avant, apres, Date.now()) as {
+      creatorId: Id<"creators">;
+      cpm: number;
+      from?: number;
+    }[];
     await ctx.db.patch(membershipId, {
-      managerCpms: apres.length > 0 ? apres : undefined,
+      managerCpms: historique.length > 0 ? historique : undefined,
     });
     const traced = await traceDiff(
       ctx,
       projectId,
       m.userId,
       cpmTrace(avant),
-      cpmTrace(apres),
+      cpmTrace(historique),
       "écran",
       ctx.userId,
     );
-    return { managerCpms: apres, traced: traced.length };
+    return { managerCpms: currentCpms(historique), traced: traced.length };
   },
 });
 

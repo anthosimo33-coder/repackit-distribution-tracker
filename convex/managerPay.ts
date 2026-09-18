@@ -40,6 +40,7 @@ import {
 } from "./pricing";
 import {
   buildManagerPayRows,
+  currentCpmEntries,
   managerPeriodStatus,
   roundCents,
   type ManagerPayRow,
@@ -49,7 +50,14 @@ export type ManagerPayPayload = {
   /** Devise de paie du projet (`projects.payCurrency`), `null` si non réglée. */
   currency: string | null;
   /** Les créatrices qui rapportent au manager, avec leur taux. */
-  creators: { creatorId: Id<"creators">; name: string; cpm: number }[];
+  creators: {
+    creatorId: Id<"creators">;
+    name: string;
+    /** Taux en vigueur AUJOURD'HUI (0 = arrêtée). */
+    cpm: number;
+    /** Historique des taux, du plus ancien au plus récent (`from` null = depuis toujours). */
+    history: { cpm: number; from: number | null }[];
+  }[];
   /** Une ligne par (créatrice, mois de publication). */
   rows: ManagerPayRow[];
   /** Versements faits à ce manager, annulés compris (l'écran les distingue). */
@@ -78,7 +86,14 @@ async function managerPayFor(
     payableViews: number;
     totalViews: number;
   }[] = [];
-  for (const { creatorId, cpm } of cpms) {
+  // Une créatrice apparaît autant de fois qu'elle a eu de taux : on la lit UNE fois.
+  const current = currentCpmEntries(cpms);
+  for (const [creatorKey, entry] of current) {
+    const creatorId = entry.creatorId as Id<"creators">;
+    const history = cpms
+      .filter((e) => e.creatorId === creatorKey)
+      .map((e) => ({ cpm: e.cpm, from: e.from ?? null }))
+      .sort((a, b) => (a.from ?? -Infinity) - (b.from ?? -Infinity));
     const creator = await ctx.db.get(creatorId);
     const assignments = (
       await ctx.db
@@ -96,7 +111,7 @@ async function managerPayFor(
       creator?.name ??
       assignments.find((a) => a.creatorNameSnapshot)?.creatorNameSnapshot ??
       "—";
-    creators.push({ creatorId, name, cpm });
+    creators.push({ creatorId, name, cpm: entry.cpm, history });
     for (const a of assignments) {
       const views = await assignmentViewsAndMetrics(ctx, a, now, cache);
       videos.push({
@@ -172,7 +187,6 @@ export const markManagerPeriodPaid = superadminMutation({
           "Vérifie le nouveau montant et recommence.",
       );
     }
-    const cpmOf = new Map(pay.creators.map((c) => [c.creatorId as string, c.cpm]));
     const id = await ctx.db.insert("managerPayouts", {
       projectId,
       managerUserId: m.userId,
@@ -184,7 +198,6 @@ export const markManagerPeriodPaid = superadminMutation({
         .map((r) => ({
           creatorId: r.creatorId as Id<"creators">,
           payableViews: r.payableViews,
-          cpm: cpmOf.get(r.creatorId) ?? 0,
           due: roundCents(r.amount),
         })),
       paidAt: Date.now(),

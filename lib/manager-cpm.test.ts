@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildManagerPayRows,
+  cpmAt,
   cpmTrace,
+  currentCpms,
   managerCpmProblem,
+  nextCpmHistory,
   managerPayAllPeriods,
   managerPeriodStatus,
   managerPayAmount,
@@ -184,5 +187,73 @@ describe("versements — reste à payer", () => {
         { period: "2026-06", amount: 3.1, cancelled: true },
       ]),
     ).toEqual(["2026-09", "2026-07"]);
+  });
+});
+
+describe("taux daté — un nouveau taux ne touche pas les anciennes vidéos", () => {
+  // Kelly passe de 0,20 à 0,30 le 10/10/2026 à 14:32 UTC.
+  const CHANGEMENT = Date.UTC(2026, 9, 10, 14, 32);
+  const AVANT = Date.UTC(2026, 9, 3, 9, 15); // publiée le 03/10
+  const APRES = Date.UTC(2026, 9, 21, 19, 48); // publiée le 21/10
+  const history = nextCpmHistory(
+    nextCpmHistory([], [{ creatorId: KELLY, cpm: 0.2 }], Date.UTC(2026, 8, 1)),
+    [{ creatorId: KELLY, cpm: 0.3 }],
+    CHANGEMENT,
+  );
+
+  it("le premier taux n'a pas de date : il couvre aussi les vidéos déjà publiées", () => {
+    expect(history[0]).toEqual({ creatorId: KELLY, cpm: 0.2 });
+    expect(cpmAt(history, KELLY, Date.UTC(2025, 11, 24))).toBe(0.2);
+  });
+
+  it("le changement AJOUTE une entrée datée, l'ancienne reste", () => {
+    expect(history).toEqual([
+      { creatorId: KELLY, cpm: 0.2 },
+      { creatorId: KELLY, cpm: 0.3, from: CHANGEMENT },
+    ]);
+  });
+
+  it("chaque vidéo prend le taux de SA date de publication", () => {
+    expect(cpmAt(history, KELLY, AVANT)).toBe(0.2);
+    expect(cpmAt(history, KELLY, APRES)).toBe(0.3);
+    // À l'instant exact du changement : le nouveau taux.
+    expect(cpmAt(history, KELLY, CHANGEMENT)).toBe(0.3);
+  });
+
+  it("deux vidéos du même mois, deux taux : le montant les additionne", () => {
+    const rows = buildManagerPayRows(
+      [
+        { creatorId: KELLY, publishedAt: AVANT, payableViews: 48_317, totalViews: 48_317 },
+        { creatorId: KELLY, publishedAt: APRES, payableViews: 31_864, totalViews: 33_010 },
+      ],
+      history,
+    );
+    expect(rows).toHaveLength(1);
+    // 48 317 × 0,20 + 31 864 × 0,30 = 9,6634 + 9,5592
+    expect(rows[0].amount).toBeCloseTo(19.2226, 6);
+  });
+
+  it("réenregistrer le même taux ne crée aucune date", () => {
+    expect(nextCpmHistory(history, [{ creatorId: KELLY, cpm: 0.3 }], APRES)).toEqual(history);
+  });
+
+  it("arrêter : les vidéos déjà publiées restent payées, les suivantes non", () => {
+    const STOP = Date.UTC(2026, 10, 2, 8, 0);
+    const arretee = nextCpmHistory(history, [], STOP);
+    expect(arretee[arretee.length - 1]).toEqual({ creatorId: KELLY, cpm: 0, from: STOP });
+    expect(currentCpms(arretee)).toEqual([]);
+    const rows = buildManagerPayRows(
+      [
+        { creatorId: KELLY, publishedAt: APRES, payableViews: 31_864, totalViews: 31_864 },
+        { creatorId: KELLY, publishedAt: STOP + 86_400_000, payableViews: 12_500, totalViews: 12_500 },
+      ],
+      arretee,
+    );
+    expect(rows.map((r) => r.videos)).toEqual([1]);
+    expect(rows[0].amount).toBeCloseTo(9.5592, 6);
+  });
+
+  it("le journal ne trace que le taux ACTIF", () => {
+    expect(cpmTrace(history)).toEqual([`cpm:${KELLY}:0.3`]);
   });
 });

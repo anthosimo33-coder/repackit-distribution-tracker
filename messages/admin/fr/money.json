@@ -20,7 +20,7 @@
     "mois": "Mois",
     "total": "Total",
     "aucuneVideo": "Aucune vidéo publiée sur cette période.",
-    "explication": "Base : les vues rémunérées des vidéos publiées (posts de chauffe non payés exclus, vues retenues sur la fenêtre de paie de 30 jours), multipliées par ton CPM pour chaque créatrice. Le mois est celui de la publication de la vidéo ; le montant d'un mois récent continue de monter tant que ses vidéos font des vues.",
+    "explication": "Base : les vues rémunérées des vidéos publiées (posts de chauffe non payés exclus, vues retenues sur la fenêtre de paie de 30 jours), multipliées par le CPM en vigueur à la date de publication de chaque vidéo : un changement de taux ne s'applique qu'aux vidéos publiées ensuite. Le mois est celui de la publication de la vidéo ; le montant d'un mois récent continue de monter tant que ses vidéos font des vues.",
     "dejaVerse": "Déjà versé",
     "resteAPayer": "Reste à payer",
     "verse": "Versé",
@@ -46,6 +46,8 @@
     "annulerVersement": "Annuler le versement",
     "versementAnnule": "Versement annulé",
     "echecAnnulation": "Échec de l'annulation",
-    "explicationVersements": "« Marquer payé » enregistre un versement du reste dû. Le montant d'un mois n'est jamais figé : si ses vidéos font encore des vues ou si un taux change, la différence réapparaît en « reste à payer » (ou en trop-perçu)."
+    "explicationVersements": "« Marquer payé » enregistre un versement du reste dû. Si les vidéos d'un mois déjà payé font encore des vues, le complément réapparaît en « reste à payer ».",
+    "cpmArrete": "arrêté le {date}",
+    "cpmDepuis": "depuis le {date} (avant : {ancien})"
   }
 }

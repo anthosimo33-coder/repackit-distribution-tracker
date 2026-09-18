@@ -17,8 +17,16 @@
  * payées » finiraient par diverger ; le manager est payé sur ce qui est payé.
  *
  * ── CE QUE CE N'EST PAS ─────────────────────────────────────────────────────
- * - Pas un taux FIGÉ : le CPM est lu en direct. Le changer re-chiffre tout
- *   l'historique de cette créatrice pour ce manager — c'est dit à l'écran.
+ * ── UN TAUX VAUT À PARTIR D'UNE DATE (arbitrage user du 18/09/2026) ─────────
+ * `managerCpms` est un HISTORIQUE : chaque changement AJOUTE une entrée datée
+ * (`from`), il ne réécrit jamais la précédente. Une vidéo est payée au taux en
+ * vigueur à sa DATE DE PUBLICATION : passer Kelly de 0,20 à 0,30 le 10/10 laisse
+ * toutes ses vidéos d'avant à 0,20, pour toujours. « Arrêter » une créatrice =
+ * une entrée à 0 : ses vidéos déjà publiées restent payées, les suivantes non.
+ *
+ * ⚠️ LE PREMIER TAUX d'une créatrice n'a pas de `from` : il couvre aussi les
+ * vidéos publiées avant qu'on le pose (c'est le taux de départ, il n'y a pas
+ * d'« ancien taux » à préserver). Seuls les CHANGEMENTS sont datés.
  * - Pas un cycle figé : « marquer payé » enregistre un VERSEMENT additif par
  *   mois (table `managerPayouts`), et le reste dû se recalcule (cf plus bas).
  * - Pas le périmètre : `creatorScope` dit sur qui le manager AGIT, `managerCpms`
@@ -30,7 +38,78 @@
 /** Plafond de saisie, en devise de paie pour 1 000 vues. Anti faute de frappe. */
 export const MANAGER_CPM_MAX = 50;
 
-export type ManagerCpmEntry = { creatorId: string; cpm: number };
+/**
+ * Une entrée d'historique. `from` absent = depuis toujours (premier taux).
+ * `cpm` 0 = rémunération arrêtée à partir de `from`.
+ */
+export type ManagerCpmEntry = { creatorId: string; cpm: number; from?: number };
+
+/**
+ * Le taux d'une créatrice pour une vidéo publiée à `publishedAt` : la DERNIÈRE
+ * entrée dont `from` ≤ la publication. `undefined` = aucun taux à cette date.
+ * Une vidéo publiée à l'instant exact d'un changement prend le NOUVEAU taux.
+ */
+export function cpmAt(
+  entries: readonly ManagerCpmEntry[],
+  creatorId: string,
+  publishedAt: number,
+): number | undefined {
+  let best: ManagerCpmEntry | undefined;
+  for (const e of entries) {
+    if (e.creatorId !== creatorId) continue;
+    const from = e.from ?? -Infinity;
+    if (from > publishedAt) continue;
+    if (best === undefined || from >= (best.from ?? -Infinity)) best = e;
+  }
+  return best?.cpm;
+}
+
+/** L'entrée en vigueur AUJOURD'HUI pour chaque créatrice (la plus récente). */
+export function currentCpmEntries(
+  entries: readonly ManagerCpmEntry[],
+): Map<string, ManagerCpmEntry> {
+  const out = new Map<string, ManagerCpmEntry>();
+  for (const e of entries) {
+    const cur = out.get(e.creatorId);
+    if (cur === undefined || (e.from ?? -Infinity) >= (cur.from ?? -Infinity)) {
+      out.set(e.creatorId, e);
+    }
+  }
+  return out;
+}
+
+/** Les taux ACTIFS aujourd'hui (entrée à 0 = arrêtée, donc absente). */
+export function currentCpms(entries: readonly ManagerCpmEntry[]): ManagerCpmEntry[] {
+  return [...currentCpmEntries(entries).values()]
+    .filter((e) => e.cpm > 0)
+    .map((e) => ({ creatorId: e.creatorId, cpm: e.cpm }));
+}
+
+/**
+ * Le nouvel historique après une saisie. `desired` = les taux voulus AUJOURD'HUI
+ * (une créatrice absente = à arrêter). N'ajoute une entrée QUE si le taux change :
+ * réenregistrer les mêmes taux ne crée aucune date.
+ *   - jamais eu de taux          → entrée SANS `from` (couvre le passé) ;
+ *   - taux différent, ou arrêt   → entrée datée `now` (le passé ne bouge pas).
+ */
+export function nextCpmHistory(
+  history: readonly ManagerCpmEntry[],
+  desired: readonly { creatorId: string; cpm: number }[],
+  now: number,
+): ManagerCpmEntry[] {
+  const current = currentCpmEntries(history);
+  const want = new Map(desired.map((d) => [d.creatorId, d.cpm]));
+  const out = [...history];
+  for (const [creatorId, cpm] of want) {
+    const cur = current.get(creatorId);
+    if (cur === undefined) out.push({ creatorId, cpm });
+    else if (cur.cpm !== cpm) out.push({ creatorId, cpm, from: now });
+  }
+  for (const [creatorId, cur] of current) {
+    if (!want.has(creatorId) && cur.cpm !== 0) out.push({ creatorId, cpm: 0, from: now });
+  }
+  return out;
+}
 
 /**
  * Le CPM saisi est-il acceptable ? `null` = oui, sinon un CODE — la phrase est
@@ -68,8 +147,9 @@ export type ManagerPayRow = {
 
 /**
  * Regroupe les vidéos en lignes (créatrice, mois). Le montant est calculé ICI,
- * une fois, avec le CPM de la créatrice : l'écran additionne, il ne multiplie
- * jamais — sinon deux écrans finiraient par arrondir différemment.
+ * une fois, avec le taux en vigueur à la publication de CHAQUE vidéo (`cpmAt`) :
+ * l'écran additionne, il ne multiplie jamais — sinon deux écrans finiraient par
+ * arrondir différemment.
  */
 export function buildManagerPayRows(
   videos: readonly {
@@ -80,11 +160,11 @@ export function buildManagerPayRows(
   }[],
   cpms: readonly ManagerCpmEntry[],
 ): ManagerPayRow[] {
-  const cpmOf = new Map(cpms.map((e) => [e.creatorId, e.cpm]));
   const rows = new Map<string, ManagerPayRow>();
   for (const v of videos) {
-    const cpm = cpmOf.get(v.creatorId);
-    if (cpm === undefined) continue;
+    // Le taux de la DATE DE PUBLICATION, jamais celui d'aujourd'hui.
+    const cpm = cpmAt(cpms, v.creatorId, v.publishedAt);
+    if (cpm === undefined || cpm <= 0) continue;
     const period = managerPayPeriodOf(v.publishedAt);
     const key = `${v.creatorId}|${period}`;
     const row = rows.get(key) ?? {
@@ -98,7 +178,9 @@ export function buildManagerPayRows(
     row.videos += 1;
     row.payableViews += Math.max(0, v.payableViews);
     row.totalViews += Math.max(0, v.totalViews);
-    row.amount = managerPayAmount(row.payableViews, cpm);
+    // Additionné vidéo par vidéo : deux vidéos du même mois peuvent avoir deux
+    // taux (changement en cours de mois).
+    row.amount += managerPayAmount(v.payableViews, cpm);
     rows.set(key, row);
   }
   return [...rows.values()].sort(
@@ -165,8 +247,9 @@ export function managerPayPeriods(rows: readonly ManagerPayRow[]): string[] {
 
 export const CPM_TRACE_PREFIX = "cpm:";
 
+/** Trace des taux ACTIFS aujourd'hui — le journal raconte le changement de taux. */
 export function cpmTrace(entries: readonly ManagerCpmEntry[] | null | undefined): string[] {
-  return (entries ?? []).map((e) => `${CPM_TRACE_PREFIX}${e.creatorId}:${e.cpm}`);
+  return currentCpms(entries ?? []).map((e) => `${CPM_TRACE_PREFIX}${e.creatorId}:${e.cpm}`);
 }
 
 /** `{ creatorId, cpm }` d'une ligne de journal de CPM, sinon `null`. */

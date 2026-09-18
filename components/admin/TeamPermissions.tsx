@@ -30,10 +30,12 @@ import { useProject } from "@/components/project/ProjectProvider";
 import { ManagerPayReport } from "@/components/admin/ManagerPayReport";
 import {
   MANAGER_CPM_MAX,
+  currentCpmEntries,
   managerCpmProblem,
   type ManagerCpmProblem,
 } from "@/convex/managerCpm";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -803,10 +805,21 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
     api.managerPay.getManagerPay,
     voirReleve ? { membershipId: membre.membershipId } : "skip",
   );
+  // L'HISTORIQUE est stocké ; on édite le taux d'AUJOURD'HUI. Une créatrice
+  // arrêtée (entrée à 0) a un champ vide, mais reste listée : ses vidéos déjà
+  // publiées lui rapportent encore.
+  const enVigueur = useMemo(
+    () => currentCpmEntries(membre.managerCpms),
+    [membre.managerCpms],
+  );
   const stocke = useMemo(
     () =>
-      new Map(membre.managerCpms.map((e) => [e.creatorId as string, String(e.cpm).replace(".", ",")])),
-    [membre.managerCpms],
+      new Map(
+        [...enVigueur.values()]
+          .filter((e) => e.cpm > 0)
+          .map((e) => [e.creatorId, String(e.cpm).replace(".", ",")]),
+      ),
+    [enVigueur],
   );
   const [saisies, setSaisies] = useState<Map<string, string>>(stocke);
   const [pourToutes, setPourToutes] = useState("");
@@ -823,10 +836,10 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
     const q = recherche.trim().toLowerCase();
     return (candidates ?? []).filter(
       (c) =>
-        (perimetre === null || perimetre.has(c._id) || stocke.has(c._id)) &&
+        (perimetre === null || perimetre.has(c._id) || enVigueur.has(c._id)) &&
         (q === "" || c.name.toLowerCase().includes(q)),
     );
-  }, [candidates, perimetre, stocke, recherche]);
+  }, [candidates, perimetre, enVigueur, recherche]);
 
   const erreurs = [...saisies.entries()].flatMap(([id, val]) => {
     const n = lireCpm(val);
@@ -897,9 +910,11 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
       <p className="text-xs text-slate-500">
         Pour chaque créatrice, ce que le manager touche pour 1 000 vues rémunérées
         de ses vidéos assignées{devise ? ` (en ${devise})` : ""}. Champ vide = elle
-        ne lui rapporte rien. Le taux s&apos;applique à toutes ses vidéos, passées
-        comprises : le changer recalcule tout son relevé. Il voit ses chiffres dans
-        « Ma rémunération ».
+        ne lui rapporte rien. <strong>Un changement de taux ne vaut que pour les
+        vidéos publiées à partir de maintenant</strong> : les vidéos déjà publiées
+        gardent leur ancien taux, et vider un champ arrête la rémunération pour les
+        vidéos suivantes seulement. Le tout premier taux d&apos;une créatrice couvre
+        aussi ses vidéos déjà publiées. Il voit ses chiffres dans « Ma rémunération ».
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -966,8 +981,15 @@ function RemunerationCpm({ membre }: { membre: Membre }) {
                   val.trim() !== "" ? "border-amber-300" : "border-slate-200",
                 )}
               >
-                <label htmlFor={id} className="min-w-0 flex-1 truncate text-slate-900">
-                  {c.name}
+                <label htmlFor={id} className="min-w-0 flex-1">
+                  <span className="block truncate text-slate-900">{c.name}</span>
+                  {enVigueur.get(c._id)?.from !== undefined && (
+                    <span className="block text-[11px] text-slate-400">
+                      {enVigueur.get(c._id)!.cpm > 0
+                        ? `depuis le ${formatDate(enVigueur.get(c._id)!.from!)}`
+                        : `arrêtée le ${formatDate(enVigueur.get(c._id)!.from!)}`}
+                    </span>
+                  )}
                 </label>
                 {horsPerimetre && (
                   <Badge variant="outline" className="text-[10px] font-normal text-amber-700">

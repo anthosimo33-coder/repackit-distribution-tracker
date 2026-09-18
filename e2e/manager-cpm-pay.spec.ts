@@ -222,11 +222,31 @@ test.describe("Manager — rémunération au CPM", () => {
     const total = deux!.rows.reduce((s, r) => s + r.amount, 0);
     expect(total).toBeCloseTo(9.6634 + 36.24565, 6);
 
+    // ── 4 bis. Kelly passe à 0,50 : sa vidéo DÉJÀ publiée reste à 0,20 ────────
+    await admin.mutation(api.team.setManagerCpms, {
+      membershipId,
+      entries: [
+        { creatorId: kelly, cpm: 0.5 },
+        { creatorId: ines, cpm: 0.35 },
+      ],
+    });
+    const hausse = await mgr.query(api.managerPay.getMyManagerPay, { projectId });
+    const kellyApres = hausse!.creators.find((c) => c.creatorId === kelly)!;
+    expect(kellyApres.cpm).toBe(0.5); // le nouveau taux est bien posé…
+    expect(kellyApres.history.map((h) => h.cpm)).toEqual([0.2, 0.5]); // …daté, l'ancien gardé
+    expect(kellyApres.history[1].from).not.toBeNull();
+    // …et le montant de l'ancienne vidéo n'a pas bougé.
+    expect(hausse!.rows.find((r) => r.creatorId === kelly)!.amount).toBeCloseTo(9.6634, 6);
+    expect(hausse!.rows.reduce((s, r) => s + r.amount, 0)).toBeCloseTo(
+      9.6634 + 36.24565,
+      6,
+    );
+
     // La lecture du superadmin et celle du manager sont LA MÊME.
     const vuParSuperadmin = await admin.query(api.managerPay.getManagerPay, {
       membershipId,
     });
-    expect(vuParSuperadmin).toEqual(deux);
+    expect(vuParSuperadmin).toEqual(hausse);
 
     // Le changement de taux est au journal, lisible par le nom.
     const journal = await admin.query(api.team.listChanges, {

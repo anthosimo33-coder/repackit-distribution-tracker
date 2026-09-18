@@ -423,14 +423,23 @@ export default defineSchema({
     // Ignoré pour "admin" et le superadmin, comme `permissions`.
     creatorScope: v.optional(v.array(v.id("creators"))),
     // ─── RÉMUNÉRATION D'UN MANAGER AU CPM (convex/managerCpm.ts) ─────────────
-    // Un taux PAR CRÉATRICE, en devise de paie du projet pour 1 000 vues payables
-    // de ses vidéos assignées. ABSENT ou créatrice absente de la liste = elle ne
-    // rapporte rien au manager (le défaut est zéro, jamais un taux deviné).
+    // HISTORIQUE DATÉ des taux PAR CRÉATRICE, en devise de paie du projet pour
+    // 1 000 vues payables de ses vidéos assignées. Chaque changement AJOUTE une
+    // entrée `from` (jamais de réécriture) : une vidéo est payée au taux en
+    // vigueur à sa publication (`cpmAt`). `from` absent = premier taux, couvre
+    // tout le passé. `cpm` 0 = arrêtée à partir de `from`. Aucune entrée = elle
+    // ne rapporte rien au manager (le défaut est zéro, jamais un taux deviné).
     // Indépendant de `creatorScope` : le périmètre dit sur qui il AGIT, cette
     // liste sur qui il est PAYÉ. Écrit par le superadmin seul (team.setManagerCpms).
     // Ignoré pour tout membre qui n'a pas le rôle manager. Optional ⇒ 0 migration.
     managerCpms: v.optional(
-      v.array(v.object({ creatorId: v.id("creators"), cpm: v.number() })),
+      v.array(
+        v.object({
+          creatorId: v.id("creators"),
+          cpm: v.number(),
+          from: v.optional(v.number()),
+        }),
+      ),
     ),
   })
     .index("by_user", ["userId"])
@@ -2401,7 +2410,6 @@ export default defineSchema({
       v.object({
         creatorId: v.id("creators"),
         payableViews: v.number(),
-        cpm: v.number(),
         due: v.number(),
       }),
     ),

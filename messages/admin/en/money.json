@@ -20,7 +20,7 @@
     "mois": "Month",
     "total": "Total",
     "aucuneVideo": "No published video in this period.",
-    "explication": "Basis: the paid views of published videos (unpaid warm-up posts excluded, views counted over the 30-day pay window), multiplied by your CPM for each creator. The month is the video's publication month; a recent month keeps growing as long as its videos get views.",
+    "explication": "Basis: the paid views of published videos (unpaid warm-up posts excluded, views counted over the 30-day pay window), multiplied by the CPM in effect on each video's publication date: a rate change only applies to videos published afterwards. The month is the video's publication month; a recent month keeps growing as long as its videos get views.",
     "dejaVerse": "Already paid",
     "resteAPayer": "Left to pay",
     "verse": "Paid",
@@ -46,6 +46,8 @@
     "annulerVersement": "Cancel payment",
     "versementAnnule": "Payment cancelled",
     "echecAnnulation": "Couldn't cancel the payment",
-    "explicationVersements": "“Mark as paid” records a payment of what's left to pay. A month's amount is never frozen: if its videos keep getting views or a rate changes, the difference shows up again as “left to pay” (or as overpaid)."
+    "explicationVersements": "“Mark as paid” records a payment of what's left to pay. If the videos of a month already paid keep getting views, the difference shows up again as “left to pay”.",
+    "cpmArrete": "stopped on {date}",
+    "cpmDepuis": "since {date} (was {ancien})"
   }
 }
