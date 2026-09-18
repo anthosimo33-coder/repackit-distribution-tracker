@@ -63,7 +63,12 @@ import { PublicationEditDialog } from "@/components/PublicationEditDialog";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { MAX_QUADRANT_PERIOD_DAYS } from "@/convex/quadrantSettings";
 import { cn } from "@/lib/utils";
-import { BarChart3Icon, ListIcon } from "lucide-react";
+import { BarChart3Icon, InfoIcon, ListIcon, XIcon } from "lucide-react";
+import {
+  Tooltip as HintTooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 
@@ -246,6 +251,13 @@ export function TrackerDataView() {
     campaignIds.size > 0 ||
     // "Hors warmup" est le défaut : seul un écart au défaut compte comme filtre actif.
     warmup !== DEFAULT_WARMUP_FILTER;
+  // Pastille du bouton : la période (Du/Au) compte pour UN filtre.
+  const activeFilterCount =
+    Number(dateFrom !== "" || dateTo !== "") +
+    [creatorIds, comptes_, plateformes, formatIds, campaignIds].filter(
+      (f) => f.size > 0,
+    ).length +
+    Number(warmup !== DEFAULT_WARMUP_FILTER);
 
   function resetFilters() {
     setDateFrom("");
@@ -392,7 +404,7 @@ export function TrackerDataView() {
     <div className="space-y-6">
       {/* ZONE 1 — Filtres libres */}
       <div className="rounded-lg border border-slate-200 bg-white p-3">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-[repeat(8,minmax(0,1fr))_auto] xl:gap-x-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="tracker-from" className="text-xs text-slate-600">
               {tr("du")}
@@ -458,16 +470,26 @@ export function TrackerDataView() {
             width="w-full"
           />
           <WarmupFilterSelect value={warmup} onChange={setWarmup} />
-        </div>
-        <div className="mt-3 flex justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={resetFilters}
-            disabled={!filtersActive}
-          >
-            {tr("reinitialiser")}
-          </Button>
+          {/* Dernière cellule de la grille (plus de ligne à lui seul) : en xl une
+              colonne `auto` en bout de ligne, réduite à l'icône + pastille pour
+              ne pas rogner les 8 filtres ; ailleurs une case comme un filtre. */}
+          <div className="flex items-end">
+            <Button
+              variant="outline"
+              onClick={resetFilters}
+              disabled={!filtersActive}
+              title={tr("reinitialiser")}
+              className="w-full xl:w-auto xl:px-2"
+            >
+              <XIcon aria-hidden="true" />
+              <span className="xl:sr-only">{tr("reinitialiser")}</span>
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-primary/10 px-1.5 text-xs tabular-nums text-primary">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -487,7 +509,7 @@ export function TrackerDataView() {
           <StatCard
             label={tr("engagementRate")}
             value={formatPercent(stats.engagement, 2, loc)}
-            secondary={tr("engagementFormule", {
+            hint={tr("engagementFormule", {
               views: formatNumber(stats.engagementVues, loc),
               scope: warmup === "only" ? "only" : "exclude",
             })}
@@ -1116,25 +1138,38 @@ function PostCountCard({
   );
 }
 
+/** `hint` : précision (formule, périmètre) derrière une icône ⓘ, pour que
+ *  toutes les cartes gardent la même structure chiffre + libellé. */
 function StatCard({
   label,
   value,
-  secondary,
+  hint,
 }: {
   label: string;
   value: string;
-  secondary?: string;
+  hint?: string;
 }) {
+  const tr = useTranslations("admin.dashboard.TrackerDataView");
   return (
     <Card>
       <CardContent className="p-4">
         <div className="text-2xl font-bold tabular-nums text-slate-900 sm:text-3xl">
           {value}
         </div>
-        <div className="mt-1 text-sm text-slate-500">{label}</div>
-        {secondary && (
-          <div className="mt-0.5 text-xs text-slate-400">{secondary}</div>
-        )}
+        <div className="mt-1 flex items-center gap-1 text-sm text-slate-500">
+          {label}
+          {hint && (
+            <HintTooltip>
+              <TooltipTrigger
+                aria-label={tr("voirLaFormule")}
+                className="rounded-full text-slate-400 hover:text-slate-600 focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                <InfoIcon className="size-3.5" aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{hint}</TooltipContent>
+            </HintTooltip>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

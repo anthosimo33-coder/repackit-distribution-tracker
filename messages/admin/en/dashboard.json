@@ -143,6 +143,7 @@
     "archivee": "{name} (archived)",
     "archive": "{name} (archived)",
     "engagementFormule": "(likes + comments) / {views} {scope, select, only {warm-up} other {non-warm-up}} views",
+    "voirLaFormule": "Show formula",
     "horsCampagne": "No campaign",
     "autres": "Others"
   },
