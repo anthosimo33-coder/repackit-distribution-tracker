@@ -44,6 +44,15 @@ export function tiktokPlayerEmbedUrl(videoId: string): string {
 }
 
 /**
+ * Lecteur TikTok pour une page PUBLIQUE anonymisée (partage de dashboard) : même
+ * lecteur que ci-dessus, avec `music_info=0` en plus — le nom du son d'origine
+ * s'écrit « son original - <handle> » et trahirait le compte.
+ */
+export function tiktokAnonymousPlayerUrl(videoId: string): string {
+  return `${tiktokPlayerEmbedUrl(videoId)}&music_info=0`;
+}
+
+/**
  * URL canonique d'une vidéo TikTok (`/@handle/video/<id>`) reconstruite depuis le
  * handle + l'id — pour le lien ↗ et tout embed qui exige le format canonique.
  * Tolère un handle préfixé d'un « @ ».

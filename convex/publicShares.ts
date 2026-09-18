@@ -71,6 +71,7 @@ const configArgs = {
   blocks: v.array(v.string()),
   showCreatorNames: v.boolean(),
   postLinks: v.boolean(),
+  playableVideos: v.optional(v.boolean()),
 } as const;
 
 /** Le périmètre du cœur pur, avec les identifiants typés de la base. */
@@ -86,6 +87,7 @@ type ShareConfig = {
   blocks: string[];
   showCreatorNames: boolean;
   postLinks: boolean;
+  playableVideos: boolean;
 };
 
 async function buildPublicPayload(
@@ -171,6 +173,7 @@ async function buildPublicPayload(
     blocks,
     showCreatorNames: cfg.showCreatorNames,
     postLinks: cfg.postLinks,
+    playableVideos: cfg.playableVideos,
     warmup: cfg.perimeter.warmup,
   });
 
@@ -291,6 +294,7 @@ export const previewShare = permissionQuery("content.share")({
       blocks: config.blocks,
       showCreatorNames: config.audience === "brand" && config.showCreatorNames,
       postLinks: config.postLinks,
+      playableVideos: config.playableVideos === true,
     };
     if (cfg.audience === "creator" && cfg.creatorId === undefined) return null;
     return await buildPublicPayload(ctx, ctx.projectId, cfg, name, Date.now());
@@ -330,6 +334,7 @@ export const createShare = permissionMutation("content.share")({
       blocks: blocksForAudience(args.blocks, args.audience),
       showCreatorNames: args.audience === "brand" && args.showCreatorNames,
       postLinks: args.postLinks,
+      playableVideos: args.playableVideos === true,
     };
     await assertValidConfig(ctx, ctx.projectId, cfg);
 
@@ -353,6 +358,7 @@ export const createShare = permissionMutation("content.share")({
       blocks: cfg.blocks,
       showCreatorNames: cfg.showCreatorNames,
       postLinks: cfg.postLinks,
+      playableVideos: cfg.playableVideos,
       expiresAt,
       createdBy: ctx.userId,
       createdAt: now,
@@ -458,6 +464,7 @@ export const getPublicShare = publicQuery({
         blocks: s.blocks,
         showCreatorNames: s.showCreatorNames,
         postLinks: s.postLinks,
+        playableVideos: s.playableVideos === true,
       },
       s.name,
       now,

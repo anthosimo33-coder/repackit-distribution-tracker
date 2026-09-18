@@ -262,12 +262,15 @@
       "noHandles": "No account @handle",
       "noMoney": "No amounts, ever (no pay, no earnings)",
       "live": "Numbers refresh on every visit, scope stays fixed",
-      "posts": "{count, plural, =0 {No posts} one {# post} other {# posts}} in scope today"
+      "posts": "{count, plural, =0 {No posts} one {# post} other {# posts}} in scope today",
+      "videos": "TikTok videos playable on the page, no @handle"
     },
     "options": {
       "names": "Show creators' names",
       "links": "Links to the posts",
-      "linksHint": "A TikTok or Instagram link contains the account's @handle."
+      "linksHint": "A TikTok or Instagram link contains the account's @handle.",
+      "videos": "Videos playable on the page",
+      "videosHint": "TikTok only, played in place, with no @handle or link to the account."
     },
     "name": "Link name",
     "defaultNameBrand": "Performance report",
@@ -289,7 +292,12 @@
       "copied": "Copied",
       "open": "Open",
       "done": "Done"
-    }
+    },
+    "accounts": "Accounts",
+    "allAccounts": "All",
+    "carried": "Scope carried over from the Tracker filters.",
+    "droppedFormat": "The Format filter isn't carried over: a link doesn't filter by format.",
+    "droppedPeriodEnd": "An end date alone isn't carried over: a link period needs a start."
   },
   "ShareLinks": {
     "title": "Shared links",

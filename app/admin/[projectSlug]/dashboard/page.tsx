@@ -4,7 +4,10 @@ import { useState } from "react";
 import { ActionDashboard } from "@/components/admin/ActionDashboard";
 import { YouTubeSyncButton } from "@/components/admin/YouTubeSyncButton";
 import { ApifySyncButton } from "@/components/admin/ApifySyncButton";
-import { TrackerDataView } from "@/components/tracker/TrackerDataView";
+import {
+  TrackerDataView,
+  useTrackerFilterState,
+} from "@/components/tracker/TrackerDataView";
 import { TrackerShareMode } from "@/components/share/TrackerShareMode";
 import { usePermissions } from "@/components/project/use-permissions";
 import { Button } from "@/components/ui/button";
@@ -31,6 +34,9 @@ export default function DashboardPage() {
   // Mode partage : le Tracker cède la place à son aperçu public (cf
   // TrackerShareMode). Réservé au bloc `content.share`.
   const [sharing, setSharing] = useState(false);
+  // Filtres du Tracker tenus ICI : ils survivent au mode partage, qui les
+  // reprend comme point de départ.
+  const trackerFilters = useTrackerFilterState();
   const droits = usePermissions();
   const canShare = droits.has("content.share");
 
@@ -71,9 +77,12 @@ export default function DashboardPage() {
       {view === "action" ? (
         <ActionDashboard />
       ) : sharing ? (
-        <TrackerShareMode onExit={() => setSharing(false)} />
+        <TrackerShareMode
+          initialFilters={trackerFilters}
+          onExit={() => setSharing(false)}
+        />
       ) : (
-        <TrackerDataView />
+        <TrackerDataView filters={trackerFilters} />
       )}
     </div>
   );

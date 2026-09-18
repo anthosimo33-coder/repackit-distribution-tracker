@@ -1488,7 +1488,9 @@
       "empty": "No hay publicaciones en este periodo.",
       "untitled": "(sin título)",
       "open": "Ver la publicación",
-      "interactions": "{likes} me gusta · {comments} coment."
+      "interactions": "{likes} me gusta · {comments} coment.",
+      "watch": "Ver el vídeo",
+      "closeVideo": "Cerrar el vídeo"
     },
     "period": {
       "all": "Desde el inicio",

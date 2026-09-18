@@ -120,6 +120,19 @@ export function timestampFromTikTokVideoId(videoId: string): number | null {
 }
 
 /**
+ * Identifiant de la vidéo dans une URL TikTok, ou null (shortlink, profil,
+ * autre plateforme). Sert au lecteur intégré du partage public : on transmet
+ * l'id, jamais l'URL — c'est l'URL qui porte le @handle.
+ */
+export function tiktokVideoIdFromUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!/^https?:\/\/(?:[a-z]+\.)?tiktok\.com\//i.test(trimmed)) return null;
+  if (isTikTokShortlink(trimmed)) return null;
+  const m = trimmed.match(TIKTOK_ID_RE);
+  return m ? m[1] : null;
+}
+
+/**
  * Date de publication lisible dans l'URL, ou la raison de son absence.
  *
  * `now` est un paramètre (et non `Date.now()` en dur) pour que les tests bornent

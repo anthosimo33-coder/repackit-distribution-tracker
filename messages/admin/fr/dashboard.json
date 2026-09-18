@@ -262,12 +262,15 @@
       "noHandles": "Aucun @handle de compte",
       "noMoney": "Aucun montant, jamais (ni paie, ni gains)",
       "live": "Chiffres à jour à chaque ouverture, périmètre figé",
-      "posts": "{count, plural, =0 {Aucun post} one {# post} other {# posts}} dans le périmètre aujourd'hui"
+      "posts": "{count, plural, =0 {Aucun post} one {# post} other {# posts}} dans le périmètre aujourd'hui",
+      "videos": "Vidéos TikTok lisibles sur la page, sans @handle"
     },
     "options": {
       "names": "Montrer les noms des créatrices",
       "links": "Liens vers les posts",
-      "linksHint": "Le lien TikTok ou Instagram contient le @handle du compte."
+      "linksHint": "Le lien TikTok ou Instagram contient le @handle du compte.",
+      "videos": "Vidéos lisibles sur la page",
+      "videosHint": "TikTok uniquement, lues sur place, sans @handle ni lien vers le compte."
     },
     "name": "Nom du lien",
     "defaultNameBrand": "Rapport de performance",
@@ -289,7 +292,12 @@
       "copied": "Copié",
       "open": "Ouvrir",
       "done": "Terminé"
-    }
+    },
+    "accounts": "Comptes",
+    "allAccounts": "Tous",
+    "carried": "Périmètre repris des filtres du Tracker.",
+    "droppedFormat": "Le filtre Format n'est pas repris : un lien ne filtre pas par format.",
+    "droppedPeriodEnd": "La date « Au » seule n'est pas reprise : une période de lien a un début."
   },
   "ShareLinks": {
     "title": "Liens partagés",

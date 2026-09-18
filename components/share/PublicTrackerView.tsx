@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import {
   Area,
@@ -11,7 +11,21 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { EyeIcon, EyeOffIcon, ExternalLinkIcon, LockIcon } from "lucide-react";
+import {
+  EyeIcon,
+  EyeOffIcon,
+  ExternalLinkIcon,
+  LockIcon,
+  PlayIcon,
+  XIcon,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { tiktokAnonymousPlayerUrl } from "@/lib/embed";
 import type {
   PublicCreatorRef,
   PublicSharePayload,
@@ -59,6 +73,8 @@ export function PublicTrackerView({
   const t = useTranslations("publicShare");
   const loc = useIntlLocale();
   const served = new Set(payload.blocks);
+  // Vidéo ouverte dans le lecteur intégré (id TikTok), une à la fois.
+  const [playing, setPlaying] = useState<{ id: string; label: string } | null>(null);
   const view = payload.view;
 
   /** Un bloc est dessiné s'il est servi, ou s'il est proposable en édition. */
@@ -294,6 +310,22 @@ export function PublicTrackerView({
                       })}
                     </p>
                   </div>
+                  {p.video !== null && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPlaying({
+                          id: p.video!.id,
+                          label: p.label.trim() === "" ? t("posts.untitled") : p.label,
+                        })
+                      }
+                      className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white hover:bg-slate-700"
+                      aria-label={t("posts.watch")}
+                      title={t("posts.watch")}
+                    >
+                      <PlayIcon className="size-3.5 translate-x-px fill-current" />
+                    </button>
+                  )}
                   {p.url !== null && (
                     <a
                       href={p.url}
@@ -314,6 +346,35 @@ export function PublicTrackerView({
       )}
 
       <p className="pt-2 text-center text-xs text-slate-400">{t("poweredBy")}</p>
+
+      <Dialog open={playing !== null} onOpenChange={(o) => !o && setPlaying(null)}>
+        <DialogContent
+          showCloseButton={false}
+          // Largeur bornée aussi par la HAUTEUR de l'écran : une vidéo 9:16 de
+          // 380 px de large ferait 675 px de haut, trop pour un téléphone à plat.
+          className="w-[min(92vw,380px,calc((100dvh-4rem)*0.5625))] gap-0 overflow-hidden bg-black p-0 sm:max-w-[380px]"
+        >
+          <DialogTitle className="sr-only">{playing?.label ?? t("posts.watch")}</DialogTitle>
+          <DialogClose
+            className="absolute top-2 right-2 z-10 flex size-8 items-center justify-center rounded-full bg-black/60 text-white hover:bg-black/80"
+            aria-label={t("posts.closeVideo")}
+          >
+            <XIcon className="size-4" />
+          </DialogClose>
+          {playing && (
+            <iframe
+              // Seul l'id de la vidéo circule : pas d'URL, pas de @handle, pas
+              // de nom de son (cf tiktokAnonymousPlayerUrl).
+              src={tiktokAnonymousPlayerUrl(playing.id)}
+              title={playing.label}
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              allowFullScreen
+              className="aspect-[9/16] w-full bg-black"
+              data-testid="share-video-player"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
