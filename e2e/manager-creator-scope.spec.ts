@@ -273,4 +273,52 @@ test.describe("Manager — périmètre de créatrices", () => {
     expect(unAdmin).toBeDefined();
     await expect(perimetre(unAdmin!.membershipId, [])).rejects.toThrow(/manager/);
   });
+
+  test("une créatrice SUPPRIMÉE ne bloque plus sa liste ; une d'un autre projet est refusée NOMMÉMENT", async () => {
+    // Cas de la prod (18/09/2026) : une fiche supprimée restait dans la liste d'un
+    // manager, invisible à l'écran (« 11 cochées » pour 10 affichées), et tout
+    // enregistrement était refusé par « Une des créatrices choisies n'est pas
+    // dans ce projet. », sans dire laquelle.
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const partie = await creatrice("Lea Fontaine", ts);
+    const restee = await creatrice("Ixquic Morales", ts);
+    const m = await manager(ts);
+    await perimetre(m.membershipId, [partie, restee]);
+    const scopeDe = async () =>
+      (await admin.query(api.team.listMembers, {})).find((r) => r.email === m.email)!
+        .creatorScope;
+    expect(await scopeDe()).toEqual([partie, restee]); // présence avant suppression
+
+    // ── 1. Supprimer la fiche la retire du périmètre des managers ────────────
+    await admin.mutation(api.creators.deleteCreator, { id: partie });
+    expect(await scopeDe()).toEqual([restee]);
+
+    // ── 2. Un écran ouvert AVANT la suppression renvoie encore son id : accepté,
+    // l'id mort est retiré, la vivante reste.
+    const res = await perimetre(m.membershipId, [partie, restee]);
+    expect(res.retirees).toBe(1);
+    expect(res.creatorScope).toEqual([restee]);
+    expect(await scopeDe()).toEqual([restee]);
+
+    // ── 3. Une créatrice d'un AUTRE projet : refus, et le message la NOMME ───
+    const { projectId: autreProjet } = await admin.mutation(
+      api.projects.e2eEnsureProjectBySlug,
+      { secret: E2E_SECRET, slug: `e2e-scope-autre-${ts}`, name: `Autre ${ts}` },
+    );
+    const { creatorId: etrangere } = await admin.mutation(api.creators.inviteCreator, {
+      projectId: autreProjet,
+      name: `[E2E_TEST] Paula Ribeiro ${ts}`,
+      email: `e2e-scope-paula-${ts}@repackit.test`,
+    });
+    let message = "";
+    try {
+      await perimetre(m.membershipId, [restee, etrangere]);
+    } catch (e) {
+      message = e instanceof Error ? e.message : String(e);
+    }
+    expect(message).toContain(`Paula Ribeiro ${ts}`);
+    expect(message).toContain(`Autre ${ts}`);
+    expect(await scopeDe()).toEqual([restee]); // rien n'a été écrit
+  });
 });
