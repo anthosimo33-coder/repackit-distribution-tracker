@@ -1326,7 +1326,6 @@
     "ERR_PAYMENT_REVERT_USED": "Ce cycle a déjà été annulé une fois : la seconde annulation n'existe pas.",
     "ERR_PAYOUT_DAY_INVALID": "Le jour de paie doit être un entier entre 1 et 28.",
     "ERR_PAY_CYCLE_LOCKED": "Le cycle de paie{hasRange, select, yes { du {startDate} au {endDate}} other {}} de ce post est clos{paid, select, yes {, payé le {paidDate}} other { (déjà payé)}} : {what} y est figé. Le montant déjà versé n'est jamais recalculé — modifier ce réglage ferait diverger l'affichage de ce qui a réellement été payé.",
-    "ERR_SPARK_AD_DATE_INVALID": "La date de lancement de la pub est invalide : elle ne peut pas précéder la publication du post.",
     "ERR_PERMISSION_DENIED": "Cette action ne t'est pas accordée. Demande le droit à un administrateur.",
     "ERR_PERSON_ALREADY_EXISTS": "Personne déjà existante.",
     "ERR_PERSON_NAMES_REQUIRED": "Prénom et nom requis.",
@@ -1381,6 +1380,13 @@
     "ERR_SCRIPT_COMBO_MISSING": "Combo de script manquant — matérialisation impossible.",
     "ERR_SCRIPT_LOCKED_PUBLISHED": "Le script ne peut plus être modifié : le post est déjà publié.",
     "ERR_SEARCH_KEYWORD_REQUIRED": "Saisis un mot-clé à rechercher.",
+    "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campagne introuvable dans le projet.",
+    "ERR_SHARE_CREATOR_REQUIRED": "Choisis la créatrice qui recevra ce lien.",
+    "ERR_SHARE_EXPIRY_INVALID": "Expiration invalide : de 1 à 365 jours.",
+    "ERR_SHARE_NAME_INVALID": "Donne un nom au lien (120 caractères au plus).",
+    "ERR_SHARE_NOT_FOUND": "Lien introuvable.",
+    "ERR_SHARE_NO_BLOCK": "Choisis au moins un bloc à partager.",
+    "ERR_SHARE_PERIOD_INVALID": "Période invalide : de 1 à 365 jours, et un début avant la fin.",
     "ERR_SHORT_ALREADY_ON_PLATFORM": "Ce short est déjà posté sur {plateforme} (compte {compte} le {date}). Confirmer l'override.",
     "ERR_SHORT_ALREADY_ON_TIKTOK": "Ce short a déjà été posté sur TikTok (compte {compte} le {date}). Risque shadowban.",
     "ERR_SLUG_INVALID": "Slug invalide : minuscules, chiffres et tirets uniquement.",
@@ -1390,6 +1396,7 @@
     "ERR_SNAPSHOT_NOT_FOUND": "Snapshot introuvable.",
     "ERR_SOURCE_BRICK_NOT_FOUND": "Brique d'origine introuvable.",
     "ERR_SOURCE_ID_INVALID": "SourceId vide ou invalide.",
+    "ERR_SPARK_AD_DATE_INVALID": "La date de lancement de la pub est invalide : elle ne peut pas précéder la publication du post.",
     "ERR_SUPERADMIN_ONLY": "Réservé au superadmin.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talent introuvable dans ce projet.",
     "ERR_TALENT_NOT_PAIRED": "{name} n'est apparié à aucun clippeur : rattache-lui un clippeur depuis sa fiche avant d'assigner un script.",
@@ -1454,5 +1461,44 @@
       "remuneration": "la rémunération",
       "sparkAd": "la date de pub"
     }
+  },
+  "publicShare": {
+    "poweredBy": "Propulsé par Jarvia",
+    "noCreator": "Sans créatrice",
+    "creatorAnon": "Créatrice {letter}",
+    "kpi": {
+      "views": "Vues",
+      "likes": "Likes",
+      "comments": "Commentaires",
+      "engagement": "Engagement"
+    },
+    "daily": {
+      "title": "Vues gagnées par jour",
+      "empty": "Pas encore assez de relevés pour tracer la courbe."
+    },
+    "byPlatform": {
+      "title": "Vues par plateforme"
+    },
+    "byCreator": {
+      "title": "Vues par créatrice"
+    },
+    "posts": {
+      "title": "Meilleurs posts",
+      "count": "{count, plural, one {# post publié} other {# posts publiés}}",
+      "empty": "Aucun post publié sur cette période.",
+      "untitled": "(sans titre)",
+      "open": "Voir le post",
+      "interactions": "{likes} likes · {comments} comm."
+    },
+    "period": {
+      "all": "Depuis le début",
+      "range": "{from} → {to}"
+    },
+    "updated": "mis à jour {ago}",
+    "invalid": {
+      "title": "Ce lien n'est plus disponible",
+      "body": "Il a expiré ou a été désactivé. Demandez-en un nouveau à la personne qui vous l'a envoyé."
+    },
+    "loading": "Chargement…"
   }
 }

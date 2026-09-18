@@ -18,6 +18,7 @@ export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "challenges.money": { queries: 1, mutations: 3 },
   "challenges.run": { queries: 4, mutations: 8 },
   "content.analytics": { queries: 14, mutations: 0 },
+  "content.share": { queries: 2, mutations: 2 },
   "creators.delete": { queries: 1, mutations: 1 },
   "creators.manage": { queries: 0, mutations: 5 },
   "creators.pay_terms": { queries: 3, mutations: 4 },

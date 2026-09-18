@@ -1649,6 +1649,58 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_creator", ["creatorId"]),
 
+  // Liens PUBLICS vers une partie d'un dashboard (`/s/<token>`, sans compte).
+  // Tout ce qui décide de ce qui sort est dans convex/publicShare.ts ; cette
+  // table ne stocke que la CONFIGURATION, jamais de données : les chiffres sont
+  // relus à chaque ouverture, dans le périmètre figé ici.
+  //   - audience "creator" ⇒ creatorId obligatoire, et le périmètre est
+  //     verrouillé sur elle au READ (effectiveFilters), pas seulement ici ;
+  //   - blocks = sous-ensemble de SHARE_BLOCKS (le quadrant n'y figure pas) ;
+  //   - revokedAt / expiresAt : lien mort, même réponse qu'un lien inconnu.
+  publicShares: defineTable({
+    projectId: v.id("projects"),
+    token: v.string(),
+    dashboard: v.literal("tracker"),
+    name: v.string(),
+    audience: v.union(v.literal("brand"), v.literal("creator")),
+    creatorId: v.optional(v.id("creators")),
+    perimeter: v.object({
+      period: v.union(
+        v.object({ kind: v.literal("rolling"), days: v.number() }),
+        v.object({ kind: v.literal("fixed"), from: v.number(), to: v.number() }),
+        v.object({ kind: v.literal("all") }),
+      ),
+      creatorIds: v.optional(v.array(v.id("creators"))),
+      comptes: v.optional(v.array(v.string())),
+      plateformes: v.optional(
+        v.array(
+          v.union(
+            v.literal("TikTok"),
+            v.literal("Instagram"),
+            v.literal("YouTube"),
+          ),
+        ),
+      ),
+      campaignIds: v.optional(v.array(v.id("scriptCampaigns"))),
+      warmup: v.union(
+        v.literal("exclude"),
+        v.literal("all"),
+        v.literal("only"),
+      ),
+    }),
+    blocks: v.array(v.string()),
+    showCreatorNames: v.boolean(),
+    postLinks: v.boolean(),
+    expiresAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    openCount: v.number(),
+    lastOpenedAt: v.optional(v.number()),
+  })
+    .index("by_token", ["token"])
+    .index("by_project", ["projectId"]),
+
   // Dossiers de classement pour les inspirations. color = clé palette
   // (lib/folder-colors.ts à créer en Batch G), pas un hex direct.
   folders: defineTable({

@@ -78,7 +78,7 @@ const filterArgs = {
   ),
 } as const;
 
-type FilterArgs = {
+export type FilterArgs = {
   dateFrom?: number;
   dateTo?: number;
   creatorIds?: Id<"creators">[];
@@ -245,7 +245,7 @@ function dimensionsOf(
  * filtre warmup s'applique mécaniquement à TOUS les agrégats de la vue (4 KPI,
  * compteur de posts, liste, charts), sans logique dupliquée par carte.
  */
-function publishedAndMatches(
+export function publishedAndMatches(
   p: Doc<"publications">,
   args: FilterArgs,
   refOf: (pubId: string) => AssignmentRef | undefined,

@@ -1326,7 +1326,6 @@
     "ERR_PAYMENT_REVERT_USED": "Este ciclo já foi anulado uma vez: não existe uma segunda anulação.",
     "ERR_PAYOUT_DAY_INVALID": "O dia de pagamento precisa ser um número inteiro entre 1 e 28.",
     "ERR_PAY_CYCLE_LOCKED": "O ciclo de pagamento{hasRange, select, yes { de {startDate} a {endDate}} other {}} deste post está encerrado{paid, select, yes {, pago em {paidDate}} other { (já pago)}}: {what} está fixado. O valor já pago nunca é recalculado; alterar este ajuste faria a exibição divergir do que foi realmente pago.",
-    "ERR_SPARK_AD_DATE_INVALID": "Data de lançamento do anúncio inválida: não pode ser anterior à publicação.",
     "ERR_PERMISSION_DENIED": "Você não tem permissão para esta ação. Peça a um administrador.",
     "ERR_PERSON_ALREADY_EXISTS": "Esta pessoa já existe.",
     "ERR_PERSON_NAMES_REQUIRED": "Nome e sobrenome obrigatórios.",
@@ -1381,6 +1380,13 @@
     "ERR_SCRIPT_COMBO_MISSING": "Combo de roteiro ausente: materialização impossível.",
     "ERR_SCRIPT_LOCKED_PUBLISHED": "O roteiro não pode mais ser alterado: o post já foi publicado.",
     "ERR_SEARCH_KEYWORD_REQUIRED": "Digite uma palavra-chave para pesquisar.",
+    "ERR_SHARE_CAMPAIGN_NOT_IN_PROJECT": "Campanha não encontrada no projeto.",
+    "ERR_SHARE_CREATOR_REQUIRED": "Escolha a criadora que vai receber este link.",
+    "ERR_SHARE_EXPIRY_INVALID": "Expiração inválida: de 1 a 365 dias.",
+    "ERR_SHARE_NAME_INVALID": "Dê um nome ao link (no máximo 120 caracteres).",
+    "ERR_SHARE_NOT_FOUND": "Link não encontrado.",
+    "ERR_SHARE_NO_BLOCK": "Escolha pelo menos um bloco para compartilhar.",
+    "ERR_SHARE_PERIOD_INVALID": "Período inválido: de 1 a 365 dias, com início antes do fim.",
     "ERR_SHORT_ALREADY_ON_PLATFORM": "Este short já foi postado no {plateforme} (conta {compte} em {date}). Confirme para forçar.",
     "ERR_SHORT_ALREADY_ON_TIKTOK": "Este short já foi postado no TikTok (conta {compte} em {date}). Risco de shadowban.",
     "ERR_SLUG_INVALID": "Slug inválido: só letras minúsculas, números e hífens.",
@@ -1390,6 +1396,7 @@
     "ERR_SNAPSHOT_NOT_FOUND": "Captura não encontrada.",
     "ERR_SOURCE_BRICK_NOT_FOUND": "Peça de origem não encontrada.",
     "ERR_SOURCE_ID_INVALID": "SourceId vazio ou inválido.",
+    "ERR_SPARK_AD_DATE_INVALID": "Data de lançamento do anúncio inválida: não pode ser anterior à publicação.",
     "ERR_SUPERADMIN_ONLY": "Exclusivo para o superadmin.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talento não encontrado neste projeto.",
     "ERR_TALENT_NOT_PAIRED": "{name} não está pareado com nenhum clipper: vincule um clipper na ficha antes de atribuir um roteiro.",
@@ -1454,5 +1461,44 @@
       "remuneration": "a remuneração",
       "sparkAd": "a data do anúncio"
     }
+  },
+  "publicShare": {
+    "poweredBy": "Com tecnologia Jarvia",
+    "noCreator": "Sem criadora",
+    "creatorAnon": "Criadora {letter}",
+    "kpi": {
+      "views": "Visualizações",
+      "likes": "Curtidas",
+      "comments": "Comentários",
+      "engagement": "Engajamento"
+    },
+    "daily": {
+      "title": "Visualizações ganhas por dia",
+      "empty": "Ainda não há dados suficientes para traçar a curva."
+    },
+    "byPlatform": {
+      "title": "Visualizações por plataforma"
+    },
+    "byCreator": {
+      "title": "Visualizações por criadora"
+    },
+    "posts": {
+      "title": "Melhores posts",
+      "count": "{count, plural, one {# post publicado} other {# posts publicados}}",
+      "empty": "Nenhum post publicado neste período.",
+      "untitled": "(sem título)",
+      "open": "Ver o post",
+      "interactions": "{likes} curtidas · {comments} coment."
+    },
+    "period": {
+      "all": "Desde o início",
+      "range": "{from} → {to}"
+    },
+    "updated": "atualizado {ago}",
+    "invalid": {
+      "title": "Este link não está mais disponível",
+      "body": "Ele expirou ou foi desativado. Peça um novo a quem enviou."
+    },
+    "loading": "Carregando…"
   }
 }
