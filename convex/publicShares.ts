@@ -1,10 +1,14 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { ActionCtx, QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import {
+  authedAction,
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  publicAction,
   publicMutation,
   publicQuery,
 } from "./functions";
@@ -18,10 +22,12 @@ import { computeDailyViewDeltas } from "./viewsDaily";
 import {
   blocksForAudience,
   effectiveFilters,
+  isTikTokVideoId,
   newShareToken,
   projectPublicTracker,
   shareStatus,
   shareWindow,
+  thumbnailFromOembed,
   type InternalSharePost,
   type PublicSharePayload,
   type ShareAudience,
@@ -499,4 +505,148 @@ export const cleanupTestShares = e2eMutation({
     }
     return { deleted };
   },
+});
+
+// ─── Miniatures du top 3 ────────────────────────────────────────────────────
+
+/** Une miniature resservie tant que ça, bien avant son expiration signée (~48 h). */
+const THUMB_REUSE_MS = 12 * 60 * 60 * 1000;
+/** Au plus le podium : 3 vidéos. Borne aussi ce qu'on accepte d'un appelant. */
+const MAX_THUMBS = 3;
+
+/** Les vidéos lisibles du lien (le top 3), dans l'ordre du podium. */
+export const shareVideoIdsForToken = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, { token }): Promise<string[]> => {
+    const now = Date.now();
+    const s = await shareByToken(ctx, token);
+    if (s === null || shareStatus(s, now) === "invalid") return [];
+    const payload = await buildPublicPayload(
+      ctx,
+      s.projectId,
+      {
+        audience: s.audience,
+        creatorId: s.creatorId,
+        perimeter: s.perimeter,
+        blocks: s.blocks,
+        showCreatorNames: s.showCreatorNames,
+        postLinks: s.postLinks,
+        playableVideos: s.playableVideos === true,
+      },
+      s.name,
+      now,
+    );
+    return (payload?.view.posts ?? [])
+      .map((p) => p.video?.id ?? null)
+      .filter((id): id is string => id !== null)
+      .slice(0, MAX_THUMBS);
+  },
+});
+
+export const cachedThumbs = internalQuery({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, { ids }) => {
+    const now = Date.now();
+    const out: { videoId: string; url: string }[] = [];
+    for (const videoId of ids) {
+      const row = await ctx.db
+        .query("shareVideoThumbs")
+        .withIndex("by_videoId", (q) => q.eq("videoId", videoId))
+        .first();
+      if (row !== null && row.reuseUntil > now) out.push({ videoId, url: row.url });
+    }
+    return out;
+  },
+});
+
+export const storeThumbs = internalMutation({
+  args: {
+    items: v.array(
+      v.object({ videoId: v.string(), url: v.string(), reuseUntil: v.number() }),
+    ),
+  },
+  handler: async (ctx, { items }) => {
+    for (const it of items) {
+      const row = await ctx.db
+        .query("shareVideoThumbs")
+        .withIndex("by_videoId", (q) => q.eq("videoId", it.videoId))
+        .first();
+      if (row === null) await ctx.db.insert("shareVideoThumbs", it);
+      else await ctx.db.patch(row._id, { url: it.url, reuseUntil: it.reuseUntil });
+    }
+  },
+});
+
+/**
+ * Cache d'abord, TikTok ensuite. L'appel à TikTok part du SERVEUR : sa réponse
+ * nomme le compte (`author_unique_id`), on n'en renvoie que l'image. Une vidéo
+ * sans miniature (supprimée, privée, TikTok muet) est simplement absente.
+ */
+async function resolveThumbs(
+  ctx: ActionCtx,
+  ids: string[],
+): Promise<Record<string, string>> {
+  const wanted = [...new Set(ids.filter(isTikTokVideoId))].slice(0, MAX_THUMBS);
+  if (wanted.length === 0) return {};
+  const cached: { videoId: string; url: string }[] = await ctx.runQuery(
+    internal.publicShares.cachedThumbs,
+    { ids: wanted },
+  );
+  const out: Record<string, string> = {};
+  for (const c of cached) out[c.videoId] = c.url;
+
+  const missing = wanted.filter((id) => out[id] === undefined);
+  const now = Date.now();
+  const fetched = await Promise.all(
+    missing.map(async (videoId) => {
+      try {
+        const res = await fetch(
+          `https://www.tiktok.com/oembed?url=${encodeURIComponent(`https://www.tiktok.com/video/${videoId}`)}`,
+          { signal: AbortSignal.timeout(5_000) },
+        );
+        if (!res.ok) return null;
+        const thumb = thumbnailFromOembed(await res.json());
+        if (thumb === null) return null;
+        const reuseUntil = Math.min(
+          now + THUMB_REUSE_MS,
+          thumb.expiresAt === null ? now + THUMB_REUSE_MS : thumb.expiresAt - 60 * 60 * 1000,
+        );
+        return { videoId, url: thumb.url, reuseUntil };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const fresh = fetched.filter(
+    (f): f is { videoId: string; url: string; reuseUntil: number } =>
+      f !== null && f.reuseUntil > now,
+  );
+  if (fresh.length > 0) {
+    await ctx.runMutation(internal.publicShares.storeThumbs, { items: fresh });
+  }
+  for (const f of fresh) out[f.videoId] = f.url;
+  return out;
+}
+
+/** Page `/s/<token>` : les miniatures du podium. Lien invalide → rien. */
+export const getShareThumbnails = publicAction({
+  args: { token: v.string() },
+  handler: async (ctx, { token }): Promise<Record<string, string>> => {
+    if (!/^[0-9A-Za-z]{22}$/.test(token)) return {};
+    const ids: string[] = await ctx.runQuery(
+      internal.publicShares.shareVideoIdsForToken,
+      { token },
+    );
+    return await resolveThumbs(ctx, ids);
+  },
+});
+
+/**
+ * Aperçu du mode partage : mêmes miniatures, pour des ids déjà servis par
+ * `previewShare`. Session requise ; au plus 3 ids, numériques.
+ */
+export const previewThumbnails = authedAction({
+  args: { ids: v.array(v.string()) },
+  handler: async (ctx, { ids }): Promise<Record<string, string>> =>
+    resolveThumbs(ctx, ids.slice(0, MAX_THUMBS)),
 });

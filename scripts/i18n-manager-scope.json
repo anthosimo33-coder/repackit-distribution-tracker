@@ -345,6 +345,7 @@
     "lib/scriptStats.ts",
     "lib/search-match.ts",
     "lib/segment-funnel.ts",
+    "lib/share-pie.ts",
     "lib/share-start.ts",
     "lib/snapshot-matching.ts",
     "lib/source-id.ts",

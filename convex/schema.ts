@@ -1704,6 +1704,16 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_project", ["projectId"]),
 
+  // Cache des MINIATURES des vidéos TikTok montrées par un lien public (top 3).
+  // Clé = id de la vidéo, jamais l'URL du post : rien ici ne nomme le compte.
+  // Rempli par publicShares.getShareThumbnails ; une entrée sert jusqu'à
+  // `reuseUntil` (12 h, bien avant l'expiration signée de l'image, ~48 h).
+  shareVideoThumbs: defineTable({
+    videoId: v.string(),
+    url: v.string(),
+    reuseUntil: v.number(),
+  }).index("by_videoId", ["videoId"]),
+
   // Dossiers de classement pour les inspirations. color = clé palette
   // (lib/folder-colors.ts à créer en Batch G), pas un hex direct.
   folders: defineTable({

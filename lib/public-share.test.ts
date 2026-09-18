@@ -11,6 +11,8 @@ import {
   sanitizeBlocks,
   shareStatus,
   shareWindow,
+  thumbnailFromOembed,
+  isTikTokVideoId,
   type InternalSharePost,
   type ProjectionConfig,
 } from "../convex/publicShare";
@@ -343,5 +345,53 @@ describe("vidéo lisible sur la page — sans @handle", () => {
     expect(u).toContain("/player/v1/7412345678901234567");
     expect(u).toContain("music_info=0");
     expect(u).toContain("description=0");
+  });
+});
+
+describe("miniatures du podium — on ne garde que l'image", () => {
+  // Réponse oEmbed de TikTok telle que relevée le 2026-09-18 (champs réels).
+  const OEMBED = {
+    version: "1.0",
+    type: "video",
+    title: "POV : tu découvres enfin pourquoi ton skincare ne marche pas",
+    author_url: "https://www.tiktok.com/@kelly.snytch_fr",
+    author_name: "Kelly Martinez",
+    author_unique_id: "kelly.snytch_fr",
+    thumbnail_url:
+      "https://p16-common-sign.tiktokcdn-eu.com/tos-useast8-p-0068-tx2/oQEyKqZBseyEE0FRxzICMjAVhn~tplv-tiktokx-origin.image?dr=9636&x-expires=1789939200&x-signature=Zx2%2Fab",
+    thumbnail_width: 576,
+    thumbnail_height: 1024,
+  };
+
+  it("rend l'image et son échéance, et RIEN qui nomme le compte", () => {
+    const th = thumbnailFromOembed(OEMBED);
+    expect(th).toEqual({ url: OEMBED.thumbnail_url, expiresAt: 1789939200_000 });
+    const raw = JSON.stringify(th);
+    expect(raw).not.toContain("kelly.snytch_fr");
+    expect(raw).not.toContain("Martinez");
+  });
+
+  it("refuse une image hors CDN TikTok, ou une réponse sans image", () => {
+    expect(thumbnailFromOembed({ ...OEMBED, thumbnail_url: "https://evil.example/x.jpg" })).toBeNull();
+    expect(thumbnailFromOembed({ ...OEMBED, thumbnail_url: undefined })).toBeNull();
+    expect(thumbnailFromOembed(null)).toBeNull();
+    expect(thumbnailFromOembed("oops")).toBeNull();
+  });
+
+  it("sans x-expires, l'échéance est inconnue (null), pas zéro", () => {
+    const th = thumbnailFromOembed({
+      thumbnail_url: "https://p16-sign.tiktokcdn.com/obj/abc.jpeg",
+    });
+    expect(th).toEqual({ url: "https://p16-sign.tiktokcdn.com/obj/abc.jpeg", expiresAt: null });
+  });
+
+  it("n'accepte que des ids numériques (garde des actions publiques)", () => {
+    expect(isTikTokVideoId("7686972964612377887")).toBe(true);
+    expect(isTikTokVideoId("../oembed")).toBe(false);
+    expect(isTikTokVideoId("kelly.snytch_fr")).toBe(false);
+  });
+
+  it("le podium : 3 posts au plus, les plus vus", () => {
+    expect(PUBLIC_POSTS_LIMIT).toBe(3);
   });
 });
