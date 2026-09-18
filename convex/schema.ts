@@ -422,6 +422,25 @@ export default defineSchema({
     // un choix explicite — ne jamais confondre les deux.
     // Ignoré pour "admin" et le superadmin, comme `permissions`.
     creatorScope: v.optional(v.array(v.id("creators"))),
+    // ─── RÉMUNÉRATION D'UN MANAGER AU CPM (convex/managerCpm.ts) ─────────────
+    // HISTORIQUE DATÉ des taux PAR CRÉATRICE, en devise de paie du projet pour
+    // 1 000 vues payables de ses vidéos assignées. Chaque changement AJOUTE une
+    // entrée `from` (jamais de réécriture) : une vidéo est payée au taux en
+    // vigueur à sa publication (`cpmAt`). `from` absent = premier taux, couvre
+    // tout le passé. `cpm` 0 = arrêtée à partir de `from`. Aucune entrée = elle
+    // ne rapporte rien au manager (le défaut est zéro, jamais un taux deviné).
+    // Indépendant de `creatorScope` : le périmètre dit sur qui il AGIT, cette
+    // liste sur qui il est PAYÉ. Écrit par le superadmin seul (team.setManagerCpms).
+    // Ignoré pour tout membre qui n'a pas le rôle manager. Optional ⇒ 0 migration.
+    managerCpms: v.optional(
+      v.array(
+        v.object({
+          creatorId: v.id("creators"),
+          cpm: v.number(),
+          from: v.optional(v.number()),
+        }),
+      ),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_project", ["projectId"])
@@ -2366,6 +2385,39 @@ export default defineSchema({
   })
     .index("by_project_period", ["projectId", "period"])
     .index("by_creator", ["creatorId"]),
+
+  // ─── VERSEMENTS À UN MANAGER (rémunération au CPM, convex/managerCpm.ts) ────
+  // 1 row = UN versement fait à UN manager pour UN mois de publication. Le dû,
+  // lui, n'est JAMAIS stocké : il se recalcule (vues × CPM en direct). Le reste
+  // à payer = dû du jour − Σ versements actifs du mois. Même doctrine que les
+  // acomptes créatrices (`payments.advances`) : un versement ne fige rien — si
+  // les vues du mois montent encore, un complément réapparaît en « reste ».
+  //
+  // Jamais de delete : une annulation pose `cancelledAt` et sort le versement
+  // des sommes, la ligne reste lisible. Table neuve → 0 migration.
+  managerPayouts: defineTable({
+    projectId: v.id("projects"),
+    /** Le manager payé — l'utilisateur, stable même si son membership change. */
+    managerUserId: v.id("users"),
+    /** Mois de publication "YYYY-MM" (UTC), cf managerPayPeriodOf. */
+    period: v.string(),
+    /** Montant versé, au centime, en devise de paie du projet. */
+    amount: v.number(),
+    /** Devise de paie au moment du versement (`projects.payCurrency`). */
+    currency: v.optional(v.string()),
+    /** Photo du dû par créatrice au moment du versement — TRAÇABILITÉ seule. */
+    lines: v.array(
+      v.object({
+        creatorId: v.id("creators"),
+        payableViews: v.number(),
+        due: v.number(),
+      }),
+    ),
+    paidAt: v.number(),
+    actorUserId: v.id("users"),
+    cancelledAt: v.optional(v.number()),
+    cancelledBy: v.optional(v.id("users")),
+  }).index("by_project_manager", ["projectId", "managerUserId"]),
 
   // ─── Revenu Whop importé (rentabilité P2) — 1 row = 1 paiement Whop ─────────
   // Alimentée par le cron horaire (convex/whopSync) qui interroge l'API Whop du

@@ -26,7 +26,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { useProject } from "@/components/project/ProjectProvider";
+import { ManagerPayReport } from "@/components/admin/ManagerPayReport";
+import {
+  MANAGER_CPM_MAX,
+  currentCpmEntries,
+  managerCpmProblem,
+  type ManagerCpmProblem,
+} from "@/convex/managerCpm";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -544,6 +553,8 @@ function CarteManager({
         ))}
 
         <PerimetreCreatrices membre={membre} />
+
+        <RemunerationCpm membre={membre} />
       </CardContent>
 
       <AlertDialog
@@ -757,6 +768,264 @@ function PerimetreCreatrices({ membre }: { membre: Membre }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+const CPM_PROBLEME: Record<ManagerCpmProblem, string> = {
+  not_a_number: "Un CPM se saisit en chiffres",
+  not_positive: "Un CPM doit être supérieur à zéro",
+  too_high: `Un CPM ne dépasse pas ${MANAGER_CPM_MAX} pour 1 000 vues`,
+};
+
+/** Saisie d'un CPM → nombre, virgule acceptée. `null` = champ vide. */
+function lireCpm(saisie: string): number | null {
+  const t = saisie.trim().replace(",", ".");
+  if (t === "") return null;
+  return Number(t);
+}
+
+/**
+ * COMBIEN — la rémunération du manager au CPM, un taux par créatrice
+ * (convex/managerCpm.ts).
+ *
+ * La liste proposée = son périmètre (toutes les créatrices s'il n'est pas
+ * restreint), plus celles qui ont déjà un taux : un CPM posé ne disparaît pas de
+ * l'écran parce que le périmètre a bougé. Champ vide = elle ne lui rapporte rien.
+ *
+ * Enregistré À PART des droits et du périmètre, comme eux entre eux : trois
+ * mutations, trois sujets, trois lignes de journal.
+ */
+function RemunerationCpm({ membre }: { membre: Membre }) {
+  const { project } = useProject();
+  const candidates = useProjectQuery(api.team.listScopeCandidates, {});
+  const enregistrer = useProjectMutation(api.team.setManagerCpms);
+  const [voirReleve, setVoirReleve] = useState(false);
+  const releve = useProjectQuery(
+    api.managerPay.getManagerPay,
+    voirReleve ? { membershipId: membre.membershipId } : "skip",
+  );
+  // L'HISTORIQUE est stocké ; on édite le taux d'AUJOURD'HUI. Une créatrice
+  // arrêtée (entrée à 0) a un champ vide, mais reste listée : ses vidéos déjà
+  // publiées lui rapportent encore.
+  const enVigueur = useMemo(
+    () => currentCpmEntries(membre.managerCpms),
+    [membre.managerCpms],
+  );
+  const stocke = useMemo(
+    () =>
+      new Map(
+        [...enVigueur.values()]
+          .filter((e) => e.cpm > 0)
+          .map((e) => [e.creatorId, String(e.cpm).replace(".", ",")]),
+      ),
+    [enVigueur],
+  );
+  const [saisies, setSaisies] = useState<Map<string, string>>(stocke);
+  const [pourToutes, setPourToutes] = useState("");
+  const [recherche, setRecherche] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const devise = project.payCurrency ? project.payCurrency.toUpperCase() : "";
+  const perimetre = useMemo(
+    () => (membre.creatorScope === null ? null : new Set<string>(membre.creatorScope)),
+    [membre.creatorScope],
+  );
+
+  const listees = useMemo(() => {
+    const q = recherche.trim().toLowerCase();
+    return (candidates ?? []).filter(
+      (c) =>
+        (perimetre === null || perimetre.has(c._id) || enVigueur.has(c._id)) &&
+        (q === "" || c.name.toLowerCase().includes(q)),
+    );
+  }, [candidates, perimetre, enVigueur, recherche]);
+
+  const erreurs = [...saisies.entries()].flatMap(([id, val]) => {
+    const n = lireCpm(val);
+    if (n === null) return [];
+    const p = managerCpmProblem(n);
+    return p === null ? [] : [{ id, p }];
+  });
+  // Comparé en NOMBRES au centime : « 0.2 » saisi et « 0,2 » relu sont le même taux.
+  const norme = (val: string | undefined) => {
+    const n = lireCpm(val ?? "");
+    return n === null ? null : Math.round(n * 100) / 100;
+  };
+  const modifie = [...new Set([...saisies.keys(), ...stocke.keys()])].some(
+    (id) => norme(saisies.get(id)) !== norme(stocke.get(id)),
+  );
+  const nbTaux = [...saisies.values()].filter((v) => lireCpm(v) !== null).length;
+
+  function appliquerPartout() {
+    const n = lireCpm(pourToutes);
+    if (n === null) return;
+    const p = managerCpmProblem(n);
+    if (p !== null) {
+      toast.error(CPM_PROBLEME[p]);
+      return;
+    }
+    setSaisies((prev) => {
+      const next = new Map(prev);
+      for (const c of listees) next.set(c._id, pourToutes.trim());
+      return next;
+    });
+  }
+
+  async function go() {
+    setBusy(true);
+    try {
+      const entries = [...saisies.entries()].flatMap(([creatorId, val]) => {
+        const cpm = lireCpm(val);
+        return cpm === null ? [] : [{ creatorId: creatorId as Id<"creators">, cpm }];
+      });
+      await enregistrer({ membershipId: membre.membershipId, entries });
+      toast.success(`Rémunération de ${membre.email} mise à jour`);
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec de la mise à jour de la rémunération"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3" aria-label="Rémunération au CPM">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-1 items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          <CoinsIcon className="size-3.5 text-amber-600" />
+          Rémunération au CPM
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setVoirReleve((v) => !v)}
+        >
+          {voirReleve ? "Masquer le relevé" : "Voir son relevé"}
+        </Button>
+        <Button size="sm" onClick={go} disabled={busy || !modifie || erreurs.length > 0}>
+          {busy && <Loader2Icon className="size-3.5 animate-spin" />}
+          Enregistrer la rémunération
+        </Button>
+      </div>
+      <p className="text-xs text-slate-500">
+        Pour chaque créatrice, ce que le manager touche pour 1 000 vues rémunérées
+        de ses vidéos assignées{devise ? ` (en ${devise})` : ""}. Champ vide = elle
+        ne lui rapporte rien. <strong>Un changement de taux ne vaut que pour les
+        vidéos publiées à partir de maintenant</strong> : les vidéos déjà publiées
+        gardent leur ancien taux, et vider un champ arrête la rémunération pour les
+        vidéos suivantes seulement. Le tout premier taux d&apos;une créatrice couvre
+        aussi ses vidéos déjà publiées. Il voit ses chiffres dans « Ma rémunération ».
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={pourToutes}
+          onChange={(e) => setPourToutes(e.target.value)}
+          placeholder="ex. 0,20"
+          inputMode="decimal"
+          aria-label="CPM pour toutes les créatrices listées"
+          className="h-8 w-28"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={appliquerPartout}
+          disabled={lireCpm(pourToutes) === null || listees.length === 0}
+        >
+          Appliquer aux {listees.length} créatrice{listees.length > 1 ? "s" : ""} listée
+          {listees.length > 1 ? "s" : ""}
+        </Button>
+        <Input
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Rechercher une créatrice"
+          aria-label="Rechercher une créatrice (CPM)"
+          className="h-8 max-w-xs"
+        />
+        <span className="text-xs text-slate-400">
+          {nbTaux} taux posé{nbTaux > 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {erreurs.length > 0 && (
+        <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+          <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+          <div>
+            {CPM_PROBLEME[erreurs[0].p]} (entre 0,01 et {MANAGER_CPM_MAX}, champ vide
+            pour aucun taux).
+          </div>
+        </div>
+      )}
+
+      {candidates === undefined ? (
+        <Skeleton className="h-24 w-full" />
+      ) : listees.length === 0 ? (
+        <p className="text-xs text-slate-500">
+          {recherche.trim() !== ""
+            ? "Aucune créatrice ne correspond à la recherche."
+            : perimetre === null
+              ? "Aucune créatrice sur ce projet pour l'instant."
+              : "Aucune créatrice dans son périmètre : coche d'abord celles qu'il gère."}
+        </p>
+      ) : (
+        <div className="grid max-h-72 gap-1.5 overflow-y-auto sm:grid-cols-2">
+          {listees.map((c) => {
+            const id = `cpm-${membre.membershipId}-${c._id}`;
+            const val = saisies.get(c._id) ?? "";
+            const horsPerimetre = perimetre !== null && !perimetre.has(c._id);
+            return (
+              <div
+                key={c._id}
+                className={cn(
+                  "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm",
+                  val.trim() !== "" ? "border-amber-300" : "border-slate-200",
+                )}
+              >
+                <label htmlFor={id} className="min-w-0 flex-1">
+                  <span className="block truncate text-slate-900">{c.name}</span>
+                  {enVigueur.get(c._id)?.from !== undefined && (
+                    <span className="block text-[11px] text-slate-400">
+                      {enVigueur.get(c._id)!.cpm > 0
+                        ? `depuis le ${formatDate(enVigueur.get(c._id)!.from!)}`
+                        : `arrêtée le ${formatDate(enVigueur.get(c._id)!.from!)}`}
+                    </span>
+                  )}
+                </label>
+                {horsPerimetre && (
+                  <Badge variant="outline" className="text-[10px] font-normal text-amber-700">
+                    hors périmètre
+                  </Badge>
+                )}
+                <Input
+                  id={id}
+                  value={val}
+                  onChange={(e) =>
+                    setSaisies((prev) => new Map(prev).set(c._id, e.target.value))
+                  }
+                  placeholder="—"
+                  inputMode="decimal"
+                  className="h-7 w-20 text-right"
+                />
+                <span className="shrink-0 text-xs text-slate-400">/ 1k</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {voirReleve &&
+        (releve === undefined ? (
+          <Skeleton className="h-48 w-full" />
+        ) : releve === null || releve.creators.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            Aucun taux enregistré : rien à relever pour l&apos;instant.
+          </p>
+        ) : (
+          <ManagerPayReport
+            data={releve}
+            admin={{ membershipId: membre.membershipId, managerLabel: membre.email }}
+          />
+        ))}
     </div>
   );
 }
