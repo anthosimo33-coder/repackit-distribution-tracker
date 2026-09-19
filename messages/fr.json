@@ -211,6 +211,36 @@
     "field": {
       "email": "Email",
       "password": "Mot de passe"
+    },
+    "home": {
+      "eyebrow": "Pour les créateurs, managers et admins Jarvia",
+      "titleLine1": "Crée. Publie.",
+      "titleLine2": "Encaisse.",
+      "subtitle": "Le studio du réseau de créateurs Jarvia. Tes missions, tes scripts, tes posts publiés et tes gains, au même endroit.",
+      "features": {
+        "missions": {
+          "title": "Missions et scripts",
+          "body": "Ton brief, ton script et les vidéos exemples : tout est prêt avant de filmer."
+        },
+        "posts": {
+          "title": "Posts et vues",
+          "body": "Colle le lien une fois. Les vues sont suivies pour toi, post par post."
+        },
+        "earnings": {
+          "title": "Gains et paliers",
+          "body": "Ce que tu as gagné, ce qui arrive, et le prochain palier de bonus."
+        }
+      },
+      "cardTitle": "Connecte-toi à ton studio",
+      "cardTitleSignUp": "Premier démarrage",
+      "cardSubtitle": "Un seul identifiant pour tous les rôles. Tu arrives directement dans ton espace.",
+      "roles": {
+        "admin": "Admin",
+        "manager": "Manager",
+        "creator": "Créateur"
+      },
+      "forgot": "Mot de passe oublié ?",
+      "forgotHint": "Demande un lien de réinitialisation à ton administrateur : il le génère depuis ta fiche."
     }
   },
   "portal": {

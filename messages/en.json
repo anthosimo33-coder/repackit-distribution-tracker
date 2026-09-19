@@ -211,6 +211,36 @@
     "field": {
       "email": "Email",
       "password": "Password"
+    },
+    "home": {
+      "eyebrow": "For Jarvia creators, managers and admins",
+      "titleLine1": "Create. Post.",
+      "titleLine2": "Get paid.",
+      "subtitle": "The studio behind Jarvia’s creator network. Your missions, scripts, published posts and earnings, in one place.",
+      "features": {
+        "missions": {
+          "title": "Missions and scripts",
+          "body": "Your brief, your script and the example videos: ready before you film."
+        },
+        "posts": {
+          "title": "Posts and views",
+          "body": "Paste the link once. Views are tracked for you, post by post."
+        },
+        "earnings": {
+          "title": "Earnings and tiers",
+          "body": "What you’ve earned, what’s coming, and your next bonus tier."
+        }
+      },
+      "cardTitle": "Sign in to your studio",
+      "cardTitleSignUp": "First run",
+      "cardSubtitle": "One login for every role. You land straight in your own space.",
+      "roles": {
+        "admin": "Admin",
+        "manager": "Manager",
+        "creator": "Creator"
+      },
+      "forgot": "Forgot password?",
+      "forgotHint": "Ask your administrator for a reset link: they generate it from your profile."
     }
   },
   "portal": {

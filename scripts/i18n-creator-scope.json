@@ -22,6 +22,8 @@
     "app/clip/page.tsx",
     "app/join/[token]/page.tsx",
     "app/layout.tsx",
+    "app/login/fonts.ts",
+    "app/login/login.module.css",
     "app/login/page.tsx",
     "app/not-found.tsx",
     "app/page.tsx",

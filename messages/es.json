@@ -211,6 +211,36 @@
     "field": {
       "email": "Email",
       "password": "Contraseña"
+    },
+    "home": {
+      "eyebrow": "Para creadores, managers y admins de Jarvia",
+      "titleLine1": "Crea. Publica.",
+      "titleLine2": "Cobra.",
+      "subtitle": "El estudio de la red de creadores de Jarvia. Tus misiones, tus guiones, tus posts publicados y tus ganancias, en un solo lugar.",
+      "features": {
+        "missions": {
+          "title": "Misiones y guiones",
+          "body": "Tu brief, tu guion y los videos de ejemplo: todo listo antes de grabar."
+        },
+        "posts": {
+          "title": "Posts y vistas",
+          "body": "Pega el enlace una vez. Seguimos las vistas por ti, post a post."
+        },
+        "earnings": {
+          "title": "Ganancias y niveles",
+          "body": "Lo que has ganado, lo que viene y tu próximo nivel de bonus."
+        }
+      },
+      "cardTitle": "Inicia sesión en tu estudio",
+      "cardTitleSignUp": "Primer arranque",
+      "cardSubtitle": "Un solo acceso para todos los roles. Llegas directo a tu espacio.",
+      "roles": {
+        "admin": "Admin",
+        "manager": "Manager",
+        "creator": "Creador"
+      },
+      "forgot": "¿Olvidaste tu contraseña?",
+      "forgotHint": "Pide un enlace de restablecimiento a tu administrador: lo genera desde tu ficha."
     }
   },
   "portal": {
