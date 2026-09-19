@@ -23,6 +23,8 @@ import {
 } from "./warmupGuideFused";
 import { GUIDE_FR_FIXES } from "./guideFrFixes";
 import { rolesOf } from "./roles";
+import { DELETABLE_STATUSES } from "./assignments";
+import { unpayPostsOfDeletedCreator } from "./publications";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -1333,5 +1335,81 @@ export const auditMembershipRoles = internalQuery({
       for (const r of rolesOf(m)) parRole[r] = (parRole[r] ?? 0) + 1;
     }
     return { total: all.length, parForme, parRole };
+  },
+});
+
+/**
+ * RATTRAPAGE des créatrices SUPPRIMÉES avant que `deleteCreator` sorte leurs
+ * posts non payés de la paie (cf unpayPostsOfDeletedCreator). Au 2026-09-19 sur
+ * Snytch : Laure, Keziah et Janeth pesaient 79,86 $ dans le coût d'Analytics
+ * pour de l'argent qui ne leur sera jamais versé.
+ *
+ * La fiche disparue, l'ancre de cycle (firstPostAt) a disparu avec : on ne sait
+ * plus dire QUEL cycle a été payé. Règle prudente : une créatrice qui a reçu un
+ * paiement NON NUL est écartée en entier et remontée dans `skipped`, à trancher à
+ * la main. En prod, aucune (la seule row payée, Celia, vaut 0 $).
+ *
+ *   ./scripts/convex-prod.sh run migrations:unpayDeletedCreatorsPosts \
+ *     '{"actorUserId":"…","dryRun":true}'
+ */
+export const unpayDeletedCreatorsPosts = internalMutation({
+  args: { actorUserId: v.id("users"), dryRun: v.boolean() },
+  handler: async (ctx, { actorUserId, dryRun }) => {
+    if ((await ctx.db.get(actorUserId)) === null) {
+      throw new ConvexError("actorUserId introuvable.");
+    }
+    const alive = new Set<string>(
+      (await ctx.db.query("creators").collect()).map((c) => c._id),
+    );
+    const orphans = (await ctx.db.query("assignments").collect()).filter(
+      (a) => !alive.has(a.creatorId) && !DELETABLE_STATUSES.has(a.status),
+    );
+    const byCreator = new Map<string, typeof orphans>();
+    for (const a of orphans) {
+      const list = byCreator.get(a.creatorId) ?? [];
+      list.push(a);
+      byCreator.set(a.creatorId, list);
+    }
+    const done: { name: string; videos: number; posts: number }[] = [];
+    const skipped: { name: string; paidTotal: number }[] = [];
+    for (const [creatorId, list] of byCreator) {
+      const name = list[0].creatorNameSnapshot ?? creatorId;
+      const paidTotal = (
+        await ctx.db
+          .query("payments")
+          .withIndex("by_creator", (q) =>
+            q.eq("creatorId", creatorId as Id<"creators">),
+          )
+          .collect()
+      )
+        .filter((p) => p.status === "paid")
+        .reduce((s, p) => s + p.totalDue, 0);
+      if (paidTotal > 0) {
+        skipped.push({ name, paidTotal });
+        continue;
+      }
+      let posts = 0;
+      for (const a of list) {
+        if (dryRun) {
+          const ids = new Set(
+            [...(a.targets ?? []).map((t) => t.publicationId), a.publicationId]
+              .filter((p): p is Id<"publications"> => p !== undefined),
+          );
+          for (const pid of ids) {
+            const pub = await ctx.db.get(pid);
+            if (
+              pub &&
+              isRemunerated({ isWarmup: pub.isWarmup === true, remunere: pub.remunere })
+            ) {
+              posts++;
+            }
+          }
+        } else {
+          posts += await unpayPostsOfDeletedCreator(ctx, a, actorUserId);
+        }
+      }
+      done.push({ name, videos: list.length, posts });
+    }
+    return { dryRun, done, skipped };
   },
 });
