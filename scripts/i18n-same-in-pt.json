@@ -6,6 +6,7 @@
     "auth.home.roles.manager",
     "clip.phaseUnknown",
     "estimator.base",
+    "home.apps.platforms",
     "layout.metadata.title",
     "nav.item.radar",
     "nav.section.veille",

@@ -48,6 +48,7 @@
     "components/layout/AppShell.tsx",
     "components/layout/EspaceSwitch.tsx",
     "components/layout/LanguageSelector.tsx",
+    "components/layout/RoleRedirect.tsx",
     "components/layout/SidebarItem.tsx",
     "components/portal/AnimatedNumber.tsx",
     "components/portal/AssignmentActions.tsx",
@@ -95,6 +96,9 @@
     "components/portal/use-creator-project.ts",
     "components/portal/use-is-desktop.ts",
     "components/project/AccentStyle.tsx",
+    "components/public-home/PublicHome.tsx",
+    "components/public-home/home.module.css",
+    "components/public/LocaleSwitch.tsx",
     "components/scripts/ScriptDestinationZones.tsx",
     "components/talent/TalentProjectProvider.tsx",
     "components/talent/TalentSpaceScreen.tsx",
@@ -179,6 +183,10 @@
     "lib/verdict.ts",
     "lib/video-tracking.ts",
     "lib/view-as.ts",
-    "lib/warmup.ts"
+    "lib/warmup.ts",
+    "public/landing/captures/creator-gains-mobile.png",
+    "public/landing/captures/creator-script-mobile.png",
+    "public/landing/captures/creator-today-desktop.png",
+    "public/landing/captures/creator-today-mobile.png"
   ]
 }

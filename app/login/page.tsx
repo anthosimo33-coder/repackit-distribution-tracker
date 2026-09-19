@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useLocale, useTranslations } from "next-intl";
+import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -9,8 +9,7 @@ import { ConvexError } from "convex/values";
 import { ArrowRightIcon, Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { BrandMark } from "@/components/brand/BrandMark";
-import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/locales";
-import { writeLocaleCookie } from "@/i18n/locale-cookie";
+import { LocaleSwitch } from "@/components/public/LocaleSwitch";
 import { cn } from "@/lib/utils";
 import { clashDisplay, switzer } from "./fonts";
 import styles from "./login.module.css";
@@ -343,52 +342,6 @@ function Backdrop() {
           "absolute top-1/2 left-[75%] hidden h-[620px] w-[760px] bg-[radial-gradient(closest-side,rgba(124,92,191,.16),rgba(124,92,191,0)_72%)] lg:block",
         )}
       />
-    </div>
-  );
-}
-
-/**
- * Choix de la langue AVANT session : seul le cookie NEXT_LOCALE existe ici
- * (pas de compte à mettre à jour), puis `router.refresh()` redemande le rendu
- * serveur dans la nouvelle langue. Toutes les langues : les créatrices
- * ES/PT passent aussi par cet écran.
- */
-function LocaleSwitch() {
-  const current = useLocale() as Locale;
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-
-  function choose(next: Locale) {
-    if (next === current) return;
-    writeLocaleCookie(next);
-    startTransition(() => router.refresh());
-  }
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1 rounded-lg border border-white/10 p-[3px]",
-        pending && "opacity-60",
-      )}
-    >
-      {LOCALES.map((locale) => (
-        <button
-          key={locale}
-          type="button"
-          lang={locale}
-          aria-label={LOCALE_LABELS[locale]}
-          aria-pressed={locale === current}
-          onClick={() => choose(locale)}
-          className={cn(
-            "h-[30px] min-w-10 rounded-md px-2 text-xs font-semibold tracking-[.08em] uppercase",
-            locale === current
-              ? "bg-white/10 text-[#f4f4f5]"
-              : "text-[#f4f4f5]/60 hover:text-[#f4f4f5]",
-          )}
-        >
-          {locale}
-        </button>
-      ))}
     </div>
   );
 }

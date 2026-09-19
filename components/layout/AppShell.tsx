@@ -30,6 +30,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // /reset-password/<token> (reset mot de passe admin, Voie B) et /s/<token>
   // (lien public d'un dashboard).
   if (
+    // Accueil : app/page.tsx décide côté serveur (page publique ou routage
+    // par rôle) et gate lui-même la branche connectée.
+    pathname === "/" ||
     pathname === "/login" ||
     pathname.endsWith("/login") ||
     pathname.startsWith("/join") ||

@@ -23,6 +23,9 @@ import {
  * (resolver du projet par défaut → /admin/<slug>/dashboard), pas vers une route
  * scopée codée en dur (le projet dépend de l'utilisateur).
  *
+ * Accueil — `/` est PUBLIC : un visiteur sans session y voit la page
+ * d'accueil du studio au lieu d'être renvoyé sur /login.
+ *
  * P1 Créateurs — /join/<token> est PUBLIC (pré-session, comme /login) : un
  * invité n'a pas encore de compte. Exclu du gating d'auth ci-dessous.
  */
@@ -30,6 +33,10 @@ import {
 // segments → ne capture pas le /login générique (un seul segment).
 const isLoginPage = createRouteMatcher(["/login", "/:slug/login"]);
 const isPublicPage = createRouteMatcher([
+  // Accueil : page publique pour un visiteur NON connecté (vitrine du studio),
+  // routage par rôle pour un utilisateur connecté. C'est app/page.tsx qui
+  // tranche, côté serveur — le proxy ne fait que laisser passer.
+  "/",
   "/login",
   "/:slug/login",
   "/join",

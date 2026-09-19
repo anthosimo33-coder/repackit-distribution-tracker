@@ -1,0 +1,78 @@
+/* Effets de la page d'accueil publique, repris de la maquette (landing Jarvia
+   + structure Playkit) : ce que Tailwind n'exprime pas proprement. */
+
+.chrome {
+  background: linear-gradient(
+    100deg,
+    #f8fafb,
+    #c9cdd6 20%,
+    #eaf2f5 38%,
+    #9d7fe8 52%,
+    #c9cdd6 68%,
+    #f8fafb 85%
+  );
+  background-size: 250% 100%;
+  background-position: 50% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Piste dupliquée : -50 % ramène exactement au début, sans à-coup. Les marges
+   sont portées par les éléments (pas de `gap`), sinon la boucle saute. */
+.track {
+  display: flex;
+  width: max-content;
+  animation: marquee 55s linear infinite;
+}
+
+.trackFast {
+  animation-duration: 30s;
+}
+
+.wall:hover .track {
+  animation-play-state: paused;
+}
+
+.btn {
+  transition:
+    box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 24px rgba(255, 255, 255, 0.22),
+    0 0 72px rgba(124, 92, 191, 0.5);
+}
+
+.row:hover .rowTitle {
+  color: #7c5cbf;
+}
+
+.faq summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq[open] .plus {
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    animation: none;
+  }
+}

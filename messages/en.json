@@ -1543,5 +1543,182 @@
       "others": "Others",
       "center": "views"
     }
+  },
+  "home": {
+    "meta": {
+      "title": "Jarvia — app studio",
+      "description": "Jarvia builds apps and grows them with its creator network. The creator space: scripts, view tracking and payouts."
+    },
+    "nav": {
+      "home": "Jarvia, home",
+      "studio": "the studio",
+      "creators": "for creators",
+      "faq": "FAQ",
+      "signIn": "sign in"
+    },
+    "hero": {
+      "label": "jarvia · app studio · creator space",
+      "line1": "film. post.",
+      "line2": "get paid.",
+      "body": "jarvia builds apps and grows them with its creator network. here you get your scripts, track your views and get paid.",
+      "how": "how it works"
+    },
+    "wall": {
+      "label": "Videos posted by the studio's creators",
+      "views": "views",
+      "videoLabel": "{name}'s video for Snytch, {views} views"
+    },
+    "platforms": {
+      "label": "you post on"
+    },
+    "apps": {
+      "label": "the studio",
+      "title1": "we build apps.",
+      "title2": "you make them known.",
+      "body": "jarvia is an app studio. every app in the studio has its own campaign, scripts and rates: you work on the ones assigned to you.",
+      "loop": {
+        "create": {
+          "title": "we build the app",
+          "body": "product, design and monetization, in-house."
+        },
+        "promote": {
+          "title": "creators make it known",
+          "body": "tested scripts, dedicated accounts, posts every day."
+        },
+        "data": {
+          "title": "the numbers drive what's next",
+          "body": "views, downloads and revenue decide the next scripts."
+        }
+      },
+      "listLabel": "apps in the studio",
+      "snytchCategory": "web app · social",
+      "snytchBody": "see who anyone follows and unfollows on instagram, without ever logging into their account. the studio's first app, launched with the jarvia creator network.",
+      "open": "campaign open",
+      "platforms": "tiktok · instagram",
+      "stats": {
+        "videos": "videos posted",
+        "views": "total views",
+        "accounts": "TikTok and Instagram accounts",
+        "creators": "active creators",
+        "since": "live numbers from the studio · since {date}"
+      },
+      "nextLabel": "next app",
+      "nextBody": "in the works at the studio."
+    },
+    "brief": {
+      "label": "the studio at a glance",
+      "title": "everything you need to post. nothing more.",
+      "body": "one space, on your phone between two shoots or on your computer.",
+      "missions": {
+        "title": "clear missions",
+        "body": "Every mission comes with its brief, its date and the account to post on. You know what to film, and when."
+      },
+      "scripts": {
+        "title": "scripts ready to film",
+        "body": "Hook, body and CTA, already split between what goes in the video and what goes in the caption. With example videos for the tone."
+      },
+      "views": {
+        "title": "views tracked for you",
+        "body": "Paste the post link once. Views are pulled every day, post by post, no screenshots."
+      },
+      "earnings": {
+        "title": "clear earnings",
+        "body": "Flat fee, CPM and bonus: you see what you're owed, cycle by cycle, and the next tier to unlock."
+      }
+    },
+    "space": {
+      "label": "your space",
+      "title1": "every mission. every post.",
+      "title2": "one space.",
+      "body": "what you see when you sign in: your next action, the missions after it, and where your earnings stand.",
+      "caption": "real screenshot of the creator space · demo data",
+      "altDesktop": "Today screen of the creator space, on desktop",
+      "altScript": "A mission with its script, on phone",
+      "altGains": "Earnings screen, on phone",
+      "altToday": "Today screen of the creator space, on phone"
+    },
+    "how": {
+      "label": "how it works",
+      "title1": "from invite",
+      "title2": "to payout.",
+      "s1": {
+        "label": "step 1",
+        "title": "get your invite",
+        "body": "Your administrator sends you a personal link. Pick your password, your space is ready."
+      },
+      "s2": {
+        "label": "step 2",
+        "title": "take your mission",
+        "body": "Script, example videos, brief and date: it's all in the mission."
+      },
+      "s3": {
+        "label": "step 3",
+        "title": "post, paste the link",
+        "body": "Once the video is live, paste the post link. Tracking starts."
+      },
+      "s4": {
+        "label": "step 4",
+        "title": "track your views, get paid",
+        "body": "Views, earnings and tiers update on their own."
+      }
+    },
+    "who": {
+      "label": "who it's for",
+      "title": "one studio, three spaces.",
+      "creators": {
+        "title": "for creators",
+        "body": "your missions, scripts, posts and earnings.",
+        "i1": "missions and example videos",
+        "i2": "automatic view tracking",
+        "i3": "bonus tiers"
+      },
+      "managers": {
+        "title": "for managers",
+        "body": "your creators and their calendar, at a glance.",
+        "i1": "posting calendar",
+        "i2": "account approval",
+        "i3": "follow-ups and delays"
+      },
+      "admins": {
+        "title": "for admins",
+        "body": "campaigns, rates and payroll, project by project.",
+        "i1": "flat, CPM and bonus rates",
+        "i2": "payroll by cycle",
+        "i3": "analytics and profitability"
+      }
+    },
+    "faq": {
+      "label": "questions",
+      "title": "frequently asked questions",
+      "account": {
+        "q": "how do I get an account?",
+        "a": "By invitation only: your administrator sends you a personal link to create your access."
+      },
+      "password": {
+        "q": "I forgot my password.",
+        "a": "Ask your administrator for a reset link. They generate it from your profile."
+      },
+      "platforms": {
+        "q": "which platforms do I post on?",
+        "a": "TikTok, Instagram or YouTube, depending on the project and the accounts assigned to you."
+      },
+      "pay": {
+        "q": "when do I get paid?",
+        "a": "Your payout lands 30 days after your first published post."
+      },
+      "language": {
+        "q": "is the studio in my language?",
+        "a": "Yes: French, English, Spanish and Portuguese."
+      }
+    },
+    "cta": {
+      "label": "ready?",
+      "title": "your studio is waiting."
+    },
+    "footer": {
+      "tagline": "the jarvia studio's creator space",
+      "invite": "invite only.",
+      "navigate": "navigate"
+    }
   }
 }
