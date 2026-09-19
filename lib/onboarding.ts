@@ -1,5 +1,5 @@
 /**
- * SNYTCH — dérivation de l'état d'ONBOARDING d'une créatrice à partir d'un
+ * RÉGIME STRICT — dérivation de l'état d'ONBOARDING d'une créatrice à partir d'un
  * payload serveur COMPACT (cf convex/comptes.getMyOnboardingState). Logique de
  * PRÉSENTATION pure et testable (vitest lib-only) : le serveur ne fait que
  * scoper + compacter les comptes (statut, warmup, bio) ; ici on en tire les
@@ -14,8 +14,9 @@
  *
  * `complete` = ONBOARDING TERMINÉ = compte "actif" (⇒ déclaré + warmup terminé +
  * validé admin) ET aucune bio en attente. Aligné sur le gate strict : "actif"
- * est la ligne d'arrivée qui débloque les scripts. Hors Snytch (applicable
- * false) → toujours `complete` (dashboard inchangé). Créatrice « full gérée »
+ * est la ligne d'arrivée qui débloque les scripts. Projet en régime SOUPLE
+ * (applicable false, cf convex/accountValidation) → toujours `complete`
+ * (dashboard inchangé). Créatrice « full gérée »
  * (0 compte propre, l'équipe tient tout) → `complete` aussi : rien à configurer,
  * le dashboard montre un message dédié au lieu de la checklist.
  */

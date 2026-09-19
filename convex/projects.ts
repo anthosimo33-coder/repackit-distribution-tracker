@@ -15,7 +15,11 @@ import {
   type PermissionId,
 } from "./permissions";
 import { normalizeRef } from "./conversionAttribution";
-import { warmupTargetDaysOf } from "./warmup";
+import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
+import {
+  accountValidationModeOf,
+  isStrictAccountValidation,
+} from "./accountValidation";
 import {
   isFileDropEnabled,
   parseDriveFolderId,
@@ -59,14 +63,24 @@ export async function getProjectBySlug(
 }
 
 /**
- * Le projet d'id `projectId` est-il Snytch ? Sert à SCOPER un comportement au
- * seul projet Snytch sans toucher les autres (RepackIt & co.). Typé QueryCtx
- * (comme getProjectBySlug) → utilisable depuis query ET mutation. Un projet
- * introuvable → false (jamais Snytch par défaut).
- *
- * Utilisé par le GATE STRICT « actif » : isAccountAvailable(compte, { strict })
- * n'est passé en strict que pour Snytch (cf convex/assignments.validateTargets,
- * confirmPublication, convex/comptes.listCreatorAvailableComptes).
+ * Régime de VALIDATION DES COMPTES du projet est-il strict ? SEUL point d'entrée
+ * serveur du régime (cf convex/accountValidation.ts) : attribution
+ * (validateTargets, listes de comptes disponibles), publication
+ * (confirmPublicationCore), portail et onboarding le lisent tous ici — c'est ce
+ * qui les garde d'accord. Projet introuvable → souple (comme avant).
+ */
+export async function isStrictAccountValidationFor(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<boolean> {
+  return isStrictAccountValidation(await ctx.db.get(projectId));
+}
+
+/**
+ * Le projet d'id `projectId` est-il Snytch ? Ne sert plus qu'aux écrans encore
+ * réservés à Snytch (vidéos de la créatrice) — JAMAIS au régime de validation
+ * des comptes, qui passe par isStrictAccountValidationFor. Un projet
+ * introuvable → false.
  */
 export async function isSnytchProject(
   ctx: QueryCtx,
@@ -156,6 +170,9 @@ export function projectForClient(p: Doc<"projects">) {
     // Décision RÉSOLUE (repli Snytch compris), jamais le champ brut : l'écran
     // « Mes fichiers » vu par l'admin en observation lit la même que le portail.
     fileDropEnabled: isFileDropEnabled(p),
+    // Régime RÉSOLU (repli Snytch compris) : le tableau de bord n'annonce des
+    // « warmups à valider » que là où la validation bloque vraiment.
+    accountValidation: accountValidationModeOf(p),
   };
 }
 
@@ -971,6 +988,81 @@ export const getWarmupSettings = permissionQuery("project.settings")({
       },
       effective: warmupTargetDaysOf(project ?? {}),
     };
+  },
+});
+
+/**
+ * VALIDATION DES COMPTES — lecture admin, avec l'IMPACT d'une bascule.
+ *
+ * Les deux sens touchent exactement le MÊME ensemble : les comptes dont la
+ * disponibilité diffère entre les deux régimes (warmup terminé, pas encore
+ * validés). En souple ils publient ; en strict ils sont bloqués — et les
+ * missions déjà attribuées dessus seront refusées AU MOMENT DE PUBLIER, puisque
+ * confirmPublicationCore revérifie le compte. L'écran doit le dire avant qu'on
+ * bascule : c'est tout l'objet de `affected`.
+ *
+ * L'ensemble est calculé en appelant `isAccountAvailable` dans les deux régimes
+ * plutôt qu'en réécrivant la règle ici : si elle change, ce décompte suit.
+ */
+export const getAccountValidationSettings = permissionQuery("project.settings")({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{
+    mode: "strict" | "lenient";
+    /** Aucun choix enregistré : le régime vient du repli historique. */
+    implicit: boolean;
+    affected: { accounts: number; pendingAssignments: number };
+  }> => {
+    const project = await ctx.db.get(ctx.projectId);
+    const days = warmupTargetDaysOf(project ?? {});
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const diverging = new Set(
+      comptes
+        .filter(
+          (c) =>
+            isAccountAvailable(c, days, { strict: false }) &&
+            !isAccountAvailable(c, days, { strict: true }),
+        )
+        .map((c) => c._id),
+    );
+    let pendingAssignments = 0;
+    if (diverging.size > 0) {
+      const assignments = await ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect();
+      for (const a of assignments) {
+        if (
+          a.status === "published" ||
+          a.status === "paid" ||
+          a.status === "cancelled"
+        ) {
+          continue;
+        }
+        if ((a.targets ?? []).some((t) => t.accountId && diverging.has(t.accountId))) {
+          pendingAssignments += 1;
+        }
+      }
+    }
+    return {
+      mode: accountValidationModeOf(project),
+      implicit: project?.accountValidation === undefined,
+      affected: { accounts: diverging.size, pendingAssignments },
+    };
+  },
+});
+
+export const setAccountValidation = permissionMutation("project.settings")({
+  args: { mode: v.union(v.literal("strict"), v.literal("lenient")) },
+  handler: async (ctx, { mode }): Promise<{ updated: true }> => {
+    // Toujours ÉCRIT, même égal au repli : un choix fait à l'écran ne doit plus
+    // dépendre du slug du projet.
+    await ctx.db.patch(ctx.projectId, { accountValidation: mode });
+    return { updated: true };
   },
 });
 

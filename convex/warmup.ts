@@ -181,7 +181,8 @@ type CompteStatusLike = "warmup" | "actif" | "shadowban" | "archived";
  *     gating RepackIt).
  *   - STRICT : "actif" UNIQUEMENT. Un warmup terminé mais pas encore validé par
  *     l'admin n'est PAS disponible → le passage "actif" devient un VRAI gate.
- *     Passé strict:true uniquement pour le projet Snytch (cf isSnytchProject).
+ *     strict:true selon le RÉGLAGE du projet (convex/accountValidation,
+ *     lu par projects.isStrictAccountValidationFor).
  */
 export function isAccountAvailable(
   c: WarmupCompteLike & { status?: CompteStatusLike; actif?: boolean },

@@ -37,7 +37,7 @@ async function warmupDaysFor(
 ): Promise<WarmupTargetDays> {
   return warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {});
 }
-import { isSnytchProject } from "./projects";
+import { isStrictAccountValidationFor } from "./projects";
 import { resolveCreatorKind } from "./roles";
 import { activateCreatorOnAccountValidated } from "./creatorActivation";
 import { auditCompteHandle } from "./handleHygiene";
@@ -425,7 +425,7 @@ export const listComptesChoix = permissionQuery("accounts.manage")({
  * Chantier C — comptes d'UN créateur annotés `available`. Alimente les
  * sélecteurs de cibles à la création d'assignment : seuls les comptes
  * disponibles sont choisissables ; une plateforme sans compte disponible est
- * désactivée. Gate STRICT pour Snytch (available = "actif" seulement) ; lenient
+ * désactivée. Régime STRICT du projet (available = "actif" seulement) ; lenient
  * ailleurs (warmup terminé suffit).
  */
 export const listCreatorAvailableComptes = permissionQuery("accounts.manage")({
@@ -435,7 +435,7 @@ export const listCreatorAvailableComptes = permissionQuery("accounts.manage")({
     // sélecteur vit dans une modale, et une query qui lève la ferait tomber.
     const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
     if (!isInCreatorScope(scope, creatorId)) return [];
-    const strict = await isSnytchProject(ctx, ctx.projectId);
+    const strict = await isStrictAccountValidationFor(ctx, ctx.projectId);
     const comptes = await ctx.db
       .query("comptes")
       .withIndex("by_project_creator", (q) =>
@@ -1230,10 +1230,10 @@ async function comptesForCreator(
   // Fuseau de la créatrice : `dueToday` doit répondre « aujourd'hui » au sens
   // où ELLE le vit, sinon le portail réaffiche « à cocher » un jour de trop.
   const tz = await creatorZoneOnly(ctx, creatorId);
-  // Régime STRICT (Snytch) : un compte en warmup, même terminé, n'est pas
+  // Régime STRICT (réglage du projet) : un compte en warmup, même terminé, n'est pas
   // publiable tant que l'admin ne l'a pas repassé actif. Résolu SERVEUR, comme
   // targetDays / dueToday juste en dessous.
-  const strict = await isSnytchProject(ctx, projectId);
+  const strict = await isStrictAccountValidationFor(ctx, projectId);
   return comptes
     .sort((a, b) => a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }))
     .map((c) => {
@@ -1429,7 +1429,7 @@ async function clipperComptesFor(
   clipperId: Id<"creators">,
   days: WarmupTargetDays,
 ) {
-  const strict = await isSnytchProject(ctx, projectId);
+  const strict = await isStrictAccountValidationFor(ctx, projectId);
   const comptes = await comptesForCreator(ctx, projectId, clipperId);
   return comptes.map((c) => ({
     _id: c._id,
@@ -1683,8 +1683,8 @@ export const countWarmupInProgressAsAdmin = adminViewAsQuery({
 // ─── SNYTCH — état d'ONBOARDING créatrice (dérivé serveur COMPACT) ────────────
 // Alimente la checklist du dashboard (cf lib/onboarding.deriveOnboarding + le
 // DashboardScreen). On NE renvoie QUE le strict nécessaire (statut, warmup, bio)
-// par compte — jamais le brut (protocole, keywords, notes). SNYTCH UNIQUEMENT :
-// hors Snytch → { applicable:false } → la checklist ne s'affiche pas et le
+// par compte — jamais le brut (protocole, keywords, notes). RÉGIME STRICT SEUL :
+// régime souple → { applicable:false } → la checklist ne s'affiche pas et le
 // dashboard garde son comportement historique.
 
 type OnboardingAccountPayload = {
@@ -1712,8 +1712,11 @@ async function onboardingStateForCreator(
   days: WarmupTargetDays,
   now: number,
 ): Promise<OnboardingStatePayload> {
-  // Feature Snytch-only : hors Snytch on ne charge même pas les comptes.
-  if (!(await isSnytchProject(ctx, projectId))) {
+  // La checklist suit le RÉGIME STRICT : sa ligne d'arrivée est le compte
+  // « actif » (validé admin, cf lib/onboarding). En régime souple cette étape
+  // n'existe pas — la checklist exigerait une validation que rien ne demande —
+  // donc on ne charge même pas les comptes.
+  if (!(await isStrictAccountValidationFor(ctx, projectId))) {
     return { applicable: false, accounts: [], fullyManaged: false };
   }
   const allComptes = await comptesForCreator(ctx, projectId, creatorId);
@@ -1749,7 +1752,7 @@ async function onboardingStateForCreator(
   return { applicable: true, accounts, fullyManaged };
 }
 
-/** État d'onboarding de MON espace créateur (Snytch). Cf lib/onboarding. */
+/** État d'onboarding de MON espace créateur (régime strict). Cf lib/onboarding. */
 export const getMyOnboardingState = creatorQuery({
   args: {},
   handler: async (ctx) =>

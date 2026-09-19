@@ -10,6 +10,7 @@
 
 import type * as abAttribution from "../abAttribution.js";
 import type * as accountPhase from "../accountPhase.js";
+import type * as accountValidation from "../accountValidation.js";
 import type * as adminRecovery from "../adminRecovery.js";
 import type * as analyticsContract from "../analyticsContract.js";
 import type * as analyticsHub from "../analyticsHub.js";
@@ -189,6 +190,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   abAttribution: typeof abAttribution;
   accountPhase: typeof accountPhase;
+  accountValidation: typeof accountValidation;
   adminRecovery: typeof adminRecovery;
   analyticsContract: typeof analyticsContract;
   analyticsHub: typeof analyticsHub;

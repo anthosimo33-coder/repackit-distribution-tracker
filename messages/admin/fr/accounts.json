@@ -223,9 +223,9 @@
     "shortsDesassignes": "{count} {count, plural, one {Short sera désassigné} other {Shorts seront désassignés}}. Action irréversible."
   },
   "WarmupSettingsButton": {
-    "dureesDeWarmup": "Durées de warmup",
-    "dureesDeWarmupCeProjet": "Durées de warmup — ce projet",
-    "combienDeChecksAvantQu": "Combien de checks avant qu'un compte sorte de chauffe."
+    "dureesDeWarmup": "Durées de warmup et validation",
+    "dureesDeWarmupCeProjet": "Warmup et validation — ce projet",
+    "combienDeChecksAvantQu": "Combien de checks avant qu'un compte sorte de chauffe, et s'il doit être validé avant de publier."
   },
   "WarmupSettingsCard": {
     "dureeDeWarmupParPlateforme": "Durée de warmup, par plateforme",
@@ -268,5 +268,20 @@
   "handleWarning": {
     "product": "Ce pseudo contient « {mot} » : un compte qui annonce la marque se lit en une seconde, et le hook ne peut plus fonctionner.",
     "talent": "Ce pseudo contient « {mot} », le nom d'un talent : le compte est rattachable à sa personne."
+  },
+  "AccountValidationSettingsCard": {
+    "titre": "Validation obligatoire avant publication",
+    "aideStrict": "Activée : un compte ne reçoit de mission et ne publie qu'une fois validé par l'équipe. Un warmup terminé ne suffit pas.",
+    "aideSouple": "Désactivée : un compte reçoit des missions et publie dès que son warmup est terminé.",
+    "enAttente": "{accounts, plural, one {# compte a} other {# comptes ont}} fini leur warmup sans être validés.",
+    "confirmerStrict": "Exiger la validation des comptes ?",
+    "confirmerSouple": "Ne plus exiger la validation des comptes ?",
+    "impactAucun": "Aucun compte n'est concerné aujourd'hui : le changement ne bloque ni ne débloque rien pour l'instant.",
+    "impactStrict": "{accounts, plural, one {# compte au warmup terminé ne pourra} other {# comptes au warmup terminé ne pourront}} plus recevoir de mission ni publier tant que tu ne {accounts, plural, one {le valides} other {les valides}} pas. {pendingAssignments, plural, =0 {Aucune mission en cours n'est concernée.} one {# mission déjà attribuée sera refusée au moment de publier.} other {# missions déjà attribuées seront refusées au moment de publier.}}",
+    "impactSouple": "{accounts, plural, one {# compte au warmup terminé, pas encore validé, pourra} other {# comptes au warmup terminé, pas encore validés, pourront}} recevoir des missions et publier immédiatement.",
+    "confirmer": "Confirmer",
+    "annuler": "Annuler",
+    "regleEnregistree": "Règle enregistrée",
+    "uneErreurEstSurvenue": "Une erreur est survenue"
   }
 }

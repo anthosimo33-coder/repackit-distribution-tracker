@@ -241,6 +241,7 @@
     "components/ui/table.tsx",
     "components/ui/tabs.tsx",
     "components/ui/textarea.tsx",
+    "components/warmup/AccountValidationSettingsCard.tsx",
     "components/warmup/WarmupSettingsButton.tsx",
     "components/warmup/WarmupSettingsCard.tsx",
     "components/whop/WhopRevenueCard.tsx",

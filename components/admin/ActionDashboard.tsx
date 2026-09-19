@@ -124,7 +124,7 @@ export function ActionDashboard() {
   const tr = useTranslations("admin.dashboard.ActionDashboard");
   const projectPath = useProjectPath();
   // Paie créatrices → devise du projet ($). Absente → montant sans symbole.
-  const payCurrency = useProject().project.payCurrency;
+  const { payCurrency, accountValidation } = useProject().project;
   // « Maintenant » figé au mount (lazy init pur — cf react-hooks/purity, même
   // pattern que MetricChart). Suffisant pour un instantané de dashboard.
   const [now] = useState(() => Date.now());
@@ -235,8 +235,8 @@ export function ActionDashboard() {
           ),
     );
 
-    // Carte 2 bis — warmups TERMINÉS qui attendent une validation admin. Sous
-    // le gate strict (#98) ces comptes ne publient pas tant qu'ils ne sont pas
+    // Carte 2 bis — warmups TERMINÉS qui attendent une validation admin (régime
+    // STRICT du projet uniquement, cf rendu). Sous le gate strict (#98) ces comptes ne publient pas tant qu'ils ne sont pas
     // repassés en « actif » : chaque jour de délai annule un jour de chauffe
     // gagné, et jusqu'ici seul un badge dans la liste le signalait.
     //
@@ -331,7 +331,9 @@ export function ActionDashboard() {
             warn={warmupLate.length > 0}
           />
         )}
-        {voitComptes && (
+        {/* Seulement en régime STRICT : en souple, un warmup terminé publie
+            déjà — annoncer des comptes « en attente » serait faux. */}
+        {voitComptes && accountValidation === "strict" && (
           <ActionCard
             href={projectPath("/comptes")}
             icon={CheckCircle2Icon}

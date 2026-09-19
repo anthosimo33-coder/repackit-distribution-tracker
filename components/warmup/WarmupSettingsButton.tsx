@@ -11,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { WarmupSettingsCard } from "./WarmupSettingsCard";
+import { AccountValidationSettingsCard } from "./AccountValidationSettingsCard";
 import { usePermissions } from "@/components/project/use-permissions";
 import { useTranslations } from "next-intl";
 
@@ -45,8 +46,11 @@ export function WarmupSettingsButton() {
             {tr("combienDeChecksAvantQu")}
           </SheetDescription>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <WarmupSettingsCard />
+          {/* Même panneau : la validation est l'étape qui SUIT la chauffe, et
+              le dépôt n'a pas de route « réglages du projet » (cf plus haut). */}
+          <AccountValidationSettingsCard />
         </div>
       </SheetContent>
     </Sheet>
