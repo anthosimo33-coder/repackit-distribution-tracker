@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
@@ -96,7 +97,8 @@ export default function LoginPage() {
       <Backdrop />
 
       <nav className="relative z-10 flex items-center justify-between gap-4 border-b border-white/[.08] bg-[#0a0a0b]/60 px-4 py-3.5 backdrop-blur-md sm:px-8 lg:px-14">
-        <div className="flex items-center gap-3">
+        {/* Le logo ramène à l'accueil public, ici comme sur `/`. */}
+        <Link href="/" aria-label={t("home.backHome")} className="flex items-center gap-3">
           <BrandMark size={34} className="rounded-[7px] border border-white/10" />
           <span className="font-[family-name:var(--font-clash)] text-[17px] font-semibold tracking-[.14em]">
             {/* i18n-exempt: nom de la marque — ne se traduit pas. */}
@@ -106,7 +108,7 @@ export default function LoginPage() {
             {/* i18n-exempt: nom du produit (marque) — ne se traduit pas. */}
             Creator Studio
           </span>
-        </div>
+        </Link>
         <LocaleSwitch />
       </nav>
 

@@ -53,7 +53,7 @@ const WALL = [
 ];
 // i18n-exempt: prénom de la créatrice des vidéos du mur (donnée, pas interface)
 const WALL_CREATOR = "Kelly";
-const PLATFORMS = ["tiktok", "instagram", "youtube"];
+const PLATFORMS = ["TikTok", "Instagram", "YouTube"];
 
 const INK = "text-[#0a0a0b]";
 const MONO =
@@ -501,7 +501,7 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
           className={cn(DISPLAY, styles.chrome, "-mx-2 mt-6 -mb-1 text-center text-[31vw] leading-[.78] tracking-[-.06em] md:-mx-5 md:text-[330px]")}
         >
           {/* i18n-exempt: mot-marque décoratif (aria-hidden), ne se traduit pas. */}
-          jarvia
+          Jarvia
         </div>
       </footer>
     </div>
