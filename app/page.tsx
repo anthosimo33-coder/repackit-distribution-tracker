@@ -1,60 +1,38 @@
-"use client";
-
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
-import { Loader2Icon } from "lucide-react";
+import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
+import { fetchQuery } from "convex/nextjs";
+import { isAuthenticatedNextjs } from "@convex-dev/auth/nextjs/server";
 import { api } from "@/convex/_generated/api";
-import { projectPath } from "@/lib/project-path";
-import { portalPathForRole } from "@/lib/portal-path";
-import { isTeamRole } from "@/convex/roles";
-import { useTranslations } from "next-intl";
+import { RoleRedirect } from "@/components/layout/RoleRedirect";
+import { PublicHome, type ShowcaseStats } from "@/components/public-home/PublicHome";
 
 /**
- * Multi-tenant + rôles — `/` route par RÔLE (api.creators.getMyPortal) :
- *   - rôle d'ÉQUIPE (admin, manager) ou superadmin → dashboard scopé
- *     `/admin/<slug>/dashboard` ;
- *   - rôle de PORTAIL (créateur partenaire, talent, clippeur) → son portail,
- *     résolu par la table de décision UNIQUE `lib/portal-path` ;
- *   - aucun projet / rôle → état vide.
- * Rendu sous <Authenticated> (AppShell), hors ProjectProvider : useQuery brut.
- *
- * ⚠️ `isTeamRole` et non `=== "admin"` : le manager travaille dans la MÊME app
- * interne que l'admin (ce qu'il peut y faire est décidé bloc par bloc, côté
- * serveur). Testé en dur, il tombait dans l'état vide et n'avait aucun moyen
- * d'atteindre son espace autrement qu'avec l'URL en favori.
+ * `/` — deux pages selon la session, tranché CÔTÉ SERVEUR (cookie Convex Auth) :
+ *   - connecté → routage par rôle (RoleRedirect, inchangé) ;
+ *   - visiteur → page d'accueil publique du studio.
+ * Le proxy laisse passer `/` sans session, l'AppShell le rend nu : la garde
+ * de la branche connectée est dans RoleRedirect.
  */
-export default function RootRedirectPage() {
-  const tnp = useTranslations("portal.noProject");
-  const router = useRouter();
-  const portal = useQuery(api.creators.getMyPortal, {});
+export async function generateMetadata(): Promise<Metadata> {
+  if (await isAuthenticatedNextjs()) return {};
+  const t = await getTranslations("home.meta");
+  return {
+    title: t("title"),
+    description: t("description"),
+    robots: "index, follow",
+  };
+}
 
-  useEffect(() => {
-    if (!portal) return;
-    if (isTeamRole(portal.role)) {
-      if (portal.slug) router.replace(projectPath(portal.slug, "/dashboard"));
-      return;
-    }
-    const portalPath = portalPathForRole(portal.role);
-    if (portalPath) router.replace(portalPath);
-  }, [portal, router]);
+export default async function HomePage() {
+  if (await isAuthenticatedNextjs()) return <RoleRedirect />;
+  return <PublicHome stats={await showcaseStats()} />;
+}
 
-  if (portal && portal.role === "none") {
-    return (
-      <div className="flex h-screen items-center justify-center px-6 text-center">
-        <div className="max-w-sm space-y-2">
-          <p className="text-sm font-medium text-slate-900">{tnp("title")}</p>
-          <p className="text-sm text-slate-500">
-            {tnp("body")}
-          </p>
-        </div>
-      </div>
-    );
+/** Chiffres de la vitrine ; toute panne masque le bloc au lieu de casser la page. */
+async function showcaseStats(): Promise<ShowcaseStats | null> {
+  try {
+    return await fetchQuery(api.showcase.getShowcaseStats, {});
+  } catch {
+    return null;
   }
-
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <Loader2Icon className="size-6 animate-spin text-slate-400" />
-    </div>
-  );
 }

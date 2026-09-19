@@ -1543,5 +1543,182 @@
       "others": "Otras",
       "center": "vistas"
     }
+  },
+  "home": {
+    "meta": {
+      "title": "Jarvia — estudio de apps",
+      "description": "Jarvia crea apps y las da a conocer con su red de creadores. El espacio de creadores: guiones, seguimiento de vistas y pagos."
+    },
+    "nav": {
+      "home": "Jarvia, inicio",
+      "studio": "el estudio",
+      "creators": "para creadores",
+      "faq": "preguntas",
+      "signIn": "iniciar sesión"
+    },
+    "hero": {
+      "label": "jarvia · estudio de apps · espacio de creadores",
+      "line1": "graba. publica.",
+      "line2": "cobra.",
+      "body": "jarvia crea apps y las da a conocer con su red de creadores. aquí recibes tus guiones, sigues tus vistas y cobras.",
+      "how": "cómo funciona"
+    },
+    "wall": {
+      "label": "Videos publicados por los creadores del estudio",
+      "views": "vistas",
+      "videoLabel": "Video de {name} para Snytch, {views} vistas"
+    },
+    "platforms": {
+      "label": "publicas en"
+    },
+    "apps": {
+      "label": "el estudio",
+      "title1": "creamos apps.",
+      "title2": "tú las das a conocer.",
+      "body": "jarvia es un estudio de apps. cada app del estudio tiene su campaña, sus guiones y su tarifa: trabajas en las que te asignan.",
+      "loop": {
+        "create": {
+          "title": "creamos la app",
+          "body": "producto, diseño y monetización, en casa."
+        },
+        "promote": {
+          "title": "los creadores la dan a conocer",
+          "body": "guiones probados, cuentas dedicadas, publicaciones cada día."
+        },
+        "data": {
+          "title": "las cifras marcan el rumbo",
+          "body": "vistas, descargas e ingresos deciden los próximos guiones."
+        }
+      },
+      "listLabel": "las apps del estudio",
+      "snytchCategory": "app web · redes sociales",
+      "snytchBody": "mira a quién sigue y deja de seguir alguien en instagram, sin conectarte nunca a su cuenta. la primera app del estudio, lanzada con la red de creadores jarvia.",
+      "open": "campaña abierta",
+      "platforms": "tiktok · instagram",
+      "stats": {
+        "videos": "videos publicados",
+        "views": "vistas acumuladas",
+        "accounts": "cuentas de TikTok e Instagram",
+        "creators": "creadores activos",
+        "since": "cifras en directo del estudio · desde {date}"
+      },
+      "nextLabel": "próxima app",
+      "nextBody": "en preparación en el estudio."
+    },
+    "brief": {
+      "label": "el estudio en breve",
+      "title": "todo lo que necesitas para publicar. nada más.",
+      "body": "un solo espacio, en tu móvil entre dos grabaciones o en tu ordenador.",
+      "missions": {
+        "title": "misiones claras",
+        "body": "Cada misión llega con su consigna, su fecha y la cuenta donde publicar. Sabes qué grabar, y cuándo."
+      },
+      "scripts": {
+        "title": "guiones listos para grabar",
+        "body": "Hook, cuerpo y CTA, ya separados entre lo que va en el video y lo que va en la descripción. Con videos de ejemplo para el tono."
+      },
+      "views": {
+        "title": "vistas seguidas por ti",
+        "body": "Pegas el enlace del post una vez. Las vistas se recogen cada día, post a post, sin capturas de pantalla."
+      },
+      "earnings": {
+        "title": "ganancias claras",
+        "body": "Fijo, CPM y bonus: ves lo que se te debe, ciclo a ciclo, y el próximo nivel por desbloquear."
+      }
+    },
+    "space": {
+      "label": "tu espacio",
+      "title1": "cada misión. cada post.",
+      "title2": "un solo espacio.",
+      "body": "lo que ves al conectarte: tu próxima acción, las misiones siguientes y cómo van tus ganancias.",
+      "caption": "captura real del espacio de creadores · datos de demostración",
+      "altDesktop": "Pantalla Hoy del espacio de creadores, en ordenador",
+      "altScript": "Una misión con su guion, en el móvil",
+      "altGains": "Pantalla de ganancias, en el móvil",
+      "altToday": "Pantalla Hoy del espacio de creadores, en el móvil"
+    },
+    "how": {
+      "label": "cómo funciona",
+      "title1": "de la invitación",
+      "title2": "al pago.",
+      "s1": {
+        "label": "paso 1",
+        "title": "recibe tu invitación",
+        "body": "Tu administrador te envía un enlace personal. Eliges tu contraseña y tu espacio está listo."
+      },
+      "s2": {
+        "label": "paso 2",
+        "title": "toma tu misión",
+        "body": "Guion, videos de ejemplo, consigna y fecha: todo está en la misión."
+      },
+      "s3": {
+        "label": "paso 3",
+        "title": "publica, pega el enlace",
+        "body": "Cuando el video esté en línea, pegas el enlace del post. Empieza el seguimiento."
+      },
+      "s4": {
+        "label": "paso 4",
+        "title": "sigue tus vistas, cobra",
+        "body": "Vistas, ganancias y niveles se actualizan solos."
+      }
+    },
+    "who": {
+      "label": "para quién",
+      "title": "un estudio, tres espacios.",
+      "creators": {
+        "title": "para creadores",
+        "body": "tus misiones, tus guiones, tus posts y tus ganancias.",
+        "i1": "misiones y videos de ejemplo",
+        "i2": "seguimiento automático de vistas",
+        "i3": "niveles de bonus"
+      },
+      "managers": {
+        "title": "para managers",
+        "body": "tus creadores y su calendario, de un vistazo.",
+        "i1": "calendario de publicación",
+        "i2": "validación de cuentas",
+        "i3": "recordatorios y retrasos"
+      },
+      "admins": {
+        "title": "para admins",
+        "body": "campañas, tarifas y pagos, proyecto por proyecto.",
+        "i1": "tarifas fijo, CPM, bonus",
+        "i2": "pagos por ciclo",
+        "i3": "analítica y rentabilidad"
+      }
+    },
+    "faq": {
+      "label": "preguntas",
+      "title": "preguntas frecuentes",
+      "account": {
+        "q": "¿cómo consigo una cuenta?",
+        "a": "Solo por invitación: tu administrador te envía un enlace personal para crear tu acceso."
+      },
+      "password": {
+        "q": "olvidé mi contraseña.",
+        "a": "Pide un enlace de restablecimiento a tu administrador. Lo genera desde tu ficha."
+      },
+      "platforms": {
+        "q": "¿en qué plataformas publico?",
+        "a": "TikTok, Instagram o YouTube, según el proyecto y las cuentas que te asignen."
+      },
+      "pay": {
+        "q": "¿cuándo cobro?",
+        "a": "Tu pago llega 30 días después de tu primer post publicado."
+      },
+      "language": {
+        "q": "¿el estudio está en mi idioma?",
+        "a": "Sí: francés, inglés, español y portugués."
+      }
+    },
+    "cta": {
+      "label": "¿listo?",
+      "title": "tu estudio te espera."
+    },
+    "footer": {
+      "tagline": "el espacio de creadores del estudio jarvia",
+      "invite": "acceso por invitación.",
+      "navigate": "navegar"
+    }
   }
 }

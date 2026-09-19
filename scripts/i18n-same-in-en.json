@@ -194,6 +194,8 @@
     "clip.phaseUnknown",
     "estimator.base",
     "format.brief",
+    "home.apps.platforms",
+    "home.faq.label",
     "layout.metadata.title",
     "nav.espace.role.manager",
     "nav.item.analytics",
