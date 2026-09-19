@@ -55,12 +55,12 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 async function creatorCostByMonth(
   ctx: QueryCtx,
   projectId: Id<"projects">,
-  creator: Doc<"creators">,
+  creatorId: Id<"creators">,
 ): Promise<Map<string, { cost: number; billedViews: number }>> {
   const assignments = (
     await ctx.db
       .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
       .collect()
   ).filter(
     (a) =>
@@ -81,7 +81,7 @@ async function creatorCostByMonth(
   const unlocks = (
     await ctx.db
       .query("bonusUnlocks")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
       .collect()
   ).filter((u) => u.projectId === projectId && u.rewardType === "cash");
   for (const u of unlocks) activeMonths.add(u.attributionPeriod);
@@ -89,7 +89,7 @@ async function creatorCostByMonth(
   const out = new Map<string, { cost: number; billedViews: number }>();
   // Une seule lecture des sources de la créatrice pour TOUS ses mois : le
   // moteur les relisait sinon à chaque tour de boucle (cf CreatorPayrollSources).
-  const sources = await loadCreatorPayrollSources(ctx, projectId, creator._id);
+  const sources = await loadCreatorPayrollSources(ctx, projectId, creatorId);
   // Le mois EN COURS n'est pas fini : ce qu'il coûte n'est pas encore ce qu'on
   // doit. Cf `engage` plus bas.
   const moisCourant = monthKeyParis(Date.now());
@@ -97,7 +97,7 @@ async function creatorCostByMonth(
     const bd = await computeLivePricingBreakdown(
       ctx,
       projectId,
-      creator._id,
+      creatorId,
       month,
       new Set(),
       monthKeyParis,
@@ -202,13 +202,29 @@ export const getProjectProfitability = permissionQuery("business.read")({
     const totalRevenue = summarizeWhopRevenue(whopRows, fx);
 
     // ─── Coût créateurs par mois (MÊME moteur que les Paiements) ───────────────
-    const creators = await ctx.db
-      .query("creators")
+    // Les créatrices se lisent dans ce qui COÛTE (vidéos, paliers), pas
+    // dans la table des fiches : une créatrice payée puis supprimée n'a plus de
+    // fiche, mais l'argent versé est parti. Parcourir `creators` faisait fondre
+    // son coût de la marge et ses vues du RPM au moment de la suppression — alors
+    // qu'Analytics, qui part des vidéos, continuait de les compter. Ce qu'on ne
+    // lui paiera pas a déjà été sorti de la paie à la suppression (remunere=false,
+    // cf unpayPostsOfDeletedCreator) : le moteur le rend donc à zéro, sans filtre ici.
+    const creatorIds = new Set<Id<"creators">>();
+    for (const a of await ctx.db
+      .query("assignments")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+      .collect()) {
+      creatorIds.add(a.creatorId);
+    }
+    for (const u of await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      creatorIds.add(u.creatorId);
+    }
     const costByMonth = new Map<string, number>();
     const billedByMonth = new Map<string, number>();
-    for (const c of creators) {
+    for (const c of creatorIds) {
       const cm = await creatorCostByMonth(ctx, ctx.projectId, c);
       for (const [m, { cost, billedViews }] of cm) {
         costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));

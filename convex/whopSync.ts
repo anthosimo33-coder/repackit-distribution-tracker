@@ -413,6 +413,30 @@ export const e2eSeedWhopMembership = e2eMutation({
 });
 
 /**
+ * E2E — pose (ou retire) le mapping Whop d'un projet et rend l'ancien, pour que
+ * la spec le RESTAURE. La carte Rentabilité est Whop-gated : sans mapping elle
+ * court-circuite avant tout calcul, et aucune spec ne pouvait donc la lire. La
+ * clé API n'est jamais lue ici — seule la présence du mapping ouvre la carte.
+ */
+export const e2eSetProjectWhop = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    whop: v.optional(
+      v.object({
+        companyId: v.string(),
+        planIds: v.optional(v.array(v.string())),
+        apiKeyEnvVar: v.string(),
+      }),
+    ),
+  },
+  handler: async (ctx, { projectId, whop }) => {
+    const previous = (await ctx.db.get(projectId))?.whop;
+    await ctx.db.patch(projectId, { whop });
+    return previous ?? null;
+  },
+});
+
+/**
  * E2E — la VRAIE ingestion des paiements (pas un semeur) : c'est elle qui ne
  * doit rien réécrire quand rien n'a changé. Même cœur que la synchro horaire.
  */
