@@ -3,9 +3,11 @@
 import { useState, useTransition } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
+import { useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { ConvexError } from "convex/values";
 import { ArrowRightIcon, Loader2Icon } from "lucide-react";
+import { api } from "@/convex/_generated/api";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { LOCALES, LOCALE_LABELS, type Locale } from "@/i18n/locales";
 import { writeLocaleCookie } from "@/i18n/locale-cookie";
@@ -22,9 +24,10 @@ import styles from "./login.module.css";
  *  - signIn : connexion d'un compte existant.
  *  - signUp : création de compte. FERMÉE par défaut côté serveur (cf
  *    convex/auth.ts) — seule exception : la fenêtre bootstrap (table users
- *    vide → premier compte = superadmin). Le toggle reste visible pour ce
- *    cas (initialisation d'un deployment) ; hors bootstrap le serveur
- *    rejette avec un message explicite.
+ *    vide → premier compte = superadmin). Le toggle n'est affiché QUE
+ *    pendant cette fenêtre (api.bootstrap.isBootstrapOpen) : hors bootstrap,
+ *    le serveur rejetait tout signup et le lien ne menait qu'à une erreur.
+ *    Les comptes se créent par invitation (/join/<token>).
  *
  * Mot de passe oublié : pas de parcours en libre-service — le lien de
  * réinitialisation est généré par l'admin (/reset-password/<token>). Le bouton
@@ -54,6 +57,7 @@ export default function LoginPage() {
   const t = useTranslations("auth");
   const router = useRouter();
   const { signIn } = useAuthActions();
+  const bootstrapOpen = useQuery(api.bootstrap.isBootstrapOpen, {}) === true;
   const [flow, setFlow] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -271,21 +275,28 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="relative flex items-center gap-3">
-            <span className="h-px flex-1 bg-white/[.08]" />
-            <button
-              type="button"
-              className="text-center text-[13px] text-[#f4f4f5]/65 underline-offset-2 hover:text-[#f4f4f5] hover:underline"
-              onClick={() => {
-                setError(null);
-                setShowForgot(false);
-                setFlow(flow === "signIn" ? "signUp" : "signIn");
-              }}
-            >
-              {flow === "signIn" ? t("login.toSignUp") : t("login.toSignIn")}
-            </button>
-            <span className="h-px flex-1 bg-white/[.08]" />
-          </div>
+          {(bootstrapOpen || flow === "signUp") && (
+            <div className="relative flex items-center gap-3">
+              <span className="h-px flex-1 bg-white/[.08]" />
+              <button
+                type="button"
+                className="text-center text-[13px] text-[#f4f4f5]/65 underline-offset-2 hover:text-[#f4f4f5] hover:underline"
+                onClick={() => {
+                  setError(null);
+                  setShowForgot(false);
+                  setFlow(flow === "signIn" ? "signUp" : "signIn");
+                }}
+              >
+                {flow === "signIn" ? t("login.toSignUp") : t("login.toSignIn")}
+              </button>
+              <span className="h-px flex-1 bg-white/[.08]" />
+            </div>
+          )}
+          {!bootstrapOpen && flow === "signIn" && (
+            <p className="relative m-0 border-t border-white/[.08] pt-4 text-center text-[13px] leading-snug text-[#f4f4f5]/60">
+              {t("home.noAccount")}
+            </p>
+          )}
         </div>
       </main>
 

@@ -240,7 +240,8 @@
         "creator": "Créateur"
       },
       "forgot": "Mot de passe oublié ?",
-      "forgotHint": "Demande un lien de réinitialisation à ton administrateur : il le génère depuis ta fiche."
+      "forgotHint": "Demande un lien de réinitialisation à ton administrateur : il le génère depuis ta fiche.",
+      "noAccount": "Pas encore de compte ? Il se crée depuis le lien d'invitation envoyé par ton administrateur."
     }
   },
   "portal": {

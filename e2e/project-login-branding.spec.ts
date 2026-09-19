@@ -18,7 +18,8 @@ if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
  *   1. /[slug]/login affiche le NOM du projet (résolu par la query publique) ;
  *   2. login depuis /[slug]/login route par rôle (admin → /admin) ;
  *   3. slug inconnu → « Projet introuvable » propre ;
- *   4. /login générique affiche la marque (JARVIA), aucun nom de projet.
+ *   4. /login générique affiche la marque (JARVIA), aucun nom de projet, et
+ *      pas de lien « Premier démarrage » une fois un compte créé.
  *
  * Contextes navigateur VIERGES : ces pages sont publiques (pré-session).
  */
@@ -70,6 +71,18 @@ test.describe("Branding — login par projet + login générique Jarvis", () => 
       timeout: 10_000,
     });
     await expect(p3.getByText("E2E Test")).toHaveCount(0);
+    // Hors fenêtre bootstrap (le setup e2e a déjà créé un compte), le signup
+    // est fermé : le lien « Premier démarrage » disparaît, remplacé par la
+    // consigne d'invitation. Présence ET absence, pour qu'un écran vide ne
+    // passe pas pour un succès.
+    await expect(
+      p3.getByText("Pas encore de compte ? Il se crée depuis le lien d'invitation", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await expect(
+      p3.getByRole("button", { name: /Premier démarrage/ }),
+    ).toHaveCount(0);
     await ctx3.close();
   });
 });
