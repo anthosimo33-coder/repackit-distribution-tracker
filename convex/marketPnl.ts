@@ -8,6 +8,7 @@ import {
   computeLivePricingBreakdown,
   loadCreatorPayrollSources,
   newViewsCache,
+  videoCostsOfMonth,
 } from "./pricing";
 import { isPromoPost } from "./viewCounters";
 import { promoCostOfVideo, splitPromoByMarket } from "./marketPromo";
@@ -204,10 +205,30 @@ async function costByMarket(
   // partagé sur la query (publications préchargées).
   const vuesCache = newViewsCache(publiParId);
 
-  const creators = await ctx.db
-    .query("creators")
+  // Les créatrices se lisent dans ce qui COÛTE, pas dans la table des fiches :
+  // une créatrice payée puis supprimée n'a plus de fiche, mais l'argent versé
+  // est parti (même trou que la Rentabilité avant #271). Ses comptes ayant
+  // disparu avec elle, son coût tombe sur « pays inconnu » plutôt que de fondre.
+  const fiches = new Map(
+    (
+      await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).map((c) => [c._id as string, c.name]),
+  );
+  const assignationsDuProjet = await ctx.db
+    .query("assignments")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
+  const creators = new Map<string, { _id: Id<"creators">; name: string }>();
+  for (const a of assignationsDuProjet) {
+    if (creators.has(a.creatorId)) continue;
+    creators.set(a.creatorId, {
+      _id: a.creatorId,
+      name: fiches.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+    });
+  }
 
   const out = new Map<string, MarketCostAcc>();
   /** Coût par `pays|mois` — la série de la courbe. */
@@ -230,7 +251,7 @@ async function costByMarket(
 
   const moisCourant = monthKeyParis(Date.now());
 
-  for (const creator of creators) {
+  for (const creator of creators.values()) {
     const assignments = (
       await ctx.db
         .query("assignments")
@@ -277,28 +298,19 @@ async function costByMarket(
       // barème conditionné dont le seuil n'est pas encore franchi doit zéro à
       // ce jour, et l'afficher ainsi ferait paraître le mois excellent jusqu'à
       // la seconde où le seuil tombe.
-      const base =
-        month === moisCourant
-          ? bd.engage.total
-          : round2(bd.fixedTotal + bd.cpmTotal);
-
-      // Poids = ce que le moteur a calculé pour CHAQUE vidéo. La base est
-      // répartie au prorata plutôt que sommée depuis les vidéos : ainsi le total
-      // par marché recolle EXACTEMENT au chiffre des Paiements, y compris quand
-      // la base est le coût engagé (qui n'a, lui, aucun détail par vidéo).
-      const poids = new Map<string, number>();
-      let totalPoids = 0;
-      for (const pa of bd.perAssignment) {
-        const w = Math.max(0, pa.fixed + pa.cpm);
-        poids.set(pa.assignmentId, w);
-        totalPoids += w;
-      }
-      if (totalPoids <= 0) continue;
+      // Coût de chaque vidéo = ce que la PAIE lui impute, la MÊME source que la
+      // Vue d'ensemble (cf videoCostsOfMonth) : la somme recolle au chiffre des
+      // Paiements, y compris quand la base est le coût engagé.
+      const coutsDuMois = videoCostsOfMonth(bd, month === moisCourant);
 
       for (const a of duMois) {
-        const w = poids.get(a._id as string) ?? 0;
-        if (w <= 0) continue;
-        const coutVidéo = (base * w) / totalPoids;
+        const coutVidéo = coutsDuMois.get(a._id as string)?.cost ?? 0;
+        // Une vidéo qu'on ne paie pas (posts retirés de la paie, créatrice
+        // supprimée) ne pèse sur AUCUN coût — mais ses vues promo restent des
+        // vues promo : elles vendent autant. Les sauter ici sortait 402 323 vues
+        // du dénominateur des marchés (prod du 2026-09-19) alors que la Vue
+        // d'ensemble les compte, et gonflait le RPM de chaque marché.
+        if (coutVidéo > 0) {
         const cibles: MarketTarget[] = (a.targets ?? []).map((t) => ({
           country: paysDuCompte.get(t.accountId as string) ?? null,
           views: t.publicationId
@@ -321,6 +333,7 @@ async function costByMarket(
           b.cost > a1.cost ? b : a1,
         );
         touch(principal.country).videos += 1;
+        }
 
         // ── PÉRIMÈTRE PROMO ─────────────────────────────────────────────
         const pa = bd.perAssignment.find(
