@@ -1254,6 +1254,68 @@ export const setPublicationRemuneration = permissionMutation("payments.manage")(
   },
 });
 
+/**
+ * Un cycle de paie PAYÉ couvre-t-il cette vidéo ? Même résolution que
+ * `publicationPayContext` (ancre firstPostAt → index de cycle → clé de période →
+ * row `paid`), mais sur des lectures déjà faites par l'appelant : la suppression
+ * d'une créatrice le demande pour chacune de ses vidéos. Sans ancre, aucun cycle
+ * n'existe, donc rien n'a pu être payé.
+ */
+export function assignmentCycleIsPaid(
+  firstPostAt: number | undefined,
+  a: Doc<"assignments">,
+  payments: readonly Doc<"payments">[],
+): boolean {
+  if (firstPostAt === undefined) return false;
+  const { cycleStart } = cycleWindow(
+    firstPostAt,
+    cycleIndexOf(firstPostAt, assignmentPublishedAt(a)),
+  );
+  const period = cyclePeriodKey(cycleStart);
+  return payments.some(
+    (p) => p.projectId === a.projectId && p.period === period && p.status === "paid",
+  );
+}
+
+/**
+ * CRÉATRICE SUPPRIMÉE — sort de la paie les posts d'une vidéo qu'on ne lui paiera
+ * pas. Une suppression met fin à la relation : ce qui n'était pas encore payé ne
+ * le sera jamais (décision du 2026-09-19, Laure/Keziah/Janeth).
+ *
+ * POURQUOI LE DRAPEAU `remunere` et pas un filtre par écran : la fiche disparue,
+ * trois écrans lisaient la même vidéo de trois façons. Analytics recalculait son
+ * coût depuis la vidéo (79,86 $ comptés en septembre), la Rentabilité l'oubliait
+ * (elle parcourt les fiches), Paiements n'affichait que la row stockée (0 $).
+ * Poser le fait financier sur le post aligne tout ce qui le lit déjà — coût,
+ * vues promo, vues rémunérées, paliers — sans une ligne de plus dans ces écrans.
+ *
+ * Même écriture que `setPublicationRemuneration` (forme normalisée + journal) :
+ * un post warmup, déjà non payé, n'est pas touché. L'appelant écarte les vidéos
+ * d'un cycle PAYÉ, qui gardent ce qui a été versé.
+ */
+export async function unpayPostsOfDeletedCreator(
+  ctx: MutationCtx,
+  a: Doc<"assignments">,
+  actorUserId: Id<"users">,
+): Promise<number> {
+  const pubIds = new Set<Id<"publications">>(
+    [...(a.targets ?? []).map((t) => t.publicationId), a.publicationId].filter(
+      (p): p is Id<"publications"> => p !== undefined,
+    ),
+  );
+  let changed = 0;
+  for (const pid of pubIds) {
+    const pub = await ctx.db.get(pid);
+    if (!pub || pub.projectId !== a.projectId) continue;
+    const isWarmup = pub.isWarmup === true;
+    if (!isRemunerated({ isWarmup, remunere: pub.remunere })) continue;
+    await ctx.db.patch(pid, { remunere: normalizeRemunere(isWarmup, false) });
+    await traceFlagChange(ctx, a.projectId, pid, actorUserId, "remunerated", true, false);
+    changed++;
+  }
+  return changed;
+}
+
 export const deletePublication = permissionMutation("tracker.manage")({
   args: { id: v.id("publications") },
   handler: async (ctx, args) => {

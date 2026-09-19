@@ -139,10 +139,15 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
     ).find((p) => p.creatorId === c.creatorId)!;
     expect(paymentBefore.creatorName).toBe(creatorName);
     const pubHandle = `@e2edelfmt${ts}`;
+    const keptPub = (await admin.query(api.publications.listPublications, {})).find(
+      (p) => p.compte === pubHandle,
+    );
+    expect(keptPub).toBeTruthy();
+    // Cycle NON payé : le post est rémunéré tant que la créatrice existe…
     expect(
-      (await admin.query(api.publications.listPublications, {})).some(
-        (p) => p.compte === pubHandle,
-      ),
+      (await admin.query(api.publications.getPublicationPayFlags, {
+        publicationId: keptPub!._id,
+      }))!.isRemunerated,
     ).toBe(true);
 
     // ── UI : confirmation par saisie du nom ──
@@ -214,10 +219,78 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
       ),
     ).toBe(true);
 
+    // …et sort de la paie avec elle : ce qui n'était pas payé ne le sera plus.
+    // Sans ça, Analytics comptait son coût et la Rentabilité l'oubliait.
+    expect(
+      (await admin.query(api.publications.getPublicationPayFlags, {
+        publicationId: keptPub!._id,
+      }))!.isRemunerated,
+    ).toBe(false);
+
     // Idempotent : re-supprimer ne crashe pas.
     const again = await admin.mutation(api.creators.deleteCreator, {
       id: c.creatorId,
     });
     expect(again.alreadyGone).toBe(true);
+  });
+
+  test("une vidéo d'un cycle DÉJÀ PAYÉ garde sa rémunération", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const c = await createCreatorSession(url, {
+      name: `[E2E_TEST] DelPaid Martine Dupont ${ts}`,
+      email: `e2e-creator-delpaid-${ts}@repackit.test`,
+      password: "del-paid-12345",
+    });
+    const formatId = await createFormatWithRate(admin, {
+      name: `[E2E_TEST] DelPaidFmt ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 37.5 },
+    });
+    const handle = `@martine.dupont_${ts}`;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: c.creatorId,
+      platform: "TikTok",
+      handle,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId,
+      creatorId: c.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 7 * DAY,
+    });
+    const a = (await admin.query(api.assignments.listAssignments, {})).find(
+      (x) => x.creatorId === c.creatorId,
+    )!;
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: a._id,
+      status: "to_publish",
+    });
+    await c.client.mutation(api.assignments.confirmPublication, {
+      projectId: c.projectId,
+      id: a._id,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@m/video/dp${ts}` },
+      ],
+    });
+    await admin.mutation(api.payments.markCyclePaid, {
+      creatorId: c.creatorId,
+      cycleIndex: 0,
+    });
+    const pub = (await admin.query(api.publications.listPublications, {})).find(
+      (p) => p.compte === handle,
+    )!;
+
+    await admin.mutation(api.creators.deleteCreator, { id: c.creatorId });
+
+    // L'argent est parti : le post reste rémunéré, le coût reste compté.
+    expect(
+      (await admin.query(api.publications.getPublicationPayFlags, {
+        publicationId: pub._id,
+      }))!.isRemunerated,
+    ).toBe(true);
   });
 });

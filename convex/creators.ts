@@ -35,6 +35,10 @@ import {
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
+import {
+  assignmentCycleIsPaid,
+  unpayPostsOfDeletedCreator,
+} from "./publications";
 import { ConvexError, v } from "convex/values";
 import { normalizeRef } from "./conversionAttribution";
 import { isSupportedTimezone, resolveCreatorTimezone } from "./creatorDay";
@@ -993,6 +997,12 @@ export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
  *     CONSERVÉS, jamais depuis la fiche créateur) ;
  *   - assignments published/paid/validated + bonusUnlocks (financier).
  *
+ * MAIS ce qui n'était pas encore PAYÉ ne le sera plus : les posts des vidéos
+ * conservées hors cycle payé passent en non rémunéré (unpayPostsOfDeletedCreator),
+ * puis les paliers sont resynchronisés. Sans ça, Analytics comptait leur coût,
+ * la Rentabilité l'oubliait et Paiements affichait 0 $ — trois lectures du même
+ * argent, qui n'a jamais été versé.
+ *
  * Les effets externes (storage.delete, Cloudflare) sont best-effort/post-commit
  * via purgeAndDeleteAssignment (idiome deleteAssignment) — un échec externe ne
  * casse pas la suppression DB (transactionnelle).
@@ -1045,6 +1055,7 @@ export const deleteCreator = permissionMutation("creators.delete")({
     let deletedAssignments = 0;
     let freedCombos = 0;
     let keptAssignments = 0;
+    let unpaidPosts = 0;
     for (const a of assignments) {
       if (DELETABLE_STATUSES.has(a.status)) {
         if (a.comboKey !== undefined) freedCombos++;
@@ -1053,8 +1064,16 @@ export const deleteCreator = permissionMutation("creators.delete")({
       } else {
         await ctx.db.patch(a._id, { creatorNameSnapshot: name });
         keptAssignments++;
+        // Ce qui n'est pas encore payé ne le sera plus : ses posts sortent de la
+        // paie (cf unpayPostsOfDeletedCreator). Un cycle déjà PAYÉ garde tout.
+        if (!assignmentCycleIsPaid(creator.firstPostAt, a, payments)) {
+          unpaidPosts += await unpayPostsOfDeletedCreator(ctx, a, ctx.userId);
+        }
       }
     }
+    // Le cumul payable vient de baisser : les paliers qu'il ne tient plus sont
+    // révoqués TANT QUE la fiche existe (le resync la relit, cf syncBonusUnlocks).
+    if (unpaidPosts > 0) await syncBonusUnlocks(ctx, projectId, id);
 
     // 3. Supprimer les comptes (opérationnels). Les publications gardent leur
     //    handle (string) → restent lisibles sans la row compte. La photo de
@@ -1159,6 +1178,8 @@ export const deleteCreator = permissionMutation("creators.delete")({
       },
       kept: {
         publications: keptPublications,
+        // Posts de ces publications sortis de la paie (cycle non payé).
+        unpaidPosts,
         payments: payments.length,
         assignments: keptAssignments,
       },
