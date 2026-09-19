@@ -15,7 +15,7 @@ test.describe("Accueil — public sans session, routage par rôle connecté", ()
     });
     const page = await context.newPage();
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("filme. publie.");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Filme. Publie.");
     expect(new URL(page.url()).pathname).toBe("/");
     // Le mur de vidéos est là, avec les vues de chaque vidéo.
     await expect(page.getByLabel(/Vidéo de Kelly pour Snytch, 750\sk vues/)).toHaveCount(1);
@@ -31,6 +31,6 @@ test.describe("Accueil — public sans session, routage par rôle connecté", ()
   }) => {
     await page.goto("/");
     await page.waitForURL((url) => url.pathname !== "/", { timeout: 20_000 });
-    await expect(page.getByText("filme. publie.")).toHaveCount(0);
+    await expect(page.getByText("Filme. Publie.")).toHaveCount(0);
   });
 });
