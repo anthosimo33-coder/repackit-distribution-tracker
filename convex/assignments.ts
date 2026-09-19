@@ -28,7 +28,7 @@ import {
   lockedParams,
   retrackPublication,
 } from "./publications";
-import { SNYTCH_SLUG } from "./projects";
+import { isScriptZonesEnabled } from "./scriptZonesSetting";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
   pickCreatorAssignment,
@@ -2090,14 +2090,14 @@ type VideoBlock = { text: string; mode: BrickMode };
 type ScriptZones = { videoBlocks: VideoBlock[]; descriptionScript: string };
 
 /**
- * SNYTCH — découpe le script monté en deux zones de DESTINATION pour l'affichage
+ * DEUX ZONES (réglage du projet) — découpe le script monté en deux zones de DESTINATION pour l'affichage
  * créateur : « dans la vidéo » (hook + flux) vs « en description » (cta). Lit les
  * briques FIGÉES du combo et ne renvoie le découpage QUE s'il reconstruit
  * l'assembledScript figé À L'OCTET PRÈS (même join que assembleNoLabels côté
  * write, labels:false). Sinon — brique éditée depuis l'assignation, combo legacy
  * 4-briques (corps), ou cta vide — renvoie null : la fiche retombe alors sur la
  * carte unique « Vidéo à tourner » (le texte figé RESTE la source de vérité, cf.
- * scriptAssembly). Gate Snytch : rien n'est calculé/renvoyé hors Snytch. Aucune
+ * scriptAssembly). Réglage éteint : rien n'est calculé ni renvoyé. Aucune
  * brique/id/campagne n'est exposé — UNIQUEMENT le texte, comme assembledScript.
  */
 async function splitScriptZones(
@@ -2105,8 +2105,9 @@ async function splitScriptZones(
   a: Doc<"assignments">,
   combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
 ): Promise<ScriptZones | null> {
-  const project = await ctx.db.get(a.projectId);
-  if (!project || project.slug !== SNYTCH_SLUG) return null;
+  // Réglage DU PROJET (convex/scriptZonesSetting) — même décision que l'aperçu
+  // admin, qui la reçoit résolue par projectForClient.
+  if (!isScriptZonesEnabled(await ctx.db.get(a.projectId))) return null;
   const [hook, flux, cta] = await Promise.all([
     ctx.db.get(combo.hookBrickId),
     ctx.db.get(combo.fluxBrickId),

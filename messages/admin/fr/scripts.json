@@ -199,9 +199,9 @@
     "uniciteAVieCetteCreatrice": "Unicité à vie : cette créatrice a déjà reçu ce hook sur cette plateforme"
   },
   "ComboCooldownSettingsButton": {
-    "cooldown": "Cooldown",
-    "cooldownDesScriptsCeProjet": "Cooldown des scripts — ce projet",
-    "aQuelEcartUnMeme": "À quel écart un même script peut repartir sur un autre compte."
+    "cooldown": "Réglages des scripts",
+    "cooldownDesScriptsCeProjet": "Scripts — réglages de ce projet",
+    "aQuelEcartUnMeme": "À quel écart un même script peut repartir sur un autre compte, et comment il s'affiche à la créatrice."
   },
   "ComboCooldownSettingsCard": {
     "cooldownDUnScriptEn": "Cooldown d'un script, en jours",
@@ -231,5 +231,12 @@
     "aCouper": "Coupe {label}{hasEcart, select, yes { — médiane {ecart} sous les pairs} other {}}, sur {posts} posts.",
     "neutre": "{label} — dans la moyenne{hasEcart, select, yes { ({ecart})} other {}}, garder en rotation. {posts} posts.",
     "enTest": "{label} — en test, {posts}/{seuil} posts."
+  },
+  "ScriptZonesSettingsCard": {
+    "titre": "Script en deux zones",
+    "aide": "Sépare ce qui va dans la vidéo de ce qui va en description (à copier), avec pour chaque bloc « à dire » ou « à afficher ». S'applique aussi aux missions déjà attribuées ; leur texte n'est pas modifié.",
+    "modeParDefaut": "Une brique sans mode s'affiche « à dire ET afficher à l'écran ». Règle le mode de chaque hook et flux dans l'éditeur de brique pour que l'étiquette soit juste.",
+    "reglageEnregistre": "Réglage enregistré",
+    "uneErreurEstSurvenue": "Une erreur est survenue"
   }
 }

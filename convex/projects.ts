@@ -20,6 +20,7 @@ import {
   accountValidationModeOf,
   isStrictAccountValidation,
 } from "./accountValidation";
+import { isScriptZonesEnabled } from "./scriptZonesSetting";
 import {
   isFileDropEnabled,
   parseDriveFolderId,
@@ -173,6 +174,9 @@ export function projectForClient(p: Doc<"projects">) {
     // Régime RÉSOLU (repli Snytch compris) : le tableau de bord n'annonce des
     // « warmups à valider » que là où la validation bloque vraiment.
     accountValidation: accountValidationModeOf(p),
+    // Décision RÉSOLUE (repli Snytch compris) : l'éditeur de brique et l'aperçu
+    // admin lisent la même que le serveur (assignments.splitScriptZones).
+    scriptZonesEnabled: isScriptZonesEnabled(p),
   };
 }
 
@@ -1053,6 +1057,19 @@ export const getAccountValidationSettings = permissionQuery("project.settings")(
       implicit: project?.accountValidation === undefined,
       affected: { accounts: diverging.size, pendingAssignments },
     };
+  },
+});
+
+/**
+ * SCRIPT EN DEUX ZONES — écriture admin. Toujours ÉCRIT, même égal au repli :
+ * un choix fait à l'écran ne doit plus dépendre du slug. Pas de confirmation
+ * côté écran : c'est de l'affichage, rien n'est bloqué ni réécrit.
+ */
+export const setScriptZonesEnabled = permissionMutation("project.settings")({
+  args: { enabled: v.boolean() },
+  handler: async (ctx, { enabled }): Promise<{ updated: true }> => {
+    await ctx.db.patch(ctx.projectId, { scriptZonesEnabled: enabled });
+    return { updated: true };
   },
 });
 

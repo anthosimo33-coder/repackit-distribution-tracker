@@ -216,6 +216,7 @@
     "components/rushes/TalentSettingsCard.tsx",
     "components/scripts/ComboCooldownSettingsButton.tsx",
     "components/scripts/ComboCooldownSettingsCard.tsx",
+    "components/scripts/ScriptZonesSettingsCard.tsx",
     "components/share/PublicTrackerView.tsx",
     "components/share/ShareLinksSheet.tsx",
     "components/share/TrackerShareMode.tsx",

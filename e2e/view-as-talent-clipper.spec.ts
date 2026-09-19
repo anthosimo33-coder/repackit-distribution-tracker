@@ -293,9 +293,9 @@ test.describe("Observation admin — espaces talent et clippeur", () => {
     });
     expect(ficheAdmin).toEqual(ficheClippeur);
     expect(ficheAdmin?.instructions).toBe("Coupe le silence à la fin.");
-    // Contenu réel de la fiche. PAS `scriptZones` : le découpage en zones est
-    // réservé au projet Snytch (convex/assignments.splitScriptZones) et vaut
-    // `null` ici — deux `null` s'accordent sans rien prouver.
+    // Contenu réel de la fiche. PAS `scriptZones` : le découpage en zones est un
+    // réglage du projet (convex/scriptZonesSetting), éteint sur e2e-test, et
+    // vaut `null` ici — deux `null` s'accordent sans rien prouver.
     expect(ficheAdmin?.assembledScript).toContain(`Corps affiché ${ts}`);
     expect(ficheAdmin?.targets).toHaveLength(1);
     expect(ficheAdmin?.targets[0].accountHandle).toBe(handle);
