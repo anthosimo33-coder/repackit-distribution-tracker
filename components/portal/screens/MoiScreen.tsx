@@ -26,7 +26,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { InstallAppRow } from "@/components/portal/InstallAppRow";
 import { needsPaymentInfo } from "@/lib/creator-payment";
 import { getCreatorTools } from "@/lib/creator-tools";
-import { isSnytchProject } from "@/lib/snytch-drive";
 import { portalHref } from "@/lib/view-as";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
@@ -61,7 +60,7 @@ export default function MoiScreen() {
   const comptes = useMyComptes(current.projectId);
   const warmupDue = useWarmupDue(current.projectId) ?? 0;
   const tools = getCreatorTools(current.slug);
-  const showFiles = isSnytchProject(current.slug);
+  const showFiles = current.fileDropEnabled;
   const name = profile?.name ?? current.creatorName ?? "";
 
   return (

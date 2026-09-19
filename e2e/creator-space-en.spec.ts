@@ -105,7 +105,10 @@ test("une créatrice anglophone lit son espace en anglais, heures et calendrier 
   });
   await expect(page.getByText("Je commence")).toHaveCount(0);
 
-  // ── Fichiers (hors Snytch) : l'écran répond en anglais ──────────────────────
+  // ── Fichiers (dépôt FERMÉ) : l'écran répond en anglais ──────────────────────
+  // Le portail suit désormais l'interrupteur du projet, plus le slug : d'autres
+  // specs l'allument sur e2e-test sans l'éteindre, donc on le pose ici.
+  await admin.mutation(api.projects.setTalentSettings, { fileDropEnabled: false });
   await page.goto("/app/fichiers");
   await expect(page.getByText("File upload isn't available for this project.")).toBeVisible({
     timeout: 30_000,

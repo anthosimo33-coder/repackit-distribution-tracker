@@ -1265,6 +1265,7 @@
     "ERR_DEADLINE_ONLY_EXTENDS": "Challenge already open: the deadline can be extended, not shortened.",
     "ERR_DEPOSIT_UNAVAILABLE": "Uploads unavailable for this project.",
     "ERR_DRIVE_UNAVAILABLE": "File uploads unavailable for this project.",
+    "ERR_DRIVE_FOLDER_INVALID": "Unreadable Drive folder: paste its link or its ID.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "Couldn't start the Drive upload. Try again.",
     "ERR_EMAIL_INVALID": "Invalid email.",
     "ERR_FILE_REF_MISSING": "Missing file reference.",

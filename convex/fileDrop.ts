@@ -34,6 +34,7 @@ const LEGACY_FILE_DROP_SLUG = "snytch";
 export interface FileDropProject {
   slug: string;
   fileDropEnabled?: boolean;
+  driveRootFolderId?: string;
 }
 
 /**
@@ -50,4 +51,51 @@ export function isFileDropEnabled(
 ): boolean {
   if (project === null || project === undefined) return false;
   return project.fileDropEnabled ?? project.slug === LEGACY_FILE_DROP_SLUG;
+}
+
+/**
+ * DOSSIER RACINE Drive de CE projet — celui sous lequel sont créés les dossiers
+ * de ses créatrices. null ⇒ aucun dossier ne peut être créé (dépôt non
+ * configuré), et c'est voulu : il n'y a PAS de racine par défaut.
+ *
+ * POURQUOI. La racine était une variable d'env UNIQUE (`SNYTCH_DRIVE_ROOT_FOLDER_ID`)
+ * lue pour tout projet. Ouvrir le dépôt ailleurs (interrupteur Rushes →
+ * Réglages) créait donc les dossiers de SES créatrices dans le Drive de Snytch —
+ * des fichiers livrés au mauvais client, et irrécupérables côté app une fois le
+ * binaire parti.
+ *
+ * REPLI EXACT SUR L'EXISTANT : champ absent ⇒ Snytch garde la variable d'env
+ * (0 migration), tout autre projet n'a PAS de racine. Le champ posé l'emporte,
+ * y compris sur Snytch.
+ *
+ * `legacyEnvRoot` est passé par l'appelant (valeur de l'env) : ce module reste
+ * pur et testable.
+ */
+export function resolveDriveRootFolder(
+  project: FileDropProject | null | undefined,
+  legacyEnvRoot: string | undefined,
+): string | null {
+  if (project === null || project === undefined) return null;
+  const own = project.driveRootFolderId?.trim();
+  if (own) return own;
+  if (project.slug !== LEGACY_FILE_DROP_SLUG) return null;
+  const legacy = legacyEnvRoot?.trim();
+  return legacy ? legacy : null;
+}
+
+/** Forme d'un identifiant de dossier Drive (lettres, chiffres, `-`, `_`). */
+const DRIVE_ID = /^[A-Za-z0-9_-]{10,200}$/;
+
+/**
+ * Identifiant de dossier Drive à partir de ce qu'un admin colle : l'id nu, ou
+ * l'URL du dossier telle que l'affiche Google Drive
+ * (`https://drive.google.com/drive/folders/<id>?usp=…`, y compris `/u/0/`).
+ * null ⇒ saisie illisible — l'appelant REFUSE plutôt que de stocker n'importe quoi.
+ */
+export function parseDriveFolderId(input: string): string | null {
+  const raw = input.trim();
+  if (raw.length === 0) return null;
+  const fromUrl = raw.match(/\/folders\/([A-Za-z0-9_-]+)/)?.[1];
+  const candidate = fromUrl ?? raw;
+  return DRIVE_ID.test(candidate) ? candidate : null;
 }

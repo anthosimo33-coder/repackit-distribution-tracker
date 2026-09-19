@@ -1265,6 +1265,7 @@
     "ERR_DEADLINE_ONLY_EXTENDS": "Défi déjà ouvert : la deadline peut être prolongée, pas raccourcie.",
     "ERR_DEPOSIT_UNAVAILABLE": "Dépôt indisponible pour ce projet.",
     "ERR_DRIVE_UNAVAILABLE": "Dépôt de fichiers indisponible pour ce projet.",
+    "ERR_DRIVE_FOLDER_INVALID": "Dossier Drive illisible : colle son lien ou son identifiant.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "Impossible de démarrer l'upload vers Drive. Réessaie.",
     "ERR_EMAIL_INVALID": "Email invalide.",
     "ERR_FILE_REF_MISSING": "Référence de fichier manquante.",

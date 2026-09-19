@@ -12,7 +12,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilmIcon, ImageIcon, FilesIcon, InboxIcon } from "lucide-react";
-import { isSnytchProject, classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
+import { classifyDriveKind, formatBytes } from "@/lib/snytch-drive";
 import { formatDate } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useTranslations } from "next-intl";
@@ -78,10 +78,12 @@ export default function FichiersScreen() {
   };
   const { current } = useCreatorProject();
   const va = useViewAs();
-  const snytch = isSnytchProject(current.slug);
+  // Même décision que le serveur (confirmUpload, openUploadSession) : le
+  // portail suit l'interrupteur admin au lieu de comparer le slug.
+  const open = current.fileDropEnabled;
   const files = useQuery(
     api.snytchDrive.listMyDriveFiles,
-    snytch && !va ? { projectId: current.projectId } : "skip",
+    open && !va ? { projectId: current.projectId } : "skip",
   );
   const getUploadSession = useAction(api.snytchDrive.getUploadSession);
   const confirmUpload = useMutation(api.snytchDrive.confirmUpload);
@@ -93,8 +95,8 @@ export default function FichiersScreen() {
     );
   }
 
-  // Défense en profondeur : la nav ne pointe ici que pour Snytch.
-  if (!snytch) {
+  // Défense en profondeur : la nav ne pointe ici que si le dépôt est ouvert.
+  if (!open) {
     return (
       <Notice title={t("title")} body={t("unavailableBody")} />
     );

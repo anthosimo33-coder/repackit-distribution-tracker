@@ -1265,6 +1265,7 @@
     "ERR_DEADLINE_ONLY_EXTENDS": "Reto ya abierto: la fecha límite se puede ampliar, no acortar.",
     "ERR_DEPOSIT_UNAVAILABLE": "Subida no disponible para este proyecto.",
     "ERR_DRIVE_UNAVAILABLE": "Subida de archivos no disponible para este proyecto.",
+    "ERR_DRIVE_FOLDER_INVALID": "Carpeta de Drive ilegible: pega su enlace o su identificador.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "No se ha podido iniciar la subida a Drive. Inténtalo de nuevo.",
     "ERR_EMAIL_INVALID": "Email no válido.",
     "ERR_FILE_REF_MISSING": "Falta la referencia del archivo.",
