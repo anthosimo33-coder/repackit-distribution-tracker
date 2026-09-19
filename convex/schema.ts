@@ -205,6 +205,16 @@ export default defineSchema({
     // quel projet dans le Drive de Snytch (cf convex/fileDrop.resolveDriveRootFolder).
     // Le service account doit avoir accès en écriture à ce dossier.
     driveRootFolderId: v.optional(v.string()),
+    // ─── Validation des comptes — règle de PUBLICATION du projet ──────────────
+    // "strict" : un compte ne reçoit de mission et ne publie qu'une fois validé
+    // « actif » par l'admin. "lenient" : un warmup terminé suffit. ABSENT ⇒
+    // repli exact sur l'ancien test de slug : Snytch strict, le reste souple
+    // (0 migration). Lu par UN SEUL point (projects.isStrictAccountValidationFor,
+    // cf convex/accountValidation.ts) : attribution et publication doivent lire
+    // la même règle, sinon un compte non validé passe entre les deux.
+    accountValidation: v.optional(
+      v.union(v.literal("strict"), v.literal("lenient")),
+    ),
     // ─── COOLDOWN de combo de script, en jours (règle ÉDITORIALE du projet) ───
     // Un comboKey programmé (ou publié) à moins de N jours d'une date visée n'est
     // pas réattribuable à cette date, quel que soit le compte ou la créatrice.

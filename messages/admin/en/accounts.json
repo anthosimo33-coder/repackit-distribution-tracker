@@ -223,9 +223,9 @@
     "shortsDesassignes": "{count} {count, plural, one {Short will be unassigned} other {Shorts will be unassigned}}. This can't be undone."
   },
   "WarmupSettingsButton": {
-    "dureesDeWarmup": "Warm-up lengths",
-    "dureesDeWarmupCeProjet": "Warm-up lengths — this project",
-    "combienDeChecksAvantQu": "How many checks before an account leaves warm-up."
+    "dureesDeWarmup": "Warm-up lengths & approval",
+    "dureesDeWarmupCeProjet": "Warm-up & approval — this project",
+    "combienDeChecksAvantQu": "How many checks before an account leaves warm-up, and whether it must be approved before posting."
   },
   "WarmupSettingsCard": {
     "dureeDeWarmupParPlateforme": "Warm-up length, by platform",
@@ -268,5 +268,20 @@
   "handleWarning": {
     "product": "This handle contains “{mot}”: an account that announces the brand reads in a second, and the hook can no longer work.",
     "talent": "This handle contains “{mot}”, a talent's name: the account can be traced back to them."
+  },
+  "AccountValidationSettingsCard": {
+    "titre": "Require approval before posting",
+    "aideStrict": "On: an account only gets missions and posts once your team approves it. Finishing warm-up isn't enough.",
+    "aideSouple": "Off: an account gets missions and posts as soon as its warm-up is done.",
+    "enAttente": "{accounts, plural, one {# account has} other {# accounts have}} finished warm-up without being approved.",
+    "confirmerStrict": "Require account approval?",
+    "confirmerSouple": "Stop requiring account approval?",
+    "impactAucun": "No account is affected right now: this change doesn't block or unblock anything yet.",
+    "impactStrict": "{accounts, plural, one {# account that finished warm-up won't} other {# accounts that finished warm-up won't}} be able to get missions or post until you approve {accounts, plural, one {it} other {them}}. {pendingAssignments, plural, =0 {No mission in progress is affected.} one {# mission already assigned will be refused when posting.} other {# missions already assigned will be refused when posting.}}",
+    "impactSouple": "{accounts, plural, one {# account that finished warm-up and isn't approved yet can} other {# accounts that finished warm-up and aren't approved yet can}} get missions and post right away.",
+    "confirmer": "Confirm",
+    "annuler": "Cancel",
+    "regleEnregistree": "Rule saved",
+    "uneErreurEstSurvenue": "Something went wrong"
   }
 }

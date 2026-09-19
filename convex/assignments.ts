@@ -48,7 +48,7 @@ import {
 } from "./pricing";
 import { markRushPublishedForAssignment } from "./rushes";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
-import { isSnytchProject } from "./projects";
+import { isStrictAccountValidationFor } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
 import { buildZoneMap } from "./creatorDay";
@@ -110,10 +110,10 @@ export async function validateTargets(
   if (targets.length < 1 || targets.length > 3) {
     throw err(ERR.TARGETS_COUNT, "Un assignment porte 1 à 3 cibles (plateformes).");
   }
-  // Gate STRICT pour Snytch : un compte n'est ciblable que s'il est "actif"
-  // (validé admin). Hors Snytch : régime lenient historique (warmup terminé
-  // suffit) → gating RepackIt inchangé.
-  const strict = await isSnytchProject(ctx, projectId);
+  // Régime du PROJET (convex/accountValidation) : en strict, un compte n'est
+  // ciblable que s'il est "actif" (validé admin) ; en souple, warmup terminé
+  // suffit. MÊME lecture qu'à la publication (confirmPublicationCore).
+  const strict = await isStrictAccountValidationFor(ctx, projectId);
   const seen = new Set<Plateforme>();
   for (const t of targets) {
     if (seen.has(t.platform)) {
@@ -260,7 +260,7 @@ export const listAssignableCreators = permissionQuery("assignments.manage")({
 export const listAssignableCreatorsWithAccounts = permissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => {
-    const strict = await isSnytchProject(ctx, ctx.projectId);
+    const strict = await isStrictAccountValidationFor(ctx, ctx.projectId);
     // Barème du projet, résolu une fois : la disponibilité d'un compte pour
     // publication en dépend, et c'est le gate le plus lourd de conséquence.
     const days = warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {});
@@ -2969,10 +2969,10 @@ async function confirmPublicationCore(
 
   // Garde warmup au moment de publier (symétrique de validateTargets) : un
   // compte cible peut être REPASSÉ en warmup (relance admin restartWarmup)
-  // APRÈS la création de l'assignment. En régime STRICT (Snytch) un compte en
+  // APRÈS la création de l'assignment. En régime STRICT (réglage du projet) un compte en
   // warmup — même terminé — n'est pas publiable tant que l'admin ne l'a pas
   // repassé "actif". shadowban/archived ne sont pas re-gatés ici.
-  const strict = await isSnytchProject(ctx, ctx.projectId);
+  const strict = await isStrictAccountValidationFor(ctx, ctx.projectId);
   for (const t of targets) {
     if (!t.accountId) continue;
     const compte = await ctx.db.get(t.accountId);
