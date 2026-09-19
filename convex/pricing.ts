@@ -1238,8 +1238,10 @@ async function challengeCashWins(
  *  1. `hasPricingSnapshot = false` — assignation LEGACY, sans barème figé. Le coût
  *     est réellement INCONNU → `null`. (Aucune en prod le 2026-09-05, mais le cas
  *     reste possible sur l'historique.)
- *  2. la vidéo (ou au moins son groupe de barème) est DANS le breakdown → coût
- *     calculé, comportement inchangé.
+ *  2. la vidéo est DANS le breakdown → son coût est celui que la paie lui
+ *     impute (videoCostsOfMonth). Avant le 2026-09-19 il suffisait que son GROUPE
+ *     y soit, et on lui facturait le fixe du contrat : une vidéo 100 % warmup
+ *     coûtait 1,67 $ sans qu'on lui paie rien.
  *  3. barème figé, mais la vidéo est ABSENTE du breakdown parce qu'elle n'a AUCUN
  *     post rémunéré (`hasPayablePost = false`). Elle en a été retirée par DÉCISION
  *     — `remunere = false` posé à la main. Son coût n'est pas inconnu : il vaut
@@ -1258,10 +1260,9 @@ async function challengeCashWins(
 export function assignmentCostFromBreakdown(input: {
   /** Un barème est-il FIGÉ sur l'assignation ? false = legacy. */
   hasPricingSnapshot: boolean;
-  /** Part fixe/vidéo du groupe ; `null` si le groupe est absent du breakdown. */
-  fixePerVideo: number | null;
-  /** CPM plafonné de la vidéo ; `null` si la vidéo est absente du breakdown. */
-  cpm: number | null;
+  /** La vidéo telle que la PAIE la compte (cf videoCostsOfMonth) ; `null` si
+   *  elle est absente du breakdown. */
+  video: VideoCost | null;
   /** La vidéo a-t-elle au moins un post RÉMUNÉRÉ ? */
   hasPayablePost: boolean;
   /** Vues des posts rémunérés (assiette du CPM). */
@@ -1270,22 +1271,67 @@ export function assignmentCostFromBreakdown(input: {
   promoPaidViews: number;
 }): { cost: number | null; promoCost: number | null } {
   if (!input.hasPricingSnapshot) return { cost: null, promoCost: null };
-  if (input.fixePerVideo !== null || input.cpm !== null) {
-    const fixed = input.fixePerVideo ?? 0;
-    const cpm = input.cpm ?? 0;
-    return {
-      cost: round2(fixed + cpm),
-      promoCost: promoVideoCost(
-        fixed,
-        cpm,
-        input.payableViews,
-        input.promoPaidViews,
-      ),
-    };
+  if (input.video !== null) {
+    const { cost, fixed, cpm } = input.video;
+    // Part PROMO appliquée au coût RÉEL de la vidéo, pas recalculée : le coût
+    // peut différer de fixe + CPM (mois en cours = engagé). Même fraction que
+    // marketPromo.promoCostOfVideo, écrite ici faute de pouvoir l'importer
+    // (marketPromo importe ce module).
+    const brut = Math.max(0, fixed) + Math.max(0, cpm);
+    const share =
+      brut > 0
+        ? Math.min(1, promoVideoCost(fixed, cpm, input.payableViews, input.promoPaidViews) / brut)
+        : 0;
+    return { cost: round2(cost), promoCost: round2(cost * share) };
   }
   // Retirée de la paie par décision : coût CONNU, et il vaut zéro.
   if (!input.hasPayablePost) return { cost: 0, promoCost: 0 };
   return { cost: null, promoCost: null };
+}
+
+/** Une vidéo telle que la paie la compte. `fixed`/`cpm` = sa part APRÈS budget
+ *  du contrat et plafond ; `cost` = sa part du coût du mois (cf videoCostsOfMonth). */
+export type VideoCost = { cost: number; fixed: number; cpm: number };
+
+/**
+ * Coût de CHAQUE vidéo d'un (créatrice, mois), tel que la PAIE le compte —
+ * SOURCE UNIQUE des écrans qui détaillent le coût par vidéo (Vue d'ensemble,
+ * onglet Pays). Sans elle, chacun le reconstruisait à sa façon, et ils
+ * divergeaient de la carte Rentabilité :
+ *
+ *  - la Vue d'ensemble facturait `fixePerVideo` (le taux du CONTRAT) à chaque
+ *    vidéo, y compris au-delà du budget fixe : une créatrice qui publie 76 vidéos
+ *    de plus que son contrat n'est pas payée 76 fixes de plus. Mesuré sur la prod
+ *    du 2026-09-19 : +140,28 $ en août (Kelly, Sarah) ;
+ *  - elle facturait aussi ce fixe aux vidéos 100 % warmup, que le moteur ne paie
+ *    pas, dès qu'une vidéo sœur tenait le groupe ouvert : +61,79 $.
+ *
+ * BASE du mois = fixe + CPM (jamais `total`, qui ajoute bonus et défis — des
+ * primes CRÉATRICE-niveau, sans vidéo à qui les imputer). Mois EN COURS = coût
+ * ENGAGÉ, comme la Rentabilité : un seuil de vues pas encore franchi doit zéro
+ * aujourd'hui, et l'afficher ainsi ferait paraître le mois excellent jusqu'à la
+ * seconde où le seuil tombe. La base est répartie au prorata de ce que le moteur
+ * a calculé pour chaque vidéo, pour que la somme des vidéos RECOLLE exactement au
+ * total ; sans poids (tout le fixe bloqué par un seuil, barème sans CPM), à parts
+ * égales plutôt que de perdre le coût engagé.
+ */
+export function videoCostsOfMonth(
+  bd: Pick<MonthlyPayout, "fixedTotal" | "cpmTotal" | "perAssignment"> & {
+    engage: { total: number };
+  },
+  isCurrentMonth: boolean,
+): Map<string, VideoCost> {
+  const base = isCurrentMonth ? bd.engage.total : round2(bd.fixedTotal + bd.cpmTotal);
+  const poids = bd.perAssignment.map((pa) => Math.max(0, pa.fixed + pa.cpm));
+  const totalPoids = poids.reduce((s, w) => s + w, 0);
+  const n = bd.perAssignment.length;
+  const out = new Map<string, VideoCost>();
+  bd.perAssignment.forEach((pa, i) => {
+    const cost =
+      totalPoids > 0 ? (base * poids[i]) / totalPoids : n > 0 ? base / n : 0;
+    out.set(pa.assignmentId, { cost, fixed: pa.fixed, cpm: pa.cpm });
+  });
+  return out;
 }
 
 /**

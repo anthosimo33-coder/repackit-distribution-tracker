@@ -906,8 +906,7 @@ describe("billedViews — vues réellement facturées", () => {
 describe("assignmentCostFromBreakdown", () => {
   const base = {
     hasPricingSnapshot: true,
-    fixePerVideo: null as number | null,
-    cpm: null as number | null,
+    video: null as convexPricing.VideoCost | null,
     hasPayablePost: true,
     payableViews: 0,
     promoPaidViews: 0,
@@ -939,15 +938,13 @@ describe("assignmentCostFromBreakdown", () => {
     ).toEqual({ cost: null, promoCost: null });
   });
 
-  it("vidéo PRÉSENTE dans le breakdown : calcul inchangé (assertion de présence)", () => {
+  it("vidéo PRÉSENTE dans le breakdown : son coût de paie (assertion de présence)", () => {
     // Barème 100 $/60 vidéos = 1,6667 $/vidéo, CPM 42,83 $, toutes les vues
     // payables sont promo → promoCost = cost.
     expect(
       convexPricing.assignmentCostFromBreakdown({
-        hasPricingSnapshot: true,
-        fixePerVideo: 1.67,
-        cpm: 42.83,
-        hasPayablePost: true,
+        ...base,
+        video: { cost: 44.4967, fixed: 1.6667, cpm: 42.83 },
         payableViews: 42_829,
         promoPaidViews: 42_829,
       }),
@@ -959,13 +956,69 @@ describe("assignmentCostFromBreakdown", () => {
     // d'un ratio dont le dénominateur est en vues promo.
     expect(
       convexPricing.assignmentCostFromBreakdown({
-        hasPricingSnapshot: true,
-        fixePerVideo: 2,
-        cpm: 10,
-        hasPayablePost: true,
+        ...base,
+        video: { cost: 12, fixed: 2, cpm: 10 },
         payableViews: 1_000,
         promoPaidViews: 250,
       }),
     ).toEqual({ cost: 12, promoCost: 4.5 });
+  });
+});
+
+/**
+ * COÛT PAR VIDÉO = CE QUE LA PAIE IMPUTE — cas de la prod du 2026-09-19.
+ *
+ * La Vue d'ensemble facturait le fixe du CONTRAT à chaque vidéo : Kelly, 76
+ * vidéos au-delà de son budget d'août, coûtait 126,92 $ de plus dans Analytics
+ * que dans la Rentabilité, pour de l'argent qu'on ne lui verse pas.
+ */
+describe("videoCostsOfMonth", () => {
+  const snap = (over: Partial<PricingSnapshot> = {}): PricingSnapshot => ({
+    pricingId: "p-kelly",
+    montantFixe: 100,
+    nbVideosCible: 60,
+    tauxCPM: 1.2,
+    ...over,
+  });
+  const cost = (m: Map<string, convexPricing.VideoCost>) =>
+    [...m.values()].reduce((s, v) => s + v.cost, 0);
+  // Snapshot côté lib (pricingId en string) → forme convex (Id) : même objet.
+  type ConvexItems = Parameters<typeof convexPricing.computeMonthlyPayout>[0];
+  const asConvex = (items: unknown) => items as ConvexItems;
+
+  it("au-delà du budget fixe, la vidéo ne coûte plus que son CPM", () => {
+    // 62 vidéos sur un contrat de 60 : les deux dernières n'ont plus de fixe.
+    const items = Array.from({ length: 62 }, (_, i) => ({
+      assignmentId: `v${i}`,
+      snapshot: snap(),
+      totalViews: 3_817 + i * 211,
+    }));
+    const p = convexPricing.computeMonthlyPayout(asConvex(items));
+    const m = convexPricing.videoCostsOfMonth({ ...p, engage: { total: p.total } }, false);
+    // Présence : une vidéo DANS le budget porte bien son fixe.
+    expect(m.get("v0")!.fixed).toBeCloseTo(100 / 60, 4);
+    expect(m.get("v61")!.fixed).toBe(0);
+    expect(m.get("v61")!.cost).toBeCloseTo((3_817 + 61 * 211) * 1.2 / 1000, 1);
+    // Et la somme des vidéos recolle au total que la paie verse.
+    expect(cost(m)).toBeCloseTo(p.total, 2);
+    // Ce que l'ancien calcul facturait : un fixe par vidéo, budget ignoré.
+    expect(62 * (100 / 60) + p.cpmTotal - p.total).toBeGreaterThan(3.3);
+  });
+
+  it("mois EN COURS : le coût engagé, même quand le seuil bloque tout le fixe", () => {
+    // Barème à fixe seul conditionné à 50 000 vues, seuil pas franchi : le dû
+    // vaut 0, aucune vidéo n'a de poids — l'engagé ne doit pas disparaître.
+    const items = [
+      { assignmentId: "j1", snapshot: snap({ tauxCPM: 0, montantFixe: 31, nbVideosCible: 2, seuilVuesFixe: 50_000 }), totalViews: 4_318 },
+      { assignmentId: "j2", snapshot: snap({ tauxCPM: 0, montantFixe: 31, nbVideosCible: 2, seuilVuesFixe: 50_000 }), totalViews: 2_907 },
+    ];
+    const p = convexPricing.computeMonthlyPayout(asConvex(items));
+    expect(p.total).toBe(0);
+    const engage = convexPricing.engageOf(asConvex(items), p);
+    expect(engage.total).toBe(31);
+    const enCours = convexPricing.videoCostsOfMonth({ ...p, engage }, true);
+    expect(cost(enCours)).toBeCloseTo(31, 2);
+    // Mois clos : c'est le DÛ qui compte, et il est nul.
+    expect(cost(convexPricing.videoCostsOfMonth({ ...p, engage }, false))).toBe(0);
   });
 });

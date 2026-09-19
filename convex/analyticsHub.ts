@@ -17,6 +17,7 @@ import {
   challengeNatureRewardsDue,
   natureRewardsDue,
   assignmentCostFromBreakdown,
+  videoCostsOfMonth,
   type PricingBreakdown,
 } from "./pricing";
 import { cyclePaymentsForCreator } from "./payments";
@@ -396,6 +397,7 @@ export const getAttribution = permissionQuery("business.read")({
       ).map((p) => [p._id as string, p]),
     );
 
+    const moisCourant = monthKeyParis(Date.now());
     const rows: AttributionRow[] = [];
     for (const a of assignments) {
       const publishedAt = assignmentPublishedAt(a);
@@ -430,16 +432,13 @@ export const getAttribution = permissionQuery("business.read")({
       let promoCost: number | null = null;
       if (a.pricingSnapshot) {
         const b = await breakdownFor(a.creatorId, period);
-        const perAssignment = b.perAssignment.find(
-          (x) => x.assignmentId === (a._id as string),
-        );
-        const perPricing = b.perPricing.find(
-          (p) => p.pricingId === (a.pricingSnapshot!.pricingId as string),
-        );
+        // Le coût que la PAIE impute à la vidéo — la même source que la carte
+        // Rentabilité et l'onglet Pays (cf videoCostsOfMonth).
+        const video =
+          videoCostsOfMonth(b, period === moisCourant).get(a._id as string) ?? null;
         ({ cost, promoCost } = assignmentCostFromBreakdown({
           hasPricingSnapshot: true,
-          fixePerVideo: perPricing?.fixePerVideo ?? null,
-          cpm: perAssignment?.cpm ?? null,
+          video,
           hasPayablePost: views.hasPayablePost,
           payableViews: views.payableViews,
           promoPaidViews: views.bonusTierViews,

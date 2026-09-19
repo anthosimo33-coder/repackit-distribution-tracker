@@ -120,7 +120,13 @@ async function creatorCostByMonth(
     // reprend la main (les deux valeurs sont égales dès qu'aucun seuil ne
     // bloque, c'est-à-dire partout ailleurs).
     const enCours = month === moisCourant;
-    const cost = enCours ? bd.engage.total : bd.total;
+    // L'engagé ne porte que fixe + CPM : les paliers débloqués et les primes de
+    // défi du mois sont DÉJÀ dus, sans condition à attendre. Les oublier sortait
+    // 200 $ de bonus de la marge de septembre 2026 (prod du 2026-09-19), alors
+    // que la Vue d'ensemble les comptait.
+    const cost = enCours
+      ? round2(bd.engage.total + bd.bonusTierCashTotal + bd.challengeTotal)
+      : bd.total;
     const billedViews = enCours
       ? bd.engage.billedViews
       : bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
