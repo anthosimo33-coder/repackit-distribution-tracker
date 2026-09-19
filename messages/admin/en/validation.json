@@ -122,7 +122,14 @@
     "reglagesEnregistres": "Settings saved",
     "echecDeLEnregistrement": "Couldn't save",
     "briefCreeEtMisEn": "Brief created and put live",
-    "echecDeLaCreationDu": "Couldn't create the brief"
+    "echecDeLaCreationDu": "Couldn't create the brief",
+    "dossierDrive": "Project Drive folder",
+    "dossierDriveAide": "Creators' folders are created inside it. Paste the folder link; the service account must be able to write to it. Only affects new folders.",
+    "dossierDriveLegacy": "No folder set: this project still uses the legacy folder from the environment.",
+    "dossierDriveManquant": "No Drive folder: uploads are on but no file can arrive. Set the folder below.",
+    "dossierDrivePlaceholder": "https://drive.google.com/drive/folders/…",
+    "enregistrerDossier": "Save",
+    "retirerDossier": "Remove"
   },
   "PublicationSlotBadge": {
     "slot": {

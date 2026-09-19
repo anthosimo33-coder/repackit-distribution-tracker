@@ -122,7 +122,14 @@
     "reglagesEnregistres": "Réglages enregistrés",
     "echecDeLEnregistrement": "Échec de l'enregistrement",
     "briefCreeEtMisEn": "Brief créé et mis en service",
-    "echecDeLaCreationDu": "Échec de la création du brief"
+    "echecDeLaCreationDu": "Échec de la création du brief",
+    "dossierDrive": "Dossier Drive du projet",
+    "dossierDriveAide": "Les dossiers des créatrices y sont créés. Colle le lien du dossier ; le compte de service doit pouvoir y écrire. Ne concerne que les nouveaux dossiers.",
+    "dossierDriveLegacy": "Aucun dossier posé : ce projet utilise encore le dossier historique de l'environnement.",
+    "dossierDriveManquant": "Aucun dossier Drive : le dépôt est ouvert mais aucun fichier ne peut arriver. Pose le dossier ci-dessous.",
+    "dossierDrivePlaceholder": "https://drive.google.com/drive/folders/…",
+    "enregistrerDossier": "Enregistrer",
+    "retirerDossier": "Retirer"
   },
   "PublicationSlotBadge": {
     "slot": {

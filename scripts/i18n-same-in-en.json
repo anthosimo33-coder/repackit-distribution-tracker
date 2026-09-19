@@ -183,6 +183,7 @@
     "admin.scripts.brickKind.hook",
     "admin.validation.BonusRow.post",
     "admin.validation.TalentSettingsCard.briefMarkdown",
+    "admin.validation.TalentSettingsCard.dossierDrivePlaceholder",
     "admin.validation.ValidationPageInner.bonus",
     "admin.validation.ValidationPageInner.format",
     "admin.validation.ValidationPageInner.posts",

@@ -89,7 +89,15 @@ export interface GoogleDriveConfig {
   clientEmail: string;
   privateKey: string;
   tokenUri: string;
-  rootFolderId: string;
+}
+
+/**
+ * Racine Drive HISTORIQUE (celle de Snytch), lue dans l'env. Ce n'est PLUS une
+ * racine globale : elle ne sert que de repli au projet Snytch tant qu'il n'a
+ * pas son propre `projects.driveRootFolderId` — cf convex/fileDrop.resolveDriveRootFolder.
+ */
+export function legacyDriveRootFolderId(): string | undefined {
+  return process.env.SNYTCH_DRIVE_ROOT_FOLDER_ID;
 }
 
 /**
@@ -100,11 +108,9 @@ export interface GoogleDriveConfig {
  */
 export function googleDriveConfig(): GoogleDriveConfig | null {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-  const rootFolderId = process.env.SNYTCH_DRIVE_ROOT_FOLDER_ID;
-  if (!raw || !rootFolderId) return null;
+  if (!raw) return null;
   try {
-    const sa = parseServiceAccount(raw);
-    return { ...sa, rootFolderId };
+    return parseServiceAccount(raw);
   } catch (e) {
     console.error(
       `[snytch-drive] GOOGLE_SERVICE_ACCOUNT_JSON invalide: ${
@@ -239,11 +245,13 @@ export async function getAccessToken(
 // ─── Opérations Drive ────────────────────────────────────────────────────────
 
 /**
- * Crée un sous-dossier `name` DANS le dossier racine (config.rootFolderId) et
- * renvoie son id. Le service account en est propriétaire (scope drive.file).
+ * Crée un sous-dossier `name` DANS `parentFolderId` (la racine Drive DU PROJET,
+ * résolue par l'appelant) et renvoie son id. Le service account en est
+ * propriétaire (scope drive.file).
  */
 export async function createDriveFolder(
   config: GoogleDriveConfig,
+  parentFolderId: string,
   name: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
@@ -259,7 +267,7 @@ export async function createDriveFolder(
       body: JSON.stringify({
         name,
         mimeType: FOLDER_MIME,
-        parents: [config.rootFolderId],
+        parents: [parentFolderId],
       }),
     },
     fetchImpl,

@@ -57,6 +57,9 @@ export function TalentSettingsCard() {
   const [brief, setBrief] = useState("");
   const [exemples, setExemples] = useState("");
   const [busy, setBusy] = useState(false);
+  // Saisie du dossier Drive ; null = pas encore touchée → on affiche la valeur
+  // enregistrée (évite de recopier la query dans un état au montage).
+  const [dossier, setDossier] = useState<string | null>(null);
 
   if (reglages === undefined || formats === undefined) {
     return <Skeleton className="h-40 w-full" />;
@@ -66,16 +69,22 @@ export function TalentSettingsCard() {
   const briefActuel = reglages.talentBriefFormatId;
   const depotActif = reglages.fileDropEnabled;
 
+  const dossierEnregistre = reglages.driveRootFolderId;
+  const dossierSaisi = dossier ?? dossierEnregistre ?? "";
+
   async function appliquer(patch: {
     fileDropEnabled?: boolean;
     talentBriefFormatId?: Id<"formats"> | null;
-  }) {
+    driveRootFolderId?: string | null;
+  }): Promise<boolean> {
     setBusy(true);
     try {
       await setSettings(patch);
       toast.success(tr("reglagesEnregistres"));
+      return true;
     } catch (e) {
       toast.error(showError(e, tr("echecDeLEnregistrement")));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -140,6 +149,60 @@ export function TalentSettingsCard() {
             disabled={busy}
             onCheckedChange={(v) => void appliquer({ fileDropEnabled: v })}
           />
+        </div>
+
+        <div className="min-w-0 space-y-1.5">
+          <Label htmlFor="dossier-drive">{tr("dossierDrive")}</Label>
+          <p className="text-xs text-slate-500">{tr("dossierDriveAide")}</p>
+          {depotActif && !reglages.driveRootConfigured && (
+            <p role="alert" className="text-xs text-amber-700">
+              {tr("dossierDriveManquant")}
+            </p>
+          )}
+          {dossierEnregistre === null && reglages.driveRootConfigured && (
+            <p className="text-xs text-slate-500">{tr("dossierDriveLegacy")}</p>
+          )}
+          <div className="flex min-w-0 gap-2">
+            <Input
+              id="dossier-drive"
+              className="min-w-0 flex-1"
+              value={dossierSaisi}
+              placeholder={tr("dossierDrivePlaceholder")}
+              onChange={(e) => setDossier(e.target.value)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                busy ||
+                dossierSaisi.trim().length === 0 ||
+                dossierSaisi.trim() === dossierEnregistre
+              }
+              onClick={async () => {
+                // Saisie gardée en cas de refus (lien illisible) pour la corriger.
+                if (await appliquer({ driveRootFolderId: dossierSaisi.trim() })) {
+                  setDossier(null);
+                }
+              }}
+            >
+              {tr("enregistrerDossier")}
+            </Button>
+            {dossierEnregistre !== null && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={async () => {
+                  if (await appliquer({ driveRootFolderId: null })) {
+                    setDossier(null);
+                  }
+                }}
+              >
+                {tr("retirerDossier")}
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="min-w-0 space-y-1.5">

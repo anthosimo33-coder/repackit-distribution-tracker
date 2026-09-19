@@ -172,8 +172,9 @@ export default defineSchema({
     // l'invariant « un compte non validé ne peut rien publier » (risque 8 du
     // diagnostic). Posé via projects.setTalentSettings (gardée par bloc).
     //
-    // NB : la nav du portail PARTENAIRE (« Mes fichiers ») reste gatée sur le
-    // slug côté client — le chantier talent ne change rien à l'écran partenaire.
+    // Le portail PARTENAIRE (« Mes fichiers ») lit la MÊME décision, servie
+    // résolue par le serveur (getMyCreatorProjects / projectForClient) — plus
+    // aucun écran ne compare le slug.
     // Durée de warmup DU PROJET, par plateforme (jours). Absent ⇒ barème de
     // dernier recours (lib/warmup.WARMUP_TARGET_DAYS_FALLBACK).
     //
@@ -197,6 +198,13 @@ export default defineSchema({
       }),
     ),
     fileDropEnabled: v.optional(v.boolean()),
+    // Dossier Drive RACINE du projet : les dossiers de ses créatrices y sont
+    // créés. ABSENT ⇒ Snytch retombe sur l'env SNYTCH_DRIVE_ROOT_FOLDER_ID
+    // (0 migration), tout autre projet n'a PAS de racine → aucun dossier créé.
+    // Il n'existe plus de racine globale : elle créait les dossiers de n'importe
+    // quel projet dans le Drive de Snytch (cf convex/fileDrop.resolveDriveRootFolder).
+    // Le service account doit avoir accès en écriture à ce dossier.
+    driveRootFolderId: v.optional(v.string()),
     // ─── COOLDOWN de combo de script, en jours (règle ÉDITORIALE du projet) ───
     // Un comboKey programmé (ou publié) à moins de N jours d'une date visée n'est
     // pas réattribuable à cette date, quel que soit le compte ou la créatrice.

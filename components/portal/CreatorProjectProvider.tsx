@@ -35,6 +35,9 @@ export type CreatorProject = {
   creatorName: string | null;
   /** Devise de la PAIE créatrices (dollars pour Snytch). null → sans symbole. */
   payCurrency: string | null;
+  /** Dépôt de fichiers ouvert sur ce projet — décision SERVEUR (cf
+   *  convex/fileDrop.isFileDropEnabled), jamais un test de slug côté client. */
+  fileDropEnabled: boolean;
 };
 
 type CreatorProjectContextValue = {

@@ -16,6 +16,7 @@ import {
 import { filterByCreatorScope, isInCreatorScope } from "./creatorScope";
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
+import { isFileDropEnabled } from "./fileDrop";
 import {
   MEMBERSHIP_ROLES,
   PORTAL_ROLES,
@@ -1522,6 +1523,9 @@ export const getMyCreatorProjects = authedQuery({
       creatorName: string | null;
       /** Devise de la PAIE (dollars pour Snytch). null → montants sans symbole. */
       payCurrency: string | null;
+      /** Dépôt de fichiers ouvert ? Décision serveur (cf convex/fileDrop) : le
+       *  portail n'a plus à comparer le slug, et suit l'interrupteur admin. */
+      fileDropEnabled: boolean;
     }[] = [];
     for (const m of memberships) {
       if (portalRoleOf(m) === null) continue;
@@ -1537,6 +1541,7 @@ export const getMyCreatorProjects = authedQuery({
         payoutDay: project.payoutDay,
         creatorName: fiche?.name ?? null,
         payCurrency: project.payCurrency ?? null,
+        fileDropEnabled: isFileDropEnabled(project),
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

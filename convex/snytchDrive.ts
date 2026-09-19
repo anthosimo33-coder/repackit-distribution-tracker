@@ -12,7 +12,7 @@ import {
 } from "./functions";
 import { internal } from "./_generated/api";
 import { getProjectBySlug, SNYTCH_SLUG } from "./projects";
-import { isFileDropEnabled } from "./fileDrop";
+import { isFileDropEnabled, resolveDriveRootFolder } from "./fileDrop";
 import { ConvexError, v } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
@@ -22,6 +22,7 @@ import {
   createDriveFolder,
   creatorFolderName,
   initResumableUpload,
+  legacyDriveRootFolderId,
 } from "./googleDriveApi";
 
 /**
@@ -57,6 +58,11 @@ import {
  * GATE : sans env Drive (googleDriveConfig() === null), les actions log + no-op
  *   proprement (le build ne casse jamais, la CI test tourne). La clé service
  *   account n'est JAMAIS exposée ni loggée.
+ *
+ * RACINE PAR PROJET : les dossiers des créatrices sont créés sous la racine DU
+ *   PROJET (`projects.driveRootFolderId`, repli env pour Snytch seul — cf
+ *   convex/fileDrop.resolveDriveRootFolder). Pas de racine ⇒ pas de dossier ⇒
+ *   pas de session d'upload (`disabled`) : on ne dépose jamais chez un autre.
  *
  * SÉCURITÉ : un créateur ne demande une session / ne liste QUE pour SON dossier
  *   (requireCreator → ctx.creatorId). Le backfill est interne (convex run).
@@ -94,6 +100,9 @@ interface CreatorFolderInfo {
    *  pas la règle et ne compare plus aucun slug. */
   fileDropEnabled: boolean;
   driveFolderId: string | null;
+  /** Ce qu'il faut pour résoudre la racine Drive DU PROJET (l'env est lue par
+   *  l'action, cf resolveDriveRootFolder). */
+  project: { slug: string; driveRootFolderId?: string } | null;
 }
 
 /** Nom + dépôt ouvert ? + dossier courant d'un créateur (pour ensureCreatorFolder). */
@@ -107,6 +116,9 @@ export const getCreatorFolderInfo = internalQuery({
       name: creator.name,
       fileDropEnabled: isFileDropEnabled(project),
       driveFolderId: creator.driveFolderId ?? null,
+      project: project
+        ? { slug: project.slug, driveRootFolderId: project.driveRootFolderId }
+        : null,
     };
   },
 });
@@ -201,7 +213,12 @@ export const listSnytchCreatorsNeedingFolder = internalQuery({
 
 interface EnsureFolderResult {
   ok: boolean;
-  reason?: "not-found" | "not-enabled" | "disabled" | "create-failed";
+  reason?:
+    | "not-found"
+    | "not-enabled"
+    | "disabled"
+    | "no-root"
+    | "create-failed";
   folderId?: string;
 }
 
@@ -228,18 +245,31 @@ export const ensureCreatorFolder = internalAction({
     const config = googleDriveConfig();
     if (!config) {
       console.info(
-        "[snytch-drive] env absent (GOOGLE_SERVICE_ACCOUNT_JSON / " +
-          "SNYTCH_DRIVE_ROOT_FOLDER_ID) — création de dossier ignorée. " +
-          "Posez : npx convex env set GOOGLE_SERVICE_ACCOUNT_JSON <json> ; " +
-          "npx convex env set SNYTCH_DRIVE_ROOT_FOLDER_ID <id>.",
+        "[snytch-drive] env absent (GOOGLE_SERVICE_ACCOUNT_JSON) — création de " +
+          "dossier ignorée. Posez : npx convex env set GOOGLE_SERVICE_ACCOUNT_JSON <json>.",
       );
       return { ok: false, reason: "disabled" };
+    }
+
+    // Racine DU PROJET — jamais celle d'un autre. Sans racine, on ne crée RIEN :
+    // un dossier créé ailleurs livrerait les fichiers au mauvais client.
+    const rootFolderId = resolveDriveRootFolder(
+      info.project,
+      legacyDriveRootFolderId(),
+    );
+    if (!rootFolderId) {
+      console.info(
+        `[snytch-drive] projet sans dossier Drive racine — dossier de ${creatorId} ` +
+          "non créé. Le poser dans Rushes → Réglages.",
+      );
+      return { ok: false, reason: "no-root" };
     }
 
     let folderId: string;
     try {
       folderId = await createDriveFolder(
         config,
+        rootFolderId,
         creatorFolderName(info.name, creatorId),
       );
     } catch (e) {
@@ -459,7 +489,7 @@ export const backfillSnytchDriveFolders = internalAction({
     if (!googleDriveConfig()) {
       console.error(
         "[snytch-drive] backfill annulé — env Drive absent. " +
-          "Posez GOOGLE_SERVICE_ACCOUNT_JSON + SNYTCH_DRIVE_ROOT_FOLDER_ID.",
+          "Posez GOOGLE_SERVICE_ACCOUNT_JSON.",
       );
       return { ok: false, reason: "disabled", created: 0, skipped: 0 };
     }

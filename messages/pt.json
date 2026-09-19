@@ -1265,6 +1265,7 @@
     "ERR_DEADLINE_ONLY_EXTENDS": "Desafio já aberto: o prazo pode ser prorrogado, não encurtado.",
     "ERR_DEPOSIT_UNAVAILABLE": "Envio indisponível para este projeto.",
     "ERR_DRIVE_UNAVAILABLE": "Envio de arquivos indisponível para este projeto.",
+    "ERR_DRIVE_FOLDER_INVALID": "Pasta do Drive ilegível: cole o link ou o identificador dela.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "Não foi possível iniciar o envio para o Drive. Tente de novo.",
     "ERR_EMAIL_INVALID": "Email inválido.",
     "ERR_FILE_REF_MISSING": "Referência do arquivo ausente.",

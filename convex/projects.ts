@@ -17,6 +17,11 @@ import {
 import { normalizeRef } from "./conversionAttribution";
 import { warmupTargetDaysOf } from "./warmup";
 import {
+  isFileDropEnabled,
+  parseDriveFolderId,
+  resolveDriveRootFolder,
+} from "./fileDrop";
+import {
   COMBO_COOLDOWN_DAYS_FALLBACK,
   COMBO_COOLDOWN_DAYS_MAX,
   COMBO_COOLDOWN_DAYS_MIN,
@@ -132,7 +137,7 @@ const RESERVED_SLUGS = new Set([
  * de l'envoyer sur le téléphone d'un talent ou d'un clippeur externe.
  *
  * On aligne donc sur ce que fait DÉJÀ `creators.getMyCreatorProjects` : une liste
- * de champs EXPLICITE. Ces 8 champs sont exactement ceux que l'UI consomme via
+ * de champs EXPLICITE. Ces champs sont exactement ceux que l'UI consomme via
  * `useProject()` ; en ajouter un est une décision consciente, et tsc casse si un
  * écran lit un champ non projeté.
  */
@@ -148,6 +153,9 @@ export function projectForClient(p: Doc<"projects">) {
     payCurrency: p.payCurrency ?? null,
     sidebarLinks: p.sidebarLinks ?? null,
     status: p.status,
+    // Décision RÉSOLUE (repli Snytch compris), jamais le champ brut : l'écran
+    // « Mes fichiers » vu par l'admin en observation lit la même que le portail.
+    fileDropEnabled: isFileDropEnabled(p),
   };
 }
 
@@ -405,11 +413,24 @@ export const getTalentSettings = permissionQuery("project.settings")({
   ): Promise<{
     fileDropEnabled: boolean;
     talentBriefFormatId: Id<"formats"> | null;
+    driveRootFolderId: string | null;
+    driveRootConfigured: boolean;
   }> => {
     const project = await ctx.db.get(ctx.projectId);
     return {
-      fileDropEnabled: project?.fileDropEnabled ?? false,
+      // Décision RÉSOLUE (repli Snytch compris), pas le champ brut : lu brut,
+      // l'interrupteur s'affichait éteint sur Snytch alors que le dépôt y est
+      // ouvert, et le rallumer aurait semblé changer quelque chose.
+      fileDropEnabled: isFileDropEnabled(project),
       talentBriefFormatId: project?.talentBriefFormatId ?? null,
+      driveRootFolderId: project?.driveRootFolderId ?? null,
+      // Racine EFFECTIVE (repli env de Snytch compris) : c'est elle qui décide
+      // si un dossier peut être créé, donc elle que l'écran doit signaler.
+      driveRootConfigured:
+        resolveDriveRootFolder(
+          project,
+          process.env.SNYTCH_DRIVE_ROOT_FOLDER_ID,
+        ) !== null,
     };
   },
 });
@@ -418,15 +439,29 @@ export const setTalentSettings = permissionMutation("project.settings")({
   args: {
     talentBriefFormatId: v.optional(v.union(v.id("formats"), v.null())),
     fileDropEnabled: v.optional(v.boolean()),
+    // Id nu OU URL du dossier (collée depuis Drive) ; null retire la racine.
+    driveRootFolderId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
-    { talentBriefFormatId, fileDropEnabled },
+    { talentBriefFormatId, fileDropEnabled, driveRootFolderId },
   ): Promise<{ updated: true }> => {
     const patch: {
       talentBriefFormatId?: Id<"formats"> | undefined;
       fileDropEnabled?: boolean;
+      driveRootFolderId?: string | undefined;
     } = {};
+    if (driveRootFolderId !== undefined) {
+      if (driveRootFolderId === null) {
+        patch.driveRootFolderId = undefined;
+      } else {
+        const parsed = parseDriveFolderId(driveRootFolderId);
+        if (parsed === null) {
+          throw err(ERR.DRIVE_FOLDER_INVALID, "Dossier Drive illisible : colle son lien ou son identifiant.");
+        }
+        patch.driveRootFolderId = parsed;
+      }
+    }
     if (talentBriefFormatId !== undefined) {
       if (talentBriefFormatId === null) {
         patch.talentBriefFormatId = undefined;

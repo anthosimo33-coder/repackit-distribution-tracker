@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { isFileDropEnabled } from "../convex/fileDrop";
+import {
+  isFileDropEnabled,
+  parseDriveFolderId,
+  resolveDriveRootFolder,
+} from "../convex/fileDrop";
 import { SNYTCH_SLUG } from "./snytch-drive";
 
 /**
@@ -70,5 +74,71 @@ describe("parité du littéral de slug (A6 — 3 déclarations)", () => {
 
   it("le repli est bien branché sur CE littéral", () => {
     expect(isFileDropEnabled({ slug: SNYTCH_SLUG })).toBe(true);
+  });
+});
+
+/**
+ * RACINE DRIVE PAR PROJET. Le défaut corrigé : une racine d'env UNIQUE servait
+ * à tous les projets, donc ouvrir le dépôt ailleurs créait les dossiers de SES
+ * créatrices dans le Drive de Snytch. Id de forme réelle (33 caractères, tirets
+ * et soulignés) — pas un « abc » qui passerait n'importe quelle regex.
+ */
+const ENV_ROOT = "1Qk3v_Zr8-LmT0aBcD9eFgHiJkLmNoPqR";
+const OWN_ROOT = "0AbC-dEf_1234567890ghIJklMNopqRsTu";
+
+describe("resolveDriveRootFolder — jamais la racine d'un autre projet", () => {
+  it("un autre projet, dépôt OUVERT, sans racine propre → null (pas l'env de Snytch)", () => {
+    expect(
+      resolveDriveRootFolder(
+        { slug: "repackit", fileDropEnabled: true },
+        ENV_ROOT,
+      ),
+    ).toBeNull();
+    expect(
+      resolveDriveRootFolder({ slug: "e2e-test", fileDropEnabled: true }, ENV_ROOT),
+    ).toBeNull();
+  });
+
+  it("Snytch sans champ → racine d'env (repli exact, 0 migration)", () => {
+    expect(resolveDriveRootFolder({ slug: SNYTCH_SLUG }, ENV_ROOT)).toBe(ENV_ROOT);
+    // Env absente ou vide → rien (jamais une chaîne vide prise pour un id).
+    expect(resolveDriveRootFolder({ slug: SNYTCH_SLUG }, undefined)).toBeNull();
+    expect(resolveDriveRootFolder({ slug: SNYTCH_SLUG }, "  ")).toBeNull();
+  });
+
+  it("la racine propre l'emporte — sur Snytch comme ailleurs", () => {
+    expect(
+      resolveDriveRootFolder({ slug: "repackit", driveRootFolderId: OWN_ROOT }, ENV_ROOT),
+    ).toBe(OWN_ROOT);
+    expect(
+      resolveDriveRootFolder({ slug: SNYTCH_SLUG, driveRootFolderId: OWN_ROOT }, ENV_ROOT),
+    ).toBe(OWN_ROOT);
+  });
+
+  it("projet introuvable → null", () => {
+    expect(resolveDriveRootFolder(null, ENV_ROOT)).toBeNull();
+    expect(resolveDriveRootFolder(undefined, ENV_ROOT)).toBeNull();
+  });
+});
+
+describe("parseDriveFolderId — ce qu'un admin colle vraiment", () => {
+  it("l'URL telle que Drive l'affiche (paramètres, /u/0/) → l'id", () => {
+    expect(
+      parseDriveFolderId(`https://drive.google.com/drive/folders/${OWN_ROOT}?usp=sharing`),
+    ).toBe(OWN_ROOT);
+    expect(
+      parseDriveFolderId(` https://drive.google.com/drive/u/0/folders/${OWN_ROOT} `),
+    ).toBe(OWN_ROOT);
+  });
+
+  it("l'id nu → lui-même", () => {
+    expect(parseDriveFolderId(OWN_ROOT)).toBe(OWN_ROOT);
+  });
+
+  it("illisible → null (refusé, jamais stocké)", () => {
+    expect(parseDriveFolderId("")).toBeNull();
+    expect(parseDriveFolderId("mon dossier")).toBeNull();
+    expect(parseDriveFolderId("https://drive.google.com/drive/my-drive")).toBeNull();
+    expect(parseDriveFolderId("abc")).toBeNull();
   });
 });

@@ -93,6 +93,7 @@ export function ViewAsProvider({
     payoutDay: project.payoutDay,
     creatorName: creator.name,
     payCurrency: project.payCurrency ?? null,
+    fileDropEnabled: project.fileDropEnabled,
   };
 
   return (
