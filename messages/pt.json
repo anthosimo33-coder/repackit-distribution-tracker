@@ -240,7 +240,8 @@
         "creator": "Criador"
       },
       "forgot": "Esqueceu a senha?",
-      "forgotHint": "Peça um link de redefinição ao seu administrador: ele gera pela sua ficha."
+      "forgotHint": "Peça um link de redefinição ao seu administrador: ele gera pela sua ficha.",
+      "noAccount": "Ainda não tem conta? Ela é criada pelo link de convite que seu administrador envia."
     }
   },
   "portal": {

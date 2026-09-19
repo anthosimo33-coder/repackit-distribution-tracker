@@ -240,7 +240,8 @@
         "creator": "Creator"
       },
       "forgot": "Forgot password?",
-      "forgotHint": "Ask your administrator for a reset link: they generate it from your profile."
+      "forgotHint": "Ask your administrator for a reset link: they generate it from your profile.",
+      "noAccount": "No account yet? You create it from the invite link your administrator sends you."
     }
   },
   "portal": {

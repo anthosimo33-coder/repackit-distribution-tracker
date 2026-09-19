@@ -240,7 +240,8 @@
         "creator": "Creador"
       },
       "forgot": "¿Olvidaste tu contraseña?",
-      "forgotHint": "Pide un enlace de restablecimiento a tu administrador: lo genera desde tu ficha."
+      "forgotHint": "Pide un enlace de restablecimiento a tu administrador: lo genera desde tu ficha.",
+      "noAccount": "¿Aún no tienes cuenta? Se crea desde el enlace de invitación que te envía tu administrador."
     }
   },
   "portal": {
