@@ -189,6 +189,8 @@
     "admin.validation.ValidationPageInner.type",
     "admin.validation.VideoReviewCard.script",
     "auth.field.email",
+    "auth.home.roles.admin",
+    "auth.home.roles.manager",
     "clip.phaseUnknown",
     "estimator.base",
     "format.brief",

@@ -1,0 +1,93 @@
+/* Effets repris de la landing Jarvia (jarvia-creator-lp) — ce que Tailwind
+   n'exprime pas proprement : texte chromé, contour irisé, rayons. */
+
+.chrome {
+  background: linear-gradient(
+    100deg,
+    #f8fafb,
+    #c9cdd6 20%,
+    #eaf2f5 38%,
+    #9d7fe8 52%,
+    #c9cdd6 68%,
+    #f8fafb 85%
+  );
+  background-size: 250% 100%;
+  background-position: 50% 50%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.iris {
+  position: absolute;
+  inset: -2px;
+  border-radius: 10px;
+  padding: 1.5px;
+  background: linear-gradient(120deg, #eaf2f5, #c9cdd6 30%, #9d7fe8 55%, #c9cdd6 80%, #eaf2f5);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.submit:hover .iris,
+.submit:focus-visible .iris {
+  opacity: 1;
+}
+
+.submit {
+  transition: box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 0 40px rgba(255, 255, 255, 0.14),
+    0 0 70px rgba(124, 92, 191, 0.28);
+}
+
+.submit:hover:not(:disabled) {
+  box-shadow:
+    0 0 24px rgba(255, 255, 255, 0.22),
+    0 0 72px rgba(124, 92, 191, 0.5);
+}
+
+.input {
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.input::placeholder {
+  color: rgba(244, 244, 245, 0.36);
+}
+
+.input:focus {
+  outline: none;
+  border-color: rgba(157, 127, 232, 0.6);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+.breathe {
+  animation: breathe 10s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breathe {
+    animation: none;
+  }
+}

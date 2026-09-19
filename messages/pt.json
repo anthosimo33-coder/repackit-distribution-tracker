@@ -211,6 +211,36 @@
     "field": {
       "email": "Email",
       "password": "Senha"
+    },
+    "home": {
+      "eyebrow": "Para criadores, managers e admins da Jarvia",
+      "titleLine1": "Crie. Publique.",
+      "titleLine2": "Receba.",
+      "subtitle": "O estúdio da rede de criadores da Jarvia. Suas missões, seus roteiros, seus posts publicados e seus ganhos, em um só lugar.",
+      "features": {
+        "missions": {
+          "title": "Missões e roteiros",
+          "body": "Seu brief, seu roteiro e os vídeos de exemplo: tudo pronto antes de gravar."
+        },
+        "posts": {
+          "title": "Posts e visualizações",
+          "body": "Cole o link uma vez. As visualizações são acompanhadas para você, post a post."
+        },
+        "earnings": {
+          "title": "Ganhos e níveis",
+          "body": "O que você ganhou, o que vem por aí e seu próximo nível de bônus."
+        }
+      },
+      "cardTitle": "Entre no seu estúdio",
+      "cardTitleSignUp": "Primeiro acesso",
+      "cardSubtitle": "Um só login para todos os papéis. Você cai direto no seu espaço.",
+      "roles": {
+        "admin": "Admin",
+        "manager": "Manager",
+        "creator": "Criador"
+      },
+      "forgot": "Esqueceu a senha?",
+      "forgotHint": "Peça um link de redefinição ao seu administrador: ele gera pela sua ficha."
     }
   },
   "portal": {

@@ -2,6 +2,8 @@
   "_": "Cles dont la valeur pt est LEGITIMEMENT identique au FR ou a l EN : marques, jargon, mots identiques. Toute autre egalite fait echouer la CI. Une cle qui n est plus identique doit sortir de la liste.",
   "keys": [
     "auth.field.email",
+    "auth.home.roles.admin",
+    "auth.home.roles.manager",
     "clip.phaseUnknown",
     "estimator.base",
     "layout.metadata.title",
