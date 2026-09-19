@@ -153,4 +153,70 @@ test.describe("Coût d'une vidéo — le même sur tous les écrans", () => {
       });
     }
   });
+
+  test("un palier débloqué ce mois-ci pèse dans la Rentabilité comme dans Analytics", async () => {
+    // Le mois EN COURS prenait le coût ENGAGÉ, qui ne porte que fixe + CPM : les
+    // 200 $ de bonus de septembre 2026 manquaient à la marge. Barème à fixe et CPM
+    // nuls pour isoler le palier. (Un palier est rangé sous son mois UTC : ce
+    // test peut se tromper de mois dans les 2 h qui précèdent minuit Paris un
+    // dernier jour du mois — résidu connu, cf profitability.creatorCostByMonth.)
+    test.setTimeout(180_000);
+    const ts = Date.now() + 1;
+    const projectId = await admin.getProjectId();
+    const ancien = await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+      secret: E2E_SECRET,
+      projectId,
+      whop: { companyId: `biz_e2e_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+    });
+    try {
+      const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+        name: `[E2E_TEST] Palier ${ts}`,
+        montantFixe: 0,
+        nbVideosCible: 1,
+        tauxCPM: 0,
+        bonusTiers: [{ seuilVues: 60_000, rewardType: "cash", montant: 187.5 }],
+      });
+      const formatId = (await createFormatWithRate(admin, {
+        name: `[E2E_TEST] Palier ${ts}`,
+        type: "short",
+        rateModel: { basePerPost: 0 },
+      })) as Id<"formats">;
+      const c = await createCreatorSession(convexUrl!, {
+        name: `[E2E_TEST] Nora Benali ${ts}`,
+        email: `e2e-palier-${ts}@repackit.test`,
+        password: `palier-${ts}-12345`,
+      });
+      await admin.mutation(api.creators.updateCreatorPayTerms, {
+        id: c.creatorId,
+        bonusPricingId: pricingId,
+      });
+      const target = await availableTarget({
+        e2eClient: admin,
+        creatorId: c.creatorId,
+        platform: "TikTok",
+        handle: `@nora.benali_${ts}`,
+      });
+      const rentab = async () =>
+        (await admin.query(api.profitability.getProjectProfitability, {})).total
+          .creatorCost;
+      const analytics = async () =>
+        (await admin.query(api.analyticsHub.getAttribution, {})).costs.total;
+      const r0 = await rentab();
+      const a0 = await analytics();
+
+      await video(c.creatorId, target, formatId, pricingId,
+        `https://www.tiktok.com/@nora.benali_${ts}/video/74${ts}`, 63_418);
+
+      // Présence : le palier est bien débloqué, et Analytics le compte…
+      expect((await analytics()) - a0).toBeCloseTo(187.5, 2);
+      // …la Rentabilité aussi.
+      expect((await rentab()) - r0).toBeCloseTo(187.5, 2);
+    } finally {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        ...(ancien ? { whop: ancien } : {}),
+      });
+    }
+  });
 });
