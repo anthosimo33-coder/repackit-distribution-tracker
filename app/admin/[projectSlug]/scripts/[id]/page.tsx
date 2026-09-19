@@ -8,11 +8,10 @@ import {
   useProjectMutation,
 } from "@/components/project/use-project-convex";
 import {
+  useProject,
   useProjectPath,
-  useProjectSlug,
 } from "@/components/project/ProjectProvider";
 import { usePermissions } from "@/components/project/use-permissions";
-import { isSnytchProject } from "@/lib/snytch-drive";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent } from "@/components/ui/card";
@@ -634,8 +633,10 @@ function BrickRow({
   const tr = useTranslations("admin.scripts.BrickRow");
   const tLabel = useLabel();
   const update = useProjectMutation(api.scripts.updateBrick);
-  const snytch = isSnytchProject(useProjectSlug());
-  const showMode = snytch && (brick.kind === "hook" || brick.kind === "flux");
+  // Réglage du projet, résolu serveur (convex/scriptZonesSetting) — la même
+  // décision que la fiche créatrice.
+  const zones = useProject().project.scriptZonesEnabled;
+  const showMode = zones && (brick.kind === "hook" || brick.kind === "flux");
   const modeDisplay = brickModeDisplay(resolveBrickMode(brick.mode));
 
   async function setActive(active: boolean) {
@@ -790,8 +791,10 @@ function BrickEditor({
   const create = useProjectMutation(api.scripts.createBrick);
   const update = useProjectMutation(api.scripts.updateBrick);
   const remove = useProjectMutation(api.scripts.deleteBrick);
-  const snytch = isSnytchProject(useProjectSlug());
-  const showMode = snytch && (kind === "hook" || kind === "flux");
+  // Réglage du projet, résolu serveur (convex/scriptZonesSetting) — la même
+  // décision que la fiche créatrice.
+  const zones = useProject().project.scriptZonesEnabled;
+  const showMode = zones && (kind === "hook" || kind === "flux");
 
   const [label, setLabel] = useState(brick?.label ?? "");
   const [content, setContent] = useState(brick?.content ?? "");
@@ -958,7 +961,7 @@ function BrickEditor({
                 placeholder={tr("exFlux2ScanClone")}
               />
             </div>
-            {/* SNYTCH — mode d'usage dans la vidéo (hook/flux) : dire / afficher
+            {/* DEUX ZONES (réglage du projet) — mode d'usage dans la vidéo (hook/flux) : dire / afficher
                 / les deux. Ce que la créatrice verra étiqueté sur ce bloc. */}
             {showMode && (
               <div className="space-y-1.5">
@@ -1053,7 +1056,9 @@ function CreatorPreview({
 }) {
   const tr = useTranslations("admin.scripts.CreatorPreview");
   const tKind = useTranslations("admin.scripts.brickKind");
-  const snytch = isSnytchProject(useProjectSlug());
+  // Réglage du projet, résolu serveur (convex/scriptZonesSetting) — la même
+  // décision que la fiche créatrice.
+  const zones = useProject().project.scriptZonesEnabled;
 
   /** Texte + consigne d'un slot : la SAISIE EN COURS pour le slot édité, la
    *  première brique active sinon. Taper met l'aperçu à jour, sans enregistrer. */
@@ -1115,7 +1120,7 @@ function CreatorPreview({
           {tr("enCoursDEdition", { value: tKind(KIND_LABEL_KEYS[kind]).toLowerCase() })}
         </span>
       </p>
-      {snytch ? (
+      {zones ? (
         <ScriptDestinationZones
           videoBlocks={[
             { text: hook.content.trim(), mode: hook.mode },
@@ -1442,9 +1447,11 @@ function PreviewDialog({
     cta: null,
   });
 
-  // SNYTCH — l'aperçu montre les DEUX zones de destination (ce que verra la
-  // créatrice) ; hors Snytch, rendu classique (script enchaîné, titres visibles).
-  const snytch = isSnytchProject(useProjectSlug());
+  // DEUX ZONES (réglage du projet) — l'aperçu montre les deux zones (ce que verra la
+  // créatrice) ; réglage éteint, rendu classique (script enchaîné, titres visibles).
+  // Réglage du projet, résolu serveur (convex/scriptZonesSetting) — la même
+  // décision que la fiche créatrice.
+  const zones = useProject().project.scriptZonesEnabled;
 
   function resolve(kind: ScriptKind): Brick | null {
     const actives = activeByKind(kind);
@@ -1488,7 +1495,7 @@ function PreviewDialog({
         <DialogHeader>
           <DialogTitle>{tr("apercuDUnScriptMonte")}</DialogTitle>
           <DialogDescription>
-            {snytch
+            {zones
               ? tr("ceQueVerraLaCreatrice")
               : tr("leRenduFinalDUne")}
           </DialogDescription>
@@ -1534,7 +1541,7 @@ function PreviewDialog({
           data-testid="preview-output"
         >
           {ready ? (
-            snytch ? (
+            zones ? (
               <ScriptDestinationZones
                 videoBlocks={[
                   {

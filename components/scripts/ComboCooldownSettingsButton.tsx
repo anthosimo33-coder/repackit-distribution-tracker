@@ -11,6 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { ComboCooldownSettingsCard } from "./ComboCooldownSettingsCard";
+import { ScriptZonesSettingsCard } from "./ScriptZonesSettingsCard";
 import { usePermissions } from "@/components/project/use-permissions";
 import { useTranslations } from "next-intl";
 
@@ -47,8 +48,11 @@ export function ComboCooldownSettingsButton() {
             {tr("aQuelEcartUnMeme")}
           </SheetDescription>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <ComboCooldownSettingsCard />
+          {/* Même panneau : ce sont les deux réglages de PROJET des scripts, et
+              le dépôt n'a pas de route « réglages du projet ». */}
+          <ScriptZonesSettingsCard />
         </div>
       </SheetContent>
     </Sheet>

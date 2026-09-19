@@ -170,7 +170,6 @@
     "admin.ops.radarSort.engagement",
     "admin.scripts.BrickRow.inactive",
     "admin.scripts.BrickRow.run",
-    "admin.scripts.ComboCooldownSettingsButton.cooldown",
     "admin.scripts.ComboSection.signal",
     "admin.scripts.HookAvailabilityBadge.cooldown",
     "admin.scripts.ScriptAnalyticsPage.analytics",

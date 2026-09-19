@@ -215,6 +215,11 @@ export default defineSchema({
     accountValidation: v.optional(
       v.union(v.literal("strict"), v.literal("lenient")),
     ),
+    // ─── Script en deux zones (🎬 dans la vidéo / 📝 en description) ─────────
+    // AFFICHAGE seulement (le texte figé des missions n'est jamais réécrit).
+    // ABSENT ⇒ repli exact sur l'ancien test de slug : Snytch en deux zones, le
+    // reste en bloc unique (0 migration). Lu par convex/scriptZonesSetting.
+    scriptZonesEnabled: v.optional(v.boolean()),
     // ─── COOLDOWN de combo de script, en jours (règle ÉDITORIALE du projet) ───
     // Un comboKey programmé (ou publié) à moins de N jours d'une date visée n'est
     // pas réattribuable à cette date, quel que soit le compte ou la créatrice.

@@ -199,9 +199,9 @@
     "uniciteAVieCetteCreatrice": "Lifetime uniqueness: this creator has already had this hook on this platform"
   },
   "ComboCooldownSettingsButton": {
-    "cooldown": "Cooldown",
-    "cooldownDesScriptsCeProjet": "Script cooldown — this project",
-    "aQuelEcartUnMeme": "How far apart the same script can go out again on another account."
+    "cooldown": "Script settings",
+    "cooldownDesScriptsCeProjet": "Scripts — this project's settings",
+    "aQuelEcartUnMeme": "How far apart the same script can go out again on another account, and how creators see it."
   },
   "ComboCooldownSettingsCard": {
     "cooldownDUnScriptEn": "Script cooldown, in days",
@@ -231,5 +231,12 @@
     "aCouper": "Cut {label}{hasEcart, select, yes { — median {ecart} below peers} other {}}, on {posts} posts.",
     "neutre": "{label} — average{hasEcart, select, yes { ({ecart})} other {}}, keep it in rotation. {posts} posts.",
     "enTest": "{label} — testing, {posts}/{seuil} posts."
+  },
+  "ScriptZonesSettingsCard": {
+    "titre": "Two-part script",
+    "aide": "Splits what goes in the video from what goes in the caption (to copy), with each block marked \"say it\" or \"show it\". Also applies to missions already assigned; their text isn't changed.",
+    "modeParDefaut": "A block with no mode shows as \"say AND show on screen\". Set the mode of each hook and flow in the block editor so the label is right.",
+    "reglageEnregistre": "Setting saved",
+    "uneErreurEstSurvenue": "Something went wrong"
   }
 }

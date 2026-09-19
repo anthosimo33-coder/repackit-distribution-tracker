@@ -148,6 +148,7 @@ import type * as rushes from "../rushes.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
 import type * as scriptDecision from "../scriptDecision.js";
 import type * as scriptSeedData from "../scriptSeedData.js";
+import type * as scriptZonesSetting from "../scriptZonesSetting.js";
 import type * as scripts from "../scripts.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
@@ -328,6 +329,7 @@ declare const fullApi: ApiFromModules<{
   scriptAnalytics: typeof scriptAnalytics;
   scriptDecision: typeof scriptDecision;
   scriptSeedData: typeof scriptSeedData;
+  scriptZonesSetting: typeof scriptZonesSetting;
   scripts: typeof scripts;
   snapshotMatching: typeof snapshotMatching;
   snytchDrive: typeof snytchDrive;
