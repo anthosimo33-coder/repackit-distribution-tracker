@@ -10,6 +10,8 @@
     "estimator.base",
     "format.brief",
     "home.apps.platforms",
+    "home.mock.bonus",
+    "home.mock.notifSender",
     "layout.metadata.title",
     "nav.espace.role.manager",
     "nav.item.radar",

@@ -1720,6 +1720,49 @@
       "tagline": "L'espace créateurs du studio Jarvia",
       "invite": "Accès sur invitation.",
       "navigate": "Naviguer"
+    },
+    "bento": {
+      "tiers": {
+        "title": "Des paliers à débloquer",
+        "body": "Ta progression vers le prochain palier, et la récompense qui va avec."
+      },
+      "notif": {
+        "title": "Rien à relancer",
+        "body": "Vues qui décollent, rappel de publication, paiement envoyé : tu es prévenu·e."
+      },
+      "swipe": "Glisse pour voir les 6"
+    },
+    "mock": {
+      "nextAction": "Ta prochaine action",
+      "due": "À envoyer avant vendredi",
+      "start": "Commencer",
+      "todo": "À faire",
+      "missionTitle": "Tourner « Snytch — l'ex »",
+      "inVideo": "Dans la vidéo",
+      "inCaption": "En description",
+      "copy": "Copier",
+      "hook": "« POV : tu découvres qui ton ex a unfollow cette nuit »",
+      "cta": "Snytch, le lien est dans ma bio.",
+      "totalViews": "Vues cumulées",
+      "dailyPull": "Relevé chaque jour",
+      "yesterday": "+{n} hier",
+      "postMetaTiktok": "TikTok · il y a 2 j",
+      "postMetaInstagram": "Instagram · il y a 4 j",
+      "cycle": "Ce cycle",
+      "paidIn": "Payé dans 30 jours",
+      "fixed": "Fixe",
+      "views": "Vues",
+      "bonus": "Bonus",
+      "nextTier": "Prochain palier",
+      "tierGoal": "300 000 vues payées",
+      "tierUnlocked": "Palier 1 · débloqué",
+      "tierCurrent": "Palier 2 · en cours",
+      "notifSender": "Jarvia",
+      "notifViews": "50 000 vues sur ta dernière vidéo.",
+      "reminderSender": "Rappel du jour",
+      "reminderBody": "Il te reste 1 vidéo à publier aujourd'hui.",
+      "paymentSender": "Paiement",
+      "paymentBody": "Ton cycle est soldé : 99,60 $ envoyés."
     }
   }
 }

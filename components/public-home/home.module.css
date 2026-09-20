@@ -1,5 +1,32 @@
-/* Effets de la page d'accueil publique, repris de la maquette (landing Jarvia
-   + structure Playkit) : ce que Tailwind n'exprime pas proprement. */
+/* Page d'accueil publique — effets que Tailwind n'exprime pas proprement :
+   texte chromé, mur de vidéos, apparitions, curseur, coutures de sections.
+   Tout ce qui bouge est neutralisé par `prefers-reduced-motion` en bas. */
+
+/* ─── Échelle typographique et rythme vertical ───────────────────────────── */
+.page {
+  --step-1: clamp(0.8125rem, 0.78rem + 0.15vw, 0.875rem);
+  --step0: clamp(0.9375rem, 0.9rem + 0.2vw, 1.0625rem);
+  --step1: clamp(1.125rem, 1.05rem + 0.35vw, 1.3125rem);
+  --step2: clamp(1.5rem, 1.3rem + 0.9vw, 1.875rem);
+  --step3: clamp(2.25rem, 1.7rem + 2.6vw, 4rem);
+  --step4: clamp(3.5rem, 2rem + 7.4vw, 7.75rem);
+  --gutter: clamp(1rem, 0.4rem + 2.6vw, 3.5rem);
+  --section-y: clamp(5rem, 3rem + 9vw, 10rem);
+}
+
+.display {
+  font-family: "Clash Display", sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.045em;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-weight: 500;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 .chrome {
   background: linear-gradient(
@@ -19,14 +46,28 @@
   -webkit-text-fill-color: transparent;
 }
 
+/* ─── Apparitions au défilement ──────────────────────────────────────────── */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal[data-shown] {
+  opacity: 1;
+  transform: none;
+}
+
+/* ─── Mur de vidéos ──────────────────────────────────────────────────────── */
 @keyframes marquee {
   to {
     transform: translateX(-50%);
   }
 }
 
-/* Piste dupliquée : -50 % ramène exactement au début, sans à-coup. Les marges
-   sont portées par les éléments (pas de `gap`), sinon la boucle saute. */
 .track {
   display: flex;
   width: max-content;
@@ -41,10 +82,25 @@
   animation-play-state: paused;
 }
 
+.videoCard {
+  transition:
+    transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.videoCard:hover {
+  transform: translateY(-6px) scale(1.015);
+  box-shadow:
+    0 40px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(157, 127, 232, 0.5);
+}
+
+/* ─── Micro-interactions ─────────────────────────────────────────────────── */
 .btn {
   transition:
-    box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.35s ease;
 }
 
 .btn:hover {
@@ -52,6 +108,63 @@
   box-shadow:
     0 0 24px rgba(255, 255, 255, 0.22),
     0 0 72px rgba(124, 92, 191, 0.5);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+/* La flèche avance, revient au repos : le bouton « pousse » vers l'action. */
+.btnArrow {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn:hover .btnArrow {
+  transform: translateX(3px);
+}
+
+/* Lien de navigation : le trait se déroule depuis la gauche. */
+.navLink {
+  position: relative;
+}
+
+.navLink::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.navLink:hover::after,
+.navLink:focus-visible::after {
+  transform: scaleX(1);
+}
+
+.card {
+  transition:
+    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.4s ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 1px 2px rgba(10, 10, 11, 0.05),
+    0 32px 64px rgba(10, 10, 11, 0.1);
+}
+
+.cardDark:hover {
+  border-color: rgba(157, 127, 232, 0.45);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 32px 64px rgba(124, 92, 191, 0.18);
 }
 
 .row:hover .rowTitle {
@@ -67,12 +180,169 @@
   display: none;
 }
 
+.faq summary:hover .plus {
+  background: #7c5cbf;
+}
+
+.plus {
+  transition:
+    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.35s ease;
+}
+
 .faq[open] .plus {
   transform: rotate(45deg);
 }
 
+/* Rail bento mobile : glissé horizontal, sans barre de défilement visible. */
+.rail {
+  scrollbar-width: none;
+  scroll-snap-type: x mandatory;
+}
+
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+.railItem {
+  scroll-snap-align: center;
+}
+
+/* ─── Couture entre une section noire et une section claire ──────────────── */
+.seam {
+  position: absolute;
+  inset-inline: 0;
+  top: -1px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(157, 127, 232, 0),
+    rgba(157, 127, 232, 0.75) 35%,
+    rgba(234, 242, 245, 0.9) 50%,
+    rgba(157, 127, 232, 0.75) 65%,
+    rgba(157, 127, 232, 0)
+  );
+}
+
+/* Le fil vertical qui descend de la couture, comme sur la landing. */
+.thread {
+  position: absolute;
+  top: -72px;
+  left: 50%;
+  width: 1px;
+  height: 144px;
+  background: linear-gradient(
+    180deg,
+    rgba(157, 127, 232, 0),
+    rgba(157, 127, 232, 0.7),
+    rgba(157, 127, 232, 0)
+  );
+}
+
+/* Halo qui déborde de la couture pour fondre le noir dans le clair. */
+.seamGlow {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: min(900px, 90vw);
+  height: 260px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    closest-side,
+    rgba(124, 92, 191, 0.28),
+    rgba(124, 92, 191, 0) 72%
+  );
+  filter: blur(6px);
+}
+
+/* ─── Curseur personnalisé ───────────────────────────────────────────────── */
+:global(html[data-cursor-on]) .page,
+:global(html[data-cursor-on]) .page a,
+:global(html[data-cursor-on]) .page button,
+:global(html[data-cursor-on]) .page summary {
+  cursor: none;
+}
+
+.cursorDot,
+.cursorHalo {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.cursorDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow:
+    0 0 4px #fff,
+    0 0 14px rgba(157, 127, 232, 0.9);
+}
+
+.cursorHalo {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(157, 127, 232, 0.55);
+}
+
+.cursorHalo[data-grow] {
+  width: 56px;
+  height: 56px;
+  border-color: rgba(157, 127, 232, 0.9);
+  background: rgba(157, 127, 232, 0.08);
+}
+
+.cursorHalo {
+  transition:
+    opacity 0.4s ease,
+    width 0.25s ease,
+    height 0.25s ease,
+    border-color 0.25s ease,
+    background-color 0.25s ease;
+}
+
+/* ─── Décor du hero ──────────────────────────────────────────────────────── */
+@keyframes breathe {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.05);
+  }
+}
+
+.breathe {
+  animation: breathe 10s ease-in-out infinite;
+}
+
+/* ─── Mouvement réduit : tout se fige, rien ne disparaît ─────────────────── */
 @media (prefers-reduced-motion: reduce) {
-  .track {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .track,
+  .breathe {
     animation: none;
+  }
+
+  .btn:hover,
+  .card:hover,
+  .videoCard:hover {
+    transform: none;
+  }
+
+  .cursorDot,
+  .cursorHalo {
+    display: none;
   }
 }
