@@ -7,6 +7,7 @@
     "clip.phaseUnknown",
     "estimator.base",
     "home.apps.platforms",
+    "home.mock.notifSender",
     "layout.metadata.title",
     "nav.item.radar",
     "nav.section.veille",

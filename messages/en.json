@@ -1720,6 +1720,49 @@
       "tagline": "The Jarvia studio's creator space",
       "invite": "Invite only.",
       "navigate": "Navigate"
+    },
+    "bento": {
+      "tiers": {
+        "title": "Tiers to unlock",
+        "body": "How close you are to the next tier, and the reward that comes with it."
+      },
+      "notif": {
+        "title": "Nothing to chase",
+        "body": "A video taking off, a posting reminder, a payout sent: you're told."
+      },
+      "swipe": "Swipe to see all 6"
+    },
+    "mock": {
+      "nextAction": "Your next action",
+      "due": "Due Friday",
+      "start": "Start",
+      "todo": "To do",
+      "missionTitle": "Film “Snytch — the ex”",
+      "inVideo": "In the video",
+      "inCaption": "In the caption",
+      "copy": "Copy",
+      "hook": "“POV: you find out who your ex unfollowed last night”",
+      "cta": "Snytch, link's in my bio.",
+      "totalViews": "Total views",
+      "dailyPull": "Pulled every day",
+      "yesterday": "+{n} yesterday",
+      "postMetaTiktok": "TikTok · 2 days ago",
+      "postMetaInstagram": "Instagram · 4 days ago",
+      "cycle": "This cycle",
+      "paidIn": "Paid in 30 days",
+      "fixed": "Flat",
+      "views": "Views",
+      "bonus": "Bonus",
+      "nextTier": "Next tier",
+      "tierGoal": "300,000 paid views",
+      "tierUnlocked": "Tier 1 · unlocked",
+      "tierCurrent": "Tier 2 · in progress",
+      "notifSender": "Jarvia",
+      "notifViews": "50,000 views on your latest video.",
+      "reminderSender": "Daily reminder",
+      "reminderBody": "You still have 1 video to post today.",
+      "paymentSender": "Payout",
+      "paymentBody": "Your cycle is settled: $99.60 sent."
     }
   }
 }

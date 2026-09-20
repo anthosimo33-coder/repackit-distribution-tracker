@@ -1720,6 +1720,49 @@
       "tagline": "El espacio de creadores del estudio Jarvia",
       "invite": "Acceso por invitación.",
       "navigate": "Navegar"
+    },
+    "bento": {
+      "tiers": {
+        "title": "Niveles por desbloquear",
+        "body": "Lo que te falta para el próximo nivel, y la recompensa que trae."
+      },
+      "notif": {
+        "title": "Nada que perseguir",
+        "body": "Un video que despega, un recordatorio, un pago enviado: te avisamos."
+      },
+      "swipe": "Desliza para ver los 6"
+    },
+    "mock": {
+      "nextAction": "Tu próxima acción",
+      "due": "Para el viernes",
+      "start": "Empezar",
+      "todo": "Por hacer",
+      "missionTitle": "Grabar «Snytch — el ex»",
+      "inVideo": "En el video",
+      "inCaption": "En la descripción",
+      "copy": "Copiar",
+      "hook": "«POV: descubres a quién dejó de seguir tu ex anoche»",
+      "cta": "Snytch, el enlace está en mi bio.",
+      "totalViews": "Vistas acumuladas",
+      "dailyPull": "Se recoge cada día",
+      "yesterday": "+{n} ayer",
+      "postMetaTiktok": "TikTok · hace 2 días",
+      "postMetaInstagram": "Instagram · hace 4 días",
+      "cycle": "Este ciclo",
+      "paidIn": "Se paga en 30 días",
+      "fixed": "Fijo",
+      "views": "Vistas",
+      "bonus": "Bonus",
+      "nextTier": "Próximo nivel",
+      "tierGoal": "300 000 vistas pagadas",
+      "tierUnlocked": "Nivel 1 · desbloqueado",
+      "tierCurrent": "Nivel 2 · en curso",
+      "notifSender": "Jarvia",
+      "notifViews": "50 000 vistas en tu último video.",
+      "reminderSender": "Recordatorio del día",
+      "reminderBody": "Te queda 1 video por publicar hoy.",
+      "paymentSender": "Pago",
+      "paymentBody": "Tu ciclo está saldado: 99,60 $ enviados."
     }
   }
 }
