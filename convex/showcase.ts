@@ -18,12 +18,24 @@ import { getProjectBySlug } from "./projects";
  * `null` si le projet n'existe pas (déploiement de dev, e2e) : la page masque
  * alors le bloc de chiffres au lieu d'afficher des zéros.
  */
-export const SHOWCASE_PROJECT_SLUG = "snytch";
+/**
+ * Quel projet est en vitrine sur la page d'accueil. Réglage du DÉPLOIEMENT
+ * (variable Convex `SHOWCASE_PROJECT_SLUG`), pas du client : changer d'app en
+ * vitrine ne demande pas de redéployer le front, et le visiteur ne peut pas
+ * demander les chiffres d'un autre projet. Défaut : la première app du studio.
+ *
+ * Le backend e2e pointe ce réglage sur son propre projet (cf
+ * scripts/convex-local.sh) : sans ça, le bloc de chiffres n'est jamais rendu
+ * pendant les tests — c'est ce trou qui a laissé passer l'erreur 500 du
+ * 20/09/2026.
+ */
+export const DEFAULT_SHOWCASE_SLUG = "snytch";
 
 export const getShowcaseStats = publicQuery({
   args: {},
   handler: async (ctx) => {
-    const project = await getProjectBySlug(ctx, SHOWCASE_PROJECT_SLUG);
+    const slug = process.env.SHOWCASE_PROJECT_SLUG || DEFAULT_SHOWCASE_SLUG;
+    const project = await getProjectBySlug(ctx, slug);
     if (project === null) return null;
 
     const publications = await ctx.db
