@@ -322,6 +322,70 @@
   animation: breathe 10s ease-in-out infinite;
 }
 
+
+/* ─── Entrée en scène du hero (concept B validé) ─────────────────────────────
+   Rien ici ne s'applique tant que EntranceGate n'a pas posé
+   `html[data-entrance="on"]` : sans JavaScript, avec `prefers-reduced-motion`
+   ou au retour dans la même session, le hero est simplement là, immobile.
+   L'ordre : rayons → diamant → titre ligne par ligne → phrase → boutons →
+   vidéos en escalier → barre du haut. */
+@keyframes entRay {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes entRise {
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes entFadeUp {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes entFly {
+  to {
+    opacity: 1;
+    transform: translateY(0) rotate(var(--tilt, 0deg));
+  }
+}
+
+:global(html[data-entrance="on"]) .entRay {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: entRay 0.9s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s) forwards;
+}
+
+:global(html[data-entrance="on"]) .entLine {
+  transform: translateY(115%);
+  animation: entRise 1s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0.75s) forwards;
+}
+
+:global(html[data-entrance="on"]) .entFade {
+  opacity: 0;
+  transform: translateY(14px);
+  animation: entFadeUp 0.9s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0s) forwards;
+}
+
+:global(html[data-entrance="on"]) .entCard {
+  opacity: 0;
+  transform: translateY(90px) rotate(var(--tilt, 0deg));
+  animation: entFly 1s cubic-bezier(0.16, 1, 0.3, 1) var(--d, 1.45s) forwards;
+}
+
+/* Le titre monte derrière un masque : la ligne sort du blanc, jamais du vide. */
+.entMask {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.06em;
+  margin-bottom: -0.06em;
+}
+
 /* ─── Mouvement réduit : tout se fige, rien ne disparaît ─────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .reveal {

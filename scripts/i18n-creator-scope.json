@@ -99,6 +99,7 @@
     "components/public-home/BentoCards.tsx",
     "components/public-home/CountUp.tsx",
     "components/public-home/Cursor.tsx",
+    "components/public-home/EntranceGate.tsx",
     "components/public-home/HeroDiamond.tsx",
     "components/public-home/PublicHome.tsx",
     "components/public-home/Reveal.tsx",
