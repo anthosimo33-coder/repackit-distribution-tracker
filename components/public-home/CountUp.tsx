@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * Compteur qui grimpe quand le chiffre entre à l'écran.
@@ -9,21 +9,37 @@ import { useEffect, useRef, useState } from "react";
  * formatée) : sans JavaScript, avec `prefers-reduced-motion`, ou pour un
  * lecteur d'écran, on lit la bonne valeur tout de suite. L'animation ne fait
  * que remplacer ce texte pendant ~1,4 s.
+ *
+ * ⚠️ Le formatage est décrit par des DONNÉES (`locale` + `compact`), jamais par
+ * une fonction : une fonction passée d'un composant serveur à un composant
+ * client n'est pas sérialisable et fait planter le rendu — c'est ce qui a mis
+ * la page d'accueil en erreur 500 en production le 20/09/2026, invisible en
+ * local où le bloc de chiffres n'est pas rendu (projet absent).
  */
 export function CountUp({
   value,
-  format,
+  locale,
+  compact = false,
   children,
   className,
 }: {
   value: number;
-  /** Même formatage que le rendu serveur (Intl), pour éviter tout saut. */
-  format: (n: number) => string;
+  locale: string;
+  /** Même réglage que le rendu serveur, pour éviter tout saut de format. */
+  compact?: boolean;
   children: React.ReactNode;
   className?: string;
 }) {
   const ref = useRef<HTMLSpanElement | null>(null);
   const [text, setText] = useState<string | null>(null);
+  const format = useMemo(
+    () =>
+      new Intl.NumberFormat(
+        locale,
+        compact ? { notation: "compact", maximumFractionDigits: 1 } : {},
+      ),
+    [locale, compact],
+  );
 
   useEffect(() => {
     const el = ref.current;
@@ -42,7 +58,7 @@ export function CountUp({
           const t = Math.min(1, (now - started) / DURATION);
           // easeOutExpo : très rapide au début, s'arrête net sur la valeur.
           const eased = t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
-          setText(format(Math.round(value * eased)));
+          setText(format.format(Math.round(value * eased)));
           if (t < 1) raf = requestAnimationFrame(tick);
         };
         raf = requestAnimationFrame(tick);

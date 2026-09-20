@@ -299,12 +299,12 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
                     <dl className="m-0 grid grid-cols-2 gap-x-4 border-t border-white/10 lg:grid-cols-4 lg:gap-x-0">
                       {(
                         [
-                          ["videos", stats.videos, whole],
-                          ["views", stats.views, compact],
-                          ["accounts", stats.accounts, whole],
-                          ["creators", stats.creators, whole],
+                          ["videos", stats.videos, false],
+                          ["views", stats.views, true],
+                          ["accounts", stats.accounts, false],
+                          ["creators", stats.creators, false],
                         ] as const
-                      ).map(([key, value, fmt], i) => (
+                      ).map(([key, value, isCompact], i) => (
                         <div
                           key={key}
                           className={cn(
@@ -315,8 +315,8 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
                         >
                           <dt className="text-[13px] text-[#f4f4f5]/65 md:text-sm">{t(`apps.stats.${key}`)}</dt>
                           <dd className={cn(styles.display, styles.chrome, "m-0 text-4xl leading-none md:text-[56px]")}>
-                            <CountUp value={value} format={(x) => fmt.format(x)}>
-                              {fmt.format(value)}
+                            <CountUp value={value} locale={locale} compact={isCompact}>
+                              {(isCompact ? compact : whole).format(value)}
                             </CountUp>
                           </dd>
                         </div>
