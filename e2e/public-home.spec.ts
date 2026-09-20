@@ -1,4 +1,14 @@
 import { test, expect } from "./fixtures/auth-fixture";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
+import { createFormatWithRate } from "./helpers/formats";
+import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
+
+const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
+const admin = createE2eClient(convexUrl);
 
 /**
  * `/` — page d'accueil PUBLIQUE pour un visiteur, routage par rôle pour un
@@ -84,5 +94,87 @@ test.describe("Accueil — public sans session, routage par rôle connecté", ()
     expect(box.scroll).toBeGreaterThan(box.client + 200);
     expect(box.page).toBe(box.inner);
     await context.close();
+  });
+
+  test("vitrine : les chiffres du studio sont rendus, sans erreur serveur", async ({
+    browser,
+  }) => {
+    // CE TEST EXISTE POUR UN DÉFAUT RÉEL. Le bloc de chiffres n'est rendu que
+    // si le projet vitrine a des vidéos ; sans publication en base, il était
+    // absent des tests et une erreur de rendu y est passée jusqu'en production
+    // (500 sur `/`, le 20/09/2026). On sème donc une vraie publication, puis on
+    // vérifie que la page la publie ET qu'aucune erreur serveur ne remonte.
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const creator = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] Vitrine ${ts}`,
+      email: `e2e-creator-vitrine-${ts}@repackit.test`,
+      password: "vitrine-home-12345",
+    });
+    const formatId = await createFormatWithRate(admin, {
+      name: `[E2E_TEST] Vitrine ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 5 },
+    });
+    const handle = `@e2evitrine${ts % 100000}`;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: creator.creatorId,
+      platform: "TikTok",
+      handle,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: formatId as Id<"formats">,
+      creatorId: creator.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 2 * 86_400_000,
+    });
+    const row = (await admin.query(api.assignments.listAssignments, {})).find(
+      (a) => a.formatId === formatId && a.creatorId === creator.creatorId,
+    )!;
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: row._id,
+      status: "to_publish",
+    });
+    const { publicationIds } = await creator.client.mutation(
+      api.assignments.confirmPublication,
+      {
+        projectId: creator.projectId,
+        id: row._id,
+        urls: [
+          {
+            platform: "TikTok",
+            url: `https://www.tiktok.com/${handle}/video/76872011080323${ts % 10000}`,
+          },
+        ],
+      },
+    );
+    await admin.mutation(api.metricSnapshots.createSnapshot, {
+      publicationId: publicationIds[0],
+      capturedAt: Date.now(),
+      vues: 48_300,
+      likes: 3_900,
+    });
+
+    const context = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+    });
+    const page = await context.newPage();
+    const response = await page.goto("/");
+    expect(response?.status()).toBe(200);
+    // Le bloc de chiffres est bien là, avec des valeurs (jamais des zéros).
+    const stats = page.getByRole("definition").first();
+    await expect(page.getByText("Vidéos publiées")).toBeVisible();
+    await expect(stats).not.toHaveText("0");
+    await expect(page.getByText("Vues cumulées").first()).toBeVisible();
+    // Et aucune erreur de rendu serveur n'est remontée dans la page.
+    await expect(page.locator("#__next_error__")).toHaveCount(0);
+
+    await context.close();
+    await admin.mutation(api.assignments.cleanupTestAssignments, { secret: E2E_SECRET });
+    await admin.mutation(api.payments.cleanupTestPayments, { secret: E2E_SECRET });
+    await admin.mutation(api.creators.cleanupTestCreators, { secret: E2E_SECRET });
   });
 });

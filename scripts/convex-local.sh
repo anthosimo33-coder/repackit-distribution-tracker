@@ -140,6 +140,10 @@ write_deployment_vars() {
       // DEV/TEST UNIQUEMENT (jamais en prod, cf convex/auth.ts) : JWT de 30 j pour
       // qu\aucun refresh (single-use) ne parte pendant un test.
       `JWT_DURATION_MS="2592000000"`,
+      // Vitrine de la page publique : le projet e2e. Sinon getShowcaseStats
+      // ne trouve rien, le bloc de chiffres nest pas rendu, et les tests
+      // valident une page amputee (trou qui a laisse passer un 500 en prod).
+      `SHOWCASE_PROJECT_SLUG="e2e-test"`,
       "",
     ].join("\n"));
   ' "$DEPLOY_VARS" "http://localhost:3000" "$E2E_SECRET_VALUE"
