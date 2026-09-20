@@ -70,6 +70,11 @@ export default async function RootLayout({
       <html
         lang={locale}
         className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
+        // L'accueil public pose `data-entrance` sur <html> par un script en
+        // ligne, AVANT l'hydratation (sinon le hero clignote une fois avant de
+        // s'animer). React comparerait cet attribut à celui du rendu serveur :
+        // on lui dit que l'écart est voulu. Ne porte que sur <html> lui-même.
+        suppressHydrationWarning
       >
         <body className="min-h-full bg-slate-50 font-sans text-slate-900">
           {/* Le provider englobe AUSSI le Toaster : les toasts sont du texte

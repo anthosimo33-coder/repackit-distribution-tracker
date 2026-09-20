@@ -13,6 +13,7 @@ import gainsMobile from "@/public/landing/captures/creator-gains-mobile.png";
 import todayMobile from "@/public/landing/captures/creator-today-mobile.png";
 import { BentoCards } from "./BentoCards";
 import { CountUp } from "./CountUp";
+import { EntranceGate } from "./EntranceGate";
 import { Cursor } from "./Cursor";
 import { HeroDiamond } from "./HeroDiamond";
 import { Reveal } from "./Reveal";
@@ -104,9 +105,13 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
         <style>{`[data-reveal]{opacity:1 !important;transform:none !important}`}</style>
       </noscript>
       <Cursor />
+      <EntranceGate />
 
       {/* ── Navigation ─────────────────────────────────────────────── */}
-      <nav className="relative z-20 flex items-center justify-between gap-4 px-[var(--gutter)] py-4 md:py-5">
+      <nav
+        className={cn(styles.entFade, "relative z-20 flex items-center justify-between gap-4 px-[var(--gutter)] py-4 md:py-5")}
+        style={{ "--d": "1.9s" } as React.CSSProperties}
+      >
         <Link href="/" aria-label={t("nav.home")} className="flex items-center gap-3">
           <BrandMark size={32} className="rounded-[7px] border border-white/10" />
           <span className={cn(styles.display, "text-lg tracking-[.14em]")}>
@@ -134,39 +139,55 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
         <Rays />
         <HeroDiamond className="pointer-events-none absolute top-[42%] left-1/2 z-0 size-[min(640px,86vw)] -translate-x-1/2 -translate-y-1/2" />
         <div className="relative z-10 flex flex-col items-center gap-5 md:gap-7">
-          <Reveal>
-            <span className={cn(styles.mono, "text-[#f4f4f5]/65")}>{t("hero.label")}</span>
-          </Reveal>
-          <Reveal delay={80}>
-            <h1 className={cn(styles.display, "m-0 text-[length:var(--step4)] leading-[.92]")}>
-              <span className={cn(styles.chrome, "block pb-[.05em]")}>{t("hero.line1")}</span>
-              <span className={cn(styles.chrome, "block pb-[.08em]")}>{t("hero.line2")}</span>
-            </h1>
-          </Reveal>
-          <Reveal delay={160}>
-            <p className="m-0 max-w-[560px] text-[length:var(--step1)] leading-relaxed text-[#f4f4f5]/75">
-              {t("hero.body")}
-            </p>
-          </Reveal>
-          <Reveal delay={240} className="w-full sm:w-auto">
-            <div className="flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3">
-              <PrimaryLink href="/login">{t("nav.signIn")}</PrimaryLink>
-              <GhostLink href="#how">{t("hero.how")}</GhostLink>
-            </div>
-          </Reveal>
+          <span
+            className={cn(styles.mono, styles.entFade, "text-[#f4f4f5]/65")}
+            style={{ "--d": "0.6s" } as React.CSSProperties}
+          >
+            {t("hero.label")}
+          </span>
+          <h1 className={cn(styles.display, "m-0 text-[length:var(--step4)] leading-[.92]")}>
+            {/* Chaque ligne monte derrière son propre masque, l'une après l'autre. */}
+            <span className={styles.entMask}>
+              <span
+                className={cn(styles.chrome, styles.entLine, "block")}
+                style={{ "--d": "0.75s" } as React.CSSProperties}
+              >
+                {t("hero.line1")}
+              </span>
+            </span>
+            <span className={styles.entMask}>
+              <span
+                className={cn(styles.chrome, styles.entLine, "block")}
+                style={{ "--d": "0.88s" } as React.CSSProperties}
+              >
+                {t("hero.line2")}
+              </span>
+            </span>
+          </h1>
+          <p
+            className={cn(styles.entFade, "m-0 max-w-[560px] text-[length:var(--step1)] leading-relaxed text-[#f4f4f5]/75")}
+            style={{ "--d": "1.15s" } as React.CSSProperties}
+          >
+            {t("hero.body")}
+          </p>
+          <div
+            className={cn(styles.entFade, "flex w-full flex-col gap-2.5 sm:w-auto sm:flex-row sm:gap-3")}
+            style={{ "--d": "1.3s" } as React.CSSProperties}
+          >
+            <PrimaryLink href="/login">{t("nav.signIn")}</PrimaryLink>
+            <GhostLink href="#how">{t("hero.how")}</GhostLink>
+          </div>
         </div>
 
-        <Reveal delay={320} as="section" className="relative z-10 mt-14 w-screen md:mt-20">
-          <div
-            aria-label={t("wall.label")}
-            className={cn(styles.wall, "relative overflow-hidden pt-2.5 pb-7")}
-          >
+        <section aria-label={t("wall.label")} className="relative z-10 mt-14 w-screen md:mt-20">
+          <div className={cn(styles.wall, "relative overflow-hidden pt-2.5 pb-7")}>
             <div className={styles.track}>
               {[false, true].map((duplicate) =>
-                WALL.map((v) => (
+                WALL.map((v, i) => (
                   <WallCard
                     key={`${v.file}-${duplicate}`}
                     file={v.file}
+                    index={i}
                     views={compact.format(v.views)}
                     viewsLabel={t("wall.views")}
                     creator={WALL_CREATOR}
@@ -182,7 +203,7 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
             <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-[#0a0a0b] to-transparent md:w-32" />
             <span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#0a0a0b] to-transparent md:w-32" />
           </div>
-        </Reveal>
+        </section>
       </header>
 
       {/* ── Bandeau plateformes ────────────────────────────────────── */}
@@ -640,6 +661,7 @@ function Seam() {
 
 function WallCard({
   file,
+  index,
   views,
   viewsLabel,
   creator,
@@ -647,6 +669,7 @@ function WallCard({
   duplicate,
 }: {
   file: string;
+  index: number;
   views: string;
   viewsLabel: string;
   creator: string;
@@ -656,8 +679,15 @@ function WallCard({
   return (
     <div
       aria-hidden={duplicate || undefined}
+      style={
+        {
+          "--d": `${(1.45 + index * 0.09).toFixed(2)}s`,
+          "--tilt": index % 2 === 0 ? "-1.5deg" : "1.5deg",
+        } as React.CSSProperties
+      }
       className={cn(
         styles.videoCard,
+        styles.entCard,
         "relative mr-3 aspect-[9/16] w-[150px] shrink-0 overflow-hidden rounded-[18px] border border-white/10 bg-[#0a0a0b] shadow-[0_30px_60px_rgba(0,0,0,.55)] md:mr-[18px] md:w-[210px]",
       )}
     >
@@ -719,6 +749,7 @@ const RAYS = Array.from({ length: 31 }, (_, i) => {
 });
 
 function Rays({ faint = false }: { faint?: boolean }) {
+  const middle = (RAYS.length - 1) / 2;
   return (
     <div aria-hidden className={cn("pointer-events-none absolute inset-0", faint && "opacity-70")}>
       <svg
@@ -727,8 +758,23 @@ function Rays({ faint = false }: { faint?: boolean }) {
         preserveAspectRatio="xMidYMax slice"
         className={cn("absolute top-0 left-0 w-full", faint ? "h-full" : "h-[470px] md:h-[640px]")}
       >
-        {RAYS.map((r) => (
-          <line key={r.x} x1={600} y1={900} x2={r.x} y2={0} stroke={r.color} strokeWidth={1} opacity={r.opacity} />
+        {RAYS.map((r, i) => (
+          <line
+            key={r.x}
+            x1={600}
+            y1={900}
+            x2={r.x}
+            y2={0}
+            stroke={r.color}
+            strokeWidth={1}
+            opacity={r.opacity}
+            className={faint ? undefined : styles.entRay}
+            style={
+              faint
+                ? undefined
+                : ({ "--d": `${(Math.abs(i - middle) * 0.025).toFixed(3)}s` } as React.CSSProperties)
+            }
+          />
         ))}
       </svg>
       <div className={cn("absolute left-1/2", faint ? "bottom-0" : "top-[470px] md:top-[640px]")}>

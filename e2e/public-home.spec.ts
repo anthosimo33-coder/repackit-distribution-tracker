@@ -60,6 +60,8 @@ test.describe("Accueil — public sans session, routage par rôle connecté", ()
         (el) => Number(getComputedStyle(el).opacity) < 0.99,
       ).length,
     );
+    // L'entrée en scène ne se déclenche pas non plus.
+    await expect(page.locator("html")).not.toHaveAttribute("data-entrance", "on");
     const reveals = await page.locator("[data-reveal]").count();
     expect(reveals).toBeGreaterThan(10);
     expect(hidden).toBe(0);
@@ -176,5 +178,33 @@ test.describe("Accueil — public sans session, routage par rôle connecté", ()
     await admin.mutation(api.assignments.cleanupTestAssignments, { secret: E2E_SECRET });
     await admin.mutation(api.payments.cleanupTestPayments, { secret: E2E_SECRET });
     await admin.mutation(api.creators.cleanupTestCreators, { secret: E2E_SECRET });
+  });
+
+  test("entrée en scène : jouée à la première visite, pas à la suivante", async ({
+    browser,
+  }) => {
+    // La chorégraphie est suspendue à `html[data-entrance="on"]`, posé par un
+    // script en ligne. Deux exigences : elle se joue à la découverte, et elle
+    // ne rejoue pas à chaque retour depuis /login (même session).
+    const context = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+    });
+    const page = await context.newPage();
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("data-entrance", "on");
+    // Pendant l'entrée, le texte est DÉJÀ dans la page : rien n'attend le JS.
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Filme. Publie.");
+
+    // Deuxième page vue de la même session : plus d'entrée, tout est posé.
+    await page.goto("/login");
+    await page.goto("/");
+    await expect(page.locator("html")).not.toHaveAttribute("data-entrance", "on");
+    const hidden = await page.evaluate(() =>
+      [...document.querySelectorAll("h1 span span")].filter(
+        (el) => getComputedStyle(el).transform !== "none",
+      ).length,
+    );
+    expect(hidden).toBe(0);
+    await context.close();
   });
 });
