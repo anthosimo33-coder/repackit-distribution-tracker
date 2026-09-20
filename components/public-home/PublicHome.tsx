@@ -66,6 +66,13 @@ const WALL_CREATOR = "Kelly";
 const PLATFORMS = ["TikTok", "Instagram", "YouTube"];
 
 const INK = "text-[#0a0a0b]";
+/**
+ * Options Intl des chiffres de la vitrine. Elles sont PARTAGÉES avec le
+ * compteur client (CountUp) : une fonction de formatage ne peut pas franchir
+ * la frontière serveur → client, des options le peuvent.
+ */
+const WHOLE: Intl.NumberFormatOptions = {};
+const COMPACT: Intl.NumberFormatOptions = { notation: "compact", maximumFractionDigits: 1 };
 /** Gouttière et rythme vertical communs à toutes les sections (home.module.css). */
 const SECTION = "px-[var(--gutter)] py-[var(--section-y)]";
 const CONTAINER = "mx-auto w-full max-w-[1248px]";
@@ -73,11 +80,8 @@ const CONTAINER = "mx-auto w-full max-w-[1248px]";
 export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
   const t = await getTranslations("home");
   const locale = await getLocale();
-  const compact = new Intl.NumberFormat(locale, {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  });
-  const whole = new Intl.NumberFormat(locale);
+  const compact = new Intl.NumberFormat(locale, COMPACT);
+  const whole = new Intl.NumberFormat(locale, WHOLE);
   const since =
     stats?.firstPublishedAt != null
       ? new Intl.DateTimeFormat(locale, {
@@ -299,12 +303,12 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
                     <dl className="m-0 grid grid-cols-2 gap-x-4 border-t border-white/10 lg:grid-cols-4 lg:gap-x-0">
                       {(
                         [
-                          ["videos", stats.videos, whole],
-                          ["views", stats.views, compact],
-                          ["accounts", stats.accounts, whole],
-                          ["creators", stats.creators, whole],
+                          ["videos", stats.videos, whole, WHOLE],
+                          ["views", stats.views, compact, COMPACT],
+                          ["accounts", stats.accounts, whole, WHOLE],
+                          ["creators", stats.creators, whole, WHOLE],
                         ] as const
-                      ).map(([key, value, fmt], i) => (
+                      ).map(([key, value, fmt, options], i) => (
                         <div
                           key={key}
                           className={cn(
@@ -315,7 +319,7 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
                         >
                           <dt className="text-[13px] text-[#f4f4f5]/65 md:text-sm">{t(`apps.stats.${key}`)}</dt>
                           <dd className={cn(styles.display, styles.chrome, "m-0 text-4xl leading-none md:text-[56px]")}>
-                            <CountUp value={value} format={(x) => fmt.format(x)}>
+                            <CountUp value={value} locale={locale} options={options}>
                               {fmt.format(value)}
                             </CountUp>
                           </dd>
