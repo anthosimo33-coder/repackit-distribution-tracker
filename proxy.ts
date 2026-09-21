@@ -1,8 +1,16 @@
+import { NextResponse, type NextRequest } from "next/server";
 import {
   convexAuthNextjsMiddleware,
   createRouteMatcher,
   nextjsMiddlewareRedirect,
 } from "@convex-dev/auth/nextjs/server";
+import {
+  DEFAULT_LOCALE,
+  LOCALE_COOKIE,
+  localeFromAcceptLanguage,
+  normalizeLocale,
+  type Locale,
+} from "@/i18n/locales";
 
 /**
  * Remédiation sécurité — gating des PAGES : tout sauf /login exige une
@@ -23,8 +31,17 @@ import {
  * (resolver du projet par défaut → /admin/<slug>/dashboard), pas vers une route
  * scopée codée en dur (le projet dépend de l'utilisateur).
  *
- * Accueil — `/` est PUBLIC : un visiteur sans session y voit la page
- * d'accueil du studio au lieu d'être renvoyé sur /login.
+ * Accueil — `/` est PUBLIC, et c'est ICI qu'on tranche entre ses deux visages
+ * (ce que faisait `app/page.tsx` jusqu'au 21/09/2026) :
+ *   - session    → on laisse passer vers `app/(app)/page.tsx` (routage par rôle) ;
+ *   - visiteur   → RÉÉCRITURE vers `/accueil/<langue>`, la vitrine PRÉRENDUE.
+ *
+ * POURQUOI DÉPLACER CETTE DÉCISION ICI. Tant que la page lisait le cookie de
+ * session pour choisir, elle était dynamique : chaque visite anonyme — chaque
+ * passage de robot — invoquait une fonction et rendait la page entière. En
+ * sortant la décision de l'arbre de rendu, la vitrine devient un fichier servi
+ * par le CDN. C'est une RÉÉCRITURE et pas une redirection : l'URL vue par le
+ * visiteur reste `/`.
  *
  * P1 Créateurs — /join/<token> est PUBLIC (pré-session, comme /login) : un
  * invité n'a pas encore de compte. Exclu du gating d'auth ci-dessous.
@@ -32,11 +49,16 @@ import {
 // `/:slug/login` = login brandé par projet (public, comme /login). Deux
 // segments → ne capture pas le /login générique (un seul segment).
 const isLoginPage = createRouteMatcher(["/login", "/:slug/login"]);
+const isHomePage = createRouteMatcher(["/"]);
 const isPublicPage = createRouteMatcher([
-  // Accueil : page publique pour un visiteur NON connecté (vitrine du studio),
-  // routage par rôle pour un utilisateur connecté. C'est app/page.tsx qui
-  // tranche, côté serveur — le proxy ne fait que laisser passer.
+  // Accueil : vitrine pour un visiteur, routage par rôle pour un compte
+  // connecté. C'est le proxy lui-même qui tranche (cf. plus bas).
   "/",
+  // Cibles de la réécriture ci-dessus. Publiques parce que le gating est
+  // évalué sur le chemin RÉÉCRIT lors des requêtes RSC du routeur client :
+  // les fermer renverrait un visiteur sur /login au premier rafraîchissement.
+  // Une seule page indexable : `alternates.canonical` les ramène toutes à `/`.
+  "/accueil/(.*)",
   "/login",
   "/:slug/login",
   "/join",
@@ -62,12 +84,32 @@ export default convexAuthNextjsMiddleware(
     if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
       return nextjsMiddlewareRedirect(request, "/");
     }
+    if (isHomePage(request)) {
+      if (await convexAuth.isAuthenticated()) return;
+      const url = request.nextUrl.clone();
+      url.pathname = `/accueil/${publicHomeLocale(request)}`;
+      return NextResponse.rewrite(url);
+    }
     if (!isPublicPage(request) && !(await convexAuth.isAuthenticated())) {
       return nextjsMiddlewareRedirect(request, "/login");
     }
   },
   { cookieConfig: { maxAge: SESSION_COOKIE_MAX_AGE_S } },
 );
+
+/**
+ * Langue de la vitrine. Les deux premiers maillons de la chaîne habituelle
+ * (préférence du compte, fiche créateur — cf. i18n/request.ts) n'existent pas
+ * ici : personne n'est connecté sur cette page, par construction. Restent le
+ * cookie, l'en-tête du navigateur, puis le défaut du produit.
+ */
+function publicHomeLocale(request: NextRequest): Locale {
+  return (
+    normalizeLocale(request.cookies.get(LOCALE_COOKIE)?.value) ??
+    localeFromAcceptLanguage(request.headers.get("accept-language")) ??
+    DEFAULT_LOCALE
+  );
+}
 
 export const config = {
   // Tout sauf les assets statiques (fichiers avec extension) et _next.

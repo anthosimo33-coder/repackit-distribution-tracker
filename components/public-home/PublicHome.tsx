@@ -5,15 +5,15 @@ import { getLocale, getTranslations } from "next-intl/server";
 import { ArrowRightIcon, EyeIcon } from "lucide-react";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { LocaleSwitch } from "@/components/public/LocaleSwitch";
-import { clashDisplay, switzer } from "@/app/login/fonts";
+import { clashDisplay, switzer } from "@/components/brand/fonts";
 import { cn } from "@/lib/utils";
 import todayDesktop from "@/public/landing/captures/creator-today-desktop.png";
 import scriptMobile from "@/public/landing/captures/creator-script-mobile.png";
 import gainsMobile from "@/public/landing/captures/creator-gains-mobile.png";
 import todayMobile from "@/public/landing/captures/creator-today-mobile.png";
 import { BentoCards } from "./BentoCards";
-import { CountUp } from "./CountUp";
 import { EntranceGate } from "./EntranceGate";
+import { ShowcaseFigures, type ShowcaseStats } from "./ShowcaseFigures";
 import { Cursor } from "./Cursor";
 import { HeroDiamond } from "./HeroDiamond";
 import { Reveal } from "./Reveal";
@@ -36,22 +36,17 @@ const plexMono = IBM_Plex_Mono({
  * JavaScript la page reste entière (cf le <noscript> plus bas) et
  * `prefers-reduced-motion` fige tout ce qui bouge.
  *
- * `stats` vient de api.showcase.getShowcaseStats (lu par app/page.tsx) :
- * `null` ou aucune vidéo → le bloc de chiffres n'est pas rendu (jamais de
- * zéros affichés).
+ * `stats` vient de api.showcase.getShowcaseStats, lu au PRÉRENDU par
+ * app/(public)/accueil/[locale]/page.tsx. `null` ou aucune vidéo → le bloc de
+ * chiffres n'est pas rendu (jamais de zéros affichés). Ces valeurs sont celles
+ * du prérendu : `ShowcaseFigures` les rafraîchit après hydratation.
  *
  * Les vues des vidéos du mur sont FIGÉES : elles viennent des fichiers fournis
  * le 19/09/2026 (nom du fichier = vues du post à cette date), ces posts
  * n'étant pas reliés à une publication suivie.
  */
 
-export type ShowcaseStats = {
-  videos: number;
-  views: number;
-  accounts: number;
-  creators: number;
-  firstPublishedAt: number | null;
-};
+export type { ShowcaseStats } from "./ShowcaseFigures";
 
 const WALL = [
   { file: "kelly-750k", views: 750_000 },
@@ -73,22 +68,12 @@ const CONTAINER = "mx-auto w-full max-w-[1248px]";
 
 export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
   const t = await getTranslations("home");
-  const locale = await getLocale();
-  const compact = new Intl.NumberFormat(locale, {
+  // Les vues du mur seulement : les chiffres de la vitrine sont formatés dans
+  // `ShowcaseFigures`, qui les rafraîchit côté client.
+  const compact = new Intl.NumberFormat(await getLocale(), {
     notation: "compact",
     maximumFractionDigits: 1,
   });
-  const whole = new Intl.NumberFormat(locale);
-  const since =
-    stats?.firstPublishedAt != null
-      ? new Intl.DateTimeFormat(locale, {
-          month: "long",
-          year: "numeric",
-          timeZone: "Europe/Paris",
-        }).format(stats.firstPublishedAt)
-      : null;
-  const showStats = stats !== null && stats.videos > 0;
-
   return (
     <div
       className={cn(
@@ -315,41 +300,7 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
                 <p className="m-0 max-w-[640px] text-[length:var(--step0)] leading-relaxed text-[#f4f4f5]/75">
                   {t("apps.snytchBody")}
                 </p>
-                {showStats && (
-                  <>
-                    <dl className="m-0 grid grid-cols-2 gap-x-4 border-t border-white/10 lg:grid-cols-4 lg:gap-x-0">
-                      {(
-                        [
-                          ["videos", stats.videos, false],
-                          ["views", stats.views, true],
-                          ["accounts", stats.accounts, false],
-                          ["creators", stats.creators, false],
-                        ] as const
-                      ).map(([key, value, isCompact], i) => (
-                        <div
-                          key={key}
-                          className={cn(
-                            "flex flex-col-reverse gap-1.5 py-4 lg:px-6 lg:py-5",
-                            i > 0 && "lg:border-l lg:border-white/10",
-                            i === 0 && "lg:pl-0",
-                          )}
-                        >
-                          <dt className="text-[13px] text-[#f4f4f5]/65 md:text-sm">{t(`apps.stats.${key}`)}</dt>
-                          <dd className={cn(styles.display, styles.chrome, "m-0 text-4xl leading-none md:text-[56px]")}>
-                            <CountUp value={value} locale={locale} compact={isCompact}>
-                              {(isCompact ? compact : whole).format(value)}
-                            </CountUp>
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-                    {since && (
-                      <span className={cn(styles.mono, "text-[10px] text-[#f4f4f5]/50")}>
-                        {t("apps.stats.since", { date: since })}
-                      </span>
-                    )}
-                  </>
-                )}
+                <ShowcaseFigures initial={stats} />
               </Reveal>
               <Reveal
                 delay={80}

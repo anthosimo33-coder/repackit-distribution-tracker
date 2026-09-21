@@ -46,37 +46,45 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
  */
 const ENTRIES = [
   // Racine et providers globaux
-  "app/layout.tsx",
-  "app/page.tsx",
-  "app/not-found.tsx",
+  // ⚠️ Deux layouts racines depuis le 21/09/2026 : `app/` n'a plus de
+  // `layout.tsx`, l'application vit sous `app/(app)/` et l'accueil public
+  // sous `app/(public)/` (cf. app/(app)/layout.tsx). Les chemins ci-dessous
+  // portent donc le groupe de routes.
+  "app/(app)/layout.tsx",
+  "app/(app)/page.tsx",
+  "app/(app)/not-found.tsx",
   "app/ConvexClientProvider.tsx",
+  // Accueil public — lu par un visiteur AVANT tout compte, dans les quatre
+  // langues : son texte est du périmètre créateur au même titre que /login.
+  "app/(public)/accueil/[locale]/layout.tsx",
+  "app/(public)/accueil/[locale]/page.tsx",
   // Pré-session
-  "app/login/page.tsx",
-  "app/[projectSlug]/login/page.tsx",
-  "app/join/[token]/page.tsx",
-  "app/reset-password/[token]/page.tsx",
+  "app/(app)/login/page.tsx",
+  "app/(app)/[projectSlug]/login/page.tsx",
+  "app/(app)/join/[token]/page.tsx",
+  "app/(app)/reset-password/[token]/page.tsx",
   // Portail partenaire
-  "app/app/layout.tsx",
-  "app/app/page.tsx",
-  "app/app/gains/page.tsx",
-  "app/app/moi/page.tsx",
-  "app/app/missions/page.tsx",
-  "app/app/comptes/page.tsx",
-  "app/app/paiements/page.tsx",
-  "app/app/profil/page.tsx",
-  "app/app/guide/page.tsx",
-  "app/app/progression/page.tsx",
-  "app/app/assignments/[id]/page.tsx",
-  "app/app/videos/page.tsx",
-  "app/app/fichiers/page.tsx",
-  "app/app/outils/page.tsx",
+  "app/(app)/app/layout.tsx",
+  "app/(app)/app/page.tsx",
+  "app/(app)/app/gains/page.tsx",
+  "app/(app)/app/moi/page.tsx",
+  "app/(app)/app/missions/page.tsx",
+  "app/(app)/app/comptes/page.tsx",
+  "app/(app)/app/paiements/page.tsx",
+  "app/(app)/app/profil/page.tsx",
+  "app/(app)/app/guide/page.tsx",
+  "app/(app)/app/progression/page.tsx",
+  "app/(app)/app/assignments/[id]/page.tsx",
+  "app/(app)/app/videos/page.tsx",
+  "app/(app)/app/fichiers/page.tsx",
+  "app/(app)/app/outils/page.tsx",
   // Portail clippeur
-  "app/clip/layout.tsx",
-  "app/clip/page.tsx",
-  "app/clip/clips/[id]/page.tsx",
+  "app/(app)/clip/layout.tsx",
+  "app/(app)/clip/page.tsx",
+  "app/(app)/clip/clips/[id]/page.tsx",
   // Portail talent
-  "app/talent/layout.tsx",
-  "app/talent/page.tsx",
+  "app/(app)/talent/layout.tsx",
+  "app/(app)/talent/page.tsx",
 ];
 
 /** `@/x` → racine ; `./x` et `../x` → relatif. Le reste est un package npm. */
@@ -120,7 +128,7 @@ export function computeScope(entries = ENTRIES) {
  * ESPACE D'ÉQUIPE — traduit depuis septembre 2026 : une créatrice peut être
  * manager, et son espace de manager doit parler sa langue.
  *
- * Points d'entrée : TOUT fichier de route sous `app/admin/` (pages, layouts,
+ * Points d'entrée : TOUT fichier de route sous `app/(app)/admin/` (pages, layouts,
  * écran d'erreur, observation). Un fichier atteint par les deux graphes reste
  * dans le périmètre CRÉATEUR : chaque fichier n'appartient qu'à un périmètre.
  */
@@ -136,7 +144,7 @@ function walkRoutes(dir) {
 
 const files = computeScope();
 const creatorSet = new Set(files);
-const managerFiles = computeScope(walkRoutes("app/admin").sort()).filter(
+const managerFiles = computeScope(walkRoutes("app/(app)/admin").sort()).filter(
   (f) => !creatorSet.has(f),
 );
 

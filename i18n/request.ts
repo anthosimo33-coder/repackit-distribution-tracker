@@ -16,6 +16,7 @@ import { loadMessages } from "./messages";
  * RÉSOLUTION DE LA LANGUE — côté SERVEUR, avant le premier rendu.
  *
  * Ordre, du plus autoritaire au plus large :
+ *   0. le SEGMENT D'URL   — quand la route en porte un (cf. plus bas)
  *   1. `users.locale`     — la préférence explicite du compte connecté
  *   2. `creators.locale`  — la langue posée par l'admin sur la fiche, tant que
  *                           le compte n'a pas de préférence propre
@@ -68,8 +69,22 @@ export async function resolveLocale(): Promise<Locale> {
   return DEFAULT_LOCALE;
 }
 
-export default getRequestConfig(async () => {
-  const locale = await resolveLocale();
+export default getRequestConfig(async ({ requestLocale }) => {
+  /**
+   * MAILLON 0 — la langue portée par la route elle-même, posée par
+   * `setRequestLocale` (accueil public : `app/(public)/accueil/[locale]`).
+   *
+   * Ce n'est pas une commodité : c'est ce qui rend cette page PRÉRENDABLE.
+   * Sans ce court-circuit, le premier `getTranslations()` de son arbre
+   * appellerait `resolveLocale()`, donc `cookies()` et `headers()` — et une
+   * page qui lit la requête ne peut pas être prérendue. Le gain (zéro
+   * invocation de fonction sur tout le trafic anonyme) tient à cette ligne.
+   *
+   * Partout ailleurs aucune route ne porte de segment de langue : la valeur
+   * est `undefined` et la chaîne habituelle s'applique, inchangée.
+   */
+  const fromSegment = normalizeLocale(await requestLocale);
+  const locale = fromSegment ?? (await resolveLocale());
   return {
     locale,
     messages: await loadMessages(locale),
