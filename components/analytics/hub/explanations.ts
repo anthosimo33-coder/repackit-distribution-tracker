@@ -169,7 +169,7 @@ export const EXPLAIN = {
   paysResumeRetour:
     "Combien rapporte chaque euro donné aux créatrices : la valeur des nouveaux clients divisée par le coût promo. À ×1 on rentre dans ses frais, au dessus on gagne de l'argent, en dessous on en perd. Par exemple ×4 veut dire qu'un euro dépensé ramène quatre euros de clients.",
   paysResumeRpmEncaisse:
-    "L'argent réellement encaissé sur la période (après frais Whop et remboursements), ramené à 1 000 vues promo. Il compte aussi les renouvellements de clients arrivés avant la période, donc il n'est pas entièrement dû aux vidéos de la période. Il sert de repère à côté du RPM acquisition, qui lui ne regarde que les nouveaux clients.",
+    "L'argent réellement encaissé sur la période (après frais Whop et remboursements), ramené à 1 000 vues promo, renouvellements de clients plus anciens compris : il n'est donc pas entièrement dû aux vidéos de la période. Il se lit à côté du RPM acquisition, qui ne regarde que les nouveaux clients, et ne se compare pas au « RPM business » de la page Paiements, qui divise le même revenu par les seules vues facturées (arrêtées à J+30 et plafonnées à 150 $ par vidéo) là où ce chiffre-ci prend toutes les vues de promo, payées ou non. Ici « que vaut mon audience », là-bas « que vaut ma dépense ».",
   paysDecision:
     "Chaque marché est rangé selon des règles fixes, écrites en haut de chaque colonne. Accélérer veut dire y mettre plus de créatrices, Réparer veut dire que les gens arrivent jusqu'au paiement mais ne paient pas, Couper veut dire que les vues coûtent bien plus qu'elles ne rapportent. Sous 30 euros dépensés, il est trop tôt pour juger.",
   marcheComposeur:
