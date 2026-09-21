@@ -254,6 +254,7 @@
     "convex/creatorActivity.ts",
     "convex/creatorAvatar.ts",
     "convex/creatorScope.ts",
+    "convex/dashboardCache.ts",
     "convex/dateFr.ts",
     "convex/decisionThresholds.ts",
     "convex/decisions.ts",

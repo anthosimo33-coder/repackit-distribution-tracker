@@ -30,6 +30,11 @@ import {
   payAnchorOf,
 } from "./payCycle";
 import { paidBeforePayWindow } from "./payWindow";
+import {
+  invalidateDashboardCache,
+  readDashboardCache,
+  writeDashboardCacheIfChanged,
+} from "./dashboardCache";
 import { resolveCreatorKind } from "./roles";
 import {
   monthLabelFr,
@@ -37,7 +42,7 @@ import {
   retainerAmountFor,
 } from "./talentRetainer";
 import { ConvexError, v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, err } from "./errorCodes";
@@ -975,17 +980,35 @@ export const listPayments = permissionQuery("payments.manage")({
  * Un total de dashboard qui diverge du total de la page Paiements serait pire
  * que pas de total du tout, et l'addition de flottants n'est pas commutative.
  */
+/**
+ * RESTE à verser, acomptes déduits : le nombre que l'admin doit sortir de sa
+ * banque. Sommer `totalDue` re-compterait l'argent déjà viré.
+ */
+export async function computeDueTotal(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<{ dueTotal: number }> {
+  const rows = await collectProjectPaymentRows(ctx, projectId);
+  return {
+    dueTotal: rows
+      .filter((p) => p.status !== "paid")
+      .reduce((sum, p) => sum + p.remainingDue, 0),
+  };
+}
+
+/**
+ * LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les 30 min) :
+ * cette query est montée sur l'ACCUEIL admin, elle déroule tous les cycles de
+ * toutes les créatrices (~2 MB) et se relançait à chaque écriture de la
+ * journée — 504 MB le 2026-09-19. L'écran de paie, lui, reste en direct.
+ * Sans row en cache (projet neuf), calcul en direct.
+ */
 export const getDueTotal = permissionQuery("payments.manage")({
   args: {},
-  handler: async (ctx) => {
-    const rows = await collectProjectPaymentRows(ctx, ctx.projectId);
-    return {
-      // RESTE à verser, acomptes déduits : c'est le nombre que l'admin doit
-      // sortir de sa banque. Sommer `totalDue` re-compterait l'argent déjà viré.
-      dueTotal: rows
-        .filter((p) => p.status !== "paid")
-        .reduce((sum, p) => sum + p.remainingDue, 0),
-    };
+  handler: async (ctx): Promise<{ dueTotal: number }> => {
+    const cached = await readDashboardCache(ctx, ctx.projectId, "dueTotal");
+    if (cached !== null) return JSON.parse(cached) as { dueTotal: number };
+    return computeDueTotal(ctx, ctx.projectId);
   },
 });
 
@@ -1186,6 +1209,9 @@ export const projectLeaderboard = creatorQuery({
 export const markCyclePaid = permissionMutation("payments.manage")({
   args: { creatorId: v.id("creators"), cycleIndex: v.number() },
   handler: async (ctx, { creatorId, cycleIndex }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
       throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
@@ -1380,6 +1406,9 @@ const FROZEN_AT_PAYMENT: ReadonlySet<LineItem["kind"]> = new Set([
 export const revertCyclePayment = permissionMutation("payments.manage")({
   args: { id: v.id("payments") },
   handler: async (ctx, { id }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
     const p = await ctx.db.get(id);
     if (!p || p.projectId !== ctx.projectId) {
       throw err(ERR.PAYMENT_NOT_FOUND, "Paiement introuvable.");
@@ -1496,6 +1525,9 @@ export const recordAdvance = permissionMutation("payments.manage")({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { creatorId, cycleIndex, amount, note }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
     if (!(amount > 0)) {
       throw err(ERR.ADVANCE_INVALID, "Le montant d'un acompte doit être positif.");
     }
@@ -1547,6 +1579,9 @@ export const recordAdvance = permissionMutation("payments.manage")({
 export const markPaymentPaid = permissionMutation("payments.manage")({
   args: { id: v.id("payments") },
   handler: async (ctx, { id }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
     const p = await ctx.db.get(id);
     if (!p || p.projectId !== ctx.projectId) {
       throw new ConvexError("Paiement introuvable.");
@@ -1596,6 +1631,9 @@ export const markPaymentPaid = permissionMutation("payments.manage")({
 export const markTalentMonthPaid = permissionMutation("payments.manage")({
   args: { creatorId: v.id("creators"), period: v.string() },
   handler: async (ctx, { creatorId, period }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
     const creator = await ctx.db.get(creatorId);
     if (!creator || creator.projectId !== ctx.projectId) {
       throw new ConvexError("Créateur introuvable.");
@@ -1664,6 +1702,9 @@ export const markTalentMonthPaid = permissionMutation("payments.manage")({
 export const markPeriodPaid = permissionMutation("payments.manage")({
   args: { period: v.string() },
   handler: async (ctx, { period }) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "dueTotal");
     const payments = await ctx.db
       .query("payments")
       .withIndex("by_project_period", (q) =>
@@ -1768,4 +1809,23 @@ export const cleanupTestPayments = e2eMutation({
     }
     return { deleted };
   },
+});
+
+/** Le JSON rangé par le cron dans `dashboardCache` (cf convex/dashboardCache). */
+export const computeDueTotalJson = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }): Promise<string> =>
+    JSON.stringify(await computeDueTotal(ctx, projectId)),
+});
+
+/** E2E — recalcul immédiat du total dû, sans attendre le cron. */
+export const e2eRefreshDueTotalCache = e2eMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }): Promise<{ changed: boolean }> =>
+    writeDashboardCacheIfChanged(
+      ctx,
+      projectId,
+      "dueTotal",
+      JSON.stringify(await computeDueTotal(ctx, projectId)),
+    ),
 });

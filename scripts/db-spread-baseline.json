@@ -7,7 +7,6 @@
   "assets.ts::listAssets::...a",
   "comptes.ts::listComptes::...c",
   "creators.ts::getCreatorDeletionImpact::...impact",
-  "dashboardDecisions.ts::decisionDashboard::...d",
   "folders.ts::listFolders::...f",
   "hooks.ts::listHooksWithUsage::...h",
   "icps.ts::listIcps::...i",

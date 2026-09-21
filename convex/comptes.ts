@@ -422,6 +422,53 @@ export const listComptesChoix = permissionQuery("accounts.manage")({
 });
 
 /**
+ * COMPTES POUR LE SUIVI DE CHAUFFE — la version LÉGÈRE pour l'accueil admin.
+ *
+ * `ActionDashboard` ne compte que deux choses : les warmups en retard et ceux
+ * qui attendent une validation. Il lisait `listComptes`, qui relit en plus
+ * toutes les publications et assignations du projet pour la perf et l'usage
+ * (1,9 MB par exécution, relancée à chaque écriture de la journée). Ici, la
+ * seule table `comptes` — plus le barème de chauffe du projet, qui est LA
+ * source de `targetDays`/`warmupDone` (jamais recalculés côté écran).
+ */
+export const listComptesSuivi = permissionQuery("accounts.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const results = filterByCreatorScope(
+      await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c.creatorId,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    );
+    const days = await warmupDaysFor(ctx, ctx.projectId);
+    return results
+      .sort((a, b) =>
+        a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
+      )
+      .map((c) => {
+        const warmupLike = {
+          plateforme: c.plateforme,
+          warmupProtocol: c.warmupProtocol,
+        };
+        return {
+          _id: c._id,
+          handle: c.handle,
+          plateforme: c.plateforme,
+          creatorId: c.creatorId,
+          status: c.status,
+          actif: c.actif,
+          warmupStartedAt: c.warmupStartedAt,
+          warmupProtocol: c.warmupProtocol,
+          targetDays: effectiveTargetDays(warmupLike, days),
+          warmupDone: isWarmupComplete(warmupLike, days),
+        };
+      });
+  },
+});
+
+/**
  * Chantier C — comptes d'UN créateur annotés `available`. Alimente les
  * sélecteurs de cibles à la création d'assignment : seuls les comptes
  * disponibles sont choisissables ; une plateforme sans compte disponible est
