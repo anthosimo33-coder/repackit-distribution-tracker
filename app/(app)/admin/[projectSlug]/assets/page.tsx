@@ -85,6 +85,7 @@ export default function AssetsPage() {
               <CardContent className="flex items-center gap-3 p-4">
                 <Link
                   href={projectPath(`/assets/${f._id}`)}
+                  prefetch={false}
                   className="flex min-w-0 flex-1 items-center gap-3"
                 >
                   <FolderIcon className="size-8 shrink-0 text-slate-400" />

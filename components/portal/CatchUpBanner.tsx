@@ -96,6 +96,7 @@ export function CatchUpBanner({
               <li key={a._id}>
                 <Link
                   href={portalHref(base, `/assignments/${a._id}`)}
+                  prefetch={false}
                   className="flex items-center gap-3 rounded-lg border border-rose-200 bg-white px-3 py-2 transition-colors hover:border-rose-400"
                 >
                   <span className="min-w-0 flex-1">

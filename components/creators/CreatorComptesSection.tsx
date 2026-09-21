@@ -96,6 +96,7 @@ export function CreatorComptesSection({
                     <PlatformBadge plateforme={c.plateforme} />
                     <Link
                       href={projectPath(`/comptes/${c._id}`)}
+                      prefetch={false}
                       className="truncate font-mono text-sm font-medium text-slate-900 hover:text-primary hover:underline"
                     >
                       {c.handle}

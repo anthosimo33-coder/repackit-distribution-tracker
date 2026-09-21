@@ -329,6 +329,7 @@ function MesClips() {
               <Link
                 key={c._id}
                 href={portalHref(base, `/clips/${c._id}`)}
+                prefetch={false}
                 className="block"
               >
                 <Card className="transition-colors hover:border-slate-300">

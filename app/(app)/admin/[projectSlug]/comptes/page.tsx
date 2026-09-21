@@ -364,6 +364,7 @@ function ComptesPageInner() {
               <Link
                 key={c._id}
                 href={projectPath(`/comptes/${c._id}`)}
+                prefetch={false}
                 className={`inline-flex items-center gap-1.5 rounded-md border bg-white px-2 py-0.5 font-mono text-xs ${
                   etat.kind === "enSouffrance"
                     ? "border-rose-200 text-rose-900 hover:bg-rose-100"

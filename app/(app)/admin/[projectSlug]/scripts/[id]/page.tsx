@@ -347,6 +347,7 @@ export default function ScriptCampaignDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={projectPath(`/scripts/${campaign._id}/analytics`)}
+            prefetch={false}
             className={buttonVariants({ variant: "outline" })}
           >
             <BarChart3Icon className="mr-2 size-4" />

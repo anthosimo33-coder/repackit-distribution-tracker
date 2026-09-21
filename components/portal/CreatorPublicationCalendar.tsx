@@ -184,6 +184,7 @@ export function CreatorPublicationCalendar({
                       <Link
                         key={row._id}
                         href={portalHref(base, `/assignments/${row._id}`)}
+                        prefetch={false}
                         title={
                           postWindowBoundsFor(row.postWindow, loc) !== null
                             ? `${row.formatName} · ${tLabel(meta.labelKey)} · ${tw("between", postWindowBoundsFor(row.postWindow, loc)!)}`
