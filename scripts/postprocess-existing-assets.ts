@@ -42,8 +42,10 @@
  * secret applicatif n'est requis ni manipulé ici.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ASSET_IMAGE_MAX_BYTES } from "../lib/asset-file";
 import {
   POSTPROCESS_OUTPUT_TYPE,
@@ -52,8 +54,6 @@ import {
   readImageDimensions,
   toJpegFileName,
 } from "../lib/image-postprocess";
-
-const run = promisify(execFile);
 
 const APPLY = process.argv.includes("--apply");
 const PROD = process.argv.includes("--prod");
@@ -84,15 +84,47 @@ type CandidatePayload = {
   flaggedFolders: string[];
 };
 
-/** Appel d'une fonction interne Convex via la CLI (auth = celle du dev). */
+/**
+ * Appel d'une fonction interne Convex via la CLI (auth = celle du dev).
+ *
+ * ⚠️ LA SORTIE PASSE PAR UN FICHIER, JAMAIS PAR UN TUBE. Lue sur un tube, la
+ * CLI Convex TRONQUE sa propre sortie à une frontière de tampon, de façon non
+ * déterministe : sur les 26 625 octets du lot de production, trois exécutions
+ * identiques ont rendu 8 131, 16 179 et 24 152 octets, une quatrième le tout.
+ * Le symptôme est un `Unterminated string in JSON` à une position qui change
+ * d'une fois sur l'autre — et le script échouait avant d'avoir rien traité.
+ *
+ * Ce n'est pas une question de `maxBuffer` (64 Mo pour 26 Ko) : le processus
+ * enfant sort avant d'avoir vidé son tube. Redirigé vers un descripteur de
+ * fichier, il ne perd rien — 6 exécutions sur 6 complètes et identiques.
+ *
+ * Le défaut ne pouvait pas se voir en dev : il faut un lot assez gros pour
+ * dépasser le premier tampon de 8 Ko.
+ */
 async function convexRun<T>(fn: string, args: unknown): Promise<T> {
   const argv = ["convex", "run", fn, JSON.stringify(args)];
   if (PROD) argv.push("--prod");
-  const { stdout } = await run("npx", argv, {
-    maxBuffer: 64 * 1024 * 1024,
-  });
+
+  const dir = mkdtempSync(join(tmpdir(), "convex-run-"));
+  const outPath = join(dir, "out.json");
+  const fd = openSync(outPath, "w");
+  let text: string;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      // stderr en `inherit` : les messages de la CLI restent visibles à l'écran.
+      const child = spawn("npx", argv, { stdio: ["ignore", fd, "inherit"] });
+      child.on("error", reject);
+      child.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(`${fn} : la CLI Convex a rendu ${code}`)),
+      );
+    });
+    text = readFileSync(outPath, "utf8").trim();
+  } finally {
+    closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
   // La CLI peut préfixer des lignes de log : on ne garde que la valeur JSON.
-  const text = stdout.trim();
   const start = text.search(/[[{]/);
   if (start === -1) throw new Error(`Réponse Convex illisible pour ${fn}`);
   return JSON.parse(text.slice(start)) as T;
