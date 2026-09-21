@@ -21,11 +21,16 @@ set -euo pipefail
 REF="${1:-}"
 
 # Les SEULES routes `login` légitimes du dépôt. Toute autre est un harnais.
-#   app/login                 — l'écran de connexion réel
-#   app/[projectSlug]/login   — l'écran de connexion scopé projet
+#   app/(app)/login                 — l'écran de connexion réel
+#   app/(app)/[projectSlug]/login   — l'écran de connexion scopé projet
+#
+# Le `(app)` est le groupe de routes introduit le 21/09/2026 (deux layouts
+# racines, cf. app/(app)/layout.tsx) ; il ne change AUCUNE URL. Les chemins
+# sont écrits en toutes lettres plutôt que normalisés : ce garde existe pour
+# être strict, une règle qui ignore un segment de chemin l'est moins.
 LEGITIMES=(
-  "app/login"
-  "app/[projectSlug]/login"
+  "app/(app)/login"
+  "app/(app)/[projectSlug]/login"
 )
 
 if [ -n "$REF" ]; then
