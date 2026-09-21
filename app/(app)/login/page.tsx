@@ -12,7 +12,7 @@ import { api } from "@/convex/_generated/api";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { LocaleSwitch } from "@/components/public/LocaleSwitch";
 import { cn } from "@/lib/utils";
-import { clashDisplay, switzer } from "./fonts";
+import { clashDisplay, switzer } from "@/components/brand/fonts";
 import styles from "./login.module.css";
 
 /**

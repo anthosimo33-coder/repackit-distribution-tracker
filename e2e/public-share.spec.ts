@@ -168,11 +168,20 @@ test.describe("Partage public du Tracker", () => {
     await vpage.getByRole("button", { name: "Fermer la vidéo" }).click();
     await expect(player).toHaveCount(0);
     // L'aperçu de lien (WhatsApp, Slack) : balise posée ET image servie sans session.
-    await expect(vpage.locator('meta[property="og:image"]')).toHaveAttribute(
+    //
+    // ⚠️ ON DEMANDE L'URL QUE LA PAGE ANNONCE, jamais une URL devinée. Next
+    // suffixe la route d'image de métadonnées par un hash dès que le fichier
+    // vit dans un groupe de routes (`/s/[token]/opengraph-image-o9z2s0` depuis
+    // que l'app est passée sous `app/(app)/`) : un chemin codé en dur ici
+    // rendait 404 alors que l'aperçu fonctionnait. C'est la balise qui fait
+    // foi — c'est elle que WhatsApp et Slack vont chercher.
+    const ogTag = vpage.locator('meta[property="og:image"]');
+    await expect(ogTag).toHaveAttribute(
       "content",
       new RegExp(`/s/${brand.token}/opengraph-image`),
     );
-    const og = await visitor.request.get(`/s/${brand.token}/opengraph-image`);
+    const ogUrl = await ogTag.getAttribute("content");
+    const og = await visitor.request.get(ogUrl!);
     expect(og.status()).toBe(200);
     expect(og.headers()["content-type"]).toBe("image/png");
 

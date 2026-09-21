@@ -46,7 +46,7 @@ describe("serveur et éditeur lisent le même réglage", () => {
   const read = (rel: string) =>
     readFileSync(new URL(rel, import.meta.url), "utf8");
   const serveur = read("../convex/assignments.ts");
-  const editeur = read("../app/admin/[projectSlug]/scripts/[id]/page.tsx");
+  const editeur = read("../app/(app)/admin/[projectSlug]/scripts/[id]/page.tsx");
 
   it("aucun des deux ne teste le slug", () => {
     expect(serveur).not.toMatch(/SNYTCH_SLUG|isSnytchProject\(|slug\s*[!=]==\s*"snytch"/);

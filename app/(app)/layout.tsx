@@ -3,9 +3,9 @@ import { Inter, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages, getTranslations } from "next-intl/server";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
-import "./globals.css";
-import "./celebrations.css";
-import { ConvexClientProvider } from "./ConvexClientProvider";
+import "../globals.css";
+import "../celebrations.css";
+import { ConvexClientProvider } from "../ConvexClientProvider";
 import { AppShell } from "@/components/layout/AppShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -44,6 +44,23 @@ export const viewport: Viewport = {
 };
 
 /**
+ * Layout racine de L'APPLICATION. Ce n'est plus le seul : `app/` n'a plus de
+ * `layout.tsx`, et l'accueil public a le sien
+ * (`app/(public)/accueil/[locale]/layout.tsx`).
+ *
+ * POURQUOI DEUX LAYOUTS RACINES. Celui-ci lit les cookies — pour la session
+ * (`ConvexAuthNextjsServerProvider`) et pour la langue (`getLocale()`, qui
+ * interroge Convex avec le jeton). Ces lectures rendent DYNAMIQUE toute route
+ * qu'il enveloppe : c'est juste pour l'app, et c'était faux pour une vitrine
+ * publique identique pour tout le monde, qui payait une invocation de fonction
+ * par visite (y compris chaque passage de robot). Sortir l'accueil de cet arbre
+ * est la seule façon de le prérendre — la doc Next est explicite : « any layout
+ * without a layout.js above it is a root layout ».
+ *
+ * CONSÉQUENCE ASSUMÉE : naviguer entre les deux arbres (`/` → `/login`) est un
+ * chargement de page complet, pas une navigation client. C'est déjà une
+ * rupture visuelle totale, et ça ne concerne que ce saut-là.
+ *
  * Remédiation sécurité — ConvexAuthNextjsServerProvider (cookies de session
  * côté serveur, couplé à proxy.ts) + AppShell qui gate le rendu sur l'état
  * d'auth.
@@ -70,11 +87,6 @@ export default async function RootLayout({
       <html
         lang={locale}
         className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
-        // L'accueil public pose `data-entrance` sur <html> par un script en
-        // ligne, AVANT l'hydratation (sinon le hero clignote une fois avant de
-        // s'animer). React comparerait cet attribut à celui du rendu serveur :
-        // on lui dit que l'écart est voulu. Ne porte que sur <html> lui-même.
-        suppressHydrationWarning
       >
         <body className="min-h-full bg-slate-50 font-sans text-slate-900">
           {/* Le provider englobe AUSSI le Toaster : les toasts sont du texte

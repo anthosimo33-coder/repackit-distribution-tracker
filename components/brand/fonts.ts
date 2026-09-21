@@ -1,9 +1,14 @@
 import localFont from "next/font/local";
 
 /**
- * Polices de la landing Jarvia (Fontshare, licence ITF Free Font), chargées
- * UNIQUEMENT par l'écran de connexion : le reste de l'app garde Inter.
- * Clash Display pour les titres, Switzer pour le texte.
+ * Polices de la marque Jarvia (Fontshare, licence ITF Free Font) : Clash
+ * Display pour les titres, Switzer pour le texte. Le reste de l'app garde
+ * Inter.
+ *
+ * POURQUOI ICI ET PLUS SOUS `app/login/` : elles sont chargées par DEUX
+ * groupes de routes qui ne partagent plus de layout racine — l'écran de
+ * connexion (`app/(app)/login`) et l'accueil public (`app/(public)/…`). Un
+ * module de police n'a donc rien à faire dans le dossier d'une route.
  */
 export const clashDisplay = localFont({
   src: [
