@@ -97,7 +97,7 @@ export function MarketDecisionBoard({
           <Tuile
             label="RPM acquisition"
             value={argent(pour1000(valeur))}
-            hint="valeur des clients gagnés, pour 1 000 vues"
+            hint="valeur des clients gagnés, pour 1 000 vues promo"
             info={EXPLAIN.paysResumeRpmAcquisition}
           />
           <Tuile
@@ -110,7 +110,7 @@ export function MarketDecisionBoard({
           <Tuile
             label="RPM encaissé"
             value={argent(pour1000(revenu))}
-            hint="revenu net, renouvellements compris"
+            hint="renouvellements compris, pour 1 000 vues promo"
             info={EXPLAIN.paysResumeRpmEncaisse}
           />
         </CardContent>

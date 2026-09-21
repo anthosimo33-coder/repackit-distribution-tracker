@@ -178,7 +178,11 @@ export function ProfitabilityCard() {
           publication, et bornées au plafond de 150&nbsp;$/vidéo. Au-delà, une
           vidéo reste suivie mais ne coûte plus rien, donc elle ne pèse plus au
           dénominateur. Le toggle ne change que les vues (donc le RPM) — le revenu
-          Whop net et le coût créateurs sont identiques dans les deux cas.
+          Whop net et le coût créateurs sont identiques dans les deux cas. Ce RPM
+          se lit donc plus haut que le «&nbsp;RPM encaissé&nbsp;» de l&apos;onglet
+          Pays, qui divise le MÊME revenu par toutes les vues de promo, payées ou
+          non&nbsp;: ici on mesure ce que rapporte une vue ACHETÉE, là-bas ce que
+          rapporte une audience. Les deux ne se comparent pas.
         </p>
 
         {data.months.length > 0 && (
