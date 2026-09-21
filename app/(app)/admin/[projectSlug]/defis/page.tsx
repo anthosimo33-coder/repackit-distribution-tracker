@@ -81,6 +81,7 @@ export default function ChallengesPage() {
                 <div className="flex items-start justify-between gap-3">
                   <Link
                     href={projectPath(`/defis/${c._id}`)}
+                    prefetch={false}
                     className="min-w-0 font-medium break-words hover:underline"
                   >
                     {c.name}
@@ -148,6 +149,7 @@ export default function ChallengesPage() {
                     <TableCell className="font-medium">
                       <Link
                         href={projectPath(`/defis/${c._id}`)}
+                        prefetch={false}
                         className="hover:underline"
                       >
                         {c.name}

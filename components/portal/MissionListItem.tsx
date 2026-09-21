@@ -129,6 +129,7 @@ export function MissionListItem({
   return (
     <Link
       href={portalHref(base, `/assignments/${a._id}`)}
+      prefetch={false}
       className="block rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-300 hover:bg-slate-50"
     >
       {inner}

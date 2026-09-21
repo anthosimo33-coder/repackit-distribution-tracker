@@ -114,6 +114,7 @@ export default function ScriptsPage() {
                     <TableCell className="font-medium whitespace-normal break-words text-slate-900">
                       <Link
                         href={projectPath(`/scripts/${c._id}`)}
+                        prefetch={false}
                         className="transition-colors hover:text-primary hover:underline"
                       >
                         {c.name}

@@ -235,6 +235,7 @@ function HookCard({ hook }: { hook: HookWithUsage }) {
           href={projectPath(
             `/dashboard?nouveau=open&format=carousel&hookId=${hook._id}`,
           )}
+          prefetch={false}
           className={cn(buttonVariants({ size: "sm" }), "shrink-0")}
         >
           {tr("creerCarrousel")}

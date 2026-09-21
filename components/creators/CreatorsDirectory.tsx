@@ -801,6 +801,7 @@ export function CreatorsDirectory({
                               />
                               <Link
                                 href={projectPath(`/createurs/${l._id}`)}
+                                prefetch={false}
                                 className="transition-colors hover:text-primary hover:underline"
                               >
                                 {l.name}

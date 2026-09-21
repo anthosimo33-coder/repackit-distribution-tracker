@@ -517,7 +517,7 @@ export async function PublicHome({ stats }: { stats: ShowcaseStats | null }) {
           </div>
           <div className="flex flex-col gap-2.5 text-sm">
             <span className={cn(styles.mono, "text-[#f4f4f5]/45")}>{t("footer.navigate")}</span>
-            <Link href="/login" className={cn(styles.navLink, "self-start hover:text-[#b39bef]")}>{t("nav.signIn")}</Link>
+            <Link href="/login" prefetch={false} className={cn(styles.navLink, "self-start hover:text-[#b39bef]")}>{t("nav.signIn")}</Link>
             <a href="#apps" className={cn(styles.navLink, "self-start hover:text-[#b39bef]")}>{t("nav.studio")}</a>
             <a href="#faq" className={cn(styles.navLink, "self-start hover:text-[#b39bef]")}>{t("nav.faq")}</a>
           </div>
@@ -557,6 +557,10 @@ function PrimaryLink({
   return (
     <Link
       href={href}
+      // `/login` est une route DYNAMIQUE : son prefetch coûte une invocation
+      // serveur et ne ramène rien (207 octets mesurés, faute de loading.tsx).
+      // C'est la page que voit tout le trafic anonyme, robots compris.
+      prefetch={false}
       className={cn(
         styles.btn,
         "inline-flex items-center justify-center gap-2.5 rounded-md font-semibold",

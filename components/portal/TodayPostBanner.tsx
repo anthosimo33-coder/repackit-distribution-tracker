@@ -95,6 +95,7 @@ export function TodayPostBanner({
               <li key={a._id}>
                 <Link
                   href={portalHref(base, `/assignments/${a._id}`)}
+                  prefetch={false}
                   className="flex items-center gap-3 rounded-lg border border-primary/20 bg-white px-3 py-2 transition-colors hover:border-primary/40"
                 >
                   <span className="min-w-0 flex-1 truncate font-medium text-slate-900">
@@ -154,6 +155,7 @@ export function TodayPostBanner({
         {next && (
           <Link
             href={portalHref(base, `/assignments/${next._id}`)}
+            prefetch={false}
             aria-label={t("todayPost.seeNext")}
             className="shrink-0 text-primary"
           >

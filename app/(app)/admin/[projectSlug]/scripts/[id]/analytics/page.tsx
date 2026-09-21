@@ -101,6 +101,7 @@ export default function ScriptAnalyticsPage() {
     <div className="space-y-6">
       <Link
         href={projectPath(`/scripts/${campaignId}`)}
+        prefetch={false}
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-900"
       >
         <ArrowLeftIcon className="size-4" />
