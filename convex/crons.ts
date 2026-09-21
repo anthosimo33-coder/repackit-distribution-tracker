@@ -170,7 +170,9 @@ crons.hourly(
   {},
 );
 
-// CLASSEMENT DU CYCLE PRÉ-CALCULÉ — toutes les 10 minutes. Le portail lit le
+// CLASSEMENT DU CYCLE PRÉ-CALCULÉ — toutes les 30 minutes (10 au départ : la
+// mesure du 2026-09-20 a montré que le recalcul lui-même était devenu le 1er
+// poste de lecture, 363 MB/jour). Le portail lit le
 // résultat (leaderboardCache) au lieu de recalculer tout le projet à chaque
 // affichage : c'était 45 % de la facture Convex (2026-09-15). Intervalle, pas
 // heure fixe : c'est ce qui borne le retard du portail, quel que soit ce qui a
@@ -178,8 +180,20 @@ crons.hourly(
 // N'écrit rien si le classement n'a pas changé. Cf convex/leaderboardCache.ts.
 crons.interval(
   "leaderboard-cache-refresh",
-  { minutes: 10 },
+  { minutes: 30 },
   internal.leaderboardCache.refreshAll,
+  {},
+);
+
+// ACCUEIL ADMIN PRÉ-CALCULÉ (décisions + total dû) — toutes les 30 minutes,
+// même recette et même cadence que le classement ci-dessus. Ces deux vues sont
+// montées sur l'accueil admin et relisaient tout le projet à chaque écriture de
+// la journée. N'écrit rien si le résultat n'a pas changé.
+// Cf convex/dashboardCache.ts.
+crons.interval(
+  "admin-dashboard-cache-refresh",
+  { minutes: 30 },
+  internal.dashboardCache.refreshAll,
   {},
 );
 

@@ -144,8 +144,11 @@ export function ActionDashboard() {
     api.assignments.listAssignments,
     droits.skipUnless("assignments.manage", {}),
   );
+  // Version LÉGÈRE (table `comptes` seule) : cet écran ne compte que des
+  // warmups. `listComptes` relit publications et assignations pour la perf et
+  // l'usage — 586 MB le 2026-09-19, relancés à chaque écriture de la journée.
   const comptes = useProjectQuery(
-    api.comptes.listComptes,
+    api.comptes.listComptesSuivi,
     droits.skipUnless("accounts.manage", {}),
   );
   // Carte 3 — le TOTAL DÛ, agrégé serveur. Le dashboard lisait `listPayments`

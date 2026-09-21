@@ -2403,6 +2403,22 @@ export default defineSchema({
     changedAt: v.number(),
   }).index("by_project", ["projectId"]),
 
+  /**
+   * ACCUEIL ADMIN PRÉ-CALCULÉ — une row par (projet, vue).
+   *
+   * `decisions` et `dueTotal` sont montées sur l'accueil admin et relisaient
+   * tout le projet à chaque écriture de la journée (689 et 504 MB le
+   * 2026-09-19). Écrite par convex/dashboardCache.ts, UNIQUEMENT quand le
+   * résultat change. JSON plutôt qu'une forme figée dans le schéma : ce sont
+   * des agrégats d'affichage, pas des entités (même choix que `posthogCache`).
+   */
+  dashboardCache: defineTable({
+    projectId: v.id("projects"),
+    key: v.union(v.literal("decisions"), v.literal("dueTotal")),
+    json: v.string(),
+    changedAt: v.number(),
+  }).index("by_project_key", ["projectId", "key"]),
+
   // ─── P8 — Paiements (accrual par période) ─────────────────────────────────
   // 1 row = la rémunération d'UN créateur pour UNE période "YYYY-MM". Alimentée
   // par la validation admin (lineItem "base" figé sur rateSnapshot.basePerPost)

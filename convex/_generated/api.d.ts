@@ -54,6 +54,7 @@ import type * as creatorVideos from "../creatorVideos.js";
 import type * as creators from "../creators.js";
 import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
+import type * as dashboardCache from "../dashboardCache.js";
 import type * as dashboardDecisions from "../dashboardDecisions.js";
 import type * as dateFr from "../dateFr.js";
 import type * as decisionThresholds from "../decisionThresholds.js";
@@ -237,6 +238,7 @@ declare const fullApi: ApiFromModules<{
   creators: typeof creators;
   crons: typeof crons;
   dashboard: typeof dashboard;
+  dashboardCache: typeof dashboardCache;
   dashboardDecisions: typeof dashboardDecisions;
   dateFr: typeof dateFr;
   decisionThresholds: typeof decisionThresholds;

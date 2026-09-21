@@ -92,6 +92,14 @@ test.describe("Dashboard décisionnel — assemblage", () => {
     const hors = await poste(compteOut, 60, "out");
     await snap(hors, 1, 9_000, 800);
 
+    // Cet écran est SERVI PAR UN CACHE depuis le chantier « coûts Convex »
+    // (recalculé toutes les 30 min, cf convex/dashboardCache.ts) : ce qu'on
+    // vient de semer n'y est pas encore. On demande le recalcul, comme le cron
+    // le fera en prod.
+    await admin.mutation(api.dashboardDecisions.e2eRefreshDecisionsCache, {
+      secret: E2E_SECRET,
+      projectId: await admin.getProjectId(),
+    });
     const d = await admin.query(api.dashboardDecisions.decisionDashboard, {});
 
     // ── Fenêtre glissante : 40 h dedans, 60 h dehors ─────────────────────────

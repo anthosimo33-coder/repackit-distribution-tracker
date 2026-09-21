@@ -6,6 +6,7 @@ import {
   creatorScopeFor,
 } from "./functions";
 import { isInCreatorScope } from "./creatorScope";
+import { invalidateDashboardCache } from "./dashboardCache";
 import { internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { CAMPAIGN_NAME, DEMO_BLOCK, SEED_BRICKS } from "./scriptSeedData";
@@ -1000,6 +1001,9 @@ export const updateBrick = permissionMutation("scripts.manage")({
     instruction: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
+    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+    // l'invalide ici (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
     const brick = await ctx.db.get(args.id);
     if (!brick || brick.projectId !== ctx.projectId) {
       throw err(ERR.BRICK_NOT_FOUND, "Brique introuvable.");
@@ -2205,6 +2209,9 @@ export const graduateHook = permissionMutation("scripts.manage")({
     targetBrickId: Id<"scriptBricks">;
     targetCampaignName: string;
   }> => {
+    // L'accueil admin lit un pré-calcul : graduer un hook le retire de la
+    // liste « à décider », on invalide (cf convex/dashboardCache.ts).
+    await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
     const brick = await ctx.db.get(brickId);
     if (!brick || brick.projectId !== ctx.projectId) {
       throw err(ERR.HOOK_NOT_FOUND, "Hook introuvable.");

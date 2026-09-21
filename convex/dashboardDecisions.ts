@@ -1,6 +1,14 @@
 import {
   permissionQuery,
 } from "./functions";
+import type { QueryCtx } from "./_generated/server";
+import {
+  readDashboardCache,
+  writeDashboardCacheIfChanged,
+} from "./dashboardCache";
+import { internalQuery } from "./_generated/server";
+import { e2eMutation } from "./functions";
+import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
 import {
@@ -54,26 +62,44 @@ import {
  */
 export const decisionDashboard = permissionQuery("content.analytics")({
   args: {},
-  handler: async (ctx) => {
-    const now = Date.now();
+  handler: async (ctx): Promise<DecisionDashboard> => {
+    // LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les 30 min).
+    // Cette query est montée sur l'ACCUEIL admin : elle relit tout le projet
+    // (~2,4 MB) et se relançait à chaque écriture de la journée — 689 MB le
+    // 2026-09-19. Sans row en cache (projet neuf), calcul en direct.
+    const cached = await readDashboardCache(ctx, ctx.projectId, "decisions");
+    if (cached !== null) return JSON.parse(cached) as DecisionDashboard;
+    return computeDecisionDashboard(ctx, ctx.projectId, Date.now());
+  },
+});
+
+export type DecisionDashboard = Awaited<
+  ReturnType<typeof computeDecisionDashboard>
+>;
+
+export async function computeDecisionDashboard(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  now: number,
+) {
 
     const [pubs, refs, bricks, campaigns, comptes] = await Promise.all([
       ctx.db
         .query("publications")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect(),
-      buildPublicationAssignmentMap(ctx),
+      buildPublicationAssignmentMap({ ...ctx, projectId }),
       ctx.db
         .query("scriptBricks")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect(),
       ctx.db
         .query("scriptCampaigns")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect(),
       ctx.db
         .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect(),
     ]);
 
@@ -234,7 +260,14 @@ export const decisionDashboard = permissionQuery("content.analytics")({
       if (!brick || !brick.active) return [];
       return [
         {
-          ...d,
+          // Champs listés un par un : le signal vient d'un module pur, mais la
+          // garde anti-fuite (scripts/check-db-spread) ne distingue pas un
+          // spread d'objet local d'un spread de document — et elle a raison de
+          // ne pas essayer.
+          kind: d.kind,
+          hookBrickId: d.hookBrickId,
+          runs: d.runs,
+          bestViews: d.bestViews,
           brickId: brick._id,
           content: brick.content,
           campaignName:
@@ -291,5 +324,25 @@ export const decisionDashboard = permissionQuery("content.analytics")({
         ? { id: proven._id as Id<"scriptCampaigns">, name: proven.name }
         : null,
     };
-  },
+}
+
+/** Le JSON rangé par le cron dans `dashboardCache` (cf convex/dashboardCache). */
+export const computeDecisionsJson = internalQuery({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }): Promise<string> =>
+    JSON.stringify(await computeDecisionDashboard(ctx, projectId, Date.now())),
+});
+
+/** E2E — recalcul immédiat des décisions, sans attendre le cron. */
+export const e2eRefreshDecisionsCache = e2eMutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, { projectId }): Promise<{ changed: boolean }> =>
+    writeDashboardCacheIfChanged(
+      ctx,
+      projectId,
+      "decisions",
+      JSON.stringify(
+        await computeDecisionDashboard(ctx, projectId, Date.now()),
+      ),
+    ),
 });
