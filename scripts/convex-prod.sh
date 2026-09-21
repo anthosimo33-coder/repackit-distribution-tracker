@@ -17,9 +17,20 @@
 #      CONVEX_PROD_CONFIRM porte le nom exact du déploiement. Une exécution
 #      automatique ne peut donc pas arriver par omission.
 #
+# DEUX MODES
+#   run      exécute une fonction Convex en production, après confirmation ;
+#   confirm  fait la confirmation SEULE et rend la main (sortie 0) — pour un
+#            script qui enchaîne ensuite ses propres appels.
+#
+# `confirm` existe parce qu'un script qui passe vingt appels ne peut pas
+# demander vingt confirmations : il demande la SIENNE, une fois, et c'est
+# toujours ce fichier qui nomme la cible et juge la réponse. Dupliquer cette
+# logique ailleurs, c'est se garantir qu'une des deux copies dérivera.
+#
 # USAGE
 #   ./scripts/convex-prod.sh run <fonction> ['<args json>']
 #   CONVEX_PROD_CONFIRM=<déploiement> ./scripts/convex-prod.sh run <fonction> '{}'
+#   ./scripts/convex-prod.sh confirm "<ce que l'appelant va faire>"
 #
 set -euo pipefail
 
@@ -27,10 +38,14 @@ log()  { printf '\033[36m▸\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31m✖\033[0m %s\n' "$*" >&2; exit 1; }
 warn() { printf '\033[33m!\033[0m %s\n' "$*" >&2; }
 
-[ "${1:-}" = "run" ] || die "Usage : $0 run <fonction> ['<args json>']"
+MODE="${1:-}"
+case "$MODE" in
+  run|confirm) ;;
+  *) die "Usage : $0 run <fonction> ['<args json>']  |  $0 confirm \"<opération>\"" ;;
+esac
 shift
 FN="${1:-}"
-[ -n "$FN" ] || die "Fonction manquante. Usage : $0 run <fonction> ['<args json>']"
+[ -n "$FN" ] || die "Argument manquant. Usage : $0 run <fonction> ['<args json>']  |  $0 confirm \"<opération>\""
 shift
 FN_ARGS="${1:-{\}}"
 
@@ -51,6 +66,13 @@ TEAM="$(printf '%s' "$DEPLOYMENTS" | awk -F': *' '/Team:/ {print $2; exit}')"
 PROD_NAME="$(npx convex dashboard --prod --no-open 2>/dev/null | sed -nE 's|.*/d/([a-z0-9-]+).*|\1|p' | head -1)"
 [ -n "$PROD_NAME" ] || die "Impossible de nommer le déploiement de production — refus par défaut."
 
+if [ "$MODE" = "confirm" ]; then
+  DETAIL="   opération   : ${FN}"
+else
+  DETAIL="   fonction    : ${FN}
+   arguments   : ${FN_ARGS}"
+fi
+
 cat >&2 <<BANNER
 
   ┌─────────────────────────────────────────────────────────────┐
@@ -58,8 +80,7 @@ cat >&2 <<BANNER
   └─────────────────────────────────────────────────────────────┘
    déploiement : ${PROD_NAME}
    projet      : ${PROJECT:-?}   équipe : ${TEAM:-?}
-   fonction    : ${FN}
-   arguments   : ${FN_ARGS}
+${DETAIL}
 
 BANNER
 
@@ -74,6 +95,11 @@ elif [ -t 0 ]; then
   [ "$ANSWER" = "$PROD_NAME" ] || die "Saisie « $ANSWER » ≠ « $PROD_NAME » — rien n'a été exécuté."
 else
   die "Pas de terminal pour confirmer. Relance avec CONVEX_PROD_CONFIRM=$PROD_NAME si c'est délibéré."
+fi
+
+if [ "$MODE" = "confirm" ]; then
+  log "Cible confirmée : $PROD_NAME"
+  exit 0
 fi
 
 log "Exécution sur $PROD_NAME : $FN"

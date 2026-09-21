@@ -14,6 +14,10 @@
  * lister ce qu'il ferait, dimensions et poids à l'appui. Vrai pour les TROIS
  * modes (traitement, restauration, purge).
  *
+ * `--prod --apply` exige en plus de RECOPIER le nom du déploiement (ou de poser
+ * `CONVEX_PROD_CONFIRM`), via `scripts/convex-prod.sh confirm` — cf.
+ * `confirmProdWrite`. Un dry-run, lui, ne demande rien.
+ *
  * `--folder <fragment|id>` restreint à UN dossier : permet de dérouler un
  * dossier, vérifier le rendu à l'œil, puis enchaîner sur le reste.
  *
@@ -42,8 +46,10 @@
  * secret applicatif n'est requis ni manipulé ici.
  */
 
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ASSET_IMAGE_MAX_BYTES } from "../lib/asset-file";
 import {
   POSTPROCESS_OUTPUT_TYPE,
@@ -52,8 +58,6 @@ import {
   readImageDimensions,
   toJpegFileName,
 } from "../lib/image-postprocess";
-
-const run = promisify(execFile);
 
 const APPLY = process.argv.includes("--apply");
 const PROD = process.argv.includes("--prod");
@@ -84,15 +88,83 @@ type CandidatePayload = {
   flaggedFolders: string[];
 };
 
-/** Appel d'une fonction interne Convex via la CLI (auth = celle du dev). */
+/**
+ * PASSAGE OBLIGÉ AVANT TOUTE ÉCRITURE EN PRODUCTION.
+ *
+ * Ce script lance `npx convex run --prod` depuis Node : ni le hook
+ * `scripts/convex-guard.mjs` (qui inspecte les commandes tapées) ni
+ * `scripts/convex-prod.sh` ne le voient passer. `--prod --apply` écrivait donc
+ * en production sans la confirmation nominative que le dépôt impose depuis
+ * l'incident du 27/08/2026 — un contournement par omission, pas par décision.
+ *
+ * On appelle donc `convex-prod.sh confirm` : c'est LUI qui nomme le
+ * déploiement et qui juge la réponse. Rien n'est réimplémenté ici, sans quoi
+ * les deux copies finiraient par diverger.
+ *
+ * UNE SEULE FOIS, au démarrage : le script passe ensuite des dizaines d'appels,
+ * et vingt confirmations d'affilée ne se lisent plus, elles se cliquent.
+ *
+ * Le DRY-RUN n'est pas concerné : sans `--apply` le script n'appelle qu'une
+ * `internalQuery`, et une lecture de production est libre (cf. CLAUDE.md). Un
+ * garde qui crie sur une commande inoffensive finit désactivé.
+ */
+async function confirmProdWrite(operation: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("./scripts/convex-prod.sh", ["confirm", operation], {
+      // `inherit` sur les trois flux : la bannière s'affiche et la saisie
+      // interactive du nom de déploiement fonctionne.
+      stdio: "inherit",
+    });
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error("Écriture en production NON confirmée — rien n'a été fait.")),
+    );
+  });
+}
+
+/**
+ * Appel d'une fonction interne Convex via la CLI (auth = celle du dev).
+ *
+ * ⚠️ LA SORTIE PASSE PAR UN FICHIER, JAMAIS PAR UN TUBE. Lue sur un tube, la
+ * CLI Convex TRONQUE sa propre sortie à une frontière de tampon, de façon non
+ * déterministe : sur les 26 625 octets du lot de production, trois exécutions
+ * identiques ont rendu 8 131, 16 179 et 24 152 octets, une quatrième le tout.
+ * Le symptôme est un `Unterminated string in JSON` à une position qui change
+ * d'une fois sur l'autre — et le script échouait avant d'avoir rien traité.
+ *
+ * Ce n'est pas une question de `maxBuffer` (64 Mo pour 26 Ko) : le processus
+ * enfant sort avant d'avoir vidé son tube. Redirigé vers un descripteur de
+ * fichier, il ne perd rien — 6 exécutions sur 6 complètes et identiques.
+ *
+ * Le défaut ne pouvait pas se voir en dev : il faut un lot assez gros pour
+ * dépasser le premier tampon de 8 Ko.
+ */
 async function convexRun<T>(fn: string, args: unknown): Promise<T> {
   const argv = ["convex", "run", fn, JSON.stringify(args)];
   if (PROD) argv.push("--prod");
-  const { stdout } = await run("npx", argv, {
-    maxBuffer: 64 * 1024 * 1024,
-  });
+
+  const dir = mkdtempSync(join(tmpdir(), "convex-run-"));
+  const outPath = join(dir, "out.json");
+  const fd = openSync(outPath, "w");
+  let text: string;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      // stderr en `inherit` : les messages de la CLI restent visibles à l'écran.
+      const child = spawn("npx", argv, { stdio: ["ignore", fd, "inherit"] });
+      child.on("error", reject);
+      child.on("close", (code) =>
+        code === 0 ? resolve() : reject(new Error(`${fn} : la CLI Convex a rendu ${code}`)),
+      );
+    });
+    text = readFileSync(outPath, "utf8").trim();
+  } finally {
+    closeSync(fd);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
   // La CLI peut préfixer des lignes de log : on ne garde que la valeur JSON.
-  const text = stdout.trim();
   const start = text.search(/[[{]/);
   if (start === -1) throw new Error(`Réponse Convex illisible pour ${fn}`);
   return JSON.parse(text.slice(start)) as T;
@@ -275,6 +347,14 @@ async function main() {
   if (RESTORE && PURGE) {
     throw new Error("--restore et --purge-backups sont exclusifs.");
   }
+
+  // Avant la PREMIÈRE écriture, et pour les trois modes.
+  if (PROD && APPLY) {
+    await confirmProdWrite(
+      `${mode} — ${FOLDER ? `dossier « ${FOLDER} »` : "tous les dossiers marqués"}`,
+    );
+  }
+
   if (RESTORE || PURGE) return backupMode();
 
   const payload = await convexRun<CandidatePayload>(
