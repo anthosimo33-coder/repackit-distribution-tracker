@@ -14,6 +14,10 @@
  * lister ce qu'il ferait, dimensions et poids à l'appui. Vrai pour les TROIS
  * modes (traitement, restauration, purge).
  *
+ * `--prod --apply` exige en plus de RECOPIER le nom du déploiement (ou de poser
+ * `CONVEX_PROD_CONFIRM`), via `scripts/convex-prod.sh confirm` — cf.
+ * `confirmProdWrite`. Un dry-run, lui, ne demande rien.
+ *
  * `--folder <fragment|id>` restreint à UN dossier : permet de dérouler un
  * dossier, vérifier le rendu à l'œil, puis enchaîner sur le reste.
  *
@@ -83,6 +87,42 @@ type CandidatePayload = {
   outOfScope: number;
   flaggedFolders: string[];
 };
+
+/**
+ * PASSAGE OBLIGÉ AVANT TOUTE ÉCRITURE EN PRODUCTION.
+ *
+ * Ce script lance `npx convex run --prod` depuis Node : ni le hook
+ * `scripts/convex-guard.mjs` (qui inspecte les commandes tapées) ni
+ * `scripts/convex-prod.sh` ne le voient passer. `--prod --apply` écrivait donc
+ * en production sans la confirmation nominative que le dépôt impose depuis
+ * l'incident du 27/08/2026 — un contournement par omission, pas par décision.
+ *
+ * On appelle donc `convex-prod.sh confirm` : c'est LUI qui nomme le
+ * déploiement et qui juge la réponse. Rien n'est réimplémenté ici, sans quoi
+ * les deux copies finiraient par diverger.
+ *
+ * UNE SEULE FOIS, au démarrage : le script passe ensuite des dizaines d'appels,
+ * et vingt confirmations d'affilée ne se lisent plus, elles se cliquent.
+ *
+ * Le DRY-RUN n'est pas concerné : sans `--apply` le script n'appelle qu'une
+ * `internalQuery`, et une lecture de production est libre (cf. CLAUDE.md). Un
+ * garde qui crie sur une commande inoffensive finit désactivé.
+ */
+async function confirmProdWrite(operation: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("./scripts/convex-prod.sh", ["confirm", operation], {
+      // `inherit` sur les trois flux : la bannière s'affiche et la saisie
+      // interactive du nom de déploiement fonctionne.
+      stdio: "inherit",
+    });
+    child.on("error", reject);
+    child.on("close", (code) =>
+      code === 0
+        ? resolve()
+        : reject(new Error("Écriture en production NON confirmée — rien n'a été fait.")),
+    );
+  });
+}
 
 /**
  * Appel d'une fonction interne Convex via la CLI (auth = celle du dev).
@@ -307,6 +347,14 @@ async function main() {
   if (RESTORE && PURGE) {
     throw new Error("--restore et --purge-backups sont exclusifs.");
   }
+
+  // Avant la PREMIÈRE écriture, et pour les trois modes.
+  if (PROD && APPLY) {
+    await confirmProdWrite(
+      `${mode} — ${FOLDER ? `dossier « ${FOLDER} »` : "tous les dossiers marqués"}`,
+    );
+  }
+
   if (RESTORE || PURGE) return backupMode();
 
   const payload = await convexRun<CandidatePayload>(
