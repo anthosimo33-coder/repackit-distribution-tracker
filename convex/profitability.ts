@@ -6,9 +6,14 @@ import type { QueryCtx } from "./_generated/server";
 import {
   computeLivePricingBreakdown,
   loadCreatorPayrollSources,
+  loadProjectPublications,
+  newViewsCache,
   assignmentPublishedAt,
+  type AssignmentViewsCache,
 } from "./pricing";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
+import { payAnchorOf } from "./payCycle";
+import { settledViewsResolver } from "./settledCycles";
 import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 
@@ -56,7 +61,14 @@ async function creatorCostByMonth(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
-): Promise<Map<string, { cost: number; billedViews: number }>> {
+  /**
+   * Publications du projet préchargées + mémoire de la query. Le moteur faisait
+   * sinon un `db.get` PAR POST et PAR MOIS ; c'est le budget d'opérations
+   * système qui saute en premier sur ce projet (cf AssignmentViewsCache). Le
+   * gel, lui, reste hors cache : sa valeur dépend de l'instant du règlement.
+   */
+  viewsCache: AssignmentViewsCache,
+): Promise<Map<string, { cost: number; billedViews: number; settled: boolean }>> {
   const assignments = (
     await ctx.db
       .query("assignments")
@@ -86,7 +98,28 @@ async function creatorCostByMonth(
   ).filter((u) => u.projectId === projectId && u.rewardType === "cash");
   for (const u of unlocks) activeMonths.add(u.attributionPeriod);
 
-  const out = new Map<string, { cost: number; billedViews: number }>();
+  // ─── CE QUI EST DÉJÀ PAYÉ NE BOUGE PLUS ──────────────────────────────────
+  // Le moteur recalculait une vidéo même après le règlement de son cycle : son
+  // CPM et ses vues facturées continuaient de grossir dans le mois de sa
+  // publication, alors que la row `payments` est gelée et qu'une assignation ne
+  // peut pas repasser dans un cycle suivant (cf convex/settledCycles). Le mois
+  // affichait donc un coût que personne ne devait, et un RPM qui baissait tout
+  // seul. Deux lectures de plus par créatrice, jamais par mois.
+  const creator = await ctx.db.get(creatorId);
+  const paidRows = (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect()
+  ).filter((p) => p.projectId === projectId);
+  const settledViews = settledViewsResolver(
+    creator ? payAnchorOf(creator) : undefined,
+    paidRows,
+  );
+  const out = new Map<
+    string,
+    { cost: number; billedViews: number; settled: boolean }
+  >();
   // Une seule lecture des sources de la créatrice pour TOUS ses mois : le
   // moteur les relisait sinon à chaque tour de boucle (cf CreatorPayrollSources).
   const sources = await loadCreatorPayrollSources(ctx, projectId, creatorId);
@@ -101,11 +134,13 @@ async function creatorCostByMonth(
       month,
       new Set(),
       monthKeyParis,
-      undefined,
+      viewsCache,
       sources,
       // Borne du seuil de vues : la fin du mois PARIS, la même que celle qui
       // range les publications dans ce mois.
       parisMonthEndMs(month),
+      // Vidéo d'un cycle déjà réglé ⇒ l'assiette qu'on a payée.
+      (a) => settledViews(a._id, assignmentPublishedAt(a)),
     );
     // Les vues FACTURÉES viennent du MÊME appel que le coût : c'est la seule
     // façon que le dénominateur du RPM et son numérateur décrivent le même
@@ -131,7 +166,13 @@ async function creatorCostByMonth(
       ? bd.engage.billedViews
       : bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
     if (cost > 0 || billedViews > 0) {
-      out.set(month, { cost, billedViews });
+      // Un mois EN COURS n'est jamais annoncé figé : son coût est l'ENGAGÉ, qui
+      // suit encore les vidéos non réglées, et des vidéos vont s'y ajouter.
+      out.set(month, {
+        cost,
+        billedViews,
+        settled: !enCours && bd.allSettled === true,
+      });
     }
   }
   return out;
@@ -173,6 +214,7 @@ export const getProjectProfitability = permissionQuery("business.read")({
           creatorCost: number;
           paidViews: number;
           unpaidViews: number;
+          settled: boolean;
         }>,
       };
     }
@@ -230,11 +272,22 @@ export const getProjectProfitability = permissionQuery("business.read")({
     }
     const costByMonth = new Map<string, number>();
     const billedByMonth = new Map<string, number>();
+    // Un mois n'est FIGÉ que si TOUTES les créatrices qui y coûtent le sont : il
+    // suffit d'une vidéo encore en cours de cycle pour que le mois bouge encore.
+    // Un ET, donc, jamais un OU — annoncer « réglé » sur un mois qui va encore
+    // grossir serait pire que de ne rien annoncer.
+    const settledByMonth = new Map<string, boolean>();
+    // Les publications du projet, lues UNE fois pour toutes les créatrices et
+    // tous leurs mois (cf AssignmentViewsCache).
+    const viewsCache = newViewsCache(
+      await loadProjectPublications(ctx, ctx.projectId),
+    );
     for (const c of creatorIds) {
-      const cm = await creatorCostByMonth(ctx, ctx.projectId, c);
-      for (const [m, { cost, billedViews }] of cm) {
+      const cm = await creatorCostByMonth(ctx, ctx.projectId, c, viewsCache);
+      for (const [m, { cost, billedViews, settled }] of cm) {
         costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
         billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
+        settledByMonth.set(m, (settledByMonth.get(m) ?? true) && settled);
       }
     }
     const totalCost = round2(
@@ -327,6 +380,10 @@ export const getProjectProfitability = permissionQuery("business.read")({
         creatorCost: costByMonth.get(period) ?? 0,
         paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
         unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
+        // Coût et vues FACTURÉES définitivement arrêtés (tous les cycles du mois
+        // sont réglés). Un mois sans aucune vidéo retenue n'est pas « réglé » :
+        // `settledByMonth` ne porte que les mois qui coûtent quelque chose.
+        settled: settledByMonth.get(period) === true,
       }));
 
     return {
