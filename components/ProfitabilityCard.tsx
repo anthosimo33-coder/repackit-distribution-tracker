@@ -187,13 +187,14 @@ export function ProfitabilityCard() {
 
         <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
           <LockIcon className="mt-px size-3.5 shrink-0" />
-          Un mois cadenassé est RÉGLÉ&nbsp;: toutes ses vidéos ont été payées,
-          leur assiette est celle du jour du versement, donc son coût et son RPM
-          ne bougent plus. Les autres mois continuent de vivre — une vidéo est
-          rémunérée jusqu&apos;à J+30 après sa publication, si bien qu&apos;un
-          mois tout juste clos gagne encore des vues facturées pendant que son
-          revenu, lui, est arrêté au 31. Deux mois ne se comparent qu&apos;une
-          fois cadenassés tous les deux.
+          Un mois cadenassé est FIGÉ&nbsp;: plus aucune de ses vidéos ne peut
+          bouger, soit parce que son cycle a été réglé (l&apos;assiette est celle
+          du jour du versement), soit parce que sa fenêtre de paie est close. Son
+          coût et son RPM sont définitifs. Les autres mois continuent de vivre —
+          une vidéo est rémunérée jusqu&apos;à J+30 après sa publication, si bien
+          qu&apos;un mois tout juste clos gagne encore des vues facturées pendant
+          que son revenu, lui, est arrêté au 31. Deux mois ne se comparent
+          qu&apos;une fois cadenassés tous les deux.
         </p>
 
         {data.months.length > 0 && (
@@ -228,7 +229,7 @@ export function ProfitabilityCard() {
                             // n'ajoute pas un nom accessible à la cellule, ce qui
                             // ferait matcher la ligne sur « réglé ».
                             <span
-                              title="Mois réglé : toutes ses vidéos ont été payées, coût et vues facturées ne bougent plus."
+                              title="Mois figé : plus aucune de ses vidéos ne peut bouger — cycles réglés, ou fenêtre de paie close. Coût et vues facturées sont définitifs."
                               className="inline-flex"
                             >
                               <LockIcon className="size-3 shrink-0 text-slate-400" />

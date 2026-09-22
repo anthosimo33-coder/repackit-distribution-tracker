@@ -18,6 +18,7 @@ import { isRemunerated, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
 import {
   aggregatePayWindow,
+  payBaseIsFrozen,
   payCutoffAt,
   payCutoffReached,
   retainedViews,
@@ -465,6 +466,12 @@ export interface AssignmentViews {
   unmeasuredPayablePosts: number;
   /** Au moins un post RÉMUNÉRÉ dont la fenêtre de paie est close (et mesurée). */
   payWindowClosed: boolean;
+  /**
+   * L'assiette de la vidéo ne peut PLUS bouger : tous ses posts rémunérés sont
+   * arrêtés (fenêtre close sur un relevé, ou gel spark ad). Cf payBaseIsFrozen —
+   * `unmeasured` n'en fait PAS partie. Sert au cadenas « mois figé ».
+   */
+  payBaseFrozen: boolean;
   /** Σ des vues RÉMUNÉRÉES acquises hors fenêtre (mesurées − retenues). */
   viewsOutsideWindow: number;
 }
@@ -618,6 +625,7 @@ export async function assignmentViewsAndMetrics(
     hasMetrics,
     unmeasuredPayablePosts: unmeasuredPayable,
     payWindowClosed: payWindow.closed,
+    payBaseFrozen: payBaseIsFrozen(windows),
     viewsOutsideWindow: payWindow.viewsOutsideWindow,
   };
   cache?.views.set(a._id as string, out);
@@ -1104,9 +1112,10 @@ export interface PricingBreakdown extends MonthlyPayout {
     billedViews: number;
   };
   /**
-   * TOUTES les vidéos retenues de la période ont-elles été FIGÉES par un cycle
-   * payé (cf convex/settledCycles) ? `true` ⇒ ni le coût ni les vues facturées
-   * de cette période ne peuvent plus bouger.
+   * L'assiette de TOUTES les vidéos retenues de la période est-elle arrêtée —
+   * par un cycle payé (cf convex/settledCycles) ou par la fenêtre de paie (cf
+   * payBaseIsFrozen) ? `true` ⇒ ni le coût ni les vues facturées de cette
+   * période ne peuvent plus bouger.
    *
    * Optionnel, et `undefined` PARTOUT AILLEURS : seul l'appelant qui fournit
    * `settledViewsOf` pose la question, et un breakdown qui ne l'a pas posée ne doit
@@ -1448,8 +1457,12 @@ export async function computeLivePricingBreakdown(
   /** Combien de vidéos retenues ont vu leur assiette figée par un règlement. */
   let settledCount = 0;
   for (const a of assignments) {
-    const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
-      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
+    const {
+      payableViews,
+      hasPayablePost,
+      payBaseFrozen,
+      unmeasuredPayablePosts: nonMesures,
+    } = await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
@@ -1460,7 +1473,14 @@ export async function computeLivePricingBreakdown(
     // `null` (cycle ouvert, ou ligne CPM absente) ⇒ on garde le live, on ne
     // fabrique pas de zéro.
     const settledViews = settledViewsOf?.(a) ?? null;
-    if (settledViews !== null) settledCount += 1;
+    // DEUX façons de ne plus bouger, et le cadenas a besoin des deux : réglée
+    // (assiette reprise du grand livre) OU hors fenêtre (assiette figée par
+    // J+30 / spark ad). Ne compter que la première laissait le cadenas
+    // inatteignable : sur la prod du 22/09/2026, 14 vidéos payées d'un cycle
+    // sans ligne CPM chiffrée — toutes hors fenêtre depuis des semaines, donc
+    // parfaitement immobiles — suffisaient à tenir juillet ET août ouverts pour
+    // toujours.
+    if (settledViews !== null || payBaseFrozen) settledCount += 1;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
