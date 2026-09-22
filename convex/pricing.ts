@@ -1103,6 +1103,18 @@ export interface PricingBreakdown extends MonthlyPayout {
     /** Vues facturées du scénario engagé — le dénominateur qui va avec. */
     billedViews: number;
   };
+  /**
+   * TOUTES les vidéos retenues de la période ont-elles été FIGÉES par un cycle
+   * payé (cf convex/settledCycles) ? `true` ⇒ ni le coût ni les vues facturées
+   * de cette période ne peuvent plus bouger.
+   *
+   * Optionnel, et `undefined` PARTOUT AILLEURS : seul l'appelant qui fournit
+   * `settledViewsOf` pose la question, et un breakdown qui ne l'a pas posée ne doit
+   * pas répondre « non » — ce serait affirmer qu'une période bouge encore alors
+   * qu'on n'a rien regardé. Une période SANS vidéo retenue rend `false` : il n'y
+   * a rien à figer, donc rien à annoncer comme figé.
+   */
+  allSettled?: boolean;
 }
 
 /**
@@ -1399,6 +1411,15 @@ export async function computeLivePricingBreakdown(
    * sur l'assiette du CPM, c'est-à-dire le comportement d'avant la condition.
    */
   periodEndMs?: number,
+  /**
+   * ASSIETTE DÉJÀ PAYÉE d'une vidéo, prise dans la row gelée (null = pas encore
+   * réglée, calcul live comme avant). Fournie, elle remplace les vues du jour :
+   * le coût ET les vues facturées de cette vidéo cessent de bouger, puisque les
+   * deux sortent du même calcul. Cf convex/settledCycles pour le « pourquoi », et
+   * convex/profitability pour le seul appelant qui s'en sert — l'écran Paiements,
+   * lui, relit la row gelée en entier et ne passe jamais par ici.
+   */
+  settledViewsOf?: (a: Doc<"assignments">) => number | null,
 ): Promise<PricingBreakdown> {
   const allAssignments =
     sources?.assignments ??
@@ -1424,6 +1445,8 @@ export async function computeLivePricingBreakdown(
     assignments.some((a) => (a.pricingSnapshot?.seuilVuesFixe ?? 0) > 0);
   const items: PayoutItem[] = [];
   let unmeasuredPayablePosts = 0;
+  /** Combien de vidéos retenues ont vu leur assiette figée par un règlement. */
+  let settledCount = 0;
   for (const a of assignments) {
     const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
       await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
@@ -1433,10 +1456,15 @@ export async function computeLivePricingBreakdown(
     // Comptées seulement sur les vidéos RETENUES pour la paie : signaler une
     // vidéo warmup non mesurée n'aurait aucun sens, elle n'est pas payée.
     unmeasuredPayablePosts += nonMesures;
+    // Vidéo d'un cycle déjà payé : l'assiette sur laquelle le chèque a été fait.
+    // `null` (cycle ouvert, ou ligne CPM absente) ⇒ on garde le live, on ne
+    // fabrique pas de zéro.
+    const settledViews = settledViewsOf?.(a) ?? null;
+    if (settledViews !== null) settledCount += 1;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
-      totalViews: payableViews,
+      totalViews: settledViews ?? payableViews,
       ...(seuilPresent
         ? {
             periodViews: await payableViewsAsOf(ctx, a, periodEndMs!, viewsCache),
@@ -1486,6 +1514,9 @@ export async function computeLivePricingBreakdown(
     challengeWins,
     unmeasuredPayablePosts,
     engage: engageOf(items, base),
+    ...(settledViewsOf === undefined
+      ? {}
+      : { allSettled: items.length > 0 && settledCount === items.length }),
     // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
     // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
     // vidéos de défi forment leur propre groupe de paie.

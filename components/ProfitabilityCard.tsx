@@ -13,7 +13,7 @@ import { formatNumber } from "@/lib/format";
 import { computeProfitability } from "@/lib/profitability";
 import { effectiveFxRate } from "@/lib/currency";
 import { cn } from "@/lib/utils";
-import { InfoIcon, TrendingUpIcon } from "lucide-react";
+import { InfoIcon, LockIcon, TrendingUpIcon } from "lucide-react";
 
 /**
  * "2026-07" → "juil. 2026" (fr-FR). La clé vient du serveur, déjà découpée en mois
@@ -185,6 +185,17 @@ export function ProfitabilityCard() {
           rapporte une audience. Les deux ne se comparent pas.
         </p>
 
+        <p className="flex items-start gap-1.5 text-[11px] text-slate-400">
+          <LockIcon className="mt-px size-3.5 shrink-0" />
+          Un mois cadenassé est RÉGLÉ&nbsp;: toutes ses vidéos ont été payées,
+          leur assiette est celle du jour du versement, donc son coût et son RPM
+          ne bougent plus. Les autres mois continuent de vivre — une vidéo est
+          rémunérée jusqu&apos;à J+30 après sa publication, si bien qu&apos;un
+          mois tout juste clos gagne encore des vues facturées pendant que son
+          revenu, lui, est arrêté au 31. Deux mois ne se comparent qu&apos;une
+          fois cadenassés tous les deux.
+        </p>
+
         {data.months.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -209,7 +220,21 @@ export function ProfitabilityCard() {
                       className="border-b border-slate-100 last:border-0"
                     >
                       <td className="py-1.5 pr-3 whitespace-nowrap text-slate-600">
-                        {formatMonth(m.period)}
+                        <span className="inline-flex items-center gap-1.5">
+                          {formatMonth(m.period)}
+                          {m.settled && (
+                            // `title` plutôt qu'un `aria-label` sur l'icône : il
+                            // sert AUSSI de sélecteur e2e stable (getByTitle) et
+                            // n'ajoute pas un nom accessible à la cellule, ce qui
+                            // ferait matcher la ligne sur « réglé ».
+                            <span
+                              title="Mois réglé : toutes ses vidéos ont été payées, coût et vues facturées ne bougent plus."
+                              className="inline-flex"
+                            >
+                              <LockIcon className="size-3 shrink-0 text-slate-400" />
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className="py-1.5 px-3 text-right tabular-nums text-emerald-700">
                         {formatMoney(row.revenueNet, revenueCurrency)}
