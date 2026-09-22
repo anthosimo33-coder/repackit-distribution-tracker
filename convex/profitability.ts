@@ -167,7 +167,7 @@ async function creatorCostByMonth(
       : bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
     if (cost > 0 || billedViews > 0) {
       // Un mois EN COURS n'est jamais annoncé figé : son coût est l'ENGAGÉ, qui
-      // suit encore les vidéos non réglées, et des vidéos vont s'y ajouter.
+      // suit encore les vidéos ouvertes, et des vidéos vont s'y ajouter.
       out.set(month, {
         cost,
         billedViews,
@@ -273,7 +273,8 @@ export const getProjectProfitability = permissionQuery("business.read")({
     const costByMonth = new Map<string, number>();
     const billedByMonth = new Map<string, number>();
     // Un mois n'est FIGÉ que si TOUTES les créatrices qui y coûtent le sont : il
-    // suffit d'une vidéo encore en cours de cycle pour que le mois bouge encore.
+    // suffit d'une vidéo encore vivante (cycle ouvert ET fenêtre ouverte) pour
+    // que le mois bouge encore.
     // Un ET, donc, jamais un OU — annoncer « réglé » sur un mois qui va encore
     // grossir serait pire que de ne rien annoncer.
     const settledByMonth = new Map<string, boolean>();
@@ -380,8 +381,8 @@ export const getProjectProfitability = permissionQuery("business.read")({
         creatorCost: costByMonth.get(period) ?? 0,
         paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
         unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
-        // Coût et vues FACTURÉES définitivement arrêtés (tous les cycles du mois
-        // sont réglés). Un mois sans aucune vidéo retenue n'est pas « réglé » :
+        // Coût et vues FACTURÉES définitivement arrêtés (cycles réglés ou
+        // fenêtres closes). Un mois sans aucune vidéo retenue n'est pas figé :
         // `settledByMonth` ne porte que les mois qui coûtent quelque chose.
         settled: settledByMonth.get(period) === true,
       }));

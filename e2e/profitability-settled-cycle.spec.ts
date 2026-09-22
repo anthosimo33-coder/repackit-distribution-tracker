@@ -159,4 +159,115 @@ test.describe("Rentabilité — cycle réglé", () => {
       });
     }
   });
+
+  test("un mois dont les fenêtres sont closes se cadenasse, même impayé", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const projectId = await admin.getProjectId();
+    const ancien = await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+      secret: E2E_SECRET,
+      projectId,
+      whop: {
+        companyId: `biz_e2e_fige_${ts}`,
+        apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE",
+      },
+    });
+    try {
+      const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+        name: `[E2E_TEST] Mois figé ${ts}`,
+        montantFixe: 0,
+        nbVideosCible: 1,
+        tauxCPM: 2,
+      });
+      const formatId = (await createFormatWithRate(admin, {
+        name: `[E2E_TEST] Mois figé ${ts}`,
+        type: "short",
+        rateModel: { basePerPost: 0 },
+      })) as Id<"formats">;
+
+      /**
+       * Publie une vidéo À UNE DATE PASSÉE et la relève à `releveA`. Deux mois
+       * très anciens (−200 j, −260 j) : leurs fenêtres J+30 sont closes depuis
+       * des mois, et aucun autre spec ne va semer là-bas.
+       */
+      const videoDatee = async (ilYA: number, releveA: number, vues: number) => {
+        const publieeLe = ts - ilYA * DAY;
+        const c = await createCreatorSession(convexUrl!, {
+          name: `[E2E_TEST] Alix Mercier ${ilYA}-${ts}`,
+          email: `e2e-fige-${ilYA}-${ts}@repackit.test`,
+          password: `fige-${ilYA}-${ts}-12345`,
+        });
+        const target = await availableTarget({
+          e2eClient: admin,
+          creatorId: c.creatorId,
+          platform: "TikTok",
+          handle: `@alix.mercier_${ilYA}_${ts}`,
+        });
+        await admin.mutation(api.assignments.assignFormat, {
+          formatId,
+          creatorId: c.creatorId,
+          targets: [target],
+          postsPerCreator: 1,
+          dueDate: ts + 7 * DAY,
+          pricingId,
+        });
+        const row = (await admin.query(api.assignments.listAssignments, {})).find(
+          (a) => a.creatorId === c.creatorId && a.status !== "published",
+        )!;
+        const pub = await admin.mutation(
+          api.assignments.confirmPublicationAsAdmin,
+          {
+            id: row._id,
+            urls: [
+              {
+                platform: "TikTok",
+                url: `https://www.tiktok.com/@alix.mercier_${ilYA}_${ts}/video/7${ilYA}${ts}`,
+              },
+            ],
+            publishedAt: publieeLe,
+            allowBackdate: true,
+          },
+        );
+        await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
+          secret: E2E_SECRET,
+          publicationId: (pub.publicationIds ?? [])[0] as Id<"publications">,
+          vues,
+          capturedAt: releveA,
+          source: "tiktok",
+        });
+        return publieeLe;
+      };
+
+      const moisDe = (at: number) =>
+        new Intl.DateTimeFormat("fr-CA", {
+          timeZone: "Europe/Paris",
+          year: "numeric",
+          month: "2-digit",
+        }).format(new Date(at));
+      const moisRendu = async (period: string) =>
+        (
+          await admin.query(api.profitability.getProjectProfitability, {})
+        ).months.find((m) => m.period === period);
+
+      // ── PRÉSENCE : relevée DANS sa fenêtre, donc assiette définitive ───────
+      const figee = await videoDatee(200, ts - 195 * DAY, 41_800);
+      const moisFige = await moisRendu(moisDe(figee));
+      expect(moisFige?.paidViews).toBe(41_800);
+      expect(moisFige?.settled).toBe(true);
+
+      // ── ABSENCE : fenêtre close mais JAMAIS relevée dedans (lien collé des
+      // semaines après). On retient ses vues mesurées, qui montent encore
+      // jusqu'à J+90 : ce mois-là ne peut pas être annoncé figé.
+      const flottante = await videoDatee(260, ts, 12_400);
+      const moisOuvert = await moisRendu(moisDe(flottante));
+      expect(moisOuvert?.paidViews).toBe(12_400);
+      expect(moisOuvert?.settled).toBe(false);
+    } finally {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        ...(ancien ? { whop: ancien } : {}),
+      });
+    }
+  });
 });

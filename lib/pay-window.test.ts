@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   aggregatePayWindow,
   paidBeforePayWindow,
+  payBaseIsFrozen,
   PAY_WINDOW_DAYS,
   PAY_WINDOW_EFFECTIVE_AT,
   payWindowEndsAt,
@@ -318,5 +319,85 @@ describe("paidBeforePayWindow", () => {
     expect(new Date(PAY_WINDOW_EFFECTIVE_AT).toISOString()).toBe(
       "2026-08-31T00:00:00.000Z",
     );
+  });
+});
+
+describe("payBaseIsFrozen — le mois peut-il encore bouger ?", () => {
+  const DATE = DATE_PUBLI;
+  /** Fenêtre close SUR un relevé : l'assiette ne bougera plus. */
+  const close = () =>
+    retainedViews({
+      datePubli: DATE,
+      measuredViews: MESURE,
+      windowSnapshot: { vues: RELEVE_J30, daysSincePublication: 30 },
+      now: DATE + 55 * DAY,
+    });
+  /** Fenêtre encore ouverte : l'assiette suit les vues. */
+  const ouverte = () =>
+    retainedViews({
+      datePubli: DATE,
+      measuredViews: 92_800,
+      windowSnapshot: { vues: 92_800, daysSincePublication: 12 },
+      now: DATE + 12 * DAY,
+    });
+  /** Fenêtre close SANS relevé dedans : on retient `vuesLatest`, qui monte encore. */
+  const nonMesuree = () =>
+    retainedViews({
+      datePubli: DATE,
+      measuredViews: MESURE,
+      windowSnapshot: null,
+      now: DATE + 55 * DAY,
+    });
+  /** Poussé en pub avant J+30 : assiette gelée au dernier relevé d'avant. */
+  const pub = () =>
+    retainedViews({
+      datePubli: DATE,
+      measuredViews: MESURE,
+      windowSnapshot: { vues: 148_900, daysSincePublication: 9 },
+      now: DATE + 55 * DAY,
+      adLaunchedAt: DATE + 10 * DAY,
+    });
+
+  it("PRÉSENCE — tous les posts rémunérés hors fenêtre : figé", () => {
+    expect(
+      payBaseIsFrozen([
+        { retained: close(), isPaid: true },
+        { retained: close(), isPaid: true },
+      ]),
+    ).toBe(true);
+  });
+
+  it("ABSENCE — un seul post encore dans sa fenêtre suffit à rouvrir la vidéo", () => {
+    expect(
+      payBaseIsFrozen([
+        { retained: close(), isPaid: true },
+        { retained: ouverte(), isPaid: true },
+      ]),
+    ).toBe(false);
+  });
+
+  it("un post NON MESURÉ n'est pas figé — on retient ses vues mesurées, qui montent", () => {
+    expect(payBaseIsFrozen([{ retained: nonMesuree(), isPaid: true }])).toBe(false);
+    // PRÉSENCE : le même post, relevé dans sa fenêtre, est bien figé — l'écart
+    // tient au relevé manquant, pas à la date.
+    expect(payBaseIsFrozen([{ retained: close(), isPaid: true }])).toBe(true);
+  });
+
+  it("un post gelé par une spark ad est figé (l'assiette ne suit plus la pub)", () => {
+    expect(payBaseIsFrozen([{ retained: pub(), isPaid: true }])).toBe(true);
+  });
+
+  it("un post NON rémunéré ne compte pas — warmup ouvert sur une vidéo close", () => {
+    expect(
+      payBaseIsFrozen([
+        { retained: close(), isPaid: true },
+        { retained: ouverte(), isPaid: false },
+      ]),
+    ).toBe(true);
+  });
+
+  it("une vidéo SANS post rémunéré ne porte pas d'assiette : rien à figer", () => {
+    expect(payBaseIsFrozen([{ retained: close(), isPaid: false }])).toBe(false);
+    expect(payBaseIsFrozen([])).toBe(false);
   });
 });

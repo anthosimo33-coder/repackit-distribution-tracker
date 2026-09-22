@@ -245,6 +245,34 @@ export function retainedViews(input: {
 }
 
 /**
+ * L'ASSIETTE DE CETTE VIDÉO PEUT-ELLE ENCORE BOUGER ?
+ *
+ * `false` tant qu'un seul de ses posts rémunérés suit encore les vues. `true`
+ * quand ils sont TOUS arrêtés — fenêtre close sur un relevé, ou gelés par une
+ * spark ad. Sert à dire d'un mois qu'il ne bougera plus (cf le cadenas de la
+ * carte Rentabilité) : son coût et ses vues facturées sont alors définitifs sans
+ * qu'un paiement ait eu à intervenir.
+ *
+ * ⚠️ `unmeasured` N'EST PAS FIGÉ, et c'est tout l'intérêt de le distinguer :
+ * faute de relevé dans la fenêtre, on retient les vues MESURÉES — donc
+ * `vuesLatest`, qui continue de monter jusqu'à J+90. Annoncer « figé » là-dessus
+ * ferait mentir le cadenas sur la seule catégorie de posts où il a une chance de
+ * bouger après coup.
+ *
+ * Une vidéo SANS aucun post rémunéré rend `false` : elle ne porte pas
+ * d'assiette, il n'y a rien à déclarer figé.
+ */
+export function payBaseIsFrozen(
+  posts: readonly { retained: RetainedViews; isPaid: boolean }[],
+): boolean {
+  const payes = posts.filter((p) => p.isPaid);
+  if (payes.length === 0) return false;
+  return payes.every(
+    (p) => p.retained.status === "closed" || p.retained.status === "adFrozen",
+  );
+}
+
+/**
  * Ce qu'on AFFICHE du plafond pour une VIDÉO (une assignation = N posts).
  *
  * Ne compte QUE les posts qui entrent dans la paie. Annoncer « plafonné » sur un
