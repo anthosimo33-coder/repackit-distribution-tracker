@@ -24,7 +24,18 @@ import { creatorPublicationStats } from "./publicationLateness";
 import { getProjectProfitabilityCore } from "./profitability";
 import { profitabilityReport } from "./profitabilityMath";
 import { parisDayKey, parisMidnightUtc } from "./viewsDaily";
-import { minuitParisDe, VUES_PERIODE_MAX_JOURS, vuesGagneesCore } from "./trackerData";
+import {
+  listTrackerPostsCore,
+  minuitParisDe,
+  VUES_PERIODE_MAX_JOURS,
+  vuesGagneesCore,
+} from "./trackerData";
+import {
+  aggregateByBrick,
+  aggregateByCombo,
+  gatherCampaignViews,
+} from "./scriptAnalytics";
+import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
 import { teamRoleOf } from "./roles";
 import {
   ToolError,
@@ -145,6 +156,136 @@ export const lireVues = mcpPermissionQuery("content.analytics")({
     ),
   },
   handler: async (ctx, args) => vuesGagneesCore(ctx, args),
+});
+
+/**
+ * Liste des posts du Tracker — même lecture (`listTrackerPostsCore`), même
+ * bloc. Les filtres par NOM (créatrice, compte, campagne) et par pays sont
+ * appliqués ici : l'écran filtre par identifiants, Claude par ce qu'il a lu.
+ */
+export const lirePosts = mcpPermissionQuery("content.analytics")({
+  args: {
+    dateFrom: v.optional(v.number()),
+    dateTo: v.optional(v.number()),
+    plateforme: v.optional(
+      v.union(v.literal("TikTok"), v.literal("Instagram"), v.literal("YouTube")),
+    ),
+    warmup: v.optional(
+      v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
+    ),
+    createatrice: v.optional(v.string()),
+    compte: v.optional(v.string()),
+    campagne: v.optional(v.string()),
+    pays: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const plier = (s: string) =>
+      s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const contient = (valeur: string | null, filtre?: string) =>
+      filtre === undefined || plier(valeur ?? "").includes(plier(filtre));
+    const paysDuCompte = new Map(
+      (
+        await ctx.db
+          .query("comptes")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((c) => [`${c.plateforme}|${c.handle}`, c.targetCountry ?? null]),
+    );
+    const posts = await listTrackerPostsCore(ctx, {
+      dateFrom: args.dateFrom,
+      dateTo: args.dateTo,
+      warmup: args.warmup,
+      ...(args.plateforme ? { plateformes: [args.plateforme] } : {}),
+    });
+    // Projection EXPLICITE, puis filtres sur ce qu'elle expose : aucun champ
+    // du post ne sort sans avoir été nommé ici (cf scripts/check-db-spread).
+    return posts
+      .map((p) => ({
+        titre: p.label,
+        compte: p.compte,
+        plateforme: p.plateforme,
+        pays: paysDuCompte.get(`${p.plateforme}|${p.compte}`) ?? null,
+        createatrice: p.creatorName,
+        campagne: p.campaignName,
+        publieLe: jour(p.datePubli),
+        vues: p.vues,
+        likes: p.likes,
+        commentaires: p.comments,
+        saves: p.saves,
+        warmup: p.isWarmup,
+        url: p.postUrl,
+      }))
+      .filter(
+        (p) =>
+          contient(p.createatrice, args.createatrice) &&
+          contient(p.compte, args.compte) &&
+          contient(p.campagne, args.campagne) &&
+          (args.pays === undefined || p.pays === args.pays.trim().toUpperCase()),
+      );
+  },
+});
+
+/**
+ * Écran Analytics d'une campagne de scripts — même passe
+ * (`gatherCampaignViews`), mêmes verdicts (`buildDecisions`), mêmes
+ * agrégats par brique et par combo. Sans campagne : la liste des campagnes.
+ */
+export const lireScripts = mcpPermissionQuery("content.analytics")({
+  args: {
+    campagne: v.optional(v.string()),
+    fenetre: v.union(v.literal("j3"), v.literal("j7"), v.literal("j14"), v.literal("j30")),
+    warmup: v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
+  },
+  handler: async (ctx, args) => {
+    const plier = (s: string) =>
+      s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+    const campagnes = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const assignations = new Map<string, number>();
+    for (const a of await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      const id = a.scriptCombo?.campaignId as string | undefined;
+      if (id) assignations.set(id, (assignations.get(id) ?? 0) + 1);
+    }
+    const liste = campagnes
+      .map((c) => ({
+        nom: c.name,
+        statut: c.status,
+        assignations: assignations.get(c._id as string) ?? 0,
+      }))
+      .sort((a, b) => b.assignations - a.assignations);
+    if (args.campagne === undefined) return { kind: "liste" as const, campagnes: liste };
+
+    const q = plier(args.campagne);
+    const exacte = campagnes.filter((c) => plier(c.name) === q);
+    const proches = exacte.length > 0 ? exacte : campagnes.filter((c) => plier(c.name).includes(q));
+    if (proches.length !== 1) {
+      return {
+        kind: "ambigu" as const,
+        candidates: (proches.length > 0 ? proches : campagnes).map((c) => c.name),
+      };
+    }
+    const campagne = proches[0];
+    const vues = await gatherCampaignViews(
+      ctx,
+      ctx.projectId,
+      campagne._id,
+      args.fenetre,
+      args.warmup,
+    );
+    return {
+      kind: "campagne" as const,
+      nom: campagne.name,
+      statut: campagne.status,
+      decisions: buildDecisions(vues),
+      briques: aggregateByBrick(vues),
+      combos: aggregateByCombo(vues),
+    };
+  },
 });
 
 // ─── Déclaration des outils ──────────────────────────────────────────────────
@@ -283,6 +424,46 @@ export const OUTILS: readonly McpTool[] = [
           type: "boolean",
           description: "Ajouter la période précédente de même durée, et l'évolution en %.",
         },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "meilleurs_posts",
+    title: "Meilleurs posts",
+    description:
+      "Posts du projet classés, comme la liste du Tracker : titre, compte, plateforme, pays du compte, créatrice, campagne de script, date de publication, vues, likes, commentaires, saves, lien. Période = date de PUBLICATION (défaut : les 30 derniers jours). Vues = vues CUMULÉES à ce jour (pas celles d'une période : pour ça, l'outil `vues`). Posts de chauffe exclus par défaut, comme le Tracker.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Publiés à partir de ce jour, AAAA-MM-JJ (défaut : il y a 30 jours)." },
+        au: { type: "string", description: "Publiés jusqu'à ce jour inclus, AAAA-MM-JJ (défaut : aujourd'hui)." },
+        createatrice: ARG_CREATRICE,
+        compte: { type: "string", description: "Filtre sur le handle du compte (sous-chaîne)." },
+        campagne: { type: "string", description: "Filtre sur le nom de la campagne de script (sous-chaîne)." },
+        pays: { type: "string", description: "Code pays ISO du compte visé (ex. FR, US)." },
+        plateforme: { type: "string", description: "Plateforme.", enum: ["TikTok", "Instagram", "YouTube"] },
+        warmup: { type: "string", description: "Posts de chauffe : exclus (défaut), inclus, ou seuls.", enum: ["exclure", "inclure", "seulement"] },
+        tri: { type: "string", description: "Critère de classement (défaut : vues).", enum: ["vues", "likes", "commentaires", "saves"] },
+        ordre: { type: "string", description: "meilleurs (défaut) ou pires d'abord.", enum: ["meilleurs", "pires"] },
+        limite: { type: "integer", description: "Nombre de posts renvoyés (défaut 20).", minimum: 1, maximum: 100 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "scripts",
+    title: "Performance des scripts",
+    description:
+      "Performance des scripts, comme l'écran Analytics d'une campagne. Sans `campagne` : la liste des campagnes (statut, nombre d'assignations). Avec : les VERDICTS par brique (hook, flux, cta) — à pousser, à couper, neutre, ou en test tant qu'elle a moins de 50 posts —, les signaux forts à valider à la main, et les meilleurs combos (hook + flux + cta) par vues médianes. Vues mesurées à J+X après publication (fenêtre, défaut J+7, comme l'écran), posts de chauffe exclus par défaut.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        campagne: { type: "string", description: "Nom de la campagne (sous-chaîne ; appelle sans pour la liste)." },
+        fenetre: { type: "string", description: "Vues mesurées à J+3, J+7 (défaut), J+14 ou J+30 après publication.", enum: ["j3", "j7", "j14", "j30"] },
+        warmup: { type: "string", description: "Posts de chauffe : exclus (défaut), inclus, ou seuls.", enum: ["exclure", "inclure", "seulement"] },
       },
       additionalProperties: false,
     },
@@ -579,6 +760,133 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             : {}),
           methode:
             "Vues gagnées = écart entre deux relevés, réparti au prorata des heures sur les jours de Paris qu'il traverse ; une vidéo part de 0 vue à sa publication. Le dernier jour n'est complet qu'après le relevé de 23 h 30.",
+        });
+      }
+
+      const modeWarmup = (
+        { exclure: "exclude", inclure: "all", seulement: "only" } as const
+      )[(args.warmup as "exclure" | "inclure" | "seulement" | undefined) ?? "exclure"];
+
+      if (name === "meilleurs_posts") {
+        const jourDecale = (jr: string, n: number) => {
+          const [y, m, d] = jr.split("-").map(Number);
+          return parisDayKey(parisMidnightUtc(y, m, d + n));
+        };
+        const au =
+          typeof args.au === "string" && args.au.trim() !== ""
+            ? args.au.trim()
+            : parisDayKey(Date.now());
+        const du =
+          typeof args.du === "string" && args.du.trim() !== ""
+            ? args.du.trim()
+            : jourDecale(au, -29);
+        const debut = minuitParisDe(du);
+        const fin = minuitParisDe(jourDecale(au, 1));
+        if (debut === null || minuitParisDe(au) === null || fin === null) {
+          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+        }
+        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        const posts = await lire(() =>
+          ctx.runQuery(internal.mcpTools.lirePosts, {
+            ...ids,
+            dateFrom: debut,
+            dateTo: fin - 1,
+            warmup: modeWarmup,
+            ...(typeof args.plateforme === "string"
+              ? { plateforme: args.plateforme as "TikTok" | "Instagram" | "YouTube" }
+              : {}),
+            ...(typeof args.createatrice === "string" ? { createatrice: args.createatrice } : {}),
+            ...(typeof args.compte === "string" ? { compte: args.compte } : {}),
+            ...(typeof args.campagne === "string" ? { campagne: args.campagne } : {}),
+            ...(typeof args.pays === "string" ? { pays: args.pays } : {}),
+          }),
+        );
+        const tri = ((args.tri as string | undefined) ?? "vues") as
+          | "vues"
+          | "likes"
+          | "commentaires"
+          | "saves";
+        const signe = args.ordre === "pires" ? 1 : -1;
+        const limite = typeof args.limite === "number" ? args.limite : 20;
+        const classes = [...posts].sort(
+          (a, b) => signe * ((a[tri] ?? -1) - (b[tri] ?? -1)) || a.titre.localeCompare(b.titre),
+        );
+        return json({
+          projet: projet.slug,
+          perimetre: {
+            publies: { du, au },
+            warmup: { exclude: "posts de chauffe exclus", all: "posts de chauffe inclus", only: "posts de chauffe seulement" }[modeWarmup],
+          },
+          tri: `${tri}, ${args.ordre === "pires" ? "les moins bons d'abord" : "les meilleurs d'abord"}`,
+          total: posts.length,
+          vuesCumulees: posts.reduce((s, p) => s + p.vues, 0),
+          ...(classes.length > limite ? { tronque: `${limite} sur ${classes.length}` } : {}),
+          posts: classes.slice(0, limite),
+          lecture:
+            "vues/likes/commentaires/saves = cumul à ce jour (dernier relevé). Un post publié hier n'a pas eu le temps d'un post d'il y a trois semaines : pour comparer à maturité égale, l'outil scripts mesure à J+X. saves = null quand la plateforme ne les expose pas.",
+        });
+      }
+
+      if (name === "scripts") {
+        const fenetre = ((args.fenetre as string | undefined) ?? "j7") as "j3" | "j7" | "j14" | "j30";
+        const r = await lire(() =>
+          ctx.runQuery(internal.mcpTools.lireScripts, {
+            ...ids,
+            fenetre,
+            warmup: modeWarmup,
+            ...(typeof args.campagne === "string" ? { campagne: args.campagne } : {}),
+          }),
+        );
+        if (r.kind === "liste") {
+          return json({ projet: projet.slug, campagnes: r.campagnes });
+        }
+        if (r.kind === "ambigu") {
+          throw new ToolError(
+            `Campagne « ${String(args.campagne)} » introuvable ou ambiguë. Campagnes possibles : ${r.candidates.join(" ; ")}.`,
+          );
+        }
+        const verdict = {
+          a_pousser: "à pousser",
+          a_couper: "à couper",
+          neutre: "neutre",
+          en_test: "en test (pas encore jugeable)",
+        } as const;
+        const arrondi = (x: number | null) => (x === null ? null : Math.round(x));
+        return json({
+          projet: projet.slug,
+          campagne: { nom: r.nom, statut: r.statut },
+          fenetre: `vues à ${fenetre.toUpperCase().replace("J", "J+")} après publication`,
+          warmup: { exclude: "posts de chauffe exclus", all: "posts de chauffe inclus", only: "posts de chauffe seulement" }[modeWarmup],
+          postsMesures: r.decisions.totalPosts,
+          decisions: r.decisions.dimensions.map((d) => ({
+            dimension: d.kind,
+            briques: d.decisions.map((b) => ({
+              brique: b.label,
+              verdict: verdict[b.verdict],
+              raison: b.reason,
+              posts: b.postCount,
+              vuesMediane: arrondi(b.viewsMedian),
+              medianeDesAutres: arrondi(b.peerMedian),
+            })),
+          })),
+          signauxForts: r.decisions.strongSignals.map((s) => ({
+            brique: s.label,
+            dimension: s.kind,
+            posts: s.postCount,
+            vuesMediane: arrondi(s.viewsMedian),
+            foisLaMediane: Math.round(s.multipleOfGlobal * 10) / 10,
+            raison: s.reason,
+          })),
+          meilleursCombos: r.combos.slice(0, 10).map((c) => ({
+            hook: c.hookLabel,
+            flux: c.fluxLabel,
+            cta: c.ctaLabel,
+            posts: c.postCount,
+            vuesMediane: arrondi(c.viewsMedian),
+            jugeable: c.status === "jugeable",
+            auDessusDeLaCampagne: c.signal,
+          })),
+          lecture: `Une brique n'est jugée qu'à partir de ${DECISION_THRESHOLD} posts : en dessous, « en test », même si ses premiers chiffres sont bons (les signaux forts les signalent à part). Les verdicts comparent la médiane d'une brique à celle des autres briques de même rôle.`,
         });
       }
 

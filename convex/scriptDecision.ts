@@ -31,7 +31,7 @@ import {
  */
 
 // ─── Réplique seuils + logique (lib/scriptDecision.ts) ───────────────────────
-const DECISION_THRESHOLD = 50; // = JUGEABLE_THRESHOLD (scriptStats)
+export const DECISION_THRESHOLD = 50; // = JUGEABLE_THRESHOLD (scriptStats)
 const PUSH_DELTA = 0.25;
 const CUT_DELTA = -0.25;
 const MIN_JUDGEABLE_PEERS = 1;
@@ -221,7 +221,7 @@ function brickInputs(
   }));
 }
 
-function buildDecisions(views: CampaignViews): CampaignDecisions {
+export function buildDecisions(views: CampaignViews): CampaignDecisions {
   const bricks = aggregateByBrick(views);
   const combos = aggregateByCombo(views);
   const globalMedian = campaignMedianOf(views);
