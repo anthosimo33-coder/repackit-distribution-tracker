@@ -211,7 +211,8 @@
     "projets": "Projects",
     "chargement": "Loading…",
     "creerUnProjet": "Create a project",
-    "changerDeProjet": "Switch project"
+    "changerDeProjet": "Switch project",
+    "modifierCeProjet": "Edit this project"
   },
   "SourceIdCombobox": {
     "aucuneSource": "No source",
@@ -822,5 +823,49 @@
   "SparkAdBadge": {
     "pub": "Ad",
     "titre": "Boosted as a Spark Ad — pay frozen at the last reading before launch"
+  },
+  "EditProjectDialog": {
+    "modifierLeProjet": "Edit project",
+    "description": "Project name, logo and color. Changes apply right away, for the whole team.",
+    "logo": "Logo",
+    "apercuDuLogo": "Logo preview",
+    "choisirUneImage": "Choose a logo image",
+    "ajouterUnLogo": "Add a logo",
+    "remplacer": "Replace",
+    "retirer": "Remove",
+    "aideLogo": "Preferably a square image (PNG, JPG, SVG…), {maxMb} MB maximum. Without a logo, the initial shows on the project color.",
+    "logoTropLourd": "Image too large: {maxMb} MB maximum.",
+    "logoPasUneImage": "This file isn’t an image.",
+    "nom": "Name",
+    "couleurDAccent": "Accent color",
+    "codeCouleur": "Color code",
+    "couleurInvalide": "Invalid color: a hex value is expected (#ff5200).",
+    "slug": "Address",
+    "slugFige": "can’t be changed: it appears in links already shared.",
+    "supprimerCeProjet": "Delete this project",
+    "aideSuppression": "Erases the project and all its data. You’ll be asked to confirm.",
+    "supprimer": "Delete…",
+    "annuler": "Cancel",
+    "enregistrer": "Save",
+    "projetMisAJour": "Project updated.",
+    "enregistrementImpossible": "Couldn’t save."
+  },
+  "DeleteProjectDialog": {
+    "supprimerLeProjet": "Delete “{name}”",
+    "irreversible": "Permanent deletion: nothing can be recovered.",
+    "projetProtege": "“{name}” can’t be deleted: it’s the app’s fallback project.",
+    "serontEffaces": "Will be permanently erased:",
+    "creatrices": "{n} creator(s)",
+    "comptes": "{n} account(s)",
+    "assignations": "{n} assignment(s)",
+    "publications": "{n} post(s)",
+    "paiements": "{n} payment(s)",
+    "membres": "{n} team access(es)",
+    "etLeReste": "…and everything else: view snapshots, scripts, assets, Whop revenue, settings. Login accounts with no access to any other project are deleted too.",
+    "tapeLeNom": "To confirm, type the project name: {name}",
+    "annuler": "Cancel",
+    "supprimerDefinitivement": "Delete permanently",
+    "projetSupprime": "“{name}” deleted. Its data is being cleaned up in the background.",
+    "suppressionImpossible": "Couldn’t delete."
   }
 }

@@ -1464,7 +1464,13 @@
     "ERR_WARMUP_DURATION_INVALID": "La durée cible doit être un entier entre 1 et 60.",
     "ERR_WARMUP_START_REQUIRED": "Date de début warmup requise.",
     "ERR_WINNER_COUNT_INVALID": "Nombre de gagnantes invalide (entier entre 1 et {p1}).",
-    "generic": "Une erreur est survenue."
+    "generic": "Une erreur est survenue.",
+    "ERR_PROJECT_NAME_TOO_LONG": "Le nom du projet dépasse {max} caractères.",
+    "ERR_ACCENT_COLOR_INVALID": "Couleur invalide : format hexadécimal attendu (#ff5200).",
+    "ERR_LOGO_NOT_IMAGE": "Le logo doit être une image.",
+    "ERR_LOGO_TOO_LARGE": "Logo trop lourd : {maxMb} Mo maximum.",
+    "ERR_PROJECT_DELETE_PROTECTED": "« {name} » ne peut pas être supprimé : c’est le projet de repli de l’application.",
+    "ERR_PROJECT_DELETE_CONFIRMATION": "La saisie ne correspond pas au nom du projet (« {name} »)."
   },
   "calendar": {
     "weekday": {

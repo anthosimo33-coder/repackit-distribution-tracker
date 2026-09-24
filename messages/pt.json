@@ -1464,7 +1464,13 @@
     "ERR_WARMUP_DURATION_INVALID": "A duração alvo precisa ser um número inteiro entre 1 e 60.",
     "ERR_WARMUP_START_REQUIRED": "Data de início do aquecimento obrigatória.",
     "ERR_WINNER_COUNT_INVALID": "Número de vencedoras inválido (inteiro entre 1 e {p1}).",
-    "generic": "Ocorreu um erro."
+    "generic": "Ocorreu um erro.",
+    "ERR_PROJECT_NAME_TOO_LONG": "O nome do projeto ultrapassa {max} caracteres.",
+    "ERR_ACCENT_COLOR_INVALID": "Cor inválida: é esperado um valor hexadecimal (#ff5200).",
+    "ERR_LOGO_NOT_IMAGE": "O logo precisa ser uma imagem.",
+    "ERR_LOGO_TOO_LARGE": "Logo pesado demais: no máximo {maxMb} MB.",
+    "ERR_PROJECT_DELETE_PROTECTED": "«{name}» não pode ser excluído: é o projeto de reserva do aplicativo.",
+    "ERR_PROJECT_DELETE_CONFIRMATION": "O que você digitou não corresponde ao nome do projeto («{name}»)."
   },
   "calendar": {
     "weekday": {

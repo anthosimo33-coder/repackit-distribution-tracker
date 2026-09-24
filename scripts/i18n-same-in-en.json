@@ -44,6 +44,7 @@
     "admin.common.DraftEditView.notes",
     "admin.common.DraftEditView.slide",
     "admin.common.DraftEditView.slides",
+    "admin.common.EditProjectDialog.logo",
     "admin.common.GraduateHookDialog.likeRate",
     "admin.common.GraduateHookDialog.runs",
     "admin.common.GraduateHookDialog.saveRate",
