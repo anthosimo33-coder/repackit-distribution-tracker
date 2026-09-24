@@ -147,6 +147,11 @@ export default defineSchema({
     // ProjectSwitcher (URL publique, ex. /brand/snytch-logo.jpeg ou une URL
     // externe). Absent ⇒ fallback initiale + accentColor.
     logoUrl: v.optional(v.string()),
+    // Fichier du logo quand il a été TÉLÉVERSÉ depuis l'app (« Modifier le
+    // projet »). `logoUrl` porte alors son URL de service ; ce pointeur ne sert
+    // qu'à effacer le blob au remplacement, au retrait et à la suppression du
+    // projet. Absent pour un logo posé en chemin statique (/brand/…).
+    logoStorageId: v.optional(v.id("_storage")),
     // sidebarLinks : liens externes propres au projet, rendus dans la sidebar
     // (section "Outils") et ouverts dans un nouvel onglet. icon = nom optionnel
     // d'icône lucide (cf lib/sidebar-link-icon.ts), fallback "lien externe".

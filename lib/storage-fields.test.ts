@@ -47,7 +47,7 @@ describe("garde-fou : champs _storage vs balayage des orphelins", () => {
     ).toBe(Number(declare));
   });
 
-  it("les 5 tables porteuses sont toutes scannées par le balayage", () => {
+  it("les tables porteuses sont toutes scannées par le balayage", () => {
     const cleanup = lire("convex/storageCleanup.ts");
     for (const table of [
       "publications",
@@ -55,6 +55,9 @@ describe("garde-fou : champs _storage vs balayage des orphelins", () => {
       "formats",
       "assignments",
       "assets",
+      "creatorContracts",
+      "comptes",
+      "projects",
     ]) {
       expect(
         cleanup.includes(`ctx.db.query("${table}")`),

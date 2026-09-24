@@ -211,7 +211,8 @@
     "projets": "Projets",
     "chargement": "Chargement…",
     "creerUnProjet": "Créer un projet",
-    "changerDeProjet": "Changer de projet"
+    "changerDeProjet": "Changer de projet",
+    "modifierCeProjet": "Modifier ce projet"
   },
   "SourceIdCombobox": {
     "aucuneSource": "Aucune source",
@@ -822,5 +823,49 @@
   "SparkAdBadge": {
     "pub": "Pub",
     "titre": "Poussé en spark ad — paie figée au dernier relevé avant le lancement"
+  },
+  "EditProjectDialog": {
+    "modifierLeProjet": "Modifier le projet",
+    "description": "Nom, logo et couleur du projet. Les changements s’appliquent tout de suite, pour toute l’équipe.",
+    "logo": "Logo",
+    "apercuDuLogo": "Aperçu du logo",
+    "choisirUneImage": "Choisir une image de logo",
+    "ajouterUnLogo": "Ajouter un logo",
+    "remplacer": "Remplacer",
+    "retirer": "Retirer",
+    "aideLogo": "Image carrée de préférence (PNG, JPG, SVG…), {maxMb} Mo maximum. Sans logo, l’initiale s’affiche sur la couleur du projet.",
+    "logoTropLourd": "Image trop lourde : {maxMb} Mo maximum.",
+    "logoPasUneImage": "Ce fichier n’est pas une image.",
+    "nom": "Nom",
+    "couleurDAccent": "Couleur d’accent",
+    "codeCouleur": "Code de la couleur",
+    "couleurInvalide": "Couleur invalide : format hexadécimal attendu (#ff5200).",
+    "slug": "Adresse",
+    "slugFige": "non modifiable : elle figure dans les liens déjà partagés.",
+    "supprimerCeProjet": "Supprimer ce projet",
+    "aideSuppression": "Efface le projet et toutes ses données. Une confirmation est demandée.",
+    "supprimer": "Supprimer…",
+    "annuler": "Annuler",
+    "enregistrer": "Enregistrer",
+    "projetMisAJour": "Projet mis à jour.",
+    "enregistrementImpossible": "Enregistrement impossible."
+  },
+  "DeleteProjectDialog": {
+    "supprimerLeProjet": "Supprimer « {name} »",
+    "irreversible": "Suppression définitive : rien ne pourra être récupéré.",
+    "projetProtege": "« {name} » ne peut pas être supprimé : c’est le projet de repli de l’application.",
+    "serontEffaces": "Seront effacés définitivement :",
+    "creatrices": "{n} créatrice(s)",
+    "comptes": "{n} compte(s)",
+    "assignations": "{n} assignation(s)",
+    "publications": "{n} publication(s)",
+    "paiements": "{n} paiement(s)",
+    "membres": "{n} accès d’équipe",
+    "etLeReste": "…et tout le reste : relevés de vues, scripts, assets, revenus Whop, réglages. Les comptes de connexion qui n’ont accès à aucun autre projet sont supprimés aussi.",
+    "tapeLeNom": "Pour confirmer, tape le nom du projet : {name}",
+    "annuler": "Annuler",
+    "supprimerDefinitivement": "Supprimer définitivement",
+    "projetSupprime": "« {name} » supprimé. Le nettoyage de ses données se termine en arrière-plan.",
+    "suppressionImpossible": "Suppression impossible."
   }
 }

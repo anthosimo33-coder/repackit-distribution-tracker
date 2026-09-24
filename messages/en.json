@@ -1464,7 +1464,13 @@
     "ERR_WARMUP_DURATION_INVALID": "The target duration has to be a whole number between 1 and 60.",
     "ERR_WARMUP_START_REQUIRED": "Warm-up start date required.",
     "ERR_WINNER_COUNT_INVALID": "Invalid number of winners (a whole number between 1 and {p1}).",
-    "generic": "Something went wrong."
+    "generic": "Something went wrong.",
+    "ERR_PROJECT_NAME_TOO_LONG": "The project name is longer than {max} characters.",
+    "ERR_ACCENT_COLOR_INVALID": "Invalid color: a hex value is expected (#ff5200).",
+    "ERR_LOGO_NOT_IMAGE": "The logo has to be an image.",
+    "ERR_LOGO_TOO_LARGE": "Logo too large: {maxMb} MB maximum.",
+    "ERR_PROJECT_DELETE_PROTECTED": "“{name}” can’t be deleted: it’s the app’s fallback project.",
+    "ERR_PROJECT_DELETE_CONFIRMATION": "What you typed doesn’t match the project name (“{name}”)."
   },
   "calendar": {
     "weekday": {

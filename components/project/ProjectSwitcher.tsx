@@ -3,11 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "convex/react";
-import { CheckIcon, ChevronsUpDownIcon, PlusIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronsUpDownIcon,
+  PlusIcon,
+  SettingsIcon,
+} from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { projectPath } from "@/lib/project-path";
 import { useProject } from "@/components/project/ProjectProvider";
 import { CreateProjectDialog } from "@/components/project/CreateProjectDialog";
+import { EditProjectDialog } from "@/components/project/EditProjectDialog";
+import { DeleteProjectDialog } from "@/components/project/DeleteProjectDialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +36,8 @@ import { useTranslations } from "next-intl";
  * P3 — switcher de projet en tête de sidebar. Liste les projets de
  * l'utilisateur (memberships ; superadmin → tous, via api.projects
  * .listMyProjects). Sélectionner un projet navigue vers son dashboard scopé.
- * « Créer un projet » (superadmin uniquement) ouvre le modal de création.
+ * « Créer un projet » et « Modifier ce projet » (superadmin uniquement) ouvrent
+ * leurs modals ; la suppression s'ouvre depuis celui de modification.
  *
  * En mode collapsed : pastille d'accent + initiale, le menu reste accessible.
  */
@@ -46,6 +54,8 @@ export function ProjectSwitcher({
   const projects = useQuery(api.projects.listMyProjects, {});
   const me = useQuery(api.projects.getMe, {});
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   function switchTo(slug: string) {
     onNavigate?.();
@@ -144,6 +154,16 @@ export function ProjectSwitcher({
               <DropdownMenuItem
                 onClick={() => {
                   onNavigate?.();
+                  setEditOpen(true);
+                }}
+                className="gap-2 text-slate-600"
+              >
+                <SettingsIcon className="size-4" />
+                {tr("modifierCeProjet")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  onNavigate?.();
                   setCreateOpen(true);
                 }}
                 className="gap-2 text-slate-600"
@@ -157,7 +177,18 @@ export function ProjectSwitcher({
       </DropdownMenu>
 
       {me?.isSuperadmin && (
-        <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+        <>
+          <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
+          <EditProjectDialog
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            onDelete={() => {
+              setEditOpen(false);
+              setDeleteOpen(true);
+            }}
+          />
+          <DeleteProjectDialog open={deleteOpen} onOpenChange={setDeleteOpen} />
+        </>
       )}
     </>
   );
