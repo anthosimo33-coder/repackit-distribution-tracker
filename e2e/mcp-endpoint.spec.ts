@@ -104,7 +104,7 @@ test.describe("Serveur MCP Jarvia", () => {
 
     const liste = await rpc(url, token, { jsonrpc: "2.0", id: 2, method: "tools/list" });
     const noms = (liste.json!.result as { tools: { name: string }[] }).tools.map((t) => t.name);
-    expect(noms).toEqual(["projets", "comptes", "createatrices", "ponctualite"]);
+    expect(noms).toEqual(["projets", "comptes", "createatrices", "ponctualite", "rentabilite"]);
 
     // ── Les données : le compte semé, filtré par pays ───────────────────────
     const comptes = sortie(await rpc(url, token, appel(3, "comptes", { projet: "e2e-test", pays: "IS" })));
@@ -168,6 +168,10 @@ test.describe("Serveur MCP Jarvia", () => {
     const comptes = sortie(await rpc(url, cleManager, appel(2, "comptes", { projet: "e2e-test" })));
     expect(comptes.isError).toBe(true);
     expect(comptes.text).toMatch(/^Refusé : /);
+    // L'argent aussi : sans le bloc business, pas de revenu ni de marge.
+    const rentab = sortie(await rpc(url, cleManager, appel(6, "rentabilite", { projet: "e2e-test" })));
+    expect(rentab.isError).toBe(true);
+    expect(rentab.text).toMatch(/^Refusé : /);
 
     // 2. Admin d'un AUTRE projet : il voit le sien, pas celui-ci.
     const autreSlug = `e2e-mcp-${ts}`;
