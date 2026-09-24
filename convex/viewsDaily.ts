@@ -209,6 +209,66 @@ function roundPreservingTotal(exact: Map<string, number>): Map<string, number> {
   return new Map(rows.map((r) => [r.date, r.whole]));
 }
 
+/* ── Le départ d'une vidéo ───────────────────────────────────────────────── */
+
+export type PublicationDepart = {
+  publicationId: string;
+  /** Instant de publication (ms) — `publications.datePubli`. */
+  publishedAt: number;
+};
+
+/**
+ * LE DÉPART D'UNE VIDÉO — 0 vue à l'instant de sa publication.
+ *
+ * La répartition ne compte que les écarts ENTRE relevés : le premier relevé d'un
+ * post servait de référence, et tout ce que la vidéo avait fait AVANT lui ne
+ * tombait dans aucun jour. Or une vidéo part de zéro, et son premier relevé
+ * arrive des heures plus tard — 6,7 h en médiane sur Snytch, 24 h pour un post
+ * sur dix. Mesuré sur la prod du 05 au 23/09/2026 : 875 441 vues faites avant le
+ * premier relevé contre 1 617 860 comptées ensuite, soit 35 % des vues des
+ * nouveaux posts invisibles pour la courbe « vues gagnées ». Sur la semaine du
+ * 15 au 21/09, le projet passait de 1 196 078 à 1 551 158 vues (+30 %), et
+ * Veljko, dont les vidéos partent dans les premières heures, de 72 674 à 308 007.
+ *
+ * Ce point est AJOUTÉ aux relevés, puis la répartition fait le reste : les vues
+ * du démarrage sont étalées au prorata entre la publication et le premier
+ * relevé, sur les jours de Paris qu'elles traversent — comme n'importe quel
+ * autre intervalle, estimation comprise au-delà de 30 h.
+ *
+ * TROIS CONDITIONS, sans lesquelles le départ inventerait des vues :
+ *  - `couvertDepuis` : les relevés lus doivent couvrir TOUTE la vie du post. Une
+ *    lecture bornée (le pouls lit trois jours) voit le premier relevé DE SA
+ *    FENÊTRE, pas celui de la vidéo : lui poser un départ déverserait tout son
+ *    historique sur ces trois jours. Un post publié avant la borne n'en reçoit
+ *    donc pas — son premier relevé lu reste une référence, comme avant.
+ *  - la publication doit PRÉCÉDER le premier relevé. Une date de publication
+ *    postérieure (date de confirmation saisie après coup, cf TD-020) ne dit rien
+ *    du départ réel : on garde l'ancien comportement.
+ *  - un post sans aucun relevé n'a rien à répartir.
+ */
+export function ajouterDepartsDePublication(
+  snaps: readonly SnapshotPoint[],
+  publications: Iterable<PublicationDepart>,
+  couvertDepuis: number,
+): SnapshotPoint[] {
+  const premierReleve = new Map<string, number>();
+  for (const s of snaps) {
+    const t = premierReleve.get(s.publicationId);
+    if (t === undefined || s.capturedAt < t) {
+      premierReleve.set(s.publicationId, s.capturedAt);
+    }
+  }
+  const out = [...snaps];
+  for (const p of publications) {
+    const premier = premierReleve.get(p.publicationId);
+    if (premier === undefined) continue;
+    if (p.publishedAt < couvertDepuis) continue;
+    if (p.publishedAt >= premier) continue;
+    out.push({ publicationId: p.publicationId, capturedAt: p.publishedAt, vues: 0 });
+  }
+  return out;
+}
+
 /**
  * Vues GAGNÉES par jour (PAS cumulées) : pour chaque publication, le delta de
  * vues entre snapshots CONSÉCUTIFS est réparti AU PRORATA du temps sur les
@@ -219,6 +279,9 @@ function roundPreservingTotal(exact: Map<string, number>): Map<string, number> {
  * Détails :
  *  - Le 1er snapshot in-window de chaque post sert de RÉFÉRENCE (aucun delta
  *    émis) : on ne compte que les vues gagnées À L'INTÉRIEUR de la fenêtre.
+ *    Pour un post dont la fenêtre couvre toute la vie, l'appelant ajoute d'abord
+ *    son DÉPART (0 vue à la publication, cf `ajouterDepartsDePublication`) —
+ *    sans lui, les vues d'avant le premier relevé ne tombent dans aucun jour.
  *  - Deltas négatifs (recomptage plateforme, suppression de vues) ramenés à 0.
  *  - Plusieurs snapshots le même jour pour un même post : leurs contributions
  *    s'additionnent (gain net du jour).

@@ -23,7 +23,8 @@ import { listCreatorActivityCore, listCreatorsCore } from "./creators";
 import { creatorPublicationStats } from "./publicationLateness";
 import { getProjectProfitabilityCore } from "./profitability";
 import { profitabilityReport } from "./profitabilityMath";
-import { parisDayKey } from "./viewsDaily";
+import { parisDayKey, parisMidnightUtc } from "./viewsDaily";
+import { minuitParisDe, VUES_PERIODE_MAX_JOURS, vuesGagneesCore } from "./trackerData";
 import { teamRoleOf } from "./roles";
 import {
   ToolError,
@@ -128,6 +129,24 @@ export const lireRentabilite = mcpPermissionQuery("business.read")({
   handler: async (ctx) => getProjectProfitabilityCore(ctx),
 });
 
+/** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
+export const lireVues = mcpPermissionQuery("content.analytics")({
+  args: {
+    du: v.string(),
+    au: v.string(),
+    createatrice: v.optional(v.string()),
+    compte: v.optional(v.string()),
+    pays: v.optional(v.string()),
+    plateforme: v.optional(
+      v.union(v.literal("TikTok"), v.literal("Instagram"), v.literal("YouTube")),
+    ),
+    warmup: v.optional(
+      v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
+    ),
+  },
+  handler: async (ctx, args) => vuesGagneesCore(ctx, args),
+});
+
 // ─── Déclaration des outils ──────────────────────────────────────────────────
 
 const ARG_PROJET = {
@@ -226,6 +245,43 @@ export const OUTILS: readonly McpTool[] = [
           type: "boolean",
           description:
             "Diviser le RPM par toutes les vues suivies (RPM dilué) au lieu des seules vues facturées (défaut : non).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "vues",
+    title: "Vues gagnées sur une période",
+    description:
+      "Vues GAGNÉES pendant une période (jours de Paris), par tous les posts du projet quelle que soit leur date de publication — la courbe « Vues gagnées par jour » du Tracker, lue sur ces jours. Répond à « combien de vues Kelly a faites cette semaine ». Une vidéo part de 0 à sa publication : ses premières heures comptent. Total, détail par jour (jours estimés signalés) et répartition par créatrice, compte, pays ou plateforme. `comparer` ajoute la période précédente de même durée. Par défaut : les 7 derniers jours complets, posts de chauffe exclus (comme le Tracker).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour inclus, AAAA-MM-JJ (défaut : 6 jours avant `au`)." },
+        au: { type: "string", description: "Dernier jour inclus, AAAA-MM-JJ (défaut : hier, dernier jour complet)." },
+        createatrice: ARG_CREATRICE,
+        compte: { type: "string", description: "Filtre sur le handle du compte (sous-chaîne)." },
+        pays: { type: "string", description: "Code pays ISO du compte visé (ex. FR, US, RS)." },
+        plateforme: {
+          type: "string",
+          description: "Plateforme.",
+          enum: ["TikTok", "Instagram", "YouTube"],
+        },
+        warmup: {
+          type: "string",
+          description: "Posts de chauffe : exclus (défaut, comme le Tracker), inclus, ou seuls.",
+          enum: ["exclure", "inclure", "seulement"],
+        },
+        par: {
+          type: "string",
+          description: "Répartition renvoyée (défaut : createatrice).",
+          enum: ["createatrice", "compte", "pays", "plateforme"],
+        },
+        comparer: {
+          type: "boolean",
+          description: "Ajouter la période précédente de même durée, et l'évolution en %.",
         },
       },
       additionalProperties: false,
@@ -428,6 +484,101 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Le mois en cours compte le coût ENGAGÉ (ce qu'on paiera si les seuils tombent), pas le dû du jour.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "vues") {
+        const jourDecale = (jour: string, n: number) => {
+          const [y, m, d] = jour.split("-").map(Number);
+          return parisDayKey(parisMidnightUtc(y, m, d + n));
+        };
+        const au =
+          typeof args.au === "string" && args.au.trim() !== ""
+            ? args.au.trim()
+            : parisDayKey(Date.now() - 86_400_000);
+        const du =
+          typeof args.du === "string" && args.du.trim() !== ""
+            ? args.du.trim()
+            : jourDecale(au, -6);
+        if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+        }
+        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        let jours = 1;
+        while (jourDecale(du, jours) <= au) jours += 1;
+        if (jours > VUES_PERIODE_MAX_JOURS) {
+          throw new ToolError(
+            `Période de ${jours} jours : ${VUES_PERIODE_MAX_JOURS} au plus par appel. Découpe-la (par mois, par exemple).`,
+          );
+        }
+        const warmup = (
+          { exclure: "exclude", inclure: "all", seulement: "only" } as const
+        )[(args.warmup as "exclure" | "inclure" | "seulement" | undefined) ?? "exclure"];
+        const filtres = {
+          ...(typeof args.createatrice === "string" ? { createatrice: args.createatrice } : {}),
+          ...(typeof args.compte === "string" ? { compte: args.compte } : {}),
+          ...(typeof args.pays === "string" ? { pays: args.pays } : {}),
+          ...(typeof args.plateforme === "string"
+            ? { plateforme: args.plateforme as "TikTok" | "Instagram" | "YouTube" }
+            : {}),
+          warmup,
+        };
+        const lecture = (d: string, a: string) =>
+          lire(() => ctx.runQuery(internal.mcpTools.lireVues, { ...ids, du: d, au: a, ...filtres }));
+        const r = await lecture(du, au);
+        const par = (args.par as string | undefined) ?? "createatrice";
+        const lignes = {
+          createatrice: r.parCreatrice,
+          compte: r.parCompte,
+          pays: r.parPays,
+          plateforme: r.parPlateforme,
+        }[par as "createatrice" | "compte" | "pays" | "plateforme"];
+        const pct = (x: number, total: number) =>
+          total > 0 ? Math.round((1000 * x) / total) / 10 : null;
+        let comparaison: Record<string, unknown> | undefined;
+        if (args.comparer === true) {
+          const auAvant = jourDecale(du, -1);
+          const duAvant = jourDecale(du, -jours);
+          const avant = await lecture(duAvant, auAvant);
+          comparaison = {
+            du: duAvant,
+            au: auAvant,
+            total: avant.total,
+            evolutionPct:
+              avant.total > 0
+                ? Math.round((1000 * (r.total - avant.total)) / avant.total) / 10
+                : null,
+          };
+        }
+        const estimes = r.parJour.filter((j) => j.estime).map((j) => j.jour);
+        return json({
+          projet: projet.slug,
+          periode: { du, au, jours },
+          perimetre: {
+            posts: "tous les posts du projet, quelle que soit leur date de publication",
+            warmup: { exclude: "posts de chauffe exclus", all: "posts de chauffe inclus", only: "posts de chauffe seulement" }[warmup],
+            ...(Object.keys(filtres).length > 1 ? { filtres: { ...filtres, warmup: undefined } } : {}),
+          },
+          total: r.total,
+          postsRetenus: r.postsRetenus,
+          parJour: r.parJour,
+          repartition: {
+            par,
+            lignes: lignes.slice(0, 25).map((l) => ({
+              nom: l.libelle,
+              vues: l.vues,
+              partPct: pct(l.vues, r.total),
+            })),
+            ...(lignes.length > 25 ? { tronque: `25 premières sur ${lignes.length}` } : {}),
+          },
+          ...(comparaison ? { comparaison } : {}),
+          ...(estimes.length > 0
+            ? {
+                joursEstimes: `${estimes.length} jour(s) dont au moins une part vient d'un écart de plus de 30 h entre deux relevés : valeur répartie au prorata, pas mesurée (${estimes.join(", ")}).`,
+              }
+            : {}),
+          methode:
+            "Vues gagnées = écart entre deux relevés, réparti au prorata des heures sur les jours de Paris qu'il traverse ; une vidéo part de 0 vue à sa publication. Le dernier jour n'est complet qu'après le relevé de 23 h 30.",
         });
       }
 

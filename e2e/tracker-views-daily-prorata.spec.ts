@@ -43,6 +43,7 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
     async function makePublishedShort(
       suffix: string,
       compte: string,
+      publieLe: number,
     ): Promise<Id<"publications">> {
       const carouselId = await admin.query(
         api.publications.getNextCarouselId,
@@ -61,7 +62,7 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
         icpId,
         plateformes: ["TikTok"],
         compte,
-        datePubli,
+        datePubli: publieLe,
         notes: "[E2E_TEST] tracker-views-daily-prorata",
       });
       const pubId = ids[0] as Id<"publications">;
@@ -91,8 +92,14 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
 
     const compteTrou = `@e2e_prorata_trou_${ts}`;
     const compteQuotidien = `@e2e_prorata_quot_${ts}`;
-    const pubTrou = await makePublishedShort("trou", compteTrou);
-    const pubQuotidien = await makePublishedShort("quot", compteQuotidien);
+    const pubTrou = await makePublishedShort("trou", compteTrou, datePubli);
+    // Publié la veille au soir de son premier relevé (22:00 Paris) : le
+    // démarrage tient en 12 h, une MESURE — le rythme nominal reste non estimé.
+    const pubQuotidien = await makePublishedShort(
+      "quot",
+      compteQuotidien,
+      utcAt(2026, 8, 8, 20),
+    );
 
     // Post A — sync MANQUÉE : 48 h entre deux relevés (08/08 → 10/08, 08:00 UTC).
     await snapshot(pubTrou, utcAt(2026, 8, 8, 8), 6200);
@@ -103,17 +110,25 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
     await snapshot(pubQuotidien, utcAt(2026, 8, 10, 8), 1480);
     await snapshot(pubQuotidien, utcAt(2026, 8, 11, 8), 1720);
 
-    // ── Le trou de 48 h se répartit sur les 3 jours PARIS qu'il couvre ───────
-    // 08:00 UTC = 10:00 Paris → 14 h le 08, 24 h le 09, 10 h le 10.
-    // En jours UTC (la lecture d'AVANT) ce serait 16 h / 24 h / 8 h.
+    // ── Le DÉPART : une vidéo part de 0 à sa publication ────────────────────
+    // Publiée le 07 à 14:00 Paris, premier relevé le 08 à 10:00 Paris avec
+    // 6 200 vues : 20 h, dont 10 le 07 et 10 le 08 → 3 100 + 3 100. Ces vues ne
+    // tombaient dans AUCUN jour avant la correction (35 % des vues des nouveaux
+    // posts en prod, cf convex/viewsDaily `ajouterDepartsDePublication`).
+    // ── Puis le trou de 48 h, sur les 3 jours PARIS qu'il couvre ─────────────
+    // 08:00 UTC = 10:00 Paris → 14 h le 08, 24 h le 09, 10 h le 10 :
+    // 1 400 / 2 400 / 1 000. En jours UTC ce serait 16 h / 24 h / 8 h.
     const { daily: serieTrou } = await admin.query(api.trackerData.trackerViewsDaily, {
       comptes: [compteTrou],
     });
     expect(serieTrou).toEqual([
-      { date: "2026-08-08", value: 1400, estimated: true },
+      { date: "2026-08-07", value: 3100, estimated: false }, // départ, 20 h : une mesure
+      { date: "2026-08-08", value: 4500, estimated: true }, // 3 100 + 1 400
       { date: "2026-08-09", value: 2400, estimated: true },
       { date: "2026-08-10", value: 1000, estimated: true },
     ]);
+    // TOUTES les vues de la vidéo, ni plus ni moins.
+    expect(serieTrou.reduce((t, p) => t + p.value, 0)).toBe(11_000);
 
     // ── Rythme nominal : réparti aussi, mais JAMAIS marqué « estimé » ────────
     const { daily: serieQuotidienne } = await admin.query(
@@ -121,7 +136,8 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
       { comptes: [compteQuotidien] },
     );
     expect(serieQuotidienne).toEqual([
-      { date: "2026-08-09", value: 280, estimated: false }, // 480 × 14/24
+      { date: "2026-08-08", value: 167, estimated: false }, // départ : 1 000 × 2/12
+      { date: "2026-08-09", value: 1113, estimated: false }, // 1 000 × 10/12 + 480 × 14/24
       { date: "2026-08-10", value: 340, estimated: false }, // 480 × 10/24 + 240 × 14/24
       { date: "2026-08-11", value: 100, estimated: false }, // 240 × 10/24
     ]);
@@ -133,15 +149,17 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
       comptes: [compteTrou, compteQuotidien],
     });
     expect(serieCumulee).toEqual([
-      { date: "2026-08-08", value: 1400, estimated: true },
-      { date: "2026-08-09", value: 2680, estimated: true },
+      { date: "2026-08-07", value: 3100, estimated: false },
+      { date: "2026-08-08", value: 4667, estimated: true },
+      { date: "2026-08-09", value: 3513, estimated: true },
       { date: "2026-08-10", value: 1340, estimated: true },
       { date: "2026-08-11", value: 100, estimated: false },
     ]);
 
-    // Aucune vue perdue ni inventée par la répartition : 4800 + 480 + 240.
+    // Aucune vue perdue ni inventée : toutes celles des deux vidéos,
+    // 11 000 + 1 720 (avant la correction, 5 520 — les départs manquaient).
     const total = serieCumulee.reduce((sum, p) => sum + p.value, 0);
-    expect(total).toBe(5520);
+    expect(total).toBe(12_720);
   });
 
   /**
@@ -156,7 +174,9 @@ test.describe("Vue tracker — vues gagnées par jour", () => {
   test("ventile par marché et détaille un jour, sans jamais s'écarter du total", async () => {
     test.setTimeout(180_000);
     const ts = Date.now() + 1;
-    const datePubli = utcAt(2026, 8, 7, 12);
+    // Publiés À L'INSTANT du premier relevé : rien avant lui, donc pas de départ
+    // à répartir — ce test porte sur la ventilation, pas sur le démarrage.
+    const datePubli = utcAt(2026, 8, 9, 8);
 
     const icpId = (await admin.mutation(api.icps.createIcp, {
       nom: `[E2E_TEST] Marché vues ${ts}`,

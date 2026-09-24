@@ -6,9 +6,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 import {
+  ajouterDepartsDePublication,
   computeDailyViewDeltas,
   computeDailyViewDeltasBy,
   computeDayContributions,
+  parisDayKey,
+  parisMidnightUtc,
+  type PublicationDepart,
 } from "./viewsDaily";
 import { savesAvailability } from "./decisionThresholds";
 import { collectAvailability } from "./collectAvailability";
@@ -513,10 +517,12 @@ export const trackerViewsDaily = permissionQuery("content.analytics")({
       .collect();
 
     const filteredIds = new Set<string>();
+    const departs: PublicationDepart[] = [];
     let minDatePubli = Number.POSITIVE_INFINITY;
     for (const p of pubs) {
       if (!publishedAndMatches(p, args, (id) => refs.get(id))) continue;
       filteredIds.add(p._id as string);
+      departs.push({ publicationId: p._id as string, publishedAt: p.datePubli });
       if (p.datePubli < minDatePubli) minDatePubli = p.datePubli;
     }
     if (filteredIds.size === 0)
@@ -538,13 +544,21 @@ export const trackerViewsDaily = permissionQuery("content.analytics")({
       });
     const snaps = await snapsQuery.collect();
 
-    const points = snaps
-      .filter((s) => filteredIds.has(s.publicationId as string))
-      .map((s) => ({
-        publicationId: s.publicationId as string,
-        capturedAt: s.capturedAt,
-        vues: s.vues,
-      }));
+    // Chaque post retenu est publié APRÈS la borne du scan (`lower` = « Du », ou
+    // la plus ancienne publication) : sa vie entière est lue, son DÉPART peut
+    // donc être posé — les vues d'avant son premier relevé tombent enfin dans un
+    // jour (cf convex/viewsDaily `ajouterDepartsDePublication`).
+    const points = ajouterDepartsDePublication(
+      snaps
+        .filter((s) => filteredIds.has(s.publicationId as string))
+        .map((s) => ({
+          publicationId: s.publicationId as string,
+          capturedAt: s.capturedAt,
+          vues: s.vues,
+        })),
+      departs,
+      lower,
+    );
 
     // ── VENTILATION PAR MARCHÉ ────────────────────────────────────────────
     // Le pays visé du compte, puis le marché composé s'il en fait partie. Les
@@ -634,14 +648,22 @@ export const trackerViewsDayDetail = permissionQuery("content.analytics")({
       })
       .collect();
 
-    const points = snaps
-      .filter((s) => gardees.has(s.publicationId as string))
-      .map((s) => ({
-        publicationId: s.publicationId as string,
-        capturedAt: s.capturedAt,
-        vues: s.vues,
-      }));
-
+    // MÊMES départs que la courbe : sans eux, le détail d'un jour ne sommerait
+    // plus au point cliqué.
+    const points = ajouterDepartsDePublication(
+      snaps
+        .filter((s) => gardees.has(s.publicationId as string))
+        .map((s) => ({
+          publicationId: s.publicationId as string,
+          capturedAt: s.capturedAt,
+          vues: s.vues,
+        })),
+      [...gardees.values()].map((p) => ({
+        publicationId: p._id as string,
+        publishedAt: p.datePubli,
+      })),
+      lower,
+    );
     const detail = computeDayContributions(points, day);
     const marcheDe = await buildPublicationMarketMap(ctx, pubs);
     const composeDe = await buildMarketLabelMap(ctx);
@@ -670,3 +692,175 @@ export const trackerViewsDayDetail = permissionQuery("content.analytics")({
     };
   },
 });
+
+/* ── Vues gagnées sur une PÉRIODE (outil MCP `vues`) ─────────────────────── */
+
+/** Jours relus AVANT la période pour trouver la référence de chaque post. */
+const LECTURE_AVANT_MS = 7 * 86_400_000;
+/**
+ * …et APRÈS : un écart entre deux relevés qui DÉBORDE la fin de la période y
+ * dépose sa part au prorata — sans le relevé d'après, elle disparaissait (vu par
+ * e2e/mcp-vues.spec.ts : 0 vue au lieu de 2 000 sur la période précédente).
+ */
+const LECTURE_APRES_MS = 7 * 86_400_000;
+/**
+ * Une période plus longue ferait lire trop de relevés en une query : la lecture
+ * porte sur TOUS les relevés du projet dans la fenêtre, 7 jours avant et après
+ * compris (~440 relevés par jour sur Snytch en septembre 2026 : 31 + 14 jours ≈
+ * 20 000 lectures). Un mois entier tient ; au-delà, l'outil demande de découper.
+ */
+export const VUES_PERIODE_MAX_JOURS = 31;
+
+const JOUR_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Minuit Paris d'un jour « AAAA-MM-JJ », ou null si la chaîne n'en est pas un. */
+export function minuitParisDe(jour: string): number | null {
+  const m = jour.match(JOUR_RE);
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = parisMidnightUtc(y, mo, d);
+  // « 2026-02-30 » passerait le motif : on vérifie que le jour existe.
+  return parisDayKey(t) === jour ? t : null;
+}
+
+export type VuesGagneesArgs = {
+  /** Premier et dernier jour INCLUS, jours de Paris « AAAA-MM-JJ ». */
+  du: string;
+  au: string;
+  /** Sous-chaîne du nom de la créatrice (accents et casse ignorés). */
+  createatrice?: string;
+  /** Sous-chaîne du handle du compte. */
+  compte?: string;
+  /** Code pays ISO du compte visé. */
+  pays?: string;
+  plateforme?: "TikTok" | "Instagram" | "YouTube";
+  warmup?: WarmupFilter;
+};
+
+type Repartition = { cle: string; libelle: string; vues: number }[];
+
+/**
+ * VUES GAGNÉES pendant une période, par TOUS les posts du projet — quelle que
+ * soit leur date de publication. C'est la courbe du Tracker (même répartition,
+ * mêmes départs, mêmes filtres de dimension et de warmup) lue sur ces jours-là.
+ *
+ * ⚠️ Différence VOULUE avec le filtre « Du / Au » du Tracker : celui-ci retient
+ * les posts PUBLIÉS dans la fenêtre (une cohorte). « Combien de vues Kelly a
+ * faites cette semaine » compte aussi celles de ses vidéos plus anciennes.
+ *
+ * Arrondi : chaque jour est un entier arrondi au plus fort reste sur la série
+ * lue (période + 7 jours avant) ; un jour peut donc différer d'une vue du point
+ * de la courbe du Tracker, qui arrondit sur une autre série. Les totaux, eux,
+ * sont ceux des jours.
+ */
+export async function vuesGagneesCore(
+  ctx: QueryCtx & { projectId: Id<"projects"> },
+  args: VuesGagneesArgs,
+) {
+  const debut = minuitParisDe(args.du);
+  const dernier = minuitParisDe(args.au);
+  if (debut === null || dernier === null) {
+    throw new Error("Dates attendues au format AAAA-MM-JJ.");
+  }
+  const [ya, ma, da] = args.au.split("-").map(Number);
+  const fin = parisMidnightUtc(ya, ma, da + 1); // exclu
+  const lecture = debut - LECTURE_AVANT_MS;
+
+  const plier = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+  const refs = await buildPublicationAssignmentMap(ctx);
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const marcheDe = await buildPublicationMarketMap(ctx, pubs);
+  const composeDe = await buildMarketLabelMap(ctx);
+
+  const gardees = new Map<string, Doc<"publications">>();
+  for (const p of pubs) {
+    if (p.datePubli >= fin) continue; // pas encore publiée pendant la période
+    const filtres: FilterArgs = {
+      warmup: args.warmup,
+      ...(args.plateforme ? { plateformes: [args.plateforme] } : {}),
+    };
+    if (!publishedAndMatches(p, filtres, (id) => refs.get(id))) continue;
+    const ref = refs.get(p._id as string);
+    if (args.createatrice && !plier(ref?.creatorName ?? "").includes(plier(args.createatrice))) {
+      continue;
+    }
+    if (args.compte && !plier(p.compte).includes(plier(args.compte))) continue;
+    if (args.pays && (marcheDe.get(p._id as string) ?? "") !== args.pays.trim().toUpperCase()) {
+      continue;
+    }
+    gardees.set(p._id as string, p);
+  }
+
+  const snaps = await ctx.db
+    .query("metricSnapshots")
+    .withIndex("by_project_capturedAt", (ix) =>
+      ix
+        .eq("projectId", ctx.projectId)
+        .gte("capturedAt", lecture)
+        .lt("capturedAt", fin + LECTURE_APRES_MS),
+    )
+    .collect();
+  const points = ajouterDepartsDePublication(
+    snaps
+      .filter((s) => gardees.has(s.publicationId as string))
+      .map((s) => ({
+        publicationId: s.publicationId as string,
+        capturedAt: s.capturedAt,
+        vues: s.vues,
+      })),
+    [...gardees.values()].map((p) => ({
+      publicationId: p._id as string,
+      publishedAt: p.datePubli,
+    })),
+    lecture,
+  );
+
+  const dansLaPeriode = (jour: string) => jour >= args.du && jour <= args.au;
+  const libelles = new Map<string, string>();
+  const ventiler = (groupe: (p: Doc<"publications">) => [string, string]): Repartition => {
+    const parGroupe = new Map<string, number>();
+    const serie = computeDailyViewDeltasBy(points, (id) => {
+      const p = gardees.get(id);
+      if (!p) return "";
+      const [cle, libelle] = groupe(p);
+      libelles.set(cle, libelle);
+      return cle;
+    });
+    for (const j of serie) {
+      if (!dansLaPeriode(j.date)) continue;
+      for (const part of j.parts) {
+        parGroupe.set(part.group, (parGroupe.get(part.group) ?? 0) + part.value);
+      }
+    }
+    return [...parGroupe.entries()]
+      .map(([cle, vues]) => ({ cle, libelle: libelles.get(cle) ?? cle, vues }))
+      .filter((r) => r.vues > 0)
+      .sort((a, b) => b.vues - a.vues);
+  };
+
+  const parJour = computeDailyViewDeltas(points)
+    .filter((j) => dansLaPeriode(j.date))
+    .map((j) => ({ jour: j.date, vues: j.value, estime: j.estimated }));
+  return {
+    du: args.du,
+    au: args.au,
+    total: parJour.reduce((s, j) => s + j.vues, 0),
+    postsRetenus: gardees.size,
+    parJour,
+    parCreatrice: ventiler((p) => {
+      const nom = refs.get(p._id as string)?.creatorName ?? "(sans créatrice)";
+      return [`c:${nom}`, nom];
+    }),
+    parCompte: ventiler((p) => [`${p.plateforme}|${p.compte}`, `${p.compte} (${p.plateforme})`]),
+    parPays: ventiler((p) => {
+      const pays = marcheDe.get(p._id as string) ?? "";
+      const compose = pays === "" ? undefined : composeDe.get(pays);
+      return [compose?.key ?? (pays || "-"), compose?.label ?? (pays || "sans pays")];
+    }),
+    parPlateforme: ventiler((p) => [p.plateforme ?? "?", p.plateforme ?? "?"]),
+  };
+}
