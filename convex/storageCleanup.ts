@@ -96,7 +96,7 @@ export async function purgeAssetBlobs(
  * Garde-fou : lib/storage-fields.test.ts compte les `v.id("_storage")` de
  * schema.ts et échoue dès que le compte diverge de cette constante.
  */
-export const STORAGE_FIELD_COUNT = 8;
+export const STORAGE_FIELD_COUNT = 9;
 
 async function collecterStorageIdsReferences(
   ctx: MutationCtx,
@@ -130,6 +130,12 @@ async function collecterStorageIdsReferences(
   }
   for (const c of await ctx.db.query("comptes").collect()) {
     ajouter(c.avatar?.storageId);
+  }
+  // Logo téléversé d'un projet (« Modifier le projet »). Sans cette ligne, le
+  // cron l'effacerait 24 h après l'envoi et le switcher afficherait une image
+  // cassée.
+  for (const p of await ctx.db.query("projects").collect()) {
+    ajouter(p.logoStorageId);
   }
   return refs;
 }
