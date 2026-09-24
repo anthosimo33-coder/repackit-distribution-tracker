@@ -1662,6 +1662,23 @@ export default defineSchema({
     .index("by_token", ["token"])
     .index("by_user", ["userId"]),
 
+  // Clés d'accès PERSONNELLES au serveur MCP (convex/mcpHttp.ts) : Claude
+  // (Desktop, Code) interroge l'app au nom de la personne, avec SES droits.
+  // Seule l'EMPREINTE SHA-256 est stockée — la clé en clair n'est montrée qu'une
+  // fois, à la création. `prefix` = début de la clé, pour la reconnaître dans la
+  // liste. Pas de projectId : la clé suit la PERSONNE, les droits se vérifient
+  // projet par projet à chaque appel. Révoquer = supprimer la ligne.
+  mcpTokens: defineTable({
+    userId: v.id("users"),
+    name: v.string(),
+    tokenHash: v.string(),
+    prefix: v.string(),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_hash", ["tokenHash"])
+    .index("by_user", ["userId"]),
+
   // Invitations à token (uuid). Une invitation = un lien /join/<token> à usage
   // unique, lié à un créateur. expiresAt défaut +14 j ; usedAt posé à la
   // consommation (la mutation de signup la marque). by_token = résolution du

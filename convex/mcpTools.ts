@@ -1,0 +1,327 @@
+/**
+ * OUTILS du serveur MCP Jarvia — lecture seule.
+ *
+ * Chaque outil lit par le CŒUR de la query de l'écran correspondant
+ * (`listComptesCore`, `listCreatorsCore`…), derrière le MÊME bloc de droits
+ * (`mcpPermissionQuery`). Claude voit donc exactement ce que la personne verrait
+ * dans l'app — ni un champ de plus, ni un calcul différent. Ce module ne fait que
+ * RÉDUIRE ces lectures à ce qu'un modèle doit lire : pas d'e-mail, pas de
+ * téléphone, pas d'identifiant interne, des dates en jours de Paris.
+ *
+ * Ajouter un outil : une query interne `mcpPermissionQuery(<bloc de l'écran>)`
+ * qui appelle le cœur de l'écran, puis sa déclaration dans `OUTILS` et son cas
+ * dans `callTool`.
+ */
+
+import { v, ConvexError } from "convex/values";
+import { internalQuery, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import { mcpPermissionQuery } from "./functions";
+import { effectiveStatus, listComptesCore } from "./comptes";
+import { listCreatorActivityCore, listCreatorsCore } from "./creators";
+import { creatorPublicationStats } from "./publicationLateness";
+import { parisDayKey } from "./viewsDaily";
+import { teamRoleOf } from "./roles";
+import {
+  ToolError,
+  textResult,
+  type McpServer,
+  type McpTool,
+} from "./mcpProtocol";
+
+const jour = (ts: number | null | undefined): string | null =>
+  typeof ts === "number" && ts > 0 ? parisDayKey(ts) : null;
+
+// ─── Lectures (queries internes, gardées comme l'écran) ─────────────────────
+
+/** Projets où la personne a un rôle d'ÉQUIPE (ou tous, pour un superadmin). */
+export const projetsAccessibles = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) return [];
+    if (user.role === "superadmin") {
+      return (await ctx.db.query("projects").collect())
+        .map((p) => ({ _id: p._id, slug: p.slug, name: p.name, role: "superadmin" }))
+        .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    }
+    const acces = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const out = [];
+    for (const m of acces) {
+      const role = teamRoleOf(m);
+      if (role === null) continue; // rôle de portail seul : pas l'app interne
+      const p = await ctx.db.get(m.projectId);
+      if (p) out.push({ _id: p._id, slug: p.slug, name: p.name, role: role as string });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  },
+});
+
+/** Écran Comptes — même lecture (`listComptesCore`), même bloc. */
+export const lireComptes = mcpPermissionQuery("accounts.manage")({
+  args: {},
+  handler: async (ctx) =>
+    (await listComptesCore(ctx, {})).map((c) => ({
+      handle: c.handle,
+      plateforme: c.plateforme,
+      pays: c.targetCountry ?? null,
+      statut: effectiveStatus(c),
+      createatrice: c.creator?.name ?? null,
+      gestionnaire: c.personne ? `${c.personne.prenom} ${c.personne.nom}` : null,
+      vues: c.perf.vuesCumulees,
+      posts: c.perf.nbPublies,
+      dernierPost: jour(c.perf.dernierPost),
+      url: c.url ?? null,
+    })),
+});
+
+/** Écran Créateurs — fiche (`listCreatorsCore`) + activité (`listCreatorActivityCore`). */
+export const lireCreatrices = mcpPermissionQuery("creators.read")({
+  args: {},
+  handler: async (ctx) => {
+    const fiches = await listCreatorsCore(ctx);
+    const activite = new Map(
+      (await listCreatorActivityCore(ctx)).map((a) => [a.creatorId, a]),
+    );
+    return fiches.map((c) => {
+      const a = activite.get(c._id);
+      return {
+        nom: c.name,
+        statut: c.status,
+        type: c.kind ?? "partner",
+        langue: c.locale,
+        fuseau: a?.zone ?? c.timezone ?? null,
+        comptesActifs: a?.comptes ?? 0,
+        publications: a?.publications ?? 0,
+        dernierPost: jour(a?.lastPostAt),
+        premierPostPaye: jour(c.firstPostAt),
+        refLien: c.refSlug ?? null,
+      };
+    });
+  },
+});
+
+/** Taux à l'heure par créatrice — même source que l'écran et les notifications. */
+export const lirePonctualite = mcpPermissionQuery("content.analytics")({
+  args: {},
+  handler: async (ctx) =>
+    (await creatorPublicationStats(ctx, ctx.projectId, Date.now())).map((s) => ({
+      createatrice: s.creatorName,
+      tauxALHeurePct: s.tally.rate === null ? null : Math.round(s.tally.rate * 100),
+      aLHeure: s.tally.onTime,
+      enRetard: s.tally.late,
+      manques: s.tally.missed,
+      aVenir: s.tally.scheduled,
+      postsPasses: s.tally.past,
+    })),
+});
+
+// ─── Déclaration des outils ──────────────────────────────────────────────────
+
+const ARG_PROJET = {
+  type: "string",
+  description:
+    "Slug ou nom du projet (ex. « snytch »). Facultatif si la clé n'ouvre qu'un seul projet ; sinon, appelle d'abord `projets`.",
+} as const;
+
+const ARG_CREATRICE = {
+  type: "string",
+  description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés).",
+} as const;
+
+export const OUTILS: readonly McpTool[] = [
+  {
+    name: "projets",
+    title: "Projets accessibles",
+    description:
+      "Liste les projets que cette clé peut lire (slug, nom, rôle). À appeler en premier quand on ne sait pas quel projet viser.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "comptes",
+    title: "Comptes du projet",
+    description:
+      "Comptes TikTok/Instagram/YouTube du projet, comme l'écran Comptes : plateforme, pays ciblé (code ISO), statut (actif, warmup, shadowban, archived), créatrice, vues cumulées, nombre de posts, date du dernier post. Triés par vues décroissantes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: ARG_CREATRICE,
+        pays: { type: "string", description: "Code pays ISO à 2 lettres (ex. FR, US, RS)." },
+        plateforme: {
+          type: "string",
+          description: "Plateforme du compte.",
+          enum: ["TikTok", "Instagram", "YouTube"],
+        },
+        statut: {
+          type: "string",
+          description: "Statut du compte.",
+          enum: ["actif", "warmup", "shadowban", "archived"],
+        },
+        limite: {
+          type: "integer",
+          description: "Nombre maximum de comptes renvoyés (défaut 100).",
+          minimum: 1,
+          maximum: 500,
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "createatrices",
+    title: "Créatrices du projet",
+    description:
+      "Créatrices du projet, comme l'écran Créateurs : statut (invited, onboarding, active, paused, churned), type (partner, talent, clipper), langue, fuseau, comptes actifs, publications, dernier post. Par défaut, seules les créatrices en activité (ni en pause ni parties).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: ARG_CREATRICE,
+        inclure_inactives: {
+          type: "boolean",
+          description: "Inclure les créatrices en pause ou parties (défaut : non).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "ponctualite",
+    title: "Ponctualité des publications",
+    description:
+      "Taux de publication à l'heure par créatrice, sur tout l'historique du projet (même calcul que le calendrier et les notifications, dans le fuseau de chaque créatrice) : à l'heure, en retard, manqués, à venir. Trié du taux le plus bas au plus haut — pour répondre à « qui est en retard ».",
+    inputSchema: {
+      type: "object",
+      properties: { projet: ARG_PROJET, createatrice: ARG_CREATRICE },
+      additionalProperties: false,
+    },
+  },
+];
+
+// ─── Exécution ───────────────────────────────────────────────────────────────
+
+type Projet = { _id: Id<"projects">; slug: string; name: string; role: string };
+
+const plier = (s: string) =>
+  s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+/** Le message d'un refus serveur (droit manquant…), tel que l'app le formule. */
+function messageDe(e: unknown): string | null {
+  if (!(e instanceof ConvexError)) return null;
+  const d: unknown = e.data;
+  if (typeof d === "string") return d;
+  if (typeof d === "object" && d !== null && "message" in d) {
+    return String((d as { message: unknown }).message);
+  }
+  return null;
+}
+
+const json = (valeur: unknown) => textResult(JSON.stringify(valeur, null, 1));
+
+/** Le serveur MCP d'UNE personne authentifiée. */
+export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
+  let projetsP: Promise<Projet[]> | null = null;
+  const projets = () =>
+    (projetsP ??= ctx.runQuery(internal.mcpTools.projetsAccessibles, { userId }));
+
+  async function projetDe(arg: unknown): Promise<Projet> {
+    const liste = await projets();
+    if (liste.length === 0) {
+      throw new ToolError("Cette clé n'ouvre aucun projet.");
+    }
+    const possibles = liste.map((p) => p.slug).join(", ");
+    if (typeof arg !== "string" || arg.trim() === "") {
+      if (liste.length === 1) return liste[0];
+      throw new ToolError(`Précise le projet (argument « projet ») parmi : ${possibles}.`);
+    }
+    const q = plier(arg);
+    const p = liste.find((x) => plier(x.slug) === q || plier(x.name) === q);
+    if (!p) {
+      throw new ToolError(`Projet inconnu ou inaccessible : « ${arg} ». Projets possibles : ${possibles}.`);
+    }
+    return p;
+  }
+
+  /** Une lecture gardée : un refus de droit devient un message pour le modèle. */
+  async function lire<T>(f: () => Promise<T>): Promise<T> {
+    try {
+      return await f();
+    } catch (e) {
+      const m = messageDe(e);
+      if (m !== null) throw new ToolError(`Refusé : ${m}`);
+      throw e;
+    }
+  }
+
+  const filtreNom = (nom: string | null, filtre: unknown) =>
+    typeof filtre !== "string" || plier(nom ?? "").includes(plier(filtre));
+
+  return {
+    info: { name: "jarvia", version: "1.0.0" },
+    instructions:
+      "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé. Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ).",
+    tools: OUTILS,
+    async callTool(name, args) {
+      if (name === "projets") {
+        return json(
+          (await projets()).map((p) => ({ slug: p.slug, nom: p.name, role: p.role })),
+        );
+      }
+      const projet = await projetDe(args.projet);
+      const ids = { userId, projectId: projet._id };
+
+      if (name === "comptes") {
+        const tous = await lire(() => ctx.runQuery(internal.mcpTools.lireComptes, ids));
+        const pays = typeof args.pays === "string" ? args.pays.trim().toUpperCase() : null;
+        const retenus = tous
+          .filter((c) => filtreNom(c.createatrice, args.createatrice))
+          .filter((c) => pays === null || c.pays === pays)
+          .filter((c) => args.plateforme === undefined || c.plateforme === args.plateforme)
+          .filter((c) => args.statut === undefined || c.statut === args.statut)
+          .sort((a, b) => b.vues - a.vues);
+        const limite = typeof args.limite === "number" ? args.limite : 100;
+        return json({
+          projet: projet.slug,
+          total: retenus.length,
+          vuesCumulees: retenus.reduce((s, c) => s + c.vues, 0),
+          ...(retenus.length > limite ? { tronque: `${limite} premiers sur ${retenus.length}` } : {}),
+          comptes: retenus.slice(0, limite),
+        });
+      }
+
+      if (name === "createatrices") {
+        const toutes = await lire(() => ctx.runQuery(internal.mcpTools.lireCreatrices, ids));
+        const inactives = args.inclure_inactives === true;
+        const retenues = toutes
+          .filter((c) => filtreNom(c.nom, args.createatrice))
+          .filter((c) => inactives || (c.statut !== "paused" && c.statut !== "churned"))
+          .sort((a, b) => b.publications - a.publications);
+        return json({ projet: projet.slug, total: retenues.length, createatrices: retenues });
+      }
+
+      if (name === "ponctualite") {
+        const lignes = await lire(() => ctx.runQuery(internal.mcpTools.lirePonctualite, ids));
+        const retenues = lignes
+          .filter((l) => filtreNom(l.createatrice, args.createatrice))
+          // Le taux le plus bas d'abord ; « aucun post passé » en dernier.
+          .sort(
+            (a, b) =>
+              (a.tauxALHeurePct ?? Number.POSITIVE_INFINITY) -
+              (b.tauxALHeurePct ?? Number.POSITIVE_INFINITY),
+          );
+        return json({
+          projet: projet.slug,
+          note: "tauxALHeurePct = à l'heure ÷ posts passés ; null = aucun post passé encore.",
+          createatrices: retenues,
+        });
+      }
+
+      throw new ToolError(`Outil inconnu : ${name}.`);
+    },
+  };
+}

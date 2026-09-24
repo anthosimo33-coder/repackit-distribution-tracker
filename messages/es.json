@@ -1470,7 +1470,11 @@
     "ERR_LOGO_NOT_IMAGE": "El logo debe ser una imagen.",
     "ERR_LOGO_TOO_LARGE": "Logo demasiado pesado: {maxMb} MB como máximo.",
     "ERR_PROJECT_DELETE_PROTECTED": "«{name}» no se puede eliminar: es el proyecto de respaldo de la aplicación.",
-    "ERR_PROJECT_DELETE_CONFIRMATION": "Lo que escribiste no coincide con el nombre del proyecto («{name}»)."
+    "ERR_PROJECT_DELETE_CONFIRMATION": "Lo que escribiste no coincide con el nombre del proyecto («{name}»).",
+    "ERR_MCP_TOKEN_NOT_ALLOWED": "Las claves de acceso son solo para el equipo (admin o manager).",
+    "ERR_MCP_TOKEN_NAME_REQUIRED": "Ponle un nombre a la clave (p. ej. «Claude en mi Mac»).",
+    "ERR_MCP_TOKEN_LIMIT": "Ya tienes {max} claves: revoca las que ya no uses.",
+    "ERR_MCP_TOKEN_NOT_FOUND": "Clave no encontrada."
   },
   "calendar": {
     "weekday": {

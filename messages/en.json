@@ -1470,7 +1470,11 @@
     "ERR_LOGO_NOT_IMAGE": "The logo has to be an image.",
     "ERR_LOGO_TOO_LARGE": "Logo too large: {maxMb} MB maximum.",
     "ERR_PROJECT_DELETE_PROTECTED": "“{name}” can’t be deleted: it’s the app’s fallback project.",
-    "ERR_PROJECT_DELETE_CONFIRMATION": "What you typed doesn’t match the project name (“{name}”)."
+    "ERR_PROJECT_DELETE_CONFIRMATION": "What you typed doesn’t match the project name (“{name}”).",
+    "ERR_MCP_TOKEN_NOT_ALLOWED": "Access keys are for the team only (admin or manager).",
+    "ERR_MCP_TOKEN_NAME_REQUIRED": "Give the key a name (e.g. “Claude on my Mac”).",
+    "ERR_MCP_TOKEN_LIMIT": "You already have {max} keys: revoke the ones you no longer use.",
+    "ERR_MCP_TOKEN_NOT_FOUND": "Key not found."
   },
   "calendar": {
     "weekday": {

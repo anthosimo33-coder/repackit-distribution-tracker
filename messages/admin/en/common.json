@@ -867,5 +867,30 @@
     "supprimerDefinitivement": "Delete permanently",
     "projetSupprime": "“{name}” deleted. Its data is being cleaned up in the background.",
     "suppressionImpossible": "Couldn’t delete."
+  },
+  "McpAccessDialog": {
+    "connecterClaude": "Connect Claude",
+    "titre": "Connect Claude to the app",
+    "description": "With an access key, Claude (Desktop or Code) can read the app’s data for you: accounts, creators, on-time rate. Read-only, with your permissions — it only sees what you see here.",
+    "nomDeLaCle": "Key name",
+    "nomPlaceholder": "e.g. Claude on my Mac",
+    "creerUneCle": "Create a key",
+    "aideDroits": "One key per device. You can revoke it anytime: access stops at the next call.",
+    "copieMaintenant": "Copy this key now: it will never be shown again.",
+    "copier": "Copy",
+    "copie": "Copied",
+    "claudeCode": "Claude Code — in a terminal",
+    "claudeDesktop": "Claude Desktop — config file",
+    "aideDesktop": "Settings › Developer › Edit config, then paste this block (Node.js required) and restart Claude.",
+    "termine": "I’ve copied the key",
+    "mesCles": "My keys",
+    "aucuneCle": "No keys yet.",
+    "creeeLe": "created {date}",
+    "jamaisUtilisee": "never used",
+    "utiliseeLe": "used {date}",
+    "revoquer": "Revoke",
+    "cleRevoquee": "Key “{name}” revoked.",
+    "creationImpossible": "Couldn’t create the key.",
+    "revocationImpossible": "Couldn’t revoke."
   }
 }

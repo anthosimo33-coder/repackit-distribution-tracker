@@ -56,6 +56,36 @@ describe("check-db-spread — ce qui doit échouer", () => {
   });
 });
 
+describe("check-db-spread — le cœur partagé d'une query", () => {
+  it("suit un spread déplacé dans une fonction `…Core`", () => {
+    const src = `
+      export const listThings = permissionQuery("bloc")({
+        args: {},
+        handler: (ctx) => listThingsCore(ctx),
+      });
+      export async function listThingsCore(ctx: ProjectQueryCtx) {
+        const rows = await ctx.db.query("things").collect();
+        return rows.map((t) => ({ ...t }));
+      }
+      async function helperPrive(ctx: QueryCtx) {
+        return (await ctx.db.query("x").collect()).map((r) => ({ ...r }));
+      }
+      export async function upsertThingsCore(ctx: MutationCtx, row) {
+        await ctx.db.patch(row._id, { ...row });
+      }
+    `;
+    // Le cœur de QUERY est suivi ; ni un helper quelconque, ni un cœur de
+    // MUTATION (son spread va dans un db.patch, rien ne sort).
+    expect(findDbSpreads("things.ts", src).map((h) => h.key)).toEqual([
+      "things.ts::listThingsCore::...t",
+    ]);
+  });
+
+  it("couvre aussi les outils MCP (mcpPermissionQuery)", () => {
+    expect(QUERY_WRAPPERS.has("mcpPermissionQuery")).toBe(true);
+  });
+});
+
 describe("check-db-spread — ce qui doit passer", () => {
   it("SUIT une fonction migrée vers un bloc — forme curryfiée", () => {
     // Le piège qui a mordu pendant la migration : `permissionQuery("bloc")({…})`
@@ -164,9 +194,10 @@ describe("check-db-spread — sur le vrai dépôt", () => {
     // Les deux fuites colmatées (AUDIT_ROLE_MANAGER.md, F3/F4). Si l'une revient,
     // elle sera absente du baseline → la garde échoue. Ce test dit POURQUOI.
     expect(keys).not.toContain("creators.ts::listCreators::...c");
+    expect(keys).not.toContain("creators.ts::listCreatorsCore::...c");
     expect(keys).not.toContain("assignments.ts::listAssignments::...a");
     // Contrôle de PRÉSENCE : le scanner voit bien quelque chose par ailleurs —
     // sans lui, un scanner cassé rendrait ce test vert pour la mauvaise raison.
-    expect(keys).toContain("comptes.ts::listComptes::...c");
+    expect(keys).toContain("comptes.ts::listComptesCore::...c");
   });
 });

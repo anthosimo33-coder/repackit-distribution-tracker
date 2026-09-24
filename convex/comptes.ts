@@ -10,6 +10,7 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectQueryCtx,
   requireCreatorInScope,
   creatorScopeFor,
 } from "./functions";
@@ -289,92 +290,100 @@ export const listComptes = permissionQuery("accounts.manage")({
     actifOnly: v.optional(v.boolean()),
     statusFilter: v.optional(statusValidator),
   },
-  handler: async (ctx, args) => {
-    // Périmètre du manager : les comptes de SES créatrices. Un compte interne
-    // (sans créatrice) n'est dans aucun périmètre restreint.
-    let results = filterByCreatorScope(
-      await ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      (c) => c.creatorId,
-      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
-    );
-    // Backward compat : actifOnly (legacy) est mappé sur statusFilter="actif".
-    const filter: CompteStatus | undefined =
-      args.statusFilter ?? (args.actifOnly ? "actif" : undefined);
-    if (filter) results = results.filter((c) => effectiveStatus(c) === filter);
-    const sorted = results.sort((a, b) =>
-      a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
-    );
-    // Enrichissement gestionnaire (scopé projet). N+1 mémoire OK au volume.
-    const personnes = await ctx.db
-      .query("personnes")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const personneMap = new Map(personnes.map((p) => [p._id, p]));
-    // Enrichissement créateur (propriétaire) + perf agrégée par handle.
-    const creators = await ctx.db
-      .query("creators")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const creatorMap = new Map(creators.map((c) => [c._id, c]));
-    const pubs = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const perfMap = buildPerfMap(pubs);
-    // Chantier D — `inUse` par compte (référencé par une target/accountId
-    // d'assignment OU une publication par handle). Batch : assignments chargés
-    // une fois. Garde l'UI (delete vs archive) ; les mutations re-vérifient via
-    // compteUsage (autorité serveur).
-    const assignments = await ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const usedCompteIds = new Set<string>();
-    for (const a of assignments) {
-      if (a.accountId) usedCompteIds.add(a.accountId);
-      for (const t of a.targets ?? []) {
-        if (t.accountId) usedCompteIds.add(t.accountId);
-      }
-    }
-    const usedHandles = new Set(pubs.map((p) => p.compte));
-    // SOURCE UNIQUE de la durée : elle est résolue ICI (barème du projet +
-    // surcharge du compte) et servie telle quelle. Les écrans la LISENT, ils ne
-    // la recalculent pas — un second calcul côté client redeviendrait une
-    // seconde vérité, exactement ce que ce chantier supprime.
-    const days = await warmupDaysFor(ctx, ctx.projectId);
-    // MÊME PRINCIPE pour le FUSEAU : résolu ici (fiche créatrice, sinon pays de
-    // ses comptes), servi tel quel. Les écrans admin qui comptent des jours
-    // (jours manqués, « en retard ») le LISENT — sans lui, ils recompteraient
-    // dans l'horloge du navigateur de l'équipe, ce qui est le bug d'origine.
-    const zoneMap = buildZoneMap(creators, results);
-    return sorted.map((c) => {
-      const p = c.personneId ? personneMap.get(c.personneId) : null;
-      const creator = c.creatorId ? creatorMap.get(c.creatorId) : null;
-      const warmupLike = {
-        plateforme: c.plateforme,
-        warmupProtocol: c.warmupProtocol,
-      };
-      return {
-        ...c,
-        targetDays: effectiveTargetDays(warmupLike, days),
-        warmupDone: isWarmupComplete(warmupLike, days),
-        // Fuseau de la créatrice propriétaire (null = à définir). Servi, pas
-        // recalculé : cf le commentaire de `zoneMap` plus haut.
-        creatorTimezone: c.creatorId ? (zoneMap.get(c.creatorId) ?? null) : null,
-        personne: p ? { prenom: p.prenom, nom: p.nom } : null,
-        // Statut servi pour que le filtre créateur de l'écran ne propose que les
-        // créatrices en activité (cf lib/creator-status.isCreatorInactive).
-        creator: creator ? { name: creator.name, status: creator.status } : null,
-        perf:
-          perfMap.get(comptePerfKey(c.handle, c.plateforme)) ?? EMPTY_PERF,
-        inUse: usedCompteIds.has(c._id) || usedHandles.has(c.handle),
-      };
-    });
-  },
+  handler: (ctx, args) => listComptesCore(ctx, args),
 });
+
+/**
+ * Cœur de `listComptes` — partagé avec l'outil MCP `comptes` (convex/mcpTools) : même lecture, même périmètre de manager.
+ */
+export async function listComptesCore(
+  ctx: ProjectQueryCtx,
+  args: { actifOnly?: boolean; statusFilter?: CompteStatus },
+) {
+  // Périmètre du manager : les comptes de SES créatrices. Un compte interne
+  // (sans créatrice) n'est dans aucun périmètre restreint.
+  let results = filterByCreatorScope(
+    await ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect(),
+    (c) => c.creatorId,
+    await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+  );
+  // Backward compat : actifOnly (legacy) est mappé sur statusFilter="actif".
+  const filter: CompteStatus | undefined =
+    args.statusFilter ?? (args.actifOnly ? "actif" : undefined);
+  if (filter) results = results.filter((c) => effectiveStatus(c) === filter);
+  const sorted = results.sort((a, b) =>
+    a.handle.localeCompare(b.handle, "fr", { sensitivity: "base" }),
+  );
+  // Enrichissement gestionnaire (scopé projet). N+1 mémoire OK au volume.
+  const personnes = await ctx.db
+    .query("personnes")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const personneMap = new Map(personnes.map((p) => [p._id, p]));
+  // Enrichissement créateur (propriétaire) + perf agrégée par handle.
+  const creators = await ctx.db
+    .query("creators")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const creatorMap = new Map(creators.map((c) => [c._id, c]));
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const perfMap = buildPerfMap(pubs);
+  // Chantier D — `inUse` par compte (référencé par une target/accountId
+  // d'assignment OU une publication par handle). Batch : assignments chargés
+  // une fois. Garde l'UI (delete vs archive) ; les mutations re-vérifient via
+  // compteUsage (autorité serveur).
+  const assignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const usedCompteIds = new Set<string>();
+  for (const a of assignments) {
+    if (a.accountId) usedCompteIds.add(a.accountId);
+    for (const t of a.targets ?? []) {
+      if (t.accountId) usedCompteIds.add(t.accountId);
+    }
+  }
+  const usedHandles = new Set(pubs.map((p) => p.compte));
+  // SOURCE UNIQUE de la durée : elle est résolue ICI (barème du projet +
+  // surcharge du compte) et servie telle quelle. Les écrans la LISENT, ils ne
+  // la recalculent pas — un second calcul côté client redeviendrait une
+  // seconde vérité, exactement ce que ce chantier supprime.
+  const days = await warmupDaysFor(ctx, ctx.projectId);
+  // MÊME PRINCIPE pour le FUSEAU : résolu ici (fiche créatrice, sinon pays de
+  // ses comptes), servi tel quel. Les écrans admin qui comptent des jours
+  // (jours manqués, « en retard ») le LISENT — sans lui, ils recompteraient
+  // dans l'horloge du navigateur de l'équipe, ce qui est le bug d'origine.
+  const zoneMap = buildZoneMap(creators, results);
+  return sorted.map((c) => {
+    const p = c.personneId ? personneMap.get(c.personneId) : null;
+    const creator = c.creatorId ? creatorMap.get(c.creatorId) : null;
+    const warmupLike = {
+      plateforme: c.plateforme,
+      warmupProtocol: c.warmupProtocol,
+    };
+    return {
+      ...c,
+      targetDays: effectiveTargetDays(warmupLike, days),
+      warmupDone: isWarmupComplete(warmupLike, days),
+      // Fuseau de la créatrice propriétaire (null = à définir). Servi, pas
+      // recalculé : cf le commentaire de `zoneMap` plus haut.
+      creatorTimezone: c.creatorId ? (zoneMap.get(c.creatorId) ?? null) : null,
+      personne: p ? { prenom: p.prenom, nom: p.nom } : null,
+      // Statut servi pour que le filtre créateur de l'écran ne propose que les
+      // créatrices en activité (cf lib/creator-status.isCreatorInactive).
+      creator: creator ? { name: creator.name, status: creator.status } : null,
+      perf:
+        perfMap.get(comptePerfKey(c.handle, c.plateforme)) ?? EMPTY_PERF,
+      inUse: usedCompteIds.has(c._id) || usedHandles.has(c.handle),
+    };
+  });
+}
 
 /**
  * COMPTES POUR UN SÉLECTEUR — la version LÉGÈRE de `listComptes`.

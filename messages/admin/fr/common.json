@@ -867,5 +867,30 @@
     "supprimerDefinitivement": "Supprimer définitivement",
     "projetSupprime": "« {name} » supprimé. Le nettoyage de ses données se termine en arrière-plan.",
     "suppressionImpossible": "Suppression impossible."
+  },
+  "McpAccessDialog": {
+    "connecterClaude": "Connecter Claude",
+    "titre": "Connecter Claude à l’app",
+    "description": "Avec une clé d’accès, Claude (Desktop ou Code) peut lire les données de l’app pour toi : comptes, créatrices, ponctualité. Lecture seule, avec tes droits — il ne voit que ce que tu vois ici.",
+    "nomDeLaCle": "Nom de la clé",
+    "nomPlaceholder": "ex. Claude sur mon Mac",
+    "creerUneCle": "Créer une clé",
+    "aideDroits": "Une clé par appareil. Tu peux la révoquer à tout moment : l’accès est coupé au prochain appel.",
+    "copieMaintenant": "Copie cette clé maintenant : elle ne sera plus jamais affichée.",
+    "copier": "Copier",
+    "copie": "Copié",
+    "claudeCode": "Claude Code — dans un terminal",
+    "claudeDesktop": "Claude Desktop — fichier de configuration",
+    "aideDesktop": "Réglages › Développeur › Modifier la config, puis coller ce bloc (Node.js requis) et redémarrer Claude.",
+    "termine": "J’ai copié la clé",
+    "mesCles": "Mes clés",
+    "aucuneCle": "Aucune clé pour l’instant.",
+    "creeeLe": "créée le {date}",
+    "jamaisUtilisee": "jamais utilisée",
+    "utiliseeLe": "utilisée le {date}",
+    "revoquer": "Révoquer",
+    "cleRevoquee": "Clé « {name} » révoquée.",
+    "creationImpossible": "Création de la clé impossible.",
+    "revocationImpossible": "Révocation impossible."
   }
 }
