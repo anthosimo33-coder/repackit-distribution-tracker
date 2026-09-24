@@ -35,7 +35,10 @@
     "chargement": "Loading…",
     "actifs": "{count} active",
     "enWarmup": "{count} in warm-up",
-    "enShadowban": "{count} shadowbanned"
+    "enShadowban": "{count} shadowbanned",
+    "filtrerParPays": "Filter by target country",
+    "tousPays": "All countries",
+    "sansPays": "No country"
   },
   "LigneCompte": {
     "jamaisPublie": "never published",
@@ -44,7 +47,8 @@
     "dernierCheck": "Last check {last}",
     "aucunCheckPose": "No check yet",
     "compteActifQuiNA": "Active account with no post yet",
-    "gestionnaire": "Manager"
+    "gestionnaire": "Manager",
+    "ouvrirSur": "Open the account on {plateforme}"
   },
   "EnteteGroupe": {
     "compte": "{effectif} {effectif, plural, one {account} other {accounts}}",
@@ -126,7 +130,8 @@
     "modifierLeCompte": "Edit the account",
     "retourAuxComptes": "Back to accounts",
     "paysCibleLabelInterneInformatif": "Target country (internal label, informational)",
-    "compteInterne": "Internal account"
+    "compteInterne": "Internal account",
+    "ouvrirSur": "Open the account on {plateforme}"
   },
   "CompteFormatList": {
     "aucunPourCeCompte": "No {value} for this account.",
@@ -252,7 +257,8 @@
   "groupBy": {
     "creator": "By creator",
     "plateforme": "By platform",
-    "none": "No grouping"
+    "none": "No grouping",
+    "pays": "By country"
   },
   "chauffe": {
     "mesure": "{age}d, {checks} {checks, plural, one {check} other {checks}}",

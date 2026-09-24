@@ -195,6 +195,29 @@ describe("groupComptes — les autres axes", () => {
     ]);
   });
 
+  it("groupe par pays ciblé, libellé fourni par l'écran, comptes sans pays gardés", () => {
+    // Pays réels du parc Snytch : Kelly et Jade en France, Veljko en Serbie,
+    // le compte interne sans pays posé.
+    const pays: Record<string, string | null> = {
+      "@kelly.leydie": "FR",
+      "@thekellychapters_": "FR",
+      "@kelly.dgtl": "FR",
+      "@veljko.secretacc": "RS",
+      "@golubsecret_acc": "RS",
+      "@ja.deotn": "FR",
+      "@comptesecretemilie_": null,
+    };
+    const parc = PARC.map((x) => ({ ...x, targetCountry: pays[x.handle] }));
+    const libelle = (code: string | null) =>
+      code === "FR" ? "🇫🇷 France" : code === "RS" ? "🇷🇸 Serbie" : "Sans pays";
+    const g = groupComptes(parc, "pays", "vues", "desc", undefined, "Interne", libelle);
+    expect(g.map((x) => [x.titre, x.lignes.length, x.vues])).toEqual([
+      ["🇫🇷 France", 5, 1_426_137 + 817_285 + 145_378 + 12_172 + 3_561],
+      ["🇷🇸 Serbie", 2, 303_742 + 422],
+      ["Sans pays", 1, 0],
+    ]);
+  });
+
   it("rend une liste unique et sans titre sur l'axe « none »", () => {
     const g = groupComptes(PARC, "none", "vues", "desc");
     expect(g).toHaveLength(1);

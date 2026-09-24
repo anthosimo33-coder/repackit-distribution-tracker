@@ -666,7 +666,8 @@
     "supprime": "{handle} deleted",
     "archiveHistoriqueConserve": "{handle} archived — history kept",
     "usagePublications": "{count} {count, plural, one {post} other {posts}} ({views} views)",
-    "usageMissions": "{count} {count, plural, one {mission} other {missions}}"
+    "usageMissions": "{count} {count, plural, one {mission} other {missions}}",
+    "voirLaFiche": "Open account page"
   },
   "CompteDialog": {
     "passerEnActif": "Set to active",
@@ -767,7 +768,10 @@
   "FilterMultiSelect": {
     "toutDeselectionner": "Deselect all",
     "toutSelectionner": "Select all",
-    "selectionnes": "{size} selected"
+    "selectionnes": "{size} selected",
+    "rechercher": "Search…",
+    "rechercherDans": "Search in “{label}”",
+    "aucunResultat": "No results"
   },
   "PermissionGate": {
     "accesRefuse": "Access denied",

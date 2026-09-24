@@ -8,6 +8,7 @@ import {
   PencilIcon,
   CheckIcon,
   TriangleAlertIcon,
+  ExternalLinkIcon,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { PlatformBadge } from "@/components/VerdictBadge";
@@ -22,6 +23,7 @@ import {
 } from "@/lib/compte-status";
 import { RestartWarmupButton } from "./RestartWarmupButton";
 import { countryLabel } from "@/lib/countries";
+import { compteProfileUrl } from "@/lib/compte-profile-url";
 import { cn } from "@/lib/utils";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
@@ -44,6 +46,8 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
 
   const effStatus = getEffectiveStatus(compte);
   const badge = getStatusBadge(compte);
+  // Même lien que la table /comptes : le handle ouvre le VRAI compte.
+  const profilUrl = compteProfileUrl(compte);
   const warmupComplete =
     effStatus === "warmup" &&
     compte.warmupStartedAt != null &&
@@ -70,7 +74,23 @@ export function CompteDetailHeader({ compte }: { compte: Compte }) {
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-mono text-3xl font-semibold tracking-tight text-slate-900">
-            {compte.handle}
+            {profilUrl === null ? (
+              compte.handle
+            ) : (
+              <a
+                href={profilUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={tr("ouvrirSur", { plateforme: compte.plateforme })}
+                className="group inline-flex items-center gap-2 transition-colors hover:text-primary"
+              >
+                {compte.handle}
+                <ExternalLinkIcon
+                  aria-hidden
+                  className="size-5 text-slate-300 transition-colors group-hover:text-primary"
+                />
+              </a>
+            )}
           </h1>
           <PlatformBadge plateforme={compte.plateforme} />
           <span

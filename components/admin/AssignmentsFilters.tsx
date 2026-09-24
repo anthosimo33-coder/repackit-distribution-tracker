@@ -41,7 +41,12 @@ export type AssignmentsFiltersProps = {
   viewMode: "list" | "calendar";
   creatorIds: Set<string>;
   onCreatorIdsChange: (next: Set<string>) => void;
-  creatorOptions: { value: string; label: string }[];
+  creatorOptions: FilterMultiSelectOption[];
+  /** Section repliée du filtre créateur (créatrices sorties du parc). */
+  creatorFolded: { section: string; showLabel: string; hideLabel: string };
+  countryCodes: Set<string>;
+  onCountryCodesChange: (next: Set<string>) => void;
+  countryOptions: FilterMultiSelectOption[];
   campaignIds: Set<string>;
   onCampaignIdsChange: (next: Set<string>) => void;
   campaignOptions: FilterMultiSelectOption[];
@@ -75,6 +80,10 @@ export function AssignmentsFilters({
   creatorIds,
   onCreatorIdsChange,
   creatorOptions,
+  creatorFolded,
+  countryCodes,
+  onCountryCodesChange,
+  countryOptions,
   campaignIds,
   onCampaignIdsChange,
   campaignOptions,
@@ -103,14 +112,29 @@ export function AssignmentsFilters({
           : "flex flex-wrap items-end gap-2",
       )}
     >
-      {/* Créateur MULTI (Set vide = tous) — partagé liste + calendrier. */}
+      {/* Créateur MULTI (Set vide = tous) — partagé liste + calendrier. Les
+          créatrices sorties du parc sont REPLIÉES en fin de menu : sur Snytch,
+          elles faisaient 15 noms sur 27. Recherche : on vise un prénom. */}
       <FilterMultiSelect
         label={tr("createur")}
         selectedValues={creatorIds}
         onChange={onCreatorIdsChange}
         options={creatorOptions}
+        sectionLabels={{ inactive: tr("inactives") }}
+        folded={creatorFolded}
+        searchable
         allLabel={tr("tousCreateurs")}
         width={fieldWidth("w-44")}
+      />
+
+      {/* Pays CIBLÉ MULTI — celui des comptes que vise l'assignation. */}
+      <FilterMultiSelect
+        label={tr("pays")}
+        selectedValues={countryCodes}
+        onChange={onCountryCodesChange}
+        options={countryOptions}
+        allLabel={tr("tousPays")}
+        width={fieldWidth("w-40")}
       />
 
       {/* Campagne de scripts MULTI (Set vide = toutes) — partagé liste +

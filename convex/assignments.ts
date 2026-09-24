@@ -1015,6 +1015,9 @@ export const listAssignments = permissionQuery("assignments.manage")({
           .collect(),
       ]);
     const creatorMap = new Map(creators.map((c) => [c._id, c.name]));
+    // Statut par créatrice — le filtre créateur de l'écran range à part celles
+    // qui sont sorties du parc. Absente de la map = créatrice supprimée (null).
+    const creatorStatusMap = new Map(creators.map((c) => [c._id, c.status]));
     // FUSEAU par créatrice — c'est chez ELLE que la journée se termine, donc
     // c'est chez elle que « en retard » se décide (cf convex/calendarStatus).
     // Résolu ici en UNE passe (buildZoneMap est pur) : le faire ligne par ligne
@@ -1144,6 +1147,7 @@ export const listAssignments = permissionQuery("assignments.manage")({
           challengeRemovedAt: a.challengeRemovedAt,
           createdAt: a.createdAt,
           creatorName: creatorMap.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+          creatorStatus: creatorStatusMap.get(a.creatorId) ?? null,
           // Fuseau de la créatrice — l'écran en a besoin pour juger « en retard »
           // sur SA journée. `null` = inconnu ⇒ l'écran retombe sur Paris.
           creatorTimezone: zoneMap.get(a.creatorId) ?? null,

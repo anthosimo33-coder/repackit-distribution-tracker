@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   useProjectMutation,
   useProjectQuery,
@@ -50,12 +51,21 @@ export function CompteAdminActions({
   compte,
   onEdit,
   onDeleted,
+  ficheHref,
 }: {
   compte: Compte;
   onEdit: () => void;
   /** Appelé après une suppression réussie (la fiche détail doit repartir). */
   onDeleted?: () => void;
+  /**
+   * Fiche du compte — ajoute « Voir la fiche » en tête du menu. Sur la table
+   * /comptes, le handle ouvre le VRAI compte sur sa plateforme : ce menu est
+   * alors le chemin CLAVIER vers la fiche (le clic de ligne ne l'est pas).
+   * Absent sur la fiche elle-même, où l'entrée ne mènerait nulle part.
+   */
+  ficheHref?: string;
 }) {
+  const router = useRouter();
   const showError = useConvexError();
   const tr = useTranslations("admin.common.CompteAdminActions");
   const loc = useIntlLocale();
@@ -138,6 +148,14 @@ export function CompteAdminActions({
           }
         />
         <DropdownMenuContent align="end">
+          {ficheHref !== undefined && (
+            <>
+              <DropdownMenuItem onClick={() => router.push(ficheHref)}>
+                {tr("voirLaFiche")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          )}
           <DropdownMenuItem onClick={onEdit}>{tr("modifier")}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => setReassignOpen(true)}>
             {tr("reassigner")}

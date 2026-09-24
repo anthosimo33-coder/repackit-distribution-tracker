@@ -7,8 +7,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ChevronDownIcon, CheckIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CheckIcon,
+  SearchIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { normaliser } from "@/lib/search-match";
 import { useTranslations } from "next-intl";
 
 export type FilterMultiSelectOption = {
@@ -49,6 +55,8 @@ export function FilterMultiSelect({
   width,
   sectionLabels,
   triggerLabel: triggerLabelOverride,
+  searchable = false,
+  folded,
 }: {
   label: string;
   selectedValues: Set<string>;
@@ -63,9 +71,47 @@ export function FilterMultiSelect({
    * conservé (nom unique, sinon « N sélectionnés »).
    */
   triggerLabel?: string;
+  /**
+   * Champ de recherche en tête du menu — pour les listes de noms, où l'on sait
+   * ce qu'on cherche. Filtre les libellés par SOUS-CHAÎNE, accents ignorés.
+   */
+  searchable?: boolean;
+  /**
+   * Section REPLIÉE par défaut (ex. créatrices sorties du parc) : ses options
+   * ne s'affichent qu'après un clic sur le bouton de dépli, en fin de liste.
+   * Trois exceptions, pour ne jamais rien rendre introuvable : une option
+   * COCHÉE reste visible (un lien profond peut en sélectionner une), une
+   * RECHERCHE en cours les parcourt aussi, et le bouton dit combien il en cache.
+   */
+  folded?: {
+    section: string;
+    /** Libellé du bouton de dépli, effectif compris (« Inactives (15) »). */
+    showLabel: string;
+    hideLabel: string;
+  };
 }) {
   const tr = useTranslations("admin.common.FilterMultiSelect");
   const [open, setOpen] = useState(false);
+  const [recherche, setRecherche] = useState("");
+  const [deplie, setDeplie] = useState(false);
+  const q = normaliser(recherche);
+
+  // Ce que le menu MONTRE. « Tout sélectionner » et son compteur portent sur
+  // cette liste-là : cocher « tout » pendant une recherche ne doit pas cocher
+  // ce qu'on ne voit pas.
+  const visibles = useMemo(
+    () =>
+      options.filter((o) => {
+        if (q !== "") return normaliser(o.label).includes(q);
+        if (folded && o.section === folded.section && !deplie)
+          return selectedValues.has(o.value);
+        return true;
+      }),
+    [options, q, folded, deplie, selectedValues],
+  );
+  const nbReplies = folded
+    ? options.filter((o) => o.section === folded.section).length
+    : 0;
 
   const triggerLabel = useMemo(() => {
     if (triggerLabelOverride !== undefined) return triggerLabelOverride;
@@ -77,7 +123,8 @@ export function FilterMultiSelect({
     return tr("selectionnes", { size: selectedValues.size });
   }, [selectedValues, options, allLabel, triggerLabelOverride]);
 
-  const allSelected = selectedValues.size === options.length;
+  const allSelected =
+    visibles.length > 0 && visibles.every((o) => selectedValues.has(o.value));
 
   function toggle(value: string) {
     const next = new Set(selectedValues);
@@ -87,17 +134,26 @@ export function FilterMultiSelect({
   }
 
   function selectAll() {
-    onChange(new Set(options.map((o) => o.value)));
+    onChange(new Set([...selectedValues, ...visibles.map((o) => o.value)]));
   }
 
   function deselectAll() {
-    onChange(new Set());
+    const next = new Set(selectedValues);
+    for (const o of visibles) next.delete(o.value);
+    onChange(next);
   }
 
   return (
     <div className="flex flex-col gap-1.5">
       <label className="text-xs font-medium text-slate-600">{label}</label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          // Une recherche oubliée ne doit pas amputer la liste à la réouverture.
+          if (!o) setRecherche("");
+        }}
+      >
         <PopoverTrigger
           render={
             <Button
@@ -127,6 +183,19 @@ export function FilterMultiSelect({
           className="w-max min-w-[220px] max-w-[min(420px,calc(100vw-2rem))] p-1"
           align="start"
         >
+          {searchable && (
+            <div className="relative px-1 pb-1.5">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-[60%] text-slate-400" />
+              <input
+                type="search"
+                value={recherche}
+                onChange={(e) => setRecherche(e.target.value)}
+                placeholder={tr("rechercher")}
+                aria-label={tr("rechercherDans", { label })}
+                className="h-8 w-full rounded-md border border-slate-200 bg-white pr-2 pl-7 text-sm outline-none placeholder:text-slate-400 focus:border-slate-300"
+              />
+            </div>
+          )}
           <div className="flex items-center justify-between border-b border-slate-100 px-2 pb-1.5">
             <button
               type="button"
@@ -135,7 +204,7 @@ export function FilterMultiSelect({
             >
               {allSelected ? tr("toutDeselectionner") : tr("toutSelectionner")}
             </button>
-            {selectedValues.size > 0 && (
+            {selectedValues.size > 0 && q === "" && (
               <span className="text-xs text-slate-400">
                 {selectedValues.size}/{options.length}
               </span>
@@ -145,11 +214,21 @@ export function FilterMultiSelect({
               des `role="option"` (« Grouper par », « Trier par »…). Un
               `getByRole("option")` non scopé les ramasse et une spec croit le
               popover ouvert alors qu'il ne l'est pas. */}
-          <ul data-testid="filtre-options" className="space-y-0.5 pt-1">
-            {options.map((o, i) => {
+          {/* Hauteur BORNÉE : à 27 créatrices, le menu descendait sous le bas
+              de l'écran et masquait toute la page. */}
+          <ul
+            data-testid="filtre-options"
+            className="max-h-[min(22rem,60vh)] space-y-0.5 overflow-y-auto pt-1"
+          >
+            {visibles.length === 0 && q !== "" && (
+              <li className="px-2 py-2 text-sm text-slate-400">
+                {tr("aucunResultat")}
+              </li>
+            )}
+            {visibles.map((o, i) => {
               const checked = selectedValues.has(o.value);
               // Intertitre au CHANGEMENT de section (l'ordre vient de l'appelant).
-              const prev = i > 0 ? options[i - 1].section : undefined;
+              const prev = i > 0 ? visibles[i - 1].section : undefined;
               const heading =
                 o.section !== undefined && o.section !== prev
                   ? sectionLabels?.[o.section]
@@ -200,6 +279,21 @@ export function FilterMultiSelect({
                 </li>
               );
             })}
+            {folded && nbReplies > 0 && q === "" && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setDeplie((d) => !d)}
+                  aria-expanded={deplie}
+                  className="mt-1 flex w-full items-center gap-1.5 rounded-md border-t border-slate-100 px-2 pt-2 pb-1.5 text-left text-xs font-medium text-slate-500 hover:text-slate-800"
+                >
+                  <ChevronRightIcon
+                    className={cn("size-3.5 transition-transform", deplie && "rotate-90")}
+                  />
+                  {deplie ? folded.hideLabel : folded.showLabel}
+                </button>
+              </li>
+            )}
           </ul>
         </PopoverContent>
       </Popover>

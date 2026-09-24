@@ -110,10 +110,32 @@ test.describe("Vue détail compte", () => {
       notes: "[E2E_TEST] detail short",
     });
 
-    // Navigation via la cellule handle du tableau.
+    // Le HANDLE du tableau ouvre le VRAI compte, dans un nouvel onglet — pas la
+    // fiche. Sans URL collée, le lien se construit depuis le handle.
     await page.goto(adminPath("/comptes"));
-    await page.getByRole("link", { name: HANDLE }).click();
+    const lienProfil = page.getByRole("link", { name: HANDLE });
+    await expect(lienProfil).toHaveAttribute(
+      "href",
+      `https://www.tiktok.com/${HANDLE}`,
+    );
+    await expect(lienProfil).toHaveAttribute("target", "_blank");
+
+    // La fiche s'ouvre au clic sur le reste de la ligne…
+    const ligne = page.getByRole("row").filter({ hasText: HANDLE });
+    await ligne.getByRole("cell").nth(2).click(); // colonne « État »
     await expect(page).toHaveURL(/\/comptes\/[a-z0-9]+/i);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/comptes$/);
+
+    // …et par « Voir la fiche » du menu de la ligne (le chemin clavier).
+    await ligne.getByRole("button", { name: "Actions" }).click();
+    await page.getByRole("menuitem", { name: "Voir la fiche" }).click();
+    await expect(page).toHaveURL(/\/comptes\/[a-z0-9]+/i);
+
+    // Sur la fiche aussi, le handle mène au vrai compte.
+    await expect(
+      page.getByRole("heading", { name: HANDLE }).getByRole("link"),
+    ).toHaveAttribute("href", `https://www.tiktok.com/${HANDLE}`);
 
     // Header.
     await expect(

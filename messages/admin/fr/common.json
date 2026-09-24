@@ -666,7 +666,8 @@
     "supprime": "{handle} supprimé",
     "archiveHistoriqueConserve": "{handle} archivé — historique conservé",
     "usagePublications": "{count} {count, plural, one {publication} other {publications}} ({views} vues)",
-    "usageMissions": "{count} {count, plural, one {mission} other {missions}}"
+    "usageMissions": "{count} {count, plural, one {mission} other {missions}}",
+    "voirLaFiche": "Voir la fiche"
   },
   "CompteDialog": {
     "passerEnActif": "Passer en actif",
@@ -767,7 +768,10 @@
   "FilterMultiSelect": {
     "toutDeselectionner": "Tout désélectionner",
     "toutSelectionner": "Tout sélectionner",
-    "selectionnes": "{size} sélectionnés"
+    "selectionnes": "{size} sélectionnés",
+    "rechercher": "Rechercher…",
+    "rechercherDans": "Rechercher dans « {label} »",
+    "aucunResultat": "Aucun résultat"
   },
   "PermissionGate": {
     "accesRefuse": "Accès refusé",

@@ -86,6 +86,13 @@ import {
   sanitizeCampaignSelection,
 } from "@/lib/assignment-campaign-filter";
 import { matchesSearch, searchTerms } from "@/lib/assignment-search";
+import { buildCreatorOptions } from "@/lib/assignment-creator-filter";
+import {
+  buildCountryOptions,
+  matchesCountryFilter,
+  NO_COUNTRY,
+} from "@/lib/country-filter";
+import { countryLabel } from "@/lib/countries";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { useLabel } from "@/lib/use-label";
@@ -189,6 +196,9 @@ function AssignmentsPageInner() {
   // formats », qui ne filtrait que les assignations d'origine FORMAT : il n'en
   // existe AUCUNE en prod, son menu était donc vide. Partagé liste + calendrier.
   const [campaignIds, setCampaignIds] = useState<Set<string>>(new Set());
+  // Filtre PAYS CIBLÉ (Set vide = tous) — le pays des comptes que vise
+  // l'assignation. Partagé liste + calendrier, non persisté (comme le créateur).
+  const [countryCodes, setCountryCodes] = useState<Set<string>>(new Set());
   // Verrou de restauration en REF (pas en state) : il ne doit rien re-rendre, et
   // ça laisse un seul setState dans l'effet ci-dessous.
   const campaignRestored = useRef(false);
@@ -295,11 +305,13 @@ function AssignmentsPageInner() {
     }
   }
 
-  const creators = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const a of assignments ?? []) m.set(a.creatorId, a.creatorName);
-    return [...m.entries()].sort((x, y) => x[1].localeCompare(y[1], "fr"));
-  }, [assignments]);
+  // Options du filtre CRÉATEUR : les créatrices sorties du parc (en pause,
+  // parties, supprimées) forment une section REPLIÉE — cf
+  // lib/assignment-creator-filter.
+  const creatorOptionsRaw = useMemo(
+    () => buildCreatorOptions(assignments ?? []),
+    [assignments],
+  );
   // Options du filtre CAMPAGNE : construites depuis les ASSIGNATIONS (une
   // campagne sans assignation n'a rien à filtrer), triées par effectif
   // décroissant, archivées en seconde section mais SÉLECTIONNABLES — elles
@@ -313,8 +325,34 @@ function AssignmentsPageInner() {
   // le rendu : les deux hôtes du composant (barre desktop / panneau mobile) les
   // reçoivent à l'identique, et le tableau ne se reconstruit pas à chaque frappe.
   const creatorOptions = useMemo(
-    () => creators.map(([id, name]) => ({ value: id, label: name })),
-    [creators],
+    () =>
+      creatorOptionsRaw.map((o) => ({
+        ...o,
+        muted: o.section === "inactive",
+      })),
+    [creatorOptionsRaw],
+  );
+  const nbInactives = creatorOptionsRaw.filter(
+    (o) => o.section === "inactive",
+  ).length;
+  const creatorFolded = {
+    section: "inactive",
+    showLabel: tr("afficherInactives", { count: nbInactives }),
+    hideLabel: tr("masquerInactives"),
+  };
+  const countryOptions = useMemo(
+    () =>
+      buildCountryOptions(
+        (assignments ?? []).map((a) => a.targets.map((t) => t.country)),
+      ).map((o) => ({
+        value: o.value,
+        label:
+          o.value === NO_COUNTRY
+            ? tr("sansPays")
+            : (countryLabel(o.value, loc) ?? o.value),
+        count: o.count,
+      })),
+    [assignments, loc, tr],
   );
   const filterCampaignOptions = useMemo(
     () =>
@@ -377,6 +415,7 @@ function AssignmentsPageInner() {
   const activeFilterCount =
     (creatorIds.size > 0 ? 1 : 0) +
     (campaignIds.size > 0 ? 1 : 0) +
+    (countryCodes.size > 0 ? 1 : 0) +
     (statusFilter !== "all" && viewMode === "list" ? 1 : 0) +
     (calStatusFilter !== "all" && viewMode === "calendar" ? 1 : 0) +
     (overdueOnly ? 1 : 0) +
@@ -385,6 +424,7 @@ function AssignmentsPageInner() {
   function resetFilters() {
     setCreatorIds(new Set());
     changeCampaignIds(new Set());
+    setCountryCodes(new Set());
     setStatusFilter("all");
     setCalStatusFilter("all");
     setOverdueOnly(false);
@@ -399,6 +439,13 @@ function AssignmentsPageInner() {
       // calendrier (tous deux consomment `rows`) : changer de vue ne fait pas
       // sauter le filtre en silence.
       if (!matchesCampaignFilter(a, campaignIds)) return false;
+      if (
+        !matchesCountryFilter(
+          a.targets.map((t) => t.country),
+          countryCodes,
+        )
+      )
+        return false;
       // Recherche texte — appliquée AVANT la bascule de vue, donc active en
       // liste ET en calendrier (cf lib/assignment-search).
       if (!matchesSearch(a, terms)) return false;
@@ -444,6 +491,7 @@ function AssignmentsPageInner() {
     assignments,
     creatorIds,
     campaignIds,
+    countryCodes,
     statusFilter,
     overdueOnly,
     terms,
@@ -573,6 +621,10 @@ function AssignmentsPageInner() {
               creatorIds={creatorIds}
               onCreatorIdsChange={setCreatorIds}
               creatorOptions={creatorOptions}
+              creatorFolded={creatorFolded}
+              countryCodes={countryCodes}
+              onCountryCodesChange={setCountryCodes}
+              countryOptions={countryOptions}
               campaignIds={campaignIds}
               onCampaignIdsChange={changeCampaignIds}
               campaignOptions={filterCampaignOptions}
@@ -635,6 +687,10 @@ function AssignmentsPageInner() {
               creatorIds={creatorIds}
               onCreatorIdsChange={setCreatorIds}
               creatorOptions={creatorOptions}
+              creatorFolded={creatorFolded}
+              countryCodes={countryCodes}
+              onCountryCodesChange={setCountryCodes}
+              countryOptions={countryOptions}
               campaignIds={campaignIds}
               onCampaignIdsChange={changeCampaignIds}
               campaignOptions={filterCampaignOptions}
