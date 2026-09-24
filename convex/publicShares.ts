@@ -18,7 +18,8 @@ import {
   postLabel,
   publishedAndMatches,
 } from "./trackerData";
-import { computeDailyViewDeltas } from "./viewsDaily";
+import { ajouterDepartsDePublication,
+  computeDailyViewDeltas } from "./viewsDaily";
 import {
   blocksForAudience,
   effectiveFilters,
@@ -202,14 +203,20 @@ async function buildPublicPayload(
             : lo;
         })
         .collect();
+      // Mêmes départs que la courbe du Tracker : le partage ne doit pas
+      // montrer moins de vues que l'écran dont il est la copie.
       daily = computeDailyViewDeltas(
-        snaps
-          .filter((s) => ids.has(s.publicationId as string))
-          .map((s) => ({
-            publicationId: s.publicationId as string,
-            capturedAt: s.capturedAt,
-            vues: s.vues,
-          })),
+        ajouterDepartsDePublication(
+          snaps
+            .filter((s) => ids.has(s.publicationId as string))
+            .map((s) => ({
+              publicationId: s.publicationId as string,
+              capturedAt: s.capturedAt,
+              vues: s.vues,
+            })),
+          kept.map((p) => ({ publicationId: p._id as string, publishedAt: p.datePubli })),
+          lower,
+        ),
       ).map((d) => ({ date: d.date, value: d.value }));
     }
   }

@@ -1,7 +1,7 @@
 import { adminViewAsQuery, creatorQuery } from "./functions";
 import type { QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
-import type { SnapshotPoint } from "./viewsDaily";
+import { ajouterDepartsDePublication, type SnapshotPoint } from "./viewsDaily";
 import { computeViewsPulse } from "./viewsPulseCore";
 
 /**
@@ -50,7 +50,19 @@ async function pulseFor(
       snaps.push({ publicationId: pid, capturedAt: r.capturedAt, vues: r.vues });
     }
   }
-  return computeViewsPulse(snaps, (pid) => assignmentOf.get(pid) ?? "", now);
+  // Départ des vidéos publiées DANS les trois jours lus : une vidéo sortie hier
+  // compte enfin ses vues d'avant le premier relevé. Les plus anciennes n'en
+  // reçoivent pas (borne `since`) — leur premier relevé lu reste une référence.
+  const departs = [];
+  for (const pid of assignmentOf.keys()) {
+    const pub = await ctx.db.get(pid as Id<"publications">);
+    if (pub) departs.push({ publicationId: pid, publishedAt: pub.datePubli });
+  }
+  return computeViewsPulse(
+    ajouterDepartsDePublication(snaps, departs, since),
+    (pid) => assignmentOf.get(pid) ?? "",
+    now,
+  );
 }
 
 /** Les vues d'hier de la créatrice connectée. `null` = rien gagné hier (ou rien en ligne). */

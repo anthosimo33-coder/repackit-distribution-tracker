@@ -12,6 +12,7 @@ import {
   computeDailyViewDeltas,
   computeDailyViewDeltasBy,
   computeDayContributions,
+  ajouterDepartsDePublication,
   parisDayKey,
   parisMidnightUtc,
   ESTIMATED_SPAN_MS,
@@ -449,5 +450,67 @@ describe("computeDayContributions — le détail d'un jour somme à son point", 
     const detail = computeDayContributions(troisPosts(), "2026-01-01");
     expect(detail.total).toBe(0);
     expect(detail.parts).toEqual([]);
+  });
+});
+
+describe("ajouterDepartsDePublication — une vidéo part de 0 à sa publication", () => {
+  // Forme de la prod : publication en journée, premier relevé le soir même
+  // (relevé à 23 h 30 Paris), déjà des milliers de vues à ce moment-là.
+  const pub = { publicationId: "p1", publishedAt: utc(2026, 9, 15, 12, 40) }; // 14:40 Paris
+  const releves: SnapshotPoint[] = [
+    { publicationId: "p1", capturedAt: utc(2026, 9, 15, 21, 30), vues: 18_437 }, // 23:30 Paris
+    { publicationId: "p1", capturedAt: utc(2026, 9, 16, 21, 30), vues: 26_012 },
+  ];
+
+  it("les vues d'avant le premier relevé tombent enfin dans un jour", () => {
+    // SANS départ : les 18 437 vues du premier soir ne sont comptées nulle part ;
+    // seul l'écart suivant (7 575) est réparti, dont 30 min sur le 15
+    // (23:30 → minuit Paris) : 7 575 × 0,5/24 ≈ 158.
+    expect(valuesOf(computeDailyViewDeltas(releves))).toEqual({
+      "2026-09-15": 158,
+      "2026-09-16": 7417,
+    });
+    const avec = ajouterDepartsDePublication(releves, [pub], utc(2026, 9, 1, 0));
+    const serie = computeDailyViewDeltas(avec);
+    // AVEC : les 18 437 du démarrage tombent le 15 (publication 14:40 → relevé 23:30).
+    expect(valuesOf(serie)).toEqual({ "2026-09-15": 18_595, "2026-09-16": 7417 });
+    // Toutes les vues de la vidéo, ni plus ni moins.
+    expect(sumOf(serie)).toBe(26_012);
+    expect(estimatedOf(serie)["2026-09-15"]).toBe(false); // 8 h 50 : une mesure
+  });
+
+  it("un premier relevé tardif étale le démarrage sur plusieurs jours, marqué estimé", () => {
+    const tardif: SnapshotPoint[] = [
+      { publicationId: "p1", capturedAt: utc(2026, 9, 17, 6, 40), vues: 40_000 }, // 40 h après
+    ];
+    const serie = computeDailyViewDeltas(
+      ajouterDepartsDePublication(tardif, [pub], utc(2026, 9, 1, 0)),
+    );
+    expect(sumOf(serie)).toBe(40_000);
+    expect(Object.keys(valuesOf(serie))).toEqual(["2026-09-15", "2026-09-16", "2026-09-17"]);
+    expect(Object.values(estimatedOf(serie)).every(Boolean)).toBe(true);
+  });
+
+  it("lecture bornée : un post publié AVANT la borne ne reçoit pas de départ", () => {
+    // Le pouls ne lit que trois jours : le premier relevé qu'il voit n'est pas
+    // celui de la vidéo. Sans cette garde, tout l'historique irait sur ces jours.
+    const avec = ajouterDepartsDePublication(releves, [pub], utc(2026, 9, 15, 20, 0));
+    expect(avec).toHaveLength(releves.length);
+    expect(valuesOf(computeDailyViewDeltas(avec))).toEqual({
+      "2026-09-15": 158,
+      "2026-09-16": 7417,
+    });
+  });
+
+  it("une date de publication POSTÉRIEURE au premier relevé ne pose rien (TD-020)", () => {
+    const confirmeeApres = { publicationId: "p1", publishedAt: utc(2026, 9, 16, 9, 0) };
+    expect(ajouterDepartsDePublication(releves, [confirmeeApres], utc(2026, 9, 1, 0))).toHaveLength(
+      releves.length,
+    );
+  });
+
+  it("un post sans relevé n'a rien à répartir", () => {
+    const seul = ajouterDepartsDePublication([], [pub], utc(2026, 9, 1, 0));
+    expect(seul).toEqual([]);
   });
 });
