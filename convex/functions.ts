@@ -6,7 +6,7 @@ import {
 } from "convex-helpers/server/customFunctions";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
-import { action, mutation, query } from "./_generated/server";
+import { action, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasRole, roleForKind, rolesOf, type PortalRole } from "./roles";
@@ -301,6 +301,36 @@ export function permissionQuery(permission: PermissionId) {
     args: { projectId: v.id("projects") },
     input: async (ctx, { projectId }) => {
       const userId = await requireUserId(ctx);
+      await requirePermission(ctx, userId, projectId, permission);
+      return { ctx: { userId, projectId }, args: {} };
+    },
+  });
+}
+
+/**
+ * Contexte d'une fonction gardée par bloc : l'appelant et le projet, DÉJÀ
+ * vérifiés. C'est le type du `ctx` que reçoit un handler de `permissionQuery`
+ * — nommé pour qu'un même cœur serve la query de l'écran ET l'outil MCP.
+ */
+export type ProjectQueryCtx = QueryCtx & {
+  userId: Id<"users">;
+  projectId: Id<"projects">;
+};
+
+/**
+ * Jumelle INTERNE de `permissionQuery`, pour le serveur MCP (convex/mcpHttp).
+ *
+ * L'appelant MCP n'a pas de session Convex Auth : il présente une clé
+ * personnelle, que le point d'entrée HTTP résout en `userId` AVANT d'appeler
+ * ici. La garde, elle, est la MÊME fonction que celle de l'écran
+ * (`requirePermission`, même bloc) : un outil ne peut rien montrer que la
+ * personne ne verrait pas dans l'app. Interne → jamais appelable depuis un
+ * navigateur avec un `userId` choisi.
+ */
+export function mcpPermissionQuery(permission: PermissionId) {
+  return customQuery(internalQuery, {
+    args: { userId: v.id("users"), projectId: v.id("projects") },
+    input: async (ctx, { userId, projectId }) => {
       await requirePermission(ctx, userId, projectId, permission);
       return { ctx: { userId, projectId }, args: {} };
     },

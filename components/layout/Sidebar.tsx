@@ -47,6 +47,7 @@ import { TEAM_LOCALES } from "@/i18n/locales";
 import { ProjectSwitcher } from "@/components/project/ProjectSwitcher";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { cn } from "@/lib/utils";
+import { ConnecterClaudeBouton } from "@/components/mcp/McpAccessDialog";
 
 type SidebarProps = {
   isCollapsed: boolean;
@@ -406,6 +407,7 @@ export function Sidebar({
             {me.email}
           </div>
         )}
+        <ConnecterClaudeBouton collapsed={collapsed} />
         <LanguageSelector collapsed={collapsed} locales={TEAM_LOCALES} />
         {collapsed ? (
           <Tooltip>

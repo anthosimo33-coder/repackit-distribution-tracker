@@ -192,6 +192,7 @@
     "components/layout/Sidebar.tsx",
     "components/layout/SidebarLayout.tsx",
     "components/layout/use-is-mobile.ts",
+    "components/mcp/McpAccessDialog.tsx",
     "components/nouveau/HookCombobox.tsx",
     "components/nouveau/NewFormatButton.tsx",
     "components/nouveau/NouveauModal.tsx",

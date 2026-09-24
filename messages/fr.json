@@ -1470,7 +1470,11 @@
     "ERR_LOGO_NOT_IMAGE": "Le logo doit être une image.",
     "ERR_LOGO_TOO_LARGE": "Logo trop lourd : {maxMb} Mo maximum.",
     "ERR_PROJECT_DELETE_PROTECTED": "« {name} » ne peut pas être supprimé : c’est le projet de repli de l’application.",
-    "ERR_PROJECT_DELETE_CONFIRMATION": "La saisie ne correspond pas au nom du projet (« {name} »)."
+    "ERR_PROJECT_DELETE_CONFIRMATION": "La saisie ne correspond pas au nom du projet (« {name} »).",
+    "ERR_MCP_TOKEN_NOT_ALLOWED": "Les clés d’accès sont réservées à l’équipe (admin ou manager).",
+    "ERR_MCP_TOKEN_NAME_REQUIRED": "Donne un nom à la clé (ex. « Claude sur mon Mac »).",
+    "ERR_MCP_TOKEN_LIMIT": "Tu as déjà {max} clés : révoque celles qui ne servent plus.",
+    "ERR_MCP_TOKEN_NOT_FOUND": "Clé introuvable."
   },
   "calendar": {
     "weekday": {

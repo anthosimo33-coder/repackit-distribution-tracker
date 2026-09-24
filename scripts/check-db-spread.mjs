@@ -54,7 +54,27 @@ export const QUERY_WRAPPERS = new Set([
   "authedQuery",
   "projectQuery",
   "publicQuery",
+  // Outils du serveur MCP : leur réponse part vers un modèle, pas vers un
+  // navigateur — c'est toujours une sortie du serveur.
+  "mcpPermissionQuery",
 ]);
+
+/**
+ * CŒUR PARTAGÉ d'une query — fonction `…Core` que la query de l'écran ET un
+ * outil MCP appellent (`listComptesCore`…), reconnue à son premier paramètre :
+ * un contexte de QUERY (`ProjectQueryCtx`, `QueryCtx`). Sans cette règle,
+ * extraire le corps d'un handler dans un cœur le faisait SORTIR du champ de la
+ * garde : le spread restait, invisible. Un cœur de MUTATION
+ * (`upsertWhopPaymentsCore(ctx: MutationCtx…)`) spreade dans un `db.patch`,
+ * pas dans une réponse : il reste hors champ, comme les mutations.
+ */
+export const CORE_FUNCTION = /Core$/;
+
+export function isQueryCore(node, sf) {
+  if (!node.name || !CORE_FUNCTION.test(node.name.text)) return false;
+  const ctx = node.parameters[0];
+  return Boolean(ctx?.type && /QueryCtx\b/.test(ctx.type.getText(sf)));
+}
 
 /**
  * Nom du wrapper d'une expression d'initialisation, qu'elle soit DIRECTE
@@ -86,6 +106,9 @@ export function findDbSpreads(fileName, source) {
   );
   const found = [];
   const visitTop = (node) => {
+    if (ts.isFunctionDeclaration(node) && isQueryCore(node, sf)) {
+      collect(node.name.text, node);
+    }
     if (ts.isVariableStatement(node)) {
       for (const decl of node.declarationList.declarations) {
         const init = decl.initializer;

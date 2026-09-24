@@ -6,6 +6,7 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectQueryCtx,
   publicQuery,
   requireCreatorObservable,
   requireProjectAdmin,
@@ -121,76 +122,83 @@ async function killInvitations(ctx: MutationCtx, creatorId: Id<"creators">) {
  */
 export const listCreators = permissionQuery("creators.read")({
   args: {},
-  handler: async (ctx) => {
-    // Périmètre du manager : cette liste nourrit CINQ écrans (cf plus bas), et
-    // c'est ce qui les borne tous d'un coup.
-    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
-    const creators = filterByCreatorScope(
-      await ctx.db
-        .query("creators")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      (c) => c._id,
-      scope,
-    );
-    const rows = [];
-    for (const c of creators) {
-      let invitation: { token: string; expiresAt: number } | null = null;
-      if (c.status === "invited") {
-        const inv = await activeInvitation(ctx, c._id);
-        if (inv) invitation = { token: inv.token, expiresAt: inv.expiresAt };
-      }
-      // Langue RÉSOLUE — celle qui est réellement servie au créateur, pas celle
-      // de la fiche. Deux raisons de la calculer ICI plutôt qu'à l'écran :
-      //
-      //  1. `users.locale` fait foi dès que le compte existe, et cette table
-      //     n'est pas exposée au client ;
-      //  2. le FRANÇAIS N'EST PAS STOCKÉ — `normalizeCreatorLocale("fr")` rend
-      //     `undefined`, donc `creators.locale` vaut « en » ou rien. Un filtre
-      //     qui comparerait la valeur brute devrait traiter l'ABSENCE comme du
-      //     français, et se tromperait le jour où une créatrice bascule en
-      //     français depuis son profil : `setMyLocale` écrit alors « fr »
-      //     EXPLICITEMENT sur `users.locale`. En rendant une langue concrète,
-      //     l'écran compare une valeur, jamais une absence.
-      //
-      // `resolveCreatorLocale` est le cœur PARTAGÉ avec `getCreatorLocale`
-      // (convex/i18n.ts) : les deux ne peuvent pas diverger.
-      rows.push({
-        // PROJECTION EXPLICITE — surtout PAS `...c`. La fiche `creators` porte
-        // des données de RÉMUNÉRATION et des COORDONNÉES DE PAIEMENT ; un
-        // spread les diffusait à tous les écrans qui listent des créatrices
-        // (table Créateurs, tracker, appariement, sélecteur de propriétaire,
-        // assignation de campagne) alors qu'aucun ne les affiche. Ces champs
-        // sortent désormais par `getCreator` seule — la query de la FICHE, qui
-        // est le seul écran à les rendre. Cf docs/CHAMPS-SENSIBLES.md.
-        //
-        // ⚠️ Ajouter un champ ici est une DÉCISION : tout champ absent de cette
-        // liste ne quitte pas le serveur.
-        _id: c._id,
-        _creationTime: c._creationTime,
-        projectId: c.projectId,
-        userId: c.userId,
-        name: c.name,
-        email: c.email,
-        phone: c.phone,
-        timezone: c.timezone,
-        timezoneSource: c.timezoneSource,
-        kind: c.kind,
-        clipperId: c.clipperId,
-        status: c.status,
-        handlesToCreate: c.handlesToCreate,
-        driveFolderId: c.driveFolderId,
-        firstPostAt: c.firstPostAt,
-        payStartAt: c.payStartAt,
-        refSlug: c.refSlug,
-        createdAt: c.createdAt,
-        invitation,
-        locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
-      });
-    }
-    return rows.sort((a, b) => b.createdAt - a.createdAt);
-  },
+  handler: (ctx) => listCreatorsCore(ctx),
 });
+
+/**
+ * Cœur de `listCreators` — partagé avec l'outil MCP `createatrices` (convex/mcpTools).
+ */
+export async function listCreatorsCore(
+  ctx: ProjectQueryCtx,
+) {
+  // Périmètre du manager : cette liste nourrit CINQ écrans (cf plus bas), et
+  // c'est ce qui les borne tous d'un coup.
+  const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+  const creators = filterByCreatorScope(
+    await ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect(),
+    (c) => c._id,
+    scope,
+  );
+  const rows = [];
+  for (const c of creators) {
+    let invitation: { token: string; expiresAt: number } | null = null;
+    if (c.status === "invited") {
+      const inv = await activeInvitation(ctx, c._id);
+      if (inv) invitation = { token: inv.token, expiresAt: inv.expiresAt };
+    }
+    // Langue RÉSOLUE — celle qui est réellement servie au créateur, pas celle
+    // de la fiche. Deux raisons de la calculer ICI plutôt qu'à l'écran :
+    //
+    //  1. `users.locale` fait foi dès que le compte existe, et cette table
+    //     n'est pas exposée au client ;
+    //  2. le FRANÇAIS N'EST PAS STOCKÉ — `normalizeCreatorLocale("fr")` rend
+    //     `undefined`, donc `creators.locale` vaut « en » ou rien. Un filtre
+    //     qui comparerait la valeur brute devrait traiter l'ABSENCE comme du
+    //     français, et se tromperait le jour où une créatrice bascule en
+    //     français depuis son profil : `setMyLocale` écrit alors « fr »
+    //     EXPLICITEMENT sur `users.locale`. En rendant une langue concrète,
+    //     l'écran compare une valeur, jamais une absence.
+    //
+    // `resolveCreatorLocale` est le cœur PARTAGÉ avec `getCreatorLocale`
+    // (convex/i18n.ts) : les deux ne peuvent pas diverger.
+    rows.push({
+      // PROJECTION EXPLICITE — surtout PAS `...c`. La fiche `creators` porte
+      // des données de RÉMUNÉRATION et des COORDONNÉES DE PAIEMENT ; un
+      // spread les diffusait à tous les écrans qui listent des créatrices
+      // (table Créateurs, tracker, appariement, sélecteur de propriétaire,
+      // assignation de campagne) alors qu'aucun ne les affiche. Ces champs
+      // sortent désormais par `getCreator` seule — la query de la FICHE, qui
+      // est le seul écran à les rendre. Cf docs/CHAMPS-SENSIBLES.md.
+      //
+      // ⚠️ Ajouter un champ ici est une DÉCISION : tout champ absent de cette
+      // liste ne quitte pas le serveur.
+      _id: c._id,
+      _creationTime: c._creationTime,
+      projectId: c.projectId,
+      userId: c.userId,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      timezone: c.timezone,
+      timezoneSource: c.timezoneSource,
+      kind: c.kind,
+      clipperId: c.clipperId,
+      status: c.status,
+      handlesToCreate: c.handlesToCreate,
+      driveFolderId: c.driveFolderId,
+      firstPostAt: c.firstPostAt,
+      payStartAt: c.payStartAt,
+      refSlug: c.refSlug,
+      createdAt: c.createdAt,
+      invitation,
+      locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
+    });
+  }
+  return rows.sort((a, b) => b.createdAt - a.createdAt);
+}
 
 /**
  * ACTIVITÉ par créatrice — comptes, publications, dernier post.
@@ -211,73 +219,80 @@ export const listCreators = permissionQuery("creators.read")({
  */
 export const listCreatorActivity = permissionQuery("creators.read")({
   args: {},
-  handler: async (ctx) => {
-    const [creators, comptes, assignments] = await Promise.all([
-      ctx.db
-        .query("creators")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("comptes")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      ctx.db
-        .query("assignments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-    ]);
-    const parCreatrice = summarizeCreatorActivity({ comptes, assignments });
-    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
-
-    // ─── FUSEAU EFFECTIF, celui qui sert vraiment ────────────────────────────
-    // `listCreators` sert le fuseau STOCKÉ. Grouper là-dessus mettrait dans
-    // « non renseigné » des créatrices dont le fuseau est parfaitement
-    // déductible du pays de leurs comptes — donc l'écran désignerait comme un
-    // trou à combler quelque chose qui n'en est pas un.
-    //
-    // La résolution est faite ICI parce que les comptes sont DÉJÀ chargés : le
-    // pays vient d'eux. `resolveCreatorTimezone` est la fonction canonique, la
-    // même que `creatorZone` appelle — l'écran ne peut donc pas afficher un
-    // fuseau différent de celui sur lequel le warmup compte les jours.
-    // (`buildZoneMap` ne rendrait que la valeur ; il faut aussi la PROVENANCE,
-    // sans quoi on ne peut pas distinguer un fait d'une supposition.)
-    const paysParCreatrice = new Map<string, string[]>();
-    for (const compte of comptes) {
-      const owner = compte.creatorId;
-      const pays = compte.targetCountry;
-      if (!owner || !pays) continue;
-      const liste = paysParCreatrice.get(owner) ?? [];
-      liste.push(pays);
-      paysParCreatrice.set(owner, liste);
-    }
-
-    // PHOTO DE PROFIL — les comptes sont déjà chargés, donc c'est ici que ça
-    // coûte le moins. Cette query n'est lue QUE par l'écran Créateurs : y
-    // greffer les visages ne ralentit aucun des quatre autres écrans qui lisent
-    // `listCreators`.
-    const visages = await faceUrlsByCreator(ctx, comptes);
-
-    return filterByCreatorScope(creators, (c) => c._id, scope).map((c) => {
-      const zone = resolveCreatorTimezone(c, paysParCreatrice.get(c._id) ?? []);
-      return {
-        creatorId: c._id,
-        /**
-         * URL SIGNÉE de sa photo de profil TikTok, recopiée dans le storage.
-         * `null` = pas de photo collectée — l'écran affiche ses initiales, et
-         * c'est un état normal (compte sans post relevé, compte non-TikTok).
-         */
-        avatarUrl: visages.get(c._id) ?? null,
-        ...(parCreatrice.get(c._id) ?? EMPTY_ACTIVITY),
-        /** Fuseau EFFECTIF (fiche, sinon déduit du pays des comptes). */
-        zone: zone.timezone,
-        /** Provenance — « confirmed » est un fait, le reste une supposition. */
-        zoneSource: zone.source,
-        /** La valeur est-elle FIGÉE en base, ou recalculée à chaque lecture ? */
-        zoneStored: zone.stored,
-      };
-    });
-  },
+  handler: (ctx) => listCreatorActivityCore(ctx),
 });
+
+/**
+ * Cœur de `listCreatorActivity` — partagé avec l'outil MCP `createatrices` (convex/mcpTools).
+ */
+export async function listCreatorActivityCore(
+  ctx: ProjectQueryCtx,
+) {
+  const [creators, comptes, assignments] = await Promise.all([
+    ctx.db
+      .query("creators")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect(),
+    ctx.db
+      .query("comptes")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect(),
+    ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect(),
+  ]);
+  const parCreatrice = summarizeCreatorActivity({ comptes, assignments });
+  const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+
+  // ─── FUSEAU EFFECTIF, celui qui sert vraiment ────────────────────────────
+  // `listCreators` sert le fuseau STOCKÉ. Grouper là-dessus mettrait dans
+  // « non renseigné » des créatrices dont le fuseau est parfaitement
+  // déductible du pays de leurs comptes — donc l'écran désignerait comme un
+  // trou à combler quelque chose qui n'en est pas un.
+  //
+  // La résolution est faite ICI parce que les comptes sont DÉJÀ chargés : le
+  // pays vient d'eux. `resolveCreatorTimezone` est la fonction canonique, la
+  // même que `creatorZone` appelle — l'écran ne peut donc pas afficher un
+  // fuseau différent de celui sur lequel le warmup compte les jours.
+  // (`buildZoneMap` ne rendrait que la valeur ; il faut aussi la PROVENANCE,
+  // sans quoi on ne peut pas distinguer un fait d'une supposition.)
+  const paysParCreatrice = new Map<string, string[]>();
+  for (const compte of comptes) {
+    const owner = compte.creatorId;
+    const pays = compte.targetCountry;
+    if (!owner || !pays) continue;
+    const liste = paysParCreatrice.get(owner) ?? [];
+    liste.push(pays);
+    paysParCreatrice.set(owner, liste);
+  }
+
+  // PHOTO DE PROFIL — les comptes sont déjà chargés, donc c'est ici que ça
+  // coûte le moins. Cette query n'est lue QUE par l'écran Créateurs : y
+  // greffer les visages ne ralentit aucun des quatre autres écrans qui lisent
+  // `listCreators`.
+  const visages = await faceUrlsByCreator(ctx, comptes);
+
+  return filterByCreatorScope(creators, (c) => c._id, scope).map((c) => {
+    const zone = resolveCreatorTimezone(c, paysParCreatrice.get(c._id) ?? []);
+    return {
+      creatorId: c._id,
+      /**
+       * URL SIGNÉE de sa photo de profil TikTok, recopiée dans le storage.
+       * `null` = pas de photo collectée — l'écran affiche ses initiales, et
+       * c'est un état normal (compte sans post relevé, compte non-TikTok).
+       */
+      avatarUrl: visages.get(c._id) ?? null,
+      ...(parCreatrice.get(c._id) ?? EMPTY_ACTIVITY),
+      /** Fuseau EFFECTIF (fiche, sinon déduit du pays des comptes). */
+      zone: zone.timezone,
+      /** Provenance — « confirmed » est un fait, le reste une supposition. */
+      zoneSource: zone.source,
+      /** La valeur est-elle FIGÉE en base, ou recalculée à chaque lecture ? */
+      zoneStored: zone.stored,
+    };
+  });
+}
 
 /**
  * Activité d'UNE créatrice — l'en-tête de sa fiche.
