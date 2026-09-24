@@ -47,7 +47,10 @@
     "toutesCampagnes": "Toutes campagnes",
     "liste": "Liste",
     "calendrier": "Calendrier",
-    "sansCampagne": "Sans campagne"
+    "sansCampagne": "Sans campagne",
+    "afficherInactives": "Afficher les inactives ({count})",
+    "masquerInactives": "Masquer les inactives",
+    "sansPays": "Sans pays"
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Compte cohérent (@{detected})",
@@ -263,7 +266,10 @@
     "toutesCampagnes": "Toutes campagnes",
     "filtrerParStatutCalendrier": "Filtrer par statut calendrier",
     "filtrerParStatut": "Filtrer par statut",
-    "archivees": "Archivées"
+    "archivees": "Archivées",
+    "inactives": "Inactives",
+    "pays": "Pays ciblé",
+    "tousPays": "Tous pays"
   },
   "EditBrickTextDialog": {
     "editerLeTexte": "Éditer le texte — {creatorName}",

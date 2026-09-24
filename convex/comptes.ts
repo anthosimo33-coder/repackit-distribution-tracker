@@ -365,7 +365,9 @@ export const listComptes = permissionQuery("accounts.manage")({
         // recalculé : cf le commentaire de `zoneMap` plus haut.
         creatorTimezone: c.creatorId ? (zoneMap.get(c.creatorId) ?? null) : null,
         personne: p ? { prenom: p.prenom, nom: p.nom } : null,
-        creator: creator ? { name: creator.name } : null,
+        // Statut servi pour que le filtre créateur de l'écran ne propose que les
+        // créatrices en activité (cf lib/creator-status.isCreatorInactive).
+        creator: creator ? { name: creator.name, status: creator.status } : null,
         perf:
           perfMap.get(comptePerfKey(c.handle, c.plateforme)) ?? EMPTY_PERF,
         inUse: usedCompteIds.has(c._id) || usedHandles.has(c.handle),

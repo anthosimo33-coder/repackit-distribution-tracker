@@ -35,7 +35,10 @@
     "chargement": "Chargement…",
     "actifs": "{count} {count, plural, one {actif} other {actifs}}",
     "enWarmup": "{count} warmup",
-    "enShadowban": "{count} shadowban"
+    "enShadowban": "{count} shadowban",
+    "filtrerParPays": "Filtrer par pays ciblé",
+    "tousPays": "Tous pays",
+    "sansPays": "Sans pays"
   },
   "LigneCompte": {
     "jamaisPublie": "jamais publié",
@@ -44,7 +47,8 @@
     "dernierCheck": "Dernier check {last}",
     "aucunCheckPose": "Aucun check posé",
     "compteActifQuiNA": "Compte actif qui n'a encore aucune publication",
-    "gestionnaire": "Gestionnaire"
+    "gestionnaire": "Gestionnaire",
+    "ouvrirSur": "Ouvrir le compte sur {plateforme}"
   },
   "EnteteGroupe": {
     "compte": "{effectif} {effectif, plural, one {compte} other {comptes}}",
@@ -126,7 +130,8 @@
     "modifierLeCompte": "Modifier le compte",
     "retourAuxComptes": "Retour aux comptes",
     "paysCibleLabelInterneInformatif": "Pays ciblé (label interne, informatif)",
-    "compteInterne": "Compte interne"
+    "compteInterne": "Compte interne",
+    "ouvrirSur": "Ouvrir le compte sur {plateforme}"
   },
   "CompteFormatList": {
     "aucunPourCeCompte": "Aucun {value} pour ce compte.",
@@ -252,7 +257,8 @@
   "groupBy": {
     "creator": "Par créateur",
     "plateforme": "Par plateforme",
-    "none": "Sans regroupement"
+    "none": "Sans regroupement",
+    "pays": "Par pays"
   },
   "chauffe": {
     "mesure": "{age} j, {checks} {checks, plural, one {check} other {checks}}",

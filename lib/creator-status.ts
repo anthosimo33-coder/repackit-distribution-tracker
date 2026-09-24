@@ -42,6 +42,21 @@ const META: Record<CreatorStatus, { key: CreatorStatus; className: string }> = {
   },
 };
 
+/**
+ * Créatrice SORTIE du parc : en pause, partie — ou supprimée (`null` : ses
+ * assignations survivent avec un nom figé, cf `creatorNameSnapshot`).
+ *
+ * Invitée et en onboarding restent du côté ACTIF : on leur prépare déjà des
+ * vidéos, et les cacher des filtres rendrait ce travail introuvable. Sur Snytch
+ * au 2026-09-24, le filtre créateur des Assignments listait 27 noms dont 15
+ * sortis (7 « churned », 8 supprimées) — c'est ce bruit-là qu'on retire.
+ */
+export function isCreatorInactive(
+  status: CreatorStatus | null | undefined,
+): boolean {
+  return status == null || status === "paused" || status === "churned";
+}
+
 export function creatorStatusKey(status: CreatorStatus): CreatorStatus {
   return META[status].key;
 }

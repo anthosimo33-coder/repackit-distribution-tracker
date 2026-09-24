@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, Suspense, useMemo, useState } from "react";
+import {
+  Fragment,
+  Suspense,
+  useCallback,
+  useMemo,
+  useState,
+  type MouseEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useProjectQuery } from "@/components/project/use-project-convex";
@@ -34,6 +41,7 @@ import {
   SearchIcon,
   ChevronUpIcon,
   ChevronDownIcon,
+  ExternalLinkIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -42,6 +50,13 @@ import {
   type CompteStatus,
 } from "@/lib/compte-status";
 import { lastCheck } from "@/lib/warmup";
+import { compteProfileUrl } from "@/lib/compte-profile-url";
+import { isCreatorInactive } from "@/lib/creator-status";
+import {
+  buildCountryOptions,
+  matchesCountryFilter,
+  NO_COUNTRY,
+} from "@/lib/country-filter";
 import {
   warmupStateOf,
   compareUrgence,
@@ -78,10 +93,13 @@ type PlateformeFilter = "all" | "TikTok" | "Instagram" | "YouTube";
 const PLATEFORME_FILTER_OPTIONS = ["all", "TikTok", "Instagram", "YouTube"] as const satisfies readonly PlateformeFilter[];
 
 // Libellés : `admin.accounts.groupBy.<valeur>`.
-const GROUP_OPTIONS = ["creator", "plateforme", "none"] as const satisfies readonly GroupAxis[];
+const GROUP_OPTIONS = ["creator", "pays", "plateforme", "none"] as const satisfies readonly GroupAxis[];
 
 // "all" | "internal" (comptes sans créateur) | <creatorId>.
 type CreatorFilter = string;
+
+// "all" | NO_COUNTRY (comptes sans pays ciblé) | <code ISO>.
+type PaysFilter = string;
 
 function formatDateShort(ts: number | null, locale: string): string {
   return ts === null ? "—" : new Date(ts).toLocaleDateString(locale);
@@ -143,6 +161,7 @@ function ComptesPageInner() {
   const [plateformeFilter, setPlateformeFilter] =
     useState<PlateformeFilter>("all");
   const [creatorFilter, setCreatorFilter] = useState<CreatorFilter>("all");
+  const [paysFilter, setPaysFilter] = useState<PaysFilter>("all");
   const [groupe, setGroupe] = useState<GroupAxis>("creator");
   // Un écran d'exploitation ouvre sur ce qui pèse. L'alphabet reste à un clic.
   const [sortKey, setSortKey] = useState<SortKey>("vues");
@@ -167,16 +186,38 @@ function ComptesPageInner() {
     return acc;
   }, [comptes]);
 
-  // Options du filtre créateur : créateurs distincts présents (par id + nom).
+  // Options du filtre créateur : les créatrices EN ACTIVITÉ qui ont un compte.
+  // Celles qui sont sorties du parc (en pause, parties) n'y figurent plus —
+  // leurs comptes restent dans la table et la recherche les retrouve par nom.
+  // Exception : celle qui est déjà sélectionnée, sinon le déclencheur
+  // afficherait un filtre que le menu ne propose pas.
   const creatorOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const c of comptes ?? []) {
-      if (c.creatorId && c.creator) map.set(c.creatorId, c.creator.name);
+      if (!c.creatorId || !c.creator) continue;
+      if (isCreatorInactive(c.creator.status) && c.creatorId !== creatorFilter)
+        continue;
+      map.set(c.creatorId, c.creator.name);
     }
     return [...map.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  }, [comptes]);
+  }, [comptes, creatorFilter]);
+
+  // Options du filtre pays : les pays ciblés présents, le plus fourni d'abord.
+  const paysOptions = useMemo(
+    () => buildCountryOptions((comptes ?? []).map((c) => [c.targetCountry])),
+    [comptes],
+  );
+  // « 🇫🇷 France » dans la langue du lecteur ; le filtre ET les titres de
+  // groupe le lisent.
+  const libellePays = useCallback(
+    (code: string | null) =>
+      code === null || code === NO_COUNTRY
+        ? tr("sansPays")
+        : (countryLabel(code, loc) ?? code),
+    [tr, loc],
+  );
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -197,6 +238,11 @@ function ComptesPageInner() {
         return false;
       if (plateformeFilter !== "all" && c.plateforme !== plateformeFilter)
         return false;
+      if (
+        paysFilter !== "all" &&
+        !matchesCountryFilter([c.targetCountry], new Set([paysFilter]))
+      )
+        return false;
       if (creatorFilter === "internal" && c.creatorId) return false;
       if (
         creatorFilter !== "all" &&
@@ -212,7 +258,14 @@ function ComptesPageInner() {
         (c.creator?.name ?? "").toLowerCase().includes(q)
       );
     });
-  }, [comptes, recherche, statusFilter, plateformeFilter, creatorFilter]);
+  }, [
+    comptes,
+    recherche,
+    statusFilter,
+    plateformeFilter,
+    creatorFilter,
+    paysFilter,
+  ]);
 
   /** Total du PROJET — dénominateur des parts, insensible aux filtres. */
   const totalVuesProjet = useMemo(
@@ -222,8 +275,16 @@ function ComptesPageInner() {
 
   const groupes = useMemo(
     () =>
-      groupComptes(visibles, groupe, sortKey, sortDir, totalVuesProjet, tr("interne")),
-    [visibles, groupe, sortKey, sortDir, totalVuesProjet, tr],
+      groupComptes(
+        visibles,
+        groupe,
+        sortKey,
+        sortDir,
+        totalVuesProjet,
+        tr("interne"),
+        libellePays,
+      ),
+    [visibles, groupe, sortKey, sortDir, totalVuesProjet, tr, libellePays],
   );
 
   /**
@@ -446,6 +507,29 @@ function ComptesPageInner() {
           </SelectContent>
         </Select>
         <Select
+          value={paysFilter}
+          onValueChange={(v) => v !== null && setPaysFilter(v)}
+        >
+          <SelectTrigger className="w-40" aria-label={tr("filtrerParPays")}>
+            <SelectValue>
+              {paysFilter === "all" ? tr("tousPays") : libellePays(paysFilter)}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{tr("tousPays")}</SelectItem>
+            {paysOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                <span className="flex w-full items-center justify-between gap-3">
+                  <span>{libellePays(o.value)}</span>
+                  <span className="text-xs tabular-nums text-slate-400">
+                    {o.count}
+                  </span>
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
           value={plateformeFilter}
           onValueChange={(v) =>
             v !== null && setPlateformeFilter(v as PlateformeFilter)
@@ -661,16 +745,15 @@ function LigneCompte({
 }) {
   const loc = useIntlLocale();
   const statut = getEffectiveStatus(c);
+  const ouvrirFiche = useOuvrirFiche(href);
 
   return (
-    <TableRow className={cn(statut === "archived" && "opacity-50")}>
+    <TableRow
+      onClick={ouvrirFiche}
+      className={cn("cursor-pointer", statut === "archived" && "opacity-50")}
+    >
       <TableCell className="font-mono font-medium text-slate-900">
-        <Link
-          href={href}
-          className="transition-colors hover:text-primary hover:underline"
-        >
-          {c.handle}
-        </Link>
+        <LienProfil compte={c} />
       </TableCell>
       <TableCell>
         <PastillesPlateforme compte={c} />
@@ -697,7 +780,7 @@ function LigneCompte({
         {formatDateShort(c.perf.dernierPost, loc)}
       </TableCell>
       <TableCell onClick={(e) => e.stopPropagation()}>
-        <CompteAdminActions compte={c} onEdit={onEdit} />
+        <CompteAdminActions compte={c} onEdit={onEdit} ficheHref={href} />
       </TableCell>
     </TableRow>
   );
@@ -725,22 +808,21 @@ function CarteCompte({
   const tr = useTranslations("admin.accounts.ComptesPageInner");
   const loc = useIntlLocale();
   const statut = getEffectiveStatus(c);
+  const ouvrirFiche = useOuvrirFiche(href);
   return (
     <li
+      onClick={ouvrirFiche}
       className={cn(
-        "space-y-2 px-4 py-3",
+        "cursor-pointer space-y-2 px-4 py-3",
         statut === "archived" && "opacity-50",
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <Link
-          href={href}
-          className="min-w-0 truncate pt-1 font-mono text-sm font-medium text-slate-900 transition-colors hover:text-primary hover:underline"
-        >
-          {c.handle}
-        </Link>
-        <div className="shrink-0">
-          <CompteAdminActions compte={c} onEdit={onEdit} />
+        <span className="min-w-0 truncate pt-1 font-mono text-sm font-medium text-slate-900">
+          <LienProfil compte={c} />
+        </span>
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <CompteAdminActions compte={c} onEdit={onEdit} ficheHref={href} />
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -761,6 +843,52 @@ function CarteCompte({
       </div>
     </li>
   );
+}
+
+/**
+ * Le HANDLE ouvre le VRAI compte (TikTok, Instagram, YouTube) dans un nouvel
+ * onglet — c'est ce qu'on veut voir en cliquant sur « @… ». La fiche interne
+ * s'ouvre au clic sur le reste de la ligne, ou par « Voir la fiche » du menu.
+ *
+ * Le nom accessible du lien reste le handle SEUL (icône `aria-hidden`, pas
+ * d'aria-label) : une dizaine de specs repèrent la ligne par
+ * `getByRole("cell", { name: "@handle" })`. Sans URL exploitable (ni lien
+ * collé ni handle valide), le handle s'affiche en texte : pas de lien mort.
+ */
+function LienProfil({ compte: c }: { compte: CompteRow }) {
+  const tr = useTranslations("admin.accounts.LigneCompte");
+  const url = compteProfileUrl(c);
+  if (url === null) return <>{c.handle}</>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={tr("ouvrirSur", { plateforme: c.plateforme })}
+      onClick={(e) => e.stopPropagation()}
+      className="group inline-flex max-w-full items-center gap-1 transition-colors hover:text-primary hover:underline"
+    >
+      <span className="truncate">{c.handle}</span>
+      <ExternalLinkIcon
+        aria-hidden
+        className="size-3 shrink-0 text-slate-300 transition-colors group-hover:text-primary"
+      />
+    </a>
+  );
+}
+
+/**
+ * Clic sur la ligne → fiche du compte. Deux gardes : un clic qui termine une
+ * SÉLECTION de texte (copier un handle) ne navigue pas, et un clic sur un
+ * élément interactif de la ligne lui appartient.
+ */
+function useOuvrirFiche(href: string) {
+  const router = useRouter();
+  return (e: MouseEvent<HTMLElement>) => {
+    if (window.getSelection()?.toString()) return;
+    if ((e.target as HTMLElement).closest("a, button, [role='menuitem']")) return;
+    router.push(href);
+  };
 }
 
 function PastillesPlateforme({ compte: c }: { compte: CompteRow }) {

@@ -20,11 +20,13 @@ export type CompteLike = {
   handle: string;
   plateforme: string;
   creator?: { name: string } | null;
+  /** Code ISO du pays ciblé ; absent = pas de pays posé. */
+  targetCountry?: string | null;
   perf: ComptePerfLike;
 };
 
 /** Axe de regroupement des lignes. `none` = liste à plat, comme avant. */
-export type GroupAxis = "creator" | "plateforme" | "none";
+export type GroupAxis = "creator" | "pays" | "plateforme" | "none";
 export type SortKey = "handle" | "vues" | "posts" | "dernierPost";
 export type SortDir = "asc" | "desc";
 
@@ -85,8 +87,10 @@ function titreDe<T extends CompteLike>(
   ligne: T,
   axe: GroupAxis,
   interne: string,
+  libellePays: (code: string | null) => string,
 ): string {
   if (axe === "plateforme") return ligne.plateforme;
+  if (axe === "pays") return libellePays(ligne.targetCountry ?? null);
   return ligne.creator?.name ?? interne;
 }
 
@@ -112,6 +116,11 @@ export function groupComptes<T extends CompteLike>(
   totalProjet?: number,
   /** Titre du groupe sans propriétaire, dans la langue du lecteur. */
   interne: string = INTERNE_LABEL,
+  /**
+   * Titre d'un groupe de l'axe `pays` (« 🇫🇷 France », « Sans pays »), dans la
+   * langue du lecteur. Par défaut, le code brut.
+   */
+  libellePays: (code: string | null) => string = (code) => code ?? "—",
 ): CompteGroup<T>[] {
   const totalVues = comptes.reduce((s, c) => s + c.perf.vuesCumulees, 0);
   const denominateur = totalProjet ?? totalVues;
@@ -135,7 +144,7 @@ export function groupComptes<T extends CompteLike>(
   // donc l'ordre des groupes découle du tri au lieu d'être reconstruit à côté.
   const parClef = new Map<string, T[]>();
   for (const l of triees) {
-    const k = titreDe(l, axe, interne);
+    const k = titreDe(l, axe, interne, libellePays);
     const liste = parClef.get(k);
     if (liste) liste.push(l);
     else parClef.set(k, [l]);
