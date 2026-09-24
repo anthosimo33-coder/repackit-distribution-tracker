@@ -21,6 +21,8 @@ import { mcpPermissionQuery } from "./functions";
 import { effectiveStatus, listComptesCore } from "./comptes";
 import { listCreatorActivityCore, listCreatorsCore } from "./creators";
 import { creatorPublicationStats } from "./publicationLateness";
+import { getProjectProfitabilityCore } from "./profitability";
+import { profitabilityReport } from "./profitabilityMath";
 import { parisDayKey } from "./viewsDaily";
 import { teamRoleOf } from "./roles";
 import {
@@ -120,6 +122,12 @@ export const lirePonctualite = mcpPermissionQuery("content.analytics")({
     })),
 });
 
+/** Carte Rentabilité (écran Paiements) — même lecture, même bloc. */
+export const lireRentabilite = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getProjectProfitabilityCore(ctx),
+});
+
 // ─── Déclaration des outils ──────────────────────────────────────────────────
 
 const ARG_PROJET = {
@@ -198,6 +206,28 @@ export const OUTILS: readonly McpTool[] = [
     inputSchema: {
       type: "object",
       properties: { projet: ARG_PROJET, createatrice: ARG_CREATRICE },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "rentabilite",
+    title: "Rentabilité du projet",
+    description:
+      "Rentabilité du projet, exactement comme la carte Rentabilité de l'écran Paiements (même calcul) : revenu Whop NET (après frais, devise du revenu), coût créatrices (fixe + CPM + bonus, devise de la paie), MARGE (revenu − coût converti, devise du revenu) et RPM (revenu net pour 1 000 vues). Cumul + détail mois par mois (mois de Paris), du plus récent au plus ancien. Par défaut le RPM « business » divise par les vues FACTURÉES seules ; inclure_non_facturees donne le RPM dilué (toutes les vues suivies). Lire les avertissements avant de conclure.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        mois: {
+          type: "string",
+          description: "Ne garder qu'un mois, au format AAAA-MM (ex. 2026-09).",
+        },
+        inclure_non_facturees: {
+          type: "boolean",
+          description:
+            "Diviser le RPM par toutes les vues suivies (RPM dilué) au lieu des seules vues facturées (défaut : non).",
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -318,6 +348,86 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           projet: projet.slug,
           note: "tauxALHeurePct = à l'heure ÷ posts passés ; null = aucun post passé encore.",
           createatrices: retenues,
+        });
+      }
+
+      if (name === "rentabilite") {
+        const mois = typeof args.mois === "string" ? args.mois.trim() : null;
+        if (mois !== null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(mois)) {
+          throw new ToolError("« mois » doit être au format AAAA-MM (ex. 2026-09).");
+        }
+        const data = await lire(() => ctx.runQuery(internal.mcpTools.lireRentabilite, ids));
+        if (!data.configured) {
+          return json({
+            projet: projet.slug,
+            configure: false,
+            message:
+              "Rentabilité indisponible : aucun revenu Whop n'est relié à ce projet. Sans revenu, ni marge ni RPM.",
+          });
+        }
+        const inclure = args.inclure_non_facturees === true;
+        // LE calcul de la carte Rentabilité — la même fonction, pas une copie.
+        const rapport = profitabilityReport(data, inclure);
+        const lignes = rapport.months.filter((m) => mois === null || m.period === mois);
+        if (mois !== null && lignes.length === 0) {
+          throw new ToolError(
+            `Aucune donnée pour ${mois}. Mois disponibles : ${
+              rapport.months.map((m) => m.period).join(", ") || "aucun"
+            }.`,
+          );
+        }
+        const chiffres = (x: (typeof rapport)["total"]) => ({
+          revenuNet: x.revenueNet,
+          coutCreatrices: x.creatorCost,
+          marge: x.margin,
+          vues: x.views,
+          rpm: x.rpm,
+        });
+        const avertissements: string[] = [];
+        if (rapport.fxRate === null) {
+          avertissements.push(
+            `Marge non calculable : revenu en ${data.currency ?? "?"} et paie en ${data.payCurrency ?? "?"}, sans taux de change réglé sur le projet. « marge » vaut null — elle n'est jamais inventée.`,
+          );
+        }
+        if (data.mixedCurrency) {
+          avertissements.push(
+            "Revenus encaissés dans plusieurs devises NON convertibles : sur les mois marqués revenuInexploitable, le revenu vaut 0 par abstention (ce n'est pas un montant), donc marge et RPM de ces mois ne veulent rien dire.",
+          );
+        }
+        if (data.conversions.length > 0) {
+          avertissements.push(
+            `Une partie du revenu a été convertie au taux du projet (${data.conversions
+              .map((c) => `${c.from} × ${c.rate}`)
+              .join(", ")}) : un taux posé à la main n'est pas une comptabilité.`,
+          );
+        }
+        return json({
+          projet: projet.slug,
+          devises: {
+            revenu: data.currency,
+            paie: data.payCurrency,
+            tauxPaieVersRevenu: rapport.fxRate,
+          },
+          unites:
+            "revenuNet, marge et rpm dans la devise du REVENU ; coutCreatrices dans la devise de la PAIE.",
+          vuesRetenues: inclure
+            ? "toutes les vues suivies (RPM dilué)"
+            : "vues facturées seulement (RPM business : ce que rapporte une vue achetée)",
+          ...(mois === null ? { cumul: chiffres(rapport.total) } : {}),
+          mois: lignes.map((m) => ({
+            mois: m.period,
+            ...chiffres(m.metrics),
+            // Mois en cours : coût ENGAGÉ (ce qu'on paiera), revenu arrêté à aujourd'hui.
+            enCours: m.period === data.currentPeriod,
+            // Figé : cycles réglés ou fenêtres de paie closes — coût et vues définitifs.
+            fige: m.settled,
+            ...(m.mixedCurrency ? { revenuInexploitable: true } : {}),
+          })),
+          lecture: [
+            "Un mois non figé peut encore bouger : une vidéo est rémunérée jusqu'à J+30 après publication, donc un mois tout juste clos gagne encore des vues facturées alors que son revenu est arrêté au 31. Ne comparer deux mois qu'une fois figés tous les deux.",
+            "Le mois en cours compte le coût ENGAGÉ (ce qu'on paiera si les seuils tombent), pas le dû du jour.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
         });
       }
 

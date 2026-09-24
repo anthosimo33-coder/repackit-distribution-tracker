@@ -4,6 +4,7 @@ import {
   computeRpm,
   viewsForToggle,
   computeProfitability,
+  profitabilityReport,
   type ProfitabilityInput,
 } from "./profitability";
 
@@ -93,5 +94,84 @@ describe("computeProfitability — le toggle change les vues/RPM, JAMAIS le reve
     const on = computeProfitability(noUnpaid, true);
     expect(on.views).toBe(off.views);
     expect(on.rpm).toBe(off.rpm);
+  });
+});
+
+describe("profitabilityReport — le calcul partagé par la carte et l'outil MCP", () => {
+  // Forme de la prod Snytch : paie en dollars, revenu Whop en euros, taux posé
+  // sur le projet, montants à décimales, un mois figé et le mois en cours.
+  const source = {
+    currency: "eur",
+    payCurrency: "usd",
+    fxRateToRevenue: 0.86,
+    total: {
+      revenueNet: 4213.57,
+      creatorCost: 3118.4,
+      paidViews: 1_238_407,
+      unpaidViews: 312_004,
+    },
+    months: [
+      {
+        period: "2026-09",
+        settled: false,
+        mixedCurrency: false,
+        revenueNet: 1873.42,
+        creatorCost: 1402.15,
+        paidViews: 512_330,
+        unpaidViews: 98_761,
+      },
+      {
+        period: "2026-08",
+        settled: true,
+        mixedCurrency: false,
+        revenueNet: 2340.15,
+        creatorCost: 1716.25,
+        paidViews: 726_077,
+        unpaidViews: 213_243,
+      },
+    ],
+  };
+
+  it("convertit le coût dans la devise du revenu pour la marge, RPM sur les vues facturées", () => {
+    const r = profitabilityReport(source, false);
+    expect(r.fxRate).toBe(0.86);
+    // 4 213,57 − 3 118,40 × 0,86 = 1 531,746 → 1 531,75
+    expect(r.total).toEqual({
+      revenueNet: 4213.57,
+      creatorCost: 3118.4,
+      margin: 1531.75,
+      views: 1_238_407,
+      rpm: 3.4,
+      includeUnpaid: false,
+    });
+  });
+
+  it("le toggle ne change que les vues et le RPM (dilué)", () => {
+    const r = profitabilityReport(source, true);
+    expect(r.total.views).toBe(1_550_411);
+    expect(r.total.rpm).toBe(2.72);
+    expect(r.total.margin).toBe(1531.75);
+    expect(r.total.revenueNet).toBe(4213.57);
+  });
+
+  it("chaque mois garde ses champs et reçoit SES métriques", () => {
+    const [sept, aout] = profitabilityReport(source, false).months;
+    expect(sept).toMatchObject({ period: "2026-09", settled: false });
+    // 1 873,42 − 1 402,15 × 0,86 = 667,571 → 667,57 ; 1 873,42 / 512,33 = 3,6567
+    expect(sept.metrics).toMatchObject({ margin: 667.57, rpm: 3.66, views: 512_330 });
+    expect(aout).toMatchObject({ period: "2026-08", settled: true });
+    expect(aout.metrics).toMatchObject({ margin: 864.18, rpm: 3.22 });
+  });
+
+  it("même devise : taux 1, quel que soit le taux posé ; devises non reliées : marge null", () => {
+    const meme = profitabilityReport({ ...source, currency: "USD", fxRateToRevenue: null }, false);
+    expect(meme.fxRate).toBe(1);
+    expect(meme.total.margin).toBe(1095.17);
+    const sansTaux = profitabilityReport({ ...source, fxRateToRevenue: null }, false);
+    expect(sansTaux.fxRate).toBeNull();
+    expect(sansTaux.total.margin).toBeNull();
+    expect(sansTaux.months.every((m) => m.metrics.margin === null)).toBe(true);
+    // Le RPM, lui, ne dépend pas du taux : il reste calculé.
+    expect(sansTaux.total.rpm).toBe(3.4);
   });
 });

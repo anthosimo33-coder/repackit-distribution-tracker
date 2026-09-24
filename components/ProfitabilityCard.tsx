@@ -10,8 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/format-rate";
 import { formatNumber } from "@/lib/format";
-import { computeProfitability } from "@/lib/profitability";
-import { effectiveFxRate } from "@/lib/currency";
+import { profitabilityReport } from "@/lib/profitability";
 import { cn } from "@/lib/utils";
 import { InfoIcon, LockIcon, TrendingUpIcon } from "lucide-react";
 
@@ -86,12 +85,13 @@ export function ProfitabilityCard() {
 
   // Deux devises : revenu Whop (data.currency, €) et paie créatrices (data.payCurrency,
   // $). Le taux effectif relie les deux pour la marge (null → marge non calculée).
+  // Tout le calcul passe par `profitabilityReport` — le MÊME que l'outil MCP
+  // `rentabilite` : Claude et cette carte ne peuvent pas annoncer deux marges.
   const revenueCurrency = data.currency;
   const payCurrency = data.payCurrency;
-  const fx = effectiveFxRate(payCurrency, revenueCurrency, data.fxRateToRevenue);
-  const withFx = <T extends object>(x: T) => ({ ...x, fxRateToRevenue: fx });
+  const report = profitabilityReport(data, includeUnpaid);
 
-  const total = computeProfitability(withFx(data.total), includeUnpaid);
+  const total = report.total;
   const marginPositive = total.margin !== null && total.margin >= 0;
 
   return (
@@ -213,8 +213,8 @@ export function ProfitabilityCard() {
                 </tr>
               </thead>
               <tbody>
-                {data.months.map((m) => {
-                  const row = computeProfitability(withFx(m), includeUnpaid);
+                {report.months.map((m) => {
+                  const row = m.metrics;
                   return (
                     <tr
                       key={m.period}

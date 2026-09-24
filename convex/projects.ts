@@ -874,6 +874,32 @@ export const e2eSetProjectBranding = e2eMutation({
   },
 });
 
+/**
+ * Pose la devise de PAIE et le taux paie → revenu d'un projet (e2e), et rend les
+ * valeurs d'avant pour que la spec les restaure. Même effet que
+ * `setProjectCurrencyBySlug` / `setProjectFxRateBySlug`, internes donc hors de
+ * portée d'une spec. `null` = retirer le champ.
+ */
+export const e2eSetProjectCurrency = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    payCurrency: v.union(v.string(), v.null()),
+    fxRateToRevenue: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, { projectId, payCurrency, fxRateToRevenue }) => {
+    const p = await ctx.db.get(projectId);
+    const avant = {
+      payCurrency: p?.payCurrency ?? null,
+      fxRateToRevenue: p?.fxRateToRevenue ?? null,
+    };
+    await ctx.db.patch(projectId, {
+      payCurrency: payCurrency ?? undefined,
+      fxRateToRevenue: fxRateToRevenue ?? undefined,
+    });
+    return avant;
+  },
+});
+
 /** Récupère l'id d'un projet par slug (e2e setup/teardown). */
 export const e2eGetProjectIdBySlug = e2eMutation({
   args: { slug: v.string() },

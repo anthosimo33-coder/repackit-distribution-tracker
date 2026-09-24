@@ -13,6 +13,8 @@
  * Module PUR (aucune dép Convex/React), testé côté lib.
  */
 
+import { effectiveFxRate } from "../convex/currencyRate";
+
 /** Symbole d'une devise (« $ », « € ») via Intl ; "" si code absent/inconnu. */
 export function currencySymbol(
   currency?: string | null,
@@ -31,30 +33,9 @@ export function currencySymbol(
   }
 }
 
-/** Deux codes devise désignent-ils la même monnaie (casse/espaces ignorés) ? */
-export function sameCurrency(a?: string | null, b?: string | null): boolean {
-  if (!a || !b) return false;
-  return a.trim().toLowerCase() === b.trim().toLowerCase();
-}
-
-/**
- * Taux EFFECTIF pour exprimer la devise de la PAIE dans celle du REVENU :
- *  - mêmes devises → 1 (aucune conversion nécessaire) ;
- *  - devises différentes → le taux du projet (fxRateToRevenue) s'il est renseigné
- *    et strictement positif ;
- *  - sinon `null` = marge NON calculable (on ne mélange jamais deux devises).
- */
-export function effectiveFxRate(
-  payCurrency: string | null | undefined,
-  revenueCurrency: string | null | undefined,
-  fxRateToRevenue: number | null | undefined,
-): number | null {
-  if (sameCurrency(payCurrency, revenueCurrency)) return 1;
-  if (typeof fxRateToRevenue === "number" && fxRateToRevenue > 0) {
-    return fxRateToRevenue;
-  }
-  return null;
-}
+// Définis dans convex/currencyRate.ts (module pur partagé avec le serveur) :
+// ré-exportés ici pour que les imports `@/lib/currency` restent valides.
+export { effectiveFxRate, sameCurrency } from "../convex/currencyRate";
 
 /**
  * Un montant prêt à AFFICHER : sa valeur dans la devise retenue, et de quoi

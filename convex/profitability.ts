@@ -1,5 +1,6 @@
 import {
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
@@ -187,229 +188,236 @@ async function creatorCostByMonth(
  */
 export const getProjectProfitability = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx) => {
-    const project = await ctx.db.get(ctx.projectId);
-    // Rentabilité = Whop-gated : sans mapping, on court-circuite AVANT tout calcul
-    // coûteux (le coût créateurs itère créateurs × mois). L'UI masque la carte.
-    if (project?.whop === undefined) {
-      return {
-        configured: false as const,
-        currency: null as string | null,
-        mixedCurrency: false,
-        mixedCurrencyPresent: false,
-        currenciesPresent: [] as string[],
-        payCurrency: (project?.payCurrency ?? null) as string | null,
-        fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
-        currentPeriod: monthKeyParis(Date.now()),
-        total: {
-          revenueNet: 0,
-          creatorCost: 0,
-          paidViews: 0,
-          unpaidViews: 0,
-        },
-        months: [] as Array<{
-          period: string;
-          revenueNet: number;
-          mixedCurrency: boolean;
-          creatorCost: number;
-          paidViews: number;
-          unpaidViews: number;
-          settled: boolean;
-        }>,
-      };
-    }
-
-    // ─── Revenu Whop net par mois (paidAt) — CONSTANT vis-à-vis du toggle ──────
-    // A4 — abonnements internes exclus via le point de passage unique. Ce site
-    // ne filtrait pas : la MARGE affichée intégrait le revenu du compte de test.
-    const { payments: whopRows } = await collectProjectWhopPayments(
-      ctx,
-      ctx.projectId,
-      project?.slug ?? "",
-    );
-    const revByMonth = new Map<string, Doc<"whopPayments">[]>();
-    for (const r of whopRows) {
-      const m = monthKeyParis(r.paidAt);
-      const arr = revByMonth.get(m);
-      if (arr) arr.push(r);
-      else revByMonth.set(m, [r]);
-    }
-    const revenueNetByMonth = new Map<string, number>();
-    // Le drapeau A5 est conservé PAR MOIS : la marge et le RPM sont recalculés
-    // mois par mois côté client, un mois bi-devise doit donc pouvoir s'abstenir
-    // seul, sans effacer les mois voisins qui sont parfaitement calculables.
-    const mixedByMonth = new Map<string, boolean>();
-    // Même taux que l'écran Paiements : sans lui, un mois bi-devise sortait un
-    // revenu nul, donc une marge égale à l'opposé du coût créateurs.
-    const fx = projectFx(project);
-    for (const [m, list] of revByMonth) {
-      const s = summarizeWhopRevenue(list, fx);
-      revenueNetByMonth.set(m, s.net);
-      mixedByMonth.set(m, s.mixedCurrency);
-    }
-    const totalRevenue = summarizeWhopRevenue(whopRows, fx);
-
-    // ─── Coût créateurs par mois (MÊME moteur que les Paiements) ───────────────
-    // Les créatrices se lisent dans ce qui COÛTE (vidéos, paliers), pas
-    // dans la table des fiches : une créatrice payée puis supprimée n'a plus de
-    // fiche, mais l'argent versé est parti. Parcourir `creators` faisait fondre
-    // son coût de la marge et ses vues du RPM au moment de la suppression — alors
-    // qu'Analytics, qui part des vidéos, continuait de les compter. Ce qu'on ne
-    // lui paiera pas a déjà été sorti de la paie à la suppression (remunere=false,
-    // cf unpayPostsOfDeletedCreator) : le moteur le rend donc à zéro, sans filtre ici.
-    const creatorIds = new Set<Id<"creators">>();
-    for (const a of await ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect()) {
-      creatorIds.add(a.creatorId);
-    }
-    for (const u of await ctx.db
-      .query("bonusUnlocks")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect()) {
-      creatorIds.add(u.creatorId);
-    }
-    const costByMonth = new Map<string, number>();
-    const billedByMonth = new Map<string, number>();
-    // Un mois n'est FIGÉ que si TOUTES les créatrices qui y coûtent le sont : il
-    // suffit d'une vidéo encore vivante (cycle ouvert ET fenêtre ouverte) pour
-    // que le mois bouge encore.
-    // Un ET, donc, jamais un OU — annoncer « réglé » sur un mois qui va encore
-    // grossir serait pire que de ne rien annoncer.
-    const settledByMonth = new Map<string, boolean>();
-    // Les publications du projet, lues UNE fois pour toutes les créatrices et
-    // tous leurs mois (cf AssignmentViewsCache).
-    const viewsCache = newViewsCache(
-      await loadProjectPublications(ctx, ctx.projectId),
-    );
-    for (const c of creatorIds) {
-      const cm = await creatorCostByMonth(ctx, ctx.projectId, c, viewsCache);
-      for (const [m, { cost, billedViews, settled }] of cm) {
-        costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
-        billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
-        settledByMonth.set(m, (settledByMonth.get(m) ?? true) && settled);
-      }
-    }
-    const totalCost = round2(
-      [...costByMonth.values()].reduce((s, a) => s + a, 0),
-    );
-
-    // ─── Vues ventilées RÉMUNÉRÉES / non rémunérées — DÉNOMINATEUR du RPM ─────
-    // La coupure est le fait FINANCIER (viewsSplitOf → isRemunerated), pas le fait
-    // éditorial. Ce site testait `p.isWarmup === true` en dur, ce que l'en-tête de
-    // convex/viewCounters interdit précisément.
-    //
-    // Le défaut jouait dans les DEUX sens, mesuré sur la prod du 2026-09-02 :
-    //   - un post retiré de la paie à la main (remunere=false) restait au
-    //     dénominateur — 277 857 vues en août, 23 % du mois ;
-    //   - un post warmup explicitement PAYÉ (cas Kelly, remunere=true) en était
-    //     absent — 694 000 vues sur juillet à lui seul.
-    // Le RPM n'était donc ni sur- ni sous-estimé de façon systématique : il était
-    // calculé sur un ensemble qui n'était celui d'aucune des deux questions.
-    const pubs = await ctx.db
-      .query("publications")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const pubsByMonth = new Map<string, typeof pubs>();
-    for (const p of pubs) {
-      const m = monthKeyParis(p.datePubli);
-      const arr = pubsByMonth.get(m);
-      if (arr) arr.push(p);
-      else pubsByMonth.set(m, [p]);
-    }
-    // ── Vues TOTALES : les vues SUIVIES, brutes ───────────────────────────────
-    // `vuesLatest`, sans plafond J+30. Le plafond répond à « qu'est-ce que j'ai
-    // payé », et c'est la part FACTURÉE qui répond à cette question — elle vient
-    // du moteur, sans lecture supplémentaire. Le plafonner AUSSI ici donnait un
-    // total qui n'était ni ce qu'on a payé, ni ce que les vidéos ont fait, et
-    // coûtait une requête `metricSnapshots` par publication hors fenêtre : 179 le
-    // 2026-09-06, 509 (toutes) sous trente jours. La tuile annonce « toutes les
-    // vues suivies » : c'est désormais ce qu'elle montre.
-    const allViewsOf = (list: typeof pubs) =>
-      list.reduce((s, p) => s + (p.vuesLatest ?? 0), 0);
-
-    // ─── PAYÉES = vues FACTURÉES, plafond 150 $/vidéo compris ────────────────
-    // Elles viennent de `billedByMonth`, c'est-à-dire du MÊME appel au moteur que
-    // le coût. Au-delà du seuil où une vidéo atteint le plafond, chaque vue
-    // supplémentaire est GRATUITE : la compter au dénominateur fait baisser le
-    // RPM sans qu'un centime ait été dépensé. Mesuré en prod le 03/09/2026 :
-    // 2 vidéos sur 128 portaient 248 489 vues gratuites en août (20 % du mois),
-    // et l'une d'elles a fait tomber le RPM de 1,88 € à 1,69 € en 24 h pour 0 $.
-    //
-    // `viewsSplitOf` (coupure isRemunerated) n'est donc plus la source du
-    // dénominateur ; il reste celle des vues TOTALES, dont on déduit les non
-    // rémunérées. Le `max(0, …)` est une ceinture : les vues facturées sont
-    // bornées par les vues payables, elles-mêmes bornées par les vues retenues du
-    // même mois — la soustraction ne peut pas passer sous zéro sans un décalage
-    // de mois entre un assignment et ses posts (aucun en prod le 03/09).
-    const viewsByMonth = new Map<
-      string,
-      { paidViews: number; unpaidViews: number }
-    >();
-    for (const [m, list] of pubsByMonth) {
-      const paid = billedByMonth.get(m) ?? 0;
-      viewsByMonth.set(m, {
-        paidViews: paid,
-        unpaidViews: Math.max(0, allViewsOf(list) - paid),
-      });
-    }
-    // Un mois peut porter des vues FACTURÉES sans aucune publication rangée sous
-    // lui (bonus attribué à une période persistée en UTC) : sans cette boucle, sa
-    // ligne afficherait un coût et zéro vue.
-    for (const [m, paid] of billedByMonth) {
-      if (!viewsByMonth.has(m)) {
-        viewsByMonth.set(m, { paidViews: paid, unpaidViews: 0 });
-      }
-    }
-    // Totaux recalculés sur TOUT le lot, jamais sommés depuis les mois.
-    const totPaid = [...billedByMonth.values()].reduce((s, v) => s + v, 0);
-    const totUnpaid = Math.max(0, allViewsOf(pubs) - totPaid);
-
-    // ─── Assemblage (mois présents dans revenu, coût OU vues), plus récent d'abord ─
-    const allPeriods = new Set<string>([
-      ...revenueNetByMonth.keys(),
-      ...costByMonth.keys(),
-      ...viewsByMonth.keys(),
-    ]);
-    const months = [...allPeriods]
-      .sort((a, b) => (a < b ? 1 : -1))
-      .map((period) => ({
-        period,
-        revenueNet: revenueNetByMonth.get(period) ?? 0,
-        mixedCurrency: mixedByMonth.get(period) ?? false,
-        creatorCost: costByMonth.get(period) ?? 0,
-        paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
-        unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
-        // Coût et vues FACTURÉES définitivement arrêtés (cycles réglés ou
-        // fenêtres closes). Un mois sans aucune vidéo retenue n'est pas figé :
-        // `settledByMonth` ne porte que les mois qui coûtent quelque chose.
-        settled: settledByMonth.get(period) === true,
-      }));
-
-    return {
-      configured: project?.whop !== undefined,
-      // Devise du REVENU (Whop) ; la paie créatrices a la sienne (payCurrency).
-      currency: totalRevenue.currency,
-      payCurrency: project?.payCurrency ?? null,
-      // Taux paie→revenu pour la marge (revenu € − coût $ converti). null → marge
-      // non calculée (jamais soustraire deux devises sans conversion).
-      fxRateToRevenue: project?.fxRateToRevenue ?? null,
-      currentPeriod: monthKeyParis(Date.now()),
-      // A5 — le drapeau était calculé puis jeté : la carte affichait un revenu
-      // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
-      // montant. Un chiffre faux est pire qu'un chiffre absent.
-      mixedCurrency: totalRevenue.mixedCurrency,
-      conversions: totalRevenue.conversions,
-      mixedCurrencyPresent: totalRevenue.mixedCurrencyPresent,
-      currenciesPresent: totalRevenue.currenciesPresent,
-      total: {
-        revenueNet: totalRevenue.net,
-        creatorCost: totalCost,
-        paidViews: totPaid,
-        unpaidViews: totUnpaid,
-      },
-      months,
-    };
-  },
+  handler: (ctx) => getProjectProfitabilityCore(ctx),
 });
+
+/**
+ * Cœur de `getProjectProfitability` — partagé avec l'outil MCP `rentabilite` (convex/mcpTools) : même revenu, même moteur de paie, même découpage en mois.
+ */
+export async function getProjectProfitabilityCore(
+  ctx: ProjectQueryCtx,
+) {
+  const project = await ctx.db.get(ctx.projectId);
+  // Rentabilité = Whop-gated : sans mapping, on court-circuite AVANT tout calcul
+  // coûteux (le coût créateurs itère créateurs × mois). L'UI masque la carte.
+  if (project?.whop === undefined) {
+    return {
+      configured: false as const,
+      currency: null as string | null,
+      mixedCurrency: false,
+      mixedCurrencyPresent: false,
+      currenciesPresent: [] as string[],
+      payCurrency: (project?.payCurrency ?? null) as string | null,
+      fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
+      currentPeriod: monthKeyParis(Date.now()),
+      total: {
+        revenueNet: 0,
+        creatorCost: 0,
+        paidViews: 0,
+        unpaidViews: 0,
+      },
+      months: [] as Array<{
+        period: string;
+        revenueNet: number;
+        mixedCurrency: boolean;
+        creatorCost: number;
+        paidViews: number;
+        unpaidViews: number;
+        settled: boolean;
+      }>,
+    };
+  }
+
+  // ─── Revenu Whop net par mois (paidAt) — CONSTANT vis-à-vis du toggle ──────
+  // A4 — abonnements internes exclus via le point de passage unique. Ce site
+  // ne filtrait pas : la MARGE affichée intégrait le revenu du compte de test.
+  const { payments: whopRows } = await collectProjectWhopPayments(
+    ctx,
+    ctx.projectId,
+    project?.slug ?? "",
+  );
+  const revByMonth = new Map<string, Doc<"whopPayments">[]>();
+  for (const r of whopRows) {
+    const m = monthKeyParis(r.paidAt);
+    const arr = revByMonth.get(m);
+    if (arr) arr.push(r);
+    else revByMonth.set(m, [r]);
+  }
+  const revenueNetByMonth = new Map<string, number>();
+  // Le drapeau A5 est conservé PAR MOIS : la marge et le RPM sont recalculés
+  // mois par mois côté client, un mois bi-devise doit donc pouvoir s'abstenir
+  // seul, sans effacer les mois voisins qui sont parfaitement calculables.
+  const mixedByMonth = new Map<string, boolean>();
+  // Même taux que l'écran Paiements : sans lui, un mois bi-devise sortait un
+  // revenu nul, donc une marge égale à l'opposé du coût créateurs.
+  const fx = projectFx(project);
+  for (const [m, list] of revByMonth) {
+    const s = summarizeWhopRevenue(list, fx);
+    revenueNetByMonth.set(m, s.net);
+    mixedByMonth.set(m, s.mixedCurrency);
+  }
+  const totalRevenue = summarizeWhopRevenue(whopRows, fx);
+
+  // ─── Coût créateurs par mois (MÊME moteur que les Paiements) ───────────────
+  // Les créatrices se lisent dans ce qui COÛTE (vidéos, paliers), pas
+  // dans la table des fiches : une créatrice payée puis supprimée n'a plus de
+  // fiche, mais l'argent versé est parti. Parcourir `creators` faisait fondre
+  // son coût de la marge et ses vues du RPM au moment de la suppression — alors
+  // qu'Analytics, qui part des vidéos, continuait de les compter. Ce qu'on ne
+  // lui paiera pas a déjà été sorti de la paie à la suppression (remunere=false,
+  // cf unpayPostsOfDeletedCreator) : le moteur le rend donc à zéro, sans filtre ici.
+  const creatorIds = new Set<Id<"creators">>();
+  for (const a of await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect()) {
+    creatorIds.add(a.creatorId);
+  }
+  for (const u of await ctx.db
+    .query("bonusUnlocks")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect()) {
+    creatorIds.add(u.creatorId);
+  }
+  const costByMonth = new Map<string, number>();
+  const billedByMonth = new Map<string, number>();
+  // Un mois n'est FIGÉ que si TOUTES les créatrices qui y coûtent le sont : il
+  // suffit d'une vidéo encore vivante (cycle ouvert ET fenêtre ouverte) pour
+  // que le mois bouge encore.
+  // Un ET, donc, jamais un OU — annoncer « réglé » sur un mois qui va encore
+  // grossir serait pire que de ne rien annoncer.
+  const settledByMonth = new Map<string, boolean>();
+  // Les publications du projet, lues UNE fois pour toutes les créatrices et
+  // tous leurs mois (cf AssignmentViewsCache).
+  const viewsCache = newViewsCache(
+    await loadProjectPublications(ctx, ctx.projectId),
+  );
+  for (const c of creatorIds) {
+    const cm = await creatorCostByMonth(ctx, ctx.projectId, c, viewsCache);
+    for (const [m, { cost, billedViews, settled }] of cm) {
+      costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
+      billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
+      settledByMonth.set(m, (settledByMonth.get(m) ?? true) && settled);
+    }
+  }
+  const totalCost = round2(
+    [...costByMonth.values()].reduce((s, a) => s + a, 0),
+  );
+
+  // ─── Vues ventilées RÉMUNÉRÉES / non rémunérées — DÉNOMINATEUR du RPM ─────
+  // La coupure est le fait FINANCIER (viewsSplitOf → isRemunerated), pas le fait
+  // éditorial. Ce site testait `p.isWarmup === true` en dur, ce que l'en-tête de
+  // convex/viewCounters interdit précisément.
+  //
+  // Le défaut jouait dans les DEUX sens, mesuré sur la prod du 2026-09-02 :
+  //   - un post retiré de la paie à la main (remunere=false) restait au
+  //     dénominateur — 277 857 vues en août, 23 % du mois ;
+  //   - un post warmup explicitement PAYÉ (cas Kelly, remunere=true) en était
+  //     absent — 694 000 vues sur juillet à lui seul.
+  // Le RPM n'était donc ni sur- ni sous-estimé de façon systématique : il était
+  // calculé sur un ensemble qui n'était celui d'aucune des deux questions.
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const pubsByMonth = new Map<string, typeof pubs>();
+  for (const p of pubs) {
+    const m = monthKeyParis(p.datePubli);
+    const arr = pubsByMonth.get(m);
+    if (arr) arr.push(p);
+    else pubsByMonth.set(m, [p]);
+  }
+  // ── Vues TOTALES : les vues SUIVIES, brutes ───────────────────────────────
+  // `vuesLatest`, sans plafond J+30. Le plafond répond à « qu'est-ce que j'ai
+  // payé », et c'est la part FACTURÉE qui répond à cette question — elle vient
+  // du moteur, sans lecture supplémentaire. Le plafonner AUSSI ici donnait un
+  // total qui n'était ni ce qu'on a payé, ni ce que les vidéos ont fait, et
+  // coûtait une requête `metricSnapshots` par publication hors fenêtre : 179 le
+  // 2026-09-06, 509 (toutes) sous trente jours. La tuile annonce « toutes les
+  // vues suivies » : c'est désormais ce qu'elle montre.
+  const allViewsOf = (list: typeof pubs) =>
+    list.reduce((s, p) => s + (p.vuesLatest ?? 0), 0);
+
+  // ─── PAYÉES = vues FACTURÉES, plafond 150 $/vidéo compris ────────────────
+  // Elles viennent de `billedByMonth`, c'est-à-dire du MÊME appel au moteur que
+  // le coût. Au-delà du seuil où une vidéo atteint le plafond, chaque vue
+  // supplémentaire est GRATUITE : la compter au dénominateur fait baisser le
+  // RPM sans qu'un centime ait été dépensé. Mesuré en prod le 03/09/2026 :
+  // 2 vidéos sur 128 portaient 248 489 vues gratuites en août (20 % du mois),
+  // et l'une d'elles a fait tomber le RPM de 1,88 € à 1,69 € en 24 h pour 0 $.
+  //
+  // `viewsSplitOf` (coupure isRemunerated) n'est donc plus la source du
+  // dénominateur ; il reste celle des vues TOTALES, dont on déduit les non
+  // rémunérées. Le `max(0, …)` est une ceinture : les vues facturées sont
+  // bornées par les vues payables, elles-mêmes bornées par les vues retenues du
+  // même mois — la soustraction ne peut pas passer sous zéro sans un décalage
+  // de mois entre un assignment et ses posts (aucun en prod le 03/09).
+  const viewsByMonth = new Map<
+    string,
+    { paidViews: number; unpaidViews: number }
+  >();
+  for (const [m, list] of pubsByMonth) {
+    const paid = billedByMonth.get(m) ?? 0;
+    viewsByMonth.set(m, {
+      paidViews: paid,
+      unpaidViews: Math.max(0, allViewsOf(list) - paid),
+    });
+  }
+  // Un mois peut porter des vues FACTURÉES sans aucune publication rangée sous
+  // lui (bonus attribué à une période persistée en UTC) : sans cette boucle, sa
+  // ligne afficherait un coût et zéro vue.
+  for (const [m, paid] of billedByMonth) {
+    if (!viewsByMonth.has(m)) {
+      viewsByMonth.set(m, { paidViews: paid, unpaidViews: 0 });
+    }
+  }
+  // Totaux recalculés sur TOUT le lot, jamais sommés depuis les mois.
+  const totPaid = [...billedByMonth.values()].reduce((s, v) => s + v, 0);
+  const totUnpaid = Math.max(0, allViewsOf(pubs) - totPaid);
+
+  // ─── Assemblage (mois présents dans revenu, coût OU vues), plus récent d'abord ─
+  const allPeriods = new Set<string>([
+    ...revenueNetByMonth.keys(),
+    ...costByMonth.keys(),
+    ...viewsByMonth.keys(),
+  ]);
+  const months = [...allPeriods]
+    .sort((a, b) => (a < b ? 1 : -1))
+    .map((period) => ({
+      period,
+      revenueNet: revenueNetByMonth.get(period) ?? 0,
+      mixedCurrency: mixedByMonth.get(period) ?? false,
+      creatorCost: costByMonth.get(period) ?? 0,
+      paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
+      unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
+      // Coût et vues FACTURÉES définitivement arrêtés (cycles réglés ou
+      // fenêtres closes). Un mois sans aucune vidéo retenue n'est pas figé :
+      // `settledByMonth` ne porte que les mois qui coûtent quelque chose.
+      settled: settledByMonth.get(period) === true,
+    }));
+
+  return {
+    configured: project?.whop !== undefined,
+    // Devise du REVENU (Whop) ; la paie créatrices a la sienne (payCurrency).
+    currency: totalRevenue.currency,
+    payCurrency: project?.payCurrency ?? null,
+    // Taux paie→revenu pour la marge (revenu € − coût $ converti). null → marge
+    // non calculée (jamais soustraire deux devises sans conversion).
+    fxRateToRevenue: project?.fxRateToRevenue ?? null,
+    currentPeriod: monthKeyParis(Date.now()),
+    // A5 — le drapeau était calculé puis jeté : la carte affichait un revenu
+    // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
+    // montant. Un chiffre faux est pire qu'un chiffre absent.
+    mixedCurrency: totalRevenue.mixedCurrency,
+    conversions: totalRevenue.conversions,
+    mixedCurrencyPresent: totalRevenue.mixedCurrencyPresent,
+    currenciesPresent: totalRevenue.currenciesPresent,
+    total: {
+      revenueNet: totalRevenue.net,
+      creatorCost: totalCost,
+      paidViews: totPaid,
+      unpaidViews: totUnpaid,
+    },
+    months,
+  };
+}
