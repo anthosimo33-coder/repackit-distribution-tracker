@@ -43,7 +43,7 @@ export function McpAccessDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         {/* Monté à l'ouverture : une clé affichée ne survit pas à la fermeture. */}
         {open && <Contenu />}
       </DialogContent>
