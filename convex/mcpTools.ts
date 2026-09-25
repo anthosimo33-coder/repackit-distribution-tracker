@@ -169,7 +169,7 @@ export const lirePosts = mcpPermissionQuery("content.analytics")({
     dateFrom: v.optional(v.number()),
     dateTo: v.optional(v.number()),
     plateforme: v.optional(
-      v.union(v.literal("TikTok"), v.literal("Instagram"), v.literal("YouTube")),
+      plateformeValidator,
     ),
     warmup: v.optional(
       v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
@@ -444,7 +444,7 @@ export const OUTILS: readonly McpTool[] = [
         compte: { type: "string", description: "Filtre sur le handle du compte (sous-chaîne)." },
         campagne: { type: "string", description: "Filtre sur le nom de la campagne de script (sous-chaîne)." },
         pays: { type: "string", description: "Code pays ISO du compte visé (ex. FR, US)." },
-        plateforme: { type: "string", description: "Plateforme.", enum: ["TikTok", "Instagram", "YouTube"] },
+        plateforme: { type: "string", description: "Plateforme.", enum: [...PLATEFORMES] },
         warmup: { type: "string", description: "Posts de chauffe : exclus (défaut), inclus, ou seuls.", enum: ["exclure", "inclure", "seulement"] },
         tri: { type: "string", description: "Critère de classement (défaut : vues).", enum: ["vues", "likes", "commentaires", "saves"] },
         ordre: { type: "string", description: "meilleurs (défaut) ou pires d'abord.", enum: ["meilleurs", "pires"] },
@@ -794,7 +794,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             dateTo: fin - 1,
             warmup: modeWarmup,
             ...(typeof args.plateforme === "string"
-              ? { plateforme: args.plateforme as "TikTok" | "Instagram" | "YouTube" }
+              ? { plateforme: args.plateforme as Plateforme }
               : {}),
             ...(typeof args.createatrice === "string" ? { createatrice: args.createatrice } : {}),
             ...(typeof args.compte === "string" ? { compte: args.compte } : {}),
