@@ -320,8 +320,9 @@ export const runNightlySync = internalAction({
 
     // ── 3. Profils des plateformes à appel DÉDIÉ ─────────────────────────────
     // TikTok est déjà servi par les items vidéo (aucun appel de plus) ;
-    // Instagram, YouTube et Snapchat ne le sont pas. Fait ici, hors de la chaîne de lots : c'est un
-    // relevé par COMPTE, pas par post, et il ne doit pas être répété à chaque lot.
+    // Instagram, YouTube et Snapchat ne le sont pas. Fait ici, hors de la chaîne
+    // de lots : c'est un relevé par COMPTE, pas par post, et il ne doit pas être
+    // répété à chaque lot.
     await syncDedicatedProfiles(ctx, comptesParPlateforme(lots), now);
 
     console.info(
