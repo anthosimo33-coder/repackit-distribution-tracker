@@ -21,6 +21,16 @@ import {
   rescueWithApify,
   type BreakerState,
 } from "./tiktokInternal";
+import {
+  collectSnapchatInternally,
+  collectSnapchatProfiles,
+  type SnapchatProfileTarget,
+} from "./snapchatInternal";
+import {
+  isSnapchatShortlink,
+  snapchatProfileUrl,
+  snapchatSpotlightId,
+} from "./snapchatPublicPage";
 import { parisHour } from "./calendarStatus";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
@@ -78,7 +88,8 @@ import {
  *
  * SOURCES : TikTok est lu sur la page publique du post, Apify n'y sert plus
  * que de secours borné (cf `convex/tiktokInternal.ts`) ; Instagram reste chez
- * Apify, sa page publique exigeant une connexion.
+ * Apify, sa page publique exigeant une connexion ; Snapchat est lu sur la page
+ * publique du Spotlight, sans secours (cf `convex/snapchatInternal.ts`).
  *
  * RYTHME : les lots partent SÉQUENTIELLEMENT, un à la fois, avec 30-60 s de
  * temporisation aléatoire entre deux lots, et 1,5-3 s entre deux pages TikTok
@@ -125,8 +136,16 @@ const lotTargetValidator = v.object({
 });
 
 const lotValidator = v.object({
-  plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
-  source: v.union(v.literal("tiktok"), v.literal("instagram")),
+  plateforme: v.union(
+    v.literal("TikTok"),
+    v.literal("Instagram"),
+    v.literal("Snapchat"),
+  ),
+  source: v.union(
+    v.literal("tiktok"),
+    v.literal("instagram"),
+    v.literal("snapchat"),
+  ),
   targets: v.array(lotTargetValidator),
 });
 
@@ -150,10 +169,31 @@ export type NightlyPlan = {
   youtubeComptes: number;
 };
 
-const APIFY_PLATFORMS = [
-  { plateforme: "TikTok" as const, source: "tiktok" as const },
-  { plateforme: "Instagram" as const, source: "instagram" as const },
+type LotPlateforme = "TikTok" | "Instagram" | "Snapchat";
+type LotSource = "tiktok" | "instagram" | "snapchat";
+
+/** Plateformes relevées PAR LOTS (YouTube passe d'un bloc, cf `syncYouTube`). */
+const LOT_PLATFORMS: { plateforme: LotPlateforme; source: LotSource }[] = [
+  { plateforme: "TikTok", source: "tiktok" },
+  { plateforme: "Instagram", source: "instagram" },
+  { plateforme: "Snapchat", source: "snapchat" },
 ];
+
+/**
+ * Clé de post pour le lot, ou `null` si l'URL n'en porte aucune. Snapchat : un
+ * lien court (`snapchat.com/t/…`) rend "" — l'identifiant sera lu dans l'URL
+ * où il redirige, au moment du relevé.
+ */
+function lotKey(plateforme: LotPlateforme, url: string): string | null {
+  switch (plateforme) {
+    case "TikTok":
+      return tiktokPostId(url);
+    case "Instagram":
+      return instagramShortcode(url);
+    case "Snapchat":
+      return snapchatSpotlightId(url) ?? (isSnapchatShortlink(url) ? "" : null);
+  }
+}
 
 /**
  * Comptage par compte d'un ensemble de cibles : une cible dont la publication
@@ -218,14 +258,14 @@ export const runNightlySync = internalAction({
 
     // ── 2. Apify — plan de lots ───────────────────────────────────────────────
     const lots: {
-      plateforme: "TikTok" | "Instagram";
-      source: "tiktok" | "instagram";
+      plateforme: LotPlateforme;
+      source: LotSource;
       targets: LotTarget[];
     }[] = [];
     const defisActifs = new Set<string>(
       await ctx.runQuery(internal.challengeSync.listLiveChallengePublicationIds, {}),
     );
-    for (const { plateforme, source } of APIFY_PLATFORMS) {
+    for (const { plateforme, source } of LOT_PLATFORMS) {
       const pubs = await ctx.runQuery(
         internal.apifySync.listActiveApifyPublications,
         { cutoff, plateforme },
@@ -238,10 +278,7 @@ export const runNightlySync = internalAction({
       );
       const targets: LotTarget[] = [];
       for (const p of retenues) {
-        const key =
-          plateforme === "TikTok"
-            ? tiktokPostId(p.postUrl)
-            : instagramShortcode(p.postUrl);
+        const key = lotKey(plateforme, p.postUrl);
         // URL non rapprochable (shortlink tiktok.com/t/… non résolu, lien de
         // profil, format inconnu) : le relevé n'a AUCUN identifiant à demander
         // à Apify. Ce `continue` était MUET — la publication n'était ni relevée
@@ -249,7 +286,7 @@ export const runNightlySync = internalAction({
         // ne le signale. On l'inscrit maintenant comme échec de collecte, avec
         // son motif : l'écran sait déjà dire « non mesuré — <motif> » plutôt que
         // de peindre un zéro (cf convex/collectAvailability.ts).
-        if (!key) {
+        if (key === null) {
           await ctx.runMutation(internal.apifySync.recordCollectFailure, {
             publicationId: p._id,
             at: now,
@@ -282,8 +319,8 @@ export const runNightlySync = internalAction({
     }
 
     // ── 3. Profils des plateformes à appel DÉDIÉ ─────────────────────────────
-    // TikTok est déjà servi par les items vidéo (aucun appel de plus) ; ces
-    // deux-là ne le sont pas. Fait ici, hors de la chaîne de lots : c'est un
+    // TikTok est déjà servi par les items vidéo (aucun appel de plus) ;
+    // Instagram, YouTube et Snapchat ne le sont pas. Fait ici, hors de la chaîne de lots : c'est un
     // relevé par COMPTE, pas par post, et il ne doit pas être répété à chaque lot.
     await syncDedicatedProfiles(ctx, comptesParPlateforme(lots), now);
 
@@ -426,6 +463,16 @@ export const syncApifyLot = internalAction({
      * TikTok renverrait toute la collecte vers Apify, donc vers la facture.
      */
     rescueBudget: v.optional(v.number()),
+    /**
+     * Coupe-circuit du relevé SNAPCHAT, distinct de celui de TikTok : un blocage
+     * de l'une ne dit rien de l'autre. Absent au premier lot = fermé.
+     */
+    snapBreaker: v.optional(
+      v.object({
+        suspects: v.number(),
+        trippedReason: v.union(v.string(), v.null()),
+      }),
+    ),
   },
   handler: async (ctx, args): Promise<null> => {
     const [lot, ...reste] = args.lots;
@@ -440,6 +487,7 @@ export const syncApifyLot = internalAction({
     const apiToken = process.env.APIFY_API_TOKEN;
     let breaker: BreakerState = args.breaker ?? BREAKER_CLOSED;
     let rescueBudget = args.rescueBudget ?? APIFY_RESCUE_BUDGET;
+    let snapBreaker: BreakerState = args.snapBreaker ?? BREAKER_CLOSED;
     let releves: Set<string>;
 
     try {
@@ -448,6 +496,10 @@ export const syncApifyLot = internalAction({
         releves = r.releves;
         breaker = r.breaker;
         rescueBudget = r.rescueBudget;
+      } else if (lot.plateforme === "Snapchat") {
+        const r = await syncSnapchatLot(ctx, lot.targets, snapBreaker, args);
+        releves = r.releves;
+        snapBreaker = r.breaker;
       } else {
         releves = await syncInstagramLot(ctx, lot, apiToken, args);
       }
@@ -481,6 +533,7 @@ export const syncApifyLot = internalAction({
         lotTotal: args.lotTotal,
         breaker,
         rescueBudget,
+        snapBreaker,
       },
     );
     return null;
@@ -540,12 +593,39 @@ async function syncTikTokLot(
 }
 
 /**
+ * Lot Snapchat : pages publiques des Spotlight, sans secours payant (cf
+ * `convex/snapchatInternal.ts`). Rend les publications relevées et le
+ * coupe-circuit à transmettre au lot suivant.
+ */
+async function syncSnapchatLot(
+  ctx: ActionCtx,
+  targets: readonly LotTarget[],
+  breakerIn: BreakerState,
+  label: LotLabel,
+): Promise<{ releves: Set<string>; breaker: BreakerState }> {
+  const debut = Date.now();
+  const r = await collectSnapchatInternally(ctx, targets, Date.now(), breakerIn);
+  if (breakerIn.trippedReason === null && r.breaker.trippedReason !== null) {
+    console.error(
+      `[nightly-views] COUPE-CIRCUIT Snapchat au lot ${label.lotIndex + 1}/${label.lotTotal} — ` +
+        `${r.breaker.trippedReason}. Relevé Snapchat suspendu pour la nuit.`,
+    );
+  }
+  console.info(
+    `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} Snapchat — ` +
+      `${r.releves.length}/${targets.length} relevé(s) (${r.pages} page(s)), ` +
+      `${r.gone} introuvable(s), ${r.failed} en échec, ${Date.now() - debut} ms.`,
+  );
+  return { releves: new Set(r.releves), breaker: r.breaker };
+}
+
+/**
  * Lot Instagram : un run Apify (= une unité de coût). Un post non rendu est
  * inscrit en échec avec son motif — Instagram n'a pas de lecture publique.
  */
 async function syncInstagramLot(
   ctx: ActionCtx,
-  lot: { plateforme: "TikTok" | "Instagram"; source: "tiktok" | "instagram"; targets: LotTarget[] },
+  lot: { plateforme: LotPlateforme; source: LotSource; targets: LotTarget[] },
   apiToken: string | undefined,
   label: LotLabel,
 ): Promise<Set<string>> {
@@ -560,7 +640,7 @@ async function syncInstagramLot(
   } else {
     try {
       const r = await fetchApifyViewsForPlatform(
-        lot.plateforme,
+        "Instagram",
         lot.targets.map((t) => t.url),
         apiToken,
       );
@@ -688,21 +768,30 @@ export const finishNightlyRun = internalAction({
   },
 });
 
+/** Plateformes dont les compteurs de COMPTE demandent un appel dédié. */
+type ProfilePlateforme = "Instagram" | "Snapchat";
+
 /** Handles concernés par le run, par plateforme, déduits du plan de lots. */
 function comptesParPlateforme(
-  lots: readonly { plateforme: "TikTok" | "Instagram"; targets: readonly LotTarget[] }[],
-): Map<"Instagram", Set<string>> {
-  const out = new Map<"Instagram", Set<string>>();
+  lots: readonly { plateforme: LotPlateforme; targets: readonly LotTarget[] }[],
+): Map<ProfilePlateforme, Set<string>> {
+  const out = new Map<ProfilePlateforme, Set<string>>();
   for (const lot of lots) {
     // TikTok est exclu VOLONTAIREMENT : ses compteurs arrivent avec les vidéos,
     // un appel dédié serait payé pour rien.
-    if (lot.plateforme !== "Instagram") continue;
-    const set = out.get("Instagram") ?? new Set<string>();
+    if (lot.plateforme === "TikTok") continue;
+    const set = out.get(lot.plateforme) ?? new Set<string>();
     for (const t of lot.targets) set.add(t.compte);
-    out.set("Instagram", set);
+    out.set(lot.plateforme, set);
   }
   return out;
 }
+
+/**
+ * Temps accordé aux profils Snapchat dans l'action de planification : elle vit
+ * 10 minutes au plus, et relève aussi YouTube et les profils Instagram.
+ */
+const SNAPCHAT_PROFILES_BUDGET_MS = 3 * 60 * 1000;
 
 /**
  * Relève les compteurs des comptes dont la plateforme ne les sert pas avec les
@@ -714,10 +803,11 @@ function comptesParPlateforme(
  */
 async function syncDedicatedProfiles(
   ctx: ActionCtx,
-  parPlateforme: Map<"Instagram", Set<string>>,
+  parPlateforme: Map<ProfilePlateforme, Set<string>>,
   now: number,
 ): Promise<void> {
   const handlesInsta = [...(parPlateforme.get("Instagram") ?? [])];
+  const handlesSnap = [...(parPlateforme.get("Snapchat") ?? [])];
 
   // YouTube : les comptes ne passent pas par les lots Apify, on les relit.
   const cutoff = now - TRACKING_WINDOW_DAYS * DAY_MS;
@@ -731,10 +821,16 @@ async function syncDedicatedProfiles(
     ),
   ];
 
-  if (handlesInsta.length === 0 && handlesYt.length === 0) return;
+  if (
+    handlesInsta.length === 0 &&
+    handlesYt.length === 0 &&
+    handlesSnap.length === 0
+  ) {
+    return;
+  }
   const comptes = await ctx.runQuery(
     internal.apifySync.listComptesForProfiles,
-    { handles: [...handlesInsta, ...handlesYt] },
+    { handles: [...handlesInsta, ...handlesYt, ...handlesSnap] },
   );
 
   // ── Instagram : un run dédié pour tous les profils ────────────────────────
@@ -802,6 +898,40 @@ async function syncDedicatedProfiles(
       );
     } catch (e) {
       console.error("[nightly-views] profils YouTube en échec :", e);
+    }
+  }
+
+  // ── Snapchat : page publique du profil, gratuite ──────────────────────────
+  const ciblesSnap: SnapchatProfileTarget[] = [];
+  for (const c of comptes) {
+    if (c.plateforme !== "Snapchat") continue;
+    const profileUrl = snapchatProfileUrl(c.handle, c.url);
+    if (profileUrl === null) continue;
+    ciblesSnap.push({
+      compteId: c._id,
+      projectId: c.projectId,
+      handle: c.handle,
+      profileUrl,
+    });
+  }
+  if (ciblesSnap.length > 0) {
+    try {
+      const r = await collectSnapchatProfiles(ctx, ciblesSnap, now, {
+        deadline: Date.now() + SNAPCHAT_PROFILES_BUDGET_MS,
+      });
+      if (r.avatars.length > 0) {
+        await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
+          candidats: r.avatars.map((a) => ({ ...a, plateforme: "Snapchat" as const })),
+        });
+      }
+      console.info(
+        `[nightly-views] profils Snapchat — ${ciblesSnap.length} compte(s), ` +
+          `${r.written} relevé(s), ${r.pages} page(s)` +
+          (r.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${r.breaker.trippedReason}` : "") +
+          ".",
+      );
+    } catch (e) {
+      console.error("[nightly-views] profils Snapchat en échec :", e);
     }
   }
 }

@@ -29,6 +29,8 @@ import { TRACKING_WINDOW_DAYS } from "./syncScope";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
 import { syncBonusForPublication } from "./pricing";
+import { collectSnapchatInternally } from "./snapchatInternal";
+import { isSnapchatShortlink, snapchatSpotlightId } from "./snapchatPublicPage";
 import type { Plateforme } from "./platforms";
 
 /**
@@ -59,6 +61,12 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 const MANUAL_TIKTOK_BUDGET_MS = 5 * 60 * 1000;
 
+/**
+ * Temps accordé aux pages Snapchat dans la sync MANUELLE, APRÈS TikTok et
+ * Instagram. Le reste attend le relevé de nuit — ce n'est pas un échec.
+ */
+const MANUAL_SNAPCHAT_BUDGET_MS = 2 * 60 * 1000;
+
 /** Fenêtre de tracking partagée avec YouTube — définition unique dans
  *  convex/syncScope.ts (plus deux constantes « à garder synchrones »). */
 const ACTIVE_WINDOW_DAYS = TRACKING_WINDOW_DAYS;
@@ -69,12 +77,25 @@ const APIFY_PLATFORMS: { plateforme: ApifyPlatform; source: ApifySource }[] = [
   { plateforme: "Instagram", source: "instagram" },
 ];
 
-type ApifySource = "tiktok" | "instagram";
+/**
+ * Source d'un relevé de POST écrit par ce module. `snapchat` n'est pas Apify
+ * (page publique, cf `convex/snapchatInternal.ts`) mais passe par les mêmes
+ * mutations d'écriture : même bucketisation par jour, mêmes marqueurs d'échec.
+ */
+type ApifySource = "tiktok" | "instagram" | "snapchat";
 
 const apifySourceValidator = v.union(
   v.literal("tiktok"),
   v.literal("instagram"),
+  v.literal("snapchat"),
 );
+
+/** Plateforme d'un relevé, depuis sa source — table FERMÉE, jamais un ternaire. */
+const SOURCE_PLATEFORME: Record<ApifySource, Plateforme> = {
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  snapchat: "Snapchat",
+};
 
 export interface ApifySyncSummary {
   ok: boolean;
@@ -92,7 +113,7 @@ export interface ApifySyncSummary {
   errors: number;
   /** Runs Apify lancés (≈ unité de coût). */
   runs: number;
-  /** Posts TikTok relevés par leur page publique (gratuit). */
+  /** Posts relevés par leur page publique (TikTok, Snapchat — gratuit). */
   recovered: number;
   /** Posts TikTok non tentés faute de temps — repris au relevé de nuit. */
   deferred: number;
@@ -234,7 +255,11 @@ async function upsertApifySnapshot(
 export const listActiveApifyPublications = internalQuery({
   args: {
     cutoff: v.number(),
-    plateforme: v.union(v.literal("TikTok"), v.literal("Instagram")),
+    plateforme: v.union(
+      v.literal("TikTok"),
+      v.literal("Instagram"),
+      v.literal("Snapchat"),
+    ),
     projectId: v.optional(v.id("projects")),
   },
   handler: async (
@@ -377,7 +402,9 @@ export const recordAccountProfile = internalMutation({
         .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
         .collect(),
       pub.compte,
-      args.source === "tiktok" ? "TikTok" : "Instagram",
+      // Table fermée : un ternaire « TikTok sinon Instagram » aurait rangé les
+      // abonnés d'un compte Snapchat sous son homonyme Instagram.
+      SOURCE_PLATEFORME[args.source],
     );
     // Compte non déclaré en base (publication saisie à la main) : rien à
     // historiser, mais ce n'est pas une erreur de relevé.
@@ -472,6 +499,7 @@ export const recordAccountProfileByCompte = internalMutation({
       v.literal("tiktok"),
       v.literal("instagram"),
       v.literal("youtube"),
+      v.literal("snapchat"),
     ),
   },
   handler: async (ctx, args): Promise<{ action: "written" | "skipped" }> => {
@@ -701,6 +729,59 @@ export const runDailySync = internalAction({
       }
       console.info(
         `[apify-sync] ${plateforme} OK — ${pubs.length} pub(s) active(s), ${targets.length} post(s), ${runs} run(s) Apify.`,
+      );
+    }
+
+    // ── Snapchat : pages publiques des Spotlight, gratuites ───────────────────
+    const pubsSnap = await ctx.runQuery(
+      internal.apifySync.listActiveApifyPublications,
+      projectId
+        ? { cutoff, plateforme: "Snapchat" as const, projectId }
+        : { cutoff, plateforme: "Snapchat" as const },
+    );
+    summary.scanned += pubsSnap.length;
+    const ciblesSnap: {
+      publicationId: Id<"publications">;
+      projectId: Id<"projects">;
+      compte: string;
+      key: string;
+      url: string;
+    }[] = [];
+    for (const p of [...pubsSnap].sort((a, b) => b.datePubli - a.datePubli)) {
+      // Lien court : "" — l'identifiant sera lu dans l'URL où il redirige.
+      const key =
+        snapchatSpotlightId(p.postUrl) ?? (isSnapchatShortlink(p.postUrl) ? "" : null);
+      if (key === null) {
+        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+          publicationId: p._id,
+          at: now,
+          reason: unmatchableUrlReason(p.postUrl, "Snapchat"),
+        });
+        summary.failed += 1;
+        continue;
+      }
+      ciblesSnap.push({
+        publicationId: p._id,
+        projectId: p.projectId,
+        compte: p.compte,
+        key,
+        url: p.postUrl,
+      });
+    }
+    summary.matched += ciblesSnap.length;
+    if (ciblesSnap.length > 0) {
+      const snap = await collectSnapchatInternally(ctx, ciblesSnap, now, BREAKER_CLOSED, {
+        deadline: Date.now() + MANUAL_SNAPCHAT_BUDGET_MS,
+      });
+      summary.synced += snap.releves.length;
+      summary.recovered += snap.releves.length;
+      summary.deferred += snap.nonTentes.length;
+      summary.failed += snap.gone + snap.failed;
+      console.info(
+        `[apify-sync] Snapchat — ${ciblesSnap.length} Spotlight : ${snap.releves.length} relevé(s), ` +
+          `${snap.gone} introuvable(s), ${snap.failed} en échec, ${snap.nonTentes.length} reporté(s) au relevé de nuit` +
+          (snap.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${snap.breaker.trippedReason}` : "") +
+          ".",
       );
     }
 

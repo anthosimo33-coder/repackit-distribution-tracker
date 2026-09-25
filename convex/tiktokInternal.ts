@@ -4,7 +4,6 @@ import { internal } from "./_generated/api";
 import {
   fetchTikTokPublicStats,
   refusalLabel,
-  type TikTokPublicResult,
 } from "./tiktokPublicPage";
 import { fetchApifyViewsForPlatform, type ApifyPostStat } from "./apifyApi";
 
@@ -77,11 +76,13 @@ export const BREAKER_CLOSED: BreakerState = { suspects: 0, trippedReason: null }
  * Transition du coupe-circuit après UNE page. Pure, testée.
  *
  * Seule une page ILLISIBLE compte : une page servie — compteurs ou refus
- * motivé — prouve que TikTok répond normalement à cette IP.
+ * motivé — prouve que la plateforme répond normalement à cette IP. Partagé
+ * avec le relevé Snapchat (`convex/snapchatInternal.ts`), d'où le type
+ * structurel plutôt que `TikTokPublicResult`.
  */
 export function nextBreaker(
   state: BreakerState,
-  result: TikTokPublicResult,
+  result: { kind: string; reason?: string },
 ): BreakerState {
   if (state.trippedReason !== null) return state;
   if (result.kind !== "unreadable") return BREAKER_CLOSED;
@@ -89,7 +90,7 @@ export function nextBreaker(
   return suspects >= BREAKER_THRESHOLD
     ? {
         suspects,
-        trippedReason: `${suspects} pages illisibles d'affilée (dernière : ${result.reason})`,
+        trippedReason: `${suspects} pages illisibles d'affilée (dernière : ${result.reason ?? "motif inconnu"})`,
       }
     : { suspects, trippedReason: null };
 }
