@@ -114,6 +114,15 @@
     "dateDePublicationMiseA": "Date de publication mise à jour.",
     "dateDePublicationRetiree": "Date de publication retirée."
   },
+  "TargetAccountSelect": {
+    "compteDePublication": "Compte {platform}",
+    "compteChange": "Compte {platform} changé : {handle}.",
+    "echecDuChangement": "Échec du changement de compte.",
+    "indisponible": "indisponible (en chauffe ou non validé)",
+    "gereParLEquipe": "géré par l’équipe",
+    "compteDeLaCreatrice": "compte de la créatrice",
+    "aucunAutreCompte": "Aucun autre compte {platform} pour cette créatrice."
+  },
   "CalendarStatusPill": {
     "nonPlanifie": "Non planifié"
   },

@@ -179,6 +179,7 @@ import type * as talentBriefFields from "../talentBriefFields.js";
 import type * as talentPay from "../talentPay.js";
 import type * as talentRetainer from "../talentRetainer.js";
 import type * as talentRushFields from "../talentRushFields.js";
+import type * as targetAccountSwap from "../targetAccountSwap.js";
 import type * as team from "../team.js";
 import type * as tiktokInternal from "../tiktokInternal.js";
 import type * as tiktokPublicPage from "../tiktokPublicPage.js";
@@ -379,6 +380,7 @@ declare const fullApi: ApiFromModules<{
   talentPay: typeof talentPay;
   talentRetainer: typeof talentRetainer;
   talentRushFields: typeof talentRushFields;
+  targetAccountSwap: typeof targetAccountSwap;
   team: typeof team;
   tiktokInternal: typeof tiktokInternal;
   tiktokPublicPage: typeof tiktokPublicPage;

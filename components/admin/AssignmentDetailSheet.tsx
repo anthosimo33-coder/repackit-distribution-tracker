@@ -29,6 +29,13 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -163,6 +170,12 @@ export function AssignmentDetailSheet({
     open && row.origin === "script" && row.hasAssembledScript
       ? { id: row._id }
       : "skip",
+  );
+  // Comptes PROPOSABLES par cible (sélecteur « Compte ») — même règle que la
+  // mutation, calculée serveur. Demandés seulement panneau ouvert.
+  const accountOptions = useProjectQuery(
+    api.assignments.listTargetAccountOptions,
+    open ? { id: row._id } : "skip",
   );
   /** Y a-t-il un script à montrer ? (connu SANS attendre le texte) */
   const hasScript = row.origin === "script" && row.hasAssembledScript;
@@ -344,9 +357,12 @@ export function AssignmentDetailSheet({
               {row.targets.length === 0 ? (
                 <span className="text-slate-400">—</span>
               ) : (
-                <div className="space-y-0.5">
+                <div className="space-y-1">
                   {row.targets.map((t) => {
                     const flag = countryFlag(t.country);
+                    const choice = accountOptions?.find(
+                      (o) => o.platform === t.platform,
+                    );
                     return (
                       <div
                         key={t.platform}
@@ -355,10 +371,26 @@ export function AssignmentDetailSheet({
                         <span className="text-xs text-slate-400">
                           {t.platform}
                         </span>
-                        {flag && <span aria-hidden>{flag}</span>}
-                        <span className="min-w-0 font-mono break-all text-slate-600">
-                          {t.accountHandle ?? "—"}
-                        </span>
+                        {/* Changeable tant que le post n'est pas publié. En
+                            chargement ou verrouillé : lecture seule, comme avant. */}
+                        {choice && !choice.locked && choice.currentAccountId ? (
+                          <TargetAccountSelect
+                            assignmentId={row._id}
+                            platform={t.platform}
+                            currentAccountId={choice.currentAccountId}
+                            currentHandle={t.accountHandle}
+                            currentFlag={flag}
+                            options={choice.options}
+                            assignmentManaged={row.managedByAdmin === true}
+                          />
+                        ) : (
+                          <>
+                            {flag && <span aria-hidden>{flag}</span>}
+                            <span className="min-w-0 font-mono break-all text-slate-600">
+                              {t.accountHandle ?? "—"}
+                            </span>
+                          </>
+                        )}
                       </div>
                     );
                   })}
@@ -603,6 +635,112 @@ function DetailRow({
       <dt className="text-slate-400">{label}</dt>
       <dd className="min-w-0">{children}</dd>
     </>
+  );
+}
+
+type TargetAccountOption = NonNullable<
+  FunctionReturnType<typeof api.assignments.listTargetAccountOptions>
+>[number]["options"][number];
+
+/**
+ * Sélecteur du COMPTE d'une cible (même plateforme) — la créatrice a plusieurs
+ * comptes et la vidéo doit partir sur un autre. Les comptes non choisissables
+ * restent LISTÉS, grisés, avec leur raison : on ne cherche pas en vain un
+ * compte masqué. Le serveur (setAssignmentTargetAccount) refait tous les
+ * contrôles — ce grisé n'est qu'un reflet de sa règle.
+ */
+function TargetAccountSelect({
+  assignmentId,
+  platform,
+  currentAccountId,
+  currentHandle,
+  currentFlag,
+  options,
+  assignmentManaged,
+}: {
+  assignmentId: Id<"assignments">;
+  platform: Plateforme;
+  currentAccountId: Id<"comptes">;
+  currentHandle: string | null;
+  currentFlag: string | null;
+  options: TargetAccountOption[];
+  assignmentManaged: boolean;
+}) {
+  const showError = useConvexError();
+  const tr = useTranslations("admin.assignments.TargetAccountSelect");
+  const setAccount = useProjectMutation(
+    api.assignments.setAssignmentTargetAccount,
+  );
+  const [saving, setSaving] = useState(false);
+  const autres = options.filter((o) => o._id !== currentAccountId);
+
+  async function change(accountId: Id<"comptes">) {
+    setSaving(true);
+    try {
+      const r = await setAccount({ id: assignmentId, platform, accountId });
+      if (r.changed) {
+        const handle = options.find((o) => o._id === accountId)?.handle ?? "";
+        toast.success(tr("compteChange", { platform, handle }));
+      }
+    } catch (e) {
+      toast.error(showError(e, tr("echecDuChangement")));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function refusalLabel(o: TargetAccountOption): string | null {
+    if (o.refusal === "unavailable") return tr("indisponible");
+    if (o.refusal === "managedMismatch") {
+      return assignmentManaged ? tr("compteDeLaCreatrice") : tr("gereParLEquipe");
+    }
+    return null;
+  }
+
+  return (
+    <Select
+      value={currentAccountId}
+      items={Object.fromEntries(options.map((o) => [o._id, o.handle]))}
+      onValueChange={(v) => {
+        if (v && v !== currentAccountId) void change(v as Id<"comptes">);
+      }}
+      disabled={saving}
+    >
+      <SelectTrigger
+        size="sm"
+        className="min-w-0 font-mono text-slate-600"
+        aria-label={tr("compteDePublication", { platform })}
+        data-testid={`assignment-detail-account-${platform}`}
+      >
+        <SelectValue>
+          {currentFlag && <span aria-hidden>{currentFlag}</span>}
+          <span className="min-w-0 truncate">{currentHandle ?? "—"}</span>
+          {saving && <Loader2Icon className="size-3.5 animate-spin" />}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => {
+          const flag = countryFlag(o.country);
+          const raison = refusalLabel(o);
+          return (
+            <SelectItem key={o._id} value={o._id} disabled={raison !== null}>
+              <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+                {flag && <span aria-hidden>{flag}</span>}
+                <span className="font-mono break-all">{o.handle}</span>
+                {raison && (
+                  <span className="text-xs text-slate-400">{raison}</span>
+                )}
+              </span>
+            </SelectItem>
+          );
+        })}
+        {autres.length === 0 && (
+          <p className="px-2 py-1.5 text-xs text-slate-400">
+            {tr("aucunAutreCompte", { platform })}
+          </p>
+        )}
+      </SelectContent>
+    </Select>
   );
 }
 

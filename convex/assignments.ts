@@ -48,6 +48,11 @@ import {
 } from "./pricing";
 import { markRushPublishedForAssignment } from "./rushes";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
+import {
+  isTargetAccountLocked,
+  targetAccountRefusal,
+} from "./targetAccountSwap";
+import { effectiveStatus } from "./comptes";
 import { isStrictAccountValidationFor } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
@@ -569,6 +574,146 @@ export const setAssignmentPostWindow = permissionMutation("assignments.manage")(
     }
     await ctx.db.patch(args.id, { postWindow: args.postWindow });
     return { ok: true };
+  },
+});
+
+/**
+ * Comptes PROPOSABLES pour chaque cible d'une assignation — le sélecteur
+ * « Compte » du panneau de détail (calendrier de pilotage).
+ *
+ * Par cible : le compte actuel, le verrou (`isTargetAccountLocked`), et les
+ * comptes de la créatrice sur la MÊME plateforme, chacun avec la raison pour
+ * laquelle il ne peut pas être choisi (`targetAccountRefusal`, la règle même
+ * de `setAssignmentTargetAccount`). Les comptes refusés sont LISTÉS et grisés
+ * plutôt que masqués : l'admin voit pourquoi le compte qu'il cherche n'est pas
+ * sélectionnable. Les archivés sont omis (sauf s'ils sont le compte actuel).
+ *
+ * Gardée par `assignments.manage`, le bloc de l'écran — et non par
+ * `accounts.manage` comme `listCreatorAvailableComptes` : un manager qui a l'un
+ * sans l'autre ferait tomber tout le panneau. Hors périmètre ou introuvable →
+ * `null` plutôt qu'un refus, pour la même raison.
+ */
+export const listTargetAccountOptions = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return null;
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (filterByCreatorScope([a], (x) => x.creatorId, scope).length === 0) {
+      return null;
+    }
+    const strict = await isStrictAccountValidationFor(ctx, ctx.projectId);
+    const days = warmupTargetDaysOf((await ctx.db.get(ctx.projectId)) ?? {});
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_creator", (q) =>
+        q.eq("projectId", ctx.projectId).eq("creatorId", a.creatorId),
+      )
+      .collect();
+    const assignmentManaged = a.managedByAdmin === true;
+    return (a.targets ?? []).map((t) => ({
+      platform: t.platform,
+      currentAccountId: t.accountId ?? null,
+      locked: isTargetAccountLocked(a.status, t),
+      options: comptes
+        .filter(
+          (c) =>
+            c.plateforme === t.platform &&
+            (c._id === t.accountId || effectiveStatus(c) !== "archived"),
+        )
+        .map((c) => ({
+          _id: c._id,
+          handle: c.handle,
+          country: c.targetCountry ?? null,
+          refusal:
+            c._id === t.accountId
+              ? null
+              : targetAccountRefusal({
+                  available: isAccountAvailable(c, days, { strict }),
+                  accountManaged: c.managedByAdmin === true,
+                  assignmentManaged,
+                }),
+        }))
+        // Choisissables d'abord, grisés ensuite ; alphabétique dans chaque groupe.
+        .sort(
+          (x, y) =>
+            Number(x.refusal !== null) - Number(y.refusal !== null) ||
+            x.handle.localeCompare(y.handle, "fr", { sensitivity: "base" }),
+        ),
+    }));
+  },
+});
+
+/**
+ * CHANGE LE COMPTE d'une cible (même plateforme) d'une assignation EXISTANTE.
+ *
+ * La créatrice a plusieurs comptes sur une plateforme, et la vidéo doit partir
+ * sur un autre que celui choisi à l'assignation — sans supprimer/recréer
+ * l'assignation (ce qui perdrait script, vidéo soumise, consignes, date).
+ *
+ * Trois gardes, dans cet ordre :
+ *  1. la cible n'est pas publiée (`isTargetAccountLocked`) — après publication,
+ *     vues et paie sont rattachées au compte ; c'est `correctPublishedUrl` qui
+ *     répare un post mal accroché ;
+ *  2. le nouveau compte passe `validateTargets` — EXACTEMENT les refus de la
+ *     création (appartenance à la créatrice, plateforme, disponibilité) ;
+ *  3. il est du même mode (géré par l'équipe / compte de la créatrice) que
+ *     l'assignation, dont le `managedByAdmin` figé décide qui publie.
+ *
+ * Rien d'autre ne bouge : combo, unicité (clé créatrice × plateforme), cooldown
+ * (ancré sur les dates), barème, statut. Idempotent : même compte → no-op.
+ */
+export const setAssignmentTargetAccount = permissionMutation("assignments.manage")({
+  args: {
+    id: v.id("assignments"),
+    platform: plateformeValidator,
+    accountId: v.id("comptes"),
+  },
+  handler: async (ctx, { id, platform, accountId }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+    const targets = a.targets ?? [];
+    const target = targets.find((t) => t.platform === platform);
+    if (!target) {
+      throw err(
+        ERR.TARGET_NOT_ON_ASSIGNMENT,
+        `Cette assignation n'a pas de cible ${platform}.`,
+        { platform },
+      );
+    }
+    if (isTargetAccountLocked(a.status, target)) {
+      throw err(
+        ERR.TARGET_ACCOUNT_LOCKED_PUBLISHED,
+        `Le post ${platform} est déjà publié : son compte ne peut plus changer (le suivi des vues et la paie en dépendent).`,
+        { platform },
+      );
+    }
+    if (target.accountId === accountId) return { changed: false as const };
+    await validateTargets(ctx, ctx.projectId, a.creatorId, [
+      { platform, accountId },
+    ]);
+    const compte = (await ctx.db.get(accountId))!;
+    if (
+      targetAccountRefusal({
+        available: true, // déjà garanti par validateTargets
+        accountManaged: compte.managedByAdmin === true,
+        assignmentManaged: a.managedByAdmin === true,
+      }) === "managedMismatch"
+    ) {
+      throw err(
+        ERR.TARGET_ACCOUNT_MANAGED_MISMATCH,
+        "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
+      );
+    }
+    await ctx.db.patch(id, {
+      targets: targets.map((t) =>
+        t.platform === platform ? { ...t, accountId } : t,
+      ),
+    });
+    return { changed: true as const };
   },
 });
 
