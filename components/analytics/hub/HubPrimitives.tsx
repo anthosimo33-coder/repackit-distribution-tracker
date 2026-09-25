@@ -1,5 +1,6 @@
 "use client";
 
+import { ANALYSIS_WINDOW_DAYS, WHOP_WEBHOOK_FIX_MS } from "@/convex/churn";
 import { useState, type ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -444,10 +445,9 @@ export function HubNoticeStack({
 
 // ─── Marqueurs de rupture (séries non comparables au-delà d'une date) ────────
 
-/** Réparation du webhook Whop de confirmation de paiement — 28/07/2026 au soir. */
-export const WHOP_WEBHOOK_FIX_MS = Date.UTC(2026, 6, 28, 18, 0, 0);
-/** Fenêtre d'analyse des agrégats PostHog (jours). */
-export const ANALYSIS_WINDOW_DAYS = 90;
+// Réparation du webhook Whop (28/07/2026 au soir) et fenêtre d'analyse (90 j) :
+// définies dans convex/churn.ts, partagées avec l'outil MCP `retention`.
+export { ANALYSIS_WINDOW_DAYS, WHOP_WEBHOOK_FIX_MS } from "@/convex/churn";
 
 /** La fenêtre d'analyse (90 j finissant à `nowMs`) englobe-t-elle la réparation ? */
 export function spansWebhookFix(nowMs: number): boolean {

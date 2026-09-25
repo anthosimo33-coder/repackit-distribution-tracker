@@ -61,7 +61,6 @@
     "lib/ab-offers.ts",
     "lib/analytics-hub.ts",
     "lib/analytics-window.ts",
-    "lib/churn.ts",
     "lib/currency-display.ts",
     "lib/dashboard-stats.ts",
     "lib/day-detail.ts",

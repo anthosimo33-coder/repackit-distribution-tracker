@@ -1,5 +1,5 @@
 [
-  "analyticsHub.ts::getChurn::...stats",
+  "analyticsHub.ts::getChurnCore::...stats",
   "analyticsHub.ts::getRevenueBreakdownCore::...a",
   "analyticsHub.ts::getRevenueBreakdownCore::...divergence",
   "analyticsHub.ts::getViewCounters::...VIEW_COUNTER_USAGE",

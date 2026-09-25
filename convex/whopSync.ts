@@ -397,13 +397,21 @@ export const e2eSeedWhopMembership = e2eMutation({
     accessEndsAt: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     planId: v.optional(v.string()),
+    /** Annulation (ms) : résilié, l'accès court jusqu'à `accessEndsAt`. */
+    canceledAt: v.optional(v.number()),
+    /**
+     * Accès encore valide ? Par défaut « pas de fin d'accès ». À poser à true
+     * pour un RÉSILIÉ (fin d'accès future, accès encore ouvert).
+     */
+    valid: v.optional(v.boolean()),
   },
   handler: async (ctx, a): Promise<Id<"whopMemberships">> =>
     await ctx.db.insert("whopMemberships", {
       projectId: a.projectId,
       whopMembershipId: a.whopMembershipId,
       status: a.status ?? "active",
-      valid: a.accessEndsAt === undefined,
+      valid: a.valid ?? a.accessEndsAt === undefined,
+      canceledAt: a.canceledAt,
       createdAt: a.createdAt ?? Date.now(),
       accessEndsAt: a.accessEndsAt,
       planId: a.planId,
