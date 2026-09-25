@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import type { Plateforme } from "@/convex/platforms";
 
 /**
  * « COPIER ET OUVRIR TIKTOK » — un geste au lieu de trois.
@@ -19,12 +20,14 @@ import { useTranslations } from "next-intl";
  * copie ni l'ouverture d'onglet hors d'un geste de l'utilisateur, et attendre la
  * copie (`await`) ferait perdre ce geste à l'ouverture sur Safari.
  */
-export type OpenPlatform = "TikTok" | "Instagram" | "YouTube";
+export type OpenPlatform = Plateforme;
 
 const OPEN_URL: Record<OpenPlatform, string> = {
   TikTok: "https://www.tiktok.com/upload",
   Instagram: "https://www.instagram.com/",
   YouTube: "https://www.youtube.com/upload",
+  Facebook: "https://www.facebook.com/",
+  Snapchat: "https://www.snapchat.com/",
 };
 
 export function CopyAndOpenButton({

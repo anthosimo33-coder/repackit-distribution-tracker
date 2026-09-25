@@ -20,8 +20,9 @@
  * (0 compte propre, l'équipe tient tout) → `complete` aussi : rien à configurer,
  * le dashboard montre un message dédié au lieu de la checklist.
  */
+import type { Plateforme } from "../convex/platforms";
 
-export type OnboardingPlatform = "TikTok" | "Instagram" | "YouTube";
+export type OnboardingPlatform = Plateforme;
 export type OnboardingCompteStatus =
   | "warmup"
   | "actif"

@@ -37,6 +37,7 @@ import { useConvexError } from "@/lib/use-convex-error";
 import { detectInspirationType } from "@/lib/inspiration-url";
 import { publishUrlIssue, type PostUrlPlatform } from "@/convex/postUrlShape";
 import { useTranslations } from "next-intl";
+import type { Plateforme } from "@/convex/platforms";
 
 /**
  * Workflow EN DEUX TEMPS côté créateur :
@@ -47,7 +48,7 @@ import { useTranslations } from "next-intl";
  * Le PAIEMENT se déclenche à `published` (confirmPublication), 1 base PAR POST.
  */
 
-type Platform = "TikTok" | "Instagram" | "YouTube";
+type Platform = Plateforme;
 type Target = {
   platform: Platform;
   accountHandle: string | null;
@@ -59,9 +60,18 @@ type Target = {
 const ACTION_BTN = "h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm";
 
 function placeholderFor(p: Platform): string {
-  if (p === "TikTok") return "https://www.tiktok.com/@toi/video/…";
-  if (p === "YouTube") return "https://www.youtube.com/watch?v=…";
-  return "https://www.instagram.com/p/…";
+  switch (p) {
+    case "TikTok":
+      return "https://www.tiktok.com/@toi/video/…";
+    case "Instagram":
+      return "https://www.instagram.com/p/…";
+    case "YouTube":
+      return "https://www.youtube.com/watch?v=…";
+    case "Facebook":
+      return "https://www.facebook.com/reel/…";
+    case "Snapchat":
+      return "https://www.snapchat.com/spotlight/…";
+  }
 }
 
 export function AssignmentActions({

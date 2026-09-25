@@ -29,6 +29,7 @@ import { TRACKING_WINDOW_DAYS } from "./syncScope";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
 import { syncBonusForPublication } from "./pricing";
+import type { Plateforme } from "./platforms";
 
 /**
  * S — Tracking AUTO des vues TikTok/Instagram via Apify. CALQUÉ sur le tracking
@@ -436,7 +437,7 @@ export const listComptesForProfiles = internalQuery({
       _id: Id<"comptes">;
       projectId: Id<"projects">;
       handle: string;
-      plateforme: "TikTok" | "Instagram" | "YouTube";
+      plateforme: Plateforme;
       url: string | null;
     }[] = [];
     for (const c of await ctx.db.query("comptes").collect()) {

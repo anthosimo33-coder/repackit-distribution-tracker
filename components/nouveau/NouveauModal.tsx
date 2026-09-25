@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
 import { useConvexError } from "@/lib/use-convex-error";
 import { useFormatLabels } from "@/lib/use-format-labels";
+import type { Plateforme } from "@/convex/platforms";
 
 const STEP_KEYS = {
   1: "format",
@@ -384,9 +385,7 @@ export function NouveauModal({
         niveau,
         angleTonal: state.data.angleTonal,
         langue,
-        plateformes: effectivePlatforms as Array<
-          "TikTok" | "Instagram" | "YouTube"
-        >,
+        plateformes: effectivePlatforms as Plateforme[],
         compte: state.data.compte,
         datePubli: state.data.datePubli,
         notes: state.data.notes,

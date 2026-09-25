@@ -53,6 +53,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
+import type { Plateforme } from "@/convex/platforms";
 
 /**
  * Chantier C — assigne une campagne de scripts à UN créateur, sur 1 à 3 CIBLES
@@ -63,8 +64,18 @@ import { useConvexError } from "@/lib/use-convex-error";
  */
 
 const NONE = "__none__";
-const PLATFORMS = ["TikTok", "YouTube", "Instagram"] as const;
+// Ordre d'affichage propre à cette modale (YouTube avant Instagram, historique).
+// i18n-exempt: valeurs d'enum plateforme envoyées au serveur, pas du texte
+const PLATFORMS = ["TikTok", "YouTube", "Instagram", "Facebook", "Snapchat"] as const satisfies readonly Plateforme[];
 type Platform = (typeof PLATFORMS)[number];
+
+/** Aucune cible choisie, sur chaque plateforme. */
+function emptyPicks(): Record<Platform, string> {
+  return Object.fromEntries(PLATFORMS.map((p) => [p, NONE])) as Record<
+    Platform,
+    string
+  >;
+}
 
 function defaultDue(): string {
   const d = new Date(Date.now() + 7 * 86_400_000);
@@ -186,11 +197,7 @@ export function AssignScriptCampaignDialog({
     open ? { id: campaignId } : "skip",
   );
 
-  const [picks, setPicks] = useState<Record<Platform, string>>({
-    TikTok: NONE,
-    YouTube: NONE,
-    Instagram: NONE,
-  });
+  const [picks, setPicks] = useState<Record<Platform, string>>(emptyPicks);
   const [videos, setVideos] = useState(String(DEFAULT_VIDEOS));
   // Dates de post planifiées, une par vidéo (null = pas encore placée sur un
   // jour). Longueur maintenue égale au nombre de vidéos via changeVideos.
@@ -250,7 +257,7 @@ export function AssignScriptCampaignDialog({
     setLastOpen(open);
     if (open) {
       setCreatorId(NONE);
-      setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
+      setPicks(emptyPicks());
       setVideos(String(DEFAULT_VIDEOS));
       setSlotDates(Array(DEFAULT_VIDEOS).fill(null));
       setDue(defaultDue());
@@ -288,7 +295,7 @@ export function AssignScriptCampaignDialog({
 
   function changeCreator(v: string) {
     setCreatorId(v);
-    setPicks({ TikTok: NONE, YouTube: NONE, Instagram: NONE });
+    setPicks(emptyPicks());
   }
 
   // Le nombre de vidéos pilote la taille du pool de planification : on

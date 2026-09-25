@@ -55,6 +55,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { normalizeCreatorLocale, localeOrDefault} from "./locales";
 import { ERR, convexErrorText, err } from "./errorCodes";
 import { faceUrlsByCreator, purgeCompteAvatar } from "./compteAvatar";
+import type { PlateformeKey } from "./platforms";
 
 /**
  * P1 Créateurs — gestion des créateurs côté admin + onboarding par lien
@@ -520,7 +521,11 @@ const handlesToCreateValidator = v.object({
   tiktok: v.optional(v.string()),
   youtube: v.optional(v.string()),
   instagram: v.optional(v.string()),
+  facebook: v.optional(v.string()),
+  snapchat: v.optional(v.string()),
 });
+
+type HandlesToCreate = Partial<Record<PlateformeKey, string>>;
 
 /** Trim + cap un @ ; vide → undefined. */
 function normHandle(raw: string | undefined): string | undefined {
@@ -536,14 +541,17 @@ function normHandle(raw: string | undefined): string | undefined {
  * lib (pas d'A6).
  */
 function normalizeHandlesToCreate(
-  raw: { tiktok?: string; youtube?: string; instagram?: string } | undefined,
-): { tiktok?: string; youtube?: string; instagram?: string } | undefined {
+  raw: HandlesToCreate | undefined,
+): HandlesToCreate | undefined {
   if (!raw) return undefined;
-  const tiktok = normHandle(raw.tiktok);
-  const youtube = normHandle(raw.youtube);
-  const instagram = normHandle(raw.instagram);
-  if (!tiktok && !youtube && !instagram) return undefined;
-  return { tiktok, youtube, instagram };
+  const out: HandlesToCreate = {
+    tiktok: normHandle(raw.tiktok),
+    youtube: normHandle(raw.youtube),
+    instagram: normHandle(raw.instagram),
+    facebook: normHandle(raw.facebook),
+    snapchat: normHandle(raw.snapchat),
+  };
+  return Object.values(out).some(Boolean) ? out : undefined;
 }
 
 /**

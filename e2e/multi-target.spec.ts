@@ -188,4 +188,105 @@ test.describe("Multi-plateforme — cibles warmup-gated, paiement par post", () 
       }),
     ).toBeNull();
   });
+
+  test("Facebook et Snapchat : une mission sur les 5 plateformes, publiée et payée par post", async () => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    const A = await createCreatorSession(url, {
+      name: `[E2E_TEST] Cinq ${ts}`,
+      email: `e2e-creator-cinq-${ts}@repackit.test`,
+      password: "creator-cinq-12345",
+    });
+    const projectId = A.projectId;
+    const formatId = await createFormatWithRate(admin, {
+      name: `[E2E_TEST] CinqFmt ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 10, viewBonusPer1k: 2 },
+    });
+    const target = (platform: "TikTok" | "Instagram" | "YouTube" | "Facebook" | "Snapchat", h: string) =>
+      availableTarget({ e2eClient: admin, creatorId: A.creatorId, platform, handle: `@e2e5_${h}${ts}` });
+    const targets = [
+      await target("TikTok", "tk"),
+      await target("Instagram", "ig"),
+      await target("YouTube", "yt"),
+      await target("Facebook", "fb"),
+      await target("Snapchat", "sc"),
+    ];
+
+    // Jusqu'ici une mission portait 3 cibles au plus : 5 était refusé.
+    const r = await admin.mutation(api.assignments.assignFormat, {
+      formatId,
+      creatorId: A.creatorId,
+      targets,
+      postsPerCreator: 1,
+      dueDate: ts + 7 * DAY,
+    });
+    expect(r.created).toBe(1);
+    const a = (await admin.query(api.assignments.listAssignments, {})).find(
+      (x) => x.formatId === formatId && x.creatorId === A.creatorId,
+    )!;
+    expect(a.targets.map((t) => t.platform).sort()).toEqual(
+      ["Facebook", "Instagram", "Snapchat", "TikTok", "YouTube"],
+    );
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: a._id,
+      status: "to_publish",
+    });
+
+    // Liens copiés tels que les apps les donnent (partage Facebook, Spotlight
+    // sous le profil avec ses paramètres de partage).
+    const urls = [
+      { platform: "TikTok" as const, url: `https://www.tiktok.com/@e2e5_tk${ts}/video/${ts}` },
+      { platform: "Instagram" as const, url: `https://www.instagram.com/reel/C${ts}x/?igsh=MXYz` },
+      { platform: "YouTube" as const, url: `https://www.youtube.com/shorts/y${ts}` },
+      { platform: "Facebook" as const, url: `https://www.facebook.com/share/r/1Ab${ts}/?mibextid=wwXIfr` },
+      {
+        platform: "Snapchat" as const,
+        url: `https://www.snapchat.com/@e2e5_sc${ts}/spotlight/W7_EDlXWTBiXAEEniNoMPwAA${ts}AAAAAQ?share_id=MTIz&locale=fr-FR`,
+      },
+    ];
+    const swap = (platform: string, url: string) =>
+      urls.map((u) => (u.platform === platform ? { ...u, url } : u));
+
+    // Un Reel Facebook collé sur la cible Instagram : même maison, autre plateforme.
+    await expect(
+      A.client.mutation(api.assignments.confirmPublication, {
+        projectId,
+        id: a._id,
+        urls: swap("Instagram", `https://www.facebook.com/reel/${ts}`),
+      }),
+    ).rejects.toThrow(/ne correspond pas|WRONG_PLATFORM/i);
+    // Un lien de PROFIL Snapchat au lieu du Spotlight : aucune vue à relever.
+    await expect(
+      A.client.mutation(api.assignments.confirmPublication, {
+        projectId,
+        id: a._id,
+        urls: swap("Snapchat", `https://www.snapchat.com/add/e2e5_sc${ts}?share_id=MTIz`),
+      }),
+    ).rejects.toThrow(/profil|IS_ACCOUNT/i);
+
+    const pub = await A.client.mutation(api.assignments.confirmPublication, {
+      projectId,
+      id: a._id,
+      urls,
+    });
+    expect(pub.publicationIds.length).toBe(5);
+    const pubs = (await admin.query(api.publications.listPublications, {})).filter(
+      (p) => urls.some((u) => u.url === p.postUrl),
+    );
+    expect(pubs.map((p) => p.plateforme).sort()).toEqual(
+      ["Facebook", "Instagram", "Snapchat", "TikTok", "YouTube"],
+    );
+    const pay = (await admin.query(api.payments.listPayments, {})).find(
+      (p) => p.creatorId === A.creatorId,
+    )!;
+    const base = pay.lineItems.filter(
+      (li) => li.kind === "base" && li.assignmentId === a._id,
+    );
+    expect(base.map((li) => li.platform).sort()).toEqual(
+      ["Facebook", "Instagram", "Snapchat", "TikTok", "YouTube"],
+    );
+    expect(pay.totalDue).toBe(50);
+  });
 });

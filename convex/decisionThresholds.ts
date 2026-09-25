@@ -84,13 +84,24 @@ export const FADING_DELTA_SHARE = 0.05;
  *                  (saves branchées récemment, delta d'abonnés qui demande deux
  *                  nuits) → à afficher « en cours de collecte » ;
  *  - `unavailable`: la plateforme n'expose pas la métrique (saves Instagram/
- *                  YouTube) → à afficher « — », définitivement.
+ *                  YouTube/Facebook/Snapchat) → à afficher « — », définitivement.
  */
 export type MetricAvailability = "measured" | "collecting" | "unavailable";
 
-/** Plateformes qui n'exposent AUCUNE métrique de saves — limite de plateforme. */
+/**
+ * Plateformes qui n'exposent AUCUNE métrique de saves — limite de plateforme.
+ * Liste FERMÉE plutôt que « tout sauf TikTok » : une plateforme ajoutée qui
+ * exposerait ses saves ne doit pas être déclarée muette par défaut.
+ */
+const SANS_SAVES: ReadonlySet<string> = new Set([
+  "Instagram",
+  "YouTube",
+  "Facebook",
+  "Snapchat",
+]);
+
 export function savesUnavailableOn(plateforme: string): boolean {
-  return plateforme === "Instagram" || plateforme === "YouTube";
+  return SANS_SAVES.has(plateforme);
 }
 
 /**

@@ -125,6 +125,7 @@ import type * as permissionCoverage from "../permissionCoverage.js";
 import type * as permissionProbe from "../permissionProbe.js";
 import type * as permissions from "../permissions.js";
 import type * as personnes from "../personnes.js";
+import type * as platforms from "../platforms.js";
 import type * as postUrlDate from "../postUrlDate.js";
 import type * as postUrlResolution from "../postUrlResolution.js";
 import type * as postUrlShape from "../postUrlShape.js";
@@ -319,6 +320,7 @@ declare const fullApi: ApiFromModules<{
   permissionProbe: typeof permissionProbe;
   permissions: typeof permissions;
   personnes: typeof personnes;
+  platforms: typeof platforms;
   postUrlDate: typeof postUrlDate;
   postUrlResolution: typeof postUrlResolution;
   postUrlShape: typeof postUrlShape;

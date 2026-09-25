@@ -37,6 +37,40 @@ describe("handleFromPostUrl", () => {
       handleFromPostUrl("https://instagram.com/reel/CxYz/", "Instagram"),
     ).toBeNull();
   });
+  it("Facebook : /page/videos/… → page ; Reel, partage, fb.watch, profile.php → null", () => {
+    expect(
+      handleFromPostUrl("https://www.facebook.com/Kelly.Snytch/videos/1284539976120931/", "Facebook"),
+    ).toBe("kelly.snytch");
+    expect(
+      handleFromPostUrl("https://www.facebook.com/kelly.snytch/posts/pfbid02abcDEF", "Facebook"),
+    ).toBe("kelly.snytch");
+    expect(handleFromPostUrl("https://www.facebook.com/reel/1284539976120931", "Facebook")).toBeNull();
+    expect(
+      handleFromPostUrl("https://www.facebook.com/share/r/1AbCdEfGh2/?mibextid=wwXIfr", "Facebook"),
+    ).toBeNull();
+    expect(handleFromPostUrl("https://fb.watch/uXyZ12aBcD/", "Facebook")).toBeNull();
+    expect(
+      handleFromPostUrl("https://www.facebook.com/profile.php?id=61554471234567", "Facebook"),
+    ).toBeNull();
+  });
+  it("Snapchat : /@handle/spotlight/… et /add/handle → handle ; /spotlight nu → null", () => {
+    expect(
+      handleFromPostUrl(
+        "https://www.snapchat.com/@Kelly.Snytch/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ",
+        "Snapchat",
+      ),
+    ).toBe("kelly.snytch");
+    expect(
+      handleFromPostUrl("https://www.snapchat.com/add/kelly.snytch?share_id=abc&locale=fr-FR", "Snapchat"),
+    ).toBe("kelly.snytch");
+    expect(
+      handleFromPostUrl(
+        "https://www.snapchat.com/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ",
+        "Snapchat",
+      ),
+    ).toBeNull();
+    expect(handleFromPostUrl("https://www.snapchat.com/t/AbCdEf12", "Snapchat")).toBeNull();
+  });
   it("URL invalide → null", () => {
     expect(handleFromPostUrl("pas une url", "TikTok")).toBeNull();
   });

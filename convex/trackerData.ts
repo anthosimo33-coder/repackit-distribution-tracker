@@ -18,6 +18,7 @@ import {
 import { savesAvailability } from "./decisionThresholds";
 import { collectAvailability } from "./collectAvailability";
 import { qualificationOf } from "./quadrant";
+import { plateformeValidator, type Plateforme } from "./platforms";
 
 /**
  * Vue TRACKER (refonte) — data des posts publiés. Deux queries scopées projet :
@@ -57,12 +58,6 @@ import { qualificationOf } from "./quadrant";
  * creatorId + creatorNameSnapshot + formatId). Cf buildPublicationAssignmentMap.
  */
 
-const plateformeArg = v.union(
-  v.literal("TikTok"),
-  v.literal("Instagram"),
-  v.literal("YouTube"),
-);
-
 // Filtres partagés MULTI-SELECT. dateFrom/dateTo = bornes ms sur datePubli (le
 // client passe début-de-jour "Du" et fin-de-jour "Au"). Les listes de dimension
 // sont optionnelles ; vide/absente = "Tous". Le format est désormais le format
@@ -72,7 +67,7 @@ const filterArgs = {
   dateTo: v.optional(v.number()),
   creatorIds: v.optional(v.array(v.id("creators"))),
   comptes: v.optional(v.array(v.string())),
-  plateformes: v.optional(v.array(plateformeArg)),
+  plateformes: v.optional(v.array(plateformeValidator)),
   formatIds: v.optional(v.array(v.id("formats"))),
   campaignIds: v.optional(v.array(v.id("scriptCampaigns"))),
   // Tri-état warmup. ABSENT ⇒ "exclude" (cf DEFAULT_WARMUP_FILTER) : le défaut
@@ -88,7 +83,7 @@ export type FilterArgs = {
   dateTo?: number;
   creatorIds?: Id<"creators">[];
   comptes?: string[];
-  plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
+  plateformes?: Plateforme[];
   formatIds?: Id<"formats">[];
   campaignIds?: Id<"scriptCampaigns">[];
   warmup?: WarmupFilter;
@@ -742,7 +737,7 @@ export type VuesGagneesArgs = {
   compte?: string;
   /** Code pays ISO du compte visé. */
   pays?: string;
-  plateforme?: "TikTok" | "Instagram" | "YouTube";
+  plateforme?: Plateforme;
   warmup?: WarmupFilter;
 };
 

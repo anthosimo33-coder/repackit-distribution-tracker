@@ -1433,7 +1433,7 @@
     "ERR_SUPERADMIN_ONLY": "Reservado al superadmin.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talento no encontrado en este proyecto.",
     "ERR_TALENT_NOT_PAIRED": "{name} no está emparejado con ningún clipper: vincúlale un clipper desde su ficha antes de asignar un guion.",
-    "ERR_TARGETS_COUNT": "Una misión tiene de 1 a 3 destinos (plataformas).",
+    "ERR_TARGETS_COUNT": "Una misión tiene al menos un destino, y solo uno por plataforma.",
     "ERR_TARGETS_MIXED_OWNERSHIP": "Una misión no puede mezclar cuentas gestionadas por el equipo y cuentas del creador.",
     "ERR_TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR": "Cuenta de destino no encontrada para este creador.",
     "ERR_TARGET_ACCOUNT_NOT_IN_PROJECT": "Cuenta de destino no encontrada en el proyecto.",

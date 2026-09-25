@@ -34,6 +34,7 @@ import {
   postsPerDayAt,
   utcDayKey,
 } from "@/convex/accountPhase";
+import { PLATEFORMES, type Plateforme } from "@/convex/platforms";
 
 /**
  * ESPACE CLIPPEUR — une page qui défile, deux objets : SES COMPTES et SES CLIPS.
@@ -47,8 +48,6 @@ import {
  * une phase pré-calculée : un second calcul finirait par dériver du premier.
  */
 
-const PLATEFORMES = ["TikTok", "Instagram", "YouTube"] as const;
-type Plateforme = (typeof PLATEFORMES)[number];
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (

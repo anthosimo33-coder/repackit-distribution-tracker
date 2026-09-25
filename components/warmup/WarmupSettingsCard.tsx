@@ -38,6 +38,10 @@ const PLATFORMS = [
   { key: "instagram", label: "Instagram" },
   // i18n-exempt: nom de plateforme
   { key: "youtube", label: "YouTube" },
+  // i18n-exempt: nom de plateforme
+  { key: "facebook", label: "Facebook" },
+  // i18n-exempt: nom de plateforme
+  { key: "snapchat", label: "Snapchat" },
 ] as const;
 
 type PlatformKey = (typeof PLATFORMS)[number]["key"];
@@ -54,11 +58,9 @@ export function WarmupSettingsCard() {
 
   const current: Record<PlatformKey, string> =
     draft ??
-    ({
-      tiktok: settings.defined.tiktok?.toString() ?? "",
-      instagram: settings.defined.instagram?.toString() ?? "",
-      youtube: settings.defined.youtube?.toString() ?? "",
-    } as Record<PlatformKey, string>);
+    (Object.fromEntries(
+      PLATFORMS.map(({ key }) => [key, settings.defined[key]?.toString() ?? ""]),
+    ) as Record<PlatformKey, string>);
 
   const parse = (v: string): number | null => {
     const t = v.trim();
@@ -75,6 +77,8 @@ export function WarmupSettingsCard() {
         tiktok: parse(current.tiktok),
         instagram: parse(current.instagram),
         youtube: parse(current.youtube),
+        facebook: parse(current.facebook),
+        snapchat: parse(current.snapchat),
       });
       setDraft(null);
       toast.success(tr("dureesDeWarmupEnregistrees"));
@@ -101,7 +105,7 @@ export function WarmupSettingsCard() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {PLATFORMS.map(({ key, label }) => {
           const raw = current[key];
           const bad = Number.isNaN(parse(raw));

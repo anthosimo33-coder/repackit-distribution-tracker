@@ -96,6 +96,8 @@
     "tiktokACreer": "TikTok @ to create",
     "youtubeACreer": "YouTube @ to create",
     "instagramACreer": "Instagram @ to create",
+    "facebookACreer": "Facebook @ to create",
+    "snapchatACreer": "Snapchat @ to create",
     "attributionSnytchCo": "snytch.co attribution",
     "refDuCheminCourt": "Short-path ref",
     "laCleDAttributionDes": "The attribution key for visitors and sales. Without it, the creator shows as “no ref set” in the conversion section — in-app TikTok traffic sends no referrer, everything rests on this path.",

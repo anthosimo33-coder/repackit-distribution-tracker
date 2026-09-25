@@ -46,6 +46,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, err } from "./errorCodes";
+import type { Plateforme } from "./platforms";
 
 /**
  * P8 — Paiements (accrual). LOGIQUE D'ARGENT : chaque montant crédité est
@@ -88,7 +89,7 @@ type LineItem = {
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
-  platform?: "TikTok" | "Instagram" | "YouTube";
+  platform?: Plateforme;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -192,7 +193,7 @@ export async function accrueBaseLineItem(
     now: number;
     // Chantier C — PAR POST : 1 base par (assignment, plateforme). Omis = base
     // unique legacy (idempotence par assignment seul).
-    platform?: "TikTok" | "Instagram" | "YouTube";
+    platform?: Plateforme;
   },
 ): Promise<void> {
   // Guard C — un assignment à pricingSnapshot relève du NOUVEAU modèle (paie

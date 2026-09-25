@@ -26,9 +26,10 @@
  */
 
 import { isTikTokShortlink } from "./postUrlDate";
+import type { Plateforme } from "./platforms";
 
-/** Plateformes d'un lien de post (miroir de `Plateforme` côté assignments). */
-export type PostUrlPlatform = "TikTok" | "Instagram" | "YouTube";
+/** Plateformes d'un lien de post. */
+export type PostUrlPlatform = Plateforme;
 
 /** Parse tolérant : accepte une URL sans schéma (`tiktok.com/@u/video/1`). */
 function parse(url: string): URL | null {
@@ -72,6 +73,14 @@ export function detectPostUrlPlatform(url: string): PostUrlPlatform | undefined 
   if (hostIs(host, "tiktok.com")) return "TikTok";
   if (hostIs(host, "instagram.com")) return "Instagram";
   if (hostIs(host, "youtube.com") || hostIs(host, "youtu.be")) return "YouTube";
+  if (
+    hostIs(host, "facebook.com") ||
+    hostIs(host, "fb.com") ||
+    hostIs(host, "fb.watch")
+  ) {
+    return "Facebook";
+  }
+  if (hostIs(host, "snapchat.com")) return "Snapchat";
   return undefined;
 }
 
@@ -100,6 +109,46 @@ const YOUTUBE_CHANNEL_TABS = new Set([
 ]);
 
 /**
+ * Premiers segments d'un chemin Facebook qui ne sont PAS un nom de compte :
+ * racines de post (`/reel/…`, `/watch?v=…`, `/share/r/…`, `/story.php?…`) ou
+ * sections du site. `profile.php` n'y est PAS : c'est justement un profil.
+ */
+const FACEBOOK_NON_ACCOUNT_ROOTS = new Set([
+  "reel",
+  "reels",
+  "watch",
+  "share",
+  "story.php",
+  "permalink.php",
+  "photo",
+  "photo.php",
+  "video.php",
+  "videos",
+  "posts",
+  "stories",
+  "groups",
+  "events",
+  "marketplace",
+  "gaming",
+  "hashtag",
+  "l.php",
+  "sharer.php",
+  "login",
+]);
+
+/** Onglets d'une Page ou d'un profil Facebook — du profil, jamais un post. */
+const FACEBOOK_PROFILE_TABS = new Set([
+  "reels",
+  "videos",
+  "photos",
+  "posts",
+  "about",
+  "followers",
+  "friends",
+  "mentions",
+]);
+
+/**
  * L'URL est-elle DÉMONTRABLEMENT un lien de profil (et non de post) ?
  *
  * Un lien de profil collé à la place d'un lien de post passait les deux gardes :
@@ -122,6 +171,26 @@ export function isAccountOnlyUrl(url: string, platform: PostUrlPlatform): boolea
   if (platform === "Instagram") {
     // `/username` seul. Toute racine de post/partage → pas un profil.
     return seg.length === 1 && !INSTAGRAM_NON_ACCOUNT_ROOTS.has(seg[0]);
+  }
+  if (platform === "Facebook") {
+    // fb.watch ne sert que des vidéos.
+    if (u.hostname.toLowerCase().endsWith("fb.watch")) return false;
+    if (seg[0] === "profile.php") return true;
+    // `/people/<nom>/<id>` : l'adresse d'un profil sans nom d'utilisateur.
+    if (seg[0] === "people") return true;
+    if (FACEBOOK_NON_ACCOUNT_ROOTS.has(seg[0])) return false;
+    // `/page` seul, ou `/page/reels` : un onglet SANS identifiant de post.
+    // `/page/videos/<id>` et `/page/posts/<id>` restent des posts.
+    return (
+      seg.length === 1 ||
+      (seg.length === 2 && FACEBOOK_PROFILE_TABS.has(seg[1]))
+    );
+  }
+  if (platform === "Snapchat") {
+    // `/add/<user>` et `/@user` seul. `/spotlight/<id>` et
+    // `/@user/spotlight/<id>` sont des posts.
+    if (seg[0] === "add") return seg.length === 2;
+    return seg.length === 1 && seg[0].startsWith("@");
   }
   // YouTube — `@handle`, `channel/UC…`, `c/…`, `user/…`, avec au plus un onglet.
   const root =

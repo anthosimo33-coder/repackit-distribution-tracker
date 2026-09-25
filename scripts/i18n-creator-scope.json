@@ -136,6 +136,7 @@
     "convex/errorCodes.ts",
     "convex/locales.ts",
     "convex/payWindow.ts",
+    "convex/platforms.ts",
     "convex/postUrlDate.ts",
     "convex/postUrlShape.ts",
     "convex/postWindow.ts",

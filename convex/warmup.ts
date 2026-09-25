@@ -15,6 +15,7 @@
  * dans tout le dépôt. Cf docs/diagnostic-fuseaux.md.
  */
 import { dayKey, zoneOrNeutral, type CreatorZone } from "./creatorDay";
+import { PLATEFORME_KEY, type Plateforme, type PlateformeKey } from "./platforms";
 
 export type { CreatorZone };
 
@@ -30,15 +31,11 @@ export const WARMUP_TARGET_DAYS_FALLBACK = {
   youtube: 7,
   tiktok: 7,
   instagram: 14,
-} as const;
+  facebook: 7,
+  snapchat: 7,
+} as const satisfies Record<PlateformeKey, number>;
 
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
-
-export type WarmupTargetDays = {
-  tiktok: number;
-  instagram: number;
-  youtube: number;
-};
+export type WarmupTargetDays = Record<PlateformeKey, number>;
 
 /**
  * Barème effectif d'un projet — unique porte d'entrée vers le défaut.
@@ -56,6 +53,8 @@ export function warmupTargetDaysOf(project: {
     tiktok: p.tiktok ?? WARMUP_TARGET_DAYS_FALLBACK.tiktok,
     instagram: p.instagram ?? WARMUP_TARGET_DAYS_FALLBACK.instagram,
     youtube: p.youtube ?? WARMUP_TARGET_DAYS_FALLBACK.youtube,
+    facebook: p.facebook ?? WARMUP_TARGET_DAYS_FALLBACK.facebook,
+    snapchat: p.snapchat ?? WARMUP_TARGET_DAYS_FALLBACK.snapchat,
   };
 }
 
@@ -69,14 +68,7 @@ export function defaultTargetDays(
   plateforme: Plateforme,
   days: WarmupTargetDays,
 ): number {
-  switch (plateforme) {
-    case "TikTok":
-      return days.tiktok;
-    case "Instagram":
-      return days.instagram;
-    case "YouTube":
-      return days.youtube;
-  }
+  return days[PLATEFORME_KEY[plateforme]];
 }
 
 /**

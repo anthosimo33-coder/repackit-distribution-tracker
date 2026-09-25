@@ -43,6 +43,7 @@ import {
   type McpServer,
   type McpTool,
 } from "./mcpProtocol";
+import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 
 const jour = (ts: number | null | undefined): string | null =>
   typeof ts === "number" && ts > 0 ? parisDayKey(ts) : null;
@@ -149,7 +150,7 @@ export const lireVues = mcpPermissionQuery("content.analytics")({
     compte: v.optional(v.string()),
     pays: v.optional(v.string()),
     plateforme: v.optional(
-      v.union(v.literal("TikTok"), v.literal("Instagram"), v.literal("YouTube")),
+      plateformeValidator,
     ),
     warmup: v.optional(
       v.union(v.literal("exclude"), v.literal("all"), v.literal("only")),
@@ -323,7 +324,7 @@ export const OUTILS: readonly McpTool[] = [
         plateforme: {
           type: "string",
           description: "Plateforme du compte.",
-          enum: ["TikTok", "Instagram", "YouTube"],
+          enum: [...PLATEFORMES],
         },
         statut: {
           type: "string",
@@ -408,7 +409,7 @@ export const OUTILS: readonly McpTool[] = [
         plateforme: {
           type: "string",
           description: "Plateforme.",
-          enum: ["TikTok", "Instagram", "YouTube"],
+          enum: [...PLATEFORMES],
         },
         warmup: {
           type: "string",
@@ -700,7 +701,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           ...(typeof args.compte === "string" ? { compte: args.compte } : {}),
           ...(typeof args.pays === "string" ? { pays: args.pays } : {}),
           ...(typeof args.plateforme === "string"
-            ? { plateforme: args.plateforme as "TikTok" | "Instagram" | "YouTube" }
+            ? { plateforme: args.plateforme as Plateforme }
             : {}),
           warmup,
         };

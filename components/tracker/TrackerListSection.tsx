@@ -107,6 +107,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
+import type { Plateforme } from "@/convex/platforms";
 
 const ALL = "all";
 const PENDING = "Pending";
@@ -681,7 +682,7 @@ export function TrackerListSection({
   if (publications === undefined) return <LoadingState />;
 
   // Plateformes éligibles dans le filtre selon le format. Carousel masque
-  // YouTube ; short et screenrecorder autorisent les 3.
+  // YouTube ; short et screenrecorder autorisent toutes les plateformes.
   const platformOptions =
     mediaType === "carousel"
       ? [...ALLOWED_PLATFORMS_FOR_CAROUSEL]
@@ -1736,7 +1737,7 @@ function DuplicateCarouselDialog({
       : sourceMediaType === "screenrecorder"
         ? ALLOWED_PLATFORMS_FOR_SCREENRECORDER
         : ALLOWED_PLATFORMS_FOR_SHORT;
-  type TargetPlateforme = "" | "TikTok" | "Instagram" | "YouTube";
+  type TargetPlateforme = "" | Plateforme;
 
   const [plateforme, setPlateforme] = useState<TargetPlateforme>("");
   const [compte, setCompte] = useState("");
@@ -1753,7 +1754,7 @@ function DuplicateCarouselDialog({
 
   const duplicate = useProjectMutation(api.publications.duplicateCarousel);
 
-  function handlePlateformeChange(next: "TikTok" | "Instagram" | "YouTube") {
+  function handlePlateformeChange(next: Plateforme) {
     setPlateforme(next);
     if (!comptesData) {
       setCompte("");
@@ -1774,7 +1775,7 @@ function DuplicateCarouselDialog({
       await duplicate({
         sourceCarouselId: publication.carouselId,
         targetCompte: compte,
-        targetPlateforme: plateforme as "TikTok" | "Instagram" | "YouTube",
+        targetPlateforme: plateforme as Plateforme,
       });
       toast.success("Publication dupliquée");
       onOpenChange(false);
@@ -1802,7 +1803,7 @@ function DuplicateCarouselDialog({
               value={plateforme}
               onValueChange={(v) =>
                 v !== null &&
-                handlePlateformeChange(v as "TikTok" | "Instagram" | "YouTube")
+                handlePlateformeChange(v as Plateforme)
               }
             >
               <SelectTrigger id="dup-plateforme">

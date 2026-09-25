@@ -15,11 +15,13 @@ const checks = (n: number) => Array.from({ length: n }, (_, i) => `d${i}`);
 describe("WARMUP_DURATION_FALLBACK", () => {
   // Barème de DERNIER RECOURS, pas « le barème de l'app » : chaque projet a le
   // sien (projects.warmupTargetDays). Snytch vaut 3/3, pas ces valeurs.
-  it("TikTok=7, Instagram=14, YouTube=7", () => {
+  it("TikTok=7, Instagram=14, YouTube=7, Facebook=7, Snapchat=7", () => {
     expect(WARMUP_DURATION_FALLBACK).toEqual({
       TikTok: 7,
       Instagram: 14,
       YouTube: 7,
+      Facebook: 7,
+      Snapchat: 7,
     });
   });
   it("getWarmupDuration reflète la map", () => {

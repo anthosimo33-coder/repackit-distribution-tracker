@@ -1433,7 +1433,7 @@
     "ERR_SUPERADMIN_ONLY": "Réservé au superadmin.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talent introuvable dans ce projet.",
     "ERR_TALENT_NOT_PAIRED": "{name} n'est apparié à aucun clippeur : rattache-lui un clippeur depuis sa fiche avant d'assigner un script.",
-    "ERR_TARGETS_COUNT": "Un assignment porte 1 à 3 cibles (plateformes).",
+    "ERR_TARGETS_COUNT": "Un assignment porte au moins une cible, et une seule par plateforme.",
     "ERR_TARGETS_MIXED_OWNERSHIP": "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes du créateur.",
     "ERR_TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR": "Compte cible introuvable pour ce créateur.",
     "ERR_TARGET_ACCOUNT_NOT_IN_PROJECT": "Compte cible introuvable dans le projet.",

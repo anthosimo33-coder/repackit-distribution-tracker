@@ -19,27 +19,39 @@
  * lien ouvert depuis l'admin n'a pas à porter le traceur d'une créatrice.
  */
 
+import type { Plateforme } from "../convex/platforms";
 import { handleFromPostUrl } from "./post-url-account";
 
-export type ProfilePlateforme = "TikTok" | "Instagram" | "YouTube";
+export type ProfilePlateforme = Plateforme;
 
 const HOTES: Record<ProfilePlateforme, RegExp> = {
   TikTok: /(^|\.)tiktok\.com$/i,
   Instagram: /(^|\.)instagram\.com$/i,
   YouTube: /(^|\.)youtube\.com$/i,
+  Facebook: /(^|\.)facebook\.com$/i,
+  Snapchat: /(^|\.)snapchat\.com$/i,
 };
 
 /**
- * Caractères admis dans un nom de compte sur les trois plateformes (lettres,
+ * Caractères admis dans un nom de compte sur toutes les plateformes (lettres,
  * chiffres, point, tiret bas, tiret). Tout le reste — espace, slash, `?` — veut
  * dire que la chaîne n'est pas un nom de compte, et on ne fabrique pas d'URL.
  */
 const NOM_DE_COMPTE = /^[A-Za-z0-9._-]+$/;
 
 function profilCanonique(plateforme: ProfilePlateforme, nom: string): string {
-  if (plateforme === "TikTok") return `https://www.tiktok.com/@${nom}`;
-  if (plateforme === "Instagram") return `https://www.instagram.com/${nom}/`;
-  return `https://www.youtube.com/@${nom}`;
+  switch (plateforme) {
+    case "TikTok":
+      return `https://www.tiktok.com/@${nom}`;
+    case "Instagram":
+      return `https://www.instagram.com/${nom}/`;
+    case "YouTube":
+      return `https://www.youtube.com/@${nom}`;
+    case "Facebook":
+      return `https://www.facebook.com/${nom}`;
+    case "Snapchat":
+      return `https://www.snapchat.com/add/${nom}`;
+  }
 }
 
 /** Le compte que désigne une URL collée, ou null si elle n'en désigne aucun. */
@@ -63,6 +75,15 @@ function profilDepuisUrl(
   if (plateforme === "YouTube") {
     const chaine = u.pathname.match(/^\/channel\/([A-Za-z0-9_-]+)/);
     if (chaine) return `https://www.youtube.com/channel/${chaine[1]}`;
+  }
+
+  // Profil Facebook sans nom d'utilisateur : son identifiant NUMÉRIQUE est
+  // l'adresse, et le handle affiché (un nom) n'en mène à aucune.
+  if (plateforme === "Facebook" && u.pathname === "/profile.php") {
+    const id = u.searchParams.get("id");
+    if (id && /^\d+$/.test(id)) {
+      return `https://www.facebook.com/profile.php?id=${id}`;
+    }
   }
 
   // Même lecture que la vérification des liens de post : `/@nom` sur TikTok et

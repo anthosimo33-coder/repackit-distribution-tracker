@@ -7,19 +7,22 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { FilterMultiSelect } from "@/components/filters/FilterMultiSelect";
-import { ALL_PLATFORMS } from "@/lib/format-config";
 import {
   type InspirationFilters,
   isDefaultFilters,
   DEFAULT_FILTERS,
 } from "@/lib/inspiration-filters";
-import type { InspirationType, Plateforme } from "@/lib/inspiration-url";
+import {
+  INSPIRATION_PLATFORMS,
+  type InspirationType,
+  type Plateforme,
+} from "@/lib/inspiration-url";
 import { useTranslations } from "next-intl";
 
 // Libellés : `admin.library.inspirationType.<type>`.
 const TYPE_VALUES = ["video", "account"] as const;
 
-const PLATFORM_OPTIONS = ALL_PLATFORMS.map((p) => ({ value: p, label: p }));
+const PLATFORM_OPTIONS = INSPIRATION_PLATFORMS.map((p) => ({ value: p, label: p }));
 
 /**
  * Batch G — panneau de filtres /inspirations. Tous les Sets vides = "tous"

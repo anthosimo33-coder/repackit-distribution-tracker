@@ -330,6 +330,11 @@ describe("savesAvailability — « en cours » vs « — » définitif", () => {
     expect(savesAvailability(null, "Instagram")).toBe("unavailable");
     expect(savesAvailability(null, "YouTube")).toBe("unavailable");
   });
+
+  it("absente sur Facebook/Snapchat → indisponible : ni l'une ni l'autre n'expose de saves", () => {
+    expect(savesAvailability(null, "Facebook")).toBe("unavailable");
+    expect(savesAvailability(null, "Snapchat")).toBe("unavailable");
+  });
 });
 
 describe("accountStateOf", () => {

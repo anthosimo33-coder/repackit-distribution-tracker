@@ -33,6 +33,7 @@ import {
 } from "./challengeScore";
 import { resolveCreatorKind } from "./roles";
 import { ERR, err } from "./errorCodes";
+import type { Plateforme } from "./platforms";
 
 /**
  * DÉFIS — administration : création, matériel, ciblage nominatif, lecture.
@@ -852,7 +853,7 @@ export async function createChallengeAssignment(
   input: {
     challenge: Doc<"challenges">;
     creatorId: Id<"creators">;
-    targets: { platform: "TikTok" | "Instagram" | "YouTube"; accountId: Id<"comptes"> }[];
+    targets: { platform: Plateforme; accountId: Id<"comptes"> }[];
     /** Échéance de production. Défaut : la deadline du défi. */
     dueDate?: number;
     postDate?: number;

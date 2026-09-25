@@ -47,6 +47,54 @@ describe("compteProfileUrl — l'URL collée prime quand elle désigne un compte
   });
 });
 
+describe("compteProfileUrl — Facebook et Snapchat", () => {
+  it("Facebook : un lien de vidéo de Page donne la Page, sans traceur", () => {
+    expect(
+      compteProfileUrl({
+        plateforme: "Facebook",
+        handle: "Kelly Snytch",
+        url: "https://m.facebook.com/kelly.snytch/videos/1284539976120931/?mibextid=wwXIfr",
+      }),
+    ).toBe("https://www.facebook.com/kelly.snytch");
+  });
+
+  it("Facebook : un profil sans nom d'utilisateur garde son identifiant numérique", () => {
+    expect(
+      compteProfileUrl({
+        plateforme: "Facebook",
+        handle: "Kelly Martin",
+        url: "https://www.facebook.com/profile.php?id=61554471234567&mibextid=ZbWKwL",
+      }),
+    ).toBe("https://www.facebook.com/profile.php?id=61554471234567");
+  });
+
+  it("Snapchat : l'adresse /add/ est reconstruite sans les paramètres de partage", () => {
+    expect(
+      compteProfileUrl({
+        plateforme: "Snapchat",
+        handle: "@kelly.snytch",
+        url: "https://www.snapchat.com/add/kelly.snytch?share_id=MTIzNDU2&locale=fr-FR",
+      }),
+    ).toBe("https://www.snapchat.com/add/kelly.snytch");
+  });
+
+  it("Snapchat : sans URL, le handle mène au profil public", () => {
+    expect(
+      compteProfileUrl({ plateforme: "Snapchat", handle: "@kelly.snytch", url: null }),
+    ).toBe("https://www.snapchat.com/add/kelly.snytch");
+  });
+
+  it("un Reel Facebook (sans nom de compte) laisse le handle reprendre la main", () => {
+    expect(
+      compteProfileUrl({
+        plateforme: "Facebook",
+        handle: "kelly.snytch",
+        url: "https://www.facebook.com/reel/1284539976120931",
+      }),
+    ).toBe("https://www.facebook.com/kelly.snytch");
+  });
+});
+
 describe("compteProfileUrl — le handle reprend la main quand l'URL ne désigne rien", () => {
   it("URL sans schéma ni @ (cas @sarahkl02 → www.tiktok.com/julie.kl31)", () => {
     expect(

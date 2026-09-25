@@ -1433,7 +1433,7 @@
     "ERR_SUPERADMIN_ONLY": "Superadmin only.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talent not found in this project.",
     "ERR_TALENT_NOT_PAIRED": "{name} isn't paired with any clipper: link a clipper from their profile before assigning a script.",
-    "ERR_TARGETS_COUNT": "An assignment carries 1 to 3 targets (platforms).",
+    "ERR_TARGETS_COUNT": "An assignment carries at least one target, and only one per platform.",
     "ERR_TARGETS_MIXED_OWNERSHIP": "An assignment can't mix team-managed accounts with the creator's own accounts.",
     "ERR_TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR": "Target account not found for this creator.",
     "ERR_TARGET_ACCOUNT_NOT_IN_PROJECT": "Target account not found in the project.",
