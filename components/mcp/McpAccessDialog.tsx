@@ -27,7 +27,14 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 
 /**
- * CONNECTER CLAUDE — clés d'accès personnelles au serveur MCP de l'app.
+ * CONNECTER CLAUDE — deux voies vers le serveur MCP de l'app.
+ *
+ * LE CONNECTEUR (claude.ai, Claude Desktop, mobile) : une adresse à coller dans
+ * Claude, qui lance ensuite la connexion OAuth et renvoie la personne sur la
+ * page de consentement de l'app (convex/mcpOAuth.ts). Rien à copier d'autre.
+ * Les accès ainsi accordés sont listés ici, et révocables.
+ *
+ * LA CLÉ PERSONNELLE (Claude Code, scripts) :
  *
  * La clé en clair n'existe qu'au moment de sa création (seule son empreinte est
  * stockée) : l'écran la montre ALORS, avec les commandes prêtes à coller, et ne
@@ -57,8 +64,11 @@ function Contenu() {
   const showError = useConvexError();
   const cles = useQuery(api.mcpTokens.listMyMcpTokens, {});
   const endpoint = useQuery(api.mcpTokens.getMcpEndpoint, {});
+  const oauth = useQuery(api.mcpOAuth.getOAuthStatus, {});
+  const applications = useQuery(api.mcpOAuth.listMyOAuthGrants, {});
   const creer = useAction(api.mcpTokens.createMcpToken);
   const revoquer = useMutation(api.mcpTokens.revokeMcpToken);
+  const couperAcces = useMutation(api.mcpOAuth.revokeOAuthGrant);
   const [nom, setNom] = useState("Claude");
   const [creation, setCreation] = useState(false);
   const [nouvelle, setNouvelle] = useState<string | null>(null);
@@ -82,6 +92,15 @@ function Contenu() {
     try {
       await revoquer({ tokenId: id });
       toast.success(tr("cleRevoquee", { name: nomCle }));
+    } catch (err) {
+      toast.error(showError(err, tr("revocationImpossible")));
+    }
+  }
+
+  async function handleCouper(id: Id<"mcpOAuthGrants">, nomApp: string) {
+    try {
+      await couperAcces({ grantId: id });
+      toast.success(tr("accesCoupe", { name: nomApp }));
     } catch (err) {
       toast.error(showError(err, tr("revocationImpossible")));
     }
@@ -122,6 +141,29 @@ function Contenu() {
       </DialogHeader>
 
       <div className="min-w-0 space-y-5 py-2">
+        {oauth !== undefined && (
+          <section className="space-y-1.5" aria-label={tr("connecteurTitre")}>
+            <p className="text-sm font-medium text-slate-700">{tr("connecteurTitre")}</p>
+            {oauth.pret ? (
+              <>
+                <p className="text-xs text-slate-500">{tr("connecteurAide")}</p>
+                <div className="flex items-center gap-2">
+                  <code
+                    data-testid="mcp-adresse-connecteur"
+                    className="min-w-0 flex-1 truncate rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-800"
+                  >
+                    {url}
+                  </code>
+                  <CopyButton text={url} label={tr("copier")} copiedLabel={tr("copie")} />
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-slate-500">{tr("connecteurIndisponible")}</p>
+            )}
+          </section>
+        )}
+
+        <p className="text-sm font-medium text-slate-700">{tr("cleTitre")}</p>
         {nouvelle === null || commandes === null ? (
           <form onSubmit={handleCreer} className="space-y-1.5">
             <Label htmlFor="mcp-key-name">{tr("nomDeLaCle")}</Label>
@@ -187,6 +229,47 @@ function Contenu() {
             {error}
           </p>
         )}
+
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-slate-700">{tr("applicationsConnectees")}</p>
+          {applications === undefined ? null : applications.length === 0 ? (
+            <p className="text-sm text-slate-500">{tr("aucuneApplication")}</p>
+          ) : (
+            <ul
+              aria-label={tr("applicationsConnectees")}
+              className="divide-y divide-slate-100 rounded-lg border border-slate-200"
+            >
+              {applications.map((a) => {
+                const nomApp = a.clientName || tr("sansNom");
+                return (
+                  <li key={a._id} className="flex items-center gap-3 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-800">
+                        {nomApp} <span className="font-normal text-slate-500">· {a.hote}</span>
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {tr("connecteeLe", { date: date(a.createdAt) })}
+                        {" · "}
+                        {a.lastUsedAt === null
+                          ? tr("jamaisUtilisee")
+                          : tr("utiliseeLe", { date: date(a.lastUsedAt) })}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                      onClick={() => void handleCouper(a._id, nomApp)}
+                    >
+                      {tr("couper")}
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
 
         <div className="space-y-2">
           <p className="text-sm font-medium text-slate-700">{tr("mesCles")}</p>

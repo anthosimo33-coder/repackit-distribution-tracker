@@ -1474,7 +1474,9 @@
     "ERR_MCP_TOKEN_NOT_ALLOWED": "Les clés d’accès sont réservées à l’équipe (admin ou manager).",
     "ERR_MCP_TOKEN_NAME_REQUIRED": "Donne un nom à la clé (ex. « Claude sur mon Mac »).",
     "ERR_MCP_TOKEN_LIMIT": "Tu as déjà {max} clés : révoque celles qui ne servent plus.",
-    "ERR_MCP_TOKEN_NOT_FOUND": "Clé introuvable."
+    "ERR_MCP_TOKEN_NOT_FOUND": "Clé introuvable.",
+    "ERR_MCP_OAUTH_REQUEST_INVALID": "Demande d’autorisation invalide ou expirée : relance la connexion depuis Claude.",
+    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Accès introuvable."
   },
   "calendar": {
     "weekday": {

@@ -1668,6 +1668,59 @@ export default defineSchema({
     .index("by_hash", ["tokenHash"])
     .index("by_user", ["userId"]),
 
+  // CONNECTEUR OAuth du serveur MCP (convex/mcpOAuth.ts) — la voie de claude.ai,
+  // Claude Desktop et mobile, qui n'acceptent pas de clé collée. Trois tables,
+  // aucune ne porte de projectId (comme mcpTokens : l'accès suit la PERSONNE).
+  //
+  // Clients enregistrés dynamiquement (RFC 7591) : un par connexion lancée
+  // depuis Claude. `clientSecretHash` seulement pour un client confidentiel.
+  mcpOAuthClients: defineTable({
+    clientId: v.string(),
+    clientSecretHash: v.optional(v.string()),
+    authMethod: v.union(
+      v.literal("none"),
+      v.literal("client_secret_post"),
+      v.literal("client_secret_basic"),
+    ),
+    clientName: v.string(),
+    redirectUris: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_client_id", ["clientId"])
+    .index("by_created", ["createdAt"]),
+  // Codes d'autorisation : 10 min, usage unique (supprimés à l'échange, même raté).
+  mcpOAuthCodes: defineTable({
+    codeHash: v.string(),
+    clientId: v.string(),
+    userId: v.id("users"),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    scope: v.string(),
+    resource: v.optional(v.string()),
+    expiresAt: v.number(),
+  }).index("by_hash", ["codeHash"]),
+  // Un accès accordé = une ligne. Révoquer = supprimer la ligne. Rotation du
+  // jeton de rafraîchissement : le PRÉCÉDENT reste valable tant que le nouveau
+  // n'a pas servi (une réponse perdue ne déconnecte pas Claude).
+  mcpOAuthGrants: defineTable({
+    userId: v.id("users"),
+    clientId: v.string(),
+    clientName: v.string(),
+    redirectHost: v.string(),
+    scope: v.string(),
+    accessTokenHash: v.string(),
+    accessExpiresAt: v.number(),
+    refreshTokenHash: v.string(),
+    previousRefreshTokenHash: v.optional(v.string()),
+    refreshExpiresAt: v.number(),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_access", ["accessTokenHash"])
+    .index("by_refresh", ["refreshTokenHash"])
+    .index("by_previous_refresh", ["previousRefreshTokenHash"])
+    .index("by_user", ["userId"]),
+
   // Invitations à token (uuid). Une invitation = un lien /join/<token> à usage
   // unique, lié à un créateur. expiresAt défaut +14 j ; usedAt posé à la
   // consommation (la mutation de signup la marque). by_token = résolution du

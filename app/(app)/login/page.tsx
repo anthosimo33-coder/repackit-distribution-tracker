@@ -12,6 +12,7 @@ import { api } from "@/convex/_generated/api";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { LocaleSwitch } from "@/components/public/LocaleSwitch";
 import { cn } from "@/lib/utils";
+import { SUITE_PARAM, suiteApresConnexion } from "@/lib/login-suite";
 import { clashDisplay, switzer } from "@/components/brand/fonts";
 import styles from "./login.module.css";
 
@@ -73,7 +74,11 @@ export default function LoginPage() {
       await signIn("password", { email, password, flow });
       // P3 — `/` résout le projet par défaut puis redirige vers son dashboard
       // scopé (le projet dépend de l'utilisateur, pas de route codée en dur).
-      router.push("/");
+      // Sauf retour demandé (connecteur Claude, cf lib/login-suite.ts).
+      router.push(
+        suiteApresConnexion(new URLSearchParams(window.location.search).get(SUITE_PARAM)) ??
+          "/",
+      );
     } catch (err) {
       setError(
         err instanceof ConvexError && typeof err.data === "string"

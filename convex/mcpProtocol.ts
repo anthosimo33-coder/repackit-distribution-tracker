@@ -239,11 +239,14 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
 /**
  * Tout l'échange HTTP, sans le réseau : méthode, authentification, corps. La
  * résolution de la clé est injectée (`resoudre`) — `null` = clé inconnue ou
- * révoquée.
+ * révoquée. `defi` construit l'en-tête `WWW-Authenticate` du 401 (il pointe
+ * les métadonnées OAuth, cf mcpOAuthCore.wwwAuthenticate) ; son argument dit si
+ * un jeton a été présenté.
  */
 export async function handleMcpHttp(
   req: { method: string; authorization: string | null; body: string },
   resoudre: (token: string) => Promise<McpServer | null>,
+  defi: (jetonPresente: boolean) => string = () => 'Bearer realm="jarvia"',
 ): Promise<HttpReponse> {
   if (req.method !== "POST") {
     // Pas de flux serveur→client ni de session à fermer : seul POST existe.
@@ -258,7 +261,7 @@ export async function handleMcpHttp(
   if (!server) {
     return {
       status: 401,
-      headers: { "WWW-Authenticate": 'Bearer realm="jarvia"', ...JSON_HEADERS },
+      headers: { "WWW-Authenticate": defi(token !== null), ...JSON_HEADERS },
       body: JSON.stringify(
         erreur(
           null,

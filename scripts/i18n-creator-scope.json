@@ -170,6 +170,7 @@
     "lib/inspiration-url.ts",
     "lib/intl-locale.ts",
     "lib/leaderboard-window.ts",
+    "lib/login-suite.ts",
     "lib/markdown.ts",
     "lib/model-video-embed.ts",
     "lib/on-time-streak.ts",
