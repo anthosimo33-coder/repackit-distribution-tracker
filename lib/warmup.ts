@@ -40,12 +40,16 @@ export const WARMUP_TARGET_DAYS_FALLBACK = {
   youtube: 7,
   tiktok: 7,
   instagram: 14,
-} as const;
+  // Facebook et Snapchat (2026-09-25) : aucune règle produit posée à leur
+  // arrivée, donc le repli le plus courant. Chaque projet règle la sienne.
+  facebook: 7,
+  snapchat: 7,
+} as const satisfies Record<PlateformeKey, number>;
 
-export type WarmupPlatformKey = keyof typeof WARMUP_TARGET_DAYS_FALLBACK;
-export type Plateforme = "TikTok" | "Instagram" | "YouTube";
+export type WarmupPlatformKey = PlateformeKey;
+export type { Plateforme };
 
-/** Barème d'un projet : les trois plateformes, en jours. */
+/** Barème d'un projet : toutes les plateformes, en jours. */
 export type WarmupTargetDays = Record<WarmupPlatformKey, number>;
 
 /**
@@ -60,12 +64,19 @@ export function warmupTargetDaysOf(project: {
     tiktok: p.tiktok ?? WARMUP_TARGET_DAYS_FALLBACK.tiktok,
     instagram: p.instagram ?? WARMUP_TARGET_DAYS_FALLBACK.instagram,
     youtube: p.youtube ?? WARMUP_TARGET_DAYS_FALLBACK.youtube,
+    facebook: p.facebook ?? WARMUP_TARGET_DAYS_FALLBACK.facebook,
+    snapchat: p.snapchat ?? WARMUP_TARGET_DAYS_FALLBACK.snapchat,
   };
 }
 
 // Le jour vient de convex/creatorDay (module PUR : lib/ peut l'importer, c'est
 // convex/ qui ne peut pas importer lib/). UNE seule définition des deux côtés.
 import { dayKey, zoneOrNeutral, type CreatorZone } from "../convex/creatorDay";
+import {
+  PLATEFORME_KEY,
+  type Plateforme,
+  type PlateformeKey,
+} from "../convex/platforms";
 
 const DAY_MS = 86_400_000;
 
@@ -73,14 +84,7 @@ export type { CreatorZone };
 
 /** Plateforme applicative (capitalisée) → clé du barème. */
 export function platformKey(plateforme: Plateforme): WarmupPlatformKey {
-  switch (plateforme) {
-    case "TikTok":
-      return "tiktok";
-    case "Instagram":
-      return "instagram";
-    case "YouTube":
-      return "youtube";
-  }
+  return PLATEFORME_KEY[plateforme];
 }
 
 /**

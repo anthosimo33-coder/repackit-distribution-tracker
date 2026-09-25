@@ -14,7 +14,13 @@
  */
 
 export type InspirationType = "video" | "account";
-export type Plateforme = "TikTok" | "Instagram" | "YouTube";
+/**
+ * Plateformes de la VEILLE — volontairement distinctes des plateformes de
+ * publication (`convex/platforms`) : on ne sait détecter ni vignetter un
+ * contenu Facebook ou Snapchat. Les ajouter ici est un chantier à part.
+ */
+export const INSPIRATION_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+export type Plateforme = (typeof INSPIRATION_PLATFORMS)[number];
 
 type Pattern = {
   regex: RegExp;

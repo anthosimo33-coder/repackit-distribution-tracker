@@ -46,10 +46,10 @@ import {
 } from "./InspirationStatsAccordion";
 import {
   detectInspirationType,
+  INSPIRATION_PLATFORMS,
   type InspirationType,
   type Plateforme,
 } from "@/lib/inspiration-url";
-import { ALL_PLATFORMS } from "@/lib/format-config";
 import { Loader2Icon, StarIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -494,7 +494,7 @@ function InspirationDialogForm({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {ALL_PLATFORMS.map((p) => (
+                    {INSPIRATION_PLATFORMS.map((p) => (
                       <SelectItem key={p} value={p}>
                         {p}
                       </SelectItem>

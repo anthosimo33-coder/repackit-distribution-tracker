@@ -83,6 +83,7 @@ import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
 import { useConvexError } from "@/lib/use-convex-error";
+import type { Plateforme } from "@/convex/platforms";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
@@ -778,7 +779,7 @@ function CorrectUrlButton({
   currentUrl,
 }: {
   assignmentId: Id<"assignments">;
-  platform: "TikTok" | "Instagram" | "YouTube";
+  platform: Plateforme;
   currentUrl: string;
 }) {
   const showError = useConvexError();

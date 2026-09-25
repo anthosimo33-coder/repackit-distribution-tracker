@@ -1,9 +1,9 @@
 import type { Id } from "@/convex/_generated/dataModel";
-import type {
-  InspirationType,
-  Plateforme,
+import {
+  INSPIRATION_PLATFORMS,
+  type InspirationType,
+  type Plateforme,
 } from "./inspiration-url";
-import { ALL_PLATFORMS } from "./format-config";
 
 /**
  * Batch G → H — état local des filtres /inspirations. Sets vides = "tous"
@@ -102,7 +102,7 @@ const VALID_TYPES: ReadonlySet<InspirationType> = new Set<InspirationType>([
 ]);
 // i18n-exempt: générique TypeScript, pas du texte
 const VALID_PLATEFORMES: ReadonlySet<Plateforme> = new Set<Plateforme>(
-  ALL_PLATFORMS,
+  INSPIRATION_PLATFORMS,
 );
 
 /**

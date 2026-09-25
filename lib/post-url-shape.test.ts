@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import type { Plateforme } from "../convex/platforms";
 import {
   detectPostUrlPlatform,
   isAccountOnlyUrl,
@@ -19,6 +20,17 @@ describe("detectPostUrlPlatform — formes réelles copiées des apps", () => {
     ["https://www.youtube.com/watch?app=desktop&v=abc_123", "YouTube"],
     ["https://www.youtube.com/live/abc_123", "YouTube"],
     ["https://youtu.be/abc_123?si=xyz", "YouTube"],
+    // Facebook : Reel, lien de partage de l'app, vidéo de Page, fb.watch, mobile.
+    ["https://www.facebook.com/reel/1284539976120931", "Facebook"],
+    ["https://www.facebook.com/share/r/1AbCdEfGh2/?mibextid=wwXIfr", "Facebook"],
+    ["https://www.facebook.com/snytch.fr/videos/1284539976120931/", "Facebook"],
+    ["https://fb.watch/uXyZ12aBcD/", "Facebook"],
+    ["https://m.facebook.com/watch/?v=1284539976120931", "Facebook"],
+    // Snapchat : Spotlight nu et sous le profil (forme servie par snapchat.com).
+    ["https://www.snapchat.com/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ", "Snapchat"],
+    ["https://www.snapchat.com/@kelly.snytch/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ?share_id=abc&locale=fr-FR", "Snapchat"],
+    ["https://facebook.com.evil.example/reel/1284539976120931", undefined],
+    ["https://notsnapchat.com/spotlight/W7_EDlXW", undefined],
     // Hôte qui CONTIENT le domaine sans en être : l'ancienne détection par
     // sous-chaîne l'acceptait, les vues étaient alors introuvables à jamais.
     ["https://tiktok.com.evil.example/@u/video/7123456789012345678", undefined],
@@ -33,7 +45,7 @@ describe("detectPostUrlPlatform — formes réelles copiées des apps", () => {
 });
 
 describe("isAccountOnlyUrl — un lien de PROFIL n'est pas un lien de post", () => {
-  const accounts: Array<[string, "TikTok" | "Instagram" | "YouTube"]> = [
+  const accounts: Array<[string, Plateforme]> = [
     ["https://www.tiktok.com/@detectivekezz", "TikTok"],
     ["https://www.tiktok.com/@detectivekezz/", "TikTok"],
     ["https://www.tiktok.com/@detectivekezz?lang=fr", "TikTok"],
@@ -44,12 +56,19 @@ describe("isAccountOnlyUrl — un lien de PROFIL n'est pas un lien de post", () 
     ["https://www.youtube.com/channel/UCabcdef123", "YouTube"],
     ["https://www.youtube.com/c/legacyname", "YouTube"],
     ["https://www.youtube.com/user/legacyname", "YouTube"],
+    ["https://www.facebook.com/kelly.snytch", "Facebook"],
+    ["https://www.facebook.com/kelly.snytch/reels/", "Facebook"],
+    ["https://www.facebook.com/profile.php?id=61554471234567", "Facebook"],
+    ["https://www.facebook.com/people/Kelly-Martin/61554471234567/", "Facebook"],
+    ["https://www.snapchat.com/add/kelly.snytch", "Snapchat"],
+    ["https://www.snapchat.com/add/kelly.snytch?share_id=abc&locale=fr-FR", "Snapchat"],
+    ["https://www.snapchat.com/@kelly.snytch", "Snapchat"],
   ];
   it.each(accounts)("%s (%s) → profil", (url, platform) => {
     expect(isAccountOnlyUrl(url, platform)).toBe(true);
   });
 
-  const posts: Array<[string, "TikTok" | "Instagram" | "YouTube"]> = [
+  const posts: Array<[string, Plateforme]> = [
     ["https://www.tiktok.com/@detectivekezz/video/7123456789012345678", "TikTok"],
     ["https://www.tiktok.com/@detectivekezz/photo/7123456789012345678", "TikTok"],
     ["https://www.tiktok.com/t/ZP8cDXdtT/", "TikTok"],
@@ -60,6 +79,16 @@ describe("isAccountOnlyUrl — un lien de PROFIL n'est pas un lien de post", () 
     ["https://www.youtube.com/shorts/abc_123", "YouTube"],
     ["https://www.youtube.com/watch?v=abc_123", "YouTube"],
     ["https://youtu.be/abc_123", "YouTube"],
+    ["https://www.facebook.com/reel/1284539976120931", "Facebook"],
+    ["https://www.facebook.com/share/r/1AbCdEfGh2/?mibextid=wwXIfr", "Facebook"],
+    ["https://www.facebook.com/share/v/1AbCdEfGh2/", "Facebook"],
+    ["https://www.facebook.com/snytch.fr/videos/1284539976120931/", "Facebook"],
+    ["https://www.facebook.com/kelly.snytch/posts/pfbid02abcDEF", "Facebook"],
+    ["https://m.facebook.com/watch/?v=1284539976120931", "Facebook"],
+    ["https://fb.watch/uXyZ12aBcD/", "Facebook"],
+    ["https://www.snapchat.com/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ", "Snapchat"],
+    ["https://www.snapchat.com/@kelly.snytch/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ", "Snapchat"],
+    ["https://www.snapchat.com/t/AbCdEf12", "Snapchat"],
     // Non reconnu ⇒ PAS « prouvé profil » : on ne bloque que ce qu'on prouve.
     ["https://www.tiktok.com/inconnu/format/futur", "TikTok"],
     ["", "TikTok"],
@@ -107,6 +136,28 @@ describe("publishUrlIssue — ne bloque QUE ce qui est prouvé faux", () => {
     expect(publishUrlIssue("https://www.instagram.com/detectivekezz/", "Instagram")).toBe(
       "account-url",
     );
+  });
+  it("refuse un Reel Facebook sur la cible Instagram (même maison, autre plateforme)", () => {
+    expect(
+      publishUrlIssue("https://www.facebook.com/reel/1284539976120931", "Instagram"),
+    ).toBe("wrong-platform");
+  });
+  it("refuse un lien de profil Facebook ou Snapchat, accepte leurs posts", () => {
+    expect(publishUrlIssue("https://www.facebook.com/kelly.snytch", "Facebook")).toBe(
+      "account-url",
+    );
+    expect(publishUrlIssue("https://www.snapchat.com/add/kelly.snytch", "Snapchat")).toBe(
+      "account-url",
+    );
+    expect(
+      publishUrlIssue("https://www.facebook.com/reel/1284539976120931", "Facebook"),
+    ).toBeNull();
+    expect(
+      publishUrlIssue(
+        "https://www.snapchat.com/@kelly.snytch/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ",
+        "Snapchat",
+      ),
+    ).toBeNull();
   });
   it("nomme la mauvaise plateforme AVANT le profil quand les deux sont vrais", () => {
     expect(publishUrlIssue("https://www.instagram.com/detectivekezz/", "TikTok")).toBe(

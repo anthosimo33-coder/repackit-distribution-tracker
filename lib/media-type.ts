@@ -1,4 +1,5 @@
 import type { Doc } from "@/convex/_generated/dataModel";
+import { PLATEFORMES } from "../convex/platforms";
 
 /**
  * Source unique de vérité pour le mediaType d'une publication.
@@ -19,24 +20,17 @@ export function getMediaType(p: Doc<"publications">): MediaType {
 
 /**
  * Plateformes éligibles selon le mediaType. Les Carrousels ne sont pas
- * autorisés sur YouTube (pas de format carrousel natif). Les Shorts et les
- * ScreenRecorders couvrent les 3 plateformes (TikTok, Instagram, YouTube).
+ * autorisés que sur TikTok et Instagram (ni YouTube, ni Facebook, ni Snapchat
+ * n'en ont un format natif). Les Shorts et les ScreenRecorders couvrent toutes
+ * les plateformes.
  *
  * Defense in depth : ces constantes pilotent l'UI (filtrage des dropdowns
  * plateforme cible) ET la validation serveur (cf isFormatAllowedOnPlatform
  * appliqué dans createPublication / updateDraft / duplicateCarousel).
  */
 export const ALLOWED_PLATFORMS_FOR_CAROUSEL = ["TikTok", "Instagram"] as const;
-export const ALLOWED_PLATFORMS_FOR_SHORT = [
-  "TikTok",
-  "Instagram",
-  "YouTube",
-] as const;
-export const ALLOWED_PLATFORMS_FOR_SCREENRECORDER = [
-  "TikTok",
-  "Instagram",
-  "YouTube",
-] as const;
+export const ALLOWED_PLATFORMS_FOR_SHORT = PLATEFORMES;
+export const ALLOWED_PLATFORMS_FOR_SCREENRECORDER = PLATEFORMES;
 
 export function isFormatAllowedOnPlatform(
   mediaType: MediaType,

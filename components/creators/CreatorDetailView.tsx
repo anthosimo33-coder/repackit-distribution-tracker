@@ -231,6 +231,12 @@ export function CreatorDetailView({
   const [handleInstagram, setHandleInstagram] = useState(
     creator.handlesToCreate?.instagram ?? "",
   );
+  const [handleFacebook, setHandleFacebook] = useState(
+    creator.handlesToCreate?.facebook ?? "",
+  );
+  const [handleSnapchat, setHandleSnapchat] = useState(
+    creator.handlesToCreate?.snapchat ?? "",
+  );
   const [saving, setSaving] = useState(false);
   // Lien de reset généré (affiché dans un dialog à copier). null = dialog fermé.
   const [resetToken, setResetToken] = useState<string | null>(null);
@@ -284,6 +290,8 @@ export function CreatorDetailView({
           tiktok: handleTiktok.trim() || undefined,
           youtube: handleYoutube.trim() || undefined,
           instagram: handleInstagram.trim() || undefined,
+          facebook: handleFacebook.trim() || undefined,
+          snapchat: handleSnapchat.trim() || undefined,
         },
         // Population — n'est envoyée QUE si elle change : le serveur refuse la
         // bascule sur une fiche qui a déjà des comptes, des publications ou des
@@ -734,6 +742,26 @@ export function CreatorDetailView({
                   placeholder="@…"
                   value={handleInstagram}
                   onChange={(e) => setHandleInstagram(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="handle-facebook">{tA("facebookACreer")}</Label>
+                <Input
+                  id="handle-facebook"
+                  maxLength={64}
+                  placeholder="@…"
+                  value={handleFacebook}
+                  onChange={(e) => setHandleFacebook(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="handle-snapchat">{tA("snapchatACreer")}</Label>
+                <Input
+                  id="handle-snapchat"
+                  maxLength={64}
+                  placeholder="@…"
+                  value={handleSnapchat}
+                  onChange={(e) => setHandleSnapchat(e.target.value)}
                 />
               </div>
             </CardContent>

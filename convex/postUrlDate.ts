@@ -1,3 +1,5 @@
+import type { Plateforme } from "./platforms";
+
 /**
  * DATE DE PUBLICATION LUE DANS L'URL D'UN POST — lecture pure, sans réseau.
  *
@@ -26,8 +28,8 @@
  * laquelle des deux.
  */
 
-/** Plateformes d'un lien de post (miroir de `UrlPlateforme`). */
-export type PostDatePlatform = "TikTok" | "Instagram" | "YouTube";
+/** Plateformes d'un lien de post. */
+export type PostDatePlatform = Plateforme;
 
 /**
  * Shortlink TikTok — `vm.`/`vt.tiktok.com/<code>` et `tiktok.com/t/<code>`.

@@ -28,10 +28,12 @@ import {
   ALLOWED_PLATFORMS_FOR_SHORT,
   type MediaType,
 } from "./media-type";
+import { PLATEFORMES, type Plateforme } from "../convex/platforms";
 
-export type Platform = "TikTok" | "Instagram" | "YouTube";
+export type Platform = Plateforme;
 
-export const ALL_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+/** Plateformes de PUBLICATION. La veille a sa liste : INSPIRATION_PLATFORMS. */
+export const ALL_PLATFORMS = PLATEFORMES;
 
 // Batch E — clé KPI unique côté UI. Mappée vers une valeur via getKpiValue
 // dans les composants AnalyticsSection. Toutes les valeurs ne s'appliquent

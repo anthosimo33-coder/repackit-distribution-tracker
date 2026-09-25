@@ -16,6 +16,7 @@ import {
 } from "./permissions";
 import { normalizeRef } from "./conversionAttribution";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
+import type { PlateformeKey } from "./platforms";
 import {
   accountValidationModeOf,
   isStrictAccountValidation,
@@ -1005,8 +1006,8 @@ export const getWarmupSettings = permissionQuery("project.settings")({
   handler: async (
     ctx,
   ): Promise<{
-    defined: { tiktok: number | null; instagram: number | null; youtube: number | null };
-    effective: { tiktok: number; instagram: number; youtube: number };
+    defined: Record<PlateformeKey, number | null>;
+    effective: Record<PlateformeKey, number>;
   }> => {
     const project = await ctx.db.get(ctx.projectId);
     const d = project?.warmupTargetDays ?? {};
@@ -1015,6 +1016,8 @@ export const getWarmupSettings = permissionQuery("project.settings")({
         tiktok: d.tiktok ?? null,
         instagram: d.instagram ?? null,
         youtube: d.youtube ?? null,
+        facebook: d.facebook ?? null,
+        snapchat: d.snapchat ?? null,
       },
       effective: warmupTargetDaysOf(project ?? {}),
     };
@@ -1117,6 +1120,11 @@ export const setWarmupSettings = permissionMutation("project.settings")({
     tiktok: v.union(v.number(), v.null()),
     instagram: v.union(v.number(), v.null()),
     youtube: v.union(v.number(), v.null()),
+    // FACULTATIFS, et ABSENT ≠ null : un onglet ouvert avant l'arrivée de
+    // Facebook et Snapchat (2026-09-25) n'envoie pas ces clés. Les lire comme
+    // « vidées » effacerait en silence un réglage posé depuis un autre onglet.
+    facebook: v.optional(v.union(v.number(), v.null())),
+    snapchat: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args): Promise<{ updated: true }> => {
     const clean = (v2: number | null, label: string): number | undefined => {
@@ -1126,18 +1134,24 @@ export const setWarmupSettings = permissionMutation("project.settings")({
       }
       return v2;
     };
+    const avant = (await ctx.db.get(ctx.projectId))?.warmupTargetDays ?? {};
     const next = {
       tiktok: clean(args.tiktok, "TikTok"),
       instagram: clean(args.instagram, "Instagram"),
       youtube: clean(args.youtube, "YouTube"),
+      facebook:
+        args.facebook === undefined
+          ? avant.facebook
+          : clean(args.facebook, "Facebook"),
+      snapchat:
+        args.snapchat === undefined
+          ? avant.snapchat
+          : clean(args.snapchat, "Snapchat"),
     };
-    // Les trois vides ⇒ on retire le champ : le projet cesse de définir un
+    // Toutes vides ⇒ on retire le champ : le projet cesse de définir un
     // barème, plutôt que d'en stocker un vide qui voudrait dire la même chose
     // avec une ligne de plus en base.
-    const aucune =
-      next.tiktok === undefined &&
-      next.instagram === undefined &&
-      next.youtube === undefined;
+    const aucune = Object.values(next).every((d) => d === undefined);
     await ctx.db.patch(ctx.projectId, {
       warmupTargetDays: aucune ? undefined : next,
     });

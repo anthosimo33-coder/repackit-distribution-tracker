@@ -18,6 +18,7 @@ import {
   DEFAULT_WARMUP_MODE,
   type WarmupMode,
 } from "./warmup-mode";
+import { PLATEFORMES } from "../convex/platforms";
 
 export type PostDimensions = {
   creatorId: string | null;
@@ -179,7 +180,7 @@ export function computeGlobalStats(
 }
 
 /** Plateformes du tracker, dans l'ordre d'affichage. */
-export const TRACKER_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+export const TRACKER_PLATFORMS = PLATEFORMES;
 export type TrackerPlatform = (typeof TRACKER_PLATFORMS)[number];
 
 /**

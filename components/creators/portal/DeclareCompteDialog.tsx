@@ -26,19 +26,20 @@ import { Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
 import { useTranslations } from "next-intl";
+import {
+  PLATEFORMES,
+  PLATEFORME_KEY,
+  type Plateforme,
+  type PlateformeKey,
+} from "@/convex/platforms";
 
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 /**
  * P5 — déclaration d'un compte par le créateur. Hors ProjectProvider (portail
  * /app) : projectId passé explicitement à la creatorMutation. Le compte naît en
  * warmup (warmupStartedAt = now, targetDays au défaut plateforme, côté serveur).
  */
-const NETWORK_KEY = {
-  TikTok: "tiktok",
-  Instagram: "instagram",
-  YouTube: "youtube",
-} as const;
+const NETWORK_KEY = PLATEFORME_KEY;
 
 export function DeclareCompteDialog({
   open,
@@ -50,11 +51,7 @@ export function DeclareCompteDialog({
   onOpenChange: (o: boolean) => void;
   projectId: Id<"projects">;
   /** @ attendu par réseau (consigne admin) — rappel pour guider la correspondance. */
-  expectedHandles?: {
-    tiktok?: string;
-    youtube?: string;
-    instagram?: string;
-  } | null;
+  expectedHandles?: Partial<Record<PlateformeKey, string>> | null;
 }) {
   const showError = useConvexError();
   const td = useTranslations("portal.declare");
@@ -118,11 +115,11 @@ export function DeclareCompteDialog({
               </SelectTrigger>
               <SelectContent>
                 {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
-                <SelectItem value="TikTok">TikTok</SelectItem>
-                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
-                <SelectItem value="Instagram">Instagram</SelectItem>
-                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
-                <SelectItem value="YouTube">YouTube</SelectItem>
+                {PLATEFORMES.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

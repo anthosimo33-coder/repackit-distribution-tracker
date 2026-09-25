@@ -124,7 +124,7 @@
           "not_measured": "{count, plural, one {# post nunca medido} other {# posts nunca medidos}}: nenhuma medição de visualizações, não é um zero.",
           "no_baseline": "{count, plural, one {# post numa conta sem mediana de referência} other {# posts em contas sem mediana de referência}}: menos de {minPosts} posts medidos em {windowDays} dias.",
           "no_views": "{count, plural, one {# post com 0 visualização medida} other {# posts com 0 visualização medida}}: sem denominador para um save rate.",
-          "saves_unavailable": "{count, plural, one {# post com intenção NÃO MENSURÁVEL} other {# posts com intenção NÃO MENSURÁVEL}}: o Instagram e o YouTube não expõem os salvamentos. Nenhum ajuste de limite vai mudar isso.",
+          "saves_unavailable": "{count, plural, one {# post com intenção NÃO MENSURÁVEL} other {# posts com intenção NÃO MENSURÁVEL}}: o Instagram, o YouTube, o Facebook e o Snapchat não expõem os salvamentos. Nenhum ajuste de limite vai mudar isso.",
           "saves_collecting": "{count, plural, one {# post anterior à coleta de salvamentos} other {# posts anteriores à coleta de salvamentos}}: a medição chegará para os próximos.",
           "not_computed": "{count, plural, one {# post ainda não classificado} other {# posts ainda não classificados}}: aguardando a próxima sincronização noturna.",
           "qualification": "{count, plural, one {# post oculto} other {# posts ocultos}} pelo filtro Qualificação do card."
@@ -366,7 +366,7 @@
         "declare": {
           "title": "Cadastre sua conta",
           "done": "Conta cadastrada",
-          "todo": "Adicione seu @ do TikTok / Instagram / YouTube.",
+          "todo": "Adicione seu @ do TikTok / Instagram / YouTube / Facebook / Snapchat.",
           "cta": "Cadastrar minha conta"
         },
         "warmup": {
@@ -1433,7 +1433,7 @@
     "ERR_SUPERADMIN_ONLY": "Exclusivo para o superadmin.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talento não encontrado neste projeto.",
     "ERR_TALENT_NOT_PAIRED": "{name} não está pareado com nenhum clipper: vincule um clipper na ficha antes de atribuir um roteiro.",
-    "ERR_TARGETS_COUNT": "Uma missão tem de 1 a 3 destinos (plataformas).",
+    "ERR_TARGETS_COUNT": "Uma missão tem pelo menos um destino, e apenas um por plataforma.",
     "ERR_TARGETS_MIXED_OWNERSHIP": "Uma missão não pode misturar contas gerenciadas pela equipe e contas do criador.",
     "ERR_TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR": "Conta de destino não encontrada para este criador.",
     "ERR_TARGET_ACCOUNT_NOT_IN_PROJECT": "Conta de destino não encontrada no projeto.",
@@ -1711,7 +1711,7 @@
       },
       "platforms": {
         "q": "Em quais plataformas eu publico?",
-        "a": "TikTok, Instagram ou YouTube, conforme o projeto e as contas atribuídas a você."
+        "a": "TikTok, Instagram, YouTube, Facebook ou Snapchat, conforme o projeto e as contas atribuídas a você."
       },
       "pay": {
         "q": "Quando eu recebo?",

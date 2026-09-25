@@ -25,15 +25,17 @@ const at = (days: number) => START + days * DAY;
 // Barèmes des deux projets RÉELS : les tests parlent de la prod, pas d'un jeu
 // inventé. RepackIt garde 7/14/7 ; Snytch chauffe 3 jours sur ses deux
 // plateformes (règle produit portée par projects.warmupTargetDays).
-const REPACKIT = { tiktok: 7, instagram: 14, youtube: 7 };
-const SNYTCH = { tiktok: 3, instagram: 3, youtube: 3 };
+const REPACKIT = { tiktok: 7, instagram: 14, youtube: 7, facebook: 7, snapchat: 7 };
+const SNYTCH = { tiktok: 3, instagram: 3, youtube: 3, facebook: 7, snapchat: 7 };
 
 describe("Barème : dernier recours et barème de projet", () => {
-  it("dernier recours — youtube=7, tiktok=7, instagram=14", () => {
+  it("dernier recours — youtube=7, tiktok=7, instagram=14, facebook=7, snapchat=7", () => {
     expect(WARMUP_TARGET_DAYS_FALLBACK).toEqual({
       youtube: 7,
       tiktok: 7,
       instagram: 14,
+      facebook: 7,
+      snapchat: 7,
     });
   });
   it("defaultTargetDays lit LE BARÈME REÇU, pas un global", () => {

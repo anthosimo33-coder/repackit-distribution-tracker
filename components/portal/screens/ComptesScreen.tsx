@@ -20,6 +20,7 @@ import { WarmupGuideButton } from "@/components/warmup/WarmupGuideButton";
 import { getEffectiveStatus } from "@/lib/compte-status";
 import { mustCheckToday } from "@/lib/warmup";
 import { useTranslations } from "next-intl";
+import { PLATEFORMES, PLATEFORME_KEY } from "@/convex/platforms";
 
 /**
  * « Mes comptes » — écran RÉUTILISÉ par le portail créateur normal ET le mode
@@ -47,18 +48,14 @@ export default function ComptesScreen() {
   // non gérés par l'équipe (un @ géré est créé par l'équipe, pas par la créatrice).
   const h = profile?.handlesToCreate ?? null;
   const handlesToCreate = h
-    ? (
-        [
-          ["TikTok", h.tiktok],
-          ["YouTube", h.youtube],
-          ["Instagram", h.instagram],
-        ] as const
-      ).filter(
-        (entry): entry is readonly ["TikTok" | "YouTube" | "Instagram", string] =>
-          typeof entry[1] === "string" &&
-          entry[1].length > 0 &&
-          !managedPlatforms.has(entry[0]),
-      )
+    ? PLATEFORMES.flatMap((p) => {
+        const handle = h[PLATEFORME_KEY[p]];
+        return typeof handle === "string" &&
+          handle.length > 0 &&
+          !managedPlatforms.has(p)
+          ? [[p, handle] as const]
+          : [];
+      })
     : [];
 
   const loading = comptes === undefined;

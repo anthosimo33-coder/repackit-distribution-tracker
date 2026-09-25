@@ -124,7 +124,7 @@
           "not_measured": "{count, plural, one {# post jamais relevé} other {# posts jamais relevés}} : aucune mesure de vues, ce n'est pas un zéro.",
           "no_baseline": "{count, plural, one {# post sur un compte sans médiane de référence} other {# posts sur des comptes sans médiane de référence}} : moins de {minPosts} posts mesurés sur {windowDays} jours.",
           "no_views": "{count, plural, one {# post à 0 vue mesurée} other {# posts à 0 vue mesurée}} : pas de dénominateur pour un save rate.",
-          "saves_unavailable": "{count, plural, one {# post à intent NON MESURABLE} other {# posts à intent NON MESURABLE}} : Instagram et YouTube n'exposent pas les saves. Aucun réglage de seuil n'y changera rien.",
+          "saves_unavailable": "{count, plural, one {# post à intent NON MESURABLE} other {# posts à intent NON MESURABLE}} : Instagram, YouTube, Facebook et Snapchat n'exposent pas les saves. Aucun réglage de seuil n'y changera rien.",
           "saves_collecting": "{count, plural, one {# post antérieur à la collecte des saves} other {# posts antérieurs à la collecte des saves}} : la mesure arrivera pour les prochains.",
           "not_computed": "{count, plural, one {# post pas encore classé} other {# posts pas encore classés}} : en attente du prochain relevé nocturne.",
           "qualification": "{count, plural, one {# post masqué} other {# posts masqués}} par le filtre Qualification de la carte."
@@ -366,7 +366,7 @@
         "declare": {
           "title": "Déclare ton compte",
           "done": "Compte déclaré",
-          "todo": "Ajoute ton @ TikTok / Instagram / YouTube.",
+          "todo": "Ajoute ton @ TikTok / Instagram / YouTube / Facebook / Snapchat.",
           "cta": "Déclarer mon compte"
         },
         "warmup": {
@@ -1433,7 +1433,7 @@
     "ERR_SUPERADMIN_ONLY": "Réservé au superadmin.",
     "ERR_TALENT_NOT_IN_PROJECT": "Talent introuvable dans ce projet.",
     "ERR_TALENT_NOT_PAIRED": "{name} n'est apparié à aucun clippeur : rattache-lui un clippeur depuis sa fiche avant d'assigner un script.",
-    "ERR_TARGETS_COUNT": "Un assignment porte 1 à 3 cibles (plateformes).",
+    "ERR_TARGETS_COUNT": "Un assignment porte au moins une cible, et une seule par plateforme.",
     "ERR_TARGETS_MIXED_OWNERSHIP": "Un assignment ne peut pas mélanger des comptes gérés par l'équipe et des comptes du créateur.",
     "ERR_TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR": "Compte cible introuvable pour ce créateur.",
     "ERR_TARGET_ACCOUNT_NOT_IN_PROJECT": "Compte cible introuvable dans le projet.",
@@ -1711,7 +1711,7 @@
       },
       "platforms": {
         "q": "Sur quelles plateformes je publie ?",
-        "a": "TikTok, Instagram ou YouTube, selon le projet et les comptes qui te sont confiés."
+        "a": "TikTok, Instagram, YouTube, Facebook ou Snapchat, selon le projet et les comptes qui te sont confiés."
       },
       "pay": {
         "q": "Quand suis-je payé·e ?",

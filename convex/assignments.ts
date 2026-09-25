@@ -72,6 +72,7 @@ import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveCreatorPricing } from "./creatorPricing";
+import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 
 /**
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
@@ -79,14 +80,6 @@ import { resolveCreatorPricing } from "./creatorPricing";
  * QUE les rows du creator courant (ctx.creatorId). Les fonctions admin
  * (gardées par bloc) sont inaccessibles au rôle creator.
  */
-
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
-
-const plateformeValidator = v.union(
-  v.literal("TikTok"),
-  v.literal("Instagram"),
-  v.literal("YouTube"),
-);
 
 /** Cible d'assignment à la création : 1 compte (du créateur) sur 1 plateforme. */
 export const targetInputValidator = v.object({
@@ -96,8 +89,8 @@ export const targetInputValidator = v.object({
 
 
 /**
- * Chantier C — valide les CIBLES d'un assignment à la création : 1 à 3 cibles,
- * plateformes UNIQUES, chaque compte appartenant AU créateur (et au projet), de
+ * Chantier C — valide les CIBLES d'un assignment à la création : au moins une,
+ * au plus une par plateforme (plateformes UNIQUES), chaque compte appartenant AU créateur (et au projet), de
  * la BONNE plateforme, et DISPONIBLE (isAccountAvailable = warmup terminé). Un
  * compte en warmup ne peut JAMAIS être une cible.
  */
@@ -107,8 +100,8 @@ export async function validateTargets(
   creatorId: Id<"creators">,
   targets: { platform: Plateforme; accountId: Id<"comptes"> }[],
 ): Promise<void> {
-  if (targets.length < 1 || targets.length > 3) {
-    throw err(ERR.TARGETS_COUNT, "Un assignment porte 1 à 3 cibles (plateformes).");
+  if (targets.length < 1 || targets.length > PLATEFORMES.length) {
+    throw err(ERR.TARGETS_COUNT, "Un assignment porte au moins une cible, et une seule par plateforme.");
   }
   // Régime du PROJET (convex/accountValidation) : en strict, un compte n'est
   // ciblable que s'il est "actif" (validé admin) ; en souple, warmup terminé

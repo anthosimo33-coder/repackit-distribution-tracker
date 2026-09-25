@@ -30,6 +30,7 @@ import {
   purgeUnreferencedImage,
 } from "./storageCleanup";
 import { ERR, err } from "./errorCodes";
+import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 
 const mecaniqueValidator = v.union(
   v.literal("Erreur"),
@@ -67,12 +68,6 @@ const angleValidator = v.union(
 
 const langueValidator = v.union(v.literal("FR"), v.literal("EN"));
 
-const plateformeValidator = v.union(
-  v.literal("TikTok"),
-  v.literal("Instagram"),
-  v.literal("YouTube"),
-);
-
 const mediaTypeValidator = v.union(
   v.literal("carousel"),
   v.literal("short"),
@@ -87,12 +82,12 @@ type MediaTypeServer = "carousel" | "short" | "screenrecorder";
 // Exporté pour la garde de soumission (P8, convex/assignments.submitAssignment).
 export function isFormatAllowedOnPlatform(
   mediaType: MediaTypeServer,
-  plateforme: "TikTok" | "Instagram" | "YouTube",
+  plateforme: Plateforme,
 ): boolean {
   if (mediaType === "carousel") {
     return plateforme === "TikTok" || plateforme === "Instagram";
   }
-  // Short et ScreenRecorder : autorisés sur les 3 plateformes.
+  // Short et ScreenRecorder : autorisés sur toutes les plateformes.
   return true;
 }
 
@@ -1829,19 +1824,17 @@ export const getSourceStatus = permissionQuery("tracker.manage")({
       status: sourceStatusOf(e.publication),
       carouselId: e.publication.carouselId,
     }));
-    const onTikTok = publications.some((x) => x.plateforme === "TikTok");
-    const onInstagram = publications.some((x) => x.plateforme === "Instagram");
-    const onYouTube = publications.some((x) => x.plateforme === "YouTube");
-    const blockedPlatforms: string[] = onTikTok ? ["TikTok"] : [];
-    const warningPlatforms: string[] = [
-      ...(onInstagram ? ["Instagram"] : []),
-      ...(onYouTube ? ["YouTube"] : []),
-    ];
-    const availablePlatforms: string[] = [
-      ...(onTikTok ? [] : ["TikTok"]),
-      ...(onInstagram ? [] : ["Instagram"]),
-      ...(onYouTube ? [] : ["YouTube"]),
-    ];
+    // TikTok bloque (shadowban sur doublon) ; toute AUTRE plateforme déjà
+    // postée avertit seulement. Bouclé sur PLATEFORMES : une plateforme ajoutée
+    // ne tombe ni dans « bloqué » ni hors de « disponible » par oubli.
+    const postees = new Set(publications.map((x) => x.plateforme));
+    const blockedPlatforms: string[] = postees.has("TikTok") ? ["TikTok"] : [];
+    const warningPlatforms: string[] = PLATEFORMES.filter(
+      (p) => p !== "TikTok" && postees.has(p),
+    );
+    const availablePlatforms: string[] = PLATEFORMES.filter(
+      (p) => !postees.has(p),
+    );
     return {
       exists: publications.length > 0,
       publications,

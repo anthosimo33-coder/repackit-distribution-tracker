@@ -33,7 +33,7 @@ import {
  * d'écriture ne peut figer 7 en silence pour un projet qui chauffe 3 jours.
  */
 async function warmupDaysFor(
-  ctx: { db: { get: (id: Id<"projects">) => Promise<{ warmupTargetDays?: { tiktok: number; instagram: number; youtube: number } } | null> } },
+  ctx: { db: { get: (id: Id<"projects">) => Promise<{ warmupTargetDays?: Partial<WarmupTargetDays> } | null> } },
   projectId: Id<"projects">,
 ): Promise<WarmupTargetDays> {
   return warmupTargetDaysOf((await ctx.db.get(projectId)) ?? {});
@@ -55,6 +55,7 @@ import { v, ConvexError } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ERR, err } from "./errorCodes";
+import { plateformeValidator, type Plateforme } from "./platforms";
 
 const statusValidator = v.union(
   v.literal("warmup"),
@@ -63,14 +64,7 @@ const statusValidator = v.union(
   v.literal("archived"),
 );
 
-const plateformeValidator = v.union(
-  v.literal("TikTok"),
-  v.literal("Instagram"),
-  v.literal("YouTube"),
-);
-
 type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 // Coercion legacy → statut effectif. ⚠️ Dupliqué côté UI (lib/compte-status
 // getEffectiveStatus) : un module Convex ne peut pas importer lib/ (cross-
@@ -538,11 +532,7 @@ export const listCreatorAvailableComptes = permissionQuery("accounts.manage")({
 export const createCompte = permissionMutation("accounts.manage")({
   args: {
     handle: v.string(),
-    plateforme: v.union(
-      v.literal("TikTok"),
-      v.literal("Instagram"),
-      v.literal("YouTube"),
-    ),
+    plateforme: plateformeValidator,
     notes: v.string(),
     status: v.optional(statusValidator),
     warmupStartedAt: v.optional(v.number()),
@@ -2007,11 +1997,11 @@ export const e2eSetProjectWarmupDays = e2eMutation({
     tiktok: v.number(),
     instagram: v.number(),
     youtube: v.number(),
+    facebook: v.optional(v.number()),
+    snapchat: v.optional(v.number()),
   },
-  handler: async (ctx, { projectId, tiktok, instagram, youtube }) => {
-    await ctx.db.patch(projectId, {
-      warmupTargetDays: { tiktok, instagram, youtube },
-    });
-    return { tiktok, instagram, youtube };
+  handler: async (ctx, { projectId, ...days }) => {
+    await ctx.db.patch(projectId, { warmupTargetDays: days });
+    return days;
   },
 });

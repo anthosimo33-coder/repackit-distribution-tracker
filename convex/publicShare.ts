@@ -34,6 +34,7 @@
  */
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
 import { tiktokVideoIdFromUrl } from "./postUrlDate";
+import type { Plateforme } from "./platforms";
 
 /** Les dashboards partageables. Un seul pour l'instant ; l'union grandira. */
 export const SHARE_DASHBOARDS = ["tracker"] as const;
@@ -149,7 +150,7 @@ export type SharePerimeter = {
   period: SharePeriod;
   creatorIds?: string[];
   comptes?: string[];
-  plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
+  plateformes?: Plateforme[];
   campaignIds?: string[];
   warmup: WarmupMode;
 };
@@ -159,7 +160,7 @@ export type EffectiveFilters = {
   dateTo: number | undefined;
   creatorIds: string[] | undefined;
   comptes: string[] | undefined;
-  plateformes: ("TikTok" | "Instagram" | "YouTube")[] | undefined;
+  plateformes: Plateforme[] | undefined;
   campaignIds: string[] | undefined;
   warmup: WarmupMode;
 };

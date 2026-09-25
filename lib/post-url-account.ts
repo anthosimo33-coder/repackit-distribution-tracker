@@ -7,12 +7,18 @@
  *     de handle et résolution = action serveur ASYNC → NON VÉRIFIABLE (explicite).
  *   - Instagram : `/p|/reel/…` → pas de handle ; `/username/…` → handle.
  *   - YouTube : `/watch`,`/shorts`,`youtu.be` → pas de handle ; `/@handle` → handle.
+ *   - Facebook : `/reel/…`, `/share/…`, `/watch`, `fb.watch` → pas de handle ;
+ *     `/page/videos/…`, `/page/posts/…` → handle.
+ *   - Snapchat : `/spotlight/…`, `/t/…` → pas de handle ; `/@handle/spotlight/…`
+ *     et `/add/handle` → handle.
  *
  * JAMAIS de blocage : renvoie un STATUT (match / mismatch / unverifiable) pour un
  * AVERTISSEMENT — un silence se lirait comme une validation. Pur, testé Vitest.
  */
 
-export type UrlPlateforme = "TikTok" | "Instagram" | "YouTube";
+import type { Plateforme } from "../convex/platforms";
+
+export type UrlPlateforme = Plateforme;
 
 /** Handle normalisé pour comparaison : sans `@`, minuscule, trim. */
 function normHandle(h: string): string {
@@ -43,9 +49,41 @@ export function handleFromPostUrl(
   if (platform === "TikTok" || platform === "YouTube") {
     return atSeg ? normHandle(atSeg[1]) : null;
   }
+  const seg = u.pathname.split("/").filter(Boolean);
+  if (platform === "Snapchat") {
+    if (atSeg) return normHandle(atSeg[1]);
+    return seg[0]?.toLowerCase() === "add" && seg[1] ? normHandle(seg[1]) : null;
+  }
+  if (platform === "Facebook") {
+    // fb.watch/<code> : un code de vidéo, jamais un nom de compte.
+    if (seg.length === 0 || u.hostname.toLowerCase().endsWith("fb.watch")) {
+      return null;
+    }
+    // Racines SANS nom de compte : Reel, partage, lecteur, permaliens, et
+    // `profile.php?id=…` dont l'identifiant est numérique, pas un handle.
+    const SANS_HANDLE = new Set([
+      "reel",
+      "reels",
+      "watch",
+      "share",
+      "story.php",
+      "permalink.php",
+      "photo",
+      "photo.php",
+      "video.php",
+      "profile.php",
+      "people",
+      "groups",
+      "events",
+      "videos",
+      "posts",
+      "stories",
+    ]);
+    if (SANS_HANDLE.has(seg[0].toLowerCase())) return null;
+    return normHandle(seg[0]);
+  }
   // Instagram
   if (atSeg) return normHandle(atSeg[1]);
-  const seg = u.pathname.split("/").filter(Boolean);
   if (seg.length === 0) return null;
   const POST_ROOTS = new Set([
     "p",

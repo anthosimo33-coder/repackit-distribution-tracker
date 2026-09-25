@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import type { Plateforme } from "@/lib/compte-status";
 import { useTranslations } from "next-intl";
 import { useConvexError } from "@/lib/use-convex-error";
+import { PLATEFORMES } from "@/convex/platforms";
 
 /**
  * Compte GÉRÉ PAR L'ÉQUIPE — l'admin déclare un compte social pour une créatrice
@@ -107,11 +108,11 @@ export function ManagedCompteDialog({
               </SelectTrigger>
               <SelectContent>
                 {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
-                <SelectItem value="TikTok">TikTok</SelectItem>
-                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
-                <SelectItem value="Instagram">Instagram</SelectItem>
-                {/* i18n-exempt: le texte EST la valeur d'enum envoyée au serveur (plateforme, v.literal côté Convex) — et une marque ne se traduit pas. */}
-                <SelectItem value="YouTube">YouTube</SelectItem>
+                {PLATEFORMES.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

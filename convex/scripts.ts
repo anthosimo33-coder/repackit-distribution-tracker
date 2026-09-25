@@ -46,6 +46,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ERR, err } from "./errorCodes";
+import { plateformeValidator } from "./platforms";
 
 /**
  * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
@@ -581,11 +582,7 @@ export const availableCombosForAssignment = permissionQuery("scripts.manage")({
     campaignId: v.id("scriptCampaigns"),
     creatorId: v.id("creators"),
     platforms: v.array(
-      v.union(
-        v.literal("TikTok"),
-        v.literal("Instagram"),
-        v.literal("YouTube"),
-      ),
+      plateformeValidator,
     ),
   },
   handler: async (ctx, args) => {

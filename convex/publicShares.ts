@@ -34,6 +34,7 @@ import {
   type ShareAudience,
   type SharePerimeter,
 } from "./publicShare";
+import { plateformeValidator } from "./platforms";
 
 /**
  * LIENS PUBLICS D'UN DASHBOARD — lecture, création, révocation.
@@ -63,7 +64,7 @@ const perimeterArg = v.object({
   comptes: v.optional(v.array(v.string())),
   plateformes: v.optional(
     v.array(
-      v.union(v.literal("TikTok"), v.literal("Instagram"), v.literal("YouTube")),
+      plateformeValidator,
     ),
   ),
   campaignIds: v.optional(v.array(v.id("scriptCampaigns"))),

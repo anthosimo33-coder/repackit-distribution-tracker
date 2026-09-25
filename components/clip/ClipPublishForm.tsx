@@ -29,6 +29,7 @@ import {
   type PostDatePlatform,
   type PostDateRead,
 } from "@/convex/postUrlDate";
+import type { Plateforme } from "@/convex/platforms";
 
 /**
  * PUBLICATION D'UN CLIP — coller le lien, et déclarer QUAND le post est sorti.
@@ -51,7 +52,6 @@ import {
  * un pré-remplissage invisible reproduit le défaut qu'on corrige.
  */
 
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 export type ClipPublishTarget = {
   platform: Plateforme;

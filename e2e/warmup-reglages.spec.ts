@@ -44,6 +44,10 @@ test.describe("Réglages — durée de warmup du projet", () => {
     await panel.getByLabel("TikTok").fill("3");
     await panel.getByLabel("Instagram").fill("3");
     await panel.getByLabel("YouTube").fill("");
+    // Facebook réglé, Snapchat laissé vide : les deux nouvelles plateformes
+    // suivent la même règle que les trois premières.
+    await panel.getByLabel("Facebook").fill("5");
+    await panel.getByLabel("Snapchat").fill("");
     await panel.getByRole("button", { name: /enregistrer/i }).click();
     await expect(page.getByText(/durées de warmup enregistrées/i)).toBeVisible({
       timeout: 10_000,
@@ -56,6 +60,9 @@ test.describe("Réglages — durée de warmup du projet", () => {
     expect(saved.defined.youtube).toBeNull();
     // Un champ vide n'est PAS zéro : la plateforme prend le défaut.
     expect(saved.effective.youtube).toBe(7);
+    expect(saved.defined.facebook).toBe(5);
+    expect(saved.defined.snapchat).toBeNull();
+    expect(saved.effective.snapchat).toBe(7);
 
     // Un compte créé maintenant prend 3 — la règle vaut vraiment.
     const id = await convex.mutation(api.comptes.createCompte, {
@@ -65,8 +72,47 @@ test.describe("Réglages — durée de warmup du projet", () => {
       warmupStartedAt: Date.now(),
       notes: "",
     });
+    // Et un compte Facebook prend SA durée, pas celle d'une autre plateforme.
+    const idFb = await convex.mutation(api.comptes.createCompte, {
+      handle: `[E2E_TEST]_reglage_fb_${Date.now()}`,
+      plateforme: "Facebook",
+      status: "warmup",
+      warmupStartedAt: Date.now(),
+      notes: "",
+    });
     const rows = await convex.query(api.comptes.listComptes, {});
     expect(rows.find((r) => String(r._id) === String(id))?.targetDays).toBe(3);
+    expect(rows.find((r) => String(r._id) === String(idFb))?.targetDays).toBe(5);
+  });
+
+  test("un appel SANS les clés Facebook/Snapchat ne les efface pas", async () => {
+    // Cas réel : un onglet ouvert avant leur arrivée envoie trois clés.
+    await convex.mutation(api.projects.setWarmupSettings, {
+      tiktok: 3,
+      instagram: null,
+      youtube: null,
+      facebook: 4,
+      snapchat: 6,
+    });
+    await convex.mutation(api.projects.setWarmupSettings, {
+      tiktok: 5,
+      instagram: null,
+      youtube: null,
+    });
+    const apres = await convex.query(api.projects.getWarmupSettings, {});
+    expect(apres.defined.tiktok).toBe(5);
+    expect(apres.defined.facebook).toBe(4);
+    expect(apres.defined.snapchat).toBe(6);
+    // Contrôle de présence : un null EXPLICITE, lui, vide bien la plateforme.
+    await convex.mutation(api.projects.setWarmupSettings, {
+      tiktok: 5,
+      instagram: null,
+      youtube: null,
+      facebook: null,
+    });
+    const vide = await convex.query(api.projects.getWarmupSettings, {});
+    expect(vide.defined.facebook).toBeNull();
+    expect(vide.defined.snapchat).toBe(6);
   });
 
   test("une durée hors bornes est REFUSÉE côté serveur", async () => {

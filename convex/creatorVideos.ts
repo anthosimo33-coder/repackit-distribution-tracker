@@ -11,6 +11,7 @@ import { missionLabelFor } from "./assignments";
 import { calcCycle, cycleIndexOf } from "./payCycle";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { Plateforme } from "./platforms";
 
 /**
  * SNYTCH — suivi créatrice de TOUT le cycle de vie de ses vidéos depuis la
@@ -36,8 +37,6 @@ import type { Doc, Id } from "./_generated/dataModel";
  * ISOLATION : filtré serveur par ctx.creatorId — une créatrice ne voit JAMAIS
  * les vidéos d'une autre. Aucun brut inutile renvoyé.
  */
-
-type Plateforme = "TikTok" | "Instagram" | "YouTube";
 
 /** Statut de suivi (vidéos en ligne) : actif = des métriques sont déjà remontées ;
  *  pending = vidéo publiée mais aucune métrique encore relevée (en cours de calcul). */

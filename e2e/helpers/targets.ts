@@ -1,8 +1,9 @@
 import type { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
+import type { Plateforme } from "../../convex/platforms";
 import { E2E_SECRET, type E2eClient } from "./authed-client";
 
-type Platform = "TikTok" | "Instagram" | "YouTube";
+type Platform = Plateforme;
 
 /**
  * Chantier C — crée un compte ACTIF (donc DISPONIBLE) lié au créateur et
@@ -10,10 +11,10 @@ type Platform = "TikTok" | "Instagram" | "YouTube";
  * assignScriptCampaign. S'appuie sur la mutation e2e-gated e2eSeedAvailableCompte
  * (pas besoin d'un client créateur ni de compléter un warmup).
  */
-export async function availableTarget(opts: {
+export async function availableTarget<P extends Platform>(opts: {
   e2eClient: E2eClient;
   creatorId: Id<"creators">;
-  platform: Platform;
+  platform: P;
   handle: string;
   /**
    * Ancre de phase ANTIDATÉE (comptes de clippeur). Absente = compte non validé,
@@ -21,7 +22,7 @@ export async function availableTarget(opts: {
    * regarde que les comptes de clippeur. Cf convex/accountPhase.ts.
    */
   validatedAt?: number;
-}): Promise<{ platform: Platform; accountId: Id<"comptes"> }> {
+}): Promise<{ platform: P; accountId: Id<"comptes"> }> {
   const accountId = await opts.e2eClient.mutation(
     api.comptes.e2eSeedAvailableCompte,
     {

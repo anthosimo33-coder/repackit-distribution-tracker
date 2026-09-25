@@ -7,6 +7,7 @@ import type { QueryCtx } from "./_generated/server";
 import { findMatchingSnapshot, type SnapshotAge } from "./snapshotMatching";
 import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
 import { passesWarmupMode, type WarmupMode } from "./warmupMode";
+import type { Plateforme } from "./platforms";
 
 /**
  * S3 — Analytics par VARIABLE de script (lecture du bulk testing). Pour une
@@ -112,7 +113,7 @@ interface ViewSample {
   publicationId: Id<"publications">;
   carouselId: string;
   label: string;
-  plateforme: "TikTok" | "Instagram" | "YouTube";
+  plateforme: Plateforme;
   mediaType: "carousel" | "short" | "screenrecorder";
   compte: string;
   datePubli: number;
@@ -332,7 +333,7 @@ export interface BrickPostRow {
   _id: Id<"publications">;
   carouselId: string;
   label: string;
-  plateforme: "TikTok" | "Instagram" | "YouTube";
+  plateforme: Plateforme;
   mediaType: "carousel" | "short" | "screenrecorder";
   compte: string;
   creatorId: Id<"creators"> | null;

@@ -52,7 +52,8 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 
 ## Détectés pendant Batch 1 Shorts (foundation YouTube)
 
-### TD-008 — Constante `PLATEFORMES` dupliquée 4× dans le front
+### TD-008 — Constante `PLATEFORMES` dupliquée 4× dans le front ✅ RÉSOLU (septembre 2026)
+- **Résolution** : `convex/platforms.ts` (module pur, importable serveur ET client) porte la liste, le type `Plateforme` et `plateformeValidator` ; le schéma et les ~20 copies locales l'importent. Fait à l'arrivée de Facebook et Snapchat. Exception VOLONTAIRE : la veille garde sa liste (`INSPIRATION_PLATFORMS`, lib/inspiration-url.ts), elle ne sait ni détecter ni vignetter FB/Snap.
 - **Fichiers** : `app/comptes/page.tsx` (type `Plateforme` local), `app/nouveau/page.tsx` (`const PLATEFORMES`), `app/tracker/page.tsx` (DuplicateCarouselDialog), `components/PublicationDetailDialog.tsx` (`const PLATEFORMES`)
 - **Impact** : ajouter une plateforme (ex: YouTube en Batch 1) force à éditer 4 fichiers en parallèle. Risque oubli + drift entre fichiers (ex: l'un en `["TikTok", "Instagram"]`, l'autre en `["TikTok", "Instagram", "YouTube"]`).
 - **Reco** : centraliser dans `lib/platforms.ts` (ou étendre `lib/media-type.ts` qui contient déjà `ALLOWED_PLATFORMS_FOR_*`) avec une const exportée `ALL_PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const` et un type `Plateforme = (typeof ALL_PLATFORMS)[number]`. Tous les callsites importent.

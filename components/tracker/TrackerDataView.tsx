@@ -71,6 +71,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
+import type { Plateforme } from "@/convex/platforms";
 
 const CREATOR_NONE = "__none__";
 const FORMAT_NONE = "__none__";
@@ -127,7 +128,7 @@ export type TrackerQueryArgs = {
   dateTo?: number;
   creatorIds?: Id<"creators">[];
   comptes?: string[];
-  plateformes?: ("TikTok" | "Instagram" | "YouTube")[];
+  plateformes?: Plateforme[];
   formatIds?: Id<"formats">[];
   campaignIds?: Id<"scriptCampaigns">[];
   warmup?: WarmupFilter;
@@ -190,11 +191,7 @@ export function TrackerDataView({ filters }: { filters: TrackerFilterState }) {
     if (creatorIds.size) a.creatorIds = [...creatorIds] as Id<"creators">[];
     if (comptes_.size) a.comptes = [...comptes_];
     if (plateformes.size)
-      a.plateformes = [...plateformes] as (
-        | "TikTok"
-        | "Instagram"
-        | "YouTube"
-      )[];
+      a.plateformes = [...plateformes] as Plateforme[];
     if (formatIds.size) a.formatIds = [...formatIds] as Id<"formats">[];
     if (campaignIds.size)
       a.campaignIds = [...campaignIds] as Id<"scriptCampaigns">[];
@@ -1102,6 +1099,8 @@ const PLATFORM_SWATCH: Record<TrackerPlatform, string> = {
   TikTok: "bg-slate-900",
   Instagram: "bg-pink-500",
   YouTube: "bg-red-500",
+  Facebook: "bg-blue-500",
+  Snapchat: "bg-yellow-400",
 };
 
 /**

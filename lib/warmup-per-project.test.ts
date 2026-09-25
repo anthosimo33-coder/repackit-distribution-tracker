@@ -18,8 +18,8 @@ import {
  *
  * Les barèmes sont ceux de la PROD, pas un jeu inventé.
  */
-const REPACKIT = { tiktok: 7, instagram: 14, youtube: 7 };
-const SNYTCH = { tiktok: 3, instagram: 3, youtube: 3 };
+const REPACKIT = { tiktok: 7, instagram: 14, youtube: 7, facebook: 7, snapchat: 7 };
+const SNYTCH = { tiktok: 3, instagram: 3, youtube: 3, facebook: 7, snapchat: 7 };
 
 /** n checks distincts — seul leur NOMBRE compte pour la complétion. */
 const checks = (n: number) => Array.from({ length: n }, (_, i) => `d${i}`);
@@ -63,12 +63,12 @@ describe("Le barème du projet gouverne la durée figée", () => {
 
 describe("Publication — REPACKIT (non strict) : la durée décide", () => {
   it("3 checks sur une cible de 3 → DISPONIBLE", () => {
-    const troisJours = { tiktok: 3, instagram: 3, youtube: 3 };
+    const troisJours = { tiktok: 3, instagram: 3, youtube: 3, facebook: 7, snapchat: 7 };
     expect(isAccountAvailable(compte("TikTok", 3), troisJours)).toBe(true);
   });
 
   it("2 checks sur une cible de 3 → INDISPONIBLE", () => {
-    const troisJours = { tiktok: 3, instagram: 3, youtube: 3 };
+    const troisJours = { tiktok: 3, instagram: 3, youtube: 3, facebook: 7, snapchat: 7 };
     expect(isAccountAvailable(compte("TikTok", 2), troisJours)).toBe(false);
   });
 
@@ -116,6 +116,23 @@ describe("Un projet ne définit QUE ses plateformes", () => {
     expect(d.instagram).toBe(3);
     expect(d.youtube).toBe(WARMUP_TARGET_DAYS_FALLBACK.youtube);
     expect(d.youtube).not.toBe(3);
+  });
+
+  it("Facebook et Snapchat, jamais réglés, retombent chacun sur leur repli", () => {
+    // Tous les projets existants ont été enregistrés AVANT leur arrivée : leur
+    // barème en base n'a que trois clés.
+    const d = warmupTargetDaysOf({
+      warmupTargetDays: { tiktok: 3, instagram: 3, youtube: 3 },
+    });
+    expect(d.facebook).toBe(WARMUP_TARGET_DAYS_FALLBACK.facebook);
+    expect(d.snapchat).toBe(WARMUP_TARGET_DAYS_FALLBACK.snapchat);
+    expect(defaultTargetDays("Snapchat", d)).toBe(WARMUP_TARGET_DAYS_FALLBACK.snapchat);
+    expect(
+      defaultTargetDays(
+        "Facebook",
+        warmupTargetDaysOf({ warmupTargetDays: { facebook: 4 } }),
+      ),
+    ).toBe(4);
   });
 
   it("un barème partiel ne contamine pas les autres plateformes", () => {

@@ -32,6 +32,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useFormatLabels } from "@/lib/use-format-labels";
+import type { Plateforme } from "@/convex/platforms";
 
 /**
  * Table PRÉSENTATIONNELLE des posts publiés (vues/likes/comments/engagement +
@@ -44,7 +45,7 @@ export type TrackerPost = {
   _id: Id<"publications">;
   carouselId: string;
   label: string;
-  plateforme: "TikTok" | "Instagram" | "YouTube";
+  plateforme: Plateforme;
   mediaType: FormatKey;
   compte: string;
   creatorId: Id<"creators"> | null;

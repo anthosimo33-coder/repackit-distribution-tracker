@@ -350,6 +350,8 @@ export function CreatorsDirectory({
         h?.tiktok ?? "",
         h?.youtube ?? "",
         h?.instagram ?? "",
+        h?.facebook ?? "",
+        h?.snapchat ?? "",
       ]
         .join(" ")
         .toLowerCase();

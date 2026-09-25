@@ -53,13 +53,14 @@ import type { TrackerFilterState } from "@/components/tracker/TrackerDataView";
 import { cn } from "@/lib/utils";
 import { PublicTrackerView } from "./PublicTrackerView";
 import { ShareLinksSheet } from "./ShareLinksSheet";
+import { PLATEFORMES, type Plateforme } from "@/convex/platforms";
 
 type Audience = "brand" | "creator";
 type PeriodPreset = "7" | "30" | "90" | "fixed" | "all";
 type Expiry = "30" | "90" | "never";
 type Warmup = "exclude" | "all" | "only";
 
-const PLATFORMS = ["TikTok", "Instagram", "YouTube"] as const;
+const PLATFORMS = PLATEFORMES;
 
 /** Aujourd'hui, "YYYY-MM-DD", dans le fuseau de l'écran (celui des champs date du Tracker). */
 function todayLocal(): string {
@@ -181,9 +182,7 @@ export function TrackerShareMode({
             ? (listOrUndefined(creatorIds) as Id<"creators">[] | undefined)
             : undefined,
         comptes: listOrUndefined(comptes),
-        plateformes: listOrUndefined(plateformes) as
-          | ("TikTok" | "Instagram" | "YouTube")[]
-          | undefined,
+        plateformes: listOrUndefined(plateformes) as Plateforme[] | undefined,
         campaignIds: listOrUndefined(campaignIds) as
           | Id<"scriptCampaigns">[]
           | undefined,

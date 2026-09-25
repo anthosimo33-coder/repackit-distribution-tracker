@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { countryValidator } from "./countries";
+import { plateformeValidator } from "./platforms";
 
 /**
  * P2 Multi-tenant — rollout terminé (2 phases, à cause du deploy atomique
@@ -90,11 +91,7 @@ const paymentLineItem = v.object({
   // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
   // les lineItems legacy n'en portent pas.
   platform: v.optional(
-    v.union(
-      v.literal("TikTok"),
-      v.literal("Instagram"),
-      v.literal("YouTube"),
-    ),
+    plateformeValidator,
   ),
 });
 
@@ -200,6 +197,8 @@ export default defineSchema({
         tiktok: v.optional(v.number()),
         instagram: v.optional(v.number()),
         youtube: v.optional(v.number()),
+        facebook: v.optional(v.number()),
+        snapchat: v.optional(v.number()),
       }),
     ),
     fileDropEnabled: v.optional(v.boolean()),
@@ -525,11 +524,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     publicationId: v.optional(v.id("publications")),
     assignmentId: v.id("assignments"),
-    platform: v.union(
-      v.literal("TikTok"),
-      v.literal("Instagram"),
-      v.literal("YouTube"),
-    ),
+    platform: plateformeValidator,
     /** Les deux liens, VERBATIM. L'ancien reste lisible : c'est lui qui permet
      *  de retrouver la vidéo réellement suivie par erreur. */
     beforeUrl: v.string(),
@@ -665,11 +660,7 @@ export default defineSchema({
     // Plateforme étendue à YouTube pour les Shorts. La cohérence
     // mediaType/plateforme (carousel ne peut pas vivre sur YouTube) est
     // validée serveur via isFormatAllowedOnPlatform — pas via le schéma.
-    plateforme: v.union(
-      v.literal("TikTok"),
-      v.literal("Instagram"),
-      v.literal("YouTube"),
-    ),
+    plateforme: plateformeValidator,
     compte: v.string(),
     datePubli: v.number(),
     // TD-016 — vuesJ1/J3/J7 SUPPRIMÉS (phase 2). Les métriques temporelles
@@ -956,11 +947,7 @@ export default defineSchema({
     compteId: v.id("comptes"),
     /** Handle au moment du relevé (le compte peut être renommé ensuite). */
     handle: v.string(),
-    plateforme: v.union(
-      v.literal("TikTok"),
-      v.literal("Instagram"),
-      v.literal("YouTube"),
-    ),
+    plateforme: plateformeValidator,
     capturedAt: v.number(),
     followers: v.optional(v.number()),
     following: v.optional(v.number()),
@@ -1004,11 +991,7 @@ export default defineSchema({
     // P2 — scope projet.
     projectId: v.id("projects"),
     handle: v.string(),
-    plateforme: v.union(
-      v.literal("TikTok"),
-      v.literal("Instagram"),
-      v.literal("YouTube"),
-    ),
+    plateforme: plateformeValidator,
     notes: v.string(),
     // Statut opérationnel (4 états). Optional au schéma + exigence imposée
     // côté handler (createCompte défaut "actif" ; updateCompte mappe le legacy
@@ -1440,6 +1423,8 @@ export default defineSchema({
         tiktok: v.optional(v.string()),
         youtube: v.optional(v.string()),
         instagram: v.optional(v.string()),
+        facebook: v.optional(v.string()),
+        snapchat: v.optional(v.string()),
       }),
     ),
     // ─── Dépôt de fichiers Snytch — dossier Google Drive du créateur ──────────
@@ -1719,11 +1704,7 @@ export default defineSchema({
       comptes: v.optional(v.array(v.string())),
       plateformes: v.optional(
         v.array(
-          v.union(
-            v.literal("TikTok"),
-            v.literal("Instagram"),
-            v.literal("YouTube"),
-          ),
+          plateformeValidator,
         ),
       ),
       campaignIds: v.optional(v.array(v.id("scriptCampaigns"))),
@@ -2064,16 +2045,12 @@ export default defineSchema({
     submittedUrl: v.optional(v.string()),
     submittedAt: v.optional(v.number()),
     submittedPlatform: v.optional(
-      v.union(
-        v.literal("TikTok"),
-        v.literal("Instagram"),
-        v.literal("YouTube"),
-      ),
+      plateformeValidator,
     ),
     // Posé à `published` (matérialisation publication).
     publicationId: v.optional(v.id("publications")),
     // ─── Chantier C — CIBLES multi-plateformes (1 vidéo → N posts) ───────────
-    // 1 à 3 cibles FIGÉES à la création : 1 compte par plateforme, choisi parmi
+    // 1 à 5 cibles FIGÉES à la création : 1 compte par plateforme, choisi parmi
     // les comptes DISPONIBLES (warmup terminé) du créateur. Chaque cible reçoit
     // son URL + sa publication à la publication (confirmPublication, le même
     // jour pour toutes). Les champs legacy ci-dessus
@@ -2085,11 +2062,7 @@ export default defineSchema({
     targets: v.optional(
       v.array(
         v.object({
-          platform: v.union(
-            v.literal("TikTok"),
-            v.literal("Instagram"),
-            v.literal("YouTube"),
-          ),
+          platform: plateformeValidator,
           accountId: v.optional(v.id("comptes")),
           publishedUrl: v.optional(v.string()),
           publishedAt: v.optional(v.number()),

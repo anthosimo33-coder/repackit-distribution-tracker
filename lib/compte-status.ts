@@ -10,9 +10,10 @@ import {
   effectiveTargetDays,
   type WarmupTargetDays,
 } from "./warmup";
+import type { Plateforme } from "../convex/platforms";
 
 export type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
-export type Plateforme = "TikTok" | "Instagram" | "YouTube";
+export type { Plateforme };
 
 /**
  * Durée de warmup (en jours) par plateforme. DÉRIVÉE de lib/warmup
@@ -27,7 +28,13 @@ export type Plateforme = "TikTok" | "Instagram" | "YouTube";
  */
 export const WARMUP_DURATION_FALLBACK: Record<Plateforme, number> = (() => {
   const d = warmupTargetDaysOf({});
-  return { TikTok: d.tiktok, Instagram: d.instagram, YouTube: d.youtube };
+  return {
+    TikTok: d.tiktok,
+    Instagram: d.instagram,
+    YouTube: d.youtube,
+    Facebook: d.facebook,
+    Snapchat: d.snapchat,
+  };
 })();
 
 /**

@@ -82,15 +82,16 @@ import type { FunctionReturnType } from "convex/server";
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatNumber } from "@/lib/format";
+import { PLATEFORMES, type Plateforme } from "@/convex/platforms";
 
 type StatusFilter = "all" | CompteStatus;
 
 // Libellés : `admin.accounts.statusFilter.<valeur>`.
 const STATUS_FILTER_OPTIONS = ["all", "actif", "warmup", "shadowban", "archived"] as const satisfies readonly StatusFilter[];
 
-type PlateformeFilter = "all" | "TikTok" | "Instagram" | "YouTube";
+type PlateformeFilter = "all" | Plateforme;
 // Seul « all » est un libellé : les trois autres sont des noms de plateformes.
-const PLATEFORME_FILTER_OPTIONS = ["all", "TikTok", "Instagram", "YouTube"] as const satisfies readonly PlateformeFilter[];
+const PLATEFORME_FILTER_OPTIONS = ["all", ...PLATEFORMES] as const satisfies readonly PlateformeFilter[];
 
 // Libellés : `admin.accounts.groupBy.<valeur>`.
 const GROUP_OPTIONS = ["creator", "pays", "plateforme", "none"] as const satisfies readonly GroupAxis[];
@@ -846,7 +847,7 @@ function CarteCompte({
 }
 
 /**
- * Le HANDLE ouvre le VRAI compte (TikTok, Instagram, YouTube) dans un nouvel
+ * Le HANDLE ouvre le VRAI compte (sur sa plateforme) dans un nouvel
  * onglet — c'est ce qu'on veut voir en cliquant sur « @… ». La fiche interne
  * s'ouvre au clic sur le reste de la ligne, ou par « Voir la fiche » du menu.
  *
