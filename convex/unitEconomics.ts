@@ -52,6 +52,7 @@ export function computeDelta(current: number, previous: number): Delta {
   return {
     abs,
     pct: previous > 0 ? roundPct((abs / previous) * 100) : null,
+    // i18n-exempt: identifiants de direction (up/down/flat) lus par le code, jamais affichés
     direction: abs > 0 ? "up" : abs < 0 ? "down" : "flat",
   };
 }
