@@ -36,7 +36,21 @@ import {
   gatherCampaignViews,
 } from "./scriptAnalytics";
 import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
-import { getRevenueBreakdownCore } from "./analyticsHub";
+import {
+  getAttributionCore,
+  getReliabilityCore,
+  getRevenueBreakdownCore,
+} from "./analyticsHub";
+import {
+  agregatsFenetre,
+  computeDelta,
+  DASHBOARD_WHOP_TOLERANCE_ABS,
+  DASHBOARD_WHOP_TOLERANCE_PCT,
+  ecartDashboardWhop,
+  equationUnitaire,
+  type AgregatsFenetre,
+} from "./unitEconomics";
+import { toDisplayAmount, type DisplayAmount } from "./currencyRate";
 import {
   dataRangeOf,
   daysUntil,
@@ -156,6 +170,18 @@ export const lireRentabilite = mcpPermissionQuery("business.read")({
 export const lireRevenus = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getRevenueBreakdownCore(ctx),
+});
+
+/** Coûts d'attribution de l'onglet Analytics — même calcul, même bloc. */
+export const lireAttribution = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getAttributionCore(ctx),
+});
+
+/** Contrôles de cohérence de l'onglet Analytics (clients acquis, garde-fou) — même bloc. */
+export const lireFiabilite = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getReliabilityCore(ctx),
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -491,6 +517,25 @@ export const OUTILS: readonly McpTool[] = [
     title: "Revenus Whop (Analytics)",
     description:
       "Revenus du projet tels que l'onglet Analytics les montre (Vue d'ensemble, Offres & tests), par le MÊME calcul. Revenu NET Whop (après frais, remboursements déduits, litiges en cours exclus) sur une période en jours de Paris, avec le détail par jour et, au choix, la période précédente de même durée. Sur tout l'historique : le net mois par mois séparé en premier paiement / renouvellement, l'économie par offre (clients, net, LTV réalisée, net par paiement, frais Whop, net par mois-client), les remboursements, les litiges EN COURS avec leur échéance de réponse, le revenu par bras du test A/B et le journal des changements d'offre. Par défaut : les 30 derniers jours complets (jusqu'à hier).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour de la période, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour de la période, AAAA-MM-JJ (Paris). Défaut : hier." },
+        comparer: {
+          type: "boolean",
+          description: "Ajouter la période précédente de même durée (si les données la couvrent entièrement).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "economie_unitaire",
+    title: "Économie unitaire (Analytics)",
+    description:
+      "Rentabilité d'acquisition telle que la Vue d'ensemble de l'onglet Analytics la montre, par le MÊME calcul : marge nette (revenu net Whop − coût créateurs converti), revenu net et coût créateurs sur une période en jours de Paris ; puis par client acquis : revenu par client − coût d'acquisition = marge par client, retour sur acquisition (×), coût complet du moteur (warmup inclus) et vues promo par client. Les chiffres par client sont SUSPENDUS quand l'écart clients PostHog/Whop dépasse le garde-fou, comme à l'écran. `comparer` ajoute la période précédente de même durée avec les évolutions. Par défaut : les 30 derniers jours complets (jusqu'à hier).",
     inputSchema: {
       type: "object",
       properties: {
@@ -871,6 +916,159 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "« premierPaiement » / « renouvellement » : le 1er paiement encaissé d'un abonnement contre les suivants — approximation bornée à l'historique importé.",
             "LTV RÉALISÉE = net cumulé ÷ clients, sans projection (pas de churn inventé). Les offres, remboursements, litiges et le test A/B portent sur TOUT l'historique ; seuls revenuNet, parJour et periodePrecedente suivent la période.",
             "Avant de comparer deux périodes, regarder changementsOffre : un changement d'offre rend deux cohortes incomparables.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "economie_unitaire") {
+        const au =
+          typeof args.au === "string" && args.au.trim() !== ""
+            ? args.au.trim()
+            : parisDayKey(Date.now() - 86_400_000);
+        const du =
+          typeof args.du === "string" && args.du.trim() !== ""
+            ? args.du.trim()
+            : shiftDay(au, -29);
+        if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+        }
+        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        // Les TROIS agrégats de la Vue d'ensemble, lus séparément comme l'écran
+        // les lit (chacun dans ses propres limites de lecture).
+        const revenu = await lire(() => ctx.runQuery(internal.mcpTools.lireRevenus, ids));
+        const attribution = await lire(() => ctx.runQuery(internal.mcpTools.lireAttribution, ids));
+        const fiabilite = await lire(() => ctx.runQuery(internal.mcpTools.lireFiabilite, ids));
+        const coh = fiabilite.coherence;
+        const fx = {
+          payCurrency: attribution.payCurrency,
+          revenueCurrency: revenu.currency,
+          fxRateToRevenue: attribution.fxRateToRevenue,
+        };
+        // Le garde-fou de l'écran : même décision (convex/unitEconomics).
+        // (null → absent, comme coherenceInputsFrom le fait pour l'écran.)
+        const ecart = ecartDashboardWhop({
+          ...coh,
+          windowReconciliation: coh.windowReconciliation ?? undefined,
+        });
+        const entrees = {
+          dailyPaidClients: coh.dailyPaidClients,
+          revenu,
+          attributionRows: attribution.rows,
+          promoBonusByDay: attribution.costs.promoBonusByDay,
+          fx,
+          suspendu: ecart?.masks === true,
+        };
+        const w: AnalyticsWindow = { from: du, to: au };
+        const cur = agregatsFenetre(entrees, w);
+        const { margePerClient, roas } = equationUnitaire(cur);
+        const montant = (d: DisplayAmount | null) =>
+          d === null
+            ? null
+            : {
+                valeur: d.value,
+                devise: d.currency,
+                ...(d.converted
+                  ? { convertiDepuis: `${d.sourceValue} ${d.sourceCurrency} × ${d.rate}` }
+                  : d.rate === null
+                    ? { nonConverti: "aucun taux de change réglé sur le projet : montant en devise de paie" }
+                    : {}),
+              };
+        const rang1 = (a: AgregatsFenetre) => ({
+          margeNette: a.marge,
+          revenuNet: a.net === null ? null : Math.round(a.net * 100) / 100,
+          coutCreateurs: montant(a.costAll),
+        });
+        // L'étendue des données WHOP (revenu, clients) : la comparaison n'est
+        // offerte que si elle couvre toute la période précédente.
+        const donnees = dataRangeOf([
+          ...revenu.dailyNet.map((d) => d.day),
+          ...coh.dailyPaidClients.map((d) => d.day),
+        ]);
+        let periodePrecedente: Record<string, unknown> | undefined;
+        if (args.comparer === true) {
+          const wAvant = previousWindow(w, donnees);
+          if (wAvant === null) {
+            periodePrecedente = {
+              indisponible: `Les données ne couvrent pas entièrement les ${windowLengthDays(w)} jours précédents${
+                donnees ? ` (premier jour : ${donnees.first})` : ""
+              } : une comparaison tronquée n'en est pas une.`,
+            };
+          } else {
+            const avant = agregatsFenetre(entrees, wAvant);
+            const delta = (a: number | null, b: number | null) =>
+              a !== null && b !== null && b !== 0 ? computeDelta(a, b) : null;
+            periodePrecedente = {
+              du: wAvant.from,
+              au: wAvant.to,
+              ...rang1(avant),
+              evolution: {
+                margeNette: delta(cur.marge, avant.marge),
+                revenuNet: delta(cur.net, avant.net),
+                coutCreateurs: delta(cur.costAll?.value ?? null, avant.costAll?.value ?? null),
+              },
+            };
+          }
+        }
+        const c = attribution.costs;
+        const bonus = toDisplayAmount(c.promoBonus, fx);
+        const natureDue = toDisplayAmount(c.natureDue, fx);
+        const securises = coh.whopSecuredClients ?? null;
+        const clientsEnLitige =
+          coh.whopClientsTotal !== null && securises !== null ? coh.whopClientsTotal - securises : 0;
+        const avertissements: string[] = [];
+        if (!revenu.configured) {
+          avertissements.push("Aucun compte Whop relié au projet : ni revenu, ni marge, ni chiffres par client.");
+        }
+        if (revenu.mixedCurrency) {
+          avertissements.push(
+            "Revenus encaissés dans plusieurs devises sans taux réglé : le revenu n'est pas additionné (null), donc ni marge ni revenu par client.",
+          );
+        }
+        if (cur.costAll !== null && !cur.costAll.converted && cur.costAll.rate === null) {
+          avertissements.push(
+            `Coûts en ${fx.payCurrency ?? "devise de paie"} et revenu en ${fx.revenueCurrency ?? "?"} sans taux de change réglé : la marge n'est pas calculée (null), jamais inventée.`,
+          );
+        }
+        return json({
+          projet: projet.slug,
+          devises: { revenu: fx.revenueCurrency, paie: fx.payCurrency, tauxPaieVersRevenu: fx.fxRateToRevenue },
+          periode: { du, au, jours: windowLengthDays(w) },
+          ...rang1(cur),
+          parClient: cur.canDivide
+            ? {
+                clientsAcquis: cur.clients,
+                revenuParClient: cur.revenuePer,
+                coutAcquisition: montant(cur.acquisition),
+                margeParClient: margePerClient,
+                retourSurAcquisition: roas,
+                coutCompletMoteur: montant(cur.fullEngine),
+                vuesPromoParClient: cur.viewsPer,
+              }
+            : {
+                clientsAcquis: cur.clients,
+                suspendu:
+                  ecart?.masks === true
+                    ? `Chiffres par client SUSPENDUS, comme à l'écran : l'écart clients PostHog/Whop dépasse à la fois ${DASHBOARD_WHOP_TOLERANCE_PCT} % et ${DASHBOARD_WHOP_TOLERANCE_ABS} clients (PostHog ${ecart.posthogClients} personnes, Whop ${ecart.whopClients}, écart inexpliqué ${ecart.diff}, soit ${ecart.pct} %${
+                        ecart.regression ? ", régression d'instrumentation" : ""
+                      }). Un chiffre faux est pire qu'un chiffre absent.`
+                    : "Aucun client acquis sur la période : rien à diviser.",
+              },
+          ...(periodePrecedente ? { periodePrecedente } : {}),
+          detail: {
+            bonusEtPrimesCumules: montant(bonus),
+            ...(c.challengeTotal > 0 ? { dontPrimesDeDefi: montant(toDisplayAmount(c.challengeTotal, fx)) } : {}),
+            ...(c.natureDue > 0 ? { recompensesNatureDues: montant(natureDue) } : {}),
+            ...(c.natureDueMissingCost > 0
+              ? { recompensesNatureSansCoutReel: c.natureDueMissingCost }
+              : {}),
+            ...(clientsEnLitige > 0 ? { clientsEnLitige } : {}),
+          },
+          lecture: [
+            "Marge nette = revenu net Whop encaissé − coût créateurs (fixe + CPM + bonus + défis) converti dans la devise du revenu.",
+            "Par client : tout est divisé par les clients ACQUIS sur la période (personnes, Whop fait foi). Coût d'acquisition = vidéos promo (fixe + CPM) + bonus et primes ; le coût complet du moteur compte aussi le warmup.",
+            "Retour sur acquisition = revenu par client ÷ coût d'acquisition (× fois).",
+            "Les clients en litige comptent au dénominateur mais leur revenu est exclu du net : le revenu par client en est tiré vers le bas.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
         });

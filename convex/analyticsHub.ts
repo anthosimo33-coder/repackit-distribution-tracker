@@ -272,7 +272,11 @@ export interface AttributionResult {
  */
 export const getAttribution = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<AttributionResult> => {
+  handler: (ctx) => getAttributionCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par les outils MCP. */
+export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<AttributionResult> {
     const project = await ctx.db.get(ctx.projectId);
 
     const assignments = (
@@ -614,8 +618,7 @@ export const getAttribution = permissionQuery("business.read")({
         natureDueMissingCost,
       },
     };
-  },
-});
+}
 
 // ─── Récompenses en nature (dû vs engagé) ────────────────────────────────────
 
@@ -2293,7 +2296,11 @@ function whopOfferLabel(p: {
 
 export const getReliability = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<ReliabilityResult> => {
+  handler: (ctx) => getReliabilityCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par les outils MCP. */
+export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<ReliabilityResult> {
     const project = await ctx.db.get(ctx.projectId);
     const configured = project?.posthog !== undefined;
 
@@ -2773,5 +2780,4 @@ export const getReliability = permissionQuery("business.read")({
         { source: "scraping", lastSyncMs: scrapingSyncMs },
       ],
     };
-  },
-});
+}
