@@ -634,8 +634,11 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
                   assignmentManaged,
                 }),
         }))
-        .sort((x, y) =>
-          x.handle.localeCompare(y.handle, "fr", { sensitivity: "base" }),
+        // Choisissables d'abord, grisés ensuite ; alphabétique dans chaque groupe.
+        .sort(
+          (x, y) =>
+            Number(x.refusal !== null) - Number(y.refusal !== null) ||
+            x.handle.localeCompare(y.handle, "fr", { sensitivity: "base" }),
         ),
     }));
   },
