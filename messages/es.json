@@ -124,7 +124,7 @@
           "not_measured": "{count, plural, one {# post nunca medido} other {# posts nunca medidos}}: ninguna medición de vistas, no es un cero.",
           "no_baseline": "{count, plural, one {# post en una cuenta sin mediana de referencia} other {# posts en cuentas sin mediana de referencia}}: menos de {minPosts} posts medidos en {windowDays} días.",
           "no_views": "{count, plural, one {# post con 0 vistas medidas} other {# posts con 0 vistas medidas}}: no hay denominador para un save rate.",
-          "saves_unavailable": "{count, plural, one {# post con intención NO MEDIBLE} other {# posts con intención NO MEDIBLE}}: Instagram y YouTube no exponen los guardados. Ningún ajuste de umbral lo cambiará.",
+          "saves_unavailable": "{count, plural, one {# post con intención NO MEDIBLE} other {# posts con intención NO MEDIBLE}}: Instagram, YouTube, Facebook y Snapchat no exponen los guardados. Ningún ajuste de umbral lo cambiará.",
           "saves_collecting": "{count, plural, one {# post anterior a la recogida de guardados} other {# posts anteriores a la recogida de guardados}}: la medición llegará para los siguientes.",
           "not_computed": "{count, plural, one {# post aún sin clasificar} other {# posts aún sin clasificar}}: a la espera de la próxima sincronización nocturna.",
           "qualification": "{count, plural, one {# post oculto} other {# posts ocultos}} por el filtro Calificación de la tarjeta."
@@ -366,7 +366,7 @@
         "declare": {
           "title": "Registra tu cuenta",
           "done": "Cuenta registrada",
-          "todo": "Añade tu @ de TikTok / Instagram / YouTube.",
+          "todo": "Añade tu @ de TikTok / Instagram / YouTube / Facebook / Snapchat.",
           "cta": "Registrar mi cuenta"
         },
         "warmup": {
@@ -1711,7 +1711,7 @@
       },
       "platforms": {
         "q": "¿en qué plataformas publico?",
-        "a": "TikTok, Instagram o YouTube, según el proyecto y las cuentas que te asignen."
+        "a": "TikTok, Instagram, YouTube, Facebook o Snapchat, según el proyecto y las cuentas que te asignen."
       },
       "pay": {
         "q": "¿cuándo cobro?",

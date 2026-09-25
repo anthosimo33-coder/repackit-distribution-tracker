@@ -847,7 +847,7 @@ function CarteCompte({
 }
 
 /**
- * Le HANDLE ouvre le VRAI compte (TikTok, Instagram, YouTube) dans un nouvel
+ * Le HANDLE ouvre le VRAI compte (sur sa plateforme) dans un nouvel
  * onglet — c'est ce qu'on veut voir en cliquant sur « @… ». La fiche interne
  * s'ouvre au clic sur le reste de la ligne, ou par « Voir la fiche » du menu.
  *

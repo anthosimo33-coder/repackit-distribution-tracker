@@ -12,7 +12,7 @@ import type { Plateforme } from "@/convex/platforms";
  * « COPIER ET OUVRIR TIKTOK » — un geste au lieu de trois.
  *
  * Copie la description, puis ouvre la plateforme dans un nouvel onglet — sur
- * téléphone, les liens https de TikTok, Instagram et YouTube ouvrent l'app
+ * téléphone, les liens https des plateformes ouvrent l'app
  * installée. La créatrice n'a plus qu'à coller en légende.
  *
  * ⚠️ L'ORDRE COMPTE. L'écriture dans le presse-papiers est LANCÉE avant

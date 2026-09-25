@@ -124,7 +124,7 @@
           "not_measured": "{count, plural, one {# post never measured} other {# posts never measured}}: no view reading at all, which is not a zero.",
           "no_baseline": "{count, plural, one {# post on an account with no reference median} other {# posts on accounts with no reference median}}: fewer than {minPosts} measured posts over {windowDays} days.",
           "no_views": "{count, plural, one {# post with 0 measured views} other {# posts with 0 measured views}}: no denominator for a save rate.",
-          "saves_unavailable": "{count, plural, one {# post with UNMEASURABLE intent} other {# posts with UNMEASURABLE intent}}: Instagram and YouTube do not expose saves. No threshold setting will change that.",
+          "saves_unavailable": "{count, plural, one {# post with UNMEASURABLE intent} other {# posts with UNMEASURABLE intent}}: Instagram, YouTube, Facebook and Snapchat do not expose saves. No threshold setting will change that.",
           "saves_collecting": "{count, plural, one {# post predating saves collection} other {# posts predating saves collection}}: the measure will land for the next ones.",
           "not_computed": "{count, plural, one {# post not classified yet} other {# posts not classified yet}}: waiting for the next nightly sync.",
           "qualification": "{count, plural, one {# post hidden} other {# posts hidden}} by the card's Qualification filter."
@@ -366,7 +366,7 @@
         "declare": {
           "title": "Declare your account",
           "done": "Account declared",
-          "todo": "Add your TikTok / Instagram / YouTube @.",
+          "todo": "Add your TikTok / Instagram / YouTube / Facebook / Snapchat @.",
           "cta": "Declare my account"
         },
         "warmup": {
@@ -1711,7 +1711,7 @@
       },
       "platforms": {
         "q": "Which platforms do I post on?",
-        "a": "TikTok, Instagram or YouTube, depending on the project and the accounts assigned to you."
+        "a": "TikTok, Instagram, YouTube, Facebook or Snapchat, depending on the project and the accounts assigned to you."
       },
       "pay": {
         "q": "When do I get paid?",
