@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values";
-import { permissionQuery, permissionMutation } from "./functions";
+import { permissionQuery, permissionMutation, type ProjectQueryCtx } from "./functions";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 
@@ -38,7 +38,13 @@ export type MarketGroup = {
 /** Les marchés composés du projet, dans l'ordre où ils ont été créés. */
 export const listMarketGroups = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<MarketGroup[]> => {
+  handler: (ctx) => listMarketGroupsCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `marches`. */
+export async function listMarketGroupsCore(
+  ctx: ProjectQueryCtx,
+): Promise<MarketGroup[]> {
     const rows = await ctx.db
       .query("marketGroups")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -46,8 +52,7 @@ export const listMarketGroups = permissionQuery("business.read")({
     return rows
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((r) => ({ _id: r._id, name: r.name, countries: r.countries }));
-  },
-});
+}
 
 /**
  * Valide un marché contre l'état RÉEL du projet, et lève sinon.

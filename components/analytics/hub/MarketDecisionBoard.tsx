@@ -5,17 +5,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format-rate";
 import { pctFromFraction } from "@/lib/percent";
-import type { MarketDerived } from "@/lib/market-aggregate";
-import {
-  DECISION,
-  type MarketDecision,
-  type MarketVerdict,
-} from "@/lib/market-decision";
+import { DECISION, type MarketVerdict } from "@/lib/market-decision";
 import { VERDICT_UI, compactViews, returnLabel } from "./marketVerdictUi";
 import { InfoDot } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 
-export type DecidedMarket = MarketDerived & { decision: MarketDecision };
+// Défini dans convex/marketDerive.ts (partagé avec l'outil MCP `marches`).
+export type { DecidedMarket } from "@/convex/marketDerive";
+import type { DecidedMarket } from "@/convex/marketDerive";
 
 /**
  * EN TÊTE DE L'ONGLET PAYS — le résumé, les alertes, puis la décision.

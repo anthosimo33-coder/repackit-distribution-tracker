@@ -16,17 +16,17 @@
  * avant le clic.
  */
 
+import type { MarcheCompose } from "../convex/marketDerive";
+
+// Le type et la PARTITION vivent dans convex/marketDerive.ts, partagés avec l'outil
+// MCP `marches`. Ce module garde la validation (et ses messages d'écran).
+export { partitionMarches } from "../convex/marketDerive";
+export type { MarcheCompose } from "../convex/marketDerive";
+
 /** Bornes du nom d'un marché. Un nom vide rendrait la puce illisible. */
 export const NOM_MIN = 1;
 export const NOM_MAX = 40;
 
-export type MarcheCompose = {
-  /** Identifiant stable — `Id<"marketGroups">` côté serveur, une chaîne ici. */
-  id: string;
-  nom: string;
-  /** Codes pays, tels que le revenu et le coût les portent. */
-  pays: string[];
-};
 
 export type RefusDeMarche =
   | { code: "nom-vide"; message: string }
@@ -84,38 +84,4 @@ export function refusDeMarche(
     }
   }
   return null;
-}
-
-/**
- * LA PARTITION : les marchés composés, puis chaque pays restant seul.
- *
- * Rend des GROUPES de codes, pas des données — l'agrégation, elle, vit dans
- * `lib/market-aggregate`. Séparer les deux permet de tester la partition sans
- * fabriquer de chiffres, et l'agrégation sans fabriquer de marchés.
- *
- * L'ORDRE est stable : les marchés composés d'abord, dans l'ordre où ils ont été
- * créés, puis les pays isolés dans l'ordre où ils arrivent. L'écran trie ensuite
- * sur ce qu'il montre ; ce qu'on garantit ici, c'est qu'un même état rend
- * toujours la même liste.
- */
-export function partitionMarches(
-  paysConnus: readonly string[],
-  marches: readonly MarcheCompose[],
-): { key: string; label: string; pays: string[]; composed: boolean }[] {
-  const pris = new Set<string>();
-  const out: { key: string; label: string; pays: string[]; composed: boolean }[] = [];
-
-  for (const m of marches) {
-    // ⚠️ On ne garde que les pays RÉELLEMENT connus des données. Un marché qui
-    // référence un pays disparu (renommé chez Whop, plus aucun paiement) doit
-    // rendre ce qu'il reste, pas une ligne fantôme ni une erreur.
-    const membres = m.pays.filter((p) => paysConnus.includes(p));
-    for (const p of membres) pris.add(p);
-    out.push({ key: `g:${m.id}`, label: m.nom, pays: membres, composed: true });
-  }
-  for (const p of paysConnus) {
-    if (pris.has(p)) continue;
-    out.push({ key: p, label: p, pays: [p], composed: false });
-  }
-  return out;
 }

@@ -33,21 +33,21 @@ import {
   countryTrafficRows,
   shareGap,
   MIN_COUNTRY_SAMPLE,
-  type CountrySteps,
 } from "@/lib/country-traffic";
 import { pctFromFraction } from "@/lib/percent";
+import {
+  deriverMarches,
+  lignesEtTotaux,
+  serieMensuelle,
+  stepsOf,
+  type FunnelSegments,
+} from "@/convex/marketDerive";
 import { MarketComposer } from "./MarketComposer";
 import { MarketQuadrant } from "./MarketQuadrant";
 import { MarketPayback } from "./MarketPayback";
 import { MarketValueCurve } from "./MarketValueCurve";
 import { MarketDetailSheet } from "./MarketDetailSheet";
-import { partitionMarches } from "@/lib/market-groups";
 import type { MarketGroup } from "@/convex/marketGroups";
-import {
-  aggregateMarket,
-  type MarketFacts,
-} from "@/lib/market-aggregate";
-import { decideMarket, type MarketVerdict } from "@/lib/market-decision";
 import { MarketDecisionBoard, type DecidedMarket } from "./MarketDecisionBoard";
 import { MarketRoiTable } from "./MarketRoiTable";
 import { MarketRpmPlot } from "./MarketRpmPlot";
@@ -83,66 +83,7 @@ export type MarketPnl = {
   };
 };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
-/**
- * DU SERVEUR À L'AGRÉGATION — le pont, et les deux populations qu'il respecte.
- *
- * `MarketRow` porte l'argent (pays de FACTURATION) ; `CountrySteps` porte le
- * trafic (pays de CONNEXION). Ils sont posés dans la même structure parce que
- * l'écran les montre côte à côte, mais AUCUN calcul ne les divise l'un par
- * l'autre : la conversion se dérive des visiteurs et des clients PostHog
- * seulement, et toutes les colonnes d'argent des seuls paiements Whop.
- *
- * Le coût est converti ICI, une fois : `lib/market-aggregate` reçoit un montant
- * déjà comparable au revenu, ou `null` quand aucun taux n'est réglé. Sans ce
- * `null`, un ratio euros/dollars sortirait un nombre sans unité.
- */
-function factsOf(
-  r: MarketRow,
-  ctx: CurrencyContext,
-  trafic: Map<string, CountrySteps>,
-  plans: PlanCountryCell[],
-): MarketFacts {
-  const converti = toDisplayAmount(r.cost, ctx);
-  const promoConverti = toDisplayAmount(r.promoCost, ctx);
-  const t = r.country === null ? undefined : trafic.get(r.country);
-  return {
-    country: r.country,
-    creatorIds: r.creatorIds,
-    videos: r.videos,
-    cost: r.cost,
-    costComparable:
-      converti !== null && converti.rate !== null ? converti.value : null,
-    clients: r.clients,
-    payments: r.paid,
-    revenueNet: r.revenueNet,
-    previousClients: r.previousClients,
-    previousRevenueNet: r.previousRevenueNet,
-    cohortClients: r.cohortClients,
-    curve: r.curve,
-    survival: r.survival,
-    visitors: t?.visitors ?? 0,
-    trafficClients: t?.clients ?? 0,
-    checkouts: t?.checkouts ?? 0,
-    promoCost: r.promoCost,
-    promoCostComparable:
-      promoConverti !== null && promoConverti.rate !== null
-        ? promoConverti.value
-        : null,
-    promoViews: r.promoViews,
-    creatorsDetail: r.creatorsDetail,
-    plans: plans
-      .filter((c) => c.country === r.country)
-      .map((c) => ({
-        planId: c.planId,
-        label: c.planLabel,
-        price: c.price,
-        clients: c.clients,
-        localPrice: c.localPrice,
-      })),
-  };
-}
 
 /**
  * Libellé d'un marché : drapeau + nom, ou la ligne « hors marché ».
@@ -165,34 +106,8 @@ function MarketLabel({ code }: { code: string | null }) {
   );
 }
 
-/** Étapes d'un pays, telles que `countryPersons` les rend. */
-export type FunnelSegments = {
-  segments: { key: string; steps: { key: string; count: number }[] }[];
-};
 
-function stepsOf(segments: FunnelSegments | undefined): CountrySteps[] {
-  return (segments?.segments ?? []).map((seg) => {
-    const n = (k: string) => seg.steps.find((x) => x.key === k)?.count ?? 0;
-    return {
-      country: seg.key,
-      visitors: n("visit"),
-      paywall: n("paywall_viewed"),
-      checkouts: n("checkout_started"),
-      clients: n("subscription_completed"),
-    };
-  });
-}
 
-/** Ordre des lignes : ce qu'il faut faire d'abord. */
-const ORDRE_VERDICT: MarketVerdict[] = [
-  "accelerer",
-  "reparer",
-  "surveiller",
-  "couper",
-  "trop_tot",
-  "sans_depense",
-  "inconnu",
-];
 
 export function PaysTab({
   pnl,
@@ -247,32 +162,9 @@ export function PaysTab({
    * a pu être converti : sans taux réglé, soustraire des dollars à des euros
    * produirait un nombre qui ne veut rien dire. `null` ⇒ tiret.
    */
-  const lignes = useMemo(() => {
-    const rows = [...(pnl?.rows ?? [])];
-    return rows
-      .map((r) => {
-        const coutAffiche = toDisplayAmount(r.cost, ctx);
-        // `rate === null` ⇒ AUCUNE conversion possible (taux du projet non
-        // réglé) : le coût reste en dollars, et soustraire des dollars à des
-        // euros rendrait un nombre qui ne veut rien dire. Tiret, pas zéro.
-        const coutComparable =
-          coutAffiche !== null && coutAffiche.rate !== null
-            ? coutAffiche.value
-            : null;
-        // La ligne « aucun pays défini » n'est PAS un marché : c'est du coût
-        // HORS marché. Lui calculer une marge la ferait lire comme une perte de
-        // marché (« le Brésil perd 77 €, le néant en perd 122 »), alors qu'il
-        // n'y a rien à quoi la comparer. Le coût reste visible, la marge est un
-        // tiret.
-        const marge =
-          r.country === null || coutComparable === null || !pnl?.whopConfigured
-            ? null
-            : round2(r.revenueNet - coutComparable);
-        return { ...r, marge };
-      })
-      .sort((a, b) => (b.marge ?? -Infinity) - (a.marge ?? -Infinity));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pnl]);
+  // Lignes par pays, totaux, marchés et série : convex/marketDerive — les MÊMES
+  // fonctions que l'outil MCP `marches`. L'écran n'en garde que l'affichage.
+  const { totalCost, totalRevenue, totalMarge } = useMemo(() => lignesEtTotaux(pnl), [pnl]);
 
   /**
    * LES MARCHÉS DÉRIVÉS — un par pays, ou un par marché composé.
@@ -286,73 +178,18 @@ export function PaysTab({
    * par les mêmes seuils d'effectif. C'est ce qui garantit qu'une valeur affichée
    * pour « Balkans » obéit aux mêmes règles que celle affichée pour la France.
    */
-  const marches: DecidedMarket[] = useMemo(() => {
-    const trafic = new Map(stepsOf(traffic).map((t) => [t.country, t]));
-    const cells = pnl?.planCells ?? [];
-    const parPays = new Map(
-      (pnl?.rows ?? []).map((r) => [r.country ?? "", factsOf(r, ctx, trafic, cells)]),
-    );
-    const codes = (pnl?.rows ?? [])
-      .map((r) => r.country)
-      .filter((c): c is string => c !== null);
-
-    // Par pays : la partition n'est pas consultée du tout. Passer une liste vide
-    // de marchés rendrait le même résultat, mais le dire explicitement évite de
-    // se demander plus tard si la bascule a un effet de bord.
-    const groupes =
-      maille === "pays"
-        ? codes.map((c) => ({ key: c, label: c, pays: [c], composed: false }))
-        : partitionMarches(
-            codes,
-            (groups ?? []).map((g) => ({
-              id: g._id as string,
-              nom: g.name,
-              pays: g.countries,
-            })),
-          );
-
-    const derives = groupes
-      // Un marché dont tous les pays ont disparu des données n'a rien à montrer
-      // ici. Il reste modifiable dans le composeur, qui, lui, le garde visible.
-      .filter((g) => g.pays.length > 0)
-      .map((g) =>
-        aggregateMarket(
-          g.pays.map((c) => parPays.get(c)!).filter(Boolean),
-          {
-            key: g.key,
-            label: g.composed ? g.label : isoCountryLabel(g.label),
-            composed: g.composed,
-          },
-        ),
-      );
-
-    // La ligne « hors marché » (coût sans pays cible) n'est PAS un marché : elle
-    // ne se compose avec rien et garde sa place, comme avant.
-    const horsMarche = parPays.get("");
-    if (horsMarche) {
-      derives.push(
-        aggregateMarket([horsMarche], {
-          key: "",
-          label: "Aucun pays défini",
-          composed: false,
-        }),
-      );
-    }
-
-    // Trié par VERDICT (ce qu'il faut faire), puis par retour d'acquisition. La
-    // ligne hors marché ferme toujours la liste.
-    return derives
-      .map((m) => ({ ...m, decision: decideMarket(m) }))
-      .sort((a, b) => {
-        if (a.key === "") return 1;
-        if (b.key === "") return -1;
-        const va = ORDRE_VERDICT.indexOf(a.decision.verdict);
-        const vb = ORDRE_VERDICT.indexOf(b.decision.verdict);
-        if (va !== vb) return va - vb;
-        return (b.acquisitionReturn ?? -1) - (a.acquisitionReturn ?? -1);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pnl, traffic, groups, maille]);
+  const marches: DecidedMarket[] = useMemo(
+    () =>
+      deriverMarches({
+        pnl,
+        traffic,
+        groups: (groups ?? []).map((g) => ({ id: g._id as string, nom: g.name, pays: g.countries })),
+        maille,
+        libellePays: isoCountryLabel,
+        libelleHorsMarche: "Aucun pays défini",
+      }),
+    [pnl, traffic, groups, maille],
+  );
 
   /**
    * Les pays PRÉSENTS dans les données, pour le composeur. On ne propose pas un
@@ -368,18 +205,6 @@ export function PaysTab({
     [pnl],
   );
 
-  const totalCost = lignes.reduce((s, r) => s + r.cost, 0);
-  const totalRevenue = lignes.reduce((s, r) => s + r.revenueNet, 0);
-  // Le total, lui, PORTE le coût hors marché : c'est la marge réelle. Il se
-  // calcule donc sur les totaux et non en sommant les lignes, dont une n'a
-  // délibérément pas de marge.
-  const totalCoutAffiche = toDisplayAmount(totalCost, ctx);
-  const totalMarge =
-    pnl?.whopConfigured &&
-    totalCoutAffiche !== null &&
-    totalCoutAffiche.rate !== null
-      ? round2(totalRevenue - totalCoutAffiche.value)
-      : null;
 
   // Une lecture qui ÉCHOUE et une absence de données se corrigent très
   // différemment : l'écran ne doit pas les afficher pareil.
@@ -413,28 +238,7 @@ export function PaysTab({
    * L'écart n'est calculé que si le coût a pu être converti — sinon on
    * soustrairait des dollars à des euros.
    */
-  const mois = (() => {
-    const parMois = new Map<string, { cost: number; revenueNet: number }>();
-    for (const p of pnl.trend) {
-      const d = parMois.get(p.month) ?? { cost: 0, revenueNet: 0 };
-      d.cost = round2(d.cost + p.cost);
-      d.revenueNet = round2(d.revenueNet + p.revenueNet);
-      parMois.set(p.month, d);
-    }
-    return [...parMois.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, d]) => {
-        const converti = toDisplayAmount(d.cost, ctx);
-        return {
-          month,
-          ...d,
-          ecart:
-            converti !== null && converti.rate !== null
-              ? round2(d.revenueNet - converti.value)
-              : null,
-        };
-      });
-  })();
+  const mois = serieMensuelle(pnl);
   const c = pnl.collection;
   const fraicheur = c.total > 0 ? c.fresh / c.total : null;
 

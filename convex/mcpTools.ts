@@ -64,6 +64,17 @@ import {
 } from "./churn";
 import { acquisitionCostPerClient } from "./retentionCost";
 import { windowCosts } from "./attributionWindow";
+import { getMarketPnlCore } from "./marketPnl";
+import { listMarketGroupsCore } from "./marketGroups";
+import { getProductAnalyticsCore } from "./posthogSync";
+import { windowToMs } from "./marketWindow";
+import { DECISION } from "./marketDecision";
+import {
+  contexteDevises,
+  deriverMarches,
+  lignesEtTotaux,
+  serieMensuelle,
+} from "./marketDerive";
 import {
   dataRangeOf,
   daysUntil,
@@ -201,6 +212,24 @@ export const lireFiabilite = mcpPermissionQuery("business.read")({
 export const lireRetention = mcpPermissionQuery("business.read")({
   args: { from: v.optional(v.string()), to: v.optional(v.string()) },
   handler: async (ctx, args) => getChurnCore(ctx, args),
+});
+
+/** Onglet Pays : rentabilité par marché sur une période — même calcul, même bloc. */
+export const lireMarches = mcpPermissionQuery("business.read")({
+  args: { from: v.optional(v.number()), to: v.optional(v.number()) },
+  handler: async (ctx, args) => getMarketPnlCore(ctx, args),
+});
+
+/** Marchés composés (« Balkans » = RS + HR…) — même lecture que l'onglet. */
+export const lireGroupesMarches = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => listMarketGroupsCore(ctx),
+});
+
+/** Agrégats PostHog en cache (trafic par pays) — même lecture que l'onglet. */
+export const lireAnalyticsProduit = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getProductAnalyticsCore(ctx),
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -580,6 +609,23 @@ export const OUTILS: readonly McpTool[] = [
         projet: ARG_PROJET,
         du: { type: "string", description: "Cohorte : clients acquis à partir de ce jour, AAAA-MM-JJ (Paris). Avec « au »." },
         au: { type: "string", description: "Cohorte : clients acquis jusqu'à ce jour inclus, AAAA-MM-JJ (Paris). Avec « du »." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "marches",
+    title: "Marchés (Analytics › Pays)",
+    description:
+      "Rentabilité par marché, comme l'onglet Pays de l'Analytics (même calcul, même verdict) : pour chaque marché (ou pays), le verdict (accélérer, réparer le paiement, surveiller, couper, trop tôt, sans dépense), créatrices et vidéos, coût promo et total, clients, revenu net, coût par client, panier, retour sur acquisition, jour où la valeur rembourse le coût, coût et valeur pour 1 000 vues promo, évolution vs la période précédente, trafic PostHog (visiteurs, checkouts, conversion) et offres vendues ; plus le total et la série par mois. Période en jours de Paris (défaut : 30 derniers jours complets) ; « maille » par marché composé (défaut) ou par pays ; « pays » filtre (code ISO ou nom de marché).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
+        maille: { type: "string", description: "Regrouper par marché composé (défaut) ou détailler par pays.", enum: ["marche", "pays"] },
+        pays: { type: "string", description: "Ne garder qu'un pays (code ISO, ex. FR) ou un marché (nom, ex. Balkans)." },
       },
       additionalProperties: false,
     },
@@ -1281,6 +1327,139 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             `Résiliations et expirations comptées sur les ${ANALYSIS_WINDOW_DAYS} derniers jours. RÉSILIÉ = a annulé mais garde l'accès jusqu'à la fin de la période payée ; EXPIRÉ = accès perdu, le vrai churn.`,
             "Taux de renouvellement « résolu » : sur les échéances tranchées ; « borne basse » : en comptant les échéances en attente comme perdues.",
             "Une cohorte « anecdotique » a trop peu de clients pour être une tendance.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "marches") {
+        const au =
+          typeof args.au === "string" && args.au.trim() !== ""
+            ? args.au.trim()
+            : parisDayKey(Date.now() - 86_400_000);
+        const du =
+          typeof args.du === "string" && args.du.trim() !== ""
+            ? args.du.trim()
+            : shiftDay(au, -29);
+        if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+        }
+        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        // Les bornes de l'écran : jours de Paris inclusifs → instants (même fonction).
+        const bornes = windowToMs({ from: du, to: au });
+        const pnl = await lire(() => ctx.runQuery(internal.mcpTools.lireMarches, { ...ids, ...bornes }));
+        const groupes = await lire(() => ctx.runQuery(internal.mcpTools.lireGroupesMarches, ids));
+        const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
+        const maille = args.maille === "pays" ? "pays" : "marche";
+        const marches = deriverMarches({
+          pnl,
+          traffic: produit.funnels.countryPersons,
+          groups: groupes.map((g) => ({ id: g._id as string, nom: g.name, pays: g.countries })),
+          maille,
+          // Codes ISO : Claude les lit, et un nom traduit n'ajouterait rien.
+          libellePays: (code) => code,
+          libelleHorsMarche: "Aucun pays défini",
+        });
+        const filtre = typeof args.pays === "string" ? plier(args.pays) : null;
+        const retenus =
+          filtre === null
+            ? marches
+            : marches.filter(
+                (m) =>
+                  plier(m.label).includes(filtre) ||
+                  m.countries.some((c) => c !== null && plier(c) === filtre),
+              );
+        const { totalCost, totalRevenue, totalMarge } = lignesEtTotaux(pnl);
+        const ctxDevises = contexteDevises(pnl);
+        const verdicts: Record<string, string> = {
+          accelerer: "accélérer",
+          reparer: "réparer (le paiement casse)",
+          surveiller: "surveiller",
+          couper: "couper",
+          trop_tot: "trop tôt",
+          sans_depense: "sans dépense",
+          inconnu: "inconnu (coût non convertible)",
+        };
+        const pct = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 10);
+        const avertissements: string[] = [];
+        if (!pnl.whopConfigured) {
+          avertissements.push("Aucun compte Whop relié : ni clients ni revenu par marché, seulement les coûts.");
+        }
+        if (marches.some((m) => m.decision.verdict === "inconnu")) {
+          avertissements.push(
+            `Coûts en ${pnl.payCurrency ?? "devise de paie"} sans taux vers ${pnl.revenueCurrency ?? "la devise du revenu"} : aucun verdict ni ratio sur ces marchés (jamais deux monnaies comparées).`,
+          );
+        }
+        return json({
+          projet: projet.slug,
+          periode: { du, au },
+          maille: maille === "pays" ? "par pays" : "par marché (marchés composés regroupés)",
+          devises: { revenu: pnl.revenueCurrency, paie: pnl.payCurrency, tauxPaieVersRevenu: pnl.fxRateToRevenue },
+          total: {
+            coutCreateurs: montantAffiche(toDisplayAmount(totalCost, ctxDevises)),
+            revenuNet: Math.round(totalRevenue * 100) / 100,
+            marge: totalMarge,
+          },
+          seuils: {
+            depensePromoMinPourJuger: DECISION.minSpend,
+            accelererSiRetourAuMoins: DECISION.goReturn,
+            accelererSiClientsAuMoins: DECISION.goClients,
+            couperSiRetourSous: DECISION.cutReturn,
+            reparerSiCheckoutVersClientSousPct: DECISION.fixMaxCheckoutToClient * 100,
+            checkoutsMinPourJugerLePaiement: DECISION.fixMinCheckouts,
+          },
+          marches: retenus.map((m) => ({
+            marche: m.label,
+            pays: m.countries.filter((c): c is string => c !== null),
+            ...(m.composed ? { compose: true } : {}),
+            verdict: verdicts[m.decision.verdict] ?? m.decision.verdict,
+            createatrices: m.creators,
+            videos: m.videos,
+            coutPromo: m.promoCostComparable,
+            coutTotal: m.costComparable,
+            clients: m.clients,
+            paiements: m.payments,
+            revenuNet: m.revenueNet,
+            coutParClient: m.cac,
+            panierMoyen: m.basket,
+            cyclesParClient: m.cycles,
+            revenuSurCout: m.retour,
+            retourAcquisition: m.acquisitionReturn,
+            valeurAcquisition: m.acquisitionValue,
+            rembourseLeJour: m.payback.day,
+            remboursement: m.payback.state,
+            coutPour1000VuesPromo: m.costPer1000,
+            valeurPour1000VuesPromo: m.rpmAcquisition,
+            encaissePour1000VuesPromo: m.rpmCollected,
+            vuesPromo: m.promoViews,
+            evolutionClientsPct: pct(m.deltaClients),
+            evolutionRevenuPct: pct(m.deltaRevenue),
+            trafic: {
+              visiteurs: m.visitors,
+              checkouts: m.checkouts,
+              clientsPostHog: m.trafficClients,
+              conversionPct: pct(m.conversion),
+              visiteVersCheckoutPct: pct(m.decision.visitToCheckout),
+              checkoutVersClientPct: pct(m.decision.checkoutToClient),
+            },
+            offres: m.plans.slice(0, 5).map((p) => ({
+              offre: p.label ?? p.planId,
+              prix: p.price,
+              clients: p.clients,
+              partPct: pct(p.share),
+            })),
+          })),
+          parMois: serieMensuelle(pnl).map((x) => ({
+            mois: x.month,
+            coutCreateurs: x.cost,
+            revenuNet: x.revenueNet,
+            ecart: x.ecart,
+          })),
+          lecture: [
+            "L'argent (coût, clients, revenu) suit le pays de FACTURATION (Whop) ; le trafic, le pays de CONNEXION (PostHog). Côte à côte, jamais divisés l'un par l'autre.",
+            "Montants dans la devise du revenu (coûts convertis au taux du projet). « retourAcquisition » = valeur des clients gagnés ÷ coût promo ; « revenuSurCout » = revenu net ÷ coût.",
+            "Trafic : le cache PostHog (90 derniers jours), pas recalculé sur la période — l'écran le recalcule quand il le peut. Les verdicts qui en dépendent (réparer) peuvent donc différer légèrement.",
+            "Verdicts triés par ce qu'il faut faire d'abord ; « Aucun pays défini » = coût sans pays cible, hors marché.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
         });
