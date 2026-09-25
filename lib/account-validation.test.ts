@@ -69,12 +69,13 @@ describe("aucun site du régime strict ne relit le slug", () => {
     expect(fautifs).toEqual([]);
   });
 
-  it("les sept sites passent bien par le point d'entrée unique", () => {
+  it("les huit sites passent bien par le point d'entrée unique", () => {
     // Présence, pas seulement absence : sans elle, supprimer les appels
     // laisserait la garde ci-dessus verte.
     const n = (f: string) =>
       (src(f).match(/isStrictAccountValidationFor\(/g) ?? []).length;
     expect(n("comptes.ts")).toBe(4); // dispo admin, portail, clippeur, onboarding
-    expect(n("assignments.ts")).toBe(3); // validateTargets, liste assignables, publication
+    // validateTargets, liste assignables, publication, sélecteur de compte d'une cible
+    expect(n("assignments.ts")).toBe(4);
   });
 });

@@ -663,9 +663,7 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
  * Rien d'autre ne bouge : combo, unicité (clé créatrice × plateforme), cooldown
  * (ancré sur les dates), barème, statut. Idempotent : même compte → no-op.
  */
-export const setAssignmentTargetAccount = permissionMutation(
-  "assignments.manage",
-)({
+export const setAssignmentTargetAccount = permissionMutation("assignments.manage")({
   args: {
     id: v.id("assignments"),
     platform: plateformeValidator,
