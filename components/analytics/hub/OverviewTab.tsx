@@ -37,11 +37,10 @@ import { buildDayDetail } from "@/lib/day-detail";
 import {
   previousWindow,
   rowsInWindow,
-  sumInWindow,
   type AnalyticsWindow,
   type DataRange,
 } from "@/lib/analytics-window";
-import { windowCosts } from "@/lib/attribution-window";
+import { agregatsFenetre, equationUnitaire } from "@/convex/unitEconomics";
 import {
   toDisplayAmount,
   convertedValue,
@@ -305,81 +304,24 @@ export function OverviewTab({
   // Le dénominateur `clients` est en PERSONNES (cf convex/whopClients) : Σ des
   // jours = whopClientsTotal par construction, donc « ÷ N clients » garde la MÊME
   // unité que le cumul.
-  const aggregatesFor = (w: AnalyticsWindow | null) => {
-    const clients = sumInWindow(
-      coh?.dailyPaidClients ?? [],
-      w,
-      (d) => d.day,
-      (d) => d.clients,
-    );
-    const net =
-      revenue?.configured && !revenue.mixedCurrency
-        ? sumInWindow(revenue.dailyNet, w, (d) => d.day, (d) => d.net)
-        : null;
-    // Les coûts viennent du POINT UNIQUE (lib/attribution-window) : les autres
-    // onglets lisent le même calcul, donc deux écrans ne peuvent pas afficher
-    // deux coûts pour la même période.
-    const {
-      promo: promoCost,
-      full: fullCost,
-      bonus,
-      promoViews,
-    } = windowCosts(attribution?.rows ?? [], attribution?.costs.promoBonusByDay ?? [], w);
-    // Coût TOTAL en devise du REVENU : c'est le seul terme soustractible du net.
-    const costAll =
-      fullCost !== null && bonus !== null
-        ? toDisplayAmount(fullCost + bonus, fxCtx)
-        : null;
-    const marge =
-      net !== null && costAll !== null
-        ? Math.round((net - costAll.value) * 100) / 100
-        : null;
-    const canDivide = clients !== null && clients > 0 && !dashboardWhopViolation;
-    const per = (n: number | null): number | null =>
-      n !== null && canDivide
-        ? Math.round((n / (clients as number)) * 100) / 100
-        : null;
-    return {
-      clients,
-      net,
-      costAll,
-      marge,
-      promoViews,
-      canDivide,
-      acquisition: toDisplayAmount(
-        promoCost !== null && bonus !== null ? per(promoCost + bonus) : null,
-        fxCtx,
-      ),
-      // Le coût complet fenêtré n'inclut PAS les récompenses en nature : dues
-      // sans date d'exigibilité exploitable. Le cumul, lui, les porte.
-      fullEngine: toDisplayAmount(
-        fullCost !== null && bonus !== null ? per(fullCost + bonus) : null,
-        fxCtx,
-      ),
-      revenuePer: net !== null && canDivide ? per(net) : null,
-      viewsPer:
-        canDivide && promoViews > 0
-          ? Math.round(promoViews / (clients as number))
-          : null,
-    };
+  // Le calcul vit dans convex/unitEconomics.ts : l'outil MCP `economie_unitaire`
+  // rend EXACTEMENT ces nombres. L'écran n'en garde que l'affichage.
+  const entrees = {
+    dailyPaidClients: coh?.dailyPaidClients ?? [],
+    revenu: revenue,
+    attributionRows: attribution?.rows ?? [],
+    promoBonusByDay: attribution?.costs.promoBonusByDay ?? [],
+    fx: fxCtx,
+    suspendu: dashboardWhopViolation,
   };
-  const cur = aggregatesFor(window);
-  const prev = aggregatesFor(previousWindow(window, dataRange));
+  const cur = agregatsFenetre(entrees, window);
+  const prev = agregatsFenetre(entrees, previousWindow(window, dataRange));
   /** Delta seulement si les DEUX termes existent — sinon rien, jamais « stable ». */
   const deltaOf = (a: number | null, b: number | null) =>
     a !== null && b !== null && b !== 0 ? computeDelta(a, b) : null;
 
-  // L'équation du rang 2. `margePerClient` se calcule sur les MÊMES termes que
-  // ceux affichés, jamais sur la marge globale divisée : sinon la ligne ne se
-  // vérifierait pas de tête.
-  const margePerClient =
-    cur.revenuePer !== null && cur.acquisition !== null
-      ? Math.round((cur.revenuePer - cur.acquisition.value) * 100) / 100
-      : null;
-  const roas =
-    cur.revenuePer !== null && cur.acquisition !== null && cur.acquisition.value > 0
-      ? Math.round((cur.revenuePer / cur.acquisition.value) * 10) / 10
-      : null;
+  // L'équation du rang 2, sur les MÊMES termes que ceux affichés.
+  const { margePerClient, roas } = equationUnitaire(cur);
 
   // L'entonnoir : chaque étape porte son taux de passage depuis la précédente,
   // et une barre à l'échelle des VISITEURS (pas de barre normalisée par étape,

@@ -13,6 +13,8 @@
  * inventé se lit comme une mesure et ment.
  */
 
+import { ecartDashboardWhop } from "../convex/unitEconomics";
+
 /**
  * Effectif minimal sous lequel une comparaison n'est PAS concluante. À faible
  * volume une différence est du bruit : sous ce seuil l'UI grise la barre et
@@ -323,10 +325,13 @@ export interface CoherenceInputs {
   };
 }
 
-/** Écart relatif toléré (points de %) entre clients dashboard et Whop. */
-export const DASHBOARD_WHOP_TOLERANCE_PCT = 5;
-/** Écart ABSOLU toléré (clients). Le masquage exige de franchir % ET absolu. */
-export const DASHBOARD_WHOP_TOLERANCE_ABS = 5;
+// Seuils et DÉCISION du contrôle « Clients dashboard vs Whop » : dans
+// convex/unitEconomics.ts, partagés avec l'outil MCP `economie_unitaire` (qui
+// doit suspendre les chiffres par client exactement quand l'écran les suspend).
+export {
+  DASHBOARD_WHOP_TOLERANCE_ABS,
+  DASHBOARD_WHOP_TOLERANCE_PCT,
+} from "../convex/unitEconomics";
 
 /**
  * Assemble TOUS les contrôles de cohérence du hub. Un écart ne « corrige » rien :
@@ -400,25 +405,22 @@ export function buildCoherenceChecks(i: CoherenceInputs): CoherenceCheck[] {
   //
   // Masquage SEULEMENT si les DEUX seuils sont franchis (% ET absolu) : sur
   // petits nombres, ±1-2 clients ne suspend rien.
-  const posthogReach = stepBy(i.reachSteps, "subscription_completed");
-  const posthogClients = posthogReach ?? i.dashboardClients;
-  if (posthogClients !== null && i.whopClients !== null) {
+  // Le calcul (écart, bande, seuils) : `ecartDashboardWhop`, la fonction que
+  // l'outil MCP lit aussi. Ici, seulement ce qui se DIT.
+  const ecart = ecartDashboardWhop(i);
+  if (ecart !== null) {
     const rec = i.windowReconciliation;
-    // Écart SIGNÉ : les deux termes de la décomposition tirent en sens opposés,
-    // les confondre en valeur absolue effacerait justement l'information.
-    const signed = posthogClients - i.whopClients;
-    // Ce que la décomposition PRÉDIT : les fantômes gonflent, les paiements
-    // sans event creusent. Ce qui reste est inexpliqué.
-    const predicted = rec ? rec.ghostClients - rec.missingEvents : 0;
-    const unexplained = rec ? Math.abs(signed - predicted) : Math.abs(signed);
-    // Hors bande = ce que les events non liés de juillet ne peuvent PAS couvrir.
-    const band = rec ? rec.unlinkedBeforeBreak : 0;
-    const diff = Math.max(0, unexplained - band);
-    const pct = Math.round((diff / Math.max(1, i.whopClients)) * 1000) / 10;
-    const regression = rec !== undefined && rec.unlinkedAfterBreak > 0;
-    const masks =
-      regression ||
-      (pct > DASHBOARD_WHOP_TOLERANCE_PCT && diff > DASHBOARD_WHOP_TOLERANCE_ABS);
+    const {
+      posthogReach,
+      posthogClients,
+      signed,
+      unexplained,
+      band,
+      diff,
+      pct,
+      regression,
+      masks,
+    } = ecart;
     const causes: string[] = [];
     if (rec) {
       if (rec.ghostClients > 0) {
@@ -1107,26 +1109,9 @@ function pushSumCheck(
 
 // ─── Évolution vs période précédente ─────────────────────────────────────────
 
-export interface Delta {
-  abs: number;
-  /** Variation en %. null si la base précédente est nulle (pas de % depuis 0). */
-  pct: number | null;
-  direction: "up" | "down" | "flat";
-}
-
-/**
- * Évolution d'un KPI vs la période précédente. Une base précédente à 0 ne donne
- * PAS +100 % (division par zéro maquillée) mais `pct: null` → l'UI affiche la
- * variation absolue et « — » en relatif.
- */
-export function computeDelta(current: number, previous: number): Delta {
-  const abs = round2(current - previous);
-  return {
-    abs,
-    pct: previous > 0 ? roundPct((abs / previous) * 100) : null,
-    direction: abs > 0 ? "up" : abs < 0 ? "down" : "flat",
-  };
-}
+// Défini dans convex/unitEconomics.ts (partagé avec les outils MCP).
+export { computeDelta } from "../convex/unitEconomics";
+export type { Delta } from "../convex/unitEconomics";
 
 // ─── Taux de conversion par segment (paywalls, sources, formats, prédicteurs) ─
 

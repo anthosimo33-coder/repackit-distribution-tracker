@@ -1,9 +1,13 @@
 import { formatMoney } from "./format-rate";
+import { currencySymbol, type DisplayAmount } from "./currency";
+
+// Contexte et conversion : dans convex/currencyRate.ts, partagés avec les outils MCP.
 import {
-  currencySymbol,
   payAmountInRevenueCurrency,
-  type DisplayAmount,
-} from "./currency";
+  type CurrencyContext,
+} from "../convex/currencyRate";
+export { toDisplayAmount } from "../convex/currencyRate";
+export type { CurrencyContext } from "../convex/currencyRate";
 import { formatNumber } from "./format";
 
 /**
@@ -32,27 +36,6 @@ import { formatNumber } from "./format";
  * (`fxRateToRevenue` absent) : il reste alors en dollars et la mention le DIT,
  * plutôt que d'afficher un euro inventé.
  */
-
-/** Contexte devises d'un écran : la paie, le revenu, et le taux qui les relie. */
-export interface CurrencyContext {
-  payCurrency: string | null | undefined;
-  revenueCurrency: string | null | undefined;
-  fxRateToRevenue: number | null | undefined;
-}
-
-/** Convertit un montant de paie pour l'affichage (null passe en null). */
-export function toDisplayAmount(
-  amount: number | null | undefined,
-  ctx: CurrencyContext,
-): DisplayAmount | null {
-  if (amount == null) return null;
-  return payAmountInRevenueCurrency(
-    amount,
-    ctx.payCurrency,
-    ctx.revenueCurrency,
-    ctx.fxRateToRevenue,
-  );
-}
 
 /** Le montant, dans la devise d'affichage. « — » si absent. */
 export function convertedValue(d: DisplayAmount | null): string {
