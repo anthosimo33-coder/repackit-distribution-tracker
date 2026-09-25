@@ -160,7 +160,9 @@ test.describe("Outil MCP revenus", () => {
       // litige, ni le paiement d'aujourd'hui.
       expect(r.revenuNet).toBe(25.61);
       expect(r.parJour.map((d) => d.jour)).not.toContain(jourParis(maintenant));
+      // Même durée (30 j), juste avant : du J−60 au J−31.
       expect(r.periodePrecedente).toMatchObject({
+        du: jourParis(maintenant - 60 * DAY),
         au: jourParis(maintenant - 31 * DAY),
         revenuNet: 7.24,
         evolutionPct: 253.7, // (25,61 − 7,24) ÷ 7,24
