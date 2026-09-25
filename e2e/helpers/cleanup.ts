@@ -44,6 +44,10 @@ export async function cleanupTestData() {
     ],
     ["comptes", () => client.mutation(api.comptes.cleanupTestComptes, { secret })],
     [
+      "mcpTokens",
+      () => client.mutation(api.mcpTokens.cleanupTestMcpTokens, { secret }),
+    ],
+    [
       "filterPresets",
       () => client.mutation(api.filterPresets.cleanupTestPresets, { secret }),
     ],

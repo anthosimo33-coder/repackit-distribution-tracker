@@ -1,5 +1,6 @@
 import {
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -284,107 +285,115 @@ export function postLabel(p: Doc<"publications">): string {
 
 export const listTrackerPosts = permissionQuery("content.analytics")({
   args: filterArgs,
-  handler: async (ctx, args) => {
-    const refs = await buildPublicationAssignmentMap(ctx);
-    // Noms INTERNES des campagnes du projet — une seule lecture, comme les
-    // formats plus haut. Le graphe « Vues par campagne » et le multi-select de
-    // la barre de filtres lisent ainsi la même source.
-    const campaignNameById = new Map(
-      (
-        await ctx.db
-          .query("scriptCampaigns")
-          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-          .collect()
-      ).map((c) => [c._id as string, c.name]),
-    );
-
-    // datePubli desc → ordre stable par défaut (le client re-trie selon la
-    // colonne choisie, défaut vues desc). Lecture latest = champs dénormalisés.
-    const pubs = await ctx.db
-      .query("publications")
-      .withIndex("by_project_datePubli", (q) =>
-        q.eq("projectId", ctx.projectId),
-      )
-      .order("desc")
-      .collect();
-
-    const rows = [];
-    for (const p of pubs) {
-      if (!publishedAndMatches(p, args, (id) => refs.get(id))) continue;
-      const ref = refs.get(p._id as string) ?? null;
-      rows.push({
-        _id: p._id,
-        carouselId: p.carouselId,
-        label: postLabel(p),
-        plateforme: p.plateforme,
-        mediaType: (p.mediaType ?? "carousel") as
-          | "carousel"
-          | "short"
-          | "screenrecorder",
-        compte: p.compte,
-        creatorId: ref?.creatorId ?? null,
-        creatorName: ref?.creatorName ?? null,
-        // Format NOMMÉ rattaché (via assignment), null si aucun.
-        formatId: ref?.formatId ?? null,
-        formatName: ref?.formatName ?? null,
-        // CAMPAGNE d'origine — lue sur la publication (scriptCombo recopié à la
-        // matérialisation), pas sur l'assignment : c'est déjà la source du filtre
-        // multi-select campagne de cette page, donc graphe et filtre lisent la
-        // MÊME chose. Nom INTERNE : écran admin (displayName est le nom exposé
-        // aux créatrices, cf #59). null = publication sans campagne rattachée.
-        campaignId: (p.scriptCombo?.campaignId as string | undefined) ?? null,
-        campaignName: p.scriptCombo?.campaignId
-          ? (campaignNameById.get(p.scriptCombo.campaignId as string) ??
-            "Campagne supprimée")
-          : null,
-        datePubli: p.datePubli,
-        postUrl: p.postUrl ?? null,
-        // Flag warmup (PR #119) — pastille "hors paie" dans la liste tracker.
-        // Les posts warmup sont désormais EXCLUS par défaut de cette query (cf
-        // filterArgs.warmup) ; la pastille reste affichée sur les lignes quand
-        // l'utilisateur choisit de les voir ("Tous"/"Warmup seulement"). Le
-        // moteur de paie reste inchangé.
-        isWarmup: p.isWarmup === true,
-        // QUALIFICATION éditoriale, TRI-ÉTAT — et c'est tout l'objet du champ.
-        // `isWarmup` ci-dessus est volontairement un booléen (la pastille « hors
-        // paie » ne connaît que deux états), mais il écrase la différence entre
-        // « promo, décidé » et « jamais qualifié ». La carte quadrant colore par
-        // qualification : sans ce champ, un post jamais qualifié serait peint
-        // « promo », c'est-à-dire qu'un défaut de saisie prendrait l'apparence
-        // d'une décision. Dérivé ici, au contact du champ brut.
-        qualification: qualificationOf(p.isWarmup),
-        // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
-        //
-        // ⚠️ Le `?? 0` reste, et c'est VOULU : les sommes et les moyennes ont
-        // besoin d'un nombre. Ce qui change, c'est qu'on dit désormais à côté
-        // s'il s'agit d'une MESURE ou d'une ignorance (cf `collect` plus bas) —
-        // l'écran affiche un tiret dans le second cas au lieu de peindre « 0 »
-        // sur une vidéo qu'on n'a pas su relever.
-        vues: p.vuesLatest ?? 0,
-        likes: p.likesLatest ?? 0,
-        comments: p.commentsLatest ?? 0,
-        // STATUT DE COLLECTE — mesuré / en attente / en échec, avec le motif.
-        collect: {
-          availability: collectAvailability(p),
-          reason: p.lastCollectFailureReason ?? null,
-          failureStreak: p.collectFailureStreak ?? 0,
-        },
-        // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
-        // pas la métrique et les posts antérieurs à sa collecte n'en portent
-        // pas. Replier sur 0 ferait passer une absence pour un save rate nul,
-        // c'est-à-dire pour une contre-performance (cf savesAvailability, qui
-        // sépare « la plateforme ne le donnera jamais » de « pas encore relevé »).
-        saves: p.savesLatest ?? null,
-        savesAvailability: savesAvailability(p.savesLatest, p.plateforme),
-        // Classement « Vues × Intent » écrit par le relevé nocturne (cf
-        // convex/quadrantSync.ts). `null` = jamais recalculé → la carte l'affiche
-        // « en attente du prochain relevé », pas « sous les seuils ».
-        quadrant: p.quadrant ?? null,
-      });
-    }
-    return rows;
-  },
+  handler: (ctx, args) => listTrackerPostsCore(ctx, args),
 });
+
+/**
+ * Cœur de `listTrackerPosts` — partagé avec l'outil MCP `meilleurs_posts` (convex/mcpTools) : mêmes posts, mêmes métriques.
+ */
+export async function listTrackerPostsCore(
+  ctx: ProjectQueryCtx,
+  args: FilterArgs,
+) {
+  const refs = await buildPublicationAssignmentMap(ctx);
+  // Noms INTERNES des campagnes du projet — une seule lecture, comme les
+  // formats plus haut. Le graphe « Vues par campagne » et le multi-select de
+  // la barre de filtres lisent ainsi la même source.
+  const campaignNameById = new Map(
+    (
+      await ctx.db
+        .query("scriptCampaigns")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    ).map((c) => [c._id as string, c.name]),
+  );
+
+  // datePubli desc → ordre stable par défaut (le client re-trie selon la
+  // colonne choisie, défaut vues desc). Lecture latest = champs dénormalisés.
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project_datePubli", (q) =>
+      q.eq("projectId", ctx.projectId),
+    )
+    .order("desc")
+    .collect();
+
+  const rows = [];
+  for (const p of pubs) {
+    if (!publishedAndMatches(p, args, (id) => refs.get(id))) continue;
+    const ref = refs.get(p._id as string) ?? null;
+    rows.push({
+      _id: p._id,
+      carouselId: p.carouselId,
+      label: postLabel(p),
+      plateforme: p.plateforme,
+      mediaType: (p.mediaType ?? "carousel") as
+        | "carousel"
+        | "short"
+        | "screenrecorder",
+      compte: p.compte,
+      creatorId: ref?.creatorId ?? null,
+      creatorName: ref?.creatorName ?? null,
+      // Format NOMMÉ rattaché (via assignment), null si aucun.
+      formatId: ref?.formatId ?? null,
+      formatName: ref?.formatName ?? null,
+      // CAMPAGNE d'origine — lue sur la publication (scriptCombo recopié à la
+      // matérialisation), pas sur l'assignment : c'est déjà la source du filtre
+      // multi-select campagne de cette page, donc graphe et filtre lisent la
+      // MÊME chose. Nom INTERNE : écran admin (displayName est le nom exposé
+      // aux créatrices, cf #59). null = publication sans campagne rattachée.
+      campaignId: (p.scriptCombo?.campaignId as string | undefined) ?? null,
+      campaignName: p.scriptCombo?.campaignId
+        ? (campaignNameById.get(p.scriptCombo.campaignId as string) ??
+          "Campagne supprimée")
+        : null,
+      datePubli: p.datePubli,
+      postUrl: p.postUrl ?? null,
+      // Flag warmup (PR #119) — pastille "hors paie" dans la liste tracker.
+      // Les posts warmup sont désormais EXCLUS par défaut de cette query (cf
+      // filterArgs.warmup) ; la pastille reste affichée sur les lignes quand
+      // l'utilisateur choisit de les voir ("Tous"/"Warmup seulement"). Le
+      // moteur de paie reste inchangé.
+      isWarmup: p.isWarmup === true,
+      // QUALIFICATION éditoriale, TRI-ÉTAT — et c'est tout l'objet du champ.
+      // `isWarmup` ci-dessus est volontairement un booléen (la pastille « hors
+      // paie » ne connaît que deux états), mais il écrase la différence entre
+      // « promo, décidé » et « jamais qualifié ». La carte quadrant colore par
+      // qualification : sans ce champ, un post jamais qualifié serait peint
+      // « promo », c'est-à-dire qu'un défaut de saisie prendrait l'apparence
+      // d'une décision. Dérivé ici, au contact du champ brut.
+      qualification: qualificationOf(p.isWarmup),
+      // Métriques LATEST dénormalisées (null → 0 pour les agrégats).
+      //
+      // ⚠️ Le `?? 0` reste, et c'est VOULU : les sommes et les moyennes ont
+      // besoin d'un nombre. Ce qui change, c'est qu'on dit désormais à côté
+      // s'il s'agit d'une MESURE ou d'une ignorance (cf `collect` plus bas) —
+      // l'écran affiche un tiret dans le second cas au lieu de peindre « 0 »
+      // sur une vidéo qu'on n'a pas su relever.
+      vues: p.vuesLatest ?? 0,
+      likes: p.likesLatest ?? 0,
+      comments: p.commentsLatest ?? 0,
+      // STATUT DE COLLECTE — mesuré / en attente / en échec, avec le motif.
+      collect: {
+        availability: collectAvailability(p),
+        reason: p.lastCollectFailureReason ?? null,
+        failureStreak: p.collectFailureStreak ?? 0,
+      },
+      // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
+      // pas la métrique et les posts antérieurs à sa collecte n'en portent
+      // pas. Replier sur 0 ferait passer une absence pour un save rate nul,
+      // c'est-à-dire pour une contre-performance (cf savesAvailability, qui
+      // sépare « la plateforme ne le donnera jamais » de « pas encore relevé »).
+      saves: p.savesLatest ?? null,
+      savesAvailability: savesAvailability(p.savesLatest, p.plateforme),
+      // Classement « Vues × Intent » écrit par le relevé nocturne (cf
+      // convex/quadrantSync.ts). `null` = jamais recalculé → la carte l'affiche
+      // « en attente du prochain relevé », pas « sous les seuils ».
+      quadrant: p.quadrant ?? null,
+    });
+  }
+  return rows;
+}
 
 /**
  * Dates de publication des posts que le filtre WARMUP retire de la lecture.

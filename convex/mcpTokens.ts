@@ -232,3 +232,18 @@ export const e2eInsertMcpToken = e2eMutation({
     await insererCle(ctx, { userId: user._id, ...rest });
   },
 });
+
+/**
+ * Nettoyage e2e — TOUTES les clés du déploiement de test. Chaque spec MCP en
+ * crée une par l'écran ; sans ce ménage, une base locale réutilisée d'un run à
+ * l'autre atteint la limite de 20 clés et les specs échouent pour une raison
+ * qui n'a rien à voir avec elles. Gardé par E2E_SECRET, jamais défini en prod.
+ */
+export const cleanupTestMcpTokens = e2eMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cles = await ctx.db.query("mcpTokens").collect();
+    for (const c of cles) await ctx.db.delete(c._id);
+    return { deleted: cles.length };
+  },
+});
