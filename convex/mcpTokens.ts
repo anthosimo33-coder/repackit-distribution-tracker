@@ -22,6 +22,7 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -61,18 +62,26 @@ function base64url(octets: Uint8Array): string {
 
 /**
  * La personne peut-elle détenir une clé ? Superadmin, ou un rôle d'ÉQUIPE
- * (admin, manager) sur au moins un projet. Même règle pour la vraie création et
- * pour le chemin e2e.
+ * (admin, manager) sur au moins un projet. Même règle pour la vraie création,
+ * pour le chemin e2e, et pour un accès accordé par OAuth (convex/mcpOAuth.ts).
  */
-async function assertPeutDetenirUneCle(ctx: MutationCtx, userId: Id<"users">) {
+export async function peutDetenirUneCle(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<boolean> {
   const user = await ctx.db.get(userId);
-  if (!user) throw err(ERR.NOT_AUTHENTICATED, "Non authentifié.");
-  if (user.role === "superadmin") return;
+  if (!user) return false;
+  if (user.role === "superadmin") return true;
   const acces = await ctx.db
     .query("memberships")
     .withIndex("by_user", (q) => q.eq("userId", userId))
     .collect();
-  if (!acces.some((m) => teamRoleOf(m) !== null)) {
+  return acces.some((m) => teamRoleOf(m) !== null);
+}
+
+export async function assertPeutDetenirUneCle(ctx: QueryCtx, userId: Id<"users">) {
+  if (!(await ctx.db.get(userId))) throw err(ERR.NOT_AUTHENTICATED, "Non authentifié.");
+  if (!(await peutDetenirUneCle(ctx, userId))) {
     throw err(
       ERR.MCP_TOKEN_NOT_ALLOWED,
       "Les clés d'accès sont réservées à l'équipe (admin ou manager).",

@@ -1474,7 +1474,9 @@
     "ERR_MCP_TOKEN_NOT_ALLOWED": "Access keys are for the team only (admin or manager).",
     "ERR_MCP_TOKEN_NAME_REQUIRED": "Give the key a name (e.g. “Claude on my Mac”).",
     "ERR_MCP_TOKEN_LIMIT": "You already have {max} keys: revoke the ones you no longer use.",
-    "ERR_MCP_TOKEN_NOT_FOUND": "Key not found."
+    "ERR_MCP_TOKEN_NOT_FOUND": "Key not found.",
+    "ERR_MCP_OAUTH_REQUEST_INVALID": "Invalid or expired authorization request: start the connection again from Claude.",
+    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Access not found."
   },
   "calendar": {
     "weekday": {

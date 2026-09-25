@@ -11,6 +11,7 @@ import {
   normalizeLocale,
   type Locale,
 } from "@/i18n/locales";
+import { loginAvecSuite, SUITE_PARAM, suiteApresConnexion } from "@/lib/login-suite";
 
 /**
  * Remédiation sécurité — gating des PAGES : tout sauf /login exige une
@@ -45,6 +46,11 @@ import {
  *
  * P1 Créateurs — /join/<token> est PUBLIC (pré-session, comme /login) : un
  * invité n'a pas encore de compte. Exclu du gating d'auth ci-dessous.
+ *
+ * Connecteur Claude — la page de consentement OAuth (/oauth/authorize) garde sa
+ * place pendant la connexion : `/login?suite=…`, et un compte déjà connecté qui
+ * arrive sur /login avec ce retour y est renvoyé (cf lib/login-suite.ts, liste
+ * fermée — jamais un chemin quelconque).
  */
 // `/:slug/login` = login brandé par projet (public, comme /login). Deux
 // segments → ne capture pas le /login générique (un seul segment).
@@ -82,7 +88,8 @@ const SESSION_COOKIE_MAX_AGE_S = 90 * 24 * 60 * 60; // 90 jours
 export default convexAuthNextjsMiddleware(
   async (request, { convexAuth }) => {
     if (isLoginPage(request) && (await convexAuth.isAuthenticated())) {
-      return nextjsMiddlewareRedirect(request, "/");
+      const suite = suiteApresConnexion(request.nextUrl.searchParams.get(SUITE_PARAM));
+      return nextjsMiddlewareRedirect(request, suite ?? "/");
     }
     if (isHomePage(request)) {
       if (await convexAuth.isAuthenticated()) return;
@@ -91,7 +98,10 @@ export default convexAuthNextjsMiddleware(
       return NextResponse.rewrite(url);
     }
     if (!isPublicPage(request) && !(await convexAuth.isAuthenticated())) {
-      return nextjsMiddlewareRedirect(request, "/login");
+      return nextjsMiddlewareRedirect(
+        request,
+        loginAvecSuite(request.nextUrl.pathname + request.nextUrl.search),
+      );
     }
   },
   { cookieConfig: { maxAge: SESSION_COOKIE_MAX_AGE_S } },

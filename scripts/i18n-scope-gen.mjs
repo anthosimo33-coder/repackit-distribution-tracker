@@ -129,8 +129,10 @@ export function computeScope(entries = ENTRIES) {
  * manager, et son espace de manager doit parler sa langue.
  *
  * Points d'entrée : TOUT fichier de route sous `app/(app)/admin/` (pages, layouts,
- * écran d'erreur, observation). Un fichier atteint par les deux graphes reste
- * dans le périmètre CRÉATEUR : chaque fichier n'appartient qu'à un périmètre.
+ * écran d'erreur, observation), et sous `app/(app)/oauth/` — le consentement du
+ * connecteur Claude, écran d'équipe qui vit hors de `/admin`. Un fichier atteint
+ * par les deux graphes reste dans le périmètre CRÉATEUR : chaque fichier
+ * n'appartient qu'à un périmètre.
  */
 function walkRoutes(dir) {
   const out = [];
@@ -144,7 +146,9 @@ function walkRoutes(dir) {
 
 const files = computeScope();
 const creatorSet = new Set(files);
-const managerFiles = computeScope(walkRoutes("app/(app)/admin").sort()).filter(
+const managerFiles = computeScope(
+  [...walkRoutes("app/(app)/admin"), ...walkRoutes("app/(app)/oauth")].sort(),
+).filter(
   (f) => !creatorSet.has(f),
 );
 

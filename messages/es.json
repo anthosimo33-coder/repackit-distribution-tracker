@@ -1474,7 +1474,9 @@
     "ERR_MCP_TOKEN_NOT_ALLOWED": "Las claves de acceso son solo para el equipo (admin o manager).",
     "ERR_MCP_TOKEN_NAME_REQUIRED": "Ponle un nombre a la clave (p. ej. «Claude en mi Mac»).",
     "ERR_MCP_TOKEN_LIMIT": "Ya tienes {max} claves: revoca las que ya no uses.",
-    "ERR_MCP_TOKEN_NOT_FOUND": "Clave no encontrada."
+    "ERR_MCP_TOKEN_NOT_FOUND": "Clave no encontrada.",
+    "ERR_MCP_OAUTH_REQUEST_INVALID": "Solicitud de autorización no válida o caducada: vuelve a iniciar la conexión desde Claude.",
+    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acceso no encontrado."
   },
   "calendar": {
     "weekday": {

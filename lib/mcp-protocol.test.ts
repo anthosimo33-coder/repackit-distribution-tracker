@@ -167,6 +167,23 @@ describe("handleMcpHttp — l'échange HTTP complet", () => {
     }
   });
 
+  it("le défi du 401 est celui fourni, et sait si un jeton a été présenté", async () => {
+    const vus: boolean[] = [];
+    const defi = (presente: boolean) => {
+      vus.push(presente);
+      return presente ? "Bearer error=\"invalid_token\"" : "Bearer resource_metadata=\"x\"";
+    };
+    const sans = await handleMcpHttp({ method: "POST", authorization: null, body: "{}" }, resoudre, defi);
+    const perime = await handleMcpHttp(
+      { method: "POST", authorization: "Bearer jvat_expire", body: "{}" },
+      resoudre,
+      defi,
+    );
+    expect(sans.headers["WWW-Authenticate"]).toBe('Bearer resource_metadata="x"');
+    expect(perime.headers["WWW-Authenticate"]).toBe('Bearer error="invalid_token"');
+    expect(vus).toEqual([false, true]);
+  });
+
   it("avec la bonne clé : 200 et la réponse JSON-RPC", async () => {
     const r = await post(JSON.stringify(req(1, "ping")));
     expect(r.status).toBe(200);
