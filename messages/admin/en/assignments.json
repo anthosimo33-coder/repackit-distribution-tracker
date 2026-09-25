@@ -114,6 +114,15 @@
     "dateDePublicationMiseA": "Publish date updated.",
     "dateDePublicationRetiree": "Publish date removed."
   },
+  "TargetAccountSelect": {
+    "compteDePublication": "{platform} account",
+    "compteChange": "{platform} account changed: {handle}.",
+    "echecDuChangement": "Couldn't change the account.",
+    "indisponible": "unavailable (warming up or not validated)",
+    "gereParLEquipe": "managed by the team",
+    "compteDeLaCreatrice": "the creator’s own account",
+    "aucunAutreCompte": "No other {platform} account for this creator."
+  },
   "CalendarStatusPill": {
     "nonPlanifie": "Not scheduled"
   },
