@@ -6,6 +6,7 @@ import {
 import {
   permissionMutation,
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -2917,7 +2918,13 @@ const EMPTY_INTERNAL_EXCLUDED: InternalExcludedPayload = {
  */
 export const getProductAnalytics = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<ProductAnalytics> => {
+  handler: (ctx) => getProductAnalyticsCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `marches`. */
+export async function getProductAnalyticsCore(
+  ctx: ProjectQueryCtx,
+): Promise<ProductAnalytics> {
     const project = await ctx.db.get(ctx.projectId);
     const empty: ProductAnalytics = {
       configured: project?.posthog !== undefined,
@@ -3049,5 +3056,4 @@ export const getProductAnalytics = permissionQuery("business.read")({
         empty.firstSearchAfterPay,
       ),
     };
-  },
-});
+}

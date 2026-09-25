@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { permissionQuery } from "./functions";
+import { permissionQuery, type ProjectQueryCtx } from "./functions";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import {
@@ -395,7 +395,14 @@ async function costByMarket(
  */
 export const getMarketPnl = permissionQuery("business.read")({
   args: { from: v.optional(v.number()), to: v.optional(v.number()) },
-  handler: async (ctx, args) => {
+  handler: (ctx, args) => getMarketPnlCore(ctx, args),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `marches`. */
+export async function getMarketPnlCore(
+  ctx: ProjectQueryCtx,
+  args: { from?: number; to?: number },
+) {
     const project = await ctx.db.get(ctx.projectId);
     const from = args.from ?? 0;
     const to = args.to ?? Date.now();
@@ -790,5 +797,4 @@ export const getMarketPnl = permissionQuery("business.read")({
           .length,
       },
     };
-  },
-});
+}
