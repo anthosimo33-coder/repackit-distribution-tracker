@@ -253,6 +253,7 @@
     "components/warmup/WarmupSettingsCard.tsx",
     "components/whop/WhopRevenueCard.tsx",
     "convex/analyticsContract.ts",
+    "convex/analyticsDates.ts",
     "convex/analyticsWindowed.ts",
     "convex/collectAvailability.ts",
     "convex/comboCooldown.ts",

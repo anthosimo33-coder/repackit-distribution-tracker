@@ -64,15 +64,8 @@ export function parisShortDate(ts: number): string {
   });
 }
 
-/**
- * Jours ENTIERS restants (arrondi au supérieur) avant l'échéance `dueAt` depuis
- * `now`. Négatif = dépassé. null si l'échéance est inconnue (jamais un délai
- * inventé). Sert au décompte urgent d'un litige (« X j pour répondre »).
- */
-export function daysUntil(dueAt: number | null, now: number): number | null {
-  if (dueAt === null || !Number.isFinite(dueAt)) return null;
-  return Math.ceil((dueAt - now) / (24 * 60 * 60 * 1000));
-}
+/** Déplacé dans convex/analyticsDates.ts (partagé avec les outils MCP). */
+export { daysUntil } from "../convex/analyticsDates";
 
 // ─── Funnel ──────────────────────────────────────────────────────────────────
 

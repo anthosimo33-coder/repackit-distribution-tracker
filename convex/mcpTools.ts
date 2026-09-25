@@ -36,6 +36,17 @@ import {
   gatherCampaignViews,
 } from "./scriptAnalytics";
 import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
+import { getRevenueBreakdownCore } from "./analyticsHub";
+import {
+  dataRangeOf,
+  daysUntil,
+  previousWindow,
+  rowsInWindow,
+  shiftDay,
+  sumInWindow,
+  windowLengthDays,
+  type AnalyticsWindow,
+} from "./analyticsDates";
 import { teamRoleOf } from "./roles";
 import {
   ToolError,
@@ -139,6 +150,12 @@ export const lirePonctualite = mcpPermissionQuery("content.analytics")({
 export const lireRentabilite = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getProjectProfitabilityCore(ctx),
+});
+
+/** Revenu Whop de l'onglet Analytics (Vue d'ensemble, Offres & tests) — même calcul, même bloc. */
+export const lireRevenus = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getRevenueBreakdownCore(ctx),
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -469,6 +486,25 @@ export const OUTILS: readonly McpTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "revenus",
+    title: "Revenus Whop (Analytics)",
+    description:
+      "Revenus du projet tels que l'onglet Analytics les montre (Vue d'ensemble, Offres & tests), par le MÊME calcul. Revenu NET Whop (après frais, remboursements déduits, litiges en cours exclus) sur une période en jours de Paris, avec le détail par jour et, au choix, la période précédente de même durée. Sur tout l'historique : le net mois par mois séparé en premier paiement / renouvellement, l'économie par offre (clients, net, LTV réalisée, net par paiement, frais Whop, net par mois-client), les remboursements, les litiges EN COURS avec leur échéance de réponse, le revenu par bras du test A/B et le journal des changements d'offre. Par défaut : les 30 derniers jours complets (jusqu'à hier).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour de la période, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour de la période, AAAA-MM-JJ (Paris). Défaut : hier." },
+        comparer: {
+          type: "boolean",
+          description: "Ajouter la période précédente de même durée (si les données la couvrent entièrement).",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
@@ -664,6 +700,177 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           lecture: [
             "Un mois non figé peut encore bouger : une vidéo est rémunérée jusqu'à J+30 après publication, donc un mois tout juste clos gagne encore des vues facturées alors que son revenu est arrêté au 31. Ne comparer deux mois qu'une fois figés tous les deux.",
             "Le mois en cours compte le coût ENGAGÉ (ce qu'on paiera si les seuils tombent), pas le dû du jour.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "revenus") {
+        const au =
+          typeof args.au === "string" && args.au.trim() !== ""
+            ? args.au.trim()
+            : parisDayKey(Date.now() - 86_400_000);
+        const du =
+          typeof args.du === "string" && args.du.trim() !== ""
+            ? args.du.trim()
+            : shiftDay(au, -29);
+        if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+        }
+        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        const r = await lire(() => ctx.runQuery(internal.mcpTools.lireRevenus, ids));
+        if (!r.configured) {
+          return json({
+            projet: projet.slug,
+            configure: false,
+            message: "Revenus indisponibles : aucun compte Whop n'est relié à ce projet.",
+            ...(r.offerChanges.length > 0
+              ? {
+                  changementsOffre: r.offerChanges.map((o) => ({
+                    le: jour(o.at),
+                    titre: o.title,
+                    detail: o.detail,
+                  })),
+                }
+              : {}),
+          });
+        }
+        const arrondi = (n: number) => Math.round(n * 100) / 100;
+        // La fenêtre et ses sommes : les MÊMES fonctions que la Vue d'ensemble
+        // (convex/analyticsDates). Multi-devise non convertible : pas de somme.
+        const w: AnalyticsWindow = { from: du, to: au };
+        const netSur = (fenetre: AnalyticsWindow) => {
+          const t = r.mixedCurrency
+            ? null
+            : sumInWindow(r.dailyNet, fenetre, (d) => d.day, (d) => d.net);
+          return t === null ? null : arrondi(t);
+        };
+        const revenuNet = netSur(w);
+        const donnees = dataRangeOf(r.dailyNet.map((d) => d.day));
+        let periodePrecedente: Record<string, unknown> | undefined;
+        if (args.comparer === true) {
+          const avant = previousWindow(w, donnees);
+          if (avant === null) {
+            periodePrecedente = {
+              indisponible: `Les données de revenu ne couvrent pas entièrement les ${windowLengthDays(w)} jours précédents${
+                donnees ? ` (premier jour de revenu : ${donnees.first})` : ""
+              } : une comparaison tronquée n'en est pas une.`,
+            };
+          } else {
+            const net = netSur(avant);
+            periodePrecedente = {
+              du: avant.from,
+              au: avant.to,
+              revenuNet: net,
+              evolutionPct:
+                net !== null && revenuNet !== null && net > 0
+                  ? Math.round(((revenuNet - net) / net) * 1000) / 10
+                  : null,
+            };
+          }
+        }
+        const maintenant = Date.now();
+        const avertissements: string[] = [];
+        if (r.mixedCurrency) {
+          avertissements.push(
+            `Revenus encaissés dans plusieurs devises (${r.currenciesPresent.join(", ")}) sans taux de change réglé sur le projet : les totaux ne sont pas additionnés (null), jamais inventés.`,
+          );
+        }
+        if (r.conversions.length > 0) {
+          avertissements.push(
+            `Une partie du revenu a été convertie au taux du projet (${r.conversions
+              .map((c) => `${c.from} × ${c.rate}`)
+              .join(", ")}) : un taux posé à la main n'est pas une comptabilité.`,
+          );
+        }
+        if (r.disputes.length > 0) {
+          avertissements.push(
+            `${r.disputes.length} litige(s) EN COURS : l'argent est à risque et déjà exclu du net. Répondre avant l'échéance (côté Whop).`,
+          );
+        }
+        const ab = r.abRevenue;
+        return json({
+          projet: projet.slug,
+          devise: r.currency,
+          ...(r.feeRate !== null ? { fraisWhopPct: Math.round(r.feeRate * 1000) / 10 } : {}),
+          periode: { du, au, jours: windowLengthDays(w) },
+          revenuNet,
+          ...(periodePrecedente ? { periodePrecedente } : {}),
+          parJour: rowsInWindow(r.dailyNet, w, (d) => d.day).map((d) => ({ jour: d.day, net: d.net })),
+          historique: {
+            premierJourDeRevenu: donnees?.first ?? null,
+            ltvRealiseeParClient: r.ltv,
+            revenuMensuelParClient: r.monthlyArpu,
+            parMois: r.periods.map((p) => ({
+              mois: p.period,
+              net: p.net,
+              premierPaiement: p.newNet,
+              renouvellement: p.returningNet,
+              nonRattache: p.unattributedNet,
+              clients: p.members,
+            })),
+          },
+          offres: r.plans.map((o) => ({
+            offre: o.name,
+            cadence: o.interval,
+            prix: o.price,
+            devise: o.currency,
+            active: o.active,
+            clients: o.members,
+            netTotal: o.netTotal,
+            ltvRealisee: o.ltv,
+            netParPaiement: o.netPerPayment,
+            ...(o.feeRate !== null ? { fraisWhopPct: Math.round(o.feeRate * 1000) / 10 } : {}),
+            netParMoisClient: o.netPerMemberMonth,
+            ...(o.netReason ? { raison: o.netReason } : {}),
+          })),
+          remboursements: { montant: r.refunded, nombre: r.refundCount },
+          litigesEnCours: {
+            montantARisque: r.disputedTotal,
+            litiges: r.disputes.map((d) => ({
+              montant: d.amount,
+              devise: d.currency,
+              payeLe: jour(d.paidAt),
+              echeanceReponse: jour(d.dueAt),
+              joursPourRepondre: daysUntil(d.dueAt, maintenant),
+              motif: d.reason,
+              client: d.memberName,
+            })),
+          },
+          ...(ab.startMs !== null
+            ? {
+                testAB: {
+                  depuis: jour(ab.startMs),
+                  bras: ab.rows.map((b) => ({
+                    bras: b.variant,
+                    net: b.net,
+                    abonnements: b.memberships,
+                    rattachesParRepli: b.viaFallback,
+                    abonnementsEnLitige: b.atRiskMemberships,
+                    montantEnLitige: b.atRiskAmount,
+                  })),
+                  sansBras: ab.unattached,
+                  divergencesWhopPosthog: ab.divergences.length,
+                  exclusCarChangementDeBras: {
+                    abonnements: ab.excludedFlippers,
+                    net: ab.excludedFlippersNet,
+                  },
+                },
+              }
+            : {}),
+          changementsOffre: r.offerChanges.map((o) => ({
+            le: jour(o.at),
+            titre: o.title,
+            detail: o.detail,
+          })),
+          ...(r.internalExcludedMembers > 0
+            ? { abonnementsInternesExclus: r.internalExcludedMembers }
+            : {}),
+          lecture: [
+            "Net = ce que Whop verse après ses frais, remboursements déduits ; les litiges en cours en sont EXCLUS (argent à risque).",
+            "« premierPaiement » / « renouvellement » : le 1er paiement encaissé d'un abonnement contre les suivants — approximation bornée à l'historique importé.",
+            "LTV RÉALISÉE = net cumulé ÷ clients, sans projection (pas de churn inventé). Les offres, remboursements, litiges et le test A/B portent sur TOUT l'historique ; seuls revenuNet, parJour et periodePrecedente suivent la période.",
+            "Avant de comparer deux périodes, regarder changementsOffre : un changement d'offre rend deux cohortes incomparables.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
         });
