@@ -13,6 +13,7 @@ import type * as accountPhase from "../accountPhase.js";
 import type * as accountValidation from "../accountValidation.js";
 import type * as adminRecovery from "../adminRecovery.js";
 import type * as analyticsContract from "../analyticsContract.js";
+import type * as analyticsDates from "../analyticsDates.js";
 import type * as analyticsHub from "../analyticsHub.js";
 import type * as analyticsWindowed from "../analyticsWindowed.js";
 import type * as apifyApi from "../apifyApi.js";
@@ -214,6 +215,7 @@ declare const fullApi: ApiFromModules<{
   accountValidation: typeof accountValidation;
   adminRecovery: typeof adminRecovery;
   analyticsContract: typeof analyticsContract;
+  analyticsDates: typeof analyticsDates;
   analyticsHub: typeof analyticsHub;
   analyticsWindowed: typeof analyticsWindowed;
   apifyApi: typeof apifyApi;

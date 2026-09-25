@@ -1,5 +1,6 @@
 import {
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -964,7 +965,16 @@ export interface RevenueBreakdown {
  */
 export const getRevenueBreakdown = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<RevenueBreakdown> => {
+  handler: (ctx) => getRevenueBreakdownCore(ctx),
+});
+
+/**
+ * Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP
+ * `revenus` (convex/mcpTools.ts), sous le même bloc `business.read`.
+ */
+export async function getRevenueBreakdownCore(
+  ctx: ProjectQueryCtx,
+): Promise<RevenueBreakdown> {
     const project = await ctx.db.get(ctx.projectId);
     // Journal des changements d'offre — toujours renvoyé (Whop-indépendant).
     const offerChanges = (
@@ -1390,8 +1400,7 @@ export const getRevenueBreakdown = permissionQuery("business.read")({
       offerChanges,
       abRevenue,
     };
-  },
-});
+}
 
 /**
  * Ajoute une entrée au journal des changements d'offre (interne, `convex run`).
