@@ -164,6 +164,8 @@ import type * as scriptZonesSetting from "../scriptZonesSetting.js";
 import type * as scripts from "../scripts.js";
 import type * as settledCycles from "../settledCycles.js";
 import type * as showcase from "../showcase.js";
+import type * as snapchatInternal from "../snapchatInternal.js";
+import type * as snapchatPublicPage from "../snapchatPublicPage.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
 import type * as soloDays from "../soloDays.js";
@@ -359,6 +361,8 @@ declare const fullApi: ApiFromModules<{
   scripts: typeof scripts;
   settledCycles: typeof settledCycles;
   showcase: typeof showcase;
+  snapchatInternal: typeof snapchatInternal;
+  snapchatPublicPage: typeof snapchatPublicPage;
   snapshotMatching: typeof snapshotMatching;
   snytchDrive: typeof snytchDrive;
   soloDays: typeof soloDays;

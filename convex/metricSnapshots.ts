@@ -19,6 +19,7 @@ const sourceValidator = v.union(
   v.literal("youtube"),
   v.literal("tiktok"),
   v.literal("instagram"),
+  v.literal("snapchat"),
 );
 
 /**

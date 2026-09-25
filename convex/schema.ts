@@ -920,6 +920,8 @@ export default defineSchema({
       // pour distinguer/dédupliquer le snapshot du jour. Cf convex/apifySync.
       v.literal("tiktok"),
       v.literal("instagram"),
+      // Relevé AUTO par la page publique du Spotlight (cf convex/snapchatInternal).
+      v.literal("snapchat"),
     ),
   })
     .index("by_publication", ["publicationId"])
@@ -938,6 +940,7 @@ export default defineSchema({
   //  - Instagram : demande un run de PROFIL dédié (l'item de post ne porte pas
   //                les compteurs du compte) → +1 run par nuit.
   //  - YouTube   : channels.list de l'API Data v3, gratuit dans le quota.
+  //  - Snapchat  : page publique du profil (`snapchat.com/add/<user>`), gratuite.
   //
   // Tous les compteurs sont OPTIONNELS : selon la plateforme et la forme réelle
   // du payload, l'un peut manquer. Absent ≠ zéro — un écran qui lit ces valeurs
@@ -957,6 +960,7 @@ export default defineSchema({
       v.literal("tiktok"),
       v.literal("instagram"),
       v.literal("youtube"),
+      v.literal("snapchat"),
     ),
   })
     .index("by_compte_capturedAt", ["compteId", "capturedAt"])

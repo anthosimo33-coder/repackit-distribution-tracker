@@ -255,7 +255,13 @@ export function unmatchableUrlReason(
   const raccourci = `Lien raccourci ${platform} non résolu — l'identifiant de la vidéo n'est pas dans l'URL, nouvelle tentative de résolution programmée`;
   // i18n-exempt: motif de collecte PERSISTÉ, lu dans le tracker ADMIN — jamais rendu dans un portail créateur.
   const illisible = `Lien de post non rapprochable pour ${platform} — ni identifiant de vidéo ni code de publication dans l'URL`;
+  // i18n-exempt: motif de collecte PERSISTÉ, lu dans le tracker ADMIN — jamais rendu dans un portail créateur.
+  const pasSpotlight = "Lien Snapchat sans Spotlight — seuls les Spotlight ont des vues publiques (une Story n'est pas mesurable)";
   const reason =
-    platform === "TikTok" && isTikTokShortlink(url) ? raccourci : illisible;
+    platform === "TikTok" && isTikTokShortlink(url)
+      ? raccourci
+      : platform === "Snapchat"
+        ? pasSpotlight
+        : illisible;
   return reason.slice(0, 200);
 }

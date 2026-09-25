@@ -39,7 +39,10 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
       nom: `[E2E_TEST] Apify ${ts}`,
     })) as Id<"icps">;
 
-    async function makeShort(plateforme: "TikTok" | "Instagram", postUrl: string) {
+    async function makeShort(
+      plateforme: "TikTok" | "Instagram" | "Snapchat",
+      postUrl: string,
+    ) {
       const carouselId = await admin.query(
         api.publications.getNextCarouselId,
         {},
@@ -72,6 +75,10 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     const igId = await makeShort(
       "Instagram",
       "https://www.instagram.com/reel/Ce2eReel01/",
+    );
+    const snId = await makeShort(
+      "Snapchat",
+      "https://www.snapchat.com/@e2e_snapchat/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYa2pqcm5vbmlsAaChyLxkAaChyHOWAAAAAQ?share_id=MTIz&locale=fr-FR",
     );
 
     // ── Idempotence TikTok — ANCRÉ à MIDI UTC (cf youtube-sync : évite le flake
@@ -138,6 +145,26 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     expect(igSnaps.length).toBe(1);
     expect(igSnaps[0].vues).toBe(777);
 
+    // ── Source snapchat — relevé par la page publique, même upsert ───────────
+    // Likes = boostCount de la page ; saves null (Snapchat n'en expose pas).
+    const rSn = await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
+      secret: E2E_SECRET,
+      publicationId: snId,
+      vues: 48_213,
+      likes: 1_204,
+      comments: 38,
+      saves: null,
+      capturedAt,
+      source: "snapchat",
+    });
+    expect(rSn.action).toBe("inserted");
+    const snSnaps = (
+      await admin.query(api.metricSnapshots.listSnapshotsByPublication, {
+        publicationId: snId,
+      })
+    ).filter((s) => s.source === "snapchat");
+    expect(snSnaps.map((s) => s.vues)).toEqual([48_213]);
+
     // ── Intégration — vuesLatest suit le dernier relevé + indicateur posé ─────
     const pubs = await admin.query(api.publications.listPublications, {
       snapshotAge: "latest",
@@ -151,6 +178,9 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     const igPub = pubs.find((p) => p._id === igId)!;
     expect(igPub.vuesLatest).toBe(777);
     expect(igPub.lastApifySyncAt).toBeTruthy();
+    const snPub = pubs.find((p) => p._id === snId)!;
+    expect(snPub.vuesLatest).toBe(48_213);
+    expect(snPub.likesLatest).toBe(1_204);
 
     // Le Tracker affiche le TITRE (postTitle) au lieu de « (sans titre) ».
     const trackerRows = await admin.query(api.trackerData.listTrackerPosts, {});
@@ -188,5 +218,6 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     // Nettoyage (les snapshots orphelins seront purgés par le global-setup).
     await admin.mutation(api.publications.deletePublication, { id: tkId });
     await admin.mutation(api.publications.deletePublication, { id: igId });
+    await admin.mutation(api.publications.deletePublication, { id: snId });
   });
 });

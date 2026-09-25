@@ -180,6 +180,11 @@ describe("unmatchableUrlReason — plus jamais un `continue` muet", () => {
     expect(r).not.toMatch(/raccourci/i);
     expect(r.length).toBeGreaterThan(0);
   });
+  it("dit d'un lien Snapchat hors Spotlight qu'il n'est pas mesurable, pas « illisible »", () => {
+    const r = unmatchableUrlReason("https://www.snapchat.com/add/kelly.snytch", "Snapchat");
+    expect(r).toMatch(/Spotlight/);
+    expect(r).not.toMatch(/raccourci/i);
+  });
   it("ne dépasse jamais la taille stockée par recordCollectFailure", () => {
     expect(
       unmatchableUrlReason(`https://www.instagram.com/${"x".repeat(400)}/`, "Instagram")
