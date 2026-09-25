@@ -22,6 +22,8 @@ import {
   type PricingBreakdown,
 } from "./pricing";
 import { cyclePaymentsForCreator } from "./payments";
+// Une seule définition de la cadence, partagée avec l'écran (ex-réplique serveur).
+import { intervalToDays } from "./churn";
 // TOUT mois calendaire de ce module est en Europe/Paris, comme ses jours
 // (`parisDay`) et comme Whop. `periodOf` (UTC) n'y a plus aucun appelant : il ne
 // sert qu'aux clés PERSISTÉES de la paie legacy (cf convex/payments.ts).
@@ -1501,24 +1503,6 @@ interface MembershipEntry {
   intervalDays: number | null;
 }
 
-/** Cadence d'une offre (libellé Whop) en JOURS. Réplique de lib/churn.intervalToDays. */
-function intervalToDaysServer(interval: string | null | undefined): number | null {
-  switch ((interval ?? "").trim().toLowerCase()) {
-    case "jour":
-      return 1;
-    case "semaine":
-      return 7;
-    case "mois":
-      return 30;
-    case "trimestre":
-      return 91;
-    case "an":
-    case "année":
-      return 365;
-    default:
-      return null;
-  }
-}
 
 /**
  * Données de CHURN par projet : assemble l'état des memberships Whop (qui fait foi)
@@ -1625,7 +1609,14 @@ export const getChurn = permissionQuery("business.read")({
     from: v.optional(v.string()),
     to: v.optional(v.string()),
   },
-  handler: async (ctx, { from, to }) => {
+  handler: (ctx, args) => getChurnCore(ctx, args),
+});
+
+/** Le calcul de l'onglet Rétention — appelé par la query ci-dessus ET par l'outil MCP `retention`. */
+export async function getChurnCore(
+  ctx: ProjectQueryCtx,
+  { from, to }: { from?: string; to?: string },
+) {
     const project = await ctx.db.get(ctx.projectId);
     if (!project?.whop) {
       return {
@@ -1689,7 +1680,7 @@ export const getChurn = permissionQuery("business.read")({
       cohorte === null || (!!membershipId && cohorte.has(membershipId));
 
     const intervalByPlan = new Map(
-      plans.map((pl) => [pl.planId, intervalToDaysServer(pl.interval ?? null)]),
+      plans.map((pl) => [pl.planId, intervalToDays(pl.interval ?? null)]),
     );
 
     const memberships: MembershipEntry[] = members
@@ -1778,8 +1769,7 @@ export const getChurn = permissionQuery("business.read")({
       cohortTo: cohorte === null ? null : (to ?? null),
       cohortSize: cohorte === null ? null : cohorte.size,
     };
-  },
-});
+}
 
 // ─── Colonne vertébrale FIABILITÉ (spine phase C) ────────────────────────────
 

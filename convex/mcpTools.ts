@@ -38,6 +38,7 @@ import {
 import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
 import {
   getAttributionCore,
+  getChurnCore,
   getReliabilityCore,
   getRevenueBreakdownCore,
 } from "./analyticsHub";
@@ -51,6 +52,18 @@ import {
   type AgregatsFenetre,
 } from "./unitEconomics";
 import { toDisplayAmount, type DisplayAmount } from "./currencyRate";
+import {
+  ANALYSIS_WINDOW_DAYS,
+  COHORT_MIN_CLIENTS,
+  computeChurn,
+  HORIZON_DAYS,
+  MIN_RESOLVED_DUE,
+  ratioRevenuCout,
+  SAMPLE_THRESHOLD,
+  WHOP_WEBHOOK_FIX_MS,
+} from "./churn";
+import { acquisitionCostPerClient } from "./retentionCost";
+import { windowCosts } from "./attributionWindow";
 import {
   dataRangeOf,
   daysUntil,
@@ -182,6 +195,12 @@ export const lireAttribution = mcpPermissionQuery("business.read")({
 export const lireFiabilite = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getReliabilityCore(ctx),
+});
+
+/** Onglet Rétention (cohorte d'acquisition optionnelle) — même calcul, même bloc. */
+export const lireRetention = mcpPermissionQuery("business.read")({
+  args: { from: v.optional(v.string()), to: v.optional(v.string()) },
+  handler: async (ctx, args) => getChurnCore(ctx, args),
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -550,6 +569,21 @@ export const OUTILS: readonly McpTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "retention",
+    title: "Rétention (Analytics)",
+    description:
+      "Rétention des clients, comme l'onglet Rétention de l'Analytics (même calcul) : résiliations (annulé, accès encore valide) et expirations (accès perdu, le vrai churn) sur 90 jours, taux de résiliation, délai paiement → résiliation, clients qui perdront l'accès dans 7 jours ; échéances et taux de renouvellement (résolu / borne basse, concluant ou non), revenu nouveau vs renouvellement, revenu par client à ce jour et projeté, contre le coût d'acquisition ; cohortes par semaine, renouvellement par offre, causes d'échec. Cohorte d'acquisition au choix (du/au) ; sans, toute la profondeur.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Cohorte : clients acquis à partir de ce jour, AAAA-MM-JJ (Paris). Avec « au »." },
+        au: { type: "string", description: "Cohorte : clients acquis jusqu'à ce jour inclus, AAAA-MM-JJ (Paris). Avec « du »." },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
@@ -569,6 +603,20 @@ function messageDe(e: unknown): string | null {
   }
   return null;
 }
+
+/** Un montant de paie tel que l'écran l'affiche : valeur, devise, et d'où il vient. */
+const montantAffiche = (d: DisplayAmount | null) =>
+  d === null
+    ? null
+    : {
+        valeur: d.value,
+        devise: d.currency,
+        ...(d.converted
+          ? { convertiDepuis: `${d.sourceValue} ${d.sourceCurrency} × ${d.rate}` }
+          : d.rate === null
+            ? { nonConverti: "aucun taux de change réglé sur le projet : montant en devise de paie" }
+            : {}),
+      };
 
 const json = (valeur: unknown) => textResult(JSON.stringify(valeur, null, 1));
 
@@ -962,22 +1010,10 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
         const w: AnalyticsWindow = { from: du, to: au };
         const cur = agregatsFenetre(entrees, w);
         const { margePerClient, roas } = equationUnitaire(cur);
-        const montant = (d: DisplayAmount | null) =>
-          d === null
-            ? null
-            : {
-                valeur: d.value,
-                devise: d.currency,
-                ...(d.converted
-                  ? { convertiDepuis: `${d.sourceValue} ${d.sourceCurrency} × ${d.rate}` }
-                  : d.rate === null
-                    ? { nonConverti: "aucun taux de change réglé sur le projet : montant en devise de paie" }
-                    : {}),
-              };
         const rang1 = (a: AgregatsFenetre) => ({
           margeNette: a.marge,
           revenuNet: a.net === null ? null : Math.round(a.net * 100) / 100,
-          coutCreateurs: montant(a.costAll),
+          coutCreateurs: montantAffiche(a.costAll),
         });
         // L'étendue des données WHOP (revenu, clients) : la comparaison n'est
         // offerte que si elle couvre toute la période précédente.
@@ -1039,10 +1075,10 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             ? {
                 clientsAcquis: cur.clients,
                 revenuParClient: cur.revenuePer,
-                coutAcquisition: montant(cur.acquisition),
+                coutAcquisition: montantAffiche(cur.acquisition),
                 margeParClient: margePerClient,
                 retourSurAcquisition: roas,
-                coutCompletMoteur: montant(cur.fullEngine),
+                coutCompletMoteur: montantAffiche(cur.fullEngine),
                 vuesPromoParClient: cur.viewsPer,
               }
             : {
@@ -1056,9 +1092,9 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
               },
           ...(periodePrecedente ? { periodePrecedente } : {}),
           detail: {
-            bonusEtPrimesCumules: montant(bonus),
-            ...(c.challengeTotal > 0 ? { dontPrimesDeDefi: montant(toDisplayAmount(c.challengeTotal, fx)) } : {}),
-            ...(c.natureDue > 0 ? { recompensesNatureDues: montant(natureDue) } : {}),
+            bonusEtPrimesCumules: montantAffiche(bonus),
+            ...(c.challengeTotal > 0 ? { dontPrimesDeDefi: montantAffiche(toDisplayAmount(c.challengeTotal, fx)) } : {}),
+            ...(c.natureDue > 0 ? { recompensesNatureDues: montantAffiche(natureDue) } : {}),
             ...(c.natureDueMissingCost > 0
               ? { recompensesNatureSansCoutReel: c.natureDueMissingCost }
               : {}),
@@ -1069,6 +1105,182 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Par client : tout est divisé par les clients ACQUIS sur la période (personnes, Whop fait foi). Coût d'acquisition = vidéos promo (fixe + CPM) + bonus et primes ; le coût complet du moteur compte aussi le warmup.",
             "Retour sur acquisition = revenu par client ÷ coût d'acquisition (× fois).",
             "Les clients en litige comptent au dénominateur mais leur revenu est exclu du net : le revenu par client en est tiré vers le bas.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "retention") {
+        const du = typeof args.du === "string" && args.du.trim() !== "" ? args.du.trim() : null;
+        const au = typeof args.au === "string" && args.au.trim() !== "" ? args.au.trim() : null;
+        if ((du === null) !== (au === null)) {
+          throw new ToolError("Donne « du » ET « au » (la cohorte d'acquisition), ou aucun des deux (toute la profondeur).");
+        }
+        if (du !== null && au !== null) {
+          if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+            throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+          }
+          if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        }
+        const cohorte = du !== null && au !== null ? { from: du, to: au } : null;
+        const churn = await lire(() =>
+          ctx.runQuery(internal.mcpTools.lireRetention, { ...ids, ...(cohorte ?? {}) }),
+        );
+        if (!churn.configured) {
+          return json({
+            projet: projet.slug,
+            configure: false,
+            message: "Rétention indisponible : aucun compte Whop n'est relié à ce projet (l'état des abonnements vient de Whop).",
+          });
+        }
+        const attribution = await lire(() => ctx.runQuery(internal.mcpTools.lireAttribution, ids));
+        const maintenant = Date.now();
+        // LE calcul de l'onglet (convex/churn), mêmes paramètres.
+        const r = computeChurn(churn.memberships, {
+          now: maintenant,
+          periodStartMs: maintenant - ANALYSIS_WINDOW_DAYS * 86_400_000,
+          webhookFixMs: WHOP_WEBHOOK_FIX_MS,
+          horizonMs: HORIZON_DAYS * 86_400_000,
+          sampleThreshold: SAMPLE_THRESHOLD,
+          libelleSansOffre: "(sans offre)",
+        });
+        const libelles = new Map(churn.planLabels.map((p) => [p.planId, p.name]));
+        const offre = (planId: string) => libelles.get(planId) ?? planId;
+        const heures = (ms: number | null) => (ms === null ? null : Math.round((ms / 3_600_000) * 10) / 10);
+        const pctFraction = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 10);
+        const rn = churn.renewals;
+        // Coût d'acquisition par client : même garde de POPULATION que l'écran —
+        // coût et clients sur la même période, sinon rien.
+        const couts = cohorte
+          ? (() => {
+              const w = windowCosts(attribution.rows, attribution.costs.promoBonusByDay, cohorte);
+              return {
+                promo: w.promo,
+                promoBonus: w.bonus === null ? null : Math.round(w.bonus * 100) / 100,
+                window: cohorte,
+              };
+            })()
+          : { promo: attribution.costs.promo, promoBonus: attribution.costs.promoBonus, window: null };
+        const coutPaie = rn
+          ? acquisitionCostPerClient(couts, rn.payingMembers, null, cohorte)
+          : null;
+        const cout = toDisplayAmount(coutPaie, {
+          payCurrency: attribution.payCurrency,
+          revenueCurrency: churn.currency,
+          fxRateToRevenue: attribution.fxRateToRevenue,
+        });
+        const concluant = rn !== null && rn.resolvedDueCount >= MIN_RESOLVED_DUE;
+        const avertissements: string[] = [];
+        if (!r.sampleSufficient) {
+          avertissements.push(
+            `${r.reachedTerm} abonnement(s) arrivé(s) à échéance, sous le seuil de ${SAMPLE_THRESHOLD} : les taux d'échéance ne sont pas interprétables.`,
+          );
+        }
+        if (rn !== null && !concluant) {
+          avertissements.push(
+            `${rn.resolvedDueCount} échéance(s) tranchée(s), sous le seuil de ${MIN_RESOLVED_DUE} : ni taux de renouvellement ni projection n'est concluant.`,
+          );
+        }
+        if (cout !== null && cout.rate === null) {
+          avertissements.push(
+            "Coût d'acquisition en devise de paie sans taux de change réglé : aucun ratio revenu/coût (null), jamais deux monnaies divisées l'une par l'autre.",
+          );
+        }
+        return json({
+          projet: projet.slug,
+          devise: churn.currency,
+          cohorte:
+            churn.cohortFrom !== null
+              ? { du: churn.cohortFrom, au: churn.cohortTo, clientsAcquis: churn.cohortSize }
+              : "toute la profondeur",
+          clientsPayants: r.clients,
+          sur90Jours: {
+            resiliations: r.resiliations,
+            expirations: r.expirations,
+            tauxResiliationPct: r.cancelRate,
+            delaiAvantResiliationHeures: { mediane: heures(r.medMsToCancel), neufSurDix: heures(r.p90MsToCancel) },
+            resiliations_detail: r.resiliationDetails.slice(0, 20).map((d) => ({
+              offre: offre(d.planId),
+              payeLe: jour(d.firstPaidAt),
+              resilieLe: jour(d.canceledAt),
+              delaiHeures: heures(d.delayMs),
+              ...(d.paidDuringOutage ? { payePendantLaPanneDuWebhook: true } : {}),
+            })),
+          },
+          perteAVenir: {
+            dansLesJours: HORIZON_DAYS,
+            clients: r.upcomingExpirations.length,
+            clientsPayantsApres: r.projectedClients,
+            liste: r.upcomingExpirations.map((u) => ({ offre: offre(u.planId), finAcces: jour(u.accessEndsAt) })),
+          },
+          echeances: {
+            arriveesAEcheance: r.reachedTerm,
+            renouvelees: r.renewed,
+            tauxPct: r.renewalRate,
+            renouvellementsMoyens: r.avgRenewals,
+            echantillonSuffisant: r.sampleSufficient,
+          },
+          ...(rn !== null
+            ? {
+                renouvellement: {
+                  echeances: rn.due,
+                  tranchees: rn.resolvedDueCount,
+                  concluant,
+                  tauxResoluPct: pctFraction(rn.renewalRateResolved),
+                  tauxBorneBassePct: pctFraction(rn.renewalRateWorstCase),
+                  montantEnAttente: rn.pendingRenewalAmount,
+                  causesEchec: rn.failureCauses,
+                  cyclesMoyens: rn.averageCycles,
+                  cyclesParClient: rn.cycleDistribution,
+                },
+                revenu: {
+                  nouveau: rn.newNet,
+                  renouvellement: rn.renewalNet,
+                  origineInconnue: rn.unknownNet,
+                  paiementsOrigineInconnue: rn.unknownPayments,
+                  partRenouvellementPct: pctFraction(rn.renewalShare),
+                },
+                parClient: {
+                  revenuACeJour: rn.revenueToDatePerClient,
+                  // Projection dérivée du TAUX, seulement si concluant ; à 100 %
+                  // la formule diverge et l'écran affiche une borne basse (≥).
+                  projete: concluant ? rn.projectedPerClientResolved : null,
+                  ...(concluant && rn.projectedPerClientResolved === null
+                    ? { projeteAuMoins: rn.projectedPerClientWorstCase }
+                    : {}),
+                  clientsAuNetSecurise: rn.securedMembers,
+                  clientsDontToutEstEnLitige: rn.atRiskOnlyMembers,
+                  coutAcquisition: montantAffiche(cout),
+                  ratioRevenuACeJourSurCout: ratioRevenuCout(rn.revenueToDatePerClient, cout),
+                  ratioProjeteBorneBasseSurCout: ratioRevenuCout(rn.projectedPerClientWorstCase, cout),
+                },
+                cohortesParSemaine: rn.cohorts.map((c) => ({
+                  semaine: c.week,
+                  clients: c.clients,
+                  cycles: c.cycles,
+                  net: c.net,
+                  netParClient: c.netPerClient,
+                  ...(c.cyclesWithoutNet > 0 ? { cyclesSansNet: c.cyclesWithoutNet } : {}),
+                  ...(c.clients < COHORT_MIN_CLIENTS ? { anecdotique: true } : {}),
+                })),
+                cohortesMuresPct: pctFraction(rn.matureShare),
+                parOffre: rn.byPlanOutcome.map((o) => ({
+                  offre: offre(o.planId),
+                  renouvelees: o.renewed,
+                  enAttente: o.pending,
+                  echouees: o.failed,
+                  tauxResoluPct: pctFraction(o.rateResolved),
+                  tauxBorneBassePct: pctFraction(o.rateWorstCase),
+                  ...(o.topFailureCause ? { causePrincipaleEchec: o.topFailureCause } : {}),
+                  montantEnAttente: o.pendingAmount,
+                })),
+              }
+            : {}),
+          lecture: [
+            "Cohorte = les clients ACQUIS sur la période, suivis depuis : une seule population (comme l'onglet). Sans du/au : toute la profondeur.",
+            `Résiliations et expirations comptées sur les ${ANALYSIS_WINDOW_DAYS} derniers jours. RÉSILIÉ = a annulé mais garde l'accès jusqu'à la fin de la période payée ; EXPIRÉ = accès perdu, le vrai churn.`,
+            "Taux de renouvellement « résolu » : sur les échéances tranchées ; « borne basse » : en comptant les échéances en attente comme perdues.",
+            "Une cohorte « anecdotique » a trop peu de clients pour être une tendance.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
         });

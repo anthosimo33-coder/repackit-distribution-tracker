@@ -26,10 +26,19 @@ import {
   KpiTile,
   dash,
   pct,
-  WHOP_WEBHOOK_FIX_MS,
-  ANALYSIS_WINDOW_DAYS,
   pctFromFraction,
 } from "./HubPrimitives";
+// Seuils de lecture et ratio : dans convex/churn.ts, partagés avec l'outil MCP
+// `retention` — Claude juge « concluant » exactement quand l'écran le juge.
+import {
+  ANALYSIS_WINDOW_DAYS,
+  COHORT_MIN_CLIENTS,
+  HORIZON_DAYS,
+  MIN_RESOLVED_DUE,
+  SAMPLE_THRESHOLD,
+  WHOP_WEBHOOK_FIX_MS,
+  ratioRevenuCout,
+} from "@/convex/churn";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
 import type { ChurnData, AttributionData } from "./types";
@@ -44,10 +53,6 @@ import type { ChurnData, AttributionData } from "./types";
  * le délai, qui est le fait.
  */
 
-/** Sous ce nombre d'abonnements arrivés à échéance, aucun taux n'est interprétable. */
-const SAMPLE_THRESHOLD = 10;
-/** Horizon « perdront l'accès prochainement ». */
-const HORIZON_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Délai lisible depuis des ms : minutes si court, puis heures, puis jours. */
@@ -130,13 +135,6 @@ export function RetentionTab({
   // Renouvellements — Whop SEUL fait foi (billing_reason + état des abonnements).
   const renewals = churn.configured ? churn.renewals : null;
 
-  /**
-   * Sous ce nombre d'échéances TRANCHÉES, aucun taux n'est interprétable et la
-   * projection qui en dérive encore moins.
-   */
-  const MIN_RESOLVED_DUE = 10;
-  /** Sous cet effectif, une cohorte n'est pas une tendance mais une anecdote. */
-  const COHORT_MIN_CLIENTS = 5;
   const concluant =
     renewals !== null && renewals.resolvedDueCount >= MIN_RESOLVED_DUE;
   /** Cohortes mûres = la majorité des clients a atteint au moins une échéance. */
@@ -191,13 +189,12 @@ export function RetentionTab({
     revenueCurrency: churn?.currency,
     fxRateToRevenue: attribution?.fxRateToRevenue,
   });
-  const acqCostRevCur = acqCost !== null && acqCost.converted ? acqCost.value : null;
-  const ratioOf = (v: number | null | undefined): number | null =>
-    v != null && acqCostRevCur !== null && acqCostRevCur > 0
-      ? Math.round((v / acqCostRevCur) * 100) / 100
-      : null;
-  const ratioToDate = ratioOf(renewals?.revenueToDatePerClient);
-  const ratioWorst = ratioOf(renewals?.projectedPerClientWorstCase);
+  // Dans la devise du revenu : converti, OU déjà dans la même devise (taux 1).
+  // Tester `converted` seul masquait le coût — et le ratio — de tout projet dont
+  // la paie et le revenu partagent la même devise.
+  const acqCostRevCur = acqCost !== null && acqCost.rate !== null ? acqCost.value : null;
+  const ratioToDate = ratioRevenuCout(renewals?.revenueToDatePerClient, acqCost);
+  const ratioWorst = ratioRevenuCout(renewals?.projectedPerClientWorstCase, acqCost);
 
   if (!churn.configured) {
     return (

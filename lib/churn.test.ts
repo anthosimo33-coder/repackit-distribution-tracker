@@ -5,6 +5,7 @@ import {
   intervalToDays,
   type MembershipInput,
 } from "./churn";
+import { ratioRevenuCout } from "../convex/churn";
 
 const DAY = 86_400_000;
 const now = 100 * DAY;
@@ -140,5 +141,21 @@ describe("computeChurn", () => {
       sampleThreshold: 10,
     });
     expect(few.sampleSufficient).toBe(false);
+  });
+});
+
+describe("ratioRevenuCout — revenu par client ÷ coût d'acquisition", () => {
+  it("coût converti ou déjà dans la devise du revenu : le ratio existe", () => {
+    // 64,50 € (75 $ × 0,86) ; 21,99 € par client → 0,34
+    expect(ratioRevenuCout(21.99, { value: 64.5, rate: 0.86 })).toBe(0.34);
+    // Même devise des deux côtés (taux 1) : c'était un tiret à l'écran.
+    expect(ratioRevenuCout(21.99, { value: 64.5, rate: 1 })).toBe(0.34);
+  });
+
+  it("sans taux, sans coût, coût nul ou revenu absent : null, jamais un quotient de deux monnaies", () => {
+    expect(ratioRevenuCout(21.99, { value: 75, rate: null })).toBeNull();
+    expect(ratioRevenuCout(21.99, null)).toBeNull();
+    expect(ratioRevenuCout(21.99, { value: 0, rate: 0.86 })).toBeNull();
+    expect(ratioRevenuCout(null, { value: 64.5, rate: 0.86 })).toBeNull();
   });
 });
