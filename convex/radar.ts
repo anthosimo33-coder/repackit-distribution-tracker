@@ -26,6 +26,8 @@ import type { Doc, Id } from "./_generated/dataModel";
 import {
   permissionMutation,
   permissionQuery,
+  e2eMutation,
+  type ProjectQueryCtx,
 } from "./functions";
 import {
   apiFetchHashtagVideos,
@@ -129,7 +131,11 @@ const adminAction = customAction(action, {
  */
 export const listRadarAccounts = permissionQuery("radar.use")({
   args: {},
-  handler: async (ctx) => {
+  handler: (ctx) => listRadarAccountsCore(ctx),
+});
+
+/** Le calcul de l'écran Veille — appelé par la query ci-dessus ET par l'outil MCP `veille`. */
+export async function listRadarAccountsCore(ctx: ProjectQueryCtx) {
     const accounts = await ctx.db
       .query("radarAccounts")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -153,8 +159,7 @@ export const listRadarAccounts = permissionQuery("radar.use")({
       }),
     );
     return { accounts: withCounts, limit: RADAR_ACCOUNT_LIMIT };
-  },
-});
+}
 
 /**
  * Mur de vidéos en DEUX buckets, par compte (ou tous les comptes du projet) :
@@ -168,7 +173,11 @@ export const listRadarAccounts = permissionQuery("radar.use")({
  */
 export const listRadarVideos = permissionQuery("radar.use")({
   args: { accountId: v.optional(v.id("radarAccounts")) },
-  handler: async (ctx, { accountId }) => {
+  handler: (ctx, args) => listRadarVideosCore(ctx, args),
+});
+
+/** Le calcul de l'écran Veille — appelé par la query ci-dessus ET par l'outil MCP `veille`. */
+export async function listRadarVideosCore(ctx: ProjectQueryCtx, { accountId }: { accountId?: Id<"radarAccounts"> }) {
     const accounts = await ctx.db
       .query("radarAccounts")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -222,8 +231,7 @@ export const listRadarVideos = permissionQuery("radar.use")({
       for (const v of recent) out.push(toView(v, "recent"));
     }
     return out;
-  },
-});
+}
 
 // ─── Mutations admin (écriture) ──────────────────────────────────────────────
 
@@ -598,7 +606,11 @@ export const runRadarSync = internalAction({
  */
 export const listTrendHashtags = permissionQuery("radar.use")({
   args: { countryCode: v.string() },
-  handler: async (ctx, { countryCode }) => {
+  handler: (ctx, args) => listTrendHashtagsCore(ctx, args),
+});
+
+/** Le calcul de l'écran Veille — appelé par la query ci-dessus ET par l'outil MCP `veille`. */
+export async function listTrendHashtagsCore(ctx: ProjectQueryCtx, { countryCode }: { countryCode: string }) {
     const cc = assertCountry(countryCode);
     const rows = await ctx.db
       .query("radarTrendHashtags")
@@ -621,13 +633,16 @@ export const listTrendHashtags = permissionQuery("radar.use")({
         videosError: r.videosError ?? false,
       })),
     };
-  },
-});
+}
 
 /** Vidéos en cache d'un hashtag (déjà filtrées < 14 j), avec engagement calculé. */
 export const listTrendVideos = permissionQuery("radar.use")({
   args: { countryCode: v.string(), hashtag: v.string() },
-  handler: async (ctx, { countryCode, hashtag }) => {
+  handler: (ctx, args) => listTrendVideosCore(ctx, args),
+});
+
+/** Le calcul de l'écran Veille — appelé par la query ci-dessus ET par l'outil MCP `veille`. */
+export async function listTrendVideosCore(ctx: ProjectQueryCtx, { countryCode, hashtag }: { countryCode: string; hashtag: string }) {
     const cc = assertCountry(countryCode);
     const vids = await ctx.db
       .query("radarTrendVideos")
@@ -644,8 +659,7 @@ export const listTrendVideos = permissionQuery("radar.use")({
         video.shares,
       ),
     }));
-  },
-});
+}
 
 /** Liste des pays supportés (pour le sélecteur). */
 export const listTrendCountries = permissionQuery("radar.use")({
@@ -1083,5 +1097,109 @@ export const searchOutliers = adminAction({
       })),
     });
     return { ok: true, cached: false, fetchedAt, count: ranked.length };
+  },
+});
+
+// ─── E2E ─────────────────────────────────────────────────────────────────────
+
+const e2eVideo = v.object({
+  tiktokId: v.string(),
+  url: v.string(),
+  publishedAt: v.number(),
+  caption: v.optional(v.string()),
+  views: v.number(),
+  likes: v.number(),
+  comments: v.number(),
+  shares: v.number(),
+  saves: v.number(),
+  hashtags: v.array(v.string()),
+  authorHandle: v.optional(v.string()),
+  isPopular: v.optional(v.boolean()),
+});
+
+/**
+ * E2E — sème un compte suivi, ses vidéos, et des tendances d'un pays, sans
+ * appeler Apify. Les tendances sont un cache GLOBAL (par pays, pas par projet) :
+ * `e2eClearRadarTrends` les efface à la fin de la spec. Gardé par E2E_SECRET.
+ */
+export const e2eSeedRadar = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    handle: v.string(),
+    fans: v.number(),
+    videos: v.array(e2eVideo),
+    trend: v.optional(
+      v.object({
+        countryCode: v.string(),
+        hashtags: v.array(v.object({ hashtag: v.string(), rank: v.number(), posts: v.number(), videoViews: v.number() })),
+        videos: v.array(v.object({ hashtag: v.string(), video: e2eVideo })),
+      }),
+    ),
+  },
+  handler: async (ctx, a) => {
+    const now = Date.now();
+    const accountId = await ctx.db.insert("radarAccounts", {
+      projectId: a.projectId,
+      handle: a.handle,
+      platform: "tiktok",
+      authorFansSnapshot: a.fans,
+      lastSyncAt: now,
+      addedAt: now,
+    });
+    for (const vid of a.videos) {
+      await ctx.db.insert("radarVideos", {
+        projectId: a.projectId,
+        radarAccountId: accountId,
+        ...vid,
+        authorHandle: vid.authorHandle ?? a.handle,
+        isAd: false,
+        isPinned: false,
+        isSlideshow: false,
+        lastSeenAt: now,
+      });
+    }
+    if (a.trend) {
+      for (const h of a.trend.hashtags) {
+        await ctx.db.insert("radarTrendHashtags", { countryCode: a.trend.countryCode, ...h, fetchedAt: now });
+      }
+      for (const { hashtag, video } of a.trend.videos) {
+        const { isPopular: _p, ...rest } = video;
+        void _p;
+        await ctx.db.insert("radarTrendVideos", {
+          countryCode: a.trend.countryCode,
+          hashtag,
+          ...rest,
+          isAd: false,
+          isPinned: false,
+          isSlideshow: false,
+          fetchedAt: now,
+        });
+      }
+    }
+    return { accountId };
+  },
+});
+
+/** E2E — efface les tendances semées (hashtags commençant par `prefixe`) d'un pays. */
+export const e2eClearRadarTrends = e2eMutation({
+  args: { countryCode: v.string(), prefixe: v.string() },
+  handler: async (ctx, { countryCode, prefixe }) => {
+    let n = 0;
+    for (const h of await ctx.db
+      .query("radarTrendHashtags")
+      .withIndex("by_country", (q) => q.eq("countryCode", countryCode))
+      .collect()) {
+      if (!h.hashtag.startsWith(prefixe)) continue;
+      for (const vid of await ctx.db
+        .query("radarTrendVideos")
+        .withIndex("by_country_hashtag", (q) => q.eq("countryCode", countryCode).eq("hashtag", h.hashtag))
+        .collect()) {
+        await ctx.db.delete(vid._id);
+        n++;
+      }
+      await ctx.db.delete(h._id);
+      n++;
+    }
+    return { deleted: n };
   },
 });
