@@ -65,6 +65,8 @@ import {
 import { acquisitionCostPerClient } from "./retentionCost";
 import { windowCosts } from "./attributionWindow";
 import { getMarketPnlCore } from "./marketPnl";
+import { collectProjectPaymentRows } from "./payments";
+import { regrouperPaiements } from "./paymentsView";
 import { listMarketGroupsCore } from "./marketGroups";
 import { getProductAnalyticsCore } from "./posthogSync";
 import { windowToMs } from "./marketWindow";
@@ -230,6 +232,18 @@ export const lireGroupesMarches = mcpPermissionQuery("business.read")({
 export const lireAnalyticsProduit = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getProductAnalyticsCore(ctx),
+});
+
+/** Écran Paiements : les cycles de chaque créatrice — même lecture, même bloc. */
+export const lirePaiements = mcpPermissionQuery("payments.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    return {
+      payCurrency: project?.payCurrency ?? null,
+      rows: await collectProjectPaymentRows(ctx, ctx.projectId),
+    };
+  },
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -626,6 +640,21 @@ export const OUTILS: readonly McpTool[] = [
         au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
         maille: { type: "string", description: "Regrouper par marché composé (défaut) ou détailler par pays.", enum: ["marche", "pays"] },
         pays: { type: "string", description: "Ne garder qu'un pays (code ISO, ex. FR) ou un marché (nom, ex. Balkans)." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "paiements",
+    title: "Paiements des créatrices",
+    description:
+      "Ce qui est dû aux créatrices, comme l'écran Paiements (même regroupement) : le total à verser, le nombre de créatrices et de cycles dus, l'ancienneté du plus vieux cycle dû ; par créatrice, le reste à verser et chaque cycle (dates, valeur, acomptes, reste, détail fixe / CPM / paliers / primes de défi, posts pas encore mesurés) ; celles à zéro ; les derniers cycles réglés. Montants dans la devise de paie. Le moyen de paiement est donné par son type seulement, jamais ses coordonnées.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: { type: "string", description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés)." },
+        reglees: { type: "integer", description: "Nombre de derniers cycles réglés à inclure (défaut 10, 0 pour aucun).", minimum: 0, maximum: 50 },
       },
       additionalProperties: false,
     },
@@ -1462,6 +1491,68 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Verdicts triés par ce qu'il faut faire d'abord ; « Aucun pays défini » = coût sans pays cible, hors marché.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "paiements") {
+        const { payCurrency, rows } = await lire(() => ctx.runQuery(internal.mcpTools.lirePaiements, ids));
+        // LE regroupement de l'écran Paiements (convex/paymentsView).
+        const vue = regrouperPaiements(rows, Date.now());
+        const arrondi = (n: number) => Math.round(n * 100) / 100;
+        const cycle = (c: (typeof rows)[number]) => ({
+          du: jour(c.cycleStart),
+          // cycleEnd est EXCLUSIF (début du cycle suivant) : dernier jour = veille.
+          au: jour(c.cycleEnd - 86_400_000),
+          statut: c.status === "paid" ? "payé" : "en cours",
+          valeur: c.totalDue,
+          ...(c.advances.length > 0
+            ? { acomptes: arrondi(c.advances.reduce((s, a) => s + a.amount, 0)) }
+            : {}),
+          resteAVerser: c.remainingDue,
+          detail: {
+            fixe: c.pricingBreakdown?.fixedTotal ?? null,
+            cpm: c.pricingBreakdown?.cpmTotal ?? null,
+            paliers: c.pricingBreakdown?.bonusTierCashTotal ?? null,
+            primesDeDefi: c.pricingBreakdown?.challengeTotal ?? null,
+          },
+          ...((c.pricingBreakdown?.unmeasuredPayablePosts ?? 0) > 0
+            ? { postsPayablesSansMesure: c.pricingBreakdown!.unmeasuredPayablePosts }
+            : {}),
+          ...(c.rushCount !== null ? { rushesDeposes: c.rushCount } : {}),
+        });
+        const garder = (nomCreatrice: string) => filtreNom(nomCreatrice, args.createatrice);
+        const limite = typeof args.reglees === "number" ? args.reglees : 10;
+        return json({
+          projet: projet.slug,
+          devise: payCurrency,
+          aVerser: arrondi(vue.aVerser),
+          createatricesAPayer: vue.avecDu.length,
+          cyclesDus: vue.cyclesDus,
+          plusVieuxCycleDuDepuisJours: vue.ageDuPlusVieux,
+          totalSurLHistorique: arrondi(vue.totalHistorique),
+          parCreatrice: vue.avecDu
+            .filter((g) => garder(g.creatorName))
+            .map((g) => ({
+              createatrice: g.creatorName,
+              // Le TYPE de moyen seulement : jamais les coordonnées (IBAN, PayPal).
+              moyenDePaiement: g.paymentMethod,
+              resteAVerser: g.remaining,
+              cycles: g.cycles.map(cycle),
+            })),
+          aZero: vue.aZero.filter((g) => garder(g.creatorName)).map((g) => g.creatorName),
+          ...(limite > 0
+            ? {
+                derniersReglements: vue.reglees
+                  .filter((p) => garder(p.creatorName))
+                  .slice(0, limite)
+                  .map((p) => ({ createatrice: p.creatorName, payeLe: jour(p.paidAt), ...cycle(p) })),
+              }
+            : {}),
+          lecture: [
+            "Un cycle = 30 jours glissants propres à chaque créatrice. « valeur » = ce que vaut le cycle ; « resteAVerser » = valeur − acomptes déjà versés (jamais négatif). « aVerser » = ce que « tout payer » verserait (hors créatrices supprimées).",
+            "Un cycle en cours peut encore monter : une vidéo est rémunérée jusqu'à J+30 après publication. « postsPayablesSansMesure » = posts qui compteront mais dont les vues ne sont pas encore relevées.",
+            "Montants dans la devise de PAIE du projet.",
+          ],
         });
       }
 

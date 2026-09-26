@@ -867,7 +867,7 @@ export async function cyclePaymentsForCreator(
  * NB : n'itère que les créateurs VIVANTS (une fiche supprimée avec des cycles
  * payés — inexistant tant que rien n'est versé — ne remonterait pas ici).
  */
-async function collectProjectPaymentRows(
+export async function collectProjectPaymentRows(
   ctx: QueryCtx,
   projectId: Id<"projects">,
 ) {
