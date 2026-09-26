@@ -19,6 +19,7 @@ import {
   buildModelVideoItemsServer,
   representativePostedAt,
 } from "./assignments";
+import { COMBO_FREEING_STATUSES } from "./comboFreeing";
 import { formatDateFr } from "./dateFr";
 import { comboCooldownDaysOf } from "./comboCooldown";
 import { isValidPostWindow } from "./postWindow";
@@ -266,20 +267,7 @@ function pickCombosServer(
   return picked;
 }
 
-/**
- * Statuts qui NE CONSOMMENT PAS un comboKey — ni pour l'unicité à vie, ni pour
- * la fenêtre de cooldown.
- *
- * Le principe des deux protections est le même : ne pas re-servir un contenu
- * DÉJÀ VU. Une assignation abandonnée ou dont la vidéo a été refusée n'a jamais
- * été publiée — il n'y a rien à protéger, et garder le combo réservé
- * appauvrirait le pool pour rien.
- *
- * ⚠️ Le simple RETARD ne libère pas : une assignation en retard mais vivante
- * (todo, in_progress, video_submitted, to_publish) continue de réserver son
- * combo. C'est l'ABANDON qui libère, jamais l'attente.
- */
-const COMBO_FREEING_STATUSES = new Set(["video_rejected", "cancelled"]);
+// COMBO_FREEING_STATUSES : cf convex/comboFreeing.ts (partagé avec assignments.ts).
 
 /** Notif figée d'une vidéo (cf schema assignments.scriptCombo). */
 type NotifFields = { notifBrickId: Id<"scriptBricks">; notifText: string };

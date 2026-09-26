@@ -43,6 +43,7 @@ import type * as cloudflareStreamApi from "../cloudflareStreamApi.js";
 import type * as coherenceInputs from "../coherenceInputs.js";
 import type * as collectAvailability from "../collectAvailability.js";
 import type * as comboCooldown from "../comboCooldown.js";
+import type * as comboFreeing from "../comboFreeing.js";
 import type * as compteAvatar from "../compteAvatar.js";
 import type * as compteStatut from "../compteStatut.js";
 import type * as comptes from "../comptes.js";
@@ -266,6 +267,7 @@ declare const fullApi: ApiFromModules<{
   coherenceInputs: typeof coherenceInputs;
   collectAvailability: typeof collectAvailability;
   comboCooldown: typeof comboCooldown;
+  comboFreeing: typeof comboFreeing;
   compteAvatar: typeof compteAvatar;
   compteStatut: typeof compteStatut;
   comptes: typeof comptes;

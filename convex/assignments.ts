@@ -50,8 +50,11 @@ import {
 import { markRushPublishedForAssignment } from "./rushes";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import {
+  canAddTarget,
+  comboTakenOnPlatform,
   isTargetAccountLocked,
   targetAccountRefusal,
+  targetAddRefusal,
 } from "./targetAccountSwap";
 import { effectiveStatus } from "./comptes";
 import { isStrictAccountValidationFor } from "./projects";
@@ -612,7 +615,7 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
       )
       .collect();
     const assignmentManaged = a.managedByAdmin === true;
-    return (a.targets ?? []).map((t) => ({
+    const targets = (a.targets ?? []).map((t) => ({
       platform: t.platform,
       currentAccountId: t.accountId ?? null,
       locked: isTargetAccountLocked(a.status, t),
@@ -642,8 +645,81 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
             x.handle.localeCompare(y.handle, "fr", { sensitivity: "base" }),
         ),
     }));
+
+    // ── AJOUT d'une cible : les comptes des plateformes pas encore visées ──
+    // Mêmes lectures que `addAssignmentTarget` : format (compatibilité) et
+    // assignations au même combo (unicité par plateforme).
+    const allowed = canAddTarget(a.status);
+    const taken = new Set(targets.map((t) => t.platform));
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const sameCombo = await sameComboForAdd(ctx, a);
+    const add = {
+      allowed,
+      options: !allowed
+        ? []
+        : comptes
+            .filter(
+              (c) =>
+                !taken.has(c.plateforme) && effectiveStatus(c) !== "archived",
+            )
+            .map((c) => ({
+              _id: c._id,
+              handle: c.handle,
+              platform: c.plateforme,
+              country: c.targetCountry ?? null,
+              refusal: targetAddRefusal({
+                available: isAccountAvailable(c, days, { strict }),
+                accountManaged: c.managedByAdmin === true,
+                assignmentManaged,
+                formatAllowed: formatAllowsPlatform(format, c.plateforme),
+                comboTaken: comboTakenOnPlatform(sameCombo, {
+                  excludeId: a._id,
+                  platform: c.plateforme,
+                }),
+              }),
+            }))
+            // Choisissables d'abord, puis par plateforme (ordre canonique) et
+            // par handle.
+            .sort(
+              (x, y) =>
+                Number(x.refusal !== null) - Number(y.refusal !== null) ||
+                PLATEFORMES.indexOf(x.platform) -
+                  PLATEFORMES.indexOf(y.platform) ||
+                x.handle.localeCompare(y.handle, "fr", { sensitivity: "base" }),
+            ),
+    };
+    return { targets, add };
   },
 });
+
+/**
+ * Assignations de la même créatrice au même combo — l'entrée de
+ * `comboTakenOnPlatform`. Vide quand la règle ne s'applique pas : pas de combo
+ * (format, script libre de défi) ou combo IMPOSÉ (rejeu : doublon voulu, que la
+ * création ne contrôle pas non plus).
+ */
+async function sameComboForAdd(
+  ctx: QueryCtx,
+  a: Doc<"assignments">,
+): Promise<Doc<"assignments">[]> {
+  const comboKey = a.comboKey;
+  if (comboKey === undefined || a.comboImposed === true) return [];
+  return ctx.db
+    .query("assignments")
+    .withIndex("by_creator_combo", (q) =>
+      q.eq("creatorId", a.creatorId).eq("comboKey", comboKey),
+    )
+    .collect();
+}
+
+/** Compatibilité format ↔ plateforme — le contrôle d'`assignFormat`. */
+function formatAllowsPlatform(
+  format: Doc<"formats"> | null,
+  platform: Plateforme,
+): boolean {
+  if (format === null || format.type === "custom") return true;
+  return isFormatAllowedOnPlatform(format.type, platform);
+}
 
 /**
  * CHANGE LE COMPTE d'une cible (même plateforme) d'une assignation EXISTANTE.
@@ -715,6 +791,103 @@ export const setAssignmentTargetAccount = permissionMutation("assignments.manage
       ),
     });
     return { changed: true as const };
+  },
+});
+
+/**
+ * AJOUTE une cible (un compte sur une plateforme pas encore visée) à une
+ * assignation EXISTANTE — la créatrice a un compte Snapchat disponible qu'on
+ * n'avait pas coché à l'assignation.
+ *
+ * La plateforme est celle du compte. Gardes, dans cet ordre :
+ *  1. la vidéo n'est pas sortie ni abandonnée (`canAddTarget`) — la
+ *     publication exige les liens de TOUTES les cibles d'un coup ;
+ *  2. le compte est à la créatrice, et la plateforme n'est pas déjà visée ;
+ *  3. `validateTargets` — les refus de la création (disponibilité…) ;
+ *  4. même mode géré / non géré que l'assignation ;
+ *  5. format compatible avec la plateforme (assignations de format) ;
+ *  6. script pas déjà pris par la créatrice sur cette plateforme
+ *     (`comboTakenOnPlatform`), sauf combo imposé.
+ *
+ * La cible est AJOUTÉE EN FIN de liste : `targets[0]` ne bouge pas. Rien
+ * d'autre ne change (combo, cooldown — calé sur la date, pas la plateforme —,
+ * barème, statut) : le CPM compte les vues de toutes les cibles, comme pour une
+ * assignation créée d'emblée sur ces plateformes.
+ */
+export const addAssignmentTarget = permissionMutation("assignments.manage")({
+  args: {
+    id: v.id("assignments"),
+    accountId: v.id("comptes"),
+  },
+  handler: async (ctx, { id, accountId }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+    if (!canAddTarget(a.status)) {
+      throw err(
+        ERR.TARGET_ADD_LOCKED,
+        "Cette assignation est publiée ou abandonnée : on ne peut plus lui ajouter de compte.",
+      );
+    }
+    const compte = await ctx.db.get(accountId);
+    if (
+      !compte ||
+      compte.projectId !== ctx.projectId ||
+      compte.creatorId !== a.creatorId
+    ) {
+      throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
+    }
+    const platform = compte.plateforme;
+    const targets = a.targets ?? [];
+    if (targets.some((t) => t.platform === platform)) {
+      throw err(
+        ERR.TARGET_PLATFORM_DUPLICATE,
+        `Une seule cible par plateforme (${platform} en double).`,
+        { platform },
+      );
+    }
+    await validateTargets(ctx, ctx.projectId, a.creatorId, [
+      { platform, accountId },
+    ]);
+    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+    const refusal = targetAddRefusal({
+      available: true, // déjà garanti par validateTargets
+      accountManaged: compte.managedByAdmin === true,
+      assignmentManaged: a.managedByAdmin === true,
+      formatAllowed: formatAllowsPlatform(format, platform),
+      comboTaken: comboTakenOnPlatform(await sameComboForAdd(ctx, a), {
+        excludeId: a._id,
+        platform,
+      }),
+    });
+    if (refusal === "managedMismatch") {
+      throw err(
+        ERR.TARGET_ACCOUNT_MANAGED_MISMATCH,
+        "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
+      );
+    }
+    if (refusal === "formatIncompatible" && format) {
+      throw err(
+        ERR.FORMAT_PLATFORM_MISMATCH,
+        `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
+        { name: format.name, type: format.type, platform },
+      );
+    }
+    if (refusal === "comboUsed") {
+      const creator = await ctx.db.get(a.creatorId);
+      const name = creator?.name ?? "ce créateur";
+      throw err(
+        ERR.COMBO_ALREADY_USED,
+        `Ce combo est déjà utilisé pour ${name} sur ${platform}.`,
+        { name, conflict: platform },
+      );
+    }
+    await ctx.db.patch(id, {
+      targets: [...targets, { platform, accountId }],
+    });
+    return { platform };
   },
 });
 

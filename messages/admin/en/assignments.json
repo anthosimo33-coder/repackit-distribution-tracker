@@ -124,6 +124,17 @@
     "compteDeLaCreatrice": "the creator’s own account",
     "aucunAutreCompte": "No other {platform} account for this creator."
   },
+  "AddTargetMenu": {
+    "ajouterUnCompte": "Add an account",
+    "compteAjoute": "{platform} account added: {handle}.",
+    "echecDeLAjout": "Couldn't add the account.",
+    "indisponible": "unavailable (warming up or not validated)",
+    "gereParLEquipe": "managed by the team",
+    "compteDeLaCreatrice": "the creator’s own account",
+    "formatIncompatible": "format can't be published on this platform",
+    "scriptDejaPrisSur": "script already used on {platform}",
+    "aucunCompteSurUneAutrePlateforme": "No account on another platform for this creator."
+  },
   "CalendarStatusPill": {
     "nonPlanifie": "Not scheduled"
   },

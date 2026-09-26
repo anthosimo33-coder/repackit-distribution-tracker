@@ -16,6 +16,7 @@ import {
   Loader2Icon,
   LockIcon,
   PencilIcon,
+  PlusIcon,
   RepeatIcon,
   Trash2Icon,
   TypeIcon,
@@ -35,6 +36,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverContent,
@@ -355,48 +362,59 @@ export function AssignmentDetailSheet({
           {/* Contexte */}
           <dl className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-x-3 gap-y-3 text-sm">
             <DetailRow label={tr("compte")}>
-              {row.targets.length === 0 ? (
-                <span className="text-slate-400">—</span>
-              ) : (
-                <div className="space-y-1">
-                  {row.targets.map((t) => {
-                    const flag = countryFlag(t.country);
-                    const choice = accountOptions?.find(
-                      (o) => o.platform === t.platform,
-                    );
-                    return (
-                      <div
-                        key={t.platform}
-                        className="flex flex-wrap items-center gap-x-1.5"
-                      >
-                        <span className="text-xs text-slate-400">
-                          {t.platform}
-                        </span>
-                        {/* Changeable tant que le post n'est pas publié. En
-                            chargement ou verrouillé : lecture seule, comme avant. */}
-                        {choice && !choice.locked && choice.currentAccountId ? (
-                          <TargetAccountSelect
-                            assignmentId={row._id}
-                            platform={t.platform}
-                            currentAccountId={choice.currentAccountId}
-                            currentHandle={t.accountHandle}
-                            currentFlag={flag}
-                            options={choice.options}
-                            assignmentManaged={row.managedByAdmin === true}
-                          />
-                        ) : (
-                          <>
-                            {flag && <span aria-hidden>{flag}</span>}
-                            <span className="min-w-0 font-mono break-all text-slate-600">
-                              {t.accountHandle ?? "—"}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="space-y-1">
+                {row.targets.length === 0 ? (
+                  <span className="text-slate-400">—</span>
+                ) : (
+                  <div className="space-y-1">
+                    {row.targets.map((t) => {
+                      const flag = countryFlag(t.country);
+                      const choice = accountOptions?.targets.find(
+                        (o) => o.platform === t.platform,
+                      );
+                      return (
+                        <div
+                          key={t.platform}
+                          className="flex flex-wrap items-center gap-x-1.5"
+                        >
+                          <span className="text-xs text-slate-400">
+                            {t.platform}
+                          </span>
+                          {/* Changeable tant que le post n'est pas publié. En
+                              chargement ou verrouillé : lecture seule, comme avant. */}
+                          {choice && !choice.locked && choice.currentAccountId ? (
+                            <TargetAccountSelect
+                              assignmentId={row._id}
+                              platform={t.platform}
+                              currentAccountId={choice.currentAccountId}
+                              currentHandle={t.accountHandle}
+                              currentFlag={flag}
+                              options={choice.options}
+                              assignmentManaged={row.managedByAdmin === true}
+                            />
+                          ) : (
+                            <>
+                              {flag && <span aria-hidden>{flag}</span>}
+                              <span className="min-w-0 font-mono break-all text-slate-600">
+                                {t.accountHandle ?? "—"}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Une plateforme de plus (compte oublié à l'assignation) — tant
+                    que la vidéo n'est pas sortie. */}
+                {accountOptions?.add.allowed && (
+                  <AddTargetMenu
+                    assignmentId={row._id}
+                    options={accountOptions.add.options}
+                    assignmentManaged={row.managedByAdmin === true}
+                  />
+                )}
+              </div>
             </DetailRow>
 
             <DetailRow label={tr("statutCalendrier")}>
@@ -654,9 +672,110 @@ function DetailRow({
   );
 }
 
-type TargetAccountOption = NonNullable<
+type AccountOptions = NonNullable<
   FunctionReturnType<typeof api.assignments.listTargetAccountOptions>
->[number]["options"][number];
+>;
+type TargetAccountOption = AccountOptions["targets"][number]["options"][number];
+type AddTargetOption = AccountOptions["add"]["options"][number];
+
+/**
+ * AJOUTER un compte sur une plateforme pas encore visée — la créatrice a un
+ * compte Snapchat disponible qu'on n'avait pas coché à l'assignation. Même
+ * principe que le sélecteur : les comptes refusés restent listés, grisés, avec
+ * leur raison ; le serveur (addAssignmentTarget) refait tous les contrôles.
+ */
+function AddTargetMenu({
+  assignmentId,
+  options,
+  assignmentManaged,
+}: {
+  assignmentId: Id<"assignments">;
+  options: AddTargetOption[];
+  assignmentManaged: boolean;
+}) {
+  const showError = useConvexError();
+  const tr = useTranslations("admin.assignments.AddTargetMenu");
+  const addTarget = useProjectMutation(api.assignments.addAssignmentTarget);
+  const [saving, setSaving] = useState(false);
+
+  async function pick(o: AddTargetOption) {
+    setSaving(true);
+    try {
+      await addTarget({ id: assignmentId, accountId: o._id });
+      toast.success(tr("compteAjoute", { platform: o.platform, handle: o.handle }));
+    } catch (e) {
+      toast.error(showError(e, tr("echecDeLAjout")));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function refusalLabel(o: AddTargetOption): string | null {
+    switch (o.refusal) {
+      case "unavailable":
+        return tr("indisponible");
+      case "managedMismatch":
+        return assignmentManaged ? tr("compteDeLaCreatrice") : tr("gereParLEquipe");
+      case "formatIncompatible":
+        return tr("formatIncompatible");
+      case "comboUsed":
+        return tr("scriptDejaPrisSur", { platform: o.platform });
+      default:
+        return null;
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className="-ml-1.5 h-6 gap-1 px-1.5 text-xs text-slate-500 hover:text-slate-900"
+            disabled={saving}
+            data-testid="assignment-detail-add-target"
+          >
+            {saving ? (
+              <Loader2Icon className="size-3 animate-spin" />
+            ) : (
+              <PlusIcon className="size-3" />
+            )}
+            {tr("ajouterUnCompte")}
+          </Button>
+        }
+      />
+      <DropdownMenuContent className="w-auto min-w-64 max-w-[min(28rem,calc(100vw-2rem))]">
+        {options.length === 0 ? (
+          <p className="px-2 py-1.5 text-xs text-slate-400">
+            {tr("aucunCompteSurUneAutrePlateforme")}
+          </p>
+        ) : (
+          options.map((o) => {
+            const flag = countryFlag(o.country);
+            const raison = refusalLabel(o);
+            return (
+              <DropdownMenuItem
+                key={o._id}
+                disabled={raison !== null}
+                onClick={() => void pick(o)}
+              >
+                <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+                  <span className="text-xs text-slate-400">{o.platform}</span>
+                  {flag && <span aria-hidden>{flag}</span>}
+                  <span className="font-mono break-all">{o.handle}</span>
+                  {raison && (
+                    <span className="text-xs text-slate-400">{raison}</span>
+                  )}
+                </span>
+              </DropdownMenuItem>
+            );
+          })
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /**
  * Sélecteur du COMPTE d'une cible (même plateforme) — la créatrice a plusieurs

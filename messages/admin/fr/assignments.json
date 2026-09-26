@@ -124,6 +124,17 @@
     "compteDeLaCreatrice": "compte de la créatrice",
     "aucunAutreCompte": "Aucun autre compte {platform} pour cette créatrice."
   },
+  "AddTargetMenu": {
+    "ajouterUnCompte": "Ajouter un compte",
+    "compteAjoute": "Compte {platform} ajouté : {handle}.",
+    "echecDeLAjout": "Échec de l’ajout du compte.",
+    "indisponible": "indisponible (en chauffe ou non validé)",
+    "gereParLEquipe": "géré par l’équipe",
+    "compteDeLaCreatrice": "compte de la créatrice",
+    "formatIncompatible": "format non publiable sur cette plateforme",
+    "scriptDejaPrisSur": "script déjà utilisé sur {platform}",
+    "aucunCompteSurUneAutrePlateforme": "Aucun compte sur une autre plateforme pour cette créatrice."
+  },
   "CalendarStatusPill": {
     "nonPlanifie": "Non planifié"
   },
