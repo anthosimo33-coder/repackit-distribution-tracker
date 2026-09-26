@@ -9,6 +9,8 @@
  */
 
 import type * as abAttribution from "../abAttribution.js";
+import type * as abOffers from "../abOffers.js";
+import type * as abPurchases from "../abPurchases.js";
 import type * as accountPhase from "../accountPhase.js";
 import type * as accountValidation from "../accountValidation.js";
 import type * as adminRecovery from "../adminRecovery.js";
@@ -123,6 +125,7 @@ import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
 import type * as migrations from "../migrations.js";
 import type * as modelVideoEmbeds from "../modelVideoEmbeds.js";
+import type * as moneyFormat from "../moneyFormat.js";
 import type * as nightlyViewsSync from "../nightlyViewsSync.js";
 import type * as notificationEvents from "../notificationEvents.js";
 import type * as notificationMessage from "../notificationMessage.js";
@@ -225,6 +228,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   abAttribution: typeof abAttribution;
+  abOffers: typeof abOffers;
+  abPurchases: typeof abPurchases;
   accountPhase: typeof accountPhase;
   accountValidation: typeof accountValidation;
   adminRecovery: typeof adminRecovery;
@@ -339,6 +344,7 @@ declare const fullApi: ApiFromModules<{
   metricsDisplay: typeof metricsDisplay;
   migrations: typeof migrations;
   modelVideoEmbeds: typeof modelVideoEmbeds;
+  moneyFormat: typeof moneyFormat;
   nightlyViewsSync: typeof nightlyViewsSync;
   notificationEvents: typeof notificationEvents;
   notificationMessage: typeof notificationMessage;

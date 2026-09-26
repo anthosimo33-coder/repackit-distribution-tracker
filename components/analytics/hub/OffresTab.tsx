@@ -14,7 +14,21 @@ import {
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
-import { computeConversion, abArmCoherenceChecks } from "@/lib/analytics-hub";
+import {
+  AB_ARM_LABELS,
+  AB_BREAK_LABEL,
+  AB_THRESHOLD,
+  abArmChecks,
+  abArmRows,
+  abArmSummary,
+  computeConversion,
+  netPerAssigned,
+  PAYWALL_TYPE_LABELS,
+  paywallTypeRows,
+  ratePct,
+  SCAN_KIND_LABELS,
+  scanCostRows,
+} from "@/lib/analytics-hub";
 import {
   armComparability,
   attributedOffers,
@@ -49,28 +63,6 @@ import type { AttributionData, ProductAnalyticsData, RevenueData } from "./types
  */
 
 /**
- * Libellés des bras du test. `soft`/`hard` sont les valeurs émises ; l'écran
- * dit ce que chaque bras SERT, sinon « hard » ne veut rien dire pour qui lit.
- */
-/**
- * `soft`/`hard` sont les valeurs ÉMISES depuis le 08/08 : les renommer casserait
- * l'appariement avec l'historique. Mais les mots ne décrivent plus rien — le
- * 06/09 le bras « souple » a perdu son palier gratuit et est devenu bloquant lui
- * aussi. L'écran ne nomme donc plus le TRAITEMENT (qui change), il nomme ce qui
- * ne change pas : le nombre de cibles. Ce que le bras vend est lu dans la donnée,
- * juste en dessous.
- */
-const AB_ARM_LABELS: Record<string, string> = {
-  soft: "A — 1 cible",
-  hard: "B — 3 cibles",
-};
-
-/** Ratio en % tolérant au 0. */
-function ratePct(num: number, den: number): number | null {
-  return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
-}
-
-/**
  * Fenêtre d'une offre, EN HEURE DE PARIS. Le runtime Convex est en UTC et le
  * navigateur au fuseau du lecteur : sans l'épinglage, la bascule du 06/09 à
  * 15h39 se lirait 13h39 chez la moitié des gens (cf convex/dateFr.ts).
@@ -88,13 +80,6 @@ function offerWindowLabel(firstMs: number | null, lastMs: number | null): string
   return lastMs === null ? day(firstMs) : `${day(firstMs)} → ${day(lastMs)}`;
 }
 
-/** Type de scan (coût d'infrastructure) → libellé. */
-const SCAN_KIND_LABELS: Record<string, string> = {
-  light: "Scan léger (cible gratuite)",
-  full: "Scan complet (détecte les désabonnements)",
-  "(autre)": "Autre",
-};
-
 /**
  * Montant en dollars, décimales adaptées aux petits coûts unitaires.
  *
@@ -110,14 +95,6 @@ function usd(n: number | null, decimals = 2): string {
   // currency-hardcode-exempt: cost_usd est en dollars par nature (coût HikerAPI), aucune devise à sourcer
   return n === null ? "—" : `${n.toFixed(decimals)} $`;
 }
-
-/** Les deux TYPES de paywall (pas des variantes de test). */
-const PAYWALL_TYPE_LABELS: Record<string, string> = {
-  gate: "Bloquant (gate)",
-  upsell: "Appoint (upsell)",
-  "(sans variante)": "Type inconnu",
-  "(inconnu)": "Type inconnu",
-};
 
 export function OffresTab({
   analytics,
@@ -153,29 +130,17 @@ export function OffresTab({
     [analytics, windowed.data],
   );
   const paywallTypes = useMemo(
-    () =>
-      analyticsW.abVariants.rows.map((v) => ({
-        ...v,
-        completion: ratePct(v.paid, v.checkouts),
-        targetsPerClient: v.paid > 0 ? Math.round((v.clientTargets / v.paid) * 10) / 10 : null,
-      })),
+    () => paywallTypeRows(analyticsW.abVariants.rows),
     [analyticsW.abVariants.rows],
   );
   const free = analyticsW.freePlan;
 
   // Coût d'infrastructure des scans, léger (cible gratuite) vs complet. Le tableau
   // ne se chiffre que si cost_usd est émis ; il sépare toujours les deux tarifs.
-  const scanCost = useMemo(() => {
-    const rows = analyticsW.scanCost.rows;
-    const order = ["light", "full", "(autre)"];
-    return {
-      rows: [...rows].sort(
-        (a, b) => order.indexOf(a.kind) - order.indexOf(b.kind),
-      ),
-      anyRuns: rows.some((r) => r.runs > 0),
-      anyCost: rows.some((r) => r.withCost > 0),
-    };
-  }, [analyticsW.scanCost.rows]);
+  const scanCost = useMemo(
+    () => scanCostRows(analyticsW.scanCost.rows),
+    [analyticsW.scanCost.rows],
+  );
 
   const paywallRows = analyticsW.paywallById.rows;
   const paywallReady = paywallRows.some(
@@ -202,74 +167,20 @@ export function OffresTab({
   // affichée : le contrôle compare l'affiché au recalculé, seule façon d'attraper
   // une erreur d'unité (la complétion sortait un ratio dans un formateur de %).
   const arms = useMemo(
-    () =>
-      analyticsW.abArms.rows.map((a) => ({
-        ...a,
-        completion: ratePct(a.paid, a.checkouts),
-        // Cibles PAYANTES par client : cibles ajoutées par les clients APRÈS
-        // leur paiement ÷ clients. Un bras qui n'émet AUCUN target_added n'a pas
-        // « 0 cible par client », il n'est pas mesuré → tiret.
-        targetsPerClient:
-          a.paid > 0 && a.armTargets > 0
-            ? Math.round((a.clientTargets / a.paid) * 100) / 100
-            : null,
-      })),
+    () => abArmRows(analyticsW.abArms.rows),
     [analyticsW.abArms.rows],
   );
-  const armChecks = useMemo(
-    () =>
-      abArmCoherenceChecks(
-        arms.map((a) => ({
-          variant: a.variant,
-          exposed: a.exposed,
-          paywallViewers: a.paywallViewers,
-          checkouts: a.checkouts,
-          paid: a.paid,
-          paidWithoutCheckout: a.paidWithoutCheckout,
-          clientTargets: a.clientTargets,
-          armTargets: a.armTargets,
-          shownCompletionPct: a.completion,
-          shownTargetsPerClient: a.targetsPerClient,
-        })),
-      ),
-    [arms],
-  );
+  const armChecks = useMemo(() => abArmChecks(arms), [arms]);
   const armAlerts = armChecks.filter((c) => c.status !== "ok");
-  /** Sous ce nombre d'exposés PAR BRAS, aucune comparaison n'a de sens. */
-  const AB_THRESHOLD = 330;
-  /** Personnes écartées du tableau faute de bras stable (cf QUERIES.abArms). */
-  const abExcluded = arms.reduce((sum, a) => sum + a.excludedFlippers, 0);
-  /**
-   * Ventilation de ces exclusions. Un bras qui diverge entre DEUX `$device_id`
-   * est une fusion d'identités PostHog (un humain, deux navigateurs, deux
-   * tirages) : attendu, non actionnable. Sur un SEUL appareil, l'app a re-tiré
-   * le bras d'une personne déjà assignée — c'est le seul sous-total sur lequel
-   * le produit peut agir, et un total agrégé le noie.
-   */
-  const abExcludedMultiDevice = arms.reduce(
-    (sum, a) => sum + a.excludedFlippersMultiDevice,
-    0,
-  );
-  const abExcludedSameDevice = arms.reduce(
-    (sum, a) => sum + a.excludedFlippersSameDevice,
-    0,
-  );
-  /**
-   * MARQUEUR DE RUPTURE — correctif SERVEUR du tirage de bras. Vérifié en prod le
-   * 09/08 : dernière bascule à l'identification le 07/08 22:02:46.735 UTC,
-   * première identification propre le 08/08 10:24:45.484 UTC. Non datable par
-   * `app_version` : la même build client (20260806-1724) est des deux côtés de la
-   * rupture. Écrit en dur ici, comme AB_THRESHOLD : c'est un fait d'observation
-   * daté, pas une donnée que le cache saurait recalculer.
-   */
-  const AB_BREAK_LABEL = "8 août 2026, 10 h 24 UTC";
-  const abMinExposed = arms.length > 0 ? Math.min(...arms.map((a) => a.exposed)) : 0;
-  const abConcluant = arms.length >= 2 && abMinExposed >= AB_THRESHOLD;
-  /** Personnes restantes à recruter, tous bras confondus, pour atteindre le seuil. */
-  const abRemaining = arms.reduce(
-    (sum, a) => sum + Math.max(0, AB_THRESHOLD - a.exposed),
-    arms.length < 2 ? AB_THRESHOLD : 0,
-  );
+  // Le verdict du test (seuil par bras, recrues manquantes, écartées) — le même
+  // module que l'outil MCP `offres`.
+  const resume = useMemo(() => abArmSummary(arms), [arms]);
+  const abExcluded = resume.excluded;
+  const abExcludedMultiDevice = resume.excludedMultiDevice;
+  const abExcludedSameDevice = resume.excludedSameDevice;
+  const abMinExposed = resume.minExposed;
+  const abConcluant = resume.concluant;
+  const abRemaining = resume.remaining;
   // Revenu par bras — voie primaire metadata.abVariant, repli distinctId. La carte
   // est restreinte à la fenêtre du test côté serveur : les abonnements antérieurs
   // ne sont PAS des « bras inconnus », le test n'existait pas.
@@ -692,10 +603,7 @@ export function OffresTab({
                           // Dénominateur = les ASSIGNÉS, pas ceux qui ont vu le
                           // paywall : c'est la comparaison en intention de traiter,
                           // la seule que la randomisation garantit non biaisée.
-                          const perAssigned =
-                            a.exposed > 0
-                              ? Math.round((r.net / a.exposed) * 100) / 100
-                              : null;
+                          const perAssigned = netPerAssigned(r.net, a.exposed);
                           return (
                             <>
                               {perAssigned === null

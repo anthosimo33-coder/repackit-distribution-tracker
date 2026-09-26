@@ -58,7 +58,7 @@
     "convex/pricing.ts",
     "convex/talentRetainer.ts",
     "convex/viewCounters.ts",
-    "lib/ab-offers.ts",
+    "convex/abOffers.ts",
     "convex/analyticsHubMath.ts",
     "lib/analytics-window.ts",
     "lib/currency-display.ts",

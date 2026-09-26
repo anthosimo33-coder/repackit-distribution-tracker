@@ -1602,3 +1602,175 @@ export function aggregateActivation(
       ACTIVATION_SEGMENT_ORDER.indexOf(b.segment),
   );
 }
+
+// ─── Onglet OFFRES & TESTS : les taux et le verdict du test A/B ──────────────
+// Ici et non dans le composant pour que l'onglet et l'outil MCP `offres`
+// calculent la même complétion, les mêmes cibles par client, le même seuil.
+
+/**
+ * `soft`/`hard` sont les valeurs ÉMISES depuis le 08/08 : les renommer casserait
+ * l'appariement avec l'historique. Mais les mots ne décrivent plus rien — le
+ * 06/09 le bras « souple » a perdu son palier gratuit et est devenu bloquant lui
+ * aussi. L'écran ne nomme donc plus le TRAITEMENT (qui change), il nomme ce qui
+ * ne change pas : le nombre de cibles. Ce que le bras vend est lu dans la donnée.
+ */
+export const AB_ARM_LABELS: Record<string, string> = {
+  soft: "A — 1 cible",
+  hard: "B — 3 cibles",
+};
+
+/** Les deux TYPES de paywall (pas des variantes de test). */
+export const PAYWALL_TYPE_LABELS: Record<string, string> = {
+  gate: "Bloquant (gate)",
+  upsell: "Appoint (upsell)",
+  "(sans variante)": "Type inconnu",
+  "(inconnu)": "Type inconnu",
+};
+
+/** Type de scan (coût d'infrastructure) → libellé. */
+export const SCAN_KIND_LABELS: Record<string, string> = {
+  light: "Scan léger (cible gratuite)",
+  full: "Scan complet (détecte les désabonnements)",
+  "(autre)": "Autre",
+};
+
+/** Sous ce nombre d'exposés PAR BRAS, aucune comparaison n'a de sens. */
+export const AB_THRESHOLD = 330;
+
+/**
+ * MARQUEUR DE RUPTURE — correctif SERVEUR du tirage de bras. Vérifié en prod le
+ * 09/08 : dernière bascule à l'identification le 07/08 22:02:46.735 UTC,
+ * première identification propre le 08/08 10:24:45.484 UTC. Non datable par
+ * `app_version` : la même build client (20260806-1724) est des deux côtés de la
+ * rupture. Écrit en dur, comme AB_THRESHOLD : c'est un fait d'observation daté,
+ * pas une donnée que le cache saurait recalculer.
+ */
+export const AB_BREAK_LABEL = "8 août 2026, 10 h 24 UTC";
+
+/** Ratio en % (1 décimale) tolérant au 0. */
+export function ratePct(num: number, den: number): number | null {
+  return den > 0 ? Math.round((num / den) * 1000) / 10 : null;
+}
+
+/** Types de paywall : complétion (payés ÷ checkouts) et cibles par client. */
+export function paywallTypeRows<
+  T extends { exposed: number; checkouts: number; paid: number; clientTargets: number },
+>(rows: readonly T[]): (T & { completion: number | null; targetsPerClient: number | null })[] {
+  return rows.map((v) => ({
+    ...v,
+    completion: ratePct(v.paid, v.checkouts),
+    targetsPerClient: v.paid > 0 ? Math.round((v.clientTargets / v.paid) * 10) / 10 : null,
+  }));
+}
+
+/**
+ * Bras du test : complétion et cibles PAYANTES par client. Chaque taux est
+ * calculé UNE fois ici, puis passé au garde-fou avec la valeur affichée (cf
+ * `abArmChecks`) : seule façon d'attraper une erreur d'unité.
+ */
+export function abArmRows<
+  T extends { checkouts: number; paid: number; clientTargets: number; armTargets: number },
+>(rows: readonly T[]): (T & { completion: number | null; targetsPerClient: number | null })[] {
+  return rows.map((a) => ({
+    ...a,
+    completion: ratePct(a.paid, a.checkouts),
+    // Cibles PAYANTES par client : cibles ajoutées par les clients APRÈS
+    // leur paiement ÷ clients. Un bras qui n'émet AUCUN target_added n'a pas
+    // « 0 cible par client », il n'est pas mesuré → tiret.
+    targetsPerClient:
+      a.paid > 0 && a.armTargets > 0
+        ? Math.round((a.clientTargets / a.paid) * 100) / 100
+        : null,
+  }));
+}
+
+/** Le garde-fou du tableau des bras : l'affiché contre le recalculé. */
+export function abArmChecks(
+  arms: readonly {
+    variant: string;
+    exposed: number;
+    paywallViewers: number;
+    checkouts: number;
+    paid: number;
+    paidWithoutCheckout: number;
+    clientTargets: number;
+    armTargets: number;
+    completion: number | null;
+    targetsPerClient: number | null;
+  }[],
+): CoherenceCheck[] {
+  return abArmCoherenceChecks(
+    arms.map((a) => ({
+      variant: a.variant,
+      exposed: a.exposed,
+      paywallViewers: a.paywallViewers,
+      checkouts: a.checkouts,
+      paid: a.paid,
+      paidWithoutCheckout: a.paidWithoutCheckout,
+      clientTargets: a.clientTargets,
+      armTargets: a.armTargets,
+      shownCompletionPct: a.completion,
+      shownTargetsPerClient: a.targetsPerClient,
+    })),
+  );
+}
+
+/**
+ * Où en est le test : effectif du plus petit bras, concluant ou non (seuil par
+ * bras), recrues manquantes, personnes écartées faute de bras stable.
+ *
+ * Les écartées se ventilent : un bras qui diverge entre DEUX `$device_id` est une
+ * fusion d'identités PostHog (attendu, non actionnable) ; sur un SEUL appareil,
+ * l'app a re-tiré le bras d'une personne déjà assignée — le seul sous-total sur
+ * lequel le produit peut agir.
+ */
+export function abArmSummary(
+  arms: readonly {
+    exposed: number;
+    excludedFlippers: number;
+    excludedFlippersMultiDevice: number;
+    excludedFlippersSameDevice: number;
+  }[],
+): {
+  minExposed: number;
+  concluant: boolean;
+  remaining: number;
+  excluded: number;
+  excludedMultiDevice: number;
+  excludedSameDevice: number;
+} {
+  const minExposed = arms.length > 0 ? Math.min(...arms.map((a) => a.exposed)) : 0;
+  return {
+    minExposed,
+    concluant: arms.length >= 2 && minExposed >= AB_THRESHOLD,
+    // Personnes restantes à recruter, tous bras confondus, pour atteindre le seuil.
+    remaining: arms.reduce(
+      (sum, a) => sum + Math.max(0, AB_THRESHOLD - a.exposed),
+      arms.length < 2 ? AB_THRESHOLD : 0,
+    ),
+    excluded: arms.reduce((sum, a) => sum + a.excludedFlippers, 0),
+    excludedMultiDevice: arms.reduce((sum, a) => sum + a.excludedFlippersMultiDevice, 0),
+    excludedSameDevice: arms.reduce((sum, a) => sum + a.excludedFlippersSameDevice, 0),
+  };
+}
+
+/**
+ * Net par ASSIGNÉ : le dénominateur est l'assignation, pas la vue du paywall —
+ * la comparaison en intention de traiter, la seule que la randomisation garantit
+ * non biaisée. `null` sans assigné.
+ */
+export function netPerAssigned(net: number, assigned: number): number | null {
+  return assigned > 0 ? Math.round((net / assigned) * 100) / 100 : null;
+}
+
+/** Coût des scans, léger puis complet ; chiffré seulement si cost_usd est émis. */
+export function scanCostRows<T extends { kind: string; runs: number; withCost: number }>(
+  rows: readonly T[],
+): { rows: T[]; anyRuns: boolean; anyCost: boolean } {
+  const order = ["light", "full", "(autre)"];
+  return {
+    rows: [...rows].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind)),
+    anyRuns: rows.some((r) => r.runs > 0),
+    anyCost: rows.some((r) => r.withCost > 0),
+  };
+}

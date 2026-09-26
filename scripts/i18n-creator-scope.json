@@ -135,6 +135,7 @@
     "convex/creatorDay.ts",
     "convex/errorCodes.ts",
     "convex/locales.ts",
+    "convex/moneyFormat.ts",
     "convex/payWindow.ts",
     "convex/platforms.ts",
     "convex/postUrlDate.ts",
