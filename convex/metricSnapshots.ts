@@ -20,6 +20,7 @@ const sourceValidator = v.union(
   v.literal("tiktok"),
   v.literal("instagram"),
   v.literal("snapchat"),
+  v.literal("facebook"),
 );
 
 /**

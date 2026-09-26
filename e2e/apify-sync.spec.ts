@@ -40,7 +40,7 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     })) as Id<"icps">;
 
     async function makeShort(
-      plateforme: "TikTok" | "Instagram" | "Snapchat",
+      plateforme: "TikTok" | "Instagram" | "Snapchat" | "Facebook",
       postUrl: string,
     ) {
       const carouselId = await admin.query(
@@ -75,6 +75,10 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     const igId = await makeShort(
       "Instagram",
       "https://www.instagram.com/reel/Ce2eReel01/",
+    );
+    const fbId = await makeShort(
+      "Facebook",
+      "https://www.facebook.com/share/r/1AbE2eFbReel/?mibextid=wwXIfr",
     );
     const snId = await makeShort(
       "Snapchat",
@@ -165,6 +169,27 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     ).filter((s) => s.source === "snapchat");
     expect(snSnaps.map((s) => s.vues)).toEqual([48_213]);
 
+    // ── Source facebook — actor Apify officiel, même upsert ──────────────────
+    // Likes = total des réactions ; saves null (Facebook n'en expose pas).
+    const rFb = await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
+      secret: E2E_SECRET,
+      publicationId: fbId,
+      vues: 18_342,
+      likes: 612,
+      comments: 41,
+      saves: null,
+      title: "Le site qui m'a changé la vie 😭 snytch.co",
+      capturedAt,
+      source: "facebook",
+    });
+    expect(rFb.action).toBe("inserted");
+    const fbSnaps = (
+      await admin.query(api.metricSnapshots.listSnapshotsByPublication, {
+        publicationId: fbId,
+      })
+    ).filter((s) => s.source === "facebook");
+    expect(fbSnaps.map((s) => s.vues)).toEqual([18_342]);
+
     // ── Intégration — vuesLatest suit le dernier relevé + indicateur posé ─────
     const pubs = await admin.query(api.publications.listPublications, {
       snapshotAge: "latest",
@@ -178,6 +203,10 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     const igPub = pubs.find((p) => p._id === igId)!;
     expect(igPub.vuesLatest).toBe(777);
     expect(igPub.lastApifySyncAt).toBeTruthy();
+    const fbPub = pubs.find((p) => p._id === fbId)!;
+    expect(fbPub.vuesLatest).toBe(18_342);
+    expect(fbPub.likesLatest).toBe(612);
+    expect(fbPub.postTitle).toBe("Le site qui m'a changé la vie 😭 snytch.co");
     const snPub = pubs.find((p) => p._id === snId)!;
     expect(snPub.vuesLatest).toBe(48_213);
     expect(snPub.likesLatest).toBe(1_204);
@@ -219,5 +248,6 @@ test.describe("Tracking auto des vues TikTok/Instagram (Apify)", () => {
     await admin.mutation(api.publications.deletePublication, { id: tkId });
     await admin.mutation(api.publications.deletePublication, { id: igId });
     await admin.mutation(api.publications.deletePublication, { id: snId });
+    await admin.mutation(api.publications.deletePublication, { id: fbId });
   });
 });

@@ -73,6 +73,7 @@ import type * as emailApi from "../emailApi.js";
 import type * as emailMessages from "../emailMessages.js";
 import type * as emails from "../emails.js";
 import type * as errorCodes from "../errorCodes.js";
+import type * as facebookApify from "../facebookApify.js";
 import type * as fileDrop from "../fileDrop.js";
 import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
@@ -292,6 +293,7 @@ declare const fullApi: ApiFromModules<{
   emailMessages: typeof emailMessages;
   emails: typeof emails;
   errorCodes: typeof errorCodes;
+  facebookApify: typeof facebookApify;
   fileDrop: typeof fileDrop;
   filterPresets: typeof filterPresets;
   folders: typeof folders;
