@@ -166,6 +166,7 @@ import type * as radarApi from "../radarApi.js";
 import type * as reminderGrouping from "../reminderGrouping.js";
 import type * as remunerate from "../remunerate.js";
 import type * as retentionCost from "../retentionCost.js";
+import type * as reviewQueue from "../reviewQueue.js";
 import type * as roles from "../roles.js";
 import type * as rushScriptEligibility from "../rushScriptEligibility.js";
 import type * as rushStatus from "../rushStatus.js";
@@ -378,6 +379,7 @@ declare const fullApi: ApiFromModules<{
   reminderGrouping: typeof reminderGrouping;
   remunerate: typeof remunerate;
   retentionCost: typeof retentionCost;
+  reviewQueue: typeof reviewQueue;
   roles: typeof roles;
   rushScriptEligibility: typeof rushScriptEligibility;
   rushStatus: typeof rushStatus;

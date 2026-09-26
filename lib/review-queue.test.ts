@@ -69,3 +69,23 @@ describe("countTomorrow — l'en-tête de la file", () => {
     expect(countTomorrow([{ postDate: AUJ }, { postDate: null }], J(10))).toBe(0);
   });
 });
+
+describe("reviewSlot — avec un fuseau (le serveur, qui tourne en UTC)", () => {
+  // 25/09 à 22 h 30 UTC = 26/09 à 0 h 30 à Paris ; post prévu à 23 h 30 Paris le 26.
+  const now = Date.UTC(2026, 8, 25, 22, 30);
+  const post = Date.UTC(2026, 8, 26, 21, 30);
+
+  it("le jour se lit dans le fuseau donné : à Paris c'est AUJOURD'HUI, en UTC c'est DEMAIN", () => {
+    expect(reviewSlot(post, now, "Europe/Paris")).toBe("today");
+    expect(reviewSlot(post, now, "UTC")).toBe("tomorrow");
+    expect(countTomorrow([{ postDate: post }], now, "Europe/Paris")).toBe(0);
+    expect(countTomorrow([{ postDate: post }], now, "UTC")).toBe(1);
+  });
+
+  it("l'écart de jours ignore l'heure d'été (fin octobre : une journée de 25 h)", () => {
+    const veille = Date.UTC(2026, 9, 24, 12, 0); // 24/10 à Paris
+    const lendemain = Date.UTC(2026, 9, 25, 23, 30); // 26/10 à 0 h 30 à Paris
+    expect(reviewSlot(lendemain, veille, "Europe/Paris")).toBe("upcoming");
+    expect(reviewSlot(Date.UTC(2026, 9, 25, 10, 0), veille, "Europe/Paris")).toBe("tomorrow");
+  });
+});
