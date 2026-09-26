@@ -80,10 +80,15 @@
     "notifToggleHint": "Chaque vidéo assignée reçoit une notif à afficher à l'écran, tirée en rotation — l'analytics dit laquelle fait les vues.",
     "notifAucuneActive": "Notif activée mais aucune notif active : ajoutes-en une dans l'onglet Notif, ou désactive la notif, pour pouvoir assigner.",
     "notifRattrapage": "Ajouter une notif {count, plural, one {à la vidéo déjà assignée} other {aux # vidéos déjà assignées}} sans notif",
-    "notifRattrapageExplication": "Chaque vidéo pas encore publiée reçoit une notif, avec la même rotation qu'à l'assignation (la moins servie à la créatrice d'abord). Les vidéos déjà publiées ne bougent pas : elles ont été tournées sans notif. Le script, la date et la paie restent identiques.",
+    "notifRattrapageExplication": "Chaque vidéo cochée reçoit une notif, avec la même rotation qu'à l'assignation (la moins servie à la créatrice d'abord). Décoche celles à laisser sans notif. Seules les vidéos pas encore publiées sont listées : les publiées ont été tournées sans notif. Le script, la date et la paie restent identiques.",
     "notifRattrapageAnnuler": "Annuler",
-    "notifRattrapageConfirmer": "Ajouter les notifs",
-    "notifRattrapageFait": "{count, plural, one {# notif ajoutée} other {# notifs ajoutées}}"
+    "notifRattrapageConfirmer": "Ajouter {count, plural, =0 {les notifs} one {la notif} other {les # notifs}}",
+    "notifRattrapageFait": "{count, plural, one {# notif ajoutée} other {# notifs ajoutées}}",
+    "notifRattrapageCochees": "{selected} sur {total} {total, plural, one {cochée} other {cochées}}",
+    "notifRattrapageToutCocher": "Tout cocher",
+    "notifRattrapageToutDecocher": "Tout décocher",
+    "notifRattrapageSansDate": "sans date de post",
+    "notifRattrapageInclure": "Inclure cette vidéo"
   },
   "BrickRow": {
     "consigne": "💡 consigne",

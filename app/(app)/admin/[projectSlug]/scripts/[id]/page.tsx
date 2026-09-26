@@ -66,6 +66,7 @@ import {
 } from "@/lib/scriptAssembly";
 import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
+import { NotifBackfill } from "@/components/scripts/NotifBackfill";
 import {
   BRICK_MODE_OPTIONS,
   resolveBrickMode,
@@ -651,67 +652,6 @@ function NotifToggle({
       )}
       {enabled && !missing && <NotifBackfill campaignId={campaignId} />}
     </div>
-  );
-}
-
-/**
- * RATTRAPAGE — donne une notif aux vidéos assignées AVANT que la campagne ait
- * les siennes. Seules les vidéos pas encore publiées (une vidéo en ligne a été
- * tournée sans) ; même rotation qu'à l'assignation. Rien à rattraper = rien à
- * l'écran.
- */
-function NotifBackfill({ campaignId }: { campaignId: Id<"scriptCampaigns"> }) {
-  const showError = useConvexError();
-  const tr = useTranslations("admin.scripts.ScriptCampaignDetailPage");
-  const count = useProjectQuery(api.scripts.notifBackfillCount, { campaignId });
-  const backfill = useProjectMutation(api.scripts.backfillNotifs);
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  if (!count) return null;
-
-  async function run() {
-    setBusy(true);
-    try {
-      const { added } = await backfill({ campaignId });
-      toast.success(tr("notifRattrapageFait", { count: added }));
-      setOpen(false);
-    } catch (e) {
-      toast.error(showError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <Button
-        size="xs"
-        variant="outline"
-        className="mt-1"
-        onClick={() => setOpen(true)}
-        data-testid="notif-backfill"
-      >
-        {tr("notifRattrapage", { count })}
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{tr("notifRattrapage", { count })}</DialogTitle>
-            <DialogDescription>{tr("notifRattrapageExplication")}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={busy}>
-              {tr("notifRattrapageAnnuler")}
-            </Button>
-            <Button onClick={run} disabled={busy} data-testid="notif-backfill-confirm">
-              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              {tr("notifRattrapageConfirmer")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   );
 }
 
