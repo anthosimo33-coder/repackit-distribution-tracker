@@ -423,8 +423,15 @@ test.describe("Brique notif", () => {
     await admin.mutation(api.scripts.updateCampaign, { id: campaignId, notifEnabled: true });
     const n1 = await add("notif", "Ajouts", "  Il a suivi 12 nouveaux comptes cette semaine 👀 ");
     const n2 = await add("notif", "Story", "Quelqu'un a regardé ta story 3 fois");
-    // 2 non publiées de Léa + celle d'Inès ; la publiée n'est PAS comptée.
-    expect(await admin.query(api.scripts.notifBackfillCount, { campaignId })).toBe(3);
+    // 2 non publiées de Léa + celle d'Inès ; la publiée n'est PAS proposée.
+    const candidates = () =>
+      admin.query(api.scripts.notifBackfillCandidates, { campaignId });
+    expect((await candidates()).map((c) => c.assignmentId).sort()).toEqual(
+      (await rows())
+        .filter((r) => r._id !== published._id)
+        .map((r) => r._id)
+        .sort(),
+    );
 
     // ── Geste 1 : le menu du panneau, sur la vidéo d'Inès.
     await page.goto(adminPath("/assignments"));
@@ -445,15 +452,43 @@ test.describe("Brique notif", () => {
     const inesRow = (await rows()).find((r) => r.creatorId === ines.creatorId)!;
     expect(inesRow.scriptCombo!.notifBrickId).toBe(n2);
     expect(inesRow.scriptCombo!.notifText).toBe("Quelqu'un a regardé ta story 3 fois");
-    expect(await admin.query(api.scripts.notifBackfillCount, { campaignId })).toBe(2);
+    expect(await candidates()).toHaveLength(2);
 
-    // ── Geste 2 : le bouton de la campagne, pour les 2 restantes de Léa.
+    // ── Geste 2 : le bouton de la campagne. La fenêtre LISTE les 2 vidéos
+    // restantes de Léa, reconnaissables à leur accroche — et pas la publiée.
+    const hookOf = async (id: Id<"assignments">) =>
+      (await assembledScriptOf(admin, id)).split("\n\n")[0];
+    const [u1, u2] = (await candidates()).map((c) => c.assignmentId);
+    const hookU1 = await hookOf(u1);
+    const hookU2 = await hookOf(u2);
+    const hookPublished = await hookOf(published._id);
     await page.goto(adminPath(`/scripts/${campaignId}`));
     const bouton = page.getByTestId("notif-backfill");
     await expect(bouton).toContainText("aux 2 vidéos déjà assignées");
     await bouton.click();
+    const ligne = (hook: string) =>
+      page.getByTestId("notif-backfill-row").filter({ hasText: hook });
+    await expect(page.getByTestId("notif-backfill-row")).toHaveCount(2);
+    await expect(ligne(hookU1)).toContainText(`[E2E_TEST] Léa Moreau ${ts}`);
+    await expect(ligne(hookU1)).toContainText(`@lea.moreau_${ts}`);
+    await expect(ligne(hookU2)).toHaveCount(1);
+    await expect(ligne(hookPublished)).toHaveCount(0);
+
+    // Décocher U2 : seule U1 reçoit sa notif.
+    await ligne(hookU2).getByRole("checkbox").click();
+    await expect(page.getByTestId("notif-backfill-selected")).toHaveText("1 sur 2 cochées");
     await page.getByTestId("notif-backfill-confirm").click();
-    await expect(page.getByText("2 notifs ajoutées")).toBeVisible();
+    await expect(page.getByText("1 notif ajoutée")).toBeVisible();
+    const notifOf = async (id: Id<"assignments">) =>
+      (await rows()).find((r) => r._id === id)!.scriptCombo!.notifBrickId;
+    expect(await notifOf(u1)).toBe(n1);
+    expect(await notifOf(u2)).toBeUndefined();
+
+    // U2 reste proposée ; on la rattrape à son tour.
+    await expect(bouton).toContainText("à la vidéo déjà assignée");
+    await bouton.click();
+    await expect(page.getByTestId("notif-backfill-row")).toHaveCount(1);
+    await page.getByTestId("notif-backfill-confirm").click();
     await expect(bouton).toHaveCount(0);
 
     const after = (await rows()).filter((r) => r.creatorId === lea.creatorId);
@@ -467,9 +502,12 @@ test.describe("Brique notif", () => {
     ).toBe("Il a suivi 12 nouveaux comptes cette semaine 👀");
     // La publiée n'a rien reçu.
     expect(after.find((r) => r._id === published._id)!.scriptCombo!.notifBrickId).toBeUndefined();
-    // Idempotent : plus rien à rattraper.
-    expect(await admin.mutation(api.scripts.backfillNotifs, { campaignId })).toEqual({
-      added: 0,
-    });
+    // Idempotent, et un id qui n'est plus une cible (la publiée) est ignoré.
+    expect(
+      await admin.mutation(api.scripts.backfillNotifs, {
+        campaignId,
+        assignmentIds: [published._id, u1],
+      }),
+    ).toEqual({ added: 0 });
   });
 });

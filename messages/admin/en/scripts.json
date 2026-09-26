@@ -80,10 +80,15 @@
     "notifToggleHint": "Each assigned video gets an on-screen notification, picked in rotation — analytics tells you which one drives views.",
     "notifAucuneActive": "Notifications are on but none is active: add one in the Notification tab, or turn notifications off, to be able to assign.",
     "notifRattrapage": "Add a notification to {count, plural, one {the already assigned video} other {the # already assigned videos}} without one",
-    "notifRattrapageExplication": "Each video not yet published gets a notification, with the same rotation as at assignment (least served to that creator first). Videos already published stay as they are: they were shot without one. Script, date and pay are unchanged.",
+    "notifRattrapageExplication": "Each checked video gets a notification, with the same rotation as at assignment (least served to that creator first). Uncheck the ones to leave without. Only videos not yet published are listed: published ones were shot without a notification. Script, date and pay are unchanged.",
     "notifRattrapageAnnuler": "Cancel",
-    "notifRattrapageConfirmer": "Add notifications",
-    "notifRattrapageFait": "{count, plural, one {# notification added} other {# notifications added}}"
+    "notifRattrapageConfirmer": "Add {count, plural, =0 {notifications} one {the notification} other {the # notifications}}",
+    "notifRattrapageFait": "{count, plural, one {# notification added} other {# notifications added}}",
+    "notifRattrapageCochees": "{selected} of {total} checked",
+    "notifRattrapageToutCocher": "Check all",
+    "notifRattrapageToutDecocher": "Uncheck all",
+    "notifRattrapageSansDate": "no post date",
+    "notifRattrapageInclure": "Include this video"
   },
   "BrickRow": {
     "consigne": "💡 note",

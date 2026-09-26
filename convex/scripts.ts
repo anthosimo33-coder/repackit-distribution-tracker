@@ -1933,17 +1933,54 @@ async function notifBackfillTargets(
   return { targets, all };
 }
 
-/** Combien de vidéos le rattrapage toucherait (bouton de l'écran campagne). */
-export const notifBackfillCount = permissionQuery("scripts.manage")({
+/** Une vidéo proposée au rattrapage, telle que l'admin la reconnaît. */
+export interface NotifBackfillCandidate {
+  assignmentId: Id<"assignments">;
+  creatorName: string;
+  /** Début du script FIGÉ (l'accroche) : c'est ce qui distingue deux vidéos. */
+  hook: string;
+  accounts: { platform: string; handle: string | null }[];
+  postDate: number | null;
+  status: Doc<"assignments">["status"];
+}
+
+/**
+ * Les vidéos que le rattrapage toucherait (cf notifBackfillTargets), dans
+ * l'ordre où il les servirait — la fenêtre de confirmation les liste, et
+ * l'admin décoche celles à laisser sans notif.
+ */
+export const notifBackfillCandidates = permissionQuery("scripts.manage")({
   args: { campaignId: v.id("scriptCampaigns") },
-  handler: async (ctx, { campaignId }): Promise<number> => {
+  handler: async (ctx, { campaignId }): Promise<NotifBackfillCandidate[]> => {
     await requireCampaign(ctx, campaignId, ctx.projectId);
     const { targets } = await notifBackfillTargets(ctx, {
       campaignId,
       projectId: ctx.projectId,
       userId: ctx.userId,
     });
-    return targets.length;
+    const names = new Map<string, string>();
+    const handles = new Map<string, string | null>();
+    for (const a of targets) {
+      if (!names.has(a.creatorId)) {
+        names.set(a.creatorId, (await ctx.db.get(a.creatorId))?.name ?? "—");
+      }
+      for (const t of a.targets ?? []) {
+        if (t.accountId && !handles.has(t.accountId)) {
+          handles.set(t.accountId, (await ctx.db.get(t.accountId))?.handle ?? null);
+        }
+      }
+    }
+    return targets.map((a) => ({
+      assignmentId: a._id,
+      creatorName: names.get(a.creatorId) ?? "—",
+      hook: (a.scriptCombo!.assembledScript.split("\n\n")[0] ?? "").trim(),
+      accounts: (a.targets ?? []).map((t) => ({
+        platform: t.platform,
+        handle: t.accountId ? (handles.get(t.accountId) ?? null) : null,
+      })),
+      postDate: a.postDate ?? null,
+      status: a.status,
+    }));
   },
 });
 
@@ -1955,14 +1992,28 @@ export const notifBackfillCount = permissionQuery("scripts.manage")({
  * vidéo qui a sa notif n'est plus une cible.
  */
 export const backfillNotifs = permissionMutation("scripts.manage")({
-  args: { campaignId: v.id("scriptCampaigns") },
-  handler: async (ctx, { campaignId }): Promise<{ added: number }> => {
+  args: {
+    campaignId: v.id("scriptCampaigns"),
+    // Les vidéos COCHÉES dans la fenêtre de confirmation. Absent = toutes les
+    // cibles. Un id qui n'est pas (ou plus) une cible est ignoré : la liste
+    // affichée a pu vieillir, les règles d'éligibilité restent celles du serveur.
+    assignmentIds: v.optional(v.array(v.id("assignments"))),
+  },
+  handler: async (
+    ctx,
+    { campaignId, assignmentIds },
+  ): Promise<{ added: number }> => {
     await requireCampaign(ctx, campaignId, ctx.projectId);
-    const { targets, all } = await notifBackfillTargets(ctx, {
+    const eligible = await notifBackfillTargets(ctx, {
       campaignId,
       projectId: ctx.projectId,
       userId: ctx.userId,
     });
+    const chosen = assignmentIds ? new Set<string>(assignmentIds) : null;
+    const targets = chosen
+      ? eligible.targets.filter((a) => chosen.has(a._id))
+      : eligible.targets;
+    const all = eligible.all;
     if (targets.length === 0) return { added: 0 };
     const bricks = await ctx.db
       .query("scriptBricks")
