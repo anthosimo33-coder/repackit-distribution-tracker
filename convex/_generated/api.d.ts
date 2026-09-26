@@ -178,6 +178,7 @@ import type * as scriptDecision from "../scriptDecision.js";
 import type * as scriptSeedData from "../scriptSeedData.js";
 import type * as scriptZonesSetting from "../scriptZonesSetting.js";
 import type * as scripts from "../scripts.js";
+import type * as segmentFunnel from "../segmentFunnel.js";
 import type * as settledCycles from "../settledCycles.js";
 import type * as showcase from "../showcase.js";
 import type * as snapchatInternal from "../snapchatInternal.js";
@@ -393,6 +394,7 @@ declare const fullApi: ApiFromModules<{
   scriptSeedData: typeof scriptSeedData;
   scriptZonesSetting: typeof scriptZonesSetting;
   scripts: typeof scripts;
+  segmentFunnel: typeof segmentFunnel;
   settledCycles: typeof settledCycles;
   showcase: typeof showcase;
   snapchatInternal: typeof snapchatInternal;
