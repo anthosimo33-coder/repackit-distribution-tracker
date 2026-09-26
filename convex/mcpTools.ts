@@ -74,6 +74,11 @@ import {
 } from "./assignments";
 import { countTomorrow, reviewSlot } from "./reviewQueue";
 import {
+  getChallengeCore,
+  listChallengesCore,
+  previewChallengeWinnersCore,
+} from "./challenges";
+import {
   calendarStatus,
   isSameLocalDay,
   onTimeTally,
@@ -271,6 +276,21 @@ export const lireValidation = mcpPermissionQuery("review.manage")({
   handler: async (ctx) => ({
     aRelire: await listVideoSubmittedCore(ctx),
     publiees: await listPublishedCore(ctx),
+  }),
+});
+
+/** Écran Défis : la liste — même lecture, même bloc. */
+export const lireDefis = mcpPermissionQuery("challenges.run")({
+  args: {},
+  handler: async (ctx) => listChallengesCore(ctx),
+});
+
+/** Écran Défis : un défi (classement, victoires, vidéos) et qui gagnerait maintenant. */
+export const lireDefi = mcpPermissionQuery("challenges.run")({
+  args: { id: v.id("challenges") },
+  handler: async (ctx, { id }) => ({
+    detail: await getChallengeCore(ctx, { id }),
+    apercu: await previewChallengeWinnersCore(ctx, { id }),
   }),
 });
 
@@ -714,6 +734,20 @@ export const OUTILS: readonly McpTool[] = [
         projet: ARG_PROJET,
         createatrice: { type: "string", description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés)." },
         limite: { type: "integer", description: "Vidéos listées au plus par rubrique (défaut 30).", minimum: 1, maximum: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "defis",
+    title: "Défis",
+    description:
+      "Les défis du projet, comme l'écran Défis. Sans « defi » : la liste (statut, objectif de vues, mode cumulé ou meilleure vidéo, échéance, récompense par gagnante, règle de gagnantes, participantes, victoires, terminé ou non). Avec « defi » (nom ou morceau de nom) : son classement (rang, score, vidéos comptées, objectif franchi), ses victoires, qui gagnerait si c'était acté maintenant, et ses vidéos (vues, comptée ou retirée, liens).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        defi: { type: "string", description: "Nom du défi (exact ou morceau) — appelle sans pour la liste." },
       },
       additionalProperties: false,
     },
@@ -1757,6 +1791,79 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           lecture: [
             "« aRelire » = vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue).",
             "Créneaux lus à l'heure de Paris (l'écran les lit à l'heure de l'admin) : « demain » est ce qui doit être validé en priorité.",
+          ],
+        });
+      }
+
+      if (name === "defis") {
+        const liste = await lire(() => ctx.runQuery(internal.mcpTools.lireDefis, ids));
+        const statuts = { draft: "brouillon", active: "ouvert", closed: "clos" } as const;
+        const recompense = (r: { type: string; amount?: number; libelle?: string; coutReel?: number }) =>
+          r.type === "cash"
+            ? { type: "argent", montantParGagnante: r.amount ?? null }
+            : { type: "nature", objet: r.libelle ?? null, coutReel: r.coutReel ?? null };
+        const regle = (w: { kind: string; n?: number }) =>
+          w.kind === "first" ? "la première" : w.kind === "topN" ? `les ${w.n} premières` : "toutes celles qui franchissent";
+        const resume = (c: (typeof liste)[number]) => ({
+          defi: c.name,
+          statut: statuts[c.status as keyof typeof statuts] ?? c.status,
+          ...(c.hiddenAt !== null ? { masque: true } : {}),
+          objectifVues: c.targetViews,
+          mode: c.mode === "cumulative" ? "vues cumulées de ses vidéos" : "sa meilleure vidéo seule",
+          echeance: jour(c.deadline),
+          recompense: recompense(c.reward),
+          gagnantes: regle(c.winnerRule),
+          participantes: c.participantCount,
+          victoires: c.winCount,
+          termine: c.over,
+        });
+        const demande = typeof args.defi === "string" ? args.defi.trim() : "";
+        if (demande === "") {
+          return json({ projet: projet.slug, defis: liste.map(resume) });
+        }
+        // Le nom exact d'abord, sinon une sous-chaîne qui ne désigne qu'UN défi.
+        const exact = liste.filter((c) => plier(c.name) === plier(demande));
+        const proches = exact.length > 0 ? exact : liste.filter((c) => plier(c.name).includes(plier(demande)));
+        if (proches.length !== 1) {
+          throw new ToolError(
+            `Défi « ${demande} » introuvable ou ambigu. Défis possibles : ${liste.map((c) => c.name).join(", ") || "aucun"}.`,
+          );
+        }
+        const choisi = proches[0];
+        const d = await lire(() => ctx.runQuery(internal.mcpTools.lireDefi, { ...ids, id: choisi._id }));
+        if (!d.detail) throw new ToolError(`Défi « ${choisi.name} » introuvable.`);
+        const { detail, apercu } = d;
+        return json({
+          projet: projet.slug,
+          ...resume(choisi),
+          ...(detail.challenge.description ? { description: detail.challenge.description } : {}),
+          classement: detail.ranking.map((r) => ({
+            rang: r.rank,
+            createatrice: r.name,
+            score: r.score,
+            videosComptees: r.videoCount,
+            aFranchiLObjectif: r.crossed,
+          })),
+          // « victoires » (le NOMBRE) vient du résumé ; la liste a son propre nom.
+          victoiresActees: detail.wins.map((w) => ({
+            position: w.position,
+            createatrice: w.creatorName,
+            le: jour(w.wonAt),
+            scoreAuMomentDeGagner: w.scoreAtWin,
+            ...(w.cancelledAt !== null ? { annulee: jour(w.cancelledAt), motif: w.cancelReason } : {}),
+          })),
+          gagneraientMaintenant: (apercu?.wouldWin ?? []).map((w) => ({ createatrice: w.name, score: w.score })),
+          videos: detail.videos.slice(0, 30).map((v) => ({
+            createatrice: v.creatorName,
+            vues: v.views,
+            comptee: v.counted,
+            ...(v.removedAt !== null ? { retiree: jour(v.removedAt) } : {}),
+            liens: v.publishedUrls,
+          })),
+          lecture: [
+            "Score = vues cumulées des vidéos du défi (mode cumulé) ou vues de la meilleure (mode unique) ; seules les vidéos publiées et non retirées comptent.",
+            "« gagneraientMaintenant » = qui décrocherait une place si la victoire était actée maintenant (règle de gagnantes, échéance comprise).",
+            "La récompense est PAR gagnante. Le « coutReel » d'une récompense en nature est ce qu'elle coûte au projet, jamais montré aux créatrices.",
           ],
         });
       }
