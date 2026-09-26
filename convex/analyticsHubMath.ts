@@ -1786,3 +1786,130 @@ export function natureClosestPct(closestCumul: number | null, seuilVues: number)
     ? Math.round((closestCumul / seuilVues) * 1000) / 10
     : null;
 }
+
+// ─── Onglet SANTÉ PRODUIT ────────────────────────────────────────────────────
+// Ici et non dans le composant pour que l'onglet et l'outil MCP `sante_produit`
+// ventilent les scans, déduisent les bloqués par le paywall et jugent la
+// première recherche de la même façon.
+
+/** Résultats de recherche de compte (`handle_search_result.result`). */
+export const SEARCH_RESULT_LABELS: Record<string, string> = {
+  found: "Trouvé",
+  private: "Compte privé",
+  not_found: "Introuvable",
+  error: "Erreur",
+  // Émis « paywalled » à venir (dev) : la ligne devient mesurée au lieu de déduite.
+  paywalled: "Bloqués par le paywall avant résultat",
+};
+
+/** Déclenchements de scan (`reason`), scheduled_full en tête (détecte les unfollows). */
+const SCAN_REASON_ORDER = ["scheduled_full", "scheduled_light", "baseline", "manual_refresh"];
+export const SCAN_REASON_LABELS: Record<string, string> = {
+  scheduled_full: "Planifié complet",
+  scheduled_light: "Planifié léger",
+  baseline: "Baseline",
+  manual_refresh: "Rafraîchissement manuel",
+};
+
+/** Résultats de scan (success/error) — libellés lisibles pour le détail par raison. */
+export const SCAN_RESULT_LABELS: Record<string, string> = {
+  success: "Réussi",
+  error: "Erreur",
+  timeout: "Délai dépassé",
+  "(sans result)": "Sans résultat émis",
+};
+
+/** Un result de scan qui n'est ni un succès ni un vide compte comme un échec. */
+export function isScanFailure(result: string): boolean {
+  return result !== "success" && result !== "(sans result)";
+}
+
+/**
+ * Fiabilité des scans ventilée par DÉCLENCHEMENT (`reason`) : baseline /
+ * scheduled_light / scheduled_full / manual_refresh (émis depuis le 28/07).
+ * scheduled_full est le scan qui détecte les désabonnements → mis en évidence.
+ * Le détail par result (réussi / erreur) reste sous chaque déclenchement.
+ */
+export function scansByReason(
+  rows: readonly { reason: string | null; result: string; runs: number }[],
+): {
+  reason: string;
+  runs: number;
+  failures: number;
+  /** Taux d'échec en % (1 décimale) ; null sans exécution. */
+  rate: number | null;
+  results: { result: string; runs: number }[];
+  isUnfollowScan: boolean;
+}[] {
+  const byReason = new Map<
+    string,
+    { runs: number; failures: number; results: { result: string; runs: number }[] }
+  >();
+  for (const r of rows) {
+    const reason = r.reason ?? "(sans reason)";
+    const cur = byReason.get(reason) ?? { runs: 0, failures: 0, results: [] };
+    cur.runs += r.runs;
+    if (isScanFailure(r.result)) cur.failures += r.runs;
+    const ex = cur.results.find((x) => x.result === r.result);
+    if (ex) ex.runs += r.runs;
+    else cur.results.push({ result: r.result, runs: r.runs });
+    byReason.set(reason, cur);
+  }
+  return [...byReason.entries()]
+    .map(([reason, x]) => ({
+      reason,
+      runs: x.runs,
+      failures: x.failures,
+      rate: x.runs > 0 ? Math.round((x.failures / x.runs) * 1000) / 10 : null,
+      results: x.results.sort((a, b) => b.runs - a.runs),
+      isUnfollowScan: reason === "scheduled_full",
+    }))
+    .sort((a, b) => {
+      const oa = SCAN_REASON_ORDER.indexOf(a.reason);
+      const ob = SCAN_REASON_ORDER.indexOf(b.reason);
+      return (oa === -1 ? 99 : oa) - (ob === -1 ? 99 : ob) || b.runs - a.runs;
+    });
+}
+
+/**
+ * Résultats de recherche. Les gens sans accès sont BLOQUÉS par le paywall avant
+ * que la recherche s'exécute : ce n'est pas un trou de mesure, c'est un choix
+ * produit. Tant que le dev n'émet pas result « paywalled », on les DÉDUIT
+ * (handle_submitted − handle_search_result) ; dès qu'il l'émet, la ligne est
+ * MESURÉE (elle apparaît directement dans les résultats).
+ */
+export function searchOutcome(
+  rows: readonly { result: string; persons: number }[],
+  events: readonly { name: string; persons: number }[],
+): { measured: boolean; deducedPaywalled: number | null } {
+  const personsOf = (event: string) => events.find((e) => e.name === event)?.persons ?? null;
+  const submitted = personsOf("handle_submitted");
+  const withResult = personsOf("handle_search_result");
+  return {
+    measured: rows.some((r) => r.result === "paywalled"),
+    deducedPaywalled:
+      submitted !== null && withResult !== null ? Math.max(0, submitted - withResult) : null,
+  };
+}
+
+/**
+ * Première recherche APRÈS paiement — la demande la plus importante. Exploitable
+ * = `found` (un vrai résultat) ; private / not_found / error = un mur. Le taux
+ * porte sur les payants qui ont cherché : c'est l'effectif à juger.
+ */
+export function firstSearchVerdict(d: {
+  searched: number;
+  results: readonly { result: string; persons: number }[];
+}): { found: number; exploitableRate: number | null; sampleSufficient: boolean } {
+  const found = d.results.find((r) => r.result === "found")?.persons ?? 0;
+  return {
+    found,
+    exploitableRate: d.searched > 0 ? Math.round((found / d.searched) * 1000) / 10 : null,
+    sampleSufficient: d.searched >= MIN_SAMPLE_SIZE,
+  };
+}
+
+/** La friction d'onboarding est-elle ventilée par étape (propriété émise) ? */
+export function frictionStepEmitted(rows: readonly { step: string }[]): boolean {
+  return rows.some((r) => r.step !== "(inconnu)" && r.step !== "(absent)");
+}

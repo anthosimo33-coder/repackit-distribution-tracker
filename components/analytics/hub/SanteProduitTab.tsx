@@ -12,7 +12,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
-import { MIN_SAMPLE_SIZE } from "@/lib/analytics-hub";
+import {
+  firstSearchVerdict,
+  frictionStepEmitted,
+  isScanFailure,
+  MIN_SAMPLE_SIZE,
+  SCAN_REASON_LABELS as REASON_LABELS,
+  SCAN_RESULT_LABELS,
+  scansByReason as ventilerScans,
+  SEARCH_RESULT_LABELS as RESULT_LABELS,
+  searchOutcome,
+} from "@/lib/analytics-hub";
 import {
   HubCardHeader,
   HubNotice,
@@ -31,43 +41,6 @@ import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
  * friction. Le scan de détection produit la valeur du produit : s'il échoue en
  * silence, l'utilisateur croit qu'il ne s'est rien passé.
  */
-
-const RESULT_LABELS: Record<string, string> = {
-  found: "Trouvé",
-  private: "Compte privé",
-  not_found: "Introuvable",
-  error: "Erreur",
-  // Émis « paywalled » à venir (dev) : la ligne devient mesurée au lieu de déduite.
-  paywalled: "Bloqués par le paywall avant résultat",
-};
-
-/** Déclenchements de scan (`reason`), scheduled_full en tête (détecte les unfollows). */
-const REASON_ORDER = ["scheduled_full", "scheduled_light", "baseline", "manual_refresh"];
-const REASON_LABELS: Record<string, string> = {
-  scheduled_full: "Planifié complet",
-  scheduled_light: "Planifié léger",
-  baseline: "Baseline",
-  manual_refresh: "Rafraîchissement manuel",
-};
-
-/** Résultats de scan (success/error) — libellés lisibles pour le détail par raison. */
-const SCAN_RESULT_LABELS: Record<string, string> = {
-  success: "Réussi",
-  error: "Erreur",
-  timeout: "Délai dépassé",
-  "(sans result)": "Sans résultat émis",
-};
-
-/** Un result de scan qui n'est ni un succès ni un vide compte comme un échec. */
-function isScanFailure(result: string): boolean {
-  return result !== "success" && result !== "(sans result)";
-}
-
-function personCount(analytics: ProductAnalyticsData, event: string): number | null {
-  return (
-    analytics.instrumentation.events.find((e) => e.name === event)?.persons ?? null
-  );
-}
 
 export function SanteProduitTab({
   analytics: cron,
@@ -92,59 +65,27 @@ export function SanteProduitTab({
   // scheduled_light / scheduled_full / manual_refresh (émis depuis le 28/07).
   // scheduled_full est le scan qui détecte les désabonnements → mis en évidence.
   // Le détail par result (réussi / erreur) reste sous chaque déclenchement.
-  const scansByReason = useMemo(() => {
-    const byReason = new Map<
-      string,
-      { runs: number; failures: number; results: { result: string; runs: number }[] }
-    >();
-    for (const r of analytics.scanReliability.rows) {
-      const reason = r.reason ?? "(sans reason)";
-      const cur = byReason.get(reason) ?? { runs: 0, failures: 0, results: [] };
-      cur.runs += r.runs;
-      if (isScanFailure(r.result)) cur.failures += r.runs;
-      const ex = cur.results.find((x) => x.result === r.result);
-      if (ex) ex.runs += r.runs;
-      else cur.results.push({ result: r.result, runs: r.runs });
-      byReason.set(reason, cur);
-    }
-    return [...byReason.entries()]
-      .map(([reason, x]) => ({
-        reason,
-        runs: x.runs,
-        failures: x.failures,
-        rate: x.runs > 0 ? Math.round((x.failures / x.runs) * 1000) / 10 : null,
-        results: x.results.sort((a, b) => b.runs - a.runs),
-        isUnfollowScan: reason === "scheduled_full",
-      }))
-      .sort((a, b) => {
-        const oa = REASON_ORDER.indexOf(a.reason);
-        const ob = REASON_ORDER.indexOf(b.reason);
-        return (oa === -1 ? 99 : oa) - (ob === -1 ? 99 : ob) || b.runs - a.runs;
-      });
-  }, [analytics.scanReliability.rows]);
+  const scansByReason = useMemo(
+    () => ventilerScans(analytics.scanReliability.rows),
+    [analytics.scanReliability.rows],
+  );
 
   // Résultats de recherche. Les gens sans accès sont BLOQUÉS par le paywall avant
   // que la recherche s'exécute : ce n'est pas un trou de mesure, c'est un choix
   // produit. Tant que le dev n'émet pas result « paywalled », on les DÉDUIT
   // (handle_submitted − handle_search_result) ; dès qu'il l'émet, la ligne est
   // MESURÉE (elle apparaît directement dans searchResults).
-  const search = useMemo(() => {
-    const rows = analytics.searchResults.rows;
-    const measured = rows.some((r) => r.result === "paywalled");
-    const submitted = personCount(analytics, "handle_submitted");
-    const withResult = personCount(analytics, "handle_search_result");
-    const deducedPaywalled =
-      submitted !== null && withResult !== null
-        ? Math.max(0, submitted - withResult)
-        : null;
-    return { rows, measured, deducedPaywalled };
-  }, [analytics]);
+  const search = useMemo(
+    () => ({
+      rows: analytics.searchResults.rows,
+      ...searchOutcome(analytics.searchResults.rows, analytics.instrumentation.events),
+    }),
+    [analytics],
+  );
 
   // Ventilation de la friction par ÉTAPE d'onboarding : émise ? (point 10).
   const stepRows = analytics.frictionByStep.rows;
-  const stepEmitted = stepRows.some(
-    (r) => r.step !== "(inconnu)" && r.step !== "(absent)",
-  );
+  const stepEmitted = frictionStepEmitted(stepRows);
 
   // Première recherche APRÈS paiement — la demande la plus importante. Exploitable
   // = `found` (un vrai résultat) ; private / not_found / error = un mur. Le paywall
@@ -152,14 +93,10 @@ export function SanteProduitTab({
   // déjà post-accès (cf. requête firstSearchAfterPay).
   const fsp = useMemo(() => {
     const d = analytics.firstSearchAfterPay;
-    const found = d.results.find((r) => r.result === "found")?.persons ?? 0;
     return {
       ...d,
-      found,
-      exploitableRate:
-        d.searched > 0 ? Math.round((found / d.searched) * 1000) / 10 : null,
-      // Le taux porte sur les payants qui ont cherché : c'est l'effectif à juger.
-      sampleSufficient: d.searched >= MIN_SAMPLE_SIZE,
+      // Le verdict de la carte : le MÊME module que l'outil MCP `sante_produit`.
+      ...firstSearchVerdict(d),
       instrStartLabel:
         d.instrStartMs !== null
           ? new Date(d.instrStartMs).toLocaleString("fr-FR", {

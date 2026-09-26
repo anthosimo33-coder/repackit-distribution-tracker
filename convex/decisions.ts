@@ -336,3 +336,52 @@ export function computeFollowersDelta(
   if (ref === undefined) return null;
   return dernier.followers - ref.followers;
 }
+
+/* ── Section « Posts des dernières 48 h » ─────────────────────────────────── */
+
+/**
+ * Les posts des 48 h regroupés par créatrice — par COMPTE quand aucune n'est
+ * rattachée (l'information reste visible au lieu de disparaître dans un bucket
+ * fourre-tout) —, les groupes les plus vus d'abord. Pour chaque groupe : vues,
+ * delta d'abonnés PAR COMPTE (dédupliqué) puis sommé — `null` tant qu'aucun
+ * relevé ne le porte (il faut deux relevés nocturnes) —, et l'état de l'en-tête.
+ * Lu par le Dashboard ET l'outil MCP `dashboard`.
+ */
+export function groupRecentPosts<P extends PostSignal>(
+  posts: readonly P[],
+  alarms: readonly { compte: string }[],
+): {
+  key: string;
+  label: string;
+  posts: P[];
+  vues48: number;
+  followers: number | null;
+  alarmed: boolean;
+  state: AccountState;
+}[] {
+  const alarmedComptes = new Set(alarms.map((a) => a.compte));
+  const byCreator = new Map<string, { label: string; posts: P[] }>();
+  for (const p of posts) {
+    const key = p.creatorId ?? `compte:${p.compte}`;
+    const g = byCreator.get(key) ?? { label: p.creatorName ?? p.compte, posts: [] };
+    g.posts.push(p);
+    byCreator.set(key, g);
+  }
+  return [...byCreator.entries()]
+    .map(([key, g]) => {
+      const parCompte = new Map<string, number | null>();
+      for (const p of g.posts) parCompte.set(p.compte, p.followersDelta);
+      const deltas = [...parCompte.values()].filter((d): d is number => d !== null);
+      const alarmed = [...parCompte.keys()].some((c) => alarmedComptes.has(c));
+      return {
+        key,
+        label: g.label,
+        posts: g.posts,
+        vues48: g.posts.reduce((s, p) => s + p.vues, 0),
+        followers: deltas.length > 0 ? deltas.reduce((s, d) => s + d, 0) : null,
+        alarmed,
+        state: accountStateOf(g.posts, alarmed),
+      };
+    })
+    .sort((a, b) => b.vues48 - a.vues48);
+}

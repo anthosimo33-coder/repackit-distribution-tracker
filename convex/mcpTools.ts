@@ -18,7 +18,19 @@ import { internalQuery, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mcpPermissionQuery } from "./functions";
-import { effectiveStatus, listComptesCore } from "./comptes";
+import { effectiveStatus, listComptesCore, listComptesSuiviCore } from "./comptes";
+import { getDueTotalCore } from "./payments";
+import { decisionDashboardCore } from "./dashboardDecisions";
+import { dashboardActions } from "./dashboardActions";
+import { groupRecentPosts, rateOf, verdictOf } from "./decisions";
+import {
+  ACCOUNT_ALARM_RUN_LENGTH,
+  DEAD_HOOK_MAX_VIEWS,
+  DEAD_HOOK_MIN_RUNS,
+  OPEN_DOOR_MIN_LIKE_RATE,
+  OPEN_DOOR_MIN_VIEWS,
+  savesAvailability,
+} from "./decisionThresholds";
 import { listCreatorActivityCore, listCreatorsCore } from "./creators";
 import { creatorPublicationStats } from "./publicationLateness";
 import { getProjectProfitabilityCore } from "./profitability";
@@ -91,6 +103,15 @@ import {
 } from "./radar";
 import { TREND_COUNTRIES } from "./countries";
 import {
+  firstSearchVerdict,
+  frictionStepEmitted,
+  isScanFailure,
+  MIN_SAMPLE_SIZE,
+  SCAN_REASON_LABELS,
+  SCAN_RESULT_LABELS,
+  scansByReason,
+  SEARCH_RESULT_LABELS,
+  searchOutcome,
   AB_ARM_LABELS,
   AB_BREAK_LABEL,
   AB_THRESHOLD,
@@ -350,6 +371,34 @@ export const lireRecompensesNature = mcpPermissionQuery("business.read")({
 export const lireConversionCreatrices = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => readConversionAllTimeCore(ctx),
+});
+
+/** Dashboard : les comptes suivis (warmups) — même lecture, même bloc. */
+export const lireComptesSuivi = mcpPermissionQuery("accounts.manage")({
+  args: {},
+  handler: async (ctx) => listComptesSuiviCore(ctx),
+});
+
+/** Dashboard : les fiches créatrices (type, pour écarter les clippeurs des warmups) — même bloc. */
+export const lireFichesCreatrices = mcpPermissionQuery("creators.read")({
+  args: {},
+  handler: async (ctx) =>
+    (await listCreatorsCore(ctx)).map((c) => ({ _id: c._id as string, kind: c.kind ?? null })),
+});
+
+/** Dashboard : le total dû (cycles non payés), dans la devise de paie — même calcul, même bloc. */
+export const lireTotalDu = mcpPermissionQuery("payments.manage")({
+  args: {},
+  handler: async (ctx) => ({
+    ...(await getDueTotalCore(ctx)),
+    payCurrency: (await ctx.db.get(ctx.projectId))?.payCurrency ?? null,
+  }),
+});
+
+/** Dashboard : « À décider » et les posts des 48 h — même lecture (cache 30 min), même bloc. */
+export const lireDecisions = mcpPermissionQuery("content.analytics")({
+  args: {},
+  handler: async (ctx) => decisionDashboardCore(ctx),
 });
 
 /** Agrégats PostHog en cache (trafic par pays) — même lecture que l'onglet. */
@@ -956,6 +1005,32 @@ export const OUTILS: readonly McpTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "dashboard",
+    title: "Dashboard (accueil)",
+    description:
+      "Le Dashboard de l'app, par les mêmes calculs : les quatre cartes d'action (vidéos à valider, warmups en retard, warmups terminés à valider, total dû), « À décider » (portes ouvertes à exploiter, hooks à graduer, hooks morts à désactiver, alarmes de compte) et les posts des 48 dernières heures regroupés par créatrice (état du compte, vues, abonnés gagnés, et pour chaque post : vues gagnées sur 24 h, like rate, enregistrements, verdict). Une section dont le rôle n'a pas le bloc est signalée « nonAccessible ».",
+    inputSchema: {
+      type: "object",
+      properties: { projet: ARG_PROJET },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "sante_produit",
+    title: "Santé produit (Analytics)",
+    description:
+      "L'onglet Santé produit de l'Analytics, par les mêmes calculs : la réussite de la première recherche après paiement (payants mesurables, ont cherché, part exploitable, délai, résultats), la fiabilité des scans par déclenchement (taux d'échec, détail par résultat ; le planifié complet détecte les désabonnements), les résultats de recherche (dont les bloqués par le paywall, mesurés ou déduits), la latence des scans par taille de compte, les points de friction (rageclicks par page, par étape d'onboarding si émise). Recalculé sur la période comme à l'écran (défaut : 30 derniers jours complets, jusqu'à hier).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
@@ -1098,6 +1173,20 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
         fenetre,
         erreur: messageDe(e) ?? (e instanceof Error ? e.message : "recalcul PostHog impossible"),
       };
+    }
+  }
+
+  /**
+   * Une lecture qui peut être REFUSÉE sans faire tomber l'outil : le refus revient
+   * comme valeur (le message de l'app), comme l'écran masque une section.
+   */
+  async function peutLire<T>(f: () => Promise<T>): Promise<T | { refus: string }> {
+    try {
+      return await f();
+    } catch (e) {
+      const m = messageDe(e);
+      if (m !== null) return { refus: m };
+      throw e;
     }
   }
 
@@ -2852,6 +2941,224 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Les quatre compteurs de vues ne s'additionnent jamais : chacun a un seul usage (« sertA »).",
             "Récompenses en nature : « dejaDu » est une dépense (palier franchi) ; « engage » est une promesse, pas une dépense. Conversion par créatrice : par lien de parrainage (ref), visiteurs PostHog et ventes Whop n'ont pas la même fraîcheur.",
           ],
+        });
+      }
+
+      if (name === "dashboard") {
+        const maintenant = Date.now();
+        // Chaque section derrière SON bloc, comme à l'écran : un droit manquant
+        // masque la section concernée, jamais tout le tableau de bord.
+        const assignments = await peutLire(() => ctx.runQuery(internal.mcpTools.lirePlanning, ids));
+        const comptes = await peutLire(() => ctx.runQuery(internal.mcpTools.lireComptesSuivi, ids));
+        const fiches = await peutLire(() => ctx.runQuery(internal.mcpTools.lireFichesCreatrices, ids));
+        const du = await peutLire(() => ctx.runQuery(internal.mcpTools.lireTotalDu, ids));
+        const decisions = await peutLire(() => ctx.runQuery(internal.mcpTools.lireDecisions, ids));
+        const refus = (x: { refus: string }) => ({ nonAccessible: x.refus });
+        const ok = <T,>(x: T | { refus: string }): x is T =>
+          !(typeof x === "object" && x !== null && "refus" in x);
+
+        // LES cartes de l'écran (convex/dashboardActions).
+        const cartes = dashboardActions({
+          assignments: ok(assignments) ? assignments : undefined,
+          comptes: ok(comptes) ? comptes : undefined,
+          creators: ok(fiches) ? fiches : undefined,
+          now: maintenant,
+        });
+        const compteDe = (c: { handle: string; plateforme: string }) => `${c.handle} (${c.plateforme})`;
+        const verdicts: Record<string, string> = {
+          pending: "en attente (pas encore de relevé)",
+          "open-door": "porte ouverte",
+          rising: "monte",
+          fading: "s'éteint",
+          below: "sous les seuils",
+        };
+        const etats: Record<string, string> = {
+          window: "fenêtre active",
+          cruise: "croisière",
+          alarm: "alarme",
+        };
+        const pct = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 10);
+
+        return json({
+          projet: projet.slug,
+          actions: {
+            aValider: ok(assignments) ? cartes.submitted.length : refus(assignments),
+            warmupsEnRetard: ok(comptes)
+              ? { comptes: cartes.warmupLate.length, liste: cartes.warmupLate.map(compteDe) }
+              : refus(comptes),
+            warmupsAValider: ok(comptes)
+              ? { comptes: cartes.warmupReady.length, liste: cartes.warmupReady.map(compteDe) }
+              : refus(comptes),
+            du: ok(du) ? { valeur: du.dueTotal, devise: du.payCurrency } : refus(du),
+          },
+          aDecider: !ok(decisions)
+            ? refus(decisions)
+            : {
+                portesOuvertes: decisions.openDoors.map((d) => ({
+                  createatrice: d.post.creatorName,
+                  compte: d.post.compte,
+                  plateforme: d.post.plateforme,
+                  publieLe: instantParis(d.post.postedAt),
+                  vues: d.post.vues,
+                  likeRatePct: pct(d.likeRate),
+                  enregistrements: d.post.saves,
+                  abonnesGagnes: d.post.followersDelta,
+                  action: "programmer la frappe (une vidéo le soir même, 21 h-23 h)",
+                })),
+                aGraduer: decisions.graduations.map((g) => ({
+                  hook: g.content,
+                  meilleurRun: g.best,
+                  runs: g.runs,
+                })),
+                hooksMorts: decisions.deadHooks.map((h) => ({
+                  hook: h.content,
+                  campagne: h.campaignName,
+                  runs: h.runs,
+                  meilleuresVues: h.bestViews,
+                  action: "désactiver",
+                })),
+                alarmesCompte: decisions.alarms.map((a) => ({
+                  compte: a.compte,
+                  createatrice: a.creatorName,
+                  postsConsecutifsSousLesSeuils: a.streak,
+                  action: "stop promos, warmup prouvé pendant 5-7 jours",
+                })),
+              },
+          posts48h: !ok(decisions)
+            ? refus(decisions)
+            : groupRecentPosts(decisions.posts48h, decisions.alarms).map((g) => ({
+                createatrice: g.label,
+                etat: etats[g.state] ?? g.state,
+                posts: g.posts.length,
+                vues: g.vues48,
+                abonnesGagnes: g.followers,
+                detail: g.posts.map((p) => {
+                  const mesureSaves = savesAvailability(p.saves, p.plateforme);
+                  return {
+                    titre: p.label || null,
+                    type: p.type,
+                    compte: p.compte,
+                    plateforme: p.plateforme,
+                    publieLe: instantParis(p.postedAt),
+                    vues: p.vues,
+                    vuesGagnees24h: p.delta24h,
+                    likes: p.likes,
+                    likeRatePct: pct(rateOf(p.likes, p.vues)),
+                    enregistrements: mesureSaves === "measured" ? p.saves : null,
+                    ...(mesureSaves === "unavailable" ? { enregistrementsNonDisponibles: true } : {}),
+                    verdict: verdicts[verdictOf(p, maintenant)] ?? verdictOf(p, maintenant),
+                    releveLe: instantParis(p.snapshotAt),
+                  };
+                }),
+              })),
+          lecture: [
+            "Le Dashboard de l'app : les quatre cartes d'action, « À décider » (une ligne par DÉCISION, jamais une tâche), les posts des 48 dernières heures par créatrice. La conversion par créatrice (« Ce que ça a rapporté ») est dans l'outil « acquisition ».",
+            `Porte ouverte = post de moins de 48 h à ${OPEN_DOOR_MIN_VIEWS} vues ou plus, like rate ≥ ${OPEN_DOOR_MIN_LIKE_RATE * 100} %, au moins un enregistrement et des abonnés gagnés. Alarme compte = ${ACCOUNT_ALARM_RUN_LENGTH} posts consécutifs sous les seuils. Hook mort = au moins ${DEAD_HOOK_MIN_RUNS} runs publiés, aucun au-dessus de ${DEAD_HOOK_MAX_VIEWS} vues.`,
+            "Décisions recalculées toutes les 30 min (cache de l'écran) ; vues au dernier relevé (23 h 30), daté par « releveLe ».",
+            "« nonAccessible » = le rôle de la clé n'a pas le bloc de cette section (l'écran la masque aussi).",
+          ],
+        });
+      }
+
+      if (name === "sante_produit") {
+        const { du, au } = periodeDemandee(args);
+        const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
+        if (!produit.configured) {
+          return json({
+            projet: projet.slug,
+            configure: false,
+            message: "PostHog n'est pas configuré sur ce projet : pas de mesures produit.",
+          });
+        }
+        const periode = await agregatsSurPeriode(projet._id, produit, du, au);
+        // Les agrégats que la période change — les mêmes que l'onglet.
+        const a = periode.recalcul ? { ...produit, ...periode.recalcul.sante } : produit;
+        const f = periode.fenetre;
+        const sec = (x: number | null) => (x === null ? null : Math.round(x * 10) / 10);
+        const secDeMs = (ms: number | null) => (ms === null ? null : Math.round(ms / 100) / 10);
+
+        const fsp = a.firstSearchAfterPay;
+        const verdict = firstSearchVerdict(fsp);
+        const recherche = searchOutcome(a.searchResults.rows, a.instrumentation.events);
+        const parEtape = frictionStepEmitted(a.frictionByStep.rows);
+
+        const avertissements: string[] = [];
+        if (periode.erreur !== null) {
+          avertissements.push(`Recalcul sur la période impossible (${periode.erreur}) : chiffres des 90 derniers jours.`);
+        }
+        if (f !== null && [...posthogOutageDays()].some((j) => j >= f.from && j <= f.to)) {
+          avertissements.push(
+            "Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (Paris) : recherches, scans et frictions sont creux sur ces heures.",
+          );
+        }
+
+        return json({
+          projet: projet.slug,
+          periode: decrirePeriode(periode),
+          premiereRechercheApresPaiement:
+            fsp.paid === 0
+              ? "en attente de subscription_completed"
+              : {
+                  payantsMesurables: fsp.paid,
+                  exclusCarPayesAvantInstrumentation: fsp.paidExcluded,
+                  rechercheInstrumenteeDepuis: instantParis(fsp.instrStartMs),
+                  ontCherche: fsp.searched,
+                  trouves: verdict.found,
+                  exploitablePct: verdict.exploitableRate,
+                  echantillonSuffisant: verdict.sampleSufficient,
+                  seuilEchantillon: MIN_SAMPLE_SIZE,
+                  delaiPaiementVersRechercheSec: { mediane: sec(fsp.medDelaySec), neufSurDix: sec(fsp.p90DelaySec) },
+                  resultats: fsp.results.map((r) => ({
+                    resultat: SEARCH_RESULT_LABELS[r.result] ?? r.result,
+                    exploitable: r.result === "found",
+                    personnes: r.persons,
+                  })),
+                  resiliationsRattachables: fsp.cancelJoinable,
+                },
+          fiabiliteDesScans: scansByReason(a.scanReliability.rows).map((s) => ({
+            declenchement: SCAN_REASON_LABELS[s.reason] ?? s.reason,
+            ...(s.isUnfollowScan ? { detecteLesDesabonnements: true } : {}),
+            executes: s.runs,
+            echecs: s.failures,
+            tauxEchecPct: s.rate,
+            resultats: s.results.map((r) => ({
+              resultat: SCAN_RESULT_LABELS[r.result] ?? r.result,
+              echec: isScanFailure(r.result),
+              executes: r.runs,
+              partPct: s.runs > 0 ? Math.round((r.runs / s.runs) * 1000) / 10 : null,
+            })),
+          })),
+          resultatsDeRecherche: {
+            lignes: a.searchResults.rows.map((r) => ({
+              resultat: SEARCH_RESULT_LABELS[r.result] ?? r.result,
+              personnes: r.persons,
+            })),
+            bloquesParLePaywall: recherche.measured
+              ? "mesuré (ligne « Bloqués par le paywall avant résultat »)"
+              : recherche.deducedPaywalled === null
+                ? null
+                : { personnes: recherche.deducedPaywalled, source: "déduit (handle_submitted − handle_search_result)" },
+          },
+          latenceDesScans: a.scanLatency.rows.map((r) => ({
+            scan: r.bucket,
+            medianeSec: secDeMs(r.medianMs),
+            neufSurDixSec: secDeMs(r.p90Ms),
+            scans: r.n,
+          })),
+          latenceDeLaRecherche: "non mesurable (pas de durée émise sur handle_search_result)",
+          frictions: {
+            pages: a.friction.rows.map((r) => ({ page: r.page, personnes: r.persons })),
+            parEtapeDOnboarding: parEtape
+              ? a.frictionByStep.rows.map((r) => ({ etape: r.step, personnes: r.persons }))
+              : "non ventilé : l'app n'émet pas encore onboarding_step sur le rageclick",
+          },
+          lecture: [
+            "L'onglet Santé produit de l'Analytics, recalculé sur la période comme à l'écran.",
+            `Première recherche après paiement : exploitable = « Trouvé » ; le taux porte sur les payants qui ont cherché, à lire comme une tendance sous ${MIN_SAMPLE_SIZE}. Les payants d'avant l'instrumentation sont exclus (leur absence de recherche n'est pas mesurable).`,
+            "Fiabilité des scans : taux d'échec = échecs ÷ exécutés, par déclenchement ; le planifié complet est celui qui détecte les désabonnements.",
+            "Frictions = clics répétés au même endroit en quelques secondes (rageclicks), en personnes.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
         });
       }
 

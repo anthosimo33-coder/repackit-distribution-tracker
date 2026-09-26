@@ -4,6 +4,7 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectQueryCtx,
   creatorScopeFor,
   requireCreatorInScope,
 } from "./functions";
@@ -1006,12 +1007,15 @@ export async function computeDueTotal(
  */
 export const getDueTotal = permissionQuery("payments.manage")({
   args: {},
-  handler: async (ctx): Promise<{ dueTotal: number }> => {
+  handler: async (ctx): Promise<{ dueTotal: number }> => getDueTotalCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `dashboard`. */
+export async function getDueTotalCore(ctx: ProjectQueryCtx): Promise<{ dueTotal: number }> {
     const cached = await readDashboardCache(ctx, ctx.projectId, "dueTotal");
     if (cached !== null) return JSON.parse(cached) as { dueTotal: number };
     return computeDueTotal(ctx, ctx.projectId);
-  },
-});
+}
 
 export const getMyPayments = creatorQuery({
   args: {},

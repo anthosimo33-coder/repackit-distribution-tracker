@@ -1,5 +1,6 @@
 import {
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
 import type { QueryCtx } from "./_generated/server";
 import {
@@ -62,7 +63,11 @@ import {
  */
 export const decisionDashboard = permissionQuery("content.analytics")({
   args: {},
-  handler: async (ctx): Promise<DecisionDashboard> => {
+  handler: async (ctx): Promise<DecisionDashboard> => decisionDashboardCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `dashboard`. */
+export async function decisionDashboardCore(ctx: ProjectQueryCtx): Promise<DecisionDashboard> {
     // LU DANS LE CACHE (convex/dashboardCache.ts, recalculé toutes les 30 min).
     // Cette query est montée sur l'ACCUEIL admin : elle relit tout le projet
     // (~2,4 MB) et se relançait à chaque écriture de la journée — 689 MB le
@@ -70,8 +75,7 @@ export const decisionDashboard = permissionQuery("content.analytics")({
     const cached = await readDashboardCache(ctx, ctx.projectId, "decisions");
     if (cached !== null) return JSON.parse(cached) as DecisionDashboard;
     return computeDecisionDashboard(ctx, ctx.projectId, Date.now());
-  },
-});
+}
 
 export type DecisionDashboard = Awaited<
   ReturnType<typeof computeDecisionDashboard>

@@ -1,5 +1,6 @@
 import { internalMutation } from "./_generated/server";
 import { passesWarmupMode } from "./warmupMode";
+import { effectiveStatus, type CompteStatus } from "./compteStatut";
 import {
   adminViewAsClipperQuery,
   adminViewAsQuery,
@@ -64,23 +65,10 @@ const statusValidator = v.union(
   v.literal("archived"),
 );
 
-type CompteStatus = "warmup" | "actif" | "shadowban" | "archived";
-
-// Coercion legacy → statut effectif. ⚠️ Dupliqué côté UI (lib/compte-status
-// getEffectiveStatus) : un module Convex ne peut pas importer lib/ (cross-
-// tsconfig, cf isFormatAllowedOnPlatform / normalizeSourceId). Toute évolution
-// de cette règle doit être répliquée dans les deux fichiers. Rows sans `status`
-// (pré-migrateComptesStatus) : actif === false → "archived", sinon "actif".
-//
-// EXPORTÉ (et non plus privé) pour que convex/notifications.ts s'en serve au
-// lieu d'en écrire une TROISIÈME copie : la règle est déjà dédoublée par A6, une
-// duplication de plus la rendrait ingérable.
-export function effectiveStatus(c: {
-  status?: CompteStatus;
-  actif?: boolean;
-}): CompteStatus {
-  return c.status ?? (c.actif === false ? "archived" : "actif");
-}
+// Statut effectif : dans convex/compteStatut.ts (module PUR), pour que le
+// Dashboard (écran) et l'outil MCP `dashboard` le lisent sans tirer ce module
+// serveur dans le navigateur. Ré-exporté ici : ses importeurs ne changent pas.
+export { effectiveStatus };
 
 /**
  * Une publication est "publiée" ssi postUrl est une string non vide. ⚠️ Dupliqué
@@ -438,7 +426,11 @@ export const listComptesChoix = permissionQuery("accounts.manage")({
  */
 export const listComptesSuivi = permissionQuery("accounts.manage")({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx) => listComptesSuiviCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `dashboard`. */
+export async function listComptesSuiviCore(ctx: ProjectQueryCtx) {
     const results = filterByCreatorScope(
       await ctx.db
         .query("comptes")
@@ -470,8 +462,7 @@ export const listComptesSuivi = permissionQuery("accounts.manage")({
           warmupDone: isWarmupComplete(warmupLike, days),
         };
       });
-  },
-});
+}
 
 /**
  * Chantier C — comptes d'UN créateur annotés `available`. Alimente les
