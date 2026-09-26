@@ -301,6 +301,7 @@
     "convex/quadrantSettings.ts",
     "convex/remunerate.ts",
     "convex/retentionCost.ts",
+    "convex/reviewQueue.ts",
     "convex/snapshotMatching.ts",
     "convex/soloDays.ts",
     "convex/talentRetainer.ts",
