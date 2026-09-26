@@ -10,6 +10,7 @@ import {
   permissionQuery,
   requireCreatorInScope,
   creatorScopeFor,
+  type ProjectQueryCtx,
 } from "./functions";
 import { filterByCreatorScope } from "./creatorScope";
 import {
@@ -1103,7 +1104,11 @@ export const getAssignmentScript = permissionQuery("assignments.manage")({
 
 export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
-  handler: async (ctx) => {
+  handler: (ctx) => listAssignmentsCore(ctx),
+});
+
+/** Le calcul de l'écran Assignments — appelé par la query ci-dessus ET par l'outil MCP `planning`. */
+export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
     // Périmètre du manager : ses créatrices. Le calendrier et la table lisent
     // cette query, ils sont donc bornés tous les deux.
     const assignments = filterByCreatorScope(
@@ -1312,8 +1317,7 @@ export const listAssignments = permissionQuery("assignments.manage")({
           ),
         };
       });
-  },
-});
+}
 
 /** Compteur d'assignments "video_submitted" — badge sidebar de la file de revue. */
 export const countVideoSubmitted = permissionQuery("review.manage")({
