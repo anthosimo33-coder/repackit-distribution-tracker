@@ -1626,7 +1626,11 @@ function compareByPostDate(
 
 export const listVideoSubmitted = permissionQuery("review.manage")({
   args: {},
-  handler: async (ctx) => {
+  handler: (ctx) => listVideoSubmittedCore(ctx),
+});
+
+/** Le calcul de l'écran Validation — appelé par la query ci-dessus ET par l'outil MCP `validation`. */
+export async function listVideoSubmittedCore(ctx: ProjectQueryCtx) {
     const subs = filterByCreatorScope(
       await ctx.db
         .query("assignments")
@@ -1736,13 +1740,16 @@ export const listVideoSubmitted = permissionQuery("review.manage")({
           };
         }),
     );
-  },
-});
+}
 
 /** « Publiées récemment » (admin) : assignments en published, URL + créateur. */
 export const listPublished = permissionQuery("review.manage")({
   args: {},
-  handler: async (ctx) => {
+  handler: (ctx) => listPublishedCore(ctx),
+});
+
+/** Le calcul de l'écran Validation — appelé par la query ci-dessus ET par l'outil MCP `validation`. */
+export async function listPublishedCore(ctx: ProjectQueryCtx) {
     const pubs = filterByCreatorScope(
       await ctx.db
         .query("assignments")
@@ -1796,8 +1803,7 @@ export const listPublished = permissionQuery("review.manage")({
           publishedUrl: t.publishedUrl ?? null,
         })),
       }));
-  },
-});
+}
 
 export const backfillManagedAssignments = internalMutation({
   args: {},

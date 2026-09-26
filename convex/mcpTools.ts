@@ -67,7 +67,12 @@ import { windowCosts } from "./attributionWindow";
 import { getMarketPnlCore } from "./marketPnl";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
-import { listAssignmentsCore } from "./assignments";
+import {
+  listAssignmentsCore,
+  listPublishedCore,
+  listVideoSubmittedCore,
+} from "./assignments";
+import { countTomorrow, reviewSlot } from "./reviewQueue";
 import {
   calendarStatus,
   isSameLocalDay,
@@ -258,6 +263,15 @@ export const lirePaiements = mcpPermissionQuery("payments.manage")({
 export const lirePlanning = mcpPermissionQuery("assignments.manage")({
   args: {},
   handler: async (ctx) => listAssignmentsCore(ctx),
+});
+
+/** Écran Validation : la file des vidéos à relire et les publications récentes — même bloc. */
+export const lireValidation = mcpPermissionQuery("review.manage")({
+  args: {},
+  handler: async (ctx) => ({
+    aRelire: await listVideoSubmittedCore(ctx),
+    publiees: await listPublishedCore(ctx),
+  }),
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -685,6 +699,21 @@ export const OUTILS: readonly McpTool[] = [
         createatrice: { type: "string", description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés)." },
         jours: { type: "integer", description: "Horizon du « à venir », en jours après aujourd'hui (défaut 7).", minimum: 1, maximum: 60 },
         limite: { type: "integer", description: "Posts listés au plus par rubrique (défaut 30).", minimum: 1, maximum: 200 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "validation",
+    title: "Vidéos à relire (Validation)",
+    description:
+      "La file de l'écran Validation : les vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue), avec leur créneau (en retard, aujourd'hui, DEMAIN, plus tard, sans date) — même règle que l'écran, lue à l'heure de Paris ; puis les publications récentes avec leurs liens. Filtre par créatrice.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: { type: "string", description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés)." },
+        limite: { type: "integer", description: "Vidéos listées au plus par rubrique (défaut 30).", minimum: 1, maximum: 200 },
       },
       additionalProperties: false,
     },
@@ -1672,6 +1701,62 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Statut jugé dans le FUSEAU de la créatrice (une publication du 8 au soir à New York n'est pas en retard parce qu'il est déjà le 9 à Paris) ; le jour prévu est un jour de Paris.",
             "« manqué » = jour prévu passé chez elle, rien de publié ; « publié hors date » = publié, mais pas le jour prévu ; « prévu » compte le jour même (elle a encore la soirée).",
             "Taux à l'heure = à l'heure ÷ posts passés (hors « prévu ») — le même chiffre que le calendrier et les notifications de retard. Les posts sans date de publication n'y entrent pas.",
+          ],
+        });
+      }
+
+      if (name === "validation") {
+        const { aRelire, publiees } = await lire(() => ctx.runQuery(internal.mcpTools.lireValidation, ids));
+        const maintenant = Date.now();
+        // LE créneau de la file (convex/reviewQueue), lu à l'heure de l'ÉQUIPE : le
+        // serveur n'a pas de « jour local », l'écran d'un admin à Paris, si.
+        const fuseau = "Europe/Paris";
+        const creneaux = {
+          overdue: "en retard (jour prévu passé, pas encore validée)",
+          today: "à publier aujourd'hui",
+          tomorrow: "à publier demain",
+          upcoming: "plus tard",
+          undated: "sans date prévue",
+        } as const;
+        const file = aRelire.filter((v) => filtreNom(v.creatorName, args.createatrice));
+        const parCreneau = (c: keyof typeof creneaux) =>
+          file.filter((v) => reviewSlot(v.postDate, maintenant, fuseau) === c).length;
+        const limite = typeof args.limite === "number" ? args.limite : 30;
+        const recentes = publiees.filter((p) => filtreNom(p.creatorName, args.createatrice));
+        return json({
+          projet: projet.slug,
+          aRelire: {
+            total: file.length,
+            aPublierDemain: countTomorrow(file, maintenant, fuseau),
+            parCreneau: {
+              enRetard: parCreneau("overdue"),
+              aujourdhui: parCreneau("today"),
+              demain: parCreneau("tomorrow"),
+              plusTard: parCreneau("upcoming"),
+              sansDate: parCreneau("undated"),
+            },
+            ...(file.length > limite ? { tronque: `${limite} premières sur ${file.length}` } : {}),
+            // Dans l'ordre de la file de l'écran : par date de publication prévue.
+            videos: file.slice(0, limite).map((v) => ({
+              createatrice: v.creatorName,
+              quoi: v.label,
+              ...(v.challengeName ? { defi: v.challengeName } : {}),
+              comptes: v.targets.map((t) => `${t.accountHandle ?? "?"} (${t.platform})`),
+              jourPrevu: v.postDate == null ? null : plannedDayKey(v.postDate),
+              creneau: creneaux[reviewSlot(v.postDate, maintenant, fuseau)],
+              echeance: jour(v.dueDate),
+              ...(v.comboSummary ? { combo: v.comboSummary } : {}),
+            })),
+          },
+          publieesRecemment: recentes.slice(0, limite).map((p) => ({
+            createatrice: p.creatorName,
+            quoi: p.label,
+            publieLe: jour(p.publishedAt),
+            liens: p.targets.map((t) => t.publishedUrl).filter((u): u is string => u !== null),
+          })),
+          lecture: [
+            "« aRelire » = vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue).",
+            "Créneaux lus à l'heure de Paris (l'écran les lit à l'heure de l'admin) : « demain » est ce qui doit être validé en priorité.",
           ],
         });
       }
