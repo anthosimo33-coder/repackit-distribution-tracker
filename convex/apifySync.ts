@@ -31,6 +31,12 @@ import { isTikTokShortlink } from "./postUrlDate";
 import { syncBonusForPublication } from "./pricing";
 import { collectSnapchatInternally } from "./snapchatInternal";
 import { isSnapchatShortlink, snapchatSpotlightId } from "./snapchatPublicPage";
+import {
+  facebookMatchKey,
+  facebookNightlyBudget,
+  fetchFacebookViews,
+  planFacebookBudget,
+} from "./facebookApify";
 import type { Plateforme } from "./platforms";
 
 /**
@@ -67,6 +73,13 @@ const MANUAL_TIKTOK_BUDGET_MS = 5 * 60 * 1000;
  */
 const MANUAL_SNAPCHAT_BUDGET_MS = 2 * 60 * 1000;
 
+/**
+ * Un post Facebook mesuré depuis moins que ça n'est PAS re-demandé par le
+ * bouton manuel : chaque relevé est payé, et un double clic n'apporte rien
+ * (le snapshot du jour est de toute façon remplacé, pas ajouté).
+ */
+const MANUAL_FACEBOOK_FRESH_MS = 6 * 60 * 60 * 1000;
+
 /** Fenêtre de tracking partagée avec YouTube — définition unique dans
  *  convex/syncScope.ts (plus deux constantes « à garder synchrones »). */
 const ACTIVE_WINDOW_DAYS = TRACKING_WINDOW_DAYS;
@@ -82,12 +95,13 @@ const APIFY_PLATFORMS: { plateforme: ApifyPlatform; source: ApifySource }[] = [
  * (page publique, cf `convex/snapchatInternal.ts`) mais passe par les mêmes
  * mutations d'écriture : même bucketisation par jour, mêmes marqueurs d'échec.
  */
-type ApifySource = "tiktok" | "instagram" | "snapchat";
+type ApifySource = "tiktok" | "instagram" | "snapchat" | "facebook";
 
 const apifySourceValidator = v.union(
   v.literal("tiktok"),
   v.literal("instagram"),
   v.literal("snapchat"),
+  v.literal("facebook"),
 );
 
 /** Plateforme d'un relevé, depuis sa source — table FERMÉE, jamais un ternaire. */
@@ -95,6 +109,7 @@ const SOURCE_PLATEFORME: Record<ApifySource, Plateforme> = {
   tiktok: "TikTok",
   instagram: "Instagram",
   snapchat: "Snapchat",
+  facebook: "Facebook",
 };
 
 export interface ApifySyncSummary {
@@ -259,6 +274,7 @@ export const listActiveApifyPublications = internalQuery({
       v.literal("TikTok"),
       v.literal("Instagram"),
       v.literal("Snapchat"),
+      v.literal("Facebook"),
     ),
     projectId: v.optional(v.id("projects")),
   },
@@ -782,6 +798,81 @@ export const runDailySync = internalAction({
           `${snap.gone} introuvable(s), ${snap.failed} en échec, ${snap.nonTentes.length} reporté(s) au relevé de nuit` +
           (snap.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${snap.breaker.trippedReason}` : "") +
           ".",
+      );
+    }
+
+    // ── Facebook : actor Apify officiel, payé au post ────────────────────────
+    const pubsFb = await ctx.runQuery(
+      internal.apifySync.listActiveApifyPublications,
+      projectId
+        ? { cutoff, plateforme: "Facebook" as const, projectId }
+        : { cutoff, plateforme: "Facebook" as const },
+    );
+    summary.scanned += pubsFb.length;
+    const aRelever = pubsFb.filter(
+      (p) => p.lastSyncAt === undefined || now - p.lastSyncAt >= MANUAL_FACEBOOK_FRESH_MS,
+    );
+    const { retenus: fbRetenus } = planFacebookBudget(
+      aRelever,
+      facebookNightlyBudget(process.env.APIFY_FACEBOOK_NIGHTLY_BUDGET),
+    );
+    const ciblesFb: { publicationId: Id<"publications">; key: string; url: string }[] = [];
+    for (const p of fbRetenus) {
+      const key = facebookMatchKey(p.postUrl);
+      if (key === null) {
+        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+          publicationId: p._id,
+          at: now,
+          reason: unmatchableUrlReason(p.postUrl, "Facebook"),
+        });
+        summary.failed += 1;
+        continue;
+      }
+      ciblesFb.push({ publicationId: p._id, key, url: p.postUrl });
+    }
+    summary.matched += ciblesFb.length;
+    if (ciblesFb.length > 0 && !apiToken) {
+      for (const t of ciblesFb) {
+        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+          publicationId: t.publicationId,
+          at: now,
+          reason: "pas de relevé Facebook (APIFY_API_TOKEN absent)",
+        });
+      }
+      summary.failed += ciblesFb.length;
+    } else if (ciblesFb.length > 0 && apiToken) {
+      const fb = await fetchFacebookViews(ciblesFb, apiToken);
+      summary.runs += fb.runs;
+      summary.errors += fb.errors.length;
+      for (const t of ciblesFb) {
+        const stat = fb.stats[t.key];
+        if (stat === undefined) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: t.publicationId,
+            at: now,
+            reason:
+              fb.errors.length > 0
+                ? `Apify en erreur (${fb.errors[0].status}) — ${fb.errors[0].message}`.slice(0, 200)
+                : "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)",
+          });
+          summary.failed += 1;
+          continue;
+        }
+        const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+          publicationId: t.publicationId,
+          vues: stat.views,
+          likes: stat.likes,
+          comments: stat.comments,
+          saves: null,
+          title: stat.title ?? undefined,
+          capturedAt: now,
+          source: "facebook",
+        });
+        if (r.action !== "skipped") summary.synced += 1;
+      }
+      console.info(
+        `[apify-sync] Facebook — ${ciblesFb.length} post(s) demandé(s) sur ${pubsFb.length}, ` +
+          `${Object.keys(fb.stats).length} rendu(s), ${fb.runs} run(s), ${fb.errors.length} lot(s) en erreur.`,
       );
     }
 

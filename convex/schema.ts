@@ -922,6 +922,8 @@ export default defineSchema({
       v.literal("instagram"),
       // Relevé AUTO par la page publique du Spotlight (cf convex/snapchatInternal).
       v.literal("snapchat"),
+      // Relevé AUTO via l'actor Apify officiel (cf convex/facebookApify).
+      v.literal("facebook"),
     ),
   })
     .index("by_publication", ["publicationId"])
@@ -961,6 +963,7 @@ export default defineSchema({
       v.literal("instagram"),
       v.literal("youtube"),
       v.literal("snapchat"),
+      v.literal("facebook"),
     ),
   })
     .index("by_compte_capturedAt", ["compteId", "capturedAt"])

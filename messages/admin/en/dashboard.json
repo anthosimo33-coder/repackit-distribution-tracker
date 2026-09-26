@@ -106,8 +106,8 @@
     "abonnes": "+{count} followers"
   },
   "ApifySyncButton": {
-    "synchroniserTiktokInsta": "Sync TikTok/Insta/Snap",
-    "synchroniserLesVuesTiktokInstagram": "Sync TikTok/Instagram/Snapchat views now"
+    "synchroniserTiktokInsta": "Sync TikTok/Insta/Snap/FB",
+    "synchroniserLesVuesTiktokInstagram": "Sync TikTok/Instagram/Snapchat/Facebook views now"
   },
   "YouTubeSyncButton": {
     "synchroniserYoutube": "Sync YouTube",

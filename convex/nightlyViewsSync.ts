@@ -31,6 +31,13 @@ import {
   snapchatProfileUrl,
   snapchatSpotlightId,
 } from "./snapchatPublicPage";
+import {
+  facebookMatchKey,
+  facebookNightlyBudget,
+  fetchFacebookViews,
+  planFacebookBudget,
+  type FacebookPostStat,
+} from "./facebookApify";
 import { parisHour } from "./calendarStatus";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
@@ -89,7 +96,9 @@ import {
  * SOURCES : TikTok est lu sur la page publique du post, Apify n'y sert plus
  * que de secours borné (cf `convex/tiktokInternal.ts`) ; Instagram reste chez
  * Apify, sa page publique exigeant une connexion ; Snapchat est lu sur la page
- * publique du Spotlight, sans secours (cf `convex/snapchatInternal.ts`).
+ * publique du Spotlight, sans secours (cf `convex/snapchatInternal.ts`) ;
+ * Facebook passe par l'actor Apify officiel, sous un PLAFOND de posts par nuit
+ * (cf `convex/facebookApify.ts`) — sa page publique exige une connexion.
  *
  * RYTHME : les lots partent SÉQUENTIELLEMENT, un à la fois, avec 30-60 s de
  * temporisation aléatoire entre deux lots, et 1,5-3 s entre deux pages TikTok
@@ -140,11 +149,13 @@ const lotValidator = v.object({
     v.literal("TikTok"),
     v.literal("Instagram"),
     v.literal("Snapchat"),
+    v.literal("Facebook"),
   ),
   source: v.union(
     v.literal("tiktok"),
     v.literal("instagram"),
     v.literal("snapchat"),
+    v.literal("facebook"),
   ),
   targets: v.array(lotTargetValidator),
 });
@@ -169,14 +180,15 @@ export type NightlyPlan = {
   youtubeComptes: number;
 };
 
-type LotPlateforme = "TikTok" | "Instagram" | "Snapchat";
-type LotSource = "tiktok" | "instagram" | "snapchat";
+type LotPlateforme = "TikTok" | "Instagram" | "Snapchat" | "Facebook";
+type LotSource = "tiktok" | "instagram" | "snapchat" | "facebook";
 
 /** Plateformes relevées PAR LOTS (YouTube passe d'un bloc, cf `syncYouTube`). */
 const LOT_PLATFORMS: { plateforme: LotPlateforme; source: LotSource }[] = [
   { plateforme: "TikTok", source: "tiktok" },
   { plateforme: "Instagram", source: "instagram" },
   { plateforme: "Snapchat", source: "snapchat" },
+  { plateforme: "Facebook", source: "facebook" },
 ];
 
 /**
@@ -192,6 +204,8 @@ function lotKey(plateforme: LotPlateforme, url: string): string | null {
       return instagramShortcode(url);
     case "Snapchat":
       return snapchatSpotlightId(url) ?? (isSnapchatShortlink(url) ? "" : null);
+    case "Facebook":
+      return facebookMatchKey(url);
   }
 }
 
@@ -271,7 +285,30 @@ export const runNightlySync = internalAction({
         { cutoff, plateforme },
       );
       const perimetre = selectNightlyPublications(pubs, now);
-      const retenues = selectDueTonight(perimetre, now, defisActifs);
+      let retenues = selectDueTonight(perimetre, now, defisActifs);
+      // FACEBOOK est payé au post : plafond de la nuit, appliqué AVANT le plan
+      // de lots pour qu'un post reporté n'entre ni dans un run ni dans le
+      // comptage d'alerte (il n'a pas échoué, il attend).
+      if (plateforme === "Facebook") {
+        const budget = facebookNightlyBudget(process.env.APIFY_FACEBOOK_NIGHTLY_BUDGET);
+        const { retenus, reportes } = planFacebookBudget(retenues, budget);
+        retenues = retenus;
+        for (const p of reportes) {
+          // Jamais mesuré : l'écran doit dire POURQUOI, pas « en attente » sans
+          // fin. Déjà mesuré : il garde sa dernière mesure, rien à écrire.
+          if (p.lastSyncAt !== undefined) continue;
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: p._id,
+            at: now,
+            reason: `relevé Facebook reporté — plafond de ${budget} posts par nuit atteint`,
+          });
+        }
+        if (reportes.length > 0) {
+          console.warn(
+            `[nightly-views] Facebook — ${reportes.length} post(s) reporté(s) : plafond de ${budget} par nuit.`,
+          );
+        }
+      }
       console.info(
         `[nightly-views] ${plateforme} — ${retenues.length}/${perimetre.length} vidéo(s) ` +
           `à relever cette nuit (cadence hebdomadaire au-delà de 14 jours).`,
@@ -501,6 +538,8 @@ export const syncApifyLot = internalAction({
         const r = await syncSnapchatLot(ctx, lot.targets, snapBreaker, args);
         releves = r.releves;
         snapBreaker = r.breaker;
+      } else if (lot.plateforme === "Facebook") {
+        releves = await syncFacebookLot(ctx, lot.targets, apiToken, args);
       } else {
         releves = await syncInstagramLot(ctx, lot, apiToken, args);
       }
@@ -618,6 +657,63 @@ async function syncSnapchatLot(
       `${r.gone} introuvable(s), ${r.failed} en échec, ${Date.now() - debut} ms.`,
   );
   return { releves: new Set(r.releves), breaker: r.breaker };
+}
+
+/**
+ * Lot Facebook : un run de l'actor officiel (payé au post, borné en coût par
+ * `maxTotalChargeUsd`). Un post non rendu est inscrit en échec avec son motif.
+ */
+async function syncFacebookLot(
+  ctx: ActionCtx,
+  targets: readonly LotTarget[],
+  apiToken: string | undefined,
+  label: LotLabel,
+): Promise<Set<string>> {
+  const debut = Date.now();
+  const capturedAt = Date.now();
+  const releves = new Set<string>();
+
+  let stats: Record<string, FacebookPostStat> = {};
+  let motif = "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)";
+  if (!apiToken) {
+    motif = "pas de relevé Facebook (APIFY_API_TOKEN absent)";
+  } else {
+    const r = await fetchFacebookViews(targets, apiToken);
+    stats = r.stats;
+    if (r.errors.length > 0) {
+      const e = r.errors[0];
+      motif = `Apify en erreur (${e.status}) — ${e.message}`.slice(0, 200);
+    }
+  }
+
+  for (const t of targets) {
+    const stat = stats[t.key];
+    if (stat === undefined) {
+      await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+        publicationId: t.publicationId,
+        at: capturedAt,
+        reason: motif,
+      });
+      continue;
+    }
+    const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+      publicationId: t.publicationId,
+      vues: stat.views,
+      likes: stat.likes,
+      comments: stat.comments,
+      // Facebook n'expose AUCUNE métrique de saves : null est définitif.
+      saves: null,
+      title: stat.title ?? undefined,
+      capturedAt,
+      source: "facebook",
+    });
+    if (r.action !== "skipped") releves.add(t.publicationId as string);
+  }
+  console.info(
+    `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} Facebook — ` +
+      `${releves.size}/${targets.length} relevé(s), ${Date.now() - debut} ms.`,
+  );
+  return releves;
 }
 
 /**
@@ -779,8 +875,9 @@ function comptesParPlateforme(
   const out = new Map<ProfilePlateforme, Set<string>>();
   for (const lot of lots) {
     // TikTok est exclu VOLONTAIREMENT : ses compteurs arrivent avec les vidéos,
-    // un appel dédié serait payé pour rien.
-    if (lot.plateforme === "TikTok") continue;
+    // un appel dédié serait payé pour rien. Facebook aussi : ses abonnés
+    // demanderaient un SECOND actor payant (pages), hors du périmètre décidé.
+    if (lot.plateforme !== "Instagram" && lot.plateforme !== "Snapchat") continue;
     const set = out.get(lot.plateforme) ?? new Set<string>();
     for (const t of lot.targets) set.add(t.compte);
     out.set(lot.plateforme, set);
