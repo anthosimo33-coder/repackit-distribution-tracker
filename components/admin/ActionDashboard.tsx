@@ -31,17 +31,13 @@ import { creatorStatusBadge } from "@/lib/creator-status";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatNumber, formatPercent } from "@/lib/format";
-import { isWarmupLate } from "@/lib/ops-digest";
-import { resolveCreatorKind } from "@/convex/roles";
-import {
-  getEffectiveStatus,
-  getEffectiveWarmupDuration,
-} from "@/lib/compte-status";
+import { dashboardActions } from "@/convex/dashboardActions";
+import { getEffectiveWarmupDuration } from "@/lib/compte-status";
 import {
   verdictOf,
   likeRateTone,
   saveRateTone,
-  accountStateOf,
+  groupRecentPosts,
   rateOf,
   type PostSignal,
   type Verdict,
@@ -212,42 +208,15 @@ export function ActionDashboard() {
     ) {
       return null;
     }
-    // Carte 1 — vidéos en attente de revue.
-    const submitted = (assignments ?? [])
-      .filter((a) => a.status === "video_submitted")
-      .sort((a, b) => a.createdAt - b.createdAt);
-
-    // Carte 2 — comptes en warmup avec des jours manqués. Prédicat PARTAGÉ avec
-    // le digest quotidien (lib/ops-digest) ; les comptes de CLIPPEUR en sortent
-    // (pas de checks quotidiens — même correction que côté digest).
-    const creatorById = new Map((creators ?? []).map((c) => [c._id, c]));
-    const estCompteDeClippeur = (creatorId: Id<"creators"> | undefined) =>
-      creatorId !== undefined &&
-      resolveCreatorKind(creatorById.get(creatorId)?.kind) === "clipper";
-    const warmupLate = (comptes ?? []).filter((c) =>
-      estCompteDeClippeur(c.creatorId)
-        ? false
-        : isWarmupLate(
-            {
-              effectiveStatus: getEffectiveStatus(c),
-              warmupStartedAt: c.warmupStartedAt,
-              dailyChecks: c.warmupProtocol?.dailyChecks ?? [],
-              targetDays: c.targetDays,
-            },
-            now,
-          ),
-    );
-
-    // Carte 2 bis — warmups TERMINÉS qui attendent une validation admin (régime
-    // STRICT du projet uniquement, cf rendu). Sous le gate strict (#98) ces comptes ne publient pas tant qu'ils ne sont pas
-    // repassés en « actif » : chaque jour de délai annule un jour de chauffe
-    // gagné, et jusqu'ici seul un badge dans la liste le signalait.
-    //
-    // `warmupDone` est SERVI par le serveur (listComptes) — on ne le recalcule
-    // pas ici, pour la même raison que la durée.
-    const warmupReady = (comptes ?? []).filter(
-      (c) => getEffectiveStatus(c) === "warmup" && c.warmupDone,
-    );
+    // Cartes 1, 2 et 2 bis — le calcul PARTAGÉ avec l'outil MCP `dashboard`
+    // (convex/dashboardActions : prédicats du digest quotidien, clippeurs exclus
+    // des warmups en retard, `warmupDone` servi par le serveur).
+    const { submitted, warmupLate, warmupReady, totalCreators } = dashboardActions({
+      assignments,
+      comptes,
+      creators,
+      now,
+    });
 
     // Carte 3 — total DÛ = tous les cycles non payés. Calculé SERVEUR sur le
     // même ensemble et dans le même ordre que le total de /paiements (les deux
@@ -260,7 +229,7 @@ export function ActionDashboard() {
       warmupLate,
       warmupReady,
       dueTotal,
-      totalCreators: (creators ?? []).length,
+      totalCreators,
     };
   }, [assignments, comptes, due, creators, now]);
 
@@ -668,30 +637,9 @@ function Recent48h({
   // Repli par créatrice — état LOCAL, défaut déplié (l'écran sert à lire, le
   // repli sert à ranger les créatrices déjà vues ce soir).
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const alarmedComptes = useMemo(
-    () => new Set(alarms.map((a) => a.compte)),
-    [alarms],
-  );
-
-  const groups = useMemo(() => {
-    const byCreator = new Map<string, { label: string; posts: Post48h[] }>();
-    for (const p of posts) {
-      // Un post sans créatrice rattachée est groupé par COMPTE : l'information
-      // reste visible au lieu de disparaître dans un bucket fourre-tout.
-      const key = p.creatorId ?? `compte:${p.compte}`;
-      const g = byCreator.get(key) ?? {
-        label: p.creatorName ?? p.compte,
-        posts: [],
-      };
-      g.posts.push(p);
-      byCreator.set(key, g);
-    }
-    return [...byCreator.entries()].sort(
-      (a, b) =>
-        b[1].posts.reduce((s, p) => s + p.vues, 0) -
-        a[1].posts.reduce((s, p) => s + p.vues, 0),
-    );
-  }, [posts]);
+  // Regroupement, vues, abonnés, état : le MÊME calcul que l'outil MCP
+  // `dashboard` (convex/decisions.groupRecentPosts).
+  const groups = useMemo(() => groupRecentPosts(posts, alarms), [posts, alarms]);
 
   if (posts.length === 0) {
     return (
@@ -704,20 +652,8 @@ function Recent48h({
 
   return (
     <div className="space-y-1">
-      {groups.map(([key, g]) => {
-        const vues48 = g.posts.reduce((s, p) => s + p.vues, 0);
-        // Delta d'abonnés PAR COMPTE (dédupliqué) puis sommé ; tous null →
-        // « collecte… » (il faut deux relevés nocturnes, cf computeFollowersDelta).
-        const parCompte = new Map<string, number | null>();
-        for (const p of g.posts) parCompte.set(p.compte, p.followersDelta);
-        const deltas = [...parCompte.values()].filter(
-          (d): d is number => d !== null,
-        );
-        const followers = deltas.length > 0
-          ? deltas.reduce((s, d) => s + d, 0)
-          : null;
-        const alarmed = [...parCompte.keys()].some((c) => alarmedComptes.has(c));
-        const state = accountStateOf(g.posts, alarmed);
+      {groups.map((g) => {
+        const { key, vues48, followers, state } = g;
         const isCollapsed = collapsed.has(key);
 
         return (
