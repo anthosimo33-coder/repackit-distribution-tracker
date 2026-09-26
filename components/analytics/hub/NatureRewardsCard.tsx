@@ -18,6 +18,7 @@ import {
   conversionNote,
   type CurrencyContext,
 } from "@/lib/currency-display";
+import { natureClosestPct } from "@/lib/analytics-hub";
 import { HubCardHeader, HubNotice } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
 import type { NatureRewardsData } from "./types";
@@ -144,10 +145,7 @@ export function NatureRewardsCard({
             </TableHeader>
             <TableBody>
               {data.rows.map((r) => {
-                const pct =
-                  r.closestCumul !== null && r.seuilVues > 0
-                    ? Math.round((r.closestCumul / r.seuilVues) * 1000) / 10
-                    : null;
+                const pct = natureClosestPct(r.closestCumul, r.seuilVues);
                 return (
                   <TableRow key={`${r.seuilVues}|${r.libelle ?? ""}`}>
                     <TableCell className="text-xs tabular-nums text-slate-600">

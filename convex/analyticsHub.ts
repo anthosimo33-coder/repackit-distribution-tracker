@@ -673,7 +673,11 @@ export interface NatureRewardsResult {
  */
 export const getNatureRewards = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<NatureRewardsResult> => {
+  handler: async (ctx): Promise<NatureRewardsResult> => getNatureRewardsCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `acquisition`. */
+export async function getNatureRewardsCore(ctx: ProjectQueryCtx): Promise<NatureRewardsResult> {
     const project = await ctx.db.get(ctx.projectId);
     const payCurrency = project?.payCurrency ?? null;
     const creators = await ctx.db
@@ -755,8 +759,7 @@ export const getNatureRewards = permissionQuery("business.read")({
         rows.some((r) => r.coutReel !== null) ||
         due.some((d) => d.coutReel !== null),
     };
-  },
-});
+}
 
 // ─── Quatre compteurs de vues (A2) ───────────────────────────────────────────
 
@@ -788,7 +791,11 @@ export interface ViewCountersResult {
  */
 export const getViewCounters = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx): Promise<ViewCountersResult> => {
+  handler: async (ctx): Promise<ViewCountersResult> => getViewCountersCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `acquisition`. */
+export async function getViewCountersCore(ctx: ProjectQueryCtx): Promise<ViewCountersResult> {
     const pubs = await ctx.db
       .query("publications")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -808,8 +815,7 @@ export const getViewCounters = permissionQuery("business.read")({
       usage: { ...VIEW_COUNTER_USAGE },
       publications: pubs.length,
     };
-  },
-});
+}
 
 // ─── Revenus (Whop) ──────────────────────────────────────────────────────────
 

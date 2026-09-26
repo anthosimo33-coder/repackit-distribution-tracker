@@ -408,6 +408,8 @@ export const e2eSeedWhopMembership = e2eMutation({
     whopUserId: v.optional(v.string()),
     /** Bras du test A/B posé par l'app dans la metadata du membership. */
     abVariant: v.optional(v.string()),
+    /** Lien de parrainage (ref snytch.co/<ref>) posé dans la metadata. */
+    ref: v.optional(v.string()),
   },
   handler: async (ctx, a): Promise<Id<"whopMemberships">> =>
     await ctx.db.insert("whopMemberships", {
@@ -421,6 +423,7 @@ export const e2eSeedWhopMembership = e2eMutation({
       planId: a.planId,
       whopUserId: a.whopUserId,
       abVariant: a.abVariant,
+      ref: a.ref,
       importedAt: Date.now(),
       updatedAt: Date.now(),
     }),

@@ -5,6 +5,7 @@ import {
 } from "./_generated/server";
 import {
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -470,7 +471,11 @@ function round2(n: number): number {
 
 export const readConversionAllTime = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx) => readConversionAllTimeCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `acquisition`. */
+export async function readConversionAllTimeCore(ctx: ProjectQueryCtx) {
     const all = await ctx.db
       .query("creatorConversions")
       .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
@@ -681,5 +686,4 @@ export const readConversionAllTime = permissionQuery("business.read")({
       spans,
       suspectRefs,
     };
-  },
-});
+}
