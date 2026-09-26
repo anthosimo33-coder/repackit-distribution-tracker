@@ -1,7 +1,7 @@
 [
   "analyticsHub.ts::getChurnCore::...stats",
-  "analyticsHub.ts::getRevenueBreakdownCore::...a",
-  "analyticsHub.ts::getRevenueBreakdownCore::...divergence",
+  "analyticsHub.ts::abRevenueCore::...a",
+  "analyticsHub.ts::abRevenueCore::...divergence",
   "analyticsHub.ts::getViewCountersCore::...VIEW_COUNTER_USAGE",
   "assets.ts::listAssetFolders::...f",
   "assets.ts::listAssets::...a",

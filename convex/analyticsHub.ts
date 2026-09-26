@@ -970,6 +970,194 @@ export interface RevenueBreakdown {
 }
 
 /**
+ * REVENU PAR BRAS du test A/B — le numérateur de « net par assigné ».
+ *
+ * `acquisition` (ms, bornes INCLUSES, cf windowToMs) : ne garde que les
+ * abonnements créés dans la période. Sans elle, tout le test. Le DÉNOMINATEUR
+ * (les assignés) suit la période choisie à l'écran ; le numérateur doit porter
+ * sur la même population, sinon « net par assigné » divise le revenu du test
+ * entier par les assignés d'une semaine.
+ */
+async function abRevenueCore(
+  ctx: ProjectQueryCtx,
+  payments: Awaited<ReturnType<typeof collectProjectWhopPayments>>["payments"],
+  internalCfg: Awaited<ReturnType<typeof collectProjectWhopPayments>>["cfg"],
+  acquisition: { from: number; to: number } | null,
+): Promise<RevenueBreakdown["abRevenue"]> {
+  // Voie PRIMAIRE : metadata.abVariant du membership Whop (posée au checkout,
+  // insensible au dénouement du paiement). Voie de REPLI : distinctId →
+  // personne PostHog. Une DIVERGENCE entre les deux est SIGNALÉE plutôt que
+  // tranchée en silence : un rattachement faux est pire qu'un rattachement absent.
+  // Fenêtre restreinte au TEST : les abonnements antérieurs n'ont pas de bras
+  // parce que le test n'existait pas — les ranger en « inconnu » serait faux.
+  const abMemberships = await ctx.db
+    .query("whopMemberships")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  // Repli : table distinct_id → bras, lue dans le cache PostHog.
+  const armsRow = await ctx.db
+    .query("posthogCache")
+    .withIndex("by_project_key", (q) =>
+      q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abPersonArms),
+    )
+    .first();
+  let armsPayload: AbPersonArmsPayload = { rows: [] };
+  if (armsRow && armsRow.json !== "") {
+    try {
+      armsPayload = JSON.parse(armsRow.json) as AbPersonArmsPayload;
+    } catch {
+      armsPayload = { rows: [] };
+    }
+  }
+  const personArms = new Map(
+    armsPayload.rows.map((r) => [r.distinctId, r.variant] as const),
+  );
+  // Garde anti-flipper EXPLICITE (test positif). Sans elle, la seule
+  // matérialisation de la garde était l'ABSENCE de la ligne ci-dessus : elle
+  // ne mordait donc que sur le repli, et `abVariant ?? repli` la
+  // court-circuitait dès qu'une metadata Whop existait.
+  const flippersRow = await ctx.db
+    .query("posthogCache")
+    .withIndex("by_project_key", (q) =>
+      q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abFlippers),
+    )
+    .first();
+  let flipperDistinctIds = new Set<string>();
+  if (flippersRow && flippersRow.json !== "") {
+    try {
+      flipperDistinctIds = new Set(
+        (JSON.parse(flippersRow.json) as AbFlippersPayload).distinctIds,
+      );
+    } catch {
+      flipperDistinctIds = new Set();
+    }
+  }
+  const armLookup: ArmLookup = { personArms, flipperDistinctIds };
+  // Début du test = celui du CACHE POSTHOG (1re émission d'experiment_variant),
+  // la même borne que le tableau par bras. Le déduire du 1er membership portant
+  // un abVariant datait le test de sa 1re VENTE : tout abonnement conclu entre
+  // le lancement et cette vente tombait « hors fenêtre » et perdait son revenu.
+  // Repli sur les memberships tant que le cache PostHog n'a pas tourné.
+  const abArmsRow = await ctx.db
+    .query("posthogCache")
+    .withIndex("by_project_key", (q) =>
+      q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abArms),
+    )
+    .first();
+  let abArmsStartMs: number | null = null;
+  if (abArmsRow && abArmsRow.json !== "") {
+    try {
+      abArmsStartMs = (JSON.parse(abArmsRow.json) as AbArmsPayload).startMs;
+    } catch {
+      abArmsStartMs = null;
+    }
+  }
+  const abStartMs =
+    abArmsStartMs ??
+    abMemberships.reduce<number | null>(
+      (min, m) =>
+        m.abVariant ? (min === null || m.createdAt < min ? m.createdAt : min) : min,
+      null,
+    );
+  const netByMembership = new Map<string, { net: number; atRisk: number }>();
+  for (const p of payments) {
+    if (!p.membershipId) continue;
+    if (isInternalWhopMembership(p.membershipId, internalCfg)) continue;
+    const a = netByMembership.get(p.membershipId) ?? { net: 0, atRisk: 0 };
+    a.net = round2(a.net + whopNetContribution(p));
+    if (p.status === "disputed") {
+      a.atRisk = round2(a.atRisk + Math.max(0, p.netAmount - p.refundedAmount));
+    }
+    netByMembership.set(p.membershipId, a);
+  }
+  const armAcc = new Map<
+    string,
+    { net: number; memberships: number; viaFallback: number; atRiskMemberships: number; atRiskAmount: number }
+  >();
+  const abDivergences: { membershipId: string; metadata: string; posthog: string }[] = [];
+  let abUnattached = 0;
+  let abExcludedFlippers = 0;
+  let abExcludedFlippersNet = 0;
+  for (const m of abMemberships) {
+    if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
+    if (abStartMs === null || m.createdAt < abStartMs) continue; // hors fenêtre du test
+    // Période choisie : seuls les abonnements ACQUIS dedans — la même population
+    // que les « nouveaux clients » de la période côté PostHog (1er abonnement
+    // dans la fenêtre). Leur argent est compté À CE JOUR, renouvellements compris.
+    if (acquisition && (m.createdAt < acquisition.from || m.createdAt > acquisition.to)) continue;
+    // Résolution UNIQUE, gardes AVANT les deux voies (cf convex/abAttribution).
+    const resolved = resolveArm(
+      { abVariant: m.abVariant, abForced: m.abForced, distinctId: m.distinctId },
+      armLookup,
+    );
+    if (resolved.variant === null) {
+      // Une exclusion se COMPTE, sinon elle se lit comme un bras qui vend mal.
+      if (resolved.rejected === "flipper") {
+        abExcludedFlippers += 1;
+        abExcludedFlippersNet = round2(
+          abExcludedFlippersNet +
+            (netByMembership.get(m.whopMembershipId)?.net ?? 0),
+        );
+      } else if (resolved.rejected === "unassigned") {
+        abUnattached += 1;
+      }
+      continue; // "forced" : session de QA, hors revenu comme hors events
+    }
+    const variant = resolved.variant;
+    const divergence = armDivergence(
+      { abVariant: m.abVariant, distinctId: m.distinctId },
+      armLookup,
+    );
+    if (divergence) {
+      abDivergences.push({ membershipId: m.whopMembershipId, ...divergence });
+    }
+    const money = netByMembership.get(m.whopMembershipId) ?? { net: 0, atRisk: 0 };
+    const a =
+      armAcc.get(variant) ??
+      { net: 0, memberships: 0, viaFallback: 0, atRiskMemberships: 0, atRiskAmount: 0 };
+    a.net = round2(a.net + money.net);
+    a.memberships += 1;
+    if (!m.abVariant) a.viaFallback += 1;
+    if (money.atRisk > 0) {
+      a.atRiskMemberships += 1;
+      a.atRiskAmount = round2(a.atRiskAmount + money.atRisk);
+    }
+    armAcc.set(variant, a);
+  }
+  return {
+    startMs: abStartMs,
+    rows: [...armAcc.entries()]
+      .map(([variant, a]) => ({ variant, ...a }))
+      .sort((x, y) => x.variant.localeCompare(y.variant)),
+    divergences: abDivergences,
+    unattached: abUnattached,
+    excludedFlippers: abExcludedFlippers,
+    excludedFlippersNet: abExcludedFlippersNet,
+  };
+}
+
+/**
+ * Revenu par bras des abonnements ACQUIS dans une période — ce que l'onglet
+ * Offres & tests (et l'outil MCP `offres`) divisent par les assignés de CETTE
+ * période. Même calcul que `getRevenueBreakdown`, borné.
+ */
+export const getAbRevenueForPeriod = permissionQuery("business.read")({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, args) => getAbRevenueForPeriodCore(ctx, args),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `offres`. */
+export async function getAbRevenueForPeriodCore(
+  ctx: ProjectQueryCtx,
+  { from, to }: { from: number; to: number },
+): Promise<RevenueBreakdown["abRevenue"] | null> {
+  const project = await ctx.db.get(ctx.projectId);
+  if (!project?.whop) return null;
+  const { payments, cfg } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug);
+  return abRevenueCore(ctx, payments, cfg, { from, to });
+}
+
+/**
  * Décomposition du revenu à partir du NET Whop DÉJÀ INGÉRÉ (aucune nouvelle
  * source). Le partage nouveau/récurrent s'appuie sur le premier paiement observé
  * par `membershipId` — approximation assumée et bornée à l'historique importé.
@@ -1238,153 +1426,7 @@ export async function getRevenueBreakdownCore(
         return b.paidAt - a.paidAt;
       });
 
-    // ─── REVENU PAR BRAS (test A/B) ───────────────────────────────────────────
-    // Voie PRIMAIRE : metadata.abVariant du membership Whop (posée au checkout,
-    // insensible au dénouement du paiement). Voie de REPLI : distinctId →
-    // personne PostHog. Une DIVERGENCE entre les deux est SIGNALÉE plutôt que
-    // tranchée en silence : un rattachement faux est pire qu'un rattachement absent.
-    // Fenêtre restreinte au TEST : les abonnements antérieurs n'ont pas de bras
-    // parce que le test n'existait pas — les ranger en « inconnu » serait faux.
-    const abMemberships = await ctx.db
-      .query("whopMemberships")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    // Repli : table distinct_id → bras, lue dans le cache PostHog.
-    const armsRow = await ctx.db
-      .query("posthogCache")
-      .withIndex("by_project_key", (q) =>
-        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abPersonArms),
-      )
-      .first();
-    let armsPayload: AbPersonArmsPayload = { rows: [] };
-    if (armsRow && armsRow.json !== "") {
-      try {
-        armsPayload = JSON.parse(armsRow.json) as AbPersonArmsPayload;
-      } catch {
-        armsPayload = { rows: [] };
-      }
-    }
-    const personArms = new Map(
-      armsPayload.rows.map((r) => [r.distinctId, r.variant] as const),
-    );
-    // Garde anti-flipper EXPLICITE (test positif). Sans elle, la seule
-    // matérialisation de la garde était l'ABSENCE de la ligne ci-dessus : elle
-    // ne mordait donc que sur le repli, et `abVariant ?? repli` la
-    // court-circuitait dès qu'une metadata Whop existait.
-    const flippersRow = await ctx.db
-      .query("posthogCache")
-      .withIndex("by_project_key", (q) =>
-        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abFlippers),
-      )
-      .first();
-    let flipperDistinctIds = new Set<string>();
-    if (flippersRow && flippersRow.json !== "") {
-      try {
-        flipperDistinctIds = new Set(
-          (JSON.parse(flippersRow.json) as AbFlippersPayload).distinctIds,
-        );
-      } catch {
-        flipperDistinctIds = new Set();
-      }
-    }
-    const armLookup: ArmLookup = { personArms, flipperDistinctIds };
-    // Début du test = celui du CACHE POSTHOG (1re émission d'experiment_variant),
-    // la même borne que le tableau par bras. Le déduire du 1er membership portant
-    // un abVariant datait le test de sa 1re VENTE : tout abonnement conclu entre
-    // le lancement et cette vente tombait « hors fenêtre » et perdait son revenu.
-    // Repli sur les memberships tant que le cache PostHog n'a pas tourné.
-    const abArmsRow = await ctx.db
-      .query("posthogCache")
-      .withIndex("by_project_key", (q) =>
-        q.eq("projectId", ctx.projectId).eq("key", POSTHOG_CACHE_KEYS.abArms),
-      )
-      .first();
-    let abArmsStartMs: number | null = null;
-    if (abArmsRow && abArmsRow.json !== "") {
-      try {
-        abArmsStartMs = (JSON.parse(abArmsRow.json) as AbArmsPayload).startMs;
-      } catch {
-        abArmsStartMs = null;
-      }
-    }
-    const abStartMs =
-      abArmsStartMs ??
-      abMemberships.reduce<number | null>(
-        (min, m) =>
-          m.abVariant ? (min === null || m.createdAt < min ? m.createdAt : min) : min,
-        null,
-      );
-    const netByMembership = new Map<string, { net: number; atRisk: number }>();
-    for (const p of payments) {
-      if (!p.membershipId) continue;
-      if (isInternalWhopMembership(p.membershipId, internalCfg)) continue;
-      const a = netByMembership.get(p.membershipId) ?? { net: 0, atRisk: 0 };
-      a.net = round2(a.net + whopNetContribution(p));
-      if (p.status === "disputed") {
-        a.atRisk = round2(a.atRisk + Math.max(0, p.netAmount - p.refundedAmount));
-      }
-      netByMembership.set(p.membershipId, a);
-    }
-    const armAcc = new Map<
-      string,
-      { net: number; memberships: number; viaFallback: number; atRiskMemberships: number; atRiskAmount: number }
-    >();
-    const abDivergences: { membershipId: string; metadata: string; posthog: string }[] = [];
-    let abUnattached = 0;
-    let abExcludedFlippers = 0;
-    let abExcludedFlippersNet = 0;
-    for (const m of abMemberships) {
-      if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
-      if (abStartMs === null || m.createdAt < abStartMs) continue; // hors fenêtre du test
-      // Résolution UNIQUE, gardes AVANT les deux voies (cf convex/abAttribution).
-      const resolved = resolveArm(
-        { abVariant: m.abVariant, abForced: m.abForced, distinctId: m.distinctId },
-        armLookup,
-      );
-      if (resolved.variant === null) {
-        // Une exclusion se COMPTE, sinon elle se lit comme un bras qui vend mal.
-        if (resolved.rejected === "flipper") {
-          abExcludedFlippers += 1;
-          abExcludedFlippersNet = round2(
-            abExcludedFlippersNet +
-              (netByMembership.get(m.whopMembershipId)?.net ?? 0),
-          );
-        } else if (resolved.rejected === "unassigned") {
-          abUnattached += 1;
-        }
-        continue; // "forced" : session de QA, hors revenu comme hors events
-      }
-      const variant = resolved.variant;
-      const divergence = armDivergence(
-        { abVariant: m.abVariant, distinctId: m.distinctId },
-        armLookup,
-      );
-      if (divergence) {
-        abDivergences.push({ membershipId: m.whopMembershipId, ...divergence });
-      }
-      const money = netByMembership.get(m.whopMembershipId) ?? { net: 0, atRisk: 0 };
-      const a =
-        armAcc.get(variant) ??
-        { net: 0, memberships: 0, viaFallback: 0, atRiskMemberships: 0, atRiskAmount: 0 };
-      a.net = round2(a.net + money.net);
-      a.memberships += 1;
-      if (!m.abVariant) a.viaFallback += 1;
-      if (money.atRisk > 0) {
-        a.atRiskMemberships += 1;
-        a.atRiskAmount = round2(a.atRiskAmount + money.atRisk);
-      }
-      armAcc.set(variant, a);
-    }
-    const abRevenue = {
-      startMs: abStartMs,
-      rows: [...armAcc.entries()]
-        .map(([variant, a]) => ({ variant, ...a }))
-        .sort((x, y) => x.variant.localeCompare(y.variant)),
-      divergences: abDivergences,
-      unattached: abUnattached,
-      excludedFlippers: abExcludedFlippers,
-      excludedFlippersNet: abExcludedFlippersNet,
-    };
+    const abRevenue = await abRevenueCore(ctx, payments, internalCfg, null);
 
     return {
       configured: true,

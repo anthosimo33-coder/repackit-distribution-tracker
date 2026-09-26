@@ -37,6 +37,7 @@ import {
 } from "./scriptAnalytics";
 import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
 import {
+  getAbRevenueForPeriodCore,
   getAttributionCore,
   getBillingCountriesCore,
   getNatureRewardsCore,
@@ -319,6 +320,12 @@ export const lireMarches = mcpPermissionQuery("business.read")({
 export const lireGroupesMarches = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => listMarketGroupsCore(ctx),
+});
+
+/** Onglet Offres & tests : revenu par bras des abonnements acquis dans une période — même calcul. */
+export const lireRevenuBrasPeriode = mcpPermissionQuery("business.read")({
+  args: { from: v.number(), to: v.number() },
+  handler: async (ctx, args) => getAbRevenueForPeriodCore(ctx, args),
 });
 
 /** Onglet Parcours : ventes par pays de FACTURATION (Whop) — même calcul, même bloc. */
@@ -2532,13 +2539,20 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
         const arms = abArmRows(a.abArms.rows);
         const alertes = abArmChecks(arms).filter((c) => c.status !== "ok");
         const resume = abArmSummary(arms);
-        const abRev = revenu.abRevenue;
+        // Le revenu par bras porte sur la MÊME population que les assignés : sur une
+        // période recalculée, les abonnements ACQUIS dedans (comme l'écran) ; sinon
+        // tout le test, comme les compteurs du cache.
+        const fenetreRecalculee = periode.recalcul !== null ? periode.fenetre : null;
+        const abRev =
+          (fenetreRecalculee !== null
+            ? await lire(() =>
+                ctx.runQuery(internal.mcpTools.lireRevenuBrasPeriode, {
+                  ...ids,
+                  ...windowToMs(fenetreRecalculee),
+                }),
+              )
+            : null) ?? revenu.abRevenue;
         const netParBras = new Map(abRev.rows.map((r) => [r.variant, r] as const));
-        // Le revenu par bras court depuis le DÉBUT du test (fenêtre du test, côté
-        // serveur) : le diviser par les assignés d'une période plus courte
-        // mélangerait deux populations. Donné seulement quand les assignés portent
-        // eux aussi sur toute la durée du test.
-        const netComparable = periode.recalcul === null;
 
         const offres = attributedOffers(a.abOffers.rows, revenu.plans);
         const comparabilite = armComparability(a.abOffers.rows, revenu.plans);
@@ -2609,7 +2623,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                       ciblesParClient: r.targetsPerClient,
                       ...(r.targetsPerClient === null && r.paid > 0 ? { ciblesNonMesurees: true } : {}),
                       netParAssigne:
-                        !netComparable || !rev || rev.memberships === 0
+                        !rev || rev.memberships === 0
                           ? null
                           : { valeur: netPerAssigned(rev.net, r.exposed), devise },
                       ...(rev && rev.atRiskMemberships > 0
@@ -2700,8 +2714,8 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                   coutMoyen: r.avgCostUsd,
                 })),
           lecture: [
-            "Mesures PostHog (types de paywall, test A/B, offres servies, achats, paywalls, plan gratuit, scans) recalculées sur la période comme à l'écran ; le revenu Whop (net par bras) court depuis le début du test.",
-            "Complétion = nouveaux clients ÷ checkouts ouverts. Cibles / client = cibles ajoutées APRÈS paiement ÷ nouveaux clients. Net par assigné = net sécurisé du bras ÷ assignés (intention de traiter) — donné seulement quand les assignés couvrent eux aussi toute la durée du test.",
+            "Mesures PostHog (types de paywall, test A/B, offres servies, achats, paywalls, plan gratuit, scans) recalculées sur la période comme à l'écran ; sur une période, le revenu par bras est celui des abonnements ACQUIS dans la période (encaissé à ce jour).",
+            "Complétion = nouveaux clients ÷ checkouts ouverts. Cibles / client = cibles ajoutées APRÈS paiement ÷ nouveaux clients. Net par assigné = net sécurisé du bras ÷ assignés (intention de traiter), les deux sur la même population (la période, ou tout le test).",
             `Un test n'est concluant qu'à ${AB_THRESHOLD} assignés par bras. Un bras vend un MENU : « offresServies » = plan présélectionné, « achatsReels » = ce que les clients ont acheté (prix Whop).`,
             "Offres de rythmes différents (semaine / mois) ne se comparent pas sur le revenu du premier cycle ; « brasComparables » faux = le test mélange prix et rythme.",
           ],
