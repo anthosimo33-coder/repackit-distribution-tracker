@@ -86,6 +86,14 @@ import {
 } from "./radar";
 import { TREND_COUNTRIES } from "./countries";
 import {
+  buildCoherenceChecks,
+  FRESHNESS_SOURCE_LABELS,
+  isFreshnessStale,
+  NOT_MEASURABLE,
+  SERIES_BREAKS,
+} from "./analyticsHubMath";
+import { coherenceInputsFrom } from "./coherenceInputs";
+import {
   calendarStatus,
   isSameLocalDay,
   onTimeTally,
@@ -123,6 +131,19 @@ import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 
 const jour = (ts: number | null | undefined): string | null =>
   typeof ts === "number" && ts > 0 ? parisDayKey(ts) : null;
+
+/** Un instant en heure de Paris, « AAAA-MM-JJ HH:MM » (fraîcheur d'une synchro). */
+const instantParis = (ts: number | null | undefined): string | null =>
+  typeof ts === "number" && ts > 0
+    ? new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Europe/Paris",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(ts)
+    : null;
 
 // ─── Lectures (queries internes, gardées comme l'écran) ─────────────────────
 
@@ -229,7 +250,7 @@ export const lireAttribution = mcpPermissionQuery("business.read")({
   handler: async (ctx) => getAttributionCore(ctx),
 });
 
-/** Contrôles de cohérence de l'onglet Analytics (clients acquis, garde-fou) — même bloc. */
+/** Onglet Fiabilité (et garde-fou clients de l'éco unitaire) — même lecture, même bloc. */
 export const lireFiabilite = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getReliabilityCore(ctx),
@@ -798,6 +819,17 @@ export const OUTILS: readonly McpTool[] = [
         hashtag: { type: "string", description: "Vue « tendances » : un hashtag de la liste, pour ses vidéos." },
         limite: { type: "integer", description: "Éléments listés au plus par rubrique (défaut 20).", minimum: 1, maximum: 100 },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "fiabilite",
+    title: "Fiabilité des données (Analytics)",
+    description:
+      "L'onglet Fiabilité de l'Analytics, par les mêmes contrôles : les contrôles de cohérence (tunnel monotone, clients PostHog vs Whop, recoupement par jour, montant dû…) avec leur état (ok, info, écart) et leur détail ; l'état de chaque événement du contrat d'instrumentation (personnes, première émission, sain / à surveiller / absent) et des propriétés sondées ; les comptes internes exclus ; les abonnements par personne ; ce qui n'est pas mesurable (dont les assignations sans date de post) ; les ruptures de série datées ; la fraîcheur de chaque source (périmée au-delà de 12 h). À lire avant de se fier à un chiffre du hub.",
+    inputSchema: {
+      type: "object",
+      properties: { projet: ARG_PROJET },
       additionalProperties: false,
     },
   },
@@ -2030,6 +2062,79 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           lecture: [
             "Le mur de l'écran Veille : « populaires » = les plus vues au dernier relevé ; « récentes » = les autres, de la plus récente à la plus ancienne (épinglées exclues).",
             "Engagement = (likes + commentaires + partages) ÷ vues, calculé comme à l'écran.",
+          ],
+        });
+      }
+
+      if (name === "fiabilite") {
+        const r = await lire(() => ctx.runQuery(internal.mcpTools.lireFiabilite, ids));
+        const maintenant = Date.now();
+        // LES contrôles de l'écran : même traduction du payload, même module.
+        const controles = buildCoherenceChecks(coherenceInputsFrom(r.coherence));
+        const etatControle = { ok: "ok", info: "info", violation: "écart" } as const;
+        const doublons = r.membershipDuplicates;
+        const repartition = new Map<number, number>();
+        for (const d of doublons.duplicates) repartition.set(d.count, (repartition.get(d.count) ?? 0) + 1);
+        return json({
+          projet: projet.slug,
+          posthogConfigure: r.configured,
+          derniereSynchroPosthog: instantParis(r.computedAt),
+          controles: controles.map((c) => ({ controle: c.label, etat: etatControle[c.status], detail: c.detail || null })),
+          ecarts: controles.filter((c) => c.status === "violation").length,
+          instrumentation: {
+            evenements: r.instrumentation.events.map((e) => ({
+              evenement: e.name,
+              personnes: e.persons === 0 ? null : e.persons,
+              premiereEmission: jour(e.firstSeenMs),
+              etat: e.persons === 0 ? (e.notYetEmitted ? "attendu, absent" : "absent") : e.note ? "à surveiller" : "sain",
+              ...(e.persons > 0 && e.note ? { note: e.note } : {}),
+            })),
+            proprietes: r.instrumentation.props.map((p) => ({
+              propriete: p.key,
+              surEvenement: p.onEvent,
+              emise: p.present > 0,
+              evenementsLaPortant: p.present,
+            })),
+          },
+          comptesInternesExclus: {
+            personnesPostHog: r.internalExcluded.persons,
+            surPersonnesPostHog: r.internalExcluded.totalPersons,
+            abonnementsWhop: r.whopInternalExcluded,
+          },
+          abonnementsParPersonne:
+            doublons.memberships === 0
+              ? null
+              : {
+                  abonnements: doublons.memberships,
+                  personnes: doublons.users,
+                  personnesAvecPlusieurs: doublons.duplicates.length,
+                  repartition: [...repartition.entries()]
+                    .sort((a, b) => a[0] - b[0])
+                    .map(([abonnements, personnes]) => ({ abonnements, personnes })),
+                },
+          nonMesurable: [
+            {
+              quoi: "Assignations sans date de post",
+              ...(r.publicationCoverage.total === 0
+                ? { pourquoi: "aucune assignation" }
+                : {
+                    sansDate: r.publicationCoverage.unplanned,
+                    sur: r.publicationCoverage.total,
+                    pourquoi: "hors du taux à l'heure, des deux côtés de la fraction",
+                  }),
+            },
+            ...NOT_MEASURABLE.map((x) => ({ quoi: x.what, pourquoi: x.why })),
+          ],
+          rupturesDeSerie: SERIES_BREAKS.map((b) => ({ depuis: b.since, quoi: b.what, effet: b.effect })),
+          fraicheur: r.freshness.map((f) => ({
+            source: FRESHNESS_SOURCE_LABELS[f.source] ?? f.source,
+            derniereSynchro: instantParis(f.lastSyncMs),
+            etat: isFreshnessStale(f.lastSyncMs, maintenant) ? "périmé" : "frais",
+          })),
+          lecture: [
+            "Les contrôles de cohérence de l'onglet Fiabilité, composés par le même module que l'écran. Un « écart » suspend à l'écran les chiffres qui en dépendent.",
+            "Une source est « périmée » sans synchro depuis plus de 12 h. Lire les ruptures de série avant de comparer deux périodes qui les traversent.",
+            "Abonnements par personne : une personne peut avoir plusieurs abonnements Whop ; les identifiants ne sont pas donnés ici (voir l'écran).",
           ],
         });
       }

@@ -4,6 +4,7 @@ import {
   internalQuery,
 } from "./_generated/server";
 import {
+  e2eMutation,
   permissionMutation,
   permissionQuery,
   type ProjectQueryCtx,
@@ -3057,3 +3058,42 @@ export async function getProductAnalyticsCore(
       ),
     };
 }
+
+/**
+ * E2E — pose une configuration PostHog SANS clé (la synchro saute le projet :
+ * variable d'env absente, cache intact) et range des agrégats dans le cache
+ * tels que le cron les aurait rangés. Écrans et outils MCP les lisent ensuite
+ * par leur chemin normal : c'est le seul moyen de mettre des chiffres PostHog
+ * devant une spec sans appeler PostHog.
+ */
+export const e2eSeedPosthogCache = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    entries: v.array(
+      v.object({ key: v.string(), json: v.string(), computedAt: v.number() }),
+    ),
+  },
+  handler: async (ctx, { projectId, entries }): Promise<null> => {
+    await ctx.db.patch(projectId, {
+      posthog: {
+        posthogProjectId: "e2e",
+        host: "eu",
+        apiKeyEnvVar: "POSTHOG_API_KEY_E2E_ABSENTE",
+      },
+    });
+    for (const e of entries) {
+      const existing = await ctx.db
+        .query("posthogCache")
+        .withIndex("by_project_key", (q) =>
+          q.eq("projectId", projectId).eq("key", e.key),
+        )
+        .unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, { json: e.json, computedAt: e.computedAt });
+      } else {
+        await ctx.db.insert("posthogCache", { projectId, ...e });
+      }
+    }
+    return null;
+  },
+});

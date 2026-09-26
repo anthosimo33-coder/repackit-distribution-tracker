@@ -404,6 +404,8 @@ export const e2eSeedWhopMembership = e2eMutation({
      * pour un RÉSILIÉ (fin d'accès future, accès encore ouvert).
      */
     valid: v.optional(v.boolean()),
+    /** Utilisateur Whop : plusieurs abonnements pour une même personne. */
+    whopUserId: v.optional(v.string()),
   },
   handler: async (ctx, a): Promise<Id<"whopMemberships">> =>
     await ctx.db.insert("whopMemberships", {
@@ -415,6 +417,7 @@ export const e2eSeedWhopMembership = e2eMutation({
       createdAt: a.createdAt ?? Date.now(),
       accessEndsAt: a.accessEndsAt,
       planId: a.planId,
+      whopUserId: a.whopUserId,
       importedAt: Date.now(),
       updatedAt: Date.now(),
     }),
