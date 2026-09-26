@@ -1428,3 +1428,177 @@ export const NOT_MEASURABLE: readonly { what: string; why: string }[] = [
   { what: "Latence de recherche", why: "pas de durée émise sur handle_search_result" },
   { what: "Bloqués par le paywall (mesuré)", why: "déduit pour l'instant, en attente du result « paywalled »" },
 ];
+
+// ─── Onglet PARCOURS : ce que les cartes déduisent des agrégats ──────────────
+// Ici et non dans le composant pour que l'onglet et l'outil MCP `parcours`
+// rendent les MÊMES pertes, le même délai, la même activation : une règle de
+// comptage changée d'un côté l'est de l'autre.
+
+/** Libellés du chemin de monétisation (mockup). */
+export const PARCOURS_FUNNEL_LABELS: Record<string, string> = {
+  visit: "Ont ouvert le site",
+  signup_completed: "Se sont inscrits",
+  paywall_viewed: "Ont vu l'offre",
+  checkout_started: "Ont ouvert le checkout",
+  subscription_completed: "Ont payé",
+};
+
+/**
+ * Libellés de l'ATTEINTE BRUTE : la dernière étape est renommée « Paiements
+ * déclenchés » (elle compte des ÉVÉNEMENTS, double-émis client + serveur), pour ne
+ * pas la confondre avec « Clients payants » (Whop, la vérité comptable). Un seul
+ * chiffre du dashboard porte le nom « clients ».
+ */
+export const PARCOURS_REACH_LABELS: Record<string, string> = {
+  ...PARCOURS_FUNNEL_LABELS,
+  subscription_completed: "Paiements déclenchés",
+};
+
+/** Seuil de timeout de confirmation de l'app (hypothèse produit, ancien réglage). */
+export const APP_TIMEOUT_MS = 60_000;
+
+export const DEVICE_LABELS: Record<string, string> = {
+  natif: "Navigateur natif",
+  webview: "Webview in-app",
+  inconnu: "Inconnu (is_webview absent)",
+};
+
+/** Libellés + ordre des segments d'activation (l'anonyme 'hors_inscription' est écarté). */
+export const ACTIVATION_SEGMENT_LABELS: Record<string, string> = {
+  payant: "Payant",
+  gratuit: "Gratuit",
+  sans_acces: "Inscrits sans accès",
+  autre: "Inscrits sans accès", // cache antérieur à la restriction aux inscrits
+};
+const ACTIVATION_SEGMENT_ORDER = ["payant", "gratuit", "sans_acces", "autre"];
+
+/** Une ligne de l'agrégat `checkoutReliability` (par appareil). */
+export interface CheckoutDeviceRow {
+  device: string;
+  checkouts: number;
+  paid: number;
+  divertedFree: number;
+  failedPayment?: number;
+  disappeared: number;
+  medPayMs: number | null;
+  p90PayMs: number | null;
+}
+
+/** Conversion checkout → paiement par appareil. */
+export function checkoutByDevice(rows: readonly CheckoutDeviceRow[]): ConversionStat[] {
+  return computeConversion(
+    rows.map((r) => ({
+      key: r.device,
+      label: DEVICE_LABELS[r.device] ?? r.device,
+      n: r.checkouts,
+      converted: r.paid,
+    })),
+  );
+}
+
+/** Part des checkouts dont l'appareil est connu, en % (1 décimale) ; null sans checkout. */
+export function deviceCoveragePct(rows: readonly CheckoutDeviceRow[]): number | null {
+  const total = rows.reduce((s, r) => s + r.checkouts, 0);
+  const known = rows
+    .filter((r) => r.device !== "inconnu")
+    .reduce((s, r) => s + r.checkouts, 0);
+  return total > 0 ? Math.round((known / total) * 1000) / 10 : null;
+}
+
+/**
+ * « Où se perdent les checkouts » — ventilation MUTUELLEMENT EXCLUSIVE des NON
+ * payeurs (total = non payeurs). L'échec de paiement est une sous-part des
+ * disparus, pas une 4e ligne additionnelle (l'ancienne carte double-comptait :
+ * 78 + 28 + 20 = 126 = tous les checkouts, alors que les non payeurs sont 106).
+ */
+export function checkoutLoss(rows: readonly CheckoutDeviceRow[]): {
+  disappeared: number;
+  divertedFree: number;
+  failedPayment: number;
+  total: number;
+} {
+  const disappeared = rows.reduce((s, r) => s + r.disappeared, 0);
+  const divertedFree = rows.reduce((s, r) => s + r.divertedFree, 0);
+  const failedPayment = rows.reduce((s, r) => s + (r.failedPayment ?? 0), 0);
+  const total = disappeared + divertedFree + failedPayment;
+  return { disappeared, divertedFree, failedPayment, total };
+}
+
+/** Délai médian/p90 jusqu'au paiement, tous appareils (le plus grand échantillon). */
+export function payDelay(rows: readonly CheckoutDeviceRow[]): {
+  medMs: number | null;
+  p90Ms: number | null;
+} {
+  const withPaid = rows.filter((r) => r.paid > 0 && r.medPayMs !== null);
+  if (withPaid.length === 0) return { medMs: null, p90Ms: null };
+  const top = [...withPaid].sort((a, b) => b.paid - a.paid)[0];
+  return { medMs: top.medPayMs, p90Ms: top.p90PayMs };
+}
+
+/**
+ * « Paiements Whop sans abonnement applicatif » — en PERSONNES des deux côtés.
+ * Cette carte affichait `whopMembers - dashboardClients`, soit des ABONNEMENTS
+ * moins des PERSONNES : au relevé du 2026-08-29 elle annonçait 9 paiements
+ * orphelins en rouge, qui étaient les 9 abonnements en double de clients
+ * existants (8 personnes en ont 2, une en a 3). Aucun paiement orphelin.
+ *
+ * Côté applicatif on prend l'atteinte brute (personnes ayant émis
+ * subscription_completed) et non le tunnel séquentiel : un client qui paie
+ * sans checkout tracké a bien un abonnement applicatif.
+ */
+export function whopWithoutAppAccess(
+  c:
+    | {
+        whopClients: number | null;
+        dashboardClients: number | null;
+        reachSteps: readonly { key: string; count: number }[];
+      }
+    | undefined,
+): { whop: number; app: number; gap: number } | null {
+  if (!c || c.whopClients === null) return null;
+  const reach =
+    c.reachSteps.find((s) => s.key === "subscription_completed")?.count ??
+    c.dashboardClients;
+  if (reach === null) return null;
+  return { whop: c.whopClients, app: reach, gap: c.whopClients - reach };
+}
+
+export interface ActivationRow {
+  segment: string;
+  persons: number;
+  targetAdded: number;
+  firstAlert: number;
+  usernameEntered: number;
+}
+
+/** Activation agrégée par segment, « tous » ou « depuis le 28/07 » (recent=1). */
+export function aggregateActivation(
+  rows: readonly {
+    segment: string;
+    recent: number;
+    persons: number;
+    targetAdded: number;
+    firstAlert: number;
+    usernameEntered: number;
+  }[],
+  recentOnly: boolean,
+): ActivationRow[] {
+  const bySeg = new Map<string, ActivationRow>();
+  for (const r of rows) {
+    if (r.segment === "hors_inscription") continue;
+    if (recentOnly && r.recent !== 1) continue;
+    const cur =
+      bySeg.get(r.segment) ??
+      { segment: r.segment, persons: 0, targetAdded: 0, firstAlert: 0, usernameEntered: 0 };
+    cur.persons += r.persons;
+    cur.targetAdded += r.targetAdded;
+    cur.firstAlert += r.firstAlert;
+    cur.usernameEntered += r.usernameEntered;
+    bySeg.set(r.segment, cur);
+  }
+  return [...bySeg.values()].sort(
+    (a, b) =>
+      ACTIVATION_SEGMENT_ORDER.indexOf(a.segment) -
+      ACTIVATION_SEGMENT_ORDER.indexOf(b.segment),
+  );
+}

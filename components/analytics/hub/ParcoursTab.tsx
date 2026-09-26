@@ -12,7 +12,19 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
-import { buildFunnel, computeConversion } from "@/lib/analytics-hub";
+import {
+  ACTIVATION_SEGMENT_LABELS,
+  aggregateActivation,
+  APP_TIMEOUT_MS,
+  buildFunnel,
+  checkoutByDevice,
+  checkoutLoss,
+  deviceCoveragePct,
+  PARCOURS_FUNNEL_LABELS as FUNNEL_LABELS,
+  PARCOURS_REACH_LABELS as REACH_LABELS,
+  payDelay,
+  whopWithoutAppAccess,
+} from "@/lib/analytics-hub";
 import { FunnelChart } from "./HubCharts";
 import {
   HubCardHeader,
@@ -51,53 +63,6 @@ import type { ProductAnalyticsData, ReliabilityData,
  * vient du double comptage de subscription_completed (navigateur + serveur). La
  * mention est posée à l'endroit exact de l'écart, pas seulement en Fiabilité.
  */
-
-/** Libellés du chemin de monétisation (mockup). */
-const FUNNEL_LABELS: Record<string, string> = {
-  visit: "Ont ouvert le site",
-  signup_completed: "Se sont inscrits",
-  paywall_viewed: "Ont vu l'offre",
-  checkout_started: "Ont ouvert le checkout",
-  subscription_completed: "Ont payé",
-};
-
-/**
- * Libellés de l'ATTEINTE BRUTE : la dernière étape est renommée « Paiements
- * déclenchés » (elle compte des ÉVÉNEMENTS, double-émis client + serveur), pour ne
- * pas la confondre avec « Clients payants » (Whop, la vérité comptable). Un seul
- * chiffre du dashboard porte le nom « clients ».
- */
-const REACH_LABELS: Record<string, string> = {
-  ...FUNNEL_LABELS,
-  subscription_completed: "Paiements déclenchés",
-};
-
-/** Seuil de timeout de confirmation de l'app (hypothèse produit, ancien réglage). */
-const APP_TIMEOUT_MS = 60_000;
-
-const DEVICE_LABELS: Record<string, string> = {
-  natif: "Navigateur natif",
-  webview: "Webview in-app",
-  inconnu: "Inconnu (is_webview absent)",
-};
-
-/** Libellés + ordre des segments d'activation (l'anonyme 'hors_inscription' est écarté). */
-const SEGMENT_LABELS: Record<string, string> = {
-  payant: "Payant",
-  gratuit: "Gratuit",
-  sans_acces: "Inscrits sans accès",
-  autre: "Inscrits sans accès", // cache antérieur à la restriction aux inscrits
-};
-const SEGMENT_ORDER = ["payant", "gratuit", "sans_acces", "autre"];
-
-interface ActivationRow {
-  segment: string;
-  persons: number;
-  targetAdded: number;
-  firstAlert: number;
-  usernameEntered: number;
-}
-
 export function ParcoursTab({
   analytics,
   reliability,
@@ -167,91 +132,35 @@ export function ParcoursTab({
     [seqSteps],
   );
 
+  // Les déductions des cartes : le MÊME module que l'outil MCP `parcours`.
   const devices = useMemo(
-    () =>
-      computeConversion(
-        a.checkoutReliability.rows.map((r) => ({
-          key: r.device,
-          label: DEVICE_LABELS[r.device] ?? r.device,
-          n: r.checkouts,
-          converted: r.paid,
-        })),
-      ),
+    () => checkoutByDevice(a.checkoutReliability.rows),
     [a.checkoutReliability.rows],
   );
-  const coverage = useMemo(() => {
-    const rows = a.checkoutReliability.rows;
-    const total = rows.reduce((s, r) => s + r.checkouts, 0);
-    const known = rows
-      .filter((r) => r.device !== "inconnu")
-      .reduce((s, r) => s + r.checkouts, 0);
-    return total > 0 ? Math.round((known / total) * 1000) / 10 : null;
-  }, [a.checkoutReliability.rows]);
-
-  // « Où se perdent les checkouts » — ventilation MUTUELLEMENT EXCLUSIVE des NON
-  // payeurs (total = non payeurs). L'échec de paiement est une sous-part des
-  // disparus, pas une 4e ligne additionnelle (l'ancienne carte double-comptait :
-  // 78 + 28 + 20 = 126 = tous les checkouts, alors que les non payeurs sont 106).
-  const loss = useMemo(() => {
-    const rows = a.checkoutReliability.rows;
-    const disappeared = rows.reduce((s, r) => s + r.disappeared, 0);
-    const divertedFree = rows.reduce((s, r) => s + r.divertedFree, 0);
-    const failedPayment = rows.reduce((s, r) => s + (r.failedPayment ?? 0), 0);
-    const total = disappeared + divertedFree + failedPayment;
-    return { disappeared, divertedFree, failedPayment, total };
-  }, [a.checkoutReliability.rows]);
-
-  // Délai médian/p90 jusqu'au paiement, tous appareils (le plus grand échantillon).
-  const delay = useMemo(() => {
-    const rows = a.checkoutReliability.rows.filter(
-      (r) => r.paid > 0 && r.medPayMs !== null,
-    );
-    if (rows.length === 0) return { medMs: null, p90Ms: null };
-    const top = [...rows].sort((a, b) => b.paid - a.paid)[0];
-    return { medMs: top.medPayMs, p90Ms: top.p90PayMs };
-  }, [a.checkoutReliability.rows]);
-
-  // « Paiements Whop sans abonnement applicatif » — en PERSONNES des deux côtés.
-  // Cette carte affichait `whopMembers - dashboardClients`, soit des ABONNEMENTS
-  // moins des PERSONNES : au relevé du 2026-08-29 elle annonçait 9 paiements
-  // orphelins en rouge, qui étaient les 9 abonnements en double de clients
-  // existants (8 personnes en ont 2, une en a 3). Aucun paiement orphelin.
-  //
-  // Côté applicatif on prend l'atteinte brute (personnes ayant émis
-  // subscription_completed) et non le tunnel séquentiel : un client qui paie
-  // sans checkout tracké a bien un abonnement applicatif.
-  const whopGap = useMemo(() => {
-    const c = reliability?.coherence;
-    if (!c || c.whopClients === null) return null;
-    const reach =
-      c.reachSteps.find((s) => s.key === "subscription_completed")?.count ??
-      c.dashboardClients;
-    if (reach === null) return null;
-    return { whop: c.whopClients, app: reach, gap: c.whopClients - reach };
-  }, [reliability]);
-
+  const coverage = useMemo(
+    () => deviceCoveragePct(a.checkoutReliability.rows),
+    [a.checkoutReliability.rows],
+  );
+  const loss = useMemo(
+    () => checkoutLoss(a.checkoutReliability.rows),
+    [a.checkoutReliability.rows],
+  );
+  const delay = useMemo(
+    () => payDelay(a.checkoutReliability.rows),
+    [a.checkoutReliability.rows],
+  );
+  const whopGap = useMemo(
+    () => whopWithoutAppAccess(reliability?.coherence),
+    [reliability],
+  );
   // Activation : agrégée par segment, « tous » ou « depuis le 28/07 » (recent=1).
-  const activation = useMemo(() => {
-    const agg = (recentFlag: boolean): ActivationRow[] => {
-      const bySeg = new Map<string, ActivationRow>();
-      for (const r of a.activation.rows) {
-        if (r.segment === "hors_inscription") continue;
-        if (recentFlag && r.recent !== 1) continue;
-        const cur =
-          bySeg.get(r.segment) ??
-          { segment: r.segment, persons: 0, targetAdded: 0, firstAlert: 0, usernameEntered: 0 };
-        cur.persons += r.persons;
-        cur.targetAdded += r.targetAdded;
-        cur.firstAlert += r.firstAlert;
-        cur.usernameEntered += r.usernameEntered;
-        bySeg.set(r.segment, cur);
-      }
-      return [...bySeg.values()].sort(
-        (a, b) => SEGMENT_ORDER.indexOf(a.segment) - SEGMENT_ORDER.indexOf(b.segment),
-      );
-    };
-    return { all: agg(false), recent: agg(true) };
-  }, [a.activation.rows]);
+  const activation = useMemo(
+    () => ({
+      all: aggregateActivation(a.activation.rows, false),
+      recent: aggregateActivation(a.activation.rows, true),
+    }),
+    [a.activation.rows],
+  );
   const activationRows = recentOnly ? activation.recent : activation.all;
   const hasRecent = activation.recent.length > 0;
 
@@ -672,7 +581,7 @@ export function ParcoursTab({
                     <TableRow key={r.segment}>
                       <TableCell className="text-xs font-medium text-slate-700">
                         <span className="inline-flex items-center gap-1">
-                          {SEGMENT_LABELS[r.segment] ?? r.segment}
+                          {ACTIVATION_SEGMENT_LABELS[r.segment] ?? r.segment}
                           {sansAcces ? (
                             <InfoDot label="Inscrits sans accès">
                               {EXPLAIN.inscritsSansAcces}

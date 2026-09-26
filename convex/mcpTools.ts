@@ -38,6 +38,7 @@ import {
 import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
 import {
   getAttributionCore,
+  getBillingCountriesCore,
   getChurnCore,
   getReliabilityCore,
   getRevenueBreakdownCore,
@@ -86,7 +87,19 @@ import {
 } from "./radar";
 import { TREND_COUNTRIES } from "./countries";
 import {
+  ACTIVATION_SEGMENT_LABELS,
+  aggregateActivation,
+  APP_TIMEOUT_MS,
   buildCoherenceChecks,
+  buildFunnel,
+  checkoutByDevice,
+  checkoutLoss,
+  deviceCoveragePct,
+  PARCOURS_FUNNEL_LABELS,
+  PARCOURS_REACH_LABELS,
+  payDelay,
+  posthogOutageDays,
+  whopWithoutAppAccess,
   FRESHNESS_SOURCE_LABELS,
   isFreshnessStale,
   NOT_MEASURABLE,
@@ -101,7 +114,19 @@ import {
   type CalendarStatus,
 } from "./calendarStatus";
 import { listMarketGroupsCore } from "./marketGroups";
-import { getProductAnalyticsCore } from "./posthogSync";
+import { getProductAnalyticsCore, type ProductAnalytics } from "./posthogSync";
+import {
+  computeWindowedAnalytics,
+  type WindowedParcours,
+} from "./analyticsWindowed";
+import { hogWindowClause } from "./hogWindow";
+import {
+  buildSegmentRows,
+  clientCoverage,
+  UNKNOWN_SEGMENT,
+  type SegmentPayload,
+  type SplitRow,
+} from "./segmentFunnel";
 import { windowToMs } from "./marketWindow";
 import { DECISION } from "./marketDecision";
 import {
@@ -111,6 +136,8 @@ import {
   serieMensuelle,
 } from "./marketDerive";
 import {
+  clampWindow,
+  coversEverything,
   dataRangeOf,
   daysUntil,
   previousWindow,
@@ -272,6 +299,12 @@ export const lireMarches = mcpPermissionQuery("business.read")({
 export const lireGroupesMarches = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => listMarketGroupsCore(ctx),
+});
+
+/** Onglet Parcours : ventes par pays de FACTURATION (Whop) — même calcul, même bloc. */
+export const lirePaysFacturation = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getBillingCountriesCore(ctx),
 });
 
 /** Agrégats PostHog en cache (trafic par pays) — même lecture que l'onglet. */
@@ -833,6 +866,21 @@ export const OUTILS: readonly McpTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "parcours",
+    title: "Parcours de conversion (Analytics)",
+    description:
+      "L'onglet Parcours de l'Analytics, par les mêmes calculs : le tunnel de conversion séquentiel (ont ouvert le site → se sont inscrits → ont vu l'offre → ont ouvert le checkout → ont payé) avec la perte à chaque étape et l'atteinte brute à côté ; où se perdent les checkouts (détournés vers le gratuit, échec de paiement, disparus) ; la conversion par appareil (navigateur natif / webview) ; le délai jusqu'au paiement ; les paiements Whop sans accès applicatif ; le trafic par pays de connexion et par langue ; les ventes par pays de facturation ; l'activation par type d'inscrit. Recalculé sur la période comme à l'écran (défaut : 30 derniers jours complets, jusqu'à hier).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
@@ -891,6 +939,54 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
       throw new ToolError(`Projet inconnu ou inaccessible : « ${arg} ». Projets possibles : ${possibles}.`);
     }
     return p;
+  }
+
+  /**
+   * Les agrégats PostHog d'une période, obtenus comme l'écran les obtient (cf
+   * components/analytics/hub/useWindowedAnalytics) : la période est bornée aux
+   * jours de données ; si elle les couvre tous, le cache du cron (90 jours)
+   * suffit ; sinon ils sont RECALCULÉS sur la période — même cœur
+   * (`computeWindowedAnalytics`), même cache partagé que l'écran. Un échec du
+   * recalcul n'est jamais tu : l'appelant retombe sur les 90 jours ET le dit.
+   */
+  async function agregatsSurPeriode(
+    projectId: Id<"projects">,
+    produit: ProductAnalytics,
+    du: string,
+    au: string,
+  ): Promise<{
+    recalcul: WindowedParcours | null;
+    fenetre: AnalyticsWindow | null;
+    erreur: string | null;
+  }> {
+    const plage = dataRangeOf(produit.overview.daily.map((d) => parisDayKey(d.ts)));
+    const fenetre = clampWindow({ from: du, to: au }, plage);
+    if (!produit.configured || fenetre === null || coversEverything(fenetre, plage)) {
+      return { recalcul: null, fenetre, erreur: null };
+    }
+    const clause = hogWindowClause(fenetre.from, fenetre.to);
+    const surPremierAbo = hogWindowClause(fenetre.from, fenetre.to, "t_first_sub");
+    if (clause === null || surPremierAbo === null) {
+      return { recalcul: null, fenetre, erreur: "période illisible" };
+    }
+    // Le contrôle de l'action de l'écran, à l'identique.
+    await lire(() => ctx.runQuery(internal.analyticsWindowed.assertBusinessRead, { userId, projectId }));
+    try {
+      const recalcul = await computeWindowedAnalytics(ctx, {
+        projectId,
+        window: clause,
+        windowOnFirstSub: surPremierAbo,
+        from: fenetre.from,
+        to: fenetre.to,
+      });
+      return { recalcul, fenetre, erreur: null };
+    } catch (e) {
+      return {
+        recalcul: null,
+        fenetre,
+        erreur: messageDe(e) ?? (e instanceof Error ? e.message : "recalcul PostHog impossible"),
+      };
+    }
   }
 
   /** Une lecture gardée : un refus de droit devient un message pour le modèle. */
@@ -1553,10 +1649,12 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
         const pnl = await lire(() => ctx.runQuery(internal.mcpTools.lireMarches, { ...ids, ...bornes }));
         const groupes = await lire(() => ctx.runQuery(internal.mcpTools.lireGroupesMarches, ids));
         const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
+        // Le trafic suit la période, comme à l'écran (cf agregatsSurPeriode).
+        const trafic = await agregatsSurPeriode(projet._id, produit, du, au);
         const maille = args.maille === "pays" ? "pays" : "marche";
         const marches = deriverMarches({
           pnl,
-          traffic: produit.funnels.countryPersons,
+          traffic: trafic.recalcul?.funnels.countryPersons ?? produit.funnels.countryPersons,
           groups: groupes.map((g) => ({ id: g._id as string, nom: g.name, pays: g.countries })),
           maille,
           // Codes ISO : Claude les lit, et un nom traduit n'ajouterait rien.
@@ -1593,9 +1691,23 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             `Coûts en ${pnl.payCurrency ?? "devise de paie"} sans taux vers ${pnl.revenueCurrency ?? "la devise du revenu"} : aucun verdict ni ratio sur ces marchés (jamais deux monnaies comparées).`,
           );
         }
+        if (trafic.erreur !== null) {
+          avertissements.push(
+            `Trafic : recalcul sur la période impossible (${trafic.erreur}) — le trafic affiché est celui des 90 derniers jours.`,
+          );
+        }
         return json({
           projet: projet.slug,
           periode: { du, au },
+          traficSur: !produit.configured
+            ? "PostHog non configuré : pas de trafic"
+            : trafic.fenetre === null
+              ? "aucune donnée PostHog sur la période"
+              : trafic.recalcul !== null
+                ? { du: trafic.fenetre.from, au: trafic.fenetre.to, source: "recalculé sur la période (bornée aux jours de données)" }
+                : trafic.erreur === null
+                  ? { source: "cache des 90 derniers jours (la période couvre toutes les données)" }
+                  : { source: "cache des 90 derniers jours (recalcul impossible)" },
           maille: maille === "pays" ? "par pays" : "par marché (marchés composés regroupés)",
           devises: { revenu: pnl.revenueCurrency, paie: pnl.payCurrency, tauxPaieVersRevenu: pnl.fxRateToRevenue },
           total: {
@@ -1661,7 +1773,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           lecture: [
             "L'argent (coût, clients, revenu) suit le pays de FACTURATION (Whop) ; le trafic, le pays de CONNEXION (PostHog). Côte à côte, jamais divisés l'un par l'autre.",
             "Montants dans la devise du revenu (coûts convertis au taux du projet). « retourAcquisition » = valeur des clients gagnés ÷ coût promo ; « revenuSurCout » = revenu net ÷ coût.",
-            "Trafic : le cache PostHog (90 derniers jours), pas recalculé sur la période — l'écran le recalcule quand il le peut. Les verdicts qui en dépendent (réparer) peuvent donc différer légèrement.",
+            "Trafic : recalculé sur la période comme à l'écran (même calcul, même cache) ; « traficSur » dit sur quels jours il porte.",
             "Verdicts triés par ce qu'il faut faire d'abord ; « Aucun pays défini » = coût sans pays cible, hors marché.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
@@ -2136,6 +2248,183 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Une source est « périmée » sans synchro depuis plus de 12 h. Lire les ruptures de série avant de comparer deux périodes qui les traversent.",
             "Abonnements par personne : une personne peut avoir plusieurs abonnements Whop ; les identifiants ne sont pas donnés ici (voir l'écran).",
           ],
+        });
+      }
+
+      if (name === "parcours") {
+        const au =
+          typeof args.au === "string" && args.au.trim() !== ""
+            ? args.au.trim()
+            : parisDayKey(Date.now() - 86_400_000);
+        const du =
+          typeof args.du === "string" && args.du.trim() !== ""
+            ? args.du.trim()
+            : shiftDay(au, -29);
+        if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+        }
+        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
+        if (!produit.configured) {
+          return json({
+            projet: projet.slug,
+            configure: false,
+            message: "PostHog n'est pas configuré sur ce projet : pas de tunnel ni de trafic.",
+          });
+        }
+        const periode = await agregatsSurPeriode(projet._id, produit, du, au);
+        // Les quatre agrégats que la période change — les mêmes que l'onglet.
+        const a = periode.recalcul ?? produit;
+        const fiabilite = await lire(() => ctx.runQuery(internal.mcpTools.lireFiabilite, ids));
+        const facturation = await lire(() => ctx.runQuery(internal.mcpTools.lirePaysFacturation, ids));
+
+        const seq = a.funnels.sequential.segments[0]?.steps ?? [];
+        const atteinte = new Map((a.funnels.global.segments[0]?.steps ?? []).map((s) => [s.key, s.count]));
+        const tunnel = buildFunnel(
+          seq.map((s) => ({ key: s.key, label: PARCOURS_FUNNEL_LABELS[s.key] ?? s.key, count: s.count })),
+        );
+        const rows = a.checkoutReliability.rows;
+        const perte = checkoutLoss(rows);
+        const delai = payDelay(rows);
+        const sec = (ms: number | null) => (ms === null ? null : Math.round(ms / 100) / 10);
+        const ecartWhop = whopWithoutAppAccess(fiabilite.coherence);
+        const activation = (recent: boolean) =>
+          aggregateActivation(a.activation.rows, recent).map((r) => ({
+            type: ACTIVATION_SEGMENT_LABELS[r.segment] ?? r.segment,
+            inscrits: r.persons,
+            ontSaisiUnCompte: r.usernameEntered,
+            ontAjouteUneCible: r.targetAdded,
+            premiereAlerte: r.firstAlert,
+          }));
+        const pctFraction = (x: number | null) => (x === null ? null : Math.round(x * 1000) / 10);
+        const segments = (payload: SegmentPayload, split: readonly SplitRow[], avecVentes: boolean) => {
+          const { rows: lignes, unknownShare, unknownVisitors } = buildSegmentRows(payload);
+          const couverture = clientCoverage(split);
+          return {
+            inconnuPct: pctFraction(unknownShare),
+            visiteursInconnus: unknownVisitors,
+            lignes: lignes
+              .filter((r) => r.key !== UNKNOWN_SEGMENT)
+              .map((r) => ({
+                segment: r.key,
+                visiteurs: r.visit,
+                inscrits: r.signup,
+                checkouts: r.checkout,
+                ...(avecVentes ? { clients: r.subs, visiteVersClientPct: pctFraction(r.rate) } : {}),
+              })),
+            ...(couverture.length > 0
+              ? {
+                  mesureCoteNavigateur: couverture.map((c) => ({
+                    etape: c.event,
+                    partPct: pctFraction(c.share),
+                    nonMesurable: c.unmeasurable,
+                  })),
+                }
+              : {}),
+          };
+        };
+
+        const avertissements: string[] = [];
+        if (periode.erreur !== null) {
+          avertissements.push(
+            `Recalcul sur la période impossible (${periode.erreur}) : chiffres des 90 derniers jours.`,
+          );
+        }
+        const f = periode.fenetre;
+        if (f !== null && f.from < "2026-07-29") {
+          avertissements.push(
+            "Tunnel corrigé le 29/07 : l'ordre des étapes était faux avant, les taux séquentiels d'avant ne se comparent pas à ceux d'après.",
+          );
+        }
+        if (f !== null && f.from <= "2026-07-28" && f.to >= "2026-07-28") {
+          avertissements.push(
+            "Webhook de confirmation réparé le 28/07 au soir : les délais et taux de complétion qui traversent cette date ne sont comparables à rien.",
+          );
+        }
+        if (f !== null && [...posthogOutageDays()].some((j) => j >= f.from && j <= f.to)) {
+          avertissements.push(
+            "Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (Paris) : visiteurs, inscriptions et paywalls sont creux sur ces heures ; clients et revenu viennent de Whop et restent justes.",
+          );
+        }
+
+        return json({
+          projet: projet.slug,
+          periode:
+            f === null
+              ? "aucune donnée PostHog sur la période"
+              : periode.recalcul !== null
+                ? { du: f.from, au: f.to, source: "recalculé sur la période (bornée aux jours de données)" }
+                : { du: f.from, au: f.to, source: "cache des 90 derniers jours" + (periode.erreur === null ? " (la période couvre toutes les données)" : " (recalcul impossible)") },
+          tunnel: tunnel.map((t) => ({
+            etape: t.label,
+            personnes: t.count,
+            partDesVisiteursPct: t.shareOfStart,
+            perduesDepuisEtapePrecedente: t.droppedCount,
+            perteDepuisEtapePrecedentePct: t.dropPct,
+            concluant: t.conclusive,
+            atteinteBrute: {
+              libelle: PARCOURS_REACH_LABELS[t.key] ?? t.key,
+              personnes: atteinte.get(t.key) ?? null,
+            },
+          })),
+          checkoutsSansPaiement: {
+            detournesVersLeGratuit: perte.divertedFree,
+            echecDePaiementSansSuite: perte.failedPayment,
+            disparusSansTentative: perte.disappeared,
+            total: perte.total,
+          },
+          parAppareil: {
+            checkoutsAvecAppareilConnuPct: deviceCoveragePct(rows),
+            appareils: checkoutByDevice(rows).map((d) => ({
+              contexte: d.label,
+              checkouts: d.n,
+              payes: d.converted,
+              conversionPct: d.rate,
+              concluant: d.conclusive,
+            })),
+          },
+          delaiJusquAuPaiement: {
+            medianeSec: sec(delai.medMs),
+            neufSurDixSousSec: sec(delai.p90Ms),
+            ancienSeuilTimeoutSec: sec(APP_TIMEOUT_MS),
+          },
+          paiementsWhopSansAccesApp:
+            ecartWhop === null
+              ? null
+              : {
+                  ecart: Math.max(0, ecartWhop.gap),
+                  clientsWhop: ecartWhop.whop,
+                  abonnesApp: ecartWhop.app,
+                  sur: "toute la profondeur (pas la période)",
+                },
+          traficParPaysDeConnexion: segments(a.funnels.country, a.serverSideSplit.rows, false),
+          traficParLangue: segments(a.funnels.language, [], true),
+          ventesParPaysDeFacturation: {
+            sur: "toute la profondeur (pas la période)",
+            devise: "currency" in facturation ? (facturation.currency ?? null) : null,
+            clientsAvecPays: facturation.clientsWithCountry,
+            clients: facturation.clients,
+            paiementsAvecPays: facturation.withCountry,
+            paiements: facturation.payments,
+            pays: facturation.rows.map((r) => ({
+              pays: r.country,
+              clients: r.clients,
+              renouvellements: r.renewals,
+              echecs: r.failures,
+              revenuNet: r.net,
+            })),
+          },
+          activation: {
+            tousLesInscrits: activation(false),
+            depuisLe28Juillet: activation(true),
+          },
+          lecture: [
+            "Le tunnel est SÉQUENTIEL : chaque perte porte sur l'étape juste au-dessus. L'atteinte brute compte les personnes par étape quel que soit l'ordre (anonymes, double émission client + serveur) : elle peut dépasser le tunnel.",
+            "Pays de CONNEXION (IP, PostHog) et pays de FACTURATION (Whop) sont deux populations : ne jamais diviser les ventes de l'un par le trafic de l'autre. Pas de colonne clients par pays de connexion : l'événement de souscription part surtout du serveur.",
+            "Les lignes par segment ne s'additionnent pas (une personne peut visiter depuis deux pays). « inconnuPct » = part des visiteurs non attribués : le classement ne décrit que le reste.",
+            "Activation : hors tunnel de paiement. La vue « depuis le 28/07 » ne garde que la période où payants, gratuits et inscrits sans accès sont comparables.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
         });
       }
 

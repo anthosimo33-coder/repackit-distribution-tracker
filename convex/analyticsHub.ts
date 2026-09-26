@@ -2008,7 +2008,11 @@ const SANS_SOURCE = "sans source";
  */
 export const getBillingCountries = permissionQuery("business.read")({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx) => getBillingCountriesCore(ctx),
+});
+
+/** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `parcours`. */
+export async function getBillingCountriesCore(ctx: ProjectQueryCtx) {
     const project = await ctx.db.get(ctx.projectId);
     if (!project?.whop) {
       return { rows: [], payments: 0, withCountry: 0, clients: 0, clientsWithCountry: 0 };
@@ -2088,8 +2092,7 @@ export const getBillingCountries = permissionQuery("business.read")({
       clientsWithCountry,
       currency: devises.length === 1 ? devises[0] : null,
     };
-  },
-});
+}
 
 export const getDayDetail = permissionQuery("business.read")({
   args: {},

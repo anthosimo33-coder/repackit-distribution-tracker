@@ -33,9 +33,14 @@
  */
 
 import { ConvexError, v } from "convex/values";
-import { authedAction } from "./functions";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { authedAction, e2eMutation } from "./functions";
+import {
+  internalMutation,
+  internalQuery,
+  type ActionCtx,
+} from "./_generated/server";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { requirePermission } from "./functions";
 import { cellTimeMs, runHogQL, type PosthogTarget } from "./posthogApi";
 import { windowCacheKey, windowCacheTtlMs } from "./windowCacheTtl";
@@ -269,28 +274,43 @@ export const getWindowedAnalytics = authedAction({
     from: v.string(),
     to: v.string(),
   },
-  handler: async (
-    ctx,
-    { projectId, window, windowOnFirstSub, from, to },
-  ): Promise<WindowedParcours> => {
+  handler: async (ctx, args): Promise<WindowedParcours> => {
     await ctx.runQuery(internal.analyticsWindowed.assertBusinessRead, {
       userId: ctx.userId,
-      projectId,
+      projectId: args.projectId,
     });
+    return computeWindowedAnalytics(ctx, args);
+  },
+});
+
+/**
+ * Le calcul de l'action ci-dessus — appelé par elle ET par les outils MCP
+ * (`parcours`, trafic de `marches`), APRÈS le contrôle `business.read` de
+ * l'appelant. Même volée, même cache partagé : un outil qui demande la plage
+ * que l'écran vient d'afficher ne repaie rien à PostHog, et inversement.
+ */
+export async function computeWindowedAnalytics(
+  ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
+  {
+    projectId,
+    window,
+    windowOnFirstSub,
+    from,
+    to,
+  }: {
+    projectId: Id<"projects">;
+    window: string;
+    windowOnFirstSub: string;
+    from: string;
+    to: string;
+  },
+): Promise<WindowedParcours> {
     const projects = await ctx.runQuery(
       internal.posthogSync.listPosthogProjects,
       { projectId },
     );
     const proj = projects[0];
     if (!proj) throw new Error("Projet sans configuration PostHog.");
-    const apiKey = process.env[proj.apiKeyEnvVar];
-    if (!apiKey) {
-      throw new Error(`Variable d'env ${proj.apiKeyEnvVar} absente.`);
-    }
-    const target: PosthogTarget = {
-      posthogProjectId: proj.posthogProjectId,
-      host: proj.host,
-    };
 
     // ─── CACHE ─────────────────────────────────────────────────────────────
     // Quinze requêtes HogQL par volée à l'époque (vingt-trois avec Santé produit). Mesuré en production le 2026-09-08 :
@@ -313,6 +333,17 @@ export const getWindowedAnalytics = authedAction({
         stale: false,
       };
     }
+    // La clé n'est exigée qu'ICI, au moment d'appeler PostHog : un résultat
+    // encore frais ne dépend pas d'elle, et la servir sans clé évite de rendre
+    // une erreur là où la réponse est déjà connue.
+    const apiKey = process.env[proj.apiKeyEnvVar];
+    if (!apiKey) {
+      throw new Error(`Variable d'env ${proj.apiKeyEnvVar} absente.`);
+    }
+    const target: PosthogTarget = {
+      posthogProjectId: proj.posthogProjectId,
+      host: proj.host,
+    };
     // MÊMES exclusions que le cron (comptes internes A4 + sessions à bras
     // forcé) : sans elles, choisir une période changerait la POPULATION en même
     // temps que la fenêtre, et l'écart se lirait comme un effet de la période.
@@ -462,5 +493,29 @@ export const getWindowedAnalytics = authedAction({
       json: JSON.stringify(resultat),
     });
     return resultat;
+}
+
+/**
+ * E2E — range une plage recalculée dans le cache PARTAGÉ, comme une volée
+ * PostHog l'aurait rangée : écran et outils la relisent par leur chemin normal
+ * (clé de plage, durée de vie), sans appeler PostHog.
+ */
+export const e2eSeedWindowCache = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    from: v.string(),
+    to: v.string(),
+    json: v.string(),
+    computedAt: v.number(),
+  },
+  handler: async (ctx, { projectId, from, to, json, computedAt }): Promise<null> => {
+    const key = windowCacheKey(from, to);
+    const existing = await ctx.db
+      .query("posthogWindowCache")
+      .withIndex("by_project_key", (q) => q.eq("projectId", projectId).eq("key", key))
+      .unique();
+    if (existing) await ctx.db.patch(existing._id, { json, computedAt });
+    else await ctx.db.insert("posthogWindowCache", { projectId, key, json, computedAt });
+    return null;
   },
 });
