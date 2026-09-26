@@ -132,6 +132,7 @@ import type * as passwordReset from "../passwordReset.js";
 import type * as payCycle from "../payCycle.js";
 import type * as payWindow from "../payWindow.js";
 import type * as payments from "../payments.js";
+import type * as paymentsView from "../paymentsView.js";
 import type * as permissionCoverage from "../permissionCoverage.js";
 import type * as permissionProbe from "../permissionProbe.js";
 import type * as permissions from "../permissions.js";
@@ -343,6 +344,7 @@ declare const fullApi: ApiFromModules<{
   payCycle: typeof payCycle;
   payWindow: typeof payWindow;
   payments: typeof payments;
+  paymentsView: typeof paymentsView;
   permissionCoverage: typeof permissionCoverage;
   permissionProbe: typeof permissionProbe;
   permissions: typeof permissions;

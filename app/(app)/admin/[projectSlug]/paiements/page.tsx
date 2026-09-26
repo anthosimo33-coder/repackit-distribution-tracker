@@ -45,6 +45,11 @@ import {
   Loader2Icon,
 } from "lucide-react";
 import { PermissionGate } from "@/components/project/PermissionGate";
+import {
+  isBulkPayable,
+  regrouperPaiements,
+  type GroupeCreatrice,
+} from "@/convex/paymentsView";
 import { usePermissions } from "@/components/project/use-permissions";
 
 /**
@@ -64,31 +69,9 @@ import { usePermissions } from "@/components/project/use-permissions";
 
 type Payment = FunctionReturnType<typeof api.payments.listPayments>[number];
 
-/** Les cycles OUVERTS d'une créatrice, réunis : c'est l'unité du virement. */
-type CreatorGroup = {
-  creatorId: string;
-  creatorName: string;
-  paymentMethod: string | null;
-  paymentDetails: string | null;
-  cycles: Payment[];
-  /** Somme des restes à verser de ses cycles ouverts (acomptes déduits). */
-  remaining: number;
-};
-
-/** Rows ORPHELINES de listPayments (créateur supprimé) : leur clé est préfixée
- *  ainsi et leur ancre de cycle est perdue (cycleIndex synthétique = 0). */
-const ORPHAN_KEY_PREFIX = "orphan:";
-
-/**
- * Un cycle est marquable EN MASSE s'il est dû ET rattaché à un créateur vivant.
- *
- * Les rows orphelines sont exclues : markCyclePaid ré-ancre la fenêtre sur
- * creators.firstPostAt, qui n'existe plus pour un créateur supprimé (la mutation
- * rejetterait « Créateur introuvable »). Elles gardent leur bouton unitaire.
- */
-function isBulkPayable(p: Payment): boolean {
-  return p.status !== "paid" && !p.key.startsWith(ORPHAN_KEY_PREFIX);
-}
+// Regroupement par créatrice, règle « payable en masse » : convex/paymentsView.ts,
+// partagés avec l'outil MCP `paiements` (Claude dit ce que cet écran dit).
+type CreatorGroup = GroupeCreatrice<Payment>;
 
 const KIND_LABEL: Record<string, string> = {
   base: "Base",
@@ -155,7 +138,8 @@ function PaiementsPageContenu() {
   const [now] = useState(() => Date.now());
   const payments = useProjectQuery(api.payments.listPayments, {});
   const rows = payments ?? [];
-  const total = rows.reduce((s, p) => s + p.totalDue, 0);
+  const partage = useMemo(() => regrouperPaiements(payments ?? [], now), [payments, now]);
+  const total = partage.totalHistorique;
 
   // ── Paiement EN MASSE ──────────────────────────────────────────────────────
   // On boucle sur markCyclePaid (la mutation unitaire déjà en place) : c'est le
@@ -177,7 +161,7 @@ function PaiementsPageContenu() {
     () => payableRows.filter((p) => selected.has(p.key)),
     [payableRows, selected],
   );
-  const payableTotal = payableRows.reduce((s, p) => s + p.remainingDue, 0);
+  const payableTotal = partage.aVerser;
   const selectedTotal = selectedRows.reduce((s, p) => s + p.remainingDue, 0);
   // Vidéos rémunérées dont AUCUNE vue n'a pu être mesurée, sur la sélection.
   // On signale, on ne bloque pas (arbitrage produit) : le bouton reste actif,
@@ -195,58 +179,12 @@ function PaiementsPageContenu() {
   // Un virement se fait à une PERSONNE : ses cycles, sa méthode et son total
   // tiennent ensemble. Trié par montant dû décroissant — l'écran répond « qui
   // dois-je payer, combien », pas « qu'est-ce qui s'est passé quand ».
-  const groupes = useMemo(() => {
-    const m = new Map<string, CreatorGroup>();
-    for (const p of rows) {
-      if (p.status === "paid") continue;
-      const k = p.creatorId as string;
-      const g = m.get(k) ?? {
-        creatorId: k,
-        creatorName: p.creatorName,
-        paymentMethod: p.creatorPaymentMethod,
-        paymentDetails: p.creatorPaymentDetails,
-        cycles: [],
-        remaining: 0,
-      };
-      g.cycles.push(p);
-      g.remaining = Math.round((g.remaining + p.remainingDue) * 100) / 100;
-      m.set(k, g);
-    }
-    return [...m.values()].sort(
-      (a, b) =>
-        b.remaining - a.remaining ||
-        a.creatorName.localeCompare(b.creatorName, "fr"),
-    );
-  }, [rows]);
-  // Les zéros ne disparaissent pas — ils se replient. Une créatrice à 0 $ qui
-  // devrait être payée est une information ; elle ne mérite juste pas une
-  // ligne pleine largeur au milieu de celles qui portent 276 $.
-  const groupesAvecDu = groupes.filter((g) => g.remaining > 0);
-  const groupesAZero = groupes.filter((g) => g.remaining <= 0);
+  const groupesAvecDu = partage.avecDu;
+  const groupesAZero = partage.aZero;
   const [zerosOuverts, setZerosOuverts] = useState(false);
-  const cyclesDus = groupesAvecDu.reduce(
-    (n, g) => n + g.cycles.filter((c) => c.remainingDue > 0).length,
-    0,
-  );
-  // Depuis combien de jours traîne le plus ancien cycle qui doit encore de
-  // l'argent — le seul repère d'urgence de cet écran. `now` est figé au montage
-  // (comme ailleurs dans l'app) : une horloge lue en plein rendu n'est pas pure,
-  // et le compilateur React refuse de mémoriser autour.
-  const debutsDus = groupesAvecDu.flatMap((g) =>
-    g.cycles.filter((c) => c.remainingDue > 0).map((c) => c.cycleStart),
-  );
-  const ageDuPlusVieux =
-    debutsDus.length === 0
-      ? null
-      : Math.floor((now - Math.min(...debutsDus)) / 86_400_000);
-  // Historique : le plus récemment payé d'abord.
-  const reglees = useMemo(
-    () =>
-      rows
-        .filter((p) => p.status === "paid")
-        .sort((a, b) => (b.paidAt ?? 0) - (a.paidAt ?? 0)),
-    [rows],
-  );
+  const cyclesDus = partage.cyclesDus;
+  const ageDuPlusVieux = partage.ageDuPlusVieux;
+  const reglees = partage.reglees;
 
   /** « Tout payer » : sélectionne SES cycles dus puis ouvre la confirmation —
    *  jamais de virement sans le récap chiffré, quel que soit le bouton cliqué. */
