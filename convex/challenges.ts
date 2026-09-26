@@ -4,6 +4,7 @@ import {
   permissionQuery,
   creatorScopeFor,
   requireCreatorInScope,
+  type ProjectQueryCtx,
 } from "./functions";
 import { isInCreatorScope } from "./creatorScope";
 import { buildPricingSnapshot } from "./pricing";
@@ -997,7 +998,11 @@ export const setChallengeVideoRemoved = permissionMutation("challenges.run")({
 /** Résumé d'un défi pour la liste admin (aucun calcul de score : c'est cher). */
 export const listChallenges = permissionQuery("challenges.run")({
   args: {},
-  handler: async (ctx) => {
+  handler: (ctx) => listChallengesCore(ctx),
+});
+
+/** Le calcul de l'écran Défis — appelé par la query ci-dessus ET par l'outil MCP `defis`. */
+export async function listChallengesCore(ctx: ProjectQueryCtx) {
     const rows = await ctx.db
       .query("challenges")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -1037,13 +1042,16 @@ export const listChallenges = permissionQuery("challenges.run")({
           };
         }),
     );
-  },
-});
+}
 
 /** Détail admin : réglages, participantes, classement, victoires, vidéos. */
 export const getChallenge = permissionQuery("challenges.run")({
   args: { id: v.id("challenges") },
-  handler: async (ctx, { id }) => {
+  handler: (ctx, args) => getChallengeCore(ctx, args),
+});
+
+/** Le calcul de l'écran Défis — appelé par la query ci-dessus ET par l'outil MCP `defis`. */
+export async function getChallengeCore(ctx: ProjectQueryCtx, { id }: { id: Id<"challenges"> }) {
     const c = await ctx.db.get(id);
     if (!c || c.projectId !== ctx.projectId) return null;
     const [ranking, wins, assignments, pricing] = await Promise.all([
@@ -1132,8 +1140,7 @@ export const getChallenge = permissionQuery("challenges.run")({
       videos: videos.sort((a, b) => b.views - a.views),
       participantIds: ranking.map((r) => r.creatorId),
     };
-  },
-});
+}
 
 /**
  * Barèmes ÉLIGIBLES à un défi : actifs et à fixe nul. Sert le sélecteur de la
@@ -1157,7 +1164,11 @@ export const listChallengePricings = permissionQuery("challenges.money")({
 /** Ce que l'évaluation NOCTURNE appliquera — exposé pour l'écran admin. */
 export const previewChallengeWinners = permissionQuery("challenges.run")({
   args: { id: v.id("challenges") },
-  handler: async (ctx, { id }) => {
+  handler: (ctx, args) => previewChallengeWinnersCore(ctx, args),
+});
+
+/** Le calcul de l'écran Défis — appelé par la query ci-dessus ET par l'outil MCP `defis`. */
+export async function previewChallengeWinnersCore(ctx: ProjectQueryCtx, { id }: { id: Id<"challenges"> }) {
     const c = await ctx.db.get(id);
     if (!c || c.projectId !== ctx.projectId) return null;
     const [ranking, wins] = await Promise.all([
@@ -1177,8 +1188,7 @@ export const previewChallengeWinners = permissionQuery("challenges.run")({
         deadline: c.deadline,
       }).map((r) => ({ creatorId: r.creatorId, name: r.name, score: r.score })),
     };
-  },
-});
+}
 
 // ─── Nettoyage e2e ───────────────────────────────────────────────────────────
 
