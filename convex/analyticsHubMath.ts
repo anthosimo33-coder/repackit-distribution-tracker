@@ -1774,3 +1774,15 @@ export function scanCostRows<T extends { kind: string; runs: number; withCost: n
     anyCost: rows.some((r) => r.withCost > 0),
   };
 }
+
+// ─── Onglet ACQUISITION ──────────────────────────────────────────────────────
+
+/**
+ * Récompenses en nature : où en est la créatrice la plus proche d'un palier, en
+ * % du seuil (1 décimale). `null` sans cumul ou sans seuil — jamais un 0 inventé.
+ */
+export function natureClosestPct(closestCumul: number | null, seuilVues: number): number | null {
+  return closestCumul !== null && seuilVues > 0
+    ? Math.round((closestCumul / seuilVues) * 1000) / 10
+    : null;
+}

@@ -34,7 +34,10 @@ import {
   presetWindow,
   type AnalyticsWindow,
 } from "@/lib/analytics-window";
-import { windowedAttribution } from "@/lib/attribution-window";
+import {
+  attributionDaily,
+  windowedAttribution,
+} from "@/lib/attribution-window";
 import { useWindowedAnalytics } from "@/components/analytics/hub/useWindowedAnalytics";
 import { OverviewTab } from "@/components/analytics/hub/OverviewTab";
 import { ParcoursTab } from "@/components/analytics/hub/ParcoursTab";
@@ -138,12 +141,7 @@ function AnalyticsPageContenu() {
       window ?? { from: "0000-01-01", to: "9999-12-31" },
       dataRangeOf((analytics?.overview.daily ?? []).map((d) => parisDayKey(d.ts))),
     );
-    const daily = (analytics?.overview.daily ?? []).map((d) => ({
-      day: parisDayKey(d.ts),
-      visitors: d.visitors,
-      signups: d.signups,
-      clients: d.subs,
-    }));
+    const daily = attributionDaily(analytics?.overview.daily ?? []);
     const win = windowedAttribution(
       attribution.rows,
       attribution.costs.promoBonusByDay,

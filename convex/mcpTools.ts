@@ -39,6 +39,8 @@ import { buildDecisions, DECISION_THRESHOLD } from "./scriptDecision";
 import {
   getAttributionCore,
   getBillingCountriesCore,
+  getNatureRewardsCore,
+  getViewCountersCore,
   getChurnCore,
   getReliabilityCore,
   getRevenueBreakdownCore,
@@ -64,7 +66,8 @@ import {
   WHOP_WEBHOOK_FIX_MS,
 } from "./churn";
 import { acquisitionCostPerClient } from "./retentionCost";
-import { windowCosts } from "./attributionWindow";
+import { attributionDaily, windowCosts, windowedAttribution } from "./attributionWindow";
+import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
@@ -94,6 +97,7 @@ import {
   abArmRows,
   abArmSummary,
   computeConversion,
+  natureClosestPct,
   netPerAssigned,
   PAYWALL_TYPE_LABELS,
   paywallTypeRows,
@@ -321,6 +325,24 @@ export const lireGroupesMarches = mcpPermissionQuery("business.read")({
 export const lirePaysFacturation = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getBillingCountriesCore(ctx),
+});
+
+/** Onglet Acquisition : les quatre compteurs de vues — même calcul, même bloc. */
+export const lireCompteursVues = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getViewCountersCore(ctx),
+});
+
+/** Onglet Acquisition : récompenses en nature (dû / engagé) — même calcul, même bloc. */
+export const lireRecompensesNature = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getNatureRewardsCore(ctx),
+});
+
+/** Dashboard « Ce que ça a rapporté » : conversion par créatrice (ref) — même lecture, même bloc. */
+export const lireConversionCreatrices = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => readConversionAllTimeCore(ctx),
 });
 
 /** Agrégats PostHog en cache (trafic par pays) — même lecture que l'onglet. */
@@ -902,6 +924,21 @@ export const OUTILS: readonly McpTool[] = [
     title: "Offres & tests (Analytics)",
     description:
       "L'onglet Offres & tests de l'Analytics, au-delà du revenu (voir « revenus » pour l'économie par offre, les litiges et le journal), par les mêmes calculs : les types de paywall (bloquant / appoint : exposés, checkouts, payés, complétion, cibles par client) ; le test A/B par bras (assignés, ont vu le paywall, checkouts, nouveaux clients, complétion, cibles par client, net par assigné), son verdict (seuil par bras, recrues manquantes), ses contrôles et les personnes écartées ; les offres servies par bras (plan présélectionné, période, conversion, revenu du 1er cycle pour 1 000 vues) et ce que les clients ont réellement acheté ; la conversion par emplacement de paywall ; le plan gratuit ; le coût des scans. Recalculé sur la période comme à l'écran (défaut : 30 derniers jours complets, jusqu'à hier).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "acquisition",
+    title: "Acquisition (Analytics)",
+    description:
+      "L'onglet Acquisition de l'Analytics, par les mêmes calculs, plus la conversion par créatrice du dashboard : l'efficacité promo par créatrice (vidéos, vues médianes, vidéos au-dessus de 50 000 vues, vues promo) et les jours solo (une seule créatrice a publié : visiteurs, inscrits, clients lui reviennent) sur la période ; les quatre compteurs de vues (totales, payables, promo, paliers — jamais additionnés) ; les récompenses en nature (déjà dû, engagé, coût réel, créatrice la plus proche de chaque palier) ; la conversion par lien de parrainage (visiteurs, inscrits, ventes, revenu net par créatrice ou influenceuse, sans source, total). Période en jours de Paris (défaut : 30 derniers jours complets, jusqu'à hier).",
     inputSchema: {
       type: "object",
       properties: {
@@ -2669,6 +2706,138 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Offres de rythmes différents (semaine / mois) ne se comparent pas sur le revenu du premier cycle ; « brasComparables » faux = le test mélange prix et rythme.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "acquisition") {
+        const { du, au } = periodeDemandee(args);
+        const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
+        const attribution = await lire(() => ctx.runQuery(internal.mcpTools.lireAttribution, ids));
+        const revenu = await lire(() => ctx.runQuery(internal.mcpTools.lireRevenus, ids));
+        const compteurs = await lire(() => ctx.runQuery(internal.mcpTools.lireCompteursVues, ids));
+        const nature = await lire(() => ctx.runQuery(internal.mcpTools.lireRecompensesNature, ids));
+        const conversion = await lire(() => ctx.runQuery(internal.mcpTools.lireConversionCreatrices, ids));
+
+        // La fenêtre de l'écran : la période bornée aux jours de la série PostHog.
+        // Sans série (PostHog absent), l'écran montre toute la profondeur.
+        const plage = dataRangeOf(produit.overview.daily.map((d) => parisDayKey(d.ts)));
+        const fenetre = clampWindow({ from: du, to: au }, plage);
+        if (plage !== null && fenetre === null) {
+          throw new ToolError(`La période ne recoupe pas les données : elles vont du ${plage.first} au ${plage.last}.`);
+        }
+        const fen = windowedAttribution(
+          attribution.rows,
+          attribution.costs.promoBonusByDay,
+          attributionDaily(produit.overview.daily),
+          fenetre,
+        );
+        const fx = {
+          payCurrency: attribution.payCurrency,
+          revenueCurrency: revenu.currency,
+          fxRateToRevenue: attribution.fxRateToRevenue,
+        };
+        const mesure = (m: { visitors: number | null; signups: number | null; sales: number | null; revenue: number | null; currency: string | null }) => ({
+          visiteurs: m.visitors,
+          inscrits: m.signups,
+          ventes: m.sales,
+          revenuNet: m.revenue,
+          devise: m.currency,
+        });
+
+        return json({
+          projet: projet.slug,
+          periode:
+            fenetre === null
+              ? "toute la profondeur (pas de série PostHog pour borner la période, comme à l'écran)"
+              : { du: fenetre.from, au: fenetre.to },
+          compteursDeVues: {
+            sur: "toute la profondeur (pas la période)",
+            totales: { vues: compteurs.totales, sertA: compteurs.usage.totales },
+            payables: { vues: compteurs.payables, sertA: compteurs.usage.payables },
+            promo: { vues: compteurs.promo, sertA: compteurs.usage.promo },
+            paliers: { vues: compteurs.paliers, sertA: compteurs.usage.paliers },
+          },
+          efficaciteParCreatrice: fen.creators.map((c) => ({
+            createatrice: c.creatorName,
+            videosPromo: c.videos,
+            vuesMedianes: c.medianViews,
+            videosAuDessusDe50k: c.hitCount,
+            vuesPromo: c.promoViews,
+          })),
+          joursSolo: !attribution.attributionAvailable
+            ? "la série quotidienne PostHog n'est pas encore disponible"
+            : fen.soloDays.map((d) =>
+                d.isSolo && d.attribution
+                  ? {
+                      jour: d.day,
+                      createatrice: d.attribution.creatorName,
+                      vuesPromo: d.promoViews,
+                      visiteurs: d.attribution.visitors,
+                      inscrits: d.attribution.signups,
+                      clients: d.attribution.clients,
+                    }
+                  : { jour: d.day, createatrices: d.creators.length, vuesPromo: d.promoViews, attribuable: false },
+              ),
+          recompensesEnNature: !nature.hasNatureTiers
+            ? null
+            : {
+                sur: "toute la profondeur (pas la période)",
+                dejaDu:
+                  nature.dueTotal === 0 && nature.dueMissingCost > 0
+                    ? null
+                    : montantAffiche(toDisplayAmount(nature.dueTotal, fx)),
+                engageSiLesPaliersTombent:
+                  nature.engagedTotal === 0 && nature.engagedMissingCost > 0
+                    ? null
+                    : montantAffiche(toDisplayAmount(nature.engagedTotal, fx)),
+                coutsReelsRenseignes: nature.anyCostConfigured,
+                recompensesSansCoutReel: nature.dueMissingCost + nature.engagedMissingCost,
+                paliers: nature.rows.map((r) => ({
+                  seuilVues: r.seuilVues,
+                  recompense: r.libelle,
+                  coutReel: r.coutReel === null ? null : montantAffiche(toDisplayAmount(r.coutReel, fx)),
+                  dues: r.dueCount,
+                  engagees: r.engagedCount,
+                  laPlusProche:
+                    r.closestCreatorName === null || r.closestCumul === null
+                      ? null
+                      : {
+                          createatrice: r.closestCreatorName,
+                          vues: r.closestCumul,
+                          pctDuSeuil: natureClosestPct(r.closestCumul, r.seuilVues),
+                        },
+                })),
+              },
+          conversionParCreatrice:
+            conversion === null
+              ? null
+              : {
+                  sur: `toute la profondeur, depuis le ${conversion.firstDate} (lien de parrainage, pas la période)`,
+                  visiteursEtInscritsJusquAu: conversion.visitorsThroughDate,
+                  ventesSynchroLe: instantParis(conversion.salesSyncMs),
+                  lignes: conversion.display.rows.map((r) =>
+                    r.kind === "creator"
+                      ? { createatrice: r.creatorName, ref: r.ref, ...(r.status ? { statut: r.status } : {}), ...mesure(r) }
+                      : r.kind === "influencer"
+                        ? { influenceuse: r.name, ref: r.ref, ...mesure(r) }
+                        : r.kind === "ref-only"
+                          ? { ref: r.ref, revendiquee: false, ...mesure(r) }
+                          : { createatrice: r.creatorName, ref: null, mesure: "aucune ref posée : l'attribution est aveugle sur elle (ce n'est pas un zéro)" },
+                  ),
+                  sansSource: conversion.display.unattributed === null ? null : mesure(conversion.display.unattributed),
+                  attribueANommees: mesure(conversion.display.attributed),
+                  total: mesure(conversion.display.total),
+                  ...(conversion.conflicts.length > 0
+                    ? { refsEnConflit: conversion.conflicts.map((c) => ({ ref: c.ref, revendiquePar: c.holders })) }
+                    : {}),
+                  ...(conversion.suspectRefs.length > 0 ? { attributionsDouteuses: conversion.suspectRefs } : {}),
+                },
+          lecture: [
+            "Efficacité et jours solo suivent la période, comme à l'écran. La médiane prédit la prochaine vidéo ; le nombre de vidéos au-dessus de 50 000 vues prédit le volume. La moyenne ne prédit rien.",
+            "Jour solo = une seule créatrice a publié en promo ce jour-là : les inscriptions lui reviennent sans ambiguïté. Un jour à plusieurs créatrices n'est pas attribuable.",
+            "Les quatre compteurs de vues ne s'additionnent jamais : chacun a un seul usage (« sertA »).",
+            "Récompenses en nature : « dejaDu » est une dépense (palier franchi) ; « engage » est une promesse, pas une dépense. Conversion par créatrice : par lien de parrainage (ref), visiteurs PostHog et ventes Whop n'ont pas la même fraîcheur.",
+          ],
         });
       }
 

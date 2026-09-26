@@ -29,6 +29,24 @@ import {
   sumInWindow,
   type AnalyticsWindow,
 } from "./analyticsDates";
+import { parisDayKey } from "./viewsDaily";
+
+/**
+ * La série quotidienne PostHog (overview) telle que l'attribution la lit : jour
+ * de Paris, et « clients » = les souscriptions du jour. Un seul exemplaire, lu
+ * par le hub ET par l'outil MCP `acquisition` — sinon les jours solo de l'un et
+ * de l'autre finiraient par ne plus attribuer les mêmes visiteurs.
+ */
+export function attributionDaily(
+  daily: readonly { ts: number; visitors: number; signups: number; subs: number }[],
+): DailyBehavior[] {
+  return daily.map((d) => ({
+    day: parisDayKey(d.ts),
+    visitors: d.visitors,
+    signups: d.signups,
+    clients: d.subs,
+  }));
+}
 
 /** Une ligne de vidéo, telle que `getAttribution` la rend. */
 export interface AttributionRowLike {
