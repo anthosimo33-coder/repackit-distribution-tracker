@@ -2,6 +2,9 @@
 
 import { Fragment, useMemo } from "react";
 import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
+import { useProjectQuerySafe } from "@/components/project/use-project-convex";
+import { api } from "@/convex/_generated/api";
+import { windowToMs } from "@/lib/market-window";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -184,7 +187,22 @@ export function OffresTab({
   // Revenu par bras — voie primaire metadata.abVariant, repli distinctId. La carte
   // est restreinte à la fenêtre du test côté serveur : les abonnements antérieurs
   // ne sont PAS des « bras inconnus », le test n'existait pas.
-  const abRev = revenue?.abRevenue;
+  //
+  // PÉRIODE CHOISIE : les assignés (dénominateur) suivent la période, le revenu
+  // doit donc porter sur la MÊME population — les abonnements ACQUIS dans la
+  // période, leur argent compté à ce jour. Sans ce second appel, « net par
+  // assigné » divisait le revenu du test ENTIER par les assignés d'une semaine.
+  // Pendant le chargement : tiret, jamais le revenu du test entier.
+  const periodeMs = windowed.data
+    ? windowToMs({ from: windowed.data.from, to: windowed.data.to })
+    : null;
+  const abRevPeriodeQ = useProjectQuerySafe(
+    api.analyticsHub.getAbRevenueForPeriod,
+    periodeMs ?? "skip",
+  );
+  const abRev = windowed.data
+    ? (abRevPeriodeQ.data ?? undefined)
+    : revenue?.abRevenue;
   const netByArm = new Map(
     (abRev?.rows ?? []).map((r) => [r.variant, r] as const),
   );
@@ -712,7 +730,10 @@ export function OffresTab({
                 par <code>metadata.abVariant</code> du membership Whop, repli par{" "}
                 <code>distinctId</code> vers la personne PostHog. Un bras sans aucun
                 abonnement rattaché reste au tiret : <strong>0,00 € et « aucun
-                abonnement » ne veulent pas dire la même chose.</strong>
+                abonnement » ne veulent pas dire la même chose.</strong>{" "}
+                Sur une <strong>période</strong> : les abonnements ACQUIS dans la
+                période (leur argent encaissé à ce jour), divisés par les assignés
+                de la période — la même population des deux côtés.
               </p>
               {abRev && abRev.divergences.length > 0 ? (
                 <HubNotice className="border-red-200 bg-red-50/70 text-red-900">

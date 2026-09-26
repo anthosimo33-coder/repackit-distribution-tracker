@@ -4,6 +4,7 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { parisDayKey } from "../convex/viewsDaily";
 import { shiftDay } from "../convex/analyticsDates";
+import { windowToMs } from "../convex/marketWindow";
 import { netPerAssigned } from "../convex/analyticsHubMath";
 import { formatMoney } from "../convex/moneyFormat";
 import { config } from "dotenv";
@@ -108,12 +109,15 @@ test.describe("Outil MCP offres", () => {
           { planId: `plan_w_${ts}`, name: "Snytch hebdo", price: 4.99, currency: "eur", interval: "semaine" },
         ],
       });
+      // a0 : acquis AVANT la période de l'écran (J-35) — compte sur tout le test,
+      // pas sur la période. C'est lui qui distingue les deux numérateurs.
       const abonnements = [
-        { n: "a1", variant: "soft", plan: `plan_m_${ts}`, brut: 16.9, net: 15.47 },
-        { n: "a2", variant: "soft", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31 },
-        { n: "b1", variant: "hard", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31 },
-        { n: "b2", variant: "hard", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31 },
-        { n: "b3", variant: "hard", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31 },
+        { n: "a0", variant: "soft", plan: `plan_m_${ts}`, brut: 16.9, net: 15.47, jours: 35 },
+        { n: "a1", variant: "soft", plan: `plan_m_${ts}`, brut: 16.9, net: 15.47, jours: 10 },
+        { n: "a2", variant: "soft", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31, jours: 10 },
+        { n: "b1", variant: "hard", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31, jours: 10 },
+        { n: "b2", variant: "hard", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31, jours: 10 },
+        { n: "b3", variant: "hard", plan: `plan_w_${ts}`, brut: 4.99, net: 4.31, jours: 10 },
       ];
       for (const a of abonnements) {
         await admin.mutation(api.whopSync.e2eSeedWhopMembership, {
@@ -122,7 +126,7 @@ test.describe("Outil MCP offres", () => {
           whopMembershipId: `mem_e2e_off_${ts}_${a.n}`,
           abVariant: a.variant,
           planId: a.plan,
-          createdAt: ts - 10 * DAY,
+          createdAt: ts - a.jours * DAY,
         });
       }
       await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
@@ -137,7 +141,7 @@ test.describe("Outil MCP offres", () => {
           feeAmount: Math.round((a.brut - a.net) * 100) / 100,
           netAmount: a.net,
           refundedAmount: 0,
-          paidAt: ts - 10 * DAY + i * HOUR,
+          paidAt: ts - a.jours * DAY + i * HOUR,
           planId: a.plan,
           membershipId: `mem_e2e_off_${ts}_${a.n}`,
           billingCountry: "FR",
@@ -282,9 +286,9 @@ test.describe("Outil MCP offres", () => {
       // la durée du test, comme le revenu. Le même calcul que l'écran.
       const revenu = await admin.query(api.analyticsHub.getRevenueBreakdown, { projectId });
       const netSoft = revenu.abRevenue.rows.find((r) => r.variant === "soft")!;
-      expect(netSoft).toMatchObject({ memberships: 2, net: 19.78 });
-      expect(ab.bras[0].netParAssigne).toEqual({ valeur: netPerAssigned(19.78, 612), devise: "eur" });
-      expect(ab.bras[0].netParAssigne.valeur).toBe(0.03);
+      expect(netSoft).toMatchObject({ memberships: 3, net: 35.25 });
+      expect(ab.bras[0].netParAssigne).toEqual({ valeur: netPerAssigned(35.25, 612), devise: "eur" });
+      expect(ab.bras[0].netParAssigne.valeur).toBe(0.06);
       expect(ab.bras[1].netParAssigne).toEqual({ valeur: 0.02, devise: "eur" });
 
       // Les bras ne servent plus la même chose : mensuel contre hebdo.
@@ -326,9 +330,14 @@ test.describe("Outil MCP offres", () => {
         [214, 29, 1.22],
         [201, 34.3, 2.83],
       ]);
-      // Revenu depuis le début du test ÷ assignés d'un mois : deux populations —
-      // pas de net par assigné.
-      expect(p.testAB.bras.map((b: Bras) => b.netParAssigne)).toEqual([null, null]);
+      // Sur la période, le revenu des abonnements ACQUIS dedans (a0 exclu) ÷ les
+      // assignés de la période : 19,78 ÷ 214 et 12,93 ÷ 201 — pas 35,25 ÷ 214.
+      const auPeriode = await admin.query(api.analyticsHub.getAbRevenueForPeriod, { projectId, ...windowToMs(ecran) });
+      expect(auPeriode!.rows.find((r) => r.variant === "soft")).toMatchObject({ memberships: 2, net: 19.78 });
+      expect(p.testAB.bras.map((b: Bras) => b.netParAssigne)).toEqual([
+        { valeur: 0.09, devise: "eur" },
+        { valeur: 0.06, devise: "eur" },
+      ]);
       expect(p.planGratuit.usagePct).toBe(42.3);
       expect((p.avertissements ?? []).join(" ")).not.toContain("Achats par bras incohérents");
 
@@ -337,7 +346,11 @@ test.describe("Outil MCP offres", () => {
       await page.getByRole("tab", { name: "Offres & tests" }).click();
       await expect(page.getByText("Non concluant.")).toBeVisible();
       await expect(page.getByText("Non concluant.").locator("..")).toContainText("245");
-      await expect(page.getByRole("row").filter({ hasText: "A — 1 cible" }).first()).toContainText("214");
+      const brasA = page.getByRole("row").filter({ hasText: "A — 1 cible" }).first();
+      await expect(brasA).toContainText("214");
+      // Le net par assigné de l'écran, sur SA période : 0,09 € (et non 0,16 €,
+      // le revenu du test entier divisé par les assignés du mois).
+      await expect(brasA).toContainText(formatMoney(0.09, "eur"));
     } finally {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }
