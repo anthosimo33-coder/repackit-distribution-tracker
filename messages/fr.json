@@ -1444,6 +1444,7 @@
     "ERR_TARGET_NOT_ON_ASSIGNMENT": "Cette assignation n'a pas de cible {platform}.",
     "ERR_TARGET_ACCOUNT_LOCKED_PUBLISHED": "Le post {platform} est déjà publié : son compte ne peut plus changer (le suivi des vues et la paie en dépendent).",
     "ERR_TARGET_ACCOUNT_MANAGED_MISMATCH": "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
+    "ERR_TARGET_ADD_LOCKED": "Cette assignation est publiée ou abandonnée : on ne peut plus lui ajouter de compte.",
     "ERR_TARGET_VIEWS_INVALID": "Objectif de vues invalide : un entier strictement positif.",
     "ERR_TEMPLATE_NAME_REQUIRED": "Le nom du modèle est requis.",
     "ERR_TEMPLATE_NEEDS_TIER": "Un modèle sans palier n'a rien à recopier.",
