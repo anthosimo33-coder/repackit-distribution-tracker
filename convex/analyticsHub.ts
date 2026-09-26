@@ -1815,9 +1815,9 @@ export interface ReliabilityResult {
     duplicates: { whopUserId: string; count: number; membershipIds: string[] }[];
   };
   /**
-   * ENTRÉES des contrôles de cohérence — le CLIENT appelle
-   * `lib/analytics-hub.buildCoherenceChecks` (ce module pur vit côté client, pas
-   * de réplique convex). On ne fait ici que réunir les chiffres bruts.
+   * ENTRÉES des contrôles de cohérence — l'écran ET l'outil MCP `fiabilite`
+   * les composent par `convex/analyticsHubMath.buildCoherenceChecks` (via
+   * `coherenceInputsFrom`). On ne fait ici que réunir les chiffres bruts.
    */
   coherence: {
     sequentialSteps: StepCount[];

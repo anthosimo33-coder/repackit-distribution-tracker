@@ -12,7 +12,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber, formatDate } from "@/lib/format";
-import { buildCoherenceChecks, type CoherenceStatus } from "@/lib/analytics-hub";
+import {
+  buildCoherenceChecks,
+  FRESHNESS_SOURCE_LABELS,
+  isFreshnessStale,
+  NOT_MEASURABLE,
+  SERIES_BREAKS,
+  type CoherenceStatus,
+} from "@/lib/analytics-hub";
 import { coherenceInputsFrom } from "@/lib/coherence-inputs";
 import { HubCardHeader, KpiTile, dash, HUB_TABLE_MOBILE } from "./HubPrimitives";
 import { EXPLAIN } from "./explanations";
@@ -24,43 +31,6 @@ import type { ReliabilityData } from "./types";
  * getReliability fournit les chiffres bruts ; les contrôles sont composés ici
  * par le module pur (buildCoherenceChecks), côté client.
  */
-
-/** Au-delà de ce délai, une source est signalée périmée. */
-const STALE_MS = 12 * 60 * 60 * 1000;
-
-const SOURCE_LABELS: Record<string, string> = {
-  posthog: "PostHog",
-  whop: "Whop",
-  scraping: "Vues (scraping)",
-};
-
-/**
- * RUPTURES DE SÉRIE connues et datées — à lire avant de comparer deux périodes
- * qui traversent l'une de ces dates. Documentées, PAS corrigées : la date est
- * connue, le biais est borné à une seule transition, et un rétro-calcul serait
- * plus fragile que la note. Même logique que la rupture J+X du 17/08.
- */
-const SERIES_BREAKS: { since: string; what: string; effect: string }[] = [
-  {
-    since: "17/08/2026",
-    what: "Relevé de vues passé à 23h30 Paris (au lieu de 07h/08h UTC)",
-    effect:
-      "les colonnes J+X portent depuis ~47,5 h de vues au lieu de ~34 h : une comparaison J+1 qui traverse cette date compare deux choses différentes.",
-  },
-  {
-    since: "17/08/2026 23h32",
-    what: "Premier relevé d'abonnés par compte (delta d'abonnés du dashboard)",
-    effect:
-      "aucun historique avant : le delta n'existe qu'à partir de la 2e nuit (18/08), et sa fenêtre s'élargit d'un jour par nuit jusqu'à 4 jours (le 21/08) avant de se stabiliser. Un « +N abonnés » lu entre le 18 et le 21/08 couvre donc 1 à 3 jours, pas 4. Pas de rétro-calcul.",
-  },
-];
-
-/** Ce qui n'est pas mesurable, avec la raison. Curé — un trou caché fait décider sur du vide. */
-const NOT_MEASURABLE: { what: string; why: string }[] = [
-  { what: "Détail des échecs de paiement", why: "propriété cause absente sur payment_failed" },
-  { what: "Latence de recherche", why: "pas de durée émise sur handle_search_result" },
-  { what: "Bloqués par le paywall (mesuré)", why: "déduit pour l'instant, en attente du result « paywalled »" },
-];
 
 function StatusBadge({ status }: { status: CoherenceStatus }) {
   if (status === "ok") {
@@ -416,12 +386,11 @@ export function FiabiliteTab({
             </TableHeader>
             <TableBody>
               {reliability.freshness.map((f) => {
-                const stale =
-                  f.lastSyncMs === null || now - f.lastSyncMs > STALE_MS;
+                const stale = isFreshnessStale(f.lastSyncMs, now);
                 return (
                   <TableRow key={f.source}>
                     <TableCell className="text-xs text-slate-600">
-                      {SOURCE_LABELS[f.source] ?? f.source}
+                      {FRESHNESS_SOURCE_LABELS[f.source] ?? f.source}
                     </TableCell>
                     <TableCell className="text-right text-xs tabular-nums text-slate-500">
                       {f.lastSyncMs === null ? "—" : formatDate(f.lastSyncMs)}
