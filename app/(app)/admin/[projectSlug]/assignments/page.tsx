@@ -1082,6 +1082,7 @@ function AssignmentsPageInner() {
             hookBrickId: textEditRow.scriptCombo.hookBrickId,
             fluxBrickId: textEditRow.scriptCombo.fluxBrickId,
             ctaBrickId: textEditRow.scriptCombo.ctaBrickId,
+            notifBrickId: textEditRow.scriptCombo.notifBrickId,
           }}
           creatorName={textEditRow.creatorName}
         />

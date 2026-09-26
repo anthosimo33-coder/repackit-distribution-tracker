@@ -47,6 +47,12 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ERR, err } from "./errorCodes";
 import { plateformeValidator } from "./platforms";
+import {
+  drawableNotifs,
+  isNotifEnabled,
+  notifUsageOf,
+  pickNotifs,
+} from "./scriptNotif";
 
 /**
  * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
@@ -61,9 +67,15 @@ import { plateformeValidator } from "./platforms";
  * ne peut pas importer lib/) pour l'anti-coordination serveur.
  */
 
-// Kinds créables : refonte → hook/flux/cta. "corps" n'est plus créable (les
-// corps existants sont reclassés en hook par migrateCorpsToHooks).
-const KIND = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
+// Kinds créables : refonte → hook/flux/cta, + "notif" (brique OPTIONNELLE hors
+// combo, cf convex/scriptNotif). "corps" n'est plus créable (les corps
+// existants sont reclassés en hook par migrateCorpsToHooks).
+const KIND = v.union(
+  v.literal("hook"),
+  v.literal("flux"),
+  v.literal("cta"),
+  v.literal("notif"),
+);
 
 // SNYTCH — mode d'usage d'une brique DANS LA VIDÉO (hook / flux) : à dire / à
 // afficher / les deux. Stocké UNIQUEMENT pour hook/flux (cf create/updateBrick).
@@ -79,6 +91,7 @@ const KIND_ORDER: Record<string, number> = {
   hook: 0,
   flux: 1,
   cta: 2,
+  notif: 3,
 };
 
 /** Récupère une campagne du projet courant ou rejette. */
@@ -267,6 +280,61 @@ function pickCombosServer(
  * combo. C'est l'ABANDON qui libère, jamais l'attente.
  */
 const COMBO_FREEING_STATUSES = new Set(["video_rejected", "cancelled"]);
+
+/** Notif figée d'une vidéo (cf schema assignments.scriptCombo). */
+type NotifFields = { notifBrickId: Id<"scriptBricks">; notifText: string };
+
+/**
+ * NOTIFS des `count` vidéos qu'on s'apprête à créer pour `creatorId`, une par
+ * vidéo, dans l'ordre (rotation équilibrée, cf convex/scriptNotif).
+ *
+ * Campagne sans notif → tableau vide : rien n'est posé, l'assignation est
+ * strictement celle d'avant la brique. Campagne AVEC notif mais aucune notif
+ * tirable → REFUS : partir sans notif sortirait ces vidéos de la mesure sans
+ * que personne ne le voie.
+ */
+async function notifsForNewVideos(
+  ctx: MutationCtx,
+  input: {
+    campaign: Doc<"scriptCampaigns">;
+    bricks: Doc<"scriptBricks">[];
+    creatorId: Id<"creators">;
+    count: number;
+  },
+): Promise<NotifFields[]> {
+  if (!isNotifEnabled(input.campaign) || input.count <= 0) return [];
+  const notifs = drawableNotifs(input.bricks);
+  if (notifs.length === 0) {
+    throw err(
+      ERR.NO_ACTIVE_NOTIF,
+      "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
+    );
+  }
+  const rows = await projectAssignmentsForCooldown(ctx, input.campaign.projectId);
+  const usage = notifUsageOf(rows, {
+    campaignId: input.campaign._id,
+    creatorId: input.creatorId,
+    freeingStatuses: COMBO_FREEING_STATUSES,
+  });
+  return pickNotifs(notifs, usage, input.count).map((b) => ({
+    notifBrickId: b._id,
+    notifText: b.content.trim(),
+  }));
+}
+
+/**
+ * La notif d'un combo DÉJÀ figé, à reporter telle quelle quand on le réécrit
+ * (correction d'une brique, rejeu à l'identique). Sans elle, chaque réécriture
+ * du combo effacerait la notif en silence.
+ */
+function notifFieldsOf(combo: {
+  notifBrickId?: Id<"scriptBricks">;
+  notifText?: string;
+}): Partial<NotifFields> {
+  return combo.notifBrickId
+    ? { notifBrickId: combo.notifBrickId, notifText: combo.notifText ?? "" }
+    : {};
+}
 
 /**
  * Unicité (comboKey, créateur, plateforme) — RÉPLIQUE de
@@ -893,6 +961,8 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     name: v.optional(v.string()),
     demoBlock: v.optional(v.string()),
     status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
+    // Brique NOTIF allumée / éteinte pour la campagne (cf convex/scriptNotif).
+    notifEnabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.id, ctx.projectId);
@@ -904,6 +974,7 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     }
     if (args.demoBlock !== undefined) patch.demoBlock = args.demoBlock;
     if (args.status !== undefined) patch.status = args.status;
+    if (args.notifEnabled !== undefined) patch.notifEnabled = args.notifEnabled;
     await ctx.db.patch(args.id, patch);
     return { ok: true };
   },
@@ -1474,6 +1545,19 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
       }
     }
 
+    // ─── Notif : une par vidéo, tirée À PART du combo ─────────────────────────
+    // Le rejeu à l'identique la recopie de la source (cf insertion) ; tout le
+    // reste — tirage auto ET combo imposé — la tire en rotation équilibrée : le
+    // combo imposé fixe les trois briques du texte, pas la notif.
+    const notifs = verbatimCombo
+      ? []
+      : await notifsForNewVideos(ctx, {
+          campaign,
+          bricks: allBricks,
+          creatorId: args.creatorId,
+          count: picked.length,
+        });
+
     let created = 0;
     let firstAssignmentId: Id<"assignments"> | null = null;
     // Positionnel : la i-ème vidéo créée reçoit postDates[i] (undefined sinon).
@@ -1503,6 +1587,8 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
               fluxBrickId: verbatimCombo.combo.fluxBrickId,
               ctaBrickId: verbatimCombo.combo.ctaBrickId,
               assembledScript: verbatimCombo.combo.assembledScript,
+              // À l'identique : la notif de la source aussi.
+              ...notifFieldsOf(verbatimCombo.combo),
             }
           : {
               campaignId: args.campaignId,
@@ -1510,6 +1596,8 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
               fluxBrickId: combo.fluxBrickId,
               ctaBrickId: combo.ctaBrickId,
               assembledScript: combo.assembledScript,
+              // Absente si la campagne n'a pas la notif → combo inchangé.
+              ...(notifs[i] ?? {}),
             },
         // Verbatim → comboKey EXACT de la source (gère le legacy 4 segments) ;
         // sinon signature des 3 briques choisies.
@@ -1566,7 +1654,14 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
 // une cible publiée). Pas de verrou de statut ni de quota d'éditions — on corrige
 // autant que nécessaire avant la mise en ligne. Une fois publié, le texte est
 // figé sur la plateforme → interdit (sinon décalage avec la réalité).
-const SLOT = v.union(v.literal("hook"), v.literal("flux"), v.literal("cta"));
+// "notif" : la brique optionnelle HORS combo — la changer ne touche ni au texte
+// monté, ni au comboKey (cf convex/scriptNotif).
+const SLOT = v.union(
+  v.literal("hook"),
+  v.literal("flux"),
+  v.literal("cta"),
+  v.literal("notif"),
+);
 
 /** Garde partagé : refuse l'édition si un lien de publication existe déjà. */
 function assertScriptEditable(a: Doc<"assignments">): void {
@@ -1618,6 +1713,24 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
       throw err(ERR.BRICK_DISABLED, "La brique choisie est désactivée.");
     }
 
+    // NOTIF — hors combo : on remplace la notif figée, et rien d'autre. Ni
+    // texte monté, ni comboKey, donc ni unicité ni cooldown à revérifier.
+    if (args.slot === "notif") {
+      const notifText = newBrick.content.trim();
+      if (notifText.length === 0) {
+        throw err(ERR.BRICK_TEXT_REQUIRED, "Le texte de la brique est requis.");
+      }
+      await ctx.db.patch(args.id, {
+        scriptCombo: {
+          ...combo,
+          notifBrickId: newBrick._id,
+          notifText,
+          editedOnce: true,
+        },
+      });
+      return { ok: true, comboKey: a.comboKey ?? null };
+    }
+
     const hookBrickId =
       args.slot === "hook" ? newBrick._id : combo.hookBrickId;
     const fluxBrickId =
@@ -1663,6 +1776,8 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
         ctaBrickId,
         assembledScript,
         editedOnce: true,
+        // La notif ne dépend pas de la brique changée : elle reste.
+        ...notifFieldsOf(combo),
       },
       comboKey,
       // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
@@ -1714,7 +1829,12 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
         ? combo.hookBrickId
         : args.slot === "flux"
           ? combo.fluxBrickId
-          : combo.ctaBrickId;
+          : args.slot === "cta"
+            ? combo.ctaBrickId
+            : combo.notifBrickId;
+    if (currentId === undefined) {
+      throw err(ERR.NOTIF_MISSING, "Cette vidéo n'a pas de notif à modifier.");
+    }
     const orig = await ctx.db.get(currentId);
     if (!orig) {
       throw err(ERR.SOURCE_BRICK_NOT_FOUND, "Brique d'origine introuvable.");
@@ -1734,6 +1854,20 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       active: true,
       createdAt: Date.now(),
     });
+
+    // NOTIF — hors combo : la variante remplace la notif figée, le texte monté
+    // et le comboKey ne bougent pas.
+    if (args.slot === "notif") {
+      await ctx.db.patch(args.id, {
+        scriptCombo: {
+          ...combo,
+          notifBrickId: forkedId,
+          notifText: text,
+          editedOnce: true,
+        },
+      });
+      return { ok: true, forkedBrickId: forkedId, comboKey: a.comboKey ?? null };
+    }
 
     const hookBrickId = args.slot === "hook" ? forkedId : combo.hookBrickId;
     const fluxBrickId = args.slot === "flux" ? forkedId : combo.fluxBrickId;
@@ -1765,6 +1899,7 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
         ctaBrickId,
         assembledScript,
         editedOnce: true, // TRACEUR « corrigé au moins une fois » (plus un verrou)
+        ...notifFieldsOf(combo),
       },
       comboKey,
       // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
@@ -2097,6 +2232,14 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
       combo = picked[0];
     }
 
+    // Notif : même règle que l'assignation de campagne (tirée hors combo).
+    const [notif] = await notifsForNewVideos(ctx, {
+      campaign,
+      bricks: allBricks,
+      creatorId: talent.clipperId,
+      count: 1,
+    });
+
     const now = Date.now();
     const assignmentId = await ctx.db.insert("assignments", {
       projectId: ctx.projectId,
@@ -2107,6 +2250,7 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
         assembledScript: combo.assembledScript,
+        ...(notif ?? {}),
       },
       comboKey: comboKeyOf(combo),
       ...(args.imposedCombo ? { comboImposed: true } : {}),

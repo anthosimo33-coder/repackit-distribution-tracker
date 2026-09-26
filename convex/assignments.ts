@@ -1339,6 +1339,17 @@ export const countVideoSubmitted = permissionQuery("review.manage")({
 });
 
 /**
+ * La NOTIF du combo, à recopier sur la publication (analytics par notif). Objet
+ * vide sans notif : la publication reste strictement identique à avant la
+ * brique. Seul l'id part — le texte reste figé sur l'assignation.
+ */
+function notifOfCombo(combo: {
+  notifBrickId?: Id<"scriptBricks">;
+}): { notifBrickId?: Id<"scriptBricks"> } {
+  return combo.notifBrickId ? { notifBrickId: combo.notifBrickId } : {};
+}
+
+/**
  * Matérialise la publication d'un assignment de SCRIPT et y RACCORDE le combo
  * (analytics S3). Un script = vidéo verticale → mediaType "short". `opts` porte
  * l'URL/plateforme/date du POST PUBLIÉ (résolus à l'étape `published`).
@@ -1376,6 +1387,7 @@ async function materializeScriptPublication(
       fluxBrickId: a.scriptCombo.fluxBrickId,
       ctaBrickId: a.scriptCombo.ctaBrickId,
       comboKey: a.comboKey,
+      ...notifOfCombo(a.scriptCombo),
     },
   });
 }
@@ -1439,6 +1451,7 @@ async function materializeTargetPublication(
         fluxBrickId: a.scriptCombo.fluxBrickId,
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
+        ...notifOfCombo(a.scriptCombo),
       },
       ...qualification,
     });
@@ -1879,6 +1892,7 @@ export const backfillPublicationCombos = internalMutation({
         fluxBrickId: a.scriptCombo.fluxBrickId,
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
+        ...notifOfCombo(a.scriptCombo),
       };
       if (a.publicationId === undefined) {
         // Cas S2 : pas de publication. La matérialiser rétroactivement exige une
@@ -2321,6 +2335,23 @@ async function scriptInstructionsOf(
 }
 
 /**
+ * NOTIF de la vidéo, telle que la créatrice doit la recopier à l'écran (brique
+ * optionnelle, cf convex/scriptNotif). Le TEXTE est celui FIGÉ à l'assignation,
+ * comme le script ; la CONSIGNE est lue LIVE sur la brique, comme celles des
+ * autres blocs. Rien d'autre ne sort : ni id, ni label de brique.
+ */
+type ScriptNotif = { text: string; instruction: string | null };
+async function scriptNotifOf(
+  ctx: QueryCtx,
+  combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
+): Promise<ScriptNotif | null> {
+  const text = combo.notifText?.trim();
+  if (!combo.notifBrickId || !text) return null;
+  const brick = await ctx.db.get(combo.notifBrickId);
+  return { text, instruction: brick?.instruction?.trim() || null };
+}
+
+/**
  * Libellé de mission RÉEXPOSÉ au créateur — le SEUL élément du `scriptCombo`
  * qu'il reçoit. Script → NOM DE CAMPAGNE (ex. « Format 3 - POV Demo ») ; format
  * → nom + type du format. La décomposition (bricks/comboKey) et les données
@@ -2701,6 +2732,9 @@ async function clipDetailFor(
   const scriptInstructions = a.scriptCombo
     ? await scriptInstructionsOf(ctx, a.scriptCombo)
     : [];
+  const scriptNotif = a.scriptCombo
+    ? await scriptNotifOf(ctx, a.scriptCombo)
+    : null;
   return {
     ...base,
     submittedVideoUrl,
@@ -2708,6 +2742,7 @@ async function clipDetailFor(
     assets,
     scriptZones,
     scriptInstructions,
+    scriptNotif,
   };
 }
 
@@ -2776,6 +2811,7 @@ async function assignmentDetailFor(
   if (a.scriptCombo) {
     const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo);
     const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
+    const scriptNotif = await scriptNotifOf(ctx, a.scriptCombo);
     return {
       assignment: safe,
       ...label,
@@ -2783,6 +2819,7 @@ async function assignmentDetailFor(
       assembledScript: a.scriptCombo.assembledScript,
       scriptZones,
       scriptInstructions,
+      scriptNotif,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -2800,6 +2837,7 @@ async function assignmentDetailFor(
       assembledScript: a.freeScript,
       scriptZones: null as ScriptZones | null,
       scriptInstructions: [] as ScriptInstruction[],
+      scriptNotif: null as ScriptNotif | null,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -2815,6 +2853,7 @@ async function assignmentDetailFor(
     assembledScript: null as string | null,
     scriptZones: null as ScriptZones | null,
     scriptInstructions: [] as ScriptInstruction[],
+    scriptNotif: null as ScriptNotif | null,
     targets,
     submittedVideoUrl,
     submittedVideoMimeType,

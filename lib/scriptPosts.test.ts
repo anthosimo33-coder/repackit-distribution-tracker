@@ -56,6 +56,19 @@ describe("selectSamplesForBrick", () => {
     expect(selectSamplesForBrick(samples, "cta", "c9")).toEqual([]);
   });
 
+  it("notif : garde les vidéos qui portent CETTE notif, jamais celles qui n'en ont pas", () => {
+    const withNotif: Sample[] = [
+      { ...mk("h1", "f1", "c1", 100), notifBrickId: "n1" },
+      { ...mk("h2", "f1", "c1", 200), notifBrickId: "n2" },
+      { ...mk("h1", "f2", "c1", 300), notifBrickId: null },
+      mk("h2", "f2", "c2", 400), // vidéo d'avant la notif : champ absent
+    ];
+    expect(
+      selectSamplesForBrick(withNotif, "notif", "n1").map((s) => s.views),
+    ).toEqual([100]);
+    expect(slotBrickIdOf(withNotif[3], "notif")).toBeNull();
+  });
+
   it("empty input → empty output", () => {
     expect(selectSamplesForBrick([], "hook", "h1")).toEqual([]);
   });

@@ -291,6 +291,7 @@ export function AssignmentDetailSheet({
               hookBrickId: combo.hookBrickId,
               fluxBrickId: combo.fluxBrickId,
               ctaBrickId: combo.ctaBrickId,
+              notifBrickId: combo.notifBrickId,
             }}
             creatorName={row.creatorName}
           />
@@ -535,6 +536,21 @@ export function AssignmentDetailSheet({
                   <SimpleMarkdown content={script} />
                 )}
               </div>
+              {/* NOTIF de la vidéo (brique optionnelle, hors script) — texte
+                  FIGÉ à l'assignation, celui que la créatrice recopie. */}
+              {combo?.notifText && (
+                <div
+                  className="rounded-lg border border-slate-200 bg-white p-3"
+                  data-testid="assignment-detail-notif"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <span aria-hidden>🔔</span> {tr("notifAAfficher")}
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-900">
+                    {combo.notifText}
+                  </p>
+                </div>
+              )}
             </section>
           ) : (
             <p className="text-sm text-slate-400">

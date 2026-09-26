@@ -11,25 +11,29 @@
  * engagementRate (lib/tracker-data) sur (likes + comments) / vues — même formule
  * que le tracker, aucune réimplémentation.
  */
-import type { ScriptKind } from "./scriptAssembly";
+import type { BrickKind } from "./scriptAssembly";
 
-/** Les 3 slots de brique d'un combo (hook/flux/cta). Les brickId sont des
- *  `string` (côté convex ce sont des Id<"scriptBricks">, comparés à l'identique).
- *  Le `corps` legacy n'a PAS de slot (hors refonte 3 briques) → jamais ici. */
+/** Les slots de brique d'une vidéo : les 3 du combo (hook/flux/cta) + la notif,
+ *  optionnelle et hors combo (null/absente = vidéo sans notif). Les brickId sont
+ *  des `string` (côté convex ce sont des Id<"scriptBricks">, comparés à
+ *  l'identique). Le `corps` legacy n'a PAS de slot (hors refonte 3 briques). */
 export type ComboSlots = {
   hookBrickId: string;
   fluxBrickId: string;
   ctaBrickId: string;
+  notifBrickId?: string | null;
 };
 
-/** brickId porté par le slot correspondant au `kind`. Miroir de `slotOf`
- *  (convex/scriptAnalytics.ts). */
-export function slotBrickIdOf(slots: ComboSlots, kind: ScriptKind): string {
+/** brickId porté par le slot correspondant au `kind` (null : pas de notif).
+ *  Miroir de `slotOf` (convex/scriptAnalytics.ts). */
+export function slotBrickIdOf(slots: ComboSlots, kind: BrickKind): string | null {
   switch (kind) {
     case "hook":
       return slots.hookBrickId;
     case "flux":
       return slots.fluxBrickId;
+    case "notif":
+      return slots.notifBrickId ?? null;
     default:
       return slots.ctaBrickId;
   }
@@ -44,7 +48,7 @@ export function slotBrickIdOf(slots: ComboSlots, kind: ScriptKind): string {
  */
 export function selectSamplesForBrick<T extends ComboSlots>(
   samples: readonly T[],
-  kind: ScriptKind,
+  kind: BrickKind,
   brickId: string,
 ): T[] {
   return samples.filter((s) => slotBrickIdOf(s, kind) === brickId);

@@ -13,6 +13,7 @@ import {
   ScriptDestinationZones,
   ScriptInstructionList,
 } from "@/components/scripts/ScriptDestinationZones";
+import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { ClipPublishForm } from "@/components/clip/ClipPublishForm";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
@@ -213,6 +214,14 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           </CardContent>
         </Card>
       ) : null}
+
+      {/* NOTIF à afficher à l'écran (brique optionnelle de la campagne). */}
+      {clip.scriptNotif && (
+        <ScriptNotifCard
+          text={clip.scriptNotif.text}
+          instruction={clip.scriptNotif.instruction}
+        />
+      )}
 
       {clip.instructions && (
         <Card className="border-indigo-200 bg-indigo-50/50">

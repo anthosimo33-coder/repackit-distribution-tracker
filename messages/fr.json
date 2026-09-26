@@ -290,7 +290,10 @@
       "inVideoHint": "Chaque partie précise si c'est à dire, à afficher, ou les deux.",
       "inDescription": "En description",
       "inDescriptionHint": "Copie-colle ça en légende de ton post (hashtags inclus).",
-      "instruction": "Instruction"
+      "instruction": "Instruction",
+      "notifTitle": "Notification à afficher",
+      "notifHint": "Recopie ce texte tel quel dans la notif qui apparaît à l'écran.",
+      "copyNotif": "Copier la notif"
     },
     "copy": {
       "copy": "Copier",
@@ -1479,7 +1482,9 @@
     "ERR_MCP_TOKEN_LIMIT": "Tu as déjà {max} clés : révoque celles qui ne servent plus.",
     "ERR_MCP_TOKEN_NOT_FOUND": "Clé introuvable.",
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Demande d’autorisation invalide ou expirée : relance la connexion depuis Claude.",
-    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Accès introuvable."
+    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Accès introuvable.",
+    "ERR_NO_ACTIVE_NOTIF": "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
+    "ERR_NOTIF_MISSING": "Cette vidéo n’a pas de notif à modifier."
   },
   "calendar": {
     "weekday": {

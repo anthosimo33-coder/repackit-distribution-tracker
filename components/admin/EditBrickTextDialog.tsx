@@ -31,8 +31,8 @@ import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 import { assembleScript, KIND_LABEL_KEYS } from "@/lib/scriptAssembly";
 import {
-  SCRIPT_COMBO_SLOTS,
-  type ScriptComboSlot,
+  editableSlots,
+  type EditableSlot,
 } from "@/lib/script-combo-edit";
 import { useTranslations } from "next-intl";
 import { useConvexError } from "@/lib/use-convex-error";
@@ -59,6 +59,8 @@ export function EditBrickTextDialog({
     hookBrickId: Id<"scriptBricks">;
     fluxBrickId: Id<"scriptBricks">;
     ctaBrickId: Id<"scriptBricks">;
+    /** Notif de la vidéo (absente = pas de notif : l'option n'est pas offerte). */
+    notifBrickId?: Id<"scriptBricks">;
   };
   creatorName: string;
 }) {
@@ -70,18 +72,20 @@ export function EditBrickTextDialog({
     open ? { id: campaignId } : "skip",
   );
   const edit = useProjectMutation(api.scripts.editScriptBrickText);
-  const [slot, setSlot] = useState<ScriptComboSlot>("hook");
+  const [slot, setSlot] = useState<EditableSlot>("hook");
+  const slots = editableSlots(combo.notifBrickId !== undefined);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [seedKey, setSeedKey] = useState<string | null>(null);
 
   const bricks = campaign?.bricks ?? [];
-  const currentIdForSlot: Record<ScriptComboSlot, Id<"scriptBricks">> = {
+  const currentIdForSlot: Record<EditableSlot, Id<"scriptBricks"> | undefined> = {
     hook: combo.hookBrickId,
     flux: combo.fluxBrickId,
     cta: combo.ctaBrickId,
+    notif: combo.notifBrickId,
   };
-  const contentOf = (id: Id<"scriptBricks">) =>
+  const contentOf = (id: Id<"scriptBricks"> | undefined) =>
     bricks.find((b) => b._id === id)?.content ?? "";
 
   // Reset à l'ouverture.
@@ -107,9 +111,12 @@ export function EditBrickTextDialog({
     flux: slot === "flux" ? text : contentOf(combo.fluxBrickId),
     cta: slot === "cta" ? text : contentOf(combo.ctaBrickId),
   };
-  const preview = text.trim()
-    ? assembleScript(previewContents, { labels: false })
-    : "";
+  // La notif est HORS script : la corriger ne change pas le texte monté, il
+  // n'y a donc pas d'aperçu du script à montrer.
+  const preview =
+    text.trim() && slot !== "notif"
+      ? assembleScript(previewContents, { labels: false })
+      : "";
 
   async function onConfirm() {
     if (text.trim().length === 0) {
@@ -146,13 +153,13 @@ export function EditBrickTextDialog({
               <Label htmlFor="brick-slot">{tr("briqueAEditer")}</Label>
               <Select
                 value={slot}
-                onValueChange={(v) => v && setSlot(v as ScriptComboSlot)}
+                onValueChange={(v) => v && setSlot(v as EditableSlot)}
               >
                 <SelectTrigger id="brick-slot" className="w-40">
                   <SelectValue>{tKind(KIND_LABEL_KEYS[slot])}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {SCRIPT_COMBO_SLOTS.map((s) => (
+                  {slots.map((s) => (
                     <SelectItem key={s} value={s}>
                       {tKind(KIND_LABEL_KEYS[s])}
                     </SelectItem>

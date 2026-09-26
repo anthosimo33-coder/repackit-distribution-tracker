@@ -90,8 +90,12 @@ const WINDOW = v.union(
   v.literal("latest"),
 );
 
-// Refonte 3 briques. Un kind inconnu (corps legacy) retombe en fin via `?? 99`.
-const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2 };
+// Refonte 3 briques + notif (brique optionnelle, hors combo). Un kind inconnu
+// (corps legacy) retombe en fin via `?? 99`.
+const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2, notif: 3 };
+
+/** Kinds qui ont un SLOT dans un échantillon (le corps legacy n'en a pas). */
+type SlotKind = "hook" | "flux" | "cta" | "notif";
 
 /** Un échantillon = une publication de script ayant une vue résolue à la fenêtre.
  *
@@ -105,6 +109,8 @@ interface ViewSample {
   hookBrickId: Id<"scriptBricks">;
   fluxBrickId: Id<"scriptBricks">;
   ctaBrickId: Id<"scriptBricks">;
+  /** Notif de la vidéo — null = vidéo sans notif (hors comboKey, cf scriptNotif). */
+  notifBrickId: Id<"scriptBricks"> | null;
   views: number;
   // ─── Drill-down (additif) — métriques du snapshot matché à la fenêtre ───────
   likes: number;
@@ -215,6 +221,7 @@ export async function gatherCampaignViews(
       hookBrickId: combo.hookBrickId,
       fluxBrickId: combo.fluxBrickId,
       ctaBrickId: combo.ctaBrickId,
+      notifBrickId: combo.notifBrickId ?? null,
       views: match.vues,
       // Même snapshot matché que `views` — likes requis, comments optionnel (→ 0
       // comme le tracker, pour l'engagement dérivé au rendu).
@@ -234,13 +241,16 @@ export async function gatherCampaignViews(
   return { found: true, bricksById, activeBricks, samples };
 }
 
-/** Slot de combo portant une brique d'un kind donné. */
-function slotOf(s: ViewSample, kind: string): Id<"scriptBricks"> {
+/** Slot de l'échantillon portant une brique d'un kind donné (null : vidéo
+ *  sans notif). */
+function slotOf(s: ViewSample, kind: SlotKind): Id<"scriptBricks"> | null {
   switch (kind) {
     case "hook":
       return s.hookBrickId;
     case "flux":
       return s.fluxBrickId;
+    case "notif":
+      return s.notifBrickId;
     default:
       return s.ctaBrickId;
   }
@@ -258,7 +268,7 @@ export const BRICK_SERIES_MAX = 8;
 
 export interface BrickPerf extends Distribution {
   brickId: Id<"scriptBricks">;
-  kind: "hook" | "flux" | "cta";
+  kind: SlotKind;
   label: string;
   /**
    * Vues des DERNIERS runs de la brique, du plus ancien au plus récent (au plus
@@ -287,7 +297,7 @@ export function aggregateByBrick(views: CampaignViews): BrickPerf[] {
   const out: BrickPerf[] = activeBricks
     .filter((b) => b.kind !== "corps")
     .map((b) => {
-      const kind = b.kind as "hook" | "flux" | "cta";
+      const kind = b.kind as SlotKind;
       const mine = samples.filter((s) => slotOf(s, kind) === b._id);
       const values = mine.map((s) => s.views);
       // Série run par run : ordre de PUBLICATION (les échantillons arrivent dans
@@ -365,7 +375,7 @@ export function postsByBrick(
 ): BrickPostRow[] {
   const brick = views.bricksById.get(brickId as string);
   if (!brick || brick.kind === "corps") return [];
-  const kind = brick.kind as "hook" | "flux" | "cta";
+  const kind = brick.kind as SlotKind;
   const rows: BrickPostRow[] = views.samples
     .filter((s) => slotOf(s, kind) === brickId)
     .map((s) => ({
