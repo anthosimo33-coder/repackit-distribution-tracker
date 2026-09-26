@@ -754,6 +754,11 @@ export default defineSchema({
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         comboKey: v.string(),
+        // NOTIF (brique optionnelle, cf convex/scriptNotif) — copiée depuis
+        // l'assignation pour que l'analytics range les vues PAR NOTIF. HORS
+        // comboKey : absente = vidéo sans notif (campagne sans notif, ou
+        // publication d'avant la brique).
+        notifBrickId: v.optional(v.id("scriptBricks")),
       }),
     ),
     // ─── Refactor multi-snapshots — valeurs dénormalisées "latest known" ───
@@ -1929,6 +1934,14 @@ export default defineSchema({
         // cf representativePostedAt) — conservé pour l'historique. Optional →
         // 0 migration (absent = jamais corrigé).
         editedOnce: v.optional(v.boolean()),
+        // NOTIF — brique OPTIONNELLE tirée à part du combo (cf
+        // convex/scriptNotif) : n'entre NI dans assembledScript NI dans
+        // comboKey, donc unicité, cooldown et découpage en zones sont
+        // inchangés. `notifText` = texte FIGÉ à l'assignation, comme
+        // assembledScript : éditer la brique ensuite ne réécrit pas la fiche
+        // d'une créatrice qui a déjà tourné. Absents = vidéo sans notif.
+        notifBrickId: v.optional(v.id("scriptBricks")),
+        notifText: v.optional(v.string()),
       }),
     ),
     /**
@@ -2839,6 +2852,11 @@ export default defineSchema({
       v.union(v.literal("warmup"), v.literal("promo")),
     ),
     defaultRemunerated: v.optional(v.boolean()),
+    // NOTIF — la campagne a-t-elle une brique « notif » (texte de la notif
+    // affichée à l'écran) ? true = chaque vidéo assignée en porte une, tirée
+    // en rotation équilibrée hors combo (convex/scriptNotif). Absent = non :
+    // les campagnes existantes sont inchangées, 0 migration.
+    notifEnabled: v.optional(v.boolean()),
     // LEGACY (refonte 3 briques) — socle démo, plus monté ni édité côté UI.
     // Conservé (required, défaut "") pour 0 migration sur scriptCampaigns ;
     // suppression = resserrage ultérieur.
@@ -2864,6 +2882,8 @@ export default defineSchema({
       v.literal("corps"), // LEGACY — reclassé en "hook" par migrateCorpsToHooks
       v.literal("flux"),
       v.literal("cta"),
+      // NOTIF — brique OPTIONNELLE, hors combo (cf scriptCampaigns.notifEnabled).
+      v.literal("notif"),
     ),
     label: v.string(),
     content: v.string(),

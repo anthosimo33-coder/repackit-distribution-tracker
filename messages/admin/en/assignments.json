@@ -112,7 +112,8 @@
     "creneauRetire": "Window removed.",
     "echecDeLaMiseA": "Couldn't update the window",
     "dateDePublicationMiseA": "Publish date updated.",
-    "dateDePublicationRetiree": "Publish date removed."
+    "dateDePublicationRetiree": "Publish date removed.",
+    "notifAAfficher": "Notification to show"
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",

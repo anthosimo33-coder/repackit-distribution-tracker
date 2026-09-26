@@ -411,6 +411,8 @@ export const createFromAssignment = internalMutation({
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
         comboKey: v.string(),
+        // Notif de la vidéo (optionnelle, hors comboKey — cf schema).
+        notifBrickId: v.optional(v.id("scriptBricks")),
       }),
     ),
     // QUALIFICATION héritée de l'assignation (cf assignments.contentType /

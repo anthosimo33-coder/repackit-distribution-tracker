@@ -75,7 +75,10 @@
     "briquesDeLaCampagne": "Campaign bricks",
     "aucuneBrique": "No “{value}” brick.",
     "aucuneBriqueNeCorrespondAux": "No brick matches the filters.",
-    "editionDeLaBriqueSelectionnee": "Editing the selected brick"
+    "editionDeLaBriqueSelectionnee": "Editing the selected brick",
+    "notifToggle": "Notification in the video",
+    "notifToggleHint": "Each assigned video gets an on-screen notification, picked in rotation — analytics tells you which one drives views.",
+    "notifAucuneActive": "Notifications are on but none is active: add one in the Notification tab, or turn notifications off, to be able to assign."
   },
   "BrickRow": {
     "consigne": "💡 note",
@@ -109,7 +112,8 @@
     "briqueMiseAJour": "Brick updated",
     "briqueAjoutee": "Brick added",
     "uneErreurEstSurvenue": "Something went wrong.",
-    "briqueSupprimee": "Brick deleted"
+    "briqueSupprimee": "Brick deleted",
+    "afficheALEcran": "— shown on screen, not part of the script"
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",
@@ -224,7 +228,8 @@
   "brickKind": {
     "hook": "Hook",
     "flux": "Flow",
-    "cta": "Description"
+    "cta": "Description",
+    "notif": "Notification"
   },
   "decision": {
     "aPousser": "Push {label}{hasRatio, select, yes { — median {ratio} vs peers} other {}}, on {posts} posts.",

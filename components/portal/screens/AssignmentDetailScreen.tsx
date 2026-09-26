@@ -26,6 +26,7 @@ import { PricingEstimator } from "@/components/portal/PricingEstimator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { MissionStepper } from "@/components/portal/MissionStepper";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import {
   ScriptDestinationZones,
   ScriptInstructionList,
@@ -194,6 +195,16 @@ export default function AssignmentDetailScreen({
                     </Card>
                   )}
                 </div>
+
+                {/* NOTIF à afficher à l'écran — brique optionnelle de la
+                    campagne, recopiée mot pour mot (c'est elle qu'on mesure). */}
+                {data.scriptNotif && (
+                  <ScriptNotifCard
+                    className="order-5"
+                    text={data.scriptNotif.text}
+                    instruction={data.scriptNotif.instruction}
+                  />
+                )}
 
                 {/* INSTRUCTIONS de l'équipe POUR la créatrice — consigne de
                     tournage/montage, distincte du script et de l'overlay. */}

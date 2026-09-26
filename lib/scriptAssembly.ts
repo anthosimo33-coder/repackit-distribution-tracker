@@ -19,6 +19,19 @@ export const SCRIPT_KINDS: readonly ScriptKind[] = [
 ] as const;
 
 /**
+ * Tous les kinds ÉDITABLES : les 3 du combo + la NOTIF, brique OPTIONNELLE
+ * (réglage par campagne) tirée HORS combo — elle n'entre ni dans le montage ci-
+ * dessous, ni dans le décompte des combinaisons, ni dans la clé de combo (cf
+ * convex/scriptNotif).
+ */
+export type BrickKind = ScriptKind | "notif";
+
+/** Les kinds montrés dans l'éditeur d'une campagne, selon son réglage notif. */
+export function editableKinds(notifEnabled: boolean): readonly BrickKind[] {
+  return notifEnabled ? [...SCRIPT_KINDS, "notif"] : SCRIPT_KINDS;
+}
+
+/**
  * Libellés AFFICHÉS des 3 briques — SOURCE UNIQUE de tout texte montré à un
  * humain (titres de section, selects, empty states, aperçu admin, analytics).
  *
@@ -29,10 +42,11 @@ export const SCRIPT_KINDS: readonly ScriptKind[] = [
  * ici : elle est féminine (« une description »), là où « CTA » était masculin.
  */
 /** Clés de libellé des briques à l'écran : `admin.scripts.brickKind.<clé>`. */
-export const KIND_LABEL_KEYS: Record<ScriptKind, ScriptKind> = {
+export const KIND_LABEL_KEYS: Record<BrickKind, BrickKind> = {
   hook: "hook",
   flux: "flux",
   cta: "cta",
+  notif: "notif",
 };
 
 /**

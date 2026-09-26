@@ -112,7 +112,8 @@
     "creneauRetire": "Créneau retiré.",
     "echecDeLaMiseA": "Échec de la mise à jour du créneau",
     "dateDePublicationMiseA": "Date de publication mise à jour.",
-    "dateDePublicationRetiree": "Date de publication retirée."
+    "dateDePublicationRetiree": "Date de publication retirée.",
+    "notifAAfficher": "Notif à afficher"
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",

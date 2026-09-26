@@ -57,11 +57,15 @@ import {
 import {
   assembleScript,
   countCombinations,
+  editableKinds,
   KIND_LABEL_KEYS,
   SCRIPT_KINDS,
   usefulShortLabel,
+  type BrickKind,
   type ScriptKind,
 } from "@/lib/scriptAssembly";
+import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
+import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import {
   BRICK_MODE_OPTIONS,
   resolveBrickMode,
@@ -114,10 +118,11 @@ type Brick = CampaignDetail["bricks"][number];
  * on ne fait que le mettre au pluriel — « 3 sur 5 hook » se lit mal, et « Flux »
  * est déjà invariable.
  */
-const KIND_PLURAL: Record<ScriptKind, string> = {
+const KIND_PLURAL: Record<BrickKind, string> = {
   hook: "hooks",
   flux: "flux",
   cta: "descriptions",
+  notif: "notifs",
 };
 
 /** Valeur du select « aucune créatrice » (Select n'accepte pas ""). */
@@ -152,7 +157,7 @@ export default function ScriptCampaignDetailPage() {
   const [assignOpen, setAssignOpen] = useState(false);
 
   // ─── Barre d'outils : type, recherche, filtres ─────────────────────────────
-  const [kind, setKind] = useState<ScriptKind>("hook");
+  const [kind, setKind] = useState<BrickKind>("hook");
   const [search, setSearch] = useState("");
   const [onlyActive, setOnlyActive] = useState(false);
   const [onlyWithInstruction, setOnlyWithInstruction] = useState(false);
@@ -282,7 +287,7 @@ export default function ScriptCampaignDetailPage() {
     setSelectedId(next);
   }
 
-  async function switchKind(k: ScriptKind) {
+  async function switchKind(k: BrickKind) {
     if (k === kind) return;
     if (dirty && editorRef.current) {
       const ok = await editorRef.current.save();
@@ -317,6 +322,11 @@ export default function ScriptCampaignDetailPage() {
 
   const combos = countCombinations(bricks);
   const isLab = campaignNameMatches(campaign.name, LAB_CAMPAIGN_NAME);
+  // NOTIF — brique optionnelle de la campagne. Allumée sans aucune notif
+  // tirable, le serveur REFUSE l'assignation : on le dit ici, avant le clic.
+  const notifOn = isNotifEnabled(campaign);
+  const notifMissing = notifOn && drawableNotifs(bricks).length === 0;
+  const kinds = editableKinds(notifOn);
   const activeCount = ofKind.filter((b) => b.active).length;
   const checkedIds = [...checked].filter((cid) =>
     ofKind.some((b) => b._id === cid),
@@ -343,6 +353,14 @@ export default function ScriptCampaignDetailPage() {
               {" "}{tr("hooksFluxCta", { hook: combos.byKind.hook, flux: combos.byKind.flux, cta: combos.byKind.cta })}
             </span>
           </p>
+          <NotifToggle
+            campaignId={campaign._id}
+            enabled={notifOn}
+            missing={notifMissing}
+            onDisabled={() => {
+              if (kind === "notif") void switchKind("hook");
+            }}
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
@@ -367,7 +385,10 @@ export default function ScriptCampaignDetailPage() {
           </Button>
           <Button
             onClick={() => setAssignOpen(true)}
-            disabled={combos.total === 0 || campaign.status === "archived"}
+            disabled={
+              combos.total === 0 || campaign.status === "archived" || notifMissing
+            }
+            title={notifMissing ? tr("notifAucuneActive") : undefined}
           >
             <SendIcon className="mr-2 size-4" />
             {tr("assignerCetteCampagne")}
@@ -382,7 +403,7 @@ export default function ScriptCampaignDetailPage() {
           role="tablist"
           aria-label={tr("typeDeBrique")}
         >
-          {SCRIPT_KINDS.map((k) => (
+          {kinds.map((k) => (
             <button
               key={k}
               type="button"
@@ -571,6 +592,63 @@ export default function ScriptCampaignDetailPage() {
         open={graduating !== null}
         onOpenChange={(o) => !o && setGraduating(null)}
       />
+    </div>
+  );
+}
+
+/**
+ * Interrupteur NOTIF de la campagne (cf convex/scriptNotif). Allumé : un onglet
+ * « Notif » apparaît et chaque vidéo assignée porte une notif, tirée en
+ * rotation. Éteint : les notifs saisies restent, mais aucune ne part.
+ */
+function NotifToggle({
+  campaignId,
+  enabled,
+  missing,
+  onDisabled,
+}: {
+  campaignId: Id<"scriptCampaigns">;
+  enabled: boolean;
+  /** Allumée mais aucune notif tirable : l'assignation sera refusée. */
+  missing: boolean;
+  onDisabled: () => void;
+}) {
+  const showError = useConvexError();
+  const tr = useTranslations("admin.scripts.ScriptCampaignDetailPage");
+  const update = useProjectMutation(api.scripts.updateCampaign);
+  const [busy, setBusy] = useState(false);
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    try {
+      await update({ id: campaignId, notifEnabled: next });
+      if (!next) onDisabled();
+    } catch (e) {
+      toast.error(showError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1 pt-1">
+      <label className="flex w-fit items-center gap-2 text-sm text-slate-700">
+        <Switch
+          checked={enabled}
+          onCheckedChange={toggle}
+          disabled={busy}
+          aria-label={tr("notifToggle")}
+          data-testid="notif-toggle"
+        />
+        <span aria-hidden>🔔</span>
+        {tr("notifToggle")}
+      </label>
+      <p className="text-xs text-slate-400">{tr("notifToggleHint")}</p>
+      {missing && (
+        <p className="text-xs text-amber-700" data-testid="notif-missing">
+          {tr("notifAucuneActive")}
+        </p>
+      )}
     </div>
   );
 }
@@ -773,7 +851,7 @@ function BrickEditor({
   onGraduate,
 }: {
   campaignId: Id<"scriptCampaigns">;
-  kind: ScriptKind;
+  kind: BrickKind;
   brick: Brick | null;
   creating: boolean;
   bricks: Brick[];
@@ -918,7 +996,7 @@ function BrickEditor({
             <Label htmlFor="brick-content">
               {tr("texte")}{" "}
               <span className="font-normal text-slate-400">
-                {tr("partDansLeScript")}
+                {kind === "notif" ? tr("afficheALEcran") : tr("partDansLeScript")}
               </span>
             </Label>
             <Textarea
@@ -1051,7 +1129,7 @@ function CreatorPreview({
   bricks,
   draft,
 }: {
-  kind: ScriptKind;
+  kind: BrickKind;
   bricks: Brick[];
   draft: { content: string; instruction: string; mode: BrickMode };
 }) {
@@ -1060,6 +1138,30 @@ function CreatorPreview({
   // Réglage du projet, résolu serveur (convex/scriptZonesSetting) — la même
   // décision que la fiche créatrice.
   const zones = useProject().project.scriptZonesEnabled;
+
+  // NOTIF — hors script : la créatrice la voit dans sa propre carte, c'est
+  // donc CETTE carte qu'on prévisualise (même composant que la fiche).
+  if (kind === "notif") {
+    return (
+      <div className="space-y-2" data-testid="editor-preview">
+        <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {tr("ceQueVerraLaCreatrice")}
+        </p>
+        {draft.content.trim() ? (
+          <ScriptNotifCard
+            text={draft.content.trim()}
+            instruction={draft.instruction.trim() || null}
+          />
+        ) : (
+          <Card>
+            <CardContent className="py-6 text-center text-xs text-slate-400">
+              {tr("lApercuSAfficheDes")}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  }
 
   /** Texte + consigne d'un slot : la SAISIE EN COURS pour le slot édité, la
    *  première brique active sinon. Taper met l'aperçu à jour, sans enregistrer. */

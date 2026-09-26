@@ -109,6 +109,7 @@
     "components/public-home/home.module.css",
     "components/public/LocaleSwitch.tsx",
     "components/scripts/ScriptDestinationZones.tsx",
+    "components/scripts/ScriptNotifCard.tsx",
     "components/talent/TalentProjectProvider.tsx",
     "components/talent/TalentSpaceScreen.tsx",
     "components/talent/talent-data.ts",

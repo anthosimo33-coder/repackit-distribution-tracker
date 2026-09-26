@@ -65,7 +65,18 @@ const DIMENSION_LABEL_KEY: Record<string, string> = {
   hook: KIND_LABEL_KEYS.hook,
   flux: KIND_LABEL_KEYS.flux,
   cta: KIND_LABEL_KEYS.cta,
+  notif: KIND_LABEL_KEYS.notif,
 };
+
+/**
+ * Sections du détail : les 3 briques du combo, + la NOTIF dès que la campagne
+ * en a (brique optionnelle hors combo) — c'est la section qui dit laquelle fait
+ * les vues. Une campagne sans notif n'a pas de section vide en plus.
+ */
+function detailKinds(bricks: readonly { kind: string }[]): string[] {
+  const kinds = ["hook", "flux", "cta"];
+  return bricks.some((b) => b.kind === "notif") ? [...kinds, "notif"] : kinds;
+}
 
 export default function ScriptAnalyticsPage() {
   const tr = useTranslations("admin.scripts.ScriptAnalyticsPage");
@@ -141,7 +152,7 @@ export default function ScriptAnalyticsPage() {
                   {tr("medianesBrutesParVariableEt")}
                 </p>
               </div>
-              {(["hook", "flux", "cta"] as const).map((kind) => (
+              {detailKinds(bricks).map((kind) => (
                 <BrickSection
                   key={kind}
                   kind={kind}

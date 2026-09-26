@@ -129,7 +129,7 @@ export function ScriptDestinationZones({
  * ce n'est pas à dire — ni à copier. Rien à rendre quand il n'y a pas de
  * consigne (le cas courant).
  */
-function BlockInstruction({
+export function BlockInstruction({
   text,
   label,
 }: {

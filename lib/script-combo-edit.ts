@@ -26,6 +26,17 @@ export const SCRIPT_COMBO_SLOTS: readonly ScriptComboSlot[] = [
 ] as const;
 
 /**
+ * Ce qu'on peut corriger sur une vidéo : les 3 briques du combo, + la NOTIF si
+ * la vidéo en porte une (brique optionnelle hors combo, cf convex/scriptNotif —
+ * la corriger ne touche ni au texte monté ni au comboKey).
+ */
+export type EditableSlot = ScriptComboSlot | "notif";
+
+export function editableSlots(hasNotif: boolean): readonly EditableSlot[] {
+  return hasNotif ? [...SCRIPT_COMBO_SLOTS, "notif"] : SCRIPT_COMBO_SLOTS;
+}
+
+/**
  * Le combo est-il corrigeable ? true ssi AUCUN lien de publication n'existe
  * (`postedAt` null = pas encore publié). Sert à la visibilité du bouton (UI) ET
  * mirroir du garde serveur. `postedAt` = date de post réelle (representativePostedAt).

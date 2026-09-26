@@ -181,6 +181,7 @@ import type * as rushStatus from "../rushStatus.js";
 import type * as rushes from "../rushes.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
 import type * as scriptDecision from "../scriptDecision.js";
+import type * as scriptNotif from "../scriptNotif.js";
 import type * as scriptSeedData from "../scriptSeedData.js";
 import type * as scriptZonesSetting from "../scriptZonesSetting.js";
 import type * as scripts from "../scripts.js";
@@ -403,6 +404,7 @@ declare const fullApi: ApiFromModules<{
   rushes: typeof rushes;
   scriptAnalytics: typeof scriptAnalytics;
   scriptDecision: typeof scriptDecision;
+  scriptNotif: typeof scriptNotif;
   scriptSeedData: typeof scriptSeedData;
   scriptZonesSetting: typeof scriptZonesSetting;
   scripts: typeof scripts;

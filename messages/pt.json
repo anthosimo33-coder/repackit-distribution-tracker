@@ -290,7 +290,10 @@
       "inVideoHint": "Cada parte indica se é para falar, mostrar ou os dois.",
       "inDescription": "Na descrição",
       "inDescriptionHint": "Copie e cole isto como legenda do seu post (hashtags incluídas).",
-      "instruction": "Instrução"
+      "instruction": "Instrução",
+      "notifTitle": "Notificação a mostrar",
+      "notifHint": "Copie este texto exatamente na notificação que aparece na tela.",
+      "copyNotif": "Copiar a notificação"
     },
     "copy": {
       "copy": "Copiar",
@@ -1479,7 +1482,9 @@
     "ERR_MCP_TOKEN_LIMIT": "Você já tem {max} chaves: revogue as que não usa mais.",
     "ERR_MCP_TOKEN_NOT_FOUND": "Chave não encontrada.",
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Pedido de autorização inválido ou expirado: reinicie a conexão pelo Claude.",
-    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acesso não encontrado."
+    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acesso não encontrado.",
+    "ERR_NO_ACTIVE_NOTIF": "A notificação está ativada nesta campanha, mas nenhuma está ativa: adicione uma ou desative-a.",
+    "ERR_NOTIF_MISSING": "Este vídeo não tem notificação para editar."
   },
   "calendar": {
     "weekday": {

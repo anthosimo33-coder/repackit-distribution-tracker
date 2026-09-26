@@ -75,7 +75,10 @@
     "briquesDeLaCampagne": "Briques de la campagne",
     "aucuneBrique": "Aucune brique « {value} ».",
     "aucuneBriqueNeCorrespondAux": "Aucune brique ne correspond aux filtres.",
-    "editionDeLaBriqueSelectionnee": "Édition de la brique sélectionnée"
+    "editionDeLaBriqueSelectionnee": "Édition de la brique sélectionnée",
+    "notifToggle": "Notif dans la vidéo",
+    "notifToggleHint": "Chaque vidéo assignée reçoit une notif à afficher à l'écran, tirée en rotation — l'analytics dit laquelle fait les vues.",
+    "notifAucuneActive": "Notif activée mais aucune notif active : ajoutes-en une dans l'onglet Notif, ou désactive la notif, pour pouvoir assigner."
   },
   "BrickRow": {
     "consigne": "💡 consigne",
@@ -109,7 +112,8 @@
     "briqueMiseAJour": "Brique mise à jour",
     "briqueAjoutee": "Brique ajoutée",
     "uneErreurEstSurvenue": "Une erreur est survenue.",
-    "briqueSupprimee": "Brique supprimée"
+    "briqueSupprimee": "Brique supprimée",
+    "afficheALEcran": "— affiché à l'écran, hors script"
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "L'aperçu s'affiche dès qu'une brique active de chaque type porte du texte.",
@@ -224,7 +228,8 @@
   "brickKind": {
     "hook": "Hook",
     "flux": "Flux",
-    "cta": "Description"
+    "cta": "Description",
+    "notif": "Notif"
   },
   "decision": {
     "aPousser": "Pousse {label}{hasRatio, select, yes { — médiane {ratio} vs pairs} other {}}, sur {posts} posts.",

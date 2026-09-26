@@ -290,7 +290,10 @@
       "inVideoHint": "Each part says whether to say it, show it, or both.",
       "inDescription": "In the description",
       "inDescriptionHint": "Copy and paste this as your post caption (hashtags included).",
-      "instruction": "Instruction"
+      "instruction": "Instruction",
+      "notifTitle": "Notification to show",
+      "notifHint": "Copy this text exactly into the notification that pops up on screen.",
+      "copyNotif": "Copy the notification"
     },
     "copy": {
       "copy": "Copy",
@@ -1479,7 +1482,9 @@
     "ERR_MCP_TOKEN_LIMIT": "You already have {max} keys: revoke the ones you no longer use.",
     "ERR_MCP_TOKEN_NOT_FOUND": "Key not found.",
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Invalid or expired authorization request: start the connection again from Claude.",
-    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Access not found."
+    "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Access not found.",
+    "ERR_NO_ACTIVE_NOTIF": "Notifications are on for this campaign, but none is active: add one, or turn notifications off.",
+    "ERR_NOTIF_MISSING": "This video has no notification to edit."
   },
   "calendar": {
     "weekday": {
