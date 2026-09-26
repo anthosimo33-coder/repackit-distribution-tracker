@@ -67,6 +67,14 @@ import { windowCosts } from "./attributionWindow";
 import { getMarketPnlCore } from "./marketPnl";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
+import { listAssignmentsCore } from "./assignments";
+import {
+  calendarStatus,
+  isSameLocalDay,
+  onTimeTally,
+  plannedDayKey,
+  type CalendarStatus,
+} from "./calendarStatus";
 import { listMarketGroupsCore } from "./marketGroups";
 import { getProductAnalyticsCore } from "./posthogSync";
 import { windowToMs } from "./marketWindow";
@@ -244,6 +252,12 @@ export const lirePaiements = mcpPermissionQuery("payments.manage")({
       rows: await collectProjectPaymentRows(ctx, ctx.projectId),
     };
   },
+});
+
+/** Écran Assignments (calendrier) : les livrables planifiés — même lecture, même bloc. */
+export const lirePlanning = mcpPermissionQuery("assignments.manage")({
+  args: {},
+  handler: async (ctx) => listAssignmentsCore(ctx),
 });
 
 /** Courbe « Vues gagnées par jour » du Tracker, sur une période — même bloc. */
@@ -655,6 +669,22 @@ export const OUTILS: readonly McpTool[] = [
         projet: ARG_PROJET,
         createatrice: { type: "string", description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés)." },
         reglees: { type: "integer", description: "Nombre de derniers cycles réglés à inclure (défaut 10, 0 pour aucun).", minimum: 0, maximum: 50 },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "planning",
+    title: "Planning des publications",
+    description:
+      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format. Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: { type: "string", description: "Filtre sur le nom de la créatrice (sous-chaîne, accents ignorés)." },
+        jours: { type: "integer", description: "Horizon du « à venir », en jours après aujourd'hui (défaut 7).", minimum: 1, maximum: 60 },
+        limite: { type: "integer", description: "Posts listés au plus par rubrique (défaut 30).", minimum: 1, maximum: 200 },
       },
       additionalProperties: false,
     },
@@ -1552,6 +1582,96 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Un cycle = 30 jours glissants propres à chaque créatrice. « valeur » = ce que vaut le cycle ; « resteAVerser » = valeur − acomptes déjà versés (jamais négatif). « aVerser » = ce que « tout payer » verserait (hors créatrices supprimées).",
             "Un cycle en cours peut encore monter : une vidéo est rémunérée jusqu'à J+30 après publication. « postsPayablesSansMesure » = posts qui compteront mais dont les vues ne sont pas encore relevées.",
             "Montants dans la devise de PAIE du projet.",
+          ],
+        });
+      }
+
+      if (name === "planning") {
+        const lignes = (await lire(() => ctx.runQuery(internal.mcpTools.lirePlanning, ids))).filter((r) =>
+          filtreNom(r.creatorName, args.createatrice),
+        );
+        const maintenant = Date.now();
+        const horizon = typeof args.jours === "number" ? args.jours : 7;
+        const libelles = {
+          on_time: "à l'heure",
+          late: "publié hors date",
+          missed: "manqué",
+          scheduled: "prévu",
+        } as const;
+        // LE statut du calendrier (convex/calendarStatus), jugé dans le fuseau de
+        // la créatrice, comme l'écran et les notifications de retard.
+        const planifiees = lignes
+          .filter((r) => r.postDate != null)
+          .map((r) => ({
+            r,
+            statut: calendarStatus({
+              postDate: r.postDate,
+              postedAt: r.postedAt,
+              now: maintenant,
+              timeZone: r.creatorTimezone,
+            }) as Exclude<CalendarStatus, "none">,
+          }));
+        const item = ({ r, statut }: (typeof planifiees)[number]) => {
+          const cible = r.targets[0];
+          return {
+            createatrice: r.creatorName,
+            compte: cible?.accountHandle ?? null,
+            plateforme: cible?.platform ?? null,
+            pays: cible?.country ?? null,
+            jourPrevu: plannedDayKey(r.postDate!),
+            statut: libelles[statut],
+            quoi: r.scriptCampaignName ?? r.formatName,
+            ...(r.postedAt != null ? { publieLe: jour(r.postedAt) } : {}),
+          };
+        };
+        const parJour = (a: (typeof planifiees)[number], b: (typeof planifiees)[number]) =>
+          (a.r.postDate ?? 0) - (b.r.postDate ?? 0);
+        // « Aujourd'hui » = le rappel admin de l'écran : prévu aujourd'hui, pas encore publié.
+        const aujourdhui = planifiees.filter(
+          ({ r }) => isSameLocalDay(r.postDate!, maintenant) && r.postedAt == null,
+        );
+        const manques = planifiees.filter((p) => p.statut === "missed").sort((a, b) => parJour(b, a));
+        const horsDate = planifiees.filter((p) => p.statut === "late").sort((a, b) => parJour(b, a));
+        const limiteAVenir = plannedDayKey(maintenant + horizon * 86_400_000);
+        const aujourdhuiCle = plannedDayKey(maintenant);
+        const aVenir = planifiees
+          .filter(
+            (p) =>
+              p.statut === "scheduled" &&
+              plannedDayKey(p.r.postDate!) > aujourdhuiCle &&
+              plannedDayKey(p.r.postDate!) <= limiteAVenir,
+          )
+          .sort(parJour);
+        const tally = onTimeTally(
+          planifiees.map(({ r }) => ({ postDate: r.postDate, postedAt: r.postedAt, timeZone: r.creatorTimezone })),
+          maintenant,
+        );
+        const nus = lignes.filter((r) => r.postDate == null);
+        const limite = typeof args.limite === "number" ? args.limite : 30;
+        const liste = (xs: (typeof planifiees)[number][]) => ({
+          nombre: xs.length,
+          ...(xs.length > limite ? { tronque: `${limite} premiers sur ${xs.length}` } : {}),
+          posts: xs.slice(0, limite).map(item),
+        });
+        return json({
+          projet: projet.slug,
+          aujourdhui: { jour: aujourdhuiCle, aPublier: liste(aujourdhui) },
+          manques: liste(manques),
+          publiesHorsDate: liste(horsDate),
+          aVenir: { jusquAu: limiteAVenir, ...liste(aVenir) },
+          ponctualite: {
+            aLHeure: tally.onTime,
+            horsDate: tally.late,
+            manques: tally.missed,
+            prevus: tally.scheduled,
+            postsPasses: tally.past,
+            tauxALHeurePct: tally.rate === null ? null : Math.round(tally.rate * 1000) / 10,
+          },
+          sansDateDePublication: { total: nus.length, aFaire: nus.filter((r) => r.postedAt == null).length },
+          lecture: [
+            "Statut jugé dans le FUSEAU de la créatrice (une publication du 8 au soir à New York n'est pas en retard parce qu'il est déjà le 9 à Paris) ; le jour prévu est un jour de Paris.",
+            "« manqué » = jour prévu passé chez elle, rien de publié ; « publié hors date » = publié, mais pas le jour prévu ; « prévu » compte le jour même (elle a encore la soirée).",
+            "Taux à l'heure = à l'heure ÷ posts passés (hors « prévu ») — le même chiffre que le calendrier et les notifications de retard. Les posts sans date de publication n'y entrent pas.",
           ],
         });
       }

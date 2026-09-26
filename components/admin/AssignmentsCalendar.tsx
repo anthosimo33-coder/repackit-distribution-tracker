@@ -39,8 +39,8 @@ import { cn } from "@/lib/utils";
 import { useIsCompact } from "@/lib/use-media-query";
 import {
   calendarStatus,
-  isPastPost,
   isSameLocalDay,
+  onTimeTally,
   type CalendarStatus,
 } from "@/lib/calendar-status";
 import {
@@ -194,28 +194,20 @@ export function AssignmentsCalendar({
     };
   }, [rows]);
 
-  const stats = useMemo(() => {
-    let onTime = 0;
-    let late = 0;
-    let missed = 0;
-    let scheduled = 0;
-    let past = 0;
-    for (const { status } of planned) {
-      if (isPastPost(status)) past++;
-      if (status === "on_time") onTime++;
-      else if (status === "late") late++;
-      else if (status === "missed") missed++;
-      else scheduled++;
-    }
-    return {
-      onTime,
-      late,
-      missed,
-      scheduled,
-      past,
-      rate: past > 0 ? onTime / past : null,
-    };
-  }, [planned]);
+  // LE décompte partagé (convex/calendarStatus.onTimeTally) : les notifications de
+  // retard et l'outil MCP `planning` lisent le même, sur les mêmes lignes.
+  const stats = useMemo(
+    () =>
+      onTimeTally(
+        planned.map(({ row }) => ({
+          postDate: row.postDate,
+          postedAt: row.postedAt,
+          timeZone: row.creatorTimezone,
+        })),
+        now,
+      ),
+    [planned, now],
+  );
 
   // Rappel ADMIN « aujourd'hui » (pendant du « je poste quoi ? » créatrice) : posts
   // planifiés aujourd'hui et PAS encore publiés (= à publier). Sur `planned` (filtres
