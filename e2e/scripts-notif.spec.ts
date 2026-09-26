@@ -3,6 +3,7 @@ import { createE2eClient } from "./helpers/authed-client";
 import { assembledScriptOf } from "./helpers/assignment-script";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
+import { minuitParis } from "./helpers/paris-day";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
@@ -327,5 +328,148 @@ test.describe("Brique notif", () => {
     await expect(card).toBeVisible({ timeout: 20_000 });
     await expect(card.getByTestId("script-notif-text")).toHaveText(notifText);
     await expect(card.getByRole("button", { name: "Copier la notif" })).toBeVisible();
+  });
+
+  /**
+   * RATTRAPAGE — la campagne reçoit ses notifs APRÈS des assignations. Deux
+   * gestes : le menu du panneau (une vidéo) et le bouton de la campagne (toutes
+   * les autres). Une vidéo DÉJÀ PUBLIÉE ne reçoit rien : elle a été tournée
+   * sans notif, lui en donner une fausserait l'analytics.
+   */
+  test("rattrapage : menu du panneau, bouton de campagne, publiée intacte", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const campaignId = await admin.mutation(api.scripts.createCampaign, {
+      name: `[E2E_TEST] NotifRattrapage ${ts}`,
+    });
+    const add = (
+      kind: "hook" | "flux" | "cta" | "notif",
+      label: string,
+      content: string,
+    ) =>
+      admin.mutation(api.scripts.createBrick, { campaignId, kind, label, content });
+    await add("hook", "Relation", `16 ans de relation et je découvre ÇA ??!! ${ts}`);
+    await add("hook", "Ajouts", `Il a ajouté qui récemment ?? ${ts}`);
+    await add("hook", "Stories", `Qui regarde mes stories en boucle ${ts}`);
+    await add("flux", "Démo", "Va sur Snytch.co, recherche son @, montre son activité récente.");
+    await add("cta", "Bio", "Lien en bio 🔗 #snytch");
+    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+      name: `[E2E_TEST] PricingRattrapage ${ts}`,
+      montantFixe: 100,
+      nbVideosCible: 10,
+      tauxCPM: 2,
+    });
+
+    // Léa : 3 vidéos assignées SANS notif, dont une déjà publiée.
+    const lea = await createCreatorSession(url, {
+      name: `[E2E_TEST] Léa Moreau ${ts}`,
+      email: `e2e-creator-notifbf-lea-${ts}@repackit.test`,
+      password: "notifbf-lea-12345",
+    });
+    const tLea = await availableTarget({
+      e2eClient: admin,
+      creatorId: lea.creatorId,
+      platform: "TikTok",
+      handle: `@lea.moreau_${ts}`,
+    });
+    await admin.mutation(api.scripts.assignScriptCampaign, {
+      campaignId,
+      creatorId: lea.creatorId,
+      targets: [tLea],
+      videosPerCreator: 3,
+      dueDate: ts + 7 * DAY,
+      pricingId,
+    });
+    // Inès (nom unique → une seule pastille au calendrier) : 1 vidéo datée.
+    const inesName = `[E2E_TEST] Inès Garnier ${ts}`;
+    const ines = await createCreatorSession(url, {
+      name: inesName,
+      email: `e2e-creator-notifbf-ines-${ts}@repackit.test`,
+      password: "notifbf-ines-12345",
+    });
+    const tInes = await availableTarget({
+      e2eClient: admin,
+      creatorId: ines.creatorId,
+      platform: "TikTok",
+      handle: `@ines.garnier${ts}`,
+    });
+    await admin.mutation(api.scripts.assignScriptCampaign, {
+      campaignId,
+      creatorId: ines.creatorId,
+      targets: [tInes],
+      videosPerCreator: 1,
+      dueDate: ts + 7 * DAY,
+      pricingId,
+      postDates: [minuitParis()],
+    });
+    const rows = async () =>
+      (await admin.query(api.assignments.listAssignments, {})).filter(
+        (a) => a.scriptCombo?.campaignId === campaignId,
+      );
+    const leaRows = (await rows()).filter((r) => r.creatorId === lea.creatorId);
+    expect(leaRows).toHaveLength(3);
+    const published = leaRows[0];
+    await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
+      id: published._id,
+      urls: [
+        { platform: "TikTok", url: `https://www.tiktok.com/@lea.moreau_${ts}/video/${ts}` },
+      ],
+    });
+    expect((await rows()).every((r) => r.scriptCombo!.notifBrickId === undefined)).toBe(true);
+
+    // La campagne reçoit ses notifs après coup.
+    await admin.mutation(api.scripts.updateCampaign, { id: campaignId, notifEnabled: true });
+    const n1 = await add("notif", "Ajouts", "  Il a suivi 12 nouveaux comptes cette semaine 👀 ");
+    const n2 = await add("notif", "Story", "Quelqu'un a regardé ta story 3 fois");
+    // 2 non publiées de Léa + celle d'Inès ; la publiée n'est PAS comptée.
+    expect(await admin.query(api.scripts.notifBackfillCount, { campaignId })).toBe(3);
+
+    // ── Geste 1 : le menu du panneau, sur la vidéo d'Inès.
+    await page.goto(adminPath("/assignments"));
+    await expect(page.getByText(/\d+ \/ \d+ livrable/)).toBeVisible();
+    await page.locator("button").filter({ hasText: "Tous créateurs" }).click();
+    await page.locator('[role="option"]').filter({ hasText: inesName }).click();
+    await page.keyboard.press("Escape");
+    await page
+      .getByTitle(new RegExp(inesName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+      .click();
+    const sheet = page.getByTestId("assignment-detail-sheet");
+    const notifSelect = sheet.getByTestId("assignment-detail-notif-select");
+    await expect(notifSelect).toContainText("Aucune notif — en choisir une");
+    await notifSelect.click();
+    await page.getByRole("option").filter({ hasText: "Quelqu'un a regardé ta story 3 fois" }).click();
+    await expect(page.getByText("Notif ajoutée")).toBeVisible();
+    await expect(notifSelect).toContainText("Quelqu'un a regardé ta story 3 fois");
+    const inesRow = (await rows()).find((r) => r.creatorId === ines.creatorId)!;
+    expect(inesRow.scriptCombo!.notifBrickId).toBe(n2);
+    expect(inesRow.scriptCombo!.notifText).toBe("Quelqu'un a regardé ta story 3 fois");
+    expect(await admin.query(api.scripts.notifBackfillCount, { campaignId })).toBe(2);
+
+    // ── Geste 2 : le bouton de la campagne, pour les 2 restantes de Léa.
+    await page.goto(adminPath(`/scripts/${campaignId}`));
+    const bouton = page.getByTestId("notif-backfill");
+    await expect(bouton).toContainText("aux 2 vidéos déjà assignées");
+    await bouton.click();
+    await page.getByTestId("notif-backfill-confirm").click();
+    await expect(page.getByText("2 notifs ajoutées")).toBeVisible();
+    await expect(bouton).toHaveCount(0);
+
+    const after = (await rows()).filter((r) => r.creatorId === lea.creatorId);
+    const unpublished = after.filter((r) => r._id !== published._id);
+    // Rotation : les deux vidéos de Léa reçoivent les DEUX notifs, texte rogné.
+    expect(new Set(unpublished.map((r) => r.scriptCombo!.notifBrickId))).toEqual(
+      new Set([n1, n2]),
+    );
+    expect(
+      unpublished.find((r) => r.scriptCombo!.notifBrickId === n1)!.scriptCombo!.notifText,
+    ).toBe("Il a suivi 12 nouveaux comptes cette semaine 👀");
+    // La publiée n'a rien reçu.
+    expect(after.find((r) => r._id === published._id)!.scriptCombo!.notifBrickId).toBeUndefined();
+    // Idempotent : plus rien à rattraper.
+    expect(await admin.mutation(api.scripts.backfillNotifs, { campaignId })).toEqual({
+      added: 0,
+    });
   });
 });

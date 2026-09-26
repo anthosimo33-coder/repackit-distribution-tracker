@@ -86,6 +86,7 @@ import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
+import { AssignmentNotifPicker } from "@/components/admin/AssignmentNotifPicker";
 import { AssignmentInstructionsDialog } from "@/components/admin/AssignmentInstructionsDialog";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
@@ -555,19 +556,16 @@ export function AssignmentDetailSheet({
                 )}
               </div>
               {/* NOTIF de la vidéo (brique optionnelle, hors script) — texte
-                  FIGÉ à l'assignation, celui que la créatrice recopie. */}
-              {combo?.notifText && (
-                <div
-                  className="rounded-lg border border-slate-200 bg-white p-3"
-                  data-testid="assignment-detail-notif"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    <span aria-hidden>🔔</span> {tr("notifAAfficher")}
-                  </p>
-                  <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-900">
-                    {combo.notifText}
-                  </p>
-                </div>
+                  FIGÉ, celui que la créatrice recopie ; ajoutable ou
+                  changeable tant que le post n'est pas publié. */}
+              {combo && (
+                <AssignmentNotifPicker
+                  assignmentId={row._id}
+                  campaignId={combo.campaignId}
+                  notifBrickId={combo.notifBrickId}
+                  notifText={combo.notifText}
+                  editable={canEditText}
+                />
               )}
             </section>
           ) : (

@@ -113,7 +113,10 @@
     "echecDeLaMiseA": "Couldn't update the window",
     "dateDePublicationMiseA": "Publish date updated.",
     "dateDePublicationRetiree": "Publish date removed.",
-    "notifAAfficher": "Notification to show"
+    "notifAAfficher": "Notification to show",
+    "notifAucuneChoisir": "No notification — pick one",
+    "notifAjoutee": "Notification added",
+    "notifChangee": "Notification changed"
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",

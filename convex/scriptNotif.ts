@@ -122,3 +122,46 @@ export function pickNotifs<T extends NotifBrickLike>(
   }
   return out;
 }
+
+/**
+ * RATTRAPAGE — une notif pour chaque vidéo DÉJÀ assignée qui n'en a pas (la
+ * campagne a reçu ses notifs après l'assignation). MÊME règle que le tirage à
+ * l'assignation, vidéo après vidéo, dans l'ordre reçu : les compteurs avancent
+ * à chaque attribution, donc deux vidéos d'une même créatrice reçoivent deux
+ * notifs différentes et la campagne se répartit, comme si elles avaient été
+ * assignées avec la notif allumée.
+ *
+ * `existing` = toutes les assignations connues (usage de départ, mêmes règles
+ * que notifUsageOf). Aucune notif tirable ⇒ tableau vide.
+ */
+export function notifsForBackfill<
+  T extends NotifBrickLike,
+  R extends { creatorId: string },
+>(
+  notifs: readonly T[],
+  rows: readonly R[],
+  existing: readonly NotifUsageRow[],
+  input: { campaignId: string; freeingStatuses: ReadonlySet<string> },
+): Array<{ row: R; notif: T }> {
+  if (notifs.length === 0) return [];
+  const byCreator = new Map<string, NotifUsage>();
+  const out: Array<{ row: R; notif: T }> = [];
+  // Usage CAMPAGNE partagé entre toutes les créatrices : on le lit une fois,
+  // puis chaque attribution l'incrémente.
+  const campaign = notifUsageOf(existing, { ...input, creatorId: "" }).campaign;
+  for (const row of rows) {
+    let usage = byCreator.get(row.creatorId);
+    if (!usage) {
+      usage = {
+        creator: notifUsageOf(existing, { ...input, creatorId: row.creatorId }).creator,
+        campaign,
+      };
+      byCreator.set(row.creatorId, usage);
+    }
+    const [notif] = pickNotifs(notifs, usage, 1);
+    out.push({ row, notif });
+    usage.creator.set(notif._id, (usage.creator.get(notif._id) ?? 0) + 1);
+    campaign.set(notif._id, (campaign.get(notif._id) ?? 0) + 1);
+  }
+  return out;
+}

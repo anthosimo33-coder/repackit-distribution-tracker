@@ -68,6 +68,7 @@
     "components/admin/AssignmentInstructionsDialog.tsx",
     "components/admin/AssignmentMobileList.tsx",
     "components/admin/AssignmentModelVideosDialog.tsx",
+    "components/admin/AssignmentNotifPicker.tsx",
     "components/admin/AssignmentOverlayDialog.tsx",
     "components/admin/AssignmentPlanningCalendar.tsx",
     "components/admin/AssignmentPostDateDialog.tsx",

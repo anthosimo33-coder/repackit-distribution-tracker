@@ -78,7 +78,12 @@
     "editionDeLaBriqueSelectionnee": "Editing the selected brick",
     "notifToggle": "Notification in the video",
     "notifToggleHint": "Each assigned video gets an on-screen notification, picked in rotation — analytics tells you which one drives views.",
-    "notifAucuneActive": "Notifications are on but none is active: add one in the Notification tab, or turn notifications off, to be able to assign."
+    "notifAucuneActive": "Notifications are on but none is active: add one in the Notification tab, or turn notifications off, to be able to assign.",
+    "notifRattrapage": "Add a notification to {count, plural, one {the already assigned video} other {the # already assigned videos}} without one",
+    "notifRattrapageExplication": "Each video not yet published gets a notification, with the same rotation as at assignment (least served to that creator first). Videos already published stay as they are: they were shot without one. Script, date and pay are unchanged.",
+    "notifRattrapageAnnuler": "Cancel",
+    "notifRattrapageConfirmer": "Add notifications",
+    "notifRattrapageFait": "{count, plural, one {# notification added} other {# notifications added}}"
   },
   "BrickRow": {
     "consigne": "💡 note",
