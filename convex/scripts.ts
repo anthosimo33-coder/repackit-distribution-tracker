@@ -51,6 +51,7 @@ import { plateformeValidator } from "./platforms";
 import {
   drawableNotifs,
   isNotifEnabled,
+  notifsForBackfill,
   notifUsageOf,
   pickNotifs,
 } from "./scriptNotif";
@@ -1893,6 +1894,101 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
     });
     return { ok: true, forkedBrickId: forkedId, comboKey };
+  },
+});
+
+// ─── Rattrapage : notif pour les vidéos déjà assignées sans notif ─────────────
+
+/**
+ * Vidéos de la campagne qui peuvent RECEVOIR une notif après coup :
+ *  - sans notif (assignées avant que la campagne ait les siennes) ;
+ *  - PAS ENCORE PUBLIÉES — une vidéo en ligne a été tournée sans notif : lui en
+ *    attribuer une ferait compter ses vues pour une notif qu'on n'y voit pas ;
+ *  - ni refusées ni abandonnées (jamais publiées, rien à tourner) ;
+ *  - dans le PÉRIMÈTRE de l'appelant (une manageuse ne rattrape que ses
+ *    créatrices).
+ * Triées par date de post prévue, sinon d'échéance : la rotation sert les
+ * vidéos dans l'ordre où elles seront tournées.
+ */
+async function notifBackfillTargets(
+  ctx: QueryCtx,
+  input: {
+    campaignId: Id<"scriptCampaigns">;
+    projectId: Id<"projects">;
+    userId: Id<"users">;
+  },
+): Promise<{ targets: Doc<"assignments">[]; all: Doc<"assignments">[] }> {
+  const all = await projectAssignmentsForCooldown(ctx, input.projectId);
+  const scope = await creatorScopeFor(ctx, input.userId, input.projectId);
+  const targets = all
+    .filter(
+      (a) =>
+        a.scriptCombo?.campaignId === input.campaignId &&
+        a.scriptCombo.notifBrickId === undefined &&
+        !COMBO_FREEING_STATUSES.has(a.status) &&
+        representativePostedAt(a) === null &&
+        isInCreatorScope(scope, a.creatorId),
+    )
+    .sort((x, y) => (x.postDate ?? x.dueDate) - (y.postDate ?? y.dueDate));
+  return { targets, all };
+}
+
+/** Combien de vidéos le rattrapage toucherait (bouton de l'écran campagne). */
+export const notifBackfillCount = permissionQuery("scripts.manage")({
+  args: { campaignId: v.id("scriptCampaigns") },
+  handler: async (ctx, { campaignId }): Promise<number> => {
+    await requireCampaign(ctx, campaignId, ctx.projectId);
+    const { targets } = await notifBackfillTargets(ctx, {
+      campaignId,
+      projectId: ctx.projectId,
+      userId: ctx.userId,
+    });
+    return targets.length;
+  },
+});
+
+/**
+ * Donne une notif à chaque vidéo déjà assignée qui n'en a pas (cf
+ * notifBackfillTargets), avec la MÊME rotation qu'à l'assignation
+ * (convex/scriptNotif.notifsForBackfill). Ne touche ni au texte monté, ni au
+ * comboKey, ni à la paie : seule la notif figée est posée. Idempotent — une
+ * vidéo qui a sa notif n'est plus une cible.
+ */
+export const backfillNotifs = permissionMutation("scripts.manage")({
+  args: { campaignId: v.id("scriptCampaigns") },
+  handler: async (ctx, { campaignId }): Promise<{ added: number }> => {
+    await requireCampaign(ctx, campaignId, ctx.projectId);
+    const { targets, all } = await notifBackfillTargets(ctx, {
+      campaignId,
+      projectId: ctx.projectId,
+      userId: ctx.userId,
+    });
+    if (targets.length === 0) return { added: 0 };
+    const bricks = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const notifs = drawableNotifs(bricks);
+    if (notifs.length === 0) {
+      throw err(
+        ERR.NO_ACTIVE_NOTIF,
+        "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
+      );
+    }
+    const picks = notifsForBackfill(notifs, targets, all, {
+      campaignId,
+      freeingStatuses: COMBO_FREEING_STATUSES,
+    });
+    for (const { row, notif } of picks) {
+      await ctx.db.patch(row._id, {
+        scriptCombo: {
+          ...row.scriptCombo!,
+          notifBrickId: notif._id,
+          notifText: notif.content.trim(),
+        },
+      });
+    }
+    return { added: picks.length };
   },
 });
 

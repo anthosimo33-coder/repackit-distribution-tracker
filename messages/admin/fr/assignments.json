@@ -113,7 +113,10 @@
     "echecDeLaMiseA": "Échec de la mise à jour du créneau",
     "dateDePublicationMiseA": "Date de publication mise à jour.",
     "dateDePublicationRetiree": "Date de publication retirée.",
-    "notifAAfficher": "Notif à afficher"
+    "notifAAfficher": "Notif à afficher",
+    "notifAucuneChoisir": "Aucune notif — en choisir une",
+    "notifAjoutee": "Notif ajoutée",
+    "notifChangee": "Notif changée"
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",

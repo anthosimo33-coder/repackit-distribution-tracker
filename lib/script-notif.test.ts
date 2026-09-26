@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   drawableNotifs,
   isNotifEnabled,
+  notifsForBackfill,
   notifUsageOf,
   pickNotifs,
   type NotifUsageRow,
@@ -144,5 +145,43 @@ describe("pickNotifs — rotation équilibrée", () => {
     pickNotifs([N1, N2], usage, 3);
     expect(Object.fromEntries(usage.creator)).toEqual({ [N1._id]: 1 });
     expect(Object.fromEntries(usage.campaign)).toEqual({ [N1._id]: 4 });
+  });
+});
+
+describe("notifsForBackfill — rattrapage des vidéos déjà assignées sans notif", () => {
+  const ctx = { campaignId: CAMPAIGN, freeingStatuses: FREEING };
+  const video = (id: string, creatorId: string) => ({ _id: id, creatorId });
+
+  it("deux vidéos d'une même créatrice reçoivent deux notifs différentes", () => {
+    const out = notifsForBackfill(
+      [N1, N2, N3],
+      [video("a1", LEA), video("a2", LEA)],
+      [],
+      ctx,
+    );
+    expect(out.map((o) => [o.row._id, o.notif._id])).toEqual([
+      ["a1", N1._id],
+      ["a2", N2._id],
+    ]);
+  });
+
+  it("part de l'usage existant : la créatrice ne reçoit pas la notif qu'elle a déjà, la campagne se rééquilibre", () => {
+    // Léa a déjà eu n1 ; Inès a déjà eu n2 deux fois.
+    const existing = [row(LEA, N1._id), row(INES, N2._id), row(INES, N2._id)];
+    const out = notifsForBackfill(
+      [N1, N2, N3],
+      [video("l1", LEA), video("i1", INES)],
+      existing,
+      ctx,
+    );
+    // Léa : n2 et n3 à 0 chez elle ; n3 moins servie sur la campagne (0 < 2).
+    expect(out[0].notif._id).toBe(N3._id);
+    // Inès : n1 et n3 à 0 chez elle ; n1 servie 1 fois, n3 aussi (Léa vient de
+    // la recevoir) → égalité, l'ordre de liste l'emporte : n1.
+    expect(out[1].notif._id).toBe(N1._id);
+  });
+
+  it("aucune notif tirable → rien", () => {
+    expect(notifsForBackfill([], [video("a1", LEA)], [], ctx)).toEqual([]);
   });
 });
