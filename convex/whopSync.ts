@@ -406,6 +406,8 @@ export const e2eSeedWhopMembership = e2eMutation({
     valid: v.optional(v.boolean()),
     /** Utilisateur Whop : plusieurs abonnements pour une même personne. */
     whopUserId: v.optional(v.string()),
+    /** Bras du test A/B posé par l'app dans la metadata du membership. */
+    abVariant: v.optional(v.string()),
   },
   handler: async (ctx, a): Promise<Id<"whopMemberships">> =>
     await ctx.db.insert("whopMemberships", {
@@ -418,6 +420,7 @@ export const e2eSeedWhopMembership = e2eMutation({
       accessEndsAt: a.accessEndsAt,
       planId: a.planId,
       whopUserId: a.whopUserId,
+      abVariant: a.abVariant,
       importedAt: Date.now(),
       updatedAt: Date.now(),
     }),
@@ -477,7 +480,22 @@ export const upsertWhopPlans = internalMutation({
       }),
     ),
   },
-  handler: async (ctx, { projectId, plans }): Promise<{ upserted: number }> => {
+  handler: async (ctx, { projectId, plans }): Promise<{ upserted: number }> =>
+    upsertWhopPlansCore(ctx, projectId, plans),
+});
+
+/** Le catalogue d'offres, tel que la synchro l'écrit — partagé avec le semeur e2e. */
+async function upsertWhopPlansCore(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  plans: {
+    planId: string;
+    name?: string;
+    price?: number;
+    currency?: string;
+    interval?: string;
+  }[],
+): Promise<{ upserted: number }> {
     const now = Date.now();
     let upserted = 0;
     for (const p of plans) {
@@ -509,7 +527,23 @@ export const upsertWhopPlans = internalMutation({
       upserted += 1;
     }
     return { upserted };
+}
+
+/** E2E — le catalogue d'offres Whop (prix, devise, rythme), par la même écriture que la synchro. */
+export const e2eUpsertWhopPlans = e2eMutation({
+  args: {
+    projectId: v.id("projects"),
+    plans: v.array(
+      v.object({
+        planId: v.string(),
+        name: v.optional(v.string()),
+        price: v.optional(v.number()),
+        currency: v.optional(v.string()),
+        interval: v.optional(v.string()),
+      }),
+    ),
   },
+  handler: async (ctx, { projectId, plans }) => upsertWhopPlansCore(ctx, projectId, plans),
 });
 
 /**

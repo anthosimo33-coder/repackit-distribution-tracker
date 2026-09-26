@@ -87,6 +87,19 @@ import {
 } from "./radar";
 import { TREND_COUNTRIES } from "./countries";
 import {
+  AB_ARM_LABELS,
+  AB_BREAK_LABEL,
+  AB_THRESHOLD,
+  abArmChecks,
+  abArmRows,
+  abArmSummary,
+  computeConversion,
+  netPerAssigned,
+  PAYWALL_TYPE_LABELS,
+  paywallTypeRows,
+  ratePct,
+  SCAN_KIND_LABELS,
+  scanCostRows,
   ACTIVATION_SEGMENT_LABELS,
   aggregateActivation,
   APP_TIMEOUT_MS,
@@ -120,6 +133,9 @@ import {
   type WindowedParcours,
 } from "./analyticsWindowed";
 import { hogWindowClause } from "./hogWindow";
+import { armComparability, attributedOffers, excludedViewers } from "./abOffers";
+import { armPurchases, purchaseCoherenceIssues } from "./abPurchases";
+import { EXPECTED_PAYWALL_IDS } from "./analyticsContract";
 import {
   buildSegmentRows,
   clientCoverage,
@@ -881,6 +897,21 @@ export const OUTILS: readonly McpTool[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "offres",
+    title: "Offres & tests (Analytics)",
+    description:
+      "L'onglet Offres & tests de l'Analytics, au-delà du revenu (voir « revenus » pour l'économie par offre, les litiges et le journal), par les mêmes calculs : les types de paywall (bloquant / appoint : exposés, checkouts, payés, complétion, cibles par client) ; le test A/B par bras (assignés, ont vu le paywall, checkouts, nouveaux clients, complétion, cibles par client, net par assigné), son verdict (seuil par bras, recrues manquantes), ses contrôles et les personnes écartées ; les offres servies par bras (plan présélectionné, période, conversion, revenu du 1er cycle pour 1 000 vues) et ce que les clients ont réellement acheté ; la conversion par emplacement de paywall ; le plan gratuit ; le coût des scans. Recalculé sur la période comme à l'écran (défaut : 30 derniers jours complets, jusqu'à hier).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        du: { type: "string", description: "Premier jour, AAAA-MM-JJ (Paris)." },
+        au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
 
 // ─── Exécution ───────────────────────────────────────────────────────────────
@@ -889,6 +920,43 @@ type Projet = { _id: Id<"projects">; slug: string; name: string; role: string };
 
 const plier = (s: string) =>
   s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
+/** La période demandée, en jours de Paris ; défaut : les 30 derniers jours complets (jusqu'à hier). */
+function periodeDemandee(args: Record<string, unknown>): { du: string; au: string } {
+  const au =
+    typeof args.au === "string" && args.au.trim() !== ""
+      ? args.au.trim()
+      : parisDayKey(Date.now() - 86_400_000);
+  const du =
+    typeof args.du === "string" && args.du.trim() !== ""
+      ? args.du.trim()
+      : shiftDay(au, -29);
+  if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+    throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+  }
+  if (du > au) throw new ToolError("« du » doit précéder « au ».");
+  return { du, au };
+}
+
+/** Sur quels jours portent les chiffres PostHog d'un outil, et d'où ils viennent. */
+function decrirePeriode(p: {
+  recalcul: WindowedParcours | null;
+  fenetre: AnalyticsWindow | null;
+  erreur: string | null;
+}) {
+  const f = p.fenetre;
+  if (f === null) return "aucune donnée PostHog sur la période";
+  if (p.recalcul !== null) {
+    return { du: f.from, au: f.to, source: "recalculé sur la période (bornée aux jours de données)" };
+  }
+  return {
+    du: f.from,
+    au: f.to,
+    source:
+      "cache des 90 derniers jours" +
+      (p.erreur === null ? " (la période couvre toutes les données)" : " (recalcul impossible)"),
+  };
+}
 
 /** Le message d'un refus serveur (droit manquant…), tel que l'app le formule. */
 function messageDe(e: unknown): string | null {
@@ -2252,18 +2320,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
       }
 
       if (name === "parcours") {
-        const au =
-          typeof args.au === "string" && args.au.trim() !== ""
-            ? args.au.trim()
-            : parisDayKey(Date.now() - 86_400_000);
-        const du =
-          typeof args.du === "string" && args.du.trim() !== ""
-            ? args.du.trim()
-            : shiftDay(au, -29);
-        if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
-          throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
-        }
-        if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        const { du, au } = periodeDemandee(args);
         const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
         if (!produit.configured) {
           return json({
@@ -2349,12 +2406,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
 
         return json({
           projet: projet.slug,
-          periode:
-            f === null
-              ? "aucune donnée PostHog sur la période"
-              : periode.recalcul !== null
-                ? { du: f.from, au: f.to, source: "recalculé sur la période (bornée aux jours de données)" }
-                : { du: f.from, au: f.to, source: "cache des 90 derniers jours" + (periode.erreur === null ? " (la période couvre toutes les données)" : " (recalcul impossible)") },
+          periode: decrirePeriode(periode),
           tunnel: tunnel.map((t) => ({
             etape: t.label,
             personnes: t.count,
@@ -2423,6 +2475,198 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Pays de CONNEXION (IP, PostHog) et pays de FACTURATION (Whop) sont deux populations : ne jamais diviser les ventes de l'un par le trafic de l'autre. Pas de colonne clients par pays de connexion : l'événement de souscription part surtout du serveur.",
             "Les lignes par segment ne s'additionnent pas (une personne peut visiter depuis deux pays). « inconnuPct » = part des visiteurs non attribués : le classement ne décrit que le reste.",
             "Activation : hors tunnel de paiement. La vue « depuis le 28/07 » ne garde que la période où payants, gratuits et inscrits sans accès sont comparables.",
+          ],
+          ...(avertissements.length > 0 ? { avertissements } : {}),
+        });
+      }
+
+      if (name === "offres") {
+        const { du, au } = periodeDemandee(args);
+        const produit = await lire(() => ctx.runQuery(internal.mcpTools.lireAnalyticsProduit, ids));
+        const periode = await agregatsSurPeriode(projet._id, produit, du, au);
+        // Les sept agrégats que la période change — les mêmes que l'onglet.
+        const a = periode.recalcul ? { ...produit, ...periode.recalcul.offres } : produit;
+        const revenu = await lire(() => ctx.runQuery(internal.mcpTools.lireRevenus, ids));
+        const attribution = await lire(() => ctx.runQuery(internal.mcpTools.lireAttribution, ids));
+        const f = periode.fenetre;
+        const bras = (v: string) => AB_ARM_LABELS[v] ?? v;
+        const devise = revenu.currency ?? null;
+
+        const arms = abArmRows(a.abArms.rows);
+        const alertes = abArmChecks(arms).filter((c) => c.status !== "ok");
+        const resume = abArmSummary(arms);
+        const abRev = revenu.abRevenue;
+        const netParBras = new Map(abRev.rows.map((r) => [r.variant, r] as const));
+        // Le revenu par bras court depuis le DÉBUT du test (fenêtre du test, côté
+        // serveur) : le diviser par les assignés d'une période plus courte
+        // mélangerait deux populations. Donné seulement quand les assignés portent
+        // eux aussi sur toute la durée du test.
+        const netComparable = periode.recalcul === null;
+
+        const offres = attributedOffers(a.abOffers.rows, revenu.plans);
+        const comparabilite = armComparability(a.abOffers.rows, revenu.plans);
+        const achats = armPurchases(a.abPurchases.rows, revenu.plans, {
+          revenueCurrency: revenu.currency ?? null,
+          payCurrency: attribution.payCurrency ?? null,
+          fxRateToRevenue: attribution.fxRateToRevenue ?? null,
+          otherRates: revenu.fxRates ?? null,
+        });
+        const incoherences = purchaseCoherenceIssues(
+          achats,
+          new Map(a.abArms.rows.map((r) => [r.variant, r.paid] as const)),
+        );
+        const paywalls = a.paywallById.rows;
+        const paywallsMesures = paywalls.some((r) => r.key !== "(inconnu)" && r.key !== "(absent)");
+        const scans = scanCostRows(a.scanCost.rows);
+        const libelleContrat = (id: string) => EXPECTED_PAYWALL_IDS.find((p) => p.id === id);
+
+        const avertissements: string[] = [];
+        if (periode.erreur !== null) {
+          avertissements.push(`Recalcul sur la période impossible (${periode.erreur}) : chiffres PostHog des 90 derniers jours.`);
+        }
+        if (f !== null && [...posthogOutageDays()].some((j) => j >= f.from && j <= f.to)) {
+          avertissements.push(
+            "Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (Paris) : paywalls vus et conversions creux sur ces heures ; le revenu vient de Whop et reste juste.",
+          );
+        }
+        if (alertes.length > 0) {
+          avertissements.push(
+            `Contrôle du tableau A/B : ${alertes.length} écart(s) — ${alertes.map((c) => `${c.label} : ${c.detail}`).join(" · ")}. Corriger avant de décider quoi que ce soit sur ce test.`,
+          );
+        }
+        if (incoherences.length > 0) {
+          avertissements.push(`Achats par bras incohérents avec le tableau des bras : ${incoherences.join(" · ")}.`);
+        }
+
+        return json({
+          projet: projet.slug,
+          periode: decrirePeriode(periode),
+          typesDePaywall: paywallTypeRows(a.abVariants.rows).map((v) => ({
+            type: PAYWALL_TYPE_LABELS[v.variant] ?? v.variant,
+            exposes: v.exposed,
+            checkouts: v.checkouts,
+            payes: v.paid,
+            completionPct: v.completion,
+            ciblesParClient: v.targetsPerClient,
+          })),
+          testAB:
+            arms.length === 0
+              ? { enCours: false, message: "Aucun bras assigné naturellement (sessions à bras forcé exclues)." }
+              : {
+                  enCours: true,
+                  depuis: jour(a.abArms.startMs),
+                  concluant: resume.concluant,
+                  seuilParBras: AB_THRESHOLD,
+                  plusPetitBras: resume.minExposed,
+                  recruesManquantes: resume.remaining,
+                  bras: arms.map((r) => {
+                    const rev = netParBras.get(r.variant);
+                    return {
+                      bras: bras(r.variant),
+                      assignes: r.exposed,
+                      ontVuLePaywall: r.paywallViewers,
+                      checkouts: r.checkouts,
+                      nouveauxClients: r.paid,
+                      renouvellementsExclus: r.renewals,
+                      completionPct: r.completion,
+                      ciblesParClient: r.targetsPerClient,
+                      ...(r.targetsPerClient === null && r.paid > 0 ? { ciblesNonMesurees: true } : {}),
+                      netParAssigne:
+                        !netComparable || !rev || rev.memberships === 0
+                          ? null
+                          : { valeur: netPerAssigned(rev.net, r.exposed), devise },
+                      ...(rev && rev.atRiskMemberships > 0
+                        ? { enLitige: { abonnements: rev.atRiskMemberships, montant: rev.atRiskAmount, devise } }
+                        : {}),
+                    };
+                  }),
+                  ecartees: {
+                    personnes: resume.excluded,
+                    surUnSeulAppareil: resume.excludedSameDevice,
+                    surPlusieursAppareils: resume.excludedMultiDevice,
+                  },
+                  revenu: {
+                    abonnementsEcartes: abRev.excludedFlippers,
+                    netEcarte: abRev.excludedFlippersNet,
+                    rattachementsDivergents: abRev.divergences.length,
+                    abonnementsNonRattaches: abRev.unattached,
+                    devise,
+                  },
+                  rupture: `Le ${AB_BREAK_LABEL} : avant, le bras était tiré deux fois (navigateur puis serveur) et divergeait ; les données d'avant ne se comparent pas à celles d'après.`,
+                },
+          offresServies: {
+            brasComparables: comparabilite.comparable,
+            enCeMoment: comparabilite.current.map((o) => ({ bras: bras(o.variant), offre: o.label })),
+            lignes: offres.map((o) => ({
+              bras: bras(o.variant),
+              offre: o.label,
+              prix: o.amount,
+              devise: o.currency,
+              rythme: o.interval,
+              du: instantParis(o.firstMs),
+              au: instantParis(o.lastMs),
+              ontVu: o.paywallViewers,
+              checkouts: o.checkouts,
+              payes: o.paid,
+              conversionPct: o.conversionPct,
+              revenu1erCyclePour1000Vues: o.firstCycleRevenuePer1000,
+            })),
+            personnesEcartees: excludedViewers(a.abOffers.rows),
+          },
+          achatsReels: achats.map((b) => ({
+            bras: bras(b.variant),
+            clients: b.armClients,
+            ontAchetePlusieursOffres: b.armMultiPlan,
+            lignes: b.rows.map((r) => ({
+              offre: r.label,
+              prix: r.price,
+              devise: r.currency,
+              rythme: r.interval,
+              clients: r.clients,
+              partPct: r.sharePct,
+            })),
+            revenu1erCycle: b.firstCycleRevenue,
+            devise: b.currency,
+          })),
+          conversionParPaywall: paywallsMesures
+            ? {
+                depuis: jour(a.paywallById.startMs),
+                paywalls: computeConversion(
+                  paywalls.map((r) => ({ key: r.key, label: r.key, n: r.n, converted: r.converted })),
+                ).map((r) => ({
+                  paywall: r.key,
+                  ...(libelleContrat(r.key) ? { libelle: libelleContrat(r.key)!.label, force: libelleContrat(r.key)!.forced } : {}),
+                  vus: r.n,
+                  convertis: r.converted,
+                  conversionPct: r.rate,
+                })),
+              }
+            : {
+                mesure: false,
+                raison: "paywall_id pas encore émis par l'app : les emplacements s'alimenteront dès qu'il arrivera.",
+                emplacements: EXPECTED_PAYWALL_IDS.map((p) => ({ paywall: p.id, libelle: p.label, force: p.forced })),
+              },
+          planGratuit: {
+            ontRecuLaSemaineOfferte: a.freePlan.signups,
+            lontUtilisee: a.freePlan.used,
+            usagePct: ratePct(a.freePlan.used, a.freePlan.signups),
+            sontPassesAuPayant: a.freePlan.convertedPaid,
+          },
+          coutDesScansUsd: !scans.anyRuns
+            ? null
+            : !scans.anyCost
+              ? { chiffre: false, raison: "cost_usd pas encore émis sur scan_completed" }
+              : scans.rows.map((r) => ({
+                  type: SCAN_KIND_LABELS[r.kind] ?? r.kind,
+                  scans: r.runs,
+                  coutTotal: r.withCost > 0 ? r.sumCostUsd : null,
+                  coutMoyen: r.avgCostUsd,
+                })),
+          lecture: [
+            "Mesures PostHog (types de paywall, test A/B, offres servies, achats, paywalls, plan gratuit, scans) recalculées sur la période comme à l'écran ; le revenu Whop (net par bras) court depuis le début du test.",
+            "Complétion = nouveaux clients ÷ checkouts ouverts. Cibles / client = cibles ajoutées APRÈS paiement ÷ nouveaux clients. Net par assigné = net sécurisé du bras ÷ assignés (intention de traiter) — donné seulement quand les assignés couvrent eux aussi toute la durée du test.",
+            `Un test n'est concluant qu'à ${AB_THRESHOLD} assignés par bras. Un bras vend un MENU : « offresServies » = plan présélectionné, « achatsReels » = ce que les clients ont acheté (prix Whop).`,
+            "Offres de rythmes différents (semaine / mois) ne se comparent pas sur le revenu du premier cycle ; « brasComparables » faux = le test mélange prix et rythme.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
         });

@@ -252,6 +252,8 @@
     "components/warmup/WarmupSettingsButton.tsx",
     "components/warmup/WarmupSettingsCard.tsx",
     "components/whop/WhopRevenueCard.tsx",
+    "convex/abOffers.ts",
+    "convex/abPurchases.ts",
     "convex/analyticsContract.ts",
     "convex/analyticsDates.ts",
     "convex/analyticsHubMath.ts",
