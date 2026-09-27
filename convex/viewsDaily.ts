@@ -498,3 +498,139 @@ function roundToTotal(
   }
   return new Map(rows.map((r) => [r.key, r.whole]));
 }
+
+/* ── Vues FACTURÉES gagnées par jour ─────────────────────────────────────── */
+
+/** Un post RÉMUNÉRÉ d'une vidéo, et l'instant où son assiette de paie se fige. */
+export type PostFacturable = {
+  publicationId: string;
+  /** `publications.datePubli` — le départ à 0 vue (cf `ajouterDepartsDePublication`). */
+  publishedAt: number;
+  /**
+   * Premier instant EXCLU de l'assiette : J+31 ou le lancement d'une spark ad,
+   * le plus tôt des deux (convex/payWindow `payCutoffAt`). Les vues gagnées
+   * après ne sont pas payées, donc pas facturées.
+   */
+  coupure: number;
+};
+
+/** Une vidéo (une assignation) telle que le moteur de paie la facture. */
+export type VideoFacturable = {
+  /**
+   * Ses vues FACTURÉES selon le moteur de paie (`billedViews`) : plafond
+   * 150 $/vidéo, fenêtre J+30 et assiette d'un cycle déjà réglé y sont déjà
+   * appliqués. C'est le PLAFOND de ce qu'on peut dater pour elle.
+   */
+  plafond: number;
+  /** Ses posts RÉMUNÉRÉS — un post non rémunéré ne facture rien. */
+  posts: readonly PostFacturable[];
+};
+
+export type DailyBilledViews = {
+  /** Vues facturées gagnées par jour de Paris (entiers, jours à 0 absents). */
+  jours: DailyPoint[];
+  /** Σ des plafonds : les vues facturées du moteur, toutes dates confondues. */
+  facturees: number;
+  /**
+   * Vues facturées qu'aucun relevé ne permet de DATER (= `facturees` − Σ jours).
+   * Un post payé sans relevé dans sa fenêtre (`unmeasured`), ou dont la date de
+   * publication suit son premier relevé (TD-020 : ce qui précède ce relevé ne
+   * tombe dans aucun jour). Dit à part, jamais rangé dans un jour inventé.
+   */
+  nonDatees: number;
+};
+
+/**
+ * VUES FACTURÉES GAGNÉES PAR JOUR — le dénominateur d'un RPM sur une période
+ * quelconque.
+ *
+ * Le RPM mensuel de la carte Rentabilité range les vues d'une vidéo dans le
+ * mois de sa PUBLICATION, alors que le revenu tombe le jour où il est encaissé :
+ * un mois n'y est comparable qu'à M+30. Ici les vues sont rangées le jour où
+ * elles sont FAITES, comme le revenu — donc comparables sur n'importe quels jours.
+ *
+ * Pour chaque vidéo :
+ *  1. les relevés de ses posts rémunérés, AVANT leur coupure (J+30 / spark ad),
+ *     plus le départ à 0 vue à la publication ;
+ *  2. la MÊME répartition au prorata que la courbe « vues gagnées » ;
+ *  3. les gains, jour après jour dans l'ordre CHRONOLOGIQUE, jusqu'au plafond
+ *     de la vidéo — les premières vues sont celles qu'on paie, celles qui
+ *     suivent le plafond 150 $ sont gratuites et ne comptent plus.
+ *
+ * Le plafond vient du moteur (`billedViews`), jamais recalculé ici : le seuil de
+ * 150 $ dépend de la part fixe de la vidéo dans son barème, et une vidéo réglée
+ * ne facture que l'assiette payée. Couper au plafond du moteur garantit que
+ * Σ jours + `nonDatees` = vues facturées de la carte, vidéo par vidéo.
+ *
+ * ⚠️ L'appelant fournit TOUS les relevés de chaque post antérieurs à sa coupure,
+ * sans borne basse : couper au plafond demande de savoir ce que la vidéo avait
+ * déjà facturé avant la période lue.
+ */
+export function computeDailyBilledViews(
+  videos: readonly VideoFacturable[],
+  snaps: readonly SnapshotPoint[],
+): DailyBilledViews {
+  const coupureDe = new Map<string, number>();
+  const departs: PublicationDepart[] = [];
+  for (const v of videos) {
+    for (const p of v.posts) {
+      if (coupureDe.has(p.publicationId)) continue;
+      coupureDe.set(p.publicationId, p.coupure);
+      departs.push({ publicationId: p.publicationId, publishedAt: p.publishedAt });
+    }
+  }
+  const dansLaFenetre = snaps.filter((s) => {
+    const coupure = coupureDe.get(s.publicationId);
+    return coupure !== undefined && s.capturedAt < coupure;
+  });
+  // Toute la vie du post est lue : le départ s'applique sans borne basse.
+  const points = ajouterDepartsDePublication(
+    dansLaFenetre,
+    departs,
+    Number.NEGATIVE_INFINITY,
+  );
+  const { exact, estimatedDays } = repartir(points, (id) => id);
+
+  /** post → (jour → vues gagnées, exact) */
+  const gainsDuPost = new Map<string, Map<string, number>>();
+  for (const [cle, v] of exact) {
+    const post = groupeDe(cle);
+    const m = gainsDuPost.get(post) ?? new Map<string, number>();
+    gainsDuPost.set(post, m);
+    addTo(m, jourDe(cle), v);
+  }
+
+  const parJour = new Map<string, number>();
+  let facturees = 0;
+  for (const v of videos) {
+    const plafond = Math.max(0, v.plafond);
+    facturees += plafond;
+    const gains = new Map<string, number>();
+    const vus = new Set<string>();
+    for (const p of v.posts) {
+      if (vus.has(p.publicationId)) continue;
+      vus.add(p.publicationId);
+      for (const [jour, x] of gainsDuPost.get(p.publicationId) ?? []) {
+        addTo(gains, jour, x);
+      }
+    }
+    let cumul = 0;
+    for (const jour of [...gains.keys()].sort()) {
+      const part = Math.min(gains.get(jour) ?? 0, plafond - cumul);
+      if (!(part > 0)) break;
+      cumul += part;
+      addTo(parJour, jour, part);
+    }
+  }
+
+  const jours = [...roundPreservingTotal(parJour).entries()]
+    .filter(([, value]) => value > 0)
+    .map(([date, value]) => ({
+      date,
+      value,
+      estimated: estimatedDays.has(date),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const datees = jours.reduce((s, j) => s + j.value, 0);
+  return { jours, facturees, nonDatees: Math.max(0, facturees - datees) };
+}

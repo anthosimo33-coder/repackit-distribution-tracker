@@ -34,8 +34,12 @@ import {
 import { listCreatorActivityCore, listCreatorsCore } from "./creators";
 import { creatorPublicationStats } from "./publicationLateness";
 import { getProjectProfitabilityCore } from "./profitability";
-import { profitabilityReport } from "./profitabilityMath";
-import { parisDayKey, parisMidnightUtc } from "./viewsDaily";
+import { computeRpm, profitabilityReport } from "./profitabilityMath";
+import {
+  computeDailyBilledViews,
+  parisDayKey,
+  parisMidnightUtc,
+} from "./viewsDaily";
 import {
   listTrackerPostsCore,
   minuitParisDe,
@@ -301,10 +305,43 @@ export const lirePonctualite = mcpPermissionQuery("content.analytics")({
     })),
 });
 
-/** Carte Rentabilité (écran Paiements) — même lecture, même bloc. */
+/**
+ * Carte Rentabilité (écran Paiements) — même lecture, même bloc. `periode` :
+ * revenu de ces jours + plafond et posts rémunérés de chaque vidéo facturée.
+ */
 export const lireRentabilite = mcpPermissionQuery("business.read")({
-  args: {},
-  handler: async (ctx) => getProjectProfitabilityCore(ctx),
+  args: { periode: v.optional(v.object({ du: v.string(), au: v.string() })) },
+  handler: async (ctx, { periode }) =>
+    getProjectProfitabilityCore(ctx, periode ? { periode } : undefined),
+});
+
+/**
+ * Relevés de vues de posts RÉMUNÉRÉS, antérieurs à leur coupure (J+30 / spark
+ * ad) — la matière des vues facturées datées (`rentabilite` sur une période).
+ * Même bloc que la carte. Lu par lots depuis l'outil : sur toute la vie du
+ * projet, une seule query dépasserait le budget de lectures.
+ */
+export const lireRelevesFacturables = mcpPermissionQuery("business.read")({
+  args: {
+    posts: v.array(v.object({ publicationId: v.id("publications"), coupure: v.number() })),
+  },
+  handler: async (ctx, { posts }) => {
+    const out: { publicationId: string; capturedAt: number; vues: number }[] = [];
+    for (const { publicationId, coupure } of posts) {
+      const snaps = await ctx.db
+        .query("metricSnapshots")
+        .withIndex("by_publication_and_capturedAt", (q) =>
+          q.eq("publicationId", publicationId).lt("capturedAt", coupure),
+        )
+        .collect();
+      for (const s of snaps) {
+        // Le lot vient de l'outil, mais un relevé ne sort que de SON projet.
+        if (s.projectId !== ctx.projectId) continue;
+        out.push({ publicationId: s.publicationId as string, capturedAt: s.capturedAt, vues: s.vues });
+      }
+    }
+    return out;
+  },
 });
 
 /** Revenu Whop de l'onglet Analytics (Vue d'ensemble, Offres & tests) — même calcul, même bloc. */
@@ -706,7 +743,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "rentabilite",
     title: "Rentabilité du projet",
     description:
-      "Rentabilité du projet, exactement comme la carte Rentabilité de l'écran Paiements (même calcul) : revenu Whop NET (après frais, devise du revenu), coût créatrices (fixe + CPM + bonus, devise de la paie), MARGE (revenu − coût converti, devise du revenu) et RPM (revenu net pour 1 000 vues). Cumul + détail mois par mois (mois de Paris), du plus récent au plus ancien. Par défaut le RPM « business » divise par les vues FACTURÉES seules ; inclure_non_facturees donne le RPM dilué (toutes les vues suivies). Lire les avertissements avant de conclure.",
+      "Rentabilité du projet, exactement comme la carte Rentabilité de l'écran Paiements (même calcul) : revenu Whop NET (après frais, devise du revenu), coût créatrices (fixe + CPM + bonus, devise de la paie), MARGE (revenu − coût converti, devise du revenu) et RPM (revenu net pour 1 000 vues). Cumul + détail mois par mois (mois de Paris), du plus récent au plus ancien. Par défaut le RPM « business » divise par les vues FACTURÉES seules ; inclure_non_facturees donne le RPM dilué (toutes les vues suivies). Avec `du`/`au` : le RPM sur N'IMPORTE QUELLE période — revenu encaissé ces jours-là ÷ vues FACTURÉES GAGNÉES ces jours-là (posts rémunérés, dans leur fenêtre J+30, sous le plafond de 150 $ par vidéo), avec le détail par jour (par mois au-delà de 92 jours). Lire les avertissements avant de conclure.",
     inputSchema: {
       type: "object",
       properties: {
@@ -715,10 +752,20 @@ export const OUTILS: readonly McpTool[] = [
           type: "string",
           description: "Ne garder qu'un mois, au format AAAA-MM (ex. 2026-09).",
         },
+        du: {
+          type: "string",
+          description:
+            "Premier jour inclus d'une période libre, AAAA-MM-JJ (défaut si seul `au` est donné : 29 jours avant `au`). Remplace le détail mensuel.",
+        },
+        au: {
+          type: "string",
+          description:
+            "Dernier jour inclus d'une période libre, AAAA-MM-JJ (défaut si seul `du` est donné : hier, dernier jour complet).",
+        },
         inclure_non_facturees: {
           type: "boolean",
           description:
-            "Diviser le RPM par toutes les vues suivies (RPM dilué) au lieu des seules vues facturées (défaut : non).",
+            "Diviser le RPM par toutes les vues suivies (RPM dilué) au lieu des seules vues facturées (défaut : non). Détail mensuel seulement.",
         },
       },
       additionalProperties: false,
@@ -1201,6 +1248,168 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
     }
   }
 
+  /**
+   * `rentabilite` sur une période LIBRE : revenu encaissé ces jours-là ÷ vues
+   * FACTURÉES gagnées ces jours-là.
+   *
+   * Le revenu et le plafond de chaque vidéo viennent du cœur de la carte (même
+   * moteur de paie, même plafond 150 $, même fenêtre J+30, même assiette réglée)
+   * ; les relevés sont lus ensuite, par lots, pour dater ces vues au jour (cf
+   * convex/viewsDaily `computeDailyBilledViews`).
+   */
+  async function rentabiliteSurPeriode(
+    projet: Projet,
+    ids: { userId: Id<"users">; projectId: Id<"projects"> },
+    duArg: string | null,
+    auArg: string | null,
+  ) {
+    const aujourdhui = parisDayKey(Date.now());
+    const au = auArg ?? parisDayKey(Date.now() - 86_400_000);
+    const du = duArg ?? shiftDay(au, -29);
+    const debut = minuitParisDe(du);
+    if (debut === null || minuitParisDe(au) === null) {
+      throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+    }
+    if (du > au) throw new ToolError("« du » doit précéder « au ».");
+    if (au > aujourdhui) {
+      throw new ToolError(`« au » ne peut pas dépasser aujourd'hui (${aujourdhui}).`);
+    }
+    const [ya, ma, da] = au.split("-").map(Number);
+    const fin = parisMidnightUtc(ya, ma, da + 1); // exclu
+
+    const data = await lire(() =>
+      ctx.runQuery(internal.mcpTools.lireRentabilite, { ...ids, periode: { du, au } }),
+    );
+    if (!data.configured || !("periode" in data) || data.periode === undefined) {
+      return json({
+        projet: projet.slug,
+        configure: false,
+        message:
+          "Rentabilité indisponible : aucun revenu Whop n'est relié à ce projet. Sans revenu, pas de RPM.",
+      });
+    }
+    const p = data.periode;
+
+    // Les vidéos qui ont pu facturer des vues pendant la période : fenêtre de
+    // paie pas encore close au premier jour, publiées avant la fin — à 7 jours
+    // près, une date de publication saisie après le premier relevé (TD-020)
+    // pouvant la faire paraître plus tard qu'elle n'est.
+    const MARGE_PUBLICATION_MS = 7 * 86_400_000;
+    const videos = p.videos.filter((v) =>
+      v.posts.some((x) => x.coupure > debut && x.publishedAt < fin + MARGE_PUBLICATION_MS),
+    );
+    const posts = new Map<string, number>();
+    for (const v of videos) for (const x of v.posts) posts.set(x.publicationId, x.coupure);
+    // Par lots : toute la vie de chaque post est relue (le plafond se coupe dans
+    // l'ordre chronologique), ce qui ne tient pas en une query sur un an.
+    const LOT = 100;
+    const liste = [...posts.entries()];
+    const snaps: { publicationId: string; capturedAt: number; vues: number }[] = [];
+    for (let i = 0; i < liste.length; i += LOT) {
+      const lot = liste.slice(i, i + LOT).map(([publicationId, coupure]) => ({
+        publicationId: publicationId as Id<"publications">,
+        coupure,
+      }));
+      snaps.push(
+        ...(await lire(() =>
+          ctx.runQuery(internal.mcpTools.lireRelevesFacturables, { ...ids, posts: lot }),
+        )),
+      );
+    }
+    const facturees = computeDailyBilledViews(videos, snaps);
+    const joursFactures = facturees.jours.filter((j) => j.date >= du && j.date <= au);
+    const vuesFacturees = joursFactures.reduce((s, j) => s + j.value, 0);
+
+    const vuesDuJour = new Map(joursFactures.map((j) => [j.date, j.value]));
+    const revenuDuJour = new Map(p.revenueByDay.map((r) => [r.jour, r.revenueNet]));
+    const parJour: { jour: string; revenuNet: number; vuesFacturees: number }[] = [];
+    for (let j = du; j <= au; j = shiftDay(j, 1)) {
+      parJour.push({
+        jour: j,
+        revenuNet: revenuDuJour.get(j) ?? 0,
+        vuesFacturees: vuesDuJour.get(j) ?? 0,
+      });
+    }
+    // Au-delà d'un trimestre, le détail se lit par mois (de Paris) : des
+    // centaines de lignes noieraient la réponse sans rien dire de plus. Les mois
+    // de bord ne couvrent que leurs jours dans la période, et le disent.
+    const PAR_JOUR_MAX = 92;
+    const parMois = new Map<
+      string,
+      { mois: string; du: string; au: string; revenuNet: number; vuesFacturees: number }
+    >();
+    if (parJour.length > PAR_JOUR_MAX) {
+      for (const j of parJour) {
+        const m = j.jour.slice(0, 7);
+        const ligne = parMois.get(m) ?? { mois: m, du: j.jour, au: j.jour, revenuNet: 0, vuesFacturees: 0 };
+        ligne.au = j.jour;
+        ligne.revenuNet = Math.round((ligne.revenuNet + j.revenuNet) * 100) / 100;
+        ligne.vuesFacturees += j.vuesFacturees;
+        parMois.set(m, ligne);
+      }
+    }
+    const detail =
+      parMois.size > 0
+        ? {
+            parMois: [...parMois.values()].map((l) => ({
+              ...l,
+              rpm: data.mixedCurrency ? null : computeRpm(l.revenuNet, l.vuesFacturees),
+            })),
+          }
+        : { parJour };
+
+    const avertissements: string[] = [];
+    if (data.mixedCurrency) {
+      avertissements.push(
+        "Revenus encaissés dans plusieurs devises NON convertibles : le revenu vaut 0 par abstention (ce n'est pas un montant), le RPM n'est donc pas calculé (null).",
+      );
+    }
+    if (data.conversions.length > 0) {
+      avertissements.push(
+        `Une partie du revenu a été convertie au taux du projet (${data.conversions
+          .map((c) => `${c.from} × ${c.rate}`)
+          .join(", ")}) : un taux posé à la main n'est pas une comptabilité.`,
+      );
+    }
+    const estimes = joursFactures.filter((j) => j.estimated).map((j) => j.date);
+    if (estimes.length > 0) {
+      avertissements.push(
+        `${estimes.length} jour(s) dont une part des vues vient d'un écart de plus de 30 h entre deux relevés : réparti au prorata, pas mesuré (${estimes.join(", ")}).`,
+      );
+    }
+    if (facturees.nonDatees > 0) {
+      avertissements.push(
+        `${facturees.nonDatees} vues facturées des vidéos actives sur la période ne se datent pas (post payé sans relevé dans sa fenêtre, ou date de publication postérieure au premier relevé) : elles ne sont dans aucun jour, donc hors du dénominateur.`,
+      );
+    }
+    if (au === aujourdhui) {
+      avertissements.push(
+        "La période finit aujourd'hui : le revenu du jour est en cours et ses vues n'arrivent qu'au relevé de 23 h 30.",
+      );
+    }
+
+    return json({
+      projet: projet.slug,
+      periode: { du, au, jours: parJour.length },
+      devises: { revenu: data.currency },
+      unites: "revenuNet et rpm dans la devise du REVENU.",
+      revenuNet: p.revenueNet,
+      vuesFacturees,
+      // Revenu à zéro PAR ABSTENTION (devises non convertibles) : pas de RPM.
+      rpm: data.mixedCurrency ? null : computeRpm(p.revenueNet, vuesFacturees),
+      ...(data.mixedCurrency ? { revenuInexploitable: true } : {}),
+      ...detail,
+      lecture: [
+        "vuesFacturees = vues GAGNÉES ces jours-là par les posts rémunérés, tant qu'ils sont dans leur fenêtre de paie (J+30, ou avant une spark ad), et jusqu'au plafond de 150 $ de leur vidéo : au-delà, une vue est gratuite et n'y entre pas. Toutes vidéos confondues, quelle que soit leur date de publication.",
+        "revenuNet = net Whop encaissé ces jours-là (après frais, remboursements déduits, litiges exclus), jours de Paris.",
+        "Ce n'est PAS le RPM de la ligne mensuelle, même sur un mois entier : le mensuel range les vues d'une vidéo dans le mois de sa PUBLICATION, ici elles tombent le jour où elles sont faites, comme le revenu. D'où un RPM comparable d'une période à l'autre sans attendre M+30.",
+        "Coût et marge ne sont pas servis sur une période libre (la paie se compte par vidéo publiée et par palier, pas par jour) : ils restent au détail mensuel, sans du/au.",
+        "Un jour n'est complet qu'après le relevé de 23 h 30 ; une vue répartie entre deux relevés est estimée au prorata des heures.",
+      ],
+      ...(avertissements.length > 0 ? { avertissements } : {}),
+    });
+  }
+
   const filtreNom = (nom: string | null, filtre: unknown) =>
     typeof filtre !== "string" || plier(nom ?? "").includes(plier(filtre));
 
@@ -1266,6 +1475,21 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
 
       if (name === "rentabilite") {
         const mois = typeof args.mois === "string" ? args.mois.trim() : null;
+        const duArg = typeof args.du === "string" && args.du.trim() !== "" ? args.du.trim() : null;
+        const auArg = typeof args.au === "string" && args.au.trim() !== "" ? args.au.trim() : null;
+        if (duArg !== null || auArg !== null) {
+          if (mois !== null) {
+            throw new ToolError(
+              "« mois » et « du »/« au » s'excluent. Un mois peut se demander en du/au (ex. 2026-09-01 → 2026-09-30), mais ce n'est pas la même mesure que la ligne mensuelle — cf « lecture » dans la réponse.",
+            );
+          }
+          if (args.inclure_non_facturees === true) {
+            throw new ToolError(
+              "inclure_non_facturees ne vaut que pour le détail mensuel. Sur une période, les vues de tous les posts suivis sont dans l'outil `vues` (warmup : inclure).",
+            );
+          }
+          return rentabiliteSurPeriode(projet, ids, duArg, auArg);
+        }
         if (mois !== null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(mois)) {
           throw new ToolError("« mois » doit être au format AAAA-MM (ex. 2026-09).");
         }

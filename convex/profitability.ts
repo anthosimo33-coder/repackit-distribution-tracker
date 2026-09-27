@@ -15,6 +15,9 @@ import {
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import { payAnchorOf } from "./payCycle";
 import { settledViewsResolver } from "./settledCycles";
+import { netInReference } from "./marketMoney";
+import { videosFacturables } from "./profitabilityMath";
+import { parisDayKey, type VideoFacturable } from "./viewsDaily";
 import { projectFx, summarizeWhopRevenue } from "./whopRevenue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 
@@ -69,7 +72,15 @@ async function creatorCostByMonth(
    * gel, lui, reste hors cache : sa valeur dépend de l'instant du règlement.
    */
   viewsCache: AssignmentViewsCache,
-): Promise<Map<string, { cost: number; billedViews: number; settled: boolean }>> {
+): Promise<{
+  months: Map<string, { cost: number; billedViews: number; settled: boolean }>;
+  /**
+   * Vues facturées de CHAQUE vidéo, prises dans le même appel que le total de
+   * son mois (dû, ou engagé pour le mois en cours). Une vidéo n'appartient qu'au
+   * mois de sa publication : aucune clé ne se répète.
+   */
+  billedByAssignment: Map<string, number>;
+}> {
   const assignments = (
     await ctx.db
       .query("assignments")
@@ -121,6 +132,7 @@ async function creatorCostByMonth(
     string,
     { cost: number; billedViews: number; settled: boolean }
   >();
+  const billedByAssignment = new Map<string, number>();
   // Une seule lecture des sources de la créatrice pour TOUS ses mois : le
   // moteur les relisait sinon à chaque tour de boucle (cf CreatorPayrollSources).
   const sources = await loadCreatorPayrollSources(ctx, projectId, creatorId);
@@ -163,9 +175,11 @@ async function creatorCostByMonth(
     const cost = enCours
       ? round2(bd.engage.total + bd.bonusTierCashTotal + bd.challengeTotal)
       : bd.total;
-    const billedViews = enCours
-      ? bd.engage.billedViews
-      : bd.perAssignment.reduce((sum, a) => sum + a.billedViews, 0);
+    const parVideo = enCours ? bd.engage.perAssignment : bd.perAssignment;
+    for (const a of parVideo) {
+      billedByAssignment.set(a.assignmentId, a.billedViews);
+    }
+    const billedViews = parVideo.reduce((sum, a) => sum + a.billedViews, 0);
     if (cost > 0 || billedViews > 0) {
       // Un mois EN COURS n'est jamais annoncé figé : son coût est l'ENGAGÉ, qui
       // suit encore les vidéos ouvertes, et des vidéos vont s'y ajouter.
@@ -176,7 +190,7 @@ async function creatorCostByMonth(
       });
     }
   }
-  return out;
+  return { months: out, billedByAssignment };
 }
 
 /**
@@ -196,6 +210,14 @@ export const getProjectProfitability = permissionQuery("business.read")({
  */
 export async function getProjectProfitabilityCore(
   ctx: ProjectQueryCtx,
+  /**
+   * Période LIBRE (jours de Paris inclus, outil MCP `rentabilite`) : ajoute au
+   * résultat le revenu encaissé ces jours-là et, pour chaque vidéo facturée, son
+   * plafond et ses posts rémunérés — de quoi dater ses vues facturées (cf
+   * convex/viewsDaily `computeDailyBilledViews`). Absente : réponse inchangée,
+   * c'est celle de la carte.
+   */
+  opts?: { periode?: { du: string; au: string } },
 ) {
   const project = await ctx.db.get(ctx.projectId);
   // Rentabilité = Whop-gated : sans mapping, on court-circuite AVANT tout calcul
@@ -267,10 +289,11 @@ export async function getProjectProfitabilityCore(
   // lui paiera pas a déjà été sorti de la paie à la suppression (remunere=false,
   // cf unpayPostsOfDeletedCreator) : le moteur le rend donc à zéro, sans filtre ici.
   const creatorIds = new Set<Id<"creators">>();
-  for (const a of await ctx.db
+  const projectAssignments = await ctx.db
     .query("assignments")
     .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-    .collect()) {
+    .collect();
+  for (const a of projectAssignments) {
     creatorIds.add(a.creatorId);
   }
   for (const u of await ctx.db
@@ -289,12 +312,15 @@ export async function getProjectProfitabilityCore(
   const settledByMonth = new Map<string, boolean>();
   // Les publications du projet, lues UNE fois pour toutes les créatrices et
   // tous leurs mois (cf AssignmentViewsCache).
-  const viewsCache = newViewsCache(
-    await loadProjectPublications(ctx, ctx.projectId),
-  );
+  const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+  const viewsCache = newViewsCache(projectPubs);
+  const billedByAssignment = new Map<string, number>();
   for (const c of creatorIds) {
     const cm = await creatorCostByMonth(ctx, ctx.projectId, c, viewsCache);
-    for (const [m, { cost, billedViews, settled }] of cm) {
+    for (const [a, billed] of cm.billedByAssignment) {
+      billedByAssignment.set(a, billed);
+    }
+    for (const [m, { cost, billedViews, settled }] of cm.months) {
       costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
       billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
       settledByMonth.set(m, (settledByMonth.get(m) ?? true) && settled);
@@ -316,10 +342,8 @@ export async function getProjectProfitabilityCore(
   //     absent — 694 000 vues sur juillet à lui seul.
   // Le RPM n'était donc ni sur- ni sous-estimé de façon systématique : il était
   // calculé sur un ensemble qui n'était celui d'aucune des deux questions.
-  const pubs = await ctx.db
-    .query("publications")
-    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-    .collect();
+  // Les MÊMES publications que celles du moteur, déjà lues plus haut.
+  const pubs = [...projectPubs.values()];
   const pubsByMonth = new Map<string, typeof pubs>();
   for (const p of pubs) {
     const m = monthKeyParis(p.datePubli);
@@ -396,6 +420,51 @@ export async function getProjectProfitabilityCore(
       settled: settledByMonth.get(period) === true,
     }));
 
+  // ─── Période LIBRE (outil MCP `rentabilite` avec du/au) ─────────────────────
+  // Le revenu des jours demandés, et de quoi DATER les vues facturées de chaque
+  // vidéo. Aucune lecture de plus : tout sort de ce qui précède.
+  let periode:
+    | {
+        du: string;
+        au: string;
+        revenueNet: number;
+        revenueByDay: { jour: string; revenueNet: number }[];
+        videos: VideoFacturable[];
+      }
+    | undefined;
+  if (opts?.periode !== undefined) {
+    const { du, au } = opts.periode;
+    const lignesDuJour = new Map<string, Doc<"whopPayments">[]>();
+    for (const r of whopRows) {
+      const j = parisDayKey(r.paidAt);
+      if (j < du || j > au) continue;
+      const arr = lignesDuJour.get(j);
+      if (arr) arr.push(r);
+      else lignesDuJour.set(j, [r]);
+    }
+    // Sommé paiement par paiement dans la devise du revenu, avec le référentiel
+    // de TOUT l'historique : `summarizeWhopRevenue` sur un jour qui n'a vu que
+    // des ventes en dollars les rendrait en dollars, lues comme des euros (cf
+    // convex/marketMoney).
+    const revenueByDay = [...lignesDuJour.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([jour, lignes]) => ({
+        jour,
+        revenueNet: netInReference(lignes, totalRevenue),
+      }));
+    const revenueNet = netInReference(
+      [...lignesDuJour.values()].flat(),
+      totalRevenue,
+    );
+    // Même moteur, même plafond : cf `videosFacturables`.
+    const videos = videosFacturables(
+      billedByAssignment,
+      new Map(projectAssignments.map((a) => [a._id as string, a])),
+      projectPubs,
+    );
+    periode = { du, au, revenueNet, revenueByDay, videos };
+  }
+
   return {
     configured: project?.whop !== undefined,
     // Devise du REVENU (Whop) ; la paie créatrices a la sienne (payCurrency).
@@ -419,5 +488,6 @@ export async function getProjectProfitabilityCore(
       unpaidViews: totUnpaid,
     },
     months,
+    ...(periode !== undefined ? { periode } : {}),
   };
 }

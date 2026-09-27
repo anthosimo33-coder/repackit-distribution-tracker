@@ -1110,6 +1110,12 @@ export interface PricingBreakdown extends MonthlyPayout {
     total: number;
     /** Vues facturées du scénario engagé — le dénominateur qui va avec. */
     billedViews: number;
+    /**
+     * Les mêmes vues facturées, VIDÉO PAR VIDÉO (Σ = `billedViews`). Sert à dater
+     * les vues facturées d'un mois en cours (cf convex/viewsDaily
+     * `computeDailyBilledViews`) sans rejouer le moteur.
+     */
+    perAssignment: { assignmentId: string; billedViews: number }[];
   };
   /**
    * L'assiette de TOUTES les vidéos retenues de la période est-elle arrêtée —
@@ -1385,11 +1391,20 @@ export function videoCostsOfMonth(
 export function engageOf(items: PayoutItem[], base: MonthlyPayout): {
   total: number;
   billedViews: number;
+  perAssignment: { assignmentId: string; billedViews: number }[];
 } {
-  const billed = (b: MonthlyPayout) =>
-    b.perAssignment.reduce((s, a) => s + a.billedViews, 0);
+  const facturees = (b: MonthlyPayout) => {
+    const perAssignment = b.perAssignment.map((a) => ({
+      assignmentId: a.assignmentId,
+      billedViews: a.billedViews,
+    }));
+    return {
+      billedViews: perAssignment.reduce((s, a) => s + a.billedViews, 0),
+      perAssignment,
+    };
+  };
   if (!base.perPricing.some((g) => g.fixeBloque)) {
-    return { total: base.total, billedViews: billed(base) };
+    return { total: base.total, ...facturees(base) };
   }
   const sansSeuil = computeMonthlyPayout(
     items.map((it) => ({
@@ -1397,7 +1412,7 @@ export function engageOf(items: PayoutItem[], base: MonthlyPayout): {
       snapshot: { ...it.snapshot, seuilVuesFixe: undefined },
     })),
   );
-  return { total: sansSeuil.total, billedViews: billed(sansSeuil) };
+  return { total: sansSeuil.total, ...facturees(sansSeuil) };
 }
 
 export async function computeLivePricingBreakdown(
