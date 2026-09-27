@@ -937,6 +937,95 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_capturedAt", ["projectId", "capturedAt"]),
 
+  // ─── RELEVÉ RAPIDE — toutes les 2 h sur les 36 premières heures d'un post ──
+  // TikTok et Instagram, hors posts de chauffe (cf convex/earlyTracking.ts).
+  // Une ligne par relevé : c'est une SÉRIE, jamais écrasée.
+  //
+  // ⚠️ DISTINCTE de metricSnapshots, et c'est voulu : cette dernière ne garde
+  // qu'un relevé par post et par jour UTC. En été, un relevé entre minuit et 2 h
+  // de Paris tomberait dans le jour UTC du relevé de 23 h 30 et l'écraserait —
+  // décalant les colonnes J+X et relançant les paliers de bonus. Ici, rien de
+  // tout ça : AUCUNE lecture de paie, de J+X ou d'analytics ne lit cette table.
+  //
+  // Compteurs optionnels : absent = non fourni par la plateforme (likes masqués
+  // sur Instagram), jamais un zéro mesuré.
+  earlyReadings: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.id("publications"),
+    capturedAt: v.number(),
+    /**
+     * Instant de mise en ligne retenu pour calculer l'âge du post au relevé :
+     * lu dans l'URL (id TikTok, code Instagram), sinon `datePubli`. Figé ici
+     * pour que l'âge d'un relevé ne bouge pas si `datePubli` est corrigé ensuite.
+     */
+    postedAt: v.number(),
+    postedAtSource: v.union(v.literal("url"), v.literal("datePubli")),
+    vues: v.number(),
+    likes: v.optional(v.number()),
+    comments: v.optional(v.number()),
+    saves: v.optional(v.number()),
+    shares: v.optional(v.number()),
+    source: v.union(v.literal("tiktok"), v.literal("instagram")),
+  })
+    .index("by_publication_capturedAt", ["publicationId", "capturedAt"])
+    .index("by_project_capturedAt", ["projectId", "capturedAt"]),
+
+  // DERNIÈRE TENTATIVE du relevé rapide, une ligne par publication (réécrite à
+  // chaque tentative). C'est elle qui porte la cadence de 2 h, PAS la dernière
+  // ligne d'earlyReadings : un post qui échoue (privé, non rendu par Apify)
+  // n'écrit aucun relevé, et serait sinon retenté à chaque passage — toutes les
+  // 30 min au lieu de toutes les 2 h, soit 4 fois plus de pages TikTok et de
+  // résultats Apify pour des posts qui ne rendront rien.
+  earlyReadingAttempts: defineTable({
+    projectId: v.id("projects"),
+    publicationId: v.id("publications"),
+    at: v.number(),
+    outcome: v.union(
+      v.literal("read"),
+      v.literal("refused"),
+      v.literal("unreadable"),
+      v.literal("missing"),
+    ),
+  })
+    .index("by_publication", ["publicationId"])
+    .index("by_project", ["projectId"]),
+
+  // Journal des PASSAGES du relevé rapide — un par passage du cron, même vide.
+  // Sert trois choses : le coupe-circuit TikTok persistant (un passage qui l'a
+  // déclenché suspend TikTok pendant 6 h), le coût réel (pages lues, résultats
+  // Apify facturés) et la couverture (reportés, refusés). Sans projectId : un
+  // passage couvre tous les projets. Purgé au-delà de 30 jours.
+  earlyReadingRuns: defineTable({
+    startedAt: v.number(),
+    finishedAt: v.number(),
+    /** Passage sauté entièrement, et pourquoi. */
+    skipped: v.optional(
+      v.union(v.literal("nightly-quiet"), v.literal("paris-clock-unavailable")),
+    ),
+    candidates: v.number(),
+    tiktok: v.object({
+      targets: v.number(),
+      pages: v.number(),
+      read: v.number(),
+      refused: v.number(),
+      unreadable: v.number(),
+      deferred: v.number(),
+      /** Motif du coupe-circuit, s'il s'est déclenché PENDANT ce passage. */
+      breakerTripped: v.optional(v.string()),
+      /** TikTok non tenté : coupe-circuit récent encore actif. */
+      suspended: v.boolean(),
+    }),
+    instagram: v.object({
+      targets: v.number(),
+      read: v.number(),
+      missing: v.number(),
+      /** Runs Apify lancés. Le coût est au RÉSULTAT rendu (`read`). */
+      runs: v.number(),
+      deferred: v.number(),
+      error: v.optional(v.string()),
+    }),
+  }).index("by_startedAt", ["startedAt"]),
+
   // ─── Relevés de PROFIL d'un compte (abonnés & co.) ────────────────────────
   // Historisé — c'est tout l'objet : un compteur d'abonnés seul ne dit rien, le
   // DELTA dit si le compte monte. Une ligne par compte et par relevé nocturne.
