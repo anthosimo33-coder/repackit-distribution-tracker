@@ -21,6 +21,9 @@
  */
 
 import { effectiveFxRate } from "./currencyRate";
+import { payCutoffAt } from "./payWindow";
+import { isRemunerated } from "./remunerate";
+import type { PostFacturable, VideoFacturable } from "./viewsDaily";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const finite = (n: number): number => (Number.isFinite(n) ? n : 0);
@@ -166,4 +169,65 @@ export function profitabilityReport<M extends ProfitabilityTotals>(
     total: metriques(source.total),
     months: source.months.map((m) => ({ ...m, metrics: metriques(m) })),
   };
+}
+
+/**
+ * LES VIDÉOS FACTURÉES, prêtes à dater leurs vues (cf convex/viewsDaily
+ * `computeDailyBilledViews`) — le RPM de l'outil `rentabilite` sur une période.
+ *
+ * Le plafond de chaque vidéo est `billedViews` du moteur de paie, pris tel quel :
+ * plafond 150 $/vidéo, fenêtre J+30 et assiette d'un cycle réglé y sont déjà.
+ * Ses posts sont ceux que le moteur lit (`assignmentViewsAndMetrics`) : cibles +
+ * publication legacy, sans doublon, RÉMUNÉRÉS seulement — la coupure financière
+ * `isRemunerated`, jamais `isWarmup` (un warmup payé à la main compte, un post
+ * retiré de la paie non). Leur coupure est celle du moteur (`payCutoffAt`).
+ *
+ * Une vidéo qui ne facture rien est écartée : ses vues ne sont pas achetées.
+ */
+export function videosFacturables(
+  /** assignmentId → vues facturées du moteur (dû, ou engagé pour le mois en cours). */
+  billedByAssignment: ReadonlyMap<string, number>,
+  assignments: ReadonlyMap<
+    string,
+    {
+      targets?: readonly { publicationId?: string }[];
+      publicationId?: string;
+    }
+  >,
+  publications: ReadonlyMap<
+    string,
+    {
+      datePubli: number;
+      isWarmup?: boolean;
+      remunere?: boolean;
+      sparkAdLaunchedAt?: number;
+    }
+  >,
+): VideoFacturable[] {
+  const videos: VideoFacturable[] = [];
+  for (const [assignmentId, plafond] of billedByAssignment) {
+    if (!(plafond > 0)) continue;
+    const a = assignments.get(assignmentId);
+    if (a === undefined) continue;
+    const ids = new Set(
+      [...(a.targets ?? []).map((t) => t.publicationId), a.publicationId].filter(
+        (x): x is string => x !== undefined,
+      ),
+    );
+    const posts: PostFacturable[] = [];
+    for (const publicationId of ids) {
+      const pub = publications.get(publicationId);
+      if (pub === undefined) continue;
+      if (!isRemunerated({ isWarmup: pub.isWarmup === true, remunere: pub.remunere })) {
+        continue;
+      }
+      posts.push({
+        publicationId,
+        publishedAt: pub.datePubli,
+        coupure: payCutoffAt(pub.datePubli, pub.sparkAdLaunchedAt ?? null),
+      });
+    }
+    videos.push({ plafond, posts });
+  }
+  return videos;
 }

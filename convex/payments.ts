@@ -516,7 +516,11 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     unmeasuredPayablePosts: 0,
     // GELÉ : un cycle payé n'a plus d'engagement, il a un montant. L'engagé y
     // vaut donc le dû — c'est le seul état où les deux ne peuvent pas diverger.
-    engage: { total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal), billedViews: 0 },
+    engage: {
+      total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
+      billedViews: 0,
+      perAssignment: [],
+    },
     total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
     perPricing: [],
     perAssignment: [],
