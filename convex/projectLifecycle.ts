@@ -195,6 +195,18 @@ const ETAPES: Record<TablePurgee, Etape> = {
   metricSnapshots: etape((ctx, pid, n) =>
     ctx.db.query("metricSnapshots").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  earlyReadings: etape((ctx, pid, n) =>
+    ctx.db
+      .query("earlyReadings")
+      .withIndex("by_project_capturedAt", (q) => q.eq("projectId", pid))
+      .take(n),
+  ),
+  earlyReadingAttempts: etape((ctx, pid, n) =>
+    ctx.db
+      .query("earlyReadingAttempts")
+      .withIndex("by_project", (q) => q.eq("projectId", pid))
+      .take(n),
+  ),
   accountProfileSnapshots: etape((ctx, pid, n) =>
     ctx.db
       .query("accountProfileSnapshots")

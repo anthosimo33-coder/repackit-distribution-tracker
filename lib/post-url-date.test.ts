@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isTikTokShortlink,
   publicationDateFromUrl,
+  timestampFromInstagramShortcode,
   timestampFromTikTokVideoId,
 } from "../convex/postUrlDate";
 import { isTikTokShortlink as fromEmbedsServer } from "../convex/modelVideoEmbeds";
@@ -194,5 +195,49 @@ describe("isTikTokShortlink — une seule implémentation dans le dépôt", () =
     expect(
       isTikTokShortlink(`https://www.tiktok.com/@clip.demo/video/${ID_NOMINAL}`),
     ).toBe(false);
+  });
+});
+
+/**
+ * CODES INSTAGRAM RÉELS. `DdwcP91scOd` : post Snytch relevé en prod le
+ * 2026-09-27, `datePubli` enregistré 2026-09-26T16:16:32Z (confirmation, 61 s
+ * après la mise en ligne). `BsOGulcndj-` : post public dont la date est connue
+ * hors de nos données (04/01/2019) — un point d'ancrage que notre base ne peut
+ * pas avoir fabriqué.
+ */
+const IG_SNYTCH = "DdwcP91scOd";
+const IG_DATE_CONNUE = "BsOGulcndj-";
+
+describe("timestampFromInstagramShortcode — id du média >> 23 + époque Instagram", () => {
+  it("décode un code réel à la milliseconde, AVANT la date de confirmation", () => {
+    const at = timestampFromInstagramShortcode(IG_SNYTCH);
+    expect(at).toBe(Date.parse("2026-09-26T16:15:31.524Z"));
+    const confirmation = Date.parse("2026-09-26T16:16:32.182Z");
+    expect(confirmation - (at as number)).toBeGreaterThan(0);
+    expect(confirmation - (at as number)).toBeLessThan(2 * 60_000);
+  });
+
+  it("retombe sur une date connue hors de nos données", () => {
+    expect(timestampFromInstagramShortcode(IG_DATE_CONNUE)).toBe(
+      Date.parse("2019-01-04T17:05:45.106Z"),
+    );
+  });
+
+  it("un code long (post privé) se lit sur ses 11 premiers caractères", () => {
+    expect(timestampFromInstagramShortcode(`${IG_SNYTCH}Xy7_Qk2pLmN0aBcDeF`)).toBe(
+      timestampFromInstagramShortcode(IG_SNYTCH),
+    );
+  });
+
+  it("refuse un code tronqué ou hors alphabet", () => {
+    expect(timestampFromInstagramShortcode("DdwcP91")).toBeNull();
+    expect(timestampFromInstagramShortcode("DdwcP91sc.d")).toBeNull();
+    expect(timestampFromInstagramShortcode("")).toBeNull();
+  });
+
+  it("n'entre PAS dans le pré-remplissage du clippeur (écran hors chantier)", () => {
+    expect(
+      publicationDateFromUrl(`https://www.instagram.com/reel/${IG_SNYTCH}/`, "Instagram", NOW),
+    ).toEqual({ at: null, reason: "platform" });
   });
 });

@@ -160,3 +160,48 @@ export function publicationDateFromUrl(
   }
   return { at, source: "tiktok-id" };
 }
+
+// ─── Instagram — l'horodatage est dans le code de publication ─────────────────
+
+/**
+ * Époque des identifiants Instagram : 2011-08-24 21:07:01.721 UTC. Un id de
+ * média porte, dans ses bits de poids fort, les millisecondes écoulées depuis
+ * cet instant (41 bits de temps, puis 13 bits de shard et 10 de séquence).
+ */
+const INSTAGRAM_EPOCH_MS = 1_314_220_021_721;
+
+/** Alphabet du code de publication (`/reel/<code>`) : base 64 « URL ». */
+const INSTAGRAM_ALPHABET =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * Longueur d'un code PUBLIC : 11 caractères = l'id du média. Les codes plus
+ * longs (posts privés, partages) portent l'id dans leurs 11 premiers.
+ */
+const INSTAGRAM_ID_CHARS = 11;
+
+/**
+ * Horodatage encodé dans un code de publication Instagram — le pendant de
+ * `timestampFromTikTokVideoId`.
+ *
+ * Vérifié sur des données réelles le 2026-09-27 : six posts Snytch décodent 1 à
+ * 16 minutes AVANT leur `datePubli` (la date de confirmation, TD-020), et le
+ * post public `BsOGulcndj-` tombe le 04/01/2019, sa date connue.
+ *
+ * ⚠️ N'est PAS branché sur `publicationDateFromUrl` : ce dernier pré-remplit le
+ * formulaire du clippeur, et y faire entrer Instagram changerait un écran hors
+ * de ce chantier. Lu par le relevé rapide (`convex/earlyTracking.ts`).
+ */
+export function timestampFromInstagramShortcode(code: string): number | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(code) || code.length < INSTAGRAM_ID_CHARS) {
+    return null;
+  }
+  let id = BigInt(0);
+  const base = BigInt(64);
+  for (const ch of code.slice(0, INSTAGRAM_ID_CHARS)) {
+    id = id * base + BigInt(INSTAGRAM_ALPHABET.indexOf(ch));
+  }
+  const ms = Number(id >> BigInt(23));
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return ms + INSTAGRAM_EPOCH_MS;
+}

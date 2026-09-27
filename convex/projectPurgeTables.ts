@@ -27,6 +27,8 @@ export const TABLES_PURGEES = [
   "assignments",
   "publications",
   "metricSnapshots",
+  "earlyReadings",
+  "earlyReadingAttempts",
   "accountProfileSnapshots",
   "publicationFlagChanges",
   "publicationUrlChanges",

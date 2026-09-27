@@ -38,6 +38,26 @@ crons.hourly(
   {},
 );
 
+// RELEVÉ RAPIDE — toutes les 30 min, aux minutes 5 et 35 UTC (donc Paris).
+// Relève toutes les 2 h les posts TikTok/Instagram de moins de 36 h, pour que
+// l'alerte « ce post décolle » ait de quoi s'évaluer : le relevé nocturne seul
+// laissait un trou de plus de 30 h sur 15 % des posts (mesure du 2026-09-26).
+//
+// Un cron à 30 min pour une cadence de 2 h : le premier relevé d'un post part
+// au plus 30 min après la saisie de son lien, au lieu d'attendre le prochain
+// créneau de 2 h. La cadence elle-même est tenue post par post
+// (cf convex/earlyTracking.ts), et un passage sans rien de dû ne fait qu'une
+// lecture. `crons.cron` et non `crons.interval` : l'intervalle part de l'heure
+// du déploiement, et la fenêtre de silence autour du relevé de 23 h 30 exige de
+// savoir à quelles minutes on tombe. :05/:35 — clair des crons posés à :15, :30,
+// :45 et :50.
+crons.cron(
+  "early-views-readings",
+  "5,35 * * * *",
+  internal.earlyReadings.runEarlyReadings,
+  {},
+);
+
 // RADAR (veille TikTok, module séparé) — sync des comptes favoris 2×/SEMAINE
 // (lundi + jeudi) et NON quotidien : on reste dans le quota Apify gratuit du
 // COMPTE RADAR distinct. 09:00 UTC (après les relevés créateurs 07/08h) pour

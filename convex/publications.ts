@@ -956,6 +956,28 @@ export const getPublicationPayFlags = permissionQuery("tracker.manage")({
  * non-événements devient illisible, et c'est comme ça qu'on cesse de le lire.
  */
 /**
+ * Efface les relevés rapides d'une publication et sa dernière tentative (cf
+ * convex/earlyReadings.ts). Ils appartiennent à SA vidéo : un changement de lien
+ * ou une suppression les rendent faux ou orphelins — et sans tentative, la
+ * nouvelle vidéo est relevée dès le passage suivant au lieu d'attendre 2 h.
+ */
+async function deleteEarlyReadings(
+  ctx: MutationCtx,
+  publicationId: Id<"publications">,
+): Promise<void> {
+  const rows = await ctx.db
+    .query("earlyReadings")
+    .withIndex("by_publication_capturedAt", (q) => q.eq("publicationId", publicationId))
+    .collect();
+  for (const r of rows) await ctx.db.delete(r._id);
+  const attempt = await ctx.db
+    .query("earlyReadingAttempts")
+    .withIndex("by_publication", (q) => q.eq("publicationId", publicationId))
+    .first();
+  if (attempt) await ctx.db.delete(attempt._id);
+}
+
+/**
  * RE-CIBLE une publication sur une AUTRE vidéo : c'est le geste « la créatrice
  * s'est trompée de lien ».
  *
@@ -989,6 +1011,8 @@ export async function retrackPublication(
     )
     .collect();
   for (const snap of snapshots) await ctx.db.delete(snap._id);
+  // Même raison pour les relevés rapides : ils décrivent l'ancienne vidéo.
+  await deleteEarlyReadings(ctx, pub._id);
 
   await ctx.db.patch(pub._id, { postUrl: url });
   // Remet les champs dénormalisés en cohérence : plus aucun snapshot ⇒ tous les
@@ -1321,6 +1345,7 @@ export const deletePublication = permissionMutation("tracker.manage")({
     // TD-011 — l'image ScreenRecorder part avec la row, SAUF si un duplicat la
     // partage encore (duplicateCarousel réutilise le même storageId).
     await purgePublicationImage(ctx, pub);
+    await deleteEarlyReadings(ctx, args.id);
     await ctx.db.delete(args.id);
     return { ok: true };
   },

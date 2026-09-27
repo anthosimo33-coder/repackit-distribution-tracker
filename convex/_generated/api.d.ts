@@ -72,6 +72,8 @@ import type * as decisionThresholds from "../decisionThresholds.js";
 import type * as decisions from "../decisions.js";
 import type * as demoMultiProject from "../demoMultiProject.js";
 import type * as demoSeed from "../demoSeed.js";
+import type * as earlyReadings from "../earlyReadings.js";
+import type * as earlyTracking from "../earlyTracking.js";
 import type * as emailApi from "../emailApi.js";
 import type * as emailMessages from "../emailMessages.js";
 import type * as emails from "../emails.js";
@@ -296,6 +298,8 @@ declare const fullApi: ApiFromModules<{
   decisions: typeof decisions;
   demoMultiProject: typeof demoMultiProject;
   demoSeed: typeof demoSeed;
+  earlyReadings: typeof earlyReadings;
+  earlyTracking: typeof earlyTracking;
   emailApi: typeof emailApi;
   emailMessages: typeof emailMessages;
   emails: typeof emails;
