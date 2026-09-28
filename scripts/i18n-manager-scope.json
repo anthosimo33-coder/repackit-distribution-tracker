@@ -211,6 +211,7 @@
     "components/portal/ViewAsProvider.tsx",
     "components/portal/ViewAsShell.tsx",
     "components/pricing/PricingCreatorsDialog.tsx",
+    "components/pricing/VideoBonusEditor.tsx",
     "components/project/CreateProjectDialog.tsx",
     "components/project/DeleteProjectDialog.tsx",
     "components/project/EditProjectDialog.tsx",
