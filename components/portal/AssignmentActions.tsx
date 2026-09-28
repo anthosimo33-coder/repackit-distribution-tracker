@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
-import { detectInspirationType } from "@/lib/inspiration-url";
+import { isRecognizedPostUrl } from "@/lib/post-url-recognized";
 import { publishUrlIssue, type PostUrlPlatform } from "@/convex/postUrlShape";
 import { useTranslations } from "next-intl";
 import type { Plateforme } from "@/convex/platforms";
@@ -474,6 +474,9 @@ export function AssignmentActions({
           // bloquant) ; `unknown` = lien non reconnu (ambre, NON bloquant) —
           // c'est cet état qui manquait : le champ paraissait valide, le bouton
           // actif, et l'erreur ne tombait qu'au clic, sur un lien correct.
+          // « Reconnu » se lit PAR PLATEFORME (cf lib/post-url-recognized) :
+          // le détecteur de la veille ignore Facebook et Snapchat, et marquait
+          // chacun de leurs liens « non reconnu ».
           const issue = publishUrlIssue(
             val.trim(),
             target.platform as PostUrlPlatform,
@@ -481,7 +484,7 @@ export function AssignmentActions({
           const unknown =
             issue === null &&
             val.trim() !== "" &&
-            detectInspirationType(val) === null;
+            !isRecognizedPostUrl(val, target.platform);
           return (
             <div key={target.platform} className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">

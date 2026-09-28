@@ -224,4 +224,120 @@ test.describe("Publication — formes d'URL", () => {
       status: "todo",
     });
   });
+
+  /**
+   * SIGNALÉ LE 2026-09-28 — « le lien snap il marche pas », « pour Facebook
+   * c'est la même ». Chaque lien Snapchat ou Facebook, même celui que rend
+   * l'app, s'affichait « Lien non reconnu » : l'avertissement lisait les liens
+   * avec le détecteur de la VEILLE, qui ne connaît pas ces deux plateformes.
+   *
+   * Chaque absence d'avertissement est appariée à sa PRÉSENCE sur le même
+   * champ (une Story Snapchat, un groupe Facebook) : sans elle, un avertissement
+   * qui ne s'afficherait plus jamais passerait ce test.
+   */
+  test("portail : liens Snapchat et Facebook de l'app reconnus, et la publication part", async ({
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const password = "creator-urlsnapfb-12345";
+    const fid = await createFormatWithRate(admin, {
+      name: `[E2E_TEST] UrlSnapFb ${ts}`,
+      type: "short",
+      rateModel: RATE,
+    });
+    const { creatorId, token } = await admin.mutation(api.creators.inviteCreator, {
+      name: `[E2E_TEST] UrlSnapFb ${ts}`,
+      email: `e2e-creator-urlsnapfb-${ts}@repackit.test`,
+    });
+    const ctx = await browser.newContext({
+      storageState: { cookies: [], origins: [] },
+    });
+    const page = await ctx.newPage();
+    await page.goto(`/join/${token}`);
+    await page.getByLabel("Mot de passe").fill(password);
+    await page.getByRole("button", { name: /activer mon compte/i }).click();
+    await page.waitForURL("**/app", { timeout: 20_000 });
+
+    const targets = [
+      await availableTarget({
+        e2eClient: admin,
+        creatorId,
+        platform: "Facebook",
+        handle: `@Kellydgtl${ts}`,
+      }),
+      await availableTarget({
+        e2eClient: admin,
+        creatorId,
+        platform: "Snapchat",
+        handle: `@thekellychapter${ts}`,
+      }),
+    ];
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid as Id<"formats">,
+      creatorId,
+      targets,
+      postsPerCreator: 1,
+      dueDate: ts + 7 * 86_400_000,
+    });
+    const mine = (await admin.query(api.assignments.listAssignments, {})).filter(
+      (a) => a.formatId === fid,
+    );
+    expect(mine.length).toBe(1);
+    const aid = mine[0]._id;
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: aid,
+      status: "to_publish",
+    });
+
+    await page.goto(`/app/assignments/${aid}`);
+    const snap = page.getByLabel(/Publie sur Snapchat/);
+    const fb = page.getByLabel(/Publie sur Facebook/);
+    await expect(snap).toBeVisible({ timeout: 15_000 });
+
+    // Liens tels que les apps les rendent. Snapchat : la forme EXACTE du
+    // signalement (`snapchat.com/t/<code>`, sans `www.`), code unique par run.
+    const snapUrl = `https://snapchat.com/t/RsP${ts.toString(36)}`;
+    const fbUrl = `https://www.facebook.com/share/r/1Ab${ts.toString(36)}/?mibextid=wwXIfr`;
+
+    // PRÉSENCE — une Story Snapchat n'a pas de vues publiques : l'avertir est juste.
+    const snapUnknown = page.getByTestId("url-unknown-Snapchat");
+    await snap.fill(
+      "https://story.snapchat.com/p/8b2c5e1f-6a7d-4c3e-9f10-2b3c4d5e6f70/3298765432109876",
+    );
+    await expect(snapUnknown).toBeVisible();
+    // ABSENCE — le lien court de l'app, lui, est reconnu.
+    await snap.fill(snapUrl);
+    await expect(snapUnknown).toBeHidden();
+    await expect(page.getByTestId("url-issue-Snapchat")).toBeHidden();
+
+    // Même paire côté Facebook : un groupe n'est pas un post, le partage d'un Reel si.
+    const fbUnknown = page.getByTestId("url-unknown-Facebook");
+    await fb.fill("https://www.facebook.com/groups/1234567890/");
+    await expect(fbUnknown).toBeVisible();
+    await fb.fill(fbUrl);
+    await expect(fbUnknown).toBeHidden();
+    await expect(page.getByTestId("url-issue-Facebook")).toBeHidden();
+
+    await page.getByRole("button", { name: /confirmer la publication/i }).click();
+    await expect(page.getByText("Publié ✓", { exact: true })).toBeVisible({ timeout: 15_000 });
+
+    // Le serveur a enregistré les DEUX liens tels que collés.
+    const apres = (await admin.query(api.assignments.listAssignments, {})).find(
+      (a) => a._id === aid,
+    );
+    expect(apres?.status).toBe("published");
+    const publies = Object.fromEntries(
+      (apres?.targets ?? []).map((t) => [t.platform, t.publishedUrl]),
+    );
+    expect(publies).toEqual({ Facebook: fbUrl, Snapchat: snapUrl });
+
+    await ctx.close();
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: aid,
+      status: "todo",
+    });
+  });
 });
