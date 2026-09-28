@@ -33,6 +33,14 @@
  */
 
 import { toCount } from "./apifyItem";
+import {
+  isSnapchatHost,
+  parseSnapchatUrl as parse,
+  snapchatSpotlightId,
+} from "./snapchatPostUrl";
+
+// Lecture de l'URL : module à part, importable côté client sans le scraper.
+export { isSnapchatShortlink, snapchatSpotlightId } from "./snapchatPostUrl";
 
 export type SnapchatSpotlightStats = {
   views: number;
@@ -55,43 +63,6 @@ export type SnapchatPageResult =
   | { kind: "gone"; reason: string }
   /** Page illisible (blocage, réseau, payload absent ou cassé). */
   | { kind: "unreadable"; reason: string };
-
-/** L'hôte appartient-il à snapchat.com (lui-même ou un sous-domaine) ? */
-function isSnapchatHost(host: string): boolean {
-  const h = host.toLowerCase();
-  return h === "snapchat.com" || h.endsWith(".snapchat.com");
-}
-
-function parse(url: string): URL | null {
-  const raw = url.trim();
-  if (raw === "") return null;
-  try {
-    return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Identifiant du Spotlight dans son URL : `/spotlight/<id>`, nu ou sous
- * `/@user/`. `null` pour tout le reste (lien court, profil, Story).
- */
-export function snapchatSpotlightId(
-  url: string | null | undefined,
-): string | null {
-  if (!url) return null;
-  const u = parse(url);
-  if (!u || !isSnapchatHost(u.hostname)) return null;
-  const m = u.pathname.match(/\/spotlight\/([A-Za-z0-9_-]{10,})/);
-  return m ? m[1] : null;
-}
-
-/** Lien court de partage `snapchat.com/t/<code>` — l'identifiant n'y est pas. */
-export function isSnapchatShortlink(url: string): boolean {
-  const u = parse(url);
-  if (!u || !isSnapchatHost(u.hostname)) return false;
-  return /^\/t\/[A-Za-z0-9_-]+\/?$/.test(u.pathname);
-}
 
 const NEXT_DATA_RE =
   /<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/;
