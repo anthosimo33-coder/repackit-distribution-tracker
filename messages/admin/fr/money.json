@@ -50,5 +50,29 @@
     "cpmArrete": "arrêté le {date}",
     "cpmDepuis": "depuis le {date} (avant : {ancien})",
     "cpmDepuisSeul": "depuis le {date}"
+  },
+  "VideoBonusEditor": {
+    "views": "Vues de la vidéo",
+    "bonus": "Bonus",
+    "bonusWithCurrency": "Bonus ({symbol})",
+    "remove": "Retirer",
+    "addThreshold": "+ Seuil",
+    "cumulative": "Les bonus se cumulent",
+    "cumulativeOn": "Une vidéo touche la somme de tous les seuils qu'elle a franchis.",
+    "cumulativeOff": "Une vidéo ne touche que le bonus du seuil le plus haut qu'elle a franchi.",
+    "example": "Exemple",
+    "pivotMulti": "Une vidéo à {views} vues touche {amount} ({detail}, {rule}).",
+    "pivotSingle": "Une vidéo à {views} vues touche {amount} — avec un seul seuil, cumulable ou non revient au même.",
+    "ruleCumulative": "cumulés",
+    "ruleNotCumulative": "non cumulable",
+    "noneReached": "aucun seuil atteint",
+    "thresholdOne": "seuil {threshold}",
+    "thresholdOnly": "seuil {threshold} seulement",
+    "colViews": "Vues de la vidéo",
+    "colBonus": "Bonus",
+    "colDetail": "Détail",
+    "test": "Tester :",
+    "testPlaceholder": "vues",
+    "footnote": "Vues comptées : celles des posts rémunérés en promo, toutes plateformes additionnées, sur la fenêtre de paie de la vidéo. Le bonus s'ajoute au fixe et au CPM, en dehors du plafond par vidéo."
   }
 }

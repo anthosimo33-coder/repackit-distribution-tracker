@@ -50,5 +50,29 @@
     "cpmArrete": "stopped on {date}",
     "cpmDepuis": "since {date} (was {ancien})",
     "cpmDepuisSeul": "since {date}"
+  },
+  "VideoBonusEditor": {
+    "views": "Video views",
+    "bonus": "Bonus",
+    "bonusWithCurrency": "Bonus ({symbol})",
+    "remove": "Remove",
+    "addThreshold": "+ Threshold",
+    "cumulative": "Bonuses stack",
+    "cumulativeOn": "A video earns the sum of every threshold it has crossed.",
+    "cumulativeOff": "A video only earns the bonus of the highest threshold it has crossed.",
+    "example": "Example",
+    "pivotMulti": "A video at {views} views earns {amount} ({detail}, {rule}).",
+    "pivotSingle": "A video at {views} views earns {amount} — with a single threshold, stacking makes no difference.",
+    "ruleCumulative": "stacked",
+    "ruleNotCumulative": "not stacked",
+    "noneReached": "no threshold reached",
+    "thresholdOne": "{threshold} threshold",
+    "thresholdOnly": "{threshold} threshold only",
+    "colViews": "Video views",
+    "colBonus": "Bonus",
+    "colDetail": "Detail",
+    "test": "Try:",
+    "testPlaceholder": "views",
+    "footnote": "Views counted: those of paid promo posts, all platforms combined, within the video's pay window. The bonus is added on top of the fixed fee and CPM, outside the per-video cap."
   }
 }
