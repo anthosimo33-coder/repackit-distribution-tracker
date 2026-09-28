@@ -14,7 +14,7 @@ import {
 } from "./pricing";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import { payAnchorOf } from "./payCycle";
-import { settledViewsResolver } from "./settledCycles";
+import { settledVideoBonusResolver, settledViewsResolver } from "./settledCycles";
 import { netInReference } from "./marketMoney";
 import { videosFacturables } from "./profitabilityMath";
 import { parisDayKey, type VideoFacturable } from "./viewsDaily";
@@ -128,6 +128,10 @@ async function creatorCostByMonth(
     creator ? payAnchorOf(creator) : undefined,
     paidRows,
   );
+  const settledVideoBonus = settledVideoBonusResolver(
+    creator ? payAnchorOf(creator) : undefined,
+    paidRows,
+  );
   const out = new Map<
     string,
     { cost: number; billedViews: number; settled: boolean }
@@ -154,6 +158,8 @@ async function creatorCostByMonth(
       parisMonthEndMs(month),
       // Vidéo d'un cycle déjà réglé ⇒ l'assiette qu'on a payée.
       (a) => settledViews(a._id, assignmentPublishedAt(a)),
+      // … et le bonus par vidéo qu'on lui a versé (0 si aucun).
+      (a) => settledVideoBonus(a._id, assignmentPublishedAt(a)),
     );
     // Les vues FACTURÉES viennent du MÊME appel que le coût : c'est la seule
     // façon que le dénominateur du RPM et son numérateur décrivent le même
@@ -172,8 +178,12 @@ async function creatorCostByMonth(
     // défi du mois sont DÉJÀ dus, sans condition à attendre. Les oublier sortait
     // 200 $ de bonus de la marge de septembre 2026 (prod du 2026-09-19), alors
     // que la Vue d'ensemble les comptait.
+    // Le bonus PAR VIDÉO est dans le même cas : dû dès que la vidéo franchit
+    // son seuil, sans condition de mois.
     const cost = enCours
-      ? round2(bd.engage.total + bd.bonusTierCashTotal + bd.challengeTotal)
+      ? round2(
+          bd.engage.total + bd.bonusTierCashTotal + bd.challengeTotal + bd.videoBonusTotal,
+        )
       : bd.total;
     const parVideo = enCours ? bd.engage.perAssignment : bd.perAssignment;
     for (const a of parVideo) {

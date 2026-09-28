@@ -7,6 +7,9 @@ import {
   evaluateBonusTiers,
   payableAssignmentViews,
   promoVideoCost,
+  evaluateVideoBonus,
+  videoBonusAmount,
+  type VideoBonusGrid,
   type PricingSnapshot,
   type PayoutItem,
   type PublicationViews,
@@ -1020,5 +1023,123 @@ describe("videoCostsOfMonth", () => {
     expect(cost(enCours)).toBeCloseTo(31, 2);
     // Mois clos : c'est le DÛ qui compte, et il est nul.
     expect(cost(convexPricing.videoCostsOfMonth({ ...p, engage }, false))).toBe(0);
+  });
+});
+
+/**
+ * BONUS PAR VIDÉO — chaque vidéo jugée SEULE sur ses vues retenues.
+ *
+ * Jeux à la forme de la prod : vues non rondes (relevés Apify), montants à
+ * décimales, grille saisie dans le désordre. La grille de référence est celle
+ * de la demande : 50 k → 10, 100 k → 20, plus un sommet à 500 k.
+ */
+describe("evaluateVideoBonus — bonus par vidéo", () => {
+  const GRILLE = (cumulative: boolean): VideoBonusGrid => ({
+    // Saisie dans le désordre, comme un admin qui ajoute un palier après coup.
+    tiers: [
+      { seuilVues: 100_000, montant: 20 },
+      { seuilVues: 500_000, montant: 47.5 },
+      { seuilVues: 50_000, montant: 10 },
+    ],
+    cumulative,
+  });
+
+  it("cumulables : une vidéo à 123 457 vues touche 10 + 20 = 30", () => {
+    const ev = evaluateVideoBonus(123_457, GRILLE(true));
+    expect(ev.amount).toBe(30);
+    expect(ev.crossed.map((t) => t.seuilVues)).toEqual([50_000, 100_000]);
+    expect(ev.nextTier?.seuilVues).toBe(500_000);
+    expect(ev.viewsToNext).toBe(376_543);
+  });
+
+  it("non cumulables : la même vidéo ne touche que le seuil le plus haut, 20", () => {
+    expect(evaluateVideoBonus(123_457, GRILLE(false)).amount).toBe(20);
+  });
+
+  it("la bascule est au seuil PILE (≥), pas une vue après", () => {
+    expect(videoBonusAmount(GRILLE(false), 49_999)).toBe(0);
+    expect(videoBonusAmount(GRILLE(false), 50_000)).toBe(10);
+    expect(videoBonusAmount(GRILLE(true), 500_000)).toBe(77.5);
+    expect(videoBonusAmount(GRILLE(false), 500_000)).toBe(47.5);
+  });
+
+  it("sous le premier seuil : 0, et le prochain palier est le premier", () => {
+    const ev = evaluateVideoBonus(38_214, GRILLE(true));
+    expect(ev.amount).toBe(0);
+    expect(ev.crossed).toEqual([]);
+    expect(ev.nextTier).toEqual({ seuilVues: 50_000, montant: 10 });
+  });
+
+  it("aucune grille (tous les barèmes d'avant) : 0 à toutes les vues", () => {
+    expect(videoBonusAmount(null, 9_876_543)).toBe(0);
+    expect(videoBonusAmount(undefined, 9_876_543)).toBe(0);
+    expect(videoBonusAmount({ tiers: [], cumulative: true }, 9_876_543)).toBe(0);
+  });
+
+  it("vues négatives (relevé corrompu) : traitées comme 0, jamais un bonus", () => {
+    expect(videoBonusAmount(GRILLE(true), -12)).toBe(0);
+  });
+
+  it("parité lib/ ↔ convex/ (règle A6) sur toute la plage", () => {
+    for (const cumulative of [true, false]) {
+      for (const views of [0, 1, 49_999, 50_000, 73_118, 100_000, 123_457, 499_999, 500_000, 7_654_321]) {
+        const lib = evaluateVideoBonus(views, GRILLE(cumulative));
+        const srv = convexPricing.evaluateVideoBonus(views, GRILLE(cumulative));
+        expect(srv).toEqual(lib);
+        expect(convexPricing.videoBonusAmount(GRILLE(cumulative), views)).toBe(
+          videoBonusAmount(GRILLE(cumulative), views),
+        );
+      }
+    }
+  });
+});
+
+describe("coût par vidéo — le bonus par vidéo va à SA vidéo", () => {
+  type ConvexItems = Parameters<typeof convexPricing.computeMonthlyPayout>[0];
+  const SNAP: PricingSnapshot = {
+    pricingId: "p-bv",
+    montantFixe: 100,
+    nbVideosCible: 60,
+    tauxCPM: 1.1,
+  };
+
+  it("videoCostsOfMonth : Σ vidéos = fixe + CPM + Σ bonus, et le bonus n'est qu'à la sienne", () => {
+    const items = [
+      { assignmentId: "b1", snapshot: SNAP, totalViews: 123_457 },
+      { assignmentId: "b2", snapshot: SNAP, totalViews: 8_312 },
+    ];
+    const p = convexPricing.computeMonthlyPayout(items as unknown as ConvexItems);
+    const sans = convexPricing.videoCostsOfMonth({ ...p, engage: { total: p.total } }, false);
+    const avec = convexPricing.videoCostsOfMonth(
+      {
+        ...p,
+        engage: { total: p.total },
+        videoBonuses: [{ assignmentId: "b1", montant: 30 }],
+      },
+      false,
+    );
+    // Présence : b1 porte bien 30 de plus, et le bonus est exposé à part.
+    expect(avec.get("b1")!.cost - sans.get("b1")!.cost).toBeCloseTo(30, 6);
+    expect(avec.get("b1")!.bonus).toBe(30);
+    // Absence : b2 ne prend rien du bonus de sa voisine.
+    expect(avec.get("b2")!.cost).toBeCloseTo(sans.get("b2")!.cost, 6);
+    expect(avec.get("b2")!.bonus).toBeUndefined();
+    const total = [...avec.values()].reduce((s, v) => s + v.cost, 0);
+    expect(total).toBeCloseTo(p.total + 30, 2);
+  });
+
+  it("assignmentCostFromBreakdown : le bonus entre EN ENTIER au coût promo", () => {
+    // Vidéo mixte : 1/4 des vues payables en promo. Le prorata s'applique au
+    // fixe + CPM, jamais au bonus (gagné sur du promo par construction).
+    const r = convexPricing.assignmentCostFromBreakdown({
+      hasPricingSnapshot: true,
+      video: { cost: 51.67, fixed: 1.67, cpm: 20, bonus: 30 },
+      hasPayablePost: true,
+      payableViews: 80_000,
+      promoPaidViews: 20_000,
+    });
+    expect(r.cost).toBe(51.67);
+    // fixe entier (1,67) + CPM × 1/4 (5) = 6,67 de part promo sur 21,67 ; +30.
+    expect(r.promoCost).toBeCloseTo(21.67 * (6.67 / 21.67) + 30, 2);
   });
 });

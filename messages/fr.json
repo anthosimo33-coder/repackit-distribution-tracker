@@ -533,7 +533,8 @@
         "bonus_tier": "Palier",
         "clip": "Clip",
         "retainer": "Forfait",
-        "challenge": "Prime"
+        "challenge": "Prime",
+        "video_bonus": "Bonus vidéo"
       },
       "fixe": "Fixe",
       "cpmAccum": "CPM accumulé (sur tes vues)",
@@ -561,7 +562,8 @@
         "outOf": "sur {amount}",
         "tierBonus": "Bonus palier {views} vues",
         "challenge": "Prime de défi — {name}",
-        "challengeWin": "Prime de défi — {name}"
+        "challengeWin": "Prime de défi — {name}",
+        "videoBonus": "Bonus vidéo — {views} vues"
       },
       "tiersTitle": "🏆 Paliers de récompense",
       "cumulViews": "{views} vues cumulées",
@@ -1449,6 +1451,9 @@
     "ERR_TEMPLATE_NAME_REQUIRED": "Le nom du modèle est requis.",
     "ERR_TEMPLATE_NEEDS_TIER": "Un modèle sans palier n'a rien à recopier.",
     "ERR_TEMPLATE_TIER_DUPLICATE": "Deux paliers ne peuvent pas partager le même seuil.",
+    "ERR_TEMPLATE_KIND_LOCKED": "Le type d'un modèle ne se change pas : crée un nouveau modèle.",
+    "ERR_VIDEO_BONUS_TIER_INVALID": "Un palier de bonus par vidéo exige un seuil d'au moins 1 vue et un montant supérieur à 0.",
+    "ERR_VIDEO_BONUS_CASH_ONLY": "Le bonus par vidéo se paie uniquement en cash.",
     "ERR_TIER_CASH_INVALID": "Un palier cash exige un montant $ ≥ 0.",
     "ERR_TIER_KIND_LABEL_REQUIRED": "Un palier nature exige un libellé (ex. iPhone).",
     "ERR_TIER_REAL_COST_INVALID": "Le coût réel d'un palier nature doit être ≥ 0.",

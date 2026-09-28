@@ -86,6 +86,13 @@ const paymentLineItem = v.object({
     v.literal("clip"),
     v.literal("retainer"),
     v.literal("challenge"),
+    // video_bonus = BONUS PAR VIDÉO (seuils de vues d'UNE vidéo, cf
+    // pricings.videoBonus), GELÉ au paiement. Un kind À PART : ni `bonus` (le
+    // bonus par vidéo v1, accru à l'écriture dans le seau legacy), ni
+    // `bonus_tier` (cumul créatrice-niveau). UNE LIGNE PAR VIDÉO, avec son
+    // assignmentId et `detail.views` = l'assiette retenue — même règle que
+    // `challenge` : le grand livre doit pouvoir dire quelle vidéo a touché quoi.
+    v.literal("video_bonus"),
   ),
   // Chantier C — plateforme du post (paiement PAR POST : N lineItems base
   // par assignment, 1 par cible). Optional : le bonus (1/assignment) et
@@ -2465,6 +2472,29 @@ export default defineSchema({
     // pendant : l'écran le traite alors comme « aucun modèle », jamais comme une
     // erreur. Optional ⇒ 0 migration.
     bonusTemplateId: v.optional(v.id("bonusTemplates")),
+    // ─── BONUS PAR VIDÉO — grille de seuils sur les vues d'UNE vidéo ─────────
+    // « 50 000 vues → 10 $, 100 000 → 20 $ » : chaque vidéo du barème est jugée
+    // SEULE, sur ses propres vues (≠ bonusTiers, jugés sur le CUMUL à vie de la
+    // créatrice). `cumulative` : les paliers franchis s'additionnent (true) ou
+    // seul le plus haut atteint paie (false). CASH uniquement.
+    //
+    // ⚠️ LU EN DIRECT, comme bonusTiers — AUCUN snapshot sur l'assignation. La
+    // poser sur un barème déjà utilisé vaut pour toutes ses vidéos dont le cycle
+    // n'est pas encore payé ; les cycles payés relisent leurs lignes gelées
+    // (kind `video_bonus`) et ne bougent pas. Assiette = vues rémunérées ET en
+    // promo (bonusTierViews), HORS plafond 150 $/vidéo. Cf lib/pricing-engine
+    // (evaluateVideoBonus) et sa réplique convex/pricing (A6).
+    // Absent ⇒ aucun bonus par vidéo : les barèmes existants sont inchangés.
+    videoBonus: v.optional(
+      v.object({
+        tiers: v.array(v.object({ seuilVues: v.number(), montant: v.number() })),
+        cumulative: v.boolean(),
+      }),
+    ),
+    // Provenance de la grille par vidéo — TRAÇABILITÉ SEULE, même contrat que
+    // `bonusTemplateId` (aucun calcul ne le lit ; un modèle supprimé laisse un
+    // id pendant, lu « aucun modèle »).
+    videoBonusTemplateId: v.optional(v.id("bonusTemplates")),
     status: v.union(v.literal("active"), v.literal("archived")),
     createdAt: v.number(),
   }).index("by_project", ["projectId"]),
@@ -2485,6 +2515,16 @@ export default defineSchema({
   bonusTemplates: defineTable({
     projectId: v.id("projects"),
     name: v.string(),
+    // TYPE de modèle, choisi à la création et jamais converti ensuite :
+    //   "cumulative" — paliers sur le CUMUL à vie de la créatrice, recopiés dans
+    //                  pricings.bonusTiers (le comportement historique) ;
+    //   "per_video"  — seuils sur les vues d'UNE vidéo, recopiés dans
+    //                  pricings.videoBonus (paliers CASH seulement).
+    // ABSENT ⇒ "cumulative" : tous les modèles existants le sont, 0 migration.
+    kind: v.optional(v.union(v.literal("cumulative"), v.literal("per_video"))),
+    // "per_video" uniquement — les paliers franchis s'additionnent-ils ? Recopié
+    // tel quel dans pricings.videoBonus.cumulative à l'application.
+    cumulative: v.optional(v.boolean()),
     tiers: v.array(
       v.object({
         seuilVues: v.number(),

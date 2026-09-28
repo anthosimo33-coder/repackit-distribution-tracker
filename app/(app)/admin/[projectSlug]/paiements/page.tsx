@@ -80,6 +80,7 @@ const KIND_LABEL: Record<string, string> = {
   cpm: "CPM",
   bonus_tier: "Palier",
   challenge: "Prime de défi",
+  video_bonus: "Bonus vidéo",
 };
 const KIND_BADGE: Record<string, string> = {
   base: "bg-slate-200 text-slate-600",
@@ -90,6 +91,8 @@ const KIND_BADGE: Record<string, string> = {
   // Couleur PROPRE : reprendre l'ambre des paliers ferait lire deux natures de
   // gain comme une seule dans le grand livre.
   challenge: "bg-rose-50 text-rose-600",
+  // Bonus PAR VIDÉO — distinct du palier (cumul créatrice), même raison.
+  video_bonus: "bg-orange-50 text-orange-700",
 };
 
 function BreakdownLine({
@@ -1088,6 +1091,13 @@ function CycleDetail({
             <BreakdownLine
               label="Bonus paliers (cash)"
               amount={p.pricingBreakdown.bonusTierCashTotal}
+              currency={currency}
+            />
+          )}
+          {p.pricingBreakdown.videoBonusTotal > 0 && (
+            <BreakdownLine
+              label={`Bonus par vidéo (${p.pricingBreakdown.videoBonuses.length} vidéo${p.pricingBreakdown.videoBonuses.length > 1 ? "s" : ""})`}
+              amount={p.pricingBreakdown.videoBonusTotal}
               currency={currency}
             />
           )}

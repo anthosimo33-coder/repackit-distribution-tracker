@@ -378,6 +378,53 @@ export function evaluateBonusTiers(
   };
 }
 
+// ─── Bonus PAR VIDÉO (RÉPLIQUE de lib/pricing-engine — DOIT rester identique) ─
+// Le raisonnement (assiette promo rémunérée, hors plafond 150 $, grille lue en
+// direct) vit dans lib/pricing-engine.
+
+export type VideoBonusTier = { seuilVues: number; montant: number };
+
+export type VideoBonusGrid = {
+  tiers: VideoBonusTier[];
+  cumulative: boolean;
+};
+
+export interface VideoBonusEvaluation {
+  crossed: VideoBonusTier[];
+  amount: number;
+  nextTier: VideoBonusTier | null;
+  viewsToNext: number | null;
+}
+
+export function evaluateVideoBonus(
+  views: number,
+  grid: VideoBonusGrid | null | undefined,
+): VideoBonusEvaluation {
+  const v = Math.max(0, views);
+  const sorted = [...(grid?.tiers ?? [])].sort((a, b) => a.seuilVues - b.seuilVues);
+  const crossed = sorted.filter((t) => v >= t.seuilVues);
+  const nextTier = sorted.find((t) => v < t.seuilVues) ?? null;
+  const amount =
+    crossed.length === 0
+      ? 0
+      : grid?.cumulative
+        ? round2(crossed.reduce((s, t) => s + Math.max(0, t.montant), 0))
+        : round2(Math.max(0, crossed[crossed.length - 1].montant));
+  return {
+    crossed,
+    amount,
+    nextTier,
+    viewsToNext: nextTier ? Math.max(0, nextTier.seuilVues - v) : null,
+  };
+}
+
+export function videoBonusAmount(
+  grid: VideoBonusGrid | null | undefined,
+  views: number,
+): number {
+  return evaluateVideoBonus(views, grid).amount;
+}
+
 // ─── Vues + période d'un assignment ──────────────────────────────────────────
 
 /** Date de publication d'un assignment = la PLUS PRÉCOCE de ses cibles (toutes
@@ -1082,6 +1129,19 @@ export interface PricingBreakdown extends MonthlyPayout {
     montant: number;
   }[];
   /**
+   * BONUS PAR VIDÉO de la période (grille `pricings.videoBonus`, lue en direct)
+   * — Σ de `videoBonuses`. S'AJOUTE à `total` : fixe et CPM (`base.total`) sont
+   * intouchés, et le plafond 150 $/vidéo ne le rogne pas.
+   */
+  videoBonusTotal: number;
+  /**
+   * DÉTAIL, UNE ENTRÉE PAR VIDÉO qui touche un bonus (montant > 0). `views` =
+   * l'assiette jugée (vues rémunérées ET promo, retenues). Gelé au paiement en
+   * une ligne `video_bonus` par vidéo : le détail survit au gel, à la différence
+   * de `bonusTierCashUnlocks`.
+   */
+  videoBonuses: { assignmentId: string; views: number; montant: number }[];
+  /**
    * Vidéos RÉMUNÉRÉES de la période dont aucune vue n'a pu être mesurée.
    *
    * SIGNALÉ, JAMAIS BLOQUANT (arbitrage produit) : le cycle se paie
@@ -1174,7 +1234,41 @@ export type CreatorPayrollSources = {
   challengeWins: Doc<"challengeWins">[];
   /** Nom du défi par id — résolu une fois, pas une fois par victoire ET par cycle. */
   challengeNames: Map<string, string>;
+  /**
+   * Grille de BONUS PAR VIDÉO par pricingId (null = le barème n'en porte pas).
+   * Lue EN DIRECT sur le barème, une fois par barème distinct. Optionnelle : un
+   * appelant qui fabrique ses sources sans elle retombe sur une lecture par
+   * breakdown, au même résultat.
+   */
+  videoBonusGrids?: Map<string, VideoBonusGrid | null>;
 };
+
+/**
+ * Grilles de BONUS PAR VIDÉO des barèmes d'un lot d'assignations — UNE lecture
+ * par barème distinct, jamais une par vidéo. Un barème d'un autre projet ou
+ * disparu rend `null` (aucun bonus), jamais une erreur : l'assignation garde son
+ * snapshot et reste payée au fixe/CPM.
+ */
+export async function loadVideoBonusGrids(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  assignments: readonly Doc<"assignments">[],
+  known?: Map<string, VideoBonusGrid | null>,
+): Promise<Map<string, VideoBonusGrid | null>> {
+  const out = new Map<string, VideoBonusGrid | null>(known ?? []);
+  for (const a of assignments) {
+    const id = a.pricingSnapshot?.pricingId;
+    if (!id || out.has(id)) continue;
+    const pricing = await ctx.db.get(id);
+    out.set(
+      id,
+      pricing && pricing.projectId === projectId && pricing.videoBonus
+        ? pricing.videoBonus
+        : null,
+    );
+  }
+  return out;
+}
 
 /**
  * Charge les sources d'UNE créatrice. `knownAssignments` évite une relecture à
@@ -1214,7 +1308,8 @@ export async function loadCreatorPayrollSources(
     const challenge = await ctx.db.get(id);
     if (challenge) challengeNames.set(id as string, challenge.name);
   }
-  return { assignments, bonusUnlocks, challengeWins, challengeNames };
+  const videoBonusGrids = await loadVideoBonusGrids(ctx, projectId, assignments);
+  return { assignments, bonusUnlocks, challengeWins, challengeNames, videoBonusGrids };
 }
 
 async function challengeCashWins(
@@ -1300,6 +1395,11 @@ export function assignmentCostFromBreakdown(input: {
   if (!input.hasPricingSnapshot) return { cost: null, promoCost: null };
   if (input.video !== null) {
     const { cost, fixed, cpm } = input.video;
+    // Le BONUS PAR VIDÉO est 100 % promo par construction (il ne se gagne que
+    // sur des vues rémunérées ET promo) : il entre en entier au coût promo, et
+    // le prorata ne s'applique qu'au reste (fixe + CPM).
+    const bonus = Math.max(0, input.video.bonus ?? 0);
+    const fixeCpm = cost - bonus;
     // Part PROMO appliquée au coût RÉEL de la vidéo, pas recalculée : le coût
     // peut différer de fixe + CPM (mois en cours = engagé). Même fraction que
     // marketPromo.promoCostOfVideo, écrite ici faute de pouvoir l'importer
@@ -1309,7 +1409,7 @@ export function assignmentCostFromBreakdown(input: {
       brut > 0
         ? Math.min(1, promoVideoCost(fixed, cpm, input.payableViews, input.promoPaidViews) / brut)
         : 0;
-    return { cost: round2(cost), promoCost: round2(cost * share) };
+    return { cost: round2(cost), promoCost: round2(fixeCpm * share + bonus) };
   }
   // Retirée de la paie par décision : coût CONNU, et il vaut zéro.
   if (!input.hasPayablePost) return { cost: 0, promoCost: 0 };
@@ -1317,8 +1417,9 @@ export function assignmentCostFromBreakdown(input: {
 }
 
 /** Une vidéo telle que la paie la compte. `fixed`/`cpm` = sa part APRÈS budget
- *  du contrat et plafond ; `cost` = sa part du coût du mois (cf videoCostsOfMonth). */
-export type VideoCost = { cost: number; fixed: number; cpm: number };
+ *  du contrat et plafond ; `bonus` = son bonus par vidéo (hors plafond) ;
+ *  `cost` = sa part du coût du mois, bonus compris (cf videoCostsOfMonth). */
+export type VideoCost = { cost: number; fixed: number; cpm: number; bonus?: number };
 
 /**
  * Coût de CHAQUE vidéo d'un (créatrice, mois), tel que la PAIE le compte —
@@ -1345,6 +1446,12 @@ export type VideoCost = { cost: number; fixed: number; cpm: number };
 export function videoCostsOfMonth(
   bd: Pick<MonthlyPayout, "fixedTotal" | "cpmTotal" | "perAssignment"> & {
     engage: { total: number };
+    /**
+     * BONUS PAR VIDÉO — celui-là A une vidéo à qui l'imputer (≠ paliers et
+     * défis, créatrice-niveau). Ajouté EN PLUS de la base, à sa vidéo et à elle
+     * seule : Σ vidéos = base + Σ bonus. Absent ⇒ comportement d'avant.
+     */
+    videoBonuses?: { assignmentId: string; montant: number }[];
   },
   isCurrentMonth: boolean,
 ): Map<string, VideoCost> {
@@ -1352,11 +1459,22 @@ export function videoCostsOfMonth(
   const poids = bd.perAssignment.map((pa) => Math.max(0, pa.fixed + pa.cpm));
   const totalPoids = poids.reduce((s, w) => s + w, 0);
   const n = bd.perAssignment.length;
+  const bonusOf = new Map<string, number>();
+  for (const b of bd.videoBonuses ?? []) {
+    bonusOf.set(b.assignmentId, (bonusOf.get(b.assignmentId) ?? 0) + b.montant);
+  }
   const out = new Map<string, VideoCost>();
   bd.perAssignment.forEach((pa, i) => {
+    const bonus = bonusOf.get(pa.assignmentId) ?? 0;
     const cost =
-      totalPoids > 0 ? (base * poids[i]) / totalPoids : n > 0 ? base / n : 0;
-    out.set(pa.assignmentId, { cost, fixed: pa.fixed, cpm: pa.cpm });
+      (totalPoids > 0 ? (base * poids[i]) / totalPoids : n > 0 ? base / n : 0) +
+      bonus;
+    out.set(pa.assignmentId, {
+      cost,
+      fixed: pa.fixed,
+      cpm: pa.cpm,
+      ...(bonus > 0 ? { bonus } : {}),
+    });
   });
   return out;
 }
@@ -1444,6 +1562,14 @@ export async function computeLivePricingBreakdown(
    * lui, relit la row gelée en entier et ne passe jamais par ici.
    */
   settledViewsOf?: (a: Doc<"assignments">) => number | null,
+  /**
+   * BONUS PAR VIDÉO DÉJÀ PAYÉ, pris dans la row gelée — `null` = cycle pas encore
+   * payé (calcul live). Même raison que `settledViewsOf` : une vidéo réglée ne
+   * doit plus ajouter de bonus au mois de sa publication. Ici on reprend le
+   * MONTANT (0 si le cycle payé n'en portait pas) : un bonus par vidéo n'a pas de
+   * budget de groupe à re-répartir, il appartient à sa seule vidéo.
+   */
+  settledVideoBonusOf?: (a: Doc<"assignments">) => number | null,
 ): Promise<PricingBreakdown> {
   const allAssignments =
     sources?.assignments ??
@@ -1471,9 +1597,17 @@ export async function computeLivePricingBreakdown(
   let unmeasuredPayablePosts = 0;
   /** Combien de vidéos retenues ont vu leur assiette figée par un règlement. */
   let settledCount = 0;
+  const grids = await loadVideoBonusGrids(
+    ctx,
+    projectId,
+    assignments,
+    sources?.videoBonusGrids,
+  );
+  const videoBonuses: PricingBreakdown["videoBonuses"] = [];
   for (const a of assignments) {
     const {
       payableViews,
+      bonusTierViews,
       hasPayablePost,
       payBaseFrozen,
       unmeasuredPayablePosts: nonMesures,
@@ -1506,8 +1640,15 @@ export async function computeLivePricingBreakdown(
           }
         : {}),
     });
+    const montant =
+      settledVideoBonusOf?.(a) ??
+      videoBonusAmount(grids.get(a.pricingSnapshot!.pricingId) ?? null, bonusTierViews);
+    if (montant > 0) {
+      videoBonuses.push({ assignmentId: a._id, views: bonusTierViews, montant });
+    }
   }
   const base = computeMonthlyPayout(items);
+  const videoBonusTotal = round2(videoBonuses.reduce((s, b) => s + b.montant, 0));
   const allUnlocks =
     sources?.bonusUnlocks ??
     (
@@ -1547,6 +1688,8 @@ export async function computeLivePricingBreakdown(
     bonusTierCashUnlocks,
     challengeTotal,
     challengeWins,
+    videoBonusTotal,
+    videoBonuses,
     unmeasuredPayablePosts,
     engage: engageOf(items, base),
     ...(settledViewsOf === undefined
@@ -1554,8 +1697,9 @@ export async function computeLivePricingBreakdown(
       : { allSettled: items.length > 0 && settledCount === items.length }),
     // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
     // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
-    // vidéos de défi forment leur propre groupe de paie.
-    total: round2(base.total + bonusTierCashTotal + challengeTotal),
+    // vidéos de défi forment leur propre groupe de paie. Le bonus par vidéo
+    // s'ajoute de la même façon, hors plafond 150 $.
+    total: round2(base.total + bonusTierCashTotal + challengeTotal + videoBonusTotal),
   };
 }
 
@@ -1610,9 +1754,20 @@ export async function computeCyclePricingBreakdown(
   const seuilPresent = assignments.some(
     (a) => (a.pricingSnapshot?.seuilVuesFixe ?? 0) > 0,
   );
+  const grids = await loadVideoBonusGrids(
+    ctx,
+    projectId,
+    assignments,
+    sources?.videoBonusGrids,
+  );
+  const videoBonuses: PricingBreakdown["videoBonuses"] = [];
   for (const a of assignments) {
-    const { payableViews, hasPayablePost, unmeasuredPayablePosts: nonMesures } =
-      await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
+    const {
+      payableViews,
+      bonusTierViews,
+      hasPayablePost,
+      unmeasuredPayablePosts: nonMesures,
+    } = await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
@@ -1627,8 +1782,18 @@ export async function computeCyclePricingBreakdown(
         ? { periodViews: await payableViewsAsOf(ctx, a, cycleEnd, viewsCache) }
         : {}),
     });
+    // BONUS PAR VIDÉO — même assiette que les paliers (promo rémunérée), grille
+    // du barème lue en direct. La vidéo le porte dans le cycle de SA publication.
+    const montant = videoBonusAmount(
+      grids.get(a.pricingSnapshot!.pricingId) ?? null,
+      bonusTierViews,
+    );
+    if (montant > 0) {
+      videoBonuses.push({ assignmentId: a._id, views: bonusTierViews, montant });
+    }
   }
   const base = computeMonthlyPayout(items);
+  const videoBonusTotal = round2(videoBonuses.reduce((s, b) => s + b.montant, 0));
   const allUnlocks =
     sources?.bonusUnlocks ??
     (
@@ -1672,10 +1837,12 @@ export async function computeCyclePricingBreakdown(
     bonusTierCashUnlocks,
     challengeTotal,
     challengeWins,
+    videoBonusTotal,
+    videoBonuses,
     unmeasuredPayablePosts,
     engage: engageOf(items, base),
     // ⚠️ S'AJOUTE (cf. computeLivePricingBreakdown) : fixe et CPM intouchés.
-    total: round2(base.total + bonusTierCashTotal + challengeTotal),
+    total: round2(base.total + bonusTierCashTotal + challengeTotal + videoBonusTotal),
   };
 }
 
@@ -1723,6 +1890,9 @@ type PricingInput = {
   seuilVuesFixe?: number;
   bonusTiers?: BonusTier[];
   bonusTemplateId?: Id<"bonusTemplates"> | null;
+  /** Grille de bonus PAR VIDÉO. `null` = la retirer ; absente = ne pas y toucher. */
+  videoBonus?: VideoBonusGrid | null;
+  videoBonusTemplateId?: Id<"bonusTemplates"> | null;
 };
 
 /**
@@ -1736,9 +1906,17 @@ type PricingInput = {
  * provenance, et l'écran cesserait de signaler qu'une échelle a divergé.
  */
 function pricingWriteFields(args: PricingInput) {
-  const { bonusTemplateId, ...rest } = args;
-  if (!("bonusTemplateId" in args)) return rest;
-  return { ...rest, bonusTemplateId: bonusTemplateId ?? undefined };
+  const { bonusTemplateId, videoBonus, videoBonusTemplateId, ...rest } = args;
+  // Même règle à trois états pour les trois champs optionnels : absent → ne pas
+  // toucher, `null` → effacer (patch avec `undefined`), valeur → poser.
+  return {
+    ...rest,
+    ...("bonusTemplateId" in args ? { bonusTemplateId: bonusTemplateId ?? undefined } : {}),
+    ...("videoBonus" in args ? { videoBonus: videoBonus ?? undefined } : {}),
+    ...("videoBonusTemplateId" in args
+      ? { videoBonusTemplateId: videoBonusTemplateId ?? undefined }
+      : {}),
+  };
 }
 
 function validatePricingFields(args: PricingInput): PricingInput {
@@ -1771,8 +1949,13 @@ function validatePricingFields(args: PricingInput): PricingInput {
     }
   }
   validateBonusTiers(args.bonusTiers ?? []);
+  const videoBonus =
+    args.videoBonus === undefined || args.videoBonus === null
+      ? args.videoBonus
+      : normalizeVideoBonus(args.videoBonus);
   return {
     ...args,
+    ...("videoBonus" in args ? { videoBonus } : {}),
     name,
     seuilVuesFixe:
       args.seuilVuesFixe !== undefined && args.seuilVuesFixe > 0
@@ -1812,6 +1995,45 @@ function validateBonusTiers(tiers: BonusTier[]): void {
   }
 }
 
+/**
+ * Validation + normalisation d'une grille de BONUS PAR VIDÉO. Partagée par le
+ * barème et par le modèle « par vidéo », pour la même raison que
+ * `validateBonusTiers` : un modèle qui passerait ici mais pas au barème serait
+ * une grille piégée.
+ *
+ * Seuil ≥ 1 vue : un seuil à 0 paierait CHAQUE vidéo publiée, c'est-à-dire un
+ * fixe déguisé qui échapperait au budget et au plafond du fixe. Montant > 0 : un
+ * palier à 0 ne paie rien et brouille la lecture (surtout non cumulable, où il
+ * ferait retomber une vidéo à zéro en franchissant un seuil plus haut). Grille
+ * vide ⇒ `null` : « aucun bonus » n'a qu'une forme en base.
+ */
+function normalizeVideoBonus(grid: VideoBonusGrid): VideoBonusGrid | null {
+  if (grid.tiers.length === 0) return null;
+  for (const t of grid.tiers) {
+    if (
+      !Number.isFinite(t.seuilVues) ||
+      t.seuilVues < 1 ||
+      !Number.isFinite(t.montant) ||
+      t.montant <= 0
+    ) {
+      throw err(
+        ERR.VIDEO_BONUS_TIER_INVALID,
+        "Un palier de bonus par vidéo exige un seuil d'au moins 1 vue et un montant supérieur à 0.",
+      );
+    }
+  }
+  const seuils = grid.tiers.map((t) => Math.round(t.seuilVues));
+  if (new Set(seuils).size !== seuils.length) {
+    throw err(ERR.TEMPLATE_TIER_DUPLICATE, "Deux paliers ne peuvent pas partager le même seuil.");
+  }
+  return {
+    tiers: grid.tiers
+      .map((t) => ({ seuilVues: Math.round(t.seuilVues), montant: round2(t.montant) }))
+      .sort((a, b) => a.seuilVues - b.seuilVues),
+    cumulative: grid.cumulative,
+  };
+}
+
 /** Le pricing est-il attribué à au moins un assignment du projet ? */
 async function pricingInUse(
   ctx: QueryCtx | MutationCtx,
@@ -1835,6 +2057,11 @@ const BONUS_TIER_VALIDATOR = v.object({
   coutReel: v.optional(v.number()),
 });
 
+const VIDEO_BONUS_VALIDATOR = v.object({
+  tiers: v.array(v.object({ seuilVues: v.number(), montant: v.number() })),
+  cumulative: v.boolean(),
+});
+
 const PRICING_ARGS = {
   name: v.string(),
   montantFixe: v.number(),
@@ -1846,6 +2073,9 @@ const PRICING_ARGS = {
   // explicitement : une échelle repartie de zéro ne doit pas continuer à se
   // comparer à un modèle dont elle ne descend plus.
   bonusTemplateId: v.optional(v.union(v.id("bonusTemplates"), v.null())),
+  // Grille de bonus PAR VIDÉO (cf schema). `null` la retire ; absente = inchangée.
+  videoBonus: v.optional(v.union(VIDEO_BONUS_VALIDATOR, v.null())),
+  videoBonusTemplateId: v.optional(v.union(v.id("bonusTemplates"), v.null())),
 };
 
 export const createPricing = permissionMutation("pricing.manage")({
@@ -1968,9 +2198,17 @@ export const listPricings = permissionQuery("pricing.manage")({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const assignmentCounts = new Map<string, number>();
+    // Vidéos qu'une grille de bonus PAR VIDÉO toucherait : toutes celles du
+    // barème qui ne sont ni annulées ni payées. Approximation ASSUMÉE et
+    // annoncée comme telle à l'écran : une vidéo publiée dont le cycle vient
+    // d'être payé garde son statut `published`, et ce compte l'inclut.
+    const openCounts = new Map<string, number>();
     for (const a of assignments) {
       const id = a.pricingSnapshot?.pricingId;
       if (id) assignmentCounts.set(id, (assignmentCounts.get(id) ?? 0) + 1);
+      if (id && a.status !== "paid" && a.status !== "cancelled") {
+        openCounts.set(id, (openCounts.get(id) ?? 0) + 1);
+      }
     }
 
     const project = await ctx.db.get(ctx.projectId);
@@ -2012,7 +2250,10 @@ export const listPricings = permissionQuery("pricing.manage")({
         seuilBonusVues: p.seuilBonusVues,
         montantBonus: p.montantBonus,
         bonusTemplateId: p.bonusTemplateId,
+        videoBonus: p.videoBonus ?? null,
+        videoBonusTemplateId: p.videoBonusTemplateId,
         assignmentCount: assignmentCounts.get(p._id) ?? 0,
+        openAssignmentCount: openCounts.get(p._id) ?? 0,
         bonusCreatorCount: bonusCounts.get(p._id) ?? 0,
         isDefaultBonus: p._id === defaultBonusId,
       }));
@@ -2044,16 +2285,66 @@ export const listBonusTemplates = permissionQuery("pricing.manage")({
   },
 });
 
+const TEMPLATE_KIND_VALIDATOR = v.union(v.literal("cumulative"), v.literal("per_video"));
+
 const TEMPLATE_ARGS = {
   name: v.string(),
   tiers: v.array(BONUS_TIER_VALIDATOR),
+  // Absent ⇒ "cumulative" (le seul type d'avant). Figé à la création.
+  kind: v.optional(TEMPLATE_KIND_VALIDATOR),
+  // "per_video" uniquement : les paliers franchis s'additionnent-ils ?
+  cumulative: v.optional(v.boolean()),
 };
 
-function validateTemplate(args: { name: string; tiers: BonusTier[] }) {
+type TemplateKind = "cumulative" | "per_video";
+
+/** Type d'un modèle stocké — absent = "cumulative" (tous les modèles d'avant). */
+export function templateKindOf(t: { kind?: TemplateKind }): TemplateKind {
+  return t.kind ?? "cumulative";
+}
+
+/** Grille par vidéo portée par un modèle "per_video" (ses paliers sont cash). */
+function videoBonusOfTemplate(t: {
+  tiers: BonusTier[];
+  cumulative?: boolean;
+}): VideoBonusGrid {
+  return {
+    tiers: t.tiers.map((x) => ({ seuilVues: x.seuilVues, montant: x.montant ?? 0 })),
+    cumulative: t.cumulative === true,
+  };
+}
+
+function validateTemplate(args: {
+  name: string;
+  tiers: BonusTier[];
+  kind?: TemplateKind;
+  cumulative?: boolean;
+}) {
   const name = args.name.trim();
   if (name.length === 0) throw err(ERR.TEMPLATE_NAME_REQUIRED, "Le nom du modèle est requis.");
   if (args.tiers.length === 0) {
     throw err(ERR.TEMPLATE_NEEDS_TIER, "Un modèle sans palier n'a rien à recopier.");
+  }
+  const kind = args.kind ?? "cumulative";
+  if (kind === "per_video") {
+    // Un modèle par vidéo se recopie dans pricings.videoBonus : il passe
+    // exactement la validation de ce champ, et rien d'autre.
+    if (args.tiers.some((t) => t.rewardType !== "cash" || t.coutReel !== undefined || t.libelle !== undefined)) {
+      throw err(ERR.VIDEO_BONUS_CASH_ONLY, "Le bonus par vidéo se paie uniquement en cash.");
+    }
+    const grid = normalizeVideoBonus(
+      videoBonusOfTemplate({ tiers: args.tiers, cumulative: args.cumulative }),
+    )!;
+    return {
+      name,
+      kind,
+      cumulative: grid.cumulative,
+      tiers: grid.tiers.map((t) => ({
+        seuilVues: t.seuilVues,
+        rewardType: "cash" as const,
+        montant: t.montant,
+      })),
+    };
   }
   // Mêmes contrôles qu'un barème : un modèle qui ne passerait pas la validation
   // d'un pricing serait une échelle piégée, refusée seulement à l'application.
@@ -2064,8 +2355,11 @@ function validateTemplate(args: { name: string; tiers: BonusTier[] }) {
   }
   // Trié à l'écriture : une échelle se lit de bas en haut, et le tri retire une
   // source de fausse divergence entre deux modèles identiques mal saisis.
+  // `kind` n'est posé que s'il a été demandé : un modèle cumulatif créé comme
+  // avant reste un document identique à ceux d'avant.
   return {
     name,
+    ...(args.kind ? { kind } : {}),
     tiers: [...args.tiers].sort((a, b) => a.seuilVues - b.seuilVues),
   };
 }
@@ -2090,9 +2384,16 @@ export const updateBonusTemplate = permissionMutation("pricing.manage")({
     if (!tpl || tpl.projectId !== ctx.projectId) {
       throw new ConvexError("Modèle introuvable.");
     }
+    // Le TYPE ne se convertit pas : les deux types se recopient dans deux champs
+    // différents du barème, et un modèle converti laisserait ses barèmes avec
+    // une provenance qui ne désigne plus la même chose.
+    const kind = templateKindOf(tpl);
+    if (args.kind !== undefined && args.kind !== kind) {
+      throw err(ERR.TEMPLATE_KIND_LOCKED, "Le type d'un modèle ne se change pas : crée un nouveau modèle.");
+    }
     // Aucune propagation ici, volontairement : la réapplication est un geste
     // séparé, qui annonce d'abord combien de créatrices elle touche.
-    await ctx.db.patch(id, validateTemplate(args));
+    await ctx.db.patch(id, validateTemplate({ ...args, kind: tpl.kind ?? args.kind }));
     return { ok: true };
   },
 });
@@ -2149,6 +2450,22 @@ export const applyBonusTemplate = permissionMutation("pricing.manage")({
       }
       targets.push(pricing);
     }
+    // ─── MODÈLE PAR VIDÉO — recopié dans `videoBonus` ────────────────────────
+    // Aucune synchronisation à faire : le bonus par vidéo n'a pas de table
+    // d'unlocks, il se recalcule à chaque lecture de la paie. Les vidéos des
+    // cycles non payés le prennent donc immédiatement ; les cycles payés relisent
+    // leurs lignes gelées et ne bougent pas.
+    if (templateKindOf(tpl) === "per_video") {
+      const grid = videoBonusOfTemplate(tpl);
+      for (const pricing of targets) {
+        await ctx.db.patch(pricing._id, {
+          videoBonus: grid,
+          videoBonusTemplateId: templateId,
+        });
+      }
+      return { pricings: targets.length, creatorsSynced: 0 };
+    }
+
     for (const pricing of targets) {
       await ctx.db.patch(pricing._id, {
         bonusTiers: tpl.tiers,

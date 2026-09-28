@@ -2442,7 +2442,12 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
           cy.lineItems.reduce((s, li) => s + li.amount, 0) +
           cy.pricingBreakdown.fixedTotal +
           cy.pricingBreakdown.cpmTotal +
-          cy.pricingBreakdown.bonusTierCashTotal;
+          cy.pricingBreakdown.bonusTierCashTotal +
+          // Deux parts qui entrent dans `totalDue` (cf cyclePaymentsForCreator :
+          // legacy + breakdown.total) et manquaient au recalcul — les primes de
+          // défi depuis leur arrivée, le bonus par vidéo depuis la sienne.
+          cy.pricingBreakdown.challengeTotal +
+          cy.pricingBreakdown.videoBonusTotal;
         dueDisplayed += cy.totalDue;
         dueRecomputed += parts;
         dueCycles += 1;

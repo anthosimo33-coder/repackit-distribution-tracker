@@ -14,7 +14,7 @@
  * 100 000 001 au lieu de 100 000 000.
  */
 
-import type { BonusTier } from "./pricing-engine";
+import type { BonusTier, VideoBonusGrid, VideoBonusTier } from "./pricing-engine";
 
 export type PricingTerms = {
   montantFixe: number;
@@ -187,4 +187,86 @@ export function ladderSummary(
     Math.min(1, Math.max(0.25, Math.sqrt(t.seuilVues / max))),
   );
   return { count: sorted.length, topLabel, steps };
+}
+
+// ─── Bonus PAR VIDÉO — lecture à l'œil (aucun euro calculé ici) ──────────────
+// Le montant d'une vidéo vient TOUJOURS de `evaluateVideoBonus` (moteur de paie,
+// répliqué côté serveur) ; ces helpers ne font que choisir quoi montrer.
+
+/** Paliers valides (seuil ≥ 1, montant > 0), triés. Ce que la saisie en cours vaut. */
+export function validVideoBonusTiers(tiers: VideoBonusTier[]): VideoBonusTier[] {
+  return [...tiers]
+    .filter(
+      (t) =>
+        Number.isFinite(t.seuilVues) &&
+        t.seuilVues >= 1 &&
+        Number.isFinite(t.montant) &&
+        t.montant > 0,
+    )
+    .sort((a, b) => a.seuilVues - b.seuilVues);
+}
+
+/**
+ * Nombres de vues à montrer en EXEMPLE pour une grille : un peu sous le premier
+ * seuil (la vidéo qui ne touche rien), chaque seuil pile (là où ça bascule), le
+ * milieu entre deux seuils (là où le cumul se voit), et le double du dernier
+ * (le plafond de la grille). Tirés de la grille elle-même plutôt que d'une liste
+ * fixe : une grille à 5 k / 20 k et une grille à 1 M / 5 M n'ont pas les mêmes
+ * points intéressants.
+ */
+export function videoBonusExamplePoints(tiers: VideoBonusTier[]): number[] {
+  const sorted = validVideoBonusTiers(tiers);
+  if (sorted.length === 0) return [];
+  const pts = new Set<number>();
+  const first = sorted[0].seuilVues;
+  if (first >= 2) pts.add(Math.floor(first / 2));
+  sorted.forEach((t, i) => {
+    pts.add(t.seuilVues);
+    const next = sorted[i + 1];
+    // Au-delà de quatre seuils le tableau devient une liste de chiffres : on ne
+    // garde alors que les bascules.
+    if (next && sorted.length <= 4) {
+      pts.add(Math.round((t.seuilVues + next.seuilVues) / 2));
+    }
+  });
+  pts.add(sorted[sorted.length - 1].seuilVues * 2);
+  return [...pts].sort((a, b) => a - b);
+}
+
+export type VideoBonusSummary = {
+  count: number;
+  /** Ce que touche une vidéo au sommet de la grille (tous seuils franchis). */
+  topAmount: number;
+  cumulative: boolean;
+};
+
+/**
+ * Résumé d'une grille par vidéo pour une ligne de liste. `topAmount` est le
+ * MAXIMUM qu'une vidéo peut toucher — la somme des paliers si cumulables, le
+ * dernier sinon —, c'est-à-dire le chiffre qui dit ce que la grille engage.
+ */
+export function videoBonusSummary(grid: VideoBonusGrid): VideoBonusSummary {
+  const sorted = validVideoBonusTiers(grid.tiers);
+  const topAmount =
+    sorted.length === 0
+      ? 0
+      : grid.cumulative
+        ? Math.round(sorted.reduce((s, t) => s + t.montant, 0) * 100) / 100
+        : sorted[sorted.length - 1].montant;
+  return { count: sorted.length, topAmount, cumulative: grid.cumulative };
+}
+
+/** Deux grilles par vidéo sont-elles la même (ordre de saisie ignoré) ? */
+export function sameVideoBonus(
+  a: VideoBonusGrid | null | undefined,
+  b: VideoBonusGrid | null | undefined,
+): boolean {
+  if (!a || !b) return !a && !b;
+  if (a.cumulative !== b.cumulative) return false;
+  const sa = [...a.tiers].sort((x, y) => x.seuilVues - y.seuilVues);
+  const sb = [...b.tiers].sort((x, y) => x.seuilVues - y.seuilVues);
+  return (
+    sa.length === sb.length &&
+    sa.every((t, i) => t.seuilVues === sb[i].seuilVues && t.montant === sb[i].montant)
+  );
 }

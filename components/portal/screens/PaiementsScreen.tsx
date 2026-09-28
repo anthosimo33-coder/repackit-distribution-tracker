@@ -139,6 +139,9 @@ const KIND_TAG = {
   // Prime de défi — une COULEUR À ELLE. Reprendre l'ambre des paliers ferait
   // lire deux natures de gain comme une seule dans le relevé.
   challenge: { labelKey: "paiements.kind.challenge", className: "bg-rose-50 text-rose-600" },
+  // Bonus PAR VIDÉO — distinct du palier (cumul) : une autre couleur, pour que
+  // « cette vidéo a franchi son seuil » ne se lise pas comme un palier de cumul.
+  video_bonus: { labelKey: "paiements.kind.video_bonus", className: "bg-orange-50 text-orange-700" },
 } as const;
 
 function KindTag({
@@ -152,7 +155,8 @@ function KindTag({
     | "bonus_tier"
     | "clip"
     | "retainer"
-    | "challenge";
+    | "challenge"
+    | "video_bonus";
 }) {
   const tag = KIND_TAG[kind] ?? KIND_TAG.base;
   const tt = useTranslations("portal");
@@ -288,6 +292,16 @@ function PricingBreakdown({
           currency={currency}
         />
       ))}
+      {/* Bonus PAR VIDÉO — une ligne par vidéo qui a franchi un seuil, pour que
+          le sous-total s'additionne à l'œil (même leçon que la prime de défi). */}
+      {b.videoBonuses.map((vb, i) => (
+        <Row
+          key={`${vb.assignmentId}:${i}`}
+          label={t("paiements.line.videoBonus", { views: fmtViews(vb.views, loc) })}
+          amount={vb.montant}
+          currency={currency}
+        />
+      ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>{t("paiements.subtotal")}</span>
         <span className="tabular-nums" data-testid="pricing-total">
@@ -355,6 +369,9 @@ function useLineLabel() {
       // écrites avant ce champ.
       if (li.kind === "challenge" && d.challengeName !== undefined) {
         return t("challenge", { name: d.challengeName });
+      }
+      if (li.kind === "video_bonus" && d.views !== undefined) {
+        return t("videoBonus", { views: d.views });
       }
     }
     if (li.kind === "bonus_tier") return t("bonusTier");
