@@ -192,6 +192,7 @@ import type * as segmentFunnel from "../segmentFunnel.js";
 import type * as settledCycles from "../settledCycles.js";
 import type * as showcase from "../showcase.js";
 import type * as snapchatInternal from "../snapchatInternal.js";
+import type * as snapchatPostUrl from "../snapchatPostUrl.js";
 import type * as snapchatPublicPage from "../snapchatPublicPage.js";
 import type * as snapshotMatching from "../snapshotMatching.js";
 import type * as snytchDrive from "../snytchDrive.js";
@@ -418,6 +419,7 @@ declare const fullApi: ApiFromModules<{
   settledCycles: typeof settledCycles;
   showcase: typeof showcase;
   snapchatInternal: typeof snapchatInternal;
+  snapchatPostUrl: typeof snapchatPostUrl;
   snapchatPublicPage: typeof snapchatPublicPage;
   snapshotMatching: typeof snapshotMatching;
   snytchDrive: typeof snytchDrive;

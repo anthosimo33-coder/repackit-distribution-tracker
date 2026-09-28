@@ -26,7 +26,7 @@ import { detectPostUrlPlatform } from "../convex/postUrlShape";
 import {
   isSnapchatShortlink,
   snapchatSpotlightId,
-} from "../convex/snapchatPublicPage";
+} from "../convex/snapchatPostUrl";
 import { facebookVideoId } from "../convex/facebookApify";
 import { detectInspirationType } from "./inspiration-url";
 
