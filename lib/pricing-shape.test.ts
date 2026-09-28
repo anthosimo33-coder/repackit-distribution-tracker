@@ -6,6 +6,10 @@ import {
   sortedTiers,
   compareLadders,
   ladderSummary,
+  sameVideoBonus,
+  validVideoBonusTiers,
+  videoBonusExamplePoints,
+  videoBonusSummary,
 } from "./pricing-shape";
 import type { BonusTier } from "./pricing-engine";
 
@@ -237,5 +241,49 @@ describe("ladderSummary", () => {
     expect(Math.max(...s.steps)).toBe(1);
     // Croissant : une micro-échelle qui redescendrait mentirait sur la grille.
     expect([...s.steps]).toEqual([...s.steps].sort((a, b) => a - b));
+  });
+});
+
+describe("bonus par vidéo — lecture à l'œil", () => {
+  const TIERS = [
+    { seuilVues: 100_000, montant: 20 },
+    { seuilVues: 50_000, montant: 10 },
+    { seuilVues: 500_000, montant: 47.5 },
+  ];
+
+  it("exemples tirés de la grille : sous le 1er seuil, chaque seuil, les milieux, le double du dernier", () => {
+    expect(videoBonusExamplePoints(TIERS)).toEqual([
+      25_000, 50_000, 75_000, 100_000, 300_000, 500_000, 1_000_000,
+    ]);
+  });
+
+  it("au-delà de 4 seuils : plus de milieux, seulement les bascules", () => {
+    const six = [1, 2, 3, 4, 5, 6].map((k) => ({ seuilVues: k * 37_500, montant: k * 2.5 }));
+    const pts = videoBonusExamplePoints(six);
+    expect(pts).toEqual([18_750, 37_500, 75_000, 112_500, 150_000, 187_500, 225_000, 450_000]);
+  });
+
+  it("une saisie à moitié faite ne produit pas d'exemple fantôme", () => {
+    expect(validVideoBonusTiers([{ seuilVues: NaN, montant: 10 }, { seuilVues: 0, montant: 5 }])).toEqual([]);
+    expect(videoBonusExamplePoints([{ seuilVues: 50_000, montant: 0 }])).toEqual([]);
+  });
+
+  it("résumé : le maximum par vidéo = somme si cumulables, sommet sinon", () => {
+    expect(videoBonusSummary({ tiers: TIERS, cumulative: true })).toEqual({
+      count: 3,
+      topAmount: 77.5,
+      cumulative: true,
+    });
+    expect(videoBonusSummary({ tiers: TIERS, cumulative: false }).topAmount).toBe(47.5);
+  });
+
+  it("sameVideoBonus : ordre ignoré, règle de cumul comprise", () => {
+    const a = { tiers: TIERS, cumulative: true };
+    const b = { tiers: [...TIERS].reverse(), cumulative: true };
+    expect(sameVideoBonus(a, b)).toBe(true);
+    expect(sameVideoBonus(a, { ...b, cumulative: false })).toBe(false);
+    expect(sameVideoBonus(a, { tiers: TIERS.slice(1), cumulative: true })).toBe(false);
+    expect(sameVideoBonus(null, undefined)).toBe(true);
+    expect(sameVideoBonus(a, null)).toBe(false);
   });
 });

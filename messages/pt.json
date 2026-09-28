@@ -533,7 +533,8 @@
         "bonus_tier": "Nível",
         "clip": "Clipe",
         "retainer": "Mensalidade",
-        "challenge": "Prêmio"
+        "challenge": "Prêmio",
+        "video_bonus": "Bônus vídeo"
       },
       "fixe": "Fixo",
       "cpmAccum": "CPM acumulado (sobre suas visualizações)",
@@ -561,7 +562,8 @@
         "outOf": "de {amount}",
         "tierBonus": "Bônus do nível {views} visualizações",
         "challenge": "Prêmio do desafio — {name}",
-        "challengeWin": "Prêmio do desafio — {name}"
+        "challengeWin": "Prêmio do desafio — {name}",
+        "videoBonus": "Bônus por vídeo — {views} visualizações"
       },
       "tiersTitle": "🏆 Níveis de recompensa",
       "cumulViews": "{views} visualizações acumuladas",
@@ -1449,6 +1451,9 @@
     "ERR_TEMPLATE_NAME_REQUIRED": "O nome do modelo é obrigatório.",
     "ERR_TEMPLATE_NEEDS_TIER": "Um modelo sem níveis não tem nada para copiar.",
     "ERR_TEMPLATE_TIER_DUPLICATE": "Dois níveis não podem ter o mesmo limite.",
+    "ERR_TEMPLATE_KIND_LOCKED": "O tipo de um modelo não pode ser alterado: crie um novo modelo.",
+    "ERR_VIDEO_BONUS_TIER_INVALID": "Um nível de bônus por vídeo exige um limite de pelo menos 1 visualização e um valor acima de 0.",
+    "ERR_VIDEO_BONUS_CASH_ONLY": "O bônus por vídeo é pago apenas em dinheiro.",
     "ERR_TIER_CASH_INVALID": "Um nível em dinheiro exige um valor em $ ≥ 0.",
     "ERR_TIER_KIND_LABEL_REQUIRED": "Um nível em produto exige um rótulo (ex.: iPhone).",
     "ERR_TIER_REAL_COST_INVALID": "O custo real de um nível em produto precisa ser ≥ 0.",

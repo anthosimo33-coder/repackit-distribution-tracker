@@ -50,7 +50,9 @@ import {
   formatSeuil,
   ladderSummary,
   pricingKind,
+  sameVideoBonus,
   sortedTiers,
+  videoBonusSummary,
   PRICING_KIND_LABEL,
   type PricingKind,
 } from "@/lib/pricing-shape";
@@ -58,8 +60,17 @@ import {
   estimateMissionEarnings,
   evaluateBonusTiers,
   tiersOf,
+  videoBonusAmount,
   type BonusTier,
+  type VideoBonusGrid,
 } from "@/lib/pricing-engine";
+import {
+  VideoBonusEditor,
+  emptyVideoBonusForm,
+  formToVideoBonus,
+  videoBonusToForm,
+  type VideoBonusForm,
+} from "@/components/pricing/VideoBonusEditor";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -132,6 +143,25 @@ const KIND_CLASS: Record<PricingKind, string> = {
   aucun: "bg-slate-100 text-slate-600",
 };
 
+/** Type d'un modèle — absent = cumulatif (tous les modèles d'avant). */
+function templateKind(t: Template): "cumulative" | "per_video" {
+  return t.kind ?? "cumulative";
+}
+
+/** Grille par vidéo portée par un modèle « par vidéo ». */
+function templateVideoBonus(t: Template): VideoBonusGrid {
+  return {
+    tiers: t.tiers.map((x) => ({ seuilVues: x.seuilVues, montant: x.montant ?? 0 })),
+    cumulative: t.cumulative === true,
+  };
+}
+
+/** Grille saisie → argument serveur : vide = `null` (« aucun bonus par vidéo »). */
+function videoBonusArg(form: VideoBonusForm): VideoBonusGrid | null {
+  const grid = formToVideoBonus(form);
+  return grid.tiers.length > 0 ? grid : null;
+}
+
 /**
  * Admin — barèmes de paie (pricings) du projet, et bibliothèque de MODÈLES
  * d'échelle de bonus.
@@ -191,6 +221,12 @@ function PricingsPageContenu() {
   const [templateId, setTemplateId] = useState<Id<"bonusTemplates"> | null>(
     null,
   );
+  // Grille de BONUS PAR VIDÉO du barème en cours d'édition + sa provenance.
+  const [videoBonus, setVideoBonus] = useState<VideoBonusForm>(
+    videoBonusToForm(null),
+  );
+  const [videoBonusTemplateId, setVideoBonusTemplateId] =
+    useState<Id<"bonusTemplates"> | null>(null);
   const [busy, setBusy] = useState(false);
 
   const defaultPricing = pricings?.find((p) => p.isDefaultBonus) ?? null;
@@ -214,6 +250,8 @@ function PricingsPageContenu() {
     setForm({ ...EMPTY });
     setTiers([]);
     setTemplateId(null);
+    setVideoBonus(videoBonusToForm(null));
+    setVideoBonusTemplateId(null);
     setOpen(true);
   }
 
@@ -228,6 +266,8 @@ function PricingsPageContenu() {
     });
     setTiers(tiersToForm(p.bonusTiers ?? []));
     setTemplateId(p.bonusTemplateId ?? null);
+    setVideoBonus(videoBonusToForm(p.videoBonus));
+    setVideoBonusTemplateId(p.videoBonusTemplateId ?? null);
     setOpen(true);
   }
 
@@ -244,6 +284,8 @@ function PricingsPageContenu() {
     });
     setTiers(tiersToForm(p.bonusTiers ?? []));
     setTemplateId(p.bonusTemplateId ?? null);
+    setVideoBonus(videoBonusToForm(p.videoBonus));
+    setVideoBonusTemplateId(p.videoBonusTemplateId ?? null);
     setOpen(true);
   }
 
@@ -263,6 +305,9 @@ function PricingsPageContenu() {
       // de nom effacerait la provenance et l'écran cesserait de signaler la
       // divergence.
       bonusTemplateId: templateId,
+      // Même règle : toujours transmise. `null` = aucun bonus par vidéo.
+      videoBonus: videoBonusArg(videoBonus),
+      videoBonusTemplateId: videoBonusArg(videoBonus) ? videoBonusTemplateId : null,
     };
     setBusy(true);
     try {
@@ -343,7 +388,8 @@ function PricingsPageContenu() {
             Pricings
           </h1>
           <p className="text-sm text-slate-500">
-            Fixe mensuel par vidéo, CPM aux vues, paliers de bonus au cumul à vie.
+            Fixe mensuel par vidéo, CPM aux vues, paliers de bonus au cumul à vie,
+            bonus par vidéo.
           </p>
         </div>
         <Button onClick={openCreate}>
@@ -444,7 +490,7 @@ function PricingsPageContenu() {
               <span>Barème</span>
               <span className="text-right">Fixe / vidéo</span>
               <span className="text-right">CPM</span>
-              <span>Paliers de bonus</span>
+              <span>Bonus</span>
               <span className="sr-only">Actions</span>
             </div>
             {visible.map((p) => (
@@ -566,6 +612,10 @@ function PricingsPageContenu() {
         setTiers={setTiers}
         templateId={templateId}
         setTemplateId={setTemplateId}
+        videoBonus={videoBonus}
+        setVideoBonus={setVideoBonus}
+        videoBonusTemplateId={videoBonusTemplateId}
+        setVideoBonusTemplateId={setVideoBonusTemplateId}
         templates={templates ?? []}
         pricings={pricings ?? []}
         editingId={editing?._id ?? null}
@@ -698,6 +748,12 @@ function PricingRow({
           tiers={tiers}
           money={money}
           template={templates.find((t) => t._id === p.bonusTemplateId) ?? null}
+          quietWhenEmpty={(p.videoBonus?.tiers.length ?? 0) > 0}
+        />
+        <VideoBonusCell
+          grid={p.videoBonus}
+          money={money}
+          template={templates.find((t) => t._id === p.videoBonusTemplateId) ?? null}
         />
       </div>
 
@@ -795,13 +851,17 @@ function LadderCell({
   tiers,
   money,
   template,
+  quietWhenEmpty = false,
 }: {
   tiers: BonusTier[];
   money: (n: number) => string;
   template: Template | null;
+  /** Le barème porte un bonus par vidéo : « Aucun palier » n'y serait que du bruit. */
+  quietWhenEmpty?: boolean;
 }) {
   const summary = ladderSummary(tiers, money);
   if (summary.count === 0) {
+    if (quietWhenEmpty) return null;
     return <span className="text-xs text-slate-300">Aucun palier</span>;
   }
 
@@ -853,8 +913,51 @@ function LadderCell({
 }
 
 /**
+ * Grille de BONUS PAR VIDÉO d'un barème, sous l'échelle de paliers. Absente =
+ * rien de rendu : les barèmes sans bonus par vidéo gardent leur ligne d'avant.
+ */
+function VideoBonusCell({
+  grid,
+  money,
+  template,
+}: {
+  grid: VideoBonusGrid | null;
+  money: (n: number) => string;
+  template: Template | null;
+}) {
+  if (!grid || grid.tiers.length === 0) return null;
+  const summary = videoBonusSummary(grid);
+  const identical = template ? sameVideoBonus(grid, templateVideoBonus(template)) : null;
+  return (
+    <div className="min-w-0 [&:not(:first-child)]:mt-1">
+      <span className="min-w-0 truncate text-xs text-slate-600">
+        <span className="mr-1 rounded bg-orange-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-orange-700 uppercase">
+          Par vidéo
+        </span>
+        <b className="font-semibold text-slate-900">
+          {summary.count} seuil{summary.count > 1 ? "s" : ""}
+        </b>
+        <span className="text-slate-500">
+          {" "}
+          · jusqu&apos;à {money(summary.topAmount)}/vidéo ·{" "}
+          {summary.cumulative ? "cumulables" : "non cumulables"}
+        </span>
+      </span>
+      {template && identical === false && (
+        <span className="mt-1 inline-block rounded-md border border-amber-200 bg-amber-50/70 px-1.5 py-0.5 text-[11px] text-amber-900">
+          ≠ du modèle « {template.name} »
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
  * BIBLIOTHÈQUE DE MODÈLES d'échelle. Un modèle ne paie rien : l'appliquer
  * RECOPIE ses paliers dans les barèmes choisis, et c'est le barème qui paie.
+ * Deux types : CUMULATIF (paliers sur le cumul à vie de la créatrice, recopiés
+ * dans l'échelle du barème) et PAR VIDÉO (seuils sur les vues d'une vidéo,
+ * recopiés dans la grille par vidéo du barème).
  */
 function TemplatesSection({
   templates,
@@ -889,12 +992,13 @@ function TemplatesSection({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">
-            Modèles d&apos;échelle de bonus
+            Modèles de bonus
           </h2>
           <p className="text-xs text-slate-500">
-            Une échelle saisie une fois, à piquer dans n&apos;importe quel
-            barème. Un modèle ne paie rien : l&apos;appliquer recopie ses paliers
-            dans le barème.
+            Cumulatifs (paliers sur le total des vues de la créatrice) ou par
+            vidéo (seuils sur les vues d&apos;une vidéo), saisis une fois, à
+            piquer dans n&apos;importe quel barème. Un modèle ne paie rien :
+            l&apos;appliquer recopie sa grille dans le barème.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => setEditorFor("new")}>
@@ -914,11 +1018,17 @@ function TemplatesSection({
       ) : (
         <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
           {templates.map((t) => {
-            const users = pricings.filter((p) => p.bonusTemplateId === t._id);
-            const diverged = users.filter(
-              (p) => !compareLadders(tiersOf(p), t.tiers).identical,
+            const perVideo = templateKind(t) === "per_video";
+            const users = pricings.filter((p) =>
+              perVideo ? p.videoBonusTemplateId === t._id : p.bonusTemplateId === t._id,
+            );
+            const diverged = users.filter((p) =>
+              perVideo
+                ? !sameVideoBonus(p.videoBonus, templateVideoBonus(t))
+                : !compareLadders(tiersOf(p), t.tiers).identical,
             );
             const summary = ladderSummary(t.tiers, money);
+            const vbSummary = perVideo ? videoBonusSummary(templateVideoBonus(t)) : null;
             return (
               <div
                 key={t._id}
@@ -931,9 +1041,17 @@ function TemplatesSection({
                 >
                   {t.name}
                 </button>
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase ${
+                    perVideo ? "bg-orange-50 text-orange-700" : "bg-violet-50 text-violet-700"
+                  }`}
+                >
+                  {perVideo ? "Par vidéo" : "Cumulatif"}
+                </span>
                 <span className="text-xs text-slate-500">
-                  {summary.count} palier{summary.count > 1 ? "s" : ""}
-                  {summary.topLabel ? ` · jusqu'à ${summary.topLabel}` : ""}
+                  {vbSummary
+                    ? `${vbSummary.count} seuil${vbSummary.count > 1 ? "s" : ""} · jusqu'à ${money(vbSummary.topAmount)}/vidéo · ${vbSummary.cumulative ? "cumulables" : "non cumulables"}`
+                    : `${summary.count} palier${summary.count > 1 ? "s" : ""}${summary.topLabel ? ` · jusqu'à ${summary.topLabel}` : ""}`}
                 </span>
                 <span className="text-xs text-slate-400">
                   {users.length === 0
@@ -972,9 +1090,10 @@ function TemplatesSection({
         target={editorFor}
         onClose={() => setEditorFor(null)}
         payCurrency={payCurrency}
-        onSave={async (name, tiers) => {
-          if (editorFor === "new") await createTpl({ name, tiers });
-          else if (editorFor) await updateTpl({ id: editorFor._id, name, tiers });
+        money={money}
+        onSave={async (input) => {
+          if (editorFor === "new") await createTpl(input);
+          else if (editorFor) await updateTpl({ id: editorFor._id, ...input });
         }}
       />
 
@@ -1000,21 +1119,30 @@ function TemplatesSection({
   );
 }
 
-/** Éditeur de modèle : un nom, une échelle. Aucun fixe, aucun CPM. */
+type TemplateInput = {
+  name: string;
+  tiers: BonusTier[];
+  kind: "cumulative" | "per_video";
+  cumulative?: boolean;
+};
+
+/**
+ * Éditeur de modèle : un TYPE (choisi à la création, figé ensuite), un nom, une
+ * échelle. Aucun fixe, aucun CPM.
+ */
 function TemplateEditorDialog({
   target,
   onClose,
   payCurrency,
+  money,
   onSave,
 }: {
   target: Template | "new" | null;
   onClose: () => void;
   payCurrency: string | null | undefined;
-  onSave: (name: string, tiers: BonusTier[]) => Promise<void>;
+  money: (n: number) => string;
+  onSave: (input: TemplateInput) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [tiers, setTiers] = useState<TierForm[]>([]);
-  const [busy, setBusy] = useState(false);
   // Clé de remontage : le dialogue se réinitialise à chaque cible plutôt que de
   // garder la saisie du modèle précédent.
   const key = target === "new" ? "new" : (target?._id ?? "none");
@@ -1025,7 +1153,7 @@ function TemplateEditorDialog({
       onOpenChange={(o) => !o && onClose()}
       key={key}
     >
-      <DialogContent className="max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {target === "new" ? "Nouveau modèle" : "Modifier le modèle"}
@@ -1033,89 +1161,192 @@ function TemplateEditorDialog({
           <DialogDescription>
             Modifier un modèle ne change AUCUN barème : rien ne bouge tant que tu
             ne l&apos;appliques pas, et l&apos;application annonce d&apos;abord
-            combien de créatrices elle touche.
+            ce qu&apos;elle touche.
           </DialogDescription>
         </DialogHeader>
-        <form
-          className="min-w-0 space-y-4"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            try {
-              await onSave(name.trim(), formToTiers(tiers));
-              toast.success(
-                target === "new" ? "Modèle créé" : "Modèle mis à jour",
-              );
-              onClose();
-            } catch (err) {
-              toast.error(convexErrorMessage(err, "Une erreur est survenue."));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <TemplateNameField
+        {target !== null && (
+          <TemplateEditorForm
             target={target}
-            name={name}
-            setName={setName}
-            tiers={tiers}
-            setTiers={setTiers}
-          />
-          <TierEditor
-            tiers={tiers}
-            setTiers={setTiers}
+            onClose={onClose}
             payCurrency={payCurrency}
+            money={money}
+            onSave={onSave}
           />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-              Annuler
-            </Button>
-            <Button type="submit" disabled={busy}>
-              {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
-              {target === "new" ? "Créer" : "Enregistrer"}
-            </Button>
-          </DialogFooter>
-        </form>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
-/** Amorce le formulaire depuis la cible (une seule fois, au montage du dialogue). */
-function TemplateNameField({
+/**
+ * Le formulaire, amorcé UNE fois depuis sa cible par ses états initiaux — il
+ * est remonté à chaque cible par la clé du dialogue. (La version précédente
+ * amorçait en appelant les setters du parent pendant le rendu, ce que React
+ * signale comme une mise à jour d'un composant pendant le rendu d'un autre.)
+ */
+function TemplateEditorForm({
   target,
-  name,
-  setName,
-  tiers,
-  setTiers,
+  onClose,
+  payCurrency,
+  money,
+  onSave,
 }: {
-  target: Template | "new" | null;
-  name: string;
-  setName: (v: string) => void;
-  tiers: TierForm[];
-  setTiers: (v: TierForm[]) => void;
+  target: Template | "new";
+  onClose: () => void;
+  payCurrency: string | null | undefined;
+  money: (n: number) => string;
+  onSave: (input: TemplateInput) => Promise<void>;
 }) {
-  const [seeded, setSeeded] = useState(false);
-  if (!seeded && target) {
-    setSeeded(true);
-    if (target !== "new") {
-      setName(target.name);
-      setTiers(tiersToForm(target.tiers));
-    } else if (tiers.length === 0) {
-      setTiers([emptyTier()]);
-    }
-  }
+  const initial = target === "new" ? null : target;
+  const initialKind = initial ? templateKind(initial) : "cumulative";
+  const [name, setName] = useState(initial?.name ?? "");
+  const [kind, setKind] = useState<"cumulative" | "per_video">(initialKind);
+  const [tiers, setTiers] = useState<TierForm[]>(() =>
+    initial && initialKind === "cumulative" ? tiersToForm(initial.tiers) : [emptyTier()],
+  );
+  const [videoBonus, setVideoBonus] = useState<VideoBonusForm>(() =>
+    initial && initialKind === "per_video"
+      ? videoBonusToForm(templateVideoBonus(initial))
+      : emptyVideoBonusForm(),
+  );
+  const [busy, setBusy] = useState(false);
+
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="tpl-name">Nom du modèle</Label>
-      <Input
-        id="tpl-name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Échelle Snytch standard"
-        required
-      />
-    </div>
+    <form
+      className="min-w-0 space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        try {
+          if (kind === "per_video") {
+            const grid = formToVideoBonus(videoBonus);
+            await onSave({
+              name: name.trim(),
+              kind,
+              cumulative: grid.cumulative,
+              tiers: grid.tiers.map((t) => ({
+                seuilVues: t.seuilVues,
+                rewardType: "cash",
+                montant: t.montant,
+              })),
+            });
+          } else {
+            await onSave({ name: name.trim(), kind, tiers: formToTiers(tiers) });
+          }
+          toast.success(target === "new" ? "Modèle créé" : "Modèle mis à jour");
+          onClose();
+        } catch (err) {
+          toast.error(convexErrorMessage(err, "Une erreur est survenue."));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <TemplateKindChooser kind={kind} setKind={setKind} locked={target !== "new"} />
+      <div className="space-y-1.5">
+        <Label htmlFor="tpl-name">Nom du modèle</Label>
+        <Input
+          id="tpl-name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={
+            kind === "per_video" ? "Bonus par vidéo standard" : "Échelle Snytch standard"
+          }
+          required
+        />
+      </div>
+      {kind === "per_video" ? (
+        <VideoBonusEditor
+          form={videoBonus}
+          setForm={setVideoBonus}
+          payCurrency={payCurrency}
+          money={money}
+        />
+      ) : (
+        <TierEditor tiers={tiers} setTiers={setTiers} payCurrency={payCurrency} />
+      )}
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+          Annuler
+        </Button>
+        <Button type="submit" disabled={busy}>
+          {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+          {target === "new" ? "Créer" : "Enregistrer"}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+/**
+ * TYPE DE MODÈLE — la première question d'un nouveau modèle, parce qu'elle
+ * décide de tout le reste du formulaire. Figé ensuite : les deux types se
+ * recopient dans deux champs différents du barème.
+ */
+function TemplateKindChooser({
+  kind,
+  setKind,
+  locked,
+}: {
+  kind: "cumulative" | "per_video";
+  setKind: (k: "cumulative" | "per_video") => void;
+  locked: boolean;
+}) {
+  const options = [
+    {
+      value: "cumulative" as const,
+      title: "Bonus cumulatif",
+      hint: "Paliers sur le total des vues de la créatrice, à vie (ex. 1 M vues cumulées → 200 $).",
+    },
+    {
+      value: "per_video" as const,
+      title: "Bonus par vidéo",
+      hint: "Seuils sur les vues d'UNE vidéo (ex. 50 k vues → 10 $). Chaque vidéo touche le sien.",
+    },
+  ];
+  return (
+    <fieldset className="space-y-1.5">
+      <legend className="mb-1.5 text-sm font-medium text-slate-900">
+        Type de bonus
+      </legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {options
+          .filter((o) => !locked || o.value === kind)
+          .map((o) => (
+            <label
+              key={o.value}
+              className={`flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 ${
+                kind === o.value
+                  ? "border-slate-900 bg-slate-50"
+                  : "border-slate-200 hover:bg-slate-50"
+              } ${locked ? "cursor-default" : ""}`}
+            >
+              <input
+                type="radio"
+                name="template-kind"
+                value={o.value}
+                checked={kind === o.value}
+                onChange={() => setKind(o.value)}
+                disabled={locked}
+                className="mt-1 accent-slate-900"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-slate-900">
+                  {o.title}
+                </span>
+                <span className="block text-xs leading-relaxed text-slate-500">
+                  {o.hint}
+                </span>
+              </span>
+            </label>
+          ))}
+      </div>
+      {locked && (
+        <p className="text-[11px] text-slate-400">
+          Le type d&apos;un modèle ne se change pas : crée un nouveau modèle.
+        </p>
+      )}
+    </fieldset>
   );
 }
 
@@ -1136,9 +1367,16 @@ function ApplyTemplateDialog({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const candidates = pricings.filter((p) => p.status === "active");
+  const perVideo = template !== null && templateKind(template) === "per_video";
+  const tplGrid = template && perVideo ? templateVideoBonus(template) : null;
   const impacted = candidates
     .filter((p) => selected.has(p._id))
     .reduce((s, p) => s + p.bonusCreatorCount, 0);
+  // Par vidéo, l'effectif qui compte est celui des VIDÉOS du barème encore
+  // ouvertes (ni payées ni annulées) : la grille est lue en direct sur elles.
+  const impactedVideos = candidates
+    .filter((p) => selected.has(p._id))
+    .reduce((s, p) => s + p.openAssignmentCount, 0);
 
   return (
     <Dialog
@@ -1150,18 +1388,38 @@ function ApplyTemplateDialog({
         <DialogHeader>
           <DialogTitle>Appliquer « {template?.name} »</DialogTitle>
           <DialogDescription>
-            Les paliers du modèle REMPLACENT l&apos;échelle des barèmes cochés.
-            Les paliers sont lus en direct : les créatrices concernées voient la
-            nouvelle échelle immédiatement, et celles qui ont déjà franchi un
-            palier ajouté le débloquent tout de suite. Les bonus déjà débloqués
-            sont immuables — abaisser un seuil en ajoute, le relever n&apos;en
-            retire aucun.
+            {perVideo ? (
+              <>
+                La grille du modèle REMPLACE le bonus par vidéo des barèmes
+                cochés (leur échelle cumulative ne bouge pas). Elle est lue en
+                direct : toutes les vidéos de ces barèmes dont le cycle
+                n&apos;est pas encore payé y ont droit tout de suite, y compris
+                celles déjà publiées. Les cycles déjà payés ne bougent pas.
+              </>
+            ) : (
+              <>
+                Les paliers du modèle REMPLACENT l&apos;échelle des barèmes
+                cochés. Les paliers sont lus en direct : les créatrices
+                concernées voient la nouvelle échelle immédiatement, et celles
+                qui ont déjà franchi un palier ajouté le débloquent tout de
+                suite. Les bonus déjà débloqués sont immuables — abaisser un
+                seuil en ajoute, le relever n&apos;en retire aucun.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-1">
           {candidates.map((p) => {
-            const cmp = template
-              ? compareLadders(tiersOf(p), template.tiers)
+            const cmp =
+              template && !perVideo
+                ? compareLadders(tiersOf(p), template.tiers)
+                : null;
+            const vbStatus = tplGrid
+              ? sameVideoBonus(p.videoBonus, tplGrid)
+                ? "déjà identique au modèle"
+                : p.videoBonus
+                  ? "remplace sa grille par vidéo actuelle"
+                  : "n'a pas encore de bonus par vidéo"
               : null;
             return (
               <label
@@ -1185,18 +1443,40 @@ function ApplyTemplateDialog({
                     {p.name}
                   </span>
                   <span className="block text-xs text-slate-500">
-                    {cmp?.identical
-                      ? "déjà identique au modèle"
-                      : `${cmp?.differing ?? 0} palier${(cmp?.differing ?? 0) > 1 ? "s" : ""} sera réécrit`}
-                    {p.bonusCreatorCount > 0 &&
-                      ` · ${p.bonusCreatorCount} créatrice${p.bonusCreatorCount > 1 ? "s" : ""}`}
+                    {vbStatus !== null ? (
+                      <>
+                        {vbStatus}
+                        {p.openAssignmentCount > 0 &&
+                          ` · ${p.openAssignmentCount} vidéo${p.openAssignmentCount > 1 ? "s" : ""} non payée${p.openAssignmentCount > 1 ? "s" : ""}`}
+                      </>
+                    ) : (
+                      <>
+                        {cmp?.identical
+                          ? "déjà identique au modèle"
+                          : `${cmp?.differing ?? 0} palier${(cmp?.differing ?? 0) > 1 ? "s" : ""} sera réécrit`}
+                        {p.bonusCreatorCount > 0 &&
+                          ` · ${p.bonusCreatorCount} créatrice${p.bonusCreatorCount > 1 ? "s" : ""}`}
+                      </>
+                    )}
                   </span>
                 </span>
               </label>
             );
           })}
         </div>
-        {impacted > 0 && (
+        {perVideo && selected.size > 0 && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <b>
+              {impactedVideos} vidéo{impactedVideos > 1 ? "s" : ""} non payée
+              {impactedVideos > 1 ? "s" : ""}
+            </b>{" "}
+            sur ce{selected.size > 1 ? "s" : ""} barème{selected.size > 1 ? "s" : ""}{" "}
+            (dont celles d&apos;un cycle réglé mais pas encore marquées payées,
+            qui ne bougeront pas). Maximum par vidéo :{" "}
+            {tplGrid ? money(videoBonusSummary(tplGrid).topAmount) : "—"}.
+          </p>
+        )}
+        {!perVideo && impacted > 0 && (
           <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             <b>
               {impacted} créatrice{impacted > 1 ? "s" : ""}
@@ -1243,6 +1523,10 @@ function PricingEditorDialog({
   setTiers,
   templateId,
   setTemplateId,
+  videoBonus,
+  setVideoBonus,
+  videoBonusTemplateId,
+  setVideoBonusTemplateId,
   templates,
   pricings,
   editingId,
@@ -1260,6 +1544,10 @@ function PricingEditorDialog({
   setTiers: React.Dispatch<React.SetStateAction<TierForm[]>>;
   templateId: Id<"bonusTemplates"> | null;
   setTemplateId: (v: Id<"bonusTemplates"> | null) => void;
+  videoBonus: VideoBonusForm;
+  setVideoBonus: (f: VideoBonusForm) => void;
+  videoBonusTemplateId: Id<"bonusTemplates"> | null;
+  setVideoBonusTemplateId: (v: Id<"bonusTemplates"> | null) => void;
   templates: Template[];
   pricings: Pricing[];
   editingId: Id<"pricings"> | null;
@@ -1270,6 +1558,10 @@ function PricingEditorDialog({
 }) {
   const createTpl = useProjectMutation(api.pricing.createBonusTemplate);
   const [viewsIdx, setViewsIdx] = useState(4);
+  // Les deux types de modèle ne se piquent pas au même endroit du barème.
+  const cumulativeTemplates = templates.filter((t) => templateKind(t) === "cumulative");
+  const perVideoTemplates = templates.filter((t) => templateKind(t) === "per_video");
+  const vbTemplate = templates.find((t) => t._id === videoBonusTemplateId) ?? null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1280,8 +1572,8 @@ function PricingEditorDialog({
           </DialogTitle>
           <DialogDescription>
             Le fixe et le CPM sont figés à l&apos;attribution : les modifier
-            n&apos;affecte que les FUTURES attributions. Les paliers, eux, sont
-            lus en direct.
+            n&apos;affecte que les FUTURES attributions. Les paliers et le bonus
+            par vidéo, eux, sont lus en direct.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="min-w-0 space-y-4">
@@ -1391,6 +1683,7 @@ function PricingEditorDialog({
           <PayoutPreview
             form={form}
             tiers={tiers}
+            videoBonus={videoBonusArg(videoBonus)}
             money={money}
             viewsIdx={viewsIdx}
             setViewsIdx={setViewsIdx}
@@ -1401,7 +1694,7 @@ function PricingEditorDialog({
               <Label>Paliers de bonus (cumul de vues à vie)</Label>
               <div className="flex gap-2">
                 <ReuseLadderMenu
-                  templates={templates}
+                  templates={cumulativeTemplates}
                   pricings={pricings}
                   editingId={editingId}
                   onPickTemplate={(t) => {
@@ -1467,6 +1760,112 @@ function PricingEditorDialog({
                 >
                   Enregistrer cette échelle comme modèle
                 </button>
+              </>
+            )}
+          </div>
+
+          {/* BONUS PAR VIDÉO — à part de l'échelle cumulative : chaque vidéo est
+              jugée seule, sur ses propres vues. Lu en direct, comme les paliers :
+              le poser sur un barème déjà utilisé vaut pour ses vidéos non payées. */}
+          <div className="space-y-2" data-testid="pricing-video-bonus">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Bonus par vidéo (vues d&apos;une vidéo)</Label>
+              <div className="flex gap-2">
+                {perVideoTemplates.length > 0 && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button type="button" variant="outline" size="sm">
+                          Reprendre un modèle
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="max-h-80 w-72 overflow-y-auto">
+                      <DropdownMenuGroup>
+                        <DropdownMenuLabel>Modèles par vidéo</DropdownMenuLabel>
+                        {perVideoTemplates.map((t) => (
+                          <DropdownMenuItem
+                            key={t._id}
+                            onClick={() => {
+                              setVideoBonus(videoBonusToForm(templateVideoBonus(t)));
+                              setVideoBonusTemplateId(t._id);
+                              toast.success(`Grille «\u00a0${t.name}\u00a0» recopiée`);
+                            }}
+                          >
+                            <LadderOption name={t.name} count={t.tiers.length} />
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                {videoBonus.tiers.length === 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setVideoBonus(emptyVideoBonusForm())}
+                  >
+                    + Bonus par vidéo
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setVideoBonus(videoBonusToForm(null));
+                      setVideoBonusTemplateId(null);
+                    }}
+                  >
+                    Retirer
+                  </Button>
+                )}
+              </div>
+            </div>
+            {videoBonus.tiers.length === 0 ? (
+              <p className="text-xs text-slate-400">
+                Aucun bonus par vidéo. Ex. 50 000 vues → 10 {currencySymbol(payCurrency)},
+                100 000 → 20 {currencySymbol(payCurrency)}.
+              </p>
+            ) : (
+              <>
+                {editing && editing.openAssignmentCount > 0 && (
+                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900">
+                    Lu en direct : s&apos;applique aux{" "}
+                    <b>
+                      {editing.openAssignmentCount} vidéo
+                      {editing.openAssignmentCount > 1 ? "s" : ""} non payée
+                      {editing.openAssignmentCount > 1 ? "s" : ""}
+                    </b>{" "}
+                    de ce barème dès l&apos;enregistrement. Les cycles déjà payés
+                    ne bougent pas.
+                  </p>
+                )}
+                <VideoBonusEditor
+                  form={videoBonus}
+                  setForm={setVideoBonus}
+                  payCurrency={payCurrency}
+                  money={money}
+                />
+                {vbTemplate && (
+                  <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                    <span>
+                      Grille issue du modèle{" "}
+                      <b className="font-medium text-slate-700">{vbTemplate.name}</b>
+                      {sameVideoBonus(formToVideoBonus(videoBonus), templateVideoBonus(vbTemplate))
+                        ? " · identique"
+                        : " · modifiée depuis"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setVideoBonusTemplateId(null)}
+                      className="text-slate-400 underline hover:text-slate-700"
+                    >
+                      Détacher
+                    </button>
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -1627,12 +2026,15 @@ const VIEW_STEPS = [
 function PayoutPreview({
   form,
   tiers,
+  videoBonus,
   money,
   viewsIdx,
   setViewsIdx,
 }: {
   form: typeof EMPTY;
   tiers: TierForm[];
+  /** Grille par vidéo en cours de saisie — chaque vidéo de la simulation la juge. */
+  videoBonus: VideoBonusGrid | null;
   money: (n: number) => string;
   viewsIdx: number;
   setViewsIdx: (i: number) => void;
@@ -1646,7 +2048,9 @@ function PayoutPreview({
     tauxCPM: Number(form.tauxCPM) || 0,
   };
   const perVideo = estimateMissionEarnings(snapshot, views);
-  const cycle = perVideo.total * nbVideos;
+  // Bonus PAR VIDÉO : hors plafond, s'ajoute à chaque vidéo de la simulation.
+  const vbPerVideo = videoBonusAmount(videoBonus, views);
+  const cycle = (perVideo.total + vbPerVideo) * nbVideos;
   const cumul = views * nbVideos;
   const bonus = evaluateBonusTiers(
     cumul,
@@ -1665,6 +2069,9 @@ function PayoutPreview({
         {nbVideos} vidéo{nbVideos > 1 ? "s" : ""} à {formatSeuil(views)} vues ={" "}
         {money(perVideo.fixed * nbVideos)} de fixe + {money(perVideo.cpm * nbVideos)}{" "}
         de CPM
+        {vbPerVideo > 0 && (
+          <> + {money(vbPerVideo * nbVideos)} de bonus par vidéo</>
+        )}
         {bonus.crossed.length > 0 && (
           <>
             {" "}

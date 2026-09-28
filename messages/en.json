@@ -533,7 +533,8 @@
         "bonus_tier": "Tier",
         "clip": "Clip",
         "retainer": "Retainer",
-        "challenge": "Prize"
+        "challenge": "Prize",
+        "video_bonus": "Video bonus"
       },
       "fixe": "Flat",
       "cpmAccum": "Accrued CPM (on your views)",
@@ -561,7 +562,8 @@
         "outOf": "out of {amount}",
         "tierBonus": "{views}-view tier bonus",
         "challenge": "Challenge prize — {name}",
-        "challengeWin": "Challenge prize — {name}"
+        "challengeWin": "Challenge prize — {name}",
+        "videoBonus": "Video bonus — {views} views"
       },
       "tiersTitle": "🏆 Reward tiers",
       "cumulViews": "{views} total views",
@@ -1449,6 +1451,9 @@
     "ERR_TEMPLATE_NAME_REQUIRED": "The template name is required.",
     "ERR_TEMPLATE_NEEDS_TIER": "A template with no tier has nothing to copy over.",
     "ERR_TEMPLATE_TIER_DUPLICATE": "Two tiers can't share the same threshold.",
+    "ERR_TEMPLATE_KIND_LOCKED": "A template's type can't be changed: create a new template.",
+    "ERR_VIDEO_BONUS_TIER_INVALID": "A per-video bonus tier needs a threshold of at least 1 view and an amount above 0.",
+    "ERR_VIDEO_BONUS_CASH_ONLY": "The per-video bonus is paid in cash only.",
     "ERR_TIER_CASH_INVALID": "A cash tier needs an amount in $ ≥ 0.",
     "ERR_TIER_KIND_LABEL_REQUIRED": "A reward-in-kind tier needs a label (e.g. iPhone).",
     "ERR_TIER_REAL_COST_INVALID": "A reward-in-kind tier's real cost has to be ≥ 0.",

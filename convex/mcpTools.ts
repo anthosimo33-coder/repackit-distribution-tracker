@@ -2225,6 +2225,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             cpm: c.pricingBreakdown?.cpmTotal ?? null,
             paliers: c.pricingBreakdown?.bonusTierCashTotal ?? null,
             primesDeDefi: c.pricingBreakdown?.challengeTotal ?? null,
+            bonusParVideo: c.pricingBreakdown?.videoBonusTotal ?? null,
           },
           ...((c.pricingBreakdown?.unmeasuredPayablePosts ?? 0) > 0
             ? { postsPayablesSansMesure: c.pricingBreakdown!.unmeasuredPayablePosts }

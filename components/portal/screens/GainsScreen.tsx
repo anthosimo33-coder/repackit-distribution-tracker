@@ -60,7 +60,8 @@ export default function GainsScreen() {
     payoutTs !== null ? Math.max(0, Math.ceil((payoutTs - now) / 86_400_000)) : null;
 
   // Répartition du cycle, lue sur l'aperçu pricing temps réel. La prime de défi
-  // compte avec les bonus : c'est un gain au-delà du barème, comme un palier.
+  // et le bonus par vidéo comptent avec les bonus : ce sont des gains au-delà
+  // du barème, comme un palier.
   const b = cycle?.pricingBreakdown;
   const split = b
     ? [
@@ -69,7 +70,9 @@ export default function GainsScreen() {
         {
           key: "bonus" as const,
           amount:
-            b.bonusTierCashTotal + b.challengeWins.reduce((s, w) => s + w.montant, 0),
+            b.bonusTierCashTotal +
+            b.challengeWins.reduce((s, w) => s + w.montant, 0) +
+            b.videoBonusTotal,
           color: "bg-emerald-500",
         },
       ]

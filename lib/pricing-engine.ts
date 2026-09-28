@@ -531,3 +531,80 @@ export function evaluateBonusTiers(
     viewsToNext: nextTier ? Math.max(0, nextTier.seuilVues - cumul) : null,
   };
 }
+
+// ─── Bonus PAR VIDÉO (seuils de vues d'UNE vidéo) ────────────────────────────
+//
+// DISJOINT des paliers ci-dessus, qui se jugent sur le CUMUL à vie de la
+// créatrice : ici chaque vidéo est évaluée SEULE, sur ses propres vues, et
+// rapporte son bonus à elle. « 50 k vues → 10 $, 100 k → 20 $. »
+//
+// Trois règles tranchées au lancement (28/09/2026) :
+//   - l'assiette est celle des paliers (vues RÉMUNÉRÉES ET en promo, retenues
+//     par la fenêtre de paie) — un post warmup rémunéré ne débloque pas de bonus ;
+//   - le bonus S'AJOUTE au-dessus du plafond MAX_PAY_PER_VIDEO_EUR, qui reste
+//     sur fixe + CPM : son maximum est connu d'avance (le haut de la grille) ;
+//   - la grille est lue EN DIRECT sur le barème (aucun snapshot) : la rattacher
+//     à un barème vaut pour toutes ses vidéos non encore payées.
+//
+// CASH uniquement : une récompense en nature par vidéo n'a pas de sens produit.
+
+/** Un palier du bonus par vidéo. */
+export type VideoBonusTier = { seuilVues: number; montant: number };
+
+/**
+ * Grille de bonus par vidéo.
+ *
+ * `cumulative` — les paliers franchis s'ADDITIONNENT-ils ? Avec 50 k → 10 et
+ * 100 k → 20, une vidéo à 120 k touche 30 si oui, 20 si non (seul le palier le
+ * plus haut atteint paie).
+ */
+export type VideoBonusGrid = {
+  tiers: VideoBonusTier[];
+  cumulative: boolean;
+};
+
+export interface VideoBonusEvaluation {
+  /** Paliers franchis (seuil ≤ vues), triés par seuil croissant. */
+  crossed: VideoBonusTier[];
+  /** Ce que la vidéo touche au titre du bonus. */
+  amount: number;
+  /** Prochain palier non franchi (le plus bas au-dessus des vues). */
+  nextTier: VideoBonusTier | null;
+  /** Vues restantes avant le prochain palier (null si aucun). */
+  viewsToNext: number | null;
+}
+
+/**
+ * Bonus d'UNE vidéo pour ses vues. Grille absente ou vide ⇒ 0, et c'est l'état
+ * de tous les barèmes d'avant ce bonus : aucun montant existant ne bouge.
+ * SOURCE UNIQUE (pure, testée Vitest) — RÉPLIQUÉE dans convex/pricing.ts (A6).
+ */
+export function evaluateVideoBonus(
+  views: number,
+  grid: VideoBonusGrid | null | undefined,
+): VideoBonusEvaluation {
+  const v = Math.max(0, views);
+  const sorted = [...(grid?.tiers ?? [])].sort((a, b) => a.seuilVues - b.seuilVues);
+  const crossed = sorted.filter((t) => v >= t.seuilVues);
+  const nextTier = sorted.find((t) => v < t.seuilVues) ?? null;
+  const amount =
+    crossed.length === 0
+      ? 0
+      : grid?.cumulative
+        ? round2(crossed.reduce((s, t) => s + Math.max(0, t.montant), 0))
+        : round2(Math.max(0, crossed[crossed.length - 1].montant));
+  return {
+    crossed,
+    amount,
+    nextTier,
+    viewsToNext: nextTier ? Math.max(0, nextTier.seuilVues - v) : null,
+  };
+}
+
+/** Raccourci : le seul montant (cf evaluateVideoBonus). */
+export function videoBonusAmount(
+  grid: VideoBonusGrid | null | undefined,
+  views: number,
+): number {
+  return evaluateVideoBonus(views, grid).amount;
+}

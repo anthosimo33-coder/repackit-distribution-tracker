@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { settledViewsResolver } from "../convex/settledCycles";
+import { settledVideoBonusResolver, settledViewsResolver } from "../convex/settledCycles";
 
 /**
  * Forme de la PROD (2026-09-22, projet Snytch) : une créatrice ancrée au
@@ -130,5 +130,45 @@ describe("settledViewsResolver", () => {
     // Contrôle de PRÉSENCE : la même row gèle bien quand une ancre la rend
     // atteignable — l'absence ci-dessus vient du garde, pas d'une row morte.
     expect(settledViewsResolver(0, piege)(AOUT_VIDEO, PUBLIEE_EN_AOUT)).toBe(156_962);
+  });
+});
+
+describe("settledVideoBonusResolver", () => {
+  const AVEC_BONUS = [
+    ...ROWS.slice(0, 1),
+    {
+      period: "2026-08-02",
+      status: "paid" as const,
+      lineItems: [
+        { assignmentId: AOUT_VIDEO, kind: "cpm", detail: { views: 156_962 }, amount: 150 },
+        { assignmentId: AOUT_VIDEO, kind: "video_bonus", detail: { views: 141_207 }, amount: 30 },
+      ],
+    },
+    ...ROWS.slice(2),
+  ];
+
+  it("cycle payé : rend le MONTANT versé à la vidéo", () => {
+    const bonus = settledVideoBonusResolver(ANCRE, AVEC_BONUS);
+    expect(bonus(AOUT_VIDEO, PUBLIEE_EN_AOUT)).toBe(30);
+  });
+
+  it("cycle payé SANS ligne de bonus pour la vidéo : 0, pas null (elle n'a rien touché)", () => {
+    const bonus = settledVideoBonusResolver(ANCRE, AVEC_BONUS);
+    expect(bonus(JUILLET_VIDEO, PUBLIEE_EN_JUILLET)).toBe(0);
+  });
+
+  it("cycle pas encore payé : null, le calcul reste live", () => {
+    const bonus = settledVideoBonusResolver(ANCRE, AVEC_BONUS);
+    expect(bonus(AOUT_VIDEO, ANCRE + 62 * JOUR)).toBeNull();
+  });
+
+  it("aucune ancre ou aucune row payée : null partout", () => {
+    expect(settledVideoBonusResolver(undefined, AVEC_BONUS)(AOUT_VIDEO, PUBLIEE_EN_AOUT)).toBeNull();
+    expect(
+      settledVideoBonusResolver(ANCRE, AVEC_BONUS.filter((r) => r.status !== "paid"))(
+        AOUT_VIDEO,
+        PUBLIEE_EN_AOUT,
+      ),
+    ).toBeNull();
   });
 });

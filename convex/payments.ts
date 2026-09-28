@@ -76,8 +76,9 @@ type LineItem = {
   amount: number;
   // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement ;
   // clip = montant fixe par clip (clippeur) ; retainer = forfait de cycle
-  // (talent) ; challenge = prime d'une victoire de défi, UNE LIGNE PAR VICTOIRE.
-  // Cinq modèles de rémunération, cinq kinds — cf schema.
+  // (talent) ; challenge = prime d'une victoire de défi, UNE LIGNE PAR VICTOIRE ;
+  // video_bonus = bonus PAR VIDÉO (seuils de vues d'une vidéo), UNE LIGNE PAR
+  // VIDÉO. Cf schema.
   kind:
     | "base"
     | "bonus"
@@ -86,7 +87,8 @@ type LineItem = {
     | "bonus_tier"
     | "clip"
     | "retainer"
-    | "challenge";
+    | "challenge"
+    | "video_bonus";
   // Chantier C — plateforme du post pour les lineItems "base" (paiement PAR
   // POST : N bases/assignment, 1 par cible). Absent sur les bonus (1/assignment)
   // et les bases legacy (mono-compte).
@@ -448,8 +450,29 @@ async function frozenPricingLineItems(
       kind: "bonus_tier",
     });
   }
+  out.push(...videoBonusLineItems(breakdown));
   out.push(...challengeLineItems(breakdown));
   return out;
+}
+
+/**
+ * Lignes de BONUS PAR VIDÉO — UNE PAR VIDÉO, jamais agrégées.
+ *
+ * Même parti que `challengeLineItems` et pour la même raison : une ligne unique
+ * rendrait irrécupérable « quelle vidéo a touché quoi », et c'est exactement la
+ * question qu'on pose six mois plus tard. `detail.views` fige l'assiette jugée ;
+ * `label` reste la phrase française de repli (convention du dépôt).
+ */
+function videoBonusLineItems(breakdown: PricingBreakdown): LineItem[] {
+  return breakdown.videoBonuses
+    .filter((b) => b.montant > 0)
+    .map((b) => ({
+      assignmentId: b.assignmentId as Id<"assignments">,
+      label: `Bonus vidéo — ${b.views} vues`,
+      detail: { views: b.views },
+      amount: b.montant,
+      kind: "video_bonus" as const,
+    }));
 }
 
 /**
@@ -489,6 +512,15 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
   // bonus_tier = bonus de PALIER cash (v2), DISJOINT du "bonus" legacy par vidéo.
   const bonusTierCashTotal = sumKind("bonus_tier");
   const challengeTotal = sumKind("challenge");
+  const videoBonusTotal = sumKind("video_bonus");
+  // Une ligne par vidéo au gel : le détail se reconstitue à l'identique.
+  const videoBonuses = p.lineItems
+    .filter((li) => li.kind === "video_bonus")
+    .map((li) => ({
+      assignmentId: (li.assignmentId as string | undefined) ?? "",
+      views: li.detail?.views ?? 0,
+      montant: li.amount,
+    }));
   // Gelé, mais PAS PERDU : chaque prime a sa propre ligne, on reconstitue donc
   // le détail à l'identique — contrairement aux paliers, dont la ligne agrégée
   // ne se décompose plus. `winId` n'est pas dans la ligne gelée (il n'y sert à
@@ -510,6 +542,8 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     bonusTierCashUnlocks: [],
     challengeTotal,
     challengeWins,
+    videoBonusTotal,
+    videoBonuses,
     // Gelé : le statut de collecte du moment n'est pas dans les lignes payées,
     // et un cycle déjà payé ne se rediscute pas. 0 = « rien à signaler ICI »,
     // pas « tout était mesuré » — l'avertissement n'a de sens qu'AVANT de payer.
@@ -517,11 +551,15 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     // GELÉ : un cycle payé n'a plus d'engagement, il a un montant. L'engagé y
     // vaut donc le dû — c'est le seul état où les deux ne peuvent pas diverger.
     engage: {
-      total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
+      total: round2(
+        fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal + videoBonusTotal,
+      ),
       billedViews: 0,
       perAssignment: [],
     },
-    total: round2(fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal),
+    total: round2(
+      fixedTotal + cpmTotal + bonusTierCashTotal + challengeTotal + videoBonusTotal,
+    ),
     perPricing: [],
     perAssignment: [],
   };
@@ -643,6 +681,7 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
       kind: "bonus_tier",
     });
   }
+  out.push(...videoBonusLineItems(b));
   out.push(...challengeLineItems(b));
   return out;
 }
@@ -1392,6 +1431,7 @@ const FROZEN_AT_PAYMENT: ReadonlySet<LineItem["kind"]> = new Set([
   "bonus_tier",
   "retainer",
   "challenge",
+  "video_bonus",
 ]);
 
 /**

@@ -533,7 +533,8 @@
         "bonus_tier": "Nivel",
         "clip": "Clip",
         "retainer": "Tarifa plana",
-        "challenge": "Premio"
+        "challenge": "Premio",
+        "video_bonus": "Bono vídeo"
       },
       "fixe": "Fijo",
       "cpmAccum": "CPM acumulado (sobre tus vistas)",
@@ -561,7 +562,8 @@
         "outOf": "de {amount}",
         "tierBonus": "Bonus del nivel {views} vistas",
         "challenge": "Premio del reto — {name}",
-        "challengeWin": "Premio del reto — {name}"
+        "challengeWin": "Premio del reto — {name}",
+        "videoBonus": "Bono por vídeo — {views} visualizaciones"
       },
       "tiersTitle": "🏆 Niveles de recompensa",
       "cumulViews": "{views} vistas acumuladas",
@@ -1449,6 +1451,9 @@
     "ERR_TEMPLATE_NAME_REQUIRED": "El nombre de la plantilla es obligatorio.",
     "ERR_TEMPLATE_NEEDS_TIER": "Una plantilla sin niveles no tiene nada que copiar.",
     "ERR_TEMPLATE_TIER_DUPLICATE": "Dos niveles no pueden compartir el mismo umbral.",
+    "ERR_TEMPLATE_KIND_LOCKED": "El tipo de una plantilla no se puede cambiar: crea una plantilla nueva.",
+    "ERR_VIDEO_BONUS_TIER_INVALID": "Un nivel de bono por vídeo requiere un umbral de al menos 1 visualización y un importe mayor que 0.",
+    "ERR_VIDEO_BONUS_CASH_ONLY": "El bono por vídeo solo se paga en efectivo.",
     "ERR_TIER_CASH_INVALID": "Un nivel en dinero exige un importe en $ ≥ 0.",
     "ERR_TIER_KIND_LABEL_REQUIRED": "Un nivel en especie exige una etiqueta (p. ej., iPhone).",
     "ERR_TIER_REAL_COST_INVALID": "El coste real de un nivel en especie debe ser ≥ 0.",
