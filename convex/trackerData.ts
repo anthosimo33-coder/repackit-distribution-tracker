@@ -10,6 +10,7 @@ import {
   ajouterDepartsDePublication,
   computeDailyViewDeltas,
   computeDailyViewDeltasBy,
+  computeDailyViewDeltasWithEstimate,
   computeDayContributions,
   parisDayKey,
   parisMidnightUtc,
@@ -846,9 +847,14 @@ export async function vuesGagneesCore(
       .sort((a, b) => b.vues - a.vues);
   };
 
-  const parJour = computeDailyViewDeltas(points)
+  const parJour = computeDailyViewDeltasWithEstimate(points)
     .filter((j) => dansLaPeriode(j.date))
-    .map((j) => ({ jour: j.date, vues: j.value, estime: j.estimated }));
+    .map((j) => ({
+      jour: j.date,
+      vues: j.value,
+      estime: j.estimated,
+      vuesEstimees: j.estimatedValue,
+    }));
   return {
     du: args.du,
     au: args.au,

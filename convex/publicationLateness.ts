@@ -1,6 +1,7 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { buildZoneMap } from "./creatorDay";
+import { parisDayKey } from "./viewsDaily";
 import {
   permissionQuery,
 } from "./functions";
@@ -51,11 +52,17 @@ export interface CreatorPublicationStats {
  * Le taux du PROJET (63 % au relevé du 2026-08-14) ne décrit personne : sur le
  * même jeu, Kelly est à 91 % et Jade à 0 %. C'est le chiffre par créatrice qui
  * porte l'information.
+ *
+ * `periode` (jours de Paris, bornes incluses) ne sert qu'à une question
+ * EXPLICITE (« qui était en retard cette semaine ? », outil MCP) : elle ne
+ * retient que les posts PRÉVUS ces jours-là, et un post sans date prévue n'y
+ * entre pas. Sans elle, tout l'historique, comme l'écran et les notifications.
  */
 export async function creatorPublicationStats(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   now: number,
+  periode?: { du: string; au: string },
 ): Promise<CreatorPublicationStats[]> {
   const assignments = await ctx.db
     .query("assignments")
@@ -66,6 +73,14 @@ export async function creatorPublicationStats(
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
   const nomDe = new Map(creators.map((c) => [c._id, c.name]));
+  // Créatrice SUPPRIMÉE : son nom survit sur ses assignations (figé à
+  // l'attribution). Sans ce repli, chaque créatrice partie devenait une ligne
+  // « — » impossible à distinguer des autres (9 lignes sur Snytch le 30/09/2026).
+  const nomFige = new Map<Id<"creators">, string>();
+  for (const a of assignments) {
+    const n = a.creatorNameSnapshot?.trim();
+    if (n && !nomFige.has(a.creatorId)) nomFige.set(a.creatorId, n);
+  }
   // FUSEAUX — le taux à l'heure d'une créatrice se compte sur SES journées.
   // Un projet couvre Paris, New York et Los Angeles à la fois : appliquer Paris
   // à tout le monde comptait « en retard » chaque post publié le soir à l'ouest.
@@ -75,8 +90,15 @@ export async function creatorPublicationStats(
     .collect();
   const zoneDe = buildZoneMap(creators, comptes);
 
+  const dansLaPeriode = (a: Doc<"assignments">): boolean => {
+    if (!periode) return true;
+    if (a.postDate === undefined) return false;
+    const jour = parisDayKey(a.postDate);
+    return jour >= periode.du && jour <= periode.au;
+  };
   const parCreateur = new Map<Id<"creators">, Planifie[]>();
   for (const a of assignments) {
+    if (!dansLaPeriode(a)) continue;
     const arr = parCreateur.get(a.creatorId);
     if (arr) arr.push(planifieDe(a));
     else parCreateur.set(a.creatorId, [planifieDe(a)]);
@@ -86,7 +108,9 @@ export async function creatorPublicationStats(
     const timeZone = zoneDe.get(creatorId) ?? null;
     out.push({
       creatorId,
-      creatorName: nomDe.get(creatorId) ?? "—",
+      creatorName:
+        nomDe.get(creatorId) ??
+        (nomFige.has(creatorId) ? `${nomFige.get(creatorId)} (supprimée)` : "Créatrice supprimée"),
       tally: onTimeTally(
         posts.map((p) => ({ ...p, timeZone })),
         now,

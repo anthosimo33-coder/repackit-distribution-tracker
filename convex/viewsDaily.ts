@@ -291,7 +291,33 @@ export function ajouterDepartsDePublication(
  * fait ici, par publication.
  */
 export function computeDailyViewDeltas(snaps: SnapshotPoint[]): DailyPoint[] {
-  const { exact, estimatedDays } = repartir(snaps, () => TOUT);
+  return computeDailyViewDeltasWithEstimate(snaps).map(({ date, value, estimated }) => ({
+    date,
+    value,
+    estimated,
+  }));
+}
+
+/** Un point du jour, avec la part de ses vues qui est ESTIMÉE (pas mesurée). */
+export type DailyPointWithEstimate = DailyPoint & {
+  /**
+   * Vues du jour venues d'un intervalle de plus de `ESTIMATED_SPAN_MS` entre
+   * deux relevés : réparties au prorata des heures, pas mesurées. Toujours
+   * ≤ `value`. Le drapeau `estimated` se lève dès qu'UNE vue du jour l'est ;
+   * ce montant dit COMBIEN — une vidéo relevée tous les six jours ne rend pas
+   * « estimée » la journée de mille vidéos relevées chaque nuit.
+   */
+  estimatedValue: number;
+};
+
+/**
+ * `computeDailyViewDeltas` avec la part estimée de chaque jour — même
+ * répartition, même arrondi du total, mêmes jours.
+ */
+export function computeDailyViewDeltasWithEstimate(
+  snaps: SnapshotPoint[],
+): DailyPointWithEstimate[] {
+  const { exact, estimatedDays, estimatedByDay } = repartir(snaps, () => TOUT);
   const parJour = new Map<string, number>();
   for (const [cle, v] of exact) addTo(parJour, jourDe(cle), v);
   return [...roundPreservingTotal(parJour).entries()]
@@ -300,6 +326,7 @@ export function computeDailyViewDeltas(snaps: SnapshotPoint[]): DailyPoint[] {
       date,
       value,
       estimated: estimatedDays.has(date),
+      estimatedValue: Math.min(value, Math.round(estimatedByDay.get(date) ?? 0)),
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -325,7 +352,12 @@ function repartir(
   snaps: SnapshotPoint[],
   groupeDeLaPubli: (publicationId: string) => string,
 // i18n-exempt: générique TypeScript, pas du texte
-): { exact: Map<string, number>; estimatedDays: Set<string> } {
+): {
+  exact: Map<string, number>;
+  estimatedDays: Set<string>;
+  /** Vues (non arrondies) venues d'intervalles estimés, par jour. */
+  estimatedByDay: Map<string, number>;
+} {
   const byPub = new Map<string, SnapshotPoint[]>();
   for (const s of snaps) {
     const arr = byPub.get(s.publicationId);
@@ -335,6 +367,7 @@ function repartir(
 
   const exact = new Map<string, number>();
   const estimatedDays = new Set<string>();
+  const estimatedByDay = new Map<string, number>();
 
   for (const [publicationId, arr] of byPub) {
     const groupe = groupeDeLaPubli(publicationId);
@@ -364,17 +397,23 @@ function repartir(
           // instant du jour) — garde-fou : on solde l'intervalle plutôt que de
           // boucler à l'infini dans une query.
           addTo(exact, cleDe(key, groupe), (delta * (to - cursor)) / span);
-          if (isEstimated) estimatedDays.add(key);
+          if (isEstimated) {
+            estimatedDays.add(key);
+            addTo(estimatedByDay, key, (delta * (to - cursor)) / span);
+          }
           break;
         }
         addTo(exact, cleDe(key, groupe), (delta * (sliceEnd - cursor)) / span);
-        if (isEstimated) estimatedDays.add(key);
+        if (isEstimated) {
+          estimatedDays.add(key);
+          addTo(estimatedByDay, key, (delta * (sliceEnd - cursor)) / span);
+        }
         cursor = sliceEnd;
       }
     }
   }
 
-  return { exact, estimatedDays };
+  return { exact, estimatedDays, estimatedByDay };
 }
 
 export type DailyByGroup = {
