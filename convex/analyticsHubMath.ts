@@ -1386,8 +1386,34 @@ export function computePromoRpm(i: PromoRpmInput): PromoRpm {
 // l'outil MCP `fiabilite` lisent la MÊME liste : une rupture ajoutée apparaît
 // des deux côtés, jamais d'un seul.
 
-/** Au-delà de ce délai, une source est signalée périmée. */
-export const FRESHNESS_STALE_MS = 12 * 60 * 60 * 1000;
+const HEURE_MS = 60 * 60 * 1000;
+
+/**
+ * Au-delà de ce délai, une source est signalée périmée — selon SA cadence, pas
+ * un seuil commun. PostHog et Whop se synchronisent plusieurs fois par jour :
+ * 12 h sans nouvelle, c'est une panne. Les vues, elles, ne sont relevées QU'UNE
+ * fois par nuit (23 h 30 Paris, `nightly-views-sync` ; le relevé rapide des
+ * posts de moins de 36 h écrit ailleurs, pas dans `latestSnapshotAt`) : avec
+ * 12 h, la source passait « périmée » chaque jour de midi à 23 h 30 alors que
+ * tout allait bien (constaté le 30/09/2026). 30 h = une nuit sautée, signalée
+ * dès le lendemain matin.
+ */
+export const FRESHNESS_STALE_MS = {
+  posthog: 12 * HEURE_MS,
+  whop: 12 * HEURE_MS,
+  scraping: 30 * HEURE_MS,
+} as const satisfies Record<string, number>;
+
+/** Seuil d'une source inconnue : le plus strict. */
+const FRESHNESS_STALE_DEFAULT_MS = 12 * HEURE_MS;
+
+/** Seuil de péremption d'une source, en heures (pour le dire à l'écran). */
+export function freshnessStaleHours(source: string): number {
+  return (
+    ((FRESHNESS_STALE_MS as Record<string, number>)[source] ?? FRESHNESS_STALE_DEFAULT_MS) /
+    HEURE_MS
+  );
+}
 
 /** Libellé de chaque source de la carte « Fraîcheur des données ». */
 export const FRESHNESS_SOURCE_LABELS: Record<string, string> = {
@@ -1396,9 +1422,13 @@ export const FRESHNESS_SOURCE_LABELS: Record<string, string> = {
   scraping: "Vues (scraping)",
 };
 
-/** Une source sans synchro connue, ou trop ancienne, est périmée. */
-export function isFreshnessStale(lastSyncMs: number | null, now: number): boolean {
-  return lastSyncMs === null || now - lastSyncMs > FRESHNESS_STALE_MS;
+/** Une source sans synchro connue, ou trop ancienne POUR SA CADENCE, est périmée. */
+export function isFreshnessStale(
+  source: string,
+  lastSyncMs: number | null,
+  now: number,
+): boolean {
+  return lastSyncMs === null || now - lastSyncMs > freshnessStaleHours(source) * HEURE_MS;
 }
 
 /**

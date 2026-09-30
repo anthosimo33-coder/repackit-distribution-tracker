@@ -374,7 +374,7 @@ export function FiabiliteTab({
         <CardContent className="space-y-3 p-4">
           <HubCardHeader
             title="Fraîcheur des données"
-            subtitle="Chaque source avec sa dernière synchro. Une donnée périmée est signalée avant d'être lue (au-delà de 12 h)."
+            subtitle="Chaque source avec sa dernière synchro. Une donnée périmée est signalée avant d'être lue, au-delà du seuil de SA cadence : 12 h pour PostHog et Whop, 30 h pour les vues (un relevé par nuit, à 23 h 30)."
           />
           <Table className={HUB_TABLE_MOBILE}>
             <TableHeader>
@@ -386,7 +386,7 @@ export function FiabiliteTab({
             </TableHeader>
             <TableBody>
               {reliability.freshness.map((f) => {
-                const stale = isFreshnessStale(f.lastSyncMs, now);
+                const stale = isFreshnessStale(f.source, f.lastSyncMs, now);
                 return (
                   <TableRow key={f.source}>
                     <TableCell className="text-xs text-slate-600">

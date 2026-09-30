@@ -128,14 +128,17 @@ function isSecuredRevenue(status: WhopStatus): boolean {
  * sans passer par summarizeWhopRevenue : au-delà d'une devise, leurs sommes ne
  * sont pas additionnables. Les paiements non sécurisés valent 0 et ne comptent
  * donc pas — ce sont les mêmes lignes qui alimentent réellement les totaux.
+ * Avec un référentiel, une devise qu'il sait convertir compte comme SA devise :
+ * seule une devise sans taux déclenche encore la garde.
  */
 export function securedCurrenciesOf(
   payments: ReadonlyArray<{ status: WhopStatus; currency?: string }>,
+  ref?: WhopRevenueReference | null,
 ): string[] {
   const set = new Set<string>();
   for (const p of payments) {
     if (!isSecuredRevenue(p.status)) continue;
-    set.add(p.currency && p.currency !== "" ? p.currency : "(inconnue)");
+    set.add(expressedCurrency(p, ref));
   }
   return [...set].sort();
 }
@@ -284,6 +287,52 @@ export function whopNetInSummaryCurrency(
   const cur = p.currency?.trim().toLowerCase();
   const c = summary.conversions.find((x) => x.from === cur);
   return c ? Math.round(net * c.rate * 100) / 100 : net;
+}
+
+/**
+ * RÉFÉRENTIEL DE CHANGE d'un lot : sa devise d'affichage et les taux qui y
+ * ramènent les autres — c'est-à-dire le résumé (`summarizeWhopRevenue`) du lot.
+ *
+ * Les agrégats qui somment les paiements un par un (origine du revenu, offres,
+ * renouvellements) le reçoivent pour convertir COMME le résumé. Sans lui, ils
+ * zéroïsaient tout lot bi-devise que le résumé, lui, sait additionner : Snytch
+ * (EUR + USD + RSD) affichait 0 € de rétention pendant que Revenus et
+ * Rentabilité montraient le vrai net (constaté le 30/09/2026).
+ */
+export type WhopRevenueReference = Pick<WhopRevenueSummary, "currency" | "conversions">;
+
+function conversionOf(
+  p: { currency?: string },
+  ref: WhopRevenueReference | null | undefined,
+): WhopConversion | undefined {
+  const cur = p.currency?.trim().toLowerCase();
+  return ref?.conversions.find((x) => x.from === cur);
+}
+
+/** Devise dans laquelle le montant d'un paiement est EXPRIMÉ, conversion faite. */
+function expressedCurrency(
+  p: { currency?: string },
+  ref: WhopRevenueReference | null | undefined,
+): string {
+  if (ref?.currency && conversionOf(p, ref)) return ref.currency;
+  return p.currency && p.currency !== "" ? p.currency : "(inconnue)";
+}
+
+/** Net d'un paiement dans la devise du référentiel — sa propre devise sans référentiel. */
+function netExpressed(
+  p: WhopPaymentLike,
+  ref: WhopRevenueReference | null | undefined,
+): number {
+  return ref ? whopNetInSummaryCurrency(p, ref) : whopNetContribution(p);
+}
+
+/** Brut d'un paiement dans la devise du référentiel (converti s'il a un taux). */
+function grossExpressed(
+  p: WhopPaymentLike,
+  ref: WhopRevenueReference | null | undefined,
+): number {
+  const c = conversionOf(p, ref);
+  return c ? round2(finite(p.grossAmount) * c.rate) : finite(p.grossAmount);
 }
 
 /**
@@ -588,12 +637,13 @@ export interface RevenueByOrigin {
 export function splitRevenueByOrigin(
   payments: WhopRenewalPaymentLike[],
   dayKeyOf: (ms: number) => string,
+  ref?: WhopRevenueReference | null,
 ): RevenueByOrigin {
   const byDay = new Map<string, RevenueOriginDay>();
   const totals = { newNet: 0, renewalNet: 0, unknownNet: 0, newCount: 0, renewalCount: 0, unknownCount: 0 };
 
   for (const p of payments) {
-    const net = whopNetContribution(p);
+    const net = netExpressed(p, ref);
     if (net <= 0 && !isCustomerPaid(p.status)) continue;
     const day = dayKeyOf(p.paidAt);
     let d = byDay.get(day);
@@ -631,7 +681,7 @@ export function splitRevenueByOrigin(
   // GARDE A5 — cette fonction accumule whopNetContribution sans passer par
   // summarizeWhopRevenue : au-delà d'une devise encaissée, ses montants ne sont
   // pas additionnables. On zéroïse les MONTANTS et on garde les COMPTES.
-  const securedCurrencies = securedCurrenciesOf(payments);
+  const securedCurrencies = securedCurrenciesOf(payments, ref);
   const mixedCurrency = securedCurrencies.length > 1;
   if (mixedCurrency) {
     for (const d of days) {
@@ -677,14 +727,17 @@ export interface RenewalsByPlan {
 }
 
 /** Ventile les RENOUVELLEMENTS par offre Whop (le libellé est joint côté appelant). */
-export function renewalsByPlan(payments: WhopRenewalPaymentLike[]): RenewalsByPlan[] {
+export function renewalsByPlan(
+  payments: WhopRenewalPaymentLike[],
+  ref?: WhopRevenueReference | null,
+): RenewalsByPlan[] {
   // GARDE A5 — même famille que splitRevenueByOrigin : accumulation directe de
   // whopNetContribution, sans clé de devise.
-  const mixedCurrency = securedCurrenciesOf(payments).length > 1;
+  const mixedCurrency = securedCurrenciesOf(payments, ref).length > 1;
   const acc = new Map<string, { n: number; net: number; mem: Set<string> }>();
   for (const p of payments) {
     if (whopBillingOrigin(p.billingReason) !== "renewal") continue;
-    const net = whopNetContribution(p);
+    const net = netExpressed(p, ref);
     if (net <= 0 && !isCustomerPaid(p.status)) continue;
     const key = p.planId ?? "(offre inconnue)";
     let a = acc.get(key);
@@ -834,9 +887,11 @@ export interface RenewalStats {
    */
   atRiskOnlyMembers: number;
   /**
-   * Devises DISTINCTES parmi les paiements sécurisés. > 1 = les montants ne sont
-   * PAS additionnables (règle A5) et tout ratio est faux : l'UI doit refuser de
-   * diviser plutôt que de rendre une somme de devises mélangées.
+   * Devises DISTINCTES dans lesquelles les paiements sécurisés sont EXPRIMÉS —
+   * après conversion au taux du projet quand un référentiel est fourni (une
+   * devise convertie compte comme la devise cible). > 1 = une devise SANS taux :
+   * les montants ne sont PAS additionnables (règle A5) et tout ratio est faux,
+   * l'UI doit refuser de diviser plutôt que de rendre une somme mélangée.
    */
   securedCurrencies: string[];
   /**
@@ -877,7 +932,12 @@ export interface RenewalStats {
 export function computeRenewalStats(
   payments: WhopRenewalPaymentLike[],
   memberships: WhopMembershipLike[],
-  opts: { now: number; weekKeyOf: (ms: number) => string },
+  opts: {
+    now: number;
+    weekKeyOf: (ms: number) => string;
+    /** Référentiel de change : montants convertis comme le résumé du lot. */
+    ref?: WhopRevenueReference | null;
+  },
 ): RenewalStats {
   const cyclesByMember = new Map<string, number>();
   const netByMember = new Map<string, number>();
@@ -913,11 +973,11 @@ export function computeRenewalStats(
         m.set(p.membershipId, (m.get(p.membershipId) ?? 0) + 1);
       }
       if (!dead) {
-        pendingRenewalAmount = round2(pendingRenewalAmount + finite(p.grossAmount));
+        pendingRenewalAmount = round2(pendingRenewalAmount + grossExpressed(p, opts.ref));
         if (p.planId) {
           pendingAmountByPlan.set(
             p.planId,
-            round2((pendingAmountByPlan.get(p.planId) ?? 0) + finite(p.grossAmount)),
+            round2((pendingAmountByPlan.get(p.planId) ?? 0) + grossExpressed(p, opts.ref)),
           );
         }
       }
@@ -933,16 +993,14 @@ export function computeRenewalStats(
     }
     if (!isCustomerPaid(p.status)) continue;
     paidPayments += 1;
-    const net = whopNetContribution(p);
+    const net = netExpressed(p, opts.ref);
     netTotal = round2(netTotal + net);
     const id = p.membershipId;
     if (!id) continue;
     cyclesByMember.set(id, (cyclesByMember.get(id) ?? 0) + 1);
     if (net > 0) {
       securedByMember.add(id);
-      securedCurrencySet.add(
-        p.currency && p.currency !== "" ? p.currency : "(inconnue)",
-      );
+      securedCurrencySet.add(expressedCurrency(p, opts.ref));
     }
     // Litige en cours : le client a payé (donc un cycle) mais l'argent est à
     // risque et vaut 0 au net. C'est ce décalage qui rend une cohorte illisible

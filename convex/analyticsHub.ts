@@ -38,6 +38,7 @@ import {
   renewalsByPlan,
   computeRenewalStats,
   whopBillingOrigin,
+  type WhopConversion,
 } from "./whopRevenue";
 import {
   POSTHOG_CACHE_KEYS,
@@ -1675,6 +1676,7 @@ export async function getChurnCore(
         memberships: [] as MembershipEntry[],
         planLabels: [] as { planId: string; name: string | null }[],
         renewals: null as RenewalsPayload | null,
+        conversions: [] as WhopConversion[],
         cohortFrom: null as string | null,
         cohortTo: null as string | null,
         cohortSize: null as number | null,
@@ -1770,7 +1772,10 @@ export async function getChurnCore(
     // Même base que le churn : paiements et abonnements NON internes. Le jour est
     // bucketisé Europe/Paris, comme le reste du hub, pour que la courbe coïncide
     // au jour près avec « Détail par jour ».
-    const origin = splitRevenueByOrigin(nonInternalPayments, parisDay);
+    // Montants convertis au taux du projet, COMME le résumé : `summary` est le
+    // référentiel de change du lot. Sans lui, un projet bi-devise lisait 0 €
+    // partout ici pendant que Revenus et Rentabilité montraient le vrai net.
+    const origin = splitRevenueByOrigin(nonInternalPayments, parisDay, summary);
     const stats = computeRenewalStats(
       nonInternalPayments,
       members
@@ -1784,7 +1789,7 @@ export async function getChurnCore(
           planId: m.planId,
           accessEndsAt: m.accessEndsAt,
         })),
-      { now: Date.now(), weekKeyOf: parisWeek },
+      { now: Date.now(), weekKeyOf: parisWeek, ref: summary },
     );
     const renewals: RenewalsPayload = {
       days: origin.days,
@@ -1795,7 +1800,7 @@ export async function getChurnCore(
       renewalCount: origin.renewalCount,
       renewalShare: origin.renewalShare,
       unknownPayments: origin.unknownPayments,
-      byPlan: renewalsByPlan(nonInternalPayments),
+      byPlan: renewalsByPlan(nonInternalPayments, summary),
       ...stats,
     };
 
@@ -1809,6 +1814,8 @@ export async function getChurnCore(
       memberships,
       planLabels: plans.map((pl) => ({ planId: pl.planId, name: pl.name ?? null })),
       renewals,
+      /** Devises ramenées à `currency` au taux du projet — l'écran DOIT le dire. */
+      conversions: summary.conversions,
       /**
        * La cohorte réellement appliquée. L'écran DOIT pouvoir dire de qui il
        * parle : « 40 clients » sans préciser lesquels se lit comme un total.
