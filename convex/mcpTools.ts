@@ -144,6 +144,7 @@ import {
   posthogOutageDays,
   whopWithoutAppAccess,
   FRESHNESS_SOURCE_LABELS,
+  freshnessStaleHours,
   isFreshnessStale,
   NOT_MEASURABLE,
   SERIES_BREAKS,
@@ -1000,7 +1001,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "fiabilite",
     title: "Fiabilité des données (Analytics)",
     description:
-      "L'onglet Fiabilité de l'Analytics, par les mêmes contrôles : les contrôles de cohérence (tunnel monotone, clients PostHog vs Whop, recoupement par jour, montant dû…) avec leur état (ok, info, écart) et leur détail ; l'état de chaque événement du contrat d'instrumentation (personnes, première émission, sain / à surveiller / absent) et des propriétés sondées ; les comptes internes exclus ; les abonnements par personne ; ce qui n'est pas mesurable (dont les assignations sans date de post) ; les ruptures de série datées ; la fraîcheur de chaque source (périmée au-delà de 12 h). À lire avant de se fier à un chiffre du hub.",
+      "L'onglet Fiabilité de l'Analytics, par les mêmes contrôles : les contrôles de cohérence (tunnel monotone, clients PostHog vs Whop, recoupement par jour, montant dû…) avec leur état (ok, info, écart) et leur détail ; l'état de chaque événement du contrat d'instrumentation (personnes, première émission, sain / à surveiller / absent) et des propriétés sondées ; les comptes internes exclus ; les abonnements par personne ; ce qui n'est pas mesurable (dont les assignations sans date de post) ; les ruptures de série datées ; la fraîcheur de chaque source (périmée au-delà de son seuil : 12 h pour PostHog et Whop, 30 h pour les vues relevées une fois par nuit). À lire avant de se fier à un chiffre du hub.",
     inputSchema: {
       type: "object",
       properties: { projet: ARG_PROJET },
@@ -1956,6 +1957,22 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "Coût d'acquisition en devise de paie sans taux de change réglé : aucun ratio revenu/coût (null), jamais deux monnaies divisées l'une par l'autre.",
           );
         }
+        // A5 — une devise SANS taux : le calcul rend 0 par abstention. Un 0 servi
+        // tel quel se lit « aucun revenu » ; on sert null et on dit pourquoi.
+        const devisesMelangees = rn !== null && rn.securedCurrencies.length > 1;
+        const argent = <T,>(n: T): T | null => (devisesMelangees ? null : n);
+        if (devisesMelangees) {
+          avertissements.push(
+            `Revenus encaissés dans plusieurs devises NON convertibles (${rn.securedCurrencies.join(", ")}) : aucun taux de change réglé pour au moins l'une d'elles. Tous les montants valent null (jamais une somme de devises mélangées) ; comptes et taux restent justes.`,
+          );
+        }
+        if (churn.conversions.length > 0) {
+          avertissements.push(
+            `Une partie du revenu a été convertie au taux du projet (${churn.conversions
+              .map((c) => `${c.from} × ${c.rate}`)
+              .join(", ")}) : un taux posé à la main n'est pas une comptabilité.`,
+          );
+        }
         return json({
           projet: projet.slug,
           devise: churn.currency,
@@ -1998,15 +2015,15 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                   concluant,
                   tauxResoluPct: pctFraction(rn.renewalRateResolved),
                   tauxBorneBassePct: pctFraction(rn.renewalRateWorstCase),
-                  montantEnAttente: rn.pendingRenewalAmount,
+                  montantEnAttente: argent(rn.pendingRenewalAmount),
                   causesEchec: rn.failureCauses,
                   cyclesMoyens: rn.averageCycles,
                   cyclesParClient: rn.cycleDistribution,
                 },
                 revenu: {
-                  nouveau: rn.newNet,
-                  renouvellement: rn.renewalNet,
-                  origineInconnue: rn.unknownNet,
+                  nouveau: argent(rn.newNet),
+                  renouvellement: argent(rn.renewalNet),
+                  origineInconnue: argent(rn.unknownNet),
                   paiementsOrigineInconnue: rn.unknownPayments,
                   partRenouvellementPct: pctFraction(rn.renewalShare),
                 },
@@ -2028,8 +2045,8 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                   semaine: c.week,
                   clients: c.clients,
                   cycles: c.cycles,
-                  net: c.net,
-                  netParClient: c.netPerClient,
+                  net: argent(c.net),
+                  netParClient: argent(c.netPerClient),
                   ...(c.cyclesWithoutNet > 0 ? { cyclesSansNet: c.cyclesWithoutNet } : {}),
                   ...(c.clients < COHORT_MIN_CLIENTS ? { anecdotique: true } : {}),
                 })),
@@ -2042,7 +2059,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                   tauxResoluPct: pctFraction(o.rateResolved),
                   tauxBorneBassePct: pctFraction(o.rateWorstCase),
                   ...(o.topFailureCause ? { causePrincipaleEchec: o.topFailureCause } : {}),
-                  montantEnAttente: o.pendingAmount,
+                  montantEnAttente: argent(o.pendingAmount),
                 })),
               }
             : {}),
@@ -2667,11 +2684,12 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           fraicheur: r.freshness.map((f) => ({
             source: FRESHNESS_SOURCE_LABELS[f.source] ?? f.source,
             derniereSynchro: instantParis(f.lastSyncMs),
-            etat: isFreshnessStale(f.lastSyncMs, maintenant) ? "périmé" : "frais",
+            etat: isFreshnessStale(f.source, f.lastSyncMs, maintenant) ? "périmé" : "frais",
+            perimeeAuDelaDeHeures: freshnessStaleHours(f.source),
           })),
           lecture: [
             "Les contrôles de cohérence de l'onglet Fiabilité, composés par le même module que l'écran. Un « écart » suspend à l'écran les chiffres qui en dépendent.",
-            "Une source est « périmée » sans synchro depuis plus de 12 h. Lire les ruptures de série avant de comparer deux périodes qui les traversent.",
+            "Une source est « périmée » sans synchro depuis plus que SON seuil (perimeeAuDelaDeHeures) : 12 h pour PostHog et Whop, synchronisés plusieurs fois par jour ; 30 h pour les vues, relevées une seule fois par nuit à 23 h 30. Lire les ruptures de série avant de comparer deux périodes qui les traversent.",
             "Abonnements par personne : une personne peut avoir plusieurs abonnements Whop ; les identifiants ne sont pas donnés ici (voir l'écran).",
           ],
         });

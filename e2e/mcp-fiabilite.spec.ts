@@ -46,7 +46,7 @@ type Fiabilite = {
   } | null;
   nonMesurable: { quoi: string; pourquoi: string }[];
   rupturesDeSerie: { depuis: string }[];
-  fraicheur: { source: string; derniereSynchro: string | null; etat: string }[];
+  fraicheur: { source: string; derniereSynchro: string | null; etat: string; perimeeAuDelaDeHeures: number }[];
 };
 
 /**
@@ -215,6 +215,8 @@ test.describe("Outil MCP fiabilite", () => {
         ["Vues (scraping)", "périmé"],
       ]);
       expect(f.fraicheur[2].derniereSynchro).toBeNull();
+      // Un seuil par cadence : les vues ne sont relevées qu'une fois par nuit.
+      expect(f.fraicheur.map((x) => x.perimeeAuDelaDeHeures)).toEqual([12, 12, 30]);
       expect(f.nonMesurable[0]).toEqual({ quoi: "Assignations sans date de post", pourquoi: "aucune assignation" });
       expect(f.nonMesurable.map((x) => x.quoi)).toContain("Latence de recherche");
       expect(f.rupturesDeSerie.map((r) => r.depuis)).toContain("17/08/2026");

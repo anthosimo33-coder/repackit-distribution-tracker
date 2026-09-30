@@ -31,8 +31,13 @@ type Retention = {
     resiliations_detail: { offre: string; delaiHeures: number | null }[];
   };
   perteAVenir: { dansLesJours: number; clients: number; clientsPayantsApres: number; liste: { finAcces: string }[] };
-  revenu?: { nouveau: number; renouvellement: number; partRenouvellementPct: number | null };
-  parClient?: { coutAcquisition: { valeur: number; devise: string } | null };
+  revenu?: { nouveau: number | null; renouvellement: number | null; partRenouvellementPct: number | null };
+  parClient?: {
+    coutAcquisition: { valeur: number; devise: string } | null;
+    revenuACeJour?: number | null;
+  };
+  cohortesParSemaine?: { net: number | null }[];
+  avertissements?: string[];
 };
 
 async function outil(url: string, token: string, args: Record<string, unknown>): Promise<Retention> {
@@ -210,6 +215,127 @@ test.describe("Outil MCP retention", () => {
       expect(cohorte.cohorte).toEqual({ du, au, clientsAcquis: 2 }); // C et D
       expect(cohorte.clientsPayants).toBe(2);
       expect(cohorte.sur90Jours).toMatchObject({ resiliations: 1, expirations: 0, tauxResiliationPct: 50 });
+    } finally {
+      await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
+    }
+  });
+  /**
+   * MULTI-DEVISE — Snytch encaisse en euros ET en dollars (et en dinars). Le
+   * résumé convertit au taux du projet depuis le 06/09, mais la rétention
+   * zéroïsait encore tout : l'outil rendait « nouveau: 0 », un zéro qui se lit
+   * « aucun revenu » (constaté le 30/09/2026). Deux temps :
+   *  1. une devise AVEC taux (USD × 0,86) → montants convertis, et dits tels ;
+   *  2. une devise SANS taux (GBP) → null, jamais 0, et l'avertissement dit pourquoi.
+   */
+  test("devises : converties au taux du projet, null quand l'une n'a pas de taux", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const slug = `e2e-mcp-retention-fx-${ts}`;
+    const nom = `E2E MCP Retention FX ${ts}`;
+    const { projectId } = (await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+      secret: E2E_SECRET,
+      slug,
+      name: nom,
+    })) as { projectId: Id<"projects"> };
+
+    try {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        whop: { companyId: `biz_e2e_retfx_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+      });
+      await admin.mutation(api.projects.e2eSetProjectCurrency, {
+        secret: E2E_SECRET,
+        projectId,
+        payCurrency: "usd",
+        fxRateToRevenue: 0.86,
+      });
+      const maintenant = Date.now();
+      const mem = (m: string) => `mem_e2e_retfx_${ts}_${m}`;
+      const paiement = (
+        n: string,
+        m: string,
+        jours: number,
+        currency: string,
+        gross: number,
+        net: number,
+        raison: string,
+      ) => ({
+        whopId: `pay_e2e_retfx_${ts}_${n}`,
+        status: "paid" as const,
+        rawStatus: "paid",
+        currency,
+        grossAmount: gross,
+        feeAmount: Math.round((gross - net) * 100) / 100,
+        netAmount: net,
+        refundedAmount: 0,
+        paidAt: maintenant - jours,
+        planId: `plan_${currency}`,
+        membershipId: mem(m),
+        billingReason: raison,
+      });
+      // Grilles réelles : 4,99 €/sem et 5,99 $/sem, nets Whop après frais.
+      await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
+        secret: E2E_SECRET,
+        projectId,
+        payments: [
+          paiement("e1", "E", 10 * DAY, "eur", 4.99, 4.52, "subscription_create"),
+          paiement("u1", "U", 9 * DAY, "usd", 5.99, 5.51, "subscription_create"),
+          paiement("u2", "U", 2 * DAY, "usd", 5.99, 5.51, "subscription_cycle"),
+        ],
+      });
+      for (const m of ["E", "U"]) {
+        await admin.mutation(api.whopSync.e2eSeedWhopMembership, {
+          secret: E2E_SECRET,
+          projectId,
+          whopMembershipId: mem(m),
+          planId: m === "E" ? "plan_eur" : "plan_usd",
+          accessEndsAt: maintenant + 5 * DAY,
+          valid: true,
+        });
+      }
+
+      await page.goto(adminPath("/comptes"));
+      await page.getByRole("button", { name: "Connecter Claude" }).click();
+      await page.getByLabel("Nom de la clé").fill(`E2E retention fx ${ts}`);
+      await page.getByRole("button", { name: "Créer une clé" }).click();
+      const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+      const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!
+        .match(/jarvia (\S+\/mcp) /)![1];
+
+      // ── 1. USD convertible : 5,51 $ × 0,86 = 4,74 € par paiement ───────────
+      const converti = await outil(url, token, { projet: slug });
+      expect(converti.devise).toBe("eur");
+      expect(converti.revenu).toMatchObject({
+        nouveau: 9.26, // 4,52 € + 4,74 €
+        renouvellement: 4.74,
+      });
+      expect(converti.parClient?.revenuACeJour).toBe(7); // (4,52 + 4,74 + 4,74) ÷ 2 clients
+      expect(converti.cohortesParSemaine?.every((c) => c.net !== null && c.net > 0)).toBe(true);
+      expect(converti.avertissements ?? []).toContainEqual(
+        expect.stringContaining("convertie au taux du projet (usd × 0.86)"),
+      );
+      // L'écran dit la même chose : montants ramenés en euros, au taux affiché.
+      await page.goto(`/admin/${slug}/analytics`);
+      await page.getByRole("tab", { name: /rétention/i }).click();
+      await expect(page.getByText(/1 USD = 0\.86 EUR/)).toBeVisible();
+
+      // ── 2. GBP sans taux : abstention DITE, jamais un zéro ─────────────────
+      await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
+        secret: E2E_SECRET,
+        projectId,
+        payments: [paiement("g1", "G", 3 * DAY, "gbp", 4.49, 4.05, "subscription_create")],
+      });
+      const melange = await outil(url, token, { projet: slug });
+      expect(melange.revenu).toMatchObject({ nouveau: null, renouvellement: null });
+      expect(melange.parClient?.revenuACeJour).toBeNull();
+      expect(melange.cohortesParSemaine?.every((c) => c.net === null)).toBe(true);
+      expect(melange.avertissements ?? []).toContainEqual(expect.stringContaining("NON convertibles"));
+      // L'écran le dit aussi — et ne parle plus de conversion.
+      await page.reload();
+      await page.getByRole("tab", { name: /rétention/i }).click();
+      await expect(page.getByText(/ne sont pas additionnables/)).toBeVisible();
+      await expect(page.getByText(/1 USD = 0\.86 EUR/)).toHaveCount(0);
     } finally {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }

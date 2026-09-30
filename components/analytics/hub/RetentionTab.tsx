@@ -41,6 +41,7 @@ import {
 } from "@/convex/churn";
 import { EXPLAIN } from "./explanations";
 import { UsersIcon } from "lucide-react";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import type { ChurnData, AttributionData } from "./types";
 
 /**
@@ -225,8 +226,22 @@ export function RetentionTab({
     );
   }
 
+  const devisesMelangees = (renewals?.securedCurrencies.length ?? 0) > 1;
   return (
     <div className="space-y-6">
+      {/* A5 — les montants de l'onglet sont convertis au taux du projet (le dire),
+          ou zéroïsés par abstention quand une devise n'a pas de taux (le dire
+          plus fort : ce 0 n'est pas un montant). */}
+      <MixedCurrencyNotice
+        mixed={devisesMelangees}
+        conversions={churn.conversions}
+        currency={churn.currency}
+        currencies={
+          devisesMelangees
+            ? renewals?.securedCurrencies
+            : [churn.currency ?? "", ...churn.conversions.map((c) => c.from)].filter(Boolean)
+        }
+      />
       {/* De QUI parle cet onglet. « 40 clients » sans dire lesquels se lit comme
           un total — et la rétention d'une cohorte jeune n'a rien à voir avec
           celle de toute la base. */}

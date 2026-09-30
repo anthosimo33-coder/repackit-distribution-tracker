@@ -4,6 +4,7 @@ import {
   splitRevenueByOrigin,
   renewalsByPlan,
   computeRenewalStats,
+  summarizeWhopRevenue,
   type WhopRenewalPaymentLike,
   type WhopMembershipLike,
 } from "./whop-revenue";
@@ -511,5 +512,98 @@ describe("garde A5 — agrégats de rétention en multi-devise", () => {
     expect(srv.splitRevenueByOrigin([eur, usd], JOUR).renewalNet).toBe(0);
     expect(srv.splitRevenueByOrigin([eur], JOUR).renewalNet).toBe(7.35);
     expect(srv.renewalsByPlan([eur, usd]).every((p) => p.renewalNet === 0)).toBe(true);
+  });
+});
+
+// ─── Multi-devise CONVERTIBLE : le taux du projet, pas l'abstention ──────────
+// Le résumé (summarizeWhopRevenue) convertit au taux du projet depuis le 06/09 ;
+// ces trois agrégats, eux, zéroïsaient encore tout lot bi-devise. Snytch encaisse
+// en EUR, USD et RSD : l'onglet Rétention et l'outil MCP `retention` rendaient
+// 0 € de revenu, de cohorte et de revenu par client (constaté le 30/09/2026),
+// alors que Revenus et Rentabilité affichaient 1 531,65 € sur la même semaine.
+// Le RÉFÉRENTIEL est le résumé du lot : il sait vers quoi convertir et à quel taux.
+describe("multi-devise convertible — les agrégats de rétention suivent le taux du projet", () => {
+  const NOW = Date.UTC(2026, 7, 10);
+  const FX = [
+    { from: "usd", rate: 0.86 },
+    { from: "rsd", rate: 0.00852 },
+  ];
+  // Grilles réelles : 4,99 €/sem, 5,99 $/sem, 599 RSD/sem (nets Whop après frais).
+  const eurNew = pay({ membershipId: "m1", planId: "plan_eur", billingReason: "subscription_create", paidAt: J1, grossAmount: 4.99, netAmount: 4.52 });
+  const eurCycle = pay({ membershipId: "m1", planId: "plan_eur", billingReason: "subscription_cycle", paidAt: J2, grossAmount: 4.99, netAmount: 4.52 });
+  const usdCycle = pay({ membershipId: "m2", planId: "plan_usd", billingReason: "subscription_cycle", paidAt: J2, currency: "usd", grossAmount: 5.99, netAmount: 5.51 });
+  const rsdNew = pay({ membershipId: "m3", planId: "plan_rsd", billingReason: "subscription_create", paidAt: J3, currency: "rsd", grossAmount: 599, netAmount: 550.08 });
+  // Renouvellement en dollars relancé par Whop : 5,99 $ bruts en suspens.
+  const usdPending = pay({ membershipId: "m2", planId: "plan_usd", billingReason: "subscription_cycle", paidAt: J3, currency: "usd", status: "failed", retryable: true, grossAmount: 5.99, netAmount: 0 });
+  const lot = [eurNew, eurCycle, usdCycle, rsdNew, usdPending];
+  const ref = summarizeWhopRevenue(lot, FX);
+  const mems: WhopMembershipLike[] = ["m1", "m2", "m3"].map((id) => ({
+    whopMembershipId: id,
+    accessEndsAt: NOW + 86_400_000,
+  }));
+
+  it("le référentiel du lot convertit bien vers l'euro (prémisse)", () => {
+    expect(ref.mixedCurrency).toBe(false);
+    expect(ref.currency).toBe("eur");
+  });
+
+  it("splitRevenueByOrigin : 5,51 $ → 4,74 € et 550,08 RSD → 4,69 €, jamais 0", () => {
+    const r = splitRevenueByOrigin(lot, JOUR, ref);
+    expect(r.mixedCurrency).toBe(false);
+    expect(r.securedCurrencies).toEqual(["eur"]);
+    expect(r.newNet).toBe(9.21); // 4,52 € + 4,69 €
+    expect(r.renewalNet).toBe(9.26); // 4,52 € + 4,74 €
+    expect(r.renewalShare).toBe(0.5014);
+    const j2 = r.days.find((d) => d.day === JOUR(J2));
+    expect(j2?.renewalNet).toBe(9.26);
+    expect(r.days.at(-1)?.cumulativeNewNet).toBe(9.21);
+  });
+
+  it("renewalsByPlan : le net par offre est converti", () => {
+    const r = renewalsByPlan(lot, ref);
+    expect(r.map((p) => [p.planId, p.renewalNet])).toEqual([
+      ["plan_usd", 4.74],
+      ["plan_eur", 4.52],
+    ]);
+  });
+
+  it("computeRenewalStats : revenu, cohortes et montant en suspens convertis", () => {
+    const s = computeRenewalStats(lot, mems, { now: NOW, weekKeyOf: SEM, ref });
+    expect(s.securedCurrencies).toEqual(["eur"]);
+    expect(s.netTotal).toBe(18.47);
+    expect(s.securedMembers).toBe(3);
+    expect(s.revenueToDatePerClient).toBe(6.16);
+    expect(s.pendingRenewalAmount).toBe(5.15); // 5,99 $ × 0,86
+    expect(s.byPlanOutcome.find((o) => o.planId === "plan_usd")?.pendingAmount).toBe(5.15);
+    expect(s.cohorts.map((c) => [c.week, c.clients, c.net])).toEqual([
+      [SEM(J1), 2, 13.78], // m1 (4,52 + 4,52) + m2 (4,74)
+      [SEM(J3), 1, 4.69],
+    ]);
+    expect(s.projectedPerClientWorstCase).not.toBeNull();
+  });
+
+  it("une devise SANS taux reste une abstention : montants à 0, devises exposées", () => {
+    const gbp = pay({ membershipId: "m4", planId: "plan_gbp", billingReason: "subscription_cycle", paidAt: J3, currency: "gbp", grossAmount: 4.49, netAmount: 4.05 });
+    const lotGbp = [eurNew, eurCycle, usdCycle, gbp];
+    const refGbp = summarizeWhopRevenue(lotGbp, FX);
+    expect(refGbp.mixedCurrency).toBe(true);
+    const r = splitRevenueByOrigin(lotGbp, JOUR, refGbp);
+    expect(r.mixedCurrency).toBe(true);
+    expect(r.renewalNet).toBe(0);
+    const s = computeRenewalStats(lotGbp, mems, { now: NOW, weekKeyOf: SEM, ref: refGbp });
+    expect(s.securedCurrencies).toEqual(["eur", "gbp", "usd"]);
+    expect(s.netTotal).toBe(0);
+    expect(s.revenueToDatePerClient).toBeNull();
+  });
+
+  it("PARITÉ A6 — la réplique convex/ convertit à l'identique", () => {
+    const srvRef = srv.summarizeWhopRevenue(lot, FX);
+    expect(srvRef).toEqual(ref);
+    expect(srv.splitRevenueByOrigin(lot, JOUR, srvRef)).toEqual(splitRevenueByOrigin(lot, JOUR, ref));
+    expect(srv.renewalsByPlan(lot, srvRef)).toEqual(renewalsByPlan(lot, ref));
+    const o = { now: NOW, weekKeyOf: SEM };
+    expect(srv.computeRenewalStats(lot, mems, { ...o, ref: srvRef })).toEqual(
+      computeRenewalStats(lot, mems, { ...o, ref }),
+    );
   });
 });
