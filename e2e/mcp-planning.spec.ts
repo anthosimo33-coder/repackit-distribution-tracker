@@ -28,7 +28,24 @@ type Planning = {
   sansDateDePublication: { total: number; aFaire: number };
 };
 
+type Ponctualite = {
+  periode: string | { du: string; au: string };
+  createatrices: {
+    createatrice: string;
+    tauxALHeurePct: number | null;
+    aLHeure: number;
+    enRetard: number;
+    manques: number;
+    aVenir: number;
+    postsPasses: number;
+  }[];
+};
+
 async function outil(url: string, token: string, args: Record<string, unknown>): Promise<Planning> {
+  return appel<Planning>(url, token, "planning", args);
+}
+
+async function appel<T>(url: string, token: string, name: string, args: Record<string, unknown>): Promise<T> {
   const r = await fetch(url, {
     method: "POST",
     headers: {
@@ -40,12 +57,12 @@ async function outil(url: string, token: string, args: Record<string, unknown>):
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "planning", arguments: args },
+      params: { name, arguments: args },
     }),
   });
   const result = ((await r.json()) as { result: { content: { text: string }[]; isError?: boolean } }).result;
   expect(result.isError ?? false, result.content[0].text).toBe(false);
-  return JSON.parse(result.content[0].text) as Planning;
+  return JSON.parse(result.content[0].text) as T;
 }
 
 const jourParis = (ts: number) =>
@@ -182,6 +199,80 @@ test.describe("Outil MCP planning", () => {
       // ── Un horizon plus long ramène J+12 ───────────────────────────────────
       const loinR = await outil(url, token, { projet: slug, jours: 14 });
       expect(loinR.aVenir.posts.map((p) => p.jourPrevu)).toEqual([shiftDay(aujourdhui, 3), shiftDay(aujourdhui, 12)]);
+
+      // ── Outil ponctualite : tout l'historique, puis UNE période ────────────
+      const nomCamille = `[E2E_TEST] Camille Dubois ${ts}`;
+      const tout = await appel<Ponctualite>(url, token, "ponctualite", { projet: slug });
+      expect(tout.periode).toBe("tout l'historique");
+      expect(tout.createatrices.find((c) => c.createatrice === nomCamille)).toMatchObject({
+        aLHeure: 1,
+        enRetard: 1, // hors date (prévu J−6, sorti J−4)
+        manques: 1,
+        aVenir: 3, // aujourd'hui, J+3, J+12
+        postsPasses: 3,
+        tauxALHeurePct: 33,
+      });
+      // Du J−5 au J−3 : le « à l'heure » (J−5) et le manqué (J−3) — le hors date,
+      // PRÉVU le J−6, n'en est pas, même s'il est sorti le J−4.
+      const semaine = await appel<Ponctualite>(url, token, "ponctualite", {
+        projet: slug,
+        du: shiftDay(aujourdhui, -5),
+        au: shiftDay(aujourdhui, -3),
+      });
+      expect(semaine.periode).toMatchObject({ du: shiftDay(aujourdhui, -5), au: shiftDay(aujourdhui, -3) });
+      expect(semaine.createatrices.find((c) => c.createatrice === nomCamille)).toMatchObject({
+        aLHeure: 1,
+        enRetard: 0,
+        manques: 1,
+        aVenir: 0,
+        postsPasses: 2,
+        tauxALHeurePct: 50,
+      });
+
+      // ── Une créatrice SUPPRIMÉE garde son nom (figé sur ses assignations) ──
+      const nomLea = `[E2E_TEST] Léa Martin ${ts}`;
+      const emailLea = `e2e-mcp-planning-lea-${ts}@repackit.test`;
+      const { creatorId: lea, token: inviteLea } = await admin.mutation(api.creators.inviteCreator, {
+        projectId,
+        name: nomLea,
+        email: emailLea,
+      });
+      await new ConvexHttpClient(convexUrl!).action(api.auth.signIn, {
+        provider: "password",
+        params: { email: emailLea, password: `planning-lea-${ts}-12345`, flow: "signUp", inviteToken: inviteLea },
+      });
+      const handleLea = `@lea.martin_${ts}`;
+      const cibleLea = await availableTarget({ e2eClient: admin, creatorId: lea, platform: "TikTok", handle: handleLea });
+      await admin.mutation(api.assignments.assignFormat, {
+        projectId,
+        formatId,
+        creatorId: lea,
+        targets: [cibleLea],
+        postsPerCreator: 1,
+        dueDate: ts + 30 * DAY,
+        pricingId,
+      });
+      const [postLea] = (await admin.query(api.assignments.listAssignments, { projectId })).filter(
+        (a) => a.creatorId === lea,
+      );
+      await admin.mutation(api.assignments.setAssignmentPostDate, { projectId, id: postLea._id, postDate: prevu(-2) });
+      await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
+        projectId,
+        id: postLea._id,
+        urls: [{ platform: "TikTok", url: `https://www.tiktok.com/${handleLea}/video/77${ts}1` }],
+        publishedAt: midi(-2),
+        allowBackdate: true,
+      });
+      // PRÉSENCE d'abord : vivante, elle porte son nom tel quel.
+      const avant = await appel<Ponctualite>(url, token, "ponctualite", { projet: slug });
+      expect(avant.createatrices.map((c) => c.createatrice)).toContain(nomLea);
+      await admin.mutation(api.creators.deleteCreator, { projectId, id: lea });
+      const apres = await appel<Ponctualite>(url, token, "ponctualite", { projet: slug });
+      expect(apres.createatrices.find((c) => c.createatrice === `${nomLea} (supprimée)`)).toMatchObject({
+        aLHeure: 1,
+        postsPasses: 1,
+      });
+      expect(apres.createatrices.map((c) => c.createatrice)).not.toContain("—");
     } finally {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }

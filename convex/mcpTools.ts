@@ -202,6 +202,7 @@ import {
   type McpTool,
 } from "./mcpProtocol";
 import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
+import { marcheInactif, offresVendues, postsEssentiels } from "./mcpFormat";
 
 const jour = (ts: number | null | undefined): string | null =>
   typeof ts === "number" && ts > 0 ? parisDayKey(ts) : null;
@@ -293,9 +294,16 @@ export const lireCreatrices = mcpPermissionQuery("creators.read")({
 
 /** Taux à l'heure par créatrice — même source que l'écran et les notifications. */
 export const lirePonctualite = mcpPermissionQuery("content.analytics")({
-  args: {},
-  handler: async (ctx) =>
-    (await creatorPublicationStats(ctx, ctx.projectId, Date.now())).map((s) => ({
+  args: { du: v.optional(v.string()), au: v.optional(v.string()) },
+  handler: async (ctx, args) =>
+    (
+      await creatorPublicationStats(
+        ctx,
+        ctx.projectId,
+        Date.now(),
+        args.du !== undefined && args.au !== undefined ? { du: args.du, au: args.au } : undefined,
+      )
+    ).map((s) => ({
       createatrice: s.creatorName,
       tauxALHeurePct: s.tally.rate === null ? null : Math.round(s.tally.rate * 100),
       aLHeure: s.tally.onTime,
@@ -733,10 +741,15 @@ export const OUTILS: readonly McpTool[] = [
     name: "ponctualite",
     title: "Ponctualité des publications",
     description:
-      "Taux de publication à l'heure par créatrice, sur tout l'historique du projet (même calcul que le calendrier et les notifications, dans le fuseau de chaque créatrice) : à l'heure, en retard, manqués, à venir. Trié du taux le plus bas au plus haut — pour répondre à « qui est en retard ».",
+      "Taux de publication à l'heure par créatrice (même calcul que le calendrier et les notifications, dans le fuseau de chaque créatrice) : à l'heure, en retard, manqués, à venir. Par défaut sur tout l'historique du projet, comme l'écran ; avec `du`/`au`, seulement les posts PRÉVUS ces jours-là (« qui était en retard cette semaine »). Une créatrice supprimée garde le nom figé sur ses assignations, suffixé « (supprimée) ». Trié du taux le plus bas au plus haut — pour répondre à « qui est en retard ».",
     inputSchema: {
       type: "object",
-      properties: { projet: ARG_PROJET, createatrice: ARG_CREATRICE },
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: ARG_CREATRICE,
+        du: { type: "string", description: "Posts prévus à partir de ce jour, AAAA-MM-JJ (Paris). Avec « au »." },
+        au: { type: "string", description: "Posts prévus jusqu'à ce jour inclus, AAAA-MM-JJ (Paris). Avec « du »." },
+      },
       additionalProperties: false,
     },
   },
@@ -776,7 +789,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "vues",
     title: "Vues gagnées sur une période",
     description:
-      "Vues GAGNÉES pendant une période (jours de Paris), par tous les posts du projet quelle que soit leur date de publication — la courbe « Vues gagnées par jour » du Tracker, lue sur ces jours. Répond à « combien de vues Kelly a faites cette semaine ». Une vidéo part de 0 à sa publication : ses premières heures comptent. Total, détail par jour (jours estimés signalés) et répartition par créatrice, compte, pays ou plateforme. `comparer` ajoute la période précédente de même durée. Par défaut : les 7 derniers jours complets, posts de chauffe exclus (comme le Tracker).",
+      "Vues GAGNÉES pendant une période (jours de Paris), par tous les posts du projet quelle que soit leur date de publication — la courbe « Vues gagnées par jour » du Tracker, lue sur ces jours. Répond à « combien de vues Kelly a faites cette semaine ». Une vidéo part de 0 à sa publication : ses premières heures comptent. Total, détail par jour avec la part ESTIMÉE (vues réparties au prorata d'un écart de plus de 30 h entre deux relevés, pas mesurées) et répartition par créatrice, compte, pays ou plateforme. `comparer` ajoute la période précédente de même durée. Par défaut : les 7 derniers jours complets, posts de chauffe exclus (comme le Tracker).",
     inputSchema: {
       type: "object",
       properties: {
@@ -915,6 +928,11 @@ export const OUTILS: readonly McpTool[] = [
         au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
         maille: { type: "string", description: "Regrouper par marché composé (défaut) ou détailler par pays.", enum: ["marche", "pays"] },
         pays: { type: "string", description: "Ne garder qu'un pays (code ISO, ex. FR) ou un marché (nom, ex. Balkans)." },
+        tous_les_marches: {
+          type: "boolean",
+          description:
+            "Lister aussi, un par un, les marchés SANS AUCUNE activité sur la période (ni dépense, ni vidéo, ni vue promo, ni paiement : seul le trafic les fait apparaître). Défaut : non, ils sont résumés dans « marchesSansActivite ».",
+        },
       },
       additionalProperties: false,
     },
@@ -1060,7 +1078,14 @@ export const OUTILS: readonly McpTool[] = [
       "Le Dashboard de l'app, par les mêmes calculs : les quatre cartes d'action (vidéos à valider, warmups en retard, warmups terminés à valider, total dû), « À décider » (portes ouvertes à exploiter, hooks à graduer, hooks morts à désactiver, alarmes de compte) et les posts des 48 dernières heures regroupés par créatrice (état du compte, vues, abonnés gagnés, et pour chaque post : vues gagnées sur 24 h, like rate, enregistrements, verdict). Une section dont le rôle n'a pas le bloc est signalée « nonAccessible ».",
     inputSchema: {
       type: "object",
-      properties: { projet: ARG_PROJET },
+      properties: {
+        projet: ARG_PROJET,
+        tous_les_posts: {
+          type: "boolean",
+          description:
+            "Posts des 48 h : lister CHAQUE post de chaque créatrice. Défaut : non — les 5 posts déjà relevés les plus vus par créatrice, les autres comptés (« sansReleve », « autresPosts »).",
+        },
+      },
       additionalProperties: false,
     },
   },
@@ -1417,7 +1442,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
   return {
     info: { name: "jarvia", version: "1.0.0" },
     instructions:
-      "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé. Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ).",
+      "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé. Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
     tools: OUTILS,
     async callTool(name, args) {
       if (name === "projets") {
@@ -1458,7 +1483,23 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
       }
 
       if (name === "ponctualite") {
-        const lignes = await lire(() => ctx.runQuery(internal.mcpTools.lirePonctualite, ids));
+        const du = typeof args.du === "string" && args.du.trim() !== "" ? args.du.trim() : null;
+        const au = typeof args.au === "string" && args.au.trim() !== "" ? args.au.trim() : null;
+        if ((du === null) !== (au === null)) {
+          throw new ToolError("Donne « du » ET « au » (les jours prévus), ou aucun des deux (tout l'historique).");
+        }
+        if (du !== null && au !== null) {
+          if (minuitParisDe(du) === null || minuitParisDe(au) === null) {
+            throw new ToolError("« du » et « au » doivent être des jours AAAA-MM-JJ.");
+          }
+          if (du > au) throw new ToolError("« du » doit précéder « au ».");
+        }
+        const lignes = await lire(() =>
+          ctx.runQuery(internal.mcpTools.lirePonctualite, {
+            ...ids,
+            ...(du !== null && au !== null ? { du, au } : {}),
+          }),
+        );
         const retenues = lignes
           .filter((l) => filtreNom(l.createatrice, args.createatrice))
           // Le taux le plus bas d'abord ; « aucun post passé » en dernier.
@@ -1469,6 +1510,10 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           );
         return json({
           projet: projet.slug,
+          periode:
+            du !== null && au !== null
+              ? { du, au, perimetre: "posts PRÉVUS ces jours-là (sans date prévue : exclus)" }
+              : "tout l'historique",
           note: "tauxALHeurePct = à l'heure ÷ posts passés ; null = aucun post passé encore.",
           createatrices: retenues,
         });
@@ -1735,6 +1780,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             "« premierPaiement » / « renouvellement » : le 1er paiement encaissé d'un abonnement contre les suivants — approximation bornée à l'historique importé.",
             "LTV RÉALISÉE = net cumulé ÷ clients, sans projection (pas de churn inventé). Les offres, remboursements, litiges et le test A/B portent sur TOUT l'historique ; seuls revenuNet, parJour et periodePrecedente suivent la période.",
             "Avant de comparer deux périodes, regarder changementsOffre : un changement d'offre rend deux cohortes incomparables.",
+            "« clients » compte ici des ABONNEMENTS Whop (une personne peut en avoir plusieurs) — pas les personnes d'economie_unitaire. Ne jamais comparer les deux sans le dire.",
           ],
           ...(avertissements.length > 0 ? { avertissements } : {}),
         });
@@ -1873,7 +1919,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           },
           lecture: [
             "Marge nette = revenu net Whop encaissé − coût créateurs (fixe + CPM + bonus + défis) converti dans la devise du revenu.",
-            "Par client : tout est divisé par les clients ACQUIS sur la période (personnes, Whop fait foi). Coût d'acquisition = vidéos promo (fixe + CPM) + bonus et primes ; le coût complet du moteur compte aussi le warmup.",
+            "Par client : tout est divisé par les clients ACQUIS sur la période (PERSONNES, Whop fait foi — pas les abonnements que comptent retention, marches et revenus). Coût d'acquisition = vidéos promo (fixe + CPM) + bonus et primes ; le coût complet du moteur compte aussi le warmup.",
             "Retour sur acquisition = revenu par client ÷ coût d'acquisition (× fois).",
             "Les clients en litige comptent au dénominateur mais leur revenu est exclu du net : le revenu par client en est tiré vers le bas.",
           ],
@@ -2065,6 +2111,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             : {}),
           lecture: [
             "Cohorte = les clients ACQUIS sur la période, suivis depuis : une seule population (comme l'onglet). Sans du/au : toute la profondeur.",
+            "« clients » compte ici des ABONNEMENTS Whop (une personne peut en avoir plusieurs) — pas les personnes d'economie_unitaire. Ne jamais comparer les deux sans le dire.",
             `Résiliations et expirations comptées sur les ${ANALYSIS_WINDOW_DAYS} derniers jours. RÉSILIÉ = a annulé mais garde l'accès jusqu'à la fin de la période payée ; EXPIRÉ = accès perdu, le vrai churn.`,
             "Taux de renouvellement « résolu » : sur les échéances tranchées ; « borne basse » : en comptant les échéances en attente comme perdues.",
             "Une cohorte « anecdotique » a trop peu de clients pour être une tendance.",
@@ -2112,6 +2159,11 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                   plier(m.label).includes(filtre) ||
                   m.countries.some((c) => c !== null && plier(c) === filtre),
               );
+        // Les marchés SANS AUCUNE activité (trafic seul) sont résumés, pas listés :
+        // 9 lignes à zéro sur 20 chez Snytch. Un filtre explicite les garde.
+        const tousLesMarches = args.tous_les_marches === true || filtre !== null;
+        const inactifs = tousLesMarches ? [] : retenus.filter(marcheInactif);
+        const listes = tousLesMarches ? retenus : retenus.filter((m) => !marcheInactif(m));
         const { totalCost, totalRevenue, totalMarge } = lignesEtTotaux(pnl);
         const ctxDevises = contexteDevises(pnl);
         const verdicts: Record<string, string> = {
@@ -2165,7 +2217,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             reparerSiCheckoutVersClientSousPct: DECISION.fixMaxCheckoutToClient * 100,
             checkoutsMinPourJugerLePaiement: DECISION.fixMinCheckouts,
           },
-          marches: retenus.map((m) => ({
+          marches: listes.map((m) => ({
             marche: m.label,
             pays: m.countries.filter((c): c is string => c !== null),
             ...(m.composed ? { compose: true } : {}),
@@ -2199,13 +2251,33 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
               visiteVersCheckoutPct: pct(m.decision.visitToCheckout),
               checkoutVersClientPct: pct(m.decision.checkoutToClient),
             },
-            offres: m.plans.slice(0, 5).map((p) => ({
-              offre: p.label ?? p.planId,
-              prix: p.price,
-              clients: p.clients,
-              partPct: pct(p.share),
-            })),
+            // Les offres VENDUES, les plus vendues d'abord (cf offresVendues) :
+            // l'agrégat les range par prix, et ses cinq premières étaient à 0 client.
+            ...(() => {
+              const { lignes, nonAffichees } = offresVendues(m.plans, 5);
+              return {
+                offres: lignes.map((p) => ({
+                  offre: p.label ?? p.planId,
+                  prix: p.price,
+                  clients: p.clients,
+                  partPct: pct(p.share),
+                })),
+                ...(nonAffichees > 0 ? { offresNonAffichees: nonAffichees } : {}),
+              };
+            })(),
           })),
+          ...(inactifs.length > 0
+            ? {
+                marchesSansActivite: {
+                  nombre: inactifs.length,
+                  visiteurs: inactifs.reduce((t, m) => t + m.visitors, 0),
+                  checkouts: inactifs.reduce((t, m) => t + m.checkouts, 0),
+                  marches: inactifs.map((m) => m.label),
+                  lecture:
+                    "Ni dépense, ni vidéo, ni vue promo, ni paiement sur la période : seul le trafic (pays de connexion) les fait apparaître. Détail : tous_les_marches.",
+                },
+              }
+            : {}),
           parMois: serieMensuelle(pnl).map((x) => ({
             mois: x.month,
             coutCreateurs: x.cost,
@@ -2214,6 +2286,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           })),
           lecture: [
             "L'argent (coût, clients, revenu) suit le pays de FACTURATION (Whop) ; le trafic, le pays de CONNEXION (PostHog). Côte à côte, jamais divisés l'un par l'autre.",
+            "« clients » compte ici des ABONNEMENTS Whop (une personne peut en avoir plusieurs) — pas les personnes d'economie_unitaire. Ne jamais comparer les deux sans le dire. « trafic.clientsPostHog » compte, lui, des personnes PostHog.",
             "Montants dans la devise du revenu (coûts convertis au taux du projet). « retourAcquisition » = valeur des clients gagnés ÷ coût promo ; « revenuSurCout » = revenu net ÷ coût.",
             "Trafic : recalculé sur la période comme à l'écran (même calcul, même cache) ; « traficSur » dit sur quels jours il porte.",
             "Verdicts triés par ce qu'il faut faire d'abord ; « Aucun pays défini » = coût sans pays cible, hors marché.",
@@ -3269,35 +3342,51 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
               },
           posts48h: !ok(decisions)
             ? refus(decisions)
-            : groupRecentPosts(decisions.posts48h, decisions.alarms).map((g) => ({
-                createatrice: g.label,
-                etat: etats[g.state] ?? g.state,
-                posts: g.posts.length,
-                vues: g.vues48,
-                abonnesGagnes: g.followers,
-                detail: g.posts.map((p) => {
-                  const mesureSaves = savesAvailability(p.saves, p.plateforme);
-                  return {
-                    titre: p.label || null,
-                    type: p.type,
-                    compte: p.compte,
-                    plateforme: p.plateforme,
-                    publieLe: instantParis(p.postedAt),
-                    vues: p.vues,
-                    vuesGagnees24h: p.delta24h,
-                    likes: p.likes,
-                    likeRatePct: pct(rateOf(p.likes, p.vues)),
-                    enregistrements: mesureSaves === "measured" ? p.saves : null,
-                    ...(mesureSaves === "unavailable" ? { enregistrementsNonDisponibles: true } : {}),
-                    verdict: verdicts[verdictOf(p, maintenant)] ?? verdictOf(p, maintenant),
-                    releveLe: instantParis(p.snapshotAt),
-                  };
-                }),
-              })),
+            : groupRecentPosts(decisions.posts48h, decisions.alarms).map((g) => {
+                // Par défaut, l'ESSENTIEL : les posts déjà relevés, les plus vus
+                // d'abord — une créatrice à 28 posts dont 10 sans relevé et 14 à
+                // zéro noyait le reste (Snytch, 30/09/2026). Le compte reste exact.
+                const { gardes, enAttenteDeReleve, autres } =
+                  args.tous_les_posts === true
+                    ? { gardes: g.posts, enAttenteDeReleve: 0, autres: 0 }
+                    : postsEssentiels(g.posts, {
+                        mesure: (p) => p.snapshotAt !== null,
+                        vues: (p) => p.vues,
+                        max: 5,
+                      });
+                return {
+                  createatrice: g.label,
+                  etat: etats[g.state] ?? g.state,
+                  posts: g.posts.length,
+                  vues: g.vues48,
+                  abonnesGagnes: g.followers,
+                  ...(enAttenteDeReleve > 0 ? { sansReleve: enAttenteDeReleve } : {}),
+                  ...(autres > 0 ? { autresPosts: autres } : {}),
+                  detail: gardes.map((p) => {
+                    const mesureSaves = savesAvailability(p.saves, p.plateforme);
+                    return {
+                      titre: p.label || null,
+                      type: p.type,
+                      compte: p.compte,
+                      plateforme: p.plateforme,
+                      publieLe: instantParis(p.postedAt),
+                      vues: p.vues,
+                      vuesGagnees24h: p.delta24h,
+                      likes: p.likes,
+                      likeRatePct: pct(rateOf(p.likes, p.vues)),
+                      enregistrements: mesureSaves === "measured" ? p.saves : null,
+                      ...(mesureSaves === "unavailable" ? { enregistrementsNonDisponibles: true } : {}),
+                      verdict: verdicts[verdictOf(p, maintenant)] ?? verdictOf(p, maintenant),
+                      releveLe: instantParis(p.snapshotAt),
+                    };
+                  }),
+                };
+              }),
           lecture: [
             "Le Dashboard de l'app : les quatre cartes d'action, « À décider » (une ligne par DÉCISION, jamais une tâche), les posts des 48 dernières heures par créatrice. La conversion par créatrice (« Ce que ça a rapporté ») est dans l'outil « acquisition ».",
             `Porte ouverte = post de moins de 48 h à ${OPEN_DOOR_MIN_VIEWS} vues ou plus, like rate ≥ ${OPEN_DOOR_MIN_LIKE_RATE * 100} %, au moins un enregistrement et des abonnés gagnés. Alarme compte = ${ACCOUNT_ALARM_RUN_LENGTH} posts consécutifs sous les seuils. Hook mort = au moins ${DEAD_HOOK_MIN_RUNS} runs publiés, aucun au-dessus de ${DEAD_HOOK_MAX_VIEWS} vues.`,
             "Décisions recalculées toutes les 30 min (cache de l'écran) ; vues au dernier relevé (23 h 30), daté par « releveLe ».",
+            "Posts des 48 h : par défaut les 5 posts DÉJÀ RELEVÉS les plus vus par créatrice ; « sansReleve » = posts sans aucun relevé (trop récents, ou plateforme non relevée), « autresPosts » = relevés non listés. « posts » et « vues » comptent tout. Détail complet : tous_les_posts.",
             "« nonAccessible » = le rôle de la clé n'a pas le bloc de cette section (l'écran la masque aussi).",
           ],
         });
@@ -3468,7 +3557,10 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                 : null,
           };
         }
-        const estimes = r.parJour.filter((j) => j.estime).map((j) => j.jour);
+        // PART estimée, pas seulement « au moins une vue » : un seul post relevé
+        // à plus de 30 h d'écart levait le drapeau du jour entier, et les sept
+        // jours d'une semaine l'étaient toujours (prod, 21-27/09/2026).
+        const vuesEstimees = r.parJour.reduce((s, j) => s + j.vuesEstimees, 0);
         return json({
           projet: projet.slug,
           periode: { du, au, jours },
@@ -3479,7 +3571,18 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           },
           total: r.total,
           postsRetenus: r.postsRetenus,
-          parJour: r.parJour,
+          parJour: r.parJour.map((j) => ({
+            jour: j.jour,
+            vues: j.vues,
+            vuesEstimees: j.vuesEstimees,
+            partEstimeePct: pct(j.vuesEstimees, j.vues),
+          })),
+          estimation: {
+            vuesEstimees,
+            partEstimeePct: pct(vuesEstimees, r.total),
+            lecture:
+              "vuesEstimees = vues venues d'un écart de plus de 30 h entre deux relevés d'un même post, réparties au prorata des heures : pas mesurées. Le reste est mesuré relevé à relevé.",
+          },
           repartition: {
             par,
             lignes: lignes.slice(0, 25).map((l) => ({
@@ -3490,11 +3593,6 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             ...(lignes.length > 25 ? { tronque: `25 premières sur ${lignes.length}` } : {}),
           },
           ...(comparaison ? { comparaison } : {}),
-          ...(estimes.length > 0
-            ? {
-                joursEstimes: `${estimes.length} jour(s) dont au moins une part vient d'un écart de plus de 30 h entre deux relevés : valeur répartie au prorata, pas mesurée (${estimes.join(", ")}).`,
-              }
-            : {}),
           methode:
             "Vues gagnées = écart entre deux relevés, réparti au prorata des heures sur les jours de Paris qu'il traverse ; une vidéo part de 0 vue à sa publication. Le dernier jour n'est complet qu'après le relevé de 23 h 30.",
         });

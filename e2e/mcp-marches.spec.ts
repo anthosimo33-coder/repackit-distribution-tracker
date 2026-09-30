@@ -27,6 +27,7 @@ type Marche = {
   revenuNet: number;
   coutParClient: number | null;
   retourAcquisition: number | null;
+  offres: { offre: string; clients: number }[];
 };
 type Marches = {
   periode: { du: string; au: string };
@@ -203,6 +204,10 @@ test.describe("Outil MCP marches", () => {
         coutPromo: 129,
         coutParClient: 43, // 129 ÷ 3
       });
+      // Les offres listées sont celles qui se sont VENDUES, et rendent compte
+      // des clients du marché (jamais les moins chères à 0 client).
+      expect(fr.offres.every((o) => o.clients > 0)).toBe(true);
+      expect(fr.offres.reduce((t, o) => t + o.clients, 0)).toBe(fr.clients);
       const balkans = r.marches.find((m) => m.marche === "Balkans")!;
       expect(balkans).toMatchObject({ pays: ["RS", "HR"], compose: true, clients: 2, revenuNet: 36.74, verdict: "sans dépense" });
       // 91,85 € de revenu − 150 $ convertis (129 €) = −37,15 €
@@ -226,7 +231,10 @@ test.describe("Outil MCP marches", () => {
         libellePays: (c) => c,
         libelleHorsMarche: "Aucun pays défini",
       });
-      expect(r.marches.map((m) => [m.marche, m.clients, m.revenuNet, m.coutTotal, m.retourAcquisition])).toEqual(
+      // Liste COMPLÈTE (tous_les_marches) : la parité porte sur chaque ligne de
+      // l'écran, marchés sans activité compris.
+      const complet = await outil(url, token, { projet: slug, du, au, tous_les_marches: true });
+      expect(complet.marches.map((m) => [m.marche, m.clients, m.revenuNet, m.coutTotal, m.retourAcquisition])).toEqual(
         ecran.map((m) => [m.label, m.clients, m.revenueNet, m.costComparable, m.acquisitionReturn]),
       );
 

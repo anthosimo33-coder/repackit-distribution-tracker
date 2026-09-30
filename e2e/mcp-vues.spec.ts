@@ -17,7 +17,8 @@ const utcAt = (y: number, m: number, d: number, h: number, min = 0) =>
 type Vues = {
   periode: { du: string; au: string; jours: number };
   total: number;
-  parJour: { jour: string; vues: number; estime: boolean }[];
+  parJour: { jour: string; vues: number; vuesEstimees: number; partEstimeePct: number | null }[];
+  estimation: { vuesEstimees: number; partEstimeePct: number | null };
   repartition: { par: string; lignes: { nom: string; vues: number }[] };
   comparaison?: { du: string; au: string; total: number; evolutionPct: number | null };
 };
@@ -155,6 +156,16 @@ test.describe("Outil MCP vues", () => {
     expect(parCompte.get(`${compteAncienne} (TikTok)`)).toBeGreaterThanOrEqual(4152);
     expect(parCompte.get(`${compteAncienne} (TikTok)`)).toBeLessThanOrEqual(4154);
     expect(r.total).toBe(r.parJour.reduce((s, j) => s + j.vues, 0));
+    // PART ESTIMÉE : l'ancienne est relevée à 6 puis 2 jours d'écart, TOUTES ses
+    // vues de la période sont estimées ; la nouvelle, relevée chaque soir, n'en a
+    // aucune. La part estimée de la période EST donc l'ancienne (±1 d'arrondi
+    // par jour) — pas « trois jours estimés ».
+    const vuesAncienne = parCompte.get(`${compteAncienne} (TikTok)`)!;
+    expect(Math.abs(r.estimation.vuesEstimees - vuesAncienne)).toBeLessThanOrEqual(3);
+    const j07 = r.parJour.find((j) => j.jour === "2026-08-07")!;
+    expect(j07.vuesEstimees).toBeGreaterThanOrEqual(688); // 4 000 × 23,5/144 + 3 500 × 0,5/48
+    expect(j07.vuesEstimees).toBeLessThanOrEqual(690);
+    expect(j07.partEstimeePct).toBeLessThan(5); // ~3,6 % du jour, le reste mesuré
 
     // ── Jour par jour, la courbe du Tracker ─────────────────────────────────
     // Même répartition, mêmes départs. Seul l'ARRONDI peut différer d'une vue :

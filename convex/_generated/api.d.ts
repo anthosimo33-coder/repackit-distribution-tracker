@@ -119,6 +119,7 @@ import type * as marketPnl from "../marketPnl.js";
 import type * as marketPromo from "../marketPromo.js";
 import type * as marketValue from "../marketValue.js";
 import type * as marketWindow from "../marketWindow.js";
+import type * as mcpFormat from "../mcpFormat.js";
 import type * as mcpHttp from "../mcpHttp.js";
 import type * as mcpOAuth from "../mcpOAuth.js";
 import type * as mcpOAuthCore from "../mcpOAuthCore.js";
@@ -346,6 +347,7 @@ declare const fullApi: ApiFromModules<{
   marketPromo: typeof marketPromo;
   marketValue: typeof marketValue;
   marketWindow: typeof marketWindow;
+  mcpFormat: typeof mcpFormat;
   mcpHttp: typeof mcpHttp;
   mcpOAuth: typeof mcpOAuth;
   mcpOAuthCore: typeof mcpOAuthCore;

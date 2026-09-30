@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeDailyViewDeltas,
+  computeDailyViewDeltasWithEstimate,
   computeDailyViewDeltasBy,
   computeDayContributions,
   ajouterDepartsDePublication,
@@ -512,5 +513,65 @@ describe("ajouterDepartsDePublication — une vidéo part de 0 à sa publication
   it("un post sans relevé n'a rien à répartir", () => {
     const seul = ajouterDepartsDePublication([], [pub], utc(2026, 9, 1, 0));
     expect(seul).toEqual([]);
+  });
+});
+
+// ─── PART ESTIMÉE d'un jour — combien, pas seulement « au moins une vue » ────
+// Le drapeau `estimated` se lève dès qu'UN intervalle de plus de 30 h a nourri
+// le jour. En prod (semaine du 21 au 27/09/2026, 811 posts), les SEPT jours
+// étaient marqués « estimés » : l'information ne distinguait plus rien. Le
+// montant estimé, lui, dit si c'est 3 % ou 90 % du jour.
+describe("computeDailyViewDeltasWithEstimate — la part estimée de chaque jour", () => {
+  // Relevés du soir, 23 h 30 Paris (21 h 30 UTC en été).
+  const nouvelle: SnapshotPoint[] = [
+    { publicationId: "nouvelle", capturedAt: utc(2026, 8, 7, 10, 40), vues: 0 }, // publication
+    { publicationId: "nouvelle", capturedAt: utc(2026, 8, 7, 21, 30), vues: 18_437 },
+    { publicationId: "nouvelle", capturedAt: utc(2026, 8, 8, 21, 30), vues: 26_012 },
+    { publicationId: "nouvelle", capturedAt: utc(2026, 8, 9, 21, 30), vues: 29_540 },
+  ];
+  // Relevée à 6 jours puis 2 jours d'écart : TOUTES ses vues sont estimées.
+  const ancienne: SnapshotPoint[] = [
+    { publicationId: "ancienne", capturedAt: utc(2026, 8, 1, 21, 30), vues: 100_000 },
+    { publicationId: "ancienne", capturedAt: utc(2026, 8, 7, 21, 30), vues: 104_000 },
+    { publicationId: "ancienne", capturedAt: utc(2026, 8, 9, 21, 30), vues: 107_500 },
+  ];
+
+  it("la part estimée est EXACTEMENT celle de la vidéo mal relevée", () => {
+    const serie = computeDailyViewDeltasWithEstimate([...nouvelle, ...ancienne]);
+    const seuleAncienne = new Map(
+      computeDailyViewDeltas(ancienne).map((p) => [p.date, p.value]),
+    );
+    for (const jour of ["2026-08-07", "2026-08-08", "2026-08-09"]) {
+      const p = serie.find((x) => x.date === jour)!;
+      expect(p.estimated).toBe(true);
+      // Arrondi indépendant de chaque série : une vue d'écart au plus.
+      expect(Math.abs(p.estimatedValue - (seuleAncienne.get(jour) ?? 0))).toBeLessThanOrEqual(1);
+      expect(p.estimatedValue).toBeLessThan(p.value);
+    }
+    // Le 07 : 18 437 mesurées (la nouvelle) contre ~689 estimées (l'ancienne,
+    // 4 000 × 23,5/144 + 3 500 × 0,5/48) — 3,6 % du jour, pas « le jour ».
+    const j07 = serie.find((x) => x.date === "2026-08-07")!;
+    expect(j07.estimatedValue).toBeGreaterThanOrEqual(688);
+    expect(j07.estimatedValue).toBeLessThanOrEqual(690);
+  });
+
+  it("un jour entièrement mesuré a une part estimée NULLE (présence ↔ absence)", () => {
+    const serie = computeDailyViewDeltasWithEstimate(nouvelle);
+    expect(serie.length).toBe(3);
+    for (const p of serie) {
+      expect(p.estimated).toBe(false);
+      expect(p.estimatedValue).toBe(0);
+    }
+  });
+
+  it("mêmes jours, mêmes valeurs, même drapeau que computeDailyViewDeltas", () => {
+    const tout = [...nouvelle, ...ancienne];
+    expect(
+      computeDailyViewDeltasWithEstimate(tout).map(({ date, value, estimated }) => ({
+        date,
+        value,
+        estimated,
+      })),
+    ).toEqual(computeDailyViewDeltas(tout));
   });
 });
