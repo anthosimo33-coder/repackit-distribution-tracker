@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
-import { CheckIcon, PencilIcon, PlusIcon, RepeatIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CheckIcon, Link2Icon, PencilIcon, PlusIcon, RepeatIcon, Trash2Icon, XIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,8 @@ const CATEGORY_BADGE: Record<ChargeCategory, string> = {
   hosting: "bg-sky-50 text-sky-700",
   tools: "bg-indigo-50 text-indigo-700",
   subscriptions: "bg-emerald-50 text-emerald-700",
+  ads: "bg-pink-50 text-pink-700",
+  scans: "bg-orange-50 text-orange-700",
   other: "bg-slate-100 text-slate-600",
 };
 
@@ -105,13 +107,16 @@ export function ComptaChargesCard({
     }
   }
 
+  // Le total est celui des AUTRES CHARGES : un paiement au fournisseur des
+  // scans est listé ici (c'est une charge), mais il compte dans la colonne Scans.
   const byCat = new Map<string, number>();
   let total = 0;
   let missing = false;
   for (const c of data?.charges ?? []) {
-    if (c.converted === null) missing = true;
-    else {
-      total += c.converted;
+    if (c.converted === null) {
+      if (c.category !== "scans") missing = true;
+    } else {
+      if (c.category !== "scans") total += c.converted;
       byCat.set(c.category, (byCat.get(c.category) ?? 0) + c.converted);
     }
   }
@@ -164,7 +169,7 @@ export function ComptaChargesCard({
                 {t("converted", { currency: cur.toUpperCase() })}
               </TableHead>
               <TableHead className="text-xs text-slate-500">{t("recurrence")}</TableHead>
-              <TableHead className="w-24 pr-4" />
+              <TableHead className="w-36 pr-4" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -177,6 +182,12 @@ export function ComptaChargesCard({
                 <TableCell className="pl-5 tabular-nums text-slate-500">{f.day(c.day)}</TableCell>
                 <TableCell className="font-medium text-slate-900">
                   {c.label}
+                  {c.transferLineId !== null && (
+                    <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-1.5 py-px text-[10px] font-medium text-slate-500">
+                      <Link2Icon className="size-2.5" />
+                      {t("linked", { date: f.dayShort(c.day) })}
+                    </span>
+                  )}
                   {c.planned && (
                     <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700">
                       {t("planned")}
@@ -192,6 +203,9 @@ export function ComptaChargesCard({
                   >
                     {tc(c.category as ChargeCategory)}
                   </span>
+                  {c.category === "scans" && (
+                    <span className="ml-1.5 text-[11px] text-slate-400">{t("scanHint")}</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-slate-500">{f.money(c.amount, c.currency)}</TableCell>
                 <TableCell className="text-right tabular-nums text-slate-900">
@@ -212,7 +226,9 @@ export function ComptaChargesCard({
                   )}
                 </TableCell>
                 <TableCell className="pr-4 text-right">
-                  {c.planned ? (
+                  {c.transferLineId !== null ? (
+                    <span className="text-xs text-slate-400">{t("linkedEdit")}</span>
+                  ) : c.planned ? (
                     <span className="inline-flex gap-1">
                       <Button
                         size="xs"
@@ -267,7 +283,11 @@ export function ComptaChargesCard({
             <TableRow className="hover:bg-transparent">
               <TableCell colSpan={4} className="pl-5 text-xs font-normal text-slate-500">
                 {[...byCat.entries()]
-                  .map(([cat, v]) => `${tc(cat as ChargeCategory)} ${f.money(Math.round(v * 100) / 100, cur)}`)
+                  .map(([cat, v]) =>
+                    cat === "scans"
+                      ? `${tc("scans")} ${f.money(Math.round(v * 100) / 100, cur)} (${t("scanHint")})`
+                      : `${tc(cat as ChargeCategory)} ${f.money(Math.round(v * 100) / 100, cur)}`,
+                  )
                   .join(" · ")}
               </TableCell>
               <TableCell className="text-right font-semibold tabular-nums text-slate-900" data-testid="compta-charges-total">

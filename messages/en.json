@@ -1497,7 +1497,10 @@
     "ERR_COMPTA_RULE_BUILTIN": "Jarvia already knows where this line type goes: its column can't be changed from the page.",
     "ERR_COMPTA_RULE_INVALID": "Invalid column or line type.",
     "ERR_COMPTA_TRANSFER_NOT_FOUND": "This withdrawal can't be found in the project's ledger.",
-    "ERR_COMPTA_USAGE_INVALID": "Unknown withdrawal purpose."
+    "ERR_COMPTA_USAGE_INVALID": "Unknown withdrawal purpose.",
+    "ERR_COMPTA_TRANSFER_FAILED": "This withdrawal failed: the money went back to Whop, there's nothing to split.",
+    "ERR_COMPTA_PARTS_INVALID": "Invalid split: positive amounts that don't add up to more than the withdrawal, and a note for each part counted as an expense.",
+    "ERR_COMPTA_CHARGE_LINKED": "This expense comes from a split withdrawal: edit it from the withdrawal."
   },
   "calendar": {
     "weekday": {

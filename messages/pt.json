@@ -1497,7 +1497,10 @@
     "ERR_COMPTA_RULE_BUILTIN": "O Jarvia já sabe onde vai este tipo de linha: a coluna dele não muda pela página.",
     "ERR_COMPTA_RULE_INVALID": "Coluna ou tipo de linha inválido.",
     "ERR_COMPTA_TRANSFER_NOT_FOUND": "Este saque não foi encontrado no livro-razão do projeto.",
-    "ERR_COMPTA_USAGE_INVALID": "Uso de saque desconhecido."
+    "ERR_COMPTA_USAGE_INVALID": "Uso de saque desconhecido.",
+    "ERR_COMPTA_TRANSFER_FAILED": "Este saque falhou: o dinheiro voltou para a Whop, não há nada a dividir.",
+    "ERR_COMPTA_PARTS_INVALID": "Divisão inválida: valores positivos cuja soma não passe do saque, e um motivo para cada parte contada como despesa.",
+    "ERR_COMPTA_CHARGE_LINKED": "Esta despesa vem da divisão de um saque: altere-a a partir do saque."
   },
   "calendar": {
     "weekday": {

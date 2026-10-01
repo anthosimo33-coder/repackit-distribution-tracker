@@ -2898,8 +2898,12 @@ export default defineSchema({
    *
    * Aucune donnée personnelle du client (nom, e-mail) n'est conservée.
    *
-   * `usage` / `note` : annotation d'un RETRAIT (`withdrawal`) par l'équipe — à
-   * quoi il a servi. Jamais réécrite par l'import (qui n'écrit que du neuf).
+   * `parts` : VENTILATION d'un RETRAIT (`withdrawal`) par l'équipe — à quoi a
+   * servi chaque part. Une part « Charges de l'activité » peut être comptée en
+   * charge : elle crée alors une `comptaCharges` liée (`transferLineId`).
+   * `usage` / `note` : l'annotation d'avant la ventilation (tout le virement),
+   * lue comme une part unique. Rien de tout ça n'est réécrit par l'import (qui
+   * n'écrit que des lignes absentes).
    */
   whopLedgerLines: defineTable({
     projectId: v.id("projects"),
@@ -2916,6 +2920,17 @@ export default defineSchema({
     sourceStatus: v.optional(v.string()),
     usage: v.optional(v.string()),
     note: v.optional(v.string()),
+    parts: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          amount: v.number(),
+          usage: v.string(),
+          note: v.optional(v.string()),
+          countedAs: v.optional(v.string()),
+        }),
+      ),
+    ),
     annotatedAt: v.optional(v.number()),
     annotatedBy: v.optional(v.id("users")),
     importedAt: v.number(),
@@ -3021,12 +3036,19 @@ export default defineSchema({
     currency: v.string(),
     recurring: v.boolean(),
     seriesId: v.optional(v.id("comptaCharges")),
+    /**
+     * Charge née de la VENTILATION d'un virement (part « comptée en charge ») :
+     * elle se modifie depuis le virement, jamais directement.
+     */
+    transferLineId: v.optional(v.id("whopLedgerLines")),
+    transferPartId: v.optional(v.string()),
     createdAt: v.number(),
     createdBy: v.id("users"),
     updatedAt: v.optional(v.number()),
   })
     .index("by_project_month", ["projectId", "month"])
-    .index("by_project_recurring", ["projectId", "recurring"]),
+    .index("by_project_recurring", ["projectId", "recurring"])
+    .index("by_project_transfer", ["projectId", "transferLineId"]),
 
   /**
    * MARCHÉS COMPOSÉS — « Serbie + Croatie » lus comme un seul marché.

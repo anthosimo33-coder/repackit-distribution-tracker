@@ -49,7 +49,14 @@ const L: ExportLabels = {
   creators: "Créatrices",
   scans: "Scans",
   other: (cat) => `Autres — ${cat}`,
-  category: { hosting: "Hébergement", tools: "Outils", subscriptions: "Abonnements", other: "Autre" },
+  category: {
+    hosting: "Hébergement",
+    tools: "Outils",
+    subscriptions: "Abonnements",
+    ads: "Publicité",
+    scans: "Scans",
+    other: "Autre",
+  },
   creatorLine: (name, period) => `${name} — cycle du ${period}`,
   advanceLine: (name) => `${name} — acompte`,
   unknownCreator: "Créatrice supprimée",
@@ -86,11 +93,11 @@ const DATA: JournalData = {
   rates: { eur: 1, usd: 0.86, rsd: 0.00852 },
   payCurrency: "usd",
   ledger: [
-    { day: "2026-09-16", lineType: "payment_gross", bucket: "gross", amount: 11.99, currency: "usd", reference: "pay_Hc9", label: "Snytch Pro 3 Targets - Weekly", destination: null, usage: null, note: null },
-    { day: "2026-09-01", lineType: "payment_gross", bucket: "gross", amount: 9.99, currency: "eur", reference: "pay_mJJosdR2XyYjLl", label: "Snytch Pro 3 cibles — Hebdo", destination: null, usage: null, note: null },
-    { day: "2026-09-01", lineType: "payment_processing_percentage_fee", bucket: "fees", amount: -0.55, currency: "eur", reference: "pay_mJJosdR2XyYjLl", label: null, destination: null, usage: null, note: null },
-    { day: "2026-09-11", lineType: "payment_gross", bucket: "gross", amount: 599, currency: "rsd", reference: "pay_Rs1", label: "Snytch Pro 3 cilja — Nedeljno", destination: null, usage: null, note: null },
-    { day: "2026-09-05", lineType: "withdrawal", bucket: "transfers", amount: -2000, currency: "eur", reference: "wdrl_2Lk9Xq7Tz", label: null, destination: "SEPA ••4821", usage: "pay", note: "Ma paie de septembre" },
+    { day: "2026-09-16", lineType: "payment_gross", bucket: "gross", amount: 11.99, currency: "usd", reference: "pay_Hc9", label: "Snytch Pro 3 Targets - Weekly", destination: null, parts: [] },
+    { day: "2026-09-01", lineType: "payment_gross", bucket: "gross", amount: 9.99, currency: "eur", reference: "pay_mJJosdR2XyYjLl", label: "Snytch Pro 3 cibles — Hebdo", destination: null, parts: [] },
+    { day: "2026-09-01", lineType: "payment_processing_percentage_fee", bucket: "fees", amount: -0.55, currency: "eur", reference: "pay_mJJosdR2XyYjLl", label: null, destination: null, parts: [] },
+    { day: "2026-09-11", lineType: "payment_gross", bucket: "gross", amount: 599, currency: "rsd", reference: "pay_Rs1", label: "Snytch Pro 3 cilja — Nedeljno", destination: null, parts: [] },
+    { day: "2026-09-05", lineType: "withdrawal", bucket: "transfers", amount: -2000, currency: "eur", reference: "wdrl_2Lk9Xq7Tz", label: null, destination: "SEPA ••4821", parts: [{ amount: 2000, usage: "pay", note: "Ma paie de septembre" }] },
   ],
   creators: [
     { day: "2026-09-16", name: "Kelly Moreau", period: "2026-08-02", kind: "settlement", amount: 1074.57 },
@@ -172,5 +179,47 @@ describe("récapitulatif", () => {
     expect(rows.find((r) => r[1] === "Résultat")![2]).toBe("");
     // Présence : le net, lui, reste chiffré.
     expect(rows.find((r) => r[1] === "Net Whop")![2]).toBe("24,85");
+  });
+});
+
+describe("ventilation et scans réels dans l'export", () => {
+  const ventile: JournalData = {
+    ...DATA,
+    ledger: [
+      {
+        day: "2026-09-15",
+        lineType: "withdrawal",
+        bucket: "transfers",
+        amount: -2325.49,
+        currency: "eur",
+        reference: "wdrl_PVaiwLXhqjNWe",
+        label: null,
+        destination: "Antho Banque",
+        parts: [
+          { amount: 1500, usage: "pay", note: "Ma paie de septembre" },
+          { amount: 200, usage: "business", note: "TikTok Ads" },
+        ],
+      },
+    ],
+    charges: [
+      { day: "2026-09-15", label: "TikTok Ads", category: "ads", amount: 200, currency: "eur", planned: false },
+      { day: "2026-09-28", label: "API HIKER", category: "scans", amount: 607.31, currency: "eur", planned: false },
+    ],
+  };
+  it("le libellé du virement détaille ses parts, montants compris", () => {
+    const w = buildJournalRows(ventile, L).find((r) => r[4] === "wdrl_PVaiwLXhqjNWe")!;
+    expect(w[3]).toBe(
+      "Virement Whop → Antho Banque — Rémunération 1500,00 : Ma paie de septembre ; Charges de l'activité 200,00 : TikTok Ads",
+    );
+  });
+  it("un paiement de scans remplace l'estimation, jamais les deux", () => {
+    const rows = buildJournalRows(ventile, L);
+    expect(rows.filter((r) => r[2] === "Scans").map((r) => r[3])).toEqual(["API HIKER"]);
+    const recap = buildSummaryRows(ventile, L);
+    expect(recap.find((r) => r[1] === "Scans")![2]).toBe("-607,31");
+    expect(recap.find((r) => r[1] === "Autres charges — Publicité")![2]).toBe("-200,00");
+    // Présence : sans paiement réel, l'estimation revient.
+    const estime = buildSummaryRows({ ...ventile, charges: ventile.charges.slice(0, 1) }, L);
+    expect(estime.find((r) => r[1] === "Scans")![2]).toBe("-948,60");
   });
 });
