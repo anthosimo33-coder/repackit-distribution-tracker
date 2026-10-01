@@ -1497,7 +1497,10 @@
     "ERR_COMPTA_RULE_BUILTIN": "Ce type de ligne est déjà classé par Jarvia : sa colonne ne se change pas depuis la page.",
     "ERR_COMPTA_RULE_INVALID": "Colonne ou type de ligne invalide.",
     "ERR_COMPTA_TRANSFER_NOT_FOUND": "Ce virement est introuvable dans le grand livre du projet.",
-    "ERR_COMPTA_USAGE_INVALID": "Usage de virement inconnu."
+    "ERR_COMPTA_USAGE_INVALID": "Usage de virement inconnu.",
+    "ERR_COMPTA_TRANSFER_FAILED": "Ce virement a échoué : l'argent est revenu sur Whop, il n'y a rien à ventiler.",
+    "ERR_COMPTA_PARTS_INVALID": "Ventilation invalide : des montants positifs, dont la somme ne dépasse pas le virement, et un motif pour chaque part comptée en charge.",
+    "ERR_COMPTA_CHARGE_LINKED": "Cette charge vient de la ventilation d'un virement : modifie-la depuis le virement."
   },
   "calendar": {
     "weekday": {

@@ -161,6 +161,7 @@
     "admin.money.Compta.detail.creatorsTotal",
     "admin.money.Compta.detail.foreignItem",
     "admin.money.Compta.detail.scansTotal",
+    "admin.money.Compta.detail.transferParts",
     "admin.money.ManagerPayReport.cpm",
     "admin.money.ManagerPayReport.date",
     "admin.money.ManagerPayReport.total",

@@ -85,6 +85,8 @@ function useExportLabels(): ExportLabels {
         hosting: tc("hosting"),
         tools: tc("tools"),
         subscriptions: tc("subscriptions"),
+        ads: tc("ads"),
+        scans: tc("scans"),
         other: tc("other"),
       },
       creatorLine: (name, period) => t("creatorLine", { name, period }),

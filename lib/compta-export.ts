@@ -52,8 +52,8 @@ export type JournalData = {
     reference: string;
     label: string | null;
     destination: string | null;
-    usage: string | null;
-    note: string | null;
+    /** Ventilation d'un retrait : à quoi a servi chaque part. */
+    parts: readonly { amount: number; usage: string; note: string | null }[];
   }[];
   creators: readonly {
     day: string;
@@ -182,10 +182,17 @@ export function buildJournalRows(data: JournalData, l: ExportLabels): string[][]
   for (const g of data.ledger) {
     let label: string;
     if (g.bucket === "transfers") {
-      const usage = g.usage && g.usage in l.usage ? l.usage[g.usage as TransferUsage] : null;
-      label = [l.transferLine(g.destination), [usage, g.note].filter(Boolean).join(" : ")]
-        .filter((x) => x !== "")
-        .join(" — ");
+      // Ventilé : « Rémunération 1500,00 : Ma paie ; Charges de l'activité 200,00 : TikTok Ads ».
+      // Une part unique du montant entier se lit sans montant.
+      const whole = g.parts.length === 1 && Math.abs(g.parts[0].amount + g.amount) < 0.005;
+      const parts = g.parts
+        .map((p) => {
+          const usage = p.usage in l.usage ? l.usage[p.usage as TransferUsage] : p.usage;
+          const head = whole ? usage : `${usage} ${csvNumberFr(p.amount)}`;
+          return p.note ? `${head} : ${p.note}` : head;
+        })
+        .join(" ; ");
+      label = [l.transferLine(g.destination), parts].filter((x) => x !== "").join(" — ");
     } else {
       label = g.label ? `${g.lineType} — ${g.label}` : g.lineType;
     }
@@ -208,6 +215,7 @@ export function buildJournalRows(data: JournalData, l: ExportLabels): string[][]
       ),
     );
   }
+  const paidScans = data.charges.some((c) => c.category === "scans");
   for (const c of data.charges) {
     const cat = isChargeCategory(c.category) ? l.category[c.category] : c.category;
     rows.push(
@@ -215,7 +223,7 @@ export function buildJournalRows(data: JournalData, l: ExportLabels): string[][]
         c.day,
         2,
         l.nature.expense,
-        l.other(cat),
+        c.category === "scans" ? l.scans : l.other(cat),
         c.planned ? `${c.label} ${l.plannedSuffix}` : c.label,
         "",
         -c.amount,
@@ -223,7 +231,9 @@ export function buildJournalRows(data: JournalData, l: ExportLabels): string[][]
       ),
     );
   }
-  if (data.scan) {
+  // L'estimation cost_usd n'entre au journal que si aucun paiement réel au
+  // fournisseur des scans n'est saisi ce mois-là : sinon elle le compterait deux fois.
+  if (data.scan && !paidScans) {
     const last = `${data.month}-${String(new Date(Date.UTC(Number(data.month.slice(0, 4)), Number(data.month.slice(5, 7)), 0)).getUTCDate()).padStart(2, "0")}`;
     const parts = [
       ["light", data.scan.lightUsd],
@@ -285,12 +295,16 @@ export function buildSummaryRows(data: JournalData, l: ExportLabels): string[][]
   const creators = acc();
   for (const c of data.creators) add(creators, c.amount, data.payCurrency ?? "");
   const scans = acc();
-  if (data.scan) {
+  const paidScans = data.charges.filter((c) => c.category === "scans");
+  if (paidScans.length > 0) {
+    for (const c of paidScans) add(scans, c.amount, c.currency);
+  } else if (data.scan) {
     if (data.scan.runs > 0 && data.scan.withCost === 0) scans.ok = false;
     else add(scans, data.scan.lightUsd + data.scan.fullUsd + data.scan.otherUsd, "usd");
   }
   const byCat = new Map<string, Acc>();
   for (const c of data.charges) {
+    if (c.category === "scans") continue;
     const cat = isChargeCategory(c.category) ? l.category[c.category] : c.category;
     const a = byCat.get(cat) ?? acc();
     add(a, c.amount, c.currency);

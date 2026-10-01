@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
@@ -14,6 +15,24 @@ const url = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 const DAY = 86_400_000;
+
+/**
+ * Choisit l'usage d'une part. Le menu s'ouvre DANS la modale, qui se re-rend au
+ * fil des requêtes : en suite complète, le clic sur l'option tombait parfois
+ * pendant l'ouverture et se perdait — l'usage restait vide, l'interrupteur
+ * « Compter en charge » n'apparaissait jamais, et le test expirait à 180 s
+ * (deux fois : 2e tour de mutations, suite complète). Même remède que
+ * hook-variants-view (TD-018) : on retente le GESTE ENTIER jusqu'à ce que
+ * l'usage soit affiché dans le champ, au lieu de supposer que le clic a pris.
+ */
+async function chooseUsage(page: Page, part: Locator, label: string) {
+  const combo = part.getByRole("combobox", { name: "Usage" });
+  await expect(async () => {
+    if ((await combo.getAttribute("aria-expanded")) !== "true") await combo.click({ timeout: 2_000 });
+    await page.getByRole("option", { name: label, exact: true }).click({ timeout: 2_000 });
+    await expect(combo).toContainText(label, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
 
 /**
  * ONGLET COMPTA — grand livre Whop, règles de classement, charges, export.
@@ -58,6 +77,11 @@ function ledger(ts: number): Line[] {
     { whopId: id("w1"), lineType: "withdrawal", amount: -2000, currency: "eur", postedAt: at("2025-09-25T08:00:00Z"), sourceId: `wdrl_e2e_${ts}`, destination: "SEPA ••4821", sourceStatus: "completed" },
     { whopId: id("w2"), lineType: "withdrawal_fee", amount: -2.5, currency: "eur", postedAt: at("2025-09-25T08:00:00Z"), sourceId: `wdrl_e2e_${ts}` },
     { whopId: id("x1"), lineType: "referral_bonus", amount: 25, currency: "eur", postedAt: at("2025-09-26T14:02:00Z") },
+    // Un retrait en DOLLARS (converti à 0,86) et un retrait ÉCHOUÉ, revenu sur
+    // Whop par une ligne `withdrawal_reversal` au même identifiant.
+    { whopId: id("u1"), lineType: "withdrawal", amount: -31.24, currency: "usd", postedAt: at("2025-09-10T12:05:00Z"), sourceId: `wdrl_usd_${ts}`, destination: "Antho Wallet", sourceStatus: "completed" },
+    { whopId: id("f1"), lineType: "withdrawal", amount: -304.47, currency: "eur", postedAt: at("2025-09-01T00:52:00Z"), sourceId: `wdrl_fail_${ts}`, destination: "LTVT CAPITAL", sourceStatus: "canceled" },
+    { whopId: id("f2"), lineType: "withdrawal_reversal", amount: 304.47, currency: "eur", postedAt: at("2025-09-01T01:14:00Z"), sourceId: `wdrl_fail_${ts}`, destination: "LTVT CAPITAL", sourceStatus: "canceled" },
   ];
 }
 
@@ -126,7 +150,8 @@ test.describe("Compta", () => {
       // Frais de litige ET frais de virement sont des frais, pas un litige ni un virement.
       expect(r.ledger.fees).toBe(-18.97);
       expect(r.ledger.net).toBe(-20.46);
-      expect(r.ledger.transfersReceived).toBe(2000);
+      // 2 000 € + 31,24 $ × 0,86 ; le retrait échoué s'annule avec son retour.
+      expect(r.ledger.transfersReceived).toBe(2026.87);
 
       // ── Le type inconnu est COMPTÉ, signalé, et hors du net ───────────────
       expect(r.ledger.unclassified).toEqual({ count: 1, amount: 25, lineTypes: ["referral_bonus"] });
@@ -164,7 +189,7 @@ test.describe("Compta", () => {
       const d = await admin.query(api.compta.getComptaMonth, { month: "2025-09" });
       expect(d.reconciliation.opening).toBe(4.99);
       expect(d.reconciliation.otherMovements).toBe(0);
-      expect(d.reconciliation.closing).toBe(-1990.47);
+      expect(d.reconciliation.closing).toBe(-2017.34);
       expect(
         Math.round((d.reconciliation.opening! + d.reconciliation.net - d.reconciliation.transfersReceived) * 100) / 100,
       ).toBe(d.reconciliation.closing);
@@ -175,8 +200,13 @@ test.describe("Compta", () => {
 
       // ── Journal du mois : toutes les lignes, sans donnée personnelle ─────
       const j = await admin.query(api.compta.getComptaJournal, { month: "2025-09" });
-      expect(j.ledger).toHaveLength(12);
-      expect(j.ledger.find((l) => l.lineType === "withdrawal")?.reference).toBe(`wdrl_e2e_${ts}`);
+      expect(j.ledger).toHaveLength(15);
+      expect(
+        j.ledger
+          .filter((l) => l.lineType === "withdrawal")
+          .map((l) => l.reference)
+          .sort(),
+      ).toEqual([`wdrl_e2e_${ts}`, `wdrl_fail_${ts}`, `wdrl_usd_${ts}`].sort());
     } finally {
       await restore();
     }
@@ -239,6 +269,95 @@ test.describe("Compta", () => {
       expect((await admin.query(api.compta.listComptaCharges, { month: "2025-11" })).charges).toEqual([]);
       // Présence : la charge d'octobre, elle, est toujours là.
       expect((await admin.query(api.compta.listComptaCharges, { month: "2025-10" })).charges).toHaveLength(1);
+    } finally {
+      await restore();
+    }
+  });
+
+  test("ventilation : parts, charge comptée, scans réels, retrait échoué", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { restore } = await setup(ts);
+    try {
+      const list = await admin.query(api.compta.listComptaTransfers, { month: "2025-09" });
+      const w = list.transfers.find((x) => x.sourceId === `wdrl_e2e_${ts}`)!;
+      const usd = list.transfers.find((x) => x.sourceId === `wdrl_usd_${ts}`)!;
+      const echec = list.transfers.find((x) => x.sourceId === `wdrl_fail_${ts}`)!;
+      // Le retrait échoué est rendu, marqué, daté de son retour ; le dollar est converti.
+      expect(echec).toMatchObject({ failed: true, returnedDay: "2025-09-01" });
+      expect(w.failed).toBe(false);
+      expect(usd).toMatchObject({ amount: 31.24, currency: "usd", converted: 26.87, failed: false });
+      await expect(
+        admin.mutation(api.compta.ventilateTransfer, { lineId: echec._id, parts: [] }),
+      ).rejects.toThrow(/ERR_COMPTA_TRANSFER_FAILED/);
+
+      // Refus : des parts au-delà du virement, une part comptée sans motif.
+      await expect(
+        admin.mutation(api.compta.ventilateTransfer, {
+          lineId: w._id,
+          parts: [{ id: "a", amount: 2000.01, usage: "pay" }],
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTS_INVALID/);
+      await expect(
+        admin.mutation(api.compta.ventilateTransfer, {
+          lineId: w._id,
+          parts: [{ id: "a", amount: 300, usage: "business", countedAs: "ads" }],
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTS_INVALID/);
+
+      const avant = (await row(2025, "2025-09")).r;
+      expect(avant).toMatchObject({ other: 0, scans: 948.6, scanSource: "estimate" });
+
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [
+          { id: "p1", amount: 1500, usage: "pay", note: "Ma paie de septembre" },
+          { id: "p2", amount: 300, usage: "business", note: "TikTok Ads", countedAs: "ads" },
+          { id: "p3", amount: 200, usage: "business", note: "API HIKER", countedAs: "scans" },
+        ],
+      });
+      const apres = (await row(2025, "2025-09")).r;
+      // TikTok en Autres ; Hiker REMPLACE l'estimation des scans ; le reste ne touche rien.
+      expect(apres).toMatchObject({ other: 300, scans: 200, scanSource: "paid", scanEstimate: 948.6 });
+      expect(apres.result).toBe(Math.round((avant.result + 948.6 - 200 - 300) * 100) / 100);
+      expect(apres.ledger.transfersReceived).toBe(avant.ledger.transfersReceived);
+
+      const charges = await admin.query(api.compta.listComptaCharges, { month: "2025-09" });
+      const tiktok = charges.charges.find((c) => c.label === "TikTok Ads")!;
+      expect(tiktok).toMatchObject({ category: "ads", amount: 300, day: "2025-09-25", transferLineId: w._id });
+      expect(charges.charges.find((c) => c.label === "API HIKER")).toMatchObject({ category: "scans" });
+      // Une charge liée ne se modifie qu'en passant par le virement.
+      await expect(
+        admin.mutation(api.compta.updateComptaCharge, {
+          chargeId: tiktok.chargeId!,
+          day: "2025-09-25",
+          label: "TikTok",
+          category: "ads",
+          amount: 1,
+          currency: "eur",
+          recurring: false,
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_CHARGE_LINKED/);
+      await expect(
+        admin.mutation(api.compta.deleteComptaCharge, { chargeId: tiktok.chargeId! }),
+      ).rejects.toThrow(/ERR_COMPTA_CHARGE_LINKED/);
+
+      // Décompter TikTok supprime SA charge, garde celle de Hiker.
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [
+          { id: "p1", amount: 1500, usage: "pay", note: "Ma paie de septembre" },
+          { id: "p2", amount: 300, usage: "business", note: "TikTok Ads" },
+          { id: "p3", amount: 200, usage: "business", note: "API HIKER", countedAs: "scans" },
+        ],
+      });
+      const restes = (await admin.query(api.compta.listComptaCharges, { month: "2025-09" })).charges;
+      expect(restes.map((c) => c.label)).toEqual(["API HIKER"]);
+
+      // Effacer la ventilation : plus de charge liée, l'estimation revient.
+      await admin.mutation(api.compta.ventilateTransfer, { lineId: w._id, parts: [] });
+      expect((await admin.query(api.compta.listComptaCharges, { month: "2025-09" })).charges).toEqual([]);
+      expect((await row(2025, "2025-09")).r).toMatchObject({ scans: 948.6, scanSource: "estimate" });
     } finally {
       await restore();
     }
@@ -326,21 +445,47 @@ test.describe("Compta", () => {
       await expect(sept).toContainText(/50,40\s*€/);
       await expect(banner).toHaveCount(0);
 
-      // ── Annoter le virement ────────────────────────────────────────────────
+      // ── Le bloc virements : échoué grisé et non compté, dollar converti ─────
       const transfers = page.getByTestId("compta-transfers");
       await transfers.getByRole("combobox").click();
       await page.getByRole("option", { name: "septembre 2025" }).click();
+      const echec = page.getByTestId(`compta-transfer-wdrl_fail_${ts}`);
+      await expect(echec).toContainText("Échoué");
+      await expect(echec).toContainText("Revenu sur Whop le 01/09, non compté");
+      await expect(page.getByTestId(`compta-transfer-wdrl_usd_${ts}`)).toContainText(/≈\s*26,87\s*€/);
+      // 2 000 € + 26,87 € ; jamais les 304,47 € échoués, jamais 31,24 « € ».
+      await expect(page.getByTestId("compta-transfers-total")).toHaveText(/2\s?026,87\s*€/);
+
+      // ── Ventiler le virement de 2 000 € ────────────────────────────────────
       const virement = page.getByTestId(`compta-transfer-wdrl_e2e_${ts}`);
-      await expect(virement).toContainText(/2\s?000,00\s*€/);
       await virement.getByRole("button", { name: "Dire à quoi il a servi" }).click();
-      await page.getByTestId("compta-transfer-usage").click();
-      await page.getByRole("option", { name: "Rémunération" }).click();
-      await page.getByLabel("Motif (libre)").fill("Ma paie de septembre");
-      await page.getByRole("button", { name: "Enregistrer" }).click();
-      await expect(virement).toContainText("Ma paie de septembre");
-      await expect(virement).toContainText("Rémunération");
-      // Le résultat ne bouge pas d'un centime avec l'annotation.
-      await expect(sept).toContainText(/−944,06\s*€/);
+      const part0 = page.getByTestId("compta-part-0");
+      await part0.getByLabel("Montant").fill("1500,00");
+      await chooseUsage(page, part0, "Rémunération");
+      await part0.getByLabel("Motif").fill("Ma paie de septembre");
+      await page.getByRole("button", { name: "Ajouter une part" }).click();
+      const part1 = page.getByTestId("compta-part-1");
+      // La nouvelle part reprend le reste.
+      await expect(part1.getByLabel("Montant")).toHaveValue("500,00");
+      await chooseUsage(page, part1, "Charges de l'activité");
+      await part1.getByLabel("Motif").fill("TikTok Ads");
+      await part1.getByRole("switch", { name: "Compter en charge" }).click();
+      const effet = page.getByTestId("compta-ventilation-effect");
+      await expect(effet).toContainText(/Autres charges : \+ 500,00\s*€ \(TikTok Ads, Publicité\)/);
+      await expect(effet).toContainText(/Résultat : −500,00\s*€/);
+      await page.getByTestId("compta-ventilation-save").click();
+      await expect(virement).toContainText("Ventilé · 2 parts");
+      await expect(transfers).toContainText("compté en charge · Publicité");
+      // Seule la part comptée touche le résultat : −944,06 € − 500 €.
+      await expect(sept).toContainText(/−1\s?444,06\s*€/);
+      // La charge liée apparaît dans Autres charges, non modifiable ici.
+      const charges = page.getByTestId("compta-charges");
+      await charges.getByRole("combobox").click();
+      await page.getByRole("option", { name: "septembre 2025" }).click();
+      const tiktok = page.getByTestId("compta-charge-TikTok Ads");
+      await expect(tiktok).toContainText("virement du 25/09");
+      await expect(tiktok).toContainText("se modifie dans la ventilation");
+      await expect(tiktok.getByRole("button", { name: "Supprimer" })).toHaveCount(0);
 
       // ── Exporter le récapitulatif de septembre ────────────────────────────
       await sept.getByRole("button", { name: /Exporter septembre 2025 en CSV/ }).click();
@@ -355,13 +500,50 @@ test.describe("Compta", () => {
       expect(csv.charCodeAt(0)).toBe(0xfeff);
       expect(csv).toContain('"2025-09";"CA brut encaissé";"50,40"');
       expect(csv).toContain('"2025-09";"Net Whop";"4,54"');
-      expect(csv).toContain('"2025-09";"Virements reçus";"2000,00"');
+      expect(csv).toContain('"2025-09";"Virements reçus";"2026,87"');
+      expect(csv).toContain('"2025-09";"Autres charges — Publicité";"-500,00"');
       expect(csv).not.toContain("Non classé");
 
       // ── Sans Whop, plus d'entrée Compta dans le menu ─────────────────────
       const projectId = await admin.getProjectId();
       await admin.mutation(api.whopSync.e2eSetProjectWhop, { secret: E2E_SECRET, projectId, whop: undefined });
       await expect(page.getByRole("link", { name: "Compta" })).toHaveCount(0, { timeout: 15_000 });
+    } finally {
+      await restore();
+    }
+  });
+
+  test("écran : la devise attend le premier import, l'alerte ne vient qu'après", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { projectId, restore } = await setup(ts);
+    try {
+      // Projet relié à Whop, taux posés, grand livre JAMAIS lu — l'état de Snytch
+      // le jour où l'onglet est apparu : « indéterminée » accusait des devises
+      // « encaissées sans taux » alors que rien n'avait encore été lu.
+      await admin.mutation(api.compta.e2eResetCompta, { secret: E2E_SECRET, projectId });
+      await page.goto(adminPath("/compta"));
+      const status = page.getByTestId("compta-sync-status");
+      await expect(status).toContainText("Grand livre Whop jamais lu", { timeout: 20_000 });
+      await expect(status).not.toContainText("Devise de référence indéterminée");
+      const charges = page.getByTestId("compta-charges");
+      await expect(charges.getByTestId("compta-charges-no-currency")).toContainText("après le premier import");
+      await expect(charges.getByRole("button", { name: "Ajouter une charge" })).toBeDisabled();
+
+      // Un import qui voit deux devises sans taux (euro ET franc suisse) : là,
+      // l'alerte est vraie, et elle apparaît.
+      await admin.mutation(api.compta.e2eSeedLedgerLines, {
+        secret: E2E_SECRET,
+        projectId,
+        lines: [
+          { whopId: `line_e2e_${ts}_eur`, lineType: "payment_gross", amount: 9.99, currency: "eur", postedAt: at("2025-09-12T09:30:00Z"), paymentId: `pay_eur_${ts}`, label: "Snytch Pro — Hebdo" },
+          { whopId: `line_e2e_${ts}_chf`, lineType: "payment_gross", amount: 10.9, currency: "chf", postedAt: at("2025-09-13T18:05:00Z"), paymentId: `pay_chf_${ts}`, label: "Snytch Pro — Wöchentlich" },
+        ],
+      });
+      await admin.mutation(api.compta.e2eSetComptaState, { secret: E2E_SECRET, projectId, lastSyncAt: Date.now() - 7 * 60_000 });
+      await expect(status).toContainText("Devise de référence indéterminée");
+      await expect(status).not.toContainText("jamais lu");
+      await expect(charges.getByTestId("compta-charges-no-currency")).toContainText("Pose d'abord les taux du projet");
     } finally {
       await restore();
     }

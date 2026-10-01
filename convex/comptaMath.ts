@@ -416,7 +416,12 @@ export function creatorCashOuts(row: PaymentRowLike): CashOut[] {
 
 // ─── Autres charges : les récurrences ────────────────────────────────────────
 
-export const CHARGE_CATEGORIES = ["hosting", "tools", "subscriptions", "other"] as const;
+/**
+ * Catégories d'une charge. `scans` est à part : une charge « scans » (paiement
+ * réel au fournisseur des scans) n'entre PAS dans « Autres charges » mais dans
+ * la colonne Scans, où elle remplace l'estimation `cost_usd` du mois.
+ */
+export const CHARGE_CATEGORIES = ["hosting", "tools", "subscriptions", "ads", "scans", "other"] as const;
 export type ChargeCategory = (typeof CHARGE_CATEGORIES)[number];
 export function isChargeCategory(x: string): x is ChargeCategory {
   return (CHARGE_CATEGORIES as readonly string[]).includes(x);
@@ -614,6 +619,93 @@ export const TRANSFER_USAGES = [
 export type TransferUsage = (typeof TRANSFER_USAGES)[number];
 export function isTransferUsage(x: string): x is TransferUsage {
   return (TRANSFER_USAGES as readonly string[]).includes(x);
+}
+
+// ─── Ventilation d'un virement ───────────────────────────────────────────────
+
+/**
+ * Une PART d'un virement Whop → banque : un montant (devise du virement), à quoi
+ * il a servi, et — pour une dépense de l'activité seulement — la catégorie sous
+ * laquelle il est COMPTÉ EN CHARGE (il rejoint alors les charges du mois).
+ */
+export type TransferPart = {
+  id: string;
+  amount: number;
+  usage: TransferUsage;
+  note?: string;
+  countedAs?: ChargeCategory;
+};
+
+export const MAX_TRANSFER_PARTS = 20;
+
+/**
+ * Raison du refus d'une ventilation, ou `null` si elle est valide. Les parts
+ * peuvent laisser un reste (« sans motif »), jamais dépasser le virement. Seule
+ * une part « Charges de l'activité » se compte en charge, et elle doit dire ce
+ * qu'elle a payé : c'est le libellé de la charge créée.
+ */
+export function transferPartsError(
+  parts: readonly { id: string; amount: number; usage: string; note?: string; countedAs?: string }[],
+  total: number,
+): "count" | "id" | "amount" | "sum" | "usage" | "counted" | "note" | null {
+  if (parts.length > MAX_TRANSFER_PARTS) return "count";
+  const ids = new Set<string>();
+  let sum = 0;
+  for (const p of parts) {
+    if (p.id.trim() === "" || p.id.length > 40 || ids.has(p.id)) return "id";
+    ids.add(p.id);
+    if (!Number.isFinite(p.amount) || p.amount <= 0) return "amount";
+    if (!isTransferUsage(p.usage)) return "usage";
+    if ((p.note ?? "").length > 500) return "note";
+    if (p.countedAs !== undefined) {
+      if (p.usage !== "business" || !isChargeCategory(p.countedAs)) return "counted";
+      if ((p.note ?? "").trim() === "") return "note";
+    }
+    sum += p.amount;
+  }
+  if (sum > total + 0.005) return "sum";
+  return null;
+}
+
+/**
+ * Les parts d'un virement. Une annotation d'avant la ventilation (un usage et
+ * un motif sur tout le virement) se lit comme UNE part du montant entier.
+ */
+export function transferPartsOf(
+  line: {
+    usage?: string;
+    note?: string;
+    parts?: readonly { id: string; amount: number; usage: string; note?: string; countedAs?: string }[];
+  },
+  total: number,
+): TransferPart[] {
+  if (line.parts && line.parts.length > 0) {
+    return line.parts
+      .filter((p) => isTransferUsage(p.usage))
+      .map((p) => ({
+        id: p.id,
+        amount: p.amount,
+        usage: p.usage as TransferUsage,
+        ...(p.note ? { note: p.note } : {}),
+        ...(p.countedAs && isChargeCategory(p.countedAs) ? { countedAs: p.countedAs } : {}),
+      }));
+  }
+  if (line.usage && isTransferUsage(line.usage)) {
+    return [{ id: "legacy", amount: total, usage: line.usage, ...(line.note ? { note: line.note } : {}) }];
+  }
+  if (line.note) return [{ id: "legacy", amount: total, usage: "other", note: line.note }];
+  return [];
+}
+
+/**
+ * Un retrait a-t-il ÉCHOUÉ ? Whop le rend sur le solde par une ligne
+ * `withdrawal_reversal` qui porte le MÊME identifiant de retrait (`wdrl_…`) —
+ * c'est le signal qui fait foi. À défaut, le statut du retrait (annulé, refusé,
+ * échoué, retourné).
+ */
+export function isFailedWithdrawal(status: string | null | undefined, hasReversal: boolean): boolean {
+  if (hasReversal) return true;
+  return status !== null && status !== undefined && /(fail|cancel|denied|revers|return)/i.test(status);
 }
 
 // ─── Scans (PostHog cost_usd) ────────────────────────────────────────────────

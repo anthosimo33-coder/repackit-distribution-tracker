@@ -25,7 +25,7 @@ import {
   isBuiltinLineType,
   isChargeCategory,
   isComptaBucket,
-  isTransferUsage,
+  isFailedWithdrawal,
   isValidLineType,
   ledgerTotals,
   parisDayKey,
@@ -37,6 +37,8 @@ import {
   scanCostUsd,
   thresholdView,
   totalsByType,
+  transferPartsError,
+  transferPartsOf,
   type ComptaBucket,
   type ComptaFx,
   type LedgerDayCell,
@@ -174,6 +176,8 @@ type ChargeView = {
   planned: boolean;
   /** Dernière charge saisie d'une série « chaque mois » : la supprimer arrête la série. */
   seriesTail: boolean;
+  /** Charge née de la ventilation d'un virement : elle se modifie depuis lui. */
+  transferLineId: Id<"whopLedgerLines"> | null;
 };
 
 async function chargesOf(
@@ -212,6 +216,7 @@ async function chargesOf(
     recurring: c.recurring,
     planned: false,
     seriesTail: tails.get(c.seriesId)?.id === c.id && c.recurring,
+    transferLineId: c.doc.transferLineId ?? null,
   }));
   const planned: ChargeView[] = plannedOccurrences(like, currentMonth).map((p) => ({
     id: `planned:${p.source.id}:${p.month}`,
@@ -226,6 +231,7 @@ async function chargesOf(
     recurring: true,
     planned: true,
     seriesTail: false,
+    transferLineId: null,
   }));
   return [...real, ...planned].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
 }
@@ -246,8 +252,62 @@ function chargeOut(c: ChargeView, fx: ComptaFx) {
     recurring: c.recurring,
     planned: c.planned,
     seriesTail: c.seriesTail,
+    transferLineId: c.transferLineId,
     converted: conv === null ? null : round2(conv),
   };
+}
+
+/**
+ * Scans d'un mois : les PAIEMENTS RÉELS au fournisseur (charges de catégorie
+ * « scans », saisies ou comptées depuis un virement) quand il y en a ; sinon
+ * l'estimation `cost_usd` de PostHog. L'estimation reste rendue pour comparer.
+ */
+function monthScans(
+  monthCharges: readonly ChargeView[],
+  scanDoc: Doc<"comptaMonths">["scan"] | undefined,
+  fx: ComptaFx,
+): {
+  value: number | null;
+  source: "paid" | "estimate" | null;
+  estimate: number | null;
+  paidUnconverted: boolean;
+} {
+  const usdRate = rateOf("usd", fx);
+  const scanUsd = scanCostUsd(scanDoc);
+  const estimate =
+    scanUsd === null ? null : scanUsd === 0 ? 0 : usdRate === null ? null : round2(scanUsd * usdRate);
+  const paid = monthCharges.filter((c) => c.category === "scans");
+  if (paid.length === 0) {
+    return { value: estimate, source: scanDoc ? "estimate" : null, estimate, paidUnconverted: false };
+  }
+  let sum = 0;
+  let unconverted = false;
+  for (const c of paid) {
+    const conv = convert(c.amount, c.currency, fx);
+    if (conv === null) unconverted = true;
+    else sum += conv;
+  }
+  return { value: unconverted ? null : round2(sum), source: "paid", estimate, paidUnconverted: unconverted };
+}
+
+/** Retours de retraits échoués : identifiant `wdrl_…` → date du retour. */
+async function reversalsBySource(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<Map<string, number>> {
+  const lines = await ctx.db
+    .query("whopLedgerLines")
+    .withIndex("by_project_type_posted", (q) =>
+      q.eq("projectId", projectId).eq("lineType", "withdrawal_reversal"),
+    )
+    .collect();
+  const out = new Map<string, number>();
+  for (const l of lines) {
+    if (!l.sourceId) continue;
+    const cur = out.get(l.sourceId);
+    if (cur === undefined || l.postedAt < cur) out.set(l.sourceId, l.postedAt);
+  }
+  return out;
 }
 
 // ─── Vue d'ensemble d'une année ─────────────────────────────────────────────
@@ -271,7 +331,6 @@ export const getComptaOverview = permissionQuery("business.read")({
     const charges = await chargesOf(ctx, ctx.projectId, currentMonth);
     const payCurrency = project.payCurrency ?? null;
     const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
-    const usdRate = rateOf("usd", fx);
 
     // Mois affichés : ceux de l'année qui ont quelque chose, bornés au mois courant.
     const keys = new Set<string>();
@@ -288,13 +347,13 @@ export const getComptaOverview = permissionQuery("business.read")({
         outs.filter((o) => o.month === month).reduce((s, o) => s + o.amount, 0),
       );
       const creators = creatorsPay === 0 ? 0 : payRate === null ? null : round2(creatorsPay * payRate);
-      const scanUsd = scanCostUsd(doc?.scan);
-      const scans =
-        scanUsd === null ? null : scanUsd === 0 ? 0 : usdRate === null ? null : round2(scanUsd * usdRate);
+      const monthCharges = charges.filter((c) => c.month === month);
+      const sc = monthScans(monthCharges, doc?.scan, fx);
+      const scans = sc.value;
       let other = 0;
       let otherUnconverted = false;
       let plannedCount = 0;
-      for (const c of charges.filter((c) => c.month === month)) {
+      for (const c of monthCharges.filter((c) => c.category !== "scans")) {
         const conv = convert(c.amount, c.currency, fx);
         if (conv === null) otherUnconverted = true;
         else other += conv;
@@ -305,7 +364,11 @@ export const getComptaOverview = permissionQuery("business.read")({
       if (ledger.unclassified.count > 0) incomplete.push("unclassified");
       if (ledger.unconverted.length > 0) incomplete.push("ledgerCurrency");
       if (creators === null) incomplete.push("creatorsCurrency");
-      if (scans === null) incomplete.push(doc?.scan ? "scanUnknown" : "scanMissing");
+      if (scans === null) {
+        incomplete.push(
+          sc.source === "paid" ? "scanPaidCurrency" : doc?.scan ? "scanUnknown" : "scanMissing",
+        );
+      }
       if (otherUnconverted) incomplete.push("otherCurrency");
       const result = round2(ledger.net - (creators ?? 0) - (scans ?? 0) - other);
       return {
@@ -314,6 +377,8 @@ export const getComptaOverview = permissionQuery("business.read")({
         ledger,
         creators,
         scans,
+        scanSource: sc.source,
+        scanEstimate: sc.estimate,
         scanFrozen: doc?.scan?.frozen ?? false,
         other,
         plannedCount,
@@ -357,13 +422,19 @@ export const getComptaOverview = permissionQuery("business.read")({
       const conv = convert(b.amount, b.currency, fx);
       return { currency: b.currency, amount: b.amount, converted: conv === null ? null : round2(conv) };
     });
-    const lastTransfer = await ctx.db
+    // Dernier virement RÉUSSI : un retrait échoué est revenu sur Whop.
+    const reversals = await reversalsBySource(ctx, ctx.projectId);
+    const recentTransfers = await ctx.db
       .query("whopLedgerLines")
       .withIndex("by_project_type_posted", (q) =>
         q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"),
       )
       .order("desc")
-      .first();
+      .take(50);
+    const lastTransfer =
+      recentTransfers.find(
+        (l) => !isFailedWithdrawal(l.sourceStatus, l.sourceId ? reversals.has(l.sourceId) : false),
+      ) ?? null;
 
     // Types non classés, sur TOUT l'historique : une règle vaut pour le type.
     const pending = new Map<string, { count: number; amount: number; currency: string; months: Set<string> }>();
@@ -522,17 +593,16 @@ export const getComptaMonth = permissionQuery("business.read")({
       : [];
 
     const currentMonth = parisDayKey(Date.now()).slice(0, 7);
-    const charges = (await chargesOf(ctx, ctx.projectId, currentMonth))
-      .filter((c) => c.month === month)
-      .map((c) => chargeOut(c, fx));
+    const monthCharges = (await chargesOf(ctx, ctx.projectId, currentMonth)).filter(
+      (c) => c.month === month,
+    );
+    const sc = monthScans(monthCharges, doc?.scan, fx);
+    // Les paiements au fournisseur des scans vivent dans le panneau Scans, pas
+    // dans « Autres charges » : ils remplacent l'estimation du mois.
+    const charges = monthCharges.filter((c) => c.category !== "scans").map((c) => chargeOut(c, fx));
+    const scanPaid = monthCharges.filter((c) => c.category === "scans").map((c) => chargeOut(c, fx));
 
-    const { start, end } = monthBounds(month);
-    const transferLines = await ctx.db
-      .query("whopLedgerLines")
-      .withIndex("by_project_type_posted", (q) =>
-        q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal").gte("postedAt", start).lt("postedAt", end),
-      )
-      .collect();
+    const transfers = await transfersOf(ctx, ctx.projectId, month, fx);
 
     const foreign = balanceByCurrency(cells)
       .filter((b) => b.currency !== fx.target)
@@ -546,22 +616,30 @@ export const getComptaMonth = permissionQuery("business.read")({
       types,
       ledger,
       foreign,
-      reconciliation: {
-        opening: sumConv(openingByCur),
-        closing: sumConv(closingByCur),
-        net: ledger.net,
-        transfersReceived: ledger.transfersReceived,
+      reconciliation: (() => {
+        const opening = sumConv(openingByCur);
         // Ce qui bouge le solde sans entrer au résultat : réserves, conversions,
         // lignes non classées. Sans ce terme, l'égalité serait fausse dès qu'il y
         // en a — et elle se lirait comme une erreur de la compta.
-        otherMovements: round2(ledger.internal + ledger.unclassified.amount),
-      },
+        const otherMovements = round2(ledger.internal + ledger.unclassified.amount);
+        // La clôture est la somme des termes AFFICHÉS : chaque terme est arrondi
+        // au centime, et une clôture convertie à part pouvait s'en écarter d'un
+        // centime — l'égalité de l'écran aurait été fausse.
+        const closing =
+          opening === null || sumConv(closingByCur) === null
+            ? null
+            : round2(opening + ledger.net - ledger.transfersReceived + otherMovements);
+        return { opening, closing, net: ledger.net, transfersReceived: ledger.transfersReceived, otherMovements };
+      })(),
       creators,
       creatorsTotal: {
         pay: round2(outs.reduce((s, o) => s + o.amount, 0)),
         converted: payRate === null ? null : round2(outs.reduce((s, o) => s + o.amount, 0) * payRate),
         rate: payRate,
       },
+      scanSource: sc.source,
+      scanPaid,
+      scanTotal: sc.value,
       scan: scan
         ? {
             runs: scan.runs,
@@ -577,40 +655,74 @@ export const getComptaMonth = permissionQuery("business.read")({
           }
         : null,
       charges,
-      transfers: transferLines.map(transferView),
+      transfers,
     };
   },
 });
 
-function transferView(l: Doc<"whopLedgerLines">) {
-  return {
-    _id: l._id,
-    postedAt: l.postedAt,
-    day: parisDayKey(l.postedAt),
-    // Un retrait est négatif dans le grand livre : il est montré « reçu ».
-    amount: round2(-l.amount),
-    currency: l.currency,
-    destination: l.destination ?? null,
-    sourceId: l.sourceId ?? null,
-    status: l.sourceStatus ?? null,
-    usage: l.usage ?? null,
-    note: l.note ?? null,
-    annotatedAt: l.annotatedAt ?? null,
-  };
+/**
+ * Les virements Whop → banque d'un mois, avec leur ventilation. Un retrait
+ * ÉCHOUÉ (revenu sur Whop) est rendu marqué : l'écran le montre, ne le compte
+ * pas, et ne propose pas de dire à quoi il a servi.
+ */
+async function transfersOf(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+  month: string,
+  fx: ComptaFx,
+) {
+  const { start, end } = monthBounds(month);
+  const lines = await ctx.db
+    .query("whopLedgerLines")
+    .withIndex("by_project_type_posted", (q) =>
+      q.eq("projectId", projectId).eq("lineType", "withdrawal").gte("postedAt", start).lt("postedAt", end),
+    )
+    .collect();
+  const reversals = await reversalsBySource(ctx, projectId);
+  return lines
+    .sort((a, b) => a.postedAt - b.postedAt)
+    .map((l) => {
+      // Un retrait est négatif dans le grand livre : il est montré « reçu ».
+      const amount = round2(-l.amount);
+      const returnedAt = l.sourceId ? reversals.get(l.sourceId) : undefined;
+      const failed = isFailedWithdrawal(l.sourceStatus, returnedAt !== undefined);
+      const conv = convert(amount, l.currency, fx);
+      const parts = failed ? [] : transferPartsOf(l, amount);
+      return {
+        _id: l._id,
+        postedAt: l.postedAt,
+        day: parisDayKey(l.postedAt),
+        amount,
+        currency: l.currency,
+        converted: conv === null ? null : round2(conv),
+        destination: l.destination ?? null,
+        sourceId: l.sourceId ?? null,
+        status: l.sourceStatus ?? null,
+        failed,
+        returnedDay: returnedAt === undefined ? null : parisDayKey(returnedAt),
+        parts: parts.map((p) => {
+          const pc = convert(p.amount, l.currency, fx);
+          return {
+            id: p.id,
+            amount: p.amount,
+            usage: p.usage,
+            note: p.note ?? null,
+            countedAs: p.countedAs ?? null,
+            converted: pc === null ? null : round2(pc),
+          };
+        }),
+        annotatedAt: l.annotatedAt ?? null,
+      };
+    });
 }
 
 /** Virements Whop → banque d'un mois (bloc « Virements »). */
 export const listComptaTransfers = permissionQuery("business.read")({
   args: { month: v.string() },
   handler: async (ctx, { month }) => {
-    const { start, end } = monthBounds(month);
-    const lines = await ctx.db
-      .query("whopLedgerLines")
-      .withIndex("by_project_type_posted", (q) =>
-        q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal").gte("postedAt", start).lt("postedAt", end),
-      )
-      .collect();
-    return lines.sort((a, b) => a.postedAt - b.postedAt).map(transferView);
+    const months = await allMonths(ctx, ctx.projectId);
+    const { fx } = await loadContext(ctx, ctx.projectId, months);
+    return { currency: fx.target, transfers: await transfersOf(ctx, ctx.projectId, month, fx) };
   },
 });
 
@@ -648,6 +760,7 @@ export const getComptaJournal = permissionQuery("business.read")({
         q.eq("projectId", ctx.projectId).gte("postedAt", start).lt("postedAt", end),
       )
       .collect();
+    const reversals = await reversalsBySource(ctx, ctx.projectId);
     const outs = (await creatorOuts(ctx, ctx.projectId)).filter((o) => o.month === month);
     const names = new Map<string, string>();
     for (const id of new Set(outs.map((o) => o.creatorId))) {
@@ -671,8 +784,16 @@ export const getComptaJournal = permissionQuery("business.read")({
         reference: l.paymentId ?? l.sourceId ?? l.whopId,
         label: l.label ?? null,
         destination: l.destination ?? null,
-        usage: l.usage ?? null,
-        note: l.note ?? null,
+        // Ventilation d'un retrait (vide pour un retrait échoué ou une autre ligne).
+        parts:
+          l.lineType === "withdrawal" &&
+          !isFailedWithdrawal(l.sourceStatus, l.sourceId ? reversals.has(l.sourceId) : false)
+            ? transferPartsOf(l, -l.amount).map((p) => ({
+                amount: p.amount,
+                usage: p.usage,
+                note: p.note ?? null,
+              }))
+            : [],
       })),
       creators: outs
         .sort((a, b) => a.at - b.at)
@@ -754,31 +875,105 @@ export const removeLineRule = permissionMutation("business.read")({
 });
 
 /**
- * Dit à quoi a servi un retrait Whop → banque. Annotation seule : le résultat
- * n'en dépend jamais (cf comptaMath.TRANSFER_USAGES).
+ * VENTILE un retrait Whop → banque : à quoi a servi chaque part. Une part
+ * « Charges de l'activité » peut être COMPTÉE EN CHARGE (catégorie) : elle
+ * devient une `comptaCharges` liée, au jour du virement, dans sa devise. Les
+ * charges liées sont réconciliées à chaque enregistrement (créées, mises à
+ * jour, supprimées) : la ventilation est leur seule source.
+ *
+ * Le reste du virement (rémunération, mise de côté…) ne touche jamais le
+ * résultat : c'est de l'argent qui quitte Whop, pas une dépense. Une liste vide
+ * efface la ventilation.
  */
-export const annotateTransfer = permissionMutation("business.read")({
+export const ventilateTransfer = permissionMutation("business.read")({
   args: {
     lineId: v.id("whopLedgerLines"),
-    usage: v.union(v.string(), v.null()),
-    note: v.union(v.string(), v.null()),
+    parts: v.array(
+      v.object({
+        id: v.string(),
+        amount: v.number(),
+        usage: v.string(),
+        note: v.optional(v.string()),
+        countedAs: v.optional(v.string()),
+      }),
+    ),
   },
-  handler: async (ctx, { lineId, usage, note }) => {
+  handler: async (ctx, { lineId, parts }) => {
     const line = await ctx.db.get(lineId);
     if (!line || line.projectId !== ctx.projectId || line.lineType !== "withdrawal") {
       throw err(ERR.COMPTA_TRANSFER_NOT_FOUND, "Ce virement est introuvable.");
     }
-    if (usage !== null && !isTransferUsage(usage)) {
-      throw err(ERR.COMPTA_USAGE_INVALID, "Usage de virement inconnu.");
+    const reversal = line.sourceId
+      ? (
+          await ctx.db
+            .query("whopLedgerLines")
+            .withIndex("by_project_type_posted", (q) =>
+              q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal_reversal"),
+            )
+            .collect()
+        ).some((r) => r.sourceId === line.sourceId)
+      : false;
+    if (isFailedWithdrawal(line.sourceStatus, reversal)) {
+      throw err(ERR.COMPTA_TRANSFER_FAILED, "Ce virement a échoué : rien à ventiler.");
     }
-    const text = note?.trim().slice(0, 500) ?? "";
+    const clean = parts.map((p) => ({
+      id: p.id.trim(),
+      amount: round2(p.amount),
+      usage: p.usage,
+      ...(p.note?.trim() ? { note: p.note.trim() } : {}),
+      ...(p.countedAs ? { countedAs: p.countedAs } : {}),
+    }));
+    const total = round2(-line.amount);
+    const reason = transferPartsError(clean, total);
+    if (reason === "usage") throw err(ERR.COMPTA_USAGE_INVALID, "Usage de virement inconnu.");
+    if (reason !== null) {
+      throw err(ERR.COMPTA_PARTS_INVALID, "Ventilation invalide.", { reason });
+    }
+    const now = Date.now();
     await ctx.db.patch(lineId, {
-      usage: usage ?? undefined,
-      note: text === "" ? undefined : text,
-      annotatedAt: Date.now(),
+      parts: clean.length > 0 ? clean : undefined,
+      usage: undefined,
+      note: undefined,
+      annotatedAt: now,
       annotatedBy: ctx.userId,
     });
-    return { ok: true as const };
+
+    // Réconciliation des charges liées : une par part comptée, rien d'autre.
+    const day = parisDayKey(line.postedAt);
+    const existing = await ctx.db
+      .query("comptaCharges")
+      .withIndex("by_project_transfer", (q) =>
+        q.eq("projectId", ctx.projectId).eq("transferLineId", lineId),
+      )
+      .collect();
+    const counted = clean.filter((p) => p.countedAs !== undefined);
+    for (const p of counted) {
+      const fields = {
+        day,
+        month: day.slice(0, 7),
+        label: p.note!,
+        category: p.countedAs!,
+        amount: p.amount,
+        currency: line.currency,
+        recurring: false,
+      };
+      const doc = existing.find((c) => c.transferPartId === p.id);
+      if (doc) await ctx.db.patch(doc._id, { ...fields, updatedAt: now });
+      else {
+        await ctx.db.insert("comptaCharges", {
+          projectId: ctx.projectId,
+          ...fields,
+          transferLineId: lineId,
+          transferPartId: p.id,
+          createdAt: now,
+          createdBy: ctx.userId,
+        });
+      }
+    }
+    for (const c of existing) {
+      if (!counted.some((p) => p.id === c.transferPartId)) await ctx.db.delete(c._id);
+    }
+    return { ok: true as const, counted: counted.length };
   },
 });
 
@@ -846,6 +1041,9 @@ export const updateComptaCharge = permissionMutation("business.read")({
     if (!doc || doc.projectId !== ctx.projectId) {
       throw err(ERR.COMPTA_CHARGE_NOT_FOUND, "Cette charge n'existe plus.");
     }
+    if (doc.transferLineId) {
+      throw err(ERR.COMPTA_CHARGE_LINKED, "Charge issue d'un virement : à modifier depuis lui.");
+    }
     const c = await validateCharge(ctx, ctx.projectId, args);
     await ctx.db.patch(chargeId, { ...c, recurring: args.recurring, updatedAt: Date.now() });
     return { ok: true as const };
@@ -863,6 +1061,9 @@ export const deleteComptaCharge = permissionMutation("business.read")({
     const doc = await ctx.db.get(chargeId);
     if (!doc || doc.projectId !== ctx.projectId) {
       throw err(ERR.COMPTA_CHARGE_NOT_FOUND, "Cette charge n'existe plus.");
+    }
+    if (doc.transferLineId) {
+      throw err(ERR.COMPTA_CHARGE_LINKED, "Charge issue d'un virement : à modifier depuis lui.");
     }
     const seriesId = doc.seriesId ?? doc._id;
     await ctx.db.delete(chargeId);
@@ -1335,11 +1536,14 @@ export const e2eSetScanMonth = e2eMutation({
   },
 });
 
-/** E2E — devise de référence et date d'import, comme les poserait la synchro. */
+/**
+ * E2E — devise de référence et date d'import, comme les poserait la synchro.
+ * Sans devise : un import qui n'a pas pu la fixer (plusieurs devises sans taux).
+ */
 export const e2eSetComptaState = e2eMutation({
   args: {
     projectId: v.id("projects"),
-    referenceCurrency: v.string(),
+    referenceCurrency: v.optional(v.string()),
     lastSyncAt: v.number(),
   },
   handler: async (ctx, a): Promise<null> => {

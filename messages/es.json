@@ -1497,7 +1497,10 @@
     "ERR_COMPTA_RULE_BUILTIN": "Jarvia ya sabe dónde va este tipo de línea: su columna no se cambia desde la página.",
     "ERR_COMPTA_RULE_INVALID": "Columna o tipo de línea no válido.",
     "ERR_COMPTA_TRANSFER_NOT_FOUND": "No se encuentra este retiro en el libro mayor del proyecto.",
-    "ERR_COMPTA_USAGE_INVALID": "Uso de retiro desconocido."
+    "ERR_COMPTA_USAGE_INVALID": "Uso de retiro desconocido.",
+    "ERR_COMPTA_TRANSFER_FAILED": "Este retiro falló: el dinero volvió a Whop, no hay nada que repartir.",
+    "ERR_COMPTA_PARTS_INVALID": "Reparto no válido: importes positivos cuya suma no supere el retiro, y un motivo para cada parte contada como gasto.",
+    "ERR_COMPTA_CHARGE_LINKED": "Este gasto viene del reparto de un retiro: modifícalo desde el retiro."
   },
   "calendar": {
     "weekday": {

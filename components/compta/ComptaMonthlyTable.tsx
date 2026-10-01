@@ -3,7 +3,14 @@
 import { Fragment, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "next/navigation";
-import { AlertTriangleIcon, CheckCircle2Icon, ChevronRightIcon, FileSpreadsheetIcon, InfoIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  CheckCircle2Icon,
+  ChevronRightIcon,
+  FileSpreadsheetIcon,
+  InfoIcon,
+  Link2Icon,
+} from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
@@ -52,9 +59,9 @@ function Amount({
       </span>
     );
   }
-  if (v === 0) return <span className="text-slate-300">{f.money(0, currency)}</span>;
+  if (v === 0) return <span className="text-slate-300" title={title}>{f.money(0, currency)}</span>;
   return (
-    <span className={cn(v < 0 ? "text-slate-600" : "text-slate-900", strong && "font-semibold")}>
+    <span className={cn(v < 0 ? "text-slate-600" : "text-slate-900", strong && "font-semibold")} title={title}>
       {f.signed(v, currency)}
     </span>
   );
@@ -275,7 +282,17 @@ function MonthRows({
             v={r.scans === null ? null : -r.scans}
             currency={currency}
             f={f}
-            title={r.incomplete.includes("scanUnknown") ? t("reason.scanUnknown") : t("reason.scanMissing")}
+            title={
+              r.scanSource === "paid"
+                ? r.scans === null
+                  ? t("reason.scanPaidCurrency")
+                  : t("scanPaidTitle")
+                : r.incomplete.includes("scanUnknown")
+                  ? t("reason.scanUnknown")
+                  : r.scans === null
+                    ? t("reason.scanMissing")
+                    : t("scanEstimateTitle")
+            }
           />
         </TableCell>
         <TableCell className={NUM}>
@@ -506,8 +523,48 @@ function MonthDetail({ month }: { month: string }) {
             </button>
           </Panel>
 
-          <Panel title={t("scansTitle")} aside={t("scansAside")} testId="compta-detail-scans">
-            {d.scan === null ? (
+          <Panel
+            title={t("scansTitle")}
+            aside={d.scanSource === "paid" ? t("scansAsidePaid") : t("scansAside")}
+            testId="compta-detail-scans"
+          >
+            {d.scanSource === "paid" ? (
+              <>
+                <ul className="space-y-1 text-xs">
+                  {d.scanPaid.map((c) => (
+                    <li key={c.id} className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto_auto] items-baseline gap-2">
+                      <span className="tabular-nums text-slate-400">{f.dayShort(c.day)}</span>
+                      <span className="min-w-0 truncate text-slate-700">
+                        {c.label}
+                        {c.transferLineId !== null && (
+                          <Link2Icon
+                            className="ml-1 inline size-3 text-slate-300"
+                            aria-label={t("scansFromTransfer", { date: f.dayShort(c.day) })}
+                          />
+                        )}
+                      </span>
+                      <span className="text-right text-[11px] tabular-nums text-slate-400">
+                        {c.currency !== cur ? f.money(c.amount, c.currency) : ""}
+                      </span>
+                      <span className="w-20 text-right tabular-nums text-slate-700">
+                        {c.converted === null ? t("noRate") : f.money(c.converted, cur)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex items-baseline justify-between border-t border-slate-100 pt-2 text-xs">
+                  <span className="font-medium text-slate-700">{t("scansPaidTotal")}</span>
+                  <span className="font-semibold tabular-nums text-slate-900">
+                    {d.scanTotal === null ? "—" : f.signed(-d.scanTotal, cur)}
+                  </span>
+                </div>
+                {d.scan?.converted !== null && d.scan?.converted !== undefined && (
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    {t("scansEstimateCompare", { amount: f.money(d.scan.converted, cur) })}
+                  </p>
+                )}
+              </>
+            ) : d.scan === null ? (
               <p className="text-xs text-slate-400">{t("scansMissing")}</p>
             ) : d.scan.usd === null ? (
               <p className="text-xs text-amber-700">{t("scansUnknown", { runs: f.int(d.scan.runs) })}</p>
@@ -590,28 +647,32 @@ function MonthDetail({ month }: { month: string }) {
 
         <div className="space-y-3">
           <Panel title={t("transfersTitle")} aside={t("transfersAside")} testId="compta-detail-transfers">
-            {d.transfers.length === 0 ? (
+            {d.transfers.filter((x) => !x.failed).length === 0 ? (
               <p className="text-xs text-slate-400">{t("transfersNone")}</p>
             ) : (
               <>
                 <ul className="space-y-1 text-xs">
-                  {d.transfers.map((x) => (
-                    <li key={x._id} className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-baseline gap-2">
-                      <span className="tabular-nums text-slate-400">{f.dayShort(x.day)}</span>
-                      <span className="min-w-0 truncate">
-                        {x.usage ? (
-                          <span className="text-slate-600">{tu(x.usage as "pay")}</span>
-                        ) : (
-                          <span className="italic text-slate-400">{t("noUsage")}</span>
-                        )}
-                      </span>
-                      <span className="text-right tabular-nums text-slate-700">{f.money(x.amount, x.currency)}</span>
-                    </li>
-                  ))}
+                  {d.transfers
+                    .filter((x) => !x.failed)
+                    .map((x) => (
+                      <li key={x._id} className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-baseline gap-2">
+                        <span className="tabular-nums text-slate-400">{f.dayShort(x.day)}</span>
+                        <span className="min-w-0 truncate">
+                          {x.parts.length === 0 ? (
+                            <span className="italic text-slate-400">{t("noUsage")}</span>
+                          ) : x.parts.length === 1 ? (
+                            <span className="text-slate-600">{tu(x.parts[0].usage)}</span>
+                          ) : (
+                            <span className="text-slate-600">{t("transferParts", { count: x.parts.length })}</span>
+                          )}
+                        </span>
+                        <span className="text-right tabular-nums text-slate-700">{f.money(x.amount, x.currency)}</span>
+                      </li>
+                    ))}
                 </ul>
                 <div className="mt-2 flex items-baseline justify-between border-t border-slate-100 pt-2 text-xs">
                   <span className="font-medium text-slate-700">
-                    {t("transfersCount", { count: d.transfers.length })}
+                    {t("transfersCount", { count: d.transfers.filter((x) => !x.failed).length })}
                   </span>
                   <span className="font-semibold tabular-nums text-slate-900">
                     {f.money(d.ledger.transfersReceived, cur)}

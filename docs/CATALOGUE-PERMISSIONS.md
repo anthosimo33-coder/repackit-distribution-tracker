@@ -601,7 +601,6 @@ Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un f
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|
 | `addComptaCharge` | M | compta | Saisit une autre charge (hébergement, outils…) |  |
-| `annotateTransfer` | M | compta | Dit à quoi a servi un virement Whop → banque |  |
 | `confirmPlannedCharge` | M | compta | Confirme une charge mensuelle prévue |  |
 | `deleteComptaCharge` | M | compta | Supprime une autre charge |  |
 | `getComptaJournal` | Q | compta | Lignes de l'export comptable d'un mois |  |
@@ -615,6 +614,7 @@ Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un f
 | `setLineRule` | M | compta | Range un type de ligne Whop inconnu dans une colonne |  |
 | `stopChargeSeries` | M | compta | Arrête une charge « chaque mois » |  |
 | `updateComptaCharge` | M | compta | Modifie une autre charge |  |
+| `ventilateTransfer` | M | compta | Ventile un virement Whop → banque, compte une part en charge |  |
 | `getAttribution` | Q | analyticsHub | Coût et vues par vidéo, efficacité par créatrice |  |
 | `getBillingCountries` | Q | analyticsHub | Ventes par pays de facturation |  |
 | `getChurn` | Q | analyticsHub | Résiliations et rétention des abonnés |  |

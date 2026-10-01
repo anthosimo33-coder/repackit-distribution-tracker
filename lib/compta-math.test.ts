@@ -7,12 +7,15 @@ import {
   builtinBucketOf,
   creatorCashOuts,
   grossByDay,
+  isFailedWithdrawal,
   ledgerAmount,
   ledgerTotals,
   plannedOccurrences,
   referenceCurrency,
   scanCostUsd,
   thresholdView,
+  transferPartsError,
+  transferPartsOf,
   type LedgerDayCell,
 } from "../convex/comptaMath";
 import { fetchWhopLedger, normalizeLedgerLine } from "../convex/whopLedgerApi";
@@ -324,5 +327,53 @@ describe("coût des scans", () => {
     expect(
       scanCostUsd({ lightUsd: 540.63, fullUsd: 562.39, otherUsd: 0, runs: 179177, withCost: 179177 }),
     ).toBe(1103.02);
+  });
+});
+
+describe("ventilation d'un virement", () => {
+  const parts = [
+    { id: "p1", amount: 1500, usage: "pay", note: "Ma paie de septembre" },
+    { id: "p2", amount: 200, usage: "business", note: "TikTok Ads", countedAs: "ads" },
+    { id: "p3", amount: 625.49, usage: "provision", note: "Provision URSSAF T3" },
+  ];
+  it("accepte des parts qui couvrent le virement, ou en laissent un reste", () => {
+    expect(transferPartsError(parts, 2325.49)).toBeNull();
+    expect(transferPartsError(parts.slice(0, 2), 2325.49)).toBeNull();
+  });
+  it("refuse des parts qui dépassent le virement", () => {
+    expect(transferPartsError(parts, 2325.48)).toBe("sum");
+  });
+  it("ne compte en charge qu'une dépense de l'activité, et exige son motif", () => {
+    expect(transferPartsError([{ id: "a", amount: 10, usage: "pay", countedAs: "ads" }], 10)).toBe("counted");
+    expect(transferPartsError([{ id: "a", amount: 10, usage: "business", countedAs: "ads" }], 10)).toBe("note");
+    expect(transferPartsError([{ id: "a", amount: 10, usage: "business", note: "x", countedAs: "pub" }], 10)).toBe("counted");
+  });
+  it("refuse un montant nul et deux parts au même identifiant", () => {
+    expect(transferPartsError([{ id: "a", amount: 0, usage: "pay" }], 10)).toBe("amount");
+    expect(
+      transferPartsError(
+        [
+          { id: "a", amount: 1, usage: "pay" },
+          { id: "a", amount: 1, usage: "pay" },
+        ],
+        10,
+      ),
+    ).toBe("id");
+  });
+  it("une annotation d'avant la ventilation se lit comme une part du montant entier", () => {
+    expect(transferPartsOf({ usage: "business", note: "API HIKER" }, 607.31)).toEqual([
+      { id: "legacy", amount: 607.31, usage: "business", note: "API HIKER" },
+    ]);
+    expect(transferPartsOf({}, 607.31)).toEqual([]);
+    expect(transferPartsOf({ usage: "pay", parts }, 2325.49)).toHaveLength(3);
+  });
+});
+
+describe("retrait échoué", () => {
+  it("un retour sur Whop fait foi, sinon le statut", () => {
+    expect(isFailedWithdrawal("completed", true)).toBe(true);
+    expect(isFailedWithdrawal("canceled", false)).toBe(true);
+    expect(isFailedWithdrawal("completed", false)).toBe(false);
+    expect(isFailedWithdrawal(null, false)).toBe(false);
   });
 });
