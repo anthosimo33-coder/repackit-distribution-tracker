@@ -231,9 +231,9 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     section: "Argent",
     label: "Analytics et revenus",
     description:
-      "Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit.",
+      "Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit, compta.",
     defaultForManager: false,
-    routes: ["/analytics"],
+    routes: ["/analytics", "/compta"],
   },
   {
     id: "challenges.money",

@@ -23,6 +23,7 @@
       "assignments": "Missões",
       "pricings": "Tabelas de preço",
       "paiements": "Pagamentos",
+      "compta": "Contabilidade",
       "analytics": "Análises",
       "notifications": "Notificações",
       "createurs": "Criadores",
@@ -1490,7 +1491,13 @@
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Pedido de autorização inválido ou expirado: reinicie a conexão pelo Claude.",
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acesso não encontrado.",
     "ERR_NO_ACTIVE_NOTIF": "A notificação está ativada nesta campanha, mas nenhuma está ativa: adicione uma ou desative-a.",
-    "ERR_NOTIF_MISSING": "Este vídeo não tem notificação para editar."
+    "ERR_NOTIF_MISSING": "Este vídeo não tem notificação para editar.",
+    "ERR_COMPTA_CHARGE_INVALID": "Despesa inválida: precisa de uma data, uma descrição, um valor positivo e uma moeda que o projeto saiba converter.",
+    "ERR_COMPTA_CHARGE_NOT_FOUND": "Esta despesa não existe mais.",
+    "ERR_COMPTA_RULE_BUILTIN": "O Jarvia já sabe onde vai este tipo de linha: a coluna dele não muda pela página.",
+    "ERR_COMPTA_RULE_INVALID": "Coluna ou tipo de linha inválido.",
+    "ERR_COMPTA_TRANSFER_NOT_FOUND": "Este saque não foi encontrado no livro-razão do projeto.",
+    "ERR_COMPTA_USAGE_INVALID": "Uso de saque desconhecido."
   },
   "calendar": {
     "weekday": {

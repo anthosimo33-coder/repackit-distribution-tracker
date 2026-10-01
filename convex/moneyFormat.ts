@@ -49,3 +49,26 @@ export function formatMoney(
     maximumFractionDigits: 2,
   }).format(n);
 }
+
+/**
+ * Montant ARRONDI à l'unité, dans sa devise (« 37 500 € ») — pour des seuils et
+ * des ordres de grandeur, jamais pour un montant comptable. Mêmes règles que
+ * `formatMoney` : la devise vient de la donnée, absente ⇒ nombre sans symbole.
+ */
+export function formatMoneyWhole(
+  n: number,
+  currency?: string | null,
+  locale: string = FORMAT_LOCALE_DEFAULT,
+): string {
+  const code =
+    currency && currency.trim() !== "" ? currency.trim().toUpperCase() : null;
+  if (code === null) {
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(n);
+  }
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: code,
+    currencyDisplay: "narrowSymbol",
+    maximumFractionDigits: 0,
+  }).format(n);
+}

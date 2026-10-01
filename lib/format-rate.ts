@@ -2,11 +2,15 @@
  * P6 — rendu de la grille de rémunération d'un format (pur, testé Vitest).
  */
 
-import { FORMAT_LOCALE_DEFAULT, formatMoney } from "../convex/moneyFormat";
+import {
+  FORMAT_LOCALE_DEFAULT,
+  formatMoney,
+  formatMoneyWhole,
+} from "../convex/moneyFormat";
 
 // Définis dans convex/moneyFormat.ts (pur, partagé avec le serveur : les outils
 // MCP libellent les offres comme l'écran) — ré-exportés pour les imports existants.
-export { FORMAT_LOCALE_DEFAULT, formatMoney };
+export { FORMAT_LOCALE_DEFAULT, formatMoney, formatMoneyWhole };
 
 export type RateModel = {
   basePerPost: number;

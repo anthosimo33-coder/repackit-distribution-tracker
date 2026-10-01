@@ -22,6 +22,7 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   RadarIcon,
+  ReceiptTextIcon,
   TrophyIcon,
   UserPlusIcon,
   ShieldCheckIcon,
@@ -199,6 +200,18 @@ export function Sidebar({
       label: t("item.paiements"),
       ...item(projectPath("/paiements")),
     },
+    // COMPTA — le compte d'exploitation (grand livre Whop + charges). Proposé
+    // aux seuls projets reliés à Whop : sans grand livre, l'écran n'aurait que
+    // des charges à montrer.
+    ...(project.whopConfigured
+      ? [
+          {
+            icon: ReceiptTextIcon,
+            label: t("item.compta"),
+            ...item(projectPath("/compta")),
+          },
+        ]
+      : []),
     // SA paie au CPM (convex/managerCpm.ts) — pour le manager seul. Ce n'est
     // pas un bloc du catalogue : on ne l'accorde pas, c'est sa rémunération.
     // Un admin n'en a pas (il la regarde depuis « Rôles et droits »).

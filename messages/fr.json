@@ -23,6 +23,7 @@
       "assignments": "Assignments",
       "pricings": "Pricings",
       "paiements": "Paiements",
+      "compta": "Compta",
       "analytics": "Analytics",
       "notifications": "Notifications",
       "createurs": "Créateurs",
@@ -1490,7 +1491,13 @@
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Demande d’autorisation invalide ou expirée : relance la connexion depuis Claude.",
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Accès introuvable.",
     "ERR_NO_ACTIVE_NOTIF": "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
-    "ERR_NOTIF_MISSING": "Cette vidéo n’a pas de notif à modifier."
+    "ERR_NOTIF_MISSING": "Cette vidéo n’a pas de notif à modifier.",
+    "ERR_COMPTA_CHARGE_INVALID": "Charge invalide : il faut une date, un libellé, un montant positif et une devise que le projet sait convertir.",
+    "ERR_COMPTA_CHARGE_NOT_FOUND": "Cette charge n'existe plus.",
+    "ERR_COMPTA_RULE_BUILTIN": "Ce type de ligne est déjà classé par Jarvia : sa colonne ne se change pas depuis la page.",
+    "ERR_COMPTA_RULE_INVALID": "Colonne ou type de ligne invalide.",
+    "ERR_COMPTA_TRANSFER_NOT_FOUND": "Ce virement est introuvable dans le grand livre du projet.",
+    "ERR_COMPTA_USAGE_INVALID": "Usage de virement inconnu."
   },
   "calendar": {
     "weekday": {
