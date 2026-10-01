@@ -110,9 +110,17 @@ test.describe("Forfait mensuel — les deux arbitrages", () => {
     for (const m of recap.months) expect(m.amount).toBe(FORFAIT);
     expect(recap.totalDue).toBe(FORFAIT * 2);
 
-    // Et le chiffre qui rend la chose lisible : les jours réellement couverts.
-    // Du 28 au 3 = 7 jours, bornes incluses (active le 28 ET le 3).
-    expect(recap.daysCovered).toBe(7);
+    // Et le chiffre qui rend la chose lisible : les jours réellement couverts,
+    // bornes incluses (active le 28 ET le 3). « 7 » n'est vrai que si le mois
+    // précédent a 31 jours : après septembre c'est 6, après février 4 — la spec
+    // a passé tout l'été et cassé le 01/10/2026. On compte depuis les deux
+    // dates, posées à midi UTC (aucun changement d'heure entre elles en UTC).
+    const joursDuMoisPrecedent = new Date(
+      Date.UTC(debutMoisCourant.getUTCFullYear(), debutMoisCourant.getUTCMonth(), 0),
+    ).getUTCDate();
+    const attendus = (le3 - le28MoisPrecedent) / 86_400_000 + 1;
+    expect(attendus).toBe(joursDuMoisPrecedent - 28 + 1 + 3); // la même chose, comptée à la main
+    expect(recap.daysCovered).toBe(attendus);
     expect(recap.startAt).toBe(le28MoisPrecedent);
     expect(recap.endAt).toBe(le3);
   });

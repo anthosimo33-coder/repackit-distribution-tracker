@@ -52,7 +52,12 @@ export type PostSignal = {
   /** Instant de publication (ms). */
   postedAt: number;
   vues: number;
-  likes: number;
+  /**
+   * `null` = non fourni par le relevé qui porte `vues` (likes masqués sur
+   * Instagram, cf freshestReading) — jamais les likes d'un AUTRE relevé : un
+   * ratio likes ÷ vues n'a de sens que pris sur un seul et même relevé.
+   */
+  likes: number | null;
   /** `null` = non mesuré (plateforme sans saves, ou post antérieur à la collecte). */
   saves: number | null;
   /** Vues gagnées sur les 24 dernières heures ; `null` = pas encore calculable. */
@@ -280,6 +285,42 @@ export function accountStateOf(
 
 /* ── Assemblage des signaux (deltas) ──────────────────────────────────────── */
 
+/** Un relevé des compteurs d'un post, d'où qu'il vienne. */
+export type CounterReading = {
+  at: number;
+  vues: number;
+  /** `null` = non fourni par CE relevé (jamais complété par un autre). */
+  likes: number | null;
+  saves: number | null;
+};
+
+/** Origine du relevé retenu : celui de 23 h 30, ou le relevé rapide (toutes les 2 h). */
+export type ReadingSource = "nuit" | "rapide";
+
+/**
+ * Les compteurs AFFICHÉS d'un post récent : ceux du relevé le PLUS RÉCENT —
+ * le relevé de nuit (23 h 30, `metricSnapshots` → `vuesLatest`) ou le relevé
+ * rapide (toutes les 2 h sur les 36 premières heures, `earlyReadings`).
+ *
+ * ⚠️ TOUT VIENT DU MÊME RELEVÉ. Vues fraîches et likes de la veille donneraient
+ * un like rate faux par construction (la vidéo a gagné des vues, pas de likes)
+ * — et c'est ce ratio qui ouvre une « porte ouverte ». Un compteur que le relevé
+ * retenu ne fournit pas (likes masqués sur Instagram, saves jamais exposés par
+ * Instagram) vaut donc `null`, « non mesuré », jamais la valeur de l'autre relevé.
+ *
+ * À égalité d'instant, la nuit l'emporte : c'est le relevé de référence (paie,
+ * J+X), le rapide n'est qu'un aperçu.
+ */
+export function freshestReading(
+  nuit: CounterReading | null,
+  rapide: CounterReading | null,
+): (CounterReading & { source: ReadingSource }) | null {
+  if (rapide !== null && (nuit === null || rapide.at > nuit.at)) {
+    return { ...rapide, source: "rapide" };
+  }
+  return nuit === null ? null : { ...nuit, source: "nuit" };
+}
+
 /**
  * Vues gagnées sur les dernières 24 h par une publication.
  *
@@ -288,6 +329,8 @@ export function accountStateOf(
  *  - Post plus vieux : `vuesLatest` − vues du dernier snapshot antérieur à
  *    (now − 24 h). Sans un tel snapshot, le delta n'est PAS calculable → null,
  *    jamais une approximation silencieuse — c'est le « en attente » de l'écran.
+ *    Les relevés rapides (toutes les 2 h jusqu'à 36 h) sont des points de
+ *    référence comme les autres : même grandeur (vues cumulées du post).
  *
  * Clampé à zéro : un recomptage plateforme à la baisse n'est pas une perte de
  * vues « gagnées ».
