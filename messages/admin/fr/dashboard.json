@@ -55,7 +55,9 @@
     "savesCount": "{count} save{count, plural, one {} other {s}}",
     "savesCountAu": "{count} save{count, plural, one {} other {s}} au {sourceDay}",
     "vues": "vues",
-    "likes": "likes"
+    "likes": "likes",
+    "vuesA": "vues · {heure}",
+    "releveRapideLeA": "Relevé rapide le {sourceDay} à {heure} — toutes les 2 h pendant les 36 premières heures du post."
   },
   "ConversionSection": {
     "chacuneAfficheLesMemesChiffres": "Chacune affiche les MÊMES chiffres, et le total ne le montre pas — il somme les refs, pas les lignes.",

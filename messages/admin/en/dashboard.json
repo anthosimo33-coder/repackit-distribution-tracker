@@ -55,7 +55,9 @@
     "savesCount": "{count} {count, plural, one {save} other {saves}}",
     "savesCountAu": "{count} {count, plural, one {save} other {saves}} on {sourceDay}",
     "vues": "views",
-    "likes": "likes"
+    "likes": "likes",
+    "vuesA": "views · {heure}",
+    "releveRapideLeA": "Quick reading on {sourceDay} at {heure} — every 2 h during the post's first 36 hours."
   },
   "ConversionSection": {
     "chacuneAfficheLesMemesChiffres": "Each one shows the SAME figures, and the total doesn't show it — it sums refs, not lines.",
