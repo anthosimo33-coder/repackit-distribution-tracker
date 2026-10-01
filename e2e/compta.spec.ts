@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { Locator, Page } from "@playwright/test";
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
@@ -14,6 +15,24 @@ const url = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 const DAY = 86_400_000;
+
+/**
+ * Choisit l'usage d'une part. Le menu s'ouvre DANS la modale, qui se re-rend au
+ * fil des requêtes : en suite complète, le clic sur l'option tombait parfois
+ * pendant l'ouverture et se perdait — l'usage restait vide, l'interrupteur
+ * « Compter en charge » n'apparaissait jamais, et le test expirait à 180 s
+ * (deux fois : 2e tour de mutations, suite complète). Même remède que
+ * hook-variants-view (TD-018) : on retente le GESTE ENTIER jusqu'à ce que
+ * l'usage soit affiché dans le champ, au lieu de supposer que le clic a pris.
+ */
+async function chooseUsage(page: Page, part: Locator, label: string) {
+  const combo = part.getByRole("combobox", { name: "Usage" });
+  await expect(async () => {
+    if ((await combo.getAttribute("aria-expanded")) !== "true") await combo.click({ timeout: 2_000 });
+    await page.getByRole("option", { name: label, exact: true }).click({ timeout: 2_000 });
+    await expect(combo).toContainText(label, { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+}
 
 /**
  * ONGLET COMPTA — grand livre Whop, règles de classement, charges, export.
@@ -442,15 +461,13 @@ test.describe("Compta", () => {
       await virement.getByRole("button", { name: "Dire à quoi il a servi" }).click();
       const part0 = page.getByTestId("compta-part-0");
       await part0.getByLabel("Montant").fill("1500,00");
-      await part0.getByRole("combobox", { name: "Usage" }).click();
-      await page.getByRole("option", { name: "Rémunération" }).click();
+      await chooseUsage(page, part0, "Rémunération");
       await part0.getByLabel("Motif").fill("Ma paie de septembre");
       await page.getByRole("button", { name: "Ajouter une part" }).click();
       const part1 = page.getByTestId("compta-part-1");
       // La nouvelle part reprend le reste.
       await expect(part1.getByLabel("Montant")).toHaveValue("500,00");
-      await part1.getByRole("combobox", { name: "Usage" }).click();
-      await page.getByRole("option", { name: "Charges de l'activité" }).click();
+      await chooseUsage(page, part1, "Charges de l'activité");
       await part1.getByLabel("Motif").fill("TikTok Ads");
       await part1.getByRole("switch", { name: "Compter en charge" }).click();
       const effet = page.getByTestId("compta-ventilation-effect");
