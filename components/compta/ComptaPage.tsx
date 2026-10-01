@@ -198,6 +198,7 @@ export function ComptaPage() {
         months={months}
         defaultMonth={defaultMonth}
         currentMonth={data.currentMonth}
+        neverSynced={data.sync.lastSyncAt === null}
       />
 
       <ComptaMethod data={data} onClassify={setClassify} />
@@ -242,7 +243,10 @@ function SyncStatus({ data, now }: { data: ComptaOverview; now: number }) {
   }
   if (sync.lastSyncAt !== null && !sync.historyComplete) lines.push({ tone: "warn", text: t("partial") });
   if (sync.scanError) lines.push({ tone: "warn", text: t("scanError", { error: sync.scanError }) });
-  if (data.currency === null) lines.push({ tone: "warn", text: t("noCurrency") });
+  // Avant le premier import, aucune devise n'a été vue : la référence est
+  // inconnue par construction, et « jamais lu » le dit déjà. L'alerte ne vaut
+  // qu'après un import qui n'a pas pu la fixer.
+  if (data.currency === null && sync.lastSyncAt !== null) lines.push({ tone: "warn", text: t("noCurrency") });
   return (
     <div className="space-y-0.5" data-testid="compta-sync-status">
       {lines.map((l) => (

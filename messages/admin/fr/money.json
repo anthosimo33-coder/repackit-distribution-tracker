@@ -326,6 +326,7 @@
       "total": "Total {month}",
       "noRate": "sans taux",
       "noCurrency": "Pose d'abord les taux du projet : sans devise de référence, une charge ne peut pas être convertie.",
+      "waitingImport": "Les charges se saisissent après le premier import du grand livre Whop : c'est lui qui fixe la devise de référence.",
       "confirmed": "Charge confirmée.",
       "stopped": "Série arrêtée : plus aucune charge prévue.",
       "failed": "L'opération n'a pas abouti.",

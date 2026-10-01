@@ -326,6 +326,7 @@
       "total": "{month} total",
       "noRate": "no rate",
       "noCurrency": "Set the project's rates first: without a reference currency, an expense can't be converted.",
+      "waitingImport": "Expenses can be entered after the first Whop ledger import: it sets the reference currency.",
       "confirmed": "Expense confirmed.",
       "stopped": "Series stopped: no more planned expenses.",
       "failed": "That didn't go through.",

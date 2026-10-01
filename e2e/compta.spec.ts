@@ -512,4 +512,40 @@ test.describe("Compta", () => {
       await restore();
     }
   });
+
+  test("écran : la devise attend le premier import, l'alerte ne vient qu'après", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { projectId, restore } = await setup(ts);
+    try {
+      // Projet relié à Whop, taux posés, grand livre JAMAIS lu — l'état de Snytch
+      // le jour où l'onglet est apparu : « indéterminée » accusait des devises
+      // « encaissées sans taux » alors que rien n'avait encore été lu.
+      await admin.mutation(api.compta.e2eResetCompta, { secret: E2E_SECRET, projectId });
+      await page.goto(adminPath("/compta"));
+      const status = page.getByTestId("compta-sync-status");
+      await expect(status).toContainText("Grand livre Whop jamais lu", { timeout: 20_000 });
+      await expect(status).not.toContainText("Devise de référence indéterminée");
+      const charges = page.getByTestId("compta-charges");
+      await expect(charges.getByTestId("compta-charges-no-currency")).toContainText("après le premier import");
+      await expect(charges.getByRole("button", { name: "Ajouter une charge" })).toBeDisabled();
+
+      // Un import qui voit deux devises sans taux (euro ET franc suisse) : là,
+      // l'alerte est vraie, et elle apparaît.
+      await admin.mutation(api.compta.e2eSeedLedgerLines, {
+        secret: E2E_SECRET,
+        projectId,
+        lines: [
+          { whopId: `line_e2e_${ts}_eur`, lineType: "payment_gross", amount: 9.99, currency: "eur", postedAt: at("2025-09-12T09:30:00Z"), paymentId: `pay_eur_${ts}`, label: "Snytch Pro — Hebdo" },
+          { whopId: `line_e2e_${ts}_chf`, lineType: "payment_gross", amount: 10.9, currency: "chf", postedAt: at("2025-09-13T18:05:00Z"), paymentId: `pay_chf_${ts}`, label: "Snytch Pro — Wöchentlich" },
+        ],
+      });
+      await admin.mutation(api.compta.e2eSetComptaState, { secret: E2E_SECRET, projectId, lastSyncAt: Date.now() - 7 * 60_000 });
+      await expect(status).toContainText("Devise de référence indéterminée");
+      await expect(status).not.toContainText("jamais lu");
+      await expect(charges.getByTestId("compta-charges-no-currency")).toContainText("Pose d'abord les taux du projet");
+    } finally {
+      await restore();
+    }
+  });
 });

@@ -76,10 +76,13 @@ export function ComptaChargesCard({
   months,
   defaultMonth,
   currentMonth,
+  neverSynced,
 }: {
   months: string[];
   defaultMonth: string;
   currentMonth: string;
+  /** Grand livre jamais lu : la devise de référence attend le premier import. */
+  neverSynced: boolean;
 }) {
   const t = useTranslations("admin.money.Compta.charges");
   const tc = useTranslations("admin.money.Compta.categories");
@@ -154,7 +157,9 @@ export function ComptaChargesCard({
       {data === undefined ? (
         <Skeleton className="m-5 h-24" />
       ) : cur === null ? (
-        <p className="px-5 py-8 text-center text-sm text-amber-700">{t("noCurrency")}</p>
+        <p className="px-5 py-8 text-center text-sm text-amber-700" data-testid="compta-charges-no-currency">
+          {neverSynced ? t("waitingImport") : t("noCurrency")}
+        </p>
       ) : data.charges.length === 0 ? (
         <p className="px-5 py-8 text-center text-sm text-slate-500">{t("none")}</p>
       ) : (

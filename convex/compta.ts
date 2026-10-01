@@ -1536,11 +1536,14 @@ export const e2eSetScanMonth = e2eMutation({
   },
 });
 
-/** E2E — devise de référence et date d'import, comme les poserait la synchro. */
+/**
+ * E2E — devise de référence et date d'import, comme les poserait la synchro.
+ * Sans devise : un import qui n'a pas pu la fixer (plusieurs devises sans taux).
+ */
 export const e2eSetComptaState = e2eMutation({
   args: {
     projectId: v.id("projects"),
-    referenceCurrency: v.string(),
+    referenceCurrency: v.optional(v.string()),
     lastSyncAt: v.number(),
   },
   handler: async (ctx, a): Promise<null> => {
