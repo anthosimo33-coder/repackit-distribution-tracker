@@ -40,6 +40,30 @@ function mapStreamState(state: string | null | undefined): StreamStatus {
   return "processing";
 }
 
+/**
+ * Cadence du suivi de transcoding, en DEUX phases. La plupart des vidéos sont
+ * prêtes en moins d'une minute (relevé serré) ; une grosse vidéo (4K, longue)
+ * ou une file d'attente Cloudflare peut prendre bien plus. Le 01/10/2026, une
+ * soumission est restée « Transcoding en cours » pour toujours : le suivi
+ * s'arrêtait à ~5 min alors que Cloudflare a fini plus tard, et rien ne le
+ * relançait.
+ */
+export const STREAM_POLL_FAST_INTERVAL_MS = 8_000;
+export const STREAM_POLL_FAST_ATTEMPTS = 40; // ~5 min
+export const STREAM_POLL_SLOW_INTERVAL_MS = 60_000;
+export const STREAM_POLL_MAX_ATTEMPTS = STREAM_POLL_FAST_ATTEMPTS + 120; // + 2 h
+
+/**
+ * Délai avant le relevé qui suit le relevé n° `attempt` (1 = le premier), ou
+ * null quand on abandonne — l'appelant passe alors la soumission en "error"
+ * pour que l'écran retombe sur la vidéo Convex au lieu d'attendre à vie.
+ */
+export function nextStreamPollDelayMs(attempt: number): number | null {
+  if (attempt < STREAM_POLL_FAST_ATTEMPTS) return STREAM_POLL_FAST_INTERVAL_MS;
+  if (attempt < STREAM_POLL_MAX_ATTEMPTS) return STREAM_POLL_SLOW_INTERVAL_MS;
+  return null;
+}
+
 export interface CloudflareStreamConfig {
   accountId: string;
   apiToken: string;

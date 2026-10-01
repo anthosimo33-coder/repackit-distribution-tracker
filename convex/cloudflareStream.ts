@@ -11,6 +11,7 @@ import {
   copyVideoToStream,
   fetchStreamStatus,
   deleteStreamVideo,
+  nextStreamPollDelayMs,
   type StreamStatus,
 } from "./cloudflareStreamApi";
 
@@ -22,7 +23,9 @@ import {
  *     → copy from URL (URL signée Convex) → setStreamFields(uid, "processing")
  *     → scheduler poll pollStreamStatus
  *   pollStreamStatus → fetchStreamStatus(uid) → ready/error (terminal) OU
- *     re-planifie tant que "processing" (borné par MAX_POLL_ATTEMPTS).
+ *     re-planifie tant que "processing" (cadence nextStreamPollDelayMs : ~5 min
+ *     serré puis 2 h à la minute ; au-delà → "error", l'écran retombe sur la
+ *     vidéo Convex au lieu d'un « Transcoding en cours » éternel).
  *   La RÉACTIVITÉ Convex pousse l'état "ready" à l'écran Validation déjà ouvert :
  *     listVideoSubmitted re-tourne, le player Stream remplace le message
  *     « Transcoding en cours ». Pas de polling client.
@@ -39,10 +42,6 @@ import {
 
 /** Délai avant le 1er relevé d'état (laisse Cloudflare démarrer le transcoding). */
 const POLL_INITIAL_DELAY_MS = 8_000;
-/** Intervalle entre deux relevés tant que "processing". */
-const POLL_INTERVAL_MS = 8_000;
-/** Borne anti-boucle : ~5 min de transcoding pour une vidéo de validation. */
-const MAX_POLL_ATTEMPTS = 40;
 
 /** Migration : taille de lot, plafond, concurrence (Cloudflare est payant). */
 const MIGRATE_BATCH = 25;
@@ -287,18 +286,28 @@ export const pollStreamStatus = internalAction({
       return { status, attempts: attempt };
     }
 
-    if (attempt < MAX_POLL_ATTEMPTS) {
+    const delayMs = nextStreamPollDelayMs(attempt);
+    if (delayMs !== null) {
       await ctx.scheduler.runAfter(
-        POLL_INTERVAL_MS,
+        delayMs,
         internal.cloudflareStream.pollStreamStatus,
         { assignmentId, uid, attempt: attempt + 1 },
       );
-    } else {
-      console.warn(
-        `[cloudflare-stream] ${uid} toujours "processing" après ${attempt} relevés — abandon du polling (réconciliable plus tard).`,
-      );
+      return { status, attempts: attempt };
     }
-    return { status, attempts: attempt };
+
+    // Abandon : laisser "processing" afficherait « le lecteur apparaît
+    // automatiquement » à vie. "error" fait retomber l'écran sur la vidéo
+    // Convex + le bouton télécharger.
+    console.warn(
+      `[cloudflare-stream] ${uid} toujours "processing" après ${attempt} relevés — abandon, passage en "error" (fallback Convex).`,
+    );
+    await ctx.runMutation(internal.cloudflareStream.setStreamStatus, {
+      assignmentId,
+      uid,
+      status: "error",
+    });
+    return { status: "error", attempts: attempt };
   },
 });
 
