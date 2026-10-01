@@ -710,6 +710,15 @@ function Recent48h({
   );
 }
 
+/** "15:12" — heure Paris d'un relevé rapide, pour dater une valeur du jour. */
+function shortParisTime(ms: number, locale: string = "fr-FR"): string {
+  return new Date(ms).toLocaleTimeString(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Paris",
+  });
+}
+
 /** "16/08" — jour Paris d'un relevé, pour dater une valeur qui n'est pas d'aujourd'hui. */
 function shortParisDay(ms: number, locale: string = "fr-FR"): string {
   return new Date(ms).toLocaleDateString(locale, {
@@ -733,6 +742,21 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
     p.snapshotAt !== null && shortParisDay(p.snapshotAt, loc) !== shortParisDay(now, loc)
       ? shortParisDay(p.snapshotAt, loc)
       : null;
+  // RELEVÉ RAPIDE (toutes les 2 h sur 36 h) : on dit son HEURE — « à 23h30 »
+  // serait faux, et c'est précisément ce qui le distingue du relevé de nuit.
+  const rapideAt = p.snapshotSource === "rapide" ? p.snapshotAt : null;
+  const heure = rapideAt !== null ? shortParisTime(rapideAt, loc) : null;
+  const vuesLabel = sourceDay
+    ? tr("vuesAu", { sourceDay: sourceDay })
+    : heure !== null
+      ? tr("vuesA", { heure })
+      : tr("vues");
+  const vuesTitle =
+    rapideAt !== null && heure !== null
+      ? tr("releveRapideLeA", { sourceDay: shortParisDay(rapideAt, loc), heure })
+      : sourceDay
+        ? tr("dernierReleveLeA23h30", { sourceDay: sourceDay })
+        : undefined;
 
   return (
     <div className="flex items-center gap-3 py-2">
@@ -747,11 +771,7 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
           {p.compte} · {tAge("label", relativeAge(p.postedAt, now))}
         </div>
       </div>
-      <Metric
-        value={formatNumber(p.vues, loc)}
-        label={sourceDay ? tr("vuesAu", { sourceDay: sourceDay }) : tr("vues")}
-        title={sourceDay ? tr("dernierReleveLeA23h30", { sourceDay: sourceDay }) : undefined}
-      />
+      <Metric value={formatNumber(p.vues, loc)} label={vuesLabel} title={vuesTitle} />
       {/* LA colonne du tableau : un post qui monte vs un post qui s'éteint. */}
       <div className="w-20 shrink-0 text-right">
         {p.delta24h !== null ? (

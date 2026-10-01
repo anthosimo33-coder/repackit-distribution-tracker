@@ -17,6 +17,7 @@ import {
   rateOf,
   computeDelta24h,
   computeFollowersDelta,
+  freshestReading,
   type PostSignal,
 } from "../convex/decisions";
 import {
@@ -87,13 +88,11 @@ describe("detectOpenDoor — les quatre conditions ENSEMBLE", () => {
   });
 
   it("bornes exactes : au seuil ça passe, un cran dessous non", () => {
-    const pile = post({
-      vues: OPEN_DOOR_MIN_VIEWS,
-      likes: Math.ceil(OPEN_DOOR_MIN_VIEWS * OPEN_DOOR_MIN_LIKE_RATE),
-    });
+    const likesAuSeuil = Math.ceil(OPEN_DOOR_MIN_VIEWS * OPEN_DOOR_MIN_LIKE_RATE);
+    const pile = post({ vues: OPEN_DOOR_MIN_VIEWS, likes: likesAuSeuil });
     expect(detectOpenDoor(pile, NOW)).not.toBeNull();
     expect(detectOpenDoor({ ...pile, vues: pile.vues - 1 }, NOW)).toBeNull();
-    expect(detectOpenDoor({ ...pile, likes: pile.likes - 1 }, NOW)).toBeNull();
+    expect(detectOpenDoor({ ...pile, likes: likesAuSeuil - 1 }, NOW)).toBeNull();
   });
 });
 
@@ -454,5 +453,64 @@ describe("computeFollowersDelta — le delta qui demande deux nuits", () => {
     expect(
       computeFollowersDelta([releve(26, 18_430), releve(2, 18_390)]),
     ).toBe(-40);
+  });
+});
+
+// ─── RELEVÉ RAPIDE dans le dashboard — le relevé le plus récent, ENTIER ──────
+// Relevés réels de prod (30/09/2026) : le relevé rapide TikTok porte vues,
+// likes, saves ; l'Instagram masque les likes une fois sur deux et n'a jamais
+// de saves. Un post publié à 13 h restait « en attente de relevé » jusqu'à
+// 23 h 30 alors qu'il avait été relu trois fois.
+describe("freshestReading — vues, likes et saves d'un SEUL relevé", () => {
+  // Nuit du 29/09, 23 h 33 Paris ; relevé rapide du 30/09, 15 h 12 Paris.
+  const nuit = { at: Date.UTC(2026, 8, 29, 21, 33), vues: 1_784, likes: 5, saves: 4 };
+  const rapideTikTok = { at: Date.UTC(2026, 8, 30, 13, 12), vues: 8_976, likes: 51, saves: 14 };
+  const rapideInstaSansLikes = { at: Date.UTC(2026, 8, 30, 13, 12), vues: 2_240, likes: null, saves: null };
+
+  it("un relevé rapide plus récent l'emporte, compteurs compris", () => {
+    expect(freshestReading(nuit, rapideTikTok)).toEqual({ ...rapideTikTok, source: "rapide" });
+  });
+
+  it("likes masqués sur le relevé retenu : NON MESURÉS, jamais ceux de la veille", () => {
+    const r = freshestReading(nuit, rapideInstaSansLikes)!;
+    expect(r.source).toBe("rapide");
+    expect(r.vues).toBe(2_240);
+    expect(r.likes).toBeNull();
+    expect(r.saves).toBeNull();
+    // Le like rate devient inconnu, pas 5 ÷ 2 240 = 0,2 % — un faux « mauvais ».
+    expect(rateOf(r.likes, r.vues)).toBeNull();
+  });
+
+  it("la nuit plus récente l'emporte (le relevé rapide s'arrête à 36 h)", () => {
+    const vieuxRapide = { ...rapideTikTok, at: nuit.at - 2 * HOUR };
+    expect(freshestReading(nuit, vieuxRapide)).toEqual({ ...nuit, source: "nuit" });
+  });
+
+  it("à égalité d'instant, la nuit (le relevé de référence)", () => {
+    expect(freshestReading(nuit, { ...rapideTikTok, at: nuit.at })?.source).toBe("nuit");
+  });
+
+  it("un seul relevé, ou aucun", () => {
+    expect(freshestReading(null, rapideTikTok)?.source).toBe("rapide");
+    expect(freshestReading(nuit, null)?.source).toBe("nuit");
+    expect(freshestReading(null, null)).toBeNull();
+  });
+
+  it("likes non mesurés : jamais de porte ouverte (non mesuré ≠ satisfait)", () => {
+    expect(detectOpenDoor(post({ likes: null }), NOW)).toBeNull();
+    // PRÉSENCE : le même post avec ses likes mesurés ouvre bien la porte.
+    expect(detectOpenDoor(post(), NOW)).not.toBeNull();
+  });
+});
+
+describe("computeDelta24h — les relevés rapides comme points de référence", () => {
+  it("un post de 30 h sans relevé de nuit vieux de 24 h : le relevé rapide fournit la référence", () => {
+    const publie = NOW - 30 * HOUR;
+    // Relevé de nuit il y a 22 h seulement (moins de 24 h) : pas de référence.
+    const nuitSeule = [{ capturedAt: NOW - 22 * HOUR, vues: 9_100 }];
+    expect(computeDelta24h(publie, 12_400, nuitSeule, NOW)).toBeNull();
+    // Relevé rapide de 26 h, à 4 h de vie : 3 050 vues.
+    const avecRapide = [...nuitSeule, { capturedAt: NOW - 26 * HOUR, vues: 3_050 }];
+    expect(computeDelta24h(publie, 12_400, avecRapide, NOW)).toBe(9_350);
   });
 });

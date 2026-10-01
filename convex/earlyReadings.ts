@@ -3,7 +3,9 @@ import {
   internalMutation,
   internalQuery,
   type ActionCtx,
+  type MutationCtx,
 } from "./_generated/server";
+import { e2eMutation } from "./functions";
 import { internal } from "./_generated/api";
 import { v, type Infer } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -159,38 +161,59 @@ const attemptValidator = v.object({
  */
 export const recordEarlyPass = internalMutation({
   args: { readings: v.array(readingValidator), attempts: v.array(attemptValidator) },
-  handler: async (ctx, { readings, attempts }): Promise<number> => {
-    for (const a of attempts) {
-      const pub = await ctx.db.get(a.publicationId);
-      if (!pub) continue;
-      const existing = await ctx.db
-        .query("earlyReadingAttempts")
-        .withIndex("by_publication", (q) => q.eq("publicationId", a.publicationId))
-        .first();
-      if (existing) await ctx.db.patch(existing._id, { at: a.at, outcome: a.outcome });
-      else await ctx.db.insert("earlyReadingAttempts", { ...a, projectId: pub.projectId });
-    }
-    let written = 0;
-    for (const r of readings) {
-      const pub = await ctx.db.get(r.publicationId);
-      if (!pub) continue;
-      // Même invariant que metricSnapshots : pas de relevé avant la mise en ligne.
-      if (r.capturedAt < r.postedAt) continue;
-      const recent = await ctx.db
-        .query("earlyReadings")
-        .withIndex("by_publication_capturedAt", (q) =>
-          q
-            .eq("publicationId", r.publicationId)
-            .gte("capturedAt", r.capturedAt - DUPLICATE_WINDOW_MS),
-        )
-        .first();
-      if (recent) continue;
-      await ctx.db.insert("earlyReadings", { ...r, projectId: pub.projectId });
-      written += 1;
-    }
-    return written;
-  },
+  handler: async (ctx, args): Promise<number> => writeEarlyPass(ctx, args),
 });
+
+/**
+ * Test e2e — écrit un passage du relevé rapide par le MÊME chemin que le cron
+ * (doublons, invariant « pas avant la mise en ligne »), sans appeler TikTok ni
+ * Apify. Gated par le secret e2e.
+ */
+export const e2eRecordEarlyPass = e2eMutation({
+  args: { readings: v.array(readingValidator), attempts: v.array(attemptValidator) },
+  handler: async (ctx, args): Promise<number> => writeEarlyPass(ctx, args),
+});
+
+async function writeEarlyPass(
+  ctx: MutationCtx,
+  {
+    readings,
+    attempts,
+  }: {
+    readings: Infer<typeof readingValidator>[];
+    attempts: Infer<typeof attemptValidator>[];
+  },
+): Promise<number> {
+  for (const a of attempts) {
+    const pub = await ctx.db.get(a.publicationId);
+    if (!pub) continue;
+    const existing = await ctx.db
+      .query("earlyReadingAttempts")
+      .withIndex("by_publication", (q) => q.eq("publicationId", a.publicationId))
+      .first();
+    if (existing) await ctx.db.patch(existing._id, { at: a.at, outcome: a.outcome });
+    else await ctx.db.insert("earlyReadingAttempts", { ...a, projectId: pub.projectId });
+  }
+  let written = 0;
+  for (const r of readings) {
+    const pub = await ctx.db.get(r.publicationId);
+    if (!pub) continue;
+    // Même invariant que metricSnapshots : pas de relevé avant la mise en ligne.
+    if (r.capturedAt < r.postedAt) continue;
+    const recent = await ctx.db
+      .query("earlyReadings")
+      .withIndex("by_publication_capturedAt", (q) =>
+        q
+          .eq("publicationId", r.publicationId)
+          .gte("capturedAt", r.capturedAt - DUPLICATE_WINDOW_MS),
+      )
+      .first();
+    if (recent) continue;
+    await ctx.db.insert("earlyReadings", { ...r, projectId: pub.projectId });
+    written += 1;
+  }
+  return written;
+}
 
 const runValidator = v.object({
   startedAt: v.number(),

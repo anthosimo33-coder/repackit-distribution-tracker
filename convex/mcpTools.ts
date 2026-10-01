@@ -3378,6 +3378,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
                       ...(mesureSaves === "unavailable" ? { enregistrementsNonDisponibles: true } : {}),
                       verdict: verdicts[verdictOf(p, maintenant)] ?? verdictOf(p, maintenant),
                       releveLe: instantParis(p.snapshotAt),
+                      releve: p.snapshotSource,
                     };
                   }),
                 };
@@ -3385,7 +3386,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
           lecture: [
             "Le Dashboard de l'app : les quatre cartes d'action, « À décider » (une ligne par DÉCISION, jamais une tâche), les posts des 48 dernières heures par créatrice. La conversion par créatrice (« Ce que ça a rapporté ») est dans l'outil « acquisition ».",
             `Porte ouverte = post de moins de 48 h à ${OPEN_DOOR_MIN_VIEWS} vues ou plus, like rate ≥ ${OPEN_DOOR_MIN_LIKE_RATE * 100} %, au moins un enregistrement et des abonnés gagnés. Alarme compte = ${ACCOUNT_ALARM_RUN_LENGTH} posts consécutifs sous les seuils. Hook mort = au moins ${DEAD_HOOK_MIN_RUNS} runs publiés, aucun au-dessus de ${DEAD_HOOK_MAX_VIEWS} vues.`,
-            "Décisions recalculées toutes les 30 min (cache de l'écran) ; vues au dernier relevé (23 h 30), daté par « releveLe ».",
+            "Décisions recalculées toutes les 30 min (cache de l'écran). Vues, likes et saves d'un post viennent de son relevé LE PLUS RÉCENT, pris entier : « nuit » (23 h 30) ou « rapide » (toutes les 2 h pendant les 36 premières heures), daté par « releveLe ». Un compteur que ce relevé ne fournit pas (likes masqués sur Instagram) vaut null, jamais la valeur d'un autre relevé.",
             "Posts des 48 h : par défaut les 5 posts DÉJÀ RELEVÉS les plus vus par créatrice ; « sansReleve » = posts sans aucun relevé (trop récents, ou plateforme non relevée), « autresPosts » = relevés non listés. « posts » et « vues » comptent tout. Détail complet : tous_les_posts.",
             "« nonAccessible » = le rôle de la clé n'a pas le bloc de cette section (l'écran la masque aussi).",
           ],

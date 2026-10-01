@@ -122,6 +122,7 @@ test.describe("Outil MCP dashboard", () => {
         [60, 1_980, 39],
         [6, 2_310, 51],
       ];
+      const publications: Id<"publications">[] = [];
       for (const [i, [heures, vues, likes]] of posts.entries()) {
         const pub = await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
           projectId,
@@ -130,6 +131,7 @@ test.describe("Outil MCP dashboard", () => {
           publishedAt: ts - heures * HOUR,
           allowBackdate: true,
         });
+        publications.push((pub.publicationIds ?? [])[0] as Id<"publications">);
         await admin.mutation(api.metricSnapshots.createSnapshot, {
           projectId,
           publicationId: (pub.publicationIds ?? [])[0] as Id<"publications">,
@@ -207,6 +209,42 @@ test.describe("Outil MCP dashboard", () => {
         vuesGagnees24h: 2_310,
         likeRatePct: 2.2,
         verdict: "monte",
+        releve: "nuit",
+      });
+
+      // ── RELEVÉ RAPIDE : plus récent que la nuit, il porte les chiffres ──────
+      // Écrit par le MÊME chemin que le cron (sans TikTok ni Apify). Il a 30 min ;
+      // le relevé de nuit, 2 h. Vues, likes ET saves viennent de lui.
+      const releveRapide = ts - 30 * 60_000;
+      const ecrits = await admin.mutation(api.earlyReadings.e2eRecordEarlyPass, {
+        secret: E2E_SECRET,
+        readings: [
+          {
+            publicationId: publications[5],
+            capturedAt: releveRapide,
+            postedAt: ts - 6 * HOUR,
+            postedAtSource: "datePubli",
+            vues: 4_870,
+            likes: 132,
+            comments: 7,
+            saves: 9,
+            source: "tiktok",
+          },
+        ],
+        attempts: [{ publicationId: publications[5], at: releveRapide, outcome: "read" }],
+      });
+      expect(ecrits).toBe(1);
+      // Le cron de cache (30 min) peut avoir figé l'état d'avant : on recalcule.
+      await admin.mutation(api.dashboardDecisions.e2eRefreshDecisionsCache, { secret: E2E_SECRET, projectId });
+      const frais = await outil(url, token, { projet: slug });
+      expect(frais.posts48h[0]).toMatchObject({ posts: 1, vues: 4_870 });
+      expect(frais.posts48h[0].detail[0]).toMatchObject({
+        vues: 4_870,
+        vuesGagnees24h: 4_870, // moins de 24 h : toutes ses vues sont récentes
+        likeRatePct: 2.7, // 132 ÷ 4 870 — PAS 51 likes de la nuit ÷ 4 870
+        enregistrements: 9,
+        verdict: "monte",
+        releve: "rapide",
       });
 
       // ── Un manager SANS le bloc paiements : « Dû » masqué, le reste présent ─
@@ -227,6 +265,17 @@ test.describe("Outil MCP dashboard", () => {
       // ── L'écran dit la même chose ───────────────────────────────────────────
       await page.goto(`/admin/${slug}/dashboard`);
       await expect(page.getByText(/5 posts consécutifs sous les seuils/)).toBeVisible();
+      // Le post porte les chiffres du relevé rapide, DATÉS à son heure (pas « 23h30 »).
+      const paris = (ms: number, o: Intl.DateTimeFormatOptions) =>
+        new Date(ms).toLocaleString("fr-FR", { timeZone: "Europe/Paris", ...o });
+      const memeJour =
+        paris(releveRapide, { day: "2-digit", month: "2-digit" }) === paris(Date.now(), { day: "2-digit", month: "2-digit" });
+      const libelle = memeJour
+        ? `vues · ${paris(releveRapide, { hour: "2-digit", minute: "2-digit" })}`
+        : `vues · au ${paris(releveRapide, { day: "2-digit", month: "2-digit" })}`;
+      const metrique = page.getByText(libelle, { exact: true });
+      await expect(metrique).toBeVisible();
+      await expect(metrique.locator("..")).toContainText(/4\s?870/);
     } finally {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }

@@ -18,7 +18,9 @@ import {
   detectAccountAlarms,
   computeDelta24h,
   computeFollowersDelta,
+  freshestReading,
   type PostSignal,
+  type ReadingSource,
   type AccountAlarm,
 } from "./decisions";
 import {
@@ -165,12 +167,15 @@ export async function computeDecisionDashboard(
     };
 
     // ── PostSignal d'une publication (+ libellé et type pour l'affichage) ────
-    const signalOf = async (
-      p: Doc<"publications">,
-    ): Promise<PostSignal & { label: string; type: string; snapshotAt: number | null }> => {
+    type Post48h = PostSignal & {
+      label: string;
+      type: string;
+      snapshotAt: number | null;
+      snapshotSource: ReadingSource | null;
+    };
+    const signalOf = async (p: Doc<"publications">): Promise<Post48h> => {
       const ref = refs.get(p._id as string);
       const hookBrickId = (p.scriptCombo?.hookBrickId as string) ?? null;
-      const vuesLatest = p.vuesLatest ?? 0;
       // Historique de CETTE publication (≤ 48 h de vie → une poignée de rows).
       const snaps = await ctx.db
         .query("metricSnapshots")
@@ -178,6 +183,38 @@ export async function computeDecisionDashboard(
           q.eq("publicationId", p._id),
         )
         .collect();
+      // RELEVÉ RAPIDE (toutes les 2 h sur les 36 premières heures, cf
+      // convex/earlyReadings.ts) : une série à part, jamais écrite dans
+      // metricSnapshots. Sans elle, un post de 13 h restait « en attente de
+      // relevé » jusqu'à 23 h 30 alors qu'il avait été relu trois fois.
+      const rapides = await ctx.db
+        .query("earlyReadings")
+        .withIndex("by_publication_capturedAt", (q) => q.eq("publicationId", p._id))
+        .collect();
+      const dernierRapide = rapides.reduce<(typeof rapides)[number] | null>(
+        (m, r) => (m === null || r.capturedAt > m.capturedAt ? r : m),
+        null,
+      );
+      const retenu = freshestReading(
+        p.latestSnapshotAt === undefined
+          ? null
+          : {
+              at: p.latestSnapshotAt,
+              vues: p.vuesLatest ?? 0,
+              likes: p.likesLatest ?? 0,
+              saves: p.savesLatest ?? null,
+            },
+        dernierRapide === null
+          ? null
+          : {
+              at: dernierRapide.capturedAt,
+              vues: dernierRapide.vues,
+              likes: dernierRapide.likes ?? null,
+              saves: dernierRapide.saves ?? null,
+            },
+      );
+      // Sans aucun relevé : les valeurs d'avant (0, « en attente » à l'écran).
+      const vues = retenu?.vues ?? p.vuesLatest ?? 0;
       return {
         publicationId: p._id as string,
         compte: p.compte,
@@ -185,23 +222,30 @@ export async function computeDecisionDashboard(
         creatorId: (ref?.creatorId as string) ?? null,
         creatorName: ref?.creatorName ?? null,
         postedAt: p.datePubli,
-        vues: vuesLatest,
-        likes: p.likesLatest ?? 0,
-        saves: p.savesLatest ?? null,
-        delta24h: computeDelta24h(p.datePubli, vuesLatest, snaps, now),
+        vues,
+        likes: retenu === null ? (p.likesLatest ?? 0) : retenu.likes,
+        saves: retenu === null ? (p.savesLatest ?? null) : retenu.saves,
+        delta24h: computeDelta24h(
+          p.datePubli,
+          vues,
+          [...snaps, ...rapides.map((r) => ({ capturedAt: r.capturedAt, vues: r.vues }))],
+          now,
+        ),
         followersDelta: followersByHandle.get(p.compte) ?? null,
         hookBrickId,
         label: postLabel(p),
         type: typeOf(p),
         // Instant du relevé qui porte vues/likes/saves affichés — l'écran le
         // DATE quand il n'est pas d'aujourd'hui : « 3 218 · au 16/08 » vaut
-        // mieux qu'un tiret, tant que la date est visible.
-        snapshotAt: p.latestSnapshotAt ?? null,
+        // mieux qu'un tiret, tant que la date est visible. Et il dit DE QUEL
+        // relevé il s'agit : 23 h 30, ou l'heure du relevé rapide.
+        snapshotAt: retenu?.at ?? null,
+        snapshotSource: retenu?.source ?? null,
       };
     };
 
     // ── Section « Posts des dernières 48 h » + portes ouvertes ───────────────
-    const posts48h: (PostSignal & { label: string; type: string; snapshotAt: number | null })[] = [];
+    const posts48h: Post48h[] = [];
     for (const p of published) {
       if (now - p.datePubli > RECENT_WINDOW_MS) continue;
       posts48h.push(await signalOf(p));
