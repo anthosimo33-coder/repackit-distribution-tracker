@@ -13,8 +13,15 @@ export function toCsv(rows: string[][]): string {
 
 /** Déclenche le téléchargement d'un CSV. Nécessite un contexte navigateur. */
 export function downloadCsv(filename: string, rows: string[][]) {
-  // BOM pour qu'Excel ouvre l'UTF-8 correctement.
-  const blob = new Blob(["﻿" + toCsv(rows)], {
+  downloadCsvText(filename, toCsv(rows));
+}
+
+/**
+ * Télécharge un CSV DÉJÀ sérialisé (ex. l'export comptable au format « ; » de
+ * lib/compta-export). BOM pour qu'Excel ouvre l'UTF-8 correctement.
+ */
+export function downloadCsvText(filename: string, csv: string) {
+  const blob = new Blob(["\ufeff" + csv], {
     type: "text/csv;charset=utf-8;",
   });
   const link = document.createElement("a");

@@ -52,7 +52,7 @@ Décisions actées :
 | 15 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
 | 16 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
 | 17 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
-| 18 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit. | ✗ | 14 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
+| 18 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit, compta. | ✗ | 29 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
 | 19 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
 | 20 | `notifications.manage` | Système | **Notifications** | Choisir les alertes Telegram de l'équipe et leur destinataire. | ✗ | 2 | 🔴 **Élevé** — le digest transporte le **total dû**, et on peut rediriger les alertes. |
 | 21 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
@@ -596,10 +596,25 @@ Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un f
 | `markPeriodPaid` | M | payments | Marque toute une période comme payée |  |
 | `setPublicationRemuneration` | M | publications | Décide si un post est payé |  |
 
-### `business.read` — 14 fonctions
+### `business.read` — 29 fonctions
 
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|
+| `addComptaCharge` | M | compta | Saisit une autre charge (hébergement, outils…) |  |
+| `annotateTransfer` | M | compta | Dit à quoi a servi un virement Whop → banque |  |
+| `confirmPlannedCharge` | M | compta | Confirme une charge mensuelle prévue |  |
+| `deleteComptaCharge` | M | compta | Supprime une autre charge |  |
+| `getComptaJournal` | Q | compta | Lignes de l'export comptable d'un mois |  |
+| `getComptaMonth` | Q | compta | Détail d'un mois de compta |  |
+| `getComptaOverview` | Q | compta | Onglet Compta d'une année : seuils, mois, solde |  |
+| `listComptaCharges` | Q | compta | Autres charges d'un mois, saisies et prévues |  |
+| `listComptaTransfers` | Q | compta | Virements Whop → banque d'un mois |  |
+| `logComptaExport` | M | compta | Note qu'un mois a été exporté |  |
+| `removeLineRule` | M | compta | Retire une règle de classement |  |
+| `requestComptaSync` | M | compta | Bouton « synchroniser » le grand livre Whop |  |
+| `setLineRule` | M | compta | Range un type de ligne Whop inconnu dans une colonne |  |
+| `stopChargeSeries` | M | compta | Arrête une charge « chaque mois » |  |
+| `updateComptaCharge` | M | compta | Modifie une autre charge |  |
 | `getAttribution` | Q | analyticsHub | Coût et vues par vidéo, efficacité par créatrice |  |
 | `getBillingCountries` | Q | analyticsHub | Ventes par pays de facturation |  |
 | `getChurn` | Q | analyticsHub | Résiliations et rétention des abonnés |  |

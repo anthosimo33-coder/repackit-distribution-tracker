@@ -178,6 +178,9 @@ export function projectForClient(p: Doc<"projects">) {
     // Décision RÉSOLUE (repli Snytch compris) : l'éditeur de brique et l'aperçu
     // admin lisent la même que le serveur (assignments.splitScriptZones).
     scriptZonesEnabled: isScriptZonesEnabled(p),
+    // Le menu ne propose « Compta » qu'aux projets reliés à Whop : sans grand
+    // livre, l'écran n'aurait que des charges à montrer.
+    whopConfigured: p.whop !== undefined,
   };
 }
 

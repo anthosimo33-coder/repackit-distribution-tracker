@@ -23,6 +23,7 @@
       "assignments": "Assignments",
       "pricings": "Pricings",
       "paiements": "Payments",
+      "compta": "Accounting",
       "analytics": "Analytics",
       "notifications": "Notifications",
       "createurs": "Creators",
@@ -1490,7 +1491,13 @@
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Invalid or expired authorization request: start the connection again from Claude.",
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Access not found.",
     "ERR_NO_ACTIVE_NOTIF": "Notifications are on for this campaign, but none is active: add one, or turn notifications off.",
-    "ERR_NOTIF_MISSING": "This video has no notification to edit."
+    "ERR_NOTIF_MISSING": "This video has no notification to edit.",
+    "ERR_COMPTA_CHARGE_INVALID": "Invalid expense: it needs a date, a label, a positive amount and a currency the project can convert.",
+    "ERR_COMPTA_CHARGE_NOT_FOUND": "This expense no longer exists.",
+    "ERR_COMPTA_RULE_BUILTIN": "Jarvia already knows where this line type goes: its column can't be changed from the page.",
+    "ERR_COMPTA_RULE_INVALID": "Invalid column or line type.",
+    "ERR_COMPTA_TRANSFER_NOT_FOUND": "This withdrawal can't be found in the project's ledger.",
+    "ERR_COMPTA_USAGE_INVALID": "Unknown withdrawal purpose."
   },
   "calendar": {
     "weekday": {

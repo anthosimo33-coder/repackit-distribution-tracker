@@ -88,6 +88,28 @@ crons.hourly(
   {},
 );
 
+// Compta (onglet Compta) — import HORAIRE du grand livre Whop (GET
+// /financial_activity) de chaque projet configuré, depuis 3 jours avant la
+// dernière écriture vue, + coût des scans du mois (PostHog). Idempotent (dédup
+// par id de ligne). minuteUTC:20 — clair de la sync Whop (:30), de PostHog
+// (:45), des crons à :15 et :50. Cf convex/compta.ts.
+crons.hourly(
+  "compta-ledger-sync",
+  { minuteUTC: 20 },
+  internal.compta.syncCompta,
+  { mode: "incremental" },
+);
+
+// Compta — relecture QUOTIDIENNE depuis le début du mois précédent : rattrape
+// une écriture postée avec une date plus ancienne que la fenêtre horaire.
+// 03:20 UTC, heure creuse.
+crons.daily(
+  "compta-ledger-recent",
+  { hourUTC: 3, minuteUTC: 20 },
+  internal.compta.syncCompta,
+  { mode: "recent" },
+);
+
 // Agrégats PostHog (hub Analytics) — ingestion HORAIRE des métriques produit de
 // chaque projet configuré (projects.posthog) via l'API HogQL. L'API est lente et
 // rate-limitée : on ne l'appelle JAMAIS dans le rendu, les queries lisent le

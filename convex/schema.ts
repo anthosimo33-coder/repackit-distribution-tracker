@@ -2885,6 +2885,149 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_whopMembershipId", ["whopMembershipId"]),
 
+  // ─── COMPTA (onglet Compta) — grand livre Whop + charges ──────────────────
+  // Cf convex/compta.ts (import, lectures, écritures) et convex/comptaMath.ts
+  // (classement des lignes, conversions, seuils).
+
+  /**
+   * UNE LIGNE DU GRAND LIVRE WHOP (GET /financial_activity) — chaque mouvement
+   * d'argent du compte : encaissement, frais, remboursement, litige, retrait…
+   * Importée telle quelle, DÉDUPLIQUÉE par `whopId` : une ligne de grand livre
+   * ne change pas après écriture (une correction est une NOUVELLE ligne,
+   * `…_reversal`), l'import n'écrit donc que les lignes absentes.
+   *
+   * Aucune donnée personnelle du client (nom, e-mail) n'est conservée.
+   *
+   * `usage` / `note` : annotation d'un RETRAIT (`withdrawal`) par l'équipe — à
+   * quoi il a servi. Jamais réécrite par l'import (qui n'écrit que du neuf).
+   */
+  whopLedgerLines: defineTable({
+    projectId: v.id("projects"),
+    whopId: v.string(),
+    lineType: v.string(),
+    /** Signé, en unités pleines de `currency` (9.99, pas 999000000). */
+    amount: v.number(),
+    currency: v.string(),
+    postedAt: v.number(),
+    paymentId: v.optional(v.string()),
+    label: v.optional(v.string()),
+    sourceId: v.optional(v.string()),
+    destination: v.optional(v.string()),
+    sourceStatus: v.optional(v.string()),
+    usage: v.optional(v.string()),
+    note: v.optional(v.string()),
+    annotatedAt: v.optional(v.number()),
+    annotatedBy: v.optional(v.id("users")),
+    importedAt: v.number(),
+  })
+    .index("by_project_whop", ["projectId", "whopId"])
+    .index("by_project_posted", ["projectId", "postedAt"])
+    .index("by_project_type_posted", ["projectId", "lineType", "postedAt"]),
+
+  /**
+   * AGRÉGAT MENSUEL de la compta, un document par (projet, mois de Paris).
+   *
+   * `days` : le grand livre du mois réduit en cases jour × type × devise
+   * (montants en devise d'origine). Reconstruit depuis `whopLedgerLines` après
+   * chaque import qui touche le mois. Il existe parce qu'une année de lignes
+   * (≈ 36 000 pour Snytch) dépasse ce qu'une query peut lire : l'écran lit
+   * douze documents, pas trente-six mille. Le classement (règles) et la
+   * conversion (taux) s'appliquent À LA LECTURE : changer une règle ou un taux
+   * ne demande aucune reconstruction.
+   *
+   * `scan` : coût des scans du mois (PostHog `cost_usd`, en dollars). `frozen`
+   * une fois le mois clos depuis deux jours : il n'est plus recalculé.
+   */
+  comptaMonths: defineTable({
+    projectId: v.id("projects"),
+    month: v.string(),
+    days: v.array(
+      v.object({
+        day: v.string(),
+        lineType: v.string(),
+        currency: v.string(),
+        amount: v.number(),
+        count: v.number(),
+      }),
+    ),
+    ledgerRebuiltAt: v.optional(v.number()),
+    scan: v.optional(
+      v.object({
+        lightUsd: v.number(),
+        fullUsd: v.number(),
+        otherUsd: v.number(),
+        runs: v.number(),
+        withCost: v.number(),
+        computedAt: v.number(),
+        frozen: v.boolean(),
+      }),
+    ),
+  }).index("by_project_month", ["projectId", "month"]),
+
+  /**
+   * ÉTAT DE LA COMPTA d'un projet (un document) : dernier import du grand livre,
+   * erreur éventuelle, devise de référence, RÈGLES de classement choisies depuis
+   * la page, et journal des exports (pour prévenir qu'une règle changerait un
+   * mois déjà envoyé au comptable).
+   */
+  comptaState: defineTable({
+    projectId: v.id("projects"),
+    lastSyncAt: v.optional(v.number()),
+    /** Dernière date d'écriture vue — l'import suivant repart 3 jours avant. */
+    lastPostedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    /** L'historique complet a-t-il été lu au moins une fois sans coupure ? */
+    historyComplete: v.optional(v.boolean()),
+    /** Devise de référence (la seule rencontrée sans taux), cf comptaMath. */
+    referenceCurrency: v.optional(v.string()),
+    scanError: v.optional(v.string()),
+    rules: v.array(
+      v.object({
+        lineType: v.string(),
+        bucket: v.string(),
+        at: v.number(),
+        by: v.id("users"),
+      }),
+    ),
+    exports: v.array(
+      v.object({
+        month: v.string(),
+        kind: v.string(),
+        at: v.number(),
+        by: v.id("users"),
+      }),
+    ),
+  }).index("by_project", ["projectId"]),
+
+  /**
+   * AUTRES CHARGES saisies à la main (hébergement, outils, abonnements).
+   * Montant TTC dans la devise de la facture, converti au taux du projet à la
+   * lecture.
+   *
+   * RÉCURRENCE : `seriesId` relie une charge à ses recopies (absent sur la
+   * première, qui fait office d'identifiant de série). Les mois suivants sont
+   * PRÉVUS par le calcul (comptaMath.plannedOccurrences), jamais écrits tout
+   * seuls : on les confirme, ou on arrête la série en décochant « chaque mois »
+   * sur sa dernière charge.
+   */
+  comptaCharges: defineTable({
+    projectId: v.id("projects"),
+    /** Jour de la facture, "YYYY-MM-DD". */
+    day: v.string(),
+    month: v.string(),
+    label: v.string(),
+    category: v.string(),
+    amount: v.number(),
+    currency: v.string(),
+    recurring: v.boolean(),
+    seriesId: v.optional(v.id("comptaCharges")),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_project_month", ["projectId", "month"])
+    .index("by_project_recurring", ["projectId", "recurring"]),
+
   /**
    * MARCHÉS COMPOSÉS — « Serbie + Croatie » lus comme un seul marché.
    *

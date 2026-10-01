@@ -371,6 +371,27 @@ const ETAPES: Record<TablePurgee, Etape> = {
   whopPlans: etape((ctx, pid, n) =>
     ctx.db.query("whopPlans").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  whopLedgerLines: etape((ctx, pid, n) =>
+    ctx.db
+      .query("whopLedgerLines")
+      .withIndex("by_project_posted", (q) => q.eq("projectId", pid))
+      .take(n),
+  ),
+  comptaMonths: etape((ctx, pid, n) =>
+    ctx.db
+      .query("comptaMonths")
+      .withIndex("by_project_month", (q) => q.eq("projectId", pid))
+      .take(n),
+  ),
+  comptaState: etape((ctx, pid, n) =>
+    ctx.db.query("comptaState").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
+  comptaCharges: etape((ctx, pid, n) =>
+    ctx.db
+      .query("comptaCharges")
+      .withIndex("by_project_month", (q) => q.eq("projectId", pid))
+      .take(n),
+  ),
   marketGroups: etape((ctx, pid, n) =>
     ctx.db.query("marketGroups").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
