@@ -225,3 +225,74 @@ export async function fetchStreamDuration(
     return null;
   }
 }
+
+/** Une piste de sous-titres d'une vidéo Stream (générée par IA ou non). */
+export interface StreamCaption {
+  language: string;
+  generated: boolean;
+  status: "ready" | "inprogress" | "error" | null;
+}
+
+function parseCaption(x: unknown): StreamCaption | null {
+  if (!x || typeof x !== "object") return null;
+  const o = x as { language?: unknown; generated?: unknown; status?: unknown };
+  if (typeof o.language !== "string") return null;
+  const s = o.status;
+  return {
+    language: o.language,
+    generated: o.generated === true,
+    status: s === "ready" || s === "inprogress" || s === "error" ? s : null,
+  };
+}
+
+/** Les pistes de sous-titres d'une vidéo (`GET /stream/<uid>/captions`). */
+export async function listStreamCaptions(
+  config: CloudflareStreamConfig,
+  uid: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<StreamCaption[]> {
+  const json = await cfFetch(config, `/stream/${encodeURIComponent(uid)}/captions`, { method: "GET" }, fetchImpl);
+  const result = (json as { result?: unknown } | null)?.result;
+  return Array.isArray(result) ? result.map(parseCaption).filter((c): c is StreamCaption => c !== null) : [];
+}
+
+/**
+ * Lance la transcription automatique d'une vidéo dans une langue
+ * (`POST /stream/<uid>/captions/<langue>/generate`) — GRATUITE pour les vidéos
+ * stockées sur Stream. Asynchrone : la piste passe `inprogress` puis `ready`.
+ */
+export async function generateStreamCaptions(
+  config: CloudflareStreamConfig,
+  uid: string,
+  language: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<StreamCaption | null> {
+  const json = await cfFetch(
+    config,
+    `/stream/${encodeURIComponent(uid)}/captions/${encodeURIComponent(language)}/generate`,
+    { method: "POST" },
+    fetchImpl,
+  );
+  return parseCaption((json as { result?: unknown } | null)?.result);
+}
+
+/** Le texte WebVTT d'une piste (`GET /stream/<uid>/captions/<langue>/vtt`). */
+export async function fetchStreamCaptionsVtt(
+  config: CloudflareStreamConfig,
+  uid: string,
+  language: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl(
+      `${CF_API_BASE}/accounts/${config.accountId}/stream/${encodeURIComponent(uid)}/captions/${encodeURIComponent(language)}/vtt`,
+      { method: "GET", signal: controller.signal, headers: { Authorization: `Bearer ${config.apiToken}` } },
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}

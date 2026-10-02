@@ -117,3 +117,92 @@ export async function lireVignettes(
     echecs: instants.filter((_, i) => lues[i] === null),
   };
 }
+
+// ─── Ce qui est DIT : la transcription Cloudflare Stream ───────────────────
+
+/** Langues que Stream sait transcrire (doc « Generate captions »). */
+export const LANGUES_TRANSCRIPTION = ["cs", "nl", "en", "fr", "de", "it", "ja", "ko", "pl", "pt", "ru", "es"] as const;
+
+/** La langue de transcription d'une créatrice : sa locale (« pt-BR » → pt), sinon le français. */
+export function langueTranscription(locale: string | null | undefined): string {
+  const base = (locale ?? "").toLowerCase().split(/[-_]/)[0];
+  return (LANGUES_TRANSCRIPTION as readonly string[]).includes(base) ? base : "fr";
+}
+
+export interface Replique {
+  debut: number;
+  fin: number;
+  texte: string;
+}
+
+const HORODATAGE = /^(?:(\d+):)?(\d{1,2}):(\d{2})[.,](\d{1,3})$/;
+const secondes = (t: string): number | null => {
+  const m = HORODATAGE.exec(t.trim());
+  if (!m) return null;
+  return Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4].padEnd(3, "0")) / 1000;
+};
+
+/** Les répliques d'un fichier WebVTT, dans l'ordre (balises et numéros de bloc retirés). */
+export function lireVtt(vtt: string): Replique[] {
+  const repliques: Replique[] = [];
+  for (const bloc of vtt.replace(/\r/g, "").split(/\n\s*\n/)) {
+    const lignes = bloc.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+    const i = lignes.findIndex((l) => l.includes("-->"));
+    if (i < 0) continue;
+    const [a, b] = lignes[i].split("-->");
+    const debut = secondes(a);
+    const fin = secondes((b ?? "").trim().split(/\s+/)[0] ?? "");
+    const texte = lignes
+      .slice(i + 1)
+      .join(" ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (debut === null || fin === null || texte === "") continue;
+    repliques.push({ debut, fin, texte });
+  }
+  return repliques;
+}
+
+/** Ce qui est dit entre deux instants (répliques qui chevauchent la fenêtre). */
+export function ditEntre(repliques: readonly Replique[], de: number, a: number): string {
+  return repliques
+    .filter((r) => r.fin > de && r.debut < a)
+    .map((r) => r.texte)
+    .join(" ");
+}
+
+export type EtatTranscription =
+  | { etat: "prete"; repliques: Replique[] }
+  | { etat: "en_cours" }
+  | { etat: "lancee" }
+  | { etat: "erreur"; message: string }
+  | { etat: "indisponible" };
+
+/**
+ * La transcription d'une vidéo dans une langue : prête (répliques), en cours,
+ * lancée à l'instant (gratuite, ~1 min), en erreur — ou indisponible sans
+ * configuration Stream. Les appels sont injectés (testés sans réseau).
+ */
+export async function transcription(
+  api: {
+    lister: () => Promise<{ language: string; status: "ready" | "inprogress" | "error" | null }[]>;
+    lancer: () => Promise<unknown>;
+    vtt: () => Promise<string>;
+  } | null,
+  langue: string,
+): Promise<EtatTranscription> {
+  if (api === null) return { etat: "indisponible" };
+  try {
+    const piste = (await api.lister()).find((c) => c.language === langue);
+    if (!piste) {
+      await api.lancer();
+      return { etat: "lancee" };
+    }
+    if (piste.status === "inprogress") return { etat: "en_cours" };
+    if (piste.status === "error") return { etat: "erreur", message: "Cloudflare n'a pas pu transcrire cette vidéo." };
+    return { etat: "prete", repliques: lireVtt(await api.vtt()) };
+  } catch (e) {
+    return { etat: "erreur", message: e instanceof Error ? e.message : "transcription illisible" };
+  }
+}

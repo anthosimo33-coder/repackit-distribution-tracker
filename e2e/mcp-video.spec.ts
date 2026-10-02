@@ -113,6 +113,14 @@ test.describe("MCP — regarder, valider, refuser une vidéo soumise", () => {
     expect(illisible.erreur, illisible.texte).toBe(false);
     expect(illisible.contenu.filter((c) => c.type === "image")).toHaveLength(0);
     expect(JSON.parse(illisible.texte).lecture.join(" ")).toContain("Aucune image n'a pu être lue");
+    // Hook et CTA attendus, tirés du script figé ; la transcription dit pourquoi elle manque.
+    const vue = JSON.parse(illisible.texte);
+    expect(vue.hookAttendu).toBe(`J'ai ouvert le classeur de ma sœur ${ts}`);
+    expect(vue.ctaAttendu).toBe("Le lien est dans ma bio.");
+    expect(vue.ce_qui_est_dit).toEqual({
+      langue: "fr",
+      etat: "Transcription indisponible : Cloudflare Stream n'est pas configuré sur ce déploiement.",
+    });
     expect(JSON.parse(illisible.texte).imagesManquantes.length).toBeGreaterThan(0);
 
     // ── Une mission sans vidéo : le refus le dit ──────────────────────────────
@@ -136,8 +144,8 @@ test.describe("MCP — regarder, valider, refuser une vidéo soumise", () => {
     expect(refus.erreur, refus.texte).toBe(false);
     const refusee = await mission();
     expect(refusee.status).toBe("video_rejected");
-    const vue = await ines.client.query(api.assignments.getMyAssignment, { projectId: ines.projectId, id });
-    expect(vue!.assignment.videoReviewFeedback).toBe(motif);
+    const vueCreatrice = await ines.client.query(api.assignments.getMyAssignment, { projectId: ines.projectId, id });
+    expect(vueCreatrice!.assignment.videoReviewFeedback).toBe(motif);
     // Plus en revue : la valider est refusé, et dit pourquoi.
     const tropTot = await appel(url, token, "valider_video", { createatrice: nom, jour: J2 });
     expect(tropTot.erreur).toBe(true);

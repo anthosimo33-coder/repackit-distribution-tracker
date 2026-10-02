@@ -67,6 +67,7 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(avec).toContain("3 vidéo(s) au plus");
     expect(avec).toContain("`validation` (createatrice: « Kelly Martin »)");
     expect(avec).toContain("`regarder_video`");
+    expect(avec).toContain("`ditAuDebut` contre `hookAttendu`");
     expect(avec).toContain("`valider_video` / `refuser_video`");
     const sans = texte(promptsJarvia(["missions"], "2026-10-07").obtenir("revue_validation", {}));
     expect(sans).toContain("`regarder_video`");
