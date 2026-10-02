@@ -306,7 +306,7 @@
       "neverCounted": "Une part « Paiement créatrices » n'est jamais comptée : la paie est déjà dans Créatrices quand tu marques le cycle payé.",
       "effectTitle": "Effet sur la compta de {month}",
       "effectOther": "Autres charges : + {amount} ({label}, {category})",
-      "effectScans": "Scans : paiement réel + {amount} ({label}), à la place de l'estimation",
+      "effectScans": "Scans : paiement réel + {amount} ({label})",
       "effectResult": "Résultat : {amount}",
       "effectNone": "Aucun effet sur le résultat : rien n'est compté en charge.",
       "effectUnchanged": "Virements reçus, net Whop, CA brut : inchangés",

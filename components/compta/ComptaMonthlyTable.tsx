@@ -66,7 +66,8 @@ function Amount({
         data-testid={testId}
       >
         <AlertTriangleIcon className="size-3 shrink-0" />
-        {f.signed(v, currency)}
+        {/* −0 (une charge nulle, négativée) s'afficherait « −0,00 € ». */}
+        {f.signed(v === 0 ? 0 : v, currency)}
       </span>
     );
   }
