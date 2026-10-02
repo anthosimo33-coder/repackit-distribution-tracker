@@ -14,6 +14,8 @@
  * résolu pour la personne authentifiée.
  */
 
+import type { PromptsServeur } from "./mcpPrompts";
+
 /** Versions du protocole comprises, la plus récente d'abord. */
 export const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"] as const;
 
@@ -77,6 +79,8 @@ export interface McpServer {
   instructions?: string;
   tools: readonly McpTool[];
   callTool(name: string, args: Record<string, unknown>): Promise<ToolResult>;
+  /** Flux de travail tout prêts (convex/mcpPrompts) ; absent = aucun. */
+  prompts?: PromptsServeur;
 }
 
 type JsonRpcId = string | number | null;
@@ -207,7 +211,10 @@ async function traiterMessage(
       const version = PROTOCOL_VERSIONS.find((v) => v === demandee) ?? PROTOCOL_VERSIONS[0];
       return reponse(id, {
         protocolVersion: version,
-        capabilities: { tools: { listChanged: false } },
+        capabilities: {
+          tools: { listChanged: false },
+          ...(server.prompts ? { prompts: { listChanged: false } } : {}),
+        },
         serverInfo: server.info,
         ...(server.instructions ? { instructions: server.instructions } : {}),
       });
@@ -250,9 +257,47 @@ async function traiterMessage(
         return reponse(id, textResult(texte, true));
       }
     }
-    default:
-      return erreur(id, RPC.METHOD_NOT_FOUND, `Méthode non prise en charge : ${msg.method}.`);
+    case "prompts/list":
+      if (!server.prompts) break;
+      return reponse(id, {
+        prompts: server.prompts.liste.map((p) => ({
+          name: p.name,
+          title: p.title,
+          description: p.description,
+          arguments: p.arguments,
+        })),
+      });
+    case "prompts/get": {
+      if (!server.prompts) break;
+      const nom = params.name;
+      const prompt = server.prompts.liste.find((p) => p.name === nom);
+      if (typeof nom !== "string" || !prompt) {
+        return erreur(id, RPC.INVALID_PARAMS, `Prompt inconnu : ${String(nom)}.`);
+      }
+      const brut = estObjet(params.arguments) ? params.arguments : {};
+      const args: Record<string, string> = {};
+      for (const [cle, valeur] of Object.entries(brut)) {
+        if (valeur === undefined || valeur === null) continue;
+        if (typeof valeur !== "string") {
+          return erreur(id, RPC.INVALID_PARAMS, `« ${cle} » doit être du texte.`);
+        }
+        args[cle] = valeur;
+      }
+      const manquant = prompt.arguments.find((a) => a.required && !(args[a.name] ?? "").trim());
+      if (manquant) {
+        return erreur(id, RPC.INVALID_PARAMS, `Argument requis manquant : « ${manquant.name} ».`);
+      }
+      try {
+        const r = server.prompts.obtenir(prompt.name, args);
+        if (!r) return erreur(id, RPC.INVALID_PARAMS, `Prompt inconnu : ${prompt.name}.`);
+        return reponse(id, r);
+      } catch (e) {
+        return erreur(id, RPC.INVALID_PARAMS, e instanceof ToolError ? e.message : "Prompt illisible.");
+      }
+    }
   }
+  // Méthode inconnue — ou `prompts/*` sur un serveur qui n'en publie pas.
+  return erreur(id, RPC.METHOD_NOT_FOUND, `Méthode non prise en charge : ${msg.method}.`);
 }
 
 /** Un message, ou un lot (tableau) — les versions antérieures du protocole en envoient. */
