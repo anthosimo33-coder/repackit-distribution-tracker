@@ -6,13 +6,16 @@ import {
   buildComptaFx,
   builtinBucketOf,
   creatorCashOuts,
+  creatorsControl,
   grossByDay,
   isFailedWithdrawal,
+  isScanPaidLow,
   ledgerAmount,
   ledgerTotals,
   plannedOccurrences,
   referenceCurrency,
   scanCostUsd,
+  scansSwap,
   thresholdView,
   transferPartsError,
   transferPartsOf,
@@ -375,5 +378,78 @@ describe("retrait échoué", () => {
     expect(isFailedWithdrawal("canceled", false)).toBe(true);
     expect(isFailedWithdrawal("completed", false)).toBe(false);
     expect(isFailedWithdrawal(null, false)).toBe(false);
+  });
+});
+
+describe("scans : paiements réels face à l'estimation", () => {
+  // Septembre de Snytch : 1 103,02 $ de cost_usd × 0,86 = 948,60 € estimés.
+  const estimate = 948.6;
+
+  it("un seul petit paiement efface toute l'estimation — et se voit", () => {
+    // Le top-up Hiker de 100 € compté seul : les scans « baissent » de 848,60 €.
+    expect(scansSwap({ estimate, paid: [], added: [100] })).toEqual({
+      before: { kind: "estimate", value: 948.6 },
+      after: { kind: "paid", value: 100 },
+      delta: -848.6,
+    });
+    expect(isScanPaidLow(100, estimate)).toBe(true);
+  });
+
+  it("tous les paiements du mois : le réel remplace l'estimation, sans alerte", () => {
+    // 8,64 + 96,23 + 46,55 + 607,31 déjà comptés, puis 100 + 200.
+    const r = scansSwap({ estimate, paid: [8.64, 96.23, 46.55, 607.31], added: [100, 200] });
+    expect(r.before).toEqual({ kind: "paid", value: 758.73 });
+    expect(r.after).toEqual({ kind: "paid", value: 1058.73 });
+    expect(r.delta).toBe(300);
+    expect(isScanPaidLow(1058.73, estimate)).toBe(false);
+    // Le seuil : la moitié de l'estimation, exclue.
+    expect(isScanPaidLow(474.3, estimate)).toBe(false);
+    expect(isScanPaidLow(474.29, estimate)).toBe(true);
+  });
+
+  it("sans estimation, ou un paiement sans taux : pas d'écart inventé", () => {
+    expect(scansSwap({ estimate: null, paid: [], added: [31.24] })).toEqual({
+      before: { kind: "none", value: null },
+      after: { kind: "paid", value: 31.24 },
+      delta: 31.24,
+    });
+    expect(scansSwap({ estimate, paid: [null], added: [100] }).delta).toBeNull();
+    expect(scansSwap({ estimate, paid: [], added: [null] }).after).toEqual({ kind: "paid", value: null });
+    expect(isScanPaidLow(null, estimate)).toBe(false);
+    expect(isScanPaidLow(10, null)).toBe(false);
+    expect(isScanPaidLow(0, 0)).toBe(false);
+  });
+});
+
+describe("contrôle créatrices : versé selon Paiements face à l'argent sorti", () => {
+  it("rien à comparer tant qu'aucune part « Paiement créatrices » n'existe", () => {
+    expect(creatorsControl(1031.82, 0, 0)).toBeNull();
+  });
+
+  it("septembre de Snytch : 1 126 € sortis pour 1 031,82 € marqués versés", () => {
+    // 870 € via Kevin + 150 Kelly + 43 Marine + 33 Orlane + 30 Sarah.
+    expect(creatorsControl(1031.82, 1126, 5)).toEqual({ paid: 1031.82, sent: 1126, gap: 94.18, significant: true });
+    // Dans l'autre sens : moins sorti que versé.
+    expect(creatorsControl(1031.82, 870, 1)).toMatchObject({ gap: -161.82, significant: true });
+  });
+
+  it("un écart de quelques euros n'alerte pas : 5 % ou 10 € au moins", () => {
+    expect(creatorsControl(1031.82, 1080, 2)).toMatchObject({ gap: 48.18, significant: false });
+    expect(creatorsControl(1031.82, 1086.5, 2)).toMatchObject({ gap: 54.68, significant: true });
+    expect(creatorsControl(40, 49.5, 1)).toMatchObject({ gap: 9.5, significant: false });
+    expect(creatorsControl(40, 50.5, 1)).toMatchObject({ gap: 10.5, significant: true });
+  });
+
+  it("une paie sans taux : pas d'écart chiffré, pas d'alerte", () => {
+    expect(creatorsControl(null, 870, 1)).toEqual({ paid: null, sent: 870, gap: null, significant: false });
+  });
+});
+
+describe("argent à récupérer", () => {
+  it("« À récupérer » est un usage, jamais compté en charge", () => {
+    expect(transferPartsError([{ id: "a", amount: 493.23, usage: "recover", note: "USDC bloqué chez Revolut" }], 493.23)).toBeNull();
+    expect(
+      transferPartsError([{ id: "a", amount: 493.23, usage: "recover", note: "USDC", countedAs: "other" }], 493.23),
+    ).toBe("counted");
   });
 });

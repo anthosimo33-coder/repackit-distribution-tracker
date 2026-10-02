@@ -54,7 +54,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   CHARGE_CATEGORIES,
   TRANSFER_USAGES,
+  isScanPaidLow,
   parisDayKey,
+  scansSwap,
+  type ScanSide,
   type ChargeCategory,
   type TransferUsage,
 } from "@/convex/comptaMath";
@@ -70,6 +73,7 @@ const USAGE_BADGE: Record<TransferUsage, string> = {
   creators: "bg-amber-50 text-amber-700",
   provision: "bg-sky-50 text-sky-700",
   business: "bg-slate-100 text-slate-700",
+  recover: "bg-orange-50 text-orange-700",
   other: "bg-slate-100 text-slate-600",
 };
 const USAGE_BAR: Record<TransferUsage, string> = {
@@ -77,6 +81,7 @@ const USAGE_BAR: Record<TransferUsage, string> = {
   creators: "bg-amber-400",
   provision: "bg-sky-400",
   business: "bg-primary",
+  recover: "bg-orange-400",
   other: "bg-slate-400",
 };
 
@@ -471,6 +476,30 @@ function VentilationForm({
     left < -0.005;
 
   const others = (chargesData?.charges ?? []).filter((c) => c.transferLineId !== transfer._id);
+  // Scans du mois sans ce virement, puis avec ses parts comptées en Scans : un
+  // paiement compté REMPLACE l'estimation — l'écran montre de combien.
+  const scanEstimate = chargesData?.scanEstimate ?? null;
+  const addedScans = countedParts.filter(({ p }) => p.category === "scans").map(({ amount }) => conv(amount));
+  const swap =
+    addedScans.length === 0
+      ? null
+      : scansSwap({
+          estimate: scanEstimate,
+          paid: others.filter((c) => c.category === "scans").map((c) => c.converted),
+          added: addedScans,
+        });
+  const scanLow = swap !== null && swap.after.kind === "paid" && isScanPaidLow(swap.after.value, scanEstimate);
+  const otherCounted = round2(
+    countedParts.filter(({ p }) => p.category !== "scans").reduce((s, { amount }) => s + (conv(amount) ?? 0), 0),
+  );
+  const sideLabel = (side: ScanSide) =>
+    side.kind === "none"
+      ? t("scanSideNone")
+      : side.value === null
+        ? "—"
+        : side.kind === "estimate"
+          ? t("scanSideEstimate", { amount: f.money(side.value, cur) })
+          : t("scanSidePaid", { amount: f.money(side.value, cur) });
   const similar = (p: Draft, amount: number) =>
     others.find(
       (c) =>
@@ -583,6 +612,11 @@ function VentilationForm({
                   <XIcon className="size-3.5 text-slate-400" />
                 </Button>
               </div>
+              {p.usage === "recover" && (
+                <p className="mt-1.5 border-t border-orange-100 pt-1.5 pl-1 text-[11px] text-orange-700">
+                  {t("recoverHint")}
+                </p>
+              )}
               {isBusiness && (
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-primary/15 pt-2 pl-1 text-xs">
                   <label className="inline-flex items-center gap-2 font-medium text-slate-800">
@@ -712,20 +746,28 @@ function VentilationForm({
                       })}
                 </li>
               ))}
-              {countedParts.some(({ p }) => p.category !== "scans") && (
-                <li>
-                  {t("effectResult", {
-                    amount: f.signed(
-                      -round2(
-                        countedParts
-                          .filter(({ p }) => p.category !== "scans")
-                          .reduce((s, { amount }) => s + (conv(amount) ?? 0), 0),
-                      ),
-                      cur,
-                    ),
+              {swap && (
+                <li className="font-medium text-slate-800" data-testid="compta-ventilation-scans">
+                  {t("effectScansSwap", { before: sideLabel(swap.before), after: sideLabel(swap.after) })}
+                </li>
+              )}
+              {scanLow && swap?.after.value !== null && scanEstimate !== null && (
+                <li
+                  className="flex items-start gap-1 rounded-md bg-amber-50 px-2 py-1 text-amber-800"
+                  data-testid="compta-ventilation-scans-low"
+                >
+                  <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
+                  {t("effectScansLow", {
+                    month: monthLabel,
+                    amount: f.money(round2(scanEstimate - (swap?.after.value ?? 0)), cur),
                   })}
                 </li>
               )}
+              <li>
+                {t("effectResult", {
+                  amount: f.delta(-round2(otherCounted + (swap?.delta ?? 0)), cur),
+                })}
+              </li>
             </>
           )}
           <li className="text-slate-400">{t("effectUnchanged")}</li>

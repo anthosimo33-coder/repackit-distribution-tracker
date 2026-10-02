@@ -105,6 +105,13 @@
       "body": "{types} · {lines, plural, one {# ligne} other {# lignes}} · {amount} au total. Elles ne comptent dans aucune colonne tant que tu ne les as pas classées : le net Whop et le solde ne tombent pas juste.",
       "action": "Choisir leur colonne"
     },
+    "recover": {
+      "title": "Argent à récupérer : {amount}",
+      "subtitle": "Sorti de Whop, jamais arrivé. Reste signalé tant que l'usage de la part ne change pas : récupéré → « Autre », perdu → « Charges de l'activité », comptée.",
+      "noNote": "sans motif",
+      "meta": "retrait du {date} vers {destination} · il y a {days, plural, one {# jour} other {# jours}}",
+      "see": "Voir le virement"
+    },
     "kpi": {
       "result": "Résultat {year}",
       "resultInfoLabel": "Comment le résultat est calculé",
@@ -183,7 +190,9 @@
       },
       "empty": "Aucun mouvement sur l'exercice {year}.",
       "scanPaidTitle": "Paiements réels au fournisseur des scans",
-      "scanEstimateTitle": "Estimation cost_usd"
+      "scanEstimateTitle": "Estimation cost_usd",
+      "scanPaidLowTitle": "Réel {paid} contre {estimate} estimés : un paiement de scans manque peut-être (un seul paiement compté remplace toute l'estimation).",
+      "creatorsGapTitle": "Sorti de Whop pour les créatrices : {sent} · marqué versé dans Paiements : {paid} · écart {gap}"
     },
     "detail": {
       "loading": "Chargement du détail…",
@@ -239,7 +248,14 @@
       "scansEstimateCompare": "Estimation cost_usd : {amount}, pour comparaison.",
       "scansPaidTotal": "Total versé",
       "scansFromTransfer": "virement du {date}",
-      "transferParts": "{count, plural, one {# part} other {# parts}}"
+      "transferParts": "{count, plural, one {# part} other {# parts}}",
+      "creatorsSent": "Sorti de Whop pour elles (ventilation)",
+      "creatorsGap": "Écart",
+      "creatorsGapMore": "Plus d'argent sorti que de paie marquée versée : un cycle payé pas encore marqué, ou une part mal rangée.",
+      "creatorsGapLess": "Moins d'argent sorti que de paie marquée versée : une partie payée par un autre canal, un cycle marqué payé à tort, ou un virement pas encore ventilé.",
+      "creatorsGapOk": "Concordant.",
+      "creatorsGapNoRate": "Écart non chiffré : un montant n'a pas de taux.",
+      "scansPaidLow": "Réel bien en dessous de l'estimation ({estimate}) : un paiement de scans manque peut-être."
     },
     "transfers": {
       "title": "Virements Whop → banque",
@@ -295,13 +311,20 @@
       "effectNone": "Aucun effet sur le résultat : rien n'est compté en charge.",
       "effectUnchanged": "Virements reçus, net Whop, CA brut : inchangés",
       "clear": "Effacer la ventilation",
-      "noteRequired": "Motif requis pour une part comptée en charge"
+      "noteRequired": "Motif requis pour une part comptée en charge",
+      "scanSideEstimate": "{amount} estimés",
+      "scanSidePaid": "{amount} réels",
+      "scanSideNone": "pas d'estimation",
+      "effectScansSwap": "Scans : {before} → {after}",
+      "effectScansLow": "Les scans de {month} baissent de {amount} : un seul paiement compté remplace toute l'estimation. Si d'autres paiements de scans du mois ne sont pas encore comptés (autres retraits, carte…), compte-les aussi, sinon le résultat est gonflé.",
+      "recoverHint": "Signalé en haut de la Compta tant que l'usage ne change pas. Récupéré → « Autre » ; perdu → « Charges de l'activité », comptée."
     },
     "usages": {
       "pay": "Rémunération",
       "creators": "Paiement créatrices",
       "provision": "Mise de côté (impôts, URSSAF)",
       "business": "Charges de l'activité",
+      "recover": "À récupérer (bloqué, en transit)",
       "other": "Autre"
     },
     "charges": {
@@ -440,7 +463,9 @@
       "cancel": "Annuler",
       "download": "Télécharger le CSV",
       "downloaded": "Export téléchargé.",
-      "failed": "L'export n'a pas pu être préparé."
+      "failed": "L'export n'a pas pu être préparé.",
+      "scanPaidLow": "Scans : le réel ({paid}) est bien en dessous de l'estimation ({estimate}). Un paiement manque peut-être : à vérifier avant l'envoi.",
+      "creatorsGap": "Créatrices : {sent} sortis de Whop pour elles contre {paid} marqués versés (écart {gap}). À éclaircir avant l'envoi."
     },
     "csv": {
       "date": "Date",

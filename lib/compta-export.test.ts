@@ -68,6 +68,7 @@ const L: ExportLabels = {
     creators: "Paiement créatrices",
     provision: "Mise de côté",
     business: "Charges de l'activité",
+    recover: "À récupérer",
     other: "Autre",
   },
   summary: {
@@ -211,6 +212,26 @@ describe("ventilation et scans réels dans l'export", () => {
     expect(w[3]).toBe(
       "Virement Whop → Antho Banque — Rémunération 1500,00 : Ma paie de septembre ; Charges de l'activité 200,00 : TikTok Ads",
     );
+  });
+  it("l'argent à récupérer est nommé dans le libellé, pour le comptable", () => {
+    const bloque: JournalData = {
+      ...ventile,
+      ledger: [
+        {
+          day: "2026-09-02",
+          lineType: "withdrawal",
+          bucket: "transfers",
+          amount: -493.23,
+          currency: "eur",
+          reference: "wdrl_UOkIFxaXBmHy6",
+          label: null,
+          destination: "usdc jeremie",
+          parts: [{ amount: 493.23, usage: "recover", note: "USDC (571,56) bloqué chez Revolut, non reçu" }],
+        },
+      ],
+    };
+    const w = buildJournalRows(bloque, L).find((r) => r[4] === "wdrl_UOkIFxaXBmHy6")!;
+    expect(w[3]).toBe("Virement Whop → usdc jeremie — À récupérer : USDC (571,56) bloqué chez Revolut, non reçu");
   });
   it("un paiement de scans remplace l'estimation, jamais les deux", () => {
     const rows = buildJournalRows(ventile, L);

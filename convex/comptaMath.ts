@@ -607,13 +607,16 @@ export function thresholdView(input: {
  * À quoi a servi un virement Whop → banque. ANNOTATION SEULE : elle ne touche
  * jamais le résultat. L'argent viré pour payer une créatrice est déjà compté
  * dans « Créatrices » au marquage « payé » ; le compter ici aussi le ferait
- * apparaître deux fois.
+ * apparaître deux fois. « À récupérer » : l'argent a quitté Whop mais n'est
+ * pas arrivé (bloqué, en transit) — il reste signalé tant qu'on ne change pas
+ * l'usage.
  */
 export const TRANSFER_USAGES = [
   "pay",
   "creators",
   "provision",
   "business",
+  "recover",
   "other",
 ] as const;
 export type TransferUsage = (typeof TRANSFER_USAGES)[number];
@@ -706,6 +709,75 @@ export function transferPartsOf(
 export function isFailedWithdrawal(status: string | null | undefined, hasReversal: boolean): boolean {
   if (hasReversal) return true;
   return status !== null && status !== undefined && /(fail|cancel|denied|revers|return)/i.test(status);
+}
+
+// ─── Contrôles ───────────────────────────────────────────────────────────────
+
+/**
+ * Sous cette part de l'estimation, des paiements de scans RÉELS sont suspects :
+ * un seul paiement compté remplace TOUTE l'estimation du mois, donc un mois où
+ * il en manque paraît bien moins cher qu'il ne l'est.
+ */
+export const SCAN_PAID_LOW_RATIO = 0.5;
+
+/** Les paiements réels d'un mois sont-ils bien en dessous de l'estimation ? */
+export function isScanPaidLow(paid: number | null, estimate: number | null): boolean {
+  if (paid === null || estimate === null || estimate <= 0) return false;
+  return paid < estimate * SCAN_PAID_LOW_RATIO;
+}
+
+export type ScanSide = { kind: "paid" | "estimate" | "none"; value: number | null };
+
+/**
+ * Les scans d'un mois AVANT et APRÈS l'ajout de paiements réels : dès qu'un
+ * paiement existe, la somme des paiements remplace l'estimation. `paid` sont les
+ * paiements déjà comptés (contre-valeurs, `null` = sans taux), `added` ceux
+ * qu'on s'apprête à compter. L'écart est `null` si un côté n'est pas chiffré.
+ */
+export function scansSwap(input: {
+  estimate: number | null;
+  paid: readonly (number | null)[];
+  added: readonly (number | null)[];
+}): { before: ScanSide; after: ScanSide; delta: number | null } {
+  const side = (list: readonly (number | null)[]): ScanSide => {
+    if (list.length === 0) {
+      return input.estimate === null ? { kind: "none", value: null } : { kind: "estimate", value: input.estimate };
+    }
+    if (list.some((x) => x === null)) return { kind: "paid", value: null };
+    return { kind: "paid", value: round2(list.reduce<number>((s, x) => s + (x ?? 0), 0)) };
+  };
+  const before = side(input.paid);
+  const after = side([...input.paid, ...input.added]);
+  const delta =
+    before.value === null && before.kind !== "none"
+      ? null
+      : after.value === null
+        ? null
+        : round2(after.value - (before.value ?? 0));
+  return { before, after, delta };
+}
+
+/** Tolérance d'écart entre la paie versée et l'argent sorti pour elle. */
+export const CREATORS_GAP_MIN = 10;
+export const CREATORS_GAP_SHARE = 0.05;
+
+/**
+ * Contrôle créatrices d'un mois : ce que Paiements dit VERSÉ (cycles marqués
+ * payés, acomptes) face à ce qui est SORTI de Whop pour elles d'après la
+ * ventilation. `null` tant qu'aucune part « Paiement créatrices » n'existe ce
+ * mois — sans ventilation, il n'y a rien à comparer. L'écart est positif quand
+ * il est sorti PLUS que ce qui est marqué versé.
+ */
+export function creatorsControl(
+  paid: number | null,
+  sent: number | null,
+  partsCount: number,
+): { paid: number | null; sent: number | null; gap: number | null; significant: boolean } | null {
+  if (partsCount === 0) return null;
+  if (paid === null || sent === null) return { paid, sent, gap: null, significant: false };
+  const gap = round2(sent - paid);
+  const tolerance = Math.max(CREATORS_GAP_MIN, CREATORS_GAP_SHARE * Math.max(paid, sent));
+  return { paid, sent, gap, significant: Math.abs(gap) > tolerance };
 }
 
 // ─── Scans (PostHog cost_usd) ────────────────────────────────────────────────

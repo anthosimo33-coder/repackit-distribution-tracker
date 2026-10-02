@@ -15,6 +15,9 @@ export function useComptaFormat() {
     /** « −19,96 € » : le signe moins typographique, pas un tiret. */
     const signed = (n: number, currency: string | null) =>
       n < 0 ? `−${formatMoney(-n, currency, locale)}` : formatMoney(n, currency, locale);
+    /** « +94,18 € » / « −161,82 € » : un ÉCART, signé dans les deux sens. */
+    const delta = (n: number, currency: string | null) =>
+      n > 0 ? `+${formatMoney(n, currency, locale)}` : signed(n, currency);
     /** Montant sans décimales (« 37 500 € ») — pour les seuils et les arrondis. */
     const whole = (n: number, currency: string | null) => formatMoneyWhole(n, currency, locale);
     const int = (n: number) => new Intl.NumberFormat(locale).format(n);
@@ -75,7 +78,7 @@ export function useComptaFormat() {
       if (Math.abs(h) < 48) return rtf.format(h, "hour");
       return rtf.format(Math.round(h / 24), "day");
     };
-    return { locale, money: (n: number, c: string | null) => formatMoney(n, c, locale), signed, whole, int, rate, pct, month, monthName, monthShort, dayShort, day, dayMonth, ago };
+    return { locale, money: (n: number, c: string | null) => formatMoney(n, c, locale), signed, delta, whole, int, rate, pct, month, monthName, monthShort, dayShort, day, dayMonth, ago };
   }, [locale]);
 }
 
