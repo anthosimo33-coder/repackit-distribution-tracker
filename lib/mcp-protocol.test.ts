@@ -302,7 +302,7 @@ describe("prompts — flux de travail tout prêts", () => {
 
   it("la liste porte nom, titre, description et arguments", async () => {
     const r = (await handleMcpMessage(avecPrompts(), req(1, "prompts/list"))) as { result: { prompts: { name: string; arguments: { name: string; required?: boolean }[] }[] } };
-    expect(r.result.prompts.map((p) => p.name)).toEqual(["point_du_jour", "planifier_semaine", "bilan_du_mois", "labo_hooks", "rejouer_gagnants"]);
+    expect(r.result.prompts.map((p) => p.name)).toEqual(["point_du_jour", "revue_validation", "planifier_semaine", "bilan_du_mois", "labo_hooks", "rejouer_gagnants"]);
     expect(r.result.prompts.find((p) => p.name === "labo_hooks")!.arguments).toContainEqual(expect.objectContaining({ name: "campagne", required: true }));
   });
 
@@ -323,5 +323,32 @@ describe("prompts — flux de travail tout prêts", () => {
     expect(illisible).toMatchObject({ error: { code: RPC.INVALID_PARAMS, message: "« mois » : AAAA-MM (ex. 2026-09)." } });
     const pasTexte = await handleMcpMessage(avecPrompts(), req(4, "prompts/get", { name: "rejouer_gagnants", arguments: { jours: 30 } }));
     expect(pasTexte).toMatchObject({ error: { code: RPC.INVALID_PARAMS } });
+  });
+});
+
+describe("images dans une réponse d'outil", () => {
+  it("une image (base64) traverse le protocole telle quelle, après son texte", async () => {
+    const s: McpServer = {
+      ...serveur(),
+      async callTool() {
+        return {
+          content: [
+            { type: "text", text: "Image à 0,3 s" },
+            { type: "image", data: "/9j/4AAQ", mimeType: "image/jpeg" },
+          ],
+        };
+      },
+    };
+    const r = await handleMcpMessage(s, req(1, "tools/call", { name: "comptes", arguments: {} }));
+    expect(r).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        content: [
+          { type: "text", text: "Image à 0,3 s" },
+          { type: "image", data: "/9j/4AAQ", mimeType: "image/jpeg" },
+        ],
+      },
+    });
   });
 });

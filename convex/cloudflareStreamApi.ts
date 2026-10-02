@@ -206,3 +206,22 @@ export async function deleteStreamVideo(
     fetchImpl,
   );
 }
+
+/**
+ * Durée d'une vidéo Stream, en secondes — `null` si Cloudflare ne la connaît pas
+ * (encore en transcodage : il répond -1) ou si l'appel échoue. Sert à choisir
+ * les instants des images clés (`regarder_video`) ; jamais bloquant.
+ */
+export async function fetchStreamDuration(
+  config: CloudflareStreamConfig,
+  uid: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<number | null> {
+  try {
+    const json = await cfFetch(config, `/stream/${encodeURIComponent(uid)}`, { method: "GET" }, fetchImpl);
+    const duree = (json as { result?: { duration?: unknown } } | null)?.result?.duration;
+    return typeof duree === "number" && Number.isFinite(duree) && duree > 0 ? duree : null;
+  } catch {
+    return null;
+  }
+}

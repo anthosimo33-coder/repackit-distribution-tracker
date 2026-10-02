@@ -62,6 +62,18 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(sans).toContain("Écris 10 nouveaux hooks");
   });
 
+  it("revue_validation : regarder chaque vidéo, puis valider/refuser seulement avec Publications", () => {
+    const avec = texte(promptsJarvia(["publications"], "2026-10-07").obtenir("revue_validation", { createatrice: "Kelly Martin", nombre: "3" }));
+    expect(avec).toContain("3 vidéo(s) au plus");
+    expect(avec).toContain("`validation` (createatrice: « Kelly Martin »)");
+    expect(avec).toContain("`regarder_video`");
+    expect(avec).toContain("`valider_video` / `refuser_video`");
+    const sans = texte(promptsJarvia(["missions"], "2026-10-07").obtenir("revue_validation", {}));
+    expect(sans).toContain("`regarder_video`");
+    expect(sans).not.toContain("valider_video");
+    expect(sans).toContain("allume « Publications »");
+  });
+
   it("point_du_jour ne propose que les gestes ouverts", () => {
     const lecture = texte(promptsJarvia([], "2026-10-07").obtenir("point_du_jour", {}));
     expect(lecture).not.toContain("confirmer_publication");

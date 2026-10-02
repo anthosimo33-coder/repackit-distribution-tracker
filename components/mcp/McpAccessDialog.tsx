@@ -420,7 +420,9 @@ type OutilEcriture =
   | "activer_briques"
   | "graduer_hook"
   | "confirmer_publication"
-  | "marquer_warmup";
+  | "marquer_warmup"
+  | "valider_video"
+  | "refuser_video";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

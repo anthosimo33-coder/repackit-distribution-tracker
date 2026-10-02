@@ -1689,72 +1689,70 @@ async function materializeTargetPublication(
  *  publication (published). Idempotent. */
 export const reviewVideoApprove = permissionMutation("review.manage")({
   args: { id: v.id("assignments") },
-  handler: async (ctx, { id }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
-    if (a.status !== "video_submitted") {
-      throw err(ERR.VIDEO_NOT_IN_REVIEW_APPROVE, "Seules les vidéos en revue peuvent être validées.");
-    }
-    await ctx.db.patch(id, { status: "to_publish" });
-    // Notification créateur — hors transaction : un échec d'email ne remet pas
-    // en cause la validation. Non atteint sur le retour idempotent ci-dessus,
-    // donc re-valider n'envoie pas de second mail.
-    await ctx.scheduler.runAfter(0, internal.emails.sendVideoApproved, {
-      assignmentId: id,
-    });
-    // Notification hors-app — même contrat : planifiée, donc la validation est
-    // DÉJÀ committée. Placée APRÈS le retour idempotent ci-dessus : re-valider
-    // n'envoie pas un second message.
-    await ctx.scheduler.runAfter(0, internal.notifications.notifyVideoReviewed, {
-      assignmentId: id,
-      actorUserId: ctx.userId,
-    });
-    return { ok: true, alreadyApproved: false };
-  },
+  handler: (ctx, { id }) => reviewVideoApproveCore(ctx, id),
 });
+
+/** Cœur de « Valider » — l'écran Validation et l'outil MCP `valider_video`. */
+export async function reviewVideoApproveCore(ctx: ProjectMutationCtx, id: Id<"assignments">) {
+  const a = await requireProjectAssignmentInScope(ctx, id);
+  if (a.status === "to_publish") return { ok: true, alreadyApproved: true };
+  if (a.status !== "video_submitted") {
+    throw err(ERR.VIDEO_NOT_IN_REVIEW_APPROVE, "Seules les vidéos en revue peuvent être validées.");
+  }
+  await ctx.db.patch(id, { status: "to_publish" });
+  // Notification créateur — hors transaction : un échec d'email ne remet pas
+  // en cause la validation. Non atteint sur le retour idempotent ci-dessus,
+  // donc re-valider n'envoie pas de second mail.
+  await ctx.scheduler.runAfter(0, internal.emails.sendVideoApproved, {
+    assignmentId: id,
+  });
+  // Notification hors-app — même contrat : planifiée, donc la validation est
+  // DÉJÀ committée. Placée APRÈS le retour idempotent ci-dessus : re-valider
+  // n'envoie pas un second message.
+  await ctx.scheduler.runAfter(0, internal.notifications.notifyVideoReviewed, {
+    assignmentId: id,
+    actorUserId: ctx.userId,
+  });
+  return { ok: true, alreadyApproved: false };
+}
 
 /** video_submitted → video_rejected (feedback obligatoire, visible créateur). */
 export const reviewVideoReject = permissionMutation("review.manage")({
   args: { id: v.id("assignments"), feedback: v.string() },
-  handler: async (ctx, { id, feedback }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    if (a.status !== "video_submitted") {
-      throw err(ERR.VIDEO_NOT_IN_REVIEW_REJECT, "Seules les vidéos en revue peuvent être refusées.");
-    }
-    const fb = feedback.trim();
-    if (fb.length === 0) {
-      throw err(ERR.REJECTION_REASON_REQUIRED, "Un motif de refus est requis.");
-    }
-    await ctx.db.patch(id, {
-      status: "video_rejected",
-      videoReviewFeedback: fb,
-      // Horodate le refus → la file « à traiter » peut repérer ceux qui stagnent.
-      videoRejectedAt: Date.now(),
-    });
-    // Notification créateur avec le feedback DÉJÀ saisi ici (aucune ressaisie
-    // demandée à l'admin). Hors transaction : le refus reste acquis si l'email
-    // échoue.
-    await ctx.scheduler.runAfter(0, internal.emails.sendVideoRejected, {
-      assignmentId: id,
-    });
-    // Le MOTIF voyage en argument : il est déjà validé non vide ici, et le
-    // message hors-app le rend EN ENTIER (c'est tout son contenu utile).
-    await ctx.scheduler.runAfter(0, internal.notifications.notifyVideoReviewed, {
-      assignmentId: id,
-      actorUserId: ctx.userId,
-      rejectionReason: fb,
-    });
-    return { ok: true };
-  },
+  handler: (ctx, { id, feedback }) => reviewVideoRejectCore(ctx, id, feedback),
 });
+
+/** Cœur de « Refuser » — l'écran Validation et l'outil MCP `refuser_video`. */
+export async function reviewVideoRejectCore(ctx: ProjectMutationCtx, id: Id<"assignments">, feedback: string) {
+  const a = await requireProjectAssignmentInScope(ctx, id);
+  if (a.status !== "video_submitted") {
+    throw err(ERR.VIDEO_NOT_IN_REVIEW_REJECT, "Seules les vidéos en revue peuvent être refusées.");
+  }
+  const fb = feedback.trim();
+  if (fb.length === 0) {
+    throw err(ERR.REJECTION_REASON_REQUIRED, "Un motif de refus est requis.");
+  }
+  await ctx.db.patch(id, {
+    status: "video_rejected",
+    videoReviewFeedback: fb,
+    // Horodate le refus → la file « à traiter » peut repérer ceux qui stagnent.
+    videoRejectedAt: Date.now(),
+  });
+  // Notification créateur avec le feedback DÉJÀ saisi ici (aucune ressaisie
+  // demandée à l'admin). Hors transaction : le refus reste acquis si l'email
+  // échoue.
+  await ctx.scheduler.runAfter(0, internal.emails.sendVideoRejected, {
+    assignmentId: id,
+  });
+  // Le MOTIF voyage en argument : il est déjà validé non vide ici, et le
+  // message hors-app le rend EN ENTIER (c'est tout son contenu utile).
+  await ctx.scheduler.runAfter(0, internal.notifications.notifyVideoReviewed, {
+    assignmentId: id,
+    actorUserId: ctx.userId,
+    rejectionReason: fb,
+  });
+  return { ok: true };
+}
 
 /** Fenêtre anti-spam d'une relance MANUELLE : 1 par mission et par 24 h. */
 export const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;

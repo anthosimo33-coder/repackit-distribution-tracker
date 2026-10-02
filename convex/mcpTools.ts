@@ -88,6 +88,10 @@ import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
 import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compta";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
+import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
+import { instantsDeLaVideo, instantTexte, lireVignettes } from "./mcpVideo";
+import { cloudflareStreamConfig, fetchStreamDuration } from "./cloudflareStreamApi";
+import { formatPostWindow } from "./postWindow";
 import { promptsJarvia } from "./mcpPrompts";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
@@ -499,6 +503,32 @@ export const lireValidation = mcpPermissionQuery("review.manage")({
     aRelire: await listVideoSubmittedCore(ctx),
     publiees: await listPublishedCore(ctx),
   }),
+});
+
+/**
+ * La vidéo SOUMISE d'une mission, et ce qu'elle devait montrer — pour
+ * `regarder_video`. Même désignation que les outils d'écriture (créatrice + jour
+ * prévu), même bloc que l'écran Validation.
+ */
+export const lireVideoSoumise = mcpPermissionQuery("review.manage")({
+  args: designationValidator,
+  handler: async (ctx, d) => {
+    const m = await trouverMission(ctx, d, (a) =>
+      a.submittedVideoStreamUid || a.submittedVideoStorageId ? null : "aucune vidéo soumise",
+    );
+    const a = m.a;
+    return {
+      libelle: m.libelle,
+      statut: a.status,
+      uid: a.submittedVideoStreamUid ?? null,
+      streamStatus: a.submittedVideoStreamStatus ?? null,
+      script: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
+      consigne: a.instructions ?? null,
+      texteAIncruster: a.overlayText ?? null,
+      plage: formatPostWindow(a.postWindow),
+      retourPrecedent: a.videoReviewFeedback ?? null,
+    };
+  },
 });
 
 /** Écran Défis : la liste — même lecture, même bloc. */
@@ -1005,6 +1035,25 @@ export const OUTILS: readonly McpTool[] = [
     },
   },
   {
+    name: "regarder_video",
+    title: "Regarder une vidéo soumise",
+    description:
+      "Les IMAGES CLÉS d'une vidéo soumise par une créatrice (file `validation`) : trois dans les premières secondes (le hook), puis le milieu, les trois quarts et la fin — avec le script attendu, la consigne et le texte à incruster de sa mission, pour comparer. Ce sont des images fixes : le son et ce qui est DIT ne se vérifient pas ici. La mission se désigne comme dans `validation` : créatrice + jour prévu (et compte, campagne ou morceau de script si besoin).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: { type: "string", description: "Nom de la créatrice, comme dans `validation`." },
+        jour: { type: "string", description: "Jour PRÉVU de la mission, AAAA-MM-JJ (Paris), ou « sans date »." },
+        compte: { type: "string", description: "Handle du compte visé, pour départager." },
+        campagne: { type: "string", description: "Nom de la campagne, pour départager." },
+        script: { type: "string", description: "Un morceau du texte du script, pour départager." },
+      },
+      required: ["createatrice", "jour"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "defis",
     title: "Défis",
     description:
@@ -1237,7 +1286,7 @@ export function jarviaServer(
     compta: "la Compta",
     missions: "les missions (assigner, replanifier, abandonner — l'assignation envoie un email à la créatrice)",
     scripts: "les scripts (briques des campagnes)",
-    publications: "les publications (lien collé en secours, chauffe)",
+    publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
   };
   let projetsP: Promise<Projet[]> | null = null;
   const projets = () =>
@@ -2575,8 +2624,63 @@ export function jarviaServer(
           lecture: [
             "« aRelire » = vidéos soumises par les créatrices, en attente de validation avant publication, dans l'ordre de la file (date de publication prévue).",
             "Créneaux lus à l'heure de Paris (l'écran les lit à l'heure de l'admin) : « demain » est ce qui doit être validé en priorité.",
+            "Pour VOIR une vidéo de la file : `regarder_video` avec la créatrice et son jour prévu (images clés + script attendu).",
           ],
         });
+      }
+
+      if (name === "regarder_video") {
+        const v = await lire(() =>
+          ctx.runQuery(internal.mcpTools.lireVideoSoumise, { ...ids, ...designationDepuis(args) }),
+        );
+        const mission = {
+          projet: projet.slug,
+          mission: v.libelle,
+          statut: v.statut,
+          scriptAttendu: v.script,
+          consigne: v.consigne,
+          texteAIncruster: v.texteAIncruster,
+          plageHoraire: v.plage,
+          ...(v.retourPrecedent ? { refusPrecedent: v.retourPrecedent } : {}),
+        };
+        if (v.uid === null || v.streamStatus !== "ready") {
+          return json({
+            ...mission,
+            images: [],
+            pourquoi:
+              v.uid !== null && v.streamStatus === "processing"
+                ? "La vidéo est encore en transcodage chez Cloudflare : réessaie dans quelques minutes, ou regarde-la dans l'écran Validation."
+                : "Cette vidéo n'a pas de copie Cloudflare Stream lisible (ancienne, ou copie échouée) : je ne peux pas en tirer d'images. Elle se regarde dans l'écran Validation.",
+          });
+        }
+        const config = cloudflareStreamConfig();
+        const duree = config ? await fetchStreamDuration(config, v.uid) : null;
+        const { vignettes, echecs } = await lireVignettes(v.uid, instantsDeLaVideo(duree), fetch);
+        const valider = domaines.some((d) => d.scope === "publications");
+        const entete = {
+          ...mission,
+          duree: duree === null ? null : instantTexte(duree),
+          images: vignettes.map((x) => instantTexte(x.secondes)),
+          ...(echecs.length > 0 ? { imagesManquantes: echecs.map(instantTexte) } : {}),
+          lecture: [
+            "Images FIXES : ni le son, ni ce qui est dit, ni le mouvement. Juge ce qui se voit : texte incrusté (présent, lisible, conforme), cadrage vertical, ce que montre le début par rapport au début du script, la fin (CTA).",
+            vignettes.length === 0
+              ? "Aucune image n'a pu être lue : ne conclus rien sur cette vidéo, renvoie vers l'écran Validation."
+              : "Chaque image est précédée de son instant dans la vidéo.",
+            valider
+              ? "Pour trancher : `valider_video` ou `refuser_video` (avec un motif concret) — après mon accord ; chacun envoie un email à la créatrice."
+              : "Cette connexion ne peut pas valider ni refuser : propose ton avis, la décision se prend dans l'écran Validation.",
+          ],
+        };
+        return {
+          content: [
+            { type: "text", text: JSON.stringify(entete, null, 1) },
+            ...vignettes.flatMap((x) => [
+              { type: "text" as const, text: `Image à ${instantTexte(x.secondes)}` },
+              { type: "image" as const, data: x.data, mimeType: x.mimeType },
+            ]),
+          ],
+        };
       }
 
       if (name === "defis") {
