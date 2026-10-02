@@ -1009,5 +1009,23 @@
     "nonAutorise": "Connecter Claude est réservé aux admins et managers. Ton compte n’y a pas accès.",
     "encadreTitre": "Page à ouvrir directement",
     "encadre": "Pour ta sécurité, cette page d’autorisation ne s’affiche pas à l’intérieur d’un autre site. Ouvre-la directement dans ton navigateur."
+  },
+  "PropositionsClaude": {
+    "titre": "{count, plural, one {Claude propose # modification} other {Claude propose # modifications}}",
+    "aide": "Préparées par Claude (une routine, ou une connexion en lecture seule). Appliquer fait exactement ce que l’outil ferait, en ton nom — et se défait comme toute modification de Claude.",
+    "par": "{via} · {date}",
+    "dernierRefus": "Dernière tentative refusée : {message}",
+    "appliquer": "Appliquer",
+    "ecarter": "Écarter",
+    "appliquee": "Appliquée : {fait}",
+    "refusee": "Refusée : {message}",
+    "impossible": "Impossible pour l’instant.",
+    "ecarteeToast": "Écartée : Claude ne la reproposera pas avant 14 jours.",
+    "voirDecisions": "Voir les {count} dernières décisions",
+    "masquerDecisions": "Masquer les décisions",
+    "statutAppliquee": "Appliquée",
+    "statutEcartee": "Écartée",
+    "voirLesAutres": "{count, plural, one {Voir l’autre proposition} other {Voir les # autres propositions}}",
+    "voirMoins": "Replier"
   }
 }

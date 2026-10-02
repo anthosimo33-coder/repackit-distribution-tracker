@@ -86,6 +86,15 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(lecture).toContain("allume « Scripts »");
   });
 
+  it("preparer_propositions : jamais d'écriture directe, toujours proposer, avec le lot du jour", () => {
+    const t = texte(promptsJarvia(["missions", "scripts", "publications"], "2026-10-07").obtenir("preparer_propositions", { nombre: "5" }));
+    expect(t).toContain("tu ne modifies RIEN toi-même");
+    expect(t).toContain("`proposer`");
+    expect(t).toContain("Au plus 5");
+    expect(t).toContain("lot: « Routine du 07/10/2026 »");
+    expect(t).toContain("`propositions`");
+  });
+
   it("point_du_jour ne propose que les gestes ouverts", () => {
     const lecture = texte(promptsJarvia([], "2026-10-07").obtenir("point_du_jour", {}));
     expect(lecture).not.toContain("confirmer_publication");

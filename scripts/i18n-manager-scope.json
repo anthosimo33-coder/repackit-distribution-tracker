@@ -208,6 +208,7 @@
     "components/layout/use-is-mobile.ts",
     "components/mcp/McpAccessDialog.tsx",
     "components/mcp/OAuthConsent.tsx",
+    "components/mcp/PropositionsClaude.tsx",
     "components/nouveau/HookCombobox.tsx",
     "components/nouveau/NewFormatButton.tsx",
     "components/nouveau/NouveauModal.tsx",

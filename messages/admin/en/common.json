@@ -1009,5 +1009,23 @@
     "nonAutorise": "Connecting Claude is for admins and managers only. Your account doesn’t have access.",
     "encadreTitre": "Open this page directly",
     "encadre": "For your safety, this authorization page can’t be shown inside another site. Open it directly in your browser."
+  },
+  "PropositionsClaude": {
+    "titre": "{count, plural, one {Claude suggests # change} other {Claude suggests # changes}}",
+    "aide": "Prepared by Claude (a routine, or a read-only connection). Apply does exactly what the tool would do, on your behalf — and can be undone like any change by Claude.",
+    "par": "{via} · {date}",
+    "dernierRefus": "Last attempt refused: {message}",
+    "appliquer": "Apply",
+    "ecarter": "Dismiss",
+    "appliquee": "Applied: {fait}",
+    "refusee": "Refused: {message}",
+    "impossible": "Not possible right now.",
+    "ecarteeToast": "Dismissed: Claude won’t suggest it again for 14 days.",
+    "voirDecisions": "See the last {count} decisions",
+    "masquerDecisions": "Hide decisions",
+    "statutAppliquee": "Applied",
+    "statutEcartee": "Dismissed",
+    "voirLesAutres": "{count, plural, one {See the other suggestion} other {See the # other suggestions}}",
+    "voirMoins": "Collapse"
   }
 }

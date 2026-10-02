@@ -12,7 +12,7 @@ import {
 import * as convexEvents from "../convex/notificationEvents";
 
 describe("catalogue — forme et contenu", () => {
-  it("expose les 16 événements du catalogue", () => {
+  it("expose les 17 événements du catalogue", () => {
     expect(NOTIFICATION_EVENT_KEYS).toEqual([
       "video_submitted",
       "video_resubmitted",
@@ -29,11 +29,12 @@ describe("catalogue — forme et contenu", () => {
       "digest_clipper_sans_talent",
       "digest_talent_solde_du",
       "evening_unpublished",
+      "claude_propositions",
       "sync_failures",
     ]);
   });
 
-  it("9 immédiats, 6 digest, 1 planifié — le classement arbitré", () => {
+  it("10 immédiats, 6 digest, 1 planifié — le classement arbitré", () => {
     const immediate = NOTIFICATION_EVENTS.filter((e) => e.kind === "immediate");
     const digest = NOTIFICATION_EVENTS.filter((e) => e.kind === "digest");
     expect(immediate.map((e) => e.key)).toEqual([
@@ -45,6 +46,9 @@ describe("catalogue — forme et contenu", () => {
       "publication_late",
       "whop_dispute",
       "whop_renewal_failed",
+      // Propositions de Claude : UN message par vague (la première proposition
+      // non annoncée planifie l'envoi), jamais un par proposition.
+      "claude_propositions",
       // Panne du relevé nocturne : réaction à un incident, pas une section de
       // digest — une alerte de sync qui arrive le lendemain matin ne sert à rien.
       "sync_failures",

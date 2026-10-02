@@ -33,7 +33,7 @@ test.describe("MCP — prompts tout prêts", () => {
     const init = await rpc(url, token, "initialize", { protocolVersion: "2025-06-18" });
     expect(init.result?.capabilities).toMatchObject({ prompts: { listChanged: false } });
     const liste = (await rpc(url, token, "prompts/list")).result!.prompts as { name: string }[];
-    expect(liste.map((p) => p.name)).toEqual(["point_du_jour", "revue_validation", "planifier_semaine", "bilan_du_mois", "labo_hooks", "nouvelle_campagne", "rejouer_gagnants"]);
+    expect(liste.map((p) => p.name)).toEqual(["preparer_propositions", "point_du_jour", "revue_validation", "planifier_semaine", "bilan_du_mois", "labo_hooks", "nouvelle_campagne", "rejouer_gagnants"]);
 
     const planifier = async () => {
       const r = await rpc(url, token, "prompts/get", { name: "planifier_semaine", arguments: { projet: E2E_PROJECT_SLUG } });

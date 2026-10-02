@@ -89,6 +89,7 @@ import { getMarketPnlCore } from "./marketPnl";
 import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compta";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
+import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { instantsDeLaVideo, instantTexte, lireVignettes } from "./mcpVideo";
 import { cloudflareStreamConfig, fetchStreamDuration } from "./cloudflareStreamApi";
@@ -1279,7 +1280,7 @@ const json = (valeur: unknown) => textResult(JSON.stringify(valeur, null, 1));
 export function jarviaServer(
   ctx: ActionCtx,
   userId: Id<"users">,
-  acces: { kind: "token" | "oauth"; id: string; writeScopes: readonly string[] },
+  acces: { kind: "token" | "oauth"; id: string; name: string; writeScopes: readonly string[] },
 ): McpServer {
   // Les domaines que CETTE connexion peut modifier (interrupteurs de l'app).
   const domaines = DOMAINES_ECRITURE.filter((d) => acces.writeScopes.includes(d.scope));
@@ -1559,7 +1560,14 @@ export function jarviaServer(
       " Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
     // `modifications` / `defaire` : dès qu'un domaine s'écrit — le domaine de
     // CHAQUE modification est revérifié au moment de la défaire.
-    tools: [...OUTILS, ...domaines.flatMap((d) => d.outils), ...(domaines.length > 0 ? OUTILS_DEFAIRE : [])],
+    tools: [
+      ...OUTILS,
+      // `proposer` / `propositions` : TOUJOURS là — proposer n'écrit rien, c'est
+      // la voie d'une connexion en lecture seule ou d'une routine sans personne.
+      ...OUTILS_PROPOSITIONS,
+      ...domaines.flatMap((d) => d.outils),
+      ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
+    ],
     prompts: promptsJarvia(
       domaines.map((d) => d.scope),
       parisDayKey(Date.now()),
@@ -1573,6 +1581,9 @@ export function jarviaServer(
       const projet = await projetDe(args.projet);
       const ids = { userId, projectId: projet._id };
 
+      if (NOMS_PROPOSITIONS.has(name)) {
+        return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);
+      }
       if (NOMS_DEFAIRE.has(name)) {
         if (domaines.length === 0) {
           throw new ToolError("Cette connexion est en lecture seule : autorise un domaine pour elle dans Jarvia › Connecter Claude.");

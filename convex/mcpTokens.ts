@@ -279,6 +279,7 @@ export const resolveToken = internalQuery({
       tokenId: cle._id,
       lastUsedAt: cle.lastUsedAt ?? null,
       writeScopes: cle.writeScopes ?? [],
+      name: cle.name,
     };
   },
 });

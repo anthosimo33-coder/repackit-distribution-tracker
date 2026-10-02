@@ -302,7 +302,7 @@ describe("prompts — flux de travail tout prêts", () => {
 
   it("la liste porte nom, titre, description et arguments", async () => {
     const r = (await handleMcpMessage(avecPrompts(), req(1, "prompts/list"))) as { result: { prompts: { name: string; arguments: { name: string; required?: boolean }[] }[] } };
-    expect(r.result.prompts.map((p) => p.name)).toEqual(["point_du_jour", "revue_validation", "planifier_semaine", "bilan_du_mois", "labo_hooks", "nouvelle_campagne", "rejouer_gagnants"]);
+    expect(r.result.prompts.map((p) => p.name)).toEqual(["preparer_propositions", "point_du_jour", "revue_validation", "planifier_semaine", "bilan_du_mois", "labo_hooks", "nouvelle_campagne", "rejouer_gagnants"]);
     expect(r.result.prompts.find((p) => p.name === "labo_hooks")!.arguments).toContainEqual(expect.objectContaining({ name: "campagne", required: true }));
   });
 
@@ -350,5 +350,18 @@ describe("images dans une réponse d'outil", () => {
         ],
       },
     });
+  });
+});
+
+describe("argument objet libre (les arguments d'un autre outil)", () => {
+  const schema = {
+    type: "object" as const,
+    properties: { arguments: { type: "object" as const, description: "a" } },
+    additionalProperties: false as const,
+  };
+  it("un objet passe, quel que soit son contenu ; une liste ou un texte non", () => {
+    expect(validateArgs(schema, { arguments: { campagne: "Snytch FR", jours: ["2026-10-06"] } })).toBeNull();
+    expect(validateArgs(schema, { arguments: ["2026-10-06"] })).toBe("« arguments » doit être un objet.");
+    expect(validateArgs(schema, { arguments: "campagne" })).toBe("« arguments » doit être un objet.");
   });
 });

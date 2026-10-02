@@ -375,6 +375,7 @@ export const resoudreJetonAcces = internalQuery({
       grantId: grant._id,
       lastUsedAt: grant.lastUsedAt ?? null,
       writeScopes: grant.writeScopes ?? [],
+      name: grant.clientName,
     };
   },
 });
