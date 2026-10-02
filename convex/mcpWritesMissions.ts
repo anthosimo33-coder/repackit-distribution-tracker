@@ -55,6 +55,8 @@ import {
 import { assignScriptCampaignCore, previewCombosCore, replaySourceCore } from "./scripts";
 import {
   cancelAssignmentCore,
+  nudgeAssignmentCore,
+  setAssignmentTargetAccountCore,
   DELETABLE_STATUSES,
   pricingResolver,
   setAssignmentInstructionsCore,
@@ -201,6 +203,36 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
       additionalProperties: false,
     },
     annotations: ECRIT,
+  },
+  {
+    name: "changer_compte_cible",
+    title: "Changer le compte d'une mission",
+    description:
+      "MODIFIE les missions : change le compte sur lequel une mission doit sortir — un autre compte DISPONIBLE de la même créatrice, sur la même plateforme —, comme le sélecteur « Compte » du panneau de détail. Refusé une fois le post publié. Désignation comme dans `planning`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        ...ARGS_DESIGNATION,
+        nouveau_compte: { type: "string", description: "Handle du compte à viser désormais (un compte de la même créatrice)." },
+      },
+      required: ["createatrice", "jour", "nouveau_compte"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
+  {
+    name: "relancer",
+    title: "Relancer une créatrice sur une mission",
+    description:
+      "MODIFIE les missions : ENVOIE à la créatrice l'email de relance d'une mission qui attend son travail (à faire, en cours, ou vidéo à refaire), comme le bouton « Relancer » — une relance par mission et par 24 h. Dis-le avant. Désignation comme dans `planning`.",
+    inputSchema: {
+      type: "object",
+      properties: { projet: ARG_PROJET, ...ARGS_DESIGNATION },
+      required: ["createatrice", "jour"],
+      additionalProperties: false,
+    },
+    annotations: AJOUTE,
   },
   {
     name: "annuler_mission",
@@ -722,6 +754,53 @@ export const ecrireConsigne = mcpWriteMutation("assignments.manage", "missions")
   },
 });
 
+export const ecrireCompteCible = mcpWriteMutation("assignments.manage", "missions")({
+  args: { ...designationValidator, nouveauCompte: v.string() },
+  handler: async (ctx, a) => {
+    const m = await trouverMission(ctx, a, pasPubliee);
+    const comptes = await ctx.db
+      .query("comptes")
+      .withIndex("by_project_creator", (q) => q.eq("projectId", ctx.projectId).eq("creatorId", m.a.creatorId))
+      .collect();
+    const nouveau = designerOuRefuser(comptes, (c) => c.handle, a.nouveauCompte, `comptes de ${m.createatrice}`);
+    const cible = (m.a.targets ?? []).find((t) => t.platform === nouveau.plateforme);
+    if (!cible || !cible.accountId) {
+      throw err(ERR.MCP_DESIGNATION, `Cette mission ne vise pas ${nouveau.plateforme} : ${nouveau.handle} ne peut pas la remplacer.`);
+    }
+    const r = await setAssignmentTargetAccountCore(ctx, { id: m.a._id, platform: nouveau.plateforme, accountId: nouveau._id });
+    const ancien = await ctx.db.get(cible.accountId);
+    const summary = r.changed
+      ? `${m.libelle} : ${ancien?.handle ?? "?"} → ${nouveau.handle} (${nouveau.plateforme})`
+      : `${m.libelle} : déjà sur ${nouveau.handle}`;
+    if (r.changed) {
+      await journaliser(ctx, {
+        tool: "changer_compte_cible",
+        summary,
+        section: "planning",
+        path: "assignments",
+        annulation: { type: "compteCible", assignmentId: m.a._id, platform: nouveau.plateforme, avant: cible.accountId, apres: nouveau._id },
+      });
+    }
+    return { summary };
+  },
+});
+
+export const ecrireRelance = mcpWriteMutation("assignments.manage", "missions")({
+  args: designationValidator,
+  handler: async (ctx, a) => {
+    const m = await trouverMission(ctx, a, (x) =>
+      x.status === "todo" || x.status === "in_progress" || x.status === "video_rejected"
+        ? null
+        : `${STATUTS[x.status] ?? x.status} : n'attend pas la créatrice`,
+    );
+    const r = await nudgeAssignmentCore(ctx, m.a._id);
+    if (!r.sent) return { summary: `${m.libelle} : déjà relancée il y a moins de 24 h — rien n'est parti`, envoye: false };
+    const summary = `${m.libelle} : relance envoyée`;
+    await journaliser(ctx, { tool: "relancer", summary, section: "planning", path: "assignments" });
+    return { summary, envoye: true };
+  },
+});
+
 export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")({
   args: designationValidator,
   handler: async (ctx, a) => {
@@ -739,12 +818,14 @@ export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")(
 
 const OU_DEFAIRE: Record<string, string> = {
   assigner_scripts:
-    "Assignments › la mission › « Abandonner » (ou annuler_mission) tant qu'elle n'est pas publiée. L'email à la créatrice est parti.",
+    "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
   rejouer_script:
-    "Assignments › la mission › « Abandonner » (ou annuler_mission) tant qu'elle n'est pas publiée. L'email à la créatrice est parti.",
-  replanifier_mission: "Rappelle replanifier_mission avec l'ancienne date, ou Assignments › la mission › date de publication.",
-  consigne_mission: "Rappelle consigne_mission (texte vide = effacer), ou Assignments › la mission › consigne.",
+    "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
+  replanifier_mission: "`defaire`, ou Assignments › la mission › date de publication.",
+  consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
   annuler_mission: "Un abandon ne se défait pas : réassigne (assigner_scripts, ou rejouer_script avec le lien du post).",
+  changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
+  relancer: "Une relance ne se reprend pas : l'email est parti.",
 };
 
 /** Un jour AAAA-MM-JJ réel, et pas passé : on ne planifie pas dans le passé. */
@@ -914,6 +995,12 @@ async function appelerEcritureMissions(
         ...(incruste !== undefined ? { texteAIncruster: incruste } : {}),
       }),
     );
+  } else if (name === "changer_compte_cible") {
+    const nouveauCompte = texteArg(args, "nouveau_compte");
+    if (nouveauCompte === "") throw new ToolError("« nouveau_compte » : le handle du compte à viser.");
+    r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireCompteCible, { ...cible, ...d, nouveauCompte }));
+  } else if (name === "relancer") {
+    r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireRelance, { ...cible, ...d }));
   } else if (name === "annuler_mission") {
     r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireAbandon, { ...cible, ...d }));
   } else {

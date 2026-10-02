@@ -90,6 +90,17 @@ export const PROMPTS: readonly McpPrompt[] = [
     ],
   },
   {
+    name: "nouvelle_campagne",
+    title: "Monter une nouvelle campagne",
+    description: "Des meilleurs posts et de la veille à une campagne complète (hooks, flux, cta), créée désactivée pour relecture.",
+    arguments: [
+      ARG_PROJET,
+      { name: "sujet", description: "Le thème ou l'angle de la campagne (facultatif)." },
+      { name: "pays", description: "Pays des tendances à lire, code ISO (défaut : FR)." },
+      { name: "hooks", description: "Nombre de hooks à écrire (défaut : 8)." },
+    ],
+  },
+  {
     name: "rejouer_gagnants",
     title: "Rejouer les gagnants",
     description: "Les meilleurs posts récents, pourquoi ils ont marché, et chez quelles autres créatrices les rejouer.",
@@ -171,6 +182,7 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
   const missions = ecrit.includes("missions");
   const scripts = ecrit.includes("scripts");
   const publications = ecrit.includes("publications");
+  const veille = ecrit.includes("veille");
 
   function obtenir(name: string, args: Record<string, string>): PromptResult | null {
     const p = PROMPTS.find((x) => x.name === name);
@@ -269,6 +281,26 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         scripts
           ? "5. Attends mon accord, puis : `ajouter_hooks` (ils sont créés DÉSACTIVÉS — dis-le), `activer_briques` pour couper, `graduer_hook` pour graduer. Rends ce que chaque réponse dit avoir fait."
           : "5. Cette connexion ne peut pas modifier les scripts : rends les hooks prêts à coller dans l'écran de la campagne (ou allume « Scripts » dans Jarvia › Connecter Claude).",
+        REGLES,
+      ]);
+    }
+
+    if (name === "nouvelle_campagne") {
+      const pays = (args.pays?.trim() || "FR").toUpperCase();
+      if (!/^[A-Z]{2}$/.test(pays)) throw new ToolError("« pays » : un code ISO à 2 lettres (ex. FR, US).");
+      const hooks = entier(args.hooks, "hooks", 8, 3, 20);
+      const sujet = args.sujet?.trim();
+      return message(p.description, [
+        `Monte une nouvelle campagne de scripts${sujet ? ` sur « ${sujet} »` : ""}.`,
+        projetDe(args),
+        "1. Ce qui marche chez nous : `meilleurs_posts` (30 derniers jours, limite: 15) et les verdicts `scripts` des campagnes actives — quels hooks, flux et cta portent les vues.",
+        `2. Ce qui marche dehors : \`veille\` (vue: tendances, pays: ${pays}) et (vue: videos) pour les comptes suivis les plus pertinents.`,
+        `3. Écris ${hooks} hooks, 3 flux et 3 cta, dans le ton des meilleurs posts, sans chiffre ni promesse inventés ; pour chacun, une ligne : ce qu'il reprend (post gagnant ou tendance). Propose un nom de campagne qui ne reprend pas celui d'une campagne existante.`,
+        scripts
+          ? "4. Attends mon accord sur les textes et le nom, puis `creer_campagne` : tout y est créé DÉSACTIVÉ — dis-le, et rappelle qu'il faut activer au moins un hook, un flux et un cta (`activer_briques`) pour qu'un script se tire."
+          : "4. Cette connexion ne peut pas créer de campagne : rends le nom et les textes prêts à coller dans l'écran Scripts (ou allume « Scripts » dans Jarvia › Connecter Claude).",
+        veille &&
+          "5. Propose 2 ou 3 vidéos de la veille à garder comme exemples (`ajouter_inspiration`, après accord) : elles se joindront aux missions comme « vidéos exemples ».",
         REGLES,
       ]);
     }

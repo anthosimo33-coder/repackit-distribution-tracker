@@ -35,7 +35,8 @@ import {
   type EcritureCtx,
 } from "./mcpWriteCommon";
 import { designer, roleBriqueDepuis } from "./mcpWriteArgs";
-import { createBrickCore, graduateHookCore, hookLabelOf, setBricksActiveCore } from "./scripts";
+import { createBrickCore, createCampaignCore, graduateHookCore, hookLabelOf, setBricksActiveCore } from "./scripts";
+import { plierTexte } from "./mcpWriteArgs";
 import { hookIdentityKey, PROVEN_CAMPAIGN_NAME } from "./graduation";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
@@ -74,6 +75,59 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
         },
       },
       required: ["campagne", "hooks"],
+      additionalProperties: false,
+    },
+    annotations: AJOUTE,
+  },
+  {
+    name: "ajouter_flux_cta",
+    title: "Ajouter des flux ou des CTA",
+    description:
+      "MODIFIE les scripts : ajoute des briques de corps (flux) ou de fin (cta) à une campagne, créées DÉSACTIVÉES par défaut comme les hooks. Une brique dont le texte existe déjà dans la campagne, pour ce rôle, n'est pas recréée.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        campagne: ARG_CAMPAGNE,
+        role: { type: "string", description: "flux ou cta." },
+        briques: {
+          type: "array",
+          description: "Les briques, 20 au plus.",
+          minItems: 1,
+          maxItems: 20,
+          items: {
+            type: "object",
+            properties: {
+              texte: { type: "string", description: "Le texte, tel que la créatrice le dira." },
+              consigne: { type: "string", description: "Consigne de tournage (facultatif)." },
+            },
+            required: ["texte"],
+            additionalProperties: false,
+          },
+        },
+        actives: { type: "boolean", description: "true = les créer ACTIVES. Défaut : désactivées." },
+      },
+      required: ["campagne", "role", "briques"],
+      additionalProperties: false,
+    },
+    annotations: AJOUTE,
+  },
+  {
+    name: "creer_campagne",
+    title: "Créer une campagne de scripts",
+    description:
+      "MODIFIE les scripts : crée une campagne et ses briques — hooks (ouvertures), flux (corps), cta (fins). Toutes les briques sont créées DÉSACTIVÉES par défaut : la campagne n'entre dans aucun tirage tant qu'une personne ne les a pas relues et activées. Il faut au moins un hook, un flux et un cta actifs pour qu'un script se monte (hook + flux + cta).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        nom: { type: "string", description: "Nom de la campagne (unique dans le projet)." },
+        hooks: { type: "array", description: "Textes des hooks, 20 au plus.", items: { type: "string" }, maxItems: 20 },
+        flux: { type: "array", description: "Textes des flux, 20 au plus.", items: { type: "string" }, maxItems: 20 },
+        ctas: { type: "array", description: "Textes des cta, 20 au plus.", items: { type: "string" }, maxItems: 20 },
+        actives: { type: "boolean", description: "true = briques ACTIVES dès la création. Défaut : désactivées." },
+      },
+      required: ["nom"],
       additionalProperties: false,
     },
     annotations: AJOUTE,
@@ -214,6 +268,105 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
   },
 });
 
+/** Le texte d'une brique, pour reconnaître un doublon (accents, casse, blancs). */
+const identite = (role: string, texte: string) => (role === "hook" ? hookIdentityKey(texte) : plierTexte(texte));
+
+export const ecrireFluxCta = mcpWriteMutation("scripts.manage", "scripts")({
+  args: {
+    campagne: v.string(),
+    role: v.union(v.literal("flux"), v.literal("cta")),
+    briques: v.array(v.object({ texte: v.string(), consigne: v.optional(v.string()) })),
+    actives: v.boolean(),
+  },
+  handler: async (ctx, a) => {
+    const campagne = await campagneDe(ctx, a.campagne);
+    const existantes = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign_kind", (q) => q.eq("campaignId", campagne._id).eq("kind", a.role))
+      .collect();
+    const vus = new Set(existantes.map((b) => identite(a.role, b.content)));
+    const crees: Id<"scriptBricks">[] = [];
+    const doublons: string[] = [];
+    for (const b of a.briques) {
+      const texte = b.texte.trim();
+      if (texte === "") continue;
+      if (vus.has(identite(a.role, texte))) {
+        doublons.push(texte);
+        continue;
+      }
+      vus.add(identite(a.role, texte));
+      crees.push(
+        await createBrickCore(ctx, {
+          campaignId: campagne._id,
+          kind: a.role,
+          label: hookLabelOf(texte),
+          content: texte,
+          ...(b.consigne?.trim() ? { instruction: b.consigne } : {}),
+          active: a.actives,
+        }),
+      );
+    }
+    const n = crees.length;
+    const summary =
+      `« ${campagne.name} » : ${n} ${a.role} ajouté${n > 1 ? "s" : ""}` +
+      (n > 0 ? ` (${a.actives ? "actif" : "désactivé"}${n > 1 ? "s" : ""})` : "") +
+      (doublons.length > 0 ? `, ${doublons.length} déjà présent${doublons.length > 1 ? "s" : ""}` : "");
+    if (n > 0) {
+      await journaliser(ctx, {
+        tool: "ajouter_flux_cta",
+        summary,
+        section: "campaign",
+        path: `scripts/${campagne._id}`,
+        annulation: { type: "briquesCreees", brickIds: crees },
+      });
+    }
+    return { summary, doublons };
+  },
+});
+
+export const ecrireCampagne = mcpWriteMutation("scripts.manage", "scripts")({
+  args: {
+    nom: v.string(),
+    hooks: v.array(v.string()),
+    flux: v.array(v.string()),
+    ctas: v.array(v.string()),
+    actives: v.boolean(),
+  },
+  handler: async (ctx, a) => {
+    const nom = a.nom.trim();
+    const toutes = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    if (toutes.some((c) => plierTexte(c.name) === plierTexte(nom))) {
+      throw err(ERR.MCP_DESIGNATION, `Une campagne « ${nom} » existe déjà : choisis un autre nom, ou ajoute-lui des briques.`);
+    }
+    const campaignId = await createCampaignCore(ctx, { name: nom });
+    const compte: Record<"hook" | "flux" | "cta", number> = { hook: 0, flux: 0, cta: 0 };
+    for (const [role, textes] of [["hook", a.hooks], ["flux", a.flux], ["cta", a.ctas]] as const) {
+      const vus = new Set<string>();
+      for (const brut of textes) {
+        const texte = brut.trim();
+        if (texte === "" || vus.has(identite(role, texte))) continue;
+        vus.add(identite(role, texte));
+        await createBrickCore(ctx, { campaignId, kind: role, label: hookLabelOf(texte), content: texte, active: a.actives });
+        compte[role]++;
+      }
+    }
+    const summary =
+      `Campagne « ${nom} » créée : ${compte.hook} hook(s), ${compte.flux} flux, ${compte.cta} cta` +
+      (compte.hook + compte.flux + compte.cta > 0 ? (a.actives ? ", actifs" : ", désactivés") : "");
+    await journaliser(ctx, {
+      tool: "creer_campagne",
+      summary,
+      section: "campaign",
+      path: `scripts/${campaignId}`,
+      annulation: { type: "campagneCreee", campaignId },
+    });
+    return { summary };
+  },
+});
+
 export const ecrireActivation = mcpWriteMutation("scripts.manage", "scripts")({
   args: {
     campagne: v.string(),
@@ -292,6 +445,8 @@ export const ecrireGraduation = mcpWriteMutation("scripts.manage", "scripts")({
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
+  ajouter_flux_cta: "`defaire`, ou Scripts › la campagne › supprime les briques ajoutées (désactivées, elles ne sortent dans aucun tirage).",
+  creer_campagne: "`defaire` (tant qu'aucune mission ne l'utilise), ou Scripts › la campagne › supprimer.",
   ajouter_hooks: "Scripts › la campagne › supprime les hooks ajoutés (désactivés, ils ne sortent dans aucun tirage).",
   activer_briques: "Rappelle activer_briques avec l'état inverse, ou Scripts › la campagne › le banc de montage.",
   graduer_hook: `Scripts › « ${PROVEN_CAMPAIGN_NAME} » › supprime la copie, puis réactive l'original dans sa campagne.`,
@@ -304,10 +459,37 @@ async function appelerEcritureScripts(
   cible: CibleEcriture,
   projet: string,
 ): Promise<ToolResult> {
+  if (name === "creer_campagne") {
+    const nom = texteArg(args, "nom");
+    if (nom === "") throw new ToolError("« nom » : le nom de la nouvelle campagne.");
+    const r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesScripts.ecrireCampagne, {
+        ...cible,
+        nom,
+        hooks: textesArg(args, "hooks"),
+        flux: textesArg(args, "flux"),
+        ctas: textesArg(args, "ctas"),
+        actives: args.actives === true,
+      }),
+    );
+    return resultatEcriture(projet, r.summary, OU_DEFAIRE[name]);
+  }
   const campagne = texteArg(args, "campagne");
   if (campagne === "") throw new ToolError("« campagne » : le nom de la campagne (outil `scripts`).");
   let r: { summary: string; doublons?: string[] };
-  if (name === "ajouter_hooks") {
+  if (name === "ajouter_flux_cta") {
+    const role = roleBriqueDepuis(args.role);
+    if (role !== "flux" && role !== "cta") throw new ToolError("« role » : flux ou cta (les hooks : ajouter_hooks).");
+    const briques = (Array.isArray(args.briques) ? args.briques : []).map((b, i) => {
+      const o = (typeof b === "object" && b !== null ? b : {}) as Record<string, unknown>;
+      const texte = typeof o.texte === "string" ? o.texte.trim() : "";
+      if (texte === "") throw new ToolError(`Brique ${i + 1} : « texte » vide.`);
+      return { texte, ...(typeof o.consigne === "string" && o.consigne.trim() !== "" ? { consigne: o.consigne.trim() } : {}) };
+    });
+    r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesScripts.ecrireFluxCta, { ...cible, campagne, role, briques, actives: args.actives === true }),
+    );
+  } else if (name === "ajouter_hooks") {
     const hooks = (Array.isArray(args.hooks) ? args.hooks : []).map((h, i) => {
       const o = (typeof h === "object" && h !== null ? h : {}) as Record<string, unknown>;
       const texte = typeof o.texte === "string" ? o.texte.trim() : "";

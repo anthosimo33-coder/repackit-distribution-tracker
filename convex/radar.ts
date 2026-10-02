@@ -27,6 +27,7 @@ import {
   permissionMutation,
   permissionQuery,
   e2eMutation,
+  type ProjectMutationCtx,
   type ProjectQueryCtx,
 } from "./functions";
 import {
@@ -243,84 +244,98 @@ export async function listRadarVideosCore(ctx: ProjectQueryCtx, { accountId }: {
  */
 export const addRadarAccount = permissionMutation("radar.use")({
   args: { input: v.string(), note: v.optional(v.string()) },
-  handler: async (
-    ctx,
-    { input, note },
-  ): Promise<{ accountId: Id<"radarAccounts">; warning: string | null }> => {
-    const handle = normalizeTikTokHandle(input);
-    if (handle === null) {
-      throw err(ERR.RADAR_HANDLE_INVALID, "Handle TikTok invalide. Colle un @, un handle, ou une URL de profil (tiktok.com/@compte).");
-    }
-    const existing = await ctx.db
-      .query("radarAccounts")
-      .withIndex("by_project_handle", (q) =>
-        q.eq("projectId", ctx.projectId).eq("handle", handle),
-      )
-      .first();
-    if (existing !== null) {
-      throw err(ERR.RADAR_ACCOUNT_ALREADY_FOLLOWED, `@${handle} est déjà suivi.`, { handle });
-    }
-
-    const current = await ctx.db
-      .query("radarAccounts")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-
-    const accountId = await ctx.db.insert("radarAccounts", {
-      projectId: ctx.projectId,
-      handle,
-      platform: "tiktok",
-      note: cleanNote(note),
-      addedAt: Date.now(),
-    });
-
-    // 1er sync immédiat (clé RADAR) → les vidéos apparaissent dans la foulée.
-    await ctx.scheduler.runAfter(0, internal.radar.runRadarSync, {
-      projectId: ctx.projectId,
-      accountId,
-    });
-
-    const nextCount = current.length + 1;
-    const warning =
-      nextCount >= RADAR_ACCOUNT_LIMIT
-        ? `Tu suis ${nextCount} comptes (limite conseillée ${RADAR_ACCOUNT_LIMIT}). Avec 15 récentes + 10 top vues par compte, au-delà le quota Apify gratuit risque d'être dépassé.`
-        : null;
-    return { accountId, warning };
-  },
+  handler: (ctx, { input, note }) => addRadarAccountCore(ctx, input, note),
 });
+
+/** Cœur de « Suivre » — l'écran Radar et l'outil MCP `suivre_compte`. */
+export async function addRadarAccountCore(
+  ctx: ProjectMutationCtx,
+  input: string,
+  note: string | undefined,
+): Promise<{ accountId: Id<"radarAccounts">; warning: string | null }> {
+  const handle = normalizeTikTokHandle(input);
+  if (handle === null) {
+    throw err(ERR.RADAR_HANDLE_INVALID, "Handle TikTok invalide. Colle un @, un handle, ou une URL de profil (tiktok.com/@compte).");
+  }
+  const existing = await ctx.db
+    .query("radarAccounts")
+    .withIndex("by_project_handle", (q) =>
+      q.eq("projectId", ctx.projectId).eq("handle", handle),
+    )
+    .first();
+  if (existing !== null) {
+    throw err(ERR.RADAR_ACCOUNT_ALREADY_FOLLOWED, `@${handle} est déjà suivi.`, { handle });
+  }
+
+  const current = await ctx.db
+    .query("radarAccounts")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+
+  const accountId = await ctx.db.insert("radarAccounts", {
+    projectId: ctx.projectId,
+    handle,
+    platform: "tiktok",
+    note: cleanNote(note),
+    addedAt: Date.now(),
+  });
+
+  // 1er sync immédiat (clé RADAR) → les vidéos apparaissent dans la foulée.
+  await ctx.scheduler.runAfter(0, internal.radar.runRadarSync, {
+    projectId: ctx.projectId,
+    accountId,
+  });
+
+  const nextCount = current.length + 1;
+  const warning =
+    nextCount >= RADAR_ACCOUNT_LIMIT
+      ? `Tu suis ${nextCount} comptes (limite conseillée ${RADAR_ACCOUNT_LIMIT}). Avec 15 récentes + 10 top vues par compte, au-delà le quota Apify gratuit risque d'être dépassé.`
+      : null;
+  return { accountId, warning };
+}
 
 /** Met à jour la note/tag libre d'un compte favori. */
 export const updateRadarAccountNote = permissionMutation("radar.use")({
   args: { accountId: v.id("radarAccounts"), note: v.optional(v.string()) },
-  handler: async (ctx, { accountId, note }): Promise<null> => {
-    const account = await ctx.db.get(accountId);
-    if (account === null || account.projectId !== ctx.projectId) {
-      throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
-    }
-    await ctx.db.patch(accountId, { note: cleanNote(note) });
-    return null;
-  },
+  handler: (ctx, { accountId, note }) => updateRadarAccountNoteCore(ctx, accountId, note),
 });
+
+/** Cœur de la note d'un compte suivi — l'écran Radar et l'outil MCP `noter_compte_suivi`. */
+export async function updateRadarAccountNoteCore(
+  ctx: ProjectMutationCtx,
+  accountId: Id<"radarAccounts">,
+  note: string | undefined,
+): Promise<null> {
+  const account = await ctx.db.get(accountId);
+  if (account === null || account.projectId !== ctx.projectId) {
+    throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
+  }
+  await ctx.db.patch(accountId, { note: cleanNote(note) });
+  return null;
+}
 
 /** Retire un compte favori ET toutes ses vidéos (silo, pas de lien externe). */
 export const removeRadarAccount = permissionMutation("radar.use")({
   args: { accountId: v.id("radarAccounts") },
-  handler: async (ctx, { accountId }): Promise<null> => {
-    const account = await ctx.db.get(accountId);
-    if (account === null || account.projectId !== ctx.projectId) {
-      throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
-    }
-    const videos = await ctx.db
-      .query("radarVideos")
-      .withIndex("by_radarAccount", (q) => q.eq("radarAccountId", accountId))
-      .collect();
-    for (const video of videos) {
-      await ctx.db.delete(video._id);
-    }
-    await ctx.db.delete(accountId);
-    return null;
-  },
+  handler: (ctx, { accountId }) => removeRadarAccountCore(ctx, accountId),
 });
+
+/** Cœur de « Ne plus suivre » — l'écran Radar et l'outil MCP `ne_plus_suivre`. */
+export async function removeRadarAccountCore(ctx: ProjectMutationCtx, accountId: Id<"radarAccounts">): Promise<null> {
+  const account = await ctx.db.get(accountId);
+  if (account === null || account.projectId !== ctx.projectId) {
+    throw err(ERR.RADAR_ACCOUNT_NOT_FOUND, "Compte Radar introuvable dans ce projet.");
+  }
+  const videos = await ctx.db
+    .query("radarVideos")
+    .withIndex("by_radarAccount", (q) => q.eq("radarAccountId", accountId))
+    .collect();
+  for (const video of videos) {
+    await ctx.db.delete(video._id);
+  }
+  await ctx.db.delete(accountId);
+  return null;
+}
 
 /** Bouton « Synchroniser » : planifie le sync de TOUS les comptes du projet. */
 export const requestRadarSync = permissionMutation("radar.use")({

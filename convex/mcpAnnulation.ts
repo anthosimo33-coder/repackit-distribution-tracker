@@ -29,6 +29,14 @@ export const annulationValidator = v.union(
   // ── Missions ──────────────────────────────────────────────────────────────
   /** assigner_scripts, rejouer_script : les missions créées. */
   v.object({ type: v.literal("missionsCreees"), assignmentIds: v.array(v.id("assignments")) }),
+  /** changer_compte_cible : le compte d'une cible, avant et après. */
+  v.object({
+    type: v.literal("compteCible"),
+    assignmentId: v.id("assignments"),
+    platform: v.string(),
+    avant: v.id("comptes"),
+    apres: v.id("comptes"),
+  }),
   /** replanifier_mission : jour et/ou plage, avant et après. */
   v.object({
     type: v.literal("planning"),
@@ -44,7 +52,9 @@ export const annulationValidator = v.union(
     incruste: v.optional(v.object({ avant: v.union(v.string(), v.null()), apres: v.union(v.string(), v.null()) })),
   }),
   // ── Scripts ───────────────────────────────────────────────────────────────
-  /** ajouter_hooks : les briques créées. */
+  /** creer_campagne : la campagne créée (et ses briques). */
+  v.object({ type: v.literal("campagneCreee"), campaignId: v.id("scriptCampaigns") }),
+  /** ajouter_hooks, ajouter_flux_cta : les briques créées. */
   v.object({ type: v.literal("briquesCreees"), brickIds: v.array(v.id("scriptBricks")) }),
   /** activer_briques : les briques réellement basculées, et leur état d'avant. */
   v.object({
@@ -60,6 +70,23 @@ export const annulationValidator = v.union(
     avant: v.union(v.boolean(), v.null()),
     apres: v.boolean(),
   }),
+  // ── Veille & bibliothèque ─────────────────────────────────────────────────
+  /**
+   * suivre_compte : le compte suivi (ses vidéos relevées partent avec). Le
+   * handle sert si le compte a été retiré puis re-suivi depuis (nouvel id).
+   */
+  v.object({ type: v.literal("veilleSuivi"), accountId: v.id("radarAccounts"), handle: v.optional(v.string()) }),
+  /** ne_plus_suivre : de quoi le suivre à nouveau. */
+  v.object({ type: v.literal("veilleRetire"), handle: v.string(), note: v.union(v.string(), v.null()) }),
+  /** noter_compte_suivi : la note, avant et après. */
+  v.object({
+    type: v.literal("veilleNote"),
+    accountId: v.id("radarAccounts"),
+    avant: v.union(v.string(), v.null()),
+    apres: v.union(v.string(), v.null()),
+  }),
+  /** ajouter_inspiration : l'inspiration créée. */
+  v.object({ type: v.literal("inspirationCreee"), inspirationId: v.id("inspirations") }),
   // ── Compta ────────────────────────────────────────────────────────────────
   /** ventiler_virement : la ventilation (et l'annotation d'avant les parts). */
   v.object({

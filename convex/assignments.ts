@@ -771,53 +771,59 @@ export const setAssignmentTargetAccount = permissionMutation("assignments.manage
     platform: plateformeValidator,
     accountId: v.id("comptes"),
   },
-  handler: async (ctx, { id, platform, accountId }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    const targets = a.targets ?? [];
-    const target = targets.find((t) => t.platform === platform);
-    if (!target) {
-      throw err(
-        ERR.TARGET_NOT_ON_ASSIGNMENT,
-        `Cette assignation n'a pas de cible ${platform}.`,
-        { platform },
-      );
-    }
-    if (isTargetAccountLocked(a.status, target)) {
-      throw err(
-        ERR.TARGET_ACCOUNT_LOCKED_PUBLISHED,
-        `Le post ${platform} est déjà publié : son compte ne peut plus changer (le suivi des vues et la paie en dépendent).`,
-        { platform },
-      );
-    }
-    if (target.accountId === accountId) return { changed: false as const };
-    await validateTargets(ctx, ctx.projectId, a.creatorId, [
-      { platform, accountId },
-    ]);
-    const compte = (await ctx.db.get(accountId))!;
-    if (
-      targetAccountRefusal({
-        available: true, // déjà garanti par validateTargets
-        accountManaged: compte.managedByAdmin === true,
-        assignmentManaged: a.managedByAdmin === true,
-      }) === "managedMismatch"
-    ) {
-      throw err(
-        ERR.TARGET_ACCOUNT_MANAGED_MISMATCH,
-        "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
-      );
-    }
-    await ctx.db.patch(id, {
-      targets: targets.map((t) =>
-        t.platform === platform ? { ...t, accountId } : t,
-      ),
-    });
-    return { changed: true as const };
-  },
+  handler: (ctx, args) => setAssignmentTargetAccountCore(ctx, args),
 });
+
+/** Cœur du changement de compte d'une cible — le panneau de détail et l'outil MCP `changer_compte_cible`. */
+export async function setAssignmentTargetAccountCore(
+  ctx: ProjectMutationCtx,
+  { id, platform, accountId }: { id: Id<"assignments">; platform: Plateforme; accountId: Id<"comptes"> },
+) {
+  const a = await ctx.db.get(id);
+  if (!a || a.projectId !== ctx.projectId) {
+    throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+  const targets = a.targets ?? [];
+  const target = targets.find((t) => t.platform === platform);
+  if (!target) {
+    throw err(
+      ERR.TARGET_NOT_ON_ASSIGNMENT,
+      `Cette assignation n'a pas de cible ${platform}.`,
+      { platform },
+    );
+  }
+  if (isTargetAccountLocked(a.status, target)) {
+    throw err(
+      ERR.TARGET_ACCOUNT_LOCKED_PUBLISHED,
+      `Le post ${platform} est déjà publié : son compte ne peut plus changer (le suivi des vues et la paie en dépendent).`,
+      { platform },
+    );
+  }
+  if (target.accountId === accountId) return { changed: false as const };
+  await validateTargets(ctx, ctx.projectId, a.creatorId, [
+    { platform, accountId },
+  ]);
+  const compte = (await ctx.db.get(accountId))!;
+  if (
+    targetAccountRefusal({
+      available: true, // déjà garanti par validateTargets
+      accountManaged: compte.managedByAdmin === true,
+      assignmentManaged: a.managedByAdmin === true,
+    }) === "managedMismatch"
+  ) {
+    throw err(
+      ERR.TARGET_ACCOUNT_MANAGED_MISMATCH,
+      "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
+    );
+  }
+  await ctx.db.patch(id, {
+    targets: targets.map((t) =>
+      t.platform === platform ? { ...t, accountId } : t,
+    ),
+  });
+  return { changed: true as const };
+}
 
 /**
  * AJOUTE une cible (un compte sur une plateforme pas encore visée) à une
@@ -1774,32 +1780,35 @@ export const NUDGE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
  */
 export const nudgeAssignment = permissionMutation("assignments.manage")({
   args: { assignmentId: v.id("assignments") },
-  handler: async (ctx, { assignmentId }) => {
-    const a = await ctx.db.get(assignmentId);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.MISSION_NOT_FOUND, "Mission introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    const relançable = (UNFINISHED_STATUSES as readonly string[]).includes(
-      a.status,
-    );
-    if (!relançable) {
-      throw err(ERR.MISSION_NOT_WAITING_CREATOR, "Cette mission n'attend pas le créateur.");
-    }
-    const now = Date.now();
-    if (
-      a.lastNudgeAt !== undefined &&
-      now - a.lastNudgeAt < NUDGE_COOLDOWN_MS
-    ) {
-      return { sent: false, reason: "cooldown" as const };
-    }
-    await ctx.db.patch(assignmentId, { lastNudgeAt: now });
-    await ctx.scheduler.runAfter(0, internal.emails.sendManualNudge, {
-      assignmentId,
-    });
-    return { sent: true, reason: null };
-  },
+  handler: (ctx, { assignmentId }) => nudgeAssignmentCore(ctx, assignmentId),
 });
+
+/** Cœur de « Relancer » — l'écran et l'outil MCP `relancer`. */
+export async function nudgeAssignmentCore(ctx: ProjectMutationCtx, assignmentId: Id<"assignments">) {
+  const a = await ctx.db.get(assignmentId);
+  if (!a || a.projectId !== ctx.projectId) {
+    throw err(ERR.MISSION_NOT_FOUND, "Mission introuvable.");
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+  const relançable = (UNFINISHED_STATUSES as readonly string[]).includes(
+    a.status,
+  );
+  if (!relançable) {
+    throw err(ERR.MISSION_NOT_WAITING_CREATOR, "Cette mission n'attend pas le créateur.");
+  }
+  const now = Date.now();
+  if (
+    a.lastNudgeAt !== undefined &&
+    now - a.lastNudgeAt < NUDGE_COOLDOWN_MS
+  ) {
+    return { sent: false, reason: "cooldown" as const };
+  }
+  await ctx.db.patch(assignmentId, { lastNudgeAt: now });
+  await ctx.scheduler.runAfter(0, internal.emails.sendManualNudge, {
+    assignmentId,
+  });
+  return { sent: true, reason: null };
+}
 
 /**
  * File de revue vidéo : assignments en video_submitted, avec le MP4 résolu en URL

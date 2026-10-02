@@ -1285,9 +1285,10 @@ export function jarviaServer(
   const domaines = DOMAINES_ECRITURE.filter((d) => acces.writeScopes.includes(d.scope));
   const LIBELLE_DOMAINE: Record<string, string> = {
     compta: "la Compta",
-    missions: "les missions (assigner, replanifier, abandonner — l'assignation envoie un email à la créatrice)",
-    scripts: "les scripts (briques des campagnes)",
+    missions: "les missions (assigner, replanifier, changer de compte, relancer, abandonner — l'assignation et la relance envoient un email à la créatrice)",
+    scripts: "les scripts (créer une campagne, ajouter et activer des briques, graduer un hook)",
     publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
+    veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
   };
   let projetsP: Promise<Projet[]> | null = null;
   const projets = () =>

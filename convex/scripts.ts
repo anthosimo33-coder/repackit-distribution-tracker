@@ -943,22 +943,28 @@ export async function replaySourceCore(
 
 export const createCampaign = permissionMutation("scripts.manage")({
   args: { name: v.string(), demoBlock: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    const name = args.name.trim();
-    if (name.length === 0) {
-      throw err(ERR.CAMPAIGN_NAME_REQUIRED, "Le nom de la campagne est requis.");
-    }
-    const now = Date.now();
-    return await ctx.db.insert("scriptCampaigns", {
-      projectId: ctx.projectId,
-      name,
-      demoBlock: args.demoBlock ?? "",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-  },
+  handler: (ctx, args) => createCampaignCore(ctx, args),
 });
+
+/** Cœur de la création d'une campagne — l'écran Scripts et l'outil MCP `creer_campagne`. */
+export async function createCampaignCore(
+  ctx: ProjectMutationCtx,
+  args: { name: string; demoBlock?: string },
+): Promise<Id<"scriptCampaigns">> {
+  const name = args.name.trim();
+  if (name.length === 0) {
+    throw err(ERR.CAMPAIGN_NAME_REQUIRED, "Le nom de la campagne est requis.");
+  }
+  const now = Date.now();
+  return await ctx.db.insert("scriptCampaigns", {
+    projectId: ctx.projectId,
+    name,
+    demoBlock: args.demoBlock ?? "",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+}
 
 export const updateCampaign = permissionMutation("scripts.manage")({
   args: {
@@ -992,24 +998,27 @@ export const updateCampaign = permissionMutation("scripts.manage")({
  */
 export const deleteCampaign = permissionMutation("scripts.manage")({
   args: { id: v.id("scriptCampaigns") },
-  handler: async (ctx, { id }) => {
-    await requireCampaign(ctx, id, ctx.projectId);
-    const projectAssignments = await ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    if (projectAssignments.some((a) => a.scriptCombo?.campaignId === id)) {
-      throw err(ERR.CAMPAIGN_REFERENCED, "Campagne référencée par des assignments : archive-la plutôt que de la supprimer.");
-    }
-    const bricks = await ctx.db
-      .query("scriptBricks")
-      .withIndex("by_campaign", (q) => q.eq("campaignId", id))
-      .collect();
-    for (const b of bricks) await ctx.db.delete(b._id);
-    await ctx.db.delete(id);
-    return { deleted: bricks.length };
-  },
+  handler: (ctx, { id }) => deleteCampaignCore(ctx, id),
 });
+
+/** Cœur de la suppression d'une campagne — l'écran Scripts et l'outil MCP `defaire`. */
+export async function deleteCampaignCore(ctx: ProjectMutationCtx, id: Id<"scriptCampaigns">) {
+  await requireCampaign(ctx, id, ctx.projectId);
+  const projectAssignments = await ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  if (projectAssignments.some((a) => a.scriptCombo?.campaignId === id)) {
+    throw err(ERR.CAMPAIGN_REFERENCED, "Campagne référencée par des assignments : archive-la plutôt que de la supprimer.");
+  }
+  const bricks = await ctx.db
+    .query("scriptBricks")
+    .withIndex("by_campaign", (q) => q.eq("campaignId", id))
+    .collect();
+  for (const b of bricks) await ctx.db.delete(b._id);
+  await ctx.db.delete(id);
+  return { deleted: bricks.length };
+}
 
 /**
  * Consigne STOCKÉE pour une saisie quelconque : bords rognés, `undefined` pour

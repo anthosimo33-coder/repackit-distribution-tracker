@@ -74,6 +74,18 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(sans).toContain("allume « Publications »");
   });
 
+  it("nouvelle_campagne : creer_campagne avec Scripts, inspirations avec Veille", () => {
+    const tout = texte(promptsJarvia(["scripts", "veille"], "2026-10-07").obtenir("nouvelle_campagne", { sujet: "cartes rares", hooks: "5" }));
+    expect(tout).toContain("sur « cartes rares »");
+    expect(tout).toContain("Écris 5 hooks, 3 flux et 3 cta");
+    expect(tout).toContain("`creer_campagne`");
+    expect(tout).toContain("`ajouter_inspiration`");
+    const lecture = texte(promptsJarvia([], "2026-10-07").obtenir("nouvelle_campagne", {}));
+    expect(lecture).not.toContain("creer_campagne");
+    expect(lecture).not.toContain("ajouter_inspiration");
+    expect(lecture).toContain("allume « Scripts »");
+  });
+
   it("point_du_jour ne propose que les gestes ouverts", () => {
     const lecture = texte(promptsJarvia([], "2026-10-07").obtenir("point_du_jour", {}));
     expect(lecture).not.toContain("confirmer_publication");
