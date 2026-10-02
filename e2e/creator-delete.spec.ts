@@ -260,7 +260,7 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
     const ancienMdp = "Ancien-mdp-2026!";
     const nouveauMdp = "Nouveau-mdp-2026//";
     const c = await createCreatorSession(url, {
-      name: `[E2E_TEST] Réinvitée Quentin ${ts}`,
+      name: `[E2E_TEST] Réinvitée Camille Dupont-Laurent ${ts}`,
       email,
       password: ancienMdp,
     });
@@ -275,7 +275,7 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
     // Réinvitation sur le MÊME email, mot de passe DIFFÉRENT (le cas réel).
     const { creatorId, token } = await admin.mutation(
       api.creators.inviteCreator,
-      { name: `[E2E_TEST] Réinvitée Quentin ${ts}`, email },
+      { name: `[E2E_TEST] Réinvitée Camille Dupont-Laurent ${ts}`, email },
     );
     const inscrit = await new ConvexHttpClient(url).action(api.auth.signIn, {
       provider: "password",

@@ -201,8 +201,8 @@
       "confirmPassword": "Confirmar la contraseña",
       "tooShort": "La contraseña debe tener al menos 8 caracteres.",
       "mismatch": "Las dos contraseñas no coinciden.",
-      "failed": "No se ha podido restablecer la contraseña. Pide un nuevo enlace a tu administrador.",
-      "invalidBody": "Este enlace de restablecimiento no es válido o ha caducado. Pide un nuevo enlace a tu administrador.",
+      "failed": "No se ha podido restablecer la contraseña. Pide un nuevo enlace con «¿Olvidaste tu contraseña?» en la página de inicio de sesión.",
+      "invalidBody": "Este enlace de restablecimiento no es válido o ha caducado. Pide uno nuevo con «¿Olvidaste tu contraseña?» en la página de inicio de sesión.",
       "title": "Restablece tu contraseña",
       "promptForProject": "Elige una nueva contraseña para {project}.",
       "submit": "Restablecer la contraseña",
@@ -241,9 +241,16 @@
         "creator": "Creador"
       },
       "forgot": "¿Olvidaste tu contraseña?",
-      "forgotHint": "Pide un enlace de restablecimiento a tu administrador: lo genera desde tu ficha.",
       "noAccount": "¿Aún no tienes cuenta? Se crea desde el enlace de invitación que te envía tu administrador.",
       "backHome": "Jarvia, volver al inicio"
+    },
+    "forgot": {
+      "intro": "Te enviamos por correo un enlace para elegir una nueva contraseña.",
+      "send": "Recibir el enlace",
+      "needEmail": "Primero escribe tu correo arriba.",
+      "sent": "Si existe una cuenta para {email}, el enlace ya está en camino. Es válido durante 1 hora: revisa también la carpeta de spam.",
+      "adminFallback": "¿No te llegó nada? Tu administrador también puede generarte uno desde tu ficha.",
+      "failed": "No se pudo enviar ahora. Inténtalo de nuevo en un momento."
     }
   },
   "portal": {

@@ -33,6 +33,7 @@
     "app/ConvexClientProvider.tsx",
     "components/VerdictBadge.tsx",
     "components/VideoUploader.tsx",
+    "components/auth/ForgotPasswordPanel.tsx",
     "components/brand/BrandMark.tsx",
     "components/brand/fonts.ts",
     "components/calendar/calendar-status-meta.tsx",

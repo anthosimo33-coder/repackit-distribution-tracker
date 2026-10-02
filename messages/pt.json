@@ -201,8 +201,8 @@
       "confirmPassword": "Confirmar a senha",
       "tooShort": "A senha precisa ter pelo menos 8 caracteres.",
       "mismatch": "As duas senhas não coincidem.",
-      "failed": "Não foi possível redefinir a senha. Peça um novo link ao seu administrador.",
-      "invalidBody": "Este link de redefinição é inválido ou expirou. Peça um novo link ao seu administrador.",
+      "failed": "Não foi possível redefinir a senha. Peça um novo link em “Esqueceu a senha?” na página de login.",
+      "invalidBody": "Este link de redefinição é inválido ou expirou. Peça um novo em “Esqueceu a senha?” na página de login.",
       "title": "Redefina sua senha",
       "promptForProject": "Escolha uma nova senha para {project}.",
       "submit": "Redefinir a senha",
@@ -241,9 +241,16 @@
         "creator": "Criador"
       },
       "forgot": "Esqueceu a senha?",
-      "forgotHint": "Peça um link de redefinição ao seu administrador: ele gera pela sua ficha.",
       "noAccount": "Ainda não tem conta? Ela é criada pelo link de convite que seu administrador envia.",
       "backHome": "Jarvia, voltar ao início"
+    },
+    "forgot": {
+      "intro": "Enviamos por e-mail um link para você escolher uma nova senha.",
+      "send": "Receber o link",
+      "needEmail": "Primeiro digite seu e-mail acima.",
+      "sent": "Se existir uma conta para {email}, o link já foi enviado. Ele vale por 1 hora: confira também a pasta de spam.",
+      "adminFallback": "Não chegou nada? Seu administrador também pode gerar um pela sua ficha.",
+      "failed": "Não foi possível enviar agora. Tente de novo em instantes."
     }
   },
   "portal": {

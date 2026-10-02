@@ -10,6 +10,7 @@ import { ConvexError } from "convex/values";
 import { ArrowRightIcon, Loader2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { BrandMark } from "@/components/brand/BrandMark";
+import { ForgotPasswordPanel } from "@/components/auth/ForgotPasswordPanel";
 import { LocaleSwitch } from "@/components/public/LocaleSwitch";
 import { cn } from "@/lib/utils";
 import { SUITE_PARAM, suiteApresConnexion } from "@/lib/login-suite";
@@ -30,9 +31,9 @@ import styles from "./login.module.css";
  *    le serveur rejetait tout signup et le lien ne menait qu'à une erreur.
  *    Les comptes se créent par invitation (/join/<token>).
  *
- * Mot de passe oublié : pas de parcours en libre-service — le lien de
- * réinitialisation est généré par l'admin (/reset-password/<token>). Le bouton
- * ne fait donc qu'afficher la marche à suivre.
+ * Mot de passe oublié : le bouton ouvre ForgotPasswordPanel, qui envoie un
+ * lien /reset-password/<token> par email à l'adresse saisie (libre-service).
+ * L'admin peut toujours en générer un depuis la fiche.
  *
  * Les libellés « Email », « Mot de passe », « Se connecter » et le toggle
  * bootstrap sont ceux que lit e2e/auth.setup.ts : ne pas les renommer.
@@ -226,6 +227,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     aria-expanded={showForgot}
+                    aria-controls="forgot-panel"
                     onClick={() => setShowForgot((v) => !v)}
                     className="text-xs text-[#f4f4f5]/60 underline-offset-2 hover:text-[#b39bef] hover:underline"
                   >
@@ -249,12 +251,7 @@ export default function LoginPage() {
                 )}
               />
               {flow === "signIn" && showForgot && (
-                <p
-                  id="forgot-hint"
-                  className="m-0 rounded-lg border border-[#9d7fe8]/25 bg-[#7c5cbf]/10 px-3 py-2 text-[13px] leading-snug text-[#f4f4f5]/80"
-                >
-                  {t("home.forgotHint")}
-                </p>
+                <ForgotPasswordPanel email={email} tone="dark" />
               )}
             </div>
             {error && (

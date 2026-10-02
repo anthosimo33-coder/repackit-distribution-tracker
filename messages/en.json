@@ -201,8 +201,8 @@
       "confirmPassword": "Confirm password",
       "tooShort": "Your password must be at least 8 characters.",
       "mismatch": "The two passwords don't match.",
-      "failed": "Couldn't reset your password. Ask your administrator for a new link.",
-      "invalidBody": "This reset link is invalid or has expired. Ask your administrator for a new link.",
+      "failed": "Couldn't reset your password. Request a new link with “Forgot password?” on the sign-in page.",
+      "invalidBody": "This reset link is invalid or has expired. Request a new one with “Forgot password?” on the sign-in page.",
       "title": "Reset your password",
       "promptForProject": "Choose a new password for {project}.",
       "submit": "Reset password",
@@ -241,9 +241,16 @@
         "creator": "Creator"
       },
       "forgot": "Forgot password?",
-      "forgotHint": "Ask your administrator for a reset link: they generate it from your profile.",
       "noAccount": "No account yet? You create it from the invite link your administrator sends you.",
       "backHome": "Jarvia, back to home"
+    },
+    "forgot": {
+      "intro": "We'll email you a link to choose a new password.",
+      "send": "Send me the link",
+      "needEmail": "Enter your email above first.",
+      "sent": "If an account exists for {email}, the link is on its way. It's valid for 1 hour, so check your spam folder too.",
+      "adminFallback": "Nothing arrived? Your administrator can also generate one from your profile.",
+      "failed": "Couldn't send it right now. Try again in a moment."
     }
   },
   "portal": {
