@@ -1,8 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import {
+  createAccount,
   modifyAccountCredentials,
   invalidateSessions,
 } from "@convex-dev/auth/server";
+import type { WithoutSystemFields } from "convex/server";
 import {
   internalAction,
   internalMutation,
@@ -10,6 +12,11 @@ import {
 } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
+import {
+  deleteAccount,
+  deleteAuthDataOfUser,
+  deleteSession,
+} from "./authCleanup";
 
 /**
  * Récupération d'accès ADMIN — réservé aux internalQuery/Action/Mutation (jamais
@@ -47,13 +54,25 @@ export const diagnoseAccountByEmail = internalQuery({
       .first();
 
     if (user === null) {
+      // Un compte de connexion SANS user = login fantôme laissé par une
+      // suppression d'avant le correctif : il bloque toute (ré)invitation.
+      const orphanAccount = await ctx.db
+        .query("authAccounts")
+        .withIndex("providerAndAccountId", (q) =>
+          q.eq("provider", PASSWORD_PROVIDER).eq("providerAccountId", email),
+        )
+        .first();
       return {
         email,
         userExists: false as const,
+        orphanPasswordAccount: orphanAccount !== null,
         hint:
-          "Aucun user pour cet email. Le compte n'a jamais finalisé son signup " +
-          "→ voie (a) : (re)générer l'invitation du créateur (regenerateInvitation) " +
-          "et finaliser via /join.",
+          orphanAccount !== null
+            ? "Login fantôme (authAccounts sans user) : l'email est bloqué, " +
+              "toute invitation échouera → adminRecovery:purgeOrphanAuth d'abord."
+            : "Aucun user pour cet email. Le compte n'a jamais finalisé son signup " +
+              "→ voie (a) : (re)générer l'invitation du créateur (regenerateInvitation) " +
+              "et finaliser via /join.",
       };
     }
 
@@ -180,26 +199,8 @@ export const deleteTestLoginByEmail = internalMutation({
       );
     }
 
-    // Sessions + leurs refresh tokens.
-    const sessions = await ctx.db
-      .query("authSessions")
-      .withIndex("userId", (q) => q.eq("userId", user._id))
-      .collect();
-    for (const s of sessions) {
-      const tokens = await ctx.db
-        .query("authRefreshTokens")
-        .withIndex("sessionId", (q) => q.eq("sessionId", s._id))
-        .collect();
-      for (const t of tokens) await ctx.db.delete(t._id);
-      await ctx.db.delete(s._id);
-    }
-
-    // Comptes d'auth (tous providers de CE user — préfixe d'index sur userId).
-    const accounts = await ctx.db
-      .query("authAccounts")
-      .withIndex("userIdAndProvider", (q) => q.eq("userId", user._id))
-      .collect();
-    for (const a of accounts) await ctx.db.delete(a._id);
+    // Sessions (+ refresh tokens) et comptes d'auth de CE user.
+    const removed = await deleteAuthDataOfUser(ctx, user._id);
 
     // Memberships de CE user uniquement.
     const memberships = await ctx.db
@@ -225,10 +226,127 @@ export const deleteTestLoginByEmail = internalMutation({
     return {
       deleted: true as const,
       email,
-      removedSessions: sessions.length,
-      removedAccounts: accounts.length,
+      removedSessions: removed.sessions,
+      removedAccounts: removed.accounts,
       removedMemberships: memberships.length,
       creatorResetToInvited: creator !== null,
     };
+  },
+});
+
+/**
+ * PURGE des logins FANTÔMES — comptes de connexion et sessions dont le user a
+ * été supprimé. Jusqu'au 02/10, deleteCreator et la suppression de projet ne
+ * retiraient que la row `users` : l'email restait pris et toute réinvitation
+ * échouait (« Account … already exists »). Un compte sans user ne peut plus
+ * rien ouvrir : le retirer ne coupe l'accès de personne. Idempotent.
+ *
+ *   ./scripts/convex-prod.sh run adminRecovery:purgeOrphanAuth '{"dryRun":true}'
+ */
+export const purgeOrphanAuth = internalMutation({
+  args: { dryRun: v.boolean() },
+  handler: async (ctx, { dryRun }) => {
+    const accounts = await ctx.db.query("authAccounts").collect();
+    const orphanAccounts: Doc<"authAccounts">[] = [];
+    for (const a of accounts) {
+      if ((await ctx.db.get(a.userId)) === null) orphanAccounts.push(a);
+    }
+    const sessions = await ctx.db.query("authSessions").collect();
+    const orphanSessions: Doc<"authSessions">[] = [];
+    for (const s of sessions) {
+      if ((await ctx.db.get(s.userId)) === null) orphanSessions.push(s);
+    }
+    if (!dryRun) {
+      for (const a of orphanAccounts) await deleteAccount(ctx, a._id);
+      for (const s of orphanSessions) await deleteSession(ctx, s._id);
+    }
+    return {
+      dryRun,
+      orphanAccounts: orphanAccounts.length,
+      orphanSessions: orphanSessions.length,
+      emails: orphanAccounts.map((a) => a.providerAccountId).sort(),
+    };
+  },
+});
+
+/** Invitation encore utilisable pour cet email (lecture seule). */
+export const pendingInvitationByEmail = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, args) => {
+    // Même normalisation que inviteCreator : c'est sous cette forme que
+    // l'invitation, puis le compte de connexion, portent l'email.
+    const email = args.email.trim().toLowerCase();
+    const now = Date.now();
+    const invitations = (await ctx.db.query("invitations").collect()).filter(
+      (i) =>
+        i.email.toLowerCase() === email.toLowerCase() &&
+        i.usedAt === undefined &&
+        i.expiresAt > now,
+    );
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("providerAndAccountId", (q) =>
+        q.eq("provider", PASSWORD_PROVIDER).eq("providerAccountId", email),
+      )
+      .first();
+    return {
+      invitations: invitations.map((i) => ({
+        email: i.email,
+        token: i.token,
+        projectId: i.projectId,
+        creatorId: i.creatorId,
+      })),
+      hasPasswordAccount: account !== null,
+    };
+  },
+});
+
+/**
+ * ACTIVE une invitation À LA PLACE de la créatrice, avec un mot de passe
+ * choisi par l'admin (elle n'a plus qu'à se connecter). Passe par le MÊME
+ * chemin que /join : createAccount → callback createOrUpdateUser, qui vérifie
+ * l'invitation, crée user + membership, lie la fiche et consomme le token.
+ * Refuse si l'email a déjà un compte de connexion (fantôme compris) ou si
+ * plusieurs invitations valides existent (projets différents).
+ *
+ *   ./scripts/convex-prod.sh run adminRecovery:activateInvitationByEmail '{"email":"…","password":"<8+>"}'
+ */
+export const activateInvitationByEmail = internalAction({
+  args: { email: v.string(), password: v.string() },
+  handler: async (
+    ctx,
+    { email, password },
+  ): Promise<{ ok: true; email: string; userId: string }> => {
+    if (password.length < 8) {
+      throw new ConvexError("password doit faire au moins 8 caractères.");
+    }
+    const found = await ctx.runQuery(
+      internal.adminRecovery.pendingInvitationByEmail,
+      { email },
+    );
+    if (found.hasPasswordAccount) {
+      throw new ConvexError(
+        `« ${email} » a déjà un compte de connexion → diagnoseAccountByEmail ` +
+          "(fantôme : purgeOrphanAuth ; compte vivant : resetTestPasswordByEmail).",
+      );
+    }
+    if (found.invitations.length !== 1) {
+      throw new ConvexError(
+        `${found.invitations.length} invitation(s) valide(s) pour « ${email} » — il en faut exactement une.`,
+      );
+    }
+    const invitation = found.invitations[0];
+    const { user } = await createAccount(ctx, {
+      provider: PASSWORD_PROVIDER,
+      // Email EXACT de l'invitation : c'est lui que /join envoie (preview.email).
+      account: { id: invitation.email, secret: password },
+      // inviteToken n'est pas un champ de `users` : il ne fait que transiter
+      // jusqu'au callback createOrUpdateUser (cf profile() dans convex/auth.ts).
+      profile: {
+        email: invitation.email,
+        inviteToken: invitation.token,
+      } as unknown as WithoutSystemFields<Doc<"users">>,
+    });
+    return { ok: true, email: invitation.email, userId: user._id };
   },
 });
