@@ -70,6 +70,7 @@ export const TABLES_PURGEES = [
   "comptaAccountReadings",
   "comptaAccounts",
   "comptaProvisionUses",
+  "mcpWriteLog",
   "marketGroups",
   "offerChanges",
   "notificationWindows",

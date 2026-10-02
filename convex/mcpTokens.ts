@@ -31,6 +31,8 @@ import {
   authedMutation,
   authedQuery,
   e2eMutation,
+  MCP_WRITE_SCOPES,
+  type McpWriteScope,
 } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { teamRoleOf } from "./roles";
@@ -166,6 +168,7 @@ export const listMyMcpTokens = authedQuery({
         prefix: c.prefix,
         createdAt: c.createdAt,
         lastUsedAt: c.lastUsedAt ?? null,
+        writeScopes: c.writeScopes ?? [],
       }))
       .sort((a, b) => b.createdAt - a.createdAt);
   },
@@ -180,6 +183,63 @@ export const revokeMcpToken = authedMutation({
       throw err(ERR.MCP_TOKEN_NOT_FOUND, "Clé introuvable.");
     }
     await ctx.db.delete(tokenId);
+  },
+});
+
+/**
+ * Autoriser (ou couper) les MODIFICATIONS d'un domaine pour une clé. Seulement
+ * depuis l'app, par son propriétaire : aucun outil MCP ne peut s'ouvrir à
+ * lui-même l'écriture.
+ */
+export const setMcpTokenWriteScopes = authedMutation({
+  args: { tokenId: v.id("mcpTokens"), scopes: v.array(v.string()) },
+  handler: async (ctx, { tokenId, scopes }) => {
+    const cle = await ctx.db.get(tokenId);
+    if (!cle || cle.userId !== ctx.userId) {
+      throw err(ERR.MCP_TOKEN_NOT_FOUND, "Clé introuvable.");
+    }
+    await ctx.db.patch(tokenId, { writeScopes: normaliserScopes(scopes) });
+  },
+});
+
+/** Domaines connus, sans doublon : un nom inconnu est ignoré, jamais stocké. */
+export function normaliserScopes(scopes: readonly string[]): McpWriteScope[] {
+  return MCP_WRITE_SCOPES.filter((s) => scopes.includes(s));
+}
+
+/**
+ * JOURNAL des modifications faites par Claude pour cette personne, 30 derniers
+ * jours, avec le projet (pour le lien vers l'écran où la défaire).
+ */
+export const listMyMcpWrites = authedQuery({
+  args: {},
+  handler: async (ctx) => {
+    const depuis = Date.now() - 30 * 86_400_000;
+    const lignes = await ctx.db
+      .query("mcpWriteLog")
+      .withIndex("by_user_at", (q) => q.eq("userId", ctx.userId).gte("at", depuis))
+      .order("desc")
+      .take(50);
+    const projets = new Map<string, { slug: string; name: string } | null>();
+    const out = [];
+    for (const l of lignes) {
+      if (!projets.has(l.projectId)) {
+        const p = await ctx.db.get(l.projectId);
+        projets.set(l.projectId, p ? { slug: p.slug, name: p.name } : null);
+      }
+      const p = projets.get(l.projectId) ?? null;
+      out.push({
+        _id: l._id,
+        at: l.at,
+        via: l.via,
+        tool: l.tool,
+        summary: l.summary,
+        section: l.section,
+        month: l.month ?? null,
+        project: p,
+      });
+    }
+    return out;
   },
 });
 
@@ -207,6 +267,7 @@ export const resolveToken = internalQuery({
       userId: cle.userId,
       tokenId: cle._id,
       lastUsedAt: cle.lastUsedAt ?? null,
+      writeScopes: cle.writeScopes ?? [],
     };
   },
 });

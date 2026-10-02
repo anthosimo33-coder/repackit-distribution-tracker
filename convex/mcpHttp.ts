@@ -42,14 +42,22 @@ export const mcpEndpoint = httpAction(async (ctx, request) => {
         if (aToucher(cle.lastUsedAt)) {
           await ctx.runMutation(internal.mcpTokens.touchToken, { tokenId: cle.tokenId });
         }
-        return jarviaServer(ctx, cle.userId);
+        return jarviaServer(ctx, cle.userId, {
+          kind: "token",
+          id: cle.tokenId,
+          writeScopes: cle.writeScopes,
+        });
       }
       const acces = await ctx.runQuery(internal.mcpOAuth.resoudreJetonAcces, { tokenHash });
       if (!acces) return null;
       if (aToucher(acces.lastUsedAt)) {
         await ctx.runMutation(internal.mcpOAuth.toucherAcces, { grantId: acces.grantId });
       }
-      return jarviaServer(ctx, acces.userId);
+      return jarviaServer(ctx, acces.userId, {
+        kind: "oauth",
+        id: acces.grantId,
+        writeScopes: acces.writeScopes,
+      });
     },
     (jetonPresente) => wwwAuthenticate(urlsDuDeploiement(), jetonPresente),
   );

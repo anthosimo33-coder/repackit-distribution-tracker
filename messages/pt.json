@@ -1490,6 +1490,7 @@
     "ERR_MCP_TOKEN_NOT_FOUND": "Chave não encontrada.",
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Pedido de autorização inválido ou expirado: reinicie a conexão pelo Claude.",
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acesso não encontrado.",
+    "ERR_MCP_WRITE_FORBIDDEN": "Esta ligação é só de leitura: autorize «Pode modificar a Contabilidade» em Jarvia › Conectar Claude.",
     "ERR_NO_ACTIVE_NOTIF": "A notificação está ativada nesta campanha, mas nenhuma está ativa: adicione uma ou desative-a.",
     "ERR_NOTIF_MISSING": "Este vídeo não tem notificação para editar.",
     "ERR_COMPTA_CHARGE_INVALID": "Despesa inválida: precisa de uma data, uma descrição, um valor positivo e uma moeda que o projeto saiba converter.",

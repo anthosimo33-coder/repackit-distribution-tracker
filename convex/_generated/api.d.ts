@@ -129,6 +129,8 @@ import type * as mcpOAuthHttp from "../mcpOAuthHttp.js";
 import type * as mcpProtocol from "../mcpProtocol.js";
 import type * as mcpTokens from "../mcpTokens.js";
 import type * as mcpTools from "../mcpTools.js";
+import type * as mcpWriteArgs from "../mcpWriteArgs.js";
+import type * as mcpWrites from "../mcpWrites.js";
 import type * as memberPermissions from "../memberPermissions.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
@@ -360,6 +362,8 @@ declare const fullApi: ApiFromModules<{
   mcpProtocol: typeof mcpProtocol;
   mcpTokens: typeof mcpTokens;
   mcpTools: typeof mcpTools;
+  mcpWriteArgs: typeof mcpWriteArgs;
+  mcpWrites: typeof mcpWrites;
   memberPermissions: typeof memberPermissions;
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;

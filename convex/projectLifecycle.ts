@@ -401,6 +401,9 @@ const ETAPES: Record<TablePurgee, Etape> = {
   comptaProvisionUses: etape((ctx, pid, n) =>
     ctx.db.query("comptaProvisionUses").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  mcpWriteLog: etape((ctx, pid, n) =>
+    ctx.db.query("mcpWriteLog").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   marketGroups: etape((ctx, pid, n) =>
     ctx.db.query("marketGroups").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),

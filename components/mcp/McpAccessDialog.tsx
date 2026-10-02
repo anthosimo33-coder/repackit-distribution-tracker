@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
-import { KeyRoundIcon, Loader2Icon, PlugIcon } from "lucide-react";
+import { ArrowUpRightIcon, KeyRoundIcon, Loader2Icon, PlugIcon } from "lucide-react";
+import Link from "next/link";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { CopyButton } from "@/components/ui/CopyButton";
 import {
   Dialog,
@@ -69,6 +71,9 @@ function Contenu() {
   const creer = useAction(api.mcpTokens.createMcpToken);
   const revoquer = useMutation(api.mcpTokens.revokeMcpToken);
   const couperAcces = useMutation(api.mcpOAuth.revokeOAuthGrant);
+  const ecritureCle = useMutation(api.mcpTokens.setMcpTokenWriteScopes);
+  const ecritureApp = useMutation(api.mcpOAuth.setOAuthGrantWriteScopes);
+  const journal = useQuery(api.mcpTokens.listMyMcpWrites, {});
   const [nom, setNom] = useState("Claude");
   const [creation, setCreation] = useState(false);
   const [nouvelle, setNouvelle] = useState<string | null>(null);
@@ -94,6 +99,22 @@ function Contenu() {
       toast.success(tr("cleRevoquee", { name: nomCle }));
     } catch (err) {
       toast.error(showError(err, tr("revocationImpossible")));
+    }
+  }
+
+  /** Autoriser ou couper les modifications de la Compta — seulement d'ici, jamais depuis Claude. */
+  async function handleEcriture(
+    cible: { kind: "token"; id: Id<"mcpTokens"> } | { kind: "oauth"; id: Id<"mcpOAuthGrants"> },
+    nomCible: string,
+    autorise: boolean,
+  ) {
+    const scopes = autorise ? ["compta"] : [];
+    try {
+      if (cible.kind === "token") await ecritureCle({ tokenId: cible.id, scopes });
+      else await ecritureApp({ grantId: cible.id, scopes });
+      toast.success(autorise ? tr("ecritureOuverte", { name: nomCible }) : tr("ecritureCoupee", { name: nomCible }));
+    } catch (err) {
+      toast.error(showError(err, tr("ecritureImpossible")));
     }
   }
 
@@ -132,6 +153,10 @@ function Contenu() {
           ),
         };
   const date = (ts: number) => new Date(ts).toLocaleDateString(loc);
+  const instant = (ts: number) =>
+    new Intl.DateTimeFormat(loc, { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(ts);
+  const mois = (m: string) =>
+    new Intl.DateTimeFormat(loc, { timeZone: "UTC", month: "long", year: "numeric" }).format(new Date(`${m}-01T00:00:00Z`));
 
   return (
     <>
@@ -255,6 +280,11 @@ function Contenu() {
                           : tr("utiliseeLe", { date: date(a.lastUsedAt) })}
                       </p>
                     </div>
+                    <Ecriture
+                      on={a.writeScopes.includes("compta")}
+                      nom={nomApp}
+                      onChange={(v) => void handleEcriture({ kind: "oauth", id: a._id }, nomApp, v)}
+                    />
                     <Button
                       type="button"
                       variant="ghost"
@@ -291,6 +321,11 @@ function Contenu() {
                         : tr("utiliseeLe", { date: date(c.lastUsedAt) })}
                     </p>
                   </div>
+                  <Ecriture
+                    on={c.writeScopes.includes("compta")}
+                    nom={c.name}
+                    onChange={(v) => void handleEcriture({ kind: "token", id: c._id }, c.name, v)}
+                  />
                   <Button
                     type="button"
                     variant="ghost"
@@ -304,9 +339,70 @@ function Contenu() {
               ))}
             </ul>
           )}
+          <p className="text-xs text-slate-500">{tr("ecritureAide")}</p>
+        </div>
+
+        <div className="space-y-2" data-testid="mcp-journal">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-sm font-medium text-slate-700">{tr("journalTitre")}</p>
+            <span className="text-xs text-slate-400">{tr("journalPeriode")}</span>
+          </div>
+          {journal === undefined ? null : journal.length === 0 ? (
+            <p className="text-sm text-slate-500">{tr("journalVide")}</p>
+          ) : (
+            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+              {journal.map((l) => (
+                <li key={l._id} className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-start gap-3 px-3 py-2">
+                  <span className="pt-0.5 text-xs tabular-nums text-slate-400">{instant(l.at)}</span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-800">
+                      <span className="font-medium">{tr(`outil.${l.tool as "ventiler_virement"}`)}</span>
+                      <span className="text-slate-500"> — {l.summary}</span>
+                    </p>
+                    <p className="truncate text-[11px] text-slate-400">
+                      {l.via.name}
+                      {l.project ? ` · ${l.project.name}` : ""}
+                    </p>
+                  </div>
+                  {l.project ? (
+                    <Link
+                      href={`/admin/${l.project.slug}/compta`}
+                      prefetch={false}
+                      className="inline-flex items-center gap-1 pt-0.5 text-xs font-medium text-primary hover:underline"
+                    >
+                      {l.month
+                        ? tr(`section.${l.section as "transfers"}`, { mois: mois(l.month) })
+                        : tr(`section.${l.section as "treasury"}`)}
+                      <ArrowUpRightIcon className="size-3" />
+                    </Link>
+                  ) : (
+                    <span />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-[11px] text-slate-400">{tr("journalAide")}</p>
         </div>
       </div>
     </>
+  );
+}
+
+/** « Peut modifier la Compta » : éteint par défaut, ne s'allume que d'ici. */
+function Ecriture({ on, nom, onChange }: { on: boolean; nom: string; onChange: (v: boolean) => void }) {
+  const tr = useTranslations("admin.common.McpAccessDialog");
+  return (
+    <label
+      className={
+        on
+          ? "inline-flex shrink-0 items-center gap-2 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary"
+          : "inline-flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-xs text-slate-500"
+      }
+    >
+      <Switch checked={on} onCheckedChange={onChange} aria-label={tr("ecritureAria", { name: nom })} />
+      {on ? tr("ecritureCompta") : tr("lectureSeule")}
+    </label>
   );
 }
 

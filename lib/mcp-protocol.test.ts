@@ -91,6 +91,29 @@ describe("tools/list et tools/call", () => {
     }
   });
 
+  it("un outil d'écriture le déclare : Claude demande l'accord avant de l'appeler", async () => {
+    const s = serveur();
+    const ecrire = {
+      name: "ventiler_virement",
+      title: "Ventiler",
+      description: "d",
+      inputSchema: { type: "object" as const, properties: {}, additionalProperties: false as const },
+      annotations: { readOnlyHint: false as const, destructiveHint: false, idempotentHint: true },
+    };
+    const r = (await handleMcpMessage({ ...s, tools: [...s.tools, ecrire] }, req(1, "tools/list"))) as {
+      result: { tools: { name: string; annotations: unknown }[] };
+    };
+    const parNom = new Map(r.result.tools.map((t) => [t.name, t.annotations]));
+    expect(parNom.get("ventiler_virement")).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+    // Présence : les outils de lecture, eux, restent marqués lecture seule.
+    expect(parNom.get("comptes")).toEqual({ readOnlyHint: true, openWorldHint: false });
+  });
+
   it("appelle l'outil avec ses arguments", async () => {
     const s = serveur();
     const r = await handleMcpMessage(s, req(3, "tools/call", { name: "comptes", arguments: { projet: "snytch", limite: 5 } }));
@@ -219,5 +242,46 @@ describe("bearerToken", () => {
     expect(bearerToken("Basic jv_abc")).toBeNull();
     expect(bearerToken(null)).toBeNull();
     expect(bearerToken("Bearer")).toBeNull();
+  });
+});
+
+describe("arguments des outils d'écriture : montants et listes", () => {
+  const schema = {
+    type: "object" as const,
+    properties: {
+      montant: { type: "number" as const, description: "m" },
+      parts: {
+        type: "array" as const,
+        description: "p",
+        maxItems: 2,
+        items: {
+          type: "object" as const,
+          properties: { montant: { type: "number" as const, description: "m" }, usage: { type: "string" as const, description: "u" } },
+          required: ["montant", "usage"],
+          additionalProperties: false as const,
+        },
+      },
+      destinations: { type: "array" as const, description: "d", items: { type: "string" as const } },
+    },
+    required: ["montant"],
+    additionalProperties: false as const,
+  };
+
+  it("un montant en nombre ou à la française, une liste d'objets conformes", () => {
+    expect(validateArgs(schema, { montant: 1806, parts: [{ montant: 832, usage: "business" }] })).toBeNull();
+    expect(validateArgs(schema, { montant: "1 337,49", destinations: ["Antho Banque"] })).toBeNull();
+  });
+
+  it("le PREMIER problème, avec la position dans la liste", () => {
+    expect(validateArgs(schema, { montant: true })).toBe("« montant » doit être un nombre.");
+    expect(validateArgs(schema, { montant: 1, parts: "832" })).toBe("« parts » doit être une liste.");
+    expect(validateArgs(schema, { montant: 1, parts: [{ montant: 1, usage: "pay" }, { usage: "pay" }] })).toBe(
+      "Argument requis manquant : « parts[2].montant ».",
+    );
+    expect(validateArgs(schema, { montant: 1, parts: [{ montant: 1, usage: "pay", cadeau: 1 }] })).toContain(
+      "Argument inconnu : « parts[1].cadeau »",
+    );
+    expect(validateArgs(schema, { montant: 1, parts: [{}, {}, {}] })).toBe("« parts » : 2 éléments au plus.");
+    expect(validateArgs(schema, { montant: 1, destinations: [3] })).toBe("« destinations[1] » doit être du texte.");
   });
 });
