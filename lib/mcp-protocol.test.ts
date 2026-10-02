@@ -11,6 +11,7 @@ import {
   type McpServer,
   type ToolInputSchema,
 } from "../convex/mcpProtocol";
+import { promptsJarvia } from "../convex/mcpPrompts";
 
 const SCHEMA: ToolInputSchema = {
   type: "object",
@@ -283,5 +284,44 @@ describe("arguments des outils d'écriture : montants et listes", () => {
     );
     expect(validateArgs(schema, { montant: 1, parts: [{}, {}, {}] })).toBe("« parts » : 2 éléments au plus.");
     expect(validateArgs(schema, { montant: 1, destinations: [3] })).toBe("« destinations[1] » doit être du texte.");
+  });
+});
+
+describe("prompts — flux de travail tout prêts", () => {
+  const avecPrompts = (): McpServer => ({
+    ...serveur(),
+    prompts: promptsJarvia(["missions"], "2026-10-07"),
+  });
+
+  it("annoncés à l'initialize seulement quand le serveur en publie", async () => {
+    const avec = await handleMcpMessage(avecPrompts(), req(1, "initialize", { protocolVersion: "2025-06-18" }));
+    expect(avec).toMatchObject({ result: { capabilities: { tools: { listChanged: false }, prompts: { listChanged: false } } } });
+    const sans = await handleMcpMessage(serveur(), req(2, "prompts/list"));
+    expect(sans).toMatchObject({ error: { code: RPC.METHOD_NOT_FOUND } });
+  });
+
+  it("la liste porte nom, titre, description et arguments", async () => {
+    const r = (await handleMcpMessage(avecPrompts(), req(1, "prompts/list"))) as { result: { prompts: { name: string; arguments: { name: string; required?: boolean }[] }[] } };
+    expect(r.result.prompts.map((p) => p.name)).toEqual(["point_du_jour", "planifier_semaine", "bilan_du_mois", "labo_hooks", "rejouer_gagnants"]);
+    expect(r.result.prompts.find((p) => p.name === "labo_hooks")!.arguments).toContainEqual(expect.objectContaining({ name: "campagne", required: true }));
+  });
+
+  it("un prompt rend un message utilisateur avec ses arguments", async () => {
+    const r = await handleMcpMessage(avecPrompts(), req(1, "prompts/get", { name: "bilan_du_mois", arguments: { mois: "2026-02", projet: "snytch" } }));
+    const texte = (r as { result: { messages: { role: string; content: { text: string } }[] } }).result.messages[0];
+    expect(texte.role).toBe("user");
+    expect(texte.content.text).toContain("du 2026-02-01 au 2026-02-28");
+    expect(texte.content.text).toContain("« snytch »");
+  });
+
+  it("prompt inconnu, argument requis manquant, argument illisible : erreurs de paramètres", async () => {
+    const inconnu = await handleMcpMessage(avecPrompts(), req(1, "prompts/get", { name: "tout_faire" }));
+    expect(inconnu).toMatchObject({ error: { code: RPC.INVALID_PARAMS, message: "Prompt inconnu : tout_faire." } });
+    const manquant = await handleMcpMessage(avecPrompts(), req(2, "prompts/get", { name: "labo_hooks", arguments: { campagne: "  " } }));
+    expect(manquant).toMatchObject({ error: { code: RPC.INVALID_PARAMS, message: "Argument requis manquant : « campagne »." } });
+    const illisible = await handleMcpMessage(avecPrompts(), req(3, "prompts/get", { name: "bilan_du_mois", arguments: { mois: "septembre" } }));
+    expect(illisible).toMatchObject({ error: { code: RPC.INVALID_PARAMS, message: "« mois » : AAAA-MM (ex. 2026-09)." } });
+    const pasTexte = await handleMcpMessage(avecPrompts(), req(4, "prompts/get", { name: "rejouer_gagnants", arguments: { jours: 30 } }));
+    expect(pasTexte).toMatchObject({ error: { code: RPC.INVALID_PARAMS } });
   });
 });
