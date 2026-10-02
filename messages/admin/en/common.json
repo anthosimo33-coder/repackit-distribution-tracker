@@ -907,7 +907,7 @@
     "ecritureOuverte": "{name} can edit {domaine}.",
     "ecritureCoupee": "{name} can no longer edit {domaine}.",
     "ecritureImpossible": "Couldn't change the permission.",
-    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning a mission sends the creator the usual email.",
+    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning a mission, approving or rejecting a video sends the creator the usual email.",
     "journalTitre": "Changes made by Claude",
     "journalPeriode": "Last 30 days",
     "journalVide": "No changes yet.",
@@ -928,7 +928,9 @@
       "activer_briques": "Enable / disable blocks",
       "graduer_hook": "Graduate a hook",
       "confirmer_publication": "Paste a post link",
-      "marquer_warmup": "Warm-up / promo"
+      "marquer_warmup": "Warm-up / promo",
+      "valider_video": "Approve a video",
+      "refuser_video": "Reject a video"
     },
     "section": {
       "treasury": "Cash",
@@ -937,7 +939,8 @@
       "rules": "Line rules",
       "planning": "Assignments",
       "campaign": "Campaign",
-      "tracker": "Tracker"
+      "tracker": "Tracker",
+      "validation": "Review"
     },
     "domaine": {
       "compta": {

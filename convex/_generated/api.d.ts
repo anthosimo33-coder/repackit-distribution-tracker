@@ -130,6 +130,7 @@ import type * as mcpPrompts from "../mcpPrompts.js";
 import type * as mcpProtocol from "../mcpProtocol.js";
 import type * as mcpTokens from "../mcpTokens.js";
 import type * as mcpTools from "../mcpTools.js";
+import type * as mcpVideo from "../mcpVideo.js";
 import type * as mcpWriteArgs from "../mcpWriteArgs.js";
 import type * as mcpWriteCommon from "../mcpWriteCommon.js";
 import type * as mcpWriteDomains from "../mcpWriteDomains.js";
@@ -369,6 +370,7 @@ declare const fullApi: ApiFromModules<{
   mcpProtocol: typeof mcpProtocol;
   mcpTokens: typeof mcpTokens;
   mcpTools: typeof mcpTools;
+  mcpVideo: typeof mcpVideo;
   mcpWriteArgs: typeof mcpWriteArgs;
   mcpWriteCommon: typeof mcpWriteCommon;
   mcpWriteDomains: typeof mcpWriteDomains;

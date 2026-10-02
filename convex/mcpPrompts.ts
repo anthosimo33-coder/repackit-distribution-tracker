@@ -52,6 +52,16 @@ export const PROMPTS: readonly McpPrompt[] = [
     arguments: [ARG_PROJET],
   },
   {
+    name: "revue_validation",
+    title: "Relire la file Validation",
+    description: "Regarde les vidéos soumises (images clés), les compare au script et à la consigne, et propose valider ou refuser avec un motif.",
+    arguments: [
+      ARG_PROJET,
+      { name: "createatrice", description: "Seulement ses vidéos (défaut : toute la file)." },
+      { name: "nombre", description: "Vidéos à regarder au plus (défaut : 5)." },
+    ],
+  },
+  {
     name: "planifier_semaine",
     title: "Planifier la semaine",
     description: "Repère les jours sans mission de chaque créatrice active et propose le planning de la semaine, scripts simulés à l'appui.",
@@ -179,6 +189,22 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
           "Pour une créatrice qui t'envoie le lien d'un post publié, propose l'appel `confirmer_publication` exact (créatrice, jour prévu, lien).",
         missions &&
           "Pour un post manqué, propose soit `replanifier_mission` (nouveau jour), soit `annuler_mission` — jamais les deux sans me demander.",
+        REGLES,
+      ]);
+    }
+
+    if (name === "revue_validation") {
+      const nombre = entier(args.nombre, "nombre", 5, 1, 15);
+      const qui = args.createatrice?.trim();
+      return message(p.description, [
+        `Relis la file Validation${qui ? ` de ${qui}` : ""} : ${nombre} vidéo(s) au plus, en commençant par celles qui doivent être validées pour demain.`,
+        projetDe(args),
+        `1. \`validation\`${qui ? ` (createatrice: « ${qui} »)` : ""} : la file à relire, dans son ordre.`,
+        "2. Pour chaque vidéo : `regarder_video` (créatrice + jour prévu). Compare les images au script attendu, à la consigne et au texte à incruster. Tu ne vois que des images fixes : juge ce qui SE VOIT (texte incrusté présent, lisible, conforme ; cadrage vertical ; ce que montrent les premières secondes ; la fin), jamais ce qui se dit.",
+        "3. Rends un tableau : vidéo → verdict proposé (valider / refuser / à regarder par un humain) → la raison, avec l'instant de l'image qui la montre. Dans le doute, « à regarder par un humain », pas « valider ».",
+        publications
+          ? "4. Pour chaque refus, rédige le motif adressé à la créatrice (tutoiement, concret : ce qui ne va pas et quoi refaire). Attends mon accord vidéo par vidéo, puis `valider_video` / `refuser_video` — rappelle avant que chacun envoie un email à la créatrice."
+          : "4. Cette connexion ne peut ni valider ni refuser : termine par le tableau et les motifs proposés, la décision se prend dans l'écran Validation (ou allume « Publications » dans Jarvia › Connecter Claude).",
         REGLES,
       ]);
     }

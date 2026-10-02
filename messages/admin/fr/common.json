@@ -907,7 +907,7 @@
     "ecritureOuverte": "{name} peut modifier {domaine}.",
     "ecritureCoupee": "{name} ne peut plus modifier {domaine}.",
     "ecritureImpossible": "Impossible de changer l'autorisation.",
-    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner une mission envoie l’email habituel à la créatrice.",
+    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner une mission, valider ou refuser une vidéo envoient l’email habituel à la créatrice.",
     "journalTitre": "Modifications faites par Claude",
     "journalPeriode": "30 derniers jours",
     "journalVide": "Aucune modification pour l'instant.",
@@ -928,7 +928,9 @@
       "activer_briques": "Activer / désactiver des briques",
       "graduer_hook": "Graduer un hook",
       "confirmer_publication": "Coller un lien de post",
-      "marquer_warmup": "Chauffe / promo"
+      "marquer_warmup": "Chauffe / promo",
+      "valider_video": "Valider une vidéo",
+      "refuser_video": "Refuser une vidéo"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -937,7 +939,8 @@
       "rules": "Classement",
       "planning": "Assignments",
       "campaign": "Campagne",
-      "tracker": "Tracker"
+      "tracker": "Tracker",
+      "validation": "Validation"
     },
     "domaine": {
       "compta": {

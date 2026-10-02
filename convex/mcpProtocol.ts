@@ -69,8 +69,16 @@ export interface McpTool {
   annotations?: { readOnlyHint: false; destructiveHint: boolean; idempotentHint: boolean };
 }
 
+/**
+ * Contenu d'une réponse d'outil : du texte, ou une IMAGE (base64) — les images
+ * clés d'une vidéo soumise (`regarder_video`), que Claude voit réellement.
+ */
+export type ToolContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
 export interface ToolResult {
-  content: { type: "text"; text: string }[];
+  content: ToolContent[];
   isError?: boolean;
 }
 

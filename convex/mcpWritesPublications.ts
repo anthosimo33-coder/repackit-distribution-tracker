@@ -7,7 +7,10 @@
  *    `review.manage`. Même cœur : la créatrice est créditée à l'identique ;
  *  - `marquer_warmup` : la bascule chauffe ↔ promo d'un post du Tracker, droit
  *    `tracker.manage`. La réponse dit l'état FINAL (chauffe, rémunérée), parce
- *    qu'une rémunération réglée à la main ne suit pas la bascule.
+ *    qu'une rémunération réglée à la main ne suit pas la bascule ;
+ *  - `valider_video`, `refuser_video` : la file Validation, droit `review.manage`
+ *    — après que Claude a REGARDÉ la vidéo (`regarder_video`). Chacun envoie
+ *    l'email de l'écran à la créatrice.
  */
 
 import { v } from "convex/values";
@@ -17,6 +20,7 @@ import { mcpWriteMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
 import {
+  AJOUTE,
   ARG_PROJET,
   ecrire,
   ECRIT,
@@ -29,8 +33,8 @@ import {
   type DomaineEcriture,
 } from "./mcpWriteCommon";
 import { jourTexte, plierTexte } from "./mcpWriteArgs";
-import { publicationParLien, trouverMission } from "./mcpWritesMissions";
-import { confirmPublicationAsAdminCore } from "./assignments";
+import { designationDepuis, designationValidator, publicationParLien, trouverMission } from "./mcpWritesMissions";
+import { confirmPublicationAsAdminCore, reviewVideoApproveCore, reviewVideoRejectCore } from "./assignments";
 import { setPublicationWarmupCore } from "./publications";
 import { representativePostedAt } from "./calendarStatus";
 import { detectPostUrlPlatform } from "./postUrlShape";
@@ -96,7 +100,74 @@ export const OUTILS_ECRITURE_PUBLICATIONS: readonly McpTool[] = [
   },
 ];
 
+const ARGS_DESIGNATION = {
+  createatrice: { type: "string", description: "Nom de la créatrice, comme dans `validation`." },
+  jour: { type: "string", description: "Jour PRÉVU de la mission, AAAA-MM-JJ (Paris), ou « sans date »." },
+  compte: { type: "string", description: "Handle du compte visé, pour départager." },
+  campagne: { type: "string", description: "Nom de la campagne, pour départager." },
+  script: { type: "string", description: "Un morceau du texte du script, pour départager." },
+} as const;
+
+export const OUTILS_REVUE_VIDEO: readonly McpTool[] = [
+  {
+    name: "valider_video",
+    title: "Valider une vidéo soumise",
+    description:
+      "MODIFIE les publications : valide la vidéo soumise d'une mission (file `validation`), comme le bouton « Valider » — elle passe « à publier ». ENVOIE l'email « vidéo validée » à la créatrice : dis-le avant. Ne valide qu'une vidéo que tu as regardée (`regarder_video`) et sur mon accord.",
+    inputSchema: {
+      type: "object",
+      properties: { projet: ARG_PROJET, ...ARGS_DESIGNATION },
+      required: ["createatrice", "jour"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
+  {
+    name: "refuser_video",
+    title: "Refuser une vidéo soumise",
+    description:
+      "MODIFIE les publications : refuse la vidéo soumise d'une mission, avec un MOTIF que la créatrice lit tel quel (email + sa mission) — concret, poli, actionnable : ce qui ne va pas et quoi refaire. Elle renvoie ensuite une nouvelle vidéo. Ne refuse qu'une vidéo que tu as regardée (`regarder_video`) et sur mon accord, motif relu.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        ...ARGS_DESIGNATION,
+        motif: { type: "string", description: "Le motif, adressé à la créatrice (tutoiement, 2 à 4 phrases)." },
+      },
+      required: ["createatrice", "jour", "motif"],
+      additionalProperties: false,
+    },
+    annotations: AJOUTE,
+  },
+];
+
 // ─── Écritures ──────────────────────────────────────────────────────────────
+
+const enRevue = (a: { status: string }) =>
+  a.status === "video_submitted" ? null : a.status === "to_publish" ? "déjà validée" : "pas de vidéo en attente de revue";
+
+export const ecrireValidationVideo = mcpWriteMutation("review.manage", "publications")({
+  args: designationValidator,
+  handler: async (ctx, a) => {
+    const m = await trouverMission(ctx, a, enRevue);
+    await reviewVideoApproveCore(ctx, m.a._id);
+    const summary = `${m.libelle} : vidéo validée`;
+    await journaliser(ctx, { tool: "valider_video", summary, section: "validation", path: "validation" });
+    return { summary };
+  },
+});
+
+export const ecrireRefusVideo = mcpWriteMutation("review.manage", "publications")({
+  args: { ...designationValidator, motif: v.string() },
+  handler: async (ctx, a) => {
+    const m = await trouverMission(ctx, a, enRevue);
+    await reviewVideoRejectCore(ctx, m.a._id, a.motif);
+    const court = a.motif.trim().length > 80 ? `${a.motif.trim().slice(0, 77)}…` : a.motif.trim();
+    const summary = `${m.libelle} : vidéo refusée — « ${court} »`;
+    await journaliser(ctx, { tool: "refuser_video", summary, section: "validation", path: "validation" });
+    return { summary };
+  },
+});
 
 export const ecrirePublication = mcpWriteMutation("review.manage", "publications")({
   args: {
@@ -187,6 +258,8 @@ const OU_DEFAIRE: Record<string, string> = {
   confirmer_publication:
     "Une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
   marquer_warmup: "Rappelle marquer_warmup avec l'état inverse, ou Tracker › le post › Warmup.",
+  valider_video: "Une validation ne se reprend pas : la créatrice a reçu l'email et peut publier.",
+  refuser_video: "Un refus ne se reprend pas : la créatrice a reçu le motif et renverra une vidéo, à valider à son retour.",
 };
 
 async function appelerEcriturePublications(
@@ -240,6 +313,19 @@ async function appelerEcriturePublications(
       throw e;
     }
   }
+  if (name === "valider_video" || name === "refuser_video") {
+    const d = designationDepuis(args);
+    if (name === "valider_video") {
+      const r = await ecrire(() => ctx.runMutation(internal.mcpWritesPublications.ecrireValidationVideo, { ...cible, ...d }));
+      return resultatEcriture(projet, r.summary, OU_DEFAIRE[name]);
+    }
+    const motif = texteArg(args, "motif");
+    if (motif.length < 10) throw new ToolError("« motif » : ce qui ne va pas et quoi refaire, adressé à la créatrice.");
+    const r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesPublications.ecrireRefusVideo, { ...cible, ...d, motif }),
+    );
+    return resultatEcriture(projet, r.summary, OU_DEFAIRE[name]);
+  }
   if (name === "marquer_warmup") {
     const lien = texteArg(args, "lien");
     if (lien === "") throw new ToolError("« lien » : le lien du post.");
@@ -260,6 +346,6 @@ async function appelerEcriturePublications(
 /** Le domaine « publications » : interrupteur « Peut modifier les publications ». */
 export const DOMAINE_PUBLICATIONS: DomaineEcriture = {
   scope: "publications",
-  outils: OUTILS_ECRITURE_PUBLICATIONS,
+  outils: [...OUTILS_REVUE_VIDEO, ...OUTILS_ECRITURE_PUBLICATIONS],
   appeler: appelerEcriturePublications,
 };

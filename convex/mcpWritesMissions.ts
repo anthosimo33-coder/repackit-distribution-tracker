@@ -43,7 +43,6 @@ import {
   textesArg,
   type CibleEcriture,
   type DomaineEcriture,
-  type EcritureCtx,
 } from "./mcpWriteCommon";
 import {
   cleDeLienPost,
@@ -233,7 +232,7 @@ const STATUTS: Record<string, string> = {
   validated: "validée",
 };
 
-const designationValidator = {
+export const designationValidator = {
   createatrice: v.string(),
   jour: v.union(v.string(), v.null()),
   compte: v.optional(v.string()),
@@ -263,7 +262,7 @@ export type MissionTrouvee = {
  * autres, et si toutes sont refusées, le refus le dit au lieu de « introuvable ».
  */
 export async function trouverMission(
-  ctx: EcritureCtx,
+  ctx: ProjectQueryCtx,
   d: Designation,
   refus: (a: Doc<"assignments">) => string | null,
 ): Promise<MissionTrouvee> {
@@ -734,7 +733,7 @@ function jourValide(x: string, cle: string, aujourdhui: string): string {
   return x;
 }
 
-function designationDepuis(args: Record<string, unknown>): Designation {
+export function designationDepuis(args: Record<string, unknown>): Designation {
   const createatrice = texteArg(args, "createatrice");
   if (createatrice === "") throw new ToolError("« createatrice » : son nom, comme dans l'outil `planning`.");
   const j = texteArg(args, "jour");
