@@ -871,7 +871,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connect Claude",
     "titre": "Connect Claude to the app",
-    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting: Claude will ask for your approval before each change.",
+    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting, assignments, scripts or posts: Claude will ask for your approval before each change.",
     "nomDeLaCle": "Key name",
     "nomPlaceholder": "e.g. Claude on my Mac",
     "creerUneCle": "Create a key",
@@ -902,30 +902,64 @@
     "couper": "Cut off access",
     "accesCoupe": "Access for “{name}” cut off.",
     "sansNom": "Unnamed app",
-    "ecritureCompta": "Can edit Accounting",
-    "lectureSeule": "Read-only",
-    "ecritureAria": "Accounting edits for {name}",
-    "ecritureOuverte": "{name} can edit Accounting.",
-    "ecritureCoupee": "{name} is back to read-only.",
+    "lectureSeule": "Read-only · allow:",
+    "peutModifier": "Can edit:",
+    "ecritureOuverte": "{name} can edit {domaine}.",
+    "ecritureCoupee": "{name} can no longer edit {domaine}.",
     "ecritureImpossible": "Couldn't change the permission.",
-    "ecritureAide": "A connection stays read-only until you allow edits here. Claude will ask for your approval before each change.",
+    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning a mission sends the creator the usual email.",
     "journalTitre": "Changes made by Claude",
     "journalPeriode": "Last 30 days",
     "journalVide": "No changes yet.",
-    "journalAide": "Every change can be undone in Accounting, as by hand: clear the split, remove a balance, delete an expense, cancel a “marked paid”.",
+    "journalAide": "Every change can be undone in the app, as by hand: the link opens the screen concerned.",
     "outil": {
       "ventiler_virement": "Split a withdrawal",
       "relever_solde": "Record a balance",
       "marquer_mis_de_cote_paye": "Mark paid",
       "ajouter_charge": "Add an expense",
       "supprimer_charge": "Delete an expense",
-      "classer_type_whop": "File a Whop line type"
+      "classer_type_whop": "File a Whop line type",
+      "assigner_scripts": "Assign scripts",
+      "rejouer_script": "Replay a script",
+      "replanifier_mission": "Reschedule an assignment",
+      "consigne_mission": "Assignment instructions",
+      "annuler_mission": "Drop an assignment",
+      "ajouter_hooks": "Add hooks",
+      "activer_briques": "Enable / disable blocks",
+      "graduer_hook": "Graduate a hook",
+      "confirmer_publication": "Paste a post link",
+      "marquer_warmup": "Warm-up / promo"
     },
     "section": {
       "treasury": "Cash",
       "transfers": "Withdrawals · {mois}",
       "charges": "Other expenses · {mois}",
-      "rules": "Line rules"
+      "rules": "Line rules",
+      "planning": "Assignments",
+      "campaign": "Campaign",
+      "tracker": "Tracker"
+    },
+    "domaine": {
+      "compta": {
+        "titre": "Accounting",
+        "objet": "Accounting",
+        "aria": "Accounting edits for {name}"
+      },
+      "missions": {
+        "titre": "Assignments",
+        "objet": "assignments",
+        "aria": "Assignment edits for {name}"
+      },
+      "scripts": {
+        "titre": "Scripts",
+        "objet": "scripts",
+        "aria": "Script edits for {name}"
+      },
+      "publications": {
+        "titre": "Posts",
+        "objet": "posts",
+        "aria": "Post edits for {name}"
+      }
     }
   },
   "OAuthConsent": {

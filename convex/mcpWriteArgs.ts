@@ -1,10 +1,14 @@
 /**
  * Lecture des ARGUMENTS des outils MCP d'écriture (pur, sans base) : les usages,
  * catégories et colonnes s'écrivent comme à l'écran ou par leur code ; les
- * montants à la française ; les jours en AAAA-MM-JJ.
+ * montants à la française ; les jours en AAAA-MM-JJ ; une créatrice, un compte,
+ * une campagne ou une brique par son nom (`designer`).
  */
 
 import type { ChargeCategory, ComptaBucket, TransferUsage } from "./comptaMath";
+import { PLATEFORMES, type Plateforme } from "./platforms";
+import { tiktokVideoIdFromUrl } from "./postUrlDate";
+import { formatPostWindow, isValidPostWindow, POST_WINDOW_PRESETS, type PostWindow } from "./postWindow";
 
 /** Sans accents, sans casse, espaces réduits : « Paiement Créatrices » = « paiement creatrices ». */
 export const plierTexte = (s: string) =>
@@ -83,3 +87,130 @@ export const jourTexte = (day: string) => {
   const [y, m, d] = day.split("-");
   return `${d}/${m}/${y}`;
 };
+
+// ─── Missions, scripts, publications ────────────────────────────────────────
+
+/**
+ * UN élément désigné par son NOM, comme Claude l'a lu dans un outil de lecture :
+ * le nom exact d'abord (accents, casse et `@` de tête ignorés), sinon un morceau
+ * qui n'en désigne qu'UN. Jamais de choix au hasard entre deux candidats : ils
+ * reviennent à l'appelant, qui les cite dans son refus.
+ */
+export function designer<T>(
+  items: readonly T[],
+  nomDe: (t: T) => string,
+  demande: string,
+): { ok: true; item: T } | { ok: false; candidats: T[] } {
+  const plie = (s: string) => plierTexte(s).replace(/^@/, "");
+  const q = plie(demande);
+  if (q === "") return { ok: false, candidats: [] };
+  const exacts = items.filter((t) => plie(nomDe(t)) === q);
+  if (exacts.length === 1) return { ok: true, item: exacts[0] };
+  if (exacts.length > 1) return { ok: false, candidats: exacts };
+  const proches = items.filter((t) => plie(nomDe(t)).includes(q));
+  return proches.length === 1 ? { ok: true, item: proches[0] } : { ok: false, candidats: proches };
+}
+
+const PLAGES_NOMMEES: Record<string, PostWindow> = Object.fromEntries(
+  POST_WINDOW_PRESETS.flatMap((p) => {
+    const noms = p.id === "apresmidi" ? ["apresmidi", "apres-midi"] : [p.id];
+    return noms.map((n) => [n, p.window] as const);
+  }),
+);
+
+/**
+ * Une PLAGE HORAIRE de publication : « 21h-23h », « 21:00-23:00 », « 21h30 à
+ * 23h », ou un créneau de l'écran (« midi », « après-midi », « soir »).
+ * « aucune » efface. `null` = illisible ou invalide (début après la fin) — jamais
+ * une plage devinée, qui s'afficherait telle quelle à la créatrice.
+ */
+export function plageDepuis(x: unknown): PostWindow | "aucune" | null {
+  if (typeof x !== "string") return null;
+  const t = plierTexte(x);
+  if (t === "aucune" || t === "aucun" || t === "sans") return "aucune";
+  const nommee = PLAGES_NOMMEES[t.replace(/\s/g, "")];
+  if (nommee) return nommee;
+  const m = /^(?:de\s*)?(\d{1,2})\s*(?:[h:]\s*(\d{2})?)?\s*(?:-|–|a)\s*(\d{1,2})\s*(?:[h:]\s*(\d{2})?)?$/.exec(t);
+  if (!m) return null;
+  const w = {
+    startMin: Number(m[1]) * 60 + Number(m[2] ?? 0),
+    endMin: Number(m[3]) * 60 + Number(m[4] ?? 0),
+  };
+  return Number(m[2] ?? 0) < 60 && Number(m[4] ?? 0) < 60 && isValidPostWindow(w) ? w : null;
+}
+
+/** « 21h-23h » : une plage, lisible au journal (la forme de l'écran admin). */
+export const plageTexte = (w: PostWindow) => formatPostWindow(w) ?? "";
+
+const PLATEFORMES_ALIAS: Record<string, Plateforme> = {
+  tiktok: "TikTok",
+  tt: "TikTok",
+  instagram: "Instagram",
+  insta: "Instagram",
+  ig: "Instagram",
+  youtube: "YouTube",
+  yt: "YouTube",
+  shorts: "YouTube",
+  facebook: "Facebook",
+  fb: "Facebook",
+  snapchat: "Snapchat",
+  snap: "Snapchat",
+};
+
+/** Une plateforme, écrite comme à l'écran ou en abrégé (« insta », « YT »). */
+export function plateformeDepuis(x: unknown): Plateforme | null {
+  if (typeof x !== "string") return null;
+  const t = plierTexte(x).replace(/\s/g, "");
+  return PLATEFORMES_ALIAS[t] ?? PLATEFORMES.find((p) => p.toLowerCase() === t) ?? null;
+}
+
+/** Le contenu d'une mission : promo, ou warmup (« chauffe »). */
+export function typeContenuDepuis(x: unknown): "promo" | "warmup" | null {
+  if (typeof x !== "string") return null;
+  const t = plierTexte(x);
+  if (t === "promo" || t === "promotion") return "promo";
+  if (t === "warmup" || t === "chauffe" || t === "warm-up") return "warmup";
+  return null;
+}
+
+/** Le rôle d'une brique de script : hook, flux ou cta. */
+export function roleBriqueDepuis(x: unknown): "hook" | "flux" | "cta" | null {
+  if (typeof x !== "string") return null;
+  const t = plierTexte(x);
+  if (t === "hook" || t === "hooks" || t === "accroche") return "hook";
+  if (t === "flux" || t === "corps") return "flux";
+  if (t === "cta" || t === "appel a l'action") return "cta";
+  return null;
+}
+
+/**
+ * La CLÉ d'un post dans un lien — pour retrouver une publication par le lien que
+ * Claude a lu (outils `meilleurs_posts`, `validation`) quelle qu'en soit la
+ * forme : l'id TikTok, le shortcode Instagram (/reel/ et /p/ confondus), l'id
+ * YouTube (shorts, watch, youtu.be) ; sinon l'adresse sans paramètres, sans
+ * `www.` ni `/` final. `null` = pas un lien.
+ */
+export function cleDeLienPost(url: string): string | null {
+  const brut = url.trim();
+  const tiktok = tiktokVideoIdFromUrl(brut);
+  if (tiktok) return `tiktok:${tiktok}`;
+  let u: URL;
+  try {
+    u = new URL(brut);
+  } catch {
+    return null;
+  }
+  const hote = u.hostname.toLowerCase().replace(/^(www|m)\./, "");
+  if (hote === "instagram.com") {
+    const m = /^\/(?:[^/]+\/)?(?:reels?|p|tv)\/([A-Za-z0-9_-]+)/.exec(u.pathname);
+    if (m) return `instagram:${m[1]}`;
+  }
+  if (hote === "youtube.com" || hote === "youtu.be") {
+    const id =
+      hote === "youtu.be"
+        ? u.pathname.slice(1).split("/")[0]
+        : (/^\/shorts\/([A-Za-z0-9_-]+)/.exec(u.pathname)?.[1] ?? u.searchParams.get("v"));
+    if (id) return `youtube:${id}`;
+  }
+  return `${hote}${u.pathname.replace(/\/+$/, "")}`.toLowerCase();
+}

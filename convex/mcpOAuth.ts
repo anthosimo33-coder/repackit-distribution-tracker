@@ -24,7 +24,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { authedAction, authedMutation, authedQuery, e2eMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { assertPeutDetenirUneCle, normaliserScopes, peutDetenirUneCle } from "./mcpTokens";
+import { assertPeutDetenirUneCle, basculerScope, peutDetenirUneCle } from "./mcpTokens";
 import {
   ACCESS_TTL_S,
   CODE_TTL_MS,
@@ -444,15 +444,18 @@ export const revokeOAuthGrant = authedMutation({
   },
 });
 
-/** Autoriser (ou couper) les MODIFICATIONS d'un domaine pour une application connectée. */
-export const setOAuthGrantWriteScopes = authedMutation({
-  args: { grantId: v.id("mcpOAuthGrants"), scopes: v.array(v.string()) },
-  handler: async (ctx, { grantId, scopes }) => {
+/**
+ * Autoriser (ou couper) les MODIFICATIONS d'UN domaine pour une application
+ * connectée — comme `setMcpTokenWriteScope`, appliqué à la valeur en base.
+ */
+export const setOAuthGrantWriteScope = authedMutation({
+  args: { grantId: v.id("mcpOAuthGrants"), scope: v.string(), on: v.boolean() },
+  handler: async (ctx, { grantId, scope, on }) => {
     const grant = await ctx.db.get(grantId);
     if (!grant || grant.userId !== ctx.userId) {
       throw err(ERR.MCP_OAUTH_GRANT_NOT_FOUND, "Accès introuvable.");
     }
-    await ctx.db.patch(grantId, { writeScopes: normaliserScopes(scopes) });
+    await ctx.db.patch(grantId, { writeScopes: basculerScope(grant.writeScopes ?? [], scope, on) });
   },
 });
 

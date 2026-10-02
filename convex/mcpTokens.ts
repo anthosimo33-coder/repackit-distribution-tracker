@@ -187,24 +187,33 @@ export const revokeMcpToken = authedMutation({
 });
 
 /**
- * Autoriser (ou couper) les MODIFICATIONS d'un domaine pour une clé. Seulement
+ * Autoriser (ou couper) les MODIFICATIONS d'UN domaine pour une clé. Seulement
  * depuis l'app, par son propriétaire : aucun outil MCP ne peut s'ouvrir à
  * lui-même l'écriture.
+ *
+ * Un domaine à la fois, appliqué à la valeur EN BASE : deux interrupteurs
+ * basculés coup sur coup ne s'écrasent pas (une liste complète envoyée par
+ * l'écran l'aurait été depuis un état déjà périmé).
  */
-export const setMcpTokenWriteScopes = authedMutation({
-  args: { tokenId: v.id("mcpTokens"), scopes: v.array(v.string()) },
-  handler: async (ctx, { tokenId, scopes }) => {
+export const setMcpTokenWriteScope = authedMutation({
+  args: { tokenId: v.id("mcpTokens"), scope: v.string(), on: v.boolean() },
+  handler: async (ctx, { tokenId, scope, on }) => {
     const cle = await ctx.db.get(tokenId);
     if (!cle || cle.userId !== ctx.userId) {
       throw err(ERR.MCP_TOKEN_NOT_FOUND, "Clé introuvable.");
     }
-    await ctx.db.patch(tokenId, { writeScopes: normaliserScopes(scopes) });
+    await ctx.db.patch(tokenId, { writeScopes: basculerScope(cle.writeScopes ?? [], scope, on) });
   },
 });
 
 /** Domaines connus, sans doublon : un nom inconnu est ignoré, jamais stocké. */
 export function normaliserScopes(scopes: readonly string[]): McpWriteScope[] {
   return MCP_WRITE_SCOPES.filter((s) => scopes.includes(s));
+}
+
+/** Les domaines après avoir allumé ou éteint l'un d'eux. */
+export function basculerScope(actuels: readonly string[], scope: string, on: boolean): McpWriteScope[] {
+  return normaliserScopes(on ? [...actuels, scope] : actuels.filter((s) => s !== scope));
 }
 
 /**
@@ -236,6 +245,7 @@ export const listMyMcpWrites = authedQuery({
         summary: l.summary,
         section: l.section,
         month: l.month ?? null,
+        path: l.path ?? "compta",
         project: p,
       });
     }

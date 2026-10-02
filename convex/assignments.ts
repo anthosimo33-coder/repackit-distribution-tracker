@@ -10,6 +10,7 @@ import {
   permissionQuery,
   requireCreatorInScope,
   creatorScopeFor,
+  type ProjectMutationCtx,
   type ProjectQueryCtx,
 } from "./functions";
 import { filterByCreatorScope } from "./creatorScope";
@@ -209,7 +210,7 @@ export async function resolveManagedTargets(
  * barème — jamais un montant. Même surface que `listPricingsForAssignment`, qui
  * porte déjà ce droit.
  */
-async function pricingResolver(ctx: QueryCtx, projectId: Id<"projects">) {
+export async function pricingResolver(ctx: QueryCtx, projectId: Id<"projects">) {
   const project = await ctx.db.get(projectId);
   const defaultId = project?.defaultBonusPricingId ?? null;
   const pricings = await ctx.db
@@ -486,18 +487,19 @@ export const setAssignmentOverlayText = permissionMutation("assignments.manage")
     id: v.id("assignments"),
     overlayText: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const a = await ctx.db.get(args.id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    await ctx.db.patch(args.id, {
-      overlayText: normalizeOverlayText(args.overlayText),
-    });
-    return { ok: true };
-  },
+  handler: (ctx, args) => setAssignmentOverlayTextCore(ctx, args.id, args.overlayText),
 });
+
+/** Cœur — le champ « texte à incruster » de l'écran et l'outil MCP `consigne_mission`. */
+export async function setAssignmentOverlayTextCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  overlayText: string | undefined,
+) {
+  await requireProjectAssignmentInScope(ctx, id);
+  await ctx.db.patch(id, { overlayText: normalizeOverlayText(overlayText) });
+  return { ok: true };
+}
 
 /**
  * Édite les INSTRUCTIONS libres (consigne créatrice) d'un assignment EXISTANT
@@ -511,18 +513,35 @@ export const setAssignmentInstructions = permissionMutation("assignments.manage"
     id: v.id("assignments"),
     instructions: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
-    const a = await ctx.db.get(args.id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    await ctx.db.patch(args.id, {
-      instructions: normalizeInstructions(args.instructions),
-    });
-    return { ok: true };
-  },
+  handler: (ctx, args) => setAssignmentInstructionsCore(ctx, args.id, args.instructions),
 });
+
+/** Cœur — la consigne de l'écran et l'outil MCP `consigne_mission`. */
+export async function setAssignmentInstructionsCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  instructions: string | undefined,
+) {
+  await requireProjectAssignmentInScope(ctx, id);
+  await ctx.db.patch(id, { instructions: normalizeInstructions(instructions) });
+  return { ok: true };
+}
+
+/**
+ * Assignation DU PROJET, dans le périmètre de la personne — le préambule commun
+ * des éditions d'une assignation existante.
+ */
+async function requireProjectAssignmentInScope(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+): Promise<Doc<"assignments">> {
+  const a = await ctx.db.get(id);
+  if (!a || a.projectId !== ctx.projectId) {
+    throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+  return a;
+}
 
 /**
  * Édite la DATE DE PUBLICATION planifiée (postDate) d'un assignment EXISTANT.
@@ -535,16 +554,19 @@ export const setAssignmentPostDate = permissionMutation("assignments.manage")({
     id: v.id("assignments"),
     postDate: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
-    const a = await ctx.db.get(args.id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    await ctx.db.patch(args.id, { postDate: args.postDate });
-    return { ok: true };
-  },
+  handler: (ctx, args) => setAssignmentPostDateCore(ctx, args.id, args.postDate),
 });
+
+/** Cœur — la replanification de l'écran et l'outil MCP `replanifier_mission`. */
+export async function setAssignmentPostDateCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  postDate: number | undefined,
+) {
+  await requireProjectAssignmentInScope(ctx, id);
+  await ctx.db.patch(id, { postDate });
+  return { ok: true };
+}
 
 /**
  * Édite le CRÉNEAU horaire (postWindow) d'un assignment EXISTANT — admin only.
@@ -567,19 +589,22 @@ export const setAssignmentPostWindow = permissionMutation("assignments.manage")(
       v.object({ startMin: v.number(), endMin: v.number() }),
     ),
   },
-  handler: async (ctx, args) => {
-    const a = await ctx.db.get(args.id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    if (args.postWindow !== undefined && !isValidPostWindow(args.postWindow)) {
-      throw err(ERR.TIME_WINDOW_INVALID, "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.");
-    }
-    await ctx.db.patch(args.id, { postWindow: args.postWindow });
-    return { ok: true };
-  },
+  handler: (ctx, args) => setAssignmentPostWindowCore(ctx, args.id, args.postWindow),
 });
+
+/** Cœur — le créneau de l'écran et l'outil MCP `replanifier_mission`. */
+export async function setAssignmentPostWindowCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  postWindow: { startMin: number; endMin: number } | undefined,
+) {
+  await requireProjectAssignmentInScope(ctx, id);
+  if (postWindow !== undefined && !isValidPostWindow(postWindow)) {
+    throw err(ERR.TIME_WINDOW_INVALID, "Créneau invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.");
+  }
+  await ctx.db.patch(id, { postWindow });
+  return { ok: true };
+}
 
 /**
  * Comptes PROPOSABLES pour chaque cible d'une assignation — le sélecteur
@@ -1142,23 +1167,22 @@ export const DELETABLE_STATUSES = new Set<string>([
  */
 export const cancelAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
-  handler: async (ctx, { id }) => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
-    if (!DELETABLE_STATUSES.has(a.status)) {
-      throw err(
-        ERR.ASSIGNMENT_CANCEL_LOCKED,
-        "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
-      );
-    }
-    await ctx.db.patch(id, { status: "cancelled" });
-    return { ok: true, alreadyCancelled: false };
-  },
+  handler: (ctx, { id }) => cancelAssignmentCore(ctx, id),
 });
+
+/** Cœur de l'abandon — le bouton « Abandonner » et l'outil MCP `annuler_mission`. */
+export async function cancelAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assignments">) {
+  const a = await requireProjectAssignmentInScope(ctx, id);
+  if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
+  if (!DELETABLE_STATUSES.has(a.status)) {
+    throw err(
+      ERR.ASSIGNMENT_CANCEL_LOCKED,
+      "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
+    );
+  }
+  await ctx.db.patch(id, { status: "cancelled" });
+  return { ok: true, alreadyCancelled: false };
+}
 
 /**
  * Purge best-effort la vidéo soumise orpheline d'un assignment (blob Convex +
@@ -3706,46 +3730,53 @@ export const confirmPublicationAsAdmin = permissionMutation("review.manage")({
     // Ne relâche QUE cette borne — le futur reste refusé.
     allowBackdate: v.optional(v.boolean()),
   },
-  handler: async (
-    ctx,
-    { id, urls, publishedAt, allowBackdate },
-  ): Promise<{
-    ok: true;
-    alreadyPublished: boolean;
-    publicationIds: Id<"publications">[];
-  }> => {
-    const a = await ctx.db.get(id);
-    if (!a || a.projectId !== ctx.projectId) {
-      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    // Remplace le gate managedByAdmin : chaque cible doit exister DANS le projet de
-    // l'admin (ce que le flag portait implicitement) — vaut pour compte géré ET
-    // compte de créatrice. L'appartenance projet de l'assignment est déjà vérifiée.
-    for (const t of a.targets ?? []) {
-      if (!t.accountId) continue;
-      const compte = await ctx.db.get(t.accountId);
-      if (!compte || compte.projectId !== ctx.projectId) {
-        throw err(ERR.TARGET_ACCOUNT_NOT_IN_PROJECT, "Compte cible introuvable dans le projet.");
-      }
-    }
-    // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment
-    // (sinon l'ancre de paie J+30 se calerait n'importe où). MÊME contrôle que le
-    // chemin clippeur — une seule fonction, pas deux listes de bornes. Seule
-    // différence : l'admin peut FRANCHIR la borne de création en le disant
-    // (régularisation d'un post fait hors de l'app) ; le clippeur, jamais.
-    assertPublishedAtInRange(publishedAt, a, {
-      allowBeforeCreation: allowBackdate === true,
-    });
-    return confirmPublicationCore(ctx, a, urls, {
-      confirmedBy: "admin",
-      publishedAt,
-      // Secours : l'admin publie même une assignation restée en "À faire" (post
-      // publié hors app) → passage direct en `published`, pas de gate to_publish.
-      fromAnyStatus: true,
-    });
-  },
+  handler: (ctx, args) => confirmPublicationAsAdminCore(ctx, args),
 });
+
+/**
+ * Cœur du lien collé par l'admin — le formulaire « Publier » de l'écran et
+ * l'outil MCP `confirmer_publication`.
+ */
+export async function confirmPublicationAsAdminCore(
+  ctx: ProjectMutationCtx,
+  { id, urls, publishedAt, allowBackdate }: {
+    id: Id<"assignments">;
+    urls: { platform: Plateforme; url: string }[];
+    publishedAt?: number;
+    allowBackdate?: boolean;
+  },
+): Promise<{
+  ok: true;
+  alreadyPublished: boolean;
+  publicationIds: Id<"publications">[];
+}> {
+  const a = await requireProjectAssignmentInScope(ctx, id);
+  // Remplace le gate managedByAdmin : chaque cible doit exister DANS le projet de
+  // l'admin (ce que le flag portait implicitement) — vaut pour compte géré ET
+  // compte de créatrice. L'appartenance projet de l'assignment est déjà vérifiée.
+  for (const t of a.targets ?? []) {
+    if (!t.accountId) continue;
+    const compte = await ctx.db.get(t.accountId);
+    if (!compte || compte.projectId !== ctx.projectId) {
+      throw err(ERR.TARGET_ACCOUNT_NOT_IN_PROJECT, "Compte cible introuvable dans le projet.");
+    }
+  }
+  // Date réelle bornée : ni dans le futur, ni avant la création de l'assignment
+  // (sinon l'ancre de paie J+30 se calerait n'importe où). MÊME contrôle que le
+  // chemin clippeur — une seule fonction, pas deux listes de bornes. Seule
+  // différence : l'admin peut FRANCHIR la borne de création en le disant
+  // (régularisation d'un post fait hors de l'app) ; le clippeur, jamais.
+  assertPublishedAtInRange(publishedAt, a, {
+    allowBeforeCreation: allowBackdate === true,
+  });
+  return confirmPublicationCore(ctx, a, urls, {
+    confirmedBy: "admin",
+    publishedAt,
+    // Secours : l'admin publie même une assignation restée en "À faire" (post
+    // publié hors app) → passage direct en `published`, pas de gate to_publish.
+    fromAnyStatus: true,
+  });
+}
 
 /**
  * CORRIGER LE LIEN DE SUIVI d'une cible DÉJÀ publiée — « elle s'est trompée de

@@ -1790,6 +1790,11 @@ export default defineSchema({
     /** Section de l'écran où la modification se voit et se défait. */
     section: v.string(),
     month: v.optional(v.string()),
+    /**
+     * Écran où elle se défait, sous `/admin/<projet>/` (« assignments »,
+     * « scripts/<campagne> »…). Absent = la Compta, seul domaine d'avant.
+     */
+    path: v.optional(v.string()),
     at: v.number(),
   })
     .index("by_user_at", ["userId", "at"])
