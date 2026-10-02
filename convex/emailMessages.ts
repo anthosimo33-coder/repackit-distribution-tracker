@@ -10,8 +10,8 @@ import { localeOrDefault, type Locale } from "./locales";
  * et le défaut doit être explicite (`localeOrDefault`).
  *
  * Les e-mails sont traduits dans les QUATRE langues livrées (fr, en, es, pt) :
- * INVITE, APPROVED, REJECTED, PAID, REVERTED, ASSIGNED, NUDGE, REMINDER. Le type
- * `Record<Locale, …>` refuse de compiler une langue oubliée.
+ * INVITE, PASSWORD_RESET, APPROVED, REJECTED, PAID, REVERTED, ASSIGNED, NUDGE,
+ * REMINDER. Le type `Record<Locale, …>` refuse de compiler une langue oubliée.
  *
  * L'invitation compte double : c'est le premier contact d'un créateur étranger,
  * reçu AVANT sa première connexion — donc avant tout écran, avant tout
@@ -91,6 +91,67 @@ const INVITE: Record<Locale, InviteEmailCopy> = {
 
 export function inviteEmailCopy(locale: unknown): InviteEmailCopy {
   return INVITE[localeOrDefault(locale)];
+}
+
+/** « Mot de passe oublié » — `name` null quand le compte n'a pas de fiche
+ *  créatrice (admin, manager) : la formule de salut se passe alors du prénom. */
+export interface PasswordResetEmailCopy {
+  subject: string;
+  greeting: (name: string | null) => string;
+  intro: string;
+  ctaLabel: string;
+  footerNote: string;
+}
+
+const PASSWORD_RESET: Record<Locale, PasswordResetEmailCopy> = {
+  fr: {
+    subject: "Réinitialise ton mot de passe Jarvia",
+    greeting: (name) => (name ? `Salut ${name},` : "Salut,"),
+    intro:
+      "Tu as demandé à changer ton mot de passe. Le bouton ci-dessous te " +
+      "permet d'en choisir un nouveau.",
+    ctaLabel: "Choisir un nouveau mot de passe",
+    footerNote:
+      "Le lien est valable 1 heure et ne sert qu'une fois. Si tu n'as rien " +
+      "demandé, ignore ce message : ton mot de passe actuel reste valable.",
+  },
+  en: {
+    subject: "Reset your Jarvia password",
+    greeting: (name) => (name ? `Hi ${name},` : "Hi,"),
+    intro:
+      "You asked to change your password. Use the button below to choose a " +
+      "new one.",
+    ctaLabel: "Choose a new password",
+    footerNote:
+      "This link is valid for 1 hour and can only be used once. If you didn't " +
+      "ask for this, ignore this email: your current password still works.",
+  },
+  es: {
+    subject: "Restablece tu contraseña de Jarvia",
+    greeting: (name) => (name ? `Hola ${name}:` : "Hola:"),
+    intro:
+      "Pediste cambiar tu contraseña. Con el botón de abajo puedes elegir una " +
+      "nueva.",
+    ctaLabel: "Elegir una nueva contraseña",
+    footerNote:
+      "El enlace es válido durante 1 hora y solo se puede usar una vez. Si no " +
+      "lo pediste, ignora este correo: tu contraseña actual sigue funcionando.",
+  },
+  pt: {
+    subject: "Redefina sua senha da Jarvia",
+    greeting: (name) => (name ? `Oi ${name},` : "Oi,"),
+    intro:
+      "Você pediu para trocar sua senha. Pelo botão abaixo você escolhe uma " +
+      "nova.",
+    ctaLabel: "Escolher uma nova senha",
+    footerNote:
+      "O link vale por 1 hora e só pode ser usado uma vez. Se você não pediu " +
+      "isso, ignore este e-mail: sua senha atual continua valendo.",
+  },
+};
+
+export function passwordResetEmailCopy(locale: unknown): PasswordResetEmailCopy {
+  return PASSWORD_RESET[localeOrDefault(locale)];
 }
 
 // ─── Mise en forme, côté serveur ─────────────────────────────────────────────

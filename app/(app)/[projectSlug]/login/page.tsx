@@ -10,6 +10,7 @@ import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
 import { BrandMark } from "@/components/brand/BrandMark";
 import { AccentStyle } from "@/components/project/AccentStyle";
+import { ForgotPasswordPanel } from "@/components/auth/ForgotPasswordPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +51,7 @@ export default function ProjectLoginPage({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -129,7 +131,18 @@ export default function ProjectLoginPage({
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">{t("field.password")}</Label>
+              <div className="flex items-baseline justify-between gap-3">
+                <Label htmlFor="password">{t("field.password")}</Label>
+                <button
+                  type="button"
+                  aria-expanded={showForgot}
+                  aria-controls="forgot-panel"
+                  onClick={() => setShowForgot((v) => !v)}
+                  className="text-xs text-slate-500 underline-offset-2 hover:text-primary hover:underline"
+                >
+                  {t("home.forgot")}
+                </button>
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -139,6 +152,7 @@ export default function ProjectLoginPage({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              {showForgot && <ForgotPasswordPanel email={email} tone="light" />}
             </div>
             {error && (
               <p role="alert" className="text-sm text-rose-600">

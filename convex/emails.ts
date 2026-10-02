@@ -18,6 +18,7 @@ import {
 } from "./emailApi";
 import {
   inviteEmailCopy,
+  passwordResetEmailCopy,
   approvedEmailCopy,
   rejectedEmailCopy,
   paidEmailCopy,
@@ -117,6 +118,39 @@ export const getCreatorContact = internalQuery({
     if (!c) return null;
     // LANGUE DU DESTINATAIRE — cf localeOrDefault côté rendu. Absente ⇒ français.
     return { email: c.email, name: c.name, locale: c.locale ?? null };
+  },
+});
+
+/**
+ * Destinataire d'un lien de reset : l'email EXACT du compte de connexion (pas
+ * celui d'une fiche, qu'un admin a pu modifier depuis), le prénom de sa fiche
+ * créatrice s'il en a une, et la langue du compte (`users.locale`, puis fiche).
+ */
+export const getPasswordResetContact = internalQuery({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const user = await ctx.db.get(userId);
+    if (!user) return null;
+    const account = await ctx.db
+      .query("authAccounts")
+      .withIndex("userIdAndProvider", (q) =>
+        q.eq("userId", userId).eq("provider", "password"),
+      )
+      .first();
+    if (!account) return null;
+    const fiches = await ctx.db
+      .query("creators")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const locale =
+      user.locale && user.locale.trim() !== ""
+        ? user.locale
+        : (fiches.find((f) => f.locale && f.locale.trim() !== "")?.locale ?? null);
+    return {
+      email: account.providerAccountId,
+      name: fiches[0]?.name ?? null,
+      locale,
+    };
   },
 });
 
@@ -243,6 +277,33 @@ export const sendCreatorInvite = internalAction({
       footerNote: copy.footerNote,
     });
     return deliver(cfg, "invitation créateur", c.email, subject, html);
+  },
+});
+
+// ─── 1 bis. Mot de passe oublié ──────────────────────────────────────────────
+
+export const sendPasswordReset = internalAction({
+  args: { userId: v.id("users"), token: v.string() },
+  handler: async (ctx, { userId, token }): Promise<Outcome> => {
+    const cfg = emailConfig();
+    if (!cfg) return warnDisabled("mot de passe oublié");
+    const c = await ctx.runQuery(internal.emails.getPasswordResetContact, {
+      userId,
+    });
+    if (!c) return { ok: false, reason: "not-found" };
+    if (isNonNotifiableRecipient(c.email, c.name ?? undefined)) {
+      return { ok: false, reason: "test-recipient" };
+    }
+    const copy = passwordResetEmailCopy(c.locale);
+    const html = renderEmail({
+      title: copy.subject,
+      bodyHtml:
+        p(copy.greeting(c.name === null ? null : escapeHtml(c.name))) +
+        p(copy.intro),
+      cta: { label: copy.ctaLabel, url: `${cfg.appBaseUrl}/reset-password/${token}` },
+      footerNote: copy.footerNote,
+    });
+    return deliver(cfg, "mot de passe oublié", c.email, copy.subject, html);
   },
 });
 

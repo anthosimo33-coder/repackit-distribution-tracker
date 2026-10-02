@@ -1,6 +1,7 @@
 import {
   e2eMutation,
   permissionMutation,
+  publicMutation,
   publicQuery,
   requireCreatorInScope,
 } from "./functions";
@@ -12,16 +13,19 @@ import {
 } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, err } from "./errorCodes";
+import { planResetRequest, RESET_EMAIL_TTL_MS } from "./passwordResetRequest";
 
 /**
- * Reset mot de passe ADMIN — Voie B (lien à usage unique, sans email).
- *
- * Pas de self-service "mot de passe oublié" (aucun service email). À la place,
- * l'admin génère un lien /reset-password/<token> depuis la fiche créateur et le
- * transmet (WhatsApp). Le créateur clique, choisit un nouveau mot de passe.
- * L'admin ne voit JAMAIS de mot de passe en clair.
+ * Reset mot de passe — un lien /reset-password/<token> à usage unique, par
+ * DEUX portes :
+ *   - Voie B (admin) : l'admin génère le lien depuis la fiche créateur et le
+ *     transmet (WhatsApp). Valable 48 h.
+ *   - Libre-service (requestPasswordReset) : « Mot de passe oublié ? » sur la
+ *     page de connexion, le lien part par email (Resend). Valable 1 h.
+ * Le créateur clique, choisit un nouveau mot de passe. Personne ne voit
+ * JAMAIS de mot de passe en clair.
  *
  * Sécurité :
  *   - generatePasswordResetLink = gardée par bloc (droit creators.manage requis),
@@ -49,6 +53,16 @@ async function passwordAccountFor(
     .query("authAccounts")
     .withIndex("userIdAndProvider", (q) =>
       q.eq("userId", userId).eq("provider", PASSWORD_PROVIDER),
+    )
+    .first();
+}
+
+/** Compte mot de passe d'un email EXACT (providerAccountId), ou null. */
+async function passwordAccountByEmail(ctx: QueryCtx | MutationCtx, email: string) {
+  return await ctx.db
+    .query("authAccounts")
+    .withIndex("providerAndAccountId", (q) =>
+      q.eq("provider", PASSWORD_PROVIDER).eq("providerAccountId", email),
     )
     .first();
 }
@@ -100,8 +114,7 @@ export const generatePasswordResetLink = permissionMutation("creators.manage")({
 
     const now = Date.now();
     const expiresAt = now + RESET_TTL_MS;
-    // Token long opaque (2× UUID v4, tirets retirés) — 244 bits d'entropie.
-    const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+    const token = newResetToken();
     await ctx.db.insert("passwordResetTokens", {
       token,
       userId: creator.userId,
@@ -109,6 +122,83 @@ export const generatePasswordResetLink = permissionMutation("creators.manage")({
       expiresAt,
     });
     return { token, expiresAt };
+  },
+});
+
+/** Token long opaque (2× UUID v4, tirets retirés) — 244 bits d'entropie. */
+function newResetToken(): string {
+  return (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+}
+
+/**
+ * PUBLIC (pré-session) — « Mot de passe oublié ? ». Envoie un lien de reset à
+ * l'email s'il a un compte mot de passe. Réponse IDENTIQUE dans tous les cas
+ * (compte ou pas, superadmin, lien déjà parti il y a une minute) : la page ne
+ * doit pas servir à tester quels emails sont inscrits. La règle est dans
+ * passwordResetRequest.planResetRequest ; ici on ne fait que lire et écrire.
+ *
+ * Le nouveau lien remplace tout lien actif du même user, y compris un lien
+ * généré par l'admin : un seul lien valide à la fois.
+ */
+export const requestPasswordReset = publicMutation({
+  args: { email: v.string() },
+  handler: async (ctx, args): Promise<{ ok: true }> => {
+    const typed = args.email.trim();
+    if (typed.length === 0 || typed.length > 320) return { ok: true };
+    // Les comptes créés par invitation portent l'email en minuscules
+    // (inviteCreator) ; un compte bootstrap garde la casse saisie.
+    let account = await passwordAccountByEmail(ctx, typed.toLowerCase());
+    if (account === null && typed !== typed.toLowerCase()) {
+      account = await passwordAccountByEmail(ctx, typed);
+    }
+    const user = account ? await ctx.db.get(account.userId) : null;
+
+    let projectId: Id<"projects"> | null = null;
+    let lastTokenCreatedAt: number | null = null;
+    let previous: Doc<"passwordResetTokens">[] = [];
+    if (user !== null) {
+      const fiche = await ctx.db
+        .query("creators")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .first();
+      const membership = fiche
+        ? null
+        : await ctx.db
+            .query("memberships")
+            .withIndex("by_user", (q) => q.eq("userId", user._id))
+            .first();
+      projectId = fiche?.projectId ?? membership?.projectId ?? null;
+      previous = await ctx.db
+        .query("passwordResetTokens")
+        .withIndex("by_user", (q) => q.eq("userId", user._id))
+        .collect();
+      lastTokenCreatedAt = previous.reduce<number | null>(
+        (max, t) => (max === null || t._creationTime > max ? t._creationTime : max),
+        null,
+      );
+    }
+
+    const now = Date.now();
+    const plan = planResetRequest({ user, projectId, lastTokenCreatedAt, now });
+    if (plan !== "send" || user === null || projectId === null) {
+      return { ok: true };
+    }
+
+    for (const t of previous) await ctx.db.delete(t._id);
+    const token = newResetToken();
+    await ctx.db.insert("passwordResetTokens", {
+      token,
+      userId: user._id,
+      projectId,
+      expiresAt: now + RESET_EMAIL_TTL_MS,
+    });
+    // Hors transaction, comme tous les emails : un Resend en panne ne doit pas
+    // faire échouer la demande (cf convex/emails.ts).
+    await ctx.scheduler.runAfter(0, internal.emails.sendPasswordReset, {
+      userId: user._id,
+      token,
+    });
+    return { ok: true };
   },
 });
 
@@ -212,5 +302,26 @@ export const e2eExpirePasswordResetToken = e2eMutation({
       .first();
     if (t) await ctx.db.patch(t._id, { expiresAt: Date.now() - 1000 });
     return { expired: t !== null };
+  },
+});
+
+/**
+ * Lit le dernier lien de reset d'un email (spec « mot de passe oublié ») : les
+ * emails de test ne partent jamais (isNonNotifiableRecipient), la spec récupère
+ * donc le lien ici. null = aucun lien.
+ */
+export const e2eLatestPasswordResetToken = e2eMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const account = await passwordAccountByEmail(ctx, email);
+    if (account === null) return null;
+    const tokens = await ctx.db
+      .query("passwordResetTokens")
+      .withIndex("by_user", (q) => q.eq("userId", account.userId))
+      .collect();
+    const last = tokens.sort((a, b) => b._creationTime - a._creationTime)[0];
+    return last
+      ? { token: last.token, ttlMs: last.expiresAt - last._creationTime, count: tokens.length }
+      : null;
   },
 });

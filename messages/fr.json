@@ -201,8 +201,8 @@
       "confirmPassword": "Confirmer le mot de passe",
       "tooShort": "Le mot de passe doit faire au moins 8 caractères.",
       "mismatch": "Les deux mots de passe ne correspondent pas.",
-      "failed": "Réinitialisation impossible. Demande un nouveau lien à ton administrateur.",
-      "invalidBody": "Ce lien de réinitialisation est invalide ou expiré. Demande un nouveau lien à ton administrateur.",
+      "failed": "Réinitialisation impossible. Redemande un lien depuis « Mot de passe oublié ? » sur la page de connexion.",
+      "invalidBody": "Ce lien de réinitialisation est invalide ou expiré. Redemande-en un depuis « Mot de passe oublié ? » sur la page de connexion.",
       "title": "Réinitialise ton mot de passe",
       "promptForProject": "Choisis un nouveau mot de passe pour {project}.",
       "submit": "Réinitialiser le mot de passe",
@@ -241,9 +241,16 @@
         "creator": "Créateur"
       },
       "forgot": "Mot de passe oublié ?",
-      "forgotHint": "Demande un lien de réinitialisation à ton administrateur : il le génère depuis ta fiche.",
       "noAccount": "Pas encore de compte ? Il se crée depuis le lien d'invitation envoyé par ton administrateur.",
       "backHome": "Jarvia, retour à l'accueil"
+    },
+    "forgot": {
+      "intro": "On t'envoie par email un lien pour choisir un nouveau mot de passe.",
+      "send": "Recevoir le lien",
+      "needEmail": "Entre d'abord ton email ci-dessus.",
+      "sent": "Si un compte existe pour {email}, le lien vient de partir. Il est valable 1 heure : pense à regarder tes spams.",
+      "adminFallback": "Rien reçu ? Ton administrateur peut aussi t'en générer un depuis ta fiche.",
+      "failed": "Envoi impossible pour le moment. Réessaie dans un instant."
     }
   },
   "portal": {
