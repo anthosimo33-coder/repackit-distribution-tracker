@@ -343,8 +343,13 @@ export function mcpPermissionQuery(permission: PermissionId) {
   });
 }
 
-/** Domaines qu'une connexion MCP peut être autorisée à MODIFIER. */
-export const MCP_WRITE_SCOPES = ["compta"] as const;
+/**
+ * Domaines qu'une connexion MCP peut être autorisée à MODIFIER, chacun par son
+ * propre interrupteur dans « Connecter Claude » : la Compta, les missions
+ * (assigner, replanifier, abandonner), les scripts (briques des campagnes), les
+ * publications (lien collé en secours, chauffe).
+ */
+export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications"] as const;
 export type McpWriteScope = (typeof MCP_WRITE_SCOPES)[number];
 
 /** La connexion MCP (clé ou application OAuth) qui porte un appel d'écriture. */

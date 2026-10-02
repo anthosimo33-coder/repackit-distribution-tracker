@@ -71,8 +71,8 @@ function Contenu() {
   const creer = useAction(api.mcpTokens.createMcpToken);
   const revoquer = useMutation(api.mcpTokens.revokeMcpToken);
   const couperAcces = useMutation(api.mcpOAuth.revokeOAuthGrant);
-  const ecritureCle = useMutation(api.mcpTokens.setMcpTokenWriteScopes);
-  const ecritureApp = useMutation(api.mcpOAuth.setOAuthGrantWriteScopes);
+  const ecritureCle = useMutation(api.mcpTokens.setMcpTokenWriteScope);
+  const ecritureApp = useMutation(api.mcpOAuth.setOAuthGrantWriteScope);
   const journal = useQuery(api.mcpTokens.listMyMcpWrites, {});
   const [nom, setNom] = useState("Claude");
   const [creation, setCreation] = useState(false);
@@ -102,17 +102,25 @@ function Contenu() {
     }
   }
 
-  /** Autoriser ou couper les modifications de la Compta — seulement d'ici, jamais depuis Claude. */
+  /**
+   * Autoriser ou couper les modifications d'UN domaine pour une connexion —
+   * seulement d'ici, jamais depuis Claude. Les autres domaines restent tels quels.
+   */
   async function handleEcriture(
     cible: { kind: "token"; id: Id<"mcpTokens"> } | { kind: "oauth"; id: Id<"mcpOAuthGrants"> },
     nomCible: string,
+    domaine: Domaine,
     autorise: boolean,
   ) {
-    const scopes = autorise ? ["compta"] : [];
     try {
-      if (cible.kind === "token") await ecritureCle({ tokenId: cible.id, scopes });
-      else await ecritureApp({ grantId: cible.id, scopes });
-      toast.success(autorise ? tr("ecritureOuverte", { name: nomCible }) : tr("ecritureCoupee", { name: nomCible }));
+      if (cible.kind === "token") await ecritureCle({ tokenId: cible.id, scope: domaine, on: autorise });
+      else await ecritureApp({ grantId: cible.id, scope: domaine, on: autorise });
+      const quoi = tr(`domaine.${domaine}.objet`);
+      toast.success(
+        autorise
+          ? tr("ecritureOuverte", { name: nomCible, domaine: quoi })
+          : tr("ecritureCoupee", { name: nomCible, domaine: quoi }),
+      );
     } catch (err) {
       toast.error(showError(err, tr("ecritureImpossible")));
     }
@@ -267,33 +275,35 @@ function Contenu() {
               {applications.map((a) => {
                 const nomApp = a.clientName || tr("sansNom");
                 return (
-                  <li key={a._id} className="flex items-center gap-3 px-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-800">
-                        {nomApp} <span className="font-normal text-slate-500">· {a.hote}</span>
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {tr("connecteeLe", { date: date(a.createdAt) })}
-                        {" · "}
-                        {a.lastUsedAt === null
-                          ? tr("jamaisUtilisee")
-                          : tr("utiliseeLe", { date: date(a.lastUsedAt) })}
-                      </p>
+                  <li key={a._id} className="space-y-2 px-3 py-2">
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-800">
+                          {nomApp} <span className="font-normal text-slate-500">· {a.hote}</span>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {tr("connecteeLe", { date: date(a.createdAt) })}
+                          {" · "}
+                          {a.lastUsedAt === null
+                            ? tr("jamaisUtilisee")
+                            : tr("utiliseeLe", { date: date(a.lastUsedAt) })}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                        onClick={() => void handleCouper(a._id, nomApp)}
+                      >
+                        {tr("couper")}
+                      </Button>
                     </div>
-                    <Ecriture
-                      on={a.writeScopes.includes("compta")}
+                    <Ecritures
+                      actuels={a.writeScopes}
                       nom={nomApp}
-                      onChange={(v) => void handleEcriture({ kind: "oauth", id: a._id }, nomApp, v)}
+                      onChange={(d, v) => void handleEcriture({ kind: "oauth", id: a._id }, nomApp, d, v)}
                     />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                      onClick={() => void handleCouper(a._id, nomApp)}
-                    >
-                      {tr("couper")}
-                    </Button>
                   </li>
                 );
               })}
@@ -308,33 +318,35 @@ function Contenu() {
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
               {cles.map((c) => (
-                <li key={c._id} className="flex items-center gap-3 px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{c.name}</p>
-                    <p className="text-xs text-slate-500">
-                      <span className="font-mono">{c.prefix}…</span>
-                      {" · "}
-                      {tr("creeeLe", { date: date(c.createdAt) })}
-                      {" · "}
-                      {c.lastUsedAt === null
-                        ? tr("jamaisUtilisee")
-                        : tr("utiliseeLe", { date: date(c.lastUsedAt) })}
-                    </p>
+                <li key={c._id} className="space-y-2 px-3 py-2">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-800">{c.name}</p>
+                      <p className="text-xs text-slate-500">
+                        <span className="font-mono">{c.prefix}…</span>
+                        {" · "}
+                        {tr("creeeLe", { date: date(c.createdAt) })}
+                        {" · "}
+                        {c.lastUsedAt === null
+                          ? tr("jamaisUtilisee")
+                          : tr("utiliseeLe", { date: date(c.lastUsedAt) })}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                      onClick={() => void handleRevoquer(c._id, c.name)}
+                    >
+                      {tr("revoquer")}
+                    </Button>
                   </div>
-                  <Ecriture
-                    on={c.writeScopes.includes("compta")}
+                  <Ecritures
+                    actuels={c.writeScopes}
                     nom={c.name}
-                    onChange={(v) => void handleEcriture({ kind: "token", id: c._id }, c.name, v)}
+                    onChange={(d, v) => void handleEcriture({ kind: "token", id: c._id }, c.name, d, v)}
                   />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                    onClick={() => void handleRevoquer(c._id, c.name)}
-                  >
-                    {tr("revoquer")}
-                  </Button>
                 </li>
               ))}
             </ul>
@@ -356,7 +368,7 @@ function Contenu() {
                   <span className="pt-0.5 text-xs tabular-nums text-slate-400">{instant(l.at)}</span>
                   <div className="min-w-0">
                     <p className="text-sm text-slate-800">
-                      <span className="font-medium">{tr(`outil.${l.tool as "ventiler_virement"}`)}</span>
+                      <span className="font-medium">{tr(`outil.${l.tool as OutilEcriture}`)}</span>
                       <span className="text-slate-500"> — {l.summary}</span>
                     </p>
                     <p className="truncate text-[11px] text-slate-400">
@@ -366,7 +378,7 @@ function Contenu() {
                   </div>
                   {l.project ? (
                     <Link
-                      href={`/admin/${l.project.slug}/compta`}
+                      href={`/admin/${l.project.slug}/${l.path}`}
                       prefetch={false}
                       className="inline-flex items-center gap-1 pt-0.5 text-xs font-medium text-primary hover:underline"
                     >
@@ -389,20 +401,67 @@ function Contenu() {
   );
 }
 
-/** « Peut modifier la Compta » : éteint par défaut, ne s'allume que d'ici. */
-function Ecriture({ on, nom, onChange }: { on: boolean; nom: string; onChange: (v: boolean) => void }) {
+/** Les domaines qu'une connexion peut être autorisée à modifier (convex/functions MCP_WRITE_SCOPES). */
+const DOMAINES = ["compta", "missions", "scripts", "publications"] as const;
+type Domaine = (typeof DOMAINES)[number];
+type OutilEcriture =
+  | "ventiler_virement"
+  | "relever_solde"
+  | "marquer_mis_de_cote_paye"
+  | "ajouter_charge"
+  | "supprimer_charge"
+  | "classer_type_whop"
+  | "assigner_scripts"
+  | "rejouer_script"
+  | "replanifier_mission"
+  | "consigne_mission"
+  | "annuler_mission"
+  | "ajouter_hooks"
+  | "activer_briques"
+  | "graduer_hook"
+  | "confirmer_publication"
+  | "marquer_warmup";
+
+/**
+ * « Peut modifier : Compta · Missions · Scripts · Publications » — un
+ * interrupteur par domaine, tous éteints par défaut, qui ne s'allument que d'ici.
+ */
+function Ecritures({
+  actuels,
+  nom,
+  onChange,
+}: {
+  actuels: readonly string[];
+  nom: string;
+  onChange: (domaine: Domaine, v: boolean) => void;
+}) {
   const tr = useTranslations("admin.common.McpAccessDialog");
   return (
-    <label
-      className={
-        on
-          ? "inline-flex shrink-0 items-center gap-2 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary"
-          : "inline-flex shrink-0 items-center gap-2 rounded-md px-2 py-1 text-xs text-slate-500"
-      }
-    >
-      <Switch checked={on} onCheckedChange={onChange} aria-label={tr("ecritureAria", { name: nom })} />
-      {on ? tr("ecritureCompta") : tr("lectureSeule")}
-    </label>
+    <div className="space-y-1">
+      <p className="text-xs text-slate-500">{actuels.length === 0 ? tr("lectureSeule") : tr("peutModifier")}</p>
+      <div className="flex flex-wrap items-center gap-1">
+        {DOMAINES.map((d) => {
+          const on = actuels.includes(d);
+          return (
+            <label
+              key={d}
+              className={
+                on
+                  ? "inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2 py-1 text-xs text-primary"
+                  : "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500"
+              }
+            >
+              <Switch
+                checked={on}
+                onCheckedChange={(v) => onChange(d, v)}
+                aria-label={tr(`domaine.${d}.aria`, { name: nom })}
+              />
+              {tr(`domaine.${d}.titre`)}
+            </label>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

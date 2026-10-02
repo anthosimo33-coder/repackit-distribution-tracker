@@ -1,5 +1,5 @@
 /**
- * OUTILS MCP D'ÉCRITURE — la Compta, pour commencer.
+ * OUTILS MCP D'ÉCRITURE — la Compta (socle commun : convex/mcpWriteCommon).
  *
  * Une connexion (clé ou application OAuth) ne les voit que si la personne l'a
  * autorisée à « modifier la Compta » DANS L'APP (`writeScopes`). Chaque appel
@@ -15,13 +15,23 @@
  * créatrices », « publicité », « frais Whop ») ou par leur code.
  */
 
-import { ConvexError, v } from "convex/values";
+import { v } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
-import { mcpWriteMutation, type ProjectMutationCtx } from "./functions";
+import { mcpWriteMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
+import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
+import {
+  AJOUTE,
+  ARG_PROJET,
+  ecrire,
+  ECRIT,
+  EFFACE,
+  journaliser,
+  resultatEcriture,
+  type CibleEcriture,
+  type DomaineEcriture,
+} from "./mcpWriteCommon";
 import {
   addComptaChargeCore,
   comptaReferenceCurrency,
@@ -46,12 +56,6 @@ import {
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
-const ARG_PROJET = {
-  type: "string",
-  description: "Slug ou nom du projet (ex. « snytch »). Facultatif si la clé n'ouvre qu'un seul projet.",
-} as const;
-const ECRIT = { readOnlyHint: false, destructiveHint: false, idempotentHint: true } as const;
-const EFFACE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false } as const;
 const USAGES_TEXTE = "rémunération, paiement créatrices, mise de côté (impôts, URSSAF), charges de l'activité, à récupérer, autre";
 const CATEGORIES_TEXTE = "hébergement, outils, abonnements, publicité, scans, autre";
 
@@ -132,7 +136,7 @@ export const OUTILS_ECRITURE_COMPTA: readonly McpTool[] = [
       required: ["montant"],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    annotations: AJOUTE,
   },
   {
     name: "ajouter_charge",
@@ -152,7 +156,7 @@ export const OUTILS_ECRITURE_COMPTA: readonly McpTool[] = [
       required: ["jour", "libelle", "categorie", "montant"],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    annotations: AJOUTE,
   },
   {
     name: "supprimer_charge",
@@ -190,29 +194,9 @@ export const OUTILS_ECRITURE_COMPTA: readonly McpTool[] = [
   },
 ];
 
-export const NOMS_ECRITURE_COMPTA = new Set(OUTILS_ECRITURE_COMPTA.map((t) => t.name));
-
 // ─── Écritures (même garde, mêmes cœurs que l'écran) ────────────────────────
 
-type EcritureCtx = ProjectMutationCtx & { via: { kind: "token" | "oauth"; name: string } };
-
 const eur = montantTexte;
-
-async function journaliser(
-  ctx: EcritureCtx,
-  e: { tool: string; summary: string; section: string; month?: string },
-) {
-  await ctx.db.insert("mcpWriteLog", {
-    userId: ctx.userId,
-    projectId: ctx.projectId,
-    via: ctx.via,
-    tool: e.tool,
-    summary: e.summary,
-    section: e.section,
-    ...(e.month ? { month: e.month } : {}),
-    at: Date.now(),
-  });
-}
 
 
 export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
@@ -384,15 +368,6 @@ export const ecrireClassement = mcpWriteMutation("business.read", "compta")({
 
 // ─── L'appel d'un outil d'écriture (action du serveur MCP) ──────────────────
 
-/** Le message d'un refus serveur, tel que l'app le formule. */
-function refusDe(e: unknown): string | null {
-  if (!(e instanceof ConvexError)) return null;
-  const d: unknown = e.data;
-  if (typeof d === "string") return d;
-  if (typeof d === "object" && d !== null && "message" in d) return String((d as { message: unknown }).message);
-  return null;
-}
-
 const OU_DEFAIRE: Record<string, string> = {
   ventiler_virement: "Compta › Virements › « Ventiler ou annoter » sur ce virement › « Effacer la ventilation » (ou corrige les parts).",
   relever_solde: "Compta › Trésorerie › « Relever » sur ce compte › retire le relevé dans « Derniers relevés ».",
@@ -406,11 +381,11 @@ const OU_DEFAIRE: Record<string, string> = {
  * Exécute un outil d'écriture : lit les arguments (libellés de l'écran ou
  * codes), appelle la mutation gardée, et rend ce qui a changé + où le défaire.
  */
-export async function appelerEcritureCompta(
+async function appelerEcritureCompta(
   ctx: ActionCtx,
   name: string,
   args: Record<string, unknown>,
-  cible: { userId: Id<"users">; projectId: Id<"projects">; acces: { kind: "token" | "oauth"; id: string } },
+  cible: CibleEcriture,
   projet: string,
 ): Promise<ToolResult> {
   const aujourdhui = parisDayKey(Date.now());
@@ -425,16 +400,6 @@ export async function appelerEcritureCompta(
     return n;
   };
   const texte = (cle: string) => (typeof args[cle] === "string" ? (args[cle] as string).trim() : "");
-
-  const ecrire = async <T>(f: () => Promise<T>): Promise<T> => {
-    try {
-      return await f();
-    } catch (e) {
-      const m = refusDe(e);
-      if (m !== null) throw new ToolError(`Refusé : ${m}`);
-      throw e;
-    }
-  };
 
   let r: { summary: string };
   if (name === "ventiler_virement") {
@@ -511,11 +476,12 @@ export async function appelerEcritureCompta(
   } else {
     throw new ToolError(`Outil inconnu : ${name}.`);
   }
-  return textResult(
-    JSON.stringify(
-      { projet, fait: r.summary, journal: "Noté dans Jarvia › Connecter Claude › Modifications faites par Claude.", pourDefaire: OU_DEFAIRE[name] },
-      null,
-      1,
-    ),
-  );
+  return resultatEcriture(projet, r.summary, OU_DEFAIRE[name]);
 }
+
+/** Le domaine « Compta » : interrupteur « Peut modifier la Compta ». */
+export const DOMAINE_COMPTA: DomaineEcriture = {
+  scope: "compta",
+  outils: OUTILS_ECRITURE_COMPTA,
+  appeler: appelerEcritureCompta,
+};

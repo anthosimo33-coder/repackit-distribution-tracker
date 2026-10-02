@@ -3,6 +3,7 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectMutationCtx,
 } from "./functions";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -1169,60 +1170,67 @@ export const setPublicationSparkAd = permissionMutation("payments.manage")({
 
 export const setPublicationWarmup = permissionMutation("tracker.manage")({
   args: { publicationId: v.id("publications"), isWarmup: v.boolean() },
-  handler: async (ctx, { publicationId, isWarmup }) => {
-    const pub = await ctx.db.get(publicationId);
-    if (!pub || pub.projectId !== ctx.projectId) {
-      throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
-    }
-    const payCtx = await publicationPayContext(ctx, pub);
-    if (payCtx.locked) {
-      throw err(ERR.PAY_CYCLE_LOCKED, lockedMessage("le réglage warmup", payCtx), lockedParams("refusal.locked.warmupSetting", payCtx));
-    }
-    if ((pub.isWarmup === true) === isWarmup) {
-      return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
-    }
-    // Règle PURE et testée (lib/remunerate.remunereAfterWarmupToggle, jumeau A6) :
-    // sans `remunere` explicite la paie SUIT le nouveau warmup ; avec, la décision
-    // de l'admin garde son effet. Dans les deux cas rien de redondant n'est stocké.
-    //
-    // ⚠️ Ne PAS recalculer la valeur effective sur l'ANCIEN warmup : c'était le bug
-    // (« la bascule ne change jamais la paie »), qui épinglait tout post implicite
-    // au premier passage en warmup, en silence.
-    // Rémunération EFFECTIVE avant/après : la bascule warmup la change quand le
-    // post n'a pas de `remunere` explicite. C'est précisément cette conséquence
-    // qu'on veut pouvoir relire — d'où la seconde ligne de journal ci-dessous.
-    const remunereAvant = isRemunerated({
-      isWarmup: pub.isWarmup === true,
-      remunere: pub.remunere,
-    });
-    const remunereApres = remunereAfterWarmupToggle(isWarmup, pub.remunere);
-    await ctx.db.patch(publicationId, {
-      isWarmup,
-      remunere: remunereApres,
-    });
-    await traceFlagChange(
-      ctx,
-      ctx.projectId,
-      publicationId,
-      ctx.userId,
-      "warmup",
-      pub.isWarmup === true,
-      isWarmup,
-    );
-    await traceFlagChange(
-      ctx,
-      ctx.projectId,
-      publicationId,
-      ctx.userId,
-      "remunerated",
-      remunereAvant,
-      isRemunerated({ isWarmup, remunere: remunereApres }),
-    );
-    // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
-    await syncBonusForPublication(ctx, publicationId);
-    return { ok: true, isWarmup };
-  },
+  handler: (ctx, { publicationId, isWarmup }) => setPublicationWarmupCore(ctx, publicationId, isWarmup),
 });
+
+/** Cœur de la bascule warmup — le Tracker et l'outil MCP `marquer_warmup`. */
+export async function setPublicationWarmupCore(
+  ctx: ProjectMutationCtx,
+  publicationId: Id<"publications">,
+  isWarmup: boolean,
+) {
+  const pub = await ctx.db.get(publicationId);
+  if (!pub || pub.projectId !== ctx.projectId) {
+    throw err(ERR.PUBLICATION_NOT_FOUND, "Publication introuvable.");
+  }
+  const payCtx = await publicationPayContext(ctx, pub);
+  if (payCtx.locked) {
+    throw err(ERR.PAY_CYCLE_LOCKED, lockedMessage("le réglage warmup", payCtx), lockedParams("refusal.locked.warmupSetting", payCtx));
+  }
+  if ((pub.isWarmup === true) === isWarmup) {
+    return { ok: true, isWarmup }; // déjà dans l'état voulu — no-op
+  }
+  // Règle PURE et testée (lib/remunerate.remunereAfterWarmupToggle, jumeau A6) :
+  // sans `remunere` explicite la paie SUIT le nouveau warmup ; avec, la décision
+  // de l'admin garde son effet. Dans les deux cas rien de redondant n'est stocké.
+  //
+  // ⚠️ Ne PAS recalculer la valeur effective sur l'ANCIEN warmup : c'était le bug
+  // (« la bascule ne change jamais la paie »), qui épinglait tout post implicite
+  // au premier passage en warmup, en silence.
+  // Rémunération EFFECTIVE avant/après : la bascule warmup la change quand le
+  // post n'a pas de `remunere` explicite. C'est précisément cette conséquence
+  // qu'on veut pouvoir relire — d'où la seconde ligne de journal ci-dessous.
+  const remunereAvant = isRemunerated({
+    isWarmup: pub.isWarmup === true,
+    remunere: pub.remunere,
+  });
+  const remunereApres = remunereAfterWarmupToggle(isWarmup, pub.remunere);
+  await ctx.db.patch(publicationId, {
+    isWarmup,
+    remunere: remunereApres,
+  });
+  await traceFlagChange(
+    ctx,
+    ctx.projectId,
+    publicationId,
+    ctx.userId,
+    "warmup",
+    pub.isWarmup === true,
+    isWarmup,
+  );
+  await traceFlagChange(
+    ctx,
+    ctx.projectId,
+    publicationId,
+    ctx.userId,
+    "remunerated",
+    remunereAvant,
+    isRemunerated({ isWarmup, remunere: remunereApres }),
+  );
+  // Le cumul PAYABLE du créateur change → re-sync des paliers de bonus.
+  await syncBonusForPublication(ctx, publicationId);
+  return { ok: true, isWarmup };
+}
 
 /**
  * ADMIN — pose/retire la RÉMUNÉRATION d'un post (fait FINANCIER : ce post est-il

@@ -871,7 +871,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connecter Claude",
     "titre": "Connecter Claude à l’app",
-    "description": "Claude peut lire les données de l’app pour toi : comptes, créatrices, vues, rentabilité, meilleurs posts, scripts, compta. Lecture seule par défaut, avec tes droits — il ne voit que ce que tu vois ici. Tu peux autoriser une connexion à modifier la Compta : Claude te demandera ton accord avant chaque modification.",
+    "description": "Claude peut lire les données de l’app pour toi : comptes, créatrices, vues, rentabilité, meilleurs posts, scripts, compta. Lecture seule par défaut, avec tes droits — il ne voit que ce que tu vois ici. Tu peux autoriser une connexion à modifier la Compta, les missions, les scripts ou les publications : Claude te demandera ton accord avant chaque modification.",
     "nomDeLaCle": "Nom de la clé",
     "nomPlaceholder": "ex. Claude sur mon Mac",
     "creerUneCle": "Créer une clé",
@@ -902,30 +902,64 @@
     "couper": "Couper l’accès",
     "accesCoupe": "Accès de « {name} » coupé.",
     "sansNom": "Application sans nom",
-    "ecritureCompta": "Peut modifier la Compta",
-    "lectureSeule": "Lecture seule",
-    "ecritureAria": "Modifications de la Compta pour {name}",
-    "ecritureOuverte": "{name} peut modifier la Compta.",
-    "ecritureCoupee": "{name} est revenue en lecture seule.",
+    "lectureSeule": "Lecture seule · autoriser :",
+    "peutModifier": "Peut modifier :",
+    "ecritureOuverte": "{name} peut modifier {domaine}.",
+    "ecritureCoupee": "{name} ne peut plus modifier {domaine}.",
     "ecritureImpossible": "Impossible de changer l'autorisation.",
-    "ecritureAide": "Une connexion est en lecture seule tant que tu n'autorises pas les modifications ici. Claude te demandera ton accord avant chaque modification.",
+    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner une mission envoie l’email habituel à la créatrice.",
     "journalTitre": "Modifications faites par Claude",
     "journalPeriode": "30 derniers jours",
     "journalVide": "Aucune modification pour l'instant.",
-    "journalAide": "Chaque modification se défait dans la Compta, comme à la main : effacer la ventilation, retirer un relevé, supprimer une charge, annuler un « marqué payé ».",
+    "journalAide": "Chaque modification se défait dans l’app, comme à la main : le lien mène à l’écran concerné.",
     "outil": {
       "ventiler_virement": "Ventiler un virement",
       "relever_solde": "Relever un solde",
       "marquer_mis_de_cote_paye": "Marquer payé",
       "ajouter_charge": "Ajouter une charge",
       "supprimer_charge": "Supprimer une charge",
-      "classer_type_whop": "Ranger un type Whop"
+      "classer_type_whop": "Ranger un type Whop",
+      "assigner_scripts": "Assigner des scripts",
+      "rejouer_script": "Rejouer un script",
+      "replanifier_mission": "Replanifier une mission",
+      "consigne_mission": "Consigne d’une mission",
+      "annuler_mission": "Abandonner une mission",
+      "ajouter_hooks": "Ajouter des hooks",
+      "activer_briques": "Activer / désactiver des briques",
+      "graduer_hook": "Graduer un hook",
+      "confirmer_publication": "Coller un lien de post",
+      "marquer_warmup": "Chauffe / promo"
     },
     "section": {
       "treasury": "Trésorerie",
       "transfers": "Virements · {mois}",
       "charges": "Autres charges · {mois}",
-      "rules": "Classement"
+      "rules": "Classement",
+      "planning": "Assignments",
+      "campaign": "Campagne",
+      "tracker": "Tracker"
+    },
+    "domaine": {
+      "compta": {
+        "titre": "Compta",
+        "objet": "la Compta",
+        "aria": "Modifications de la Compta pour {name}"
+      },
+      "missions": {
+        "titre": "Missions",
+        "objet": "les missions",
+        "aria": "Modifications des missions pour {name}"
+      },
+      "scripts": {
+        "titre": "Scripts",
+        "objet": "les scripts",
+        "aria": "Modifications des scripts pour {name}"
+      },
+      "publications": {
+        "titre": "Publications",
+        "objet": "les publications",
+        "aria": "Modifications des publications pour {name}"
+      }
     }
   },
   "OAuthConsent": {

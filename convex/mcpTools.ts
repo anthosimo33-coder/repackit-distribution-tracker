@@ -87,7 +87,7 @@ import { attributionDaily, windowCosts, windowedAttribution } from "./attributio
 import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
 import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compta";
-import { appelerEcritureCompta, NOMS_ECRITURE_COMPTA, OUTILS_ECRITURE_COMPTA } from "./mcpWrites";
+import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
 import {
@@ -1230,7 +1230,14 @@ export function jarviaServer(
   userId: Id<"users">,
   acces: { kind: "token" | "oauth"; id: string; writeScopes: readonly string[] },
 ): McpServer {
-  const ecritCompta = acces.writeScopes.includes("compta");
+  // Les domaines que CETTE connexion peut modifier (interrupteurs de l'app).
+  const domaines = DOMAINES_ECRITURE.filter((d) => acces.writeScopes.includes(d.scope));
+  const LIBELLE_DOMAINE: Record<string, string> = {
+    compta: "la Compta",
+    missions: "les missions (assigner, replanifier, abandonner — l'assignation envoie un email à la créatrice)",
+    scripts: "les scripts (briques des campagnes)",
+    publications: "les publications (lien collé en secours, chauffe)",
+  };
   let projetsP: Promise<Projet[]> | null = null;
   const projets = () =>
     (projetsP ??= ctx.runQuery(internal.mcpTools.projetsAccessibles, { userId }));
@@ -1494,8 +1501,11 @@ export function jarviaServer(
   return {
     info: { name: "jarvia", version: "1.0.0" },
     instructions:
-      "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé. Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
-    tools: ecritCompta ? [...OUTILS, ...OUTILS_ECRITURE_COMPTA] : OUTILS,
+      (domaines.length === 0
+        ? "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé."
+        : `Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), avec les droits de la personne qui a créé la clé. Cette connexion peut aussi MODIFIER : ${domaines.map((d) => LIBELLE_DOMAINE[d.scope]).join(", ")} — par les outils annotés écriture, jamais autrement. Avant chacun, dis en clair ce qui va changer et pour qui, et attends l'accord ; ensuite, rapporte ce que la réponse dit avoir fait et où le défaire. Désigne les choses par les noms que les outils de lecture t'ont montrés.`) +
+      " Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
+    tools: [...OUTILS, ...domaines.flatMap((d) => d.outils)],
     async callTool(name, args) {
       if (name === "projets") {
         return json(
@@ -1505,11 +1515,12 @@ export function jarviaServer(
       const projet = await projetDe(args.projet);
       const ids = { userId, projectId: projet._id };
 
-      if (NOMS_ECRITURE_COMPTA.has(name)) {
-        if (!ecritCompta) {
-          throw new ToolError("Cette connexion est en lecture seule : autorise « Peut modifier la Compta » pour elle dans Jarvia › Connecter Claude.");
+      const domaine = DOMAINES_ECRITURE.find((d) => d.outils.some((t) => t.name === name));
+      if (domaine) {
+        if (!domaines.includes(domaine)) {
+          throw new ToolError("Cette connexion est en lecture seule pour ce domaine : autorise les modifications pour elle dans Jarvia › Connecter Claude.");
         }
-        return appelerEcritureCompta(ctx, name, args, { ...ids, acces: { kind: acces.kind, id: acces.id } }, projet.slug);
+        return domaine.appeler(ctx, name, args, { ...ids, acces: { kind: acces.kind, id: acces.id } }, projet.slug);
       }
 
       if (name === "comptes") {

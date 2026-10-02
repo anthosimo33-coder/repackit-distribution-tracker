@@ -4,6 +4,8 @@ import {
   permissionQuery,
   requireCreatorInScope,
   creatorScopeFor,
+  type ProjectMutationCtx,
+  type ProjectQueryCtx,
 } from "./functions";
 import { isInCreatorScope } from "./creatorScope";
 import { invalidateDashboardCache } from "./dashboardCache";
@@ -35,7 +37,7 @@ import {
   isBrickRushEligible,
   isGuardedKind,
 } from "./rushScriptEligibility";
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type ObjectType } from "convex/values";
 import {
   PROVEN_CAMPAIGN_NAME,
   campaignNameMatches,
@@ -685,105 +687,113 @@ export const availableCombosForAssignment = permissionQuery("scripts.manage")({
  * la chaîne. Tant que ce n'est pas fait, la modale annonce l'aperçu indisponible
  * en lot plutôt que d'en montrer un approximatif.
  */
+const previewCombosArgs = {
+  campaignId: v.id("scriptCampaigns"),
+  creatorId: v.id("creators"),
+  targets: v.array(targetInputValidator),
+  videosPerCreator: v.number(),
+  postDates: v.optional(v.array(v.number())),
+  excludedComboKeys: v.optional(v.array(v.string())),
+};
+
 export const previewCombosForAssignment = permissionQuery("scripts.manage")({
-  args: {
-    campaignId: v.id("scriptCampaigns"),
-    creatorId: v.id("creators"),
-    targets: v.array(targetInputValidator),
-    videosPerCreator: v.number(),
-    postDates: v.optional(v.array(v.number())),
-    excludedComboKeys: v.optional(v.array(v.string())),
-  },
-  handler: async (ctx, args) => {
-    await requireCampaign(ctx, args.campaignId, ctx.projectId);
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
-    const allBricks = await ctx.db
-      .query("scriptBricks")
-      .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
-      .collect();
-    const combos = generateCombosServer(allBricks);
-    if (combos.length === 0) {
-      return {
-        combos: [],
-        total: 0,
-        shortage: args.videosPerCreator > 0,
-        cooldownDays: await comboCooldownDaysFor(ctx, ctx.projectId),
+  args: previewCombosArgs,
+  handler: (ctx, args) => previewCombosCore(ctx, args),
+});
+
+/** Cœur de l'aperçu — l'écran (modale d'assignation) et la simulation MCP. */
+export async function previewCombosCore(
+  ctx: ProjectQueryCtx,
+  args: ObjectType<typeof previewCombosArgs>,
+) {
+  await requireCampaign(ctx, args.campaignId, ctx.projectId);
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
+  const allBricks = await ctx.db
+    .query("scriptBricks")
+    .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
+    .collect();
+  const combos = generateCombosServer(allBricks);
+  if (combos.length === 0) {
+    return {
+      combos: [],
+      total: 0,
+      shortage: args.videosPerCreator > 0,
+      cooldownDays: await comboCooldownDaysFor(ctx, ctx.projectId),
+    };
+  }
+  const existing = await ctx.db
+    .query("assignments")
+    .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
+    .collect();
+  const lifetimeKeys = usedComboKeysForPlatforms(
+    existing,
+    args.creatorId,
+    args.targets.map((t) => t.platform),
+  );
+  const projectRows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+  const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
+  const picked = pickForDates({
+    combos,
+    lifetimeKeys,
+    projectRows,
+    postDates: args.postDates,
+    count: args.videosPerCreator,
+    cooldownDays,
+    manualExclusions: args.excludedComboKeys,
+  });
+
+  // Statut cooldown AFFICHÉ : le combo retenu est forcément libre à SA date
+  // (sinon le tirage ne l'aurait pas pris) ; on montre l'usage le plus proche
+  // pour que l'admin sache d'où vient la rotation — « libre » n'est pas « jamais
+  // servi ». On résout le handle du compte : un id ne se relit pas.
+  const out = [];
+  for (let i = 0; i < picked.length; i++) {
+    const c = picked[i];
+    const key = comboKeyOf(c);
+    const targetAt = args.postDates?.[i];
+    let dernierUsage: {
+      compte: string;
+      le: number;
+      disponibleLe: number;
+    } | null = null;
+    for (const a of projectRows) {
+      if (a.comboKey !== key) continue;
+      if (COMBO_FREEING_STATUSES.has(a.status)) continue;
+      const anchor = cooldownAnchorOf(a);
+      if (anchor === null) continue;
+      if (dernierUsage !== null && anchor <= dernierUsage.le) continue;
+      const handles: string[] = [];
+      for (const t of a.targets ?? []) {
+        if (!t.accountId) continue;
+        const compte = await ctx.db.get(t.accountId);
+        if (compte) handles.push(compte.handle);
+      }
+      dernierUsage = {
+        compte: handles.join(", ") || "un autre compte",
+        le: anchor,
+        disponibleLe: anchor + cooldownDays * DAY_MS,
       };
     }
-    const existing = await ctx.db
-      .query("assignments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
-      .collect();
-    const lifetimeKeys = usedComboKeysForPlatforms(
-      existing,
-      args.creatorId,
-      args.targets.map((t) => t.platform),
-    );
-    const projectRows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
-    const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
-    const picked = pickForDates({
-      combos,
-      lifetimeKeys,
-      projectRows,
-      postDates: args.postDates,
-      count: args.videosPerCreator,
-      cooldownDays,
-      manualExclusions: args.excludedComboKeys,
+    out.push({
+      comboKey: key,
+      hookBrickId: c.hookBrickId,
+      fluxBrickId: c.fluxBrickId,
+      ctaBrickId: c.ctaBrickId,
+      assembledScript: c.assembledScript,
+      postDate: targetAt ?? null,
+      dernierUsage,
     });
-
-    // Statut cooldown AFFICHÉ : le combo retenu est forcément libre à SA date
-    // (sinon le tirage ne l'aurait pas pris) ; on montre l'usage le plus proche
-    // pour que l'admin sache d'où vient la rotation — « libre » n'est pas « jamais
-    // servi ». On résout le handle du compte : un id ne se relit pas.
-    const out = [];
-    for (let i = 0; i < picked.length; i++) {
-      const c = picked[i];
-      const key = comboKeyOf(c);
-      const targetAt = args.postDates?.[i];
-      let dernierUsage: {
-        compte: string;
-        le: number;
-        disponibleLe: number;
-      } | null = null;
-      for (const a of projectRows) {
-        if (a.comboKey !== key) continue;
-        if (COMBO_FREEING_STATUSES.has(a.status)) continue;
-        const anchor = cooldownAnchorOf(a);
-        if (anchor === null) continue;
-        if (dernierUsage !== null && anchor <= dernierUsage.le) continue;
-        const handles: string[] = [];
-        for (const t of a.targets ?? []) {
-          if (!t.accountId) continue;
-          const compte = await ctx.db.get(t.accountId);
-          if (compte) handles.push(compte.handle);
-        }
-        dernierUsage = {
-          compte: handles.join(", ") || "un autre compte",
-          le: anchor,
-          disponibleLe: anchor + cooldownDays * DAY_MS,
-        };
-      }
-      out.push({
-        comboKey: key,
-        hookBrickId: c.hookBrickId,
-        fluxBrickId: c.fluxBrickId,
-        ctaBrickId: c.ctaBrickId,
-        assembledScript: c.assembledScript,
-        postDate: targetAt ?? null,
-        dernierUsage,
-      });
-    }
-    return {
-      combos: out,
-      total: combos.length,
-      shortage: picked.length < args.videosPerCreator,
-      // La fenêtre EFFECTIVE du projet, rendue au client : l'aperçu explique la
-      // rotation qu'il montre, et il ne peut pas annoncer une durée différente de
-      // celle que le tirage vient d'appliquer (c'est la même variable).
-      cooldownDays,
-    };
-  },
-});
+  }
+  return {
+    combos: out,
+    total: combos.length,
+    shortage: picked.length < args.videosPerCreator,
+    // La fenêtre EFFECTIVE du projet, rendue au client : l'aperçu explique la
+    // rotation qu'il montre, et il ne peut pas annoncer une durée différente de
+    // celle que le tirage vient d'appliquer (c'est la même variable).
+    cooldownDays,
+  };
+}
 
 /** Campagnes du projet (actives d'abord, puis par nom). */
 export const listCampaigns = permissionQuery("scripts.manage")({
@@ -841,87 +851,93 @@ export const getReplaySource = permissionQuery("scripts.manage")({
     publicationId: v.optional(v.id("publications")),
     assignmentId: v.optional(v.id("assignments")),
   },
-  handler: async (ctx, args) => {
-    // Exactement UNE source.
-    if (
-      (args.publicationId === undefined) ===
-      (args.assignmentId === undefined)
-    ) {
-      throw err(ERR.REPLAY_SOURCE_AMBIGUOUS, "Fournis publicationId OU assignmentId (une seule).");
-    }
-
-    let assignment: Doc<"assignments"> | null = null;
-    let publication: Doc<"publications"> | null = null;
-
-    if (args.assignmentId) {
-      assignment = await ctx.db.get(args.assignmentId);
-      if (!assignment || assignment.projectId !== ctx.projectId) return null;
-      // Publication derrière l'assignation (targets[].publicationId ou legacy).
-      const pubId =
-        assignment.publicationId ??
-        assignment.targets?.find((t) => t.publicationId)?.publicationId;
-      publication = pubId ? await ctx.db.get(pubId) : null;
-    } else {
-      publication = await ctx.db.get(args.publicationId!);
-      if (!publication || publication.projectId !== ctx.projectId) return null;
-      // Publications sans back-ref vers l'assignation → scan projet, match sur
-      // publicationId (top-level legacy ou targets[]). 1 publication = 1 assignation.
-      const projectAssignments = await ctx.db
-        .query("assignments")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      const pubIdStr = publication._id as string;
-      assignment =
-        projectAssignments.find(
-          (a) =>
-            (a.publicationId as string | undefined) === pubIdStr ||
-            (a.targets ?? []).some(
-              (t) => (t.publicationId as string | undefined) === pubIdStr,
-            ),
-        ) ?? null;
-    }
-
-    // Périmètre : la source d'un rejeu porte le nom et le script d'une créatrice.
-    // Hors périmètre — ou publication sans assignation, qui n'appartient à
-    // personne — `null`, comme une source absente.
-    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
-    if (!isInCreatorScope(scope, assignment?.creatorId)) return null;
-
-    // La source doit porter un combo de script (sinon rien à rejouer).
-    const combo = assignment?.scriptCombo ?? publication?.scriptCombo ?? null;
-    if (!combo) return null;
-
-    const campaign = await ctx.db.get(combo.campaignId);
-    if (!campaign || campaign.projectId !== ctx.projectId) return null;
-
-    // Créatrice : via l'assignation (la publication n'en porte pas).
-    let creatorName = assignment?.creatorNameSnapshot ?? "Créateur supprimé";
-    if (assignment) {
-      const creator = await ctx.db.get(assignment.creatorId);
-      if (creator) creatorName = creator.name;
-    }
-
-    return {
-      campaignId: combo.campaignId,
-      campaignName: campaign.name,
-      bricks: {
-        hookBrickId: combo.hookBrickId,
-        fluxBrickId: combo.fluxBrickId,
-        ctaBrickId: combo.ctaBrickId,
-      },
-      sourceAssignmentId: assignment?._id ?? null,
-      // La publication ne stocke pas assembledScript → on prend celui, figé, de
-      // l'assignation source (null si orpheline → pas de bandeau « éditée depuis »).
-      sourceAssembledScript: assignment?.scriptCombo?.assembledScript ?? null,
-      // Vues dénormalisées « latest » + date de publi (null si pas encore publié).
-      perf: {
-        views: publication?.vuesLatest ?? null,
-        date: publication?.datePubli ?? assignment?.publishedAt ?? null,
-        creatorName,
-      },
-    };
-  },
+  handler: (ctx, args) => replaySourceCore(ctx, args),
 });
+
+/** Cœur de la source d'un rejeu — « Rejouer ce script » et l'outil MCP `rejouer_script`. */
+export async function replaySourceCore(
+  ctx: ProjectQueryCtx,
+  args: { publicationId?: Id<"publications">; assignmentId?: Id<"assignments"> },
+) {
+  // Exactement UNE source.
+  if (
+    (args.publicationId === undefined) ===
+    (args.assignmentId === undefined)
+  ) {
+    throw err(ERR.REPLAY_SOURCE_AMBIGUOUS, "Fournis publicationId OU assignmentId (une seule).");
+  }
+
+  let assignment: Doc<"assignments"> | null = null;
+  let publication: Doc<"publications"> | null = null;
+
+  if (args.assignmentId) {
+    assignment = await ctx.db.get(args.assignmentId);
+    if (!assignment || assignment.projectId !== ctx.projectId) return null;
+    // Publication derrière l'assignation (targets[].publicationId ou legacy).
+    const pubId =
+      assignment.publicationId ??
+      assignment.targets?.find((t) => t.publicationId)?.publicationId;
+    publication = pubId ? await ctx.db.get(pubId) : null;
+  } else {
+    publication = await ctx.db.get(args.publicationId!);
+    if (!publication || publication.projectId !== ctx.projectId) return null;
+    // Publications sans back-ref vers l'assignation → scan projet, match sur
+    // publicationId (top-level legacy ou targets[]). 1 publication = 1 assignation.
+    const projectAssignments = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const pubIdStr = publication._id as string;
+    assignment =
+      projectAssignments.find(
+        (a) =>
+          (a.publicationId as string | undefined) === pubIdStr ||
+          (a.targets ?? []).some(
+            (t) => (t.publicationId as string | undefined) === pubIdStr,
+          ),
+      ) ?? null;
+  }
+
+  // Périmètre : la source d'un rejeu porte le nom et le script d'une créatrice.
+  // Hors périmètre — ou publication sans assignation, qui n'appartient à
+  // personne — `null`, comme une source absente.
+  const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+  if (!isInCreatorScope(scope, assignment?.creatorId)) return null;
+
+  // La source doit porter un combo de script (sinon rien à rejouer).
+  const combo = assignment?.scriptCombo ?? publication?.scriptCombo ?? null;
+  if (!combo) return null;
+
+  const campaign = await ctx.db.get(combo.campaignId);
+  if (!campaign || campaign.projectId !== ctx.projectId) return null;
+
+  // Créatrice : via l'assignation (la publication n'en porte pas).
+  let creatorName = assignment?.creatorNameSnapshot ?? "Créateur supprimé";
+  if (assignment) {
+    const creator = await ctx.db.get(assignment.creatorId);
+    if (creator) creatorName = creator.name;
+  }
+
+  return {
+    campaignId: combo.campaignId,
+    campaignName: campaign.name,
+    bricks: {
+      hookBrickId: combo.hookBrickId,
+      fluxBrickId: combo.fluxBrickId,
+      ctaBrickId: combo.ctaBrickId,
+    },
+    sourceAssignmentId: assignment?._id ?? null,
+    // La publication ne stocke pas assembledScript → on prend celui, figé, de
+    // l'assignation source (null si orpheline → pas de bandeau « éditée depuis »).
+    sourceAssembledScript: assignment?.scriptCombo?.assembledScript ?? null,
+    // Vues dénormalisées « latest » + date de publi (null si pas encore publié).
+    perf: {
+      views: publication?.vuesLatest ?? null,
+      date: publication?.datePubli ?? assignment?.publishedAt ?? null,
+      creatorName,
+    },
+  };
+}
 
 // ─── Mutations — campagnes ───────────────────────────────────────────────────
 
@@ -1010,40 +1026,52 @@ function normalizeInstruction(
 
 // ─── Mutations — bricks ──────────────────────────────────────────────────────
 
+const createBrickArgs = {
+  campaignId: v.id("scriptCampaigns"),
+  kind: KIND,
+  label: v.string(),
+  content: v.string(),
+  mode: v.optional(MODE),
+  // Consigne de tournage LIBRE et OPTIONNELLE, lue par la créatrice sous ce
+  // bloc. Blanche = absence (jamais la chaîne vide, qui afficherait un encart
+  // vide côté créatrice).
+  instruction: v.optional(v.string()),
+};
+
 export const createBrick = permissionMutation("scripts.manage")({
-  args: {
-    campaignId: v.id("scriptCampaigns"),
-    kind: KIND,
-    label: v.string(),
-    content: v.string(),
-    mode: v.optional(MODE),
-    // Consigne de tournage LIBRE et OPTIONNELLE, lue par la créatrice sous ce
-    // bloc. Blanche = absence (jamais la chaîne vide, qui afficherait un encart
-    // vide côté créatrice).
-    instruction: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    await requireCampaign(ctx, args.campaignId, ctx.projectId);
-    const label = args.label.trim();
-    if (label.length === 0) {
-      throw err(ERR.BRICK_LABEL_REQUIRED, "Le label de la brique est requis.");
-    }
-    return await ctx.db.insert("scriptBricks", {
-      projectId: ctx.projectId,
-      campaignId: args.campaignId,
-      kind: args.kind,
-      label,
-      content: args.content,
-      // mode (zone vidéo) UNIQUEMENT pour hook/flux ; absent = défaut "les_deux"
-      // au read (Snytch). Ignoré pour cta.
-      mode:
-        args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
-      instruction: normalizeInstruction(args.instruction),
-      active: true,
-      createdAt: Date.now(),
-    });
-  },
+  args: createBrickArgs,
+  handler: (ctx, args) => createBrickCore(ctx, args),
 });
+
+/**
+ * Cœur de la création d'une brique — l'écran de campagne et l'outil MCP
+ * `ajouter_hooks`. `active` absent = active, comme à l'écran ; le MCP crée ses
+ * hooks ÉTEINTS, pour qu'une personne les relise avant qu'ils partent en tirage.
+ */
+export async function createBrickCore(
+  ctx: ProjectMutationCtx,
+  args: ObjectType<typeof createBrickArgs> & { active?: boolean },
+) {
+  await requireCampaign(ctx, args.campaignId, ctx.projectId);
+  const label = args.label.trim();
+  if (label.length === 0) {
+    throw err(ERR.BRICK_LABEL_REQUIRED, "Le label de la brique est requis.");
+  }
+  return await ctx.db.insert("scriptBricks", {
+    projectId: ctx.projectId,
+    campaignId: args.campaignId,
+    kind: args.kind,
+    label,
+    content: args.content,
+    // mode (zone vidéo) UNIQUEMENT pour hook/flux ; absent = défaut "les_deux"
+    // au read (Snytch). Ignoré pour cta.
+    mode:
+      args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
+    instruction: normalizeInstruction(args.instruction),
+    active: args.active ?? true,
+    createdAt: Date.now(),
+  });
+}
 
 export const updateBrick = permissionMutation("scripts.manage")({
   args: {
@@ -1128,19 +1156,25 @@ function assertBulkSize(ids: readonly unknown[]) {
 /** Active / désactive TOUTES les briques de la sélection. */
 export const setBricksActive = permissionMutation("scripts.manage")({
   args: { ids: v.array(v.id("scriptBricks")), active: v.boolean() },
-  handler: async (ctx, args) => {
-    assertBulkSize(args.ids);
-    let touched = 0;
-    for (const id of args.ids) {
-      const brick = await ctx.db.get(id);
-      if (!brick || brick.projectId !== ctx.projectId) continue;
-      if (brick.active === args.active) continue;
-      await ctx.db.patch(id, { active: args.active });
-      touched++;
-    }
-    return { touched };
-  },
+  handler: (ctx, args) => setBricksActiveCore(ctx, args),
 });
+
+/** Cœur de l'activation en lot — le banc de montage et l'outil MCP `activer_briques`. */
+export async function setBricksActiveCore(
+  ctx: ProjectMutationCtx,
+  args: { ids: Id<"scriptBricks">[]; active: boolean },
+) {
+  assertBulkSize(args.ids);
+  let touched = 0;
+  for (const id of args.ids) {
+    const brick = await ctx.db.get(id);
+    if (!brick || brick.projectId !== ctx.projectId) continue;
+    if (brick.active === args.active) continue;
+    await ctx.db.patch(id, { active: args.active });
+    touched++;
+  }
+  return { touched };
+}
 
 /**
  * Pose (ou retire, avec `null`/blanc) la MÊME consigne sur toute la sélection.
@@ -1186,6 +1220,14 @@ export const deleteBricks = permissionMutation("scripts.manage")({
  * COPIE : le texte du hook devient un brick indépendant (éditable sans toucher
  * la biblio). La table hooks est seulement LUE → reste intacte.
  */
+/**
+ * Libellé COURT d'un hook créé depuis un texte (import de la bibliothèque, ou
+ * hook écrit par Claude) : le texte tel quel jusqu'à 60 caractères.
+ */
+export function hookLabelOf(text: string): string {
+  return text.length > 60 ? `${text.slice(0, 57)}…` : text;
+}
+
 export const importHooks = permissionMutation("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
@@ -1199,8 +1241,7 @@ export const importHooks = permissionMutation("scripts.manage")({
       const hook = await ctx.db.get(hookId);
       // Isolation projet : on n'importe que les hooks du projet courant.
       if (!hook || hook.projectId !== ctx.projectId) continue;
-      const label =
-        hook.text.length > 60 ? `${hook.text.slice(0, 57)}…` : hook.text;
+      const label = hookLabelOf(hook.text);
       await ctx.db.insert("scriptBricks", {
         projectId: ctx.projectId,
         campaignId: args.campaignId,
@@ -1230,412 +1271,432 @@ export const importHooks = permissionMutation("scripts.manage")({
  * du pricing choisi, figé en pricingSnapshot. Les anciens champs tarif de base /
  * bonus aux vues (rateModel legacy) sont RETIRÉS de l'assignation.
  */
-export const assignScriptCampaign = permissionMutation("assignments.manage")({
-  args: {
-    campaignId: v.id("scriptCampaigns"),
-    creatorId: v.id("creators"),
-    targets: v.array(targetInputValidator),
-    videosPerCreator: v.number(),
-    dueDate: v.number(),
-    // Pricing OBLIGATOIRE (barème de paie). Validator `optional` UNIQUEMENT pour
-    // émettre un ConvexError lisible si absent (sinon erreur validator brute) ;
-    // le handler le rend requis. Plus aucun mode "sans pricing" (legacy retiré).
-    pricingId: v.optional(v.id("pricings")),
-    // Texte overlay optionnel à incruster en haut de la vidéo (cf schema).
-    overlayText: v.optional(v.string()),
-    // Pièces jointes optionnelles attachées DÈS l'assignation, via les MÊMES
-    // champs/mécanisme que l'attachement manuel post-assignation (setAssetFolders
-    // + addModelVideoToAssignment) : dossiers d'assets (bibliothèque Assets) et
-    // vidéos modèles (liens « à reproduire », p.ex. inspirations). Optionnels →
-    // sans eux, l'assignation est strictement inchangée. En masse, la boucle
-    // client rappelle cette mutation par créateur → chacun reçoit les mêmes.
-    assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
-    modelVideos: v.optional(
-      v.array(
-        v.object({
-          url: v.string(),
-          title: v.optional(v.string()),
-          note: v.optional(v.string()),
-        }),
-      ),
-    ),
-    // Dates de PUBLICATION planifiées (brique A), une par vidéo demandée, dans
-    // l'ORDRE : postDates[i] va sur la i-ème vidéo créée (i-ème combo pioché).
-    // Optionnel (assignation possible sans planning) ; si moins de combos que
-    // demandé (pénurie), les dates en trop sont ignorées. En masse, le client
-    // passe le MÊME tableau pour chaque créateur (même répartition pour toutes).
-    postDates: v.optional(v.array(v.number())),
-    // Combos RETIRÉS À LA MAIN dans l'aperçu (contrôle qualité éditorial). Ils
-    // s'AJOUTENT aux exclusions automatiques (unicité à vie + cooldown projet),
-    // ils n'en relâchent aucune : rejeter un script est une contrainte de plus.
-    // Absent → tirage inchangé, exactement comme avant l'aperçu.
-    excludedComboKeys: v.optional(v.array(v.string())),
-    // PLAGE HORAIRE par vidéo, positionnelle comme postDates : postWindows[i]
-    // accompagne postDates[i]. Minutes depuis minuit LOCAL (cf convex/postWindow).
-    // Absente ⇒ aucune consigne d'heure, l'assignation reste valide.
-    postWindows: v.optional(
-      v.array(v.object({ startMin: v.number(), endMin: v.number() })),
-    ),
-    // QUALIFICATION stratégique (admin) — pré-remplie par les défauts de campagne
-    // côté modale, surchargeable au cas par cas. Absente ⇒ rien n'est posé sur
-    // l'assignation, et rien ne sera propagé à la publication.
-    contentType: v.optional(v.union(v.literal("warmup"), v.literal("promo"))),
-    remunerated: v.optional(v.boolean()),
-    // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
-    // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
-    // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
-    // les N vidéos demandées portent CE combo (aucun blocage, aucun dédoublonnage :
-    // « réutiliser une combinaison est volontaire »). Absent → chemin auto inchangé.
-    imposedCombo: v.optional(
+const assignScriptCampaignArgs = {
+  campaignId: v.id("scriptCampaigns"),
+  creatorId: v.id("creators"),
+  targets: v.array(targetInputValidator),
+  videosPerCreator: v.number(),
+  dueDate: v.number(),
+  // Pricing OBLIGATOIRE (barème de paie). Validator `optional` UNIQUEMENT pour
+  // émettre un ConvexError lisible si absent (sinon erreur validator brute) ;
+  // le handler le rend requis. Plus aucun mode "sans pricing" (legacy retiré).
+  pricingId: v.optional(v.id("pricings")),
+  // Texte overlay optionnel à incruster en haut de la vidéo (cf schema).
+  overlayText: v.optional(v.string()),
+  // Pièces jointes optionnelles attachées DÈS l'assignation, via les MÊMES
+  // champs/mécanisme que l'attachement manuel post-assignation (setAssetFolders
+  // + addModelVideoToAssignment) : dossiers d'assets (bibliothèque Assets) et
+  // vidéos modèles (liens « à reproduire », p.ex. inspirations). Optionnels →
+  // sans eux, l'assignation est strictement inchangée. En masse, la boucle
+  // client rappelle cette mutation par créateur → chacun reçoit les mêmes.
+  assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
+  modelVideos: v.optional(
+    v.array(
       v.object({
-        hookBrickId: v.id("scriptBricks"),
-        fluxBrickId: v.id("scriptBricks"),
-        ctaBrickId: v.id("scriptBricks"),
+        url: v.string(),
+        title: v.optional(v.string()),
+        note: v.optional(v.string()),
       }),
     ),
-    // Lignage : assignation source d'où le combo est rejoué (stocké tel quel sur
-    // chaque ligne créée). Ne concerne que l'imposé ; ignoré en auto.
-    replayedFrom: v.optional(v.id("assignments")),
-    // Rejeu À L'IDENTIQUE : reproduit le combo FIGÉ de `replayedFrom` (texte qui a
-    // réellement marché) au lieu de réassembler depuis les briques vivantes.
-    // Nécessite `replayedFrom` avec un scriptCombo. Ignore `imposedCombo`.
-    replayVerbatim: v.optional(v.boolean()),
-  },
+  ),
+  // Dates de PUBLICATION planifiées (brique A), une par vidéo demandée, dans
+  // l'ORDRE : postDates[i] va sur la i-ème vidéo créée (i-ème combo pioché).
+  // Optionnel (assignation possible sans planning) ; si moins de combos que
+  // demandé (pénurie), les dates en trop sont ignorées. En masse, le client
+  // passe le MÊME tableau pour chaque créateur (même répartition pour toutes).
+  postDates: v.optional(v.array(v.number())),
+  // Combos RETIRÉS À LA MAIN dans l'aperçu (contrôle qualité éditorial). Ils
+  // s'AJOUTENT aux exclusions automatiques (unicité à vie + cooldown projet),
+  // ils n'en relâchent aucune : rejeter un script est une contrainte de plus.
+  // Absent → tirage inchangé, exactement comme avant l'aperçu.
+  excludedComboKeys: v.optional(v.array(v.string())),
+  // PLAGE HORAIRE par vidéo, positionnelle comme postDates : postWindows[i]
+  // accompagne postDates[i]. Minutes depuis minuit LOCAL (cf convex/postWindow).
+  // Absente ⇒ aucune consigne d'heure, l'assignation reste valide.
+  postWindows: v.optional(
+    v.array(v.object({ startMin: v.number(), endMin: v.number() })),
+  ),
+  // QUALIFICATION stratégique (admin) — pré-remplie par les défauts de campagne
+  // côté modale, surchargeable au cas par cas. Absente ⇒ rien n'est posé sur
+  // l'assignation, et rien ne sera propagé à la publication.
+  contentType: v.optional(v.union(v.literal("warmup"), v.literal("promo"))),
+  remunerated: v.optional(v.boolean()),
+  // Combinaison IMPOSÉE (« Rejouer ce script » / mode « Combinaison choisie ») :
+  // les 3 briques sont fournies par l'admin au lieu du tirage auto. Présent →
+  // court-circuite generateCombos/pickCombos et l'unicité anti-coordination ;
+  // les N vidéos demandées portent CE combo (aucun blocage, aucun dédoublonnage :
+  // « réutiliser une combinaison est volontaire »). Absent → chemin auto inchangé.
+  imposedCombo: v.optional(
+    v.object({
+      hookBrickId: v.id("scriptBricks"),
+      fluxBrickId: v.id("scriptBricks"),
+      ctaBrickId: v.id("scriptBricks"),
+    }),
+  ),
+  // Lignage : assignation source d'où le combo est rejoué (stocké tel quel sur
+  // chaque ligne créée). Ne concerne que l'imposé ; ignoré en auto.
+  replayedFrom: v.optional(v.id("assignments")),
+  // Rejeu À L'IDENTIQUE : reproduit le combo FIGÉ de `replayedFrom` (texte qui a
+  // réellement marché) au lieu de réassembler depuis les briques vivantes.
+  // Nécessite `replayedFrom` avec un scriptCombo. Ignore `imposedCombo`.
+  replayVerbatim: v.optional(v.boolean()),
+};
+
+/** Arguments d'une assignation de campagne — ceux de l'écran, ceux du MCP. */
+export type AssignScriptCampaignArgs = ObjectType<typeof assignScriptCampaignArgs>;
+
+export const assignScriptCampaign = permissionMutation("assignments.manage")({
+  args: assignScriptCampaignArgs,
   handler: async (ctx, args) => {
-    const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
-    if (campaign.status === "archived") {
-      throw err(ERR.CAMPAIGN_ARCHIVED, "Campagne archivée : réactive-la pour l'assigner.");
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
-    if (
-      !Number.isInteger(args.videosPerCreator) ||
-      args.videosPerCreator < 1 ||
-      args.videosPerCreator > 50
-    ) {
-      throw err(ERR.VIDEO_COUNT_INVALID, "Nombre de vidéos invalide (1–50).");
-    }
-    if (!args.pricingId) {
-      throw err(ERR.PRICING_REQUIRED, "Un barème de paie est requis.");
-    }
-    // Lignage de rejeu : la source doit exister DANS le projet (défensif ; l'UI ne
-    // l'envoie que depuis une vraie assignation source). N'impose rien sur son
-    // combo — une variante (brique changée) reste rattachée à son origine.
-    let replaySrc: Doc<"assignments"> | null = null;
-    if (args.replayedFrom !== undefined) {
-      replaySrc = await ctx.db.get(args.replayedFrom);
-      if (!replaySrc || replaySrc.projectId !== ctx.projectId) {
-        throw err(ERR.REPLAY_SOURCE_NOT_FOUND, "Assignation source du rejeu introuvable.");
-      }
-    }
-    // Rejeu à l'identique : exige une source portant un script FIGÉ (scriptCombo +
-    // comboKey) — on le REPRODUIT tel quel (cf branche de sélection ci-dessous).
-    if (args.replayVerbatim) {
-      if (!replaySrc) {
-        throw err(ERR.REPLAY_SOURCE_REQUIRED, "Rejeu à l'identique : source du rejeu requise.");
-      }
-      if (!replaySrc.scriptCombo || !replaySrc.comboKey) {
-        throw err(ERR.REPLAY_SOURCE_NO_SCRIPT, "Rejeu à l'identique impossible : la source n'a pas de script figé.");
-      }
-    }
-
-    const creator = await ctx.db.get(args.creatorId);
-    if (!creator || creator.projectId !== ctx.projectId) {
-      throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
-    }
-    if (
-      creator.userId === undefined ||
-      (creator.status !== "active" && creator.status !== "onboarding")
-    ) {
-      throw err(ERR.CREATOR_NOT_ASSIGNABLE, `Créateur non assignable (${creator.name} : non onboardé ou inactif).`, { name: creator.name });
-    }
-    // Chantier C — cibles multi-plateformes (1 vidéo de script → N posts).
-    await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
-
-    // Bricks de la campagne — servent au tirage AUTO (generateCombos) ET à valider
-    // un combo IMPOSÉ (validateImposedCombo). La génération ne s'applique qu'au
-    // chemin auto (cf branche de sélection ci-dessous).
-    const allBricks = await ctx.db
-      .query("scriptBricks")
-      .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
-      .collect();
-
-    // Pricing OBLIGATOIRE = source unique du barème (fixe/CPM/paliers), figé à
-    // l'attribution. rateSnapshot devient un placeholder neutre : le schéma le
-    // requiert (assignments.rateSnapshot), mais Guard C (pricingSnapshot présent)
-    // garantit qu'il n'est JAMAIS lu pour la paie (cf accrueBaseLineItem /
-    // confirmPublication). buildPricingSnapshot rejette un pricing introuvable
-    // ou archivé (ConvexError lisible).
-    const pricingSnapshot = await buildPricingSnapshot(
-      ctx,
-      ctx.projectId,
-      args.pricingId,
-    );
-    const rateSnapshot = { basePerPost: 0 };
-    const targets = args.targets.map((t) => ({
-      platform: t.platform,
-      accountId: t.accountId,
-    }));
-    // Comptes GÉRÉS PAR L'ÉQUIPE — MÊME court-circuit que assignFormat, via le
-    // helper PARTAGÉ (source unique) : cibles gérées ⇒ assignments créés DIRECT en
-    // to_publish + managedByAdmin dénormalisé (l'admin publie via la file « Comptes
-    // gérés — à publier »). Homogénéité imposée par le helper.
-    const { managed } = await resolveManagedTargets(
-      ctx,
-      ctx.projectId,
-      args.creatorId,
-      args.targets,
-    );
-    const overlayText = normalizeOverlayText(args.overlayText);
-    const now = Date.now();
-    // Pièces jointes optionnelles — validées/normalisées via les MÊMES helpers que
-    // l'attachement manuel (validateProjectFolderIds / buildModelVideoItemsServer),
-    // AVANT toute insertion : en masse (une mutation par créateur), une entrée
-    // invalide fait échouer CE créateur seul (try/catch client) sans toucher les
-    // autres. Attachées à CHAQUE assignment créé pour ce créateur (une par vidéo).
-    const linkedFolderIds =
-      args.assetFolderIds && args.assetFolderIds.length > 0
-        ? await validateProjectFolderIds(ctx, args.assetFolderIds, ctx.projectId)
-        : [];
-    const linkedModelVideos =
-      args.modelVideos && args.modelVideos.length > 0
-        ? buildModelVideoItemsServer(args.modelVideos)
-        : [];
-    const shortages: { name: string; requested: number; assigned: number }[] =
-      [];
-
-    // ─── Sélection des combos : IMPOSÉE (rejeu / choix manuel) ou AUTO ──────────
-    // Imposée : les 3 briques viennent de l'admin ; CHAQUE vidéo demandée porte ce
-    // combo, sans tirage ni contrôle d'unicité (réutilisation volontaire → aucun
-    // blocage, aucun avertissement de doublon). Aucune pénurie possible.
-    // Auto : tirage anti-coordination least-used + unicité (comboKey × créateur ×
-    // plateforme). Les lignes à combo imposé sont ignorées de usedKeys → le triplet
-    // imposé reste piochable en auto.
-    let picked: ServerCombo[];
-    let totalCombos: number;
-    // Rejeu à l'identique : on REPRODUIT le combo FIGÉ de la source (validé plus
-    // haut). Le texte figé = ce qui a réellement marché ; comboKey de la source →
-    // attribution analytics au MÊME combo. Prioritaire sur imposedCombo (ignoré).
-    const verbatimCombo =
-      args.replayVerbatim && replaySrc?.scriptCombo && replaySrc.comboKey
-        ? { combo: replaySrc.scriptCombo, comboKey: replaySrc.comboKey }
-        : null;
-    if (verbatimCombo) {
-      const c = verbatimCombo.combo;
-      picked = Array.from({ length: args.videosPerCreator }, () => ({
-        hookBrickId: c.hookBrickId,
-        fluxBrickId: c.fluxBrickId,
-        ctaBrickId: c.ctaBrickId,
-        assembledScript: c.assembledScript,
-      }));
-      totalCombos = 1;
-    } else if (args.imposedCombo) {
-      const combo = validateImposedCombo(
-        allBricks,
-        args.imposedCombo,
-        args.campaignId,
-      );
-      picked = Array.from({ length: args.videosPerCreator }, () => combo);
-      totalCombos = 1;
-    } else {
-      const combos = generateCombosServer(allBricks);
-      if (combos.length === 0) {
-        throw err(ERR.NO_COMBO_AVAILABLE, "Aucun combo disponible (un type de brique manque, ou aucun hook actif).");
-      }
-      totalCombos = combos.length;
-      // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
-      // par CE créateur sur l'une des plateformes ciblées (union). Cross-plateforme
-      // AUTORISÉ → un combo sur le TikTok du créateur reste dispo pour son YouTube.
-      // Le créateur est mono-projet → scoping projet implicite ; comboKey embarque
-      // les brickIds (uniques par campagne) → pas de collision inter-campagnes.
-      const existing = await ctx.db
-        .query("assignments")
-        .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
-        .collect();
-      const targetPlatforms = args.targets.map((t) => t.platform);
-      const lifetimeKeys = usedComboKeysForPlatforms(
-        existing,
-        args.creatorId,
-        targetPlatforms,
-      );
-      // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de
-      // `cooldownDays` de la date visée est indisponible, quel que soit le
-      // compte ou la créatrice. Deux exclusions qui se CUMULENT, elles ne se
-      // remplacent pas : l'unicité à vie reste appliquée par-dessus (et n'a
-      // aucun réglage — mettre 0 jour ici ne la relâche pas).
-      const projectRows = await projectAssignmentsForCooldown(
-        ctx,
-        ctx.projectId,
-      );
-      const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
-      picked = pickForDates({
-        combos,
-        lifetimeKeys,
-        projectRows,
-        postDates: args.postDates,
-        count: args.videosPerCreator,
-        cooldownDays,
-        manualExclusions: args.excludedComboKeys,
-        onExhausted: (targetAt) => {
-          // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
-          // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
-          // les dates suivantes déciderait du planning à la place de l'admin.
-          // On refuse en disant QUAND ça repasse.
-          if (targetAt === undefined) return;
-          const freeAt = firstFreeSlotServer(projectRows, targetAt, cooldownDays);
-          if (freeAt === null) return;
-          throw err(
-            ERR.NO_SCRIPT_FREE_THAT_DAY,
-            `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
-              `tous ceux de cette campagne sont déjà programmés à ` +
-              `${cooldownDays} jour${cooldownDays > 1 ? "s" : ""} ou moins. ` +
-              `Le premier se libère le ` +
-              `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
-              `ou ajoute des briques à la campagne.`,
-            { at: targetAt, days: cooldownDays, freeAt },
-          );
-        },
-      });
-      if (picked.length < args.videosPerCreator) {
-        shortages.push({
-          name: creator.name,
-          requested: args.videosPerCreator,
-          assigned: picked.length,
-        });
-      }
-    }
-
-    // ─── Imposé : on ne bloque pas, mais on ne se tait pas ──────────────────────
-    // Un combo imposé (rejeu / choix manuel) reste hors règles : la réutilisation
-    // est volontaire. Elle devient invisible si personne ne la signale — or c'est
-    // exactement la forme du problème qu'on corrige. On TRACE donc le doublon
-    // qu'on vient de laisser passer, sans l'empêcher.
-    if ((verbatimCombo || args.imposedCombo) && picked.length > 0) {
-      const imposedKey = verbatimCombo
-        ? verbatimCombo.comboKey
-        : comboKeyOf(picked[0]);
-      const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
-      const imposedCooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
-      for (let i = 0; i < picked.length; i++) {
-        const targetAt = args.postDates?.[i];
-        if (
-          !comboKeysInCooldownServer(rows, targetAt, imposedCooldownDays).has(
-            imposedKey,
-          )
-        ) {
-          continue;
-        }
-        console.warn(
-          `[combo-cooldown] Combo imposé ${imposedKey} assigné à ${creator.name} ` +
-            `le ${formatDateFr(targetAt as number)} alors qu'il est déjà programmé ` +
-            `à ${imposedCooldownDays} jour${imposedCooldownDays > 1 ? "s" : ""} ` +
-            `ou moins sur ce projet. Laissé passer (imposé = volontaire), mais ` +
-            `c'est un doublon inter-comptes.`,
-        );
-      }
-    }
-
-    // ─── Notif : une par vidéo, tirée À PART du combo ─────────────────────────
-    // Le rejeu à l'identique la recopie de la source (cf insertion) ; tout le
-    // reste — tirage auto ET combo imposé — la tire en rotation équilibrée : le
-    // combo imposé fixe les trois briques du texte, pas la notif.
-    const notifs = verbatimCombo
-      ? []
-      : await notifsForNewVideos(ctx, {
-          campaign,
-          bricks: allBricks,
-          creatorId: args.creatorId,
-          count: picked.length,
-        });
-
-    let created = 0;
-    let firstAssignmentId: Id<"assignments"> | null = null;
-    // Positionnel : la i-ème vidéo créée reçoit postDates[i] (undefined sinon).
-    for (let i = 0; i < picked.length; i++) {
-      const combo = picked[i];
-      const postDate = args.postDates?.[i];
-      // Plage horaire de CETTE vidéo. Validée ici plutôt que par le validator :
-      // une plage inversée ou de durée nulle passe le typage mais n'est pas une
-      // consigne. Invalide ⇒ REFUS explicite, jamais un enregistrement silencieux
-      // qui afficherait « entre 23h et 21h » à la créatrice.
-      const postWindow = args.postWindows?.[i];
-      if (postWindow !== undefined && !isValidPostWindow(postWindow)) {
-        throw err(ERR.TIME_WINDOW_INVALID, "Plage horaire invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.");
-      }
-      const insertedId = await ctx.db.insert("assignments", {
-        projectId: ctx.projectId,
-        creatorId: args.creatorId,
-        scriptCombo: verbatimCombo
-          ? {
-              // COPIE du combo figé source (texte verbatim + ids + campagne source),
-              // sans editedOnce (verrou de correction propre à la source).
-              campaignId: verbatimCombo.combo.campaignId,
-              hookBrickId: verbatimCombo.combo.hookBrickId,
-              ...(verbatimCombo.combo.corpsBrickId
-                ? { corpsBrickId: verbatimCombo.combo.corpsBrickId }
-                : {}),
-              fluxBrickId: verbatimCombo.combo.fluxBrickId,
-              ctaBrickId: verbatimCombo.combo.ctaBrickId,
-              assembledScript: verbatimCombo.combo.assembledScript,
-              // À l'identique : la notif de la source aussi.
-              ...notifFieldsOf(verbatimCombo.combo),
-            }
-          : {
-              campaignId: args.campaignId,
-              hookBrickId: combo.hookBrickId,
-              fluxBrickId: combo.fluxBrickId,
-              ctaBrickId: combo.ctaBrickId,
-              assembledScript: combo.assembledScript,
-              // Absente si la campagne n'a pas la notif → combo inchangé.
-              ...(notifs[i] ?? {}),
-            },
-        // Verbatim → comboKey EXACT de la source (gère le legacy 4 segments) ;
-        // sinon signature des 3 briques choisies.
-        comboKey: verbatimCombo ? verbatimCombo.comboKey : comboKeyOf(combo),
-        // Rejeu / choix manuel — flag + lignage (undefined en auto → 0 bruit).
-        ...(args.imposedCombo || verbatimCombo ? { comboImposed: true } : {}),
-        ...(args.replayedFrom !== undefined
-          ? { replayedFrom: args.replayedFrom }
-          : {}),
-        ...(args.replayVerbatim ? { replayVerbatim: true } : {}),
-        targets,
-        dueDate: args.dueDate,
-        status: managed ? "to_publish" : "todo",
-        // Dénormalisation (undefined si non géré → 0 bruit sur les rows normales).
-        managedByAdmin: managed ? true : undefined,
-        rateSnapshot,
-        pricingSnapshot,
-        overlayText,
-        // Undefined si aucune pièce jointe → rows inchangées vs aujourd'hui.
-        ...(linkedFolderIds.length > 0
-          ? { assetFolderIds: linkedFolderIds }
-          : {}),
-        ...(linkedModelVideos.length > 0
-          ? { modelVideos: linkedModelVideos }
-          : {}),
-        // Date de post planifiée (undefined si non planifiée → row inchangée).
-        ...(postDate !== undefined ? { postDate } : {}),
-        ...(postWindow !== undefined ? { postWindow } : {}),
-        ...(args.contentType !== undefined ? { contentType: args.contentType } : {}),
-        ...(args.remunerated !== undefined ? { remunerated: args.remunerated } : {}),
-        createdAt: now,
-      });
-      if (firstAssignmentId === null) firstAssignmentId = insertedId;
-      created++;
-    }
-    // 6e événement email — UNE notification par appel (donc par créateur), même
-    // quand N vidéos sont créées. En assignation de MASSE, le bulk boucle sur
-    // cette mutation → un envoi planifié par créateur, parallèles et hors
-    // transaction : 30 assignations ne ralentissent ni ne font échouer la boucle.
-    // Cibles GÉRÉES par l'équipe : le créateur n'a rien à produire, pas de mail.
-    if (firstAssignmentId !== null && !managed) {
-      await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCreated, {
-        assignmentId: firstAssignmentId,
-        count: created,
-      });
-    }
+    const { created, shortages, totalCombos } = await assignScriptCampaignCore(ctx, args);
     return { created, shortages, totalCombos };
   },
 });
+
+/**
+ * CŒUR de l'assignation d'une campagne — le bouton « Assigner » de l'écran et
+ * l'outil MCP `assigner_scripts` passent par ici : mêmes gardes, même tirage,
+ * même email. Rend en plus les assignations créées (le journal MCP les cite).
+ */
+export async function assignScriptCampaignCore(
+  ctx: ProjectMutationCtx,
+  args: AssignScriptCampaignArgs,
+) {
+  const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
+  if (campaign.status === "archived") {
+    throw err(ERR.CAMPAIGN_ARCHIVED, "Campagne archivée : réactive-la pour l'assigner.");
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
+  if (
+    !Number.isInteger(args.videosPerCreator) ||
+    args.videosPerCreator < 1 ||
+    args.videosPerCreator > 50
+  ) {
+    throw err(ERR.VIDEO_COUNT_INVALID, "Nombre de vidéos invalide (1–50).");
+  }
+  if (!args.pricingId) {
+    throw err(ERR.PRICING_REQUIRED, "Un barème de paie est requis.");
+  }
+  // Lignage de rejeu : la source doit exister DANS le projet (défensif ; l'UI ne
+  // l'envoie que depuis une vraie assignation source). N'impose rien sur son
+  // combo — une variante (brique changée) reste rattachée à son origine.
+  let replaySrc: Doc<"assignments"> | null = null;
+  if (args.replayedFrom !== undefined) {
+    replaySrc = await ctx.db.get(args.replayedFrom);
+    if (!replaySrc || replaySrc.projectId !== ctx.projectId) {
+      throw err(ERR.REPLAY_SOURCE_NOT_FOUND, "Assignation source du rejeu introuvable.");
+    }
+  }
+  // Rejeu à l'identique : exige une source portant un script FIGÉ (scriptCombo +
+  // comboKey) — on le REPRODUIT tel quel (cf branche de sélection ci-dessous).
+  if (args.replayVerbatim) {
+    if (!replaySrc) {
+      throw err(ERR.REPLAY_SOURCE_REQUIRED, "Rejeu à l'identique : source du rejeu requise.");
+    }
+    if (!replaySrc.scriptCombo || !replaySrc.comboKey) {
+      throw err(ERR.REPLAY_SOURCE_NO_SCRIPT, "Rejeu à l'identique impossible : la source n'a pas de script figé.");
+    }
+  }
+
+  const creator = await ctx.db.get(args.creatorId);
+  if (!creator || creator.projectId !== ctx.projectId) {
+    throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
+  }
+  if (
+    creator.userId === undefined ||
+    (creator.status !== "active" && creator.status !== "onboarding")
+  ) {
+    throw err(ERR.CREATOR_NOT_ASSIGNABLE, `Créateur non assignable (${creator.name} : non onboardé ou inactif).`, { name: creator.name });
+  }
+  // Chantier C — cibles multi-plateformes (1 vidéo de script → N posts).
+  await validateTargets(ctx, ctx.projectId, args.creatorId, args.targets);
+
+  // Bricks de la campagne — servent au tirage AUTO (generateCombos) ET à valider
+  // un combo IMPOSÉ (validateImposedCombo). La génération ne s'applique qu'au
+  // chemin auto (cf branche de sélection ci-dessous).
+  const allBricks = await ctx.db
+    .query("scriptBricks")
+    .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
+    .collect();
+
+  // Pricing OBLIGATOIRE = source unique du barème (fixe/CPM/paliers), figé à
+  // l'attribution. rateSnapshot devient un placeholder neutre : le schéma le
+  // requiert (assignments.rateSnapshot), mais Guard C (pricingSnapshot présent)
+  // garantit qu'il n'est JAMAIS lu pour la paie (cf accrueBaseLineItem /
+  // confirmPublication). buildPricingSnapshot rejette un pricing introuvable
+  // ou archivé (ConvexError lisible).
+  const pricingSnapshot = await buildPricingSnapshot(
+    ctx,
+    ctx.projectId,
+    args.pricingId,
+  );
+  const rateSnapshot = { basePerPost: 0 };
+  const targets = args.targets.map((t) => ({
+    platform: t.platform,
+    accountId: t.accountId,
+  }));
+  // Comptes GÉRÉS PAR L'ÉQUIPE — MÊME court-circuit que assignFormat, via le
+  // helper PARTAGÉ (source unique) : cibles gérées ⇒ assignments créés DIRECT en
+  // to_publish + managedByAdmin dénormalisé (l'admin publie via la file « Comptes
+  // gérés — à publier »). Homogénéité imposée par le helper.
+  const { managed } = await resolveManagedTargets(
+    ctx,
+    ctx.projectId,
+    args.creatorId,
+    args.targets,
+  );
+  const overlayText = normalizeOverlayText(args.overlayText);
+  const now = Date.now();
+  // Pièces jointes optionnelles — validées/normalisées via les MÊMES helpers que
+  // l'attachement manuel (validateProjectFolderIds / buildModelVideoItemsServer),
+  // AVANT toute insertion : en masse (une mutation par créateur), une entrée
+  // invalide fait échouer CE créateur seul (try/catch client) sans toucher les
+  // autres. Attachées à CHAQUE assignment créé pour ce créateur (une par vidéo).
+  const linkedFolderIds =
+    args.assetFolderIds && args.assetFolderIds.length > 0
+      ? await validateProjectFolderIds(ctx, args.assetFolderIds, ctx.projectId)
+      : [];
+  const linkedModelVideos =
+    args.modelVideos && args.modelVideos.length > 0
+      ? buildModelVideoItemsServer(args.modelVideos)
+      : [];
+  const shortages: { name: string; requested: number; assigned: number }[] =
+    [];
+
+  // ─── Sélection des combos : IMPOSÉE (rejeu / choix manuel) ou AUTO ──────────
+  // Imposée : les 3 briques viennent de l'admin ; CHAQUE vidéo demandée porte ce
+  // combo, sans tirage ni contrôle d'unicité (réutilisation volontaire → aucun
+  // blocage, aucun avertissement de doublon). Aucune pénurie possible.
+  // Auto : tirage anti-coordination least-used + unicité (comboKey × créateur ×
+  // plateforme). Les lignes à combo imposé sont ignorées de usedKeys → le triplet
+  // imposé reste piochable en auto.
+  let picked: ServerCombo[];
+  let totalCombos: number;
+  // Rejeu à l'identique : on REPRODUIT le combo FIGÉ de la source (validé plus
+  // haut). Le texte figé = ce qui a réellement marché ; comboKey de la source →
+  // attribution analytics au MÊME combo. Prioritaire sur imposedCombo (ignoré).
+  const verbatimCombo =
+    args.replayVerbatim && replaySrc?.scriptCombo && replaySrc.comboKey
+      ? { combo: replaySrc.scriptCombo, comboKey: replaySrc.comboKey }
+      : null;
+  if (verbatimCombo) {
+    const c = verbatimCombo.combo;
+    picked = Array.from({ length: args.videosPerCreator }, () => ({
+      hookBrickId: c.hookBrickId,
+      fluxBrickId: c.fluxBrickId,
+      ctaBrickId: c.ctaBrickId,
+      assembledScript: c.assembledScript,
+    }));
+    totalCombos = 1;
+  } else if (args.imposedCombo) {
+    const combo = validateImposedCombo(
+      allBricks,
+      args.imposedCombo,
+      args.campaignId,
+    );
+    picked = Array.from({ length: args.videosPerCreator }, () => combo);
+    totalCombos = 1;
+  } else {
+    const combos = generateCombosServer(allBricks);
+    if (combos.length === 0) {
+      throw err(ERR.NO_COMBO_AVAILABLE, "Aucun combo disponible (un type de brique manque, ou aucun hook actif).");
+    }
+    totalCombos = combos.length;
+    // Unicité (comboKey, créateur, PLATEFORME) : on exclut les combos déjà pris
+    // par CE créateur sur l'une des plateformes ciblées (union). Cross-plateforme
+    // AUTORISÉ → un combo sur le TikTok du créateur reste dispo pour son YouTube.
+    // Le créateur est mono-projet → scoping projet implicite ; comboKey embarque
+    // les brickIds (uniques par campagne) → pas de collision inter-campagnes.
+    const existing = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", args.creatorId))
+      .collect();
+    const targetPlatforms = args.targets.map((t) => t.platform);
+    const lifetimeKeys = usedComboKeysForPlatforms(
+      existing,
+      args.creatorId,
+      targetPlatforms,
+    );
+    // COOLDOWN PROJET : un combo programmé (ou sorti) à moins de
+    // `cooldownDays` de la date visée est indisponible, quel que soit le
+    // compte ou la créatrice. Deux exclusions qui se CUMULENT, elles ne se
+    // remplacent pas : l'unicité à vie reste appliquée par-dessus (et n'a
+    // aucun réglage — mettre 0 jour ici ne la relâche pas).
+    const projectRows = await projectAssignmentsForCooldown(
+      ctx,
+      ctx.projectId,
+    );
+    const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
+    picked = pickForDates({
+      combos,
+      lifetimeKeys,
+      projectRows,
+      postDates: args.postDates,
+      count: args.videosPerCreator,
+      cooldownDays,
+      manualExclusions: args.excludedComboKeys,
+      onExhausted: (targetAt) => {
+        // POOL ÉPUISÉ pour cette date. On ne dégrade pas en silence : assigner
+        // un combo en conflit reproduirait le bug qu'on corrige, et boucler sur
+        // les dates suivantes déciderait du planning à la place de l'admin.
+        // On refuse en disant QUAND ça repasse.
+        if (targetAt === undefined) return;
+        const freeAt = firstFreeSlotServer(projectRows, targetAt, cooldownDays);
+        if (freeAt === null) return;
+        throw err(
+          ERR.NO_SCRIPT_FREE_THAT_DAY,
+          `Plus aucun script disponible pour le ${formatDateFr(targetAt)} : ` +
+            `tous ceux de cette campagne sont déjà programmés à ` +
+            `${cooldownDays} jour${cooldownDays > 1 ? "s" : ""} ou moins. ` +
+            `Le premier se libère le ` +
+            `${formatDateFr(freeAt)} — replanifie à partir de cette date, ` +
+            `ou ajoute des briques à la campagne.`,
+          { at: targetAt, days: cooldownDays, freeAt },
+        );
+      },
+    });
+    if (picked.length < args.videosPerCreator) {
+      shortages.push({
+        name: creator.name,
+        requested: args.videosPerCreator,
+        assigned: picked.length,
+      });
+    }
+  }
+
+  // ─── Imposé : on ne bloque pas, mais on ne se tait pas ──────────────────────
+  // Un combo imposé (rejeu / choix manuel) reste hors règles : la réutilisation
+  // est volontaire. Elle devient invisible si personne ne la signale — or c'est
+  // exactement la forme du problème qu'on corrige. On TRACE donc le doublon
+  // qu'on vient de laisser passer, sans l'empêcher.
+  if ((verbatimCombo || args.imposedCombo) && picked.length > 0) {
+    const imposedKey = verbatimCombo
+      ? verbatimCombo.comboKey
+      : comboKeyOf(picked[0]);
+    const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+    const imposedCooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
+    for (let i = 0; i < picked.length; i++) {
+      const targetAt = args.postDates?.[i];
+      if (
+        !comboKeysInCooldownServer(rows, targetAt, imposedCooldownDays).has(
+          imposedKey,
+        )
+      ) {
+        continue;
+      }
+      console.warn(
+        `[combo-cooldown] Combo imposé ${imposedKey} assigné à ${creator.name} ` +
+          `le ${formatDateFr(targetAt as number)} alors qu'il est déjà programmé ` +
+          `à ${imposedCooldownDays} jour${imposedCooldownDays > 1 ? "s" : ""} ` +
+          `ou moins sur ce projet. Laissé passer (imposé = volontaire), mais ` +
+          `c'est un doublon inter-comptes.`,
+      );
+    }
+  }
+
+  // ─── Notif : une par vidéo, tirée À PART du combo ─────────────────────────
+  // Le rejeu à l'identique la recopie de la source (cf insertion) ; tout le
+  // reste — tirage auto ET combo imposé — la tire en rotation équilibrée : le
+  // combo imposé fixe les trois briques du texte, pas la notif.
+  const notifs = verbatimCombo
+    ? []
+    : await notifsForNewVideos(ctx, {
+        campaign,
+        bricks: allBricks,
+        creatorId: args.creatorId,
+        count: picked.length,
+      });
+
+  let created = 0;
+  let firstAssignmentId: Id<"assignments"> | null = null;
+  const assignmentIds: Id<"assignments">[] = [];
+  // Positionnel : la i-ème vidéo créée reçoit postDates[i] (undefined sinon).
+  for (let i = 0; i < picked.length; i++) {
+    const combo = picked[i];
+    const postDate = args.postDates?.[i];
+    // Plage horaire de CETTE vidéo. Validée ici plutôt que par le validator :
+    // une plage inversée ou de durée nulle passe le typage mais n'est pas une
+    // consigne. Invalide ⇒ REFUS explicite, jamais un enregistrement silencieux
+    // qui afficherait « entre 23h et 21h » à la créatrice.
+    const postWindow = args.postWindows?.[i];
+    if (postWindow !== undefined && !isValidPostWindow(postWindow)) {
+      throw err(ERR.TIME_WINDOW_INVALID, "Plage horaire invalide : l'heure de début doit précéder l'heure de fin, dans la même journée.");
+    }
+    const insertedId = await ctx.db.insert("assignments", {
+      projectId: ctx.projectId,
+      creatorId: args.creatorId,
+      scriptCombo: verbatimCombo
+        ? {
+            // COPIE du combo figé source (texte verbatim + ids + campagne source),
+            // sans editedOnce (verrou de correction propre à la source).
+            campaignId: verbatimCombo.combo.campaignId,
+            hookBrickId: verbatimCombo.combo.hookBrickId,
+            ...(verbatimCombo.combo.corpsBrickId
+              ? { corpsBrickId: verbatimCombo.combo.corpsBrickId }
+              : {}),
+            fluxBrickId: verbatimCombo.combo.fluxBrickId,
+            ctaBrickId: verbatimCombo.combo.ctaBrickId,
+            assembledScript: verbatimCombo.combo.assembledScript,
+            // À l'identique : la notif de la source aussi.
+            ...notifFieldsOf(verbatimCombo.combo),
+          }
+        : {
+            campaignId: args.campaignId,
+            hookBrickId: combo.hookBrickId,
+            fluxBrickId: combo.fluxBrickId,
+            ctaBrickId: combo.ctaBrickId,
+            assembledScript: combo.assembledScript,
+            // Absente si la campagne n'a pas la notif → combo inchangé.
+            ...(notifs[i] ?? {}),
+          },
+      // Verbatim → comboKey EXACT de la source (gère le legacy 4 segments) ;
+      // sinon signature des 3 briques choisies.
+      comboKey: verbatimCombo ? verbatimCombo.comboKey : comboKeyOf(combo),
+      // Rejeu / choix manuel — flag + lignage (undefined en auto → 0 bruit).
+      ...(args.imposedCombo || verbatimCombo ? { comboImposed: true } : {}),
+      ...(args.replayedFrom !== undefined
+        ? { replayedFrom: args.replayedFrom }
+        : {}),
+      ...(args.replayVerbatim ? { replayVerbatim: true } : {}),
+      targets,
+      dueDate: args.dueDate,
+      status: managed ? "to_publish" : "todo",
+      // Dénormalisation (undefined si non géré → 0 bruit sur les rows normales).
+      managedByAdmin: managed ? true : undefined,
+      rateSnapshot,
+      pricingSnapshot,
+      overlayText,
+      // Undefined si aucune pièce jointe → rows inchangées vs aujourd'hui.
+      ...(linkedFolderIds.length > 0
+        ? { assetFolderIds: linkedFolderIds }
+        : {}),
+      ...(linkedModelVideos.length > 0
+        ? { modelVideos: linkedModelVideos }
+        : {}),
+      // Date de post planifiée (undefined si non planifiée → row inchangée).
+      ...(postDate !== undefined ? { postDate } : {}),
+      ...(postWindow !== undefined ? { postWindow } : {}),
+      ...(args.contentType !== undefined ? { contentType: args.contentType } : {}),
+      ...(args.remunerated !== undefined ? { remunerated: args.remunerated } : {}),
+      createdAt: now,
+    });
+    if (firstAssignmentId === null) firstAssignmentId = insertedId;
+    assignmentIds.push(insertedId);
+    created++;
+  }
+  // 6e événement email — UNE notification par appel (donc par créateur), même
+  // quand N vidéos sont créées. En assignation de MASSE, le bulk boucle sur
+  // cette mutation → un envoi planifié par créateur, parallèles et hors
+  // transaction : 30 assignations ne ralentissent ni ne font échouer la boucle.
+  // Cibles GÉRÉES par l'équipe : le créateur n'a rien à produire, pas de mail.
+  if (firstAssignmentId !== null && !managed) {
+    await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCreated, {
+      assignmentId: firstAssignmentId,
+      count: created,
+    });
+  }
+  return { created, shortages, totalCombos, assignmentIds };
+}
 
 // ─── Correction du combo — autorisée TANT QU'AUCUN LIEN DE PUBLICATION ────────
 // Mirroir serveur de lib/script-combo-edit.canEditScriptCombo (règle A6) : le
@@ -2477,106 +2538,109 @@ async function hookRunsOf(
  */
 export const graduateHook = permissionMutation("scripts.manage")({
   args: { brickId: v.id("scriptBricks") },
-  handler: async (
-    ctx,
-    { brickId },
-  ): Promise<{
-    outcome: GraduationOutcome;
-    targetBrickId: Id<"scriptBricks">;
-    targetCampaignName: string;
-  }> => {
-    // L'accueil admin lit un pré-calcul : graduer un hook le retire de la
-    // liste « à décider », on invalide (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
-    const brick = await ctx.db.get(brickId);
-    if (!brick || brick.projectId !== ctx.projectId) {
-      throw err(ERR.HOOK_NOT_FOUND, "Hook introuvable.");
-    }
-    if (brick.kind !== "hook") {
-      throw err(ERR.ONLY_HOOK_GRADUATES, "Seul un hook peut être gradué.");
-    }
+  handler: (ctx, { brickId }) => graduateHookCore(ctx, brickId),
+});
 
-    const campaigns = await ctx.db
-      .query("scriptCampaigns")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const target = campaigns.find((c) =>
-      campaignNameMatches(c.name, PROVEN_CAMPAIGN_NAME),
-    );
-    if (!target) {
-      // Message ACTIONNABLE : la campagne cible est identifiée par son nom, son
-      // absence est une situation normale sur un projet neuf.
-      throw err(ERR.PROVEN_CAMPAIGN_MISSING, `Aucune campagne « ${PROVEN_CAMPAIGN_NAME} » sur ce projet — crée-la d'abord.`, { p1: PROVEN_CAMPAIGN_NAME });
-    }
-    if (target._id === brick.campaignId) {
-      throw err(ERR.HOOK_ALREADY_PROVEN, "Ce hook est déjà dans les ouvertures prouvées.");
-    }
+/** Cœur de la graduation — le bouton « Graduer » et l'outil MCP `graduer_hook`. */
+export async function graduateHookCore(
+  ctx: ProjectMutationCtx,
+  brickId: Id<"scriptBricks">,
+): Promise<{
+  outcome: GraduationOutcome;
+  targetBrickId: Id<"scriptBricks">;
+  targetCampaignName: string;
+}> {
+  // L'accueil admin lit un pré-calcul : graduer un hook le retire de la
+  // liste « à décider », on invalide (cf convex/dashboardCache.ts).
+  await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
+  const brick = await ctx.db.get(brickId);
+  if (!brick || brick.projectId !== ctx.projectId) {
+    throw err(ERR.HOOK_NOT_FOUND, "Hook introuvable.");
+  }
+  if (brick.kind !== "hook") {
+    throw err(ERR.ONLY_HOOK_GRADUATES, "Seul un hook peut être gradué.");
+  }
 
-    // Idempotence par le TEXTE (la copie a forcément un autre id). Les briques
-    // INACTIVES comptent : une graduation annulée à la main ne doit pas
-    // permettre d'en recréer une seconde copie.
-    const existing = (
-      await ctx.db
-        .query("scriptBricks")
-        .withIndex("by_campaign_kind", (q) =>
-          q.eq("campaignId", target._id).eq("kind", "hook"),
-        )
-        .collect()
-    ).find(
-      (b) => hookIdentityKey(b.content) === hookIdentityKey(brick.content),
-    );
+  const campaigns = await ctx.db
+    .query("scriptCampaigns")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const target = campaigns.find((c) =>
+    campaignNameMatches(c.name, PROVEN_CAMPAIGN_NAME),
+  );
+  if (!target) {
+    // Message ACTIONNABLE : la campagne cible est identifiée par son nom, son
+    // absence est une situation normale sur un projet neuf.
+    throw err(ERR.PROVEN_CAMPAIGN_MISSING, `Aucune campagne « ${PROVEN_CAMPAIGN_NAME} » sur ce projet — crée-la d'abord.`, { p1: PROVEN_CAMPAIGN_NAME });
+  }
+  if (target._id === brick.campaignId) {
+    throw err(ERR.HOOK_ALREADY_PROVEN, "Ce hook est déjà dans les ouvertures prouvées.");
+  }
 
-    // Désactivation de l'original — faite dans les DEUX branches : c'est elle
-    // qui garantit qu'un seul exemplaire reste actif.
-    await ctx.db.patch(brickId, { active: false });
+  // Idempotence par le TEXTE (la copie a forcément un autre id). Les briques
+  // INACTIVES comptent : une graduation annulée à la main ne doit pas
+  // permettre d'en recréer une seconde copie.
+  const existing = (
+    await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign_kind", (q) =>
+        q.eq("campaignId", target._id).eq("kind", "hook"),
+      )
+      .collect()
+  ).find(
+    (b) => hookIdentityKey(b.content) === hookIdentityKey(brick.content),
+  );
 
-    if (existing) {
-      return {
-        outcome: "already-graduated",
-        targetBrickId: existing._id,
-        targetCampaignName: target.name,
-      };
-    }
+  // Désactivation de l'original — faite dans les DEUX branches : c'est elle
+  // qui garantit qu'un seul exemplaire reste actif.
+  await ctx.db.patch(brickId, { active: false });
 
-    const targetBrickId = await ctx.db.insert("scriptBricks", {
-      projectId: ctx.projectId,
-      campaignId: target._id,
-      kind: "hook",
-      label: brick.label,
-      content: brick.content,
-      mode: brick.mode,
-      // La CONSIGNE suit le hook : c'est une propriété du texte, pas de la
-      // campagne qui l'héberge.
-      instruction: brick.instruction,
-      active: true,
-      createdAt: Date.now(),
-    });
-
-    const runs = await hookRunsOf(ctx, ctx.projectId, brickId);
-    const meilleur = bestRun(runs);
-    await ctx.db.insert("hookGraduations", {
-      projectId: ctx.projectId,
-      sourceBrickId: brickId,
-      sourceCampaignId: brick.campaignId,
-      targetBrickId,
-      targetCampaignId: target._id,
-      content: brick.content,
-      graduatedAt: Date.now(),
-      scores: {
-        vues: meilleur?.vues ?? 0,
-        likes: meilleur?.likes ?? 0,
-        saves: meilleur?.saves ?? undefined,
-        runs: runs.length,
-      },
-    });
-
+  if (existing) {
     return {
-      outcome: "graduated",
-      targetBrickId,
+      outcome: "already-graduated",
+      targetBrickId: existing._id,
       targetCampaignName: target.name,
     };
-  },
-});
+  }
+
+  const targetBrickId = await ctx.db.insert("scriptBricks", {
+    projectId: ctx.projectId,
+    campaignId: target._id,
+    kind: "hook",
+    label: brick.label,
+    content: brick.content,
+    mode: brick.mode,
+    // La CONSIGNE suit le hook : c'est une propriété du texte, pas de la
+    // campagne qui l'héberge.
+    instruction: brick.instruction,
+    active: true,
+    createdAt: Date.now(),
+  });
+
+  const runs = await hookRunsOf(ctx, ctx.projectId, brickId);
+  const meilleur = bestRun(runs);
+  await ctx.db.insert("hookGraduations", {
+    projectId: ctx.projectId,
+    sourceBrickId: brickId,
+    sourceCampaignId: brick.campaignId,
+    targetBrickId,
+    targetCampaignId: target._id,
+    content: brick.content,
+    graduatedAt: Date.now(),
+    scores: {
+      vues: meilleur?.vues ?? 0,
+      likes: meilleur?.likes ?? 0,
+      saves: meilleur?.saves ?? undefined,
+      runs: runs.length,
+    },
+  });
+
+  return {
+    outcome: "graduated",
+    targetBrickId,
+    targetCampaignName: target.name,
+  };
+}
 
 /**
  * Ce qu'il faut MONTRER avant de graduer : le texte du hook, ses scores, et vers
