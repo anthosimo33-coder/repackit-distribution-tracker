@@ -76,6 +76,12 @@ test("une créatrice-manager va d'un espace à l'autre, dans les deux sens", asy
   // …et retour vers l'app interne.
   await page.getByRole("link", { name: /Espace équipe/ }).first().click();
   await page.waitForURL((u) => u.pathname.startsWith("/admin"), { timeout: 60_000 });
+  // La sidebar se remonte DÉPLIÉE puis relit « réduite » (localStorage) après
+  // le montage. Sans cette attente, l'assertion suivante passait si elle
+  // tombait sur la frame dépliée, et échouait sinon : les liens réduits
+  // n'avaient pas de nom accessible. On attend donc l'état réduit, et c'est
+  // bien le lien RÉDUIT qu'on cherche par son nom.
+  await expect(page.getByRole("button", { name: "Étendre la sidebar" })).toBeVisible();
   await expect(page.getByRole("link", { name: /Assignments/ }).first()).toBeVisible();
 
   // MOBILE : la sidebar est masquée sous md, la porte vit dans le header.
