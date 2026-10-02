@@ -1500,7 +1500,12 @@
     "ERR_COMPTA_USAGE_INVALID": "Unknown withdrawal purpose.",
     "ERR_COMPTA_TRANSFER_FAILED": "This withdrawal failed: the money went back to Whop, there's nothing to split.",
     "ERR_COMPTA_PARTS_INVALID": "Invalid split: positive amounts that don't add up to more than the withdrawal, and a note for each part counted as an expense.",
-    "ERR_COMPTA_CHARGE_LINKED": "This expense comes from a split withdrawal: edit it from the withdrawal."
+    "ERR_COMPTA_CHARGE_LINKED": "This expense comes from a split withdrawal: edit it from the withdrawal.",
+    "ERR_COMPTA_ACCOUNT_INVALID": "Invalid account: give it a name (60 characters max) no other account uses, and a currency that has a rate.",
+    "ERR_COMPTA_ACCOUNT_NOT_FOUND": "This account no longer exists.",
+    "ERR_COMPTA_DESTINATION_TAKEN": "The Whop destination “{destination}” already goes to the account “{account}”: a destination goes to one account only.",
+    "ERR_COMPTA_READING_INVALID": "Invalid reading: a YYYY-MM-DD day that is not in the future, and a numeric balance.",
+    "ERR_COMPTA_PROVISION_INVALID": "Invalid amount: a positive payment, dated on a day that is not in the future."
   },
   "calendar": {
     "weekday": {

@@ -1500,7 +1500,12 @@
     "ERR_COMPTA_USAGE_INVALID": "Uso de saque desconhecido.",
     "ERR_COMPTA_TRANSFER_FAILED": "Este saque falhou: o dinheiro voltou para a Whop, não há nada a dividir.",
     "ERR_COMPTA_PARTS_INVALID": "Divisão inválida: valores positivos cuja soma não passe do saque, e um motivo para cada parte contada como despesa.",
-    "ERR_COMPTA_CHARGE_LINKED": "Esta despesa vem da divisão de um saque: altere-a a partir do saque."
+    "ERR_COMPTA_CHARGE_LINKED": "Esta despesa vem da divisão de um saque: altere-a a partir do saque.",
+    "ERR_COMPTA_ACCOUNT_INVALID": "Conta inválida: dê-lhe um nome (60 caracteres no máximo) que nenhuma outra conta use, e uma moeda com taxa de câmbio.",
+    "ERR_COMPTA_ACCOUNT_NOT_FOUND": "Esta conta já não existe.",
+    "ERR_COMPTA_DESTINATION_TAKEN": "O destino Whop «{destination}» já chega à conta «{account}»: um destino chega a uma só conta.",
+    "ERR_COMPTA_READING_INVALID": "Saldo inválido: um dia AAAA-MM-DD que não esteja no futuro e um saldo numérico.",
+    "ERR_COMPTA_PROVISION_INVALID": "Valor inválido: um pagamento positivo, com uma data que não esteja no futuro."
   },
   "calendar": {
     "weekday": {

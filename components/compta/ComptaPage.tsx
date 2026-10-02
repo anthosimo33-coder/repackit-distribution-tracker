@@ -37,6 +37,7 @@ import { ComptaThresholdCard } from "./ComptaThresholdCard";
 import { ComptaMonthlyTable } from "./ComptaMonthlyTable";
 import { ComptaTransfersCard } from "./ComptaTransfersCard";
 import { ComptaChargesCard } from "./ComptaChargesCard";
+import { ComptaTreasuryCard } from "./ComptaTreasuryCard";
 import { ComptaMethod } from "./ComptaMethod";
 import { ComptaClassifyDialog, type ClassifyTarget } from "./ComptaClassifyDialog";
 import { ComptaExportDialog } from "./ComptaExportDialog";
@@ -204,6 +205,8 @@ export function ComptaPage() {
           <BalanceCard data={data} />
         </div>
       </div>
+
+      {data.configured && <ComptaTreasuryCard />}
 
       <ComptaMonthlyTable data={data} onExport={(m) => setExportMonth(m)} />
 

@@ -6,6 +6,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { createFormatWithRate } from "./helpers/formats";
 import { api } from "../convex/_generated/api";
+import { formatMoney } from "../convex/moneyFormat";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
 
@@ -700,6 +701,178 @@ test.describe("Compta", () => {
       await page.getByRole("button", { name: /Exporter septembre 2025/ }).click();
       await expect(page.getByTestId("compta-export-scans-low")).toContainText("948,60");
       await expect(page.getByTestId("compta-export-creators-gap")).toContainText(/250,00\s*€ sortis/);
+    } finally {
+      await restore();
+    }
+  });
+
+  test("trésorerie : comptes relevés, virements arrivés depuis, mis de côté", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { projectId, restore } = await setup(ts);
+    try {
+      const treso = () => admin.query(api.compta.getComptaTreasury, {});
+      const vide = await treso();
+      // Aucun compte : seul Whop compte, et il vaut le solde de l'onglet.
+      const solde = (await row(2025, "2025-09")).o.balance.converted!;
+      expect(vide.whop.total).toBe(solde);
+      expect(vide).toMatchObject({ accounts: [], inCash: solde, available: solde, staleCount: 0, unreadCount: 0 });
+      // Les destinations des virements RÉUSSIS — jamais celle du retrait échoué.
+      expect(vide.destinations.map((d) => [d.name, d.count])).toEqual([
+        ["Antho Wallet", 1],
+        ["SEPA ••4821", 1],
+      ]);
+
+      const list = await admin.query(api.compta.listComptaTransfers, { month: "2025-09" });
+      const w = list.transfers.find((x) => x.sourceId === `wdrl_e2e_${ts}`)!;
+      const usd = list.transfers.find((x) => x.sourceId === `wdrl_usd_${ts}`)!;
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [
+          { id: "p", amount: 1418.63, usage: "pay", note: "Ma paie de septembre" },
+          { id: "i", amount: 581.37, usage: "provision", note: "Impôts, 25 % du virement" },
+        ],
+      });
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: usd._id,
+        parts: [{ id: "r", amount: 31.24, usage: "recover", note: "USDC bloqué chez Revolut" }],
+      });
+
+      // Relevé le 20/09, AVANT le virement du 25/09 vers ce compte : il s'y ajoute.
+      const { accountId } = await admin.mutation(api.compta.saveAccountReading, {
+        newAccount: { name: "Antho Banque", currency: "eur" },
+        destinations: ["SEPA ••4821"],
+        day: "2025-09-20",
+        amount: 1337.49,
+      });
+      // Le wallet reçoit des dollars bloqués : rien n'est arrivé depuis son relevé.
+      const { accountId: walletId } = await admin.mutation(api.compta.saveAccountReading, {
+        newAccount: { name: "Antho Wallet USDC", currency: "usd" },
+        destinations: ["Antho Wallet"],
+        day: "2025-09-01",
+        amount: 12.5,
+      });
+      const t1 = await treso();
+      const banque = t1.accounts.find((a) => a._id === accountId)!;
+      expect(banque).toMatchObject({
+        reading: { day: "2025-09-20", amount: 1337.49, converted: 1337.49 },
+        since: 2000,
+        estimated: 3337.49,
+        counted: true,
+        stale: true,
+      });
+      // 12,50 $ × 0,86 ; les 31,24 $ à récupérer ne sont jamais arrivés.
+      expect(t1.accounts.find((a) => a._id === walletId)).toMatchObject({ since: 0, estimated: 10.75, counted: true });
+      expect(t1.setAside).toMatchObject({ provisioned: 581.37, used: 0, remaining: 581.37 });
+      expect(t1.toRecover).toBe(26.87);
+      const caisse = Math.round((solde + 3337.49 + 10.75) * 100) / 100;
+      expect(t1).toMatchObject({ inCash: caisse, available: Math.round((caisse - 581.37) * 100) / 100, staleCount: 2 });
+
+      // Refus : une destination n'arrive que sur un compte ; nom déjà pris ; jour futur.
+      await expect(
+        admin.mutation(api.compta.saveAccountReading, {
+          newAccount: { name: "Revolut pro", currency: "eur" },
+          destinations: ["SEPA ••4821"],
+          day: "2025-09-20",
+          amount: 10,
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_DESTINATION_TAKEN/);
+      await expect(
+        admin.mutation(api.compta.saveAccountReading, {
+          newAccount: { name: "antho banque", currency: "eur" },
+          destinations: [],
+          day: "2025-09-20",
+          amount: 10,
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_ACCOUNT_INVALID/);
+      await expect(
+        admin.mutation(api.compta.saveAccountReading, { accountId, destinations: ["SEPA ••4821"], day: "2999-01-01", amount: 10 }),
+      ).rejects.toThrow(/ERR_COMPTA_READING_INVALID/);
+
+      // Relevé APRÈS le virement : il est déjà dedans. Même jour = remplace.
+      await admin.mutation(api.compta.saveAccountReading, { accountId, destinations: ["SEPA ••4821"], day: "2025-09-26", amount: 3101.2 });
+      await admin.mutation(api.compta.saveAccountReading, { accountId, destinations: ["SEPA ••4821"], day: "2025-09-26", amount: 3104.2 });
+      const t2 = (await treso()).accounts.find((a) => a._id === accountId)!;
+      expect(t2).toMatchObject({ since: 0, estimated: 3104.2 });
+      expect(t2.history.map((h) => [h.day, h.amount])).toEqual([
+        ["2025-09-26", 3104.2],
+        ["2025-09-20", 1337.49],
+      ]);
+
+      // Mis de côté payé : il baisse ; annulé : il revient.
+      const { useId } = await admin.mutation(api.compta.recordProvisionUse, { day: "2025-10-15", amount: 200, note: "URSSAF 3e trimestre" });
+      expect((await treso()).setAside).toMatchObject({ used: 200, remaining: 381.37 });
+      await expect(admin.mutation(api.compta.recordProvisionUse, { day: "2025-10-15", amount: -5 })).rejects.toThrow(
+        /ERR_COMPTA_PROVISION_INVALID/,
+      );
+      await admin.mutation(api.compta.deleteProvisionUse, { useId });
+      expect((await treso()).setAside.remaining).toBe(581.37);
+
+      // Sans relevé, un compte est montré mais pas compté.
+      const wallet = (await treso()).accounts.find((a) => a._id === walletId)!;
+      await admin.mutation(api.compta.deleteAccountReading, { readingId: wallet.history[0]._id });
+      const t3 = await treso();
+      expect(t3.accounts.find((a) => a._id === walletId)).toMatchObject({ reading: null, counted: false, estimated: null });
+      expect(t3.unreadCount).toBe(1);
+      await admin.mutation(api.compta.deleteComptaAccount, { accountId: walletId });
+      expect((await treso()).accounts.map((a) => a.name)).toEqual(["Antho Banque"]);
+      void projectId;
+    } finally {
+      await restore();
+    }
+  });
+
+  test("écran : relever un solde, voir le disponible, marquer le mis de côté payé", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { restore } = await setup(ts);
+    try {
+      const list = await admin.query(api.compta.listComptaTransfers, { month: "2025-09" });
+      const w = list.transfers.find((x) => x.sourceId === `wdrl_e2e_${ts}`)!;
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [{ id: "i", amount: 581.37, usage: "provision", note: "Impôts, 25 % du virement" }],
+      });
+      const whop = (await admin.query(api.compta.getComptaTreasury, {})).whop.total!;
+      const eur = (n: number) => new RegExp(formatMoney(n, "eur").replace(/\s/g, "\\s?"));
+
+      await page.goto(adminPath("/compta"));
+      const carte = page.getByTestId("compta-treasury");
+      // Aucun compte : Whop − mis de côté.
+      await expect(page.getByTestId("compta-treasury-available")).toHaveText(eur(Math.round((whop - 581.37) * 100) / 100), {
+        timeout: 20_000,
+      });
+      await expect(carte).toContainText("Aucun compte : seul Whop est compté");
+      await expect(page.getByTestId("compta-treasury-stale")).toHaveCount(0);
+
+      // Relever un premier compte, depuis l'écran.
+      await carte.getByRole("button", { name: "Relever un solde" }).click();
+      const releve = page.getByRole("dialog");
+      await releve.getByLabel("Nom du compte", { exact: true }).fill("Antho Banque");
+      await releve.getByLabel("Date du relevé", { exact: true }).fill("2025-09-20");
+      await releve.getByLabel("Solde", { exact: true }).fill("1337,49");
+      await releve.getByRole("checkbox", { name: "SEPA ••4821" }).click();
+      await page.getByTestId("compta-reading-save").click();
+
+      // 1 337,49 € relevés + le virement de 2 000 € arrivé le 25/09.
+      const compte = page.getByTestId("compta-account-Antho Banque");
+      await expect(compte).toContainText(eur(3337.49));
+      await expect(compte).toContainText("relevé le 20/09");
+      await expect(page.getByTestId("compta-treasury-stale")).toContainText("Un solde relevé il y a plus de 14 jours");
+      await expect(page.getByTestId("compta-treasury-available")).toHaveText(
+        eur(Math.round((whop + 3337.49 - 581.37) * 100) / 100),
+      );
+
+      // Marquer payé une partie du mis de côté.
+      await page.getByTestId("compta-treasury-aside").getByRole("button", { name: "Marquer payé" }).click();
+      const paye = page.getByRole("dialog");
+      await paye.getByLabel("Montant", { exact: true }).fill("200");
+      await paye.getByLabel("Motif", { exact: true }).fill("URSSAF 3e trimestre");
+      await page.getByTestId("compta-provision-save").click();
+      await expect(page.getByTestId("compta-treasury-aside")).toContainText(/−\s?381,37\s*€/);
+      await expect(page.getByTestId("compta-treasury-available")).toHaveText(
+        eur(Math.round((whop + 3337.49 - 381.37) * 100) / 100),
+      );
     } finally {
       await restore();
     }

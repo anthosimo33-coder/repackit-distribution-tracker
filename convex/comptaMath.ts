@@ -780,6 +780,90 @@ export function creatorsControl(
   return { paid, sent, gap, significant: Math.abs(gap) > tolerance };
 }
 
+// ─── Trésorerie ──────────────────────────────────────────────────────────────
+
+/** Au-delà, un solde relevé est signalé « à relever » : il a pu bouger. */
+export const TREASURY_STALE_DAYS = 14;
+
+/**
+ * Virements Whop arrivés sur un compte APRÈS son dernier relevé : ceux vers ses
+ * destinations, datés d'un jour postérieur au relevé, réussis, moins leurs parts
+ * « à récupérer » (sorties de Whop, jamais arrivées). `null` si l'un n'a pas de
+ * taux : jamais additionné 1:1.
+ */
+export function transfersSinceReading(
+  transfers: readonly {
+    day: string;
+    destination: string | null;
+    failed: boolean;
+    converted: number | null;
+    recoverConverted: number | null;
+  }[],
+  destinations: readonly string[],
+  readingDay: string,
+): number | null {
+  const ids = new Set(destinations);
+  let sum = 0;
+  for (const t of transfers) {
+    if (t.failed || t.destination === null || !ids.has(t.destination) || t.day <= readingDay) continue;
+    if (t.converted === null || t.recoverConverted === null) return null;
+    sum += t.converted - t.recoverConverted;
+  }
+  return round2(sum);
+}
+
+export type TreasuryAccountInput = {
+  id: string;
+  /** Dernier relevé, contre-valeur en devise de référence (`null` sans taux). */
+  reading: { day: string; converted: number | null } | null;
+  /** Virements arrivés depuis le relevé (cf transfersSinceReading). */
+  since: number | null;
+};
+
+/**
+ * La TRÉSORERIE d'aujourd'hui : en caisse = Whop + comptes RELEVÉS (relevé +
+ * virements arrivés depuis) ; mis de côté = parts « Mise de côté » − ce qui en a
+ * été payé (jamais négatif) ; disponible = en caisse − mis de côté. Un compte
+ * jamais relevé n'est pas compté (on ne sait pas ce qu'il contient). `null`
+ * dès qu'un terme compté n'est pas chiffré.
+ */
+export function treasuryView(input: {
+  today: string;
+  whop: number | null;
+  accounts: readonly TreasuryAccountInput[];
+  provisioned: number | null;
+  used: number;
+}): {
+  accounts: { id: string; counted: boolean; estimated: number | null; ageDays: number | null; stale: boolean }[];
+  inCash: number | null;
+  setAside: number | null;
+  available: number | null;
+  staleCount: number;
+  unreadCount: number;
+} {
+  const accounts = input.accounts.map((a) => {
+    if (a.reading === null) return { id: a.id, counted: false, estimated: null, ageDays: null, stale: false };
+    const ageDays = Math.max(0, daysInclusive(a.reading.day, input.today) - 1);
+    const estimated =
+      a.reading.converted === null || a.since === null ? null : round2(a.reading.converted + a.since);
+    return { id: a.id, counted: true, estimated, ageDays, stale: ageDays > TREASURY_STALE_DAYS };
+  });
+  const counted = accounts.filter((a) => a.counted);
+  const inCash =
+    input.whop === null || counted.some((a) => a.estimated === null)
+      ? null
+      : round2(input.whop + counted.reduce((s, a) => s + (a.estimated ?? 0), 0));
+  const setAside = input.provisioned === null ? null : round2(Math.max(0, input.provisioned - input.used));
+  return {
+    accounts,
+    inCash,
+    setAside,
+    available: inCash === null || setAside === null ? null : round2(inCash - setAside),
+    staleCount: counted.filter((a) => a.stale).length,
+    unreadCount: accounts.length - counted.length,
+  };
+}
+
 // ─── Scans (PostHog cost_usd) ────────────────────────────────────────────────
 
 export type ScanMonth = {

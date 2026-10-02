@@ -8,7 +8,7 @@ import {
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { e2eMutation, permissionMutation, permissionQuery } from "./functions";
+import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx } from "./functions";
 import { fetchWhopLedger, type NormalizedLedgerLine } from "./whopLedgerApi";
 import { cellNum, cellStr, runHogQL } from "./posthogApi";
 import { projectFx } from "./whopRevenue";
@@ -39,6 +39,9 @@ import {
   scanCostUsd,
   thresholdView,
   totalsByType,
+  transfersSinceReading,
+  treasuryView,
+  TREASURY_STALE_DAYS,
   transferPartsError,
   transferPartsOf,
   type ComptaBucket,
@@ -1186,6 +1189,297 @@ export const stopChargeSeries = permissionMutation("business.read")({
   },
 });
 
+// ─── Trésorerie ──────────────────────────────────────────────────────────────
+
+/**
+ * La TRÉSORERIE d'aujourd'hui : le solde Whop (calculé depuis le grand livre),
+ * chaque compte RELEVÉ (dernier relevé + virements Whop arrivés depuis), l'argent
+ * mis de côté (parts « Mise de côté » − ce qui en a été payé) et à récupérer.
+ * Un compte jamais relevé est montré, pas compté.
+ */
+export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
+  const months = await allMonths(ctx, ctx.projectId);
+  const { state, fx } = await loadContext(ctx, ctx.projectId, months);
+  const today = parisDayKey(Date.now());
+
+  const balances = balanceByCurrency(months.flatMap((m) => m.days)).map((b) => {
+    const conv = convert(b.amount, b.currency, fx);
+    return { currency: b.currency, amount: b.amount, converted: conv === null ? null : round2(conv) };
+  });
+  const whopTotal = balances.every((b) => b.converted !== null)
+    ? round2(balances.reduce((s, b) => s + (b.converted ?? 0), 0))
+    : null;
+
+  const reversals = await reversalsBySource(ctx, ctx.projectId);
+  const transfers = (
+    await ctx.db
+      .query("whopLedgerLines")
+      .withIndex("by_project_type_posted", (q) => q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"))
+      .collect()
+  ).map((l) => transferOut(l, reversals, fx));
+  const partsOf = (usage: string) =>
+    transfers.filter((x) => !x.failed).flatMap((x) => x.parts.filter((p) => p.usage === usage));
+  const sumConv = (list: readonly { converted: number | null }[]) =>
+    list.some((p) => p.converted === null) ? null : round2(list.reduce((s, p) => s + (p.converted ?? 0), 0));
+  const flows = transfers.map((x) => ({
+    day: x.day,
+    destination: x.destination,
+    failed: x.failed,
+    converted: x.converted,
+    recoverConverted: sumConv(x.parts.filter((p) => p.usage === "recover")),
+  }));
+
+  const accountDocs = (
+    await ctx.db
+      .query("comptaAccounts")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()
+  ).sort((a, b) => a.createdAt - b.createdAt);
+  const accounts = await Promise.all(
+    accountDocs.map(async (a) => {
+      const history = await ctx.db
+        .query("comptaAccountReadings")
+        .withIndex("by_account_day", (q) => q.eq("accountId", a._id))
+        .order("desc")
+        .take(6);
+      const last = history[0] ?? null;
+      const conv = last === null ? null : convert(last.amount, a.currency, fx);
+      return {
+        doc: a,
+        history,
+        reading: last === null ? null : { day: last.day, amount: last.amount, converted: conv === null ? null : round2(conv) },
+        since: last === null ? null : transfersSinceReading(flows, a.destinations, last.day),
+      };
+    }),
+  );
+
+  const uses = (
+    await ctx.db
+      .query("comptaProvisionUses")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()
+  ).sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : b.createdAt - a.createdAt));
+  const used = round2(uses.reduce((s, u) => s + (convert(u.amount, u.currency, fx) ?? 0), 0));
+  const provisioned = sumConv(partsOf("provision"));
+  const view = treasuryView({
+    today,
+    whop: whopTotal,
+    accounts: accounts.map((a) => ({
+      id: a.doc._id as string,
+      reading: a.reading === null ? null : { day: a.reading.day, converted: a.reading.converted },
+      since: a.since,
+    })),
+    provisioned,
+    used,
+  });
+
+  // Les destinations Whop vues sur les virements réussis, et le compte où elles arrivent.
+  const owner = new Map<string, Id<"comptaAccounts">>();
+  for (const a of accountDocs) for (const d of a.destinations) owner.set(d, a._id);
+  const seen = new Map<string, number>();
+  for (const x of transfers) {
+    if (x.failed || x.destination === null) continue;
+    seen.set(x.destination, (seen.get(x.destination) ?? 0) + 1);
+  }
+  const lastTransfer = [...transfers].sort((a, b) => b.postedAt - a.postedAt).find((x) => !x.failed) ?? null;
+
+  return {
+    currency: fx.target,
+    // Devises qu'un compte peut porter : la référence et celles qui ont un taux.
+    currencies: Object.keys(fx.rates).sort((a, b) =>
+      a === fx.target ? -1 : b === fx.target ? 1 : a.localeCompare(b),
+    ),
+    today,
+    staleDays: TREASURY_STALE_DAYS,
+    whop: {
+      total: whopTotal,
+      byCurrency: balances,
+      lastSyncAt: state?.lastSyncAt ?? null,
+      lastTransfer: lastTransfer
+        ? { day: lastTransfer.day, amount: lastTransfer.amount, currency: lastTransfer.currency }
+        : null,
+    },
+    accounts: accounts.map((a, i) => ({
+      _id: a.doc._id,
+      name: a.doc.name,
+      currency: a.doc.currency,
+      destinations: a.doc.destinations,
+      reading: a.reading,
+      since: a.since,
+      estimated: view.accounts[i].estimated,
+      ageDays: view.accounts[i].ageDays,
+      stale: view.accounts[i].stale,
+      counted: view.accounts[i].counted,
+      history: a.history.map((h) => ({ _id: h._id, day: h.day, amount: h.amount })),
+    })),
+    setAside: {
+      provisioned,
+      used,
+      remaining: view.setAside,
+      uses: uses.map((u) => ({ _id: u._id, day: u.day, amount: u.amount, currency: u.currency, note: u.note ?? null })),
+    },
+    toRecover: sumConv(partsOf("recover")),
+    inCash: view.inCash,
+    available: view.available,
+    staleCount: view.staleCount,
+    unreadCount: view.unreadCount,
+    destinations: [...seen.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count, accountId: owner.get(name) ?? null })),
+  };
+}
+
+/** Bloc « Trésorerie » de l'onglet Compta. */
+export const getComptaTreasury = permissionQuery("business.read")({
+  args: {},
+  handler: (ctx) => comptaTreasuryCore(ctx),
+});
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validDay = (day: string, today: string) =>
+  DAY_RE.test(day) && !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) && day <= today;
+
+/**
+ * RELEVER un solde : sur un compte existant, ou en le créant. Les destinations
+ * Whop cochées arrivent sur ce compte (une destination n'arrive que sur un
+ * compte). Un second relevé le même jour remplace le premier.
+ */
+export const saveAccountReading = permissionMutation("business.read")({
+  args: {
+    accountId: v.optional(v.id("comptaAccounts")),
+    newAccount: v.optional(v.object({ name: v.string(), currency: v.string() })),
+    destinations: v.array(v.string()),
+    day: v.string(),
+    amount: v.number(),
+  },
+  handler: async (ctx, a) => {
+    const today = parisDayKey(Date.now());
+    if (!validDay(a.day, today) || !Number.isFinite(a.amount) || Math.abs(a.amount) > 100_000_000) {
+      throw err(ERR.COMPTA_READING_INVALID, "Relevé invalide.");
+    }
+    const all = await ctx.db
+      .query("comptaAccounts")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    let accountId: Id<"comptaAccounts">;
+    if (a.accountId !== undefined) {
+      const acc = all.find((x) => x._id === a.accountId);
+      if (!acc || a.newAccount !== undefined) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Compte introuvable.");
+      accountId = acc._id;
+    } else {
+      const name = a.newAccount?.name.trim() ?? "";
+      const currency = a.newAccount?.currency.trim().toLowerCase() ?? "";
+      const months = await allMonths(ctx, ctx.projectId);
+      const { fx } = await loadContext(ctx, ctx.projectId, months);
+      if (
+        name === "" ||
+        name.length > 60 ||
+        all.some((x) => x.name.trim().toLowerCase() === name.toLowerCase()) ||
+        rateOf(currency, fx) === null
+      ) {
+        throw err(ERR.COMPTA_ACCOUNT_INVALID, "Compte invalide.");
+      }
+      accountId = await ctx.db.insert("comptaAccounts", {
+        projectId: ctx.projectId,
+        name,
+        currency,
+        destinations: [],
+        createdAt: Date.now(),
+      });
+    }
+    const destinations = [...new Set(a.destinations.map((d) => d.trim()).filter((d) => d !== ""))];
+    for (const d of destinations) {
+      const other = all.find((x) => x._id !== accountId && x.destinations.includes(d));
+      if (other) {
+        throw err(ERR.COMPTA_DESTINATION_TAKEN, "Destination déjà rattachée à un autre compte.", {
+          destination: d,
+          account: other.name,
+        });
+      }
+    }
+    await ctx.db.patch(accountId, { destinations });
+    const existing = await ctx.db
+      .query("comptaAccountReadings")
+      .withIndex("by_account_day", (q) => q.eq("accountId", accountId).eq("day", a.day))
+      .first();
+    if (existing) await ctx.db.patch(existing._id, { amount: round2(a.amount), createdBy: ctx.userId });
+    else {
+      await ctx.db.insert("comptaAccountReadings", {
+        projectId: ctx.projectId,
+        accountId,
+        day: a.day,
+        amount: round2(a.amount),
+        createdAt: Date.now(),
+        createdBy: ctx.userId,
+      });
+    }
+    return { accountId };
+  },
+});
+
+/** Retirer un relevé saisi par erreur : le précédent redevient le dernier. */
+export const deleteAccountReading = permissionMutation("business.read")({
+  args: { readingId: v.id("comptaAccountReadings") },
+  handler: async (ctx, { readingId }): Promise<null> => {
+    const r = await ctx.db.get(readingId);
+    if (!r || r.projectId !== ctx.projectId) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Relevé introuvable.");
+    await ctx.db.delete(readingId);
+    return null;
+  },
+});
+
+/** Supprimer un compte et ses relevés (les virements Whop, eux, ne bougent pas). */
+export const deleteComptaAccount = permissionMutation("business.read")({
+  args: { accountId: v.id("comptaAccounts") },
+  handler: async (ctx, { accountId }): Promise<null> => {
+    const acc = await ctx.db.get(accountId);
+    if (!acc || acc.projectId !== ctx.projectId) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Compte introuvable.");
+    for (const r of await ctx.db
+      .query("comptaAccountReadings")
+      .withIndex("by_account_day", (q) => q.eq("accountId", accountId))
+      .collect())
+      await ctx.db.delete(r._id);
+    await ctx.db.delete(accountId);
+    return null;
+  },
+});
+
+/** « Marquer payé » : de l'argent mis de côté a servi (impôts, URSSAF). */
+export const recordProvisionUse = permissionMutation("business.read")({
+  args: { day: v.string(), amount: v.number(), note: v.optional(v.string()) },
+  handler: async (ctx, a) => {
+    const today = parisDayKey(Date.now());
+    const note = a.note?.trim() ?? "";
+    if (!validDay(a.day, today) || !(a.amount > 0) || !Number.isFinite(a.amount) || a.amount > 100_000_000 || note.length > 200) {
+      throw err(ERR.COMPTA_PROVISION_INVALID, "Paiement invalide.");
+    }
+    const months = await allMonths(ctx, ctx.projectId);
+    const { fx } = await loadContext(ctx, ctx.projectId, months);
+    if (fx.target === null) throw err(ERR.COMPTA_PROVISION_INVALID, "Devise de référence inconnue.");
+    const useId = await ctx.db.insert("comptaProvisionUses", {
+      projectId: ctx.projectId,
+      day: a.day,
+      amount: round2(a.amount),
+      currency: fx.target,
+      ...(note !== "" ? { note } : {}),
+      createdAt: Date.now(),
+      createdBy: ctx.userId,
+    });
+    return { useId };
+  },
+});
+
+/** Annuler un « marqué payé » saisi par erreur. */
+export const deleteProvisionUse = permissionMutation("business.read")({
+  args: { useId: v.id("comptaProvisionUses") },
+  handler: async (ctx, { useId }): Promise<null> => {
+    const u = await ctx.db.get(useId);
+    if (!u || u.projectId !== ctx.projectId) throw err(ERR.COMPTA_PROVISION_INVALID, "Paiement introuvable.");
+    await ctx.db.delete(useId);
+    return null;
+  },
+});
+
 /** Journal des exports — pour prévenir qu'une règle changerait un mois envoyé. */
 export const logComptaExport = permissionMutation("business.read")({
   args: { month: v.string(), kind: v.union(v.literal("journal"), v.literal("summary")) },
@@ -1661,6 +1955,13 @@ export const e2eResetCompta = e2eMutation({
       .withIndex("by_project_month", (q) => q.eq("projectId", projectId))
       .collect())
       await ctx.db.delete(c._id);
+    for (const table of ["comptaAccountReadings", "comptaAccounts", "comptaProvisionUses"] as const) {
+      for (const d of await ctx.db
+        .query(table)
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect())
+        await ctx.db.delete(d._id);
+    }
     return null;
   },
 });

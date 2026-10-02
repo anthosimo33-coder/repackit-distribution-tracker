@@ -146,6 +146,7 @@
     "components/compta/ComptaPage.tsx",
     "components/compta/ComptaThresholdCard.tsx",
     "components/compta/ComptaTransfersCard.tsx",
+    "components/compta/ComptaTreasuryCard.tsx",
     "components/compta/compta-format.ts",
     "components/comptes/CompteAdminActions.tsx",
     "components/comptes/CompteDialog.tsx",

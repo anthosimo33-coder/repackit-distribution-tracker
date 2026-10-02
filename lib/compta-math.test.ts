@@ -17,6 +17,8 @@ import {
   scanCostUsd,
   scansSwap,
   thresholdView,
+  transfersSinceReading,
+  treasuryView,
   transferPartsError,
   transferPartsOf,
   type LedgerDayCell,
@@ -451,5 +453,80 @@ describe("argent à récupérer", () => {
     expect(
       transferPartsError([{ id: "a", amount: 493.23, usage: "recover", note: "USDC", countedAs: "other" }], 493.23),
     ).toBe("counted");
+  });
+});
+
+describe("trésorerie : Whop + comptes relevés − mis de côté", () => {
+  // Les virements de Snytch, à la forme de la prod (destinations Whop réelles).
+  const virements = [
+    { day: "2026-09-15", destination: "Antho Banque", failed: false, converted: 2325.49, recoverConverted: 0 },
+    { day: "2026-09-02", destination: "usdc jeremie", failed: false, converted: 493.23, recoverConverted: 493.23 },
+    { day: "2026-09-30", destination: "Antho Banque", failed: false, converted: 412.6, recoverConverted: 0 },
+    { day: "2026-10-01", destination: "Antho Banque", failed: true, converted: 304.47, recoverConverted: 0 },
+    { day: "2026-10-01", destination: "SOL compte 7 Antho", failed: false, converted: 329.49, recoverConverted: 0 },
+  ];
+
+  it("un compte reçoit les virements arrivés APRÈS son relevé, ni échoués ni d'ailleurs", () => {
+    // Relevé le 15/09 : le virement du 15/09 est déjà dedans, celui du 30/09 non.
+    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-15")).toBe(412.6);
+    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-30")).toBe(0);
+    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-14")).toBe(2738.09);
+  });
+
+  it("une part « à récupérer » n'est jamais arrivée : elle ne s'ajoute pas", () => {
+    expect(transfersSinceReading(virements, ["usdc jeremie"], "2026-09-01")).toBe(0);
+  });
+
+  it("un virement sans taux rend la somme non chiffrée", () => {
+    expect(
+      transfersSinceReading(
+        [{ day: "2026-09-20", destination: "Antho Wallet", failed: false, converted: null, recoverConverted: 0 }],
+        ["Antho Wallet"],
+        "2026-09-01",
+      ),
+    ).toBeNull();
+  });
+
+  it("disponible = Whop + comptes relevés − mis de côté ; un compte jamais relevé n'est pas compté", () => {
+    const v = treasuryView({
+      today: "2026-10-02",
+      whop: 4744.44,
+      accounts: [
+        { id: "antho", reading: { day: "2026-09-15", converted: 1337.49 }, since: 412.6 },
+        { id: "sol", reading: null, since: null },
+      ],
+      provisioned: 581.37,
+      used: 0,
+    });
+    expect(v.accounts).toEqual([
+      { id: "antho", counted: true, estimated: 1750.09, ageDays: 17, stale: true },
+      { id: "sol", counted: false, estimated: null, ageDays: null, stale: false },
+    ]);
+    expect(v).toMatchObject({ inCash: 6494.53, setAside: 581.37, available: 5913.16, staleCount: 1, unreadCount: 1 });
+  });
+
+  it("à 14 jours un relevé est encore frais, à 15 il est à relever", () => {
+    const age = (day: string) =>
+      treasuryView({ today: "2026-10-02", whop: 0, accounts: [{ id: "a", reading: { day, converted: 1 }, since: 0 }], provisioned: 0, used: 0 }).accounts[0];
+    expect(age("2026-09-18")).toMatchObject({ ageDays: 14, stale: false });
+    expect(age("2026-09-17")).toMatchObject({ ageDays: 15, stale: true });
+  });
+
+  it("le mis de côté baisse de ce qui est payé, sans jamais devenir négatif", () => {
+    const base = { today: "2026-10-02", whop: 1000, accounts: [] };
+    expect(treasuryView({ ...base, provisioned: 581.37, used: 400 })).toMatchObject({ setAside: 181.37, available: 818.63 });
+    expect(treasuryView({ ...base, provisioned: 581.37, used: 700 })).toMatchObject({ setAside: 0, available: 1000 });
+  });
+
+  it("un terme non chiffré ne s'additionne pas 1:1", () => {
+    const v = treasuryView({
+      today: "2026-10-02",
+      whop: 4744.44,
+      accounts: [{ id: "wallet", reading: { day: "2026-10-01", converted: null }, since: 0 }],
+      provisioned: 0,
+      used: 0,
+    });
+    expect(v).toMatchObject({ inCash: null, available: null });
+    expect(treasuryView({ today: "2026-10-02", whop: null, accounts: [], provisioned: 0, used: 0 }).available).toBeNull();
   });
 });
