@@ -104,7 +104,7 @@ test.describe("Serveur MCP Jarvia", () => {
 
     const liste = await rpc(url, token, { jsonrpc: "2.0", id: 2, method: "tools/list" });
     const noms = (liste.json!.result as { tools: { name: string }[] }).tools.map((t) => t.name);
-    expect(noms).toEqual(["projets", "comptes", "createatrices", "ponctualite", "rentabilite", "vues", "meilleurs_posts", "scripts", "revenus", "economie_unitaire", "retention", "marches", "paiements", "planning", "validation", "regarder_video", "defis", "veille", "fiabilite", "parcours", "offres", "acquisition", "dashboard", "sante_produit", "compta", "proposer", "propositions", "experiences"]);
+    expect(noms).toEqual(["projets", "comptes", "createatrices", "ponctualite", "rentabilite", "vues", "meilleurs_posts", "scripts", "revenus", "economie_unitaire", "retention", "marches", "paiements", "planning", "validation", "regarder_video", "defis", "veille", "fiabilite", "parcours", "offres", "acquisition", "dashboard", "sante_produit", "compta", "proposer", "propositions", "experiences", "bilan_createatrice"]);
 
     // ── Les données : le compte semé, filtré par pays ───────────────────────
     const comptes = sortie(await rpc(url, token, appel(3, "comptes", { projet: "e2e-test", pays: "IS" })));

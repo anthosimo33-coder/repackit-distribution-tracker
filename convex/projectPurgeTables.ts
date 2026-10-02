@@ -73,6 +73,7 @@ export const TABLES_PURGEES = [
   "mcpWriteLog",
   "mcpPropositions",
   "hookExperiments",
+  "creatorMessages",
   "marketGroups",
   "offerChanges",
   "notificationWindows",

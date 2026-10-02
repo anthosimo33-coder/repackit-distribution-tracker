@@ -126,6 +126,16 @@ export const PROMPTS: readonly McpPrompt[] = [
       { name: "nombre", description: "Nombre de posts à rejouer (défaut : 5)." },
     ],
   },
+  {
+    name: "coach_semaine",
+    title: "Le coach de la semaine",
+    description: "Un retour personnel à chaque créatrice — sa semaine en chiffres, une réussite, un point à travailler, ce qui l'attend — écrit dans sa langue, relu, puis envoyé.",
+    arguments: [
+      ARG_PROJET,
+      { name: "createatrices", description: "Seulement ces créatrices, séparées par des virgules (défaut : toutes les actives)." },
+      { name: "jours", description: "Période relue, en jours (défaut : 7)." },
+    ],
+  },
 ];
 
 // ─── Dates (jours de Paris, en texte AAAA-MM-JJ) ────────────────────────────
@@ -199,6 +209,7 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
   const scripts = ecrit.includes("scripts");
   const publications = ecrit.includes("publications");
   const veille = ecrit.includes("veille");
+  const messages = ecrit.includes("messages");
 
   function obtenir(name: string, args: Record<string, string>): PromptResult | null {
     const p = PROMPTS.find((x) => x.name === name);
@@ -378,6 +389,22 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         missions
           ? "4. Simule chaque rejeu (`rejouer_script` avec `simuler: true`), attends mon accord, rappelle que chaque créatrice reçoit un email, puis rejoue et rends ce qui a été créé."
           : "4. Cette connexion ne peut pas assigner : termine par le tableau, prêt à saisir avec « Rejouer ce script » (ou allume « Missions » dans Jarvia › Connecter Claude).",
+        REGLES,
+      ]);
+    }
+
+    if (name === "coach_semaine") {
+      const jours = entier(args.jours, "jours", 7, 3, 31);
+      const qui = args.createatrices?.trim();
+      return message(p.description, [
+        `Écris le retour de la semaine à ${qui ? `ces créatrices : ${qui}` : "chaque créatrice active"} — les ${jours} derniers jours (du ${decaler(aujourdhui, -(jours - 1))} au ${aujourdhui}).`,
+        projetDe(args),
+        `1. ${qui ? "`createatrices` pour retrouver leurs noms exacts." : "`createatrices` : les actives."} Pour chacune, \`bilan_createatrice\` (du: ${decaler(aujourdhui, -(jours - 1))}, au: ${aujourdhui}). Saute celle qui a reçu un message il y a moins de 3 jours (\`prochainMessagePossibleLe\`) et celle qui n'avait rien de prévu ni de publié : dis-le dans le compte rendu.`,
+        "2. Pour chacune, un message dans SA langue (`langue`), en la tutoyant, qui commence par « Salut <prénom>, » : une réussite précise et chiffrée (son meilleur post, sa ponctualité, un progrès), UN point concret à travailler (une mission manquée ou hors date, un motif de refus qui revient, un hook qui ne prend pas) formulé comme un conseil, et ce qui l'attend dans les 7 jours. 4 à 8 lignes, paragraphes séparés par une ligne vide, pas de signature (l'email signe pour l'équipe). Un objet court et personnel.",
+        "3. Ce que tu ne fais jamais : parler d'une autre créatrice ou d'un classement, promettre ou parler d'argent, citer un chiffre qui n'est pas dans SON bilan, reprocher sans proposer quoi faire.",
+        messages
+          ? "4. Montre-moi tous les messages (créatrice → objet → texte). Après mon accord, message par message, `envoyer_message_createatrice` — rappelle d'abord que chacun part par EMAIL et ne se reprend pas."
+          : "4. Cette connexion ne peut pas écrire aux créatrices : dépose chaque message avec `proposer` (outil envoyer_message_createatrice, arguments createatrice/objet/message) pour que l'équipe l'envoie d'un clic, ou allume « Messages » dans Jarvia › Connecter Claude.",
         REGLES,
       ]);
     }

@@ -907,7 +907,7 @@
     "ecritureOuverte": "{name} peut modifier {domaine}.",
     "ecritureCoupee": "{name} ne peut plus modifier {domaine}.",
     "ecritureImpossible": "Impossible de changer l'autorisation.",
-    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner ou relancer une mission, valider ou refuser une vidéo envoient l’email habituel à la créatrice, et suivre un compte lance un relevé Apify payant.",
+    "ecritureAide": "Une connexion est en lecture seule tant que tu n’autorises pas un domaine ici. Claude te demandera ton accord avant chaque modification ; assigner ou relancer une mission, valider ou refuser une vidéo envoient l’email habituel à la créatrice, suivre un compte lance un relevé Apify payant, et un message du coach part par email à la créatrice.",
     "journalTitre": "Modifications faites par Claude",
     "journalPeriode": "30 derniers jours",
     "journalVide": "Aucune modification pour l'instant.",
@@ -941,7 +941,8 @@
       "ne_plus_suivre": "Ne plus suivre un compte",
       "noter_compte_suivi": "Noter un compte suivi",
       "ajouter_inspiration": "Ajouter une inspiration",
-      "lancer_experience": "Lancer un test A/B"
+      "lancer_experience": "Lancer un test A/B",
+      "envoyer_message_createatrice": "Écrire à une créatrice"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -953,7 +954,8 @@
       "tracker": "Tracker",
       "validation": "Validation",
       "radar": "Radar",
-      "inspirations": "Inspirations"
+      "inspirations": "Inspirations",
+      "messages": "Créatrices"
     },
     "domaine": {
       "compta": {
@@ -980,6 +982,11 @@
         "titre": "Veille",
         "objet": "la veille et la bibliothèque",
         "aria": "Modifications de la veille pour {name}"
+      },
+      "messages": {
+        "titre": "Messages",
+        "objet": "les messages aux créatrices",
+        "aria": "Modifications des messages pour {name}"
       }
     }
   },
@@ -1027,6 +1034,7 @@
     "statutAppliquee": "Appliquée",
     "statutEcartee": "Écartée",
     "voirLesAutres": "{count, plural, one {Voir l’autre proposition} other {Voir les # autres propositions}}",
-    "voirMoins": "Replier"
+    "voirMoins": "Replier",
+    "apercuMessage": "Le message qui partira par email :"
   }
 }

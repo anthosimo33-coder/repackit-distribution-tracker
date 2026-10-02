@@ -1811,6 +1811,25 @@ export default defineSchema({
     .index("by_user_at", ["userId", "at"])
     .index("by_project", ["projectId"]),
 
+  // MESSAGES DE L'ÉQUIPE À UNE CRÉATRICE (le coach, convex/mcpCoach.ts) : écrits
+  // par Claude, relus, envoyés par email (convex/emails.sendTeamMessage). Gardés
+  // pour l'historique et le délai entre deux messages (convex/messageEquipe).
+  creatorMessages: defineTable({
+    projectId: v.id("projects"),
+    creatorId: v.id("creators"),
+    objet: v.string(),
+    message: v.string(),
+    locale: v.union(v.string(), v.null()),
+    envoyePar: v.id("users"),
+    via: v.object({
+      kind: v.union(v.literal("token"), v.literal("oauth"), v.literal("proposition")),
+      name: v.string(),
+    }),
+    envoyeLe: v.number(),
+  })
+    .index("by_creator_envoye", ["creatorId", "envoyeLe"])
+    .index("by_project", ["projectId"]),
+
   // EXPÉRIENCES DE HOOKS (convex/mcpExperiences.ts) — un test A/B : chaque
   // créatrice tourne TOUTES les variantes (hooks), en carré latin sur les jours,
   // même flux et même cta. Le verdict se lit à J+7 (convex/experienceStats).

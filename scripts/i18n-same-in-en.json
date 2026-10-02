@@ -50,6 +50,7 @@
     "admin.common.GraduateHookDialog.saveRate",
     "admin.common.IcpEditDialogForm.description",
     "admin.common.ImageUploader.preview",
+    "admin.common.McpAccessDialog.domaine.messages.titre",
     "admin.common.McpAccessDialog.domaine.scripts.titre",
     "admin.common.McpAccessDialog.section.inspirations",
     "admin.common.McpAccessDialog.section.planning",

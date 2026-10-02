@@ -255,6 +255,20 @@ async function aLeDroit(
 }
 
 /**
+ * Le texte exact d'un message proposé (`envoyer_message_createatrice`) : la
+ * personne qui applique doit lire ce qui partira par email, pas un résumé.
+ */
+function apercuMessage(p: Doc<"mcpPropositions">): { objet: string; message: string } | null {
+  if (p.outil !== "envoyer_message_createatrice") return null;
+  try {
+    const a = JSON.parse(p.argumentsJson) as Record<string, unknown>;
+    return typeof a.objet === "string" && typeof a.message === "string" ? { objet: a.objet, message: a.message } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Les propositions que CETTE personne peut trancher (le droit de l'outil
  * proposé) : en attente d'abord, puis les dernières décisions. Une personne sans
  * aucun de ces droits — un membre de portail — ne voit rien.
@@ -280,6 +294,7 @@ export const listPropositions = authedQuery({
       outil: p.outil,
       resume: p.resume,
       pourquoi: p.pourquoi,
+      apercu: apercuMessage(p),
       lot: p.lot ?? null,
       via: p.via.name,
       statut: p.statut,

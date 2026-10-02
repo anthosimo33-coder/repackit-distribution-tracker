@@ -27,7 +27,9 @@ import {
   reminderEmailCopy,
   emailDate,
   emailAmount,
+  teamMessageCopy,
 } from "./emailMessages";
+import { messageVersHtml } from "./messageEquipe";
 import {
   buildReminderEmail,
   groupRemindersByRecipient,
@@ -501,6 +503,40 @@ export const sendManualNudge = internalAction({
       cta: { label: copy.ctaLabel(rejected), url },
     });
     return deliver(cfg, "relance manuelle", d.email, subject, html);
+  },
+});
+
+// ─── Message de l'équipe à une créatrice (le coach) ─────────────────────────
+
+export const getTeamMessage = internalQuery({
+  args: { messageId: v.id("creatorMessages") },
+  handler: async (ctx, { messageId }) => {
+    const m = await ctx.db.get(messageId);
+    if (!m) return null;
+    const c = await ctx.db.get(m.creatorId);
+    if (!c) return null;
+    return { objet: m.objet, message: m.message, locale: m.locale, email: c.email, name: c.name };
+  },
+});
+
+/**
+ * Le message écrit par Claude et relu par l'équipe (convex/mcpCoach). Le texte
+ * est ÉCHAPPÉ et mis en paragraphes (convex/messageEquipe) ; le gabarit signe.
+ */
+export const sendTeamMessage = internalAction({
+  args: { messageId: v.id("creatorMessages") },
+  handler: async (ctx, { messageId }): Promise<Outcome> => {
+    const cfg = emailConfig();
+    if (!cfg) return warnDisabled("message de l'équipe");
+    const d = await ctx.runQuery(internal.emails.getTeamMessage, { messageId });
+    if (!d) return { ok: false, reason: "not-found" };
+    if (isNonNotifiableRecipient(d.email, d.name)) return { ok: false, reason: "test-recipient" };
+    const html = renderEmail({
+      title: d.objet,
+      bodyHtml: messageVersHtml(d.message),
+      cta: { label: teamMessageCopy(d.locale).ctaLabel, url: `${cfg.appBaseUrl}/app` },
+    });
+    return deliver(cfg, "message de l'équipe", d.email, d.objet, html);
   },
 });
 

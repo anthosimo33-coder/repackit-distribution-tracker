@@ -91,6 +91,7 @@ import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
+import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -1309,6 +1310,7 @@ export function jarviaServer(
     scripts: "les scripts (créer une campagne, ajouter et activer des briques, graduer un hook)",
     publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
+    messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
   };
   let projetsP: Promise<Projet[]> | null = null;
   const projets = () =>
@@ -1585,6 +1587,7 @@ export function jarviaServer(
       // la voie d'une connexion en lecture seule ou d'une routine sans personne.
       ...OUTILS_PROPOSITIONS,
       OUTIL_EXPERIENCES,
+      OUTIL_BILAN,
       ...domaines.flatMap((d) => d.outils),
       ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
     ],
@@ -1603,6 +1606,9 @@ export function jarviaServer(
 
       if (NOMS_EXPERIENCES_LECTURE.has(name)) {
         return appelerExperiences(ctx, args, ids, projet.slug, lire);
+      }
+      if (NOMS_BILAN.has(name)) {
+        return appelerBilan(ctx, args, ids, projet.slug, lire);
       }
       if (NOMS_PROPOSITIONS.has(name)) {
         return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);

@@ -10,6 +10,7 @@ import { DOMAINE_SCRIPTS } from "./mcpWritesScripts";
 import { DOMAINE_PUBLICATIONS } from "./mcpWritesPublications";
 import { DOMAINE_VEILLE } from "./mcpWritesVeille";
 import { DOMAINE_EXPERIENCES } from "./mcpExperiences";
+import { DOMAINE_MESSAGES } from "./mcpCoach";
 import type { DomaineEcriture } from "./mcpWriteCommon";
 
 export const DOMAINES_ECRITURE: readonly DomaineEcriture[] = [
@@ -19,4 +20,5 @@ export const DOMAINES_ECRITURE: readonly DomaineEcriture[] = [
   DOMAINE_SCRIPTS,
   DOMAINE_PUBLICATIONS,
   DOMAINE_VEILLE,
+  DOMAINE_MESSAGES,
 ];

@@ -99,6 +99,7 @@ const NON_DEFAISABLE: Record<string, string> = {
   valider_video: "la créatrice a reçu la validation et peut publier.",
   refuser_video: "la créatrice a reçu le motif ; elle renverra une vidéo, à valider à son retour.",
   graduer_hook: "à défaire à l'écran : supprimer la copie dans les ouvertures prouvées, puis réactiver l'original.",
+  envoyer_message_createatrice: "un message envoyé ne se reprend pas : écris-lui un nouveau message dans 3 jours.",
   defaire: "une annulation ne se défait pas : refais la modification.",
 };
 
