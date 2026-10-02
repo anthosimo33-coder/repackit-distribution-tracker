@@ -3051,6 +3051,49 @@ export default defineSchema({
     .index("by_project_transfer", ["projectId", "transferLineId"]),
 
   /**
+   * TRÉSORERIE — les comptes où l'argent sorti de Whop arrive (banque, Revolut,
+   * wallet). Jarvia ne lit aucune banque : on RELÈVE un solde de temps en temps
+   * (comptaAccountReadings), et les virements Whop vers les `destinations` du
+   * compte, arrivés APRÈS le dernier relevé, s'y ajoutent jusqu'au suivant.
+   */
+  comptaAccounts: defineTable({
+    projectId: v.id("projects"),
+    name: v.string(),
+    currency: v.string(),
+    /** Libellés de destination Whop (`whopLedgerLines.destination`) qui arrivent ici. */
+    destinations: v.array(v.string()),
+    createdAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  /** Un solde relevé : ce que la banque affichait ce jour-là (devise du compte). */
+  comptaAccountReadings: defineTable({
+    projectId: v.id("projects"),
+    accountId: v.id("comptaAccounts"),
+    /** Jour du relevé, "YYYY-MM-DD" (Paris). */
+    day: v.string(),
+    amount: v.number(),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_account_day", ["accountId", "day"]),
+
+  /**
+   * Argent MIS DE CÔTÉ utilisé (impôts, URSSAF payés) : il sort du « mis de
+   * côté », qui est le cumul des parts « Mise de côté » des virements moins
+   * ces paiements. Montant dans la devise de référence de la compta.
+   */
+  comptaProvisionUses: defineTable({
+    projectId: v.id("projects"),
+    day: v.string(),
+    amount: v.number(),
+    currency: v.string(),
+    note: v.optional(v.string()),
+    createdAt: v.number(),
+    createdBy: v.id("users"),
+  }).index("by_project", ["projectId"]),
+
+  /**
    * MARCHÉS COMPOSÉS — « Serbie + Croatie » lus comme un seul marché.
    *
    * Un regroupement de PILOTAGE, pas une donnée de facturation : il ne change

@@ -603,14 +603,20 @@ Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un f
 | `addComptaCharge` | M | compta | Saisit une autre charge (hébergement, outils…) |  |
 | `confirmPlannedCharge` | M | compta | Confirme une charge mensuelle prévue |  |
 | `deleteComptaCharge` | M | compta | Supprime une autre charge |  |
+| `deleteAccountReading` | M | compta | Retire un solde relevé d'un compte (Trésorerie) |  |
+| `deleteComptaAccount` | M | compta | Supprime un compte de trésorerie et ses relevés |  |
+| `deleteProvisionUse` | M | compta | Annule un « mis de côté » marqué payé |  |
 | `getComptaJournal` | Q | compta | Lignes de l'export comptable d'un mois |  |
 | `getComptaMonth` | Q | compta | Détail d'un mois de compta |  |
 | `getComptaOverview` | Q | compta | Onglet Compta d'une année : seuils, mois, solde |  |
+| `getComptaTreasury` | Q | compta | Trésorerie : Whop + comptes relevés − mis de côté |  |
 | `listComptaCharges` | Q | compta | Autres charges d'un mois, saisies et prévues |  |
 | `listComptaTransfers` | Q | compta | Virements Whop → banque d'un mois |  |
 | `logComptaExport` | M | compta | Note qu'un mois a été exporté |  |
+| `recordProvisionUse` | M | compta | Marque payé de l'argent mis de côté (impôts, URSSAF) |  |
 | `removeLineRule` | M | compta | Retire une règle de classement |  |
 | `requestComptaSync` | M | compta | Bouton « synchroniser » le grand livre Whop |  |
+| `saveAccountReading` | M | compta | Relève le solde d'un compte (le crée au besoin) |  |
 | `setLineRule` | M | compta | Range un type de ligne Whop inconnu dans une colonne |  |
 | `stopChargeSeries` | M | compta | Arrête une charge « chaque mois » |  |
 | `updateComptaCharge` | M | compta | Modifie une autre charge |  |

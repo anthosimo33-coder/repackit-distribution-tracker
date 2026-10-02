@@ -1500,7 +1500,12 @@
     "ERR_COMPTA_USAGE_INVALID": "Uso de retiro desconocido.",
     "ERR_COMPTA_TRANSFER_FAILED": "Este retiro falló: el dinero volvió a Whop, no hay nada que repartir.",
     "ERR_COMPTA_PARTS_INVALID": "Reparto no válido: importes positivos cuya suma no supere el retiro, y un motivo para cada parte contada como gasto.",
-    "ERR_COMPTA_CHARGE_LINKED": "Este gasto viene del reparto de un retiro: modifícalo desde el retiro."
+    "ERR_COMPTA_CHARGE_LINKED": "Este gasto viene del reparto de un retiro: modifícalo desde el retiro.",
+    "ERR_COMPTA_ACCOUNT_INVALID": "Cuenta no válida: dale un nombre (60 caracteres como máximo) que ninguna otra cuenta use, y una moneda con tipo de cambio.",
+    "ERR_COMPTA_ACCOUNT_NOT_FOUND": "Esta cuenta ya no existe.",
+    "ERR_COMPTA_DESTINATION_TAKEN": "El destino de Whop «{destination}» ya llega a la cuenta «{account}»: un destino llega a una sola cuenta.",
+    "ERR_COMPTA_READING_INVALID": "Saldo no válido: un día AAAA-MM-DD que no esté en el futuro y un saldo numérico.",
+    "ERR_COMPTA_PROVISION_INVALID": "Importe no válido: un pago positivo, con una fecha que no esté en el futuro."
   },
   "calendar": {
     "weekday": {

@@ -392,6 +392,15 @@ const ETAPES: Record<TablePurgee, Etape> = {
       .withIndex("by_project_month", (q) => q.eq("projectId", pid))
       .take(n),
   ),
+  comptaAccountReadings: etape((ctx, pid, n) =>
+    ctx.db.query("comptaAccountReadings").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
+  comptaAccounts: etape((ctx, pid, n) =>
+    ctx.db.query("comptaAccounts").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
+  comptaProvisionUses: etape((ctx, pid, n) =>
+    ctx.db.query("comptaProvisionUses").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   marketGroups: etape((ctx, pid, n) =>
     ctx.db.query("marketGroups").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),

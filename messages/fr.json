@@ -1500,7 +1500,12 @@
     "ERR_COMPTA_USAGE_INVALID": "Usage de virement inconnu.",
     "ERR_COMPTA_TRANSFER_FAILED": "Ce virement a échoué : l'argent est revenu sur Whop, il n'y a rien à ventiler.",
     "ERR_COMPTA_PARTS_INVALID": "Ventilation invalide : des montants positifs, dont la somme ne dépasse pas le virement, et un motif pour chaque part comptée en charge.",
-    "ERR_COMPTA_CHARGE_LINKED": "Cette charge vient de la ventilation d'un virement : modifie-la depuis le virement."
+    "ERR_COMPTA_CHARGE_LINKED": "Cette charge vient de la ventilation d'un virement : modifie-la depuis le virement.",
+    "ERR_COMPTA_ACCOUNT_INVALID": "Compte invalide : donne-lui un nom (60 caractères au plus) qu'aucun autre compte ne porte, et une devise qui a un taux.",
+    "ERR_COMPTA_ACCOUNT_NOT_FOUND": "Ce compte n'existe plus.",
+    "ERR_COMPTA_DESTINATION_TAKEN": "La destination Whop « {destination} » arrive déjà sur le compte « {account} » : une destination n'arrive que sur un compte.",
+    "ERR_COMPTA_READING_INVALID": "Relevé invalide : un jour AAAA-MM-JJ qui n'est pas dans le futur, et un solde chiffré.",
+    "ERR_COMPTA_PROVISION_INVALID": "Montant invalide : un paiement positif, daté d'un jour qui n'est pas dans le futur."
   },
   "calendar": {
     "weekday": {
