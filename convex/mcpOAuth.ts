@@ -24,7 +24,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { authedAction, authedMutation, authedQuery, e2eMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { assertPeutDetenirUneCle, peutDetenirUneCle } from "./mcpTokens";
+import { assertPeutDetenirUneCle, normaliserScopes, peutDetenirUneCle } from "./mcpTokens";
 import {
   ACCESS_TTL_S,
   CODE_TTL_MS,
@@ -370,7 +370,12 @@ export const resoudreJetonAcces = internalQuery({
       .first();
     if (!grant || grant.accessExpiresAt < Date.now()) return null;
     if (!(await ctx.db.get(grant.userId))) return null;
-    return { userId: grant.userId, grantId: grant._id, lastUsedAt: grant.lastUsedAt ?? null };
+    return {
+      userId: grant.userId,
+      grantId: grant._id,
+      lastUsedAt: grant.lastUsedAt ?? null,
+      writeScopes: grant.writeScopes ?? [],
+    };
   },
 });
 
@@ -421,6 +426,7 @@ export const listMyOAuthGrants = authedQuery({
         hote: g.redirectHost,
         createdAt: g.createdAt,
         lastUsedAt: g.lastUsedAt ?? null,
+        writeScopes: g.writeScopes ?? [],
       }))
       .sort((a, b) => b.createdAt - a.createdAt);
   },
@@ -435,6 +441,18 @@ export const revokeOAuthGrant = authedMutation({
       throw err(ERR.MCP_OAUTH_GRANT_NOT_FOUND, "Accès introuvable.");
     }
     await ctx.db.delete(grantId);
+  },
+});
+
+/** Autoriser (ou couper) les MODIFICATIONS d'un domaine pour une application connectée. */
+export const setOAuthGrantWriteScopes = authedMutation({
+  args: { grantId: v.id("mcpOAuthGrants"), scopes: v.array(v.string()) },
+  handler: async (ctx, { grantId, scopes }) => {
+    const grant = await ctx.db.get(grantId);
+    if (!grant || grant.userId !== ctx.userId) {
+      throw err(ERR.MCP_OAUTH_GRANT_NOT_FOUND, "Accès introuvable.");
+    }
+    await ctx.db.patch(grantId, { writeScopes: normaliserScopes(scopes) });
   },
 });
 

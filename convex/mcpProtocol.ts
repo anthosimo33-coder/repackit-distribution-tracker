@@ -30,7 +30,23 @@ export const RPC = {
 export type ArgSchema =
   | { type: "string"; description: string; enum?: readonly string[] }
   | { type: "integer"; description: string; minimum?: number; maximum?: number }
-  | { type: "boolean"; description: string };
+  | { type: "number"; description: string; minimum?: number; maximum?: number }
+  | { type: "boolean"; description: string }
+  | {
+      type: "array";
+      description: string;
+      items: ObjectSchema | { type: "string" };
+      minItems?: number;
+      maxItems?: number;
+    };
+
+/** Un objet dans une liste (les parts d'une ventilation…). */
+export interface ObjectSchema {
+  type: "object";
+  properties: Record<string, ArgSchema>;
+  required?: readonly string[];
+  additionalProperties: false;
+}
 
 export interface ToolInputSchema {
   type: "object";
@@ -44,6 +60,11 @@ export interface McpTool {
   title: string;
   description: string;
   inputSchema: ToolInputSchema;
+  /**
+   * Absent = outil de LECTURE (readOnlyHint). Un outil d'écriture le déclare,
+   * pour que Claude demande l'accord avant chaque appel.
+   */
+  annotations?: { readOnlyHint: false; destructiveHint: boolean; idempotentHint: boolean };
 }
 
 export interface ToolResult {
@@ -80,23 +101,51 @@ export function textResult(text: string, isError = false): ToolResult {
  * par le modèle (qui peut alors corriger son appel), ou `null`.
  */
 export function validateArgs(
-  schema: ToolInputSchema,
+  schema: ToolInputSchema | ObjectSchema,
   args: Record<string, unknown>,
+  prefixe = "",
 ): string | null {
   for (const cle of schema.required ?? []) {
     if (args[cle] === undefined || args[cle] === null) {
-      return `Argument requis manquant : « ${cle} ».`;
+      return `Argument requis manquant : « ${prefixe}${cle} ».`;
     }
   }
-  for (const [cle, valeur] of Object.entries(args)) {
-    const def = schema.properties[cle];
+  for (const [nom, valeur] of Object.entries(args)) {
+    const cle = `${prefixe}${nom}`;
+    const def = schema.properties[nom];
     if (!def) {
       return `Argument inconnu : « ${cle} ». Arguments possibles : ${
         Object.keys(schema.properties).join(", ") || "aucun"
       }.`;
     }
     if (valeur === undefined || valeur === null) continue;
-    if (def.type === "string") {
+    if (def.type === "number") {
+      // Un montant : un nombre, ou un texte à la française (« 1 337,49 ») que
+      // l'outil convertit lui-même.
+      if (typeof valeur !== "number" && (typeof valeur !== "string" || valeur.trim() === "")) {
+        return `« ${cle} » doit être un nombre.`;
+      }
+      if (typeof valeur === "number" && !Number.isFinite(valeur)) return `« ${cle} » doit être un nombre.`;
+    } else if (def.type === "array") {
+      if (!Array.isArray(valeur)) return `« ${cle} » doit être une liste.`;
+      if (def.maxItems !== undefined && valeur.length > def.maxItems) {
+        return `« ${cle} » : ${def.maxItems} éléments au plus.`;
+      }
+      if (def.minItems !== undefined && valeur.length < def.minItems) {
+        return `« ${cle} » : ${def.minItems} éléments au moins.`;
+      }
+      for (const [i, item] of valeur.entries()) {
+        if (def.items.type === "string") {
+          if (typeof item !== "string") return `« ${cle}[${i + 1}] » doit être du texte.`;
+        } else {
+          if (typeof item !== "object" || item === null || Array.isArray(item)) {
+            return `« ${cle}[${i + 1}] » doit être un objet.`;
+          }
+          const pb = validateArgs(def.items, item as Record<string, unknown>, `${cle}[${i + 1}].`);
+          if (pb !== null) return pb;
+        }
+      }
+    } else if (def.type === "string") {
       if (typeof valeur !== "string") return `« ${cle} » doit être du texte.`;
       if (def.enum && !def.enum.includes(valeur)) {
         return `« ${cle} » doit valoir : ${def.enum.join(", ")}.`;
@@ -172,9 +221,12 @@ async function traiterMessage(
           title: t.title,
           description: t.description,
           inputSchema: t.inputSchema,
-          // Lecture seule, et rien hors de l'app : Claude peut les appeler sans
-          // craindre d'effet de bord.
-          annotations: { readOnlyHint: true, openWorldHint: false },
+          // Lecture seule par défaut, et rien hors de l'app : Claude peut les
+          // appeler sans effet de bord. Un outil d'écriture le dit — Claude
+          // demande alors l'accord avant de l'appeler.
+          annotations: t.annotations
+            ? { ...t.annotations, openWorldHint: false }
+            : { readOnlyHint: true, openWorldHint: false },
         })),
       });
     case "tools/call": {

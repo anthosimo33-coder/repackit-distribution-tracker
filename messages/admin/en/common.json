@@ -871,7 +871,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connect Claude",
     "titre": "Connect Claude to the app",
-    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts. Read-only, with your permissions — it only sees what you see here.",
+    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting: Claude will ask for your approval before each change.",
     "nomDeLaCle": "Key name",
     "nomPlaceholder": "e.g. Claude on my Mac",
     "creerUneCle": "Create a key",
@@ -901,7 +901,32 @@
     "connecteeLe": "connected on {date}",
     "couper": "Cut off access",
     "accesCoupe": "Access for “{name}” cut off.",
-    "sansNom": "Unnamed app"
+    "sansNom": "Unnamed app",
+    "ecritureCompta": "Can edit Accounting",
+    "lectureSeule": "Read-only",
+    "ecritureAria": "Accounting edits for {name}",
+    "ecritureOuverte": "{name} can edit Accounting.",
+    "ecritureCoupee": "{name} is back to read-only.",
+    "ecritureImpossible": "Couldn't change the permission.",
+    "ecritureAide": "A connection stays read-only until you allow edits here. Claude will ask for your approval before each change.",
+    "journalTitre": "Changes made by Claude",
+    "journalPeriode": "Last 30 days",
+    "journalVide": "No changes yet.",
+    "journalAide": "Every change can be undone in Accounting, as by hand: clear the split, remove a balance, delete an expense, cancel a “marked paid”.",
+    "outil": {
+      "ventiler_virement": "Split a withdrawal",
+      "relever_solde": "Record a balance",
+      "marquer_mis_de_cote_paye": "Mark paid",
+      "ajouter_charge": "Add an expense",
+      "supprimer_charge": "Delete an expense",
+      "classer_type_whop": "File a Whop line type"
+    },
+    "section": {
+      "treasury": "Cash",
+      "transfers": "Withdrawals · {mois}",
+      "charges": "Other expenses · {mois}",
+      "rules": "Line rules"
+    }
   },
   "OAuthConsent": {
     "titreClaude": "Connect Claude to Jarvia?",

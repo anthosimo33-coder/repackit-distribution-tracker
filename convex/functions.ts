@@ -6,7 +6,7 @@ import {
 } from "convex-helpers/server/customFunctions";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
-import { action, internalQuery, mutation, query } from "./_generated/server";
+import { action, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { hasRole, roleForKind, rolesOf, type PortalRole } from "./roles";
@@ -317,6 +317,12 @@ export type ProjectQueryCtx = QueryCtx & {
   projectId: Id<"projects">;
 };
 
+/** Contexte d'une mutation de projet gardée (écran ou MCP) : personne et projet vérifiés. */
+export type ProjectMutationCtx = MutationCtx & {
+  userId: Id<"users">;
+  projectId: Id<"projects">;
+};
+
 /**
  * Jumelle INTERNE de `permissionQuery`, pour le serveur MCP (convex/mcpHttp).
  *
@@ -333,6 +339,58 @@ export function mcpPermissionQuery(permission: PermissionId) {
     input: async (ctx, { userId, projectId }) => {
       await requirePermission(ctx, userId, projectId, permission);
       return { ctx: { userId, projectId }, args: {} };
+    },
+  });
+}
+
+/** Domaines qu'une connexion MCP peut être autorisée à MODIFIER. */
+export const MCP_WRITE_SCOPES = ["compta"] as const;
+export type McpWriteScope = (typeof MCP_WRITE_SCOPES)[number];
+
+/** La connexion MCP (clé ou application OAuth) qui porte un appel d'écriture. */
+export const mcpAccesValidator = v.object({
+  kind: v.union(v.literal("token"), v.literal("oauth")),
+  id: v.string(),
+});
+
+/**
+ * La connexion peut-elle MODIFIER ce domaine ? Relu à CHAQUE écriture, dans la
+ * transaction : couper l'autorisation dans l'app vaut tout de suite, même pour
+ * un Claude qui aurait encore l'outil dans sa liste.
+ */
+async function requireMcpWrite(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  acces: { kind: "token" | "oauth"; id: string },
+  scope: McpWriteScope,
+): Promise<{ kind: "token" | "oauth"; name: string }> {
+  const refus = () =>
+    err(ERR.MCP_WRITE_FORBIDDEN, "Cette connexion est en lecture seule pour ce domaine.");
+  if (acces.kind === "token") {
+    const id = ctx.db.normalizeId("mcpTokens", acces.id);
+    const cle = id ? await ctx.db.get(id) : null;
+    if (!cle || cle.userId !== userId || !(cle.writeScopes ?? []).includes(scope)) throw refus();
+    return { kind: "token", name: cle.name };
+  }
+  const id = ctx.db.normalizeId("mcpOAuthGrants", acces.id);
+  const grant = id ? await ctx.db.get(id) : null;
+  if (!grant || grant.userId !== userId || !(grant.writeScopes ?? []).includes(scope)) throw refus();
+  return { kind: "oauth", name: grant.clientName };
+}
+
+/**
+ * Jumelle INTERNE de `permissionMutation`, pour les outils MCP d'ÉCRITURE : la
+ * connexion doit être autorisée à modifier ce domaine (`requireMcpWrite`), puis
+ * la personne doit avoir le MÊME droit que pour le bouton de l'écran. Le corps
+ * appelle le cœur de la mutation de l'écran : mêmes règles, mêmes refus.
+ */
+export function mcpWriteMutation(permission: PermissionId, scope: McpWriteScope) {
+  return customMutation(internalMutation, {
+    args: { userId: v.id("users"), projectId: v.id("projects"), acces: mcpAccesValidator },
+    input: async (ctx, { userId, projectId, acces }) => {
+      const via = await requireMcpWrite(ctx, userId, acces, scope);
+      await requirePermission(ctx, userId, projectId, permission);
+      return { ctx: { userId, projectId, via }, args: {} };
     },
   });
 }

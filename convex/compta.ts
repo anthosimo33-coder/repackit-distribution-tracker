@@ -6,9 +6,15 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { v } from "convex/values";
+import { v, type ObjectType } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx } from "./functions";
+import {
+  e2eMutation,
+  permissionMutation,
+  permissionQuery,
+  type ProjectMutationCtx,
+  type ProjectQueryCtx,
+} from "./functions";
 import { fetchWhopLedger, type NormalizedLedgerLine } from "./whopLedgerApi";
 import { cellNum, cellStr, runHogQL } from "./posthogApi";
 import { projectFx } from "./whopRevenue";
@@ -117,6 +123,15 @@ async function loadContext(
   // aucune devise « sans taux ».
   const target = referenceCurrency(seen, conversions) ?? state?.referenceCurrency ?? null;
   return { project, state, fx: buildComptaFx(target, conversions), rules: rulesOf(state) };
+}
+
+/** Devise de référence de la compta d'un projet (celle des montants convertis), `null` si indéterminée. */
+export async function comptaReferenceCurrency(
+  ctx: QueryCtx,
+  projectId: Id<"projects">,
+): Promise<string | null> {
+  const months = await allMonths(ctx, projectId);
+  return (await loadContext(ctx, projectId, months)).fx.target;
 }
 
 async function allMonths(
@@ -908,21 +923,28 @@ async function stateForWrite(
  * les lignes du type, passées et futures. Un type déjà connu de Jarvia est
  * refusé : la table intégrée ne se surcharge pas depuis la page.
  */
+const setLineRuleArgs = { lineType: v.string(), bucket: v.string() };
+
+export async function setLineRuleCore(
+  ctx: ProjectMutationCtx,
+  { lineType, bucket }: ObjectType<typeof setLineRuleArgs>,
+) {
+  if (!isValidLineType(lineType) || !isComptaBucket(bucket)) {
+    throw err(ERR.COMPTA_RULE_INVALID, "Colonne ou type de ligne invalide.");
+  }
+  if (isBuiltinLineType(lineType)) {
+    throw err(ERR.COMPTA_RULE_BUILTIN, "Ce type de ligne est déjà classé par Jarvia.");
+  }
+  const state = await stateForWrite(ctx, ctx.projectId);
+  const rules = state.rules.filter((r) => r.lineType !== lineType);
+  rules.push({ lineType, bucket, at: Date.now(), by: ctx.userId });
+  await ctx.db.patch(state._id, { rules });
+  return { ok: true as const };
+}
+
 export const setLineRule = permissionMutation("business.read")({
-  args: { lineType: v.string(), bucket: v.string() },
-  handler: async (ctx, { lineType, bucket }) => {
-    if (!isValidLineType(lineType) || !isComptaBucket(bucket)) {
-      throw err(ERR.COMPTA_RULE_INVALID, "Colonne ou type de ligne invalide.");
-    }
-    if (isBuiltinLineType(lineType)) {
-      throw err(ERR.COMPTA_RULE_BUILTIN, "Ce type de ligne est déjà classé par Jarvia.");
-    }
-    const state = await stateForWrite(ctx, ctx.projectId);
-    const rules = state.rules.filter((r) => r.lineType !== lineType);
-    rules.push({ lineType, bucket, at: Date.now(), by: ctx.userId });
-    await ctx.db.patch(state._id, { rules });
-    return { ok: true as const };
-  },
+  args: setLineRuleArgs,
+  handler: (ctx, args) => setLineRuleCore(ctx, args),
 });
 
 /** Retire une règle : ses lignes repassent en « non classé ». */
@@ -948,96 +970,103 @@ export const removeLineRule = permissionMutation("business.read")({
  * résultat : c'est de l'argent qui quitte Whop, pas une dépense. Une liste vide
  * efface la ventilation.
  */
-export const ventilateTransfer = permissionMutation("business.read")({
-  args: {
-    lineId: v.id("whopLedgerLines"),
-    parts: v.array(
-      v.object({
-        id: v.string(),
-        amount: v.number(),
-        usage: v.string(),
-        note: v.optional(v.string()),
-        countedAs: v.optional(v.string()),
-      }),
-    ),
-  },
-  handler: async (ctx, { lineId, parts }) => {
-    const line = await ctx.db.get(lineId);
-    if (!line || line.projectId !== ctx.projectId || line.lineType !== "withdrawal") {
-      throw err(ERR.COMPTA_TRANSFER_NOT_FOUND, "Ce virement est introuvable.");
-    }
-    const reversal = line.sourceId
-      ? (
-          await ctx.db
-            .query("whopLedgerLines")
-            .withIndex("by_project_type_posted", (q) =>
-              q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal_reversal"),
-            )
-            .collect()
-        ).some((r) => r.sourceId === line.sourceId)
-      : false;
-    if (isFailedWithdrawal(line.sourceStatus, reversal)) {
-      throw err(ERR.COMPTA_TRANSFER_FAILED, "Ce virement a échoué : rien à ventiler.");
-    }
-    const clean = parts.map((p) => ({
-      id: p.id.trim(),
-      amount: round2(p.amount),
-      usage: p.usage,
-      ...(p.note?.trim() ? { note: p.note.trim() } : {}),
-      ...(p.countedAs ? { countedAs: p.countedAs } : {}),
-    }));
-    const total = round2(-line.amount);
-    const reason = transferPartsError(clean, total);
-    if (reason === "usage") throw err(ERR.COMPTA_USAGE_INVALID, "Usage de virement inconnu.");
-    if (reason !== null) {
-      throw err(ERR.COMPTA_PARTS_INVALID, "Ventilation invalide.", { reason });
-    }
-    const now = Date.now();
-    await ctx.db.patch(lineId, {
-      parts: clean.length > 0 ? clean : undefined,
-      usage: undefined,
-      note: undefined,
-      annotatedAt: now,
-      annotatedBy: ctx.userId,
-    });
+const ventilateTransferArgs = {
+  lineId: v.id("whopLedgerLines"),
+  parts: v.array(
+    v.object({
+      id: v.string(),
+      amount: v.number(),
+      usage: v.string(),
+      note: v.optional(v.string()),
+      countedAs: v.optional(v.string()),
+    }),
+  ),
+};
 
-    // Réconciliation des charges liées : une par part comptée, rien d'autre.
-    const day = parisDayKey(line.postedAt);
-    const existing = await ctx.db
-      .query("comptaCharges")
-      .withIndex("by_project_transfer", (q) =>
-        q.eq("projectId", ctx.projectId).eq("transferLineId", lineId),
-      )
-      .collect();
-    const counted = clean.filter((p) => p.countedAs !== undefined);
-    for (const p of counted) {
-      const fields = {
-        day,
-        month: day.slice(0, 7),
-        label: p.note!,
-        category: p.countedAs!,
-        amount: p.amount,
-        currency: line.currency,
-        recurring: false,
-      };
-      const doc = existing.find((c) => c.transferPartId === p.id);
-      if (doc) await ctx.db.patch(doc._id, { ...fields, updatedAt: now });
-      else {
-        await ctx.db.insert("comptaCharges", {
-          projectId: ctx.projectId,
-          ...fields,
-          transferLineId: lineId,
-          transferPartId: p.id,
-          createdAt: now,
-          createdBy: ctx.userId,
-        });
-      }
+export async function ventilateTransferCore(
+  ctx: ProjectMutationCtx,
+  { lineId, parts }: ObjectType<typeof ventilateTransferArgs>,
+) {
+  const line = await ctx.db.get(lineId);
+  if (!line || line.projectId !== ctx.projectId || line.lineType !== "withdrawal") {
+    throw err(ERR.COMPTA_TRANSFER_NOT_FOUND, "Ce virement est introuvable.");
+  }
+  const reversal = line.sourceId
+    ? (
+        await ctx.db
+          .query("whopLedgerLines")
+          .withIndex("by_project_type_posted", (q) =>
+            q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal_reversal"),
+          )
+          .collect()
+      ).some((r) => r.sourceId === line.sourceId)
+    : false;
+  if (isFailedWithdrawal(line.sourceStatus, reversal)) {
+    throw err(ERR.COMPTA_TRANSFER_FAILED, "Ce virement a échoué : rien à ventiler.");
+  }
+  const clean = parts.map((p) => ({
+    id: p.id.trim(),
+    amount: round2(p.amount),
+    usage: p.usage,
+    ...(p.note?.trim() ? { note: p.note.trim() } : {}),
+    ...(p.countedAs ? { countedAs: p.countedAs } : {}),
+  }));
+  const total = round2(-line.amount);
+  const reason = transferPartsError(clean, total);
+  if (reason === "usage") throw err(ERR.COMPTA_USAGE_INVALID, "Usage de virement inconnu.");
+  if (reason !== null) {
+    throw err(ERR.COMPTA_PARTS_INVALID, "Ventilation invalide.", { reason });
+  }
+  const now = Date.now();
+  await ctx.db.patch(lineId, {
+    parts: clean.length > 0 ? clean : undefined,
+    usage: undefined,
+    note: undefined,
+    annotatedAt: now,
+    annotatedBy: ctx.userId,
+  });
+
+  // Réconciliation des charges liées : une par part comptée, rien d'autre.
+  const day = parisDayKey(line.postedAt);
+  const existing = await ctx.db
+    .query("comptaCharges")
+    .withIndex("by_project_transfer", (q) =>
+      q.eq("projectId", ctx.projectId).eq("transferLineId", lineId),
+    )
+    .collect();
+  const counted = clean.filter((p) => p.countedAs !== undefined);
+  for (const p of counted) {
+    const fields = {
+      day,
+      month: day.slice(0, 7),
+      label: p.note!,
+      category: p.countedAs!,
+      amount: p.amount,
+      currency: line.currency,
+      recurring: false,
+    };
+    const doc = existing.find((c) => c.transferPartId === p.id);
+    if (doc) await ctx.db.patch(doc._id, { ...fields, updatedAt: now });
+    else {
+      await ctx.db.insert("comptaCharges", {
+        projectId: ctx.projectId,
+        ...fields,
+        transferLineId: lineId,
+        transferPartId: p.id,
+        createdAt: now,
+        createdBy: ctx.userId,
+      });
     }
-    for (const c of existing) {
-      if (!counted.some((p) => p.id === c.transferPartId)) await ctx.db.delete(c._id);
-    }
-    return { ok: true as const, counted: counted.length };
-  },
+  }
+  for (const c of existing) {
+    if (!counted.some((p) => p.id === c.transferPartId)) await ctx.db.delete(c._id);
+  }
+  return { ok: true as const, counted: counted.length };
+}
+
+export const ventilateTransfer = permissionMutation("business.read")({
+  args: ventilateTransferArgs,
+  handler: (ctx, args) => ventilateTransferCore(ctx, args),
 });
 
 const chargeFields = {
@@ -1082,19 +1111,26 @@ async function validateCharge(
   };
 }
 
+const addComptaChargeArgs = chargeFields;
+
+export async function addComptaChargeCore(
+  ctx: ProjectMutationCtx,
+  args: ObjectType<typeof addComptaChargeArgs>,
+) {
+  const c = await validateCharge(ctx, ctx.projectId, args);
+  const id = await ctx.db.insert("comptaCharges", {
+    projectId: ctx.projectId,
+    ...c,
+    recurring: args.recurring,
+    createdAt: Date.now(),
+    createdBy: ctx.userId,
+  });
+  return { chargeId: id };
+}
+
 export const addComptaCharge = permissionMutation("business.read")({
-  args: chargeFields,
-  handler: async (ctx, args) => {
-    const c = await validateCharge(ctx, ctx.projectId, args);
-    const id = await ctx.db.insert("comptaCharges", {
-      projectId: ctx.projectId,
-      ...c,
-      recurring: args.recurring,
-      createdAt: Date.now(),
-      createdBy: ctx.userId,
-    });
-    return { chargeId: id };
-  },
+  args: addComptaChargeArgs,
+  handler: (ctx, args) => addComptaChargeCore(ctx, args),
 });
 
 export const updateComptaCharge = permissionMutation("business.read")({
@@ -1118,31 +1154,38 @@ export const updateComptaCharge = permissionMutation("business.read")({
  * série s'arrête : sans ça, la charge précédente (récurrente) reprévoirait
  * aussitôt le mois qu'on vient de supprimer.
  */
+const deleteComptaChargeArgs = { chargeId: v.id("comptaCharges") };
+
+export async function deleteComptaChargeCore(
+  ctx: ProjectMutationCtx,
+  { chargeId }: ObjectType<typeof deleteComptaChargeArgs>,
+) {
+  const doc = await ctx.db.get(chargeId);
+  if (!doc || doc.projectId !== ctx.projectId) {
+    throw err(ERR.COMPTA_CHARGE_NOT_FOUND, "Cette charge n'existe plus.");
+  }
+  if (doc.transferLineId) {
+    throw err(ERR.COMPTA_CHARGE_LINKED, "Charge issue d'un virement : à modifier depuis lui.");
+  }
+  const seriesId = doc.seriesId ?? doc._id;
+  await ctx.db.delete(chargeId);
+  const series = (
+    await ctx.db
+      .query("comptaCharges")
+      .withIndex("by_project_month", (q) => q.eq("projectId", ctx.projectId))
+      .collect()
+  ).filter((c) => (c.seriesId ?? c._id) === seriesId);
+  const later = series.some((c) => c.day > doc.day);
+  if (!later && series.length > 0) {
+    const tail = series.reduce((a, b) => (b.day > a.day ? b : a));
+    if (tail.recurring) await ctx.db.patch(tail._id, { recurring: false, updatedAt: Date.now() });
+  }
+  return { ok: true as const };
+}
+
 export const deleteComptaCharge = permissionMutation("business.read")({
-  args: { chargeId: v.id("comptaCharges") },
-  handler: async (ctx, { chargeId }) => {
-    const doc = await ctx.db.get(chargeId);
-    if (!doc || doc.projectId !== ctx.projectId) {
-      throw err(ERR.COMPTA_CHARGE_NOT_FOUND, "Cette charge n'existe plus.");
-    }
-    if (doc.transferLineId) {
-      throw err(ERR.COMPTA_CHARGE_LINKED, "Charge issue d'un virement : à modifier depuis lui.");
-    }
-    const seriesId = doc.seriesId ?? doc._id;
-    await ctx.db.delete(chargeId);
-    const series = (
-      await ctx.db
-        .query("comptaCharges")
-        .withIndex("by_project_month", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter((c) => (c.seriesId ?? c._id) === seriesId);
-    const later = series.some((c) => c.day > doc.day);
-    if (!later && series.length > 0) {
-      const tail = series.reduce((a, b) => (b.day > a.day ? b : a));
-      if (tail.recurring) await ctx.db.patch(tail._id, { recurring: false, updatedAt: Date.now() });
-    }
-    return { ok: true as const };
-  },
+  args: deleteComptaChargeArgs,
+  handler: (ctx, args) => deleteComptaChargeCore(ctx, args),
 });
 
 /**
@@ -1348,77 +1391,84 @@ const validDay = (day: string, today: string) =>
  * Whop cochées arrivent sur ce compte (une destination n'arrive que sur un
  * compte). Un second relevé le même jour remplace le premier.
  */
+const saveAccountReadingArgs = {
+  accountId: v.optional(v.id("comptaAccounts")),
+  newAccount: v.optional(v.object({ name: v.string(), currency: v.string() })),
+  destinations: v.array(v.string()),
+  day: v.string(),
+  amount: v.number(),
+};
+
+export async function saveAccountReadingCore(
+  ctx: ProjectMutationCtx,
+  a: ObjectType<typeof saveAccountReadingArgs>,
+) {
+  const today = parisDayKey(Date.now());
+  if (!validDay(a.day, today) || !Number.isFinite(a.amount) || Math.abs(a.amount) > 100_000_000) {
+    throw err(ERR.COMPTA_READING_INVALID, "Relevé invalide.");
+  }
+  const all = await ctx.db
+    .query("comptaAccounts")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  let accountId: Id<"comptaAccounts">;
+  if (a.accountId !== undefined) {
+    const acc = all.find((x) => x._id === a.accountId);
+    if (!acc || a.newAccount !== undefined) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Compte introuvable.");
+    accountId = acc._id;
+  } else {
+    const name = a.newAccount?.name.trim() ?? "";
+    const currency = a.newAccount?.currency.trim().toLowerCase() ?? "";
+    const months = await allMonths(ctx, ctx.projectId);
+    const { fx } = await loadContext(ctx, ctx.projectId, months);
+    if (
+      name === "" ||
+      name.length > 60 ||
+      all.some((x) => x.name.trim().toLowerCase() === name.toLowerCase()) ||
+      rateOf(currency, fx) === null
+    ) {
+      throw err(ERR.COMPTA_ACCOUNT_INVALID, "Compte invalide.");
+    }
+    accountId = await ctx.db.insert("comptaAccounts", {
+      projectId: ctx.projectId,
+      name,
+      currency,
+      destinations: [],
+      createdAt: Date.now(),
+    });
+  }
+  const destinations = [...new Set(a.destinations.map((d) => d.trim()).filter((d) => d !== ""))];
+  for (const d of destinations) {
+    const other = all.find((x) => x._id !== accountId && x.destinations.includes(d));
+    if (other) {
+      throw err(ERR.COMPTA_DESTINATION_TAKEN, "Destination déjà rattachée à un autre compte.", {
+        destination: d,
+        account: other.name,
+      });
+    }
+  }
+  await ctx.db.patch(accountId, { destinations });
+  const existing = await ctx.db
+    .query("comptaAccountReadings")
+    .withIndex("by_account_day", (q) => q.eq("accountId", accountId).eq("day", a.day))
+    .first();
+  if (existing) await ctx.db.patch(existing._id, { amount: round2(a.amount), createdBy: ctx.userId });
+  else {
+    await ctx.db.insert("comptaAccountReadings", {
+      projectId: ctx.projectId,
+      accountId,
+      day: a.day,
+      amount: round2(a.amount),
+      createdAt: Date.now(),
+      createdBy: ctx.userId,
+    });
+  }
+  return { accountId };
+}
+
 export const saveAccountReading = permissionMutation("business.read")({
-  args: {
-    accountId: v.optional(v.id("comptaAccounts")),
-    newAccount: v.optional(v.object({ name: v.string(), currency: v.string() })),
-    destinations: v.array(v.string()),
-    day: v.string(),
-    amount: v.number(),
-  },
-  handler: async (ctx, a) => {
-    const today = parisDayKey(Date.now());
-    if (!validDay(a.day, today) || !Number.isFinite(a.amount) || Math.abs(a.amount) > 100_000_000) {
-      throw err(ERR.COMPTA_READING_INVALID, "Relevé invalide.");
-    }
-    const all = await ctx.db
-      .query("comptaAccounts")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    let accountId: Id<"comptaAccounts">;
-    if (a.accountId !== undefined) {
-      const acc = all.find((x) => x._id === a.accountId);
-      if (!acc || a.newAccount !== undefined) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Compte introuvable.");
-      accountId = acc._id;
-    } else {
-      const name = a.newAccount?.name.trim() ?? "";
-      const currency = a.newAccount?.currency.trim().toLowerCase() ?? "";
-      const months = await allMonths(ctx, ctx.projectId);
-      const { fx } = await loadContext(ctx, ctx.projectId, months);
-      if (
-        name === "" ||
-        name.length > 60 ||
-        all.some((x) => x.name.trim().toLowerCase() === name.toLowerCase()) ||
-        rateOf(currency, fx) === null
-      ) {
-        throw err(ERR.COMPTA_ACCOUNT_INVALID, "Compte invalide.");
-      }
-      accountId = await ctx.db.insert("comptaAccounts", {
-        projectId: ctx.projectId,
-        name,
-        currency,
-        destinations: [],
-        createdAt: Date.now(),
-      });
-    }
-    const destinations = [...new Set(a.destinations.map((d) => d.trim()).filter((d) => d !== ""))];
-    for (const d of destinations) {
-      const other = all.find((x) => x._id !== accountId && x.destinations.includes(d));
-      if (other) {
-        throw err(ERR.COMPTA_DESTINATION_TAKEN, "Destination déjà rattachée à un autre compte.", {
-          destination: d,
-          account: other.name,
-        });
-      }
-    }
-    await ctx.db.patch(accountId, { destinations });
-    const existing = await ctx.db
-      .query("comptaAccountReadings")
-      .withIndex("by_account_day", (q) => q.eq("accountId", accountId).eq("day", a.day))
-      .first();
-    if (existing) await ctx.db.patch(existing._id, { amount: round2(a.amount), createdBy: ctx.userId });
-    else {
-      await ctx.db.insert("comptaAccountReadings", {
-        projectId: ctx.projectId,
-        accountId,
-        day: a.day,
-        amount: round2(a.amount),
-        createdAt: Date.now(),
-        createdBy: ctx.userId,
-      });
-    }
-    return { accountId };
-  },
+  args: saveAccountReadingArgs,
+  handler: (ctx, args) => saveAccountReadingCore(ctx, args),
 });
 
 /** Retirer un relevé saisi par erreur : le précédent redevient le dernier. */
@@ -1449,28 +1499,35 @@ export const deleteComptaAccount = permissionMutation("business.read")({
 });
 
 /** « Marquer payé » : de l'argent mis de côté a servi (impôts, URSSAF). */
+const recordProvisionUseArgs = { day: v.string(), amount: v.number(), note: v.optional(v.string()) };
+
+export async function recordProvisionUseCore(
+  ctx: ProjectMutationCtx,
+  a: ObjectType<typeof recordProvisionUseArgs>,
+) {
+  const today = parisDayKey(Date.now());
+  const note = a.note?.trim() ?? "";
+  if (!validDay(a.day, today) || !(a.amount > 0) || !Number.isFinite(a.amount) || a.amount > 100_000_000 || note.length > 200) {
+    throw err(ERR.COMPTA_PROVISION_INVALID, "Paiement invalide.");
+  }
+  const months = await allMonths(ctx, ctx.projectId);
+  const { fx } = await loadContext(ctx, ctx.projectId, months);
+  if (fx.target === null) throw err(ERR.COMPTA_PROVISION_INVALID, "Devise de référence inconnue.");
+  const useId = await ctx.db.insert("comptaProvisionUses", {
+    projectId: ctx.projectId,
+    day: a.day,
+    amount: round2(a.amount),
+    currency: fx.target,
+    ...(note !== "" ? { note } : {}),
+    createdAt: Date.now(),
+    createdBy: ctx.userId,
+  });
+  return { useId };
+}
+
 export const recordProvisionUse = permissionMutation("business.read")({
-  args: { day: v.string(), amount: v.number(), note: v.optional(v.string()) },
-  handler: async (ctx, a) => {
-    const today = parisDayKey(Date.now());
-    const note = a.note?.trim() ?? "";
-    if (!validDay(a.day, today) || !(a.amount > 0) || !Number.isFinite(a.amount) || a.amount > 100_000_000 || note.length > 200) {
-      throw err(ERR.COMPTA_PROVISION_INVALID, "Paiement invalide.");
-    }
-    const months = await allMonths(ctx, ctx.projectId);
-    const { fx } = await loadContext(ctx, ctx.projectId, months);
-    if (fx.target === null) throw err(ERR.COMPTA_PROVISION_INVALID, "Devise de référence inconnue.");
-    const useId = await ctx.db.insert("comptaProvisionUses", {
-      projectId: ctx.projectId,
-      day: a.day,
-      amount: round2(a.amount),
-      currency: fx.target,
-      ...(note !== "" ? { note } : {}),
-      createdAt: Date.now(),
-      createdBy: ctx.userId,
-    });
-    return { useId };
-  },
+  args: recordProvisionUseArgs,
+  handler: (ctx, args) => recordProvisionUseCore(ctx, args),
 });
 
 /** Annuler un « marqué payé » saisi par erreur. */

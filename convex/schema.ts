@@ -1768,9 +1768,32 @@ export default defineSchema({
     prefix: v.string(),
     createdAt: v.number(),
     lastUsedAt: v.optional(v.number()),
+    /**
+     * Domaines que la clé peut MODIFIER (« compta »). Absent = lecture seule :
+     * c'est l'état de toute clé à sa création, et de toutes celles d'avant.
+     * Ne s'ouvre que depuis l'app (jamais depuis Claude).
+     */
+    writeScopes: v.optional(v.array(v.string())),
   })
     .index("by_hash", ["tokenHash"])
     .index("by_user", ["userId"]),
+
+  // JOURNAL des modifications faites par Claude (outils MCP d'écriture). Une
+  // ligne par écriture réussie : qui (personne + clé ou application), où, quoi.
+  // Montré dans « Connecter Claude » ; chaque ligne dit où la défaire à l'écran.
+  mcpWriteLog: defineTable({
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    via: v.object({ kind: v.union(v.literal("token"), v.literal("oauth")), name: v.string() }),
+    tool: v.string(),
+    summary: v.string(),
+    /** Section de l'écran où la modification se voit et se défait. */
+    section: v.string(),
+    month: v.optional(v.string()),
+    at: v.number(),
+  })
+    .index("by_user_at", ["userId", "at"])
+    .index("by_project", ["projectId"]),
 
   // CONNECTEUR OAuth du serveur MCP (convex/mcpOAuth.ts) — la voie de claude.ai,
   // Claude Desktop et mobile, qui n'acceptent pas de clé collée. Trois tables,
@@ -1819,6 +1842,8 @@ export default defineSchema({
     refreshExpiresAt: v.number(),
     createdAt: v.number(),
     lastUsedAt: v.optional(v.number()),
+    /** Domaines que l'application peut MODIFIER — comme `mcpTokens.writeScopes`. */
+    writeScopes: v.optional(v.array(v.string())),
   })
     .index("by_access", ["accessTokenHash"])
     .index("by_refresh", ["refreshTokenHash"])

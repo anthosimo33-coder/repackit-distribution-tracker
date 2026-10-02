@@ -1490,6 +1490,7 @@
     "ERR_MCP_TOKEN_NOT_FOUND": "Clave no encontrada.",
     "ERR_MCP_OAUTH_REQUEST_INVALID": "Solicitud de autorización no válida o caducada: vuelve a iniciar la conexión desde Claude.",
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acceso no encontrado.",
+    "ERR_MCP_WRITE_FORBIDDEN": "Esta conexión es de solo lectura: autoriza «Puede modificar la Contabilidad» en Jarvia › Conectar Claude.",
     "ERR_NO_ACTIVE_NOTIF": "La notificación está activada en esta campaña, pero no hay ninguna activa: añade una o desactívala.",
     "ERR_NOTIF_MISSING": "Este vídeo no tiene notificación que modificar.",
     "ERR_COMPTA_CHARGE_INVALID": "Gasto no válido: necesita una fecha, un concepto, un importe positivo y una moneda que el proyecto sepa convertir.",

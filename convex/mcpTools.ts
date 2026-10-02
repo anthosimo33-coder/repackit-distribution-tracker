@@ -87,6 +87,7 @@ import { attributionDaily, windowCosts, windowedAttribution } from "./attributio
 import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
 import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compta";
+import { appelerEcritureCompta, NOMS_ECRITURE_COMPTA, OUTILS_ECRITURE_COMPTA } from "./mcpWrites";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
 import {
@@ -1219,8 +1220,17 @@ const montantAffiche = (d: DisplayAmount | null) =>
 
 const json = (valeur: unknown) => textResult(JSON.stringify(valeur, null, 1));
 
-/** Le serveur MCP d'UNE personne authentifiée. */
-export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
+/**
+ * Le serveur MCP d'UNE personne authentifiée, par UNE connexion (clé ou
+ * application). Les outils d'ÉCRITURE n'apparaissent que si la personne a
+ * autorisé cette connexion à modifier le domaine, dans l'app.
+ */
+export function jarviaServer(
+  ctx: ActionCtx,
+  userId: Id<"users">,
+  acces: { kind: "token" | "oauth"; id: string; writeScopes: readonly string[] },
+): McpServer {
+  const ecritCompta = acces.writeScopes.includes("compta");
   let projetsP: Promise<Projet[]> | null = null;
   const projets = () =>
     (projetsP ??= ctx.runQuery(internal.mcpTools.projetsAccessibles, { userId }));
@@ -1485,7 +1495,7 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
     info: { name: "jarvia", version: "1.0.0" },
     instructions:
       "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé. Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
-    tools: OUTILS,
+    tools: ecritCompta ? [...OUTILS, ...OUTILS_ECRITURE_COMPTA] : OUTILS,
     async callTool(name, args) {
       if (name === "projets") {
         return json(
@@ -1494,6 +1504,13 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
       }
       const projet = await projetDe(args.projet);
       const ids = { userId, projectId: projet._id };
+
+      if (NOMS_ECRITURE_COMPTA.has(name)) {
+        if (!ecritCompta) {
+          throw new ToolError("Cette connexion est en lecture seule : autorise « Peut modifier la Compta » pour elle dans Jarvia › Connecter Claude.");
+        }
+        return appelerEcritureCompta(ctx, name, args, { ...ids, acces: { kind: acces.kind, id: acces.id } }, projet.slug);
+      }
 
       if (name === "comptes") {
         const tous = await lire(() => ctx.runQuery(internal.mcpTools.lireComptes, ids));
