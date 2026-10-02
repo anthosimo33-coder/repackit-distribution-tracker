@@ -32,6 +32,22 @@ type Exercice = {
   aRecuperer: { jour: string; montant: number; devise: string; contreValeur: number | null; motif: string | null; vers: string | null }[];
   nonClasses: { type: string; lignes: number }[];
   seuilsDeCA: { caBrutCumule: number; statut: string } | null;
+  avertissements?: string[];
+  tresorerie: {
+    disponiblePourDepenser: number | null;
+    enCaisse: number | null;
+    misDeCote: number | null;
+    surWhop: number | null;
+    comptes: {
+      nom: string;
+      compte: boolean;
+      dernierReleve: { jour: string; montant: number } | null;
+      aRelever: boolean;
+      virementsWhopArrivesDepuis: number | null;
+      soldeEstime: number | null;
+    }[];
+    aRecuperer: number | null;
+  };
 };
 type Detail = {
   mois: string;
@@ -145,6 +161,15 @@ test.describe("Outil MCP compta", () => {
         parts: [{ id: "r", amount: 31.24, usage: "recover", note: "USDC (36,30) bloqué chez Revolut, non reçu" }],
       });
 
+      // Un compte relevé le 20/09, AVANT le virement de 2 000 € qui y arrive.
+      await admin.mutation(api.compta.saveAccountReading, {
+        projectId,
+        newAccount: { name: "Antho Banque", currency: "eur" },
+        destinations: ["SEPA ••4821"],
+        day: "2025-09-20",
+        amount: 1337.49,
+      });
+
       // ── Une clé, depuis l'écran ─────────────────────────────────────────────
       await page.goto(adminPath("/comptes"));
       await page.getByRole("button", { name: "Connecter Claude" }).click();
@@ -182,6 +207,27 @@ test.describe("Outil MCP compta", () => {
         },
       ]);
       expect(r.nonClasses).toContainEqual(expect.objectContaining({ type: "referral_bonus", lignes: 1 }));
+
+      // La trésorerie d'aujourd'hui, comme le bloc de l'onglet.
+      const treso = await admin.query(api.compta.getComptaTreasury, { projectId });
+      expect(r.tresorerie).toMatchObject({
+        disponiblePourDepenser: treso.available,
+        enCaisse: treso.inCash,
+        surWhop: treso.whop.total,
+        misDeCote: 0,
+        aRecuperer: 26.87,
+      });
+      expect(r.tresorerie.comptes).toEqual([
+        expect.objectContaining({
+          nom: "Antho Banque",
+          compte: true,
+          dernierReleve: { jour: "2025-09-20", montant: 1337.49 },
+          virementsWhopArrivesDepuis: 2000,
+          soldeEstime: 3337.49,
+          aRelever: true,
+        }),
+      ]);
+      expect(r.avertissements).toContainEqual(expect.stringContaining("« Antho Banque » relevé il y a"));
 
       // Le MÊME calcul que l'onglet, mois par mois.
       const ecran = await admin.query(api.compta.getComptaOverview, { projectId, year: 2025 });
