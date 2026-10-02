@@ -435,7 +435,7 @@ export async function publicationParLien(
  * créatrice, comptes (ceux donnés, sinon le premier disponible de chaque
  * plateforme), barème (celui donné, sinon celui de la créatrice), dates.
  */
-async function resoudre(ctx: ProjectQueryCtx, d: Demande) {
+export async function resoudre(ctx: ProjectQueryCtx, d: Demande) {
   const project = await ctx.db.get(ctx.projectId);
   const creatrices = filterByCreatorScope(
     await ctx.db

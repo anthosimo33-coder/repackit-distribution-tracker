@@ -96,6 +96,16 @@ export const PROMPTS: readonly McpPrompt[] = [
     ],
   },
   {
+    name: "tester_hooks",
+    title: "Tester des hooks (A/B)",
+    description: "Monte un test A/B de 2 ou 3 hooks d'une campagne chez des créatrices comparables, puis en lit le verdict à J+7.",
+    arguments: [
+      ARG_PROJET,
+      { name: "campagne", description: "Nom de la campagne.", required: true },
+      { name: "experience", description: "Nom d'une expérience déjà lancée : en lire le verdict au lieu d'en monter une." },
+    ],
+  },
+  {
     name: "nouvelle_campagne",
     title: "Monter une nouvelle campagne",
     description: "Des meilleurs posts et de la veille à une campagne complète (hooks, flux, cta), créée désactivée pour relecture.",
@@ -302,6 +312,36 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         scripts
           ? "5. Attends mon accord, puis : `ajouter_hooks` (ils sont créés DÉSACTIVÉS — dis-le), `activer_briques` pour couper, `graduer_hook` pour graduer. Rends ce que chaque réponse dit avoir fait."
           : "5. Cette connexion ne peut pas modifier les scripts : rends les hooks prêts à coller dans l'écran de la campagne, ou dépose-les avec `proposer` (ou allume « Scripts » dans Jarvia › Connecter Claude).",
+        REGLES,
+      ]);
+    }
+
+    if (name === "tester_hooks") {
+      const campagne = args.campagne?.trim();
+      if (!campagne) throw new ToolError("« campagne » : le nom de la campagne.");
+      const experience = args.experience?.trim();
+      if (experience) {
+        return message(p.description, [
+          `Lis le verdict de l'expérience « ${experience} » (campagne « ${campagne} »).`,
+          projetDe(args),
+          `1. \`experiences\` (experience: « ${experience} ») : verdict, p, vues à J+7 par créatrice.`,
+          "2. Rends le verdict tel quel — « trop tôt » et « pas de gagnant démontré » sont des réponses, pas des échecs —, avec la date à laquelle relire si c'est trop tôt.",
+          scripts
+            ? "3. Si une gagnante est démontrée : propose de couper le(s) perdant(s) (`activer_briques`, actif: false) et, si la campagne est un labo, de graduer la gagnante (`graduer_hook`). Attends mon accord."
+            : "3. Si une gagnante est démontrée : propose de couper le(s) perdant(s) et de graduer la gagnante, avec `proposer` (cette connexion ne modifie pas les scripts).",
+          REGLES,
+        ]);
+      }
+      return message(p.description, [
+        `Monte un test A/B de hooks sur la campagne « ${campagne} ».`,
+        projetDe(args),
+        `1. \`scripts\` (campagne: « ${campagne} ») : choisis 2 ou 3 hooks ACTIFS à départager — de préférence « en test », ou récents à fort signal ; jamais un hook « à couper ». Garde un flux et un cta qui marchent.`,
+        "2. `createatrices` et `ponctualite` (28 derniers jours) : retiens 6 à 10 créatrices actives et fiables (au moins 70 % à l'heure), d'un même pays et d'une même plateforme si possible. Avec 2 hooks, moins de 6 créatrices rend un verdict net improbable : dis-le.",
+        "3. `planning` (jours: 14) : autant de jours libres que de hooks, rapprochés.",
+        missions
+          ? "4. `lancer_experience` avec `simuler: true` : montre le plan créatrice × jour × hook. Après mon accord — rappelle d'abord qu'un email part à chaque créatrice —, lance-le."
+          : "4. Cette connexion ne peut pas créer de missions : dépose l'expérience avec `proposer` (outil lancer_experience) pour que l'équipe la lance d'un clic, ou allume « Missions » dans Jarvia › Connecter Claude.",
+        "5. Dis quand relire le verdict (`experiences`) : à J+7 de la dernière publication.",
         REGLES,
       ]);
     }

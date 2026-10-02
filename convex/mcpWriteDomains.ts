@@ -9,11 +9,13 @@ import { DOMAINE_MISSIONS } from "./mcpWritesMissions";
 import { DOMAINE_SCRIPTS } from "./mcpWritesScripts";
 import { DOMAINE_PUBLICATIONS } from "./mcpWritesPublications";
 import { DOMAINE_VEILLE } from "./mcpWritesVeille";
+import { DOMAINE_EXPERIENCES } from "./mcpExperiences";
 import type { DomaineEcriture } from "./mcpWriteCommon";
 
 export const DOMAINES_ECRITURE: readonly DomaineEcriture[] = [
   DOMAINE_COMPTA,
   DOMAINE_MISSIONS,
+  DOMAINE_EXPERIENCES,
   DOMAINE_SCRIPTS,
   DOMAINE_PUBLICATIONS,
   DOMAINE_VEILLE,

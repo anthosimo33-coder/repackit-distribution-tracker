@@ -90,6 +90,7 @@ import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compt
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
+import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -1583,6 +1584,7 @@ export function jarviaServer(
       // `proposer` / `propositions` : TOUJOURS là — proposer n'écrit rien, c'est
       // la voie d'une connexion en lecture seule ou d'une routine sans personne.
       ...OUTILS_PROPOSITIONS,
+      OUTIL_EXPERIENCES,
       ...domaines.flatMap((d) => d.outils),
       ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
     ],
@@ -1599,6 +1601,9 @@ export function jarviaServer(
       const projet = await projetDe(args.projet);
       const ids = { userId, projectId: projet._id };
 
+      if (NOMS_EXPERIENCES_LECTURE.has(name)) {
+        return appelerExperiences(ctx, args, ids, projet.slug, lire);
+      }
       if (NOMS_PROPOSITIONS.has(name)) {
         return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);
       }

@@ -940,7 +940,8 @@
       "suivre_compte": "Follow an account",
       "ne_plus_suivre": "Unfollow an account",
       "noter_compte_suivi": "Note a followed account",
-      "ajouter_inspiration": "Add an inspiration"
+      "ajouter_inspiration": "Add an inspiration",
+      "lancer_experience": "Start an A/B test"
     },
     "section": {
       "treasury": "Cash",

@@ -29,6 +29,12 @@ export const annulationValidator = v.union(
   // ── Missions ──────────────────────────────────────────────────────────────
   /** assigner_scripts, rejouer_script : les missions créées. */
   v.object({ type: v.literal("missionsCreees"), assignmentIds: v.array(v.id("assignments")) }),
+  /** lancer_experience : l'expérience et ses missions. */
+  v.object({
+    type: v.literal("experienceCreee"),
+    experienceId: v.id("hookExperiments"),
+    assignmentIds: v.array(v.id("assignments")),
+  }),
   /** changer_compte_cible : le compte d'une cible, avant et après. */
   v.object({
     type: v.literal("compteCible"),
