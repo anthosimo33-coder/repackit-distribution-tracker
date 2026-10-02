@@ -60,10 +60,12 @@ function NewButtonInner({
     router.push(`${pathname}?${next.toString()}`);
   }
 
+  // Réduit, l'icône seule ne nomme pas le bouton (cf SidebarItem).
   const button = (
     <Button
       onClick={handleClick}
       className={cn("h-10 w-full", isCollapsed && "px-0")}
+      aria-label={isCollapsed ? t("action.new") : undefined}
     >
       <PlusIcon className="size-4" />
       {!isCollapsed && <span>{t("action.new")}</span>}
@@ -90,6 +92,7 @@ function NewButtonShell({ isCollapsed }: { isCollapsed: boolean }) {
     <Button
       disabled
       className={cn("h-10 w-full", isCollapsed && "px-0")}
+      aria-label={isCollapsed ? t("action.new") : undefined}
     >
       <PlusIcon className="size-4" />
       {!isCollapsed && <span>{t("action.new")}</span>}

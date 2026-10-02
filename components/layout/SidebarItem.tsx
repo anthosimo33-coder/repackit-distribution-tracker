@@ -58,6 +58,13 @@ export function SidebarItem({
     </>
   );
 
+  // RÉDUIT, le lien n'a plus qu'une icône (aria-hidden) : sans aria-label, son
+  // nom accessible est VIDE — un lecteur d'écran annonce « lien » et rien
+  // d'autre, et `getByRole("link", { name })` ne le trouve plus. Le tooltip ne
+  // compense pas : son contenu n'existe qu'au survol. Déplié, le texte visible
+  // nomme déjà le lien (badge compris) : on ne le masque pas.
+  const ariaLabel = isCollapsed ? label : undefined;
+
   const link = external ? (
     <a
       href={href}
@@ -65,11 +72,17 @@ export function SidebarItem({
       rel="noopener noreferrer"
       className={linkClass}
       onClick={onNavigate}
+      aria-label={ariaLabel}
     >
       {inner}
     </a>
   ) : (
-    <Link href={href} className={linkClass} onClick={onNavigate}>
+    <Link
+      href={href}
+      className={linkClass}
+      onClick={onNavigate}
+      aria-label={ariaLabel}
+    >
       {inner}
     </Link>
   );
