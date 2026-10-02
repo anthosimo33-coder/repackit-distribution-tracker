@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import {
   AlertTriangleIcon,
   CheckCircle2Icon,
   DownloadIcon,
+  HourglassIcon,
   Loader2Icon,
   RefreshCwIcon,
   WalletIcon,
@@ -58,6 +59,10 @@ export function ComptaPage() {
   const [now] = useState(() => Date.now());
   const [exportMonth, setExportMonth] = useState<string | null>(null);
   const [classify, setClassify] = useState<ClassifyTarget | null>(null);
+  // « Voir le virement » depuis l'argent à récupérer : le bloc Virements se
+  // rouvre sur le mois du retrait (le compteur force la réouverture).
+  const [transfersFocus, setTransfersFocus] = useState<{ month: string; n: number } | null>(null);
+  const transfersRef = useRef<HTMLDivElement>(null);
 
   if (overviewQ.status === "error") {
     return (
@@ -182,6 +187,16 @@ export function ComptaPage() {
         </div>
       )}
 
+      {data.toRecover.length > 0 && (
+        <RecoverBanner
+          data={data}
+          onSee={(month) => {
+            setTransfersFocus((cur) => ({ month, n: (cur?.n ?? 0) + 1 }));
+            transfersRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+        />
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <ComptaThresholdCard data={data} />
         <div className="grid gap-4">
@@ -192,7 +207,13 @@ export function ComptaPage() {
 
       <ComptaMonthlyTable data={data} onExport={(m) => setExportMonth(m)} />
 
-      <ComptaTransfersCard months={months} defaultMonth={lastTransferMonth} />
+      <div ref={transfersRef} className="scroll-mt-4">
+        <ComptaTransfersCard
+          key={transfersFocus ? `${transfersFocus.month}:${transfersFocus.n}` : "default"}
+          months={months}
+          defaultMonth={transfersFocus?.month ?? lastTransferMonth}
+        />
+      </div>
 
       <ComptaChargesCard
         months={months}
@@ -214,6 +235,58 @@ export function ComptaPage() {
         onMonthChange={setExportMonth}
         onClose={() => setExportMonth(null)}
       />
+    </div>
+  );
+}
+
+/**
+ * ARGENT À RÉCUPÉRER — les parts de virement marquées « À récupérer » : sorties
+ * de Whop, jamais arrivées. Toutes années : elles restent ici tant que l'usage
+ * de la part ne change pas.
+ */
+function RecoverBanner({ data, onSee }: { data: ComptaOverview; onSee: (month: string) => void }) {
+  const t = useTranslations("admin.money.Compta.recover");
+  const f = useComptaFormat();
+  const items = data.toRecover;
+  const total = items.every((x) => x.converted !== null)
+    ? f.money(items.reduce((s, x) => s + (x.converted ?? 0), 0), data.currency)
+    : items.map((x) => f.money(x.amount, x.currency)).join(" + ");
+  return (
+    <div className="rounded-xl border border-orange-200 bg-orange-50/70 px-4 py-3" data-testid="compta-recover-banner">
+      <div className="flex items-start gap-2.5 text-sm text-orange-900">
+        <HourglassIcon className="mt-0.5 size-4 shrink-0 text-orange-600" />
+        <div className="min-w-0 flex-1">
+          <strong className="font-semibold">{t("title", { amount: total })}</strong>
+          <span className="block text-xs text-orange-800/90">{t("subtitle")}</span>
+          <ul className="mt-2 space-y-1.5">
+            {items.map((x) => (
+              <li
+                key={`${x.lineId}:${x.partId}`}
+                className="grid items-center gap-x-3 gap-y-0.5 text-xs sm:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <span className="min-w-0">
+                  <span className="font-semibold tabular-nums text-orange-950">{f.money(x.amount, x.currency)}</span>
+                  {x.currency !== data.currency && x.converted !== null && (
+                    <span className="tabular-nums text-orange-800/80"> (≈ {f.money(x.converted, data.currency)})</span>
+                  )}
+                  <span className="text-orange-900"> · {x.note ?? t("noNote")}</span>
+                  <span className="block text-[11px] text-orange-800/80">
+                    {t("meta", { date: f.day(x.day), destination: x.destination ?? "—", days: x.ageDays })}
+                  </span>
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="justify-self-start border-orange-200 bg-white/70 text-orange-900 hover:bg-white sm:justify-self-end"
+                  onClick={() => onSee(x.day.slice(0, 7))}
+                >
+                  {t("see")}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }

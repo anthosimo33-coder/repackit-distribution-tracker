@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { useTranslations } from "next-intl";
+import type { FunctionReturnType } from "convex/server";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangleIcon,
@@ -28,7 +29,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { previousMonthKey } from "@/convex/comptaMath";
+import { isScanPaidLow, previousMonthKey } from "@/convex/comptaMath";
 import { useComptaFormat, type ComptaFormat } from "./compta-format";
 import type { ComptaOverview } from "./ComptaPage";
 
@@ -45,13 +46,31 @@ function Amount({
   f,
   strong,
   title,
+  warn,
+  testId,
 }: {
   v: number | null;
   currency: string | null;
   f: ComptaFormat;
   strong?: boolean;
   title?: string;
+  /** Chiffre juste mais à vérifier : souligné en ambre, l'explication au survol. */
+  warn?: boolean;
+  testId?: string;
 }) {
+  if (warn && v !== null) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 text-amber-700 underline decoration-amber-300 decoration-dotted underline-offset-4"
+        title={title}
+        data-testid={testId}
+      >
+        <AlertTriangleIcon className="size-3 shrink-0" />
+        {/* −0 (une charge nulle, négativée) s'afficherait « −0,00 € ». */}
+        {f.signed(v === 0 ? 0 : v, currency)}
+      </span>
+    );
+  }
   if (v === null) {
     return (
       <span className="text-slate-400" title={title}>
@@ -274,7 +293,17 @@ function MonthRows({
             v={r.creators === null ? null : -r.creators}
             currency={currency}
             f={f}
-            title={t("reason.creatorsCurrency")}
+            warn={r.creatorsControl?.significant ?? false}
+            testId={`compta-creators-${r.month}`}
+            title={
+              r.creatorsControl?.significant && r.creatorsControl.gap !== null
+                ? t("creatorsGapTitle", {
+                    sent: f.money(r.creatorsControl.sent ?? 0, currency),
+                    paid: f.money(r.creatorsControl.paid ?? 0, currency),
+                    gap: f.delta(r.creatorsControl.gap, currency),
+                  })
+                : t("reason.creatorsCurrency")
+            }
           />
         </TableCell>
         <TableCell className={NUM}>
@@ -282,8 +311,12 @@ function MonthRows({
             v={r.scans === null ? null : -r.scans}
             currency={currency}
             f={f}
+            warn={r.scanPaidLow}
+            testId={`compta-scans-${r.month}`}
             title={
-              r.scanSource === "paid"
+              r.scanPaidLow && r.scans !== null && r.scanEstimate !== null
+                ? t("scanPaidLowTitle", { paid: f.money(r.scans, currency), estimate: f.money(r.scanEstimate, currency) })
+                : r.scanSource === "paid"
                 ? r.scans === null
                   ? t("reason.scanPaidCurrency")
                   : t("scanPaidTitle")
@@ -361,6 +394,44 @@ function Panel({
 }
 
 const BUCKET_ORDER = ["gross", "refunds", "disputes", "fees", "transfers", "internal", "unclassified"] as const;
+
+type MonthData = FunctionReturnType<typeof api.compta.getComptaMonth>;
+
+/**
+ * Contrôle créatrices d'un mois : la paie marquée versée (au-dessus) face à
+ * l'argent sorti de Whop pour elles d'après la ventilation des virements.
+ */
+function CreatorsControl({ c, cur }: { c: NonNullable<MonthData["creatorsControl"]>; cur: string | null }) {
+  const t = useTranslations("admin.money.Compta.detail");
+  const f = useComptaFormat();
+  const tone = c.gap === null ? "text-slate-500" : c.significant ? "text-amber-700" : "text-emerald-700";
+  return (
+    <div className="mt-2 space-y-0.5 rounded-md bg-slate-50 px-2 py-1.5 text-xs" data-testid="compta-creators-control">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-slate-600">{t("creatorsSent")}</span>
+        <span className="tabular-nums text-slate-700">{c.sent === null ? "—" : f.money(c.sent, cur)}</span>
+      </div>
+      <div className={cn("flex items-baseline justify-between gap-2 font-medium", tone)}>
+        <span>{t("creatorsGap")}</span>
+        <span className="tabular-nums">{c.gap === null ? "—" : f.delta(c.gap, cur)}</span>
+      </div>
+      <p className={cn("flex items-start gap-1 text-[11px]", tone)}>
+        {c.significant ? (
+          <AlertTriangleIcon className="mt-px size-3 shrink-0" />
+        ) : c.gap !== null ? (
+          <CheckCircle2Icon className="mt-px size-3 shrink-0" />
+        ) : null}
+        {c.gap === null
+          ? t("creatorsGapNoRate")
+          : !c.significant
+            ? t("creatorsGapOk")
+            : c.gap > 0
+              ? t("creatorsGapMore")
+              : t("creatorsGapLess")}
+      </p>
+    </div>
+  );
+}
 
 function MonthDetail({ month }: { month: string }) {
   const t = useTranslations("admin.money.Compta.detail");
@@ -514,6 +585,7 @@ function MonthDetail({ month }: { month: string }) {
                 </div>
               </>
             )}
+            {d.creatorsControl && <CreatorsControl c={d.creatorsControl} cur={cur} />}
             <button
               type="button"
               onClick={() => router.push(projectPath("/paiements"))}
@@ -558,11 +630,20 @@ function MonthDetail({ month }: { month: string }) {
                     {d.scanTotal === null ? "—" : f.signed(-d.scanTotal, cur)}
                   </span>
                 </div>
-                {d.scan?.converted !== null && d.scan?.converted !== undefined && (
-                  <p className="mt-1.5 text-[11px] text-slate-400">
-                    {t("scansEstimateCompare", { amount: f.money(d.scan.converted, cur) })}
-                  </p>
-                )}
+                {d.scan?.converted !== null && d.scan?.converted !== undefined &&
+                  (isScanPaidLow(d.scanTotal, d.scan.converted) ? (
+                    <p
+                      className="mt-1.5 flex items-start gap-1 text-[11px] text-amber-700"
+                      data-testid="compta-detail-scans-low"
+                    >
+                      <AlertTriangleIcon className="mt-px size-3 shrink-0" />
+                      {t("scansPaidLow", { estimate: f.money(d.scan.converted, cur) })}
+                    </p>
+                  ) : (
+                    <p className="mt-1.5 text-[11px] text-slate-400">
+                      {t("scansEstimateCompare", { amount: f.money(d.scan.converted, cur) })}
+                    </p>
+                  ))}
               </>
             ) : d.scan === null ? (
               <p className="text-xs text-slate-400">{t("scansMissing")}</p>

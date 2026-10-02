@@ -21,11 +21,13 @@ import {
   bucketOf,
   convert,
   creatorCashOuts,
+  creatorsControl,
   grossByDay,
   isBuiltinLineType,
   isChargeCategory,
   isComptaBucket,
   isFailedWithdrawal,
+  isScanPaidLow,
   isValidLineType,
   ledgerTotals,
   parisDayKey,
@@ -328,6 +330,19 @@ export const getComptaOverview = permissionQuery("business.read")({
 
     const byMonth = new Map(months.map((m) => [m.month, m]));
     const outs = await creatorOuts(ctx, ctx.projectId);
+    // Tous les virements (quelques dizaines) : dernier réussi, contrôle
+    // créatrices par mois, argent à récupérer.
+    const reversals = await reversalsBySource(ctx, ctx.projectId);
+    const transfers = (
+      await ctx.db
+        .query("whopLedgerLines")
+        .withIndex("by_project_type_posted", (q) =>
+          q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"),
+        )
+        .collect()
+    )
+      .sort((a, b) => a.postedAt - b.postedAt)
+      .map((l) => transferOut(l, reversals, fx));
     const charges = await chargesOf(ctx, ctx.projectId, currentMonth);
     const payCurrency = project.payCurrency ?? null;
     const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
@@ -371,14 +386,17 @@ export const getComptaOverview = permissionQuery("business.read")({
       }
       if (otherUnconverted) incomplete.push("otherCurrency");
       const result = round2(ledger.net - (creators ?? 0) - (scans ?? 0) - other);
+      const sent = creatorsSentOf(transfers.filter((x) => x.day.slice(0, 7) === month));
       return {
         month,
         inProgress: month === currentMonth,
         ledger,
         creators,
+        creatorsControl: creatorsControl(creators, sent.sent, sent.count),
         scans,
         scanSource: sc.source,
         scanEstimate: sc.estimate,
+        scanPaidLow: isScanPaidLow(sc.source === "paid" ? scans : null, sc.estimate),
         scanFrozen: doc?.scan?.frozen ?? false,
         other,
         plannedCount,
@@ -423,18 +441,24 @@ export const getComptaOverview = permissionQuery("business.read")({
       return { currency: b.currency, amount: b.amount, converted: conv === null ? null : round2(conv) };
     });
     // Dernier virement RÉUSSI : un retrait échoué est revenu sur Whop.
-    const reversals = await reversalsBySource(ctx, ctx.projectId);
-    const recentTransfers = await ctx.db
-      .query("whopLedgerLines")
-      .withIndex("by_project_type_posted", (q) =>
-        q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"),
-      )
-      .order("desc")
-      .take(50);
-    const lastTransfer =
-      recentTransfers.find(
-        (l) => !isFailedWithdrawal(l.sourceStatus, l.sourceId ? reversals.has(l.sourceId) : false),
-      ) ?? null;
+    const lastTransfer = [...transfers].reverse().find((x) => !x.failed) ?? null;
+    // Argent à récupérer, TOUTES années : il reste signalé jusqu'à ce qu'on
+    // change l'usage de la part.
+    const toRecover = transfers.flatMap((x) =>
+      x.parts
+        .filter((p) => p.usage === "recover")
+        .map((p) => ({
+          lineId: x._id,
+          partId: p.id,
+          day: x.day,
+          destination: x.destination,
+          amount: p.amount,
+          currency: x.currency,
+          converted: p.converted,
+          note: p.note,
+          ageDays: Math.max(0, Math.round((now - x.postedAt) / DAY)),
+        })),
+    );
 
     // Types non classés, sur TOUT l'historique : une règle vaut pour le type.
     const pending = new Map<string, { count: number; amount: number; currency: string; months: Set<string> }>();
@@ -508,9 +532,10 @@ export const getComptaOverview = permissionQuery("business.read")({
           ? round2(balances.reduce((s, b) => s + (b.converted ?? 0), 0))
           : null,
         lastTransfer: lastTransfer
-          ? { at: lastTransfer.postedAt, amount: -lastTransfer.amount, currency: lastTransfer.currency }
+          ? { at: lastTransfer.postedAt, amount: lastTransfer.amount, currency: lastTransfer.currency }
           : null,
       },
+      toRecover,
       unclassified: unclassified.sort((a, b) => b.count - a.count),
       // Les mois où chaque type réglé a des lignes : retirer ou changer la
       // règle change ces mois-là, et l'écran prévient s'ils ont été exportés.
@@ -637,6 +662,12 @@ export const getComptaMonth = permissionQuery("business.read")({
         converted: payRate === null ? null : round2(outs.reduce((s, o) => s + o.amount, 0) * payRate),
         rate: payRate,
       },
+      creatorsControl: (() => {
+        const pay = round2(outs.reduce((s, o) => s + o.amount, 0));
+        const paid = pay === 0 ? 0 : payRate === null ? null : round2(pay * payRate);
+        const sent = creatorsSentOf(transfers);
+        return creatorsControl(paid, sent.sent, sent.count);
+      })(),
       scanSource: sc.source,
       scanPaid,
       scanTotal: sc.value,
@@ -661,16 +692,52 @@ export const getComptaMonth = permissionQuery("business.read")({
 });
 
 /**
- * Les virements Whop → banque d'un mois, avec leur ventilation. Un retrait
- * ÉCHOUÉ (revenu sur Whop) est rendu marqué : l'écran le montre, ne le compte
- * pas, et ne propose pas de dire à quoi il a servi.
+ * Un virement Whop → banque tel qu'il part au navigateur, avec sa ventilation.
+ * Un retrait ÉCHOUÉ (revenu sur Whop) est rendu marqué : l'écran le montre, ne
+ * le compte pas, et ne propose pas de dire à quoi il a servi.
  */
+function transferOut(l: Doc<"whopLedgerLines">, reversals: Map<string, number>, fx: ComptaFx) {
+  // Un retrait est négatif dans le grand livre : il est montré « reçu ».
+  const amount = round2(-l.amount);
+  const returnedAt = l.sourceId ? reversals.get(l.sourceId) : undefined;
+  const failed = isFailedWithdrawal(l.sourceStatus, returnedAt !== undefined);
+  const conv = convert(amount, l.currency, fx);
+  const parts = failed ? [] : transferPartsOf(l, amount);
+  return {
+    _id: l._id,
+    postedAt: l.postedAt,
+    day: parisDayKey(l.postedAt),
+    amount,
+    currency: l.currency,
+    converted: conv === null ? null : round2(conv),
+    destination: l.destination ?? null,
+    sourceId: l.sourceId ?? null,
+    status: l.sourceStatus ?? null,
+    failed,
+    returnedDay: returnedAt === undefined ? null : parisDayKey(returnedAt),
+    parts: parts.map((p) => {
+      const pc = convert(p.amount, l.currency, fx);
+      return {
+        id: p.id,
+        amount: p.amount,
+        usage: p.usage,
+        note: p.note ?? null,
+        countedAs: p.countedAs ?? null,
+        converted: pc === null ? null : round2(pc),
+      };
+    }),
+    annotatedAt: l.annotatedAt ?? null,
+  };
+}
+type TransferOut = ReturnType<typeof transferOut>;
+
+/** Les virements d'un mois, dans l'ordre. */
 async function transfersOf(
   ctx: QueryCtx,
   projectId: Id<"projects">,
   month: string,
   fx: ComptaFx,
-) {
+): Promise<TransferOut[]> {
   const { start, end } = monthBounds(month);
   const lines = await ctx.db
     .query("whopLedgerLines")
@@ -679,41 +746,28 @@ async function transfersOf(
     )
     .collect();
   const reversals = await reversalsBySource(ctx, projectId);
-  return lines
-    .sort((a, b) => a.postedAt - b.postedAt)
-    .map((l) => {
-      // Un retrait est négatif dans le grand livre : il est montré « reçu ».
-      const amount = round2(-l.amount);
-      const returnedAt = l.sourceId ? reversals.get(l.sourceId) : undefined;
-      const failed = isFailedWithdrawal(l.sourceStatus, returnedAt !== undefined);
-      const conv = convert(amount, l.currency, fx);
-      const parts = failed ? [] : transferPartsOf(l, amount);
-      return {
-        _id: l._id,
-        postedAt: l.postedAt,
-        day: parisDayKey(l.postedAt),
-        amount,
-        currency: l.currency,
-        converted: conv === null ? null : round2(conv),
-        destination: l.destination ?? null,
-        sourceId: l.sourceId ?? null,
-        status: l.sourceStatus ?? null,
-        failed,
-        returnedDay: returnedAt === undefined ? null : parisDayKey(returnedAt),
-        parts: parts.map((p) => {
-          const pc = convert(p.amount, l.currency, fx);
-          return {
-            id: p.id,
-            amount: p.amount,
-            usage: p.usage,
-            note: p.note ?? null,
-            countedAs: p.countedAs ?? null,
-            converted: pc === null ? null : round2(pc),
-          };
-        }),
-        annotatedAt: l.annotatedAt ?? null,
-      };
-    });
+  return lines.sort((a, b) => a.postedAt - b.postedAt).map((l) => transferOut(l, reversals, fx));
+}
+
+/**
+ * Argent sorti de Whop POUR LES CRÉATRICES d'après la ventilation : somme des
+ * parts « Paiement créatrices » des virements réussis (`null` si une part n'a
+ * pas de taux), et leur nombre.
+ */
+function creatorsSentOf(transfers: readonly TransferOut[]): { sent: number | null; count: number } {
+  let sum = 0;
+  let count = 0;
+  let unconverted = false;
+  for (const x of transfers) {
+    if (x.failed) continue;
+    for (const p of x.parts) {
+      if (p.usage !== "creators") continue;
+      count += 1;
+      if (p.converted === null) unconverted = true;
+      else sum += p.converted;
+    }
+  }
+  return { sent: unconverted ? null : round2(sum), count };
 }
 
 /** Virements Whop → banque d'un mois (bloc « Virements »). */
@@ -733,14 +787,16 @@ export const listComptaCharges = permissionQuery("business.read")({
     const months = await allMonths(ctx, ctx.projectId);
     const { fx } = await loadContext(ctx, ctx.projectId, months);
     const currentMonth = parisDayKey(Date.now()).slice(0, 7);
-    const charges = (await chargesOf(ctx, ctx.projectId, currentMonth))
-      .filter((c) => c.month === month)
-      .map((c) => chargeOut(c, fx));
+    const monthCharges = (await chargesOf(ctx, ctx.projectId, currentMonth)).filter((c) => c.month === month);
+    const charges = monthCharges.map((c) => chargeOut(c, fx));
+    // L'estimation cost_usd du mois : la fenêtre de ventilation montre ce qu'un
+    // paiement de scans compté va remplacer.
+    const scanEstimate = monthScans([], months.find((m) => m.month === month)?.scan, fx).estimate;
     // Devises qu'une charge peut porter : la référence et celles qui ont un taux.
     const currencies = Object.keys(fx.rates).sort((a, b) =>
       a === fx.target ? -1 : b === fx.target ? 1 : a.localeCompare(b),
     );
-    return { currency: fx.target, currencies, rates: fx.rates, charges };
+    return { currency: fx.target, currencies, rates: fx.rates, charges, scanEstimate };
   },
 });
 

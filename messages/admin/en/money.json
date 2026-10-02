@@ -105,6 +105,13 @@
       "body": "{types} · {lines, plural, one {# line} other {# lines}} · {amount} in total. They count in no column until you classify them: Whop net and the balance won't add up.",
       "action": "Choose their column"
     },
+    "recover": {
+      "title": "Money to recover: {amount}",
+      "subtitle": "Left Whop, never arrived. Stays flagged until the part's usage changes: recovered → “Other”, lost → “Business expenses”, counted.",
+      "noNote": "no reason",
+      "meta": "withdrawal on {date} to {destination} · {days, plural, one {# day} other {# days}} ago",
+      "see": "See the withdrawal"
+    },
     "kpi": {
       "result": "{year} result",
       "resultInfoLabel": "How the result is computed",
@@ -183,7 +190,9 @@
       },
       "empty": "No activity in fiscal year {year}.",
       "scanPaidTitle": "Real payments to the scan provider",
-      "scanEstimateTitle": "cost_usd estimate"
+      "scanEstimateTitle": "cost_usd estimate",
+      "scanPaidLowTitle": "Actual {paid} vs {estimate} estimated: a scanning payment may be missing (a single counted payment replaces the whole estimate).",
+      "creatorsGapTitle": "Sent from Whop for creators: {sent} · marked paid in Payments: {paid} · gap {gap}"
     },
     "detail": {
       "loading": "Loading the details…",
@@ -239,7 +248,14 @@
       "scansEstimateCompare": "cost_usd estimate: {amount}, for comparison.",
       "scansPaidTotal": "Total paid",
       "scansFromTransfer": "withdrawal on {date}",
-      "transferParts": "{count, plural, one {# part} other {# parts}}"
+      "transferParts": "{count, plural, one {# part} other {# parts}}",
+      "creatorsSent": "Sent from Whop for them (breakdown)",
+      "creatorsGap": "Gap",
+      "creatorsGapMore": "More money sent than pay marked paid: a paid cycle not marked yet, or a part filed under the wrong usage.",
+      "creatorsGapLess": "Less money sent than pay marked paid: some paid through another channel, a cycle wrongly marked paid, or a withdrawal not broken down yet.",
+      "creatorsGapOk": "Consistent.",
+      "creatorsGapNoRate": "Gap not computed: an amount has no rate.",
+      "scansPaidLow": "Actual far below the estimate ({estimate}): a scanning payment may be missing."
     },
     "transfers": {
       "title": "Whop → bank withdrawals",
@@ -290,18 +306,25 @@
       "neverCounted": "A “Creator payments” part is never counted: pay is already in Creators once you mark the cycle paid.",
       "effectTitle": "Effect on {month} accounting",
       "effectOther": "Other expenses: + {amount} ({label}, {category})",
-      "effectScans": "Scanning: real payment + {amount} ({label}), instead of the estimate",
+      "effectScans": "Scanning: real payment + {amount} ({label})",
       "effectResult": "Result: {amount}",
       "effectNone": "No effect on the result: nothing is counted as an expense.",
       "effectUnchanged": "Withdrawals received, Whop net, gross revenue: unchanged",
       "clear": "Clear the split",
-      "noteRequired": "A note is required for a part counted as an expense"
+      "noteRequired": "A note is required for a part counted as an expense",
+      "scanSideEstimate": "{amount} estimated",
+      "scanSidePaid": "{amount} actual",
+      "scanSideNone": "no estimate",
+      "effectScansSwap": "Scanning: {before} → {after}",
+      "effectScansLow": "{month} scanning drops by {amount}: a single counted payment replaces the whole estimate. If other scanning payments this month aren't counted yet (other withdrawals, card…), count them too, or the result is inflated.",
+      "recoverHint": "Flagged at the top of Accounting until the usage changes. Recovered → “Other”; lost → “Business expenses”, counted."
     },
     "usages": {
       "pay": "My pay",
       "creators": "Creator payments",
       "provision": "Set aside (taxes, social charges)",
       "business": "Business expenses",
+      "recover": "To recover (stuck, in transit)",
       "other": "Something else"
     },
     "charges": {
@@ -440,7 +463,9 @@
       "cancel": "Cancel",
       "download": "Download the CSV",
       "downloaded": "Export downloaded.",
-      "failed": "The export couldn't be prepared."
+      "failed": "The export couldn't be prepared.",
+      "scanPaidLow": "Scanning: actual ({paid}) is far below the estimate ({estimate}). A payment may be missing: check before sending.",
+      "creatorsGap": "Creators: {sent} sent from Whop for them vs {paid} marked paid (gap {gap}). Clear it up before sending."
     },
     "csv": {
       "date": "Day",

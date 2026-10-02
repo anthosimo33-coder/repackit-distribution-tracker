@@ -100,6 +100,7 @@ function useExportLabels(): ExportLabels {
         creators: tu("creators"),
         provision: tu("provision"),
         business: tu("business"),
+        recover: tu("recover"),
         other: tu("other"),
       },
       summary: {
@@ -297,6 +298,22 @@ export function ComptaExportDialog({
             <p className="flex items-start gap-1.5 text-[11px] text-amber-700">
               <AlertTriangleIcon className="mt-px size-3 shrink-0" />
               {t("incomplete")}
+            </p>
+          )}
+          {row?.scanPaidLow && row.scans !== null && row.scanEstimate !== null && (
+            <p className="flex items-start gap-1.5 text-[11px] text-amber-700" data-testid="compta-export-scans-low">
+              <AlertTriangleIcon className="mt-px size-3 shrink-0" />
+              {t("scanPaidLow", { paid: f.money(row.scans, data.currency), estimate: f.money(row.scanEstimate, data.currency) })}
+            </p>
+          )}
+          {row?.creatorsControl?.significant && row.creatorsControl.gap !== null && (
+            <p className="flex items-start gap-1.5 text-[11px] text-amber-700" data-testid="compta-export-creators-gap">
+              <AlertTriangleIcon className="mt-px size-3 shrink-0" />
+              {t("creatorsGap", {
+                sent: f.money(row.creatorsControl.sent ?? 0, data.currency),
+                paid: f.money(row.creatorsControl.paid ?? 0, data.currency),
+                gap: f.delta(row.creatorsControl.gap, data.currency),
+              })}
             </p>
           )}
           {row && row.ledger.unclassified.count > 0 && (

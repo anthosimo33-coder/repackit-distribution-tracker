@@ -306,7 +306,12 @@ test.describe("Compta", () => {
       ).rejects.toThrow(/ERR_COMPTA_PARTS_INVALID/);
 
       const avant = (await row(2025, "2025-09")).r;
-      expect(avant).toMatchObject({ other: 0, scans: 948.6, scanSource: "estimate" });
+      expect(avant).toMatchObject({ other: 0, scans: 948.6, scanSource: "estimate", scanPaidLow: false });
+      // Aucune part « Paiement créatrices » : rien à contrôler.
+      expect(avant.creatorsControl).toBeNull();
+      expect((await row(2025, "2025-09")).o.toRecover).toEqual([]);
+      // La fenêtre de ventilation lit l'estimation que remplacera un paiement de scans.
+      expect((await admin.query(api.compta.listComptaCharges, { month: "2025-09" })).scanEstimate).toBe(948.6);
 
       await admin.mutation(api.compta.ventilateTransfer, {
         lineId: w._id,
@@ -319,6 +324,8 @@ test.describe("Compta", () => {
       const apres = (await row(2025, "2025-09")).r;
       // TikTok en Autres ; Hiker REMPLACE l'estimation des scans ; le reste ne touche rien.
       expect(apres).toMatchObject({ other: 300, scans: 200, scanSource: "paid", scanEstimate: 948.6 });
+      // 200 € réels pour 948,60 € estimés : un paiement manque peut-être.
+      expect(apres.scanPaidLow).toBe(true);
       expect(apres.result).toBe(Math.round((avant.result + 948.6 - 200 - 300) * 100) / 100);
       expect(apres.ledger.transfersReceived).toBe(avant.ledger.transfersReceived);
 
@@ -354,10 +361,62 @@ test.describe("Compta", () => {
       const restes = (await admin.query(api.compta.listComptaCharges, { month: "2025-09" })).charges;
       expect(restes.map((c) => c.label)).toEqual(["API HIKER"]);
 
+      // Argent sorti pour les créatrices, et argent jamais arrivé.
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [
+          { id: "p1", amount: 1500, usage: "pay", note: "Ma paie de septembre" },
+          { id: "p5", amount: 250, usage: "creators", note: "Reversé à Kevin pour les créatrices" },
+        ],
+      });
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: usd._id,
+        parts: [{ id: "r1", amount: 31.24, usage: "recover", note: "USDC bloqué chez Revolut, non reçu" }],
+      });
+      const controle = await row(2025, "2025-09");
+      // Aucune paie marquée versée en septembre 2025 : tout l'argent sorti est un écart.
+      expect(controle.r.creatorsControl).toEqual({ paid: 0, sent: 250, gap: 250, significant: true });
+      expect((await admin.query(api.compta.getComptaMonth, { month: "2025-09" })).creatorsControl).toEqual({
+        paid: 0,
+        sent: 250,
+        gap: 250,
+        significant: true,
+      });
+      expect(controle.o.toRecover).toEqual([
+        expect.objectContaining({
+          lineId: usd._id,
+          partId: "r1",
+          day: "2025-09-10",
+          destination: "Antho Wallet",
+          amount: 31.24,
+          currency: "usd",
+          converted: 26.87,
+          note: "USDC bloqué chez Revolut, non reçu",
+        }),
+      ]);
+      // Signalé jusqu'à ce que l'usage change : récupéré → « Autre ».
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: usd._id,
+        parts: [{ id: "r1", amount: 31.24, usage: "other", note: "USDC récupéré le 30/09" }],
+      });
+      expect((await row(2025, "2025-09")).o.toRecover).toEqual([]);
+      // « À récupérer » ne se compte jamais en charge.
+      await expect(
+        admin.mutation(api.compta.ventilateTransfer, {
+          lineId: usd._id,
+          parts: [{ id: "r1", amount: 31.24, usage: "recover", note: "USDC", countedAs: "other" }],
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTS_INVALID/);
+
       // Effacer la ventilation : plus de charge liée, l'estimation revient.
       await admin.mutation(api.compta.ventilateTransfer, { lineId: w._id, parts: [] });
       expect((await admin.query(api.compta.listComptaCharges, { month: "2025-09" })).charges).toEqual([]);
-      expect((await row(2025, "2025-09")).r).toMatchObject({ scans: 948.6, scanSource: "estimate" });
+      expect((await row(2025, "2025-09")).r).toMatchObject({
+        scans: 948.6,
+        scanSource: "estimate",
+        scanPaidLow: false,
+        creatorsControl: null,
+      });
     } finally {
       await restore();
     }
@@ -366,7 +425,7 @@ test.describe("Compta", () => {
   test("une créatrice payée sort en charge au jour du paiement, convertie", async () => {
     test.setTimeout(180_000);
     const ts = Date.now();
-    const { restore } = await setup(ts);
+    const { projectId, restore } = await setup(ts);
     try {
       const year = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date()).slice(0, 4));
       const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date()).slice(0, 7);
@@ -414,6 +473,31 @@ test.describe("Compta", () => {
       const detail = await admin.query(api.compta.getComptaMonth, { month });
       const ligne = detail.creators.find((x) => x.name === `[E2E_TEST] Kelly Moreau ${ts}`);
       expect(ligne).toMatchObject({ kind: "settlement", amount: 1074.57, converted: 924.13 });
+
+      // Contrôle : un virement du mois dont 870 € sont partis pour les créatrices
+      // face à la paie que Paiements dit versée (celle de Kelly comprise).
+      await admin.mutation(api.compta.e2eSeedLedgerLines, {
+        secret: E2E_SECRET,
+        projectId,
+        lines: [
+          { whopId: `line_e2e_${ts}_wk`, lineType: "withdrawal", amount: -1806, currency: "eur", postedAt: Date.now() - 60_000, sourceId: `wdrl_kevin_${ts}`, destination: "OCBC LTVT", sourceStatus: "completed" },
+        ],
+      });
+      const virement = (await admin.query(api.compta.listComptaTransfers, { month })).transfers.find(
+        (x) => x.sourceId === `wdrl_kevin_${ts}`,
+      )!;
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: virement._id,
+        parts: [
+          { id: "j", amount: 832, usage: "business", note: "Remboursement des frais avancés par Jérem" },
+          { id: "k", amount: 870, usage: "creators", note: "Reversé à Kevin pour les créatrices (cycles d'août)" },
+        ],
+      });
+      const ctl = (await admin.query(api.compta.getComptaMonth, { month })).creatorsControl!;
+      const paid = (await admin.query(api.compta.getComptaOverview, { year })).rows.find((r) => r.month === month)!.creators!;
+      expect(ctl.paid).toBe(paid);
+      expect(ctl.sent).toBe(870);
+      expect(ctl.gap).toBe(Math.round((870 - paid) * 100) / 100);
     } finally {
       await restore();
     }
@@ -544,6 +628,78 @@ test.describe("Compta", () => {
       await expect(status).toContainText("Devise de référence indéterminée");
       await expect(status).not.toContainText("jamais lu");
       await expect(charges.getByTestId("compta-charges-no-currency")).toContainText("Pose d'abord les taux du projet");
+    } finally {
+      await restore();
+    }
+  });
+
+  test("écran : argent à récupérer, bascule des scans, contrôle créatrices", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { restore } = await setup(ts);
+    try {
+      const list = await admin.query(api.compta.listComptaTransfers, { month: "2025-09" });
+      const w = list.transfers.find((x) => x.sourceId === `wdrl_e2e_${ts}`)!;
+      const usd = list.transfers.find((x) => x.sourceId === `wdrl_usd_${ts}`)!;
+
+      await page.goto(adminPath("/compta"));
+      await expect(page.getByTestId("compta-sync-status")).toBeVisible({ timeout: 20_000 });
+      // Rien à récupérer : pas de bandeau…
+      const banner = page.getByTestId("compta-recover-banner");
+      await expect(banner).toHaveCount(0);
+
+      // … puis un retrait en USDC bloqué : le bandeau apparaît, toutes années.
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: usd._id,
+        parts: [{ id: "r1", amount: 31.24, usage: "recover", note: "USDC (36,30) bloqué chez Revolut, non reçu" }],
+      });
+      await expect(banner).toContainText(/Argent à récupérer : 26,87\s*€/);
+      await expect(banner).toContainText("USDC (36,30) bloqué chez Revolut, non reçu");
+      await expect(banner).toContainText("vers Antho Wallet");
+      // « Voir le virement » rouvre le bloc Virements sur septembre 2025.
+      await banner.getByRole("button", { name: "Voir le virement" }).click();
+      const transfers = page.getByTestId("compta-transfers");
+      await expect(transfers.getByTestId(`compta-transfer-wdrl_usd_${ts}`)).toContainText("À récupérer");
+
+      // Kevin a reçu 250 € pour les créatrices ; Hiker compté seul, 200 €.
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [
+          { id: "k", amount: 250, usage: "creators", note: "Reversé à Kevin pour les créatrices" },
+          { id: "h", amount: 200, usage: "business", note: "API HIKER", countedAs: "scans" },
+        ],
+      });
+      await page.getByRole("combobox", { name: /Exercice/ }).click();
+      await page.getByRole("option", { name: "Exercice 2025" }).click();
+      const scans = page.getByTestId("compta-scans-2025-09");
+      await expect(scans).toHaveText(/−200,00\s*€/);
+      await expect(scans).toHaveAttribute("title", /Réel 200,00\s*€ contre 948,60\s*€ estimés/);
+      const createurs = page.getByTestId("compta-creators-2025-09");
+      await expect(createurs).toHaveAttribute("title", /Sorti de Whop pour les créatrices : 250,00\s*€/);
+
+      // Le détail du mois : contrôle créatrices et alerte scans.
+      await page.getByTestId("compta-row-2025-09").click();
+      const controle = page.getByTestId("compta-creators-control");
+      await expect(controle).toContainText(/Sorti de Whop pour elles \(ventilation\)\s*250,00\s*€/);
+      await expect(controle).toContainText(/Écart\s*\+\s?250,00\s*€/);
+      await expect(controle).toContainText("Plus d'argent sorti que de paie marquée versée");
+      await expect(page.getByTestId("compta-detail-scans-low")).toContainText("948,60");
+
+      // La fenêtre de ventilation montre ce que le paiement de scans remplace
+      // (le bloc Virements est resté sur septembre 2025, ouvert par le bandeau).
+      await transfers.getByTestId(`compta-transfer-wdrl_e2e_${ts}`).getByRole("button", { name: "Ventiler ou annoter" }).click();
+      await expect(page.getByTestId("compta-ventilation-scans")).toHaveText(
+        /Scans : 948,60\s*€ estimés → 200,00\s*€ réels/,
+      );
+      await expect(page.getByTestId("compta-ventilation-scans-low")).toContainText(/baissent de 748,60\s*€/);
+      // Résultat : la bascule des scans compte (+748,60 €), la part créatrices non.
+      await expect(page.getByTestId("compta-ventilation-effect")).toContainText(/Résultat : \+\s?748,60\s*€/);
+      await page.getByRole("button", { name: "Annuler" }).click();
+
+      // L'export prévient avant l'envoi.
+      await page.getByRole("button", { name: /Exporter septembre 2025/ }).click();
+      await expect(page.getByTestId("compta-export-scans-low")).toContainText("948,60");
+      await expect(page.getByTestId("compta-export-creators-gap")).toContainText(/250,00\s*€ sortis/);
     } finally {
       await restore();
     }
