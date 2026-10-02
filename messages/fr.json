@@ -1492,6 +1492,7 @@
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Accès introuvable.",
     "ERR_MCP_WRITE_FORBIDDEN": "Cette connexion est en lecture seule pour ce domaine : autorise les modifications pour elle dans Jarvia › Connecter Claude.",
     "ERR_MCP_DESIGNATION": "Introuvable ou ambigu : précise ce que tu désignes.",
+    "ERR_MCP_UNDO_IMPOSSIBLE": "Cette modification ne peut pas être défaite.",
     "ERR_NO_ACTIVE_NOTIF": "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
     "ERR_NOTIF_MISSING": "Cette vidéo n’a pas de notif à modifier.",
     "ERR_COMPTA_CHARGE_INVALID": "Charge invalide : il faut une date, un libellé, un montant positif et une devise que le projet sait convertir.",

@@ -174,6 +174,7 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
     // un hook déjà là, même éteint, n'est pas recréé.
     const vus = new Set(existants.map((b) => hookIdentityKey(b.content)));
     const ajoutes: string[] = [];
+    const crees: Id<"scriptBricks">[] = [];
     const doublons: string[] = [];
     for (const h of a.hooks) {
       const texte = h.texte.trim();
@@ -185,7 +186,7 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
       }
       vus.add(cle);
       const label = hookLabelOf(texte);
-      await createBrickCore(ctx, {
+      const id = await createBrickCore(ctx, {
         campaignId: campagne._id,
         kind: "hook",
         label,
@@ -193,6 +194,7 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
         ...(h.consigne?.trim() ? { instruction: h.consigne } : {}),
         active: a.actifs,
       });
+      crees.push(id);
       ajoutes.push(label);
     }
     const summary =
@@ -200,7 +202,13 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
       (ajoutes.length > 0 ? ` (${a.actifs ? "actif" : "désactivé"}${ajoutes.length > 1 ? "s" : ""})` : "") +
       (doublons.length > 0 ? `, ${doublons.length} déjà présent${doublons.length > 1 ? "s" : ""}` : "");
     if (ajoutes.length > 0) {
-      await journaliser(ctx, { tool: "ajouter_hooks", summary, section: "campaign", path: `scripts/${campagne._id}` });
+      await journaliser(ctx, {
+        tool: "ajouter_hooks",
+        summary,
+        section: "campaign",
+        path: `scripts/${campagne._id}`,
+        annulation: { type: "briquesCreees", brickIds: crees },
+      });
     }
     return { summary, ajoutes, doublons };
   },
@@ -236,6 +244,7 @@ export const ecrireActivation = mcpWriteMutation("scripts.manage", "scripts")({
       );
     }
     const ids = [...choisies.keys()] as Id<"scriptBricks">[];
+    const basculees = [...choisies.values()].filter((b) => b.active !== a.actif);
     const { touched } = await setBricksActiveCore(ctx, { ids, active: a.actif });
     const libelles = [...choisies.values()].map((b) => `${b.kind} « ${b.label} »`);
     const deja = ids.length - touched;
@@ -244,7 +253,17 @@ export const ecrireActivation = mcpWriteMutation("scripts.manage", "scripts")({
       (deja > 0 ? ` (${deja} l'étai${deja > 1 ? "en" : ""}t déjà)` : "") +
       ` — ${libelles.join(", ")}`;
     if (touched > 0) {
-      await journaliser(ctx, { tool: "activer_briques", summary, section: "campaign", path: `scripts/${campagne._id}` });
+      await journaliser(ctx, {
+        tool: "activer_briques",
+        summary,
+        section: "campaign",
+        path: `scripts/${campagne._id}`,
+        annulation: {
+          type: "briquesActives",
+          apres: a.actif,
+          briques: basculees.map((b) => ({ brickId: b._id, avant: b.active })),
+        },
+      });
     }
     return { summary };
   },
@@ -331,5 +350,6 @@ async function appelerEcritureScripts(
 export const DOMAINE_SCRIPTS: DomaineEcriture = {
   scope: "scripts",
   outils: OUTILS_ECRITURE_SCRIPTS,
+  droits: Object.fromEntries(OUTILS_ECRITURE_SCRIPTS.map((t) => [t.name, "scripts.manage" as const])),
   appeler: appelerEcritureScripts,
 };

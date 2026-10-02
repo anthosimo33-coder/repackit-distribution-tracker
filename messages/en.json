@@ -1492,6 +1492,7 @@
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Access not found.",
     "ERR_MCP_WRITE_FORBIDDEN": "This connection is read-only for this area: allow edits for it in Jarvia › Connect Claude.",
     "ERR_MCP_DESIGNATION": "Not found or ambiguous: be more specific.",
+    "ERR_MCP_UNDO_IMPOSSIBLE": "This change can't be undone.",
     "ERR_NO_ACTIVE_NOTIF": "Notifications are on for this campaign, but none is active: add one, or turn notifications off.",
     "ERR_NOTIF_MISSING": "This video has no notification to edit.",
     "ERR_COMPTA_CHARGE_INVALID": "Invalid expense: it needs a date, a label, a positive amount and a currency the project can convert.",

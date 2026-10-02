@@ -1228,21 +1228,24 @@ export async function purgeAndDeleteAssignment(
  */
 export const deleteAssignment = permissionMutation("assignments.manage")({
   args: { id: v.id("assignments") },
-  handler: async (ctx, { id }) => {
-    const a = await ctx.db.get(id);
-    // Déjà supprimé OU hors projet (isolation) → no-op silencieux, pas de crash.
-    if (!a || a.projectId !== ctx.projectId) {
-      return { ok: true as const, alreadyGone: true };
-    }
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    if (!DELETABLE_STATUSES.has(a.status)) {
-      throw err(ERR.ASSIGNMENT_DELETE_LOCKED, "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).");
-    }
-    // Purge vidéo orpheline (Convex + Stream) + hard-delete → comboKey libéré.
-    await purgeAndDeleteAssignment(ctx, a);
-    return { ok: true as const, alreadyGone: false };
-  },
+  handler: (ctx, { id }) => deleteAssignmentCore(ctx, id),
 });
+
+/** Cœur de la suppression d'une mission — l'écran et l'outil MCP `defaire`. */
+export async function deleteAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assignments">) {
+  const a = await ctx.db.get(id);
+  // Déjà supprimé OU hors projet (isolation) → no-op silencieux, pas de crash.
+  if (!a || a.projectId !== ctx.projectId) {
+    return { ok: true as const, alreadyGone: true };
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+  if (!DELETABLE_STATUSES.has(a.status)) {
+    throw err(ERR.ASSIGNMENT_DELETE_LOCKED, "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).");
+  }
+  // Purge vidéo orpheline (Convex + Stream) + hard-delete → comboKey libéré.
+  await purgeAndDeleteAssignment(ctx, a);
+  return { ok: true as const, alreadyGone: false };
+}
 
 /** Table admin : tous les assignments du projet, enrichis. */
 /**

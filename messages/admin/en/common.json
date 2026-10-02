@@ -911,7 +911,8 @@
     "journalTitre": "Changes made by Claude",
     "journalPeriode": "Last 30 days",
     "journalVide": "No changes yet.",
-    "journalAide": "Every change can be undone in the app, as by hand: the link opens the screen concerned.",
+    "journalAide": "Every change can be undone in the app, as by hand (the link opens the screen concerned), or by Claude with the “defaire” tool when nothing has changed since.",
+    "defaiteLe": "Undone on {date}",
     "outil": {
       "ventiler_virement": "Split a withdrawal",
       "relever_solde": "Record a balance",
@@ -930,7 +931,8 @@
       "confirmer_publication": "Paste a post link",
       "marquer_warmup": "Warm-up / promo",
       "valider_video": "Approve a video",
-      "refuser_video": "Reject a video"
+      "refuser_video": "Reject a video",
+      "defaire": "Undo a change"
     },
     "section": {
       "treasury": "Cash",

@@ -911,7 +911,8 @@
     "journalTitre": "Modifications faites par Claude",
     "journalPeriode": "30 derniers jours",
     "journalVide": "Aucune modification pour l'instant.",
-    "journalAide": "Chaque modification se défait dans l’app, comme à la main : le lien mène à l’écran concerné.",
+    "journalAide": "Chaque modification se défait dans l’app, comme à la main (le lien mène à l’écran concerné), ou par Claude avec l’outil « defaire » quand rien n’a changé depuis.",
+    "defaiteLe": "Défaite le {date}",
     "outil": {
       "ventiler_virement": "Ventiler un virement",
       "relever_solde": "Relever un solde",
@@ -930,7 +931,8 @@
       "confirmer_publication": "Coller un lien de post",
       "marquer_warmup": "Chauffe / promo",
       "valider_video": "Valider une vidéo",
-      "refuser_video": "Refuser une vidéo"
+      "refuser_video": "Refuser une vidéo",
+      "defaire": "Défaire une modification"
     },
     "section": {
       "treasury": "Trésorerie",

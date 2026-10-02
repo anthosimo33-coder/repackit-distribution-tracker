@@ -241,7 +241,13 @@ export const ecrireWarmup = mcpWriteMutation("tracker.manage", "publications")({
       `${quoi} : ${etat.warmup ? "chauffe" : "promo"}, ${etat.remuneree ? "rémunéré" : "non rémunéré"}` +
       (inchange ? " (déjà dans cet état)" : "");
     if (!inchange) {
-      await journaliser(ctx, { tool: "marquer_warmup", summary, section: "tracker", path: "dashboard" });
+      await journaliser(ctx, {
+        tool: "marquer_warmup",
+        summary,
+        section: "tracker",
+        path: "dashboard",
+        annulation: { type: "warmup", publicationId: pub._id, avant: pub.isWarmup ?? null, apres: etat.warmup },
+      });
     }
     return {
       summary,
@@ -347,5 +353,11 @@ async function appelerEcriturePublications(
 export const DOMAINE_PUBLICATIONS: DomaineEcriture = {
   scope: "publications",
   outils: [...OUTILS_REVUE_VIDEO, ...OUTILS_ECRITURE_PUBLICATIONS],
+  droits: {
+    valider_video: "review.manage",
+    refuser_video: "review.manage",
+    confirmer_publication: "review.manage",
+    marquer_warmup: "tracker.manage",
+  },
   appeler: appelerEcriturePublications,
 };

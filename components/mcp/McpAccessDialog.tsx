@@ -367,10 +367,13 @@ function Contenu() {
                 <li key={l._id} className="grid grid-cols-[6.5rem_minmax(0,1fr)_auto] items-start gap-3 px-3 py-2">
                   <span className="pt-0.5 text-xs tabular-nums text-slate-400">{instant(l.at)}</span>
                   <div className="min-w-0">
-                    <p className="text-sm text-slate-800">
+                    <p className={l.defaiteLe === null ? "text-sm text-slate-800" : "text-sm text-slate-400 line-through"}>
                       <span className="font-medium">{tr(`outil.${l.tool as OutilEcriture}`)}</span>
                       <span className="text-slate-500"> — {l.summary}</span>
                     </p>
+                    {l.defaiteLe !== null && (
+                      <p className="text-[11px] font-medium text-amber-700">{tr("defaiteLe", { date: instant(l.defaiteLe) })}</p>
+                    )}
                     <p className="truncate text-[11px] text-slate-400">
                       {l.via.name}
                       {l.project ? ` · ${l.project.name}` : ""}
@@ -422,7 +425,8 @@ type OutilEcriture =
   | "confirmer_publication"
   | "marquer_warmup"
   | "valider_video"
-  | "refuser_video";
+  | "refuser_video"
+  | "defaire";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

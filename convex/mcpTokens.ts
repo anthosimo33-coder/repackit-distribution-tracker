@@ -246,6 +246,7 @@ export const listMyMcpWrites = authedQuery({
         section: l.section,
         month: l.month ?? null,
         path: l.path ?? "compta",
+        defaiteLe: l.defaiteLe ?? null,
         project: p,
       });
     }
