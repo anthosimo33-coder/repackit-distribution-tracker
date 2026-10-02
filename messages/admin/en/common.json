@@ -907,7 +907,7 @@
     "ecritureOuverte": "{name} can edit {domaine}.",
     "ecritureCoupee": "{name} can no longer edit {domaine}.",
     "ecritureImpossible": "Couldn't change the permission.",
-    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning or nudging a mission, approving or rejecting a video sends the creator the usual email, and following an account starts a paid Apify scan.",
+    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning or nudging a mission, approving or rejecting a video sends the creator the usual email, following an account starts a paid Apify scan, and a coach message is emailed to the creator.",
     "journalTitre": "Changes made by Claude",
     "journalPeriode": "Last 30 days",
     "journalVide": "No changes yet.",
@@ -941,7 +941,8 @@
       "ne_plus_suivre": "Unfollow an account",
       "noter_compte_suivi": "Note a followed account",
       "ajouter_inspiration": "Add an inspiration",
-      "lancer_experience": "Start an A/B test"
+      "lancer_experience": "Start an A/B test",
+      "envoyer_message_createatrice": "Write to a creator"
     },
     "section": {
       "treasury": "Cash",
@@ -953,7 +954,8 @@
       "tracker": "Tracker",
       "validation": "Review",
       "radar": "Radar",
-      "inspirations": "Inspirations"
+      "inspirations": "Inspirations",
+      "messages": "Creators"
     },
     "domaine": {
       "compta": {
@@ -980,6 +982,11 @@
         "titre": "Watch",
         "objet": "the watch list and library",
         "aria": "Watch edits for {name}"
+      },
+      "messages": {
+        "titre": "Messages",
+        "objet": "messages to creators",
+        "aria": "Message edits for {name}"
       }
     }
   },
@@ -1027,6 +1034,7 @@
     "statutAppliquee": "Applied",
     "statutEcartee": "Dismissed",
     "voirLesAutres": "{count, plural, one {See the other suggestion} other {See the # other suggestions}}",
-    "voirMoins": "Collapse"
+    "voirMoins": "Collapse",
+    "apercuMessage": "The message that will be emailed:"
   }
 }

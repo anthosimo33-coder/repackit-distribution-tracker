@@ -108,6 +108,21 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(verdict).toContain("`graduer_hook`");
   });
 
+  it("coach_semaine : bilan par créatrice, envoi avec Messages, proposer sinon", () => {
+    const avec = texte(promptsJarvia(["messages"], "2026-10-07").obtenir("coach_semaine", { createatrices: "Kelly Martin, Inès", jours: "14" }));
+    expect(avec).toContain("à ces créatrices : Kelly Martin, Inès — les 14 derniers jours (du 2026-09-24 au 2026-10-07)");
+    expect(avec).toContain("`bilan_createatrice` (du: 2026-09-24, au: 2026-10-07)");
+    expect(avec).toContain("« Salut <prénom>, »");
+    expect(avec).toContain("parler d'une autre créatrice");
+    expect(avec).toContain("`envoyer_message_createatrice` — rappelle d'abord que chacun part par EMAIL");
+    const sans = texte(promptsJarvia(["missions"], "2026-10-07").obtenir("coach_semaine", {}));
+    expect(sans).toContain("chaque créatrice active — les 7 derniers jours (du 2026-10-01 au 2026-10-07)");
+    expect(sans).not.toContain("`envoyer_message_createatrice` —");
+    expect(sans).toContain("`proposer` (outil envoyer_message_createatrice");
+    expect(sans).toContain("allume « Messages »");
+    expect(() => promptsJarvia([], "2026-10-07").obtenir("coach_semaine", { jours: "2" })).toThrow("« jours »");
+  });
+
   it("point_du_jour ne propose que les gestes ouverts", () => {
     const lecture = texte(promptsJarvia([], "2026-10-07").obtenir("point_du_jour", {}));
     expect(lecture).not.toContain("confirmer_publication");

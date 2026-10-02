@@ -591,3 +591,20 @@ export const assignedEmailCopy = (l: unknown): AssignedCopy =>
 export const nudgeEmailCopy = (l: unknown): NudgeCopy => NUDGE[localeOrDefault(l)];
 export const reminderEmailCopy = (l: unknown): ReminderCopy =>
   REMINDER[localeOrDefault(l)];
+
+// ─── Message de l'équipe (le coach) ──────────────────────────────────────────
+// Le corps est écrit pour la créatrice, dans SA langue (cf convex/mcpCoach) ;
+// seul le bouton vient d'ici.
+
+export interface TeamMessageCopy {
+  ctaLabel: string;
+}
+
+const TEAM_MESSAGE: Record<Locale, TeamMessageCopy> = {
+  fr: { ctaLabel: "Ouvrir mon espace" },
+  en: { ctaLabel: "Open my space" },
+  es: { ctaLabel: "Abrir mi espacio" },
+  pt: { ctaLabel: "Abrir meu espaço" },
+};
+
+export const teamMessageCopy = (l: unknown): TeamMessageCopy => TEAM_MESSAGE[localeOrDefault(l)];

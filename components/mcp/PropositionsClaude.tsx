@@ -90,6 +90,13 @@ export function PropositionsClaude() {
               </div>
               <p className="text-sm font-medium text-slate-900">{p.resume}</p>
               <p className="text-sm text-slate-600">{p.pourquoi}</p>
+              {p.apercu && (
+                <div className="space-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2" data-testid="proposition-apercu">
+                  <p className="text-xs text-slate-500">{tr("apercuMessage")}</p>
+                  <p className="text-sm font-medium text-slate-900">{p.apercu.objet}</p>
+                  <p className="whitespace-pre-line text-sm text-slate-700">{p.apercu.message}</p>
+                </div>
+              )}
               {p.refus && (
                 <p className="rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-700">{tr("dernierRefus", { message: p.refus })}</p>
               )}

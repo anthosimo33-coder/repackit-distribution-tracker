@@ -410,6 +410,9 @@ const ETAPES: Record<TablePurgee, Etape> = {
   hookExperiments: etape((ctx, pid, n) =>
     ctx.db.query("hookExperiments").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  creatorMessages: etape((ctx, pid, n) =>
+    ctx.db.query("creatorMessages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   marketGroups: etape((ctx, pid, n) =>
     ctx.db.query("marketGroups").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),

@@ -348,9 +348,10 @@ export function mcpPermissionQuery(permission: PermissionId) {
  * propre interrupteur dans « Connecter Claude » : la Compta, les missions
  * (assigner, replanifier, abandonner), les scripts (briques des campagnes), les
  * publications (lien collé en secours, chauffe), la veille et la bibliothèque
- * (comptes suivis, inspirations).
+ * (comptes suivis, inspirations), les messages aux créatrices (le coach : un
+ * email, qui ne se reprend pas).
  */
-export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications", "veille"] as const;
+export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications", "veille", "messages"] as const;
 export type McpWriteScope = (typeof MCP_WRITE_SCOPES)[number];
 
 /** La connexion MCP (clé ou application OAuth) qui porte un appel d'écriture. */
