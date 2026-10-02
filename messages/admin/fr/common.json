@@ -940,7 +940,8 @@
       "suivre_compte": "Suivre un compte",
       "ne_plus_suivre": "Ne plus suivre un compte",
       "noter_compte_suivi": "Noter un compte suivi",
-      "ajouter_inspiration": "Ajouter une inspiration"
+      "ajouter_inspiration": "Ajouter une inspiration",
+      "lancer_experience": "Lancer un test A/B"
     },
     "section": {
       "treasury": "Trésorerie",

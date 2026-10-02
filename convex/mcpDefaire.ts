@@ -171,23 +171,32 @@ const memePlage = (
   b: { startMin: number; endMin: number } | null | undefined,
 ) => (a ?? null) === null ? (b ?? null) === null : b != null && a!.startMin === b.startMin && a!.endMin === b.endMin;
 
+/** Supprime les missions PAS COMMENCÉES (rien de produit, rien à perdre) ; garde les autres. */
+async function supprimerNonCommencees(ctx: DefaireCtx, ids: readonly Id<"assignments">[]) {
+  let supprimees = 0;
+  const gardees: string[] = [];
+  for (const id of ids) {
+    const m = await ctx.db.get(id);
+    if (!m) continue;
+    if ((m.status === "todo" || m.status === "to_publish") && !m.submittedVideoStorageId && representativePostedAt(m) === null) {
+      await deleteAssignmentCore(ctx, id);
+      supprimees++;
+    } else gardees.push(m.status);
+  }
+  return { supprimees, gardees };
+}
+
 /**
  * Restaure l'état d'avant d'UNE modification. Rend ce qui a été fait (une ou
  * deux phrases) ; lève un refus lisible si la base n'est plus dans l'état écrit.
  */
 async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
   switch (a.type) {
+    case "experienceCreee":
     case "missionsCreees": {
-      let supprimees = 0;
-      const gardees: string[] = [];
-      for (const id of a.assignmentIds) {
-        const m = await ctx.db.get(id);
-        if (!m) continue;
-        // Seulement une mission PAS COMMENCÉE : rien de produit, rien à perdre.
-        if ((m.status === "todo" || m.status === "to_publish") && !m.submittedVideoStorageId && representativePostedAt(m) === null) {
-          await deleteAssignmentCore(ctx, id);
-          supprimees++;
-        } else gardees.push(m.status);
+      const { supprimees, gardees } = await supprimerNonCommencees(ctx, a.assignmentIds);
+      if (a.type === "experienceCreee" && supprimees > 0) {
+        await ctx.db.patch(a.experienceId, { statut: "annulee" });
       }
       if (supprimees === 0) {
         throw refus(

@@ -96,6 +96,18 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(t).toContain("`propositions`");
   });
 
+  it("tester_hooks : simuler puis lancer avec Missions, proposer sinon ; lire un verdict", () => {
+    const avec = texte(promptsJarvia(["missions"], "2026-10-07").obtenir("tester_hooks", { campagne: "Snytch FR" }));
+    expect(avec).toContain("`lancer_experience` avec `simuler: true`");
+    expect(avec).toContain("moins de 6 créatrices");
+    const sans = texte(promptsJarvia([], "2026-10-07").obtenir("tester_hooks", { campagne: "Snytch FR" }));
+    expect(sans).not.toContain("`lancer_experience` avec");
+    expect(sans).toContain("`proposer` (outil lancer_experience)");
+    const verdict = texte(promptsJarvia(["scripts"], "2026-10-07").obtenir("tester_hooks", { campagne: "Snytch FR", experience: "Hooks prix" }));
+    expect(verdict).toContain("`experiences` (experience: « Hooks prix »)");
+    expect(verdict).toContain("`graduer_hook`");
+  });
+
   it("point_du_jour ne propose que les gestes ouverts", () => {
     const lecture = texte(promptsJarvia([], "2026-10-07").obtenir("point_du_jour", {}));
     expect(lecture).not.toContain("confirmer_publication");

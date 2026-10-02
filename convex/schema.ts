@@ -1811,6 +1811,30 @@ export default defineSchema({
     .index("by_user_at", ["userId", "at"])
     .index("by_project", ["projectId"]),
 
+  // EXPÉRIENCES DE HOOKS (convex/mcpExperiences.ts) — un test A/B : chaque
+  // créatrice tourne TOUTES les variantes (hooks), en carré latin sur les jours,
+  // même flux et même cta. Le verdict se lit à J+7 (convex/experienceStats).
+  hookExperiments: defineTable({
+    projectId: v.id("projects"),
+    nom: v.string(),
+    campaignId: v.id("scriptCampaigns"),
+    variantes: v.array(v.object({ hookBrickId: v.id("scriptBricks"), label: v.string() })),
+    fluxBrickId: v.id("scriptBricks"),
+    ctaBrickId: v.id("scriptBricks"),
+    /** Une cellule = une créatrice × un jour → une mission, une variante. */
+    cellules: v.array(
+      v.object({
+        creatorId: v.id("creators"),
+        assignmentId: v.id("assignments"),
+        variante: v.number(),
+        jour: v.string(),
+      }),
+    ),
+    creePar: v.id("users"),
+    creeLe: v.number(),
+    statut: v.union(v.literal("en_cours"), v.literal("annulee")),
+  }).index("by_project", ["projectId"]),
+
   // PROPOSITIONS DE CLAUDE (convex/mcpPropositions.ts) — une écriture que Claude
   // PROPOSE au lieu de la faire (outil `proposer`, même en lecture seule) ; une
   // personne de l'équipe l'APPLIQUE ou l'ÉCARTE dans l'app. Appliquer passe par

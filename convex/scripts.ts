@@ -1369,10 +1369,15 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
  * CŒUR de l'assignation d'une campagne — le bouton « Assigner » de l'écran et
  * l'outil MCP `assigner_scripts` passent par ici : mêmes gardes, même tirage,
  * même email. Rend en plus les assignations créées (le journal MCP les cite).
+ *
+ * `email: false` : l'appelant enverra lui-même UN email pour plusieurs appels
+ * (une expérience crée une mission par variante chez la même créatrice — une
+ * notification par mission serait du bruit). Défaut : l'email de l'écran.
  */
 export async function assignScriptCampaignCore(
   ctx: ProjectMutationCtx,
   args: AssignScriptCampaignArgs,
+  options: { email?: boolean } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   if (campaign.status === "archived") {
@@ -1701,7 +1706,7 @@ export async function assignScriptCampaignCore(
   // cette mutation → un envoi planifié par créateur, parallèles et hors
   // transaction : 30 assignations ne ralentissent ni ne font échouer la boucle.
   // Cibles GÉRÉES par l'équipe : le créateur n'a rien à produire, pas de mail.
-  if (firstAssignmentId !== null && !managed) {
+  if (firstAssignmentId !== null && !managed && options.email !== false) {
     await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCreated, {
       assignmentId: firstAssignmentId,
       count: created,

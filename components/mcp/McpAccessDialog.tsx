@@ -434,7 +434,8 @@ type OutilEcriture =
   | "suivre_compte"
   | "ne_plus_suivre"
   | "noter_compte_suivi"
-  | "ajouter_inspiration";
+  | "ajouter_inspiration"
+  | "lancer_experience";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un
