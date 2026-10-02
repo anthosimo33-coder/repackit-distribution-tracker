@@ -871,7 +871,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connect Claude",
     "titre": "Connect Claude to the app",
-    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting, assignments, scripts or posts: Claude will ask for your approval before each change.",
+    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting, assignments, scripts, posts or the watch list: Claude will ask for your approval before each change.",
     "nomDeLaCle": "Key name",
     "nomPlaceholder": "e.g. Claude on my Mac",
     "creerUneCle": "Create a key",
@@ -907,7 +907,7 @@
     "ecritureOuverte": "{name} can edit {domaine}.",
     "ecritureCoupee": "{name} can no longer edit {domaine}.",
     "ecritureImpossible": "Couldn't change the permission.",
-    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning a mission, approving or rejecting a video sends the creator the usual email.",
+    "ecritureAide": "A connection stays read-only until you allow an area here. Claude will ask for your approval before each change; assigning or nudging a mission, approving or rejecting a video sends the creator the usual email, and following an account starts a paid Apify scan.",
     "journalTitre": "Changes made by Claude",
     "journalPeriode": "Last 30 days",
     "journalVide": "No changes yet.",
@@ -932,7 +932,15 @@
       "marquer_warmup": "Warm-up / promo",
       "valider_video": "Approve a video",
       "refuser_video": "Reject a video",
-      "defaire": "Undo a change"
+      "defaire": "Undo a change",
+      "ajouter_flux_cta": "Add bodies or CTAs",
+      "creer_campagne": "Create a campaign",
+      "changer_compte_cible": "Change an assignment’s account",
+      "relancer": "Nudge a creator",
+      "suivre_compte": "Follow an account",
+      "ne_plus_suivre": "Unfollow an account",
+      "noter_compte_suivi": "Note a followed account",
+      "ajouter_inspiration": "Add an inspiration"
     },
     "section": {
       "treasury": "Cash",
@@ -942,7 +950,9 @@
       "planning": "Assignments",
       "campaign": "Campaign",
       "tracker": "Tracker",
-      "validation": "Review"
+      "validation": "Review",
+      "radar": "Radar",
+      "inspirations": "Inspirations"
     },
     "domaine": {
       "compta": {
@@ -964,6 +974,11 @@
         "titre": "Posts",
         "objet": "posts",
         "aria": "Post edits for {name}"
+      },
+      "veille": {
+        "titre": "Watch",
+        "objet": "the watch list and library",
+        "aria": "Watch edits for {name}"
       }
     }
   },

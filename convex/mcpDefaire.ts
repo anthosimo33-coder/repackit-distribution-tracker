@@ -28,12 +28,16 @@ import type { Annulation } from "./mcpAnnulation";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import {
   deleteAssignmentCore,
+  setAssignmentTargetAccountCore,
   setAssignmentInstructionsCore,
   setAssignmentOverlayTextCore,
   setAssignmentPostDateCore,
   setAssignmentPostWindowCore,
 } from "./assignments";
-import { deleteBricksCore, setBricksActiveCore } from "./scripts";
+import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore } from "./scripts";
+import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
+import { deleteInspirationCore } from "./inspirations";
+import type { Plateforme } from "./platforms";
 import { setPublicationWarmupCore } from "./publications";
 import {
   addComptaChargeCore,
@@ -90,6 +94,7 @@ export const OUTILS_DEFAIRE: readonly McpTool[] = [
 /** Pourquoi une modification ne se défait pas par Claude. */
 const NON_DEFAISABLE: Record<string, string> = {
   annuler_mission: "un abandon ne se défait pas : réassigne (assigner_scripts, ou rejouer_script).",
+  relancer: "l'email de relance est parti.",
   confirmer_publication: "une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
   valider_video: "la créatrice a reçu la validation et peut publier.",
   refuser_video: "la créatrice a reçu le motif ; elle renverra une vidéo, à valider à son retour.",
@@ -196,6 +201,51 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
         (gardees.length > 0 ? ` ; ${gardees.length} gardée(s), déjà commencée(s) (${gardees.join(", ")})` : "") +
         ". L'email « nouvelle mission » était déjà parti."
       );
+    }
+    case "compteCible": {
+      const m = await ctx.db.get(a.assignmentId);
+      if (!m || m.status === "cancelled") throw refus("Cette mission n'existe plus, ou a été abandonnée.");
+      const cible = (m.targets ?? []).find((t) => t.platform === a.platform);
+      if (!cible || cible.accountId !== a.apres) throw refus("Le compte de cette cible a changé depuis : rien n'a été écrasé.");
+      await setAssignmentTargetAccountCore(ctx, { id: m._id, platform: a.platform as Plateforme, accountId: a.avant });
+      const ancien = await ctx.db.get(a.avant);
+      return `Compte d'origine remis${ancien ? ` (${ancien.handle})` : ""}.`;
+    }
+    case "campagneCreee": {
+      if (!(await ctx.db.get(a.campaignId))) throw refus("Cette campagne a déjà été supprimée.");
+      const { deleted } = await deleteCampaignCore(ctx, a.campaignId);
+      return `Campagne supprimée, avec ses ${deleted} brique(s).`;
+    }
+    case "veilleSuivi": {
+      // Retiré puis re-suivi depuis (par `defaire` de ne_plus_suivre, ou à
+      // l'écran) : même handle, autre id — c'est toujours « ce » compte suivi.
+      const compte =
+        (await ctx.db.get(a.accountId)) ??
+        (a.handle === undefined
+          ? null
+          : await ctx.db
+              .query("radarAccounts")
+              .withIndex("by_project_handle", (q) => q.eq("projectId", ctx.projectId).eq("handle", a.handle!))
+              .first());
+      if (!compte) throw refus("Ce compte n'est déjà plus suivi.");
+      await removeRadarAccountCore(ctx, compte._id);
+      return "Compte retiré de la veille, avec les vidéos relevées.";
+    }
+    case "veilleRetire": {
+      await addRadarAccountCore(ctx, a.handle, a.note ?? undefined);
+      return "Compte suivi à nouveau : un nouveau relevé est lancé (les vidéos relevées avant le retrait sont perdues).";
+    }
+    case "veilleNote": {
+      const compte = await ctx.db.get(a.accountId);
+      if (!compte) throw refus("Ce compte n'est plus suivi.");
+      if ((compte.note ?? null) !== a.apres) throw refus("La note a changé depuis : rien n'a été écrasé.");
+      await updateRadarAccountNoteCore(ctx, a.accountId, a.avant ?? undefined);
+      return "Note d'origine remise.";
+    }
+    case "inspirationCreee": {
+      if (!(await ctx.db.get(a.inspirationId))) throw refus("Cette inspiration a déjà été supprimée.");
+      await deleteInspirationCore(ctx, a.inspirationId);
+      return "Inspiration retirée de la bibliothèque.";
     }
     case "planning": {
       const m = await ctx.db.get(a.assignmentId);

@@ -140,6 +140,7 @@ import type * as mcpWrites from "../mcpWrites.js";
 import type * as mcpWritesMissions from "../mcpWritesMissions.js";
 import type * as mcpWritesPublications from "../mcpWritesPublications.js";
 import type * as mcpWritesScripts from "../mcpWritesScripts.js";
+import type * as mcpWritesVeille from "../mcpWritesVeille.js";
 import type * as memberPermissions from "../memberPermissions.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
@@ -382,6 +383,7 @@ declare const fullApi: ApiFromModules<{
   mcpWritesMissions: typeof mcpWritesMissions;
   mcpWritesPublications: typeof mcpWritesPublications;
   mcpWritesScripts: typeof mcpWritesScripts;
+  mcpWritesVeille: typeof mcpWritesVeille;
   memberPermissions: typeof memberPermissions;
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;

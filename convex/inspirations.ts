@@ -2,9 +2,11 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectMutationCtx,
 } from "./functions";
 import { internal } from "./_generated/api";
-import { v, ConvexError } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import { v, ConvexError, type ObjectType } from "convex/values";
 import { deleteStorageBestEffort } from "./storageCleanup";
 import { ERR, err } from "./errorCodes";
 
@@ -137,55 +139,63 @@ export const getInspirationById = permissionQuery("library.manage")({
   },
 });
 
+const createInspirationArgs = {
+  url: v.string(),
+  type: typeValidator,
+  plateforme: plateformeValidator,
+  thumbnail: v.optional(v.id("_storage")),
+  titre: v.optional(v.string()),
+  notes: v.optional(v.string()),
+  stats: v.optional(statsValidator),
+  folderId: v.optional(v.id("folders")),
+  isFavorite: v.optional(v.boolean()),
+  tags: v.optional(v.array(v.string())),
+};
+
 export const createInspiration = permissionMutation("library.manage")({
-  args: {
-    url: v.string(),
-    type: typeValidator,
-    plateforme: plateformeValidator,
-    thumbnail: v.optional(v.id("_storage")),
-    titre: v.optional(v.string()),
-    notes: v.optional(v.string()),
-    stats: v.optional(statsValidator),
-    folderId: v.optional(v.id("folders")),
-    isFavorite: v.optional(v.boolean()),
-    tags: v.optional(v.array(v.string())),
-  },
-  handler: async (ctx, args) => {
-    if (args.url.trim().length === 0) {
-      throw err(ERR.URL_REQUIRED, "URL requise.");
-    }
-    const now = Date.now();
-    const id = await ctx.db.insert("inspirations", {
-      projectId: ctx.projectId,
-      url: args.url,
-      type: args.type,
-      plateforme: args.plateforme,
-      thumbnail: args.thumbnail,
-      titre: args.titre,
-      notes: args.notes,
-      stats: args.stats,
-      folderId: args.folderId,
-      isFavorite: args.isFavorite ?? false,
-      tags: normalizeTags(args.tags ?? []),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    // Vignette AUTO : on déclenche la récupération hors du chemin critique
-    // (scheduler.runAfter → la création reste instantanée, la vignette se
-    // remplit juste après). Uniquement pour les vidéos sans vignette manuelle
-    // (un compte n'a pas de vignette source ; un upload manuel prime déjà).
-    if (args.type === "video" && args.thumbnail === undefined) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.inspirationThumbnails.resolveThumbnail,
-        { inspirationId: id, url: args.url, platform: args.plateforme },
-      );
-    }
-
-    return id;
-  },
+  args: createInspirationArgs,
+  handler: (ctx, args) => createInspirationCore(ctx, args),
 });
+
+/** Cœur de l'ajout d'une inspiration — la bibliothèque et l'outil MCP `ajouter_inspiration`. */
+export async function createInspirationCore(
+  ctx: ProjectMutationCtx,
+  args: ObjectType<typeof createInspirationArgs>,
+) {
+  if (args.url.trim().length === 0) {
+    throw err(ERR.URL_REQUIRED, "URL requise.");
+  }
+  const now = Date.now();
+  const id = await ctx.db.insert("inspirations", {
+    projectId: ctx.projectId,
+    url: args.url,
+    type: args.type,
+    plateforme: args.plateforme,
+    thumbnail: args.thumbnail,
+    titre: args.titre,
+    notes: args.notes,
+    stats: args.stats,
+    folderId: args.folderId,
+    isFavorite: args.isFavorite ?? false,
+    tags: normalizeTags(args.tags ?? []),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Vignette AUTO : on déclenche la récupération hors du chemin critique
+  // (scheduler.runAfter → la création reste instantanée, la vignette se
+  // remplit juste après). Uniquement pour les vidéos sans vignette manuelle
+  // (un compte n'a pas de vignette source ; un upload manuel prime déjà).
+  if (args.type === "video" && args.thumbnail === undefined) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.inspirationThumbnails.resolveThumbnail,
+      { inspirationId: id, url: args.url, platform: args.plateforme },
+    );
+  }
+
+  return id;
+}
 
 /**
  * Batch G — patch partiel d'une inspiration. Chaque champ optional ; seuls
@@ -254,13 +264,16 @@ export const updateInspiration = permissionMutation("library.manage")({
  */
 export const deleteInspiration = permissionMutation("library.manage")({
   args: { id: v.id("inspirations") },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db.get(args.id);
-    if (!existing || existing.projectId !== ctx.projectId) return;
-    await deleteStorageBestEffort(ctx, existing.thumbnail);
-    await ctx.db.delete(args.id);
-  },
+  handler: (ctx, args) => deleteInspirationCore(ctx, args.id),
 });
+
+/** Cœur de la suppression d'une inspiration — la bibliothèque et l'outil MCP `defaire`. */
+export async function deleteInspirationCore(ctx: ProjectMutationCtx, id: Id<"inspirations">) {
+  const existing = await ctx.db.get(id);
+  if (!existing || existing.projectId !== ctx.projectId) return;
+  await deleteStorageBestEffort(ctx, existing.thumbnail);
+  await ctx.db.delete(id);
+}
 
 /**
  * Test-only cleanup. Supprime les rows de test : marker [E2E_TEST] dans les
