@@ -91,8 +91,14 @@ import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
-import { instantsDeLaVideo, instantTexte, lireVignettes } from "./mcpVideo";
-import { cloudflareStreamConfig, fetchStreamDuration } from "./cloudflareStreamApi";
+import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
+import {
+  cloudflareStreamConfig,
+  fetchStreamCaptionsVtt,
+  fetchStreamDuration,
+  generateStreamCaptions,
+  listStreamCaptions,
+} from "./cloudflareStreamApi";
 import { formatPostWindow } from "./postWindow";
 import { promptsJarvia } from "./mcpPrompts";
 import { collectProjectPaymentRows } from "./payments";
@@ -519,7 +525,19 @@ export const lireVideoSoumise = mcpPermissionQuery("review.manage")({
       a.submittedVideoStreamUid || a.submittedVideoStorageId ? null : "aucune vidéo soumise",
     );
     const a = m.a;
+    // Hook et CTA ATTENDUS : ceux du script FIGÉ de la mission. La brique sert
+    // si le script commence (finit) bien par elle ; sinon — brique modifiée
+    // depuis — le premier (dernier) paragraphe du texte figé.
+    const script = a.scriptCombo?.assembledScript ?? a.freeScript ?? null;
+    const paragraphes = (script ?? "").split(/\n\s*\n/).map((x) => x.trim()).filter((x) => x !== "");
+    const brique = async (id: Id<"scriptBricks"> | undefined) => (id ? ((await ctx.db.get(id))?.content.trim() ?? null) : null);
+    const hook = await brique(a.scriptCombo?.hookBrickId);
+    const cta = await brique(a.scriptCombo?.ctaBrickId);
+    const creatrice = await ctx.db.get(a.creatorId);
     return {
+      locale: creatrice?.locale ?? null,
+      hookAttendu: hook && script?.trim().startsWith(hook) ? hook : (paragraphes[0] ?? null),
+      ctaAttendu: cta && script?.trim().endsWith(cta) ? cta : paragraphes.length > 1 ? paragraphes[paragraphes.length - 1] : null,
       libelle: m.libelle,
       statut: a.status,
       uid: a.submittedVideoStreamUid ?? null,
@@ -1040,7 +1058,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "regarder_video",
     title: "Regarder une vidéo soumise",
     description:
-      "Les IMAGES CLÉS d'une vidéo soumise par une créatrice (file `validation`) : trois dans les premières secondes (le hook), puis le milieu, les trois quarts et la fin — avec le script attendu, la consigne et le texte à incruster de sa mission, pour comparer. Ce sont des images fixes : le son et ce qui est DIT ne se vérifient pas ici. La mission se désigne comme dans `validation` : créatrice + jour prévu (et compte, campagne ou morceau de script si besoin).",
+      "Les IMAGES CLÉS d'une vidéo soumise par une créatrice (file `validation`) — trois dans les premières secondes (le hook), puis le milieu, les trois quarts et la fin — et ce qui y est DIT (transcription automatique Cloudflare, dans la langue de la créatrice), avec le script attendu, le hook et le CTA attendus, la consigne et le texte à incruster de sa mission, pour comparer. La première fois, la transcription est LANCÉE (gratuite, environ une minute) : rappelle l'outil pour l'avoir. La mission se désigne comme dans `validation` : créatrice + jour prévu (et compte, campagne ou morceau de script si besoin).",
     inputSchema: {
       type: "object",
       properties: {
@@ -2658,6 +2676,8 @@ export function jarviaServer(
           projet: projet.slug,
           mission: v.libelle,
           statut: v.statut,
+          hookAttendu: v.hookAttendu,
+          ctaAttendu: v.ctaAttendu,
           scriptAttendu: v.script,
           consigne: v.consigne,
           texteAIncruster: v.texteAIncruster,
@@ -2675,16 +2695,54 @@ export function jarviaServer(
           });
         }
         const config = cloudflareStreamConfig();
-        const duree = config ? await fetchStreamDuration(config, v.uid) : null;
-        const { vignettes, echecs } = await lireVignettes(v.uid, instantsDeLaVideo(duree), fetch);
+        const uid = v.uid;
+        const langue = langueTranscription(v.locale);
+        const duree = config ? await fetchStreamDuration(config, uid) : null;
+        const [{ vignettes, echecs }, ecoute] = await Promise.all([
+          lireVignettes(uid, instantsDeLaVideo(duree), fetch),
+          transcription(
+            config
+              ? {
+                  lister: () => listStreamCaptions(config, uid),
+                  lancer: () => generateStreamCaptions(config, uid, langue),
+                  vtt: () => fetchStreamCaptionsVtt(config, uid, langue),
+                }
+              : null,
+            langue,
+          ),
+        ]);
+        const derniere = ecoute.etat === "prete" ? ecoute.repliques[ecoute.repliques.length - 1] : undefined;
+        const fin = duree ?? derniere?.fin ?? 0;
+        const dit =
+          ecoute.etat === "prete"
+            ? {
+                langue,
+                ditAuDebut: ditEntre(ecoute.repliques, 0, 4) || null,
+                ditALaFin: ditEntre(ecoute.repliques, Math.max(fin - 6, 0), fin + 1) || null,
+                repliques: ecoute.repliques.slice(0, 80).map((r) => `[${instantTexte(r.debut)}] ${r.texte}`),
+                ...(ecoute.repliques.length === 0 ? { remarque: "Rien de transcrit : vidéo sans parole, ou parole inaudible." } : {}),
+              }
+            : {
+                langue,
+                etat:
+                  ecoute.etat === "lancee"
+                    ? "Transcription lancée à l'instant (gratuite) : rappelle regarder_video dans une minute pour entendre la vidéo."
+                    : ecoute.etat === "en_cours"
+                      ? "Transcription en cours chez Cloudflare : rappelle regarder_video dans une minute."
+                      : ecoute.etat === "indisponible"
+                        ? "Transcription indisponible : Cloudflare Stream n'est pas configuré sur ce déploiement."
+                        : `Transcription impossible : ${ecoute.message}`,
+              };
         const valider = domaines.some((d) => d.scope === "publications");
         const entete = {
           ...mission,
           duree: duree === null ? null : instantTexte(duree),
           images: vignettes.map((x) => instantTexte(x.secondes)),
           ...(echecs.length > 0 ? { imagesManquantes: echecs.map(instantTexte) } : {}),
+          ce_qui_est_dit: dit,
           lecture: [
-            "Images FIXES : ni le son, ni ce qui est dit, ni le mouvement. Juge ce qui se voit : texte incrusté (présent, lisible, conforme), cadrage vertical, ce que montre le début par rapport au début du script, la fin (CTA).",
+            "Images FIXES (pas le mouvement) : juge ce qui se voit — texte incrusté (présent, lisible, conforme), cadrage vertical, la fin (CTA).",
+            "Ce qui est DIT vient d'une transcription automatique : approximative sur les noms propres et les chiffres. Compare l'IDÉE au hook et au CTA attendus (ditAuDebut, ditALaFin), pas le mot à mot.",
             vignettes.length === 0
               ? "Aucune image n'a pu être lue : ne conclus rien sur cette vidéo, renvoie vers l'écran Validation."
               : "Chaque image est précédée de son instant dans la vidéo.",

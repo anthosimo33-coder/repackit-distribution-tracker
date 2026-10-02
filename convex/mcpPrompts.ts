@@ -233,7 +233,7 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         `Relis la file Validation${qui ? ` de ${qui}` : ""} : ${nombre} vidéo(s) au plus, en commençant par celles qui doivent être validées pour demain.`,
         projetDe(args),
         `1. \`validation\`${qui ? ` (createatrice: « ${qui} »)` : ""} : la file à relire, dans son ordre.`,
-        "2. Pour chaque vidéo : `regarder_video` (créatrice + jour prévu). Compare les images au script attendu, à la consigne et au texte à incruster. Tu ne vois que des images fixes : juge ce qui SE VOIT (texte incrusté présent, lisible, conforme ; cadrage vertical ; ce que montrent les premières secondes ; la fin), jamais ce qui se dit.",
+        "2. Pour chaque vidéo : `regarder_video` (créatrice + jour prévu) — si la transcription vient d'être lancée, rappelle-le une minute plus tard. Compare ce qui SE VOIT (texte incrusté présent, lisible, conforme ; cadrage vertical ; la fin) et ce qui SE DIT : `ditAuDebut` contre `hookAttendu`, `ditALaFin` contre `ctaAttendu` — l'idée, pas le mot à mot (la transcription est approximative).",
         "3. Rends un tableau : vidéo → verdict proposé (valider / refuser / à regarder par un humain) → la raison, avec l'instant de l'image qui la montre. Dans le doute, « à regarder par un humain », pas « valider ».",
         publications
           ? "4. Pour chaque refus, rédige le motif adressé à la créatrice (tutoiement, concret : ce qui ne va pas et quoi refaire). Attends mon accord vidéo par vidéo, puis `valider_video` / `refuser_video` — rappelle avant que chacun envoie un email à la créatrice."
