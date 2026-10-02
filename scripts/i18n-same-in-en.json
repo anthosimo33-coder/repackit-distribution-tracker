@@ -63,6 +63,7 @@
     "admin.common.PostsList.post",
     "admin.common.ProgressBar.steps.format",
     "admin.common.ProgressBar.steps.hook",
+    "admin.common.PropositionsClaude.par",
     "admin.common.PublicationEditDialog.comm",
     "admin.common.PublicationEditDialog.notes",
     "admin.common.PublicationEditDialog.profileVisits",

@@ -46,6 +46,12 @@ const ARG_PROJET: McpPromptArgument = {
 
 export const PROMPTS: readonly McpPrompt[] = [
   {
+    name: "preparer_propositions",
+    title: "Préparer les propositions du jour",
+    description: "Pour une routine, sans personne pour valider : fait le point et dépose des PROPOSITIONS (rien n'est écrit) que l'équipe applique ou écarte d'un clic dans Jarvia.",
+    arguments: [ARG_PROJET, { name: "nombre", description: "Propositions au plus (défaut : 8)." }],
+  },
+  {
     name: "point_du_jour",
     title: "Point du jour",
     description: "Ce qui doit se passer aujourd'hui : posts à sortir, manqués, vidéos à relire, paiements dus — en actions classées.",
@@ -188,6 +194,21 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
     const p = PROMPTS.find((x) => x.name === name);
     if (!p) return null;
 
+    if (name === "preparer_propositions") {
+      const nombre = entier(args.nombre, "nombre", 8, 1, 20);
+      const lot = `Routine du ${aujourdhui.split("-").reverse().join("/")}`;
+      return message(p.description, [
+        `Tu tournes SEUL, sans personne pour valider : tu ne modifies RIEN toi-même, même si un outil d'écriture est dans ta liste. Chaque action utile devient une proposition : \`proposer\` avec l'outil d'écriture qui serait appelé, SES arguments exacts, un résumé d'une ligne (quoi, pour qui) et le pourquoi chiffré. Au plus ${nombre}, les plus utiles d'abord, toutes avec lot: « ${lot} ».`,
+        projetDe(args),
+        "1. `propositions` : ce qui attend déjà et ce qui a été écarté — ne repropose ni l'un ni l'autre (un écart est une décision).",
+        "2. État : `dashboard`, `planning` (jours: 7), `validation`, `ponctualite` (7 derniers jours), et les verdicts `scripts` des campagnes actives.",
+        "3. Candidats, dans cet ordre : un post manqué → replanifier_mission OU relancer (jamais les deux) ; une vidéo à valider pour demain → `regarder_video`, puis valider_video, ou refuser_video avec un motif concret, SEULEMENT si les images le justifient clairement ; une créatrice active sans mission dans les 7 jours → assigner_scripts ; un hook « à couper » → activer_briques (actif: false).",
+        "4. Désigne tout comme les outils de lecture te l'ont montré (créatrice + jour prévu, lien, libellé). Une proposition mal désignée sera refusée à l'application : mieux vaut en faire moins, mais justes.",
+        "5. Termine par un compte rendu court : ce que tu as proposé, ce que tu as laissé de côté et pourquoi.",
+        "Règles : n'invente aucun chiffre — chaque nombre vient d'un outil. Les jours sont des jours de Paris.",
+      ]);
+    }
+
     if (name === "point_du_jour") {
       return message(p.description, [
         `Fais le point du ${aujourdhui}.`,
@@ -241,7 +262,7 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         "4. Propose un tableau créatrice × jour (campagne, compte, plage horaire si elle en a l'habitude). Rien n'est écrit à ce stade.",
         missions
           ? "5. Pour chaque créatrice retenue, appelle `assigner_scripts` avec `simuler: true` et montre les scripts tirés. Signale une campagne à court de scripts."
-          : "5. Cette connexion ne peut pas assigner : termine par le plan, prêt à saisir dans Assignments (ou allume « Missions » pour elle dans Jarvia › Connecter Claude).",
+          : "5. Cette connexion ne peut pas assigner : termine par le plan, prêt à saisir dans Assignments, ou dépose chaque ligne avec `proposer` pour que l'équipe l'applique d'un clic (ou allume « Missions » pour elle dans Jarvia › Connecter Claude).",
         missions &&
           "6. Attends mon accord, en bloc ou créatrice par créatrice. Rappelle AVANT que chaque créatrice assignée reçoit un email. Puis assigne (`assigner_scripts` sans `simuler`, avec `exclure` pour les scripts que j'écarte) et rends ce que la réponse dit avoir créé.",
         REGLES,
@@ -280,7 +301,7 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         "4. Propose aussi : les hooks à couper (verdict « à couper ») et, si cette campagne est un labo, ceux à graduer (« à pousser », jugés sur assez de posts).",
         scripts
           ? "5. Attends mon accord, puis : `ajouter_hooks` (ils sont créés DÉSACTIVÉS — dis-le), `activer_briques` pour couper, `graduer_hook` pour graduer. Rends ce que chaque réponse dit avoir fait."
-          : "5. Cette connexion ne peut pas modifier les scripts : rends les hooks prêts à coller dans l'écran de la campagne (ou allume « Scripts » dans Jarvia › Connecter Claude).",
+          : "5. Cette connexion ne peut pas modifier les scripts : rends les hooks prêts à coller dans l'écran de la campagne, ou dépose-les avec `proposer` (ou allume « Scripts » dans Jarvia › Connecter Claude).",
         REGLES,
       ]);
     }

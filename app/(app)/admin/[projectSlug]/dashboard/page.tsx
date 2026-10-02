@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ActionDashboard } from "@/components/admin/ActionDashboard";
+import { PropositionsClaude } from "@/components/mcp/PropositionsClaude";
 import { YouTubeSyncButton } from "@/components/admin/YouTubeSyncButton";
 import { ApifySyncButton } from "@/components/admin/ApifySyncButton";
 import {
@@ -75,7 +76,10 @@ export default function DashboardPage() {
       </header>
 
       {view === "action" ? (
-        <ActionDashboard />
+        <>
+          <PropositionsClaude />
+          <ActionDashboard />
+        </>
       ) : sharing ? (
         <TrackerShareMode
           initialFilters={trackerFilters}

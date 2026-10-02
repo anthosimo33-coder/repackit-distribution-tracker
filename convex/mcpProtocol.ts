@@ -34,6 +34,8 @@ export type ArgSchema =
   | { type: "integer"; description: string; minimum?: number; maximum?: number }
   | { type: "number"; description: string; minimum?: number; maximum?: number }
   | { type: "boolean"; description: string }
+  /** Un objet LIBRE (les arguments d'un autre outil, cf `proposer`) : vérifié objet, rien de plus. */
+  | { type: "object"; description: string }
   | {
       type: "array";
       description: string;
@@ -157,6 +159,8 @@ export function validateArgs(
           if (pb !== null) return pb;
         }
       }
+    } else if (def.type === "object") {
+      if (typeof valeur !== "object" || Array.isArray(valeur)) return `« ${cle} » doit être un objet.`;
     } else if (def.type === "string") {
       if (typeof valeur !== "string") return `« ${cle} » doit être du texte.`;
       if (def.enum && !def.enum.includes(valeur)) {

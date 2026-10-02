@@ -30,7 +30,8 @@ export type NotificationEventKey =
   | "digest_pay_cycles"
   | "digest_warmup_late"
   | "digest_clipper_sans_talent"
-  | "digest_talent_solde_du";
+  | "digest_talent_solde_du"
+  | "claude_propositions";
 
 /**
  * `immediate` = part dès la détection (garde-fou anti-flood en amont pour les
@@ -139,6 +140,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "scheduled",
     label: "Bilan de fin de journée",
     hint: "Le soir, un message par créatrice ayant encore des posts prévus AUJOURD'HUI non publiés. Rien si tout est sorti. Les manqués des jours précédents n'y figurent pas.",
+  },
+  {
+    key: "claude_propositions",
+    kind: "immediate",
+    label: "Propositions de Claude",
+    hint: "Claude a préparé des modifications (une routine, une connexion en lecture seule) : un seul message par vague, avec le lien pour les appliquer ou les écarter.",
   },
   {
     key: "sync_failures",

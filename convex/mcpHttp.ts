@@ -45,6 +45,7 @@ export const mcpEndpoint = httpAction(async (ctx, request) => {
         return jarviaServer(ctx, cle.userId, {
           kind: "token",
           id: cle.tokenId,
+          name: cle.name,
           writeScopes: cle.writeScopes,
         });
       }
@@ -56,6 +57,7 @@ export const mcpEndpoint = httpAction(async (ctx, request) => {
       return jarviaServer(ctx, acces.userId, {
         kind: "oauth",
         id: acces.grantId,
+        name: acces.name || "Claude",
         writeScopes: acces.writeScopes,
       });
     },

@@ -1785,7 +1785,10 @@ export default defineSchema({
   mcpWriteLog: defineTable({
     userId: v.id("users"),
     projectId: v.id("projects"),
-    via: v.object({ kind: v.union(v.literal("token"), v.literal("oauth")), name: v.string() }),
+    via: v.object({
+      kind: v.union(v.literal("token"), v.literal("oauth"), v.literal("proposition")),
+      name: v.string(),
+    }),
     tool: v.string(),
     summary: v.string(),
     /** Section de l'écran où la modification se voit et se défait. */
@@ -1807,6 +1810,46 @@ export default defineSchema({
   })
     .index("by_user_at", ["userId", "at"])
     .index("by_project", ["projectId"]),
+
+  // PROPOSITIONS DE CLAUDE (convex/mcpPropositions.ts) — une écriture que Claude
+  // PROPOSE au lieu de la faire (outil `proposer`, même en lecture seule) ; une
+  // personne de l'équipe l'APPLIQUE ou l'ÉCARTE dans l'app. Appliquer passe par
+  // l'outil d'écriture lui-même : mêmes cœurs, même journal, même Défaire.
+  mcpPropositions: defineTable({
+    projectId: v.id("projects"),
+    /** La personne dont la connexion a proposé, et laquelle. */
+    proposePar: v.id("users"),
+    via: v.object({ kind: v.union(v.literal("token"), v.literal("oauth")), name: v.string() }),
+    /** L'outil d'écriture proposé, son domaine, ses arguments (JSON). */
+    outil: v.string(),
+    scope: v.string(),
+    argumentsJson: v.string(),
+    /** Ce qui changera, en une ligne ; pourquoi, chiffres à l'appui. */
+    resume: v.string(),
+    pourquoi: v.string(),
+    /** Regroupement (« Routine du 03/10 »). */
+    lot: v.optional(v.string()),
+    statut: v.union(
+      v.literal("en_attente"),
+      v.literal("en_cours"),
+      v.literal("appliquee"),
+      v.literal("ecartee"),
+    ),
+    creeLe: v.number(),
+    expireLe: v.number(),
+    /** Réservation pendant l'application (verrou : un seul clic l'applique). */
+    jeton: v.optional(v.string()),
+    reserveLe: v.optional(v.number()),
+    decidePar: v.optional(v.id("users")),
+    decideLe: v.optional(v.number()),
+    /** Ce que l'outil a fait, ou le dernier refus (la proposition reste en attente). */
+    resultat: v.optional(v.string()),
+    refus: v.optional(v.string()),
+    /** Résumé Telegram déjà parti pour cette proposition. */
+    notifiee: v.boolean(),
+  })
+    .index("by_project_statut", ["projectId", "statut", "creeLe"])
+    .index("by_project_notifiee", ["projectId", "notifiee"]),
 
   // CONNECTEUR OAuth du serveur MCP (convex/mcpOAuth.ts) — la voie de claude.ai,
   // Claude Desktop et mobile, qui n'acceptent pas de clé collée. Trois tables,

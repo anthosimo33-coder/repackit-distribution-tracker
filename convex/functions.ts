@@ -355,7 +355,8 @@ export type McpWriteScope = (typeof MCP_WRITE_SCOPES)[number];
 
 /** La connexion MCP (clé ou application OAuth) qui porte un appel d'écriture. */
 export const mcpAccesValidator = v.object({
-  kind: v.union(v.literal("token"), v.literal("oauth")),
+  /** `proposition` : une proposition de Claude APPLIQUÉE dans l'app (id = "<propositionId>:<jeton>"). */
+  kind: v.union(v.literal("token"), v.literal("oauth"), v.literal("proposition")),
   id: v.string(),
 });
 
@@ -367,11 +368,23 @@ export const mcpAccesValidator = v.object({
 async function requireMcpWrite(
   ctx: MutationCtx,
   userId: Id<"users">,
-  acces: { kind: "token" | "oauth"; id: string },
+  acces: { kind: "token" | "oauth" | "proposition"; id: string },
   scope: McpWriteScope,
-): Promise<{ kind: "token" | "oauth"; name: string }> {
+): Promise<{ kind: "token" | "oauth" | "proposition"; name: string }> {
   const refus = () =>
     err(ERR.MCP_WRITE_FORBIDDEN, "Cette connexion est en lecture seule pour ce domaine.");
+  if (acces.kind === "proposition") {
+    // Une proposition de Claude que CETTE personne applique dans l'app : elle
+    // l'a réservée (statut en_cours + jeton), et la proposition ne vaut que pour
+    // son domaine. Le droit du bouton est vérifié ensuite, comme toujours.
+    const [brut, jeton] = acces.id.split(":");
+    const id = ctx.db.normalizeId("mcpPropositions", brut ?? "");
+    const p = id ? await ctx.db.get(id) : null;
+    if (!p || p.statut !== "en_cours" || p.jeton !== jeton || p.decidePar !== userId || p.scope !== scope) {
+      throw err(ERR.MCP_WRITE_FORBIDDEN, "Cette proposition n'est pas en cours d'application par toi.");
+    }
+    return { kind: "proposition", name: `Proposition de ${p.via.name}` };
+  }
   if (acces.kind === "token") {
     const id = ctx.db.normalizeId("mcpTokens", acces.id);
     const cle = id ? await ctx.db.get(id) : null;
@@ -416,10 +429,14 @@ export function mcpWriteMutationDifferee() {
 
 /** La garde de `mcpWriteMutation`, appelée une fois le domaine connu. */
 export async function exigerEcritureMcp(
-  ctx: MutationCtx & { userId: Id<"users">; projectId: Id<"projects">; acces: { kind: "token" | "oauth"; id: string } },
+  ctx: MutationCtx & {
+    userId: Id<"users">;
+    projectId: Id<"projects">;
+    acces: { kind: "token" | "oauth" | "proposition"; id: string };
+  },
   scope: McpWriteScope,
   permission: PermissionId,
-): Promise<{ kind: "token" | "oauth"; name: string }> {
+): Promise<{ kind: "token" | "oauth" | "proposition"; name: string }> {
   const via = await requireMcpWrite(ctx, ctx.userId, ctx.acces, scope);
   await requirePermission(ctx, ctx.userId, ctx.projectId, permission);
   return via;

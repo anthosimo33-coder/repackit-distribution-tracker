@@ -37,13 +37,13 @@ export const AJOUTE = { readOnlyHint: false, destructiveHint: false, idempotentH
 export const EFFACE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false } as const;
 
 /** Contexte d'une écriture MCP : personne, projet, et la connexion qui écrit. */
-export type EcritureCtx = ProjectMutationCtx & { via: { kind: "token" | "oauth"; name: string } };
+export type EcritureCtx = ProjectMutationCtx & { via: { kind: "token" | "oauth" | "proposition"; name: string } };
 
 /** Ce qu'un outil d'écriture transmet à sa mutation gardée. */
 export type CibleEcriture = {
   userId: Id<"users">;
   projectId: Id<"projects">;
-  acces: { kind: "token" | "oauth"; id: string };
+  acces: { kind: "token" | "oauth" | "proposition"; id: string };
 };
 
 /** Un domaine d'écriture : son interrupteur, ses outils, leur exécution. */
