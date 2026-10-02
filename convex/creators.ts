@@ -18,6 +18,7 @@ import { filterByCreatorScope, isInCreatorScope } from "./creatorScope";
 import { resolveCreatorLocale } from "./i18n";
 import { getProjectBySlug, REPACKIT_SLUG } from "./projects";
 import { isFileDropEnabled } from "./fileDrop";
+import { deleteAuthDataOfUser } from "./authCleanup";
 import {
   MEMBERSHIP_ROLES,
   PORTAL_ROLES,
@@ -1008,9 +1009,10 @@ export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
  *   - invitations (tokens one-shot) ;
  *   - contrats PDF (row + blob storage) ;
  *   - membership creator du projet (révoque l'accès portail) ;
- *   - le compte user partagé + ses reset tokens UNIQUEMENT s'il devient orphelin
- *     (aucun autre membership ni fiche) → ne casse pas un créateur multi-projets
- *     ni un admin.
+ *   - le compte user partagé + ses reset tokens + son login Convex Auth
+ *     (deleteAuthDataOfUser — sinon l'email reste pris et une réinvitation
+ *     échoue) UNIQUEMENT s'il devient orphelin (aucun autre membership ni
+ *     fiche) → ne casse pas un créateur multi-projets ni un admin.
  *
  * CONSERVÉ (historique), avec le nom FIGÉ en dénormalisation (creatorNameSnapshot,
  * le creatorId reste comme référence morte mais utile au regroupement) :
@@ -1164,6 +1166,7 @@ export const deleteCreator = permissionMutation("creators.delete")({
           .withIndex("by_user", (q) => q.eq("userId", userId))
           .collect();
         for (const r of resets) await ctx.db.delete(r._id);
+        await deleteAuthDataOfUser(ctx, userId);
         await ctx.db.delete(userId);
       }
     }
@@ -1880,8 +1883,8 @@ export const e2eExpireInvitation = e2eMutation({
 
 /**
  * Cleanup test-only : supprime les créateurs marqués (nom [E2E_TEST] ou email
- * e2e-creator) + leurs invitations, memberships et user de connexion. Les
- * authAccounts orphelins ne gênent pas (emails de test uniques par run).
+ * e2e-creator) + leurs invitations, memberships et user de connexion (login
+ * Convex Auth compris, cf deleteAuthDataOfUser).
  */
 export const cleanupTestCreators = e2eMutation({
   args: {},
@@ -1910,6 +1913,7 @@ export const cleanupTestCreators = e2eMutation({
           .withIndex("by_user", (q) => q.eq("userId", userId))
           .collect();
         for (const r of resets) await ctx.db.delete(r._id);
+        await deleteAuthDataOfUser(ctx, userId);
         const u = await ctx.db.get(userId);
         if (u) await ctx.db.delete(u._id);
       }

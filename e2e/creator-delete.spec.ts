@@ -4,6 +4,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
+import { ConvexHttpClient } from "convex/browser";
 import { createFormatWithRate } from "./helpers/formats";
 
 config({ path: ".env.local" });
@@ -13,6 +14,19 @@ if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(url);
 
 const DAY = 86_400_000;
+
+/** Connexion email + mot de passe : true si une session est ouverte. */
+async function connexion(email: string, password: string): Promise<boolean> {
+  try {
+    const res = await new ConvexHttpClient(url!).action(api.auth.signIn, {
+      provider: "password",
+      params: { email, password, flow: "signIn" },
+    });
+    return Boolean(res.tokens?.token);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Suppression d'un créateur (Approche C) — cascade opérationnelle + historique
@@ -232,6 +246,49 @@ test.describe("Suppression d'un créateur — cascade + historique conservé", (
       id: c.creatorId,
     });
     expect(again.alreadyGone).toBe(true);
+  });
+
+  // Cas réel (02/10) : une créatrice oublie son mot de passe, on supprime sa
+  // fiche et on la réinvite sur le même email. La suppression laissait son
+  // compte de connexion (authAccounts) : l'email restait pris et l'invitation
+  // neuve échouait sur « Account … already exists » — que /join affichait en
+  // « mot de passe trop court ou invitation invalide ».
+  test("supprimée puis réinvitée sur le même email : la nouvelle invitation s'active, l'ancien mot de passe ne sert plus", async () => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const email = `e2e-creator-reinvite-${ts}@repackit.test`;
+    const ancienMdp = "Ancien-mdp-2026!";
+    const nouveauMdp = "Nouveau-mdp-2026//";
+    const c = await createCreatorSession(url, {
+      name: `[E2E_TEST] Réinvitée Quentin ${ts}`,
+      email,
+      password: ancienMdp,
+    });
+    // PRÉSENCE : l'ancien mot de passe ouvre bien une session avant suppression.
+    expect(await connexion(email, ancienMdp)).toBe(true);
+
+    await admin.mutation(api.creators.deleteCreator, { id: c.creatorId });
+
+    // La fiche partie, son mot de passe n'ouvre plus rien.
+    expect(await connexion(email, ancienMdp)).toBe(false);
+
+    // Réinvitation sur le MÊME email, mot de passe DIFFÉRENT (le cas réel).
+    const { creatorId, token } = await admin.mutation(
+      api.creators.inviteCreator,
+      { name: `[E2E_TEST] Réinvitée Quentin ${ts}`, email },
+    );
+    const inscrit = await new ConvexHttpClient(url).action(api.auth.signIn, {
+      provider: "password",
+      params: { email, password: nouveauMdp, flow: "signUp", inviteToken: token },
+    });
+    expect(inscrit.tokens?.token).toBeTruthy();
+    const fiche = (await admin.query(api.creators.listCreators, {})).find(
+      (x) => x._id === creatorId,
+    );
+    expect(fiche?.status).toBe("onboarding");
+
+    expect(await connexion(email, nouveauMdp)).toBe(true);
+    expect(await connexion(email, ancienMdp)).toBe(false);
   });
 
   test("une vidéo d'un cycle DÉJÀ PAYÉ garde sa rémunération", async () => {

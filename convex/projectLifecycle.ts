@@ -31,6 +31,7 @@ import { ERR, err } from "./errorCodes";
 import { REPACKIT_SLUG } from "./projects";
 import { purgeAndDeleteAssignment } from "./assignments";
 import { deleteStorageBestEffort } from "./storageCleanup";
+import { deleteAuthDataOfUser } from "./authCleanup";
 import {
   PROJECT_NAME_MAX,
   LOGO_MAX_BYTES,
@@ -551,7 +552,10 @@ async function retirerMembre(ctx: MutationCtx, userId: Id<"users">, pid: Pid) {
   for (const r of resets) {
     if (orphelin || r.projectId === pid) await ctx.db.delete(r._id);
   }
-  if (orphelin) await ctx.db.delete(userId);
+  if (orphelin) {
+    await deleteAuthDataOfUser(ctx, userId);
+    await ctx.db.delete(userId);
+  }
 }
 
 export const deleteProject = superadminMutation({

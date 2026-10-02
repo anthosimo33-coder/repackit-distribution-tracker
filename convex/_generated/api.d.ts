@@ -27,6 +27,7 @@ import type * as assetsMigration from "../assetsMigration.js";
 import type * as assignments from "../assignments.js";
 import type * as attributionWindow from "../attributionWindow.js";
 import type * as auth from "../auth.js";
+import type * as authCleanup from "../authCleanup.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as calendarStatus from "../calendarStatus.js";
 import type * as challengePortal from "../challengePortal.js";
@@ -275,6 +276,7 @@ declare const fullApi: ApiFromModules<{
   assignments: typeof assignments;
   attributionWindow: typeof attributionWindow;
   auth: typeof auth;
+  authCleanup: typeof authCleanup;
   bootstrap: typeof bootstrap;
   calendarStatus: typeof calendarStatus;
   challengePortal: typeof challengePortal;

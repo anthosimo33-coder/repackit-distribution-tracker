@@ -3,6 +3,7 @@ import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
+import { ConvexHttpClient } from "convex/browser";
 
 config({ path: ".env.local" });
 
@@ -42,12 +43,34 @@ test.describe("Projets — modifier et supprimer (superadmin)", () => {
     )) as { projectId: Id<"projects"> };
 
     try {
-      // Des données de plusieurs familles dans le projet.
-      await convex.mutation(api.creators.inviteCreator, {
+      // Des données de plusieurs familles dans le projet. La créatrice ACTIVE
+      // son compte : la suppression du projet doit emporter sa connexion.
+      const emailCreatrice = `e2e-edit-${ts}@repackit.test`;
+      const mdpCreatrice = "Edit-creatrice-2026!";
+      const { token } = await convex.mutation(api.creators.inviteCreator, {
         projectId,
         name: `[E2E_TEST] Edit Créatrice ${ts}`,
-        email: `e2e-edit-${ts}@repackit.test`,
+        email: emailCreatrice,
       });
+      await new ConvexHttpClient(convexUrl!).action(api.auth.signIn, {
+        provider: "password",
+        params: {
+          email: emailCreatrice,
+          password: mdpCreatrice,
+          flow: "signUp",
+          inviteToken: token,
+        },
+      });
+      const connexionCreatrice = () =>
+        new ConvexHttpClient(convexUrl!)
+          .action(api.auth.signIn, {
+            provider: "password",
+            params: { email: emailCreatrice, password: mdpCreatrice, flow: "signIn" },
+          })
+          .then((r) => Boolean(r.tokens?.token))
+          .catch(() => false);
+      // PRÉSENCE : son mot de passe ouvre une session tant que le projet vit.
+      expect(await connexionCreatrice()).toBe(true);
       await convex.mutation(api.comptes.createCompte, {
         projectId,
         handle: `@e2eedit${ts}`,
@@ -149,6 +172,26 @@ test.describe("Projets — modifier et supprimer (superadmin)", () => {
         timeout: 10_000,
       });
       expect(await etat()).toBeNull();
+      // Son compte de connexion est parti avec le projet : l'email est LIBRE,
+      // une invitation ailleurs s'active (avant : « Account … already exists »).
+      expect(await connexionCreatrice()).toBe(false);
+      const { token: tokenAilleurs } = await convex.mutation(
+        api.creators.inviteCreator,
+        { name: `[E2E_TEST] Edit Créatrice ${ts}`, email: emailCreatrice },
+      );
+      const ailleurs = await new ConvexHttpClient(convexUrl!).action(
+        api.auth.signIn,
+        {
+          provider: "password",
+          params: {
+            email: emailCreatrice,
+            password: "Autre-projet-2026!",
+            flow: "signUp",
+            inviteToken: tokenAilleurs,
+          },
+        },
+      );
+      expect(ailleurs.tokens?.token).toBeTruthy();
 
       // La purge en arrière-plan vide toutes les tables du projet.
       await expect
