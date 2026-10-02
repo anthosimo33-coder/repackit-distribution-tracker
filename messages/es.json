@@ -1492,6 +1492,7 @@
     "ERR_MCP_OAUTH_GRANT_NOT_FOUND": "Acceso no encontrado.",
     "ERR_MCP_WRITE_FORBIDDEN": "Esta conexión es de solo lectura en este ámbito: autoriza las modificaciones en Jarvia › Conectar Claude.",
     "ERR_MCP_DESIGNATION": "No encontrado o ambiguo: precisa lo que designas.",
+    "ERR_MCP_UNDO_IMPOSSIBLE": "Esta modificación no se puede deshacer.",
     "ERR_NO_ACTIVE_NOTIF": "La notificación está activada en esta campaña, pero no hay ninguna activa: añade una o desactívala.",
     "ERR_NOTIF_MISSING": "Este vídeo no tiene notificación que modificar.",
     "ERR_COMPTA_CHARGE_INVALID": "Gasto no válido: necesita una fecha, un concepto, un importe positivo y una moneda que el proyecto sepa convertir.",

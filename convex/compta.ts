@@ -950,14 +950,17 @@ export const setLineRule = permissionMutation("business.read")({
 /** Retire une règle : ses lignes repassent en « non classé ». */
 export const removeLineRule = permissionMutation("business.read")({
   args: { lineType: v.string() },
-  handler: async (ctx, { lineType }) => {
-    const state = await stateForWrite(ctx, ctx.projectId);
-    await ctx.db.patch(state._id, {
-      rules: state.rules.filter((r) => r.lineType !== lineType),
-    });
-    return { ok: true as const };
-  },
+  handler: (ctx, { lineType }) => removeLineRuleCore(ctx, lineType),
 });
+
+/** Cœur du retrait d'une règle — l'écran et l'outil MCP `defaire`. */
+export async function removeLineRuleCore(ctx: ProjectMutationCtx, lineType: string) {
+  const state = await stateForWrite(ctx, ctx.projectId);
+  await ctx.db.patch(state._id, {
+    rules: state.rules.filter((r) => r.lineType !== lineType),
+  });
+  return { ok: true as const };
+}
 
 /**
  * VENTILE un retrait Whop → banque : à quoi a servi chaque part. Une part
@@ -1474,29 +1477,41 @@ export const saveAccountReading = permissionMutation("business.read")({
 /** Retirer un relevé saisi par erreur : le précédent redevient le dernier. */
 export const deleteAccountReading = permissionMutation("business.read")({
   args: { readingId: v.id("comptaAccountReadings") },
-  handler: async (ctx, { readingId }): Promise<null> => {
-    const r = await ctx.db.get(readingId);
-    if (!r || r.projectId !== ctx.projectId) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Relevé introuvable.");
-    await ctx.db.delete(readingId);
-    return null;
-  },
+  handler: (ctx, { readingId }) => deleteAccountReadingCore(ctx, readingId),
 });
+
+/** Cœur du retrait d'un relevé — l'écran et l'outil MCP `defaire`. */
+export async function deleteAccountReadingCore(
+  ctx: ProjectMutationCtx,
+  readingId: Id<"comptaAccountReadings">,
+): Promise<null> {
+  const r = await ctx.db.get(readingId);
+  if (!r || r.projectId !== ctx.projectId) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Relevé introuvable.");
+  await ctx.db.delete(readingId);
+  return null;
+}
 
 /** Supprimer un compte et ses relevés (les virements Whop, eux, ne bougent pas). */
 export const deleteComptaAccount = permissionMutation("business.read")({
   args: { accountId: v.id("comptaAccounts") },
-  handler: async (ctx, { accountId }): Promise<null> => {
-    const acc = await ctx.db.get(accountId);
-    if (!acc || acc.projectId !== ctx.projectId) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Compte introuvable.");
-    for (const r of await ctx.db
-      .query("comptaAccountReadings")
-      .withIndex("by_account_day", (q) => q.eq("accountId", accountId))
-      .collect())
-      await ctx.db.delete(r._id);
-    await ctx.db.delete(accountId);
-    return null;
-  },
+  handler: (ctx, { accountId }) => deleteComptaAccountCore(ctx, accountId),
 });
+
+/** Cœur de la suppression d'un compte — l'écran et l'outil MCP `defaire`. */
+export async function deleteComptaAccountCore(
+  ctx: ProjectMutationCtx,
+  accountId: Id<"comptaAccounts">,
+): Promise<null> {
+  const acc = await ctx.db.get(accountId);
+  if (!acc || acc.projectId !== ctx.projectId) throw err(ERR.COMPTA_ACCOUNT_NOT_FOUND, "Compte introuvable.");
+  for (const r of await ctx.db
+    .query("comptaAccountReadings")
+    .withIndex("by_account_day", (q) => q.eq("accountId", accountId))
+    .collect())
+    await ctx.db.delete(r._id);
+  await ctx.db.delete(accountId);
+  return null;
+}
 
 /** « Marquer payé » : de l'argent mis de côté a servi (impôts, URSSAF). */
 const recordProvisionUseArgs = { day: v.string(), amount: v.number(), note: v.optional(v.string()) };
@@ -1533,13 +1548,19 @@ export const recordProvisionUse = permissionMutation("business.read")({
 /** Annuler un « marqué payé » saisi par erreur. */
 export const deleteProvisionUse = permissionMutation("business.read")({
   args: { useId: v.id("comptaProvisionUses") },
-  handler: async (ctx, { useId }): Promise<null> => {
-    const u = await ctx.db.get(useId);
-    if (!u || u.projectId !== ctx.projectId) throw err(ERR.COMPTA_PROVISION_INVALID, "Paiement introuvable.");
-    await ctx.db.delete(useId);
-    return null;
-  },
+  handler: (ctx, { useId }) => deleteProvisionUseCore(ctx, useId),
 });
+
+/** Cœur de l'annulation d'un « marqué payé » — l'écran et l'outil MCP `defaire`. */
+export async function deleteProvisionUseCore(
+  ctx: ProjectMutationCtx,
+  useId: Id<"comptaProvisionUses">,
+): Promise<null> {
+  const u = await ctx.db.get(useId);
+  if (!u || u.projectId !== ctx.projectId) throw err(ERR.COMPTA_PROVISION_INVALID, "Paiement introuvable.");
+  await ctx.db.delete(useId);
+  return null;
+}
 
 /** Journal des exports — pour prévenir qu'une règle changerait un mois envoyé. */
 export const logComptaExport = permissionMutation("business.read")({

@@ -627,6 +627,7 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
         summary,
         section: "planning",
         path: "assignments",
+        annulation: { type: "missionsCreees", assignmentIds: res.assignmentIds },
       });
     }
     return {
@@ -656,19 +657,29 @@ export const ecrireReplanification = mcpWriteMutation("assignments.manage", "mis
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, pasPubliee);
     const changes: string[] = [];
+    let jour: { avant: number | null; apres: number | null } | undefined;
+    let plage: { avant: { startMin: number; endMin: number } | null; apres: { startMin: number; endMin: number } | null } | undefined;
     if (a.nouveauJour !== undefined) {
       const t = a.nouveauJour === null ? undefined : parisDayStart(a.nouveauJour);
       if (t === null) throw err(ERR.MCP_DESIGNATION, `Jour invalide : « ${a.nouveauJour} ».`);
       await setAssignmentPostDateCore(ctx, m.a._id, t);
+      jour = { avant: m.a.postDate ?? null, apres: t ?? null };
       const avant = m.a.postDate == null ? "sans date" : jourTexte(plannedDayKey(m.a.postDate));
       changes.push(`${avant} → ${a.nouveauJour === null ? "sans date" : jourTexte(a.nouveauJour)}`);
     }
     if (a.plage !== undefined) {
       await setAssignmentPostWindowCore(ctx, m.a._id, a.plage ?? undefined);
       changes.push(a.plage === null ? "plage horaire retirée" : `plage ${formatPostWindow(a.plage)}`);
+      plage = { avant: m.a.postWindow ?? null, apres: a.plage };
     }
     const summary = `${m.libelle} : ${changes.join(", ")}`;
-    await journaliser(ctx, { tool: "replanifier_mission", summary, section: "planning", path: "assignments" });
+    await journaliser(ctx, {
+      tool: "replanifier_mission",
+      summary,
+      section: "planning",
+      path: "assignments",
+      annulation: { type: "planning", assignmentId: m.a._id, ...(jour ? { jour } : {}), ...(plage ? { plage } : {}) },
+    });
     return { summary };
   },
 });
@@ -694,7 +705,19 @@ export const ecrireConsigne = mcpWriteMutation("assignments.manage", "missions")
       );
     }
     const summary = `${m.libelle} : ${changes.join(", ")}`;
-    await journaliser(ctx, { tool: "consigne_mission", summary, section: "planning", path: "assignments" });
+    const apres = (await ctx.db.get(m.a._id))!;
+    await journaliser(ctx, {
+      tool: "consigne_mission",
+      summary,
+      section: "planning",
+      path: "assignments",
+      annulation: {
+        type: "consigne",
+        assignmentId: m.a._id,
+        ...(a.consigne !== undefined ? { consigne: { avant: m.a.instructions ?? null, apres: apres.instructions ?? null } } : {}),
+        ...(a.texteAIncruster !== undefined ? { incruste: { avant: m.a.overlayText ?? null, apres: apres.overlayText ?? null } } : {}),
+      },
+    });
     return { summary };
   },
 });
@@ -903,5 +926,6 @@ async function appelerEcritureMissions(
 export const DOMAINE_MISSIONS: DomaineEcriture = {
   scope: "missions",
   outils: OUTILS_ECRITURE_MISSIONS,
+  droits: Object.fromEntries(OUTILS_ECRITURE_MISSIONS.map((t) => [t.name, "assignments.manage" as const])),
   appeler: appelerEcritureMissions,
 };

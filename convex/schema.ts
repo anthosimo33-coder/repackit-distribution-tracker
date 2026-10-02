@@ -3,6 +3,7 @@ import { authTables } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { countryValidator } from "./countries";
 import { plateformeValidator } from "./platforms";
+import { annulationValidator } from "./mcpAnnulation";
 
 /**
  * P2 Multi-tenant — rollout terminé (2 phases, à cause du deploy atomique
@@ -1795,6 +1796,13 @@ export default defineSchema({
      * « scripts/<campagne> »…). Absent = la Compta, seul domaine d'avant.
      */
     path: v.optional(v.string()),
+    /**
+     * De quoi DÉFAIRE la modification (état d'avant + ce qui a été écrit), cf
+     * convex/mcpAnnulation. Absent = elle ne se défait pas par Claude.
+     */
+    annulation: v.optional(annulationValidator),
+    /** Défaite par l'outil `defaire`, à cet instant. */
+    defaiteLe: v.optional(v.number()),
     at: v.number(),
   })
     .index("by_user_at", ["userId", "at"])

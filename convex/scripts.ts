@@ -1202,18 +1202,21 @@ export const setBricksInstruction = permissionMutation("scripts.manage")({
 /** Supprime TOUTES les briques de la sélection. */
 export const deleteBricks = permissionMutation("scripts.manage")({
   args: { ids: v.array(v.id("scriptBricks")) },
-  handler: async (ctx, args) => {
-    assertBulkSize(args.ids);
-    let deleted = 0;
-    for (const id of args.ids) {
-      const brick = await ctx.db.get(id);
-      if (!brick || brick.projectId !== ctx.projectId) continue;
-      await ctx.db.delete(id);
-      deleted++;
-    }
-    return { deleted };
-  },
+  handler: (ctx, args) => deleteBricksCore(ctx, args.ids),
 });
+
+/** Cœur de la suppression en lot — le banc de montage et l'outil MCP `defaire`. */
+export async function deleteBricksCore(ctx: ProjectMutationCtx, ids: Id<"scriptBricks">[]) {
+  assertBulkSize(ids);
+  let deleted = 0;
+  for (const id of ids) {
+    const brick = await ctx.db.get(id);
+    if (!brick || brick.projectId !== ctx.projectId) continue;
+    await ctx.db.delete(id);
+    deleted++;
+  }
+  return { deleted };
+}
 
 /**
  * Importe des hooks de la BIBLIOTHÈQUE (table hooks) en scriptBricks kind="hook".

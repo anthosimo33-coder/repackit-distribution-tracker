@@ -21,6 +21,8 @@ import type { McpWriteScope, ProjectMutationCtx } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { designer } from "./mcpWriteArgs";
 import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
+import type { Annulation } from "./mcpAnnulation";
+import type { PermissionId } from "./permissions";
 
 export const ARG_PROJET = {
   type: "string",
@@ -48,6 +50,8 @@ export type CibleEcriture = {
 export interface DomaineEcriture {
   scope: McpWriteScope;
   outils: readonly McpTool[];
+  /** Le droit de l'app que chaque outil exige — celui du bouton de l'écran. */
+  droits: Readonly<Record<string, PermissionId>>;
   appeler(
     ctx: ActionCtx,
     name: string,
@@ -62,8 +66,8 @@ export interface DomaineEcriture {
  * par Claude »). `path` = l'écran où la défaire, sous `/admin/<projet>/`.
  */
 export async function journaliser(
-  ctx: EcritureCtx,
-  e: { tool: string; summary: string; section: string; month?: string; path?: string },
+  ctx: Pick<EcritureCtx, "db" | "userId" | "projectId" | "via">,
+  e: { tool: string; summary: string; section: string; month?: string; path?: string; annulation?: Annulation },
 ) {
   await ctx.db.insert("mcpWriteLog", {
     userId: ctx.userId,
@@ -74,6 +78,7 @@ export async function journaliser(
     section: e.section,
     ...(e.month ? { month: e.month } : {}),
     ...(e.path ? { path: e.path } : {}),
+    ...(e.annulation ? { annulation: e.annulation } : {}),
     at: Date.now(),
   });
 }

@@ -245,6 +245,7 @@ export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
       );
     }
     const ligne = candidats[0];
+    const avant = { parts: ligne.parts ?? null, usage: ligne.usage ?? null, note: ligne.note ?? null };
     await ventilateTransferCore(ctx, {
       lineId: ligne._id,
       parts: a.parts.map((p, i) => ({
@@ -261,7 +262,14 @@ export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
         ? `Ventilation effacée : ${decrire(ligne)} du ${jourTexte(a.jour)}`
         : `${decrire(ligne)} du ${jourTexte(a.jour)}, en ${a.parts.length} part${a.parts.length > 1 ? "s" : ""}` +
           (comptees > 0 ? ` (${eur(comptees, ligne.currency)} comptés en charge)` : "");
-    await journaliser(ctx, { tool: "ventiler_virement", summary, section: "transfers", month: a.jour.slice(0, 7) });
+    const apres = (await ctx.db.get(ligne._id))?.parts ?? null;
+    await journaliser(ctx, {
+      tool: "ventiler_virement",
+      summary,
+      section: "transfers",
+      month: a.jour.slice(0, 7),
+      annulation: { type: "ventilation", lineId: ligne._id, avant, apres },
+    });
     return { summary, devise: ligne.currency };
   },
 });
@@ -282,14 +290,35 @@ export const ecrireReleve = mcpWriteMutation("business.read", "compta")({
     const existant = comptes.find((c) => plierTexte(c.name) === plierTexte(a.compte)) ?? null;
     const devise =
       existant?.currency ?? a.devise?.trim().toLowerCase() ?? (await comptaReferenceCurrency(ctx, ctx.projectId)) ?? "";
-    await saveAccountReadingCore(ctx, {
+    const releveAvant = existant
+      ? ((
+          await ctx.db
+            .query("comptaAccountReadings")
+            .withIndex("by_account_day", (q) => q.eq("accountId", existant._id).eq("day", a.jour))
+            .first()
+        )?.amount ?? null)
+      : null;
+    const { accountId } = await saveAccountReadingCore(ctx, {
       ...(existant ? { accountId: existant._id } : { newAccount: { name: a.compte.trim(), currency: devise } }),
       destinations: a.destinations ?? existant?.destinations ?? [],
       day: a.jour,
       amount: a.solde,
     });
     const summary = `${existant ? "" : "Nouveau compte · "}${existant?.name ?? a.compte.trim()} : ${eur(round2(a.solde), devise)} au ${jourTexte(a.jour)}`;
-    await journaliser(ctx, { tool: "relever_solde", summary, section: "treasury" });
+    await journaliser(ctx, {
+      tool: "relever_solde",
+      summary,
+      section: "treasury",
+      annulation: {
+        type: "releve",
+        accountId,
+        compteCree: existant === null,
+        day: a.jour,
+        avant: releveAvant,
+        apres: round2(a.solde),
+        destinationsAvant: existant?.destinations ?? [],
+      },
+    });
     return { summary, cree: existant === null };
   },
 });
@@ -297,10 +326,15 @@ export const ecrireReleve = mcpWriteMutation("business.read", "compta")({
 export const ecrireMisDeCotePaye = mcpWriteMutation("business.read", "compta")({
   args: { montant: v.number(), jour: v.string(), motif: v.optional(v.string()) },
   handler: async (ctx, a) => {
-    await recordProvisionUseCore(ctx, { day: a.jour, amount: a.montant, ...(a.motif ? { note: a.motif } : {}) });
+    const { useId } = await recordProvisionUseCore(ctx, { day: a.jour, amount: a.montant, ...(a.motif ? { note: a.motif } : {}) });
     const devise = (await comptaReferenceCurrency(ctx, ctx.projectId)) ?? "";
     const summary = `${eur(round2(a.montant), devise)} du mis de côté le ${jourTexte(a.jour)}${a.motif ? ` · « ${a.motif} »` : ""}`;
-    await journaliser(ctx, { tool: "marquer_mis_de_cote_paye", summary, section: "treasury" });
+    await journaliser(ctx, {
+      tool: "marquer_mis_de_cote_paye",
+      summary,
+      section: "treasury",
+      annulation: { type: "misDeCote", useId },
+    });
     return { summary };
   },
 });
@@ -316,7 +350,7 @@ export const ecrireCharge = mcpWriteMutation("business.read", "compta")({
   },
   handler: async (ctx, a) => {
     const devise = a.devise?.trim().toLowerCase() || ((await comptaReferenceCurrency(ctx, ctx.projectId)) ?? "");
-    await addComptaChargeCore(ctx, {
+    const { chargeId } = await addComptaChargeCore(ctx, {
       day: a.jour,
       label: a.libelle,
       category: a.categorie,
@@ -325,7 +359,13 @@ export const ecrireCharge = mcpWriteMutation("business.read", "compta")({
       recurring: a.chaqueMois,
     });
     const summary = `${a.libelle.trim()} : ${eur(round2(a.montant), devise)} le ${jourTexte(a.jour)}${a.chaqueMois ? " (chaque mois)" : ""}`;
-    await journaliser(ctx, { tool: "ajouter_charge", summary, section: "charges", month: a.jour.slice(0, 7) });
+    await journaliser(ctx, {
+      tool: "ajouter_charge",
+      summary,
+      section: "charges",
+      month: a.jour.slice(0, 7),
+      annulation: { type: "chargeAjoutee", chargeId },
+    });
     return { summary };
   },
 });
@@ -351,7 +391,23 @@ export const effacerCharge = mcpWriteMutation("business.read", "compta")({
     const charge = candidats[0];
     await deleteComptaChargeCore(ctx, { chargeId: charge._id });
     const summary = `${charge.label} : ${eur(charge.amount, charge.currency)} du ${jourTexte(charge.day)}`;
-    await journaliser(ctx, { tool: "supprimer_charge", summary, section: "charges", month: charge.month });
+    await journaliser(ctx, {
+      tool: "supprimer_charge",
+      summary,
+      section: "charges",
+      month: charge.month,
+      annulation: {
+        type: "chargeSupprimee",
+        charge: {
+          day: charge.day,
+          label: charge.label,
+          category: charge.category,
+          amount: charge.amount,
+          currency: charge.currency,
+          recurring: charge.recurring === true,
+        },
+      },
+    });
     return { summary };
   },
 });
@@ -359,9 +415,19 @@ export const effacerCharge = mcpWriteMutation("business.read", "compta")({
 export const ecrireClassement = mcpWriteMutation("business.read", "compta")({
   args: { type: v.string(), colonne: v.string() },
   handler: async (ctx, a) => {
+    const etat = await ctx.db
+      .query("comptaState")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .first();
+    const avant = etat?.rules.find((r) => r.lineType === a.type)?.bucket ?? null;
     await setLineRuleCore(ctx, { lineType: a.type, bucket: a.colonne });
     const summary = `Type Whop « ${a.type} » rangé dans « ${LIBELLE_COLONNE[a.colonne as ComptaBucket] ?? a.colonne} »`;
-    await journaliser(ctx, { tool: "classer_type_whop", summary, section: "rules" });
+    await journaliser(ctx, {
+      tool: "classer_type_whop",
+      summary,
+      section: "rules",
+      annulation: { type: "regle", lineType: a.type, avant, apres: a.colonne },
+    });
     return { summary };
   },
 });
@@ -483,5 +549,6 @@ async function appelerEcritureCompta(
 export const DOMAINE_COMPTA: DomaineEcriture = {
   scope: "compta",
   outils: OUTILS_ECRITURE_COMPTA,
+  droits: Object.fromEntries(OUTILS_ECRITURE_COMPTA.map((t) => [t.name, "business.read" as const])),
   appeler: appelerEcritureCompta,
 };

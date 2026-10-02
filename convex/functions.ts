@@ -400,6 +400,30 @@ export function mcpWriteMutation(permission: PermissionId, scope: McpWriteScope)
   });
 }
 
+/**
+ * Variante de `mcpWriteMutation` pour une écriture dont le DOMAINE dépend de ce
+ * qu'elle vise (`defaire` : celui de la modification à défaire). La garde n'est
+ * pas posée à l'entrée : le handler DOIT appeler `exigerEcritureMcp` avant toute
+ * écriture.
+ */
+export function mcpWriteMutationDifferee() {
+  return customMutation(internalMutation, {
+    args: { userId: v.id("users"), projectId: v.id("projects"), acces: mcpAccesValidator },
+    input: async (_ctx, { userId, projectId, acces }) => ({ ctx: { userId, projectId, acces }, args: {} }),
+  });
+}
+
+/** La garde de `mcpWriteMutation`, appelée une fois le domaine connu. */
+export async function exigerEcritureMcp(
+  ctx: MutationCtx & { userId: Id<"users">; projectId: Id<"projects">; acces: { kind: "token" | "oauth"; id: string } },
+  scope: McpWriteScope,
+  permission: PermissionId,
+): Promise<{ kind: "token" | "oauth"; name: string }> {
+  const via = await requireMcpWrite(ctx, ctx.userId, ctx.acces, scope);
+  await requirePermission(ctx, ctx.userId, ctx.projectId, permission);
+  return via;
+}
+
 export function permissionMutation(permission: PermissionId) {
   return customMutation(mutation, {
     args: { projectId: v.id("projects") },

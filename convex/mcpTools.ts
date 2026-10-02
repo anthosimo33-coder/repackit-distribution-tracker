@@ -88,6 +88,7 @@ import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
 import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compta";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
+import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { instantsDeLaVideo, instantTexte, lireVignettes } from "./mcpVideo";
 import { cloudflareStreamConfig, fetchStreamDuration } from "./cloudflareStreamApi";
@@ -1553,9 +1554,11 @@ export function jarviaServer(
     instructions:
       (domaines.length === 0
         ? "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé."
-        : `Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), avec les droits de la personne qui a créé la clé. Cette connexion peut aussi MODIFIER : ${domaines.map((d) => LIBELLE_DOMAINE[d.scope]).join(", ")} — par les outils annotés écriture, jamais autrement. Avant chacun, dis en clair ce qui va changer et pour qui, et attends l'accord ; ensuite, rapporte ce que la réponse dit avoir fait et où le défaire. Désigne les choses par les noms que les outils de lecture t'ont montrés.`) +
+        : `Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), avec les droits de la personne qui a créé la clé. Cette connexion peut aussi MODIFIER : ${domaines.map((d) => LIBELLE_DOMAINE[d.scope]).join(", ")} — par les outils annotés écriture, jamais autrement. Avant chacun, dis en clair ce qui va changer et pour qui, et attends l'accord ; ensuite, rapporte ce que la réponse dit avoir fait et où le défaire (\`modifications\` puis \`defaire\`, quand c'est possible). Désigne les choses par les noms que les outils de lecture t'ont montrés.`) +
       " Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
-    tools: [...OUTILS, ...domaines.flatMap((d) => d.outils)],
+    // `modifications` / `defaire` : dès qu'un domaine s'écrit — le domaine de
+    // CHAQUE modification est revérifié au moment de la défaire.
+    tools: [...OUTILS, ...domaines.flatMap((d) => d.outils), ...(domaines.length > 0 ? OUTILS_DEFAIRE : [])],
     prompts: promptsJarvia(
       domaines.map((d) => d.scope),
       parisDayKey(Date.now()),
@@ -1569,6 +1572,12 @@ export function jarviaServer(
       const projet = await projetDe(args.projet);
       const ids = { userId, projectId: projet._id };
 
+      if (NOMS_DEFAIRE.has(name)) {
+        if (domaines.length === 0) {
+          throw new ToolError("Cette connexion est en lecture seule : autorise un domaine pour elle dans Jarvia › Connecter Claude.");
+        }
+        return appelerDefaire(ctx, name, args, { ...ids, acces: { kind: acces.kind, id: acces.id } }, projet.slug);
+      }
       const domaine = DOMAINES_ECRITURE.find((d) => d.outils.some((t) => t.name === name));
       if (domaine) {
         if (!domaines.includes(domaine)) {
