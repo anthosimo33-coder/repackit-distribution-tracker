@@ -86,6 +86,7 @@ import { acquisitionCostPerClient } from "./retentionCost";
 import { attributionDaily, windowCosts, windowedAttribution } from "./attributionWindow";
 import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
+import { comptaMonthCore, comptaOverviewCore } from "./compta";
 import { collectProjectPaymentRows } from "./payments";
 import { regrouperPaiements } from "./paymentsView";
 import {
@@ -411,6 +412,18 @@ export const lireCompteursVues = mcpPermissionQuery("business.read")({
 export const lireRecompensesNature = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => getNatureRewardsCore(ctx),
+});
+
+/** Onglet Compta : l'exercice (mois par mois, seuils, solde, à récupérer) — même calcul, même bloc. */
+export const lireCompta = mcpPermissionQuery("business.read")({
+  args: { year: v.number() },
+  handler: async (ctx, args) => comptaOverviewCore(ctx, args),
+});
+
+/** Onglet Compta : le détail d'un mois (grand livre, virements ventilés, charges) — même calcul. */
+export const lireComptaMois = mcpPermissionQuery("business.read")({
+  args: { month: v.string() },
+  handler: async (ctx, args) => comptaMonthCore(ctx, args),
 });
 
 /** Dashboard « Ce que ça a rapporté » : conversion par créatrice (ref) — même lecture, même bloc. */
@@ -1100,6 +1113,29 @@ export const OUTILS: readonly McpTool[] = [
         projet: ARG_PROJET,
         du: { type: "string", description: "Premier jour, AAAA-MM-JJ (Paris)." },
         au: { type: "string", description: "Dernier jour, AAAA-MM-JJ (Paris). Défaut : hier." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "compta",
+    title: "Compta (exercice et mois)",
+    description:
+      "L'onglet Compta, par les mêmes calculs. L'exercice : par mois de Paris, le grand livre Whop (CA brut encaissé, remboursements, litiges, frais Whop, net Whop), les charges — créatrices au jour du VERSEMENT (converties), scans (paiements RÉELS au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd), autres charges (saisies, ou comptées depuis la ventilation d'un virement) —, le RÉSULTAT (net Whop − créatrices − scans − autres charges) et les virements Whop → banque reçus ; le CA brut cumulé face aux seuils de 37 500 € et 41 250 € avec la projection ; le solde restant sur Whop ; l'argent À RÉCUPÉRER (sorti de Whop, jamais arrivé) ; les contrôles (scans réels très sous l'estimation, écart entre la paie marquée versée et l'argent sorti de Whop pour les créatrices) ; les types de lignes non classés. Avec `mois` : le détail de ce mois — lignes du grand livre par type, chaque virement et sa VENTILATION (parts, usage, motif, charge comptée), les charges, les versements aux créatrices, les scans et le rapprochement du solde Whop.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        annee: {
+          type: "integer",
+          description: "Exercice (année civile). Défaut : l'année en cours (Paris).",
+          minimum: 2020,
+          maximum: 2100,
+        },
+        mois: {
+          type: "string",
+          description: "Détail d'un mois, AAAA-MM (ex. 2026-09). Remplace la vue de l'exercice.",
+        },
       },
       additionalProperties: false,
     },
@@ -3723,6 +3759,254 @@ export function jarviaServer(ctx: ActionCtx, userId: Id<"users">): McpServer {
             auDessusDeLaCampagne: c.signal,
           })),
           lecture: `Une brique n'est jugée qu'à partir de ${DECISION_THRESHOLD} posts : en dessous, « en test », même si ses premiers chiffres sont bons (les signaux forts les signalent à part). Les verdicts comparent la médiane d'une brique à celle des autres briques de même rôle.`,
+        });
+      }
+
+      if (name === "compta") {
+        // Les libellés de l'écran (messages/admin/fr/money.json › Compta).
+        const POSTES: Record<string, string> = {
+          gross: "CA brut",
+          refunds: "remboursements",
+          disputes: "litiges",
+          fees: "frais Whop",
+          transfers: "virements vers la banque",
+          internal: "mouvements internes (hors résultat)",
+          unclassified: "non classé",
+        };
+        const USAGES: Record<string, string> = {
+          pay: "rémunération",
+          creators: "paiement créatrices",
+          provision: "mise de côté (impôts, URSSAF)",
+          business: "charges de l'activité",
+          recover: "à récupérer (bloqué, en transit)",
+          other: "autre",
+        };
+        const CATEGORIES: Record<string, string> = {
+          hosting: "hébergement",
+          tools: "outils",
+          subscriptions: "abonnements",
+          ads: "publicité",
+          scans: "scans",
+          other: "autre",
+        };
+        const RAISONS: Record<string, string> = {
+          unclassified: "lignes Whop non classées",
+          ledgerCurrency: "montants Whop dans une devise sans taux",
+          creatorsCurrency: "paie créatrices sans taux de conversion",
+          scanUnknown: "scans sans coût mesuré (cost_usd absent)",
+          scanMissing: "coût des scans pas encore lu",
+          otherCurrency: "autre charge dans une devise sans taux",
+          scanPaidCurrency: "paiement de scans dans une devise sans taux",
+        };
+        const controle = (
+          c: { paid: number | null; sent: number | null; gap: number | null; significant: boolean } | null,
+        ) =>
+          c === null
+            ? null
+            : { verseSelonPaiements: c.paid, sortiDeWhopPourElles: c.sent, ecart: c.gap, aEclaircir: c.significant };
+
+        const moisDemande = typeof args.mois === "string" && args.mois.trim() !== "" ? args.mois.trim() : null;
+        if (moisDemande !== null) {
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(moisDemande)) {
+            throw new ToolError("« mois » doit être au format AAAA-MM (ex. 2026-09).");
+          }
+          const d = await lire(() => ctx.runQuery(internal.mcpTools.lireComptaMois, { ...ids, month: moisDemande }));
+          return json({
+            projet: projet.slug,
+            mois: d.month,
+            devise: d.currency,
+            devisePaie: d.payCurrency,
+            grandLivre: {
+              caBrut: d.ledger.gross,
+              remboursements: d.ledger.refunds,
+              litiges: d.ledger.disputes,
+              fraisWhop: d.ledger.fees,
+              netWhop: d.ledger.net,
+              virementsRecus: d.ledger.transfersReceived,
+              parType: d.types.map((x) => ({
+                type: x.lineType,
+                poste: POSTES[x.bucket] ?? x.bucket,
+                lignes: x.count,
+                montant: x.amount,
+                devise: x.currency,
+                contreValeur: x.converted,
+              })),
+            },
+            virements: d.transfers.map((x) => ({
+              jour: x.day,
+              montant: x.amount,
+              devise: x.currency,
+              contreValeur: x.converted,
+              vers: x.destination,
+              ...(x.failed
+                ? { echoue: true, revenuSurWhopLe: x.returnedDay, compte: false }
+                : {
+                    parts: x.parts.map((p) => ({
+                      montant: p.amount,
+                      usage: USAGES[p.usage] ?? p.usage,
+                      motif: p.note,
+                      compteeEnCharge: p.countedAs === null ? null : (CATEGORIES[p.countedAs] ?? p.countedAs),
+                    })),
+                    sansMotif: Math.round((x.amount - x.parts.reduce((s, p) => s + p.amount, 0)) * 100) / 100,
+                  }),
+            })),
+            createatrices: {
+              total: d.creatorsTotal.converted,
+              totalDevisePaie: d.creatorsTotal.pay,
+              taux: d.creatorsTotal.rate,
+              versements: d.creators.map((c) => ({
+                jour: c.day,
+                createatrice: c.name,
+                nature: c.kind === "advance" ? "acompte" : "solde du cycle",
+                montantDevisePaie: c.amount,
+                contreValeur: c.converted,
+              })),
+              controle: controle(d.creatorsControl),
+            },
+            scans: {
+              source: d.scanSource === "paid" ? "paiements réels" : d.scanSource === "estimate" ? "estimation cost_usd" : null,
+              total: d.scanTotal,
+              paiements: d.scanPaid.map((c) => ({
+                jour: c.day,
+                libelle: c.label,
+                montant: c.amount,
+                devise: c.currency,
+                contreValeur: c.converted,
+                depuisUnVirement: c.transferLineId !== null,
+              })),
+              estimation:
+                d.scan === null
+                  ? null
+                  : { usd: d.scan.usd, contreValeur: d.scan.converted, scans: d.scan.runs, fige: d.scan.frozen },
+            },
+            autresCharges: d.charges.map((c) => ({
+              jour: c.day,
+              libelle: c.label,
+              categorie: CATEGORIES[c.category] ?? c.category,
+              montant: c.amount,
+              devise: c.currency,
+              contreValeur: c.converted,
+              ...(c.planned ? { prevue: true } : {}),
+              ...(c.recurring ? { chaqueMois: true } : {}),
+              ...(c.transferLineId !== null ? { depuisUnVirement: true } : {}),
+            })),
+            soldeWhop: {
+              ouverture: d.reconciliation.opening,
+              netWhop: d.reconciliation.net,
+              virementsRecus: d.reconciliation.transfersReceived,
+              autresMouvements: d.reconciliation.otherMovements,
+              cloture: d.reconciliation.closing,
+            },
+            lecture: [
+              "Trésorerie : une recette au jour de l'encaissement Whop, une charge au jour du paiement (créatrices : quand le cycle est marqué payé, acomptes à leur date).",
+              "Un virement Whop → banque ne change jamais le résultat ; seule une part « charges de l'activité » COMPTÉE EN CHARGE y entre (elle figure aussi dans autresCharges ou scans.paiements). Une part « paiement créatrices » n'est jamais comptée : la paie l'est déjà dans createatrices.",
+              "Scans : dès qu'un paiement réel existe ce mois, la somme des paiements REMPLACE l'estimation (rendue pour comparer).",
+            ],
+          });
+        }
+
+        const annee = typeof args.annee === "number" ? args.annee : Number(parisDayKey(Date.now()).slice(0, 4));
+        if (!Number.isInteger(annee) || annee < 2020 || annee > 2100) {
+          throw new ToolError("« annee » doit être une année entre 2020 et 2100.");
+        }
+        const o = await lire(() => ctx.runQuery(internal.mcpTools.lireCompta, { ...ids, year: annee }));
+        if (!o.configured) {
+          return json({
+            projet: projet.slug,
+            configure: false,
+            message: "Compta indisponible : aucun compte Whop n'est relié à ce projet (les revenus viennent du grand livre Whop).",
+          });
+        }
+        const avertissements: string[] = [];
+        if (o.sync.lastSyncAt === null) avertissements.push("Grand livre Whop jamais lu : les revenus sont vides tant que le premier import n'a pas tourné.");
+        if (o.sync.lastError) avertissements.push(`Dernier import en erreur : ${o.sync.lastError}`);
+        if (o.sync.lastSyncAt !== null && !o.sync.historyComplete) avertissements.push("Historique Whop pas encore complet : les premiers mois peuvent manquer de lignes.");
+        if (o.currency === null && o.sync.lastSyncAt !== null) avertissements.push("Devise de référence indéterminée : plusieurs devises sans taux, les montants ne s'additionnent pas.");
+        if (o.unclassified.length > 0) avertissements.push(`${o.unclassified.length} type(s) de ligne Whop non classé(s) : ils ne comptent ni au CA ni au résultat tant qu'on ne leur a pas choisi une colonne dans l'onglet.`);
+        if (o.toRecover.length > 0) avertissements.push(`${o.toRecover.length} somme(s) à récupérer (voir aRecuperer).`);
+        return json({
+          projet: projet.slug,
+          exercice: o.year,
+          devise: o.currency,
+          devisePaie: o.payCurrency,
+          import: {
+            luLe: instantParis(o.sync.lastSyncAt),
+            historiqueComplet: o.sync.historyComplete,
+            ...(o.sync.lastError ? { erreur: o.sync.lastError } : {}),
+          },
+          seuilsDeCA:
+            o.thresholds === null
+              ? null
+              : {
+                  caBrutCumule: o.thresholds.cumul,
+                  statut: { below: "sous les deux seuils", between: "entre les deux seuils", above: "au-delà du seuil majoré" }[o.thresholds.status],
+                  seuil: 37_500,
+                  seuilMajore: 41_250,
+                  resteAvantSeuil: o.thresholds.base.remaining,
+                  seuilAtteintVers: o.thresholds.base.reachedOn,
+                  resteAvantSeuilMajore: o.thresholds.majored.remaining,
+                  seuilMajoreAtteintVers: o.thresholds.majored.reachedOn,
+                  rythmeParJour: o.thresholds.dailyRate,
+                  projectionAu31Dec: o.thresholds.endOfYear,
+                },
+          totaux: {
+            caBrut: o.totals.gross,
+            remboursements: o.totals.refunds,
+            litiges: o.totals.disputes,
+            fraisWhop: o.totals.fees,
+            netWhop: o.totals.net,
+            createatrices: o.totals.creators,
+            scans: o.totals.scans,
+            autresCharges: o.totals.other,
+            resultat: o.totals.result,
+            virementsRecus: o.totals.transfersReceived,
+            incomplet: o.totals.incomplete,
+          },
+          mois: o.rows.map((r) => ({
+            mois: r.month,
+            ...(r.inProgress ? { enCours: true } : {}),
+            caBrut: r.ledger.gross,
+            remboursements: r.ledger.refunds,
+            litiges: r.ledger.disputes,
+            fraisWhop: r.ledger.fees,
+            netWhop: r.ledger.net,
+            createatrices: r.creators,
+            scans: r.scans,
+            scansSource: r.scanSource === "paid" ? "paiements réels" : r.scanSource === "estimate" ? "estimation cost_usd" : null,
+            ...(r.scanSource === "paid" ? { scansEstimation: r.scanEstimate } : {}),
+            autresCharges: r.other,
+            resultat: r.result,
+            virementsRecus: r.ledger.transfersReceived,
+            ...(r.plannedCount > 0 ? { chargesPrevues: r.plannedCount } : {}),
+            ...(r.incomplete.length > 0 ? { incomplet: r.incomplete.map((k) => RAISONS[k] ?? k) } : {}),
+            ...(r.scanPaidLow ? { alerteScans: "paiements réels bien sous l'estimation : un paiement de scans manque peut-être" } : {}),
+            ...(r.creatorsControl ? { controleCreatrices: controle(r.creatorsControl) } : {}),
+          })),
+          soldeWhop: {
+            parDevise: o.balance.byCurrency.map((b) => ({ devise: b.currency, montant: b.amount, contreValeur: b.converted })),
+            total: o.balance.converted,
+            dernierVirement: o.balance.lastTransfer
+              ? { jour: jour(o.balance.lastTransfer.at), montant: o.balance.lastTransfer.amount, devise: o.balance.lastTransfer.currency }
+              : null,
+          },
+          aRecuperer: o.toRecover.map((x) => ({
+            jour: x.day,
+            montant: x.amount,
+            devise: x.currency,
+            contreValeur: x.converted,
+            motif: x.note,
+            vers: x.destination,
+            depuisJours: x.ageDays,
+          })),
+          nonClasses: o.unclassified.map((u) => ({ type: u.lineType, lignes: u.count, montant: u.amount, mois: u.months })),
+          ...(avertissements.length > 0 ? { avertissements } : {}),
+          lecture: [
+            "Résultat = net Whop − créatrices − scans − autres charges, par mois de Paris. Trésorerie : recette au jour de l'encaissement Whop, charge au jour du paiement (créatrices : quand le cycle est marqué payé).",
+            "Les virements Whop → banque ne sont pas des charges : seule une part de virement « comptée en charge » entre au résultat (dans scans ou autresCharges). « mois » donne le détail d'un mois, ventilation comprise.",
+            "Scans : paiements réels au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd (dollars convertis).",
+            "Seuils 37 500 € / 41 250 € : franchise en base de TVA (prestations de services) — repère à confirmer avec le comptable. Projection linéaire au rythme des 30 derniers jours, pas une prévision.",
+            "contreValeur = montant converti dans la devise de référence au taux du projet ; null = aucun taux pour cette devise (jamais additionné 1:1).",
+          ],
         });
       }
 

@@ -321,377 +321,381 @@ async function reversalsBySource(
  * L'onglet entier d'une année : compteur de seuils, tableau mois par mois,
  * totaux, solde Whop calculé, types non classés, règles, état de l'import.
  */
-export const getComptaOverview = permissionQuery("business.read")({
-  args: { year: v.number() },
-  handler: async (ctx, { year }) => {
-    const months = await allMonths(ctx, ctx.projectId);
-    const { project, state, fx, rules } = await loadContext(ctx, ctx.projectId, months);
-    const now = Date.now();
-    const today = parisDayKey(now);
-    const currentMonth = today.slice(0, 7);
-    const y = String(year);
+export async function comptaOverviewCore(ctx: ProjectQueryCtx, { year }: { year: number }) {
+  const months = await allMonths(ctx, ctx.projectId);
+  const { project, state, fx, rules } = await loadContext(ctx, ctx.projectId, months);
+  const now = Date.now();
+  const today = parisDayKey(now);
+  const currentMonth = today.slice(0, 7);
+  const y = String(year);
 
-    const byMonth = new Map(months.map((m) => [m.month, m]));
-    const outs = await creatorOuts(ctx, ctx.projectId);
-    // Tous les virements (quelques dizaines) : dernier réussi, contrôle
-    // créatrices par mois, argent à récupérer.
-    const reversals = await reversalsBySource(ctx, ctx.projectId);
-    const transfers = (
-      await ctx.db
+  const byMonth = new Map(months.map((m) => [m.month, m]));
+  const outs = await creatorOuts(ctx, ctx.projectId);
+  // Tous les virements (quelques dizaines) : dernier réussi, contrôle
+  // créatrices par mois, argent à récupérer.
+  const reversals = await reversalsBySource(ctx, ctx.projectId);
+  const transfers = (
+    await ctx.db
+      .query("whopLedgerLines")
+      .withIndex("by_project_type_posted", (q) =>
+        q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"),
+      )
+      .collect()
+  )
+    .sort((a, b) => a.postedAt - b.postedAt)
+    .map((l) => transferOut(l, reversals, fx));
+  const charges = await chargesOf(ctx, ctx.projectId, currentMonth);
+  const payCurrency = project.payCurrency ?? null;
+  const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
+
+  // Mois affichés : ceux de l'année qui ont quelque chose, bornés au mois courant.
+  const keys = new Set<string>();
+  for (const m of months) if (m.month.startsWith(y)) keys.add(m.month);
+  for (const o of outs) if (o.month.startsWith(y)) keys.add(o.month);
+  for (const c of charges) if (c.month.startsWith(y)) keys.add(c.month);
+  if (y === currentMonth.slice(0, 4)) keys.add(currentMonth);
+  const monthKeys = [...keys].filter((k) => k <= currentMonth).sort();
+
+  const rows = monthKeys.map((month) => {
+    const doc = byMonth.get(month);
+    const ledger = ledgerTotals(doc?.days ?? [], rules, fx);
+    const creatorsPay = round2(
+      outs.filter((o) => o.month === month).reduce((s, o) => s + o.amount, 0),
+    );
+    const creators = creatorsPay === 0 ? 0 : payRate === null ? null : round2(creatorsPay * payRate);
+    const monthCharges = charges.filter((c) => c.month === month);
+    const sc = monthScans(monthCharges, doc?.scan, fx);
+    const scans = sc.value;
+    let other = 0;
+    let otherUnconverted = false;
+    let plannedCount = 0;
+    for (const c of monthCharges.filter((c) => c.category !== "scans")) {
+      const conv = convert(c.amount, c.currency, fx);
+      if (conv === null) otherUnconverted = true;
+      else other += conv;
+      if (c.planned) plannedCount += 1;
+    }
+    other = round2(other);
+    const incomplete: string[] = [];
+    if (ledger.unclassified.count > 0) incomplete.push("unclassified");
+    if (ledger.unconverted.length > 0) incomplete.push("ledgerCurrency");
+    if (creators === null) incomplete.push("creatorsCurrency");
+    if (scans === null) {
+      incomplete.push(
+        sc.source === "paid" ? "scanPaidCurrency" : doc?.scan ? "scanUnknown" : "scanMissing",
+      );
+    }
+    if (otherUnconverted) incomplete.push("otherCurrency");
+    const result = round2(ledger.net - (creators ?? 0) - (scans ?? 0) - other);
+    const sent = creatorsSentOf(transfers.filter((x) => x.day.slice(0, 7) === month));
+    return {
+      month,
+      inProgress: month === currentMonth,
+      ledger,
+      creators,
+      creatorsControl: creatorsControl(creators, sent.sent, sent.count),
+      scans,
+      scanSource: sc.source,
+      scanEstimate: sc.estimate,
+      scanPaidLow: isScanPaidLow(sc.source === "paid" ? scans : null, sc.estimate),
+      scanFrozen: doc?.scan?.frozen ?? false,
+      other,
+      plannedCount,
+      result,
+      incomplete,
+    };
+  });
+
+  const sum = (pick: (r: (typeof rows)[number]) => number | null) =>
+    round2(rows.reduce((s, r) => s + (pick(r) ?? 0), 0));
+  const totals = {
+    gross: sum((r) => r.ledger.gross),
+    refunds: sum((r) => r.ledger.refunds),
+    disputes: sum((r) => r.ledger.disputes),
+    fees: sum((r) => r.ledger.fees),
+    net: sum((r) => r.ledger.net),
+    creators: sum((r) => r.creators),
+    scans: sum((r) => r.scans),
+    other: sum((r) => r.other),
+    result: sum((r) => r.result),
+    transfersReceived: sum((r) => r.ledger.transfersReceived),
+    // Un montant non CHIFFRÉ (devise sans taux, scans sans coût). Les lignes
+    // non classées, elles, ont leur bandeau : elles ne rendent pas le total
+    // « incomplet », elles le rendent « à ranger ».
+    incomplete: rows.some((r) => r.incomplete.some((x) => x !== "unclassified")),
+  };
+
+  // Compteur de seuils : CA brut par jour de l'année, règles comprises.
+  const grossDays = new Map<string, number>();
+  for (const m of months) {
+    if (!m.month.startsWith(y)) continue;
+    for (const [d, val] of grossByDay(m.days, rules, fx)) {
+      grossDays.set(d, (grossDays.get(d) ?? 0) + val);
+    }
+  }
+  const thresholds = fx.target === "eur" ? thresholdView({ year, today, grossByDay: grossDays }) : null;
+
+  // Solde du grand livre (toutes les lignes, depuis le début), par devise.
+  const allCells: LedgerDayCell[] = months.flatMap((m) => m.days);
+  const balances = balanceByCurrency(allCells).map((b) => {
+    const conv = convert(b.amount, b.currency, fx);
+    return { currency: b.currency, amount: b.amount, converted: conv === null ? null : round2(conv) };
+  });
+  // Dernier virement RÉUSSI : un retrait échoué est revenu sur Whop.
+  const lastTransfer = [...transfers].reverse().find((x) => !x.failed) ?? null;
+  // Argent à récupérer, TOUTES années : il reste signalé jusqu'à ce qu'on
+  // change l'usage de la part.
+  const toRecover = transfers.flatMap((x) =>
+    x.parts
+      .filter((p) => p.usage === "recover")
+      .map((p) => ({
+        lineId: x._id,
+        partId: p.id,
+        day: x.day,
+        destination: x.destination,
+        amount: p.amount,
+        currency: x.currency,
+        converted: p.converted,
+        note: p.note,
+        ageDays: Math.max(0, Math.round((now - x.postedAt) / DAY)),
+      })),
+  );
+
+  // Types non classés, sur TOUT l'historique : une règle vaut pour le type.
+  const pending = new Map<string, { count: number; amount: number; currency: string; months: Set<string> }>();
+  for (const m of months) {
+    for (const c of m.days) {
+      if (bucketOf(c.lineType, rules) !== "unclassified") continue;
+      const key = c.lineType;
+      const p = pending.get(key) ?? { count: 0, amount: 0, currency: c.currency, months: new Set<string>() };
+      p.count += c.count;
+      p.amount += convert(c.amount, c.currency, fx) ?? 0;
+      p.months.add(m.month);
+      pending.set(key, p);
+    }
+  }
+  const unclassified = await Promise.all(
+    [...pending.entries()].map(async ([lineType, p]) => {
+      const example = await ctx.db
         .query("whopLedgerLines")
         .withIndex("by_project_type_posted", (q) =>
-          q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"),
+          q.eq("projectId", ctx.projectId).eq("lineType", lineType),
         )
-        .collect()
-    )
-      .sort((a, b) => a.postedAt - b.postedAt)
-      .map((l) => transferOut(l, reversals, fx));
-    const charges = await chargesOf(ctx, ctx.projectId, currentMonth);
-    const payCurrency = project.payCurrency ?? null;
-    const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
-
-    // Mois affichés : ceux de l'année qui ont quelque chose, bornés au mois courant.
-    const keys = new Set<string>();
-    for (const m of months) if (m.month.startsWith(y)) keys.add(m.month);
-    for (const o of outs) if (o.month.startsWith(y)) keys.add(o.month);
-    for (const c of charges) if (c.month.startsWith(y)) keys.add(c.month);
-    if (y === currentMonth.slice(0, 4)) keys.add(currentMonth);
-    const monthKeys = [...keys].filter((k) => k <= currentMonth).sort();
-
-    const rows = monthKeys.map((month) => {
-      const doc = byMonth.get(month);
-      const ledger = ledgerTotals(doc?.days ?? [], rules, fx);
-      const creatorsPay = round2(
-        outs.filter((o) => o.month === month).reduce((s, o) => s + o.amount, 0),
-      );
-      const creators = creatorsPay === 0 ? 0 : payRate === null ? null : round2(creatorsPay * payRate);
-      const monthCharges = charges.filter((c) => c.month === month);
-      const sc = monthScans(monthCharges, doc?.scan, fx);
-      const scans = sc.value;
-      let other = 0;
-      let otherUnconverted = false;
-      let plannedCount = 0;
-      for (const c of monthCharges.filter((c) => c.category !== "scans")) {
-        const conv = convert(c.amount, c.currency, fx);
-        if (conv === null) otherUnconverted = true;
-        else other += conv;
-        if (c.planned) plannedCount += 1;
-      }
-      other = round2(other);
-      const incomplete: string[] = [];
-      if (ledger.unclassified.count > 0) incomplete.push("unclassified");
-      if (ledger.unconverted.length > 0) incomplete.push("ledgerCurrency");
-      if (creators === null) incomplete.push("creatorsCurrency");
-      if (scans === null) {
-        incomplete.push(
-          sc.source === "paid" ? "scanPaidCurrency" : doc?.scan ? "scanUnknown" : "scanMissing",
-        );
-      }
-      if (otherUnconverted) incomplete.push("otherCurrency");
-      const result = round2(ledger.net - (creators ?? 0) - (scans ?? 0) - other);
-      const sent = creatorsSentOf(transfers.filter((x) => x.day.slice(0, 7) === month));
+        .order("desc")
+        .first();
       return {
-        month,
-        inProgress: month === currentMonth,
-        ledger,
-        creators,
-        creatorsControl: creatorsControl(creators, sent.sent, sent.count),
-        scans,
-        scanSource: sc.source,
-        scanEstimate: sc.estimate,
-        scanPaidLow: isScanPaidLow(sc.source === "paid" ? scans : null, sc.estimate),
-        scanFrozen: doc?.scan?.frozen ?? false,
-        other,
-        plannedCount,
-        result,
-        incomplete,
+        lineType,
+        count: p.count,
+        amount: round2(p.amount),
+        months: [...p.months].sort(),
+        example: example
+          ? {
+              postedAt: example.postedAt,
+              amount: example.amount,
+              currency: example.currency,
+              paymentId: example.paymentId ?? null,
+              label: example.label ?? null,
+            }
+          : null,
       };
-    });
+    }),
+  );
 
-    const sum = (pick: (r: (typeof rows)[number]) => number | null) =>
-      round2(rows.reduce((s, r) => s + (pick(r) ?? 0), 0));
-    const totals = {
-      gross: sum((r) => r.ledger.gross),
-      refunds: sum((r) => r.ledger.refunds),
-      disputes: sum((r) => r.ledger.disputes),
-      fees: sum((r) => r.ledger.fees),
-      net: sum((r) => r.ledger.net),
-      creators: sum((r) => r.creators),
-      scans: sum((r) => r.scans),
-      other: sum((r) => r.other),
-      result: sum((r) => r.result),
-      transfersReceived: sum((r) => r.ledger.transfersReceived),
-      // Un montant non CHIFFRÉ (devise sans taux, scans sans coût). Les lignes
-      // non classées, elles, ont leur bandeau : elles ne rendent pas le total
-      // « incomplet », elles le rendent « à ranger ».
-      incomplete: rows.some((r) => r.incomplete.some((x) => x !== "unclassified")),
-    };
+  const years = new Set<number>([Number(today.slice(0, 4))]);
+  for (const m of months) years.add(Number(m.month.slice(0, 4)));
+  for (const c of charges) years.add(Number(c.month.slice(0, 4)));
 
-    // Compteur de seuils : CA brut par jour de l'année, règles comprises.
-    const grossDays = new Map<string, number>();
-    for (const m of months) {
-      if (!m.month.startsWith(y)) continue;
-      for (const [d, val] of grossByDay(m.days, rules, fx)) {
-        grossDays.set(d, (grossDays.get(d) ?? 0) + val);
-      }
-    }
-    const thresholds = fx.target === "eur" ? thresholdView({ year, today, grossByDay: grossDays }) : null;
+  return {
+    configured: project.whop !== undefined,
+    posthogConfigured: project.posthog !== undefined,
+    currency: fx.target,
+    payCurrency,
+    conversions: Object.entries(fx.rates)
+      .filter(([c]) => c !== fx.target)
+      .map(([from, rate]) => ({ from, rate }))
+      .sort((a, b) => a.from.localeCompare(b.from)),
+    sync: {
+      lastSyncAt: state?.lastSyncAt ?? null,
+      lastError: state?.lastError ?? null,
+      historyComplete: state?.historyComplete ?? false,
+      scanError: state?.scanError ?? null,
+    },
+    today,
+    currentMonth,
+    year,
+    years: [...years].sort((a, b) => b - a),
+    rows,
+    totals,
+    thresholds,
+    balance: {
+      byCurrency: balances,
+      converted: balances.every((b) => b.converted !== null)
+        ? round2(balances.reduce((s, b) => s + (b.converted ?? 0), 0))
+        : null,
+      lastTransfer: lastTransfer
+        ? { at: lastTransfer.postedAt, amount: lastTransfer.amount, currency: lastTransfer.currency }
+        : null,
+    },
+    toRecover,
+    unclassified: unclassified.sort((a, b) => b.count - a.count),
+    // Les mois où chaque type réglé a des lignes : retirer ou changer la
+    // règle change ces mois-là, et l'écran prévient s'ils ont été exportés.
+    rules: (state?.rules ?? []).map((r) => {
+      const cells = months.flatMap((m) =>
+        m.days
+          .filter((c) => c.lineType === r.lineType)
+          .map((c) => ({ month: m.month, amount: c.amount, currency: c.currency, count: c.count })),
+      );
+      return {
+        lineType: r.lineType,
+        bucket: r.bucket,
+        at: r.at,
+        months: [...new Set(cells.map((c) => c.month))].sort(),
+        count: cells.reduce((s, c) => s + c.count, 0),
+        amount: round2(cells.reduce((s, c) => s + (convert(c.amount, c.currency, fx) ?? 0), 0)),
+      };
+    }),
+    exports: (state?.exports ?? []).map((e) => ({ month: e.month, kind: e.kind, at: e.at })),
+  };
+}
 
-    // Solde du grand livre (toutes les lignes, depuis le début), par devise.
-    const allCells: LedgerDayCell[] = months.flatMap((m) => m.days);
-    const balances = balanceByCurrency(allCells).map((b) => {
-      const conv = convert(b.amount, b.currency, fx);
-      return { currency: b.currency, amount: b.amount, converted: conv === null ? null : round2(conv) };
-    });
-    // Dernier virement RÉUSSI : un retrait échoué est revenu sur Whop.
-    const lastTransfer = [...transfers].reverse().find((x) => !x.failed) ?? null;
-    // Argent à récupérer, TOUTES années : il reste signalé jusqu'à ce qu'on
-    // change l'usage de la part.
-    const toRecover = transfers.flatMap((x) =>
-      x.parts
-        .filter((p) => p.usage === "recover")
-        .map((p) => ({
-          lineId: x._id,
-          partId: p.id,
-          day: x.day,
-          destination: x.destination,
-          amount: p.amount,
-          currency: x.currency,
-          converted: p.converted,
-          note: p.note,
-          ageDays: Math.max(0, Math.round((now - x.postedAt) / DAY)),
-        })),
-    );
-
-    // Types non classés, sur TOUT l'historique : une règle vaut pour le type.
-    const pending = new Map<string, { count: number; amount: number; currency: string; months: Set<string> }>();
-    for (const m of months) {
-      for (const c of m.days) {
-        if (bucketOf(c.lineType, rules) !== "unclassified") continue;
-        const key = c.lineType;
-        const p = pending.get(key) ?? { count: 0, amount: 0, currency: c.currency, months: new Set<string>() };
-        p.count += c.count;
-        p.amount += convert(c.amount, c.currency, fx) ?? 0;
-        p.months.add(m.month);
-        pending.set(key, p);
-      }
-    }
-    const unclassified = await Promise.all(
-      [...pending.entries()].map(async ([lineType, p]) => {
-        const example = await ctx.db
-          .query("whopLedgerLines")
-          .withIndex("by_project_type_posted", (q) =>
-            q.eq("projectId", ctx.projectId).eq("lineType", lineType),
-          )
-          .order("desc")
-          .first();
-        return {
-          lineType,
-          count: p.count,
-          amount: round2(p.amount),
-          months: [...p.months].sort(),
-          example: example
-            ? {
-                postedAt: example.postedAt,
-                amount: example.amount,
-                currency: example.currency,
-                paymentId: example.paymentId ?? null,
-                label: example.label ?? null,
-              }
-            : null,
-        };
-      }),
-    );
-
-    const years = new Set<number>([Number(today.slice(0, 4))]);
-    for (const m of months) years.add(Number(m.month.slice(0, 4)));
-    for (const c of charges) years.add(Number(c.month.slice(0, 4)));
-
-    return {
-      configured: project.whop !== undefined,
-      posthogConfigured: project.posthog !== undefined,
-      currency: fx.target,
-      payCurrency,
-      conversions: Object.entries(fx.rates)
-        .filter(([c]) => c !== fx.target)
-        .map(([from, rate]) => ({ from, rate }))
-        .sort((a, b) => a.from.localeCompare(b.from)),
-      sync: {
-        lastSyncAt: state?.lastSyncAt ?? null,
-        lastError: state?.lastError ?? null,
-        historyComplete: state?.historyComplete ?? false,
-        scanError: state?.scanError ?? null,
-      },
-      today,
-      currentMonth,
-      year,
-      years: [...years].sort((a, b) => b - a),
-      rows,
-      totals,
-      thresholds,
-      balance: {
-        byCurrency: balances,
-        converted: balances.every((b) => b.converted !== null)
-          ? round2(balances.reduce((s, b) => s + (b.converted ?? 0), 0))
-          : null,
-        lastTransfer: lastTransfer
-          ? { at: lastTransfer.postedAt, amount: lastTransfer.amount, currency: lastTransfer.currency }
-          : null,
-      },
-      toRecover,
-      unclassified: unclassified.sort((a, b) => b.count - a.count),
-      // Les mois où chaque type réglé a des lignes : retirer ou changer la
-      // règle change ces mois-là, et l'écran prévient s'ils ont été exportés.
-      rules: (state?.rules ?? []).map((r) => {
-        const cells = months.flatMap((m) =>
-          m.days
-            .filter((c) => c.lineType === r.lineType)
-            .map((c) => ({ month: m.month, amount: c.amount, currency: c.currency, count: c.count })),
-        );
-        return {
-          lineType: r.lineType,
-          bucket: r.bucket,
-          at: r.at,
-          months: [...new Set(cells.map((c) => c.month))].sort(),
-          count: cells.reduce((s, c) => s + c.count, 0),
-          amount: round2(cells.reduce((s, c) => s + (convert(c.amount, c.currency, fx) ?? 0), 0)),
-        };
-      }),
-      exports: (state?.exports ?? []).map((e) => ({ month: e.month, kind: e.kind, at: e.at })),
-    };
-  },
+export const getComptaOverview = permissionQuery("business.read")({
+  args: { year: v.number() },
+  handler: (ctx, args) => comptaOverviewCore(ctx, args),
 });
 
 // ─── Détail d'un mois ───────────────────────────────────────────────────────
 
+export async function comptaMonthCore(ctx: ProjectQueryCtx, { month }: { month: string }) {
+  const months = await allMonths(ctx, ctx.projectId);
+  const { project, fx, rules } = await loadContext(ctx, ctx.projectId, months);
+  const doc = months.find((m) => m.month === month) ?? null;
+  const cells = doc?.days ?? [];
+  const types = totalsByType(cells, rules, fx);
+  const ledger = ledgerTotals(cells, rules, fx);
+
+  // Solde d'ouverture = toutes les lignes AVANT le mois, en devise d'origine.
+  const before = months.filter((m) => m.month < month).flatMap((m) => m.days);
+  const openingByCur = balanceByCurrency(before);
+  const closingByCur = balanceByCurrency([...before, ...cells]);
+  const sumConv = (list: { currency: string; amount: number }[]) =>
+    list.every((b) => rateOf(b.currency, fx) !== null)
+      ? round2(list.reduce((s, b) => s + (convert(b.amount, b.currency, fx) ?? 0), 0))
+      : null;
+
+  const payCurrency = project.payCurrency ?? null;
+  const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
+  const outs = (await creatorOuts(ctx, ctx.projectId)).filter((o) => o.month === month);
+  const creatorIds = [...new Set(outs.map((o) => o.creatorId))];
+  const names = new Map<string, string>();
+  for (const id of creatorIds) {
+    const c = await ctx.db.get(id);
+    if (c) names.set(id, c.name);
+  }
+  const snapshots = new Map<string, string>();
+  if (outs.some((o) => !names.has(o.creatorId))) {
+    const rows = await ctx.db
+      .query("payments")
+      .withIndex("by_project_period", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    for (const r of rows) if (r.creatorNameSnapshot) snapshots.set(r.creatorId, r.creatorNameSnapshot);
+  }
+  const creators = outs
+    .sort((a, b) => a.at - b.at)
+    .map((o) => ({
+      day: o.day,
+      name: names.get(o.creatorId) ?? snapshots.get(o.creatorId) ?? null,
+      period: o.period,
+      kind: o.kind,
+      amount: o.amount,
+      converted: payRate === null ? null : round2(o.amount * payRate),
+    }));
+
+  const usdRate = rateOf("usd", fx);
+  const scan = doc?.scan ?? null;
+  const scanParts = scan
+    ? (["light", "full", "other"] as const).map((k) => {
+        const usd = k === "light" ? scan.lightUsd : k === "full" ? scan.fullUsd : scan.otherUsd;
+        return { kind: k, usd, converted: usdRate === null ? null : round2(usd * usdRate) };
+      })
+    : [];
+
+  const currentMonth = parisDayKey(Date.now()).slice(0, 7);
+  const monthCharges = (await chargesOf(ctx, ctx.projectId, currentMonth)).filter(
+    (c) => c.month === month,
+  );
+  const sc = monthScans(monthCharges, doc?.scan, fx);
+  // Les paiements au fournisseur des scans vivent dans le panneau Scans, pas
+  // dans « Autres charges » : ils remplacent l'estimation du mois.
+  const charges = monthCharges.filter((c) => c.category !== "scans").map((c) => chargeOut(c, fx));
+  const scanPaid = monthCharges.filter((c) => c.category === "scans").map((c) => chargeOut(c, fx));
+
+  const transfers = await transfersOf(ctx, ctx.projectId, month, fx);
+
+  const foreign = balanceByCurrency(cells)
+    .filter((b) => b.currency !== fx.target)
+    .map((b) => ({ currency: b.currency, rate: rateOf(b.currency, fx) }));
+
+  return {
+    month,
+    currency: fx.target,
+    payCurrency,
+    scanCurrency: "usd",
+    types,
+    ledger,
+    foreign,
+    reconciliation: (() => {
+      const opening = sumConv(openingByCur);
+      // Ce qui bouge le solde sans entrer au résultat : réserves, conversions,
+      // lignes non classées. Sans ce terme, l'égalité serait fausse dès qu'il y
+      // en a — et elle se lirait comme une erreur de la compta.
+      const otherMovements = round2(ledger.internal + ledger.unclassified.amount);
+      // La clôture est la somme des termes AFFICHÉS : chaque terme est arrondi
+      // au centime, et une clôture convertie à part pouvait s'en écarter d'un
+      // centime — l'égalité de l'écran aurait été fausse.
+      const closing =
+        opening === null || sumConv(closingByCur) === null
+          ? null
+          : round2(opening + ledger.net - ledger.transfersReceived + otherMovements);
+      return { opening, closing, net: ledger.net, transfersReceived: ledger.transfersReceived, otherMovements };
+    })(),
+    creators,
+    creatorsTotal: {
+      pay: round2(outs.reduce((s, o) => s + o.amount, 0)),
+      converted: payRate === null ? null : round2(outs.reduce((s, o) => s + o.amount, 0) * payRate),
+      rate: payRate,
+    },
+    creatorsControl: (() => {
+      const pay = round2(outs.reduce((s, o) => s + o.amount, 0));
+      const paid = pay === 0 ? 0 : payRate === null ? null : round2(pay * payRate);
+      const sent = creatorsSentOf(transfers);
+      return creatorsControl(paid, sent.sent, sent.count);
+    })(),
+    scanSource: sc.source,
+    scanPaid,
+    scanTotal: sc.value,
+    scan: scan
+      ? {
+          runs: scan.runs,
+          withCost: scan.withCost,
+          frozen: scan.frozen,
+          usd: scanCostUsd(scan),
+          converted: (() => {
+            const u = scanCostUsd(scan);
+            return u === null || usdRate === null ? null : round2(u * usdRate);
+          })(),
+          parts: scanParts,
+          rate: usdRate,
+        }
+      : null,
+    charges,
+    transfers,
+  };
+}
+
 export const getComptaMonth = permissionQuery("business.read")({
   args: { month: v.string() },
-  handler: async (ctx, { month }) => {
-    const months = await allMonths(ctx, ctx.projectId);
-    const { project, fx, rules } = await loadContext(ctx, ctx.projectId, months);
-    const doc = months.find((m) => m.month === month) ?? null;
-    const cells = doc?.days ?? [];
-    const types = totalsByType(cells, rules, fx);
-    const ledger = ledgerTotals(cells, rules, fx);
-
-    // Solde d'ouverture = toutes les lignes AVANT le mois, en devise d'origine.
-    const before = months.filter((m) => m.month < month).flatMap((m) => m.days);
-    const openingByCur = balanceByCurrency(before);
-    const closingByCur = balanceByCurrency([...before, ...cells]);
-    const sumConv = (list: { currency: string; amount: number }[]) =>
-      list.every((b) => rateOf(b.currency, fx) !== null)
-        ? round2(list.reduce((s, b) => s + (convert(b.amount, b.currency, fx) ?? 0), 0))
-        : null;
-
-    const payCurrency = project.payCurrency ?? null;
-    const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
-    const outs = (await creatorOuts(ctx, ctx.projectId)).filter((o) => o.month === month);
-    const creatorIds = [...new Set(outs.map((o) => o.creatorId))];
-    const names = new Map<string, string>();
-    for (const id of creatorIds) {
-      const c = await ctx.db.get(id);
-      if (c) names.set(id, c.name);
-    }
-    const snapshots = new Map<string, string>();
-    if (outs.some((o) => !names.has(o.creatorId))) {
-      const rows = await ctx.db
-        .query("payments")
-        .withIndex("by_project_period", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      for (const r of rows) if (r.creatorNameSnapshot) snapshots.set(r.creatorId, r.creatorNameSnapshot);
-    }
-    const creators = outs
-      .sort((a, b) => a.at - b.at)
-      .map((o) => ({
-        day: o.day,
-        name: names.get(o.creatorId) ?? snapshots.get(o.creatorId) ?? null,
-        period: o.period,
-        kind: o.kind,
-        amount: o.amount,
-        converted: payRate === null ? null : round2(o.amount * payRate),
-      }));
-
-    const usdRate = rateOf("usd", fx);
-    const scan = doc?.scan ?? null;
-    const scanParts = scan
-      ? (["light", "full", "other"] as const).map((k) => {
-          const usd = k === "light" ? scan.lightUsd : k === "full" ? scan.fullUsd : scan.otherUsd;
-          return { kind: k, usd, converted: usdRate === null ? null : round2(usd * usdRate) };
-        })
-      : [];
-
-    const currentMonth = parisDayKey(Date.now()).slice(0, 7);
-    const monthCharges = (await chargesOf(ctx, ctx.projectId, currentMonth)).filter(
-      (c) => c.month === month,
-    );
-    const sc = monthScans(monthCharges, doc?.scan, fx);
-    // Les paiements au fournisseur des scans vivent dans le panneau Scans, pas
-    // dans « Autres charges » : ils remplacent l'estimation du mois.
-    const charges = monthCharges.filter((c) => c.category !== "scans").map((c) => chargeOut(c, fx));
-    const scanPaid = monthCharges.filter((c) => c.category === "scans").map((c) => chargeOut(c, fx));
-
-    const transfers = await transfersOf(ctx, ctx.projectId, month, fx);
-
-    const foreign = balanceByCurrency(cells)
-      .filter((b) => b.currency !== fx.target)
-      .map((b) => ({ currency: b.currency, rate: rateOf(b.currency, fx) }));
-
-    return {
-      month,
-      currency: fx.target,
-      payCurrency,
-      scanCurrency: "usd",
-      types,
-      ledger,
-      foreign,
-      reconciliation: (() => {
-        const opening = sumConv(openingByCur);
-        // Ce qui bouge le solde sans entrer au résultat : réserves, conversions,
-        // lignes non classées. Sans ce terme, l'égalité serait fausse dès qu'il y
-        // en a — et elle se lirait comme une erreur de la compta.
-        const otherMovements = round2(ledger.internal + ledger.unclassified.amount);
-        // La clôture est la somme des termes AFFICHÉS : chaque terme est arrondi
-        // au centime, et une clôture convertie à part pouvait s'en écarter d'un
-        // centime — l'égalité de l'écran aurait été fausse.
-        const closing =
-          opening === null || sumConv(closingByCur) === null
-            ? null
-            : round2(opening + ledger.net - ledger.transfersReceived + otherMovements);
-        return { opening, closing, net: ledger.net, transfersReceived: ledger.transfersReceived, otherMovements };
-      })(),
-      creators,
-      creatorsTotal: {
-        pay: round2(outs.reduce((s, o) => s + o.amount, 0)),
-        converted: payRate === null ? null : round2(outs.reduce((s, o) => s + o.amount, 0) * payRate),
-        rate: payRate,
-      },
-      creatorsControl: (() => {
-        const pay = round2(outs.reduce((s, o) => s + o.amount, 0));
-        const paid = pay === 0 ? 0 : payRate === null ? null : round2(pay * payRate);
-        const sent = creatorsSentOf(transfers);
-        return creatorsControl(paid, sent.sent, sent.count);
-      })(),
-      scanSource: sc.source,
-      scanPaid,
-      scanTotal: sc.value,
-      scan: scan
-        ? {
-            runs: scan.runs,
-            withCost: scan.withCost,
-            frozen: scan.frozen,
-            usd: scanCostUsd(scan),
-            converted: (() => {
-              const u = scanCostUsd(scan);
-              return u === null || usdRate === null ? null : round2(u * usdRate);
-            })(),
-            parts: scanParts,
-            rate: usdRate,
-          }
-        : null,
-      charges,
-      transfers,
-    };
-  },
+  handler: (ctx, args) => comptaMonthCore(ctx, args),
 });
 
 /**
