@@ -16,8 +16,8 @@ const admin = createE2eClient(convexUrl);
 const DAY = 86_400_000;
 
 type Paiements = {
-  devise: string | null;
-  aVerser: number;
+  deviseDuProjet: string | null;
+  aVerser: { devise: string | null; montant: number }[];
   createatricesAPayer: number;
   cyclesDus: number;
   parCreatrice: {
@@ -157,8 +157,12 @@ test.describe("Outil MCP paiements", () => {
         .match(/jarvia (\S+\/mcp) /)![1];
 
       const { brut, r } = await outil(url, token, { projet: slug });
-      expect(r.devise).toBe("usd");
-      expect(r).toMatchObject({ aVerser: 110, createatricesAPayer: 1, cyclesDus: 1 });
+      expect(r.deviseDuProjet).toBe("usd");
+      expect(r).toMatchObject({
+        aVerser: [{ devise: "usd", montant: 110 }],
+        createatricesAPayer: 1,
+        cyclesDus: 1,
+      });
       const lea = r.parCreatrice.find((c) => c.createatrice === nomCreatrice)!;
       // 81 234 vues à 2 $ / 1 000, plafonnées à 150 $ ; 40 $ d'acompte déjà versés.
       expect(lea).toMatchObject({ moyenDePaiement: "sepa", resteAVerser: 110 });
@@ -177,7 +181,7 @@ test.describe("Outil MCP paiements", () => {
       // ── Le regroupement de l'écran, sur la lecture de l'écran ──────────────
       const ecran = regrouperPaiements(await admin.query(api.payments.listPayments, { projectId }), Date.now());
       expect([r.aVerser, r.createatricesAPayer, r.cyclesDus]).toEqual([
-        Math.round(ecran.aVerser * 100) / 100,
+        ecran.aVerser.map((t) => ({ devise: t.currency, montant: Math.round(t.amount * 100) / 100 })),
         ecran.avecDu.length,
         ecran.cyclesDus,
       ]);

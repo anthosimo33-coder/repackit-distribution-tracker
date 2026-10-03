@@ -51,7 +51,7 @@ export function TalentPayCard() {
           </p>
         </div>
         {recaps.map((r) => (
-          <TalentRecap key={r.creatorId} recap={r} currency={currency} />
+          <TalentRecap key={r.creatorId} recap={r} currency={r.currency ?? currency} />
         ))}
       </CardContent>
     </Card>

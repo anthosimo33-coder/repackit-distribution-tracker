@@ -31,7 +31,8 @@ import {
 import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
-import { formatMoney, moneyColumnHeader } from "@/lib/format-rate";
+import { formatMoney } from "@/lib/format-rate";
+import { formatMoneyByCurrency, sumByCurrency } from "@/lib/money-by-currency";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { downloadCsv } from "@/lib/csv";
 import { WhopRevenueCard } from "@/components/whop/WhopRevenueCard";
@@ -135,8 +136,10 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
 
 function PaiementsPageContenu() {
   const droitsNav = usePermissions();
-  // Devise de la PAIE créatrices (dollars, projects.payCurrency) — appliquée à
-  // TOUS les montants de cet écran (cumul, en attente, cycles, lignes).
+  // Devise de paie du PROJET — celle par défaut. Depuis les barèmes en devise,
+  // chaque cycle porte la SIENNE (`p.currency`, celle de la créatrice) et
+  // s'affiche dedans ; les totaux de l'écran sont donnés par devise, jamais
+  // fondus (cf lib/money-by-currency).
   const payCurrency = useProject().project.payCurrency;
   const [now] = useState(() => Date.now());
   const payments = useProjectQuery(api.payments.listPayments, {});
@@ -165,7 +168,9 @@ function PaiementsPageContenu() {
     [payableRows, selected],
   );
   const payableTotal = partage.aVerser;
-  const selectedTotal = selectedRows.reduce((s, p) => s + p.remainingDue, 0);
+  const selectedTotal = sumByCurrency(
+    selectedRows.map((p) => ({ amount: p.remainingDue, currency: p.currency })),
+  );
   // Vidéos rémunérées dont AUCUNE vue n'a pu être mesurée, sur la sélection.
   // On signale, on ne bloque pas (arbitrage produit) : le bouton reste actif,
   // mais on ne paie plus sans le savoir. Sept vidéos Snytch cumulant 78 476
@@ -286,7 +291,7 @@ function PaiementsPageContenu() {
               ? "Chargement…"
               : rows.length === 0
                 ? "Aucun paiement pour l'instant."
-                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoney(total, payCurrency)} au total sur l'historique`}
+                : `${rows.length} cycle${rows.length > 1 ? "s" : ""} · ${formatMoneyByCurrency(total, undefined, payCurrency)} au total sur l'historique`}
           </p>
           <p className="text-xs text-slate-400">
             Cycles de 30 jours propres à chaque créateur (ancrés sur son 1er
@@ -304,29 +309,14 @@ function PaiementsPageContenu() {
                   "Méthode",
                   "Coordonnées",
                   "Cycle",
-                  // Devise venue de la DONNÉE, jamais d'un littéral : l'en-tête
-                  // annonçait « (€) » au-dessus de montants en dollars.
-                  //
-                  // UNE devise pour TOUTE la colonne — l'en-tête ne peut mentir
-                  // que si l'export mélangeait des projets. Il ne le peut pas :
-                  // `listPayments` est un adminQuery borné à ctx.projectId, les
-                  // créateurs sont lus by_project (convex/payments.ts:657) et
-                  // même les lignes ORPHELINES (fiche supprimée) passent par
-                  // by_project_period (:688). Une ligne du CSV vient donc
-                  // toujours du projet courant, dont `payCurrency` est la devise.
-                  //
-                  // Aucune garde d'exécution n'est posée ici, et c'est délibéré :
-                  // elle ne pourrait pas se déclencher. Les lignes ne portent ni
-                  // projectId ni devise (la table `payments` n'a aucun champ
-                  // currency), il n'y a donc rien à comparer — ce serait une
-                  // garde aveugle de plus, du même genre que le currencyCount
-                  // corrigé en #76.
-                  //
-                  // CE QUI RENDRAIT L'EN-TÊTE FAUX : un export cross-projet. Il
-                  // faudrait alors une devise PAR LIGNE, donc d'abord une devise
-                  // sur la donnée de paie — c'est la décision D1 du backlog, pas
-                  // un correctif d'affichage.
-                  moneyColumnHeader("Total dû", payCurrency),
+                  // UNE DEVISE PAR LIGNE, dans sa propre colonne. Depuis les
+                  // barèmes en devise, un même projet paie des créatrices en
+                  // euros et d'autres en dollars : un en-tête « Total dû ($) »
+                  // annoncerait des dollars au-dessus de montants en euros. La
+                  // devise vient de la DONNÉE (celle du cycle), jamais d'un
+                  // littéral.
+                  "Total dû",
+                  "Devise",
                   "Statut",
                 ],
                 ...rows.map((p) => [
@@ -339,6 +329,7 @@ function PaiementsPageContenu() {
                   p.creatorPaymentDetails ?? "",
                   formatCycleRange(p.cycleStart, p.cycleEnd),
                   String(p.totalDue),
+                  (p.currency ?? payCurrency ?? "").toUpperCase(),
                   p.status,
                 ]),
               ])
@@ -391,7 +382,7 @@ function PaiementsPageContenu() {
                   Reste à payer
                 </p>
                 <p className="text-3xl font-semibold tabular-nums text-slate-900">
-                  {formatMoney(payableTotal, payCurrency)}
+                  {formatMoneyByCurrency(payableTotal, undefined, payCurrency)}
                 </p>
                 <p className="mt-0.5 text-sm text-slate-500">
                   <span className="font-medium text-slate-900">
@@ -438,7 +429,7 @@ function PaiementsPageContenu() {
                   )}
                   {selectedRows.length === 0
                     ? "Marquer payé"
-                    : `Payer les ${selectedRows.length} sélectionnés · ${formatMoney(selectedTotal, payCurrency)}`}
+                    : `Payer les ${selectedRows.length} sélectionnés · ${formatMoneyByCurrency(selectedTotal, undefined, payCurrency)}`}
                 </Button>
               </div>
             </div>
@@ -459,9 +450,9 @@ function PaiementsPageContenu() {
               </div>
               {groupesAvecDu.map((g) => (
                 <CreatorCard
-                  key={g.creatorId}
+                  key={`${g.creatorId}|${g.currency ?? ""}`}
                   group={g}
-                  currency={payCurrency}
+                  currency={g.currency ?? payCurrency}
                   selected={selected}
                   onToggleCycle={toggleRow}
                   onToggleCreator={() => toggleCreator(g)}
@@ -501,9 +492,9 @@ function PaiementsPageContenu() {
                 <div className="space-y-3">
                   {groupesAZero.map((g) => (
                     <CreatorCard
-                      key={g.creatorId}
+                      key={`${g.creatorId}|${g.currency ?? ""}`}
                       group={g}
-                      currency={payCurrency}
+                      currency={g.currency ?? payCurrency}
                       selected={selected}
                       onToggleCycle={toggleRow}
                       onToggleCreator={() => toggleCreator(g)}
@@ -531,7 +522,7 @@ function PaiementsPageContenu() {
               <Card>
                 <CardContent className="divide-y divide-slate-100 p-0">
                   {reglees.map((p) => (
-                    <PaidRow key={p.key} p={p} currency={payCurrency} />
+                    <PaidRow key={p.key} p={p} currency={p.currency ?? payCurrency} />
                   ))}
                 </CardContent>
               </Card>
@@ -554,7 +545,7 @@ function PaiementsPageContenu() {
             </DialogTitle>
             <DialogDescription>
               {selectedCreators} créateur{selectedCreators > 1 ? "s" : ""} ·
-              total {formatMoney(selectedTotal, payCurrency)}.
+              total {formatMoneyByCurrency(selectedTotal, undefined, payCurrency)}.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm text-slate-600">
@@ -598,7 +589,7 @@ function PaiementsPageContenu() {
               {bulkBusy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
               {bulkBusy
                 ? `Traitement… ${bulkDone}/${bulkTotal}`
-                : `Confirmer · ${formatMoney(selectedTotal, payCurrency)}`}
+                : `Confirmer · ${formatMoneyByCurrency(selectedTotal, undefined, payCurrency)}`}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -48,6 +48,8 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, err } from "./errorCodes";
 import type { Plateforme } from "./platforms";
+import { creatorPayCurrency } from "./creatorPayCurrency";
+import { payCurrencyFactor, resolvePayCurrency } from "./payCurrency";
 
 /**
  * P8 — Paiements (accrual). LOGIQUE D'ARGENT : chaque montant crédité est
@@ -411,7 +413,7 @@ function legacyAssignmentIds(p: Doc<"payments">): Set<string> {
 async function frozenPricingLineItems(
   ctx: MutationCtx,
   p: Doc<"payments">,
-): Promise<LineItem[]> {
+): Promise<{ items: LineItem[]; currency: string | null }> {
   const breakdown = await computeLivePricingBreakdown(
     ctx,
     p.projectId,
@@ -419,6 +421,14 @@ async function frozenPricingLineItems(
     p.period,
     legacyAssignmentIds(p),
   );
+  // UNE devise par row gelée : un mois qui en mélange plusieurs ne se paie
+  // pas, il se régularise (cf convex/creatorPayCurrency).
+  if (breakdown.mixedCurrency) {
+    throw err(
+      ERR.PAYMENT_MIXED_CURRENCY,
+      "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel.",
+    );
+  }
   const out: LineItem[] = [];
   for (const g of breakdown.perPricing) {
     if (g.fixed <= 0) continue;
@@ -452,7 +462,7 @@ async function frozenPricingLineItems(
   }
   out.push(...videoBonusLineItems(breakdown));
   out.push(...challengeLineItems(breakdown));
-  return out;
+  return { items: out, currency: breakdown.currency };
 }
 
 /**
@@ -501,8 +511,15 @@ function challengeLineItems(breakdown: PricingBreakdown): LineItem[] {
     }));
 }
 
-/** Breakdown pricing dérivé de lineItems GELÉES (période payée). */
-function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
+/**
+ * Breakdown pricing dérivé de lineItems GELÉES (période payée). `currency` = la
+ * devise RÉSOLUE de la row (la sienne, sinon celle du projet) : une row ne porte
+ * qu'une devise, ses lignes n'en ont pas chacune.
+ */
+function frozenBreakdownOf(
+  p: Doc<"payments">,
+  currency: string | null,
+): PricingBreakdown {
   const sumKind = (k: LineItem["kind"]) =>
     round2(
       p.lineItems.filter((li) => li.kind === k).reduce((s, li) => s + li.amount, 0),
@@ -532,6 +549,7 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
       winId: "",
       challengeName: li.detail?.challengeName ?? li.label,
       montant: li.amount,
+      currency,
     }));
   return {
     fixedTotal,
@@ -562,6 +580,8 @@ function frozenBreakdownOf(p: Doc<"payments">): PricingBreakdown {
     ),
     perPricing: [],
     perAssignment: [],
+    currency,
+    mixedCurrency: false,
   };
 }
 
@@ -628,6 +648,18 @@ export type CyclePayment = {
    * sur un cycle déjà annulé une fois, et sur les paiements antérieurs au reçu.
    */
   canRevert: boolean;
+  /**
+   * DEVISE du cycle — celle de TOUS ses montants (dû, reste, acomptes, lignes).
+   * Payé : celle gelée sur la row (absente ⇒ projet). En cours : celle de ses
+   * barèmes, sinon celle de la créatrice. `null` seulement si le projet n'a
+   * aucune devise réglée (montant affiché sans symbole, jamais inventé).
+   */
+  currency: string | null;
+  /**
+   * Le cycle MÉLANGE des devises — interdit par construction, signalé si une
+   * donnée y échappait. L'écran l'affiche sans symbole et le paiement refuse.
+   */
+  mixedCurrency: boolean;
 };
 
 /** Acomptes d'une row, prêts pour l'écran (sans l'auteur, qui ne s'affiche pas). */
@@ -687,6 +719,36 @@ function frozenLineItemsFromBreakdown(b: PricingBreakdown): LineItem[] {
 }
 
 /**
+ * DEVISE d'un cycle EN COURS — et s'il en mélange plusieurs.
+ *
+ * Toutes les sources d'argent du cycle doivent parler la même : son breakdown
+ * (barèmes, paliers, primes), ses lignes legacy (devise du projet), et la row
+ * ouverte si un acompte y a déjà fixé une devise. Un cycle sans aucun montant
+ * prend celle de la créatrice. PARTAGÉE par la lecture et par le paiement, pour
+ * que l'écran ne propose jamais de payer un cycle que le serveur refusera.
+ */
+export function cycleCurrencyOf(input: {
+  breakdown: Pick<PricingBreakdown, "currency" | "mixedCurrency">;
+  hasLegacyItems: boolean;
+  rowCurrency: string | null | undefined;
+  projectPay: string | null;
+  creatorCurrency: string | null;
+}): { currency: string | null; mixedCurrency: boolean } {
+  if (input.breakdown.mixedCurrency) return { currency: null, mixedCurrency: true };
+  const seen = new Set<string | null>();
+  if (input.breakdown.currency !== null) seen.add(input.breakdown.currency);
+  if (input.hasLegacyItems) seen.add(input.projectPay);
+  if (input.rowCurrency !== undefined && input.rowCurrency !== null) {
+    seen.add(resolvePayCurrency(input.rowCurrency, input.projectPay));
+  }
+  if (seen.size > 1) return { currency: null, mixedCurrency: true };
+  return {
+    currency: seen.size === 1 ? [...seen][0] : input.creatorCurrency,
+    mixedCurrency: false,
+  };
+}
+
+/**
  * Paiements d'un créateur RE-FENÊTRÉS par ses cycles J+30 (ancre firstPostAt).
  * TOUS ses gains (existants accumulés + futurs) sont regroupés par sa fenêtre de
  * 30 j perso — MÊME moteur de montant (computeMonthlyPayout, cap 150$/vidéo) : seul
@@ -731,6 +793,9 @@ export async function cyclePaymentsForCreator(
   const firstPostAt = creator ? payAnchorOf(creator) : undefined;
   if (!creator || firstPostAt === undefined) return [];
   const currentCycle = calcCycle(firstPostAt, now).cycleIndex;
+  const project = await ctx.db.get(projectId);
+  const projectPay = resolvePayCurrency(null, project?.payCurrency);
+  const creatorCurrency = creatorPayCurrency(creator, project);
 
   const rows = (
     await ctx.db
@@ -820,7 +885,10 @@ export async function cyclePaymentsForCreator(
         paidAt: paid.paidAt ?? null,
         lineItems: paid.lineItems,
         totalDue: paid.totalDue,
-        pricingBreakdown: frozenBreakdownOf(paid),
+        pricingBreakdown: frozenBreakdownOf(
+          paid,
+          resolvePayCurrency(paid.currency, projectPay),
+        ),
         rushCount: estTalent
           ? rushDates.filter((d) => d >= w.cycleStart && d < w.cycleEnd).length
           : null,
@@ -836,6 +904,8 @@ export async function cyclePaymentsForCreator(
         // L'annulation ne dépend PAS du reçu : sans lui, elle se reconstruit
         // (cf revertCyclePayment). Elle dépend de ne pas avoir déjà servi.
         canRevert: paid.revertedAt === undefined,
+        currency: resolvePayCurrency(paid.currency, projectPay),
+        mixedCurrency: false,
       });
       continue;
     }
@@ -864,6 +934,15 @@ export async function cyclePaymentsForCreator(
     // `firstPostAt`, donc `cyclePaymentsForCreator` rend `[]` pour lui.
     const items = legacyItems;
     const legacyTotal = recomputeTotal(items);
+    // Les lignes LEGACY (base/bonus accrues à la publication) sont dans la
+    // devise du projet, la seule qui existait alors.
+    const cycleCurrency = cycleCurrencyOf({
+      breakdown,
+      hasLegacyItems: items.length > 0,
+      rowCurrency: openRow?.currency,
+      projectPay,
+      creatorCurrency,
+    });
     out.push({
       key: `${creatorId}:${k}`,
       cycleIndex: k,
@@ -891,6 +970,7 @@ export async function cyclePaymentsForCreator(
         round2(round2(legacyTotal + breakdown.total) - advancedTotalOf(openRow)),
       ),
       canRevert: false,
+      ...cycleCurrency,
     });
   }
   // Le filtre existe pour ne pas noyer l'écran Paiements sous des cycles vides.
@@ -921,6 +1001,7 @@ export async function collectProjectPaymentRows(
     .collect();
   const now = Date.now();
   const liveIds = new Set(creators.map((c) => c._id));
+  const project = await ctx.db.get(projectId);
   const out = [];
   // Cache PARTAGÉ par toute la boucle : une créatrice = plusieurs cycles, et
   // chacun recalculait les vues de ses vidéos. Cf AssignmentViewsCache.
@@ -936,6 +1017,9 @@ export async function collectProjectPaymentRows(
     for (const cy of cycles) {
       out.push({
         ...cy,
+        // Taux de la devise du cycle vers celle du projet — l'écran ordonne
+        // ses créatrices dessus, il n'additionne jamais deux devises.
+        rate: payCurrencyFactor(cy.currency, project) ?? 1,
         creatorId: c._id,
         creatorName: c.name,
         creatorEmail: c.email,
@@ -954,7 +1038,9 @@ export async function collectProjectPaymentRows(
       .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
       .collect()
   ).filter((p) => !liveIds.has(p.creatorId));
+  const projectPay = resolvePayCurrency(null, project?.payCurrency);
   for (const p of orphanRows) {
+    const orphanCurrency = resolvePayCurrency(p.currency, projectPay);
     out.push({
       // Fenêtre synthétique (ancre perdue avec la fiche) : juste pour l'affichage.
       key: `orphan:${p._id}`,
@@ -968,7 +1054,7 @@ export async function collectProjectPaymentRows(
       paidAt: p.paidAt ?? null,
       lineItems: p.lineItems,
       totalDue: p.totalDue,
-      pricingBreakdown: frozenBreakdownOf(p),
+      pricingBreakdown: frozenBreakdownOf(p, orphanCurrency),
       // Row ORPHELINE (fiche supprimée) : on ne sait plus si c'était un talent,
       // et ses rushes ont disparu avec la fiche. `null` = rien à afficher.
       rushCount: null as number | null,
@@ -985,6 +1071,9 @@ export async function collectProjectPaymentRows(
           ? 0
           : Math.max(0, round2(p.totalDue - advancedTotalOf(p))),
       canRevert: p.status === "paid" && p.revertedAt === undefined,
+      currency: orphanCurrency,
+      mixedCurrency: false,
+      rate: payCurrencyFactor(orphanCurrency, project) ?? 1,
       creatorId: p.creatorId,
       creatorName: p.creatorNameSnapshot ?? "—",
       creatorEmail: "",
@@ -1025,19 +1114,37 @@ export const listPayments = permissionQuery("payments.manage")({
  * Un total de dashboard qui diverge du total de la page Paiements serait pire
  * que pas de total du tout, et l'addition de flottants n'est pas commutative.
  */
+/** Reste à verser, ventilé PAR DEVISE (montants jamais additionnés entre eux). */
+export type DueByCurrency = { currency: string | null; amount: number }[];
+
 /**
  * RESTE à verser, acomptes déduits : le nombre que l'admin doit sortir de sa
  * banque. Sommer `totalDue` re-compterait l'argent déjà viré.
+ *
+ * `byCurrency` est CE QUI S'AFFICHE : une ligne par devise, parce qu'on ne vire
+ * pas des euros et des dollars du même compte. `dueTotal` reste le total dans la
+ * devise de paie du PROJET (autres devises converties au taux réglé) : un
+ * indicateur, jamais un montant à virer — identique à avant tant que tout le
+ * monde est payé dans la devise du projet.
  */
 export async function computeDueTotal(
   ctx: QueryCtx,
   projectId: Id<"projects">,
-): Promise<{ dueTotal: number }> {
+): Promise<{ dueTotal: number; byCurrency: DueByCurrency }> {
   const rows = await collectProjectPaymentRows(ctx, projectId);
+  const project = await ctx.db.get(projectId);
+  const parDevise = new Map<string | null, number>();
+  let dueTotal = 0;
+  for (const p of rows) {
+    if (p.status === "paid") continue;
+    parDevise.set(p.currency, round2((parDevise.get(p.currency) ?? 0) + p.remainingDue));
+    dueTotal += p.remainingDue * (payCurrencyFactor(p.currency, project) ?? 1);
+  }
   return {
-    dueTotal: rows
-      .filter((p) => p.status !== "paid")
-      .reduce((sum, p) => sum + p.remainingDue, 0),
+    dueTotal: round2(dueTotal),
+    byCurrency: [...parDevise.entries()]
+      .map(([currency, amount]) => ({ currency, amount }))
+      .sort((a, b) => b.amount - a.amount),
   };
 }
 
@@ -1050,14 +1157,28 @@ export async function computeDueTotal(
  */
 export const getDueTotal = permissionQuery("payments.manage")({
   args: {},
-  handler: async (ctx): Promise<{ dueTotal: number }> => getDueTotalCore(ctx),
+  handler: async (ctx): Promise<{ dueTotal: number; byCurrency: DueByCurrency }> =>
+    getDueTotalCore(ctx),
 });
 
 /** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `dashboard`. */
-export async function getDueTotalCore(ctx: ProjectQueryCtx): Promise<{ dueTotal: number }> {
-    const cached = await readDashboardCache(ctx, ctx.projectId, "dueTotal");
-    if (cached !== null) return JSON.parse(cached) as { dueTotal: number };
-    return computeDueTotal(ctx, ctx.projectId);
+export async function getDueTotalCore(
+  ctx: ProjectQueryCtx,
+): Promise<{ dueTotal: number; byCurrency: DueByCurrency }> {
+  const cached = await readDashboardCache(ctx, ctx.projectId, "dueTotal");
+  if (cached !== null) {
+    const parsed = JSON.parse(cached) as { dueTotal: number; byCurrency?: DueByCurrency };
+    if (parsed.byCurrency) return { dueTotal: parsed.dueTotal, byCurrency: parsed.byCurrency };
+    // Cache écrit AVANT les devises par barème : tout y était alors dans la
+    // devise du projet, la seule qui existait. Le prochain recalcul le remplace.
+    const project = await ctx.db.get(ctx.projectId);
+    const currency = resolvePayCurrency(null, project?.payCurrency);
+    return {
+      dueTotal: parsed.dueTotal,
+      byCurrency: parsed.dueTotal > 0 ? [{ currency, amount: parsed.dueTotal }] : [],
+    };
+  }
+  return computeDueTotal(ctx, ctx.projectId);
 }
 
 export const getMyPayments = creatorQuery({
@@ -1096,6 +1217,10 @@ export async function computeProjectLeaderboard(
     name: string;
     rank: number;
     totalDue: number;
+    /** Devise de `totalDue` — celle du cycle de la créatrice. */
+    currency: string | null;
+    /** 1 unité de `currency` = `rate` unités de la devise du projet (classement, écarts). */
+    rate: number;
     cycleStart: number;
     cycleEnd: number;
     isMe: boolean;
@@ -1105,6 +1230,7 @@ export async function computeProjectLeaderboard(
     .query("creators")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
+  const project = await ctx.db.get(projectId);
   // Publications du projet en UNE lecture, partagées par toutes les créatrices
   // (cf AssignmentViewsCache) : sans ça, chaque vidéo relisait sa publication.
   const viewsCache = newViewsCache(await loadProjectPublications(ctx, projectId));
@@ -1112,6 +1238,7 @@ export async function computeProjectLeaderboard(
     creatorId: Id<"creators">;
     name: string;
     totalDue: number;
+    currency: string | null;
     cycleStart: number;
     cycleEnd: number;
   }> = [];
@@ -1143,16 +1270,24 @@ export async function computeProjectLeaderboard(
       creatorId: c._id,
       name: c.name,
       totalDue: current.totalDue,
+      currency: current.currency,
       cycleStart: current.cycleStart,
       cycleEnd: current.cycleEnd,
     });
   }
+  // Le RANG compare des gains dans des devises différentes : il se calcule sur
+  // la valeur ramenée dans la devise du projet (taux réglé). Chaque ligne garde
+  // son montant dans SA devise — c'est lui qu'on affiche.
+  const comparable = (r: { totalDue: number; currency: string | null }) =>
+    r.totalDue * (payCurrencyFactor(r.currency, project) ?? 1);
   rows.sort(
-    (a, b) => b.totalDue - a.totalDue || a.name.localeCompare(b.name, "fr"),
+    (a, b) =>
+      comparable(b) - comparable(a) || a.name.localeCompare(b.name, "fr"),
   );
   return rows.map((r, i) => ({
     ...r,
     rank: i + 1,
+    rate: payCurrencyFactor(r.currency, project) ?? 1,
     isMe: meCreatorId !== undefined && r.creatorId === meCreatorId,
   }));
 }
@@ -1192,6 +1327,7 @@ export const getCreatorCurrentCycle = permissionQuery("payments.manage")({
     if (!courant) return null;
     return {
       totalDue: courant.totalDue,
+      currency: courant.currency,
       cycleStart: courant.cycleStart,
       cycleEnd: courant.cycleEnd,
       cycleIndex: courant.cycleIndex,
@@ -1233,11 +1369,19 @@ export const projectLeaderboard = creatorQuery({
         ctx.creatorId,
       );
     }
+    // Une row en cache écrite AVANT les devises par barème n'en porte pas :
+    // tout y était dans la devise du projet. Le cron la remplace sous 10 min.
+    const projectPay = resolvePayCurrency(
+      null,
+      (await ctx.db.get(ctx.projectId))?.payCurrency,
+    );
     return cached.rows.map((r) => ({
       creatorId: r.creatorId,
       name: r.name,
       rank: r.rank,
       totalDue: r.totalDue,
+      currency: r.currency !== undefined ? r.currency : projectPay,
+      rate: r.rate ?? 1,
       cycleStart: r.cycleStart,
       cycleEnd: r.cycleEnd,
       isMe: r.creatorId === ctx.creatorId,
@@ -1348,6 +1492,24 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     ];
     const now = Date.now();
     const target = existingRows[0];
+    // ─── UNE DEVISE PAR ROW GELÉE ─────────────────────────────────────────
+    // Même règle que l'écran (cycleCurrencyOf). Un cycle qui mélange des
+    // devises ne se paie pas : additionner des euros et des dollars dans un
+    // `totalDue` ferait un chiffre faux, gelé pour toujours.
+    const project = await ctx.db.get(ctx.projectId);
+    const { currency: paidCurrency, mixedCurrency } = cycleCurrencyOf({
+      breakdown,
+      hasLegacyItems: legacyOfCycle.length > 0 || (target?.lineItems.length ?? 0) > 0,
+      rowCurrency: target?.currency,
+      projectPay: resolvePayCurrency(null, project?.payCurrency),
+      creatorCurrency: creatorPayCurrency(creator, project),
+    });
+    if (mixedCurrency) {
+      throw err(
+        ERR.PAYMENT_MIXED_CURRENCY,
+        "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel.",
+      );
+    }
     let paidTotal: number;
     if (target) {
       const lineItems = [...target.lineItems, ...frozen];
@@ -1357,6 +1519,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
         paidAt: now,
         lineItems,
         totalDue: paidTotal,
+        ...(paidCurrency !== null ? { currency: paidCurrency } : {}),
         // Reçu d'ANNULATION — l'état exact d'avant, y compris ce qui a été
         // déplacé depuis d'autres rows.
         //
@@ -1386,6 +1549,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
         period,
         lineItems: frozen,
         totalDue: paidTotal,
+        ...(paidCurrency !== null ? { currency: paidCurrency } : {}),
         status: "paid",
         paidAt: now,
         // La row n'existait pas : l'état d'avant est une row VIDE en accrual —
@@ -1408,6 +1572,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     await ctx.scheduler.runAfter(0, internal.emails.sendPaymentPaid, {
       creatorId,
       amount: paidTotal,
+      currency: paidCurrency ?? undefined,
       cycleStart: w.cycleStart,
       cycleEnd: w.cycleEnd,
     });
@@ -1524,6 +1689,7 @@ export const revertCyclePayment = permissionMutation("payments.manage")({
     await ctx.scheduler.runAfter(0, internal.emails.sendPaymentReverted, {
       creatorId: p.creatorId,
       amount: montantVerse,
+      currency: p.currency,
       cycleStart: w.cycleStart,
       cycleEnd: w.cycleEnd,
     });
@@ -1607,6 +1773,20 @@ export const recordAdvance = permissionMutation("payments.manage")({
         "Ce cycle est déjà soldé : un acompte n'a plus d'objet.",
       );
     }
+    // L'acompte est versé dans la devise de la CRÉATRICE, et la row la retient :
+    // un acompte en euros ne se déduit jamais d'un dû en dollars (le paiement
+    // compare cette devise à celle du cycle, cf cycleCurrencyOf).
+    const project = await ctx.db.get(ctx.projectId);
+    const advanceCurrency = creatorPayCurrency(creator, project);
+    if (
+      row.currency !== undefined &&
+      resolvePayCurrency(row.currency, project?.payCurrency) !== advanceCurrency
+    ) {
+      throw err(
+        ERR.PAYMENT_MIXED_CURRENCY,
+        "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel.",
+      );
+    }
     const advances = [
       ...(row.advances ?? []),
       {
@@ -1616,13 +1796,49 @@ export const recordAdvance = permissionMutation("payments.manage")({
         ...(note?.trim() ? { note: note.trim() } : {}),
       },
     ];
-    await ctx.db.patch(row._id, { advances });
+    await ctx.db.patch(row._id, {
+      advances,
+      ...(advanceCurrency !== null && row.currency === undefined
+        ? { currency: advanceCurrency }
+        : {}),
+    });
     return {
       ok: true as const,
       advancedTotal: round2(advances.reduce((s, a) => s + a.amount, 0)),
     };
   },
 });
+
+/**
+ * Devise à geler sur une row MENSUELLE (`markPaymentPaid`, `markPeriodPaid`) :
+ * celle de son breakdown, sinon celle de la créatrice. Refuse une row dont les
+ * lignes legacy (devise du projet) ou un acompte (devise déjà retenue) ne
+ * parlent pas la même devise que ses barèmes.
+ */
+async function monthlyRowCurrency(
+  ctx: MutationCtx,
+  p: Doc<"payments">,
+  breakdownCurrency: string | null,
+): Promise<{ currency?: string }> {
+  const project = await ctx.db.get(p.projectId);
+  const creator = await ctx.db.get(p.creatorId);
+  const { currency, mixedCurrency } = cycleCurrencyOf({
+    breakdown: { currency: breakdownCurrency, mixedCurrency: false },
+    hasLegacyItems: p.lineItems.length > 0,
+    rowCurrency: p.currency,
+    projectPay: resolvePayCurrency(null, project?.payCurrency),
+    creatorCurrency: creator
+      ? creatorPayCurrency(creator, project)
+      : resolvePayCurrency(null, project?.payCurrency),
+  });
+  if (mixedCurrency) {
+    throw err(
+      ERR.PAYMENT_MIXED_CURRENCY,
+      "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel.",
+    );
+  }
+  return currency !== null ? { currency } : {};
+}
 
 /** Marque UN paiement comme payé. Idempotent : re-marquer ne change pas paidAt. */
 export const markPaymentPaid = permissionMutation("payments.manage")({
@@ -1642,12 +1858,13 @@ export const markPaymentPaid = permissionMutation("payments.manage")({
     // GEL au paiement : fige le montant PRICING (fixe/CPM + bonus paliers cash)
     // dans la row → lecture verbatim ensuite, jamais recalculée.
     const frozen = await frozenPricingLineItems(ctx, p);
-    const lineItems = [...p.lineItems, ...frozen];
+    const lineItems = [...p.lineItems, ...frozen.items];
     await ctx.db.patch(id, {
       status: "paid",
       paidAt: Date.now(),
       lineItems,
       totalDue: recomputeTotal(lineItems),
+      ...(await monthlyRowCurrency(ctx, p, frozen.currency)),
     });
     return { ok: true, alreadyPaid: false };
   },
@@ -1724,6 +1941,9 @@ export const markTalentMonthPaid = permissionMutation("payments.manage")({
 
     const ligne = retainerLineFor(creator, period)!;
     const now = Date.now();
+    // Le forfait est dans la devise du TALENT, et la row la retient.
+    const talentCurrency = creatorPayCurrency(creator, await ctx.db.get(ctx.projectId));
+    const currencyField = talentCurrency !== null ? { currency: talentCurrency } : {};
     if (existante) {
       const lineItems = [...existante.lineItems, ligne];
       await ctx.db.patch(existante._id, {
@@ -1731,6 +1951,7 @@ export const markTalentMonthPaid = permissionMutation("payments.manage")({
         paidAt: now,
         lineItems,
         totalDue: recomputeTotal(lineItems),
+        ...currencyField,
       });
     } else {
       await ctx.db.insert("payments", {
@@ -1739,6 +1960,7 @@ export const markTalentMonthPaid = permissionMutation("payments.manage")({
         period,
         lineItems: [ligne],
         totalDue: ligne.amount,
+        ...currencyField,
         status: "paid",
         paidAt: now,
         createdAt: now,
@@ -1766,12 +1988,13 @@ export const markPeriodPaid = permissionMutation("payments.manage")({
       if (p.status === "paid") continue;
       await syncBonusUnlocks(ctx, p.projectId, p.creatorId);
       const frozen = await frozenPricingLineItems(ctx, p);
-      const lineItems = [...p.lineItems, ...frozen];
+      const lineItems = [...p.lineItems, ...frozen.items];
       await ctx.db.patch(p._id, {
         status: "paid",
         paidAt: now,
         lineItems,
         totalDue: recomputeTotal(lineItems),
+        ...(await monthlyRowCurrency(ctx, p, frozen.currency)),
       });
       marked++;
     }

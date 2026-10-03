@@ -219,6 +219,19 @@ export function AssignScriptCampaignDialog({
   // la créatrice qui s'applique (cf pricingChoice) — le manager n'a plus à se
   // rappeler quelle grille va avec qui, et ce qu'il voit reste modifiable.
   const [pricingId, setPricingId] = useState<string>(NONE);
+  // Le projet paie-t-il dans plusieurs devises ? Alors chaque barème dit la
+  // sienne : une créatrice n'est payée que dans une devise, et le serveur
+  // refuse un barème d'une autre (cf convex/creatorPayCurrency).
+  const plusieursDevises =
+    new Set((pricings ?? []).map((p) => p.currency)).size > 1;
+  const pricingLabel = (
+    p: { name: string; currency: string | null } | undefined,
+  ): string | undefined =>
+    p === undefined
+      ? undefined
+      : plusieursDevises && p.currency
+        ? `${p.name} · ${p.currency.toUpperCase()}`
+        : p.name;
   const [pricingTouched, setPricingTouched] = useState(false);
   const [overlayText, setOverlayText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -1308,8 +1321,9 @@ export function AssignScriptCampaignDialog({
                       ? tr("baremeDeChaqueCreatrice")
                       : pricingChoice === NONE
                         ? tr("choisisUnBareme")
-                        : ((pricings ?? []).find((p) => p._id === pricingChoice)
-                            ?.name ?? tr("pricing"))}
+                        : (pricingLabel(
+                            (pricings ?? []).find((p) => p._id === pricingChoice),
+                          ) ?? tr("pricing"))}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -1320,7 +1334,7 @@ export function AssignScriptCampaignDialog({
                   )}
                   {(pricings ?? []).map((p) => (
                     <SelectItem key={p._id} value={p._id}>
-                      {p.name}
+                      {pricingLabel(p)}
                     </SelectItem>
                   ))}
                 </SelectContent>

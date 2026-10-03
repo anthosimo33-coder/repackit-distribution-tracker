@@ -1515,7 +1515,11 @@
     "ERR_COMPTA_ACCOUNT_NOT_FOUND": "Esta conta já não existe.",
     "ERR_COMPTA_DESTINATION_TAKEN": "O destino Whop «{destination}» já chega à conta «{account}»: um destino chega a uma só conta.",
     "ERR_COMPTA_READING_INVALID": "Saldo inválido: um dia AAAA-MM-DD que não esteja no futuro e um saldo numérico.",
-    "ERR_COMPTA_PROVISION_INVALID": "Valor inválido: um pagamento positivo, com uma data que não esteja no futuro."
+    "ERR_COMPTA_PROVISION_INVALID": "Valor inválido: um pagamento positivo, com uma data que não esteja no futuro.",
+    "ERR_PRICING_CURRENCY_INVALID": "Este projeto não sabe converter {currency}: defina primeiro uma taxa de câmbio; senão o custo dessas criadoras não entraria na margem.",
+    "ERR_PRICING_CURRENCY_LOCKED": "Esta tabela de preço já está em uso: a moeda não pode mais mudar. Crie uma nova tabela na nova moeda.",
+    "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} é paga em {creatorCurrency}: uma tabela em {pricingCurrency} não pode ser atribuída. Escolha uma tabela em {creatorCurrency}.",
+    "ERR_PAYMENT_MIXED_CURRENCY": "Este ciclo mistura várias moedas: não pode ser pago assim. Regularize antes as tabelas dos vídeos."
   },
   "calendar": {
     "weekday": {

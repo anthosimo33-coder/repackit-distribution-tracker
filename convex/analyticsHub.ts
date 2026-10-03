@@ -66,6 +66,7 @@ import {
 import { lastWhopSyncMs } from "./changedFields";
 import { countPersons, dailyNewPersons } from "./whopClients";
 import { normalizeRef } from "./conversionAttribution";
+import { payCurrencyFactor } from "./payCurrency";
 import {
   computeViewCounters,
   VIEW_COUNTER_USAGE,
@@ -379,6 +380,11 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
         // ci-dessus, sinon la condition se jugerait sur une autre fenêtre que
         // celle qui range les vidéos.
         parisMonthEndMs(period),
+        undefined,
+        undefined,
+        // Chaque coût dans la devise de paie du PROJET : une créatrice payée en
+        // euros et une autre en dollars s'additionnent ici (cf convex/payCurrency).
+        project ?? undefined,
       );
       breakdowns.set(key, b);
       return b;
@@ -565,7 +571,10 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       .query("bonusUnlocks")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect()) {
-      if (u.rewardType === "cash") addBonus(u.unlockedAt, u.montant ?? 0);
+      // Ramené dans la devise du projet, comme les breakdowns ci-dessus.
+      if (u.rewardType === "cash") {
+        addBonus(u.unlockedAt, (u.montant ?? 0) * (payCurrencyFactor(u.currency, project) ?? 1));
+      }
     }
     for (const w of await ctx.db
       .query("challengeWins")
@@ -574,7 +583,9 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       // Une victoire ANNULÉE n'est plus due : elle ne doit pas peser sur une
       // fenêtre alors qu'elle est déjà hors du total.
       if (w.cancelledAt !== undefined) continue;
-      if (w.reward.type === "cash") addBonus(w.wonAt, w.reward.amount ?? 0);
+      if (w.reward.type === "cash") {
+        addBonus(w.wonAt, (w.reward.amount ?? 0) * (payCurrencyFactor(w.currency, project) ?? 1));
+      }
     }
     const promoBonusByDay = [...bonusByDay.entries()]
       .map(([day, amount]) => ({ day, amount }))
@@ -594,7 +605,10 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       ...(await challengeNatureRewardsDue(ctx, ctx.projectId)),
     ];
     const natureDue = round2(
-      natureEntries.reduce((s, n) => s + (n.coutReel ?? 0), 0),
+      natureEntries.reduce(
+        (s, n) => s + (n.coutReel ?? 0) * (payCurrencyFactor(n.currency, project) ?? 1),
+        0,
+      ),
     );
     const natureDueMissingCost = natureEntries.filter(
       (n) => n.coutReel === null,
@@ -710,12 +724,18 @@ export async function getNatureRewardsCore(ctx: ProjectQueryCtx): Promise<Nature
         creator._id,
         viewsCache,
       );
+      // Coût de la grille ramené dans la devise du PROJET : deux grilles dans
+      // deux devises se regroupent sur une même ligne (cf convex/payCurrency).
+      const facteur = payCurrencyFactor(eff.currency, project) ?? 1;
       for (const t of natureTiers) {
         const key = `${t.seuilVues}|${t.libelle ?? ""}`;
         const row: NatureRewardRow = byTier.get(key) ?? {
           seuilVues: t.seuilVues,
           libelle: t.libelle ?? null,
-          coutReel: typeof t.coutReel === "number" ? t.coutReel : null,
+          coutReel:
+            typeof t.coutReel === "number"
+              ? Math.round(t.coutReel * facteur * 100) / 100
+              : null,
           dueCount: 0,
           engagedCount: 0,
           closestCumul: null,
@@ -739,7 +759,12 @@ export async function getNatureRewardsCore(ctx: ProjectQueryCtx): Promise<Nature
     const rows = [...byTier.values()].sort((a, b) => a.seuilVues - b.seuilVues);
     // Le DÛ se somme sur les unlocks RÉELS (coût FIGÉ au déblocage), pas sur la
     // grille courante : renégocier le prix ne réécrit pas ce qui est déjà dû.
-    const dueTotal = round2(due.reduce((s, d) => s + (d.coutReel ?? 0), 0));
+    const dueTotal = round2(
+      due.reduce(
+        (s, d) => s + (d.coutReel ?? 0) * (payCurrencyFactor(d.currency, project) ?? 1),
+        0,
+      ),
+    );
     const dueMissingCost = due.filter((d) => d.coutReel === null).length;
     const engagedTotal = round2(
       rows.reduce((s, r) => s + (r.coutReel ?? 0) * r.engagedCount, 0),
@@ -2429,6 +2454,7 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    const fiabProject = await ctx.db.get(ctx.projectId);
     // Un seul cache pour TOUTE la boucle : sans lui, cette query échouait sur la
     // limite d'opérations Convex (prod du 2026-09-06).
     const cyclesViewsCache = newViewsCache(
@@ -2455,8 +2481,12 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
           // défi depuis leur arrivée, le bonus par vidéo depuis la sienne.
           cy.pricingBreakdown.challengeTotal +
           cy.pricingBreakdown.videoBonusTotal;
-        dueDisplayed += cy.totalDue;
-        dueRecomputed += parts;
+        // Ramené dans la devise du PROJET : une créatrice payée en euros et une
+        // autre en dollars s'additionnent ici. Même taux des deux côtés, donc
+        // l'égalité contrôlée ne bouge pas (cf convex/payCurrency).
+        const taux = payCurrencyFactor(cy.currency, fiabProject) ?? 1;
+        dueDisplayed += cy.totalDue * taux;
+        dueRecomputed += parts * taux;
         dueCycles += 1;
         touched = true;
       }

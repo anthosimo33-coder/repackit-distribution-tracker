@@ -61,6 +61,8 @@ export type JournalData = {
     period: string;
     kind: "advance" | "settlement";
     amount: number;
+    /** Devise du décaissement (celle de la créatrice) ; absente ⇒ `payCurrency`. */
+    currency?: string | null;
   }[];
   scan: {
     lightUsd: number;
@@ -211,7 +213,7 @@ export function buildJournalRows(data: JournalData, l: ExportLabels): string[][]
         c.kind === "advance" ? l.advanceLine(name) : l.creatorLine(name, periodFr(c.period)),
         "",
         -c.amount,
-        data.payCurrency ?? "",
+        c.currency ?? data.payCurrency ?? "",
       ),
     );
   }
@@ -293,7 +295,7 @@ export function buildSummaryRows(data: JournalData, l: ExportLabels): string[][]
     if (g.bucket === "unclassified") unclassifiedCount += 1;
   }
   const creators = acc();
-  for (const c of data.creators) add(creators, c.amount, data.payCurrency ?? "");
+  for (const c of data.creators) add(creators, c.amount, c.currency ?? data.payCurrency ?? "");
   const scans = acc();
   const paidScans = data.charges.filter((c) => c.category === "scans");
   if (paidScans.length > 0) {

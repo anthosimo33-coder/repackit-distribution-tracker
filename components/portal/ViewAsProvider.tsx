@@ -92,7 +92,9 @@ export function ViewAsProvider({
     logoUrl: project.logoUrl ?? null,
     payoutDay: project.payoutDay,
     creatorName: creator.name,
-    payCurrency: project.payCurrency ?? null,
+    // La devise de la créatrice observée, pas celle du projet : l'admin voit
+    // exactement ce qu'elle voit.
+    payCurrency: creator.payCurrency ?? null,
     fileDropEnabled: project.fileDropEnabled,
   };
 

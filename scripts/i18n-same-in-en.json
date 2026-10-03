@@ -166,6 +166,7 @@
     "admin.library.TagsInput.maximumTags",
     "admin.library.ThumbnailCell.inspiration",
     "admin.money.Compta.detail.creatorsTotal",
+    "admin.money.Compta.detail.creatorsTotalMulti",
     "admin.money.Compta.detail.foreignItem",
     "admin.money.Compta.detail.scansTotal",
     "admin.money.Compta.detail.transferParts",

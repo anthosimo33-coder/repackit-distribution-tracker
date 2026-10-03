@@ -127,7 +127,7 @@ export function RankCard({ variant }: { variant: "window" | "full" }) {
                   e.isMe ? "text-primary" : "text-slate-900",
                 )}
               >
-                {formatMoney(e.totalDue, current.payCurrency, loc)}
+                {formatMoney(e.totalDue, e.currency ?? current.payCurrency, loc)}
               </span>
             </li>
           ))}

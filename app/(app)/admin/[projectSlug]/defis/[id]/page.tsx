@@ -57,8 +57,9 @@ export default function ChallengeDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id as Id<"challenges">;
   const projectPath = useProjectPath();
-  // Devise de la PAIE créatrices : une prime de défi lui est versée comme le
-  // reste de sa paie. Jamais un symbole en dur (cf challenge-format).
+  // Devise de la prime : celle du BARÈME du défi (`c.currency`, résolue
+  // serveur) — les créatrices qui y produisent sont payées dedans. Celle du
+  // projet ne sert que de repli. Jamais un symbole en dur (cf challenge-format).
   const payCurrency = useProject().project.payCurrency;
   const data = useProjectQuery(api.challenges.getChallenge, { id });
   const preview = useProjectQuery(api.challenges.previewChallengeWinners, { id });
@@ -125,7 +126,7 @@ export default function ChallengeDetailPage() {
             </span>
           </div>
           <p className="text-sm text-slate-500">
-            {tr("vues", { count: formatViews(c.targetViews, loc), value: L.mode(c.mode), value2: L.reward(c.reward, rule, payCurrency), value3: L.winnerRule(rule) })}
+            {tr("vues", { count: formatViews(c.targetViews, loc), value: L.mode(c.mode), value2: L.reward(c.reward, rule, c.currency ?? payCurrency), value3: L.winnerRule(rule) })}
           </p>
           <p className="text-xs text-slate-400">{L.modeHelp(c.mode)}</p>
         </div>
@@ -201,7 +202,7 @@ export default function ChallengeDetailPage() {
           </span>
         </Stat>
         <Stat label={tr("engagementMax")}>
-          {engagement !== null ? formatMoney(engagement, payCurrency, loc) : "—"}
+          {engagement !== null ? formatMoney(engagement, c.currency ?? payCurrency, loc) : "—"}
           <span className="block text-xs font-normal text-slate-400">
             {engagement !== null
               ? tr("siToutesLesPlacesSont")
@@ -324,7 +325,7 @@ export default function ChallengeDetailPage() {
         </CardContent>
       </Card>
 
-      <ChallengeWinsCard wins={wins} currency={payCurrency} />
+      <ChallengeWinsCard wins={wins} currency={c.currency ?? payCurrency} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ChallengeMaterialCard

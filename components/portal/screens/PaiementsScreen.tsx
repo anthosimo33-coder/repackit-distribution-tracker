@@ -487,6 +487,9 @@ export default function PaiementsScreen() {
     list.find((p) => now >= p.cycleStart && now < p.cycleEnd) ?? list[0] ?? null;
   const past = list.filter((p) => p !== current);
   const dueNow = current?.totalDue ?? 0;
+  // Chaque cycle s'affiche dans SA devise (celle gelée au paiement) : une
+  // créatrice passée du dollar à l'euro relit ses anciens cycles en dollars.
+  const currentCurrency = current?.currency ?? payCurrency;
   // « Prochaine paie » = FIN du cycle courant (plus de « 10 du mois »).
   const nextTs = current?.cycleEnd ?? null;
   const days =
@@ -517,7 +520,7 @@ export default function PaiementsScreen() {
                 className="text-4xl font-semibold tabular-nums text-slate-900"
                 data-testid="due-now"
               >
-                {formatMoney(dueNow, payCurrency, loc)}
+                {formatMoney(dueNow, currentCurrency, loc)}
               </p>
               {nextTs !== null && days !== null ? (
                 <p className="text-sm text-slate-500">
@@ -548,11 +551,11 @@ export default function PaiementsScreen() {
               </Card>
             ) : (
               <div className="space-y-2">
-                <PricingBreakdown b={current.pricingBreakdown} currency={payCurrency} />
+                <PricingBreakdown b={current.pricingBreakdown} currency={currentCurrency} />
                 {current.lineItems.length > 0 && (
                   <Card>
                     <CardContent className="p-0">
-                      <LineItems p={current} currency={payCurrency} />
+                      <LineItems p={current} currency={currentCurrency} />
                     </CardContent>
                   </Card>
                 )}
@@ -566,7 +569,7 @@ export default function PaiementsScreen() {
               <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">{t("paiements.history")}</h2>
               <div className="space-y-2">
                 {past.map((p) => (
-                  <PastPeriod key={p.key} p={p} currency={payCurrency} />
+                  <PastPeriod key={p.key} p={p} currency={p.currency ?? payCurrency} />
                 ))}
               </div>
             </section>

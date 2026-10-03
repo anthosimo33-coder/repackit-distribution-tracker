@@ -393,12 +393,14 @@ export const sendPaymentReverted = internalAction({
   args: {
     creatorId: v.id("creators"),
     amount: v.number(),
+    /** Devise de la row payée (absente ⇒ dollar, cf emailAmount). */
+    currency: v.optional(v.string()),
     cycleStart: v.number(),
     cycleEnd: v.number(),
   },
   handler: async (
     ctx,
-    { creatorId, amount, cycleStart, cycleEnd },
+    { creatorId, amount, currency, cycleStart, cycleEnd },
   ): Promise<Outcome> => {
     const cfg = emailConfig();
     if (!cfg) return warnDisabled("paiement annulé");
@@ -415,7 +417,7 @@ export const sendPaymentReverted = internalAction({
       emailDate(cycleStart, c.locale),
       emailDate(cycleEnd - 86_400_000, c.locale),
     );
-    const money = emailAmount(amount, c.locale);
+    const money = emailAmount(amount, c.locale, currency);
     const html = renderEmail({
       title: copy.subject,
       bodyHtml:
@@ -437,12 +439,14 @@ export const sendPaymentPaid = internalAction({
   args: {
     creatorId: v.id("creators"),
     amount: v.number(),
+    /** Devise de la row payée (absente ⇒ dollar, cf emailAmount). */
+    currency: v.optional(v.string()),
     cycleStart: v.number(),
     cycleEnd: v.number(),
   },
   handler: async (
     ctx,
-    { creatorId, amount, cycleStart, cycleEnd },
+    { creatorId, amount, currency, cycleStart, cycleEnd },
   ): Promise<Outcome> => {
     const cfg = emailConfig();
     if (!cfg) return warnDisabled("paiement effectué");
@@ -461,7 +465,7 @@ export const sendPaymentPaid = internalAction({
       emailDate(cycleStart, c.locale),
       emailDate(cycleEnd - 86_400_000, c.locale),
     );
-    const money = emailAmount(amount, c.locale);
+    const money = emailAmount(amount, c.locale, currency);
     const subject = copy.subject(money);
     const html = renderEmail({
       title: subject,

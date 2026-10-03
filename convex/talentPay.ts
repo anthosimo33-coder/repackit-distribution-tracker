@@ -2,6 +2,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
 import { permissionQuery } from "./functions";
 import { resolveCreatorKind } from "./roles";
+import { creatorPayCurrency } from "./creatorPayCurrency";
 import {
   daysCovered,
   monthLabelFr,
@@ -51,6 +52,8 @@ export interface TalentMonth {
 export interface TalentPayRecap {
   creatorId: Id<"creators">;
   creatorName: string;
+  /** Devise du forfait — celle du talent (cf convex/payCurrency). */
+  currency: string | null;
   /** Forfait ACTUEL de la fiche (`null` = aucun forfait réglé). */
   monthlyRetainer: number | null;
   startAt: number | null;
@@ -147,6 +150,8 @@ export async function talentPayRecap(
   return {
     creatorId: creator._id,
     creatorName: creator.name,
+    // Le forfait est dans la devise du TALENT (la sienne, sinon celle du projet).
+    currency: creatorPayCurrency(creator, await ctx.db.get(projectId)),
     monthlyRetainer: montantActuel,
     startAt,
     endAt,

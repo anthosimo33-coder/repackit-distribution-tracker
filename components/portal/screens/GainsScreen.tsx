@@ -323,7 +323,7 @@ function VideosCard() {
             </div>
             <div className="shrink-0 text-right">
               <p className="text-sm font-semibold tabular-nums text-slate-900">
-                {v.gain === null ? "—" : formatMoney(v.gain, current.payCurrency, loc)}
+                {v.gain === null ? "—" : formatMoney(v.gain, v.currency ?? current.payCurrency, loc)}
               </p>
               <p className="text-xs tabular-nums text-slate-500">
                 {v.views === null ? "—" : t("gains.views", { views: formatViews(v.views, loc) })}

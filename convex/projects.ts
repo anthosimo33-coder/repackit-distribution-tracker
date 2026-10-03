@@ -35,7 +35,8 @@ import {
   comboCooldownDaysOf,
 } from "./comboCooldown";
 import { ConvexError, v } from "convex/values";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { normalizeCurrency, payCurrencyFactor } from "./payCurrency";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, convexErrorText, err } from "./errorCodes";
 
@@ -346,6 +347,34 @@ export const setInfluencerRefsBySlug = internalMutation({
   },
 });
 
+/**
+ * Les taux du projet savent-ils encore convertir chaque devise de BARÈME ?
+ *
+ * Les écrans d'analyse ramènent la paie d'une créatrice payée dans une autre
+ * devise que celle du projet avec ces taux (cf convex/payCurrency). Retirer un
+ * taux sous un barème qui en dépend rendrait sa conversion impossible : la
+ * marge et les coûts n'auraient plus de sens. On refuse donc le réglage qui
+ * casserait, plutôt que de le découvrir à l'écran.
+ */
+async function assertPricingCurrenciesConvertible(
+  ctx: MutationCtx,
+  after: Doc<"projects">,
+): Promise<void> {
+  const pricings = await ctx.db
+    .query("pricings")
+    .withIndex("by_project", (q) => q.eq("projectId", after._id))
+    .collect();
+  for (const c of new Set(pricings.map((p) => normalizeCurrency(p.currency)))) {
+    if (c === null) continue;
+    if (payCurrencyFactor(c, after) === null) {
+      throw new Error(
+        `Des barèmes sont en ${c.toUpperCase()} : sans ce taux, leur coût ne pourrait plus ` +
+          "être ramené dans la devise du projet. Garde un taux, ou passe ces barèmes dans une autre devise.",
+      );
+    }
+  }
+}
+
 export const setProjectCurrencyBySlug = internalMutation({
   args: {
     slug: v.string(),
@@ -362,10 +391,33 @@ export const setProjectCurrencyBySlug = internalMutation({
     if (payCurrency !== undefined) {
       patch.payCurrency =
         payCurrency.trim() === "" ? undefined : payCurrency.trim().toLowerCase();
+      // ─── LA DEVISE DE RÉFÉRENCE NE CHANGE PLUS UNE FOIS L'ARGENT ENGAGÉ ───
+      // Tout ce qui n'a pas de devise propre — barèmes d'avant, snapshots,
+      // paliers, rows de paie — EST dans cette devise (cf convex/payCurrency).
+      // La changer réinterpréterait tout cet historique d'un coup : 465 $
+      // deviendraient 465 €. Une devise par barème se règle sur le barème.
+      const before = normalizeCurrency(project.payCurrency);
+      if (before !== null && before !== normalizeCurrency(patch.payCurrency)) {
+        const pricing = await ctx.db
+          .query("pricings")
+          .withIndex("by_project", (q) => q.eq("projectId", project._id))
+          .first();
+        const payment = await ctx.db
+          .query("payments")
+          .withIndex("by_project_period", (q) => q.eq("projectId", project._id))
+          .first();
+        if (pricing !== null || payment !== null) {
+          throw new Error(
+            `La devise de paie du projet (${before.toUpperCase()}) est celle de tout l'historique sans devise : ` +
+              "la changer réinterpréterait ses montants. Choisis la devise sur les barèmes.",
+          );
+        }
+      }
     }
     if (fxRateToRevenue !== undefined) {
       patch.fxRateToRevenue = fxRateToRevenue > 0 ? fxRateToRevenue : undefined;
     }
+    await assertPricingCurrenciesConvertible(ctx, { ...project, ...patch });
     await ctx.db.patch(project._id, patch);
     return { updated: true };
   },
@@ -398,6 +450,10 @@ export const setProjectFxRateBySlug = internalMutation({
     );
     if (rate > 0) rates.push({ currency: cur, rate });
     rates.sort((a, b) => a.currency.localeCompare(b.currency));
+    await assertPricingCurrenciesConvertible(ctx, {
+      ...project,
+      fxRatesToRevenue: rates.length > 0 ? rates : undefined,
+    });
     await ctx.db.patch(project._id, {
       fxRatesToRevenue: rates.length > 0 ? rates : undefined,
     });

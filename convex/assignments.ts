@@ -45,7 +45,7 @@ import {
 } from "./payments";
 import {
   assignmentViewsAndMetrics,
-  buildPricingSnapshot,
+  buildPricingSnapshotFor,
   syncBonusUnlocks,
 } from "./pricing";
 import { markRushPublishedForAssignment } from "./rushes";
@@ -419,8 +419,10 @@ export const assignFormat = permissionMutation("assignments.manage")({
       args.creatorId,
       args.targets,
     );
+    // Le barème doit être dans la devise de la créatrice (cf
+    // convex/creatorPayCurrency) — vérifié AVANT toute écriture.
     const pricingSnapshot = args.pricingId
-      ? await buildPricingSnapshot(ctx, ctx.projectId, args.pricingId)
+      ? await buildPricingSnapshotFor(ctx, ctx.projectId, args.pricingId, creator)
       : undefined;
     // ─── GARDE DE PAIE — un format sans grille ne s'assigne pas ──────────────
     // `rateSnapshot` est figé ICI et jamais réécrit : ce qui est copié à cet
