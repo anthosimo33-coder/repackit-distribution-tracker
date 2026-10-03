@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compteProfileUrl } from "./compte-profile-url";
+import { compteProfileUrl, lienDiffereDuHandle } from "./compte-profile-url";
 
 // Les entrées reprennent la FORME des comptes de production (2026-09-24) :
 // handle avec point, URL de partage chargée de traceurs, URL sans schéma,
@@ -155,5 +155,49 @@ describe("compteProfileUrl — aucun lien plutôt qu'un lien mort", () => {
         url: "https://tiktok.com.evil.example/@kellyleydie",
       }),
     ).toBe("https://www.tiktok.com/@kelly.leydie");
+  });
+});
+
+// Les trois comptes de la coquille du 03/10/2026, tels qu'en prod.
+describe("lienDiffereDuHandle — le lien ouvre-t-il un autre compte que le @ ?", () => {
+  it("Instagram : @Sarah_snytch avec un lien vers sarah_snitch1 → signalé", () => {
+    expect(
+      lienDiffereDuHandle({
+        plateforme: "Instagram",
+        handle: "@Sarah_snytch",
+        url: "https://www.instagram.com/sarah_snitch1?stkn=MXZmcmY4Y2tuanprYg%3D%3D&utm_source=qr",
+      }),
+    ).toBe("https://www.instagram.com/sarah_snitch1/");
+  });
+
+  it("TikTok : @quentin.snitch avec un lien vers quentin.snytch → signalé", () => {
+    expect(
+      lienDiffereDuHandle({
+        plateforme: "TikTok",
+        handle: "@quentin.snitch",
+        url: "https://www.tiktok.com/@quentin.snytch?_r=1&_t=ZG-9AEPclowI5o",
+      }),
+    ).toBe("https://www.tiktok.com/@quentin.snytch");
+  });
+
+  it("le même compte à la casse près (@Sarah_snytch / sarah_snytch) → rien à signaler", () => {
+    expect(
+      lienDiffereDuHandle({
+        plateforme: "Instagram",
+        handle: "@Sarah_snytch",
+        url: "https://www.instagram.com/sarah_snytch/?igsh=MWx5ZjQ0YXkyOTBvcA%3D%3D",
+      }),
+    ).toBeNull();
+  });
+
+  it("pas de lien, ou un lien qui ne désigne aucun compte → rien à comparer", () => {
+    expect(lienDiffereDuHandle({ plateforme: "TikTok", handle: "@quentin.snytch" })).toBeNull();
+    expect(
+      lienDiffereDuHandle({
+        plateforme: "TikTok",
+        handle: "@quentin.snytch",
+        url: "https://www.instagram.com/quentin.snytch/",
+      }),
+    ).toBeNull();
   });
 });

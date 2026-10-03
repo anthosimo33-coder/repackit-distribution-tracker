@@ -1519,7 +1519,8 @@
     "ERR_PRICING_CURRENCY_INVALID": "Este projeto não sabe converter {currency}: defina primeiro uma taxa de câmbio; senão o custo dessas criadoras não entraria na margem.",
     "ERR_PRICING_CURRENCY_LOCKED": "Esta tabela de preço já está em uso: a moeda não pode mais mudar. Crie uma nova tabela na nova moeda.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} é paga em {creatorCurrency}: uma tabela em {pricingCurrency} não pode ser atribuída. Escolha uma tabela em {creatorCurrency}.",
-    "ERR_PAYMENT_MIXED_CURRENCY": "Este ciclo mistura várias moedas: não pode ser pago assim. Regularize antes as tabelas dos vídeos."
+    "ERR_PAYMENT_MIXED_CURRENCY": "Este ciclo mistura várias moedas: não pode ser pago assim. Regularize antes as tabelas dos vídeos.",
+    "ERR_ACCOUNT_URL_INVALID": "Link longo demais (no máximo 500 caracteres)."
   },
   "calendar": {
     "weekday": {

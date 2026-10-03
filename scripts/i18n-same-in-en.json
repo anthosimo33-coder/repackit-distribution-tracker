@@ -38,6 +38,7 @@
     "admin.common.CompteAdminActions.actions",
     "admin.common.CompteAdminActions.usageMissions",
     "admin.common.CompteDialog.handle",
+    "admin.common.CompteDialog.lienDuProfilPlaceholder",
     "admin.common.CompteDialog.notes",
     "admin.common.CreateProjectDialog.slug",
     "admin.common.DraftEditView.image",
