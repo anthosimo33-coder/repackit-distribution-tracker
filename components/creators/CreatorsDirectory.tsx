@@ -46,6 +46,12 @@ import {
 import { toast } from "sonner";
 import { creatorStatusBadge, CREATOR_STATUS_ORDER, type CreatorStatus } from "@/lib/creator-status";
 import { formatMoney } from "@/lib/format-rate";
+import {
+  formatMoneyByCurrency,
+  hasAmount,
+  sumByCurrency,
+  type MoneyByCurrency,
+} from "@/lib/money-by-currency";
 import { formatDateFr } from "@/convex/dateFr";
 import { CreatorAvatar } from "@/components/creators/CreatorAvatar";
 import { cn } from "@/lib/utils";
@@ -104,6 +110,10 @@ type Ligne = CreatorRow & {
   region: RegionKey;
   /** Gains du cycle en cours. `null` = pas de cycle (jamais publié) ou droit absent. */
   gains: number | null;
+  /** Devise de `gains` — celle de la créatrice (cf convex/payCurrency). */
+  gainsCurrency: string | null;
+  /** Taux de cette devise vers celle du projet : le TRI compare des valeurs converties. */
+  gainsRate: number;
 };
 
 const AXES = ["kind", "locale", "region", "status"] as const;
@@ -296,8 +306,10 @@ export function CreatorsDirectory({
 
   // ─── Lignes enrichies ─────────────────────────────────────────────────────
   const gainsParId = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const e of (classement ?? []) as LeaderRow[]) m.set(e.creatorId, e.totalDue);
+    const m = new Map<string, { amount: number; currency: string | null; rate: number }>();
+    for (const e of (classement ?? []) as LeaderRow[]) {
+      m.set(e.creatorId, { amount: e.totalDue, currency: e.currency, rate: e.rate });
+    }
     return m;
   }, [classement]);
 
@@ -332,10 +344,12 @@ export function CreatorsDirectory({
         // région parfaitement connue, et n'a rien à faire dans « non
         // renseigné » — ce groupe-là est une file de travail.
         region: creatorRegion(a?.zone ?? c.timezone),
-        gains: gainsParId.get(c._id) ?? null,
+        gains: gainsParId.get(c._id)?.amount ?? null,
+        gainsCurrency: gainsParId.get(c._id)?.currency ?? payCurrency ?? null,
+        gainsRate: gainsParId.get(c._id)?.rate ?? 1,
       };
     });
-  }, [creators, activiteParId, gainsParId]);
+  }, [creators, activiteParId, gainsParId, payCurrency]);
 
   // ─── Recherche, puis filtres croisés ──────────────────────────────────────
   const cherchees = useMemo(() => {
@@ -406,7 +420,13 @@ export function CreatorsDirectory({
         case "name":
           return a.name.localeCompare(b.name, "fr");
         case "gains":
-          return (b.gains ?? -1) - (a.gains ?? -1) || a.name.localeCompare(b.name, "fr");
+          // Valeurs RAMENÉES dans la devise du projet : 400 € et 400 $ ne
+          // pèsent pas pareil.
+          return (
+            (b.gains === null ? -1 : b.gains * b.gainsRate) -
+              (a.gains === null ? -1 : a.gains * a.gainsRate) ||
+            a.name.localeCompare(b.name, "fr")
+          );
         case "lastPost":
           return (
             (b.activite.lastPostAt ?? 0) - (a.activite.lastPostAt ?? 0) ||
@@ -763,12 +783,16 @@ export function CreatorsDirectory({
                             titre={g.titre}
                             alerte={groupe === "region" && g.clef === "unknown"}
                             effectif={g.lignes.length}
-                            total={
+                            totals={
                               montrerGains
-                                ? g.lignes.reduce((s, l) => s + (l.gains ?? 0), 0)
+                                ? sumByCurrency(
+                                    g.lignes.map((l) => ({
+                                      amount: l.gains ?? 0,
+                                      currency: l.gainsCurrency,
+                                    })),
+                                  )
                                 : null
                             }
-                            currency={payCurrency}
                           />
                         </TableCell>
                       </TableRow>
@@ -884,7 +908,7 @@ export function CreatorsDirectory({
                               {l.gains === null ? (
                                 <span className="font-normal text-slate-300">—</span>
                               ) : (
-                                formatMoney(l.gains, payCurrency, loc)
+                                formatMoney(l.gains, l.gainsCurrency ?? payCurrency, loc)
                               )}
                             </TableCell>
                           )}
@@ -945,12 +969,16 @@ export function CreatorsDirectory({
                   titre={g.titre}
                   alerte={groupe === "region" && g.clef === "unknown"}
                   effectif={g.lignes.length}
-                  total={
+                  totals={
                     montrerGains
-                      ? g.lignes.reduce((s, l) => s + (l.gains ?? 0), 0)
+                      ? sumByCurrency(
+                          g.lignes.map((l) => ({
+                            amount: l.gains ?? 0,
+                            currency: l.gainsCurrency,
+                          })),
+                        )
                       : null
                   }
-                  currency={payCurrency}
                 />
               )}
               <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -1013,15 +1041,16 @@ function titreGroupe(
 function EnteteGroupe({
   titre,
   effectif,
-  total,
-  currency,
+  totals,
   alerte,
 }: {
   titre: string;
   effectif: number;
-  /** Somme des gains du groupe, ou `null` sans le droit `payments.manage`. */
-  total: number | null;
-  currency?: string | null;
+  /**
+   * Gains du groupe PAR DEVISE (jamais fondus : cf lib/money-by-currency), ou
+   * `null` sans le droit `payments.manage`.
+   */
+  totals: MoneyByCurrency | null;
   /** Groupe « fuseau non renseigné » : une file de travail, pas une région. */
   alerte?: boolean;
 }) {
@@ -1044,9 +1073,14 @@ function EnteteGroupe({
       <span className="text-xs tabular-nums text-slate-500">
         {tr("createur", { effectif: effectif })}
       </span>
-      {total !== null && total > 0 && (
+      {totals !== null && hasAmount(totals) && (
         <span className="ml-auto text-xs tabular-nums text-slate-500">
-          {tr("ceCycle", { amount: formatMoney(total, currency, loc) })}
+          {tr("ceCycle", {
+            amount: formatMoneyByCurrency(
+              totals.filter((t) => t.amount > 0),
+              loc,
+            ),
+          })}
         </span>
       )}
     </div>
@@ -1224,7 +1258,7 @@ function CarteCreatrice({
       </div>
       {montrerGains && ligne.gains !== null && (
         <div className="text-sm font-semibold tabular-nums text-slate-900">
-          {formatMoney(ligne.gains, currency, loc)}
+          {formatMoney(ligne.gains, ligne.gainsCurrency ?? currency, loc)}
           <span className="ml-1.5 text-xs font-normal text-slate-400">
             {tr("ceCycle")}
           </span>

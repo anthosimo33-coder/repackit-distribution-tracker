@@ -13,6 +13,7 @@ function cycle(o: Partial<LignePaiement> & Pick<LignePaiement, "key" | "creatorI
     paidAt: null,
     remainingDue: 0,
     totalDue: 0,
+    currency: "usd",
     ...o,
   };
 }
@@ -41,8 +42,12 @@ describe("regrouperPaiements — l'écran Paiements", () => {
 
   it("à verser : sans la créatrice supprimée ; historique : tout ce que valent les cycles", () => {
     const v = regrouperPaiements(rows, NOW);
-    expect(v.aVerser).toBeCloseTo(174.67, 10); // 110 + 23,40 + 41,27
-    expect(v.totalHistorique).toBeCloseTo(378.52, 10);
+    // Tout le monde en dollars : UNE entrée par total, celui d'avant.
+    expect(v.aVerser).toHaveLength(1);
+    expect(v.aVerser[0].currency).toBe("usd");
+    expect(v.aVerser[0].amount).toBeCloseTo(174.67, 10); // 110 + 23,40 + 41,27
+    expect(v.totalHistorique).toHaveLength(1);
+    expect(v.totalHistorique[0].amount).toBeCloseTo(378.52, 10);
     expect(v.cyclesDus).toBe(4);
     // Le plus vieux cycle dû a commencé il y a 45 jours.
     expect(v.ageDuPlusVieux).toBe(45);

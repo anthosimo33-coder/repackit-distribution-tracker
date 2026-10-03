@@ -138,8 +138,10 @@ export function CreatorDetailView({
   const router = useRouter();
   const projectPath = useProjectPath();
   const projectSlug = useProjectSlug();
-  // Devise de la PAIE créatrices (dollars) — pour les montants de bonus (cash).
-  const payCurrency = useProject().project.payCurrency;
+  // Devise de paie DE LA CRÉATRICE (la sienne, sinon celle du projet — résolue
+  // serveur) : tous ses montants s'affichent dedans (cf convex/payCurrency).
+  const projectPayCurrency = useProject().project.payCurrency;
+  const payCurrency = creator.payCurrency ?? projectPayCurrency;
   const update = useProjectMutation(api.creators.updateCreator);
   // Seconde écriture, gardée par `creators.pay_terms`. Appelée UNIQUEMENT si un
   // champ d'argent a bougé (cf. handleSave) : éditer un nom ne doit pas traverser
@@ -477,7 +479,7 @@ export function CreatorDetailView({
                 ? null
                 : cycle === null
                   ? "—"
-                  : formatMoney(cycle.totalDue, payCurrency, loc)
+                  : formatMoney(cycle.totalDue, cycle.currency ?? payCurrency, loc)
             }
             detail={
               cycle
@@ -1107,7 +1109,7 @@ function BonusGridSection({
 }: {
   creatorId: Id<"creators">;
   current: Id<"pricings"> | null;
-  /** Devise de la PAIE créatrices (dollars), threadée depuis CreatorDetailView. */
+  /** Devise de paie de la créatrice, threadée depuis CreatorDetailView. */
   currency?: string | null;
 }) {
   const showError = useConvexError();
@@ -1175,7 +1177,12 @@ function BonusGridSection({
               <SelectItem value={NO_GRID}>{tr("aucune")}</SelectItem>
               {(pricings ?? []).map((p) => (
                 <SelectItem key={p._id} value={p._id}>
-                  {p.name}
+                  {/* Une grille dans une AUTRE devise que la créatrice se
+                      signale : le serveur la refusera (une devise par
+                      créatrice, cf convex/creatorPayCurrency). */}
+                  {p.currency && p.currency !== currency
+                    ? `${p.name} · ${p.currency.toUpperCase()}`
+                    : p.name}
                 </SelectItem>
               ))}
             </SelectContent>

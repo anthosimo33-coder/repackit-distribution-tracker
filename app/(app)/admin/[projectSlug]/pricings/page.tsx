@@ -43,7 +43,7 @@ import { toast } from "sonner";
 import { convexErrorMessage } from "@/lib/convex-error";
 import { formatMoney } from "@/lib/format-rate";
 import { formatDate } from "@/lib/format";
-import { currencySymbol } from "@/lib/currency";
+import { PAY_CURRENCY_CHOICES, currencySymbol } from "@/lib/currency";
 import {
   compareLadders,
   fixedPerVideo,
@@ -92,6 +92,8 @@ type TierForm = {
 
 const EMPTY = {
   name: "",
+  /** Devise du barème (code ISO minuscule) — "" ⇒ celle du projet. */
+  currency: "",
   montantFixe: "",
   nbVideosCible: "",
   tauxCPM: "",
@@ -179,13 +181,17 @@ function videoBonusArg(form: VideoBonusForm): VideoBonusGrid | null {
  *     les créatrices qui en dépendent, tout de suite.
  */
 function PricingsPageContenu() {
-  // Devise de la PAIE créatrices (dollars) — montants ET symboles des libellés
-  // (fixe, CPM, cash) dérivés de projects.payCurrency, jamais codés en dur.
+  // Devise de paie du PROJET — la devise par défaut d'un barème neuf, et celle
+  // des modèles de bonus (qui n'en ont pas). Chaque barème, lui, s'affiche dans
+  // SA devise (`p.currency`, résolue serveur) : un barème en euros ne se lit
+  // jamais en dollars (cf convex/payCurrency).
   const payCurrency = useProject().project.payCurrency;
   const money = useMemo(
     () => (n: number) => formatMoney(n, payCurrency),
     [payCurrency],
   );
+  const moneyIn = (currency: string | null | undefined) => (n: number) =>
+    formatMoney(n, currency ?? payCurrency);
 
   const pricings = useProjectQuery(api.pricing.listPricings, {
     includeArchived: true,
@@ -247,7 +253,7 @@ function PricingsPageContenu() {
 
   function openCreate() {
     setEditing(null);
-    setForm({ ...EMPTY });
+    setForm({ ...EMPTY, currency: payCurrency ?? "" });
     setTiers([]);
     setTemplateId(null);
     setVideoBonus(videoBonusToForm(null));
@@ -259,6 +265,7 @@ function PricingsPageContenu() {
     setEditing(p);
     setForm({
       name: p.name,
+      currency: p.currency ?? payCurrency ?? "",
       montantFixe: String(p.montantFixe),
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
@@ -277,6 +284,9 @@ function PricingsPageContenu() {
     setEditing(null);
     setForm({
       name: `${p.name} (copie)`,
+      // La copie part dans la même devise, mais elle reste CHOISISSABLE : c'est
+      // le geste pour passer un barème déjà utilisé dans une autre devise.
+      currency: p.currency ?? payCurrency ?? "",
       montantFixe: String(p.montantFixe),
       nbVideosCible: String(p.nbVideosCible),
       tauxCPM: String(p.tauxCPM),
@@ -293,6 +303,9 @@ function PricingsPageContenu() {
     e.preventDefault();
     const args = {
       name: form.name.trim(),
+      // Le serveur n'écrit la devise que si elle change vraiment (cf
+      // updatePricing) : la renvoyer à chaque enregistrement est sans risque.
+      ...(form.currency ? { currency: form.currency } : {}),
       montantFixe: Number(form.montantFixe),
       nbVideosCible: Number(form.nbVideosCible),
       tauxCPM: Number(form.tauxCPM),
@@ -377,6 +390,10 @@ function PricingsPageContenu() {
     pricings?.filter(
       (p) => p.status === "active" && (p.bonusTiers?.length ?? 0) > 0,
     ) ?? [];
+  // Le projet paie-t-il dans plus d'une devise ? Alors la grille par défaut ne
+  // vaut que pour SA devise (cf effectiveBonusPricing), et il faut le dire.
+  const plusieursDevises =
+    new Set((pricings ?? []).map((p) => p.currency ?? payCurrency)).size > 1;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
@@ -431,7 +448,11 @@ function PricingsPageContenu() {
           </Select>
           <span className="text-xs text-slate-400 sm:ml-auto">
             {defaultPricing
-              ? `${defaultPricing.bonusCreatorCount} créatrice${defaultPricing.bonusCreatorCount > 1 ? "s" : ""} en héritent · une grille perso prime`
+              ? `${defaultPricing.bonusCreatorCount} créatrice${defaultPricing.bonusCreatorCount > 1 ? "s" : ""} en héritent · une grille perso prime${
+                  plusieursDevises && defaultPricing.currency
+                    ? ` · seulement les créatrices payées en ${defaultPricing.currency.toUpperCase()}`
+                    : ""
+                }`
               : "Chaque créatrice n'a que sa grille perso, s'il y en a une"}
           </span>
         </div>
@@ -497,7 +518,7 @@ function PricingsPageContenu() {
               <PricingRow
                 key={p._id}
                 pricing={p}
-                money={money}
+                money={moneyIn(p.currency)}
                 isDefaultRow={p.isDefaultBonus}
                 templates={templates ?? []}
                 driftCount={
@@ -544,8 +565,17 @@ function PricingsPageContenu() {
           {(() => {
             const d = drift?.find((x) => x.pricingId === driftFor);
             if (!d) return null;
-            const terms = (m: number, n: number, c: number) =>
-              `${money(m)} / ${n} vidéos · CPM ${money(c)}`;
+            // Chaque génération dans SA devise figée : une vidéo figée à 465 $
+            // sous un barème passé en euros ne se lit pas « 465 € ».
+            const terms = (
+              m: number,
+              n: number,
+              c: number,
+              currency: string | null,
+            ) => {
+              const enDevise = moneyIn(currency);
+              return `${enDevise(m)} / ${n} vidéos · CPM ${enDevise(c)}`;
+            };
             return (
               <>
                 <DialogHeader>
@@ -558,6 +588,7 @@ function PricingsPageContenu() {
                       d.current.montantFixe,
                       d.current.nbVideosCible,
                       d.current.tauxCPM,
+                      d.current.currency,
                     )}
                     .
                   </DialogDescription>
@@ -568,12 +599,12 @@ function PricingsPageContenu() {
                 <div className="min-w-0 space-y-4">
                   {d.generations.map((g) => (
                     <div
-                      key={`${g.montantFixe}-${g.nbVideosCible}-${g.tauxCPM}`}
+                      key={`${g.montantFixe}-${g.nbVideosCible}-${g.tauxCPM}-${g.currency ?? ""}`}
                       className="space-y-1.5 rounded-md border border-slate-200 p-3"
                     >
                       <p className="text-sm font-medium text-slate-900">
                         {g.count} assignation{g.count > 1 ? "s" : ""} à{" "}
-                        {terms(g.montantFixe, g.nbVideosCible, g.tauxCPM)}
+                        {terms(g.montantFixe, g.nbVideosCible, g.tauxCPM, g.currency)}
                       </p>
                       <ul className="space-y-0.5 text-xs text-slate-500">
                         {g.sample.map((a) => (
@@ -620,7 +651,6 @@ function PricingsPageContenu() {
         pricings={pricings ?? []}
         editingId={editing?._id ?? null}
         payCurrency={payCurrency}
-        money={money}
         busy={busy}
         onSubmit={handleSubmit}
       />
@@ -1531,7 +1561,6 @@ function PricingEditorDialog({
   pricings,
   editingId,
   payCurrency,
-  money,
   busy,
   onSubmit,
 }: {
@@ -1551,13 +1580,24 @@ function PricingEditorDialog({
   templates: Template[];
   pricings: Pricing[];
   editingId: Id<"pricings"> | null;
+  /** Devise du PROJET — celle d'un barème dont le formulaire n'en a pas. */
   payCurrency: string | null | undefined;
-  money: (n: number) => string;
   busy: boolean;
   onSubmit: (e: React.FormEvent) => void;
 }) {
   const createTpl = useProjectMutation(api.pricing.createBonusTemplate);
   const [viewsIdx, setViewsIdx] = useState(4);
+  // DEVISE DU BARÈME ÉDITÉ — celle du formulaire, pas celle du projet : tous
+  // les libellés, l'aperçu et les paliers se lisent dedans.
+  const currency = form.currency || payCurrency;
+  const moneyBareme = (n: number) => formatMoney(n, currency);
+  const devisesProposees = [
+    ...new Set<string>([
+      ...PAY_CURRENCY_CHOICES,
+      ...(form.currency ? [form.currency] : []),
+    ]),
+  ];
+  const deviseFigee = editing !== null && editing.currencyLocked;
   // Les deux types de modèle ne se piquent pas au même endroit du barème.
   const cumulativeTemplates = templates.filter((t) => templateKind(t) === "cumulative");
   const perVideoTemplates = templates.filter((t) => templateKind(t) === "per_video");
@@ -1592,20 +1632,67 @@ function PricingEditorDialog({
             </p>
           )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="name">Nom</Label>
-            <Input
-              id="name"
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              required
-            />
+          <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-3">
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="name">Nom</Label>
+              <Input
+                id="name"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="pricing-currency">Devise</Label>
+              <Select
+                value={form.currency}
+                onValueChange={(v) =>
+                  v && setForm((f) => ({ ...f, currency: String(v) }))
+                }
+                disabled={deviseFigee}
+                items={devisesProposees.map((c) => ({
+                  value: c,
+                  label: `${c.toUpperCase()} (${currencySymbol(c)})`,
+                }))}
+              >
+                <SelectTrigger
+                  id="pricing-currency"
+                  className="w-full min-w-0"
+                  aria-label="Devise du barème"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start">
+                  {devisesProposees.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c.toUpperCase()} ({currencySymbol(c)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+          {/* La devise se choisit UNE fois : dès qu'une vidéo, une créatrice
+              ou un défi s'appuie sur le barème, la changer réinterpréterait
+              ses montants. Le serveur le refuse ; l'écran le dit avant. */}
+          {deviseFigee ? (
+            <p className="text-xs leading-relaxed text-slate-500">
+              Devise figée : ce barème est déjà utilisé. Pour payer dans une
+              autre devise, duplique-le et choisis la nouvelle.
+            </p>
+          ) : form.currency && form.currency !== (payCurrency ?? "") ? (
+            <p className="text-xs leading-relaxed text-slate-500">
+              Une créatrice n&apos;est payée que dans une devise : ce barème ne
+              pourra être attribué qu&apos;à des créatrices payées en{" "}
+              {form.currency.toUpperCase()}{" "}
+              (ou qui n&apos;ont encore rien de tarifé).
+            </p>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="montantFixe">
-                Montant fixe ({currencySymbol(payCurrency)})
+                Montant fixe ({currencySymbol(currency)})
               </Label>
               <Input
                 id="montantFixe"
@@ -1634,7 +1721,7 @@ function PricingEditorDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="tauxCPM">
-                CPM ({currencySymbol(payCurrency)}/1000 vues)
+                CPM ({currencySymbol(currency)}/1000 vues)
               </Label>
               <Input
                 id="tauxCPM"
@@ -1684,7 +1771,7 @@ function PricingEditorDialog({
             form={form}
             tiers={tiers}
             videoBonus={videoBonusArg(videoBonus)}
-            money={money}
+            money={moneyBareme}
             viewsIdx={viewsIdx}
             setViewsIdx={setViewsIdx}
           />
@@ -1725,14 +1812,14 @@ function PricingEditorDialog({
               <p className="text-xs text-slate-400">
                 Aucun palier. Reprends l&apos;échelle d&apos;un modèle ou
                 d&apos;un autre barème, ou ajoute des paliers cash (
-                {currencySymbol(payCurrency)}) ou nature (iPhone…).
+                {currencySymbol(currency)}) ou nature (iPhone…).
               </p>
             ) : (
               <>
                 <TierEditor
                   tiers={tiers}
                   setTiers={setTiers}
-                  payCurrency={payCurrency}
+                  payCurrency={currency}
                 />
                 <ScaleProvenance
                   template={templates.find((t) => t._id === templateId) ?? null}
@@ -1825,8 +1912,8 @@ function PricingEditorDialog({
             </div>
             {videoBonus.tiers.length === 0 ? (
               <p className="text-xs text-slate-400">
-                Aucun bonus par vidéo. Ex. 50 000 vues → 10 {currencySymbol(payCurrency)},
-                100 000 → 20 {currencySymbol(payCurrency)}.
+                Aucun bonus par vidéo. Ex. 50 000 vues → 10 {currencySymbol(currency)},
+                100 000 → 20 {currencySymbol(currency)}.
               </p>
             ) : (
               <>
@@ -1845,8 +1932,8 @@ function PricingEditorDialog({
                 <VideoBonusEditor
                   form={videoBonus}
                   setForm={setVideoBonus}
-                  payCurrency={payCurrency}
-                  money={money}
+                  payCurrency={currency}
+                  money={moneyBareme}
                 />
                 {vbTemplate && (
                   <p className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">

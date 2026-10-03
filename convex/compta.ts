@@ -18,6 +18,7 @@ import {
 import { fetchWhopLedger, type NormalizedLedgerLine } from "./whopLedgerApi";
 import { cellNum, cellStr, runHogQL } from "./posthogApi";
 import { projectFx } from "./whopRevenue";
+import { resolvePayCurrency, sumByCurrency } from "./payCurrency";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import { err, ERR } from "./errorCodes";
 import {
@@ -155,6 +156,12 @@ type CreatorOut = {
   month: string;
   day: string;
   amount: number;
+  /**
+   * Devise du décaissement — celle de la row de paie (la créatrice payée en
+   * euros sort des euros). Absente sur la row ⇒ devise du projet, la seule qui
+   * existait avant les barèmes en devise (cf convex/payCurrency).
+   */
+  currency: string | null;
   kind: "advance" | "settlement";
   creatorId: Id<"creators">;
   period: string;
@@ -165,11 +172,14 @@ async function creatorOuts(ctx: QueryCtx, projectId: Id<"projects">): Promise<Cr
     .query("payments")
     .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
     .collect();
+  const projectPay = (await ctx.db.get(projectId))?.payCurrency ?? null;
   const out: CreatorOut[] = [];
   for (const r of rows) {
+    const currency = resolvePayCurrency(r.currency, projectPay);
     for (const c of creatorCashOuts(r)) {
       out.push({
         ...c,
+        currency,
         month: monthKeyParis(c.at),
         day: parisDayKey(c.at),
         creatorId: r.creatorId,
@@ -178,6 +188,22 @@ async function creatorOuts(ctx: QueryCtx, projectId: Id<"projects">): Promise<Cr
     }
   }
   return out;
+}
+
+/**
+ * Σ des décaissements créatrices CONVERTIS dans la devise de la compta — chacun
+ * à SON taux. `null` dès qu'un seul n'est pas convertible (on ne fond jamais une
+ * devise sans taux dans un total). Tout dans la devise de paie du projet ⇒ le
+ * calcul d'avant, à l'identique.
+ */
+function convertedOuts(outs: readonly CreatorOut[], fx: ComptaFx): number | null {
+  let total = 0;
+  for (const o of outs) {
+    const r = o.currency === null ? null : rateOf(o.currency, fx);
+    if (r === null) return null;
+    total += o.amount * r;
+  }
+  return round2(total);
 }
 
 // ─── Autres charges : saisies + prévues ─────────────────────────────────────
@@ -361,7 +387,6 @@ export async function comptaOverviewCore(ctx: ProjectQueryCtx, { year }: { year:
     .map((l) => transferOut(l, reversals, fx));
   const charges = await chargesOf(ctx, ctx.projectId, currentMonth);
   const payCurrency = project.payCurrency ?? null;
-  const payRate = payCurrency ? rateOf(payCurrency, fx) : null;
 
   // Mois affichés : ceux de l'année qui ont quelque chose, bornés au mois courant.
   const keys = new Set<string>();
@@ -374,10 +399,11 @@ export async function comptaOverviewCore(ctx: ProjectQueryCtx, { year }: { year:
   const rows = monthKeys.map((month) => {
     const doc = byMonth.get(month);
     const ledger = ledgerTotals(doc?.days ?? [], rules, fx);
-    const creatorsPay = round2(
-      outs.filter((o) => o.month === month).reduce((s, o) => s + o.amount, 0),
-    );
-    const creators = creatorsPay === 0 ? 0 : payRate === null ? null : round2(creatorsPay * payRate);
+    const outsDuMois = outs.filter((o) => o.month === month);
+    const creatorsPay = round2(outsDuMois.reduce((s, o) => s + o.amount, 0));
+    // Chaque décaissement à SON taux : une créatrice payée en euros, une autre
+    // en dollars (cf convex/payCurrency).
+    const creators = creatorsPay === 0 ? 0 : convertedOuts(outsDuMois, fx);
     const monthCharges = charges.filter((c) => c.month === month);
     const sc = monthScans(monthCharges, doc?.scan, fx);
     const scans = sc.value;
@@ -623,7 +649,11 @@ export async function comptaMonthCore(ctx: ProjectQueryCtx, { month }: { month: 
       period: o.period,
       kind: o.kind,
       amount: o.amount,
-      converted: payRate === null ? null : round2(o.amount * payRate),
+      currency: o.currency,
+      converted: (() => {
+        const r = o.currency === null ? null : rateOf(o.currency, fx);
+        return r === null ? null : round2(o.amount * r);
+      })(),
     }));
 
   const usdRate = rateOf("usd", fx);
@@ -675,14 +705,22 @@ export async function comptaMonthCore(ctx: ProjectQueryCtx, { month }: { month: 
       return { opening, closing, net: ledger.net, transfersReceived: ledger.transfersReceived, otherMovements };
     })(),
     creators,
-    creatorsTotal: {
-      pay: round2(outs.reduce((s, o) => s + o.amount, 0)),
-      converted: payRate === null ? null : round2(outs.reduce((s, o) => s + o.amount, 0) * payRate),
-      rate: payRate,
-    },
+    creatorsTotal: (() => {
+      // PAR DEVISE d'abord (jamais fondues) ; le taux unique ne se donne que
+      // si tout le mois est dans une seule devise.
+      const payByCurrency = sumByCurrency(outs);
+      const seule = payByCurrency.length <= 1;
+      const devise = seule ? (payByCurrency[0]?.currency ?? payCurrency) : null;
+      return {
+        pay: round2(outs.reduce((s, o) => s + o.amount, 0)),
+        payByCurrency,
+        converted: convertedOuts(outs, fx),
+        rate: seule && devise !== null ? rateOf(devise, fx) : seule ? payRate : null,
+      };
+    })(),
     creatorsControl: (() => {
       const pay = round2(outs.reduce((s, o) => s + o.amount, 0));
-      const paid = pay === 0 ? 0 : payRate === null ? null : round2(pay * payRate);
+      const paid = pay === 0 ? 0 : convertedOuts(outs, fx);
       const sent = creatorsSentOf(transfers);
       return creatorsControl(paid, sent.sent, sent.count);
     })(),
@@ -881,6 +919,7 @@ export const getComptaJournal = permissionQuery("business.read")({
           period: o.period,
           kind: o.kind,
           amount: o.amount,
+          currency: o.currency,
         })),
       scan: doc?.scan
         ? {

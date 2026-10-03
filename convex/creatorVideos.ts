@@ -12,6 +12,7 @@ import { calcCycle, cycleIndexOf } from "./payCycle";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Plateforme } from "./platforms";
+import { resolvePayCurrency } from "./payCurrency";
 
 /**
  * SNYTCH — suivi créatrice de TOUT le cycle de vie de ses vidéos depuis la
@@ -65,8 +66,14 @@ export type CreatorVideo = {
   trackingStatus: VideoTrackingStatus | null;
   /** Dernier compte de vues (published/paid, si métriques) ; null sinon. */
   views: number | null;
-  /** Gain de CETTE vidéo, plafonné 150 $ (published/paid) ; null avant publication. */
+  /** Gain de CETTE vidéo, plafonné 150 (published/paid) ; null avant publication. */
   gain: number | null;
+  /**
+   * Devise de `gain` — celle FIGÉE sur la vidéo (son barème), sinon celle du
+   * projet. Une créatrice passée du dollar à l'euro relit ses vidéos d'avant en
+   * dollars (cf convex/payCurrency).
+   */
+  currency: string | null;
   /** Le gain a atteint le plafond 150 $ → afficher « gain max ». */
   capped: boolean;
   /**
@@ -146,6 +153,7 @@ async function toCreatorVideo(
   ctx: QueryCtx,
   a: Doc<"assignments">,
   status: CreatorVideoStatus,
+  projectPayCurrency: string | null,
 ): Promise<CreatorVideo> {
   const isOnline = status === "published" || status === "paid";
 
@@ -202,6 +210,7 @@ async function toCreatorVideo(
     trackingStatus,
     views,
     gain,
+    currency: resolvePayCurrency(a.pricingSnapshot?.currency, projectPayCurrency),
     capped,
     payWindowClosed,
     viewsOutsideWindow,
@@ -239,7 +248,10 @@ async function videosForCreator(
         x.status !== null,
     );
   covered.sort((x, y) => assignmentPublishedAt(y.a) - assignmentPublishedAt(x.a));
-  return Promise.all(covered.map(({ a, status }) => toCreatorVideo(ctx, a, status)));
+  const projectPay = resolvePayCurrency(null, (await ctx.db.get(projectId))?.payCurrency);
+  return Promise.all(
+    covered.map(({ a, status }) => toCreatorVideo(ctx, a, status, projectPay)),
+  );
 }
 
 export type VideoStats = {

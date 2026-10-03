@@ -308,6 +308,10 @@ export default defineSchema({
     // `payCurrency` code ISO de la paie (ex. "usd"). ABSENT ⇒ les montants de paie
     // s'affichent SANS symbole (jamais inventer une devise). Posé via
     // projects.setProjectCurrencyBySlug (interne, `npx convex run`).
+    // Depuis les barèmes en devise (2026-10-03), c'est la devise de paie PAR
+    // DÉFAUT et de RÉFÉRENCE : celle d'un barème, d'une vidéo ou d'une créatrice
+    // qui n'en porte pas, et celle dans laquelle les écrans d'analyse ramènent
+    // les paies des autres devises (cf convex/payCurrency).
     payCurrency: v.optional(v.string()),
     // Taux de change pour EXPRIMER la paie dans la devise du revenu, UNIQUEMENT
     // pour les métriques qui croisent les deux (marge = revenu − coût, marge %).
@@ -1516,6 +1520,14 @@ export default defineSchema({
     ),
     paymentDetails: v.optional(v.string()),
     adminNotes: v.optional(v.string()),
+    // ─── DEVISE DE PAIE de la créatrice ───────────────────────────────────────
+    // UNE seule par créatrice : tous ses barèmes, ses paliers, ses primes, son
+    // forfait et ses acomptes sont dans cette devise, et le serveur refuse de
+    // lui assigner un barème d'une autre (convex/creatorPayCurrency). ABSENT ⇒
+    // devise du projet, 0 migration. Posée automatiquement au premier barème
+    // d'une fiche vierge ; ensuite, la changer suppose de re-tarifer ses vidéos
+    // non payées (convex/payCurrencyMigration).
+    payCurrency: v.optional(v.string()),
     // Pricing v2 — grille de paliers de bonus du créateur (son "deal"). Les
     // paliers (tiers du pricing désigné) s'évaluent sur le CUMUL de ses vues.
     // FIXE/CPM restent par vidéo (pricingSnapshot par assignment) ; les paliers
@@ -2429,6 +2441,11 @@ export default defineSchema({
     pricingSnapshot: v.optional(
       v.object({
         pricingId: v.id("pricings"),
+        /**
+         * Devise du barème, FIGÉE à l'attribution comme le reste. Absente sur
+         * les snapshots d'avant ⇒ devise du projet (convex/payCurrency).
+         */
+        currency: v.optional(v.string()),
         montantFixe: v.number(),
         nbVideosCible: v.number(),
         tauxCPM: v.number(),
@@ -2547,9 +2564,19 @@ export default defineSchema({
   pricings: defineTable({
     projectId: v.id("projects"),
     name: v.string(),
+    /**
+     * DEVISE DU BARÈME — code ISO en minuscules ("usd", "eur"). Tous les
+     * montants du barème (fixe, CPM, paliers cash, coût réel, bonus par vidéo)
+     * sont exprimés dedans, et le plafond par vidéo (150) aussi.
+     *
+     * ABSENT ⇒ devise du projet (`projects.payCurrency`) : les barèmes d'avant
+     * gardent exactement leur sens, 0 migration. Figée sur chaque vidéo par
+     * `pricingSnapshot.currency`. Cf convex/payCurrency pour les règles.
+     */
+    currency: v.optional(v.string()),
     montantFixe: v.number(),
     nbVideosCible: v.number(), // >= 1 (imposé serveur, anti division par zéro)
-    tauxCPM: v.number(), // $ par 1000 vues
+    tauxCPM: v.number(), // par 1000 vues, dans la devise du barème
     /**
      * SEUIL DE VUES QUI CONDITIONNE LE FIXE — absent ou 0 = aucune condition.
      *
@@ -2675,6 +2702,9 @@ export default defineSchema({
     rewardType: v.union(v.literal("cash"), v.literal("nature")),
     montant: v.optional(v.number()),
     libelle: v.optional(v.string()),
+    // Devise du barème de la grille, FIGÉE au déblocage avec le montant et le
+    // coût réel. Absente ⇒ devise du projet (convex/payCurrency).
+    currency: v.optional(v.string()),
     // Coût réel FIGÉ au déblocage, comme le reste de la récompense : renégocier
     // le prix d'un iPhone ne doit pas réécrire ce qu'a coûté celui déjà dû.
     coutReel: v.optional(v.number()),
@@ -2717,6 +2747,11 @@ export default defineSchema({
         name: v.string(),
         rank: v.number(),
         totalDue: v.number(),
+        // Devise de `totalDue` (celle du cycle de la créatrice). Absente sur
+        // les rows d'avant les barèmes en devise ⇒ devise du projet.
+        currency: v.optional(v.union(v.string(), v.null())),
+        // Taux de cette devise vers celle du projet (écart au classement).
+        rate: v.optional(v.number()),
         cycleStart: v.number(),
         cycleEnd: v.number(),
       }),
@@ -2759,6 +2794,12 @@ export default defineSchema({
     period: v.string(),
     lineItems: v.array(paymentLineItem),
     totalDue: v.number(),
+    /**
+     * DEVISE de la row — celle de la créatrice au moment du gel. Toutes ses
+     * lignes, son total et ses acomptes sont dedans. Absente sur les rows
+     * d'avant ⇒ devise du projet, qui était alors la seule (convex/payCurrency).
+     */
+    currency: v.optional(v.string()),
     status: v.union(
       v.literal("accruing"),
       v.literal("scheduled"),
@@ -3915,6 +3956,11 @@ export default defineSchema({
       libelle: v.optional(v.string()),
       coutReel: v.optional(v.number()),
     }),
+    /**
+     * Devise de la prime — celle du barème du défi, FIGÉE à la victoire.
+     * Absente ⇒ devise du projet (convex/payCurrency).
+     */
+    currency: v.optional(v.string()),
     /** Annulation ADMIN : la place est libérée, la prime n'est plus due. */
     cancelledAt: v.optional(v.number()),
     /** Motif OBLIGATOIRE à l'annulation (imposé serveur, pas au schéma). */

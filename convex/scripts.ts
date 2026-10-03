@@ -25,7 +25,7 @@ import { COMBO_FREEING_STATUSES } from "./comboFreeing";
 import { formatDateFr } from "./dateFr";
 import { comboCooldownDaysOf } from "./comboCooldown";
 import { isValidPostWindow } from "./postWindow";
-import { buildPricingSnapshot } from "./pricing";
+import { buildPricingSnapshotFor } from "./pricing";
 import { canTransition } from "./rushStatus";
 import { resolveCreatorKind } from "./roles";
 import {
@@ -1442,10 +1442,13 @@ export async function assignScriptCampaignCore(
   // garantit qu'il n'est JAMAIS lu pour la paie (cf accrueBaseLineItem /
   // confirmPublication). buildPricingSnapshot rejette un pricing introuvable
   // ou archivé (ConvexError lisible).
-  const pricingSnapshot = await buildPricingSnapshot(
+  // … et il doit être dans la devise de la créatrice (cf
+  // convex/creatorPayCurrency).
+  const pricingSnapshot = await buildPricingSnapshotFor(
     ctx,
     ctx.projectId,
     args.pricingId,
+    creator,
   );
   const rateSnapshot = { basePerPost: 0 };
   const targets = args.targets.map((t) => ({

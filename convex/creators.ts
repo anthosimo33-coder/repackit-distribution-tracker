@@ -55,6 +55,11 @@ import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { normalizeCreatorLocale, localeOrDefault} from "./locales";
 import { ERR, convexErrorText, err } from "./errorCodes";
+import {
+  creatorPayCurrency,
+  ensureCreatorPayCurrency,
+  pricingPayCurrency,
+} from "./creatorPayCurrency";
 import { faceUrlsByCreator, purgeCompteAvatar } from "./compteAvatar";
 import type { PlateformeKey } from "./platforms";
 
@@ -384,6 +389,10 @@ export const getCreator = permissionQuery("creators.read")({
       firstPostAt: creator.firstPostAt,
       payStartAt: creator.payStartAt,
       refSlug: creator.refSlug,
+      // Devise de paie RÉSOLUE (la sienne, sinon celle du projet) : celle dans
+      // laquelle s'affichent tous ses montants. Une devise n'est pas un montant,
+      // elle ne relève pas de la frontière `creators.pay_terms`.
+      payCurrency: creatorPayCurrency(creator, await ctx.db.get(ctx.projectId)),
       createdAt: creator.createdAt,
       // `adminNotes` reste ici : ce sont des notes d'équipe, pas de l'argent.
       adminNotes: creator.adminNotes,
@@ -891,6 +900,17 @@ export const updateCreatorPayTerms = permissionMutation("creators.pay_terms")({
         const pricing = await ctx.db.get(args.bonusPricingId);
         if (!pricing || pricing.projectId !== ctx.projectId) {
           throw err(ERR.BONUS_PRICING_NOT_FOUND, "Pricing de bonus introuvable dans le projet.");
+        }
+        // Les paliers paient dans la devise de la grille : elle doit être
+        // celle de la créatrice (ou sa fiche vierge, qui la prend).
+        const project = await ctx.db.get(ctx.projectId);
+        if (project && pricing._id !== creator.bonusPricingId) {
+          await ensureCreatorPayCurrency(
+            ctx,
+            creator,
+            project,
+            pricingPayCurrency(pricing, project),
+          );
         }
         patch.bonusPricingId = args.bonusPricingId;
       }
@@ -1587,7 +1607,12 @@ export const getMyCreatorProjects = authedQuery({
         logoUrl: project.logoUrl ?? null,
         payoutDay: project.payoutDay,
         creatorName: fiche?.name ?? null,
-        payCurrency: project.payCurrency ?? null,
+        // La devise de SA paie (la sienne, sinon celle du projet) : une
+        // créatrice payée en euros voit ses montants en euros, même dans un
+        // projet en dollars (cf convex/payCurrency).
+        payCurrency: fiche
+          ? creatorPayCurrency(fiche, project)
+          : (project.payCurrency ?? null),
         fileDropEnabled: isFileDropEnabled(project),
       });
     }

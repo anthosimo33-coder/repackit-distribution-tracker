@@ -102,7 +102,7 @@ export default function ChallengesPage() {
                   <span className="text-xs text-slate-400"> · {L.mode(c.mode)}</span>
                 </p>
                 <p className="text-slate-700">
-                  {L.reward(c.reward, c.winnerRule as WinnerRule, payCurrency)}
+                  {L.reward(c.reward, c.winnerRule as WinnerRule, c.currency ?? payCurrency)}
                 </p>
                 <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
                   <span>
@@ -162,7 +162,7 @@ export default function ChallengesPage() {
                       {tr("vues", { count: formatViews(c.targetViews, loc) })}
                     </TableCell>
                     <TableCell>
-                      {L.reward(c.reward, c.winnerRule as WinnerRule, payCurrency)}
+                      {L.reward(c.reward, c.winnerRule as WinnerRule, c.currency ?? payCurrency)}
                     </TableCell>
                     <TableCell className="tabular-nums">
                       {c.participantCount}

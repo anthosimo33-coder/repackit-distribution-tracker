@@ -167,7 +167,7 @@ function OnlineMetrics({ v, currency }: { v: Video; currency?: string | null }) 
             v.capped ? "text-emerald-600" : "text-slate-900",
           )}
         >
-          {v.gain === null ? "—" : formatMoney(v.gain, currency, loc)}
+          {v.gain === null ? "—" : formatMoney(v.gain, v.currency ?? currency, loc)}
         </p>
         {v.capped && (
           <span className="text-[0.65rem] font-semibold uppercase tracking-wide text-emerald-600">{tv("maxGain")}</span>

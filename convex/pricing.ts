@@ -27,6 +27,18 @@ import {
 import { ERR, err } from "./errorCodes";
 import { resolveCreatorKind } from "./roles";
 import { matchCompteByHandle } from "./creatorAvatar";
+import {
+  normalizeCurrency,
+  payCurrencyFactor,
+  resolvePayCurrency,
+  type PayFxProject,
+} from "./payCurrency";
+import {
+  assertPayCurrencyConvertible,
+  creatorPayCurrency,
+  ensureCreatorPayCurrency,
+  pricingPayCurrency,
+} from "./creatorPayCurrency";
 
 /**
  * Pricing v2 — barèmes + MOTEUR de paie (réplique serveur).
@@ -53,6 +65,8 @@ export const MAX_PAY_PER_VIDEO_EUR = 150;
 
 export type PricingSnapshot = {
   pricingId: Id<"pricings">;
+  /** Devise figée du barème — réplique de lib/pricing-engine (A6). */
+  currency?: string;
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
@@ -189,12 +203,16 @@ function payoutGroupKey(s: PricingSnapshot): string {
   // ⚠️ LE SEUIL EN FAIT PARTIE. Sans lui, deux générations de snapshot qui ne
   // diffèrent QUE par la condition tomberaient dans le même groupe, donc dans le
   // même budget fixe — et la condition de l'une déciderait pour l'autre.
+  // ⚠️ LA DEVISE AUSSI. Le budget fixe se lit au niveau du groupe : 465 et 400
+  // ne se comparent pas s'ils ne sont pas dans la même monnaie. Absente sur les
+  // snapshots d'avant ⇒ segment vide, regroupement strictement inchangé.
   return [
     s.pricingId,
     s.montantFixe,
     s.nbVideosCible,
     s.tauxCPM,
     s.seuilVuesFixe ?? 0,
+    s.currency ?? "",
   ].join("|");
 }
 
@@ -805,16 +823,40 @@ export async function creatorCumulViews(
 export async function effectiveBonusPricing(
   ctx: QueryCtx | MutationCtx,
   creator: Doc<"creators">,
-): Promise<{ pricingId: Id<"pricings">; tiers: BonusTier[] } | null> {
-  let pricingId = creator.bonusPricingId;
-  if (!pricingId) {
-    const project = await ctx.db.get(creator.projectId);
-    pricingId = project?.defaultBonusPricingId;
+): Promise<{
+  pricingId: Id<"pricings">;
+  tiers: BonusTier[];
+  /** Devise PROPRE de la grille (absente ⇒ projet) — figée sur les unlocks. */
+  currency: string | null;
+} | null> {
+  if (creator.bonusPricingId) {
+    const pricing = await ctx.db.get(creator.bonusPricingId);
+    if (!pricing || pricing.projectId !== creator.projectId) return null;
+    return {
+      pricingId: pricing._id,
+      tiers: tiersOf(pricing),
+      currency: normalizeCurrency(pricing.currency),
+    };
   }
+  const project = await ctx.db.get(creator.projectId);
+  const pricingId = project?.defaultBonusPricingId;
   if (!pricingId) return null;
   const pricing = await ctx.db.get(pricingId);
   if (!pricing || pricing.projectId !== creator.projectId) return null;
-  return { pricingId, tiers: tiersOf(pricing) };
+  // ─── LE DÉFAUT DU PROJET NE PAIE QUE DANS SA DEVISE ──────────────────────
+  // Une grille par défaut en euros ne peut pas verser ses paliers à une
+  // créatrice payée en dollars : ses montants n'ont pas de sens dans sa monnaie,
+  // et ils entreraient dans un cycle en dollars. Elle ne s'applique donc qu'aux
+  // créatrices de SA devise ; les autres n'ont pas de grille tant qu'on ne leur
+  // en donne pas une (la grille perso, elle, est gardée à l'écriture).
+  if (pricingPayCurrency(pricing, project) !== creatorPayCurrency(creator, project)) {
+    return null;
+  }
+  return {
+    pricingId,
+    tiers: tiersOf(pricing),
+    currency: normalizeCurrency(pricing.currency),
+  };
 }
 
 /** Grille de paliers du créateur (perso, sinon défaut projet) — [] si aucune. */
@@ -833,6 +875,8 @@ export interface NatureDueEntry {
   libelle: string | null;
   /** Coût réel FIGÉ au déblocage. null = jamais renseigné → hors du total. */
   coutReel: number | null;
+  /** Devise de `coutReel` — figée au déblocage (`null` ⇒ devise du projet). */
+  currency: string | null;
   unlockedAt: number;
 }
 
@@ -878,6 +922,7 @@ export async function challengeNatureRewardsDue(
       libelle: w.reward.libelle ?? null,
       coutReel:
         typeof w.reward.coutReel === "number" ? w.reward.coutReel : null,
+      currency: normalizeCurrency(w.currency),
       unlockedAt: w.wonAt,
     }));
 }
@@ -897,6 +942,7 @@ export async function natureRewardsDue(
       seuilVues: u.seuilVues,
       libelle: u.libelle ?? null,
       coutReel: typeof u.coutReel === "number" ? u.coutReel : null,
+      currency: normalizeCurrency(u.currency),
       unlockedAt: u.unlockedAt,
     }));
 }
@@ -964,7 +1010,7 @@ export async function syncBonusUnlocks(
   // et `pricingId` de la grille réellement utilisée (clé d'idempotence).
   const eff = await effectiveBonusPricing(ctx, creator);
   if (!eff || eff.tiers.length === 0) return { unlocked: 0, revoked: 0 };
-  const { pricingId, tiers } = eff;
+  const { pricingId, tiers, currency } = eff;
   const cumul = await creatorCumulViews(ctx, projectId, creatorId);
   const now = Date.now();
   let unlocked = 0;
@@ -1017,6 +1063,8 @@ export async function syncBonusUnlocks(
       rewardType: tier.rewardType,
       montant: tier.montant,
       libelle: tier.libelle,
+      // La devise de la grille, figée avec le montant (absente ⇒ projet).
+      ...(currency !== null ? { currency } : {}),
       // Figé comme le reste : le coût de CET objet-là, au moment où il devient dû.
       coutReel: tier.coutReel,
       unlockedAt: now,
@@ -1127,6 +1175,8 @@ export interface PricingBreakdown extends MonthlyPayout {
     winId: string;
     challengeName: string;
     montant: number;
+    /** Devise résolue de la prime (absente sur la victoire ⇒ projet). */
+    currency: string | null;
   }[];
   /**
    * BONUS PAR VIDÉO de la période (grille `pricings.videoBonus`, lue en direct)
@@ -1190,6 +1240,22 @@ export interface PricingBreakdown extends MonthlyPayout {
    * a rien à figer, donc rien à annoncer comme figé.
    */
   allSettled?: boolean;
+  /**
+   * DEVISE de TOUS les montants de ce breakdown (code ISO minuscule).
+   *
+   * `null` dans deux cas, que `mixedCurrency` distingue :
+   *  - la période ne porte AUCUN montant (rien de publié, rien de débloqué) :
+   *    l'appelant retombe sur la devise de la créatrice ;
+   *  - elle en MÉLANGE plusieurs (`mixedCurrency: true`). La règle « une devise
+   *    par créatrice » l'interdit (convex/creatorPayCurrency) ; si une donnée
+   *    écrite hors de ses gardes y parvenait quand même, le total n'aurait pas
+   *    de sens, et le paiement le REFUSE plutôt que d'additionner.
+   *
+   * Converti pour un écran d'analyse (`toReference`), c'est la devise de paie
+   * du projet et `mixedCurrency` vaut toujours `false`.
+   */
+  currency: string | null;
+  mixedCurrency: boolean;
 }
 
 /**
@@ -1241,6 +1307,12 @@ export type CreatorPayrollSources = {
    * breakdown, au même résultat.
    */
   videoBonusGrids?: Map<string, VideoBonusGrid | null>;
+  /**
+   * Devise de paie du PROJET — celle d'un snapshot, d'un palier ou d'une prime
+   * qui n'en porte pas (convex/payCurrency). Lue une fois avec le reste.
+   * Absente = relue par breakdown, au même résultat.
+   */
+  projectPayCurrency?: string | null;
 };
 
 /**
@@ -1309,7 +1381,27 @@ export async function loadCreatorPayrollSources(
     if (challenge) challengeNames.set(id as string, challenge.name);
   }
   const videoBonusGrids = await loadVideoBonusGrids(ctx, projectId, assignments);
-  return { assignments, bonusUnlocks, challengeWins, challengeNames, videoBonusGrids };
+  const projectPayCurrency = normalizeCurrency(
+    (await ctx.db.get(projectId))?.payCurrency,
+  );
+  return {
+    assignments,
+    bonusUnlocks,
+    challengeWins,
+    challengeNames,
+    videoBonusGrids,
+    projectPayCurrency,
+  };
+}
+
+/** Devise de paie du projet, prise dans les sources si elles l'ont déjà lue. */
+async function projectPayCurrencyOf(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">,
+  sources?: CreatorPayrollSources,
+): Promise<string | null> {
+  if (sources?.projectPayCurrency !== undefined) return sources.projectPayCurrency;
+  return normalizeCurrency((await ctx.db.get(projectId))?.payCurrency);
 }
 
 async function challengeCashWins(
@@ -1345,9 +1437,187 @@ async function challengeCashWins(
       winId: w._id,
       challengeName: name ?? "Défi",
       montant: w.reward.amount ?? 0,
+      // Résolue plus tard (assembleBreakdown), là où la devise du projet est
+      // connue : ici on ne porte que ce que la victoire a figé.
+      currency: normalizeCurrency(w.currency),
     });
   }
   return out.sort((a, b) => a.challengeName.localeCompare(b.challengeName, "fr"));
+}
+
+// ─── DEVISES d'un breakdown ─────────────────────────────────────────────────
+
+/**
+ * Un MonthlyPayout exprimé dans une autre devise : chaque MONTANT est multiplié
+ * par `f`, jamais une vue. `f === 1` rend l'objet tel quel, à l'octet près.
+ * Le fixe par vidéo reste non arrondi, comme le moteur le rend (cf PerAssignment).
+ */
+function scalePayout(p: MonthlyPayout, f: number): MonthlyPayout {
+  if (f === 1) return p;
+  const fixedTotal = round2(p.fixedTotal * f);
+  const cpmTotal = round2(p.cpmTotal * f);
+  return {
+    fixedTotal,
+    cpmTotal,
+    total: round2(fixedTotal + cpmTotal),
+    perPricing: p.perPricing.map((g) => ({
+      ...g,
+      montantFixe: round2(g.montantFixe * f),
+      fixePerVideo: round2(g.fixePerVideo * f),
+      fixed: round2(g.fixed * f),
+      cpm: round2(g.cpm * f),
+    })),
+    perAssignment: p.perAssignment.map((a) => ({
+      ...a,
+      cpm: round2(a.cpm * f),
+      fixed: a.fixed * f,
+    })),
+  };
+}
+
+/**
+ * La fin COMMUNE des deux breakdowns (mois calendaire, cycle J+30) : le moteur,
+ * l'engagé, les paliers, les primes, le bonus par vidéo — et la devise.
+ *
+ * DEUX CHEMINS, et la paie n'en prend qu'un :
+ *  - `toReference` ABSENT (paie, portail, fiche) : AUCUNE conversion. Le moteur
+ *    tourne sur toutes les vidéos comme avant, et le breakdown dit sa devise —
+ *    ou qu'il en mélange plusieurs, ce que le paiement refuse.
+ *  - `toReference` FOURNI (analyse : marge, coûts, marchés) : chaque montant est
+ *    ramené dans la devise de paie du projet avec ses taux. Le moteur tourne
+ *    alors UNE FOIS PAR DEVISE, pour que le plafond par vidéo s'applique dans la
+ *    devise du barème (150 €, pas 150 $), puis les montants sont convertis.
+ *    Tout dans la devise du projet ⇒ chemin identique au premier.
+ *
+ * Un facteur introuvable (`null`) est impossible par construction : un barème
+ * dans une devise non convertible est refusé à l'écriture
+ * (assertPayCurrencyConvertible), et les taux ne se retirent pas sous un barème
+ * qui en dépend (convex/projects). On garde alors le montant tel quel.
+ */
+// Exportée pour les tests (lib/pay-currency.test.ts) : pure, aucun ctx.
+export function assembleBreakdown(input: {
+  items: PayoutItem[];
+  videoBonuses: PricingBreakdown["videoBonuses"];
+  cashUnlocks: Doc<"bonusUnlocks">[];
+  challengeWins: PricingBreakdown["challengeWins"];
+  unmeasuredPayablePosts: number;
+  projectPayCurrency: string | null;
+  toReference?: PayFxProject;
+}): Omit<PricingBreakdown, "allSettled"> {
+  const pay = input.projectPayCurrency;
+  const curOfItem = new Map(
+    input.items.map((it) => [
+      it.assignmentId,
+      resolvePayCurrency(it.snapshot.currency, pay),
+    ]),
+  );
+  const curOfUnlock = (u: Doc<"bonusUnlocks">) => resolvePayCurrency(u.currency, pay);
+  const wins = input.challengeWins.map((w) => ({
+    ...w,
+    currency: resolvePayCurrency(w.currency, pay),
+  }));
+  const currencies = new Set<string | null>([
+    ...curOfItem.values(),
+    ...input.cashUnlocks.map(curOfUnlock),
+    ...wins.map((w) => w.currency),
+  ]);
+
+  const convert = input.toReference !== undefined;
+  const factorOf = (c: string | null): number =>
+    convert ? (payCurrencyFactor(c, input.toReference) ?? 1) : 1;
+  const scaled = (m: number, c: string | null) => {
+    const f = factorOf(c);
+    return f === 1 ? m : round2(m * f);
+  };
+
+  let base: MonthlyPayout;
+  let engage: PricingBreakdown["engage"];
+  if (![...currencies].some((c) => factorOf(c) !== 1)) {
+    base = computeMonthlyPayout(input.items);
+    engage = engageOf(input.items, base);
+  } else {
+    const parts = new Map<string | null, PayoutItem[]>();
+    for (const it of input.items) {
+      const c = curOfItem.get(it.assignmentId) ?? null;
+      const arr = parts.get(c);
+      if (arr) arr.push(it);
+      else parts.set(c, [it]);
+    }
+    const merged: MonthlyPayout = {
+      fixedTotal: 0,
+      cpmTotal: 0,
+      total: 0,
+      perPricing: [],
+      perAssignment: [],
+    };
+    engage = { total: 0, billedViews: 0, perAssignment: [] };
+    for (const [c, part] of parts) {
+      const raw = computeMonthlyPayout(part);
+      const e = engageOf(part, raw);
+      const p = scalePayout(raw, factorOf(c));
+      merged.fixedTotal = round2(merged.fixedTotal + p.fixedTotal);
+      merged.cpmTotal = round2(merged.cpmTotal + p.cpmTotal);
+      merged.perPricing.push(...p.perPricing);
+      merged.perAssignment.push(...p.perAssignment);
+      engage = {
+        total: round2(engage.total + scaled(e.total, c)),
+        billedViews: engage.billedViews + e.billedViews,
+        perAssignment: [...engage.perAssignment, ...e.perAssignment],
+      };
+    }
+    merged.total = round2(merged.fixedTotal + merged.cpmTotal);
+    base = merged;
+  }
+
+  const videoBonuses = input.videoBonuses.map((b) => ({
+    ...b,
+    montant: scaled(b.montant, curOfItem.get(b.assignmentId) ?? null),
+  }));
+  const videoBonusTotal = round2(videoBonuses.reduce((s, b) => s + b.montant, 0));
+  const bonusTierCashTotal = round2(
+    input.cashUnlocks.reduce(
+      (s, u) => s + scaled(u.montant ?? 0, curOfUnlock(u)),
+      0,
+    ),
+  );
+  // Détail par palier (AFFICHAGE) — même liste `cashUnlocks` déjà sommée
+  // ci-dessus : la somme des montants = bonusTierCashTotal, `total` inchangé.
+  const bonusTierCashUnlocks = input.cashUnlocks
+    .map((u) => ({
+      seuilVues: u.seuilVues,
+      montant: scaled(u.montant ?? 0, curOfUnlock(u)),
+    }))
+    .sort((a, b) => a.seuilVues - b.seuilVues);
+  const challengeWins = wins.map((w) => ({
+    ...w,
+    montant: scaled(w.montant, w.currency),
+    currency: convert ? normalizeCurrency(input.toReference?.payCurrency) : w.currency,
+  }));
+  const challengeTotal = round2(challengeWins.reduce((s, w) => s + w.montant, 0));
+
+  const distinct = [...currencies];
+  return {
+    ...base,
+    bonusTierCashTotal,
+    bonusTierCashUnlocks,
+    challengeTotal,
+    challengeWins,
+    videoBonusTotal,
+    videoBonuses,
+    unmeasuredPayablePosts: input.unmeasuredPayablePosts,
+    engage,
+    // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
+    // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
+    // vidéos de défi forment leur propre groupe de paie. Le bonus par vidéo
+    // s'ajoute de la même façon, hors plafond par vidéo.
+    total: round2(base.total + bonusTierCashTotal + challengeTotal + videoBonusTotal),
+    currency: convert
+      ? normalizeCurrency(input.toReference?.payCurrency)
+      : distinct.length === 1
+        ? distinct[0]
+        : null,
+    mixedCurrency: !convert && distinct.length > 1,
+  };
 }
 
 /**
@@ -1570,6 +1840,13 @@ export async function computeLivePricingBreakdown(
    * budget de groupe à re-répartir, il appartient à sa seule vidéo.
    */
   settledVideoBonusOf?: (a: Doc<"assignments">) => number | null,
+  /**
+   * ÉCRANS D'ANALYSE SEULEMENT — le projet (sa devise de paie et ses taux) vers
+   * lequel ramener chaque montant. Absent ⇒ aucune conversion, et c'est le seul
+   * cas autorisé sur un chemin de PAIE : un dû se paie dans sa devise. Cf
+   * assembleBreakdown.
+   */
+  toReference?: PayFxProject,
 ): Promise<PricingBreakdown> {
   const allAssignments =
     sources?.assignments ??
@@ -1647,8 +1924,6 @@ export async function computeLivePricingBreakdown(
       videoBonuses.push({ assignmentId: a._id, views: bonusTierViews, montant });
     }
   }
-  const base = computeMonthlyPayout(items);
-  const videoBonusTotal = round2(videoBonuses.reduce((s, b) => s + b.montant, 0));
   const allUnlocks =
     sources?.bonusUnlocks ??
     (
@@ -1663,14 +1938,6 @@ export async function computeLivePricingBreakdown(
       u.rewardType === "cash" &&
       u.attributionPeriod === period,
   );
-  const bonusTierCashTotal = round2(
-    cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
-  );
-  // Détail par palier (AFFICHAGE) — même liste `cashUnlocks` déjà sommée
-  // ci-dessus : la somme des montants = bonusTierCashTotal, `total` inchangé.
-  const bonusTierCashUnlocks = cashUnlocks
-    .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
-    .sort((a, b) => a.seuilVues - b.seuilVues);
   // PRIMES DE DÉFI — fenêtrées sur `attributionPeriod`, comme les paliers.
   const challengeWins = await challengeCashWins(
     ctx,
@@ -1679,27 +1946,19 @@ export async function computeLivePricingBreakdown(
     (w) => w.attributionPeriod === period,
     sources,
   );
-  const challengeTotal = round2(
-    challengeWins.reduce((s, w) => s + w.montant, 0),
-  );
   return {
-    ...base,
-    bonusTierCashTotal,
-    bonusTierCashUnlocks,
-    challengeTotal,
-    challengeWins,
-    videoBonusTotal,
-    videoBonuses,
-    unmeasuredPayablePosts,
-    engage: engageOf(items, base),
+    ...assembleBreakdown({
+      items,
+      videoBonuses,
+      cashUnlocks,
+      challengeWins,
+      unmeasuredPayablePosts,
+      projectPayCurrency: await projectPayCurrencyOf(ctx, projectId, sources),
+      toReference,
+    }),
     ...(settledViewsOf === undefined
       ? {}
       : { allSettled: items.length > 0 && settledCount === items.length }),
-    // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
-    // est intouché. C'est ce que garantit le barème dédié à fixe nul — les
-    // vidéos de défi forment leur propre groupe de paie. Le bonus par vidéo
-    // s'ajoute de la même façon, hors plafond 150 $.
-    total: round2(base.total + bonusTierCashTotal + challengeTotal + videoBonusTotal),
   };
 }
 
@@ -1792,8 +2051,6 @@ export async function computeCyclePricingBreakdown(
       videoBonuses.push({ assignmentId: a._id, views: bonusTierViews, montant });
     }
   }
-  const base = computeMonthlyPayout(items);
-  const videoBonusTotal = round2(videoBonuses.reduce((s, b) => s + b.montant, 0));
   const allUnlocks =
     sources?.bonusUnlocks ??
     (
@@ -1808,14 +2065,6 @@ export async function computeCyclePricingBreakdown(
       u.rewardType === "cash" &&
       cycleIndexOf(firstPostAt, u.unlockedAt) === cycleIndex,
   );
-  const bonusTierCashTotal = round2(
-    cashUnlocks.reduce((s, u) => s + (u.montant ?? 0), 0),
-  );
-  // Détail par palier (AFFICHAGE) — même liste `cashUnlocks` déjà sommée
-  // ci-dessus : la somme des montants = bonusTierCashTotal, `total` inchangé.
-  const bonusTierCashUnlocks = cashUnlocks
-    .map((u) => ({ seuilVues: u.seuilVues, montant: u.montant ?? 0 }))
-    .sort((a, b) => a.seuilVues - b.seuilVues);
   // PRIMES DE DÉFI — fenêtrées sur le CYCLE de la VICTOIRE (`wonAt`), comme les
   // paliers le sont sur `unlockedAt`. La prime est due au moment où la victoire
   // est actée, pas à la deadline du défi : un défi qui court à cheval sur deux
@@ -1828,22 +2077,15 @@ export async function computeCyclePricingBreakdown(
     (w) => cycleIndexOf(firstPostAt, w.wonAt) === cycleIndex,
     sources,
   );
-  const challengeTotal = round2(
-    challengeWins.reduce((s, w) => s + w.montant, 0),
-  );
-  return {
-    ...base,
-    bonusTierCashTotal,
-    bonusTierCashUnlocks,
-    challengeTotal,
-    challengeWins,
-    videoBonusTotal,
+  // Chemin de PAIE : jamais de conversion, le cycle dit sa devise.
+  return assembleBreakdown({
+    items,
     videoBonuses,
+    cashUnlocks,
+    challengeWins,
     unmeasuredPayablePosts,
-    engage: engageOf(items, base),
-    // ⚠️ S'AJOUTE (cf. computeLivePricingBreakdown) : fixe et CPM intouchés.
-    total: round2(base.total + bonusTierCashTotal + challengeTotal + videoBonusTotal),
-  };
+    projectPayCurrency: await projectPayCurrencyOf(ctx, projectId, sources),
+  });
 }
 
 /**
@@ -1863,8 +2105,14 @@ export async function buildPricingSnapshot(
   if (pricing.status !== "active") {
     throw err(ERR.PRICING_ARCHIVED, "Pricing archivé : réactive-le pour l'attribuer.");
   }
+  const currency = normalizeCurrency(pricing.currency);
   return {
     pricingId: pricing._id,
+    // La devise PROPRE du barème, jamais celle résolue du projet : un barème
+    // d'avant (sans devise) doit continuer à produire des snapshots sans
+    // devise, sinon ses vidéos se scinderaient en deux groupes de paie — deux
+    // budgets fixes pour un seul contrat (cf payoutGroupKey).
+    ...(currency !== null ? { currency } : {}),
     montantFixe: pricing.montantFixe,
     nbVideosCible: pricing.nbVideosCible,
     tauxCPM: pricing.tauxCPM,
@@ -1879,10 +2127,36 @@ export async function buildPricingSnapshot(
   };
 }
 
+/**
+ * Le snapshot d'un barème POUR UNE CRÉATRICE — celui que toute attribution doit
+ * prendre. Il ajoute la garde « une devise par créatrice » : le barème doit être
+ * dans sa devise (ou sa fiche vierge, et elle la prend). Cf convex/creatorPayCurrency.
+ */
+export async function buildPricingSnapshotFor(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  pricingId: Id<"pricings">,
+  creator: Doc<"creators">,
+): Promise<PricingSnapshot> {
+  const snapshot = await buildPricingSnapshot(ctx, projectId, pricingId);
+  const project = await ctx.db.get(projectId);
+  if (project) {
+    await ensureCreatorPayCurrency(
+      ctx,
+      creator,
+      project,
+      resolvePayCurrency(snapshot.currency, project.payCurrency),
+    );
+  }
+  return snapshot;
+}
+
 // ─── CRUD admin (scopé projet) ───────────────────────────────────────────────
 
 type PricingInput = {
   name: string;
+  /** Devise du barème (code ISO). Absente ⇒ celle du projet. */
+  currency?: string;
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
@@ -2064,6 +2338,9 @@ const VIDEO_BONUS_VALIDATOR = v.object({
 
 const PRICING_ARGS = {
   name: v.string(),
+  // Devise du barème (cf schema). Absente ⇒ celle du projet à la création, et
+  // inchangée à la modification.
+  currency: v.optional(v.string()),
   montantFixe: v.number(),
   nbVideosCible: v.number(),
   tauxCPM: v.number(),
@@ -2078,13 +2355,54 @@ const PRICING_ARGS = {
   videoBonusTemplateId: v.optional(v.union(v.id("bonusTemplates"), v.null())),
 };
 
+/**
+ * Un barème dont la devise ne peut PLUS changer : une vidéo l'a figé, une
+ * créatrice l'a pour grille de paliers (ou l'hérite du défaut projet), un défi
+ * le porte, ou un palier a été débloqué dessus. Changer sa devise réinterpréterait
+ * en euros des montants pensés en dollars — pour ses paliers lus en direct, et
+ * pour toutes les vidéos à venir des créatrices déjà payées dans l'autre devise.
+ * On crée un nouveau barème à la place (même doctrine que pour le fixe et le CPM).
+ */
+async function pricingCurrencyLocked(
+  ctx: QueryCtx | MutationCtx,
+  project: Doc<"projects">,
+  pricingId: Id<"pricings">,
+): Promise<boolean> {
+  if (await pricingInUse(ctx, project._id, pricingId)) return true;
+  if (project.defaultBonusPricingId === pricingId) return true;
+  const creators = await ctx.db
+    .query("creators")
+    .withIndex("by_project", (q) => q.eq("projectId", project._id))
+    .collect();
+  if (creators.some((c) => c.bonusPricingId === pricingId)) return true;
+  const unlocks = await ctx.db
+    .query("bonusUnlocks")
+    .withIndex("by_project", (q) => q.eq("projectId", project._id))
+    .collect();
+  if (unlocks.some((u) => u.pricingId === pricingId)) return true;
+  const challenges = await ctx.db
+    .query("challenges")
+    .withIndex("by_project", (q) => q.eq("projectId", project._id))
+    .collect();
+  return challenges.some((c) => c.pricingId === pricingId);
+}
+
 export const createPricing = permissionMutation("pricing.manage")({
   args: PRICING_ARGS,
   handler: async (ctx, args) => {
+    const project = await ctx.db.get(ctx.projectId);
+    if (!project) throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
+    // Toujours ÉCRITE à la création, même égale à celle du projet : un barème
+    // neuf n'a aucun snapshot d'avant avec qui partager un groupe de paie, et
+    // une devise explicite se lit sans détour.
+    const currency =
+      normalizeCurrency(args.currency) ?? normalizeCurrency(project.payCurrency);
+    if (currency !== null) await assertPayCurrencyConvertible(ctx, project, currency);
     const fields = pricingWriteFields(validatePricingFields(args));
     const pricingId = await ctx.db.insert("pricings", {
       projectId: ctx.projectId,
       ...fields,
+      currency: currency ?? undefined,
       status: "active",
       createdAt: Date.now(),
     });
@@ -2099,7 +2417,29 @@ export const updatePricing = permissionMutation("pricing.manage")({
     if (!pricing || pricing.projectId !== ctx.projectId) {
       throw new ConvexError("Pricing introuvable.");
     }
-    const fields = pricingWriteFields(validatePricingFields(args));
+    const project = await ctx.db.get(ctx.projectId);
+    if (!project) throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
+    const { currency: wantedRaw, ...rest } = validatePricingFields(args);
+    const fields: Partial<Doc<"pricings">> = pricingWriteFields(rest);
+    // ─── LA DEVISE NE S'ÉCRIT QUE SI ELLE CHANGE VRAIMENT ──────────────────
+    // L'écran envoie toujours une devise. Sur un barème d'avant (sans devise
+    // propre), réécrire « usd » dans un projet en dollars ne changerait rien au
+    // sens… mais les nouveaux snapshots porteraient « usd » et les anciens
+    // rien : deux groupes de paie, donc DEUX budgets fixes pour le même contrat
+    // sur un cycle à cheval (cf payoutGroupKey). On compare donc les devises
+    // RÉSOLUES, et on ne touche au champ que si elles diffèrent.
+    const before = pricingPayCurrency(pricing, project);
+    const wanted = normalizeCurrency(wantedRaw) ?? before;
+    if (wanted !== null && wanted !== before) {
+      if (await pricingCurrencyLocked(ctx, project, id)) {
+        throw err(
+          ERR.PRICING_CURRENCY_LOCKED,
+          "Ce barème est déjà utilisé : sa devise ne change plus. Crée un nouveau barème dans la nouvelle devise.",
+        );
+      }
+      await assertPayCurrencyConvertible(ctx, project, wanted);
+      fields.currency = wanted;
+    }
     // Snapshot figé sur les assignments → modifier n'affecte QUE les futures
     // attributions (jamais les vidéos déjà attribuées). Les PALIERS, eux, sont
     // lus en direct : les toucher ici change bien la grille des créatrices.
@@ -2163,10 +2503,17 @@ export const listPricingsForAssignment = permissionQuery("assignments.manage")({
       .query("pricings")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    const project = await ctx.db.get(ctx.projectId);
     return all
       .filter((p) => p.status === "active")
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((p) => ({ _id: p._id, name: p.name }));
+      // La DEVISE n'est pas un montant : le manager doit pouvoir choisir un
+      // barème dans la devise de la créatrice, sans en voir les termes.
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        currency: pricingPayCurrency(p, project),
+      }));
   },
 });
 
@@ -2218,13 +2565,39 @@ export const listPricings = permissionQuery("pricing.manage")({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const bonusCounts = new Map<string, number>();
+    const defaultPricing = defaultBonusId
+      ? all.find((p) => p._id === defaultBonusId)
+      : undefined;
+    const defaultCurrency = defaultPricing
+      ? pricingPayCurrency(defaultPricing, project)
+      : null;
     for (const c of creators) {
       // Même résolution que effectiveBonusPricing : la grille perso PRIME, sinon
-      // le défaut du projet. Les compter autrement ferait mentir l'avertissement
-      // affiché avant d'écrire une échelle.
-      const id = c.bonusPricingId ?? defaultBonusId;
+      // le défaut du projet — et le défaut ne vaut que pour les créatrices de
+      // SA devise. Les compter autrement ferait mentir l'avertissement affiché
+      // avant d'écrire une échelle.
+      const id =
+        c.bonusPricingId ??
+        (defaultCurrency === creatorPayCurrency(c, project) ? defaultBonusId : null);
       if (id) bonusCounts.set(id, (bonusCounts.get(id) ?? 0) + 1);
     }
+
+    // Le reste de ce qui fige une devise (cf pricingCurrencyLocked) : paliers
+    // déjà débloqués et défis. Un balayage chacun, hors de toute boucle.
+    const lockedByOther = new Set<string>();
+    for (const u of await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      lockedByOther.add(u.pricingId);
+    }
+    for (const c of await ctx.db
+      .query("challenges")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      lockedByOther.add(c.pricingId);
+    }
+    if (defaultBonusId) lockedByOther.add(defaultBonusId);
 
     const rows = includeArchived
       ? all
@@ -2238,6 +2611,14 @@ export const listPricings = permissionQuery("pricing.manage")({
         name: p.name,
         status: p.status,
         createdAt: p.createdAt,
+        // RÉSOLUE (la sienne, sinon celle du projet) : l'écran affiche chaque
+        // barème dans SA devise, jamais dans celle du projet par défaut.
+        currency: pricingPayCurrency(p, project),
+        // Peut-on encore la changer ? Non dès qu'un argent en dépend.
+        currencyLocked:
+          (assignmentCounts.get(p._id) ?? 0) > 0 ||
+          (bonusCounts.get(p._id) ?? 0) > 0 ||
+          lockedByOther.has(p._id),
         montantFixe: p.montantFixe,
         nbVideosCible: p.nbVideosCible,
         tauxCPM: p.tauxCPM,
@@ -2529,10 +2910,13 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
       ).map((c) => [c._id, c.name]),
     );
 
+    const project = await ctx.db.get(ctx.projectId);
     type Gen = {
       montantFixe: number;
       nbVideosCible: number;
       tauxCPM: number;
+      /** Devise FIGÉE de cette génération (résolue) — 465 $ ne se lit pas 465 €. */
+      currency: string | null;
       count: number;
       /** Échantillon borné — le détail au clic n'a pas à charger 500 lignes. */
       sample: {
@@ -2550,12 +2934,14 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
       if (!snap) continue;
       const live = pricings.find((p) => p._id === snap.pricingId);
       if (!live) continue; // pricing supprimé : hors périmètre de la comparaison
+      const snapCurrency = resolvePayCurrency(snap.currency, project?.payCurrency);
       const same =
         snap.montantFixe === live.montantFixe &&
         snap.nbVideosCible === live.nbVideosCible &&
-        snap.tauxCPM === live.tauxCPM;
+        snap.tauxCPM === live.tauxCPM &&
+        snapCurrency === pricingPayCurrency(live, project);
       if (same) continue;
-      const key = `${snap.montantFixe}|${snap.nbVideosCible}|${snap.tauxCPM}`;
+      const key = `${snap.montantFixe}|${snap.nbVideosCible}|${snap.tauxCPM}|${snapCurrency ?? ""}`;
       let gens = byPricing.get(snap.pricingId);
       if (!gens) {
         gens = new Map();
@@ -2567,6 +2953,7 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
           montantFixe: snap.montantFixe,
           nbVideosCible: snap.nbVideosCible,
           tauxCPM: snap.tauxCPM,
+          currency: snapCurrency,
           count: 0,
           sample: [],
         };
@@ -2596,6 +2983,7 @@ export const listPricingSnapshotDrift = permissionQuery("pricing.manage")({
             montantFixe: p.montantFixe,
             nbVideosCible: p.nbVideosCible,
             tauxCPM: p.tauxCPM,
+            currency: pricingPayCurrency(p, project),
           },
           driftCount: gens.reduce((s, g) => s + g.count, 0),
           generations: gens.map((g) => ({
@@ -2869,6 +3257,7 @@ export const setPricingCreators = permissionMutation("creators.pay_terms")({
       .query("creators")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
+    const projectDoc = await ctx.db.get(ctx.projectId);
     let added = 0;
     let removed = 0;
     for (const c of creators) {
@@ -2879,6 +3268,16 @@ export const setPricingCreators = permissionMutation("creators.pay_terms")({
       const surCetteGrille = c.bonusPricingId === pricingId;
       if (wanted.has(c._id)) {
         if (surCetteGrille) continue;
+        // Une grille de paliers paie dans SA devise : elle doit être celle de
+        // la créatrice (ou sa fiche vierge, qui la prend).
+        if (projectDoc) {
+          await ensureCreatorPayCurrency(
+            ctx,
+            c,
+            projectDoc,
+            pricingPayCurrency(pricing, projectDoc),
+          );
+        }
         await ctx.db.patch(c._id, { bonusPricingId: pricingId });
         await syncBonusUnlocks(ctx, ctx.projectId, c._id);
         added += 1;

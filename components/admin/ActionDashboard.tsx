@@ -47,6 +47,7 @@ import {
 import { savesAvailability } from "@/convex/decisionThresholds";
 import { type ConversionDisplayRow } from "@/convex/conversionAttribution";
 import { formatMoney } from "@/lib/format-rate";
+import { formatMoneyByCurrency } from "@/lib/money-by-currency";
 import { usePermissions } from "@/components/project/use-permissions";
 import { POST_WINDOW_PRESETS } from "@/convex/postWindow";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
@@ -222,7 +223,9 @@ export function ActionDashboard() {
     // même ensemble et dans le même ordre que le total de /paiements (les deux
     // passent par `collectProjectPaymentRows`).
     // `null` quand le bloc n'est pas accordé : la carte n'est alors pas rendue.
-    const dueTotal = due?.dueTotal ?? null;
+    // PAR DEVISE : une créatrice payée en euros et une autre en dollars ne
+    // s'additionnent pas (cf lib/money-by-currency).
+    const dueTotal = due?.byCurrency ?? null;
 
     return {
       submitted,
@@ -323,7 +326,11 @@ export function ActionDashboard() {
             href={projectPath("/paiements")}
             icon={WalletIcon}
             label={tr("du")}
-            value={formatMoney(dueTotal, payCurrency, loc)}
+            value={formatMoneyByCurrency(
+              dueTotal.filter((t) => t.amount > 0),
+              loc,
+              payCurrency,
+            )}
             hint={tr("cyclesNonPayes")}
           />
         )}

@@ -7,7 +7,8 @@ import {
   type ProjectQueryCtx,
 } from "./functions";
 import { isInCreatorScope } from "./creatorScope";
-import { buildPricingSnapshot } from "./pricing";
+import { buildPricingSnapshotFor } from "./pricing";
+import { pricingPayCurrency } from "./creatorPayCurrency";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -893,10 +894,17 @@ export async function createChallengeAssignment(
     input.targets,
   );
 
-  const pricingSnapshot = await buildPricingSnapshot(
+  // La créatrice doit être payée dans la devise du barème du défi — sa prime
+  // aussi y est exprimée (cf convex/creatorPayCurrency).
+  const participant = await ctx.db.get(input.creatorId);
+  if (!participant || participant.projectId !== ctx.projectId) {
+    throw err(ERR.CREATOR_NOT_IN_PROJECT, "Créateur introuvable dans le projet.");
+  }
+  const pricingSnapshot = await buildPricingSnapshotFor(
     ctx,
     ctx.projectId,
     challenge.pricingId,
+    participant,
   );
 
   const now = Date.now();
@@ -1008,10 +1016,12 @@ export async function listChallengesCore(ctx: ProjectQueryCtx) {
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .collect();
     const now = Date.now();
+    const project = await ctx.db.get(ctx.projectId);
     return Promise.all(
       rows
         .sort((a, b) => b.createdAt - a.createdAt)
         .map(async (c) => {
+          const pricing = await ctx.db.get(c.pricingId);
           const [participants, wins] = await Promise.all([
             ctx.db
               .query("challengeParticipants")
@@ -1029,6 +1039,8 @@ export async function listChallengesCore(ctx: ProjectQueryCtx) {
             targetViews: c.targetViews,
             deadline: c.deadline,
             reward: c.reward,
+            // Devise de la prime = celle du barème du défi (cf convex/payCurrency).
+            currency: pricing ? pricingPayCurrency(pricing, project) : (project?.payCurrency ?? null),
             winnerRule: c.winnerRule,
             participantCount: participants.length,
             winCount: liveWins.length,
@@ -1122,6 +1134,10 @@ export async function getChallengeCore(ctx: ProjectQueryCtx, { id }: { id: Id<"c
         assetFolderIds: c.assetFolderIds ?? [],
         pricingId: c.pricingId,
         pricingName: pricing?.name ?? null,
+        // Devise de la prime et des vidéos du défi = celle de son barème.
+        currency: pricing
+          ? pricingPayCurrency(pricing, await ctx.db.get(ctx.projectId))
+          : ((await ctx.db.get(ctx.projectId))?.payCurrency ?? null),
       },
       ranking,
       wins: wins
@@ -1150,6 +1166,7 @@ export async function getChallengeCore(ctx: ProjectQueryCtx, { id }: { id: Id<"c
 export const listChallengePricings = permissionQuery("challenges.money")({
   args: {},
   handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
     const rows = await ctx.db
       .query("pricings")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -1157,7 +1174,14 @@ export const listChallengePricings = permissionQuery("challenges.money")({
     return rows
       .filter((p) => p.status === "active" && p.montantFixe === 0)
       .sort((a, b) => a.name.localeCompare(b.name, "fr"))
-      .map((p) => ({ _id: p._id, name: p.name, tauxCPM: p.tauxCPM }));
+      .map((p) => ({
+        _id: p._id,
+        name: p.name,
+        tauxCPM: p.tauxCPM,
+        // La prime du défi sera dans cette devise, et seules les créatrices
+        // payées dedans pourront y produire.
+        currency: pricingPayCurrency(p, project),
+      }));
   },
 });
 

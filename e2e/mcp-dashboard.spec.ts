@@ -187,7 +187,12 @@ test.describe("Outil MCP dashboard", () => {
       expect(d.actions.warmupsEnRetard).toEqual({ comptes: 1, liste: [`${enRetard} (TikTok)`] });
       expect(d.actions.warmupsAValider).toEqual({ comptes: 1, liste: [`${pret} (TikTok)`] });
       const du = await admin.query(api.payments.getDueTotal, { projectId });
-      expect(d.actions.du).toEqual({ valeur: du.dueTotal, devise: "usd" });
+      // Le dû PAR DEVISE (jamais fondu), et le total ramené dans celle du projet.
+      expect(d.actions.du).toEqual({
+        parDevise: du.byCurrency.map((t) => ({ devise: t.currency, montant: t.amount })),
+        valeur: du.dueTotal,
+        devise: "usd",
+      });
 
       // ── À décider : l'alarme de compte, les cinq posts sous les seuils ──────
       expect(d.aDecider.alarmesCompte).toEqual([

@@ -26,6 +26,13 @@ import { isRemunerated, type RemunerationFlags } from "./remunerate";
 
 export type PricingSnapshot = {
   pricingId: string;
+  /**
+   * Devise du barème, figée à l'attribution. Absente ⇒ devise du projet. Le
+   * moteur ne convertit RIEN : il la lit seulement pour ne jamais mettre deux
+   * monnaies dans le même budget fixe (cf payoutGroupKey). Le plafond par vidéo
+   * s'applique dans cette devise (cf convex/payCurrency).
+   */
+  currency?: string;
   montantFixe: number;
   nbVideosCible: number;
   tauxCPM: number;
@@ -302,12 +309,16 @@ function payoutGroupKey(s: PricingSnapshot): string {
   // ⚠️ LE SEUIL EN FAIT PARTIE. Sans lui, deux générations de snapshot qui ne
   // diffèrent QUE par la condition tomberaient dans le même groupe, donc dans le
   // même budget fixe — et la condition de l'une déciderait pour l'autre.
+  // ⚠️ LA DEVISE AUSSI. Le budget fixe se lit au niveau du groupe : 465 et 400
+  // ne se comparent pas s'ils ne sont pas dans la même monnaie. Absente sur les
+  // snapshots d'avant ⇒ segment vide, regroupement strictement inchangé.
   return [
     s.pricingId,
     s.montantFixe,
     s.nbVideosCible,
     s.tauxCPM,
     s.seuilVuesFixe ?? 0,
+    s.currency ?? "",
   ].join("|");
 }
 

@@ -243,7 +243,7 @@ function PodiumSpot({
           {entry.name}
         </p>
         <p className="text-sm font-bold tabular-nums text-foreground">
-          {formatMoney(entry.totalDue, currency, loc)}
+          {formatMoney(entry.totalDue, entry.currency ?? currency, loc)}
         </p>
         {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
         <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
@@ -306,7 +306,7 @@ function ListRow({
         </p>
       </div>
       <span className="shrink-0 text-sm font-bold tabular-nums text-foreground">
-        {formatMoney(entry.totalDue, currency, loc)}
+        {formatMoney(entry.totalDue, entry.currency ?? currency, loc)}
       </span>
     </li>
   );

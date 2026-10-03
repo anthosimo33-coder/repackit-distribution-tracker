@@ -59,14 +59,16 @@ function sameSnapshot(a: PricingSnapshot, b: PricingSnapshot): boolean {
     // n'avoir rien à réécrire là où le fixe peut passer à zéro.
     (a.seuilVuesFixe ?? 0) === (b.seuilVuesFixe ?? 0) &&
     a.seuilBonusVues === b.seuilBonusVues &&
-    a.montantBonus === b.montantBonus
+    a.montantBonus === b.montantBonus &&
+    (a.currency ?? null) === (b.currency ?? null)
   );
 }
 
 /** Forme courte lisible dans le rapport et les logs. */
 function brief(s: PricingSnapshot): string {
   const cond = s.seuilVuesFixe ? ` · fixe conditionné à ${s.seuilVuesFixe} vues` : "";
-  return `fixe ${s.montantFixe}$/${s.nbVideosCible} vidéos · CPM ${s.tauxCPM}${cond}`;
+  const cur = s.currency ? ` ${s.currency.toUpperCase()}` : "";
+  return `fixe ${s.montantFixe}${cur}/${s.nbVideosCible} vidéos · CPM ${s.tauxCPM}${cond}`;
 }
 
 /** La ligne porte-t-elle déjà une publication (URL, date ou publication liée) ? */
@@ -188,6 +190,16 @@ export const restampPricingSnapshots = internalMutation({
           assignmentId: a._id,
           status: a.status,
           reason: `barème illisible : ${e instanceof ConvexError ? convexErrorText(e) : String(e)}`,
+        });
+        continue;
+      }
+      // Une DEVISE qui change ne se re-tamponne pas ici : elle engage la devise
+      // de la créatrice et de tout son cycle (cf convex/payCurrencyMigration).
+      if ((next.currency ?? null) !== (a.pricingSnapshot.currency ?? null)) {
+        skipped.push({
+          assignmentId: a._id,
+          status: a.status,
+          reason: "devise du barème changée : passer par payCurrencyMigration",
         });
         continue;
       }

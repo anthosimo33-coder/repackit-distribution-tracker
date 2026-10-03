@@ -97,6 +97,10 @@ export function CreateChallengeDialog({
   const [winnerN, setWinnerN] = useState("3");
   const [deadline, setDeadline] = useState(() => toDateInput(midnightPlus(14)));
   const [pricingId, setPricingId] = useState<string>("");
+  // La prime est versée dans la devise du BARÈME choisi (celle des créatrices
+  // qui y produiront) ; celle du projet tant qu'aucun n'est choisi.
+  const prizeCurrency =
+    (pricings ?? []).find((p) => p._id === pricingId)?.currency ?? payCurrency;
   const [saving, setSaving] = useState(false);
   // ⚠️ `items` sur chaque Select : sans lui, base-ui affiche la VALEUR BRUTE
   // dans le champ fermé (« cumulative », « first », « cash ») et ne rend le
@@ -350,7 +354,7 @@ export function CreateChallengeDialog({
             {engagement !== null ? (
               <>
                 {tr("laRecompenseEst")}{" "}<strong>{tr("parGagnante")}</strong>{tr("jamaisPartageeEngagementMaximal")}{" "}
-                <strong>{formatMoney(engagement, payCurrency, loc)}</strong>
+                <strong>{formatMoney(engagement, prizeCurrency, loc)}</strong>
                 {` ${tr("siToutesLesPlacesSont")}`}
               </>
             ) : (
@@ -385,7 +389,7 @@ export function CreateChallengeDialog({
                 items={Object.fromEntries(
                   (pricings ?? []).map((p) => [
                     p._id,
-                    `${p.name} — ${formatMoney(p.tauxCPM, payCurrency, loc)}/1000 vues`,
+                    `${p.name} — ${formatMoney(p.tauxCPM, p.currency ?? payCurrency, loc)}/1000 vues`,
                   ]),
                 )}
                 value={pricingId}
@@ -397,7 +401,7 @@ export function CreateChallengeDialog({
                 <SelectContent>
                   {(pricings ?? []).map((p) => (
                     <SelectItem key={p._id} value={p._id}>
-                      {tr("n1000Vues", { name: p.name, amount: formatMoney(p.tauxCPM, payCurrency, loc) })}
+                      {tr("n1000Vues", { name: p.name, amount: formatMoney(p.tauxCPM, p.currency ?? payCurrency, loc) })}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -1515,7 +1515,11 @@
     "ERR_COMPTA_ACCOUNT_NOT_FOUND": "Ce compte n'existe plus.",
     "ERR_COMPTA_DESTINATION_TAKEN": "La destination Whop « {destination} » arrive déjà sur le compte « {account} » : une destination n'arrive que sur un compte.",
     "ERR_COMPTA_READING_INVALID": "Relevé invalide : un jour AAAA-MM-JJ qui n'est pas dans le futur, et un solde chiffré.",
-    "ERR_COMPTA_PROVISION_INVALID": "Montant invalide : un paiement positif, daté d'un jour qui n'est pas dans le futur."
+    "ERR_COMPTA_PROVISION_INVALID": "Montant invalide : un paiement positif, daté d'un jour qui n'est pas dans le futur.",
+    "ERR_PRICING_CURRENCY_INVALID": "Ce projet ne sait pas convertir la devise {currency} : règle d'abord un taux de change, sans quoi le coût de ces créatrices ne pourrait pas entrer dans la marge.",
+    "ERR_PRICING_CURRENCY_LOCKED": "Ce barème est déjà utilisé : sa devise ne change plus. Crée un nouveau barème dans la nouvelle devise.",
+    "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} est payée en {creatorCurrency} : un barème en {pricingCurrency} ne peut pas lui être attribué. Choisis un barème en {creatorCurrency}.",
+    "ERR_PAYMENT_MIXED_CURRENCY": "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel. Régularise d'abord les barèmes de ses vidéos."
   },
   "calendar": {
     "weekday": {

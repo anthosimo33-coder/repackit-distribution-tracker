@@ -45,6 +45,8 @@ const rowValidator = v.object({
   name: v.string(),
   rank: v.number(),
   totalDue: v.number(),
+  currency: v.optional(v.union(v.string(), v.null())),
+  rate: v.optional(v.number()),
   cycleStart: v.number(),
   cycleEnd: v.number(),
 });
@@ -62,6 +64,8 @@ export function sameLeaderboardRows(
       r.name === o.name &&
       r.rank === o.rank &&
       r.totalDue === o.totalDue &&
+      (r.currency ?? null) === (o.currency ?? null) &&
+      (r.rate ?? 1) === (o.rate ?? 1) &&
       r.cycleStart === o.cycleStart &&
       r.cycleEnd === o.cycleEnd
     );
@@ -97,11 +101,13 @@ async function writeIfChanged(
 function toCachedRows(
   board: Awaited<ReturnType<typeof computeProjectLeaderboard>>,
 ): CachedLeaderboardRow[] {
-  return board.map(({ creatorId, name, rank, totalDue, cycleStart, cycleEnd }) => ({
+  return board.map(({ creatorId, name, rank, totalDue, currency, rate, cycleStart, cycleEnd }) => ({
     creatorId,
     name,
     rank,
     totalDue,
+    currency,
+    rate,
     cycleStart,
     cycleEnd,
   }));

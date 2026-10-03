@@ -179,14 +179,37 @@ export function emailDate(ms: number, locale: unknown): string {
 }
 
 /**
- * Montant. Le SYMBOLE reste le dollar : c'est la devise de la paie créatrices
- * (`projects.payCurrency`), elle vient de la transaction et ne dérive jamais de
- * la langue. Seule la mise en forme suit : « 1 234,56 $ » contre « $1,234.56 ».
+ * Montant. Le SYMBOLE vient de la TRANSACTION, jamais de la langue : c'est la
+ * devise de la row payée (celle de la créatrice — cf convex/payCurrency). Absente
+ * ⇒ le dollar, seule devise de paie avant les barèmes en devise. Seule la mise en
+ * forme suit la langue : « 1 234,56 $ » contre « $1,234.56 ».
  */
-export function emailAmount(n: number, locale: unknown): string {
+export function emailAmount(
+  n: number,
+  locale: unknown,
+  currency?: string | null,
+): string {
   const rounded = Math.round(n * 100) / 100;
   const [int, dec] = rounded.toFixed(2).split(".");
   const l = localeOrDefault(locale);
+  const code = currency?.trim().toLowerCase() || "usd";
+  if (code === "eur") {
+    // L'euro s'écrit de la même façon partout en Europe, symbole après le
+    // nombre ; seul l'anglais le met devant.
+    if (l === "en") {
+      const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return dec === "00" ? `€${grouped}` : `€${grouped}.${dec}`;
+    }
+    const sep = l === "fr" ? " " : ".";
+    const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, sep);
+    return dec === "00" ? `${grouped} €` : `${grouped},${dec} €`;
+  }
+  if (code !== "usd") {
+    // Une autre devise : le code ISO, sans deviner de symbole.
+    const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, l === "en" ? "," : " ");
+    const sepDec = l === "en" ? "." : ",";
+    return `${dec === "00" ? grouped : `${grouped}${sepDec}${dec}`} ${code.toUpperCase()}`;
+  }
   if (l === "en") {
     const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     return dec === "00" ? `$${grouped}` : `$${grouped}.${dec}`;

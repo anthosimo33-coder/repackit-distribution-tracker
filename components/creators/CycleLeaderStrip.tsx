@@ -87,7 +87,7 @@ export function CycleLeaderStrip({
                 {e.name}
               </span>
               <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
-                {formatMoney(e.totalDue, currency, loc)}
+                {formatMoney(e.totalDue, e.currency ?? currency, loc)}
               </span>
             </li>
           ))}

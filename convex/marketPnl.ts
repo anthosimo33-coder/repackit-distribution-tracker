@@ -27,6 +27,7 @@ import {
 } from "./marketValue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { splitCostByMarket, type MarketTarget } from "./marketCost";
+import type { PayFxProject } from "./payCurrency";
 
 /**
  * RENTABILITÉ PAR MARCHÉ — ce qu'un pays coûte en créatrices, contre ce qu'il
@@ -180,6 +181,12 @@ async function costByMarket(
   projectId: Id<"projects">,
   from: number,
   to: number,
+  /**
+   * Le projet : chaque coût est ramené dans SA devise de paie (une créatrice
+   * payée en euros, une autre en dollars — cf convex/payCurrency). Les marchés
+   * comparent ensuite des montants dans une seule devise.
+   */
+  toReference: PayFxProject | null,
 ): Promise<{
   parPays: Map<string, MarketCostAcc>;
   parMois: Map<string, number>;
@@ -291,6 +298,9 @@ async function costByMarket(
         undefined,
         sources,
         parisMonthEndMs(month),
+        undefined,
+        undefined,
+        toReference ?? undefined,
       );
       // BASE = fixe + CPM, jamais `bd.total` : celui-ci ajoute les bonus de
       // paliers et les primes de défi, qui ne se répartissent pas par marché.
@@ -569,6 +579,7 @@ export async function getMarketPnlCore(
       ctx.projectId,
       from,
       to,
+      project,
     );
 
     // ── MATRICE PLAN × PAYS ───────────────────────────────────────────────

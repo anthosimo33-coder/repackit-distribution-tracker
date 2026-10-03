@@ -214,6 +214,7 @@
       "creatorDeleted": "Deleted creator",
       "creatorsTotal": "Total · {pay} × {rate}",
       "creatorsTotalNoRate": "Total · {pay} (no rate)",
+      "creatorsTotalMulti": "Total · {pay}",
       "creatorsLink": "What's still owed is in Payments.",
       "scansTitle": "Scanning",
       "scansAside": "cost_usd estimate",

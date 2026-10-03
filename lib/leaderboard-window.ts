@@ -14,8 +14,15 @@ export type RankedEntry = {
   creatorId: string;
   name: string;
   rank: number;
+  /** Gains du cycle, dans la devise de CETTE créatrice. */
   totalDue: number;
   isMe: boolean;
+  /**
+   * 1 unité de la devise de la ligne = `rate` unités de la devise du projet
+   * (cf convex/payCurrency). Absent ⇒ 1 : tout le monde est payé dans la devise
+   * du projet, et l'écart se calcule comme avant.
+   */
+  rate?: number;
 };
 
 export type LeaderboardWindow<T extends RankedEntry> = {
@@ -24,7 +31,11 @@ export type LeaderboardWindow<T extends RankedEntry> = {
   rows: T[];
   /** La créatrice juste au-dessus, ou `null` si tu es première. */
   ahead: T | null;
-  /** Ce qui te sépare d'elle (≥ 0 ; 0 à égalité), `null` si tu es première. */
+  /**
+   * Ce qui te sépare d'elle (≥ 0 ; 0 à égalité), `null` si tu es première —
+   * TOUJOURS dans TA devise : si elle est payée dans une autre, son gain y est
+   * ramené au taux du projet avant la soustraction.
+   */
   gapToAhead: number | null;
   /** Nombre de classées. */
   total: number;
@@ -56,7 +67,19 @@ export function leaderboardWindow<T extends RankedEntry>(
     gapToAhead:
       ahead === null
         ? null
-        : Math.max(0, Math.round((ahead.totalDue - me.totalDue) * 100) / 100),
+        : Math.max(
+            0,
+            Math.round(
+              (aheadInMyCurrency(ahead, me) - me.totalDue) * 100,
+            ) / 100,
+          ),
     total: entries.length,
   };
+}
+
+/** Le gain de `ahead` exprimé dans la devise de `me` (identique si même taux). */
+function aheadInMyCurrency(ahead: RankedEntry, me: RankedEntry): number {
+  const a = ahead.rate ?? 1;
+  const m = me.rate ?? 1;
+  return a === m || !(m > 0) ? ahead.totalDue : (ahead.totalDue * a) / m;
 }

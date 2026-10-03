@@ -562,7 +562,7 @@ function MonthDetail({ month }: { month: string }) {
                         )}
                       </span>
                       <span className="text-right text-[11px] tabular-nums text-slate-400">
-                        {f.money(c.amount, d.payCurrency)}
+                        {f.money(c.amount, c.currency ?? d.payCurrency)}
                       </span>
                       <span className="w-20 text-right tabular-nums text-slate-700">
                         {c.converted === null ? t("noRate") : f.money(c.converted, cur)}
@@ -572,12 +572,28 @@ function MonthDetail({ month }: { month: string }) {
                 </ul>
                 <div className="mt-2 flex items-baseline justify-between border-t border-slate-100 pt-2 text-xs">
                   <span className="font-medium text-slate-700">
-                    {d.creatorsTotal.rate === null
-                      ? t("creatorsTotalNoRate", { pay: f.money(d.creatorsTotal.pay, d.payCurrency) })
-                      : t("creatorsTotal", {
-                          pay: f.money(d.creatorsTotal.pay, d.payCurrency),
-                          rate: f.rate(d.creatorsTotal.rate),
-                        })}
+                    {d.creatorsTotal.payByCurrency.length > 1
+                      ? // Plusieurs devises de paie ce mois-ci : chacune à SON
+                        // taux, donc aucun taux unique à afficher.
+                        t("creatorsTotalMulti", {
+                          pay: d.creatorsTotal.payByCurrency
+                            .map((x) => f.money(x.amount, x.currency))
+                            .join(" · "),
+                        })
+                      : d.creatorsTotal.rate === null
+                        ? t("creatorsTotalNoRate", {
+                            pay: f.money(
+                              d.creatorsTotal.pay,
+                              d.creatorsTotal.payByCurrency[0]?.currency ?? d.payCurrency,
+                            ),
+                          })
+                        : t("creatorsTotal", {
+                            pay: f.money(
+                              d.creatorsTotal.pay,
+                              d.creatorsTotal.payByCurrency[0]?.currency ?? d.payCurrency,
+                            ),
+                            rate: f.rate(d.creatorsTotal.rate),
+                          })}
                   </span>
                   <span className="font-semibold tabular-nums text-slate-900">
                     {d.creatorsTotal.converted === null ? "—" : f.signed(-d.creatorsTotal.converted, cur)}

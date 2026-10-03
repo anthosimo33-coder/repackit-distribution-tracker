@@ -9,6 +9,8 @@
  * app/ ni de lib/, règle A6). La page appelle cette fonction.
  */
 
+import { sumByCurrency, type MoneyByCurrency } from "./payCurrency";
+
 const DAY_MS = 86_400_000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -24,6 +26,14 @@ export type LignePaiement = {
   paidAt: number | null;
   remainingDue: number;
   totalDue: number;
+  /** Devise du cycle (cf convex/payCurrency) — tous ses montants y sont. */
+  currency: string | null;
+  /**
+   * 1 unité de `currency` = `rate` unités de la devise du projet. Sert à
+   * ORDONNER des restes dans des devises différentes (400 € pèsent plus que
+   * 400 $), jamais à les additionner. Absent ⇒ 1.
+   */
+  rate?: number;
 };
 
 /** Rows ORPHELINES de listPayments (créateur supprimé) : leur clé est préfixée
@@ -50,6 +60,10 @@ export type GroupeCreatrice<T extends LignePaiement> = {
   cycles: T[];
   /** Somme des restes à verser de ses cycles ouverts (acomptes déduits). */
   remaining: number;
+  /** Devise du virement — UN virement ne mélange jamais deux devises. */
+  currency: string | null;
+  /** Taux de cette devise vers celle du projet (tri seulement). */
+  rate: number;
 };
 
 /**
@@ -63,21 +77,30 @@ export function regrouperPaiements<T extends LignePaiement>(rows: readonly T[], 
   const m = new Map<string, GroupeCreatrice<T>>();
   for (const p of rows) {
     if (p.status === "paid") continue;
-    const k = p.creatorId as string;
+    // Clé = créatrice ET devise : un virement est dans UNE devise. Une
+    // créatrice n'en a qu'une (cf convex/creatorPayCurrency) ; si une donnée y
+    // échappait, ses deux restes s'afficheraient séparés plutôt qu'additionnés.
+    const k = `${p.creatorId as string}|${p.currency ?? ""}`;
     const g = m.get(k) ?? {
-      creatorId: k,
+      creatorId: p.creatorId as string,
       creatorName: p.creatorName,
       paymentMethod: p.creatorPaymentMethod,
       paymentDetails: p.creatorPaymentDetails,
       cycles: [],
       remaining: 0,
+      currency: p.currency,
+      rate: p.rate ?? 1,
     };
     g.cycles.push(p);
     g.remaining = round2(g.remaining + p.remainingDue);
     m.set(k, g);
   }
   const groupes = [...m.values()].sort(
-    (a, b) => b.remaining - a.remaining || a.creatorName.localeCompare(b.creatorName, "fr"),
+    // Trié sur la valeur RAMENÉE dans la devise du projet : sans taux (tout le
+    // monde dans la même devise), c'est exactement l'ordre d'avant.
+    (a, b) =>
+      b.remaining * b.rate - a.remaining * a.rate ||
+      a.creatorName.localeCompare(b.creatorName, "fr"),
   );
   const avecDu = groupes.filter((g) => g.remaining > 0);
   const aZero = groupes.filter((g) => g.remaining <= 0);
@@ -98,10 +121,17 @@ export function regrouperPaiements<T extends LignePaiement>(rows: readonly T[], 
     aZero,
     cyclesDus,
     ageDuPlusVieux,
-    /** « À verser » de l'en-tête : Σ des restes des cycles payables en masse. */
-    aVerser: rows.filter(isBulkPayable).reduce((s, p) => s + p.remainingDue, 0),
-    /** « au total sur l'historique » : Σ de ce que valent tous les cycles. */
-    totalHistorique: rows.reduce((s, p) => s + p.totalDue, 0),
+    /**
+     * « À verser » de l'en-tête : Σ des restes des cycles payables en masse,
+     * PAR DEVISE (cf convex/payCurrency.sumByCurrency).
+     */
+    aVerser: sumByCurrency(
+      rows.filter(isBulkPayable).map((p) => ({ amount: p.remainingDue, currency: p.currency })),
+    ) as MoneyByCurrency,
+    /** « au total sur l'historique » : Σ de ce que valent tous les cycles, par devise. */
+    totalHistorique: sumByCurrency(
+      rows.map((p) => ({ amount: p.totalDue, currency: p.currency })),
+    ) as MoneyByCurrency,
     reglees,
   };
 }

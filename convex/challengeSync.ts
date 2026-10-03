@@ -16,6 +16,7 @@ import { newWinnersAt, type WinnerRule } from "./challengeScore";
 import { periodOf } from "./payments";
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
 import { ERR, err } from "./errorCodes";
+import { normalizeCurrency } from "./payCurrency";
 
 /**
  * DÉFIS — l'ÉVALUATION, et elle a lieu au RELEVÉ. Nulle part ailleurs.
@@ -93,6 +94,9 @@ export const evaluateChallenges = internalMutation({
       .collect();
     let won = 0;
     for (const c of actives) {
+      // Devise de la prime = celle du barème du défi, figée à la victoire comme
+      // la récompense elle-même (absente ⇒ projet, cf convex/payCurrency).
+      const prizeCurrency = normalizeCurrency((await ctx.db.get(c.pricingId))?.currency);
       const [ranking, wins] = await Promise.all([
         computeChallengeRanking(ctx, c),
         challengeWinsOf(ctx, c._id),
@@ -125,6 +129,7 @@ export const evaluateChallenges = internalMutation({
           // Récompense FIGÉE au moment de l'acte (patron `bonusUnlocks`) :
           // éditer le défi ensuite ne réécrit pas ce qui est dû.
           reward: c.reward,
+          ...(prizeCurrency !== null ? { currency: prizeCurrency } : {}),
           attributionPeriod: periodOf(at),
         });
         won += 1;

@@ -2474,11 +2474,14 @@ export function jarviaServer(
         // LE regroupement de l'écran Paiements (convex/paymentsView).
         const vue = regrouperPaiements(rows, Date.now());
         const arrondi = (n: number) => Math.round(n * 100) / 100;
+        const parDevise = (l: { currency: string | null; amount: number }[]) =>
+          l.map((t) => ({ devise: t.currency, montant: arrondi(t.amount) }));
         const cycle = (c: (typeof rows)[number]) => ({
           du: jour(c.cycleStart),
           // cycleEnd est EXCLUSIF (début du cycle suivant) : dernier jour = veille.
           au: jour(c.cycleEnd - 86_400_000),
           statut: c.status === "paid" ? "payé" : "en cours",
+          devise: c.currency,
           valeur: c.totalDue,
           ...(c.advances.length > 0
             ? { acomptes: arrondi(c.advances.reduce((s, a) => s + a.amount, 0)) }
@@ -2500,18 +2503,21 @@ export function jarviaServer(
         const limite = typeof args.reglees === "number" ? args.reglees : 10;
         return json({
           projet: projet.slug,
-          devise: payCurrency,
-          aVerser: arrondi(vue.aVerser),
+          deviseDuProjet: payCurrency,
+          // PAR DEVISE, jamais fondus : on ne vire pas des euros et des dollars
+          // du même geste (cf convex/payCurrency).
+          aVerser: parDevise(vue.aVerser),
           createatricesAPayer: vue.avecDu.length,
           cyclesDus: vue.cyclesDus,
           plusVieuxCycleDuDepuisJours: vue.ageDuPlusVieux,
-          totalSurLHistorique: arrondi(vue.totalHistorique),
+          totalSurLHistorique: parDevise(vue.totalHistorique),
           parCreatrice: vue.avecDu
             .filter((g) => garder(g.creatorName))
             .map((g) => ({
               createatrice: g.creatorName,
               // Le TYPE de moyen seulement : jamais les coordonnées (IBAN, PayPal).
               moyenDePaiement: g.paymentMethod,
+              devise: g.currency,
               resteAVerser: g.remaining,
               cycles: g.cycles.map(cycle),
             })),
@@ -2527,7 +2533,7 @@ export function jarviaServer(
           lecture: [
             "Un cycle = 30 jours glissants propres à chaque créatrice. « valeur » = ce que vaut le cycle ; « resteAVerser » = valeur − acomptes déjà versés (jamais négatif). « aVerser » = ce que « tout payer » verserait (hors créatrices supprimées).",
             "Un cycle en cours peut encore monter : une vidéo est rémunérée jusqu'à J+30 après publication. « postsPayablesSansMesure » = posts qui compteront mais dont les vues ne sont pas encore relevées.",
-            "Montants dans la devise de PAIE du projet.",
+            "Chaque montant est dans la devise de SA créatrice (« devise » du cycle) : une créatrice n'est payée que dans une devise, mais un projet peut en mêler plusieurs. Les totaux (« aVerser », « totalSurLHistorique ») sont donc donnés PAR DEVISE, jamais additionnés.",
           ],
         });
       }
@@ -3574,7 +3580,15 @@ export function jarviaServer(
             warmupsAValider: ok(comptes)
               ? { comptes: cartes.warmupReady.length, liste: cartes.warmupReady.map(compteDe) }
               : refus(comptes),
-            du: ok(du) ? { valeur: du.dueTotal, devise: du.payCurrency } : refus(du),
+            // PAR DEVISE (jamais fondu) ; « valeur » garde le total ramené dans
+            // la devise du projet — un indicateur, pas un montant à virer.
+            du: ok(du)
+              ? {
+                  parDevise: du.byCurrency.map((t) => ({ devise: t.currency, montant: t.amount })),
+                  valeur: du.dueTotal,
+                  devise: du.payCurrency,
+                }
+              : refus(du),
           },
           aDecider: !ok(decisions)
             ? refus(decisions)
@@ -4085,13 +4099,19 @@ export function jarviaServer(
             })),
             createatrices: {
               total: d.creatorsTotal.converted,
-              totalDevisePaie: d.creatorsTotal.pay,
+              // PAR DEVISE de paie (une créatrice en euros, une autre en
+              // dollars) ; `taux` n'existe que si le mois n'en a qu'une.
+              totalParDevisePaie: d.creatorsTotal.payByCurrency.map((x) => ({
+                devise: x.currency,
+                montant: x.amount,
+              })),
               taux: d.creatorsTotal.rate,
               versements: d.creators.map((c) => ({
                 jour: c.day,
                 createatrice: c.name,
                 nature: c.kind === "advance" ? "acompte" : "solde du cycle",
                 montantDevisePaie: c.amount,
+                devisePaie: c.currency,
                 contreValeur: c.converted,
               })),
               controle: controle(d.creatorsControl),

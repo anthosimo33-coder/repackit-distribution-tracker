@@ -39,4 +39,12 @@ export {
   sameCurrency,
 } from "../convex/currencyRate";
 export type { DisplayAmount } from "../convex/currencyRate";
+// Devise de paie PAR BARÈME (cf convex/payCurrency) — même raison : une seule
+// implémentation, partagée par l'écran et le serveur.
+export {
+  PAY_CURRENCY_CHOICES,
+  normalizeCurrency,
+  payCurrencyFactor,
+  resolvePayCurrency,
+} from "../convex/payCurrency";
 
