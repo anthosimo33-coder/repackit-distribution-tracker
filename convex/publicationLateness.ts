@@ -7,6 +7,7 @@ import {
 } from "./functions";
 import {
   calendarStatus,
+  isOnPublicationCalendar,
   onTimeTally,
   parisDayIndex,
   representativePostedAt,
@@ -98,7 +99,8 @@ export async function creatorPublicationStats(
   };
   const parCreateur = new Map<Id<"creators">, Planifie[]>();
   for (const a of assignments) {
-    if (!dansLaPeriode(a)) continue;
+    // Une mission abandonnée n'est ni à l'heure, ni manquée : elle ne sort pas.
+    if (!isOnPublicationCalendar(a) || !dansLaPeriode(a)) continue;
     const arr = parCreateur.get(a.creatorId);
     if (arr) arr.push(planifieDe(a));
     else parCreateur.set(a.creatorId, [planifieDe(a)]);
@@ -173,6 +175,8 @@ export async function eveningUnpublishedReports(
   // de « pas encore publié » et non de « manqué », et il tiendrait si un futur
   // passage élargissait la fenêtre de jours.
   const duJour = assignments.filter((a) => {
+    // Abandonnée : elle garde son jour prévu, mais personne ne la publiera.
+    if (!isOnPublicationCalendar(a)) return false;
     if (a.postDate == null) return false;
     if (parisDayIndex(a.postDate) !== aujourdhui) return false;
     return (

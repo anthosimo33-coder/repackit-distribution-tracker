@@ -76,7 +76,11 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { calendarStatus, type CalendarStatus } from "@/lib/calendar-status";
+import {
+  calendarStatus,
+  isOnPublicationCalendar,
+  type CalendarStatus,
+} from "@/lib/calendar-status";
 import { CALENDAR_STATUS_META } from "@/components/calendar/calendar-status-meta";
 import {
   ASSIGNMENT_STATUS,
@@ -437,8 +441,16 @@ export function AssignmentDetailSheet({
               </div>
             </DetailRow>
 
+            {/* Abandonnée : elle garde son jour prévu, mais ne sortira pas —
+                ni « prévue », ni « manquée » (cf isOnPublicationCalendar). */}
             <DetailRow label={tr("statutCalendrier")}>
-              <CalendarStatusPill status={status} />
+              {isOnPublicationCalendar(row) ? (
+                <CalendarStatusPill status={status} />
+              ) : (
+                <span className="text-slate-500" data-testid="detail-calendar-abandoned">
+                  {tr("abandonneeHorsCalendrier")}
+                </span>
+              )}
             </DetailRow>
 
             <DetailRow label={tr("dateDePost")}>

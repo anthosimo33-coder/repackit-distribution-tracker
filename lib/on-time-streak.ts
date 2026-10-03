@@ -17,6 +17,7 @@
  */
 import {
   calendarStatus,
+  isOnPublicationCalendar,
   representativePostedAt,
 } from "../convex/calendarStatus";
 
@@ -34,7 +35,7 @@ export function onTimeStreak(
   now: number,
 ): { current: number; best: number } {
   const past = rows
-    .filter((r) => !r.managedByAdmin && r.status !== "cancelled" && r.postDate != null)
+    .filter((r) => !r.managedByAdmin && isOnPublicationCalendar(r) && r.postDate != null)
     .map((r) => {
       const postedAt = representativePostedAt(r);
       return {

@@ -35,7 +35,7 @@ import {
   type DomaineEcriture,
 } from "./mcpWriteCommon";
 import { jourTexte } from "./mcpWriteArgs";
-import { calendarStatus, plannedDayKey, representativePostedAt } from "./calendarStatus";
+import { calendarStatus, isOnPublicationCalendar, plannedDayKey, representativePostedAt } from "./calendarStatus";
 import { parisDayKey } from "./comptaMath";
 import { parisDayStart } from "./managerCpm";
 import { shiftDay } from "./analyticsDates";
@@ -110,7 +110,7 @@ export const lireBilan = mcpPermissionQuery("creators.read")({
         .query("assignments")
         .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
         .collect()
-    ).filter((m) => m.projectId === ctx.projectId && m.status !== "cancelled");
+    ).filter((m) => m.projectId === ctx.projectId && isOnPublicationCalendar(m));
     const comptes = await ctx.db
       .query("comptes")
       .withIndex("by_project_creator", (q) => q.eq("projectId", ctx.projectId).eq("creatorId", c._id))

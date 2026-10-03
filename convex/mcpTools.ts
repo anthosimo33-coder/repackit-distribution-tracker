@@ -169,6 +169,7 @@ import {
 import { coherenceInputsFrom } from "./coherenceInputs";
 import {
   calendarStatus,
+  isOnPublicationCalendar,
   isSameLocalDay,
   onTimeTally,
   plannedDayKey,
@@ -2539,8 +2540,10 @@ export function jarviaServer(
       }
 
       if (name === "planning") {
-        const lignes = (await lire(() => ctx.runQuery(internal.mcpTools.lirePlanning, ids))).filter((r) =>
-          filtreNom(r.creatorName, args.createatrice),
+        // Les missions ABANDONNÉES gardent leur jour prévu mais ne sortiront
+        // jamais : hors du planning comme du calendrier de l'écran.
+        const lignes = (await lire(() => ctx.runQuery(internal.mcpTools.lirePlanning, ids))).filter(
+          (r) => isOnPublicationCalendar(r) && filtreNom(r.creatorName, args.createatrice),
         );
         const maintenant = Date.now();
         const horizon = typeof args.jours === "number" ? args.jours : 7;

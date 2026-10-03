@@ -79,6 +79,7 @@ import {
   type SoloDay,
   type CreatorEfficiency,
 } from "./soloDays";
+import { isOnPublicationCalendar } from "./calendarStatus";
 
 /**
  * Croisement Jarvia × PostHog × Whop du hub Analytics.
@@ -2808,10 +2809,13 @@ export async function getReliabilityCore(ctx: ProjectQueryCtx): Promise<Reliabil
     //
     // ⚠️ INDÉPENDANT de PostHog : ce contrôle porte sur des données du projet, il
     // doit s'afficher même sur un projet sans PostHog configuré.
-    const tousAssignments = await ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
+    // Les missions abandonnées ne sont pas des livrables à planifier.
+    const tousAssignments = (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    ).filter(isOnPublicationCalendar);
     const planifies = tousAssignments.filter(
       (a) => a.postDate !== undefined,
     ).length;
