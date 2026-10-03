@@ -75,6 +75,12 @@ export const apply = internalMutation({
               notifContent: v.optional(v.string()),
             }),
           ),
+          notif: v.optional(
+            v.object({
+              brickId: v.optional(v.id("scriptBricks")),
+              content: v.optional(v.string()),
+            }),
+          ),
           dueOnPostDay: v.optional(v.boolean()),
           dueDay: v.optional(v.string()),
           clearInstructions: v.optional(v.boolean()),

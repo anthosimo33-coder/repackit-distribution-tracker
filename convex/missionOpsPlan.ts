@@ -125,6 +125,11 @@ export interface MissionOpsRequest {
       /** …ou par son texte, pour une notif créée dans le MÊME passage. */
       notifContent?: string;
     };
+    /**
+     * Changer la NOTIF seule (id, ou texte d'une notif créée dans ce passage),
+     * dans la campagne actuelle de la mission. Exclusif de `combo`.
+     */
+    notif?: { brickId?: string; content?: string };
     /** Échéance de production = fin du jour de publication prévu (Paris). */
     dueOnPostDay?: boolean;
     /** Échéance de production = fin de ce jour, AAAA-MM-JJ (Paris). */
@@ -356,9 +361,9 @@ export function planMissionOps(input: {
   };
 
   // État de travail par mission : les gestes sur une même mission se cumulent.
-  const working = new Map<string, { before: OpsAssignment; now: OpsAssignment; clear: Set<ClearableField>; comboChanged: boolean; textFixed: boolean }>();
+  const working = new Map<string, { before: OpsAssignment; now: OpsAssignment; clear: Set<ClearableField>; comboChanged: boolean; textFixed: boolean; notifChanged: boolean }>();
   const workOn = (a: OpsAssignment) => {
-    const w = working.get(a._id) ?? { before: a, now: { ...a }, clear: new Set<ClearableField>(), comboChanged: false, textFixed: false };
+    const w = working.get(a._id) ?? { before: a, now: { ...a }, clear: new Set<ClearableField>(), comboChanged: false, textFixed: false, notifChanged: false };
     working.set(a._id, w);
     return w;
   };
@@ -396,6 +401,27 @@ export function planMissionOps(input: {
     return b;
   };
 
+  /** La notif désignée par id OU par texte (créée dans ce passage, au besoin). */
+  const notifIn = (
+    by: { brickId?: string; content?: string },
+    campaignId: string,
+    mission: string,
+  ): OpsBrick => {
+    if (by.brickId !== undefined && by.content !== undefined) {
+      fail(`Mission ${mission} : notif désignée deux fois (id et texte).`);
+    }
+    if (by.brickId !== undefined) return brickIn(by.brickId, campaignId, "notif", mission);
+    if (by.content === undefined) fail(`Mission ${mission} : notif sans id ni texte.`);
+    const wanted = by.content.trim();
+    const matches = [...bricks.values()].filter(
+      (b) => b.campaignId === campaignId && b.kind === "notif" && b.content.trim() === wanted,
+    );
+    if (matches.length !== 1) {
+      fail(`Mission ${mission} : ${matches.length} notif « ${wanted} » dans « ${campaignName(campaignId)} » (il en faut exactement une).`);
+    }
+    return matches[0];
+  };
+
   for (const r of request.assignmentRewrites ?? []) {
     const a = requireMission(r.assignmentId, r.expectCreatorId, "Réécriture");
     const current = a.scriptCombo!.campaignId;
@@ -417,21 +443,10 @@ export function planMissionOps(input: {
       const flux = brickIn(c.fluxBrickId, c.campaignId, "flux", a._id);
       const cta = brickIn(c.ctaBrickId, c.campaignId, "cta", a._id);
 
-      let notif: OpsBrick | null = null;
-      if (c.notifBrickId !== undefined && c.notifContent !== undefined) {
-        fail(`Mission ${a._id} : notif désignée deux fois (id et texte).`);
-      }
-      if (c.notifBrickId !== undefined) notif = brickIn(c.notifBrickId, c.campaignId, "notif", a._id);
-      if (c.notifContent !== undefined) {
-        const wanted = c.notifContent.trim();
-        const matches = [...bricks.values()].filter(
-          (b) => b.campaignId === c.campaignId && b.kind === "notif" && b.content.trim() === wanted,
-        );
-        if (matches.length !== 1) {
-          fail(`Mission ${a._id} : ${matches.length} notif « ${wanted} » dans « ${target.name} » (il en faut exactement une).`);
-        }
-        notif = matches[0];
-      }
+      const notif =
+        c.notifBrickId !== undefined || c.notifContent !== undefined
+          ? notifIn({ brickId: c.notifBrickId, content: c.notifContent }, c.campaignId, a._id)
+          : null;
       if (!notif && a.scriptCombo!.notifText !== undefined) {
         plan.warnings.push(`Mission ${a._id} : sa notif « ${a.scriptCombo!.notifText} » disparaît (aucune notif dans le nouveau script).`);
       }
@@ -469,6 +484,25 @@ export function planMissionOps(input: {
       }
     }
 
+    // NOTIF SEULE — comme le sélecteur de notif de l'écran (editScriptCombo,
+    // slot « notif ») : la notif figée change, et RIEN d'autre. Ni texte monté,
+    // ni briques, ni comboKey, ni comboImposed — une mission tirée au hasard
+    // reste une mission tirée. Plus strict que l'écran sur un point : la vidéo
+    // ne doit pas être tournée, la notif s'y voit à l'image.
+    if (r.notif) {
+      if (r.combo) fail(`Mission ${a._id} : notif donnée à part ET dans le nouveau script.`);
+      if (a.status !== "todo" && a.status !== "in_progress") {
+        fail(`Mission ${a._id} : « ${a.status} » — la vidéo est déjà tournée, sa notif ne change plus.`);
+      }
+      const combo = w.now.scriptCombo!;
+      const notif = notifIn(r.notif, combo.campaignId, a._id);
+      const notifText = notif.content.trim();
+      if (combo.notifBrickId !== notif._id || combo.notifText !== notifText) {
+        w.now = { ...w.now, scriptCombo: { ...combo, notifBrickId: notif._id, notifText, editedOnce: true } };
+        w.notifChanged = true;
+      }
+    }
+
     if (r.dueOnPostDay && r.dueDay !== undefined) fail(`Mission ${a._id} : échéance donnée deux fois.`);
     let dueDay: string | null = null;
     if (r.dueOnPostDay) {
@@ -494,7 +528,7 @@ export function planMissionOps(input: {
       set.scriptCombo = now.scriptCombo;
       set.comboKey = now.comboKey;
       set.comboImposed = true;
-    } else if (w.textFixed) {
+    } else if (w.textFixed || w.notifChanged) {
       set.scriptCombo = now.scriptCombo;
     }
     if (now.dueDate !== before.dueDate) set.dueDate = now.dueDate;
