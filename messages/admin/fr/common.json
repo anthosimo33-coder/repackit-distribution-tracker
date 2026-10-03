@@ -702,7 +702,11 @@
     "handleRequis": "Handle requis",
     "misAJour": "{finalHandle} mis à jour",
     "ajouteSur": "{finalHandle} ajouté sur {plateforme}",
-    "handlePlaceholder": "@compte_pro"
+    "handlePlaceholder": "@compte_pro",
+    "lienDuProfil": "Lien du profil",
+    "lienDuProfilPlaceholder": "https://www.instagram.com/…",
+    "lienDuProfilAide": "Le clic sur le @ ouvre ce lien. Vide : le @ sert de lien.",
+    "lienDivergent": "Ce lien ouvre {lien}, pas {handle}. Corrige l'un ou l'autre : le clic suit le lien."
   },
   "CreatorCombobox": {
     "interneEquipe": "Interne (équipe)",

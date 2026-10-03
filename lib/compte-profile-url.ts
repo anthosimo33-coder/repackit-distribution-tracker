@@ -113,3 +113,27 @@ export function compteProfileUrl(compte: {
     ? profilCanonique(compte.plateforme, nom)
     : null;
 }
+
+/**
+ * Le LIEN mène-t-il AILLEURS que le @ ? Rend le profil qu'ouvre le lien quand il
+ * diffère de celui que désigne le @ (casse ignorée : `@Sarah_snytch` et
+ * `sarah_snytch` sont le même compte), sinon `null`.
+ *
+ * C'est la forme exacte de la coquille du 03/10/2026 : `@Sarah_snytch` collé
+ * avec un lien vers `sarah_snitch1`, `@quentin.snitch` avec un lien vers
+ * `quentin.snytch`. Le clic suit le lien (cf `compteProfileUrl`), l'écran
+ * affiche le @ : rien ne disait que les deux ne désignaient pas le même compte.
+ * `null` aussi quand l'un des deux ne désigne aucun compte — il n'y a alors
+ * rien à comparer.
+ */
+export function lienDiffereDuHandle(compte: {
+  plateforme: ProfilePlateforme;
+  handle: string;
+  url?: string | null;
+}): string | null {
+  if (!compte.url) return null;
+  const parLien = profilDepuisUrl(compte.url, compte.plateforme);
+  const parHandle = compteProfileUrl({ ...compte, url: null });
+  if (parLien === null || parHandle === null) return null;
+  return parLien.toLowerCase() === parHandle.toLowerCase() ? null : parLien;
+}

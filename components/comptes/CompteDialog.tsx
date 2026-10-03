@@ -52,6 +52,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { dateFnsLocale } from "@/lib/date-fns-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 import { PLATEFORMES } from "@/convex/platforms";
+import { lienDiffereDuHandle } from "@/lib/compte-profile-url";
 
 // listComptes enrichit chaque compte avec `personne`, `creator` (propriétaire)
 // et `perf` (agrégat publications). Lookups/agrégation serveur (P5).
@@ -122,6 +123,9 @@ export default function CompteDialog({
   const tLabel = useLabel();
   const isEdit = mode === "edit";
   const [handle, setHandle] = useState(compte?.handle ?? "");
+  // Lien du profil (édition seulement) : il PRIME sur le @ au clic, d'où le
+  // besoin de pouvoir le corriger (cf lib/compte-profile-url).
+  const [url, setUrl] = useState(compte?.url ?? "");
   const [plateforme, setPlateforme] = useState<string>(
     compte?.plateforme ?? "TikTok",
   );
@@ -171,6 +175,7 @@ export default function CompteDialog({
     if (open) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setHandle(compte?.handle ?? "");
+      setUrl(compte?.url ?? "");
       setPlateforme(compte?.plateforme ?? "TikTok");
       setNotes(compte?.notes ?? "");
       setPersonneId(compte?.personneId ?? null);
@@ -199,6 +204,17 @@ export default function CompteDialog({
   }
 
   const selectedStatus = STATUS_OPTIONS.find((o) => o.value === status);
+
+  // Le lien ouvre-t-il un AUTRE profil que le @ ? Calculé sur la saisie en
+  // cours : l'avertissement disparaît dès que l'un des deux est corrigé.
+  const lienDivergent =
+    isEdit && compte
+      ? lienDiffereDuHandle({
+          plateforme: (plateforme as Plateforme) ?? compte.plateforme,
+          handle: normalizeHandle(handle),
+          url,
+        })
+      : null;
 
   // Chantier D — plateforme éditable à la création (add) OU en édition SI le
   // compte est VIERGE (inUse === false). Sinon read-only (changer la plateforme
@@ -265,6 +281,10 @@ export default function CompteDialog({
             targetCountry === COUNTRY_NONE
               ? null
               : (targetCountry as CountryCode),
+          // Lien : transmis seulement s'il a bougé ; vide = retiré (null).
+          ...(url.trim() !== (compte.url ?? "").trim()
+            ? { url: url.trim() === "" ? null : url.trim() }
+            : {}),
         });
         toast.success(tr("misAJour", { finalHandle: finalHandle }));
       } else {
@@ -331,6 +351,30 @@ export default function CompteDialog({
               {tr("leEstAjouteAutomatiquementSi")}
             </p>
           </div>
+          {isEdit && compte && (
+            <div className="space-y-1.5">
+              <Label htmlFor="compte-url">{tr("lienDuProfil")}</Label>
+              <Input
+                id="compte-url"
+                placeholder={tr("lienDuProfilPlaceholder")}
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+              {lienDivergent !== null ? (
+                <p
+                  className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-900"
+                  data-testid="compte-lien-divergent"
+                >
+                  {tr("lienDivergent", {
+                    lien: lienDivergent.replace(/^https:\/\/(www\.)?/, ""),
+                    handle: normalizeHandle(handle),
+                  })}
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500">{tr("lienDuProfilAide")}</p>
+              )}
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label>{tr("plateforme")}</Label>
             {plateformeEditable ? (

@@ -589,6 +589,128 @@ export const createCompte = permissionMutation("accounts.manage")({
   },
 });
 
+/**
+ * Lien de profil saisi → valeur stockée. Vide ⇒ `undefined` (le champ est
+ * retiré, et le clic retombe sur le @). Le lien n'est PAS réécrit ici : c'est
+ * `compteProfileUrl` qui le lit, et qui écarte déjà un lien d'une autre
+ * plateforme ou sans nom de compte.
+ */
+function normalizeCompteUrl(raw: string | null): string | undefined {
+  const s = raw?.trim() ?? "";
+  if (s === "") return undefined;
+  if (s.length > 500) {
+    throw err(ERR.ACCOUNT_URL_INVALID, "Lien trop long (500 caractères au plus).");
+  }
+  return s;
+}
+
+/**
+ * RENOMMAGE d'un compte — le handle est réécrit SUR LES PUBLICATIONS, pas
+ * refusé.
+ *
+ * `publications.compte` est une chaîne (le handle), pas une clé étrangère :
+ * renommer le compte sans toucher aux publications les rendait orphelines, et
+ * le garde-fou d'origine bloquait donc purement et simplement le renommage dès
+ * qu'un compte avait de l'historique. Sur Snytch, cela enfermait par exemple
+ * `@Cintia_secretacc` dans sa majuscule.
+ *
+ * ⚠️ LA PLATEFORME FAIT PARTIE DE LA CIBLE. Un même pseudo vit sur TikTok ET sur
+ * Instagram (`@ja.deotn`), et ce sont deux comptes : réécrire toutes les
+ * publications d'un handle emporterait celles de l'autre plateforme. On ne
+ * touche donc qu'à `(compte, plateforme)` — la même identité que la clé
+ * d'unicité de la table et que la mesure (cf comptePerfKey).
+ *
+ * Partagé par `updateCompte` (écran) et `correctCompteIdentity` (correction en
+ * ligne de commande) : un seul chemin de renommage. Ne patche PAS le compte
+ * lui-même — l'appelant le fait avec le reste de sa mise à jour.
+ */
+async function renameCompteHandleCore(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  compte: Doc<"comptes">,
+  nextHandle: string,
+): Promise<{ publications: number }> {
+  // Refus sur le SEUL motif qui reste : la place est déjà prise.
+  const surLaPlateforme = await ctx.db
+    .query("comptes")
+    .withIndex("by_project_plateforme", (q) =>
+      q.eq("projectId", projectId).eq("plateforme", compte.plateforme),
+    )
+    .collect();
+  if (surLaPlateforme.some((c) => c._id !== compte._id && c.handle === nextHandle)) {
+    // Code DÉDIÉ : ce n'est pas le verrou « compte déjà utilisé »
+    // (ACCOUNT_RENAME_LOCKED, qui compte des publications) mais une collision
+    // de handle. Sous l'ancien code, le client rendait « 0 publications
+    // l'utilisent » à la place de la vraie raison.
+    throw err(
+      ERR.ACCOUNT_RENAME_COLLISION,
+      `Un compte ${nextHandle} existe déjà sur ${compte.plateforme}. Renommer ici fusionnerait deux comptes distincts.`,
+      { handle: nextHandle, platform: compte.plateforme },
+    );
+  }
+  const pubs = await ctx.db
+    .query("publications")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  let publications = 0;
+  for (const pub of pubs) {
+    if (pub.compte === compte.handle && pub.plateforme === compte.plateforme) {
+      await ctx.db.patch(pub._id, { compte: nextHandle });
+      publications += 1;
+    }
+  }
+  return { publications };
+}
+
+/**
+ * CORRECTION d'identité d'un compte en ligne de commande — son @ et/ou son
+ * lien, quand la créatrice les a saisis avec une coquille (cas du 03/10/2026 :
+ * `@quentin.snitch` pour `quentin.snytch`, un lien `sarah_snitch1` sous
+ * `@Sarah_snytch`). Même renommage que l'écran (`renameCompteHandleCore`).
+ *
+ * `expectedHandle` est vérifié AVANT toute écriture : un id recopié de travers
+ * ne touche pas le compte de quelqu'un d'autre. `commit` absent ⇒ lecture
+ * seule, le rapport dit ce qui changerait.
+ *
+ *   ./scripts/convex-prod.sh run comptes:correctCompteIdentity \
+ *     '{"compteId":"…","expectedHandle":"@quentin.snitch","handle":"@quentin.snytch","commit":true}'
+ */
+export const correctCompteIdentity = internalMutation({
+  args: {
+    compteId: v.id("comptes"),
+    expectedHandle: v.string(),
+    handle: v.optional(v.string()),
+    url: v.optional(v.union(v.string(), v.null())),
+    commit: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const compte = await ctx.db.get(args.compteId);
+    if (!compte) throw new ConvexError("Compte introuvable.");
+    if (compte.handle !== args.expectedHandle) {
+      throw new ConvexError(
+        `Le compte ${args.compteId} s'appelle ${compte.handle}, pas ${args.expectedHandle} — rien n'a été écrit.`,
+      );
+    }
+    const nextHandle =
+      args.handle !== undefined ? normalizeHandle(args.handle) : compte.handle;
+    if (!nextHandle || nextHandle === "@") {
+      throw err(ERR.HANDLE_REQUIRED, "Handle requis.");
+    }
+    const nextUrl = args.url !== undefined ? normalizeCompteUrl(args.url) : compte.url;
+    const avant = { handle: compte.handle, url: compte.url ?? null };
+    const apres = { handle: nextHandle, url: nextUrl ?? null };
+    if (args.commit !== true) return { dryRun: true, plateforme: compte.plateforme, avant, apres };
+    let publications = 0;
+    if (nextHandle !== compte.handle) {
+      publications = (
+        await renameCompteHandleCore(ctx, compte.projectId, compte, nextHandle)
+      ).publications;
+    }
+    await ctx.db.patch(compte._id, { handle: nextHandle, url: nextUrl });
+    return { dryRun: false, plateforme: compte.plateforme, avant, apres, publicationsRenommees: publications };
+  },
+});
+
 export const updateCompte = permissionMutation("accounts.manage")({
   args: {
     id: v.id("comptes"),
@@ -626,6 +748,11 @@ export const updateCompte = permissionMutation("accounts.manage")({
     // Pays ciblé (label informatif) : code de la liste fermée = set, null = unset
     // (« non défini »), absent = ne pas toucher. Validé par countryValidator.
     targetCountry: v.optional(v.union(countryValidator, v.null())),
+    // LIEN DU PROFIL (cf schema `url`). Il PRIME sur le @ au clic (cf
+    // lib/compte-profile-url) : un lien de partage collé avec une coquille
+    // envoyait sur le mauvais profil, sans aucun moyen de le corriger ensuite.
+    // Chaîne = poser, null = retirer, absent = ne pas toucher.
+    url: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
     // Barème de warmup DU PROJET — `defaultTargetDays` l'exige.
@@ -675,44 +802,14 @@ export const updateCompte = permissionMutation("accounts.manage")({
     // touche donc qu'à `(compte, plateforme)` — la même identité que la clé
     // d'unicité de la table et que la mesure (cf comptePerfKey).
     if (args.handle !== undefined && args.handle !== compte.handle) {
-      // Refus sur le SEUL motif qui reste : la place est déjà prise.
-      const surLaPlateforme = await ctx.db
-        .query("comptes")
-        .withIndex("by_project_plateforme", (q) =>
-          q.eq("projectId", ctx.projectId).eq("plateforme", compte.plateforme),
-        )
-        .collect();
-      if (
-        surLaPlateforme.some(
-          (c) => c._id !== compte._id && c.handle === args.handle,
-        )
-      ) {
-        // Code DÉDIÉ : ce n'est pas le verrou « compte déjà utilisé »
-        // (ACCOUNT_RENAME_LOCKED, qui compte des publications) mais une
-        // collision de handle. Sous l'ancien code, le client rendait « 0
-        // publications l'utilisent » à la place de la vraie raison.
-        throw err(
-          ERR.ACCOUNT_RENAME_COLLISION,
-          `Un compte ${args.handle} existe déjà sur ${compte.plateforme}. Renommer ici fusionnerait deux comptes distincts.`,
-          { handle: args.handle, platform: compte.plateforme },
-        );
-      }
-      const pubs = await ctx.db
-        .query("publications")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect();
-      for (const pub of pubs) {
-        if (
-          pub.compte === compte.handle &&
-          pub.plateforme === compte.plateforme
-        ) {
-          await ctx.db.patch(pub._id, { compte: args.handle });
-        }
-      }
+      await renameCompteHandleCore(ctx, ctx.projectId, compte, args.handle);
     }
 
     const update: Record<string, unknown> = {};
     if (args.handle !== undefined) update.handle = args.handle;
+    // Lien du profil : chaîne = poser, `null` ou vide = retirer (le clic
+    // retombe alors sur le @), absent = ne pas toucher.
+    if (args.url !== undefined) update.url = normalizeCompteUrl(args.url);
     if (args.notes !== undefined) update.notes = args.notes;
     if (args.personneId !== undefined) {
       update.personneId =
