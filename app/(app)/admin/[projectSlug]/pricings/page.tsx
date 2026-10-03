@@ -1684,8 +1684,8 @@ function PricingEditorDialog({
             <p className="text-xs leading-relaxed text-slate-500">
               Une créatrice n&apos;est payée que dans une devise : ce barème ne
               pourra être attribué qu&apos;à des créatrices payées en{" "}
-              {form.currency.toUpperCase()} (ou qui n&apos;ont encore rien de
-              tarifé).
+              {form.currency.toUpperCase()}{" "}
+              (ou qui n&apos;ont encore rien de tarifé).
             </p>
           ) : null}
 
