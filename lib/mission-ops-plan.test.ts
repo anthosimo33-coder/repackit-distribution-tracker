@@ -295,6 +295,94 @@ describe("planMissionOps — corriger sans changer le script", () => {
   });
 });
 
+describe("planMissionOps — changer la notif seule", () => {
+  const newNotif: MissionOpsRequest["bricksToCreate"] = [
+    { campaignId: LAB2, kind: "notif", content: "J'ai rencontré quelqu'un", instruction: "Envoyée par « Mon chéri ❤️ »", active: false },
+  ];
+  const swap = (extra: Partial<NonNullable<MissionOpsRequest["assignmentRewrites"]>[number]> = {}): MissionOpsRequest => ({
+    bricksToCreate: newNotif,
+    assignmentRewrites: [
+      { assignmentId: soir()._id, expectCreatorId: KELLY, expectCampaignId: LAB2, notif: { content: "J'ai rencontré quelqu'un" }, ...extra },
+    ],
+  });
+
+  it("remplace la notif figée par une notif désactivée créée dans le même passage — et rien d'autre", () => {
+    const p = plan([soir()], swap());
+    expect(p.assignmentPatches).toHaveLength(1);
+    const { set, clear, before, after } = p.assignmentPatches[0];
+    expect(set).toEqual({
+      scriptCombo: { ...soir().scriptCombo, notifBrickId: "new:0", notifText: "J'ai rencontré quelqu'un", editedOnce: true },
+    });
+    // Une mission TIRÉE reste tirée : ni comboKey, ni comboImposed.
+    expect(set).not.toHaveProperty("comboKey");
+    expect(set).not.toHaveProperty("comboImposed");
+    expect(clear).toEqual([]);
+    expect(after.script).toBe(before.script);
+    expect([before.notif, after.notif]).toEqual(["Je t'ai trompé", "J'ai rencontré quelqu'un"]);
+    expect(p.brickCreates.map((c) => c.active)).toEqual([false]);
+  });
+
+  it("garde l'accord exact du texte demandé (« trompée » ≠ « trompé »)", () => {
+    const request: MissionOpsRequest = {
+      bricksToCreate: [{ campaignId: LAB2, kind: "notif", content: "Je t'ai trompée", active: false }],
+      assignmentRewrites: [{ assignmentId: soir()._id, expectCreatorId: KELLY, expectCampaignId: LAB2, notif: { content: "Je t'ai trompée" } }],
+    };
+    const p = plan([soir()], request);
+    expect(p.brickCreates.map((c) => c.content)).toEqual(["Je t'ai trompée"]);
+    expect(p.assignmentPatches[0].set.scriptCombo?.notifText).toBe("Je t'ai trompée");
+  });
+
+  it("se cumule avec une correction de texte et une échéance sur la même mission", () => {
+    const request: MissionOpsRequest = {
+      ...swap({ dueOnPostDay: true }),
+      frozenTextFixes: [{ assignmentId: soir()._id, expectCreatorId: KELLY, from: "intution", to: "intuition" }],
+    };
+    const { set } = plan([soir()], request).assignmentPatches[0];
+    expect(set.scriptCombo?.assembledScript).toMatch(/Mon intuition avait donc raison$/);
+    expect(set.scriptCombo?.notifText).toBe("J'ai rencontré quelqu'un");
+    expect(set.dueDate).toBe(Date.UTC(2026, 9, 8, 21, 59, 59));
+  });
+
+  it("refuse une notif d'une autre campagne", () => {
+    const ailleurs = b("n570cemzbxfec2s5yjbmpcpsmh8f4w5z", "n97b2pp8yktce5pzp6s6r273458cjrza", "notif", "Je crois que je t'aime plus");
+    const request: MissionOpsRequest = {
+      assignmentRewrites: [{ assignmentId: soir()._id, expectCreatorId: KELLY, expectCampaignId: LAB2, notif: { brickId: ailleurs._id } }],
+    };
+    expect(() => plan([soir()], request, { bricks: [...bricks, ailleurs] })).toThrow(/n'est pas dans « Reaction \+ DEMO LAB 2 🇫🇷 »/);
+  });
+
+  it("refuse une brique qui n'est pas une notif", () => {
+    const request: MissionOpsRequest = {
+      assignmentRewrites: [{ assignmentId: soir()._id, expectCreatorId: KELLY, expectCampaignId: LAB2, notif: { brickId: "n578xk1sezefpy1tzqe45928298ebp37" } }],
+    };
+    expect(() => plan([soir()], request)).toThrow(/est un cta, pas un notif/);
+  });
+
+  it("refuse notif à part ET nouveau script", () => {
+    const request: MissionOpsRequest = {
+      ...moveMidi,
+      assignmentRewrites: [{ ...moveMidi.assignmentRewrites![0], notif: { content: "Ma copine est pas là ce soir 😏" } }],
+    };
+    expect(() => plan([midi()], request)).toThrow(/notif donnée à part ET dans le nouveau script/);
+  });
+
+  it("refuse de changer la notif d'une vidéo déjà soumise", () => {
+    expect(() => plan([soir({ status: "video_submitted" })], swap())).toThrow(/sa notif ne change plus/);
+  });
+
+  it("ne réécrit pas une mission qui a déjà cette notif", () => {
+    const deja = soir({
+      scriptCombo: { ...soir().scriptCombo!, notifBrickId: "n5706esxt8kseygx3wsp1wszh18f4hth", notifText: "Je t'ai trompé" },
+    });
+    const request: MissionOpsRequest = {
+      assignmentRewrites: [{ assignmentId: deja._id, expectCreatorId: KELLY, expectCampaignId: LAB2, notif: { brickId: "n5706esxt8kseygx3wsp1wszh18f4hth" } }],
+    };
+    const p = plan([deja], request);
+    expect(p.assignmentPatches).toEqual([]);
+    expect(p.skipped).toEqual([`Mission ${deja._id} : déjà dans l'état visé.`]);
+  });
+});
+
 describe("planMissionOps — rejouable", () => {
   /** L'état de la base APRÈS un passage : ce qu'un second passage relit. */
   function applied(): { bricks: OpsBrick[]; campaigns: OpsCampaign[]; assignments: OpsAssignment[] } {
