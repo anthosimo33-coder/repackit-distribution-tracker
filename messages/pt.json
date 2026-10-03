@@ -1312,6 +1312,8 @@
     "ERR_DRIVE_UNAVAILABLE": "Envio de arquivos indisponível para este projeto.",
     "ERR_DRIVE_FOLDER_INVALID": "Pasta do Drive ilegível: cole o link ou o identificador dela.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "Não foi possível iniciar o envio para o Drive. Tente de novo.",
+    "ERR_DUE_DATE_INVALID": "Prazo inválido: escolha um dia.",
+    "ERR_DUE_DATE_LOCKED": "O prazo não pode mais ser alterado: a missão está publicada ou abandonada.",
     "ERR_EMAIL_INVALID": "Email inválido.",
     "ERR_FILE_REF_MISSING": "Referência do arquivo ausente.",
     "ERR_FOLDER_ALREADY_EXISTS": "A pasta “{name}” já existe.",

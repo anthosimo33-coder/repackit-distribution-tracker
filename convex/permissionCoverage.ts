@@ -13,7 +13,7 @@ export type BlocCoverage = { queries: number; mutations: number };
 
 export const PERMISSION_COVERAGE: Record<string, BlocCoverage> = {
   "accounts.manage": { queries: 7, mutations: 14 },
-  "assignments.manage": { queries: 6, mutations: 15 },
+  "assignments.manage": { queries: 6, mutations: 16 },
   "business.read": { queries: 21, mutations: 20 },
   "challenges.money": { queries: 1, mutations: 3 },
   "challenges.run": { queries: 4, mutations: 8 },

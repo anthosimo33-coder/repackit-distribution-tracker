@@ -116,7 +116,8 @@
     "notifAAfficher": "Notif à afficher",
     "notifAucuneChoisir": "Aucune notif — en choisir une",
     "notifAjoutee": "Notif ajoutée",
-    "notifChangee": "Notif changée"
+    "notifChangee": "Notif changée",
+    "echeanceMiseAJour": "Échéance mise à jour."
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",
@@ -145,6 +146,10 @@
     "retirerLaDate": "Retirer la date",
     "modifierLaDateDePublication": "Modifier la date de publication",
     "planifier": "Planifier"
+  },
+  "DueDatePopover": {
+    "modifierLEcheance": "Modifier l'échéance de production",
+    "calerSurLeJourDePublication": "Caler sur le jour de publication"
   },
   "PublicationSection": {
     "voirLePost": "Voir le post {platform}",

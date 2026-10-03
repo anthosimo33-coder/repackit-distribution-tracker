@@ -43,12 +43,13 @@ export const annulationValidator = v.union(
     avant: v.id("comptes"),
     apres: v.id("comptes"),
   }),
-  /** replanifier_mission : jour et/ou plage, avant et après. */
+  /** replanifier_mission : jour, plage et/ou échéance de production, avant et après. */
   v.object({
     type: v.literal("planning"),
     assignmentId: v.id("assignments"),
     jour: v.optional(v.object({ avant: v.union(v.number(), v.null()), apres: v.union(v.number(), v.null()) })),
     plage: v.optional(v.object({ avant: v.union(plage, v.null()), apres: v.union(plage, v.null()) })),
+    echeance: v.optional(v.object({ avant: v.number(), apres: v.number() })),
   }),
   /** consigne_mission : consigne et/ou texte à incruster, avant et après. */
   v.object({

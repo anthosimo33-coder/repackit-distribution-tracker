@@ -152,6 +152,8 @@ import type * as messageEquipe from "../messageEquipe.js";
 import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
 import type * as migrations from "../migrations.js";
+import type * as missionOps from "../missionOps.js";
+import type * as missionOpsPlan from "../missionOpsPlan.js";
 import type * as modelVideoEmbeds from "../modelVideoEmbeds.js";
 import type * as moneyFormat from "../moneyFormat.js";
 import type * as nightlyViewsSync from "../nightlyViewsSync.js";
@@ -405,6 +407,8 @@ declare const fullApi: ApiFromModules<{
   metricSnapshots: typeof metricSnapshots;
   metricsDisplay: typeof metricsDisplay;
   migrations: typeof migrations;
+  missionOps: typeof missionOps;
+  missionOpsPlan: typeof missionOpsPlan;
   modelVideoEmbeds: typeof modelVideoEmbeds;
   moneyFormat: typeof moneyFormat;
   nightlyViewsSync: typeof nightlyViewsSync;

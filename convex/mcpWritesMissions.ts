@@ -61,11 +61,12 @@ import {
   pricingResolver,
   setAssignmentInstructionsCore,
   setAssignmentOverlayTextCore,
+  setAssignmentDueDateCore,
   setAssignmentPostDateCore,
   setAssignmentPostWindowCore,
 } from "./assignments";
 import { plannedDayKey, representativePostedAt } from "./calendarStatus";
-import { parisDayStart } from "./managerCpm";
+import { parisDayOf, parisDayStart } from "./managerCpm";
 import { shiftDay } from "./analyticsDates";
 import { parisDayKey } from "./comptaMath";
 import { isStrictAccountValidationFor } from "./projects";
@@ -172,7 +173,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     name: "replanifier_mission",
     title: "Replanifier une mission",
     description:
-      "MODIFIE les missions : change le jour de publication prévu d'une mission pas encore publiée, et/ou sa plage horaire. La mission se désigne comme dans `planning` : créatrice + jour prévu (et compte, campagne ou morceau de script si besoin). Comme à l'écran, la nouvelle date ne retire pas le script : vérifie toi-même qu'il ne sort pas le même jour ailleurs.",
+      "MODIFIE les missions : change le jour de publication prévu d'une mission pas encore publiée, et/ou sa plage horaire, et/ou son échéance de production (« publication » = la caler sur son jour de publication). La mission se désigne comme dans `planning` : créatrice + jour prévu (et compte, campagne ou morceau de script si besoin). Comme à l'écran, la nouvelle date ne retire pas le script : vérifie toi-même qu'il ne sort pas le même jour ailleurs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -180,6 +181,11 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
         ...ARGS_DESIGNATION,
         nouveau_jour: { type: "string", description: "Nouveau jour de publication, AAAA-MM-JJ, ou « aucun » pour retirer la date." },
         plage: { type: "string", description: "Plage horaire : « 21h-23h », midi, après-midi, soir, ou « aucune »." },
+        echeance: {
+          type: "string",
+          description:
+            "Échéance de production, AAAA-MM-JJ (fin de ce jour à Paris), ou « publication » pour la caler sur le jour de publication prévu — le nouveau, si « nouveau_jour » est donné aussi.",
+        },
       },
       required: ["createatrice", "jour"],
       additionalProperties: false,
@@ -685,11 +691,14 @@ export const ecrireReplanification = mcpWriteMutation("assignments.manage", "mis
     ...designationValidator,
     nouveauJour: v.optional(v.union(v.string(), v.null())),
     plage: v.optional(v.union(v.object({ startMin: v.number(), endMin: v.number() }), v.null())),
+    /** AAAA-MM-JJ, ou « publication » : le jour de publication prévu, APRÈS un éventuel nouveauJour. */
+    echeance: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, pasPubliee);
     const changes: string[] = [];
     let jour: { avant: number | null; apres: number | null } | undefined;
+    let echeance: { avant: number; apres: number } | undefined;
     let plage: { avant: { startMin: number; endMin: number } | null; apres: { startMin: number; endMin: number } | null } | undefined;
     if (a.nouveauJour !== undefined) {
       const t = a.nouveauJour === null ? undefined : parisDayStart(a.nouveauJour);
@@ -704,13 +713,29 @@ export const ecrireReplanification = mcpWriteMutation("assignments.manage", "mis
       changes.push(a.plage === null ? "plage horaire retirée" : `plage ${formatPostWindow(a.plage)}`);
       plage = { avant: m.a.postWindow ?? null, apres: a.plage };
     }
+    if (a.echeance !== undefined) {
+      const postDate = jour ? jour.apres : (m.a.postDate ?? null);
+      if (a.echeance === "publication" && postDate === null) {
+        throw err(ERR.MCP_DESIGNATION, "Échéance « publication » : cette mission n'a pas de jour de publication prévu.");
+      }
+      const jourEcheance = a.echeance === "publication" ? parisDayOf(postDate!) : a.echeance;
+      const r = await setAssignmentDueDateCore(ctx, m.a._id, jourEcheance);
+      echeance = { avant: m.a.dueDate, apres: r.dueDate };
+      changes.push(`échéance ${jourTexte(parisDayOf(m.a.dueDate))} → ${jourTexte(jourEcheance)}`);
+    }
     const summary = `${m.libelle} : ${changes.join(", ")}`;
     await journaliser(ctx, {
       tool: "replanifier_mission",
       summary,
       section: "planning",
       path: "assignments",
-      annulation: { type: "planning", assignmentId: m.a._id, ...(jour ? { jour } : {}), ...(plage ? { plage } : {}) },
+      annulation: {
+        type: "planning",
+        assignmentId: m.a._id,
+        ...(jour ? { jour } : {}),
+        ...(plage ? { plage } : {}),
+        ...(echeance ? { echeance } : {}),
+      },
     });
     return { summary };
   },
@@ -821,7 +846,7 @@ const OU_DEFAIRE: Record<string, string> = {
     "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
   rejouer_script:
     "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
-  replanifier_mission: "`defaire`, ou Assignments › la mission › date de publication.",
+  replanifier_mission: "`defaire`, ou Assignments › la mission › date de publication / échéance prod.",
   consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
   annuler_mission: "Un abandon ne se défait pas : réassigne (assigner_scripts, ou rejouer_script avec le lien du post).",
   changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
@@ -970,15 +995,21 @@ async function appelerEcritureMissions(
   if (name === "replanifier_mission") {
     const nj = texteArg(args, "nouveau_jour");
     const p = plage("plage");
-    if (nj === "" && p === undefined) throw new ToolError("Rien à changer : donne « nouveau_jour » et/ou « plage ».");
+    const ech = texteArg(args, "echeance");
+    if (nj === "" && p === undefined && ech === "") {
+      throw new ToolError("Rien à changer : donne « nouveau_jour », « plage » et/ou « echeance ».");
+    }
     const nouveauJour =
       nj === "" ? undefined : ["aucun", "aucune", "sans date"].includes(plierTexte(nj)) ? null : jourValide(nj, "nouveau_jour", aujourdhui);
+    const echeance =
+      ech === "" ? undefined : ["publication", "jour de publication"].includes(plierTexte(ech)) ? "publication" : jourValide(ech, "echeance", aujourdhui);
     r = await ecrire(() =>
       ctx.runMutation(internal.mcpWritesMissions.ecrireReplanification, {
         ...cible,
         ...d,
         ...(nouveauJour !== undefined ? { nouveauJour } : {}),
         ...(p !== undefined ? { plage: p === "aucune" ? null : p } : {}),
+        ...(echeance !== undefined ? { echeance } : {}),
       }),
     );
   } else if (name === "consigne_mission") {

@@ -263,9 +263,14 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       if (representativePostedAt(m) !== null) throw refus("Cette mission a été publiée depuis : sa date ne bouge plus.");
       if (a.jour && (m.postDate ?? null) !== a.jour.apres) throw refus("Le jour de cette mission a changé depuis : rien n'a été écrasé.");
       if (a.plage && !memePlage(m.postWindow, a.plage.apres)) throw refus("La plage horaire a changé depuis : rien n'a été écrasé.");
+      if (a.echeance && m.dueDate !== a.echeance.apres) throw refus("L'échéance de cette mission a changé depuis : rien n'a été écrasé.");
       if (a.jour) await setAssignmentPostDateCore(ctx, m._id, a.jour.avant ?? undefined);
       if (a.plage) await setAssignmentPostWindowCore(ctx, m._id, a.plage.avant ?? undefined);
-      return "Jour et plage d'origine remis.";
+      // L'échéance d'avant est remise TELLE QUELLE (l'instant stocké), pas
+      // reconvertie depuis un jour : une échéance posée à une autre heure que
+      // 23:59:59 Paris revient exactement comme elle était.
+      if (a.echeance) await ctx.db.patch(m._id, { dueDate: a.echeance.avant });
+      return a.echeance ? "Jour, plage et échéance d'origine remis." : "Jour et plage d'origine remis.";
     }
     case "consigne": {
       const m = await ctx.db.get(a.assignmentId);

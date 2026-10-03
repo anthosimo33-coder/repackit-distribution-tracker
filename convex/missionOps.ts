@@ -36,6 +36,8 @@ export const apply = internalMutation({
           campaignId: v.id("scriptCampaigns"),
           kind,
           content: v.string(),
+          /** Nom court (interne) — absent = le texte lui-même. */
+          label: v.optional(v.string()),
           instruction: v.optional(v.string()),
           active: v.boolean(),
         }),
