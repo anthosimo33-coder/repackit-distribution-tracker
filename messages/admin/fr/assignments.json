@@ -117,7 +117,8 @@
     "notifAucuneChoisir": "Aucune notif — en choisir une",
     "notifAjoutee": "Notif ajoutée",
     "notifChangee": "Notif changée",
-    "echeanceMiseAJour": "Échéance mise à jour."
+    "echeanceMiseAJour": "Échéance mise à jour.",
+    "abandonneeHorsCalendrier": "Abandonnée — hors calendrier"
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",
@@ -276,7 +277,8 @@
     "post2": "{value} — {count} {count, plural, one {post} other {posts}}",
     "planifie": "{count, plural, one {planifié} other {planifiés}}",
     "sansDate": "{total} {total, plural, one {livrable} other {livrables}} sans date de publication {total, plural, one {n'est} other {ne sont}} dans aucun de ces compteurs{aFaire, plural, =0 {} other { — dont {aFaire} pas encore {aFaire, plural, one {publié} other {publiés}}, donc {aFaire, plural, one {invisible} other {invisibles}} du calendrier}}.",
-    "visibleCount": "{count} {count, plural, one {post} other {posts}} {status} {count, plural, one {affiché} other {affichés}} (filtres appliqués). Les assignments sans date de publication n'apparaissent pas."
+    "visibleCount": "{count} {count, plural, one {post} other {posts}} {status} {count, plural, one {affiché} other {affichés}} (filtres appliqués). Les assignments sans date de publication n'apparaissent pas.",
+    "abandonnees": "{total} {total, plural, one {mission abandonnée n'est} other {missions abandonnées ne sont}} plus au calendrier."
   },
   "CalendarPost": {
     "ouvrirLePost": "Ouvrir le post {platform}",

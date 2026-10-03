@@ -183,6 +183,24 @@ export function isPlannedToday(
   return jourLocal(postDate, FUSEAU_EQUIPE) === jourLocal(now, timeZone);
 }
 
+/**
+ * La mission figure-t-elle encore au CALENDRIER DE PUBLICATION ?
+ *
+ * Une mission ABANDONNÉE (« cancelled ») ne sortira jamais : elle garde son jour
+ * prévu (l'abandon ne touche que le statut, pour l'historique), mais
+ * `calendarStatus` ne lit que les dates — il la donnait « prévue », puis
+ * « manquée ». Le calendrier de l'équipe la dessinait alors comme un post à
+ * venir, l'outil `planning` la listait, et le taux à l'heure comme le bilan
+ * Telegram du soir la comptaient (03/10/2026 : 10 missions de Sarah Da Costa
+ * remplacées par 10 autres → 4 posts par jour à l'écran au lieu de 2).
+ *
+ * À appliquer AVANT tout calcul de calendrier sur des lignes qui peuvent porter
+ * des abandons. La liste des missions, elle, les montre — avec leur badge.
+ */
+export function isOnPublicationCalendar(a: { status: string }): boolean {
+  return a.status !== "cancelled";
+}
+
 export function calendarStatus(input: {
   /** Jour de publication PLANIFIÉ (ms), ou absent → hors calendrier. */
   postDate: number | null | undefined;

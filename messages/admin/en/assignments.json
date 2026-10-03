@@ -117,7 +117,8 @@
     "notifAucuneChoisir": "No notification — pick one",
     "notifAjoutee": "Notification added",
     "notifChangee": "Notification changed",
-    "echeanceMiseAJour": "Due date updated."
+    "echeanceMiseAJour": "Due date updated.",
+    "abandonneeHorsCalendrier": "Abandoned — off the calendar"
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",
@@ -276,7 +277,8 @@
     "post2": "{value} — {count} {count, plural, one {post} other {posts}}",
     "planifie": "{count, plural, one {scheduled} other {scheduled}}",
     "sansDate": "{total} {total, plural, one {deliverable} other {deliverables}} with no publish date {total, plural, one {isn't} other {aren't}} in any of these counters{aFaire, plural, =0 {} other { — including {aFaire} not published yet, so invisible on the calendar}}.",
-    "visibleCount": "{count} {count, plural, one {post} other {posts}} {status} shown (filters applied). Assignments with no publish date don't appear."
+    "visibleCount": "{count} {count, plural, one {post} other {posts}} {status} shown (filters applied). Assignments with no publish date don't appear.",
+    "abandonnees": "{total} abandoned {total, plural, one {mission is} other {missions are}} no longer on the calendar."
   },
   "CalendarPost": {
     "ouvrirLePost": "Open the {platform} post",

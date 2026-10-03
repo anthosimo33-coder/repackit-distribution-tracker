@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   calendarStatus,
+  isOnPublicationCalendar,
   isPastPost,
   isSameLocalDay,
   lateDays,
@@ -505,5 +506,25 @@ describe("parisHour — l'heure du bilan du soir", () => {
     expect(parisHour(Date.UTC(2026, 7, 12, 20, 0))).not.toBe(
       parisHour(Date.UTC(2026, 0, 12, 20, 0)),
     );
+  });
+});
+
+describe("isOnPublicationCalendar — une mission abandonnée ne sort plus", () => {
+  it("écarte la mission abandonnée, garde toutes les autres, publiées comprises", () => {
+    const statuts = ["todo", "in_progress", "video_submitted", "video_rejected", "to_publish", "published", "paid", "cancelled"];
+    expect(statuts.filter((status) => isOnPublicationCalendar({ status }))).toEqual(
+      statuts.filter((s) => s !== "cancelled"),
+    );
+  });
+
+  it("s'applique AVANT le décompte : une abandonnée d'hier n'est plus « manquée »", () => {
+    const now = Date.UTC(2026, 9, 4, 10, 0); // 04/10, 12 h à Paris
+    const hier = Date.UTC(2026, 9, 2, 22, 0); // minuit Paris du 03/10
+    const posts = [
+      { status: "todo", postDate: hier, postedAt: null },
+      { status: "cancelled", postDate: hier, postedAt: null },
+    ];
+    expect(onTimeTally(posts, now).missed).toBe(2);
+    expect(onTimeTally(posts.filter(isOnPublicationCalendar), now).missed).toBe(1);
   });
 });

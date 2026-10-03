@@ -16,6 +16,7 @@ export {
   CALENDAR_STATUS_LABEL,
   calendarStatus,
   formatPlannedDay,
+  isOnPublicationCalendar,
   isPlannedToday,
   plannedDayKey,
   plannedDayStart,

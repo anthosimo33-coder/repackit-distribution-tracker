@@ -372,3 +372,71 @@ test.describe("Taux à l'heure par créatrice", () => {
     expect(mien!.tally.rate).toBe(0);
   });
 });
+
+/**
+ * Une mission ABANDONNÉE garde son jour prévu, mais ne sortira jamais : ni
+ * « manquée » dans le taux, ni « pas encore publiée » dans le bilan du soir.
+ * Avant le correctif, remplacer dix missions par dix autres faisait annoncer
+ * quatre posts par jour à la créatrice au lieu de deux.
+ */
+test.describe("Missions abandonnées", () => {
+  test("ni dans le bilan du soir, ni dans le taux à l'heure", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now() + 4;
+    const creatorId = await creerCreatrice(ts, "abandon");
+    const target = await availableTarget({
+      e2eClient: convex,
+      creatorId,
+      platform: "TikTok",
+      handle: `@e2eabandon${ts}`,
+    });
+    const formatId = await createFormatWithRate(convex, {
+      name: `[E2E_TEST] Abandon ${ts}`,
+      type: "short",
+      // Format volontairement GRATUIT : zéro EXPLICITE, pas une grille absente.
+      rateModel: { basePerPost: 0 },
+    });
+    const [gardeDuJour, abandonneeDuJour] = await planifier({
+      creatorId,
+      target,
+      formatId,
+      count: 2,
+      postDate: minuitParis(ts),
+      ts,
+    });
+    const [gardeManquee, abandonneeManquee] = await planifier({
+      creatorId,
+      target,
+      formatId,
+      count: 2,
+      postDate: minuitParis(ts - 7 * JOUR),
+      ts,
+    });
+
+    // PRÉSENCE d'abord : avant l'abandon, les deux posts du jour sont au bilan
+    // et les deux manqués comptent.
+    const bilanAvant = await convex.query(api.publicationLateness.previewEveningReport, {});
+    expect(bilanAvant.find((r) => r.creatorId === creatorId)?.posts).toHaveLength(2);
+    const tauxAvant = (await convex.query(api.publicationLateness.getCreatorPublicationStats, {})).find(
+      (s) => s.creatorId === creatorId,
+    )!;
+    expect([tauxAvant.tally.missed, tauxAvant.tally.scheduled]).toEqual([2, 2]);
+
+    await convex.mutation(api.assignments.cancelAssignment, { id: abandonneeDuJour });
+    await convex.mutation(api.assignments.cancelAssignment, { id: abandonneeManquee });
+
+    // Le bilan garde le post du jour qui reste — et lui seul.
+    const bilan = await convex.query(api.publicationLateness.previewEveningReport, {});
+    expect(bilan.find((r) => r.creatorId === creatorId)?.posts).toHaveLength(1);
+    // Le taux ne compte plus que les missions qui vivent encore.
+    const taux = (await convex.query(api.publicationLateness.getCreatorPublicationStats, {})).find(
+      (s) => s.creatorId === creatorId,
+    )!;
+    expect([taux.tally.missed, taux.tally.scheduled, taux.tally.past]).toEqual([1, 1, 1]);
+    // Les missions gardées sont bien celles qui restent (pas un hasard d'ordre).
+    const rows = await convex.query(api.assignments.listAssignments, {});
+    const statut = (id: Id<"assignments">) => rows.find((a) => a._id === id)?.status;
+    expect([statut(gardeDuJour), statut(gardeManquee)]).toEqual(["todo", "todo"]);
+    expect([statut(abandonneeDuJour), statut(abandonneeManquee)]).toEqual(["cancelled", "cancelled"]);
+  });
+});

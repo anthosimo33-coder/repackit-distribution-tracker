@@ -277,4 +277,129 @@ test.describe("Outil MCP planning", () => {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }
   });
+
+  /**
+   * Une mission ABANDONNÉE garde son jour prévu (l'abandon ne touche que le
+   * statut) mais ne sortira jamais. `planning` la listait « prévue » puis
+   * « manquée », et `ponctualite` la comptait : remplacer dix missions par dix
+   * autres doublait le planning de la créatrice.
+   */
+  test("une mission abandonnée sort du planning et de la ponctualité", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const slug = `e2e-mcp-planning-abandon-${ts}`;
+    const nom = `E2E MCP Planning abandon ${ts}`;
+    const { projectId } = (await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+      secret: E2E_SECRET,
+      slug,
+      name: nom,
+    })) as { projectId: Id<"projects"> };
+
+    try {
+      const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+        projectId,
+        name: `[E2E_TEST] MCP Planning abandon ${ts}`,
+        montantFixe: 0,
+        nbVideosCible: 8,
+        tauxCPM: 2,
+      });
+      const formatId = await createFormatWithRate(admin, {
+        projectId,
+        name: `[E2E_TEST] Format abandon ${ts}`,
+        type: "short",
+        rateModel: { basePerPost: 0 },
+      });
+      const email = `e2e-mcp-planning-abandon-${ts}@repackit.test`;
+      const nomCreatrice = `[E2E_TEST] Sarah Da Costa ${ts}`;
+      const { creatorId, token: invite } = await admin.mutation(api.creators.inviteCreator, {
+        projectId,
+        name: nomCreatrice,
+        email,
+      });
+      await new ConvexHttpClient(convexUrl!).action(api.auth.signIn, {
+        provider: "password",
+        params: { email, password: `planning-abandon-${ts}-12345`, flow: "signUp", inviteToken: invite },
+      });
+      const handle = `@sarah_olv8_${ts}`;
+      const target = await availableTarget({ e2eClient: admin, creatorId, platform: "TikTok", handle });
+      await admin.mutation(api.assignments.assignFormat, {
+        projectId,
+        formatId,
+        creatorId,
+        targets: [target],
+        postsPerCreator: 8,
+        dueDate: ts + 30 * DAY,
+        pricingId,
+      });
+      const lignes = (await admin.query(api.assignments.listAssignments, { projectId })).filter(
+        (a) => a.creatorId === creatorId,
+      );
+      expect(lignes).toHaveLength(8);
+      const aujourdhui = jourParis(ts);
+      const prevu = (n: number) => parisDayStartMs(shiftDay(aujourdhui, n));
+      // Par paire : celle qu'on garde, celle qu'on abandonne — même jour.
+      const [aj, ajX, manque, manqueX, bientot, bientotX, nu, nuX] = lignes;
+      for (const [{ _id }, jour] of [
+        [aj, 0],
+        [ajX, 0],
+        [manque, -3],
+        [manqueX, -3],
+        [bientot, 2],
+        [bientotX, 2],
+      ] as const) {
+        await admin.mutation(api.assignments.setAssignmentPostDate, { projectId, id: _id, postDate: prevu(jour) });
+      }
+
+      await page.goto(adminPath("/comptes"));
+      await page.getByRole("button", { name: "Connecter Claude" }).click();
+      await page.getByLabel("Nom de la clé").fill(`E2E planning abandon ${ts}`);
+      await page.getByRole("button", { name: "Créer une clé" }).click();
+      const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+      const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!
+        .match(/jarvia (\S+\/mcp) /)![1];
+
+      // PRÉSENCE d'abord : chaque paire est comptée deux fois.
+      const avant = await outil(url, token, { projet: slug });
+      expect([
+        avant.aujourdhui.aPublier.nombre,
+        avant.manques.nombre,
+        avant.aVenir.nombre,
+        avant.sansDateDePublication.total,
+      ]).toEqual([2, 2, 2, 2]);
+
+      for (const { _id } of [ajX, manqueX, bientotX, nuX]) {
+        await admin.mutation(api.assignments.cancelAssignment, { projectId, id: _id });
+      }
+
+      const r = await outil(url, token, { projet: slug });
+      expect(r.aujourdhui.aPublier.posts).toEqual([
+        expect.objectContaining({ jourPrevu: aujourdhui, statut: "prévu", compte: handle }),
+      ]);
+      expect(r.manques.posts.map((p) => p.jourPrevu)).toEqual([shiftDay(aujourdhui, -3)]);
+      expect(r.aVenir.posts.map((p) => p.jourPrevu)).toEqual([shiftDay(aujourdhui, 2)]);
+      expect(r.ponctualite).toEqual({
+        aLHeure: 0,
+        horsDate: 0,
+        manques: 1,
+        prevus: 2, // aujourd'hui + J+2
+        postsPasses: 1,
+        tauxALHeurePct: 0,
+      });
+      expect(r.sansDateDePublication).toEqual({ total: 1, aFaire: 1 });
+
+      const ponct = await appel<Ponctualite>(url, token, "ponctualite", { projet: slug });
+      expect(ponct.createatrices.find((c) => c.createatrice === nomCreatrice)).toMatchObject({
+        manques: 1,
+        aVenir: 2,
+        postsPasses: 1,
+      });
+      // Les gardées sont bien celles qui restent, pas un hasard d'ordre.
+      const statuts = new Map(
+        (await admin.query(api.assignments.listAssignments, { projectId })).map((a) => [a._id, a.status]),
+      );
+      expect([aj, manque, bientot, nu].map((a) => statuts.get(a._id))).toEqual(["todo", "todo", "todo", "todo"]);
+    } finally {
+      await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
+    }
+  });
 });

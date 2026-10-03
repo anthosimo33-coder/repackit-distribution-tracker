@@ -137,4 +137,103 @@ test.describe("Admin — vue calendrier de publication", () => {
       page.locator("button").filter({ hasText: "Tous créateurs" }),
     ).toHaveCount(0);
   });
+
+  /**
+   * Une mission ABANDONNÉE garde son jour prévu (l'abandon ne touche que le
+   * statut), mais elle ne sortira jamais. Le calendrier la dessinait comme un
+   * post « prévu » et la comptait dans le rappel du jour : 03/10/2026, dix
+   * missions de Sarah Da Costa remplacées par dix autres → quatre posts par
+   * jour à l'écran au lieu de deux.
+   */
+  test("une mission abandonnée sort du calendrier et du rappel du jour", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const creatorName = `[E2E_TEST] Sarah Da Costa ${ts}`;
+    const C = await createCreatorSession(convexUrl, {
+      name: creatorName,
+      email: `e2e-creator-calcancel-${ts}@repackit.test`,
+      password: "creator-calcancel-12345",
+    });
+    const fid = (await createFormatWithRate(admin, {
+      name: `[E2E_TEST] CalCancel Fmt ${ts}`,
+      type: "short",
+      rateModel: { basePerPost: 30 },
+    })) as Id<"formats">;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: `@sarah_olv8_${ts}`,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid,
+      creatorId: C.creatorId,
+      targets: [target],
+      postsPerCreator: 2,
+      dueDate: ts + 7 * DAY,
+    });
+    const [garde, abandonnee] = (await admin.query(api.assignments.listAssignments, {})).filter(
+      (a) => a.formatId === fid && a.creatorId === C.creatorId,
+    );
+    for (const { _id } of [garde, abandonnee]) {
+      await admin.mutation(api.assignments.setAssignmentPostDate, {
+        id: _id,
+        postDate: todayMidnight(),
+      });
+    }
+
+    await page.goto(adminPath(`/assignments?createur=${C.creatorId}`));
+    await expect(page.getByText(/\d+ \/ \d+ livrable/)).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Calendrier" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    const chips = page.getByTitle(
+      new RegExp(creatorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
+    // PRÉSENCE d'abord : les deux missions du jour sont dessinées et comptées.
+    await expect(chips).toHaveCount(2);
+    await expect(page.getByText("posts à publier")).toBeVisible();
+    await expect(page.getByText("posts à publier").locator("..")).toContainText("2");
+    const note = page.getByText("Statuts calculés en heure de Paris.", { exact: false });
+    await expect(note).toBeVisible();
+    await expect(note).not.toContainText("plus au calendrier");
+
+    await admin.mutation(api.assignments.cancelAssignment, { id: abandonnee._id });
+
+    // L'abandonnée sort ; la mission gardée reste (la lecture est réactive).
+    await expect(chips).toHaveCount(1);
+    await expect(page.getByText("post à publier", { exact: false })).toBeVisible();
+    await expect(page.getByText("post à publier", { exact: false }).locator("..")).toContainText("1");
+    // L'en-tête « N / M livrables » la compte toujours (il sert aussi la liste) :
+    // la note dit où elle est passée, pour que les totaux se recoupent.
+    await expect(note).toContainText("1 mission abandonnée n'est plus au calendrier.");
+
+    // La liste, elle, la garde — avec son badge : l'historique n'est pas perdu.
+    await page.getByRole("radio", { name: "Liste" }).click();
+    await expect(page.getByText("Abandonné", { exact: true })).toHaveCount(1);
+
+    // Panneau de détail : la mission gardée a son statut calendrier…
+    const sheet = page.getByTestId("assignment-detail-sheet");
+    const ouvrir = async (ligne: ReturnType<typeof page.getByRole>) => {
+      // Le menu précédent doit avoir fini de se fermer : sinon deux « Ouvrir le
+      // détail » coexistent le temps de l'animation.
+      await expect(page.getByRole("menuitem")).toHaveCount(0);
+      await ligne.getByRole("button", { name: "Actions" }).click();
+      await page.getByRole("menuitem", { name: "Ouvrir le détail" }).click();
+      await expect(sheet).toBeVisible();
+    };
+    const lignes = page.getByRole("row").filter({ hasText: creatorName });
+    await ouvrir(lignes.filter({ hasNotText: "Abandonné" }));
+    await expect(sheet).toContainText("Prévu");
+    await expect(sheet.getByTestId("detail-calendar-abandoned")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+    // …l'abandonnée n'est ni « prévue » ni « manquée ».
+    await ouvrir(lignes.filter({ hasText: "Abandonné" }));
+    await expect(sheet.getByTestId("detail-calendar-abandoned")).toHaveText("Abandonnée — hors calendrier");
+    await expect(sheet).not.toContainText("Prévu");
+  });
 });

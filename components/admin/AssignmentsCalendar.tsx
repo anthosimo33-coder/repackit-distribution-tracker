@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { useIsCompact } from "@/lib/use-media-query";
 import {
   calendarStatus,
+  isOnPublicationCalendar,
   isSameLocalDay,
   onTimeTally,
   type CalendarStatus,
@@ -68,6 +69,8 @@ export type CalendarAssignmentRow = {
   /** Créneau horaire (#56) — heure de début sur la vignette, créneau complet au survol. */
   postWindow?: { startMin: number; endMin: number };
   postedAt: number | null;
+  /** Statut de PRODUCTION — une mission abandonnée ne figure plus au calendrier. */
+  status: string;
   // Compte GÉRÉ par l'équipe (dénormalisé) → marqueur géré/créatrice sur la pastille.
   managedByAdmin?: boolean;
   // Cibles (1 vidéo → N posts) : plateforme + compte (handle + pays) + URL publiée.
@@ -145,10 +148,13 @@ export function AssignmentsCalendar({
   const compact = useIsCompact();
   const [dayKey, setDayKey] = useState<string | null>(null);
 
-  // Rows planifiées (avec date de post) + leur statut calendrier.
+  // Rows planifiées (avec date de post) + leur statut calendrier. Les missions
+  // ABANDONNÉES sortent ici, avant tout : elles gardent leur jour prévu, mais ne
+  // sortiront jamais — ni pastille, ni compteur, ni rappel du jour.
+  const calendarRows = useMemo(() => rows.filter(isOnPublicationCalendar), [rows]);
   const planned = useMemo(
     () =>
-      rows
+      calendarRows
         .filter((r) => r.postDate != null)
         .map((r) => ({
           row: r,
@@ -162,7 +168,7 @@ export function AssignmentsCalendar({
             timeZone: r.creatorTimezone,
           }) as Exclude<CalendarStatus, "none">,
         })),
-    [rows, now],
+    [calendarRows, now],
   );
 
   // Filtre de statut calendrier (B) : masque les pastilles hors statut. Les stats
@@ -187,12 +193,16 @@ export function AssignmentsCalendar({
    * cartes en totalisaient 471, sans que rien n'explique l'écart.
    */
   const sansDate = useMemo(() => {
-    const nus = rows.filter((r) => r.postDate == null);
+    const nus = calendarRows.filter((r) => r.postDate == null);
     return {
       total: nus.length,
       aFaire: nus.filter((r) => r.postedAt == null).length,
     };
-  }, [rows]);
+  }, [calendarRows]);
+  // Les ABANDONNÉES restent comptées dans l'en-tête de la page (« N / M
+  // livrables », partagé avec la liste qui les montre) : la note les nomme, pour
+  // que l'en-tête retombe sur les cartes + les sans-date, comme pour ces derniers.
+  const abandonnees = rows.length - calendarRows.length;
 
   // LE décompte partagé (convex/calendarStatus.onTimeTally) : les notifications de
   // retard et l'outil MCP `planning` lisent le même, sur les mêmes lignes.
@@ -359,6 +369,7 @@ export function AssignmentsCalendar({
         {tA("statutsCalculesEnHeureDe")}
         {sansDate.total > 0 &&
           ` ${tA("sansDate", { total: sansDate.total, aFaire: sansDate.aFaire })}`}
+        {abandonnees > 0 && ` ${tA("abandonnees", { total: abandonnees })}`}
       </p>
 
       {/* LÉGENDE — sur les deux formats.
