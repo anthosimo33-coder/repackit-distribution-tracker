@@ -1312,6 +1312,8 @@
     "ERR_DRIVE_UNAVAILABLE": "File uploads unavailable for this project.",
     "ERR_DRIVE_FOLDER_INVALID": "Unreadable Drive folder: paste its link or its ID.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "Couldn't start the Drive upload. Try again.",
+    "ERR_DUE_DATE_INVALID": "Invalid due date: pick a day.",
+    "ERR_DUE_DATE_LOCKED": "The due date can't be changed any more: the mission is published or abandoned.",
     "ERR_EMAIL_INVALID": "Invalid email.",
     "ERR_FILE_REF_MISSING": "Missing file reference.",
     "ERR_FOLDER_ALREADY_EXISTS": "Folder “{name}” already exists.",

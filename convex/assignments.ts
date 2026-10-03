@@ -22,6 +22,7 @@ import { withResolvedExamples } from "./formats";
 import { formatDayMonthFr } from "./dateFr";
 import { normalizeRemunere } from "./remunerate";
 import { isValidPostWindow } from "./postWindow";
+import { endOfParisDay } from "./missionOpsPlan";
 import { detectPostUrlPlatform, isAccountOnlyUrl } from "./postUrlShape";
 import {
   isFormatAllowedOnPlatform,
@@ -606,6 +607,47 @@ export async function setAssignmentPostWindowCore(
   }
   await ctx.db.patch(id, { postWindow });
   return { ok: true };
+}
+
+/**
+ * Édite l'ÉCHÉANCE DE PRODUCTION (dueDate) d'une mission EXISTANTE.
+ *
+ * L'assignation pose une échéance pour tout le lot ; on veut pouvoir la caler
+ * ensuite, mission par mission — typiquement sur le jour de publication. Sans
+ * cette mutation, la seule voie était d'annuler et de réassigner : un email
+ * « nouvelle mission » de plus pour la créatrice.
+ *
+ * Le jour arrive en « AAAA-MM-JJ » et l'instant est calculé ICI, à la fin du
+ * jour de Paris (23:59:59) — la forme qu'a toute échéance posée à l'assignation.
+ * Ni le navigateur ni le MCP ne convertissent de fuseau : un seul endroit le fait.
+ *
+ * Verrou : mission publiée (lien de publication) ou abandonnée. L'échéance de
+ * production n'a plus d'objet une fois la vidéo en ligne.
+ */
+export const setAssignmentDueDate = permissionMutation("assignments.manage")({
+  args: {
+    id: v.id("assignments"),
+    dueDay: v.string(),
+  },
+  handler: (ctx, args) => setAssignmentDueDateCore(ctx, args.id, args.dueDay),
+});
+
+/** Cœur — l'échéance du panneau de détail et l'outil MCP `replanifier_mission`. */
+export async function setAssignmentDueDateCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  dueDay: string,
+) {
+  const a = await requireProjectAssignmentInScope(ctx, id);
+  if (a.status === "cancelled" || representativePostedAt(a) !== null) {
+    throw err(ERR.DUE_DATE_LOCKED, "L'échéance ne se modifie plus : la mission est publiée ou abandonnée.");
+  }
+  const dueDate = endOfParisDay(dueDay);
+  if (dueDate === null) {
+    throw err(ERR.DUE_DATE_INVALID, `Échéance invalide : « ${dueDay} ».`);
+  }
+  await ctx.db.patch(id, { dueDate });
+  return { ok: true, dueDate };
 }
 
 /**

@@ -92,6 +92,11 @@ export interface MissionOpsRequest {
     campaignId: string;
     kind: OpsBrickKind;
     content: string;
+    /**
+     * Nom court INTERNE (analytics, sélecteurs de l'écran). Absent = le texte,
+     * comme avant. Pour un flux long, le texte en libellé est illisible.
+     */
+    label?: string;
     instruction?: string;
     active: boolean;
   }[];
@@ -270,11 +275,12 @@ export function planMissionOps(input: {
       continue;
     }
     const instruction = c.instruction?.trim() || undefined;
+    const label = c.label?.trim() || content;
     const created: PlannedBrickCreate = {
       ref: `new:${i}`,
       campaignId: c.campaignId,
       kind: c.kind,
-      label: content,
+      label,
       content,
       ...(instruction ? { instruction } : {}),
       active: c.active,
@@ -284,7 +290,7 @@ export function planMissionOps(input: {
       _id: created.ref,
       campaignId: c.campaignId,
       kind: c.kind,
-      label: content,
+      label,
       content,
       active: c.active,
       ...(instruction ? { instruction } : {}),

@@ -116,7 +116,8 @@
     "notifAAfficher": "Notification to show",
     "notifAucuneChoisir": "No notification — pick one",
     "notifAjoutee": "Notification added",
-    "notifChangee": "Notification changed"
+    "notifChangee": "Notification changed",
+    "echeanceMiseAJour": "Due date updated."
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",
@@ -145,6 +146,10 @@
     "retirerLaDate": "Remove the date",
     "modifierLaDateDePublication": "Change the publish date",
     "planifier": "Schedule"
+  },
+  "DueDatePopover": {
+    "modifierLEcheance": "Change the production due date",
+    "calerSurLeJourDePublication": "Match the posting day"
   },
   "PublicationSection": {
     "voirLePost": "See the {platform} post",

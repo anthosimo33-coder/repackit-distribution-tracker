@@ -90,6 +90,8 @@ import { AssignmentNotifPicker } from "@/components/admin/AssignmentNotifPicker"
 import { AssignmentInstructionsDialog } from "@/components/admin/AssignmentInstructionsDialog";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
+import { format as formatDay } from "date-fns";
+import { parisDayOf } from "@/convex/managerCpm";
 import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
@@ -142,12 +144,15 @@ export function AssignmentDetailSheet({
   const setPostWindow = useProjectMutation(
     api.assignments.setAssignmentPostWindow,
   );
+  const setDueDate = useProjectMutation(api.assignments.setAssignmentDueDate);
   const deleteAssignment = useProjectMutation(
     api.assignments.deleteAssignment,
   );
   const [dateOpen, setDateOpen] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
   const [savingWindow, setSavingWindow] = useState(false);
+  const [dueOpen, setDueOpen] = useState(false);
+  const [savingDue, setSavingDue] = useState(false);
   // « Rejouer ce script » : ouvre la modale d'assignation pré-remplie depuis CETTE
   // assignation (lignage replayedFrom = row._id). Réservé aux assignations script.
   const [replayOpen, setReplayOpen] = useState(false);
@@ -229,6 +234,20 @@ export function AssignmentDetailSheet({
       toast.error(showError(e, tr("echecDeLaMiseA")));
     } finally {
       setSavingWindow(false);
+    }
+  }
+
+  /** Échéance = fin de ce jour à Paris, calculée par le serveur. */
+  async function saveDue(dueDay: string) {
+    setSavingDue(true);
+    try {
+      await setDueDate({ id: row._id, dueDay });
+      toast.success(tr("echeanceMiseAJour"));
+      setDueOpen(false);
+    } catch (e) {
+      toast.error(showError(e));
+    } finally {
+      setSavingDue(false);
     }
   }
 
@@ -500,8 +519,21 @@ export function AssignmentDetailSheet({
               </div>
             </DetailRow>
 
+            {/* ÉCHÉANCE DE PRODUCTION — éditable tant que la mission n'est ni
+                publiée ni abandonnée (même verrou que le serveur). */}
             <DetailRow label={tr("echeanceProd")}>
-              <span className="text-slate-700">{formatDate(row.dueDate, loc)}</span>
+              {row.status === "cancelled" || row.postedAt != null ? (
+                <span className="text-slate-700">{formatDate(row.dueDate, loc)}</span>
+              ) : (
+                <DueDatePopover
+                  open={dueOpen}
+                  onOpenChange={setDueOpen}
+                  dueDate={row.dueDate}
+                  postDate={row.postDate}
+                  saving={savingDue}
+                  onSelectDay={(day) => void saveDue(day)}
+                />
+              )}
             </DetailRow>
 
             <DetailRow label={tr("production")}>
@@ -964,6 +996,74 @@ function PostDatePopover({
           >
             {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
             {tr("retirerLaDate")}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * ÉCHÉANCE DE PRODUCTION d'une mission existante. Le jour choisi part en
+ * « AAAA-MM-JJ » : c'est le serveur qui en fait la fin du jour de Paris, comme à
+ * l'assignation. Raccourci « jour de publication » : le cas courant (« l'échéance
+ * = la date de post »), qui sinon demande de recompter la date dans le calendrier.
+ */
+function DueDatePopover({
+  open,
+  onOpenChange,
+  dueDate,
+  postDate,
+  saving,
+  onSelectDay,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  dueDate: number;
+  postDate?: number;
+  saving: boolean;
+  onSelectDay: (day: string) => void;
+}) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.DueDatePopover");
+  const selected = new Date(dueDate);
+  const postDay = postDate !== undefined ? parisDayOf(postDate) : null;
+  const alreadyOnPostDay = postDay !== null && parisDayOf(dueDate) === postDay;
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 justify-start gap-1.5 font-normal"
+            aria-label={tr("modifierLEcheance")}
+            data-testid="assignment-detail-due-date"
+          >
+            <CalendarIcon className="size-4" />
+            {formatDate(dueDate, loc)}
+          </Button>
+        }
+      />
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={selected}
+          onSelect={(d) => d && onSelectDay(formatDay(d, "yyyy-MM-dd"))}
+          locale={dateFnsLocale(loc)}
+          weekStartsOn={1}
+          defaultMonth={selected}
+        />
+        <div className="border-t border-slate-100 p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-slate-500"
+            onClick={() => postDay && onSelectDay(postDay)}
+            disabled={saving || postDay === null || alreadyOnPostDay}
+          >
+            {saving && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            {tr("calerSurLeJourDePublication")}
           </Button>
         </div>
       </PopoverContent>

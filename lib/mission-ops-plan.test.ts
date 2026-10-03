@@ -189,6 +189,22 @@ describe("planMissionOps — passer une mission dans une autre campagne", () => 
     ]);
   });
 
+  it("crée un flux sous son NOM COURT, et garde le texte en libellé quand il n'y en a pas", () => {
+    const flux =
+      "1) Commence sur le profil Instagram de @jeremieltvt. Dans l'histoire, c'est un pote à toi.\n" +
+      "2) Montre une fille qu'il suit et dis : « Regardez, il la suit. »";
+    const p = plan([], {
+      bricksToCreate: [
+        { campaignId: LAB2, kind: "flux", content: flux, label: "  MEC · ELLE LE SUIT AUSSI · pote traître ", active: true },
+        { campaignId: LAB2, kind: "cta", content: "désolé les gars 💀 #instagram #couple #abonnements", active: true },
+      ],
+    });
+    expect(p.brickCreates.map((c) => [c.kind, c.label, c.content])).toEqual([
+      ["flux", "MEC · ELLE LE SUIT AUSSI · pote traître", flux],
+      ["cta", "désolé les gars 💀 #instagram #couple #abonnements", "désolé les gars 💀 #instagram #couple #abonnements"],
+    ]);
+  });
+
   it("ne touche à AUCUNE activation : les briques existantes ne reçoivent ni `active` ni réécriture", () => {
     const p = plan([midi()], moveMidi);
     for (const patch of p.brickPatches) expect(patch.set).not.toHaveProperty("active");

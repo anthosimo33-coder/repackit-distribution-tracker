@@ -1312,6 +1312,8 @@
     "ERR_DRIVE_UNAVAILABLE": "Dépôt de fichiers indisponible pour ce projet.",
     "ERR_DRIVE_FOLDER_INVALID": "Dossier Drive illisible : colle son lien ou son identifiant.",
     "ERR_DRIVE_UPLOAD_START_FAILED": "Impossible de démarrer l'upload vers Drive. Réessaie.",
+    "ERR_DUE_DATE_INVALID": "Échéance invalide : choisis un jour.",
+    "ERR_DUE_DATE_LOCKED": "L'échéance ne se modifie plus : la mission est publiée ou abandonnée.",
     "ERR_EMAIL_INVALID": "Email invalide.",
     "ERR_FILE_REF_MISSING": "Référence de fichier manquante.",
     "ERR_FOLDER_ALREADY_EXISTS": "Dossier « {name} » existe déjà.",
