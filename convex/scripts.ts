@@ -291,6 +291,8 @@ async function notifsForNewVideos(
     bricks: Doc<"scriptBricks">[];
     creatorId: Id<"creators">;
     count: number;
+    /** Missions du projet déjà lues par l'appelant (cf `projectRows`). */
+    rows?: Doc<"assignments">[];
   },
 ): Promise<NotifFields[]> {
   if (!isNotifEnabled(input.campaign) || input.count <= 0) return [];
@@ -301,7 +303,7 @@ async function notifsForNewVideos(
       "Notif activée sur cette campagne, mais aucune notif active : ajoutes-en une, ou désactive la notif.",
     );
   }
-  const rows = await projectAssignmentsForCooldown(ctx, input.campaign.projectId);
+  const rows = input.rows ?? (await projectAssignmentsForCooldown(ctx, input.campaign.projectId));
   const usage = notifUsageOf(rows, {
     campaignId: input.campaign._id,
     creatorId: input.creatorId,
@@ -534,7 +536,7 @@ function pickForDates(input: {
  * ["projectId","cooldownAnchorAt"] — pas avant, un index partiel donnerait un
  * faux sentiment d'exhaustivité.
  */
-async function projectAssignmentsForCooldown(
+export async function projectAssignmentsForCooldown(
   // QueryCtx et non MutationCtx : cette lecture sert aussi à l'APERÇU, qui est
   // une query. Un MutationCtx reste accepté (son db lit aussi).
   ctx: QueryCtx,
@@ -1376,11 +1378,18 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
  *
  * `notif` : la notif posée sur CHAQUE vidéo, au lieu du tirage en rotation.
  * L'appelant l'a validée (brique notif de la campagne). Hors API publique.
+ *
+ * `projectRows` : les missions du projet, lues UNE fois par l'appelant qui
+ * enchaîne les appels (une expérience : une mission par appel). Sans elle,
+ * chaque appel relit tout le projet — douze fois pour un tour de test A/B, au-
+ * delà des 16 Mo qu'une mutation Convex peut lire. L'appelant la tient à jour
+ * des missions qu'il vient de créer. Sert à la trace des doublons imposés et à
+ * la rotation des notifs ; le tirage auto relit toujours lui-même.
  */
 export async function assignScriptCampaignCore(
   ctx: ProjectMutationCtx,
   args: AssignScriptCampaignArgs,
-  options: { email?: boolean; notif?: NotifFields } = {},
+  options: { email?: boolean; notif?: NotifFields; projectRows?: Doc<"assignments">[] } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   if (campaign.status === "archived") {
@@ -1596,7 +1605,7 @@ export async function assignScriptCampaignCore(
     const imposedKey = verbatimCombo
       ? verbatimCombo.comboKey
       : comboKeyOf(picked[0]);
-    const rows = await projectAssignmentsForCooldown(ctx, ctx.projectId);
+    const rows = options.projectRows ?? (await projectAssignmentsForCooldown(ctx, ctx.projectId));
     const imposedCooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     for (let i = 0; i < picked.length; i++) {
       const targetAt = args.postDates?.[i];
@@ -1633,6 +1642,7 @@ export async function assignScriptCampaignCore(
           bricks: allBricks,
           creatorId: args.creatorId,
           count: picked.length,
+          ...(options.projectRows ? { rows: options.projectRows } : {}),
         });
 
   let created = 0;
