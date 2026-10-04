@@ -273,7 +273,7 @@ function pickCombosServer(
 // COMBO_FREEING_STATUSES : cf convex/comboFreeing.ts (partagé avec assignments.ts).
 
 /** Notif figée d'une vidéo (cf schema assignments.scriptCombo). */
-type NotifFields = { notifBrickId: Id<"scriptBricks">; notifText: string };
+export type NotifFields = { notifBrickId: Id<"scriptBricks">; notifText: string };
 
 /**
  * NOTIFS des `count` vidéos qu'on s'apprête à créer pour `creatorId`, une par
@@ -1373,11 +1373,14 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
  * `email: false` : l'appelant enverra lui-même UN email pour plusieurs appels
  * (une expérience crée une mission par variante chez la même créatrice — une
  * notification par mission serait du bruit). Défaut : l'email de l'écran.
+ *
+ * `notif` : la notif posée sur CHAQUE vidéo, au lieu du tirage en rotation.
+ * L'appelant l'a validée (brique notif de la campagne). Hors API publique.
  */
 export async function assignScriptCampaignCore(
   ctx: ProjectMutationCtx,
   args: AssignScriptCampaignArgs,
-  options: { email?: boolean } = {},
+  options: { email?: boolean; notif?: NotifFields } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   if (campaign.status === "archived") {
@@ -1615,17 +1618,22 @@ export async function assignScriptCampaignCore(
   }
 
   // ─── Notif : une par vidéo, tirée À PART du combo ─────────────────────────
-  // Le rejeu à l'identique la recopie de la source (cf insertion) ; tout le
-  // reste — tirage auto ET combo imposé — la tire en rotation équilibrée : le
-  // combo imposé fixe les trois briques du texte, pas la notif.
+  // Le rejeu à l'identique la recopie de la source (cf insertion) ; une notif
+  // IMPOSÉE par l'appelant (test A/B : la même partout, sinon elle brouille la
+  // comparaison) va sur chaque vidéo ; tout le reste — tirage auto ET combo
+  // imposé — la tire en rotation équilibrée : le combo imposé fixe les trois
+  // briques du texte, pas la notif.
+  const imposedNotif = options.notif;
   const notifs = verbatimCombo
     ? []
-    : await notifsForNewVideos(ctx, {
-        campaign,
-        bricks: allBricks,
-        creatorId: args.creatorId,
-        count: picked.length,
-      });
+    : imposedNotif
+      ? picked.map(() => imposedNotif)
+      : await notifsForNewVideos(ctx, {
+          campaign,
+          bricks: allBricks,
+          creatorId: args.creatorId,
+          count: picked.length,
+        });
 
   let created = 0;
   let firstAssignmentId: Id<"assignments"> | null = null;
