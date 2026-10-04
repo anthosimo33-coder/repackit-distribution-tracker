@@ -11,6 +11,8 @@
  *    (+ legacy submitted, rejected). Aucune publication n'est matérialisée et
  *    aucune lineItem de paie n'est accrue avant `published` → le hard-delete est
  *    propre (il ne reste qu'une éventuelle vidéo soumise à purger).
+ *    + cancelled (ABANDONNÉE) : l'abandon est borné à ces mêmes statuts, une
+ *    abandonnée n'a donc jamais été publiée ni payée.
  *  - BLOQUÉS : published, paid (+ legacy validated). Ils portent une publication
  *    (analytics + snapshots) et/ou un paiement accru/réglé : les supprimer
  *    orphelinerait l'historique financier & statistique. On NE supprime JAMAIS
@@ -32,9 +34,18 @@ export const DELETABLE_ASSIGNMENT_STATUSES: readonly AssignmentStatus[] = [
 
 const DELETABLE_SET = new Set<string>(DELETABLE_ASSIGNMENT_STATUSES);
 
-/** L'admin peut-il hard-delete un assignment dans ce statut ? */
+/**
+ * L'admin peut-il hard-delete un assignment dans ce statut ?
+ *
+ * Les statuts pré-publication, PLUS l'abandon. L'abandon garde la ligne pour
+ * l'historique ; la supprimer ensuite, c'est choisir d'effacer aussi cette
+ * trace — rien d'autre n'y est rattaché (ni publication, ni paie). Le bouton
+ * restait grisé sur une abandonnée, avec un motif faux (« publié ou payé ») :
+ * le 04/10/2026, dix missions remplacées ne pouvaient pas être retirées de la
+ * liste depuis l'écran.
+ */
 export function canDeleteAssignment(status: AssignmentStatus): boolean {
-  return DELETABLE_SET.has(status);
+  return DELETABLE_SET.has(status) || status === "cancelled";
 }
 
 /**

@@ -1187,11 +1187,16 @@ export const migrateAssetFolderToArray = internalMutation({
 });
 
 /**
- * RÉPLIQUE serveur de lib/assignment-delete.canDeleteAssignment (règle A6 :
- * convex/ ne peut pas importer lib/). DOIT rester alignée. Statuts pré-publication
- * (sans publication matérialisée ni lineItem de paie) → hard-delete sûr. published
- * /paid (+ legacy validated) sont BLOQUÉS : ils portent une publication (analytics)
- * et/ou un paiement → les supprimer orphelinerait l'historique financier.
+ * RÉPLIQUE serveur de lib/assignment-delete.DELETABLE_ASSIGNMENT_STATUSES (règle
+ * A6 : convex/ ne peut pas importer lib/). DOIT rester alignée. Statuts
+ * pré-publication (sans publication matérialisée ni lineItem de paie) → abandon
+ * et hard-delete sûrs. published/paid (+ legacy validated) sont BLOQUÉS : ils
+ * portent une publication (analytics) et/ou un paiement → les supprimer
+ * orphelinerait l'historique financier.
+ *
+ * ⚠️ « En cours » ailleurs (défis, cascade de suppression d'une créatrice,
+ * comptes) : n'y ajouter AUCUN statut pour élargir la suppression — c'est
+ * `canHardDeleteAssignment` qui porte la règle de suppression.
  */
 export const DELETABLE_STATUSES = new Set<string>([
   "todo",
@@ -1281,6 +1286,17 @@ export const deleteAssignment = permissionMutation("assignments.manage")({
   handler: (ctx, { id }) => deleteAssignmentCore(ctx, id),
 });
 
+/**
+ * Hard-delete autorisé ? RÉPLIQUE serveur de lib/assignment-delete.canDeleteAssignment
+ * (règle A6) : les statuts pré-publication, PLUS l'abandon. Une abandonnée n'a
+ * jamais été publiée — l'abandon est borné aux statuts pré-publication — ; le
+ * test de publication n'est qu'une défense, pour une ligne antérieure à ce garde.
+ */
+function canHardDeleteAssignment(a: Doc<"assignments">): boolean {
+  if (DELETABLE_STATUSES.has(a.status)) return true;
+  return a.status === "cancelled" && representativePostedAt(a) === null;
+}
+
 /** Cœur de la suppression d'une mission — l'écran et l'outil MCP `defaire`. */
 export async function deleteAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assignments">) {
   const a = await ctx.db.get(id);
@@ -1289,7 +1305,7 @@ export async function deleteAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assi
     return { ok: true as const, alreadyGone: true };
   }
   await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-  if (!DELETABLE_STATUSES.has(a.status)) {
+  if (!canHardDeleteAssignment(a)) {
     throw err(ERR.ASSIGNMENT_DELETE_LOCKED, "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).");
   }
   // Purge vidéo orpheline (Convex + Stream) + hard-delete → comboKey libéré.

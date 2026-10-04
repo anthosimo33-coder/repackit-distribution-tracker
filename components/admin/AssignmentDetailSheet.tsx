@@ -218,7 +218,9 @@ export function AssignmentDetailSheet({
     try {
       await deleteAssignment({ id: row._id });
       toast.success(
-        tr("assignationSupprimeeLeComboEst"),
+        row.status === "cancelled"
+          ? tr("missionAbandonneeSupprimee")
+          : tr("assignationSupprimeeLeComboEst"),
       );
       setConfirmDelete(false);
       onOpenChange(false);
@@ -360,7 +362,9 @@ export function AssignmentDetailSheet({
                 {hasSubmittedVideo
                   ? `${tr("laVideoDejaSoumiseSera")} `
                   : ""}
-                {tr("leComboSeraLibereEt")}
+                {row.status === "cancelled"
+                  ? tr("missionAbandonneeDisparaitra")
+                  : tr("leComboSeraLibereEt")}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

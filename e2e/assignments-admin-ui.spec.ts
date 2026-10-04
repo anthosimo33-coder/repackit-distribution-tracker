@@ -164,4 +164,78 @@ test.describe("Admin — assignation + table", () => {
       )
       .toBe(false);
   });
+
+  /**
+   * Une mission ABANDONNÉE se supprime comme les autres : l'abandon est borné
+   * aux statuts pré-publication, rien n'y est rattaché. Le bouton restait grisé
+   * avec un motif faux (« publié ou payé ») : le 04/10/2026, dix missions
+   * remplacées ne pouvaient pas quitter la liste depuis l'écran.
+   */
+  test("supprimer une mission abandonnée (panneau + table → disparaît)", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const C = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] Sarah Da Costa ${ts}`,
+      email: `e2e-creator-delabandon-${ts}@repackit.test`,
+      password: "creator-delabandon-12345",
+    });
+    const formatName = `[E2E_TEST] DelAbandon Fmt ${ts}`;
+    const fid = (await createFormatWithRate(admin, {
+      name: formatName,
+      type: "short",
+      rateModel: { basePerPost: 30 },
+    })) as Id<"formats">;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: `@sarah_olv8_${ts}`,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid,
+      creatorId: C.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 7 * 86_400_000,
+    });
+    const [mission] = (await admin.query(api.assignments.listAssignments, {})).filter(
+      (a) => a.formatId === fid,
+    );
+    await admin.mutation(api.assignments.cancelAssignment, { id: mission._id });
+
+    await page.goto(adminPath("/assignments"));
+    await page.getByRole("radio", { name: "Liste" }).click();
+    const row = page.getByRole("row").filter({ hasText: formatName });
+    await expect(row).toHaveCount(1, { timeout: 10_000 });
+    await expect(row).toContainText("Abandonné");
+
+    // Panneau de détail : le bouton de suppression, pas le motif de blocage.
+    await row.getByRole("button", { name: "Actions" }).click();
+    await page.getByRole("menuitem", { name: "Ouvrir le détail" }).click();
+    const sheet = page.getByTestId("assignment-detail-sheet");
+    await expect(sheet.getByTestId("assignment-detail-delete")).toBeVisible();
+    await expect(sheet.getByTestId("assignment-detail-delete-blocked")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+
+    // Table : poubelle → confirmation qui dit ce qui change → Supprimer.
+    await row.getByRole("button", { name: "Supprimer cet assignment" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText("disparaîtra de la liste et de l'historique");
+    await dialog.getByRole("button", { name: "Supprimer" }).click();
+    await expect(page.getByText("Mission abandonnée supprimée.")).toBeVisible();
+
+    await expect(row).toHaveCount(0, { timeout: 10_000 });
+    await expect
+      .poll(
+        async () => {
+          const list = await admin.query(api.assignments.listAssignments, {});
+          return list.some((a) => a.formatId === fid);
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(false);
+  });
 });

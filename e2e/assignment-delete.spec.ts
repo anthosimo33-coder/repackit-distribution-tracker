@@ -17,7 +17,8 @@ const DAY = 86_400_000;
 /**
  * Suppression manuelle d'un assignment (hard-delete admin). Prouve SERVEUR :
  *  - le hard-delete LIBÈRE le comboKey → le combo redevient assignable (unicité) ;
- *  - garde-fou statut : published/paid non supprimables ;
+ *  - garde-fou statut : published/paid non supprimables ; une abandonnée l'est,
+ *    sauf si un lien de publication y reste rattaché ;
  *  - admin only (le créateur ne peut pas supprimer) ;
  *  - idempotent (id déjà supprimé → no-op, pas de crash).
  * Campagne minimale : 2 hooks × 1 flux × 1 cta = 2 combos.
@@ -168,6 +169,67 @@ test.describe("Suppression d'assignment — hard-delete admin", () => {
     expect(
       await admin.mutation(api.assignments.deleteAssignment, { id: row._id }),
     ).toMatchObject({ ok: true, alreadyGone: false });
+  });
+
+  /**
+   * Une ABANDONNÉE se supprime : l'abandon est borné aux statuts pré-publication,
+   * rien n'y est rattaché. La garde refuse pourtant celle qui porte un lien de
+   * publication — publiée, repassée « À faire » puis abandonnée : le lien reste
+   * sur la cible.
+   */
+  test("abandonnée : supprimable, sauf si un lien de publication y est rattaché", async () => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    const c = await createCreatorSession(url, {
+      name: `[E2E_TEST] Sarah Da Costa ${ts}`,
+      email: `e2e-del-cancel-${ts}@repackit.test`,
+      password: "del-cancel-123",
+    });
+    const { campaignId, pricingId } = await makeCampaign(ts);
+    const handle = `@sarah_olv8_${ts}`;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: c.creatorId,
+      platform: "TikTok",
+      handle,
+    });
+    await admin.mutation(api.scripts.assignScriptCampaign, {
+      campaignId,
+      creatorId: c.creatorId,
+      targets: [target],
+      videosPerCreator: 2,
+      dueDate: ts + 7 * DAY,
+      pricingId,
+    });
+    const [jamaisPubliee, dejaPubliee] = await rowsFor(campaignId, c.creatorId);
+    const restantes = async () =>
+      (await rowsFor(campaignId, c.creatorId)).map((a) => a._id);
+
+    // Abandonnée sans lien → supprimée.
+    await admin.mutation(api.assignments.cancelAssignment, { id: jamaisPubliee._id });
+    expect(
+      await admin.mutation(api.assignments.deleteAssignment, { id: jamaisPubliee._id }),
+    ).toMatchObject({ ok: true, alreadyGone: false });
+    expect(await restantes()).toEqual([dejaPubliee._id]);
+
+    // Abandonnée qui porte un lien → refusée, la ligne reste.
+    await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
+      id: dejaPubliee._id,
+      urls: [{ platform: "TikTok", url: `https://www.tiktok.com/${handle}/video/1` }],
+    });
+    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+      secret: E2E_SECRET,
+      id: dejaPubliee._id,
+      status: "todo",
+    });
+    await admin.mutation(api.assignments.cancelAssignment, { id: dejaPubliee._id });
+    const [abandonnee] = await rowsFor(campaignId, c.creatorId);
+    expect(abandonnee.status).toBe("cancelled");
+    expect(abandonnee.postedAt).toEqual(expect.any(Number));
+    await expect(
+      admin.mutation(api.assignments.deleteAssignment, { id: dejaPubliee._id }),
+    ).rejects.toThrow(/publié|payé/i);
+    expect(await restantes()).toEqual([dejaPubliee._id]);
   });
 
   test("admin only : le créateur ne peut pas supprimer un assignment", async () => {

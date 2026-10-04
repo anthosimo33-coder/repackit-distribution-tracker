@@ -291,12 +291,22 @@ function AssignmentsPageInner() {
   const [deleteId, setDeleteId] = useState<Id<"assignments"> | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Une ABANDONNÉE a déjà libéré son combo : la confirmation parle alors de ce
+  // qui change vraiment — elle quitte la liste et l'historique.
+  const deleteAbandoned =
+    deleteId !== null &&
+    (assignments ?? []).find((a) => a._id === deleteId)?.status === "cancelled";
+
   async function handleDelete() {
     if (!deleteId) return;
     setDeleting(true);
     try {
       await deleteAssignment({ id: deleteId });
-      toast.success(tr("assignmentSupprimeLeComboEst"));
+      toast.success(
+        deleteAbandoned
+          ? tr("missionAbandonneeSupprimee")
+          : tr("assignmentSupprimeLeComboEst"),
+      );
       setDeleteId(null);
     } catch (e) {
       toast.error(showError(e));
@@ -1151,7 +1161,9 @@ function AssignmentsPageInner() {
           <AlertDialogHeader>
             <AlertDialogTitle>{tr("supprimerCetAssignment")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {tr("leComboSeraLibereEt")}
+              {deleteAbandoned
+                ? tr("missionAbandonneeDisparaitra")
+                : tr("leComboSeraLibereEt")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

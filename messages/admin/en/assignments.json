@@ -50,7 +50,9 @@
     "sansCampagne": "No campaign",
     "afficherInactives": "Show inactive ({count})",
     "masquerInactives": "Hide inactive",
-    "sansPays": "No country"
+    "sansPays": "No country",
+    "missionAbandonneeDisparaitra": "This abandoned mission will disappear from the list and the history. This can't be undone.",
+    "missionAbandonneeSupprimee": "Abandoned mission deleted."
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Account matches (@{detected})",
@@ -118,7 +120,9 @@
     "notifAjoutee": "Notification added",
     "notifChangee": "Notification changed",
     "echeanceMiseAJour": "Due date updated.",
-    "abandonneeHorsCalendrier": "Abandoned — off the calendar"
+    "abandonneeHorsCalendrier": "Abandoned — off the calendar",
+    "missionAbandonneeDisparaitra": "Abandoned mission: it will disappear from the list and the history. This can't be undone.",
+    "missionAbandonneeSupprimee": "Abandoned mission deleted."
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",
