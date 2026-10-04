@@ -38,7 +38,7 @@ import {
 } from "./mcpWriteCommon";
 import { designer, jourTexte, plageDepuis, plateformeDepuis, plierTexte, typeContenuDepuis } from "./mcpWriteArgs";
 import { jourValide, resoudre } from "./mcpWritesMissions";
-import { assembleNoLabels, assignScriptCampaignCore } from "./scripts";
+import { assembleNoLabels, assignScriptCampaignCore, projectAssignmentsForCooldown } from "./scripts";
 import { drawableNotifs, isNotifEnabled } from "./scriptNotif";
 import { setAssignmentInstructionsCore } from "./assignments";
 import { parisDayStart } from "./managerCpm";
@@ -191,6 +191,10 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
 
     const plan: { createatrice: string; comptes: string[]; bareme: string; jours: { jour: string; hook: string }[] }[] = [];
     const cellules: { creatorId: Id<"creators">; assignmentId: Id<"assignments">; variante: number; jour: string }[] = [];
+    // Les missions du projet, lues UNE fois : relues à chaque mission (douze par
+    // tour), elles dépassaient les 16 Mo qu'une mutation peut lire (04/10, 727
+    // missions Snytch). Tenues à jour de chaque mission créée ci-dessous.
+    const lignesProjet = a.simuler ? [] : await projectAssignmentsForCooldown(ctx, ctx.projectId);
     for (const [i, nom] of a.createatrices.entries()) {
       const r = await resoudre(ctx, {
         campagne: campagne.name,
@@ -228,11 +232,17 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
             ...(contentType !== undefined ? { contentType } : {}),
             ...(remunerated !== undefined ? { remunerated } : {}),
           },
-          { email: false, ...(notif ? { notif: { notifBrickId: notif._id, notifText: notif.content.trim() } } : {}) },
+          {
+            email: false,
+            projectRows: lignesProjet,
+            ...(notif ? { notif: { notifBrickId: notif._id, notifText: notif.content.trim() } } : {}),
+          },
         );
         for (const id of res.assignmentIds) {
           if (a.consigne) await setAssignmentInstructionsCore(ctx, id, a.consigne);
           ids.push(id);
+          const creee = await ctx.db.get(id);
+          if (creee) lignesProjet.push(creee);
           cellules.push({ creatorId: r.creatrice._id, assignmentId: id, variante, jour: a.jours[j] });
         }
       }
