@@ -854,7 +854,7 @@ const OU_DEFAIRE: Record<string, string> = {
 };
 
 /** Un jour AAAA-MM-JJ réel, et pas passé : on ne planifie pas dans le passé. */
-function jourValide(x: string, cle: string, aujourdhui: string): string {
+export function jourValide(x: string, cle: string, aujourdhui: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x) || parisDayStart(x) === null) {
     throw new ToolError(`« ${cle} » : « ${x} » n'est pas un jour AAAA-MM-JJ.`);
   }

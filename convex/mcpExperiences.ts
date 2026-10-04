@@ -36,9 +36,10 @@ import {
   type CibleEcriture,
   type DomaineEcriture,
 } from "./mcpWriteCommon";
-import { designer, jourTexte, plageDepuis, plateformeDepuis, plierTexte } from "./mcpWriteArgs";
-import { resoudre } from "./mcpWritesMissions";
-import { assignScriptCampaignCore } from "./scripts";
+import { designer, jourTexte, plageDepuis, plateformeDepuis, plierTexte, typeContenuDepuis } from "./mcpWriteArgs";
+import { jourValide, resoudre } from "./mcpWritesMissions";
+import { assembleNoLabels, assignScriptCampaignCore } from "./scripts";
+import { drawableNotifs, isNotifEnabled } from "./scriptNotif";
 import { setAssignmentInstructionsCore } from "./assignments";
 import { parisDayStart } from "./managerCpm";
 import { shiftDay } from "./analyticsDates";
@@ -69,7 +70,11 @@ export const OUTIL_LANCER_EXPERIENCE: McpTool = {
       bareme: { type: "string", description: "Nom du barème. Défaut : celui de chaque créatrice." },
       plage: { type: "string", description: "Plage horaire commune : « 21h-23h », midi, après-midi, soir." },
       consigne: { type: "string", description: "Consigne de tournage commune." },
-      simuler: { type: "boolean", description: "true = n'écrit rien : montre le plan créatrice × jour × hook." },
+      notif: { type: "string", description: "La notif commune à TOUTES les missions (libellé, outil `scripts`), une notif active de la campagne. Sans elle, si la campagne a la notif, chaque mission en tire une en rotation — elles diffèrent alors d'une mission à l'autre." },
+      type: { type: "string", description: "Contenu « promo » ou « warmup ». Défaut : celui de la campagne." },
+      remuneree: { type: "boolean", description: "Vidéos rémunérées ? Défaut : celui de la campagne." },
+      echeance: { type: "string", description: "Échéance de production : « publication » (le jour de publication de CHAQUE mission) ou AAAA-MM-JJ. Défaut : le dernier jour de l'expérience, au plus tôt dans 7 jours." },
+      simuler: { type: "boolean", description: "true = n'écrit rien : montre le plan créatrice × jour × hook, les scripts et la notif." },
     },
     required: ["nom", "campagne", "hooks", "createatrices", "jours"],
     additionalProperties: false,
@@ -119,9 +124,13 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
     jours: v.array(v.string()),
     plateformes: v.array(plateformeValidator),
     bareme: v.optional(v.string()),
+    /** AAAA-MM-JJ, ou « publication » : la fin du jour de publication de chaque mission. */
     echeance: v.string(),
     plage: v.optional(v.object({ startMin: v.number(), endMin: v.number() })),
     consigne: v.optional(v.string()),
+    notif: v.optional(v.string()),
+    type: v.optional(v.union(v.literal("promo"), v.literal("warmup"))),
+    remuneree: v.optional(v.boolean()),
     simuler: v.boolean(),
   },
   handler: async (ctx, a) => {
@@ -141,7 +150,7 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", campagne._id))
       .collect();
-    const deRole = (role: "hook" | "flux" | "cta") => briques.filter((b) => b.kind === role);
+    const deRole = (role: "hook" | "flux" | "cta" | "notif") => briques.filter((b) => b.kind === role);
     const hooks = a.hooks.map((h) => briqueDe(deRole("hook"), h, "hook"));
     if (new Set(hooks.map((h) => h._id)).size !== hooks.length) throw err(ERR.MCP_DESIGNATION, "Deux variantes désignent le même hook.");
     const eteints = hooks.filter((h) => !h.active);
@@ -159,10 +168,26 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
     };
     const flux = commun("flux", a.flux);
     const cta = commun("cta", a.cta);
+    // La notif COMMUNE : sans elle, le tirage en rotation en pose une différente
+    // par mission, et la variante ne serait plus la seule différence.
+    let notif: Doc<"scriptBricks"> | null = null;
+    if (a.notif !== undefined) {
+      if (!isNotifEnabled(campagne)) {
+        throw err(ERR.MCP_DESIGNATION, `La notif n'est pas activée sur « ${campagne.name} » : retire « notif », ou active-la sur la campagne.`);
+      }
+      notif = briqueDe(drawableNotifs(deRole("notif")), a.notif, "notif");
+    }
     const k = hooks.length;
     if (a.jours.length !== k) throw err(ERR.MCP_DESIGNATION, `${k} hooks : il faut ${k} jours de publication, un par variante.`);
-    const lendemain = parisDayStart(shiftDay(a.echeance, 1));
-    if (lendemain === null) throw err(ERR.MCP_DESIGNATION, `Échéance invalide : « ${a.echeance} ».`);
+    const finDuJour = (jour: string) => {
+      const lendemain = parisDayStart(shiftDay(jour, 1));
+      if (lendemain === null) throw err(ERR.MCP_DESIGNATION, `Échéance invalide : « ${jour} ».`);
+      return lendemain - 1000;
+    };
+    const parPublication = a.echeance === "publication";
+    const echeanceFixe = parPublication ? null : finDuJour(a.echeance);
+    const contentType = a.type ?? campagne.defaultContentType;
+    const remunerated = a.remuneree ?? campagne.defaultRemunerated;
 
     const plan: { createatrice: string; comptes: string[]; bareme: string; jours: { jour: string; hook: string }[] }[] = [];
     const cellules: { creatorId: Id<"creators">; assignmentId: Id<"assignments">; variante: number; jour: string }[] = [];
@@ -195,15 +220,15 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
             creatorId: r.creatrice._id,
             targets: r.targets,
             videosPerCreator: 1,
-            dueDate: lendemain - 1000,
+            dueDate: echeanceFixe ?? finDuJour(a.jours[j]),
             pricingId: r.bareme.id,
             postDates: [r.postDates[j]],
             ...(a.plage ? { postWindows: [a.plage] } : {}),
             imposedCombo: { hookBrickId: hooks[variante]._id, fluxBrickId: flux._id, ctaBrickId: cta._id },
-            ...(campagne.defaultContentType !== undefined ? { contentType: campagne.defaultContentType } : {}),
-            ...(campagne.defaultRemunerated !== undefined ? { remunerated: campagne.defaultRemunerated } : {}),
+            ...(contentType !== undefined ? { contentType } : {}),
+            ...(remunerated !== undefined ? { remunerated } : {}),
           },
-          { email: false },
+          { email: false, ...(notif ? { notif: { notifBrickId: notif._id, notifText: notif.content.trim() } } : {}) },
         );
         for (const id of res.assignmentIds) {
           if (a.consigne) await setAssignmentInstructionsCore(ctx, id, a.consigne);
@@ -217,7 +242,27 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
         await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCreated, { assignmentId: premiere._id, count: ids.length });
       }
     }
-    if (a.simuler) return { simulation: true as const, plan, summary: "" };
+    // Ce que chaque mission recevra, à relire AVANT de lancer : le texte monté
+    // (même assemblage que l'assignation), la notif, et ce qui est commun.
+    const notifTexte = notif
+      ? notif.content.trim()
+      : isNotifEnabled(campagne)
+        ? "tirée en rotation : une notif différente par mission"
+        : null;
+    const scripts = hooks.map((h) => ({
+      hook: h.label,
+      script: assembleNoLabels({ hook: h.content, flux: flux.content, cta: cta.content }),
+      notif: notifTexte,
+    }));
+    const communs = {
+      flux: flux.label,
+      cta: cta.label,
+      notif: notifTexte,
+      type: contentType ?? null,
+      remuneree: remunerated ?? null,
+      echeance: parPublication ? "le jour de publication de chaque mission" : jourTexte(a.echeance),
+    };
+    if (a.simuler) return { simulation: true as const, plan, scripts, communs, summary: "" };
 
     const experienceId = await ctx.db.insert("hookExperiments", {
       projectId: ctx.projectId,
@@ -233,7 +278,8 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
     });
     const summary =
       `Expérience « ${a.nom.trim()} » (${campagne.name}) : ${k} hooks × ${a.createatrices.length} créatrices = ${cellules.length} missions, ` +
-      `du ${jourTexte(a.jours[0])} au ${jourTexte(a.jours[k - 1])}`;
+      `du ${jourTexte(a.jours[0])} au ${jourTexte(a.jours[k - 1])}` +
+      (notif ? `, notif « ${notif.content.trim()} »` : "");
     await journaliser(ctx, {
       tool: "lancer_experience",
       summary,
@@ -241,7 +287,7 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
       path: "assignments",
       annulation: { type: "experienceCreee", experienceId, assignmentIds: cellules.map((c) => c.assignmentId) },
     });
-    return { simulation: false as const, plan, summary };
+    return { simulation: false as const, plan, scripts, communs, summary };
   },
 });
 
@@ -270,7 +316,18 @@ async function appelerLancement(
   const plage = args.plage === undefined ? undefined : plageDepuis(args.plage);
   if (plage === null || plage === "aucune") throw new ToolError("« plage » : par exemple « 21h-23h », ou soir.");
   const derniere = [...jours].sort()[jours.length - 1] ?? aujourdhui;
-  const echeance = shiftDay(aujourdhui, 7) > derniere ? shiftDay(aujourdhui, 7) : derniere;
+  const echeanceBrute = texteArg(args, "echeance");
+  const echeance =
+    echeanceBrute === ""
+      ? shiftDay(aujourdhui, 7) > derniere
+        ? shiftDay(aujourdhui, 7)
+        : derniere
+      : ["publication", "jour de publication"].includes(plierTexte(echeanceBrute))
+        ? "publication"
+        : jourValide(echeanceBrute, "echeance", aujourdhui);
+  const typeBrut = texteArg(args, "type");
+  const type = typeBrut === "" ? undefined : typeContenuDepuis(typeBrut);
+  if (type === null) throw new ToolError("« type » : « promo » ou « warmup ».");
   const r = await ecrire(() =>
     ctx.runMutation(internal.mcpExperiences.ecrireExperience, {
       ...cible,
@@ -286,12 +343,17 @@ async function appelerLancement(
       echeance,
       ...(plage ? { plage } : {}),
       ...(texteArg(args, "consigne") ? { consigne: texteArg(args, "consigne") } : {}),
+      ...(texteArg(args, "notif") ? { notif: texteArg(args, "notif") } : {}),
+      ...(type ? { type } : {}),
+      ...(typeof args.remuneree === "boolean" ? { remuneree: args.remuneree } : {}),
       simuler: args.simuler === true,
     }),
   );
   if (r.simulation) {
     return resultatEcriture(projet, "Simulation : rien n'a été écrit.", "Rien à défaire.", {
       plan: r.plan,
+      scripts: r.scripts,
+      communs: r.communs,
       suite: "Pour lancer : rappelle lancer_experience sans « simuler » — un email « nouvelle mission » partira à chaque créatrice.",
     });
   }
@@ -299,7 +361,7 @@ async function appelerLancement(
     projet,
     r.summary,
     "`defaire` supprime les missions pas encore commencées et annule l'expérience ; les emails sont partis.",
-    { plan: r.plan, verdict: "À lire avec `experiences`, à J+7 de la dernière publication." },
+    { plan: r.plan, communs: r.communs, verdict: "À lire avec `experiences`, à J+7 de la dernière publication." },
   );
 }
 

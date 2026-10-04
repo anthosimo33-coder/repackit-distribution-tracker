@@ -147,4 +147,94 @@ test.describe("MCP — tests A/B de hooks", () => {
     const apres = JSON.parse((await appel("experiences", {})).texte).experiences as { nom: string; statut: string }[];
     expect(apres.find((x) => x.nom === nomXp2)?.statut).toBe("annulee");
   });
+
+  /**
+   * TOUT LE RESTE IDENTIQUE : sans « notif », une campagne à notif en tire une
+   * en rotation par mission — la variante n'est plus la seule différence. Avec
+   * « notif », la même sur chaque mission (deux notifs actives : la rotation en
+   * aurait posé deux) ; « type » et « remuneree » qualifient les missions ;
+   * « echeance: publication » cale chaque échéance sur SON jour de publication.
+   */
+  test("notif commune, type, rémunération et échéance au jour de publication", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const P = E2E_PROJECT_SLUG;
+    const creatrices: { nom: string; creatorId: Id<"creators"> }[] = [];
+    for (const [i, prenom] of ["Jade Morel", "Lou Bernard"].entries()) {
+      const nom = `${prenom} ${ts}`;
+      const s = await createCreatorSession(convexUrl, { name: `[E2E_TEST] ${nom}`, email: `e2e-mcp-abn-${i}-${ts}@repackit.test`, password: `abn-${i}-12345` });
+      await availableTarget({ e2eClient: admin, creatorId: s.creatorId, platform: "TikTok", handle: `@abn${i}${ts}` });
+      creatrices.push({ nom, creatorId: s.creatorId });
+    }
+    const campagne = `Labo notif ${ts}`;
+    const campaignId = (await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] ${campagne}` })) as Id<"scriptCampaigns">;
+    await admin.mutation(api.scripts.updateCampaign, { id: campaignId, notifEnabled: true });
+    const brique = (kind: "hook" | "flux" | "cta" | "notif", label: string, content: string) =>
+      admin.mutation(api.scripts.createBrick, { campaignId, kind, label, content }) as Promise<Id<"scriptBricks">>;
+    await brique("hook", "Hook un", `Premier hook ${ts}`);
+    await brique("hook", "Hook deux", `Second hook ${ts}`);
+    await brique("flux", "Flux", "Je montre l'appli.");
+    await brique("cta", "CTA", "Le lien est dans ma bio.");
+    const quitte = await brique("notif", "Je te quitte", `Je te quitte ${ts}`);
+    await brique("notif", "Autre notif", `Une autre notif ${ts}`);
+    const bareme = `Barème ABN ${ts}`;
+    await admin.mutation(api.pricing.createPricing, { name: `[E2E_TEST] ${bareme}`, montantFixe: 50, nbVideosCible: 5, tauxCPM: 1.1 });
+
+    const nomCle = `E2E ABN ${ts}`;
+    await page.goto(adminPath("/comptes"));
+    await page.getByRole("button", { name: "Connecter Claude" }).click();
+    await page.getByLabel("Nom de la clé").fill(nomCle);
+    await page.getByRole("button", { name: "Créer une clé" }).click();
+    const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+    const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!.match(/jarvia (\S+\/mcp) /)![1];
+    await page.getByRole("button", { name: "J’ai copié la clé" }).click();
+    const interrupteur = page.getByRole("switch", { name: `Modifications des missions pour ${nomCle}` });
+    await interrupteur.click();
+    await expect(interrupteur).toBeChecked();
+    const appel = async (name: string, args: Record<string, unknown>) => {
+      const r = await rpc(url, token, "tools/call", { name, arguments: { projet: P, ...args } });
+      return { erreur: r.error !== undefined || r.result?.isError === true, texte: r.error?.message ?? r.result?.content?.[0]?.text ?? "" };
+    };
+    const [J3, J5] = [jourParis(3), jourParis(5)];
+    const lancement = {
+      nom: `Notif commune ${ts}`,
+      campagne,
+      hooks: ["Hook un", "Hook deux"],
+      createatrices: creatrices.map((c) => c.nom),
+      jours: [J3, J5],
+      bareme,
+      notif: "Je te quitte",
+      type: "promo",
+      remuneree: true,
+      echeance: "publication",
+    };
+
+    // ── Une notif qui n'existe pas : refus, et la campagne est citée ─────────
+    const inconnue = await appel("lancer_experience", { ...lancement, notif: `Absente ${ts}`, simuler: true });
+    expect(inconnue.erreur).toBe(true);
+    expect(inconnue.texte).toContain(`Absente ${ts}`);
+
+    // ── Simuler : la notif et les scripts montés se lisent AVANT de lancer ───
+    const sim = JSON.parse((await appel("lancer_experience", { ...lancement, simuler: true })).texte);
+    expect(sim.communs).toMatchObject({ notif: `Je te quitte ${ts}`, type: "promo", remuneree: true, echeance: "le jour de publication de chaque mission" });
+    expect(sim.scripts).toEqual([
+      { hook: "Hook un", script: `Premier hook ${ts}\n\nJe montre l'appli.\n\nLe lien est dans ma bio.`, notif: `Je te quitte ${ts}` },
+      { hook: "Hook deux", script: `Second hook ${ts}\n\nJe montre l'appli.\n\nLe lien est dans ma bio.`, notif: `Je te quitte ${ts}` },
+    ]);
+
+    // ── Lancer : la MÊME notif partout, missions qualifiées, échéance du jour ─
+    const go = await appel("lancer_experience", lancement);
+    expect(go.erreur, go.texte).toBe(false);
+    const toutes = (await admin.query(api.assignments.listAssignments, {})).filter((a) => creatrices.some((c) => c.creatorId === a.creatorId));
+    expect(toutes).toHaveLength(4);
+    for (const m of toutes) {
+      expect(m.scriptCombo?.notifBrickId).toBe(quitte);
+      expect(m.scriptCombo?.notifText).toBe(`Je te quitte ${ts}`);
+      expect(m.contentType).toBe("promo");
+      expect(m.remunerated).toBe(true);
+      expect(jourDe(m.dueDate)).toBe(jourDe(m.postDate));
+      expect(jourDe(m.dueDate + 1000)).not.toBe(jourDe(m.postDate));
+    }
+    expect(new Set(toutes.map((m) => jourDe(m.dueDate)))).toEqual(new Set([J3, J5]));
+  });
 });
