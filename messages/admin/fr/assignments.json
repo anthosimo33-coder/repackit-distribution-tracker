@@ -50,7 +50,9 @@
     "sansCampagne": "Sans campagne",
     "afficherInactives": "Afficher les inactives ({count})",
     "masquerInactives": "Masquer les inactives",
-    "sansPays": "Sans pays"
+    "sansPays": "Sans pays",
+    "missionAbandonneeDisparaitra": "Cette mission abandonnée disparaîtra de la liste et de l'historique. Cette action est irréversible.",
+    "missionAbandonneeSupprimee": "Mission abandonnée supprimée."
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Compte cohérent (@{detected})",
@@ -118,7 +120,9 @@
     "notifAjoutee": "Notif ajoutée",
     "notifChangee": "Notif changée",
     "echeanceMiseAJour": "Échéance mise à jour.",
-    "abandonneeHorsCalendrier": "Abandonnée — hors calendrier"
+    "abandonneeHorsCalendrier": "Abandonnée — hors calendrier",
+    "missionAbandonneeDisparaitra": "Mission abandonnée : elle disparaîtra de la liste et de l'historique. Action irréversible.",
+    "missionAbandonneeSupprimee": "Mission abandonnée supprimée."
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",
