@@ -221,6 +221,7 @@ import {
 } from "./mcpProtocol";
 import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 import { marcheInactif, offresVendues, postsEssentiels } from "./mcpFormat";
+import { texteDeMission } from "./assignmentScriptText";
 
 const jour = (ts: number | null | undefined): string | null =>
   typeof ts === "number" && ts > 0 ? parisDayKey(ts) : null;
@@ -531,7 +532,7 @@ export const lireVideoSoumise = mcpPermissionQuery("review.manage")({
     // Hook et CTA ATTENDUS : ceux du script FIGÉ de la mission. La brique sert
     // si le script commence (finit) bien par elle ; sinon — brique modifiée
     // depuis — le premier (dernier) paragraphe du texte figé.
-    const script = a.scriptCombo?.assembledScript ?? a.freeScript ?? null;
+    const script = (await texteDeMission(ctx, a)) ?? null;
     const paragraphes = (script ?? "").split(/\n\s*\n/).map((x) => x.trim()).filter((x) => x !== "");
     const brique = async (id: Id<"scriptBricks"> | undefined) => (id ? ((await ctx.db.get(id))?.content.trim() ?? null) : null);
     const hook = await brique(a.scriptCombo?.hookBrickId);
@@ -545,7 +546,7 @@ export const lireVideoSoumise = mcpPermissionQuery("review.manage")({
       statut: a.status,
       uid: a.submittedVideoStreamUid ?? null,
       streamStatus: a.submittedVideoStreamStatus ?? null,
-      script: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
+      script,
       consigne: a.instructions ?? null,
       texteAIncruster: a.overlayText ?? null,
       plage: formatPostWindow(a.postWindow),

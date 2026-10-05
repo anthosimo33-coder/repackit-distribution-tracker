@@ -57,6 +57,12 @@ import {
   notifUsageOf,
   pickNotifs,
 } from "./scriptNotif";
+import {
+  comboAvecTexte,
+  ecrireCombo,
+  ecrireTexteDuCombo,
+  texteDuCombo,
+} from "./assignmentScriptText";
 
 /**
  * S1 — Système de scripts combinatoire (fondation). Refonte 3 briques : une
@@ -931,7 +937,9 @@ export async function replaySourceCore(
     sourceAssignmentId: assignment?._id ?? null,
     // La publication ne stocke pas assembledScript → on prend celui, figé, de
     // l'assignation source (null si orpheline → pas de bandeau « éditée depuis »).
-    sourceAssembledScript: assignment?.scriptCombo?.assembledScript ?? null,
+    sourceAssembledScript: assignment
+      ? ((await texteDuCombo(ctx, assignment)) ?? null)
+      : null,
     // Vues dénormalisées « latest » + date de publi (null si pas encore publié).
     perf: {
       views: publication?.vuesLatest ?? null,
@@ -1507,9 +1515,14 @@ export async function assignScriptCampaignCore(
   // Rejeu à l'identique : on REPRODUIT le combo FIGÉ de la source (validé plus
   // haut). Le texte figé = ce qui a réellement marché ; comboKey de la source →
   // attribution analytics au MÊME combo. Prioritaire sur imposedCombo (ignoré).
+  // Le combo source AVEC son texte : le texte ne vit plus dans le document
+  // (cf convex/assignmentScriptText).
   const verbatimCombo =
     args.replayVerbatim && replaySrc?.scriptCombo && replaySrc.comboKey
-      ? { combo: replaySrc.scriptCombo, comboKey: replaySrc.comboKey }
+      ? {
+          combo: (await comboAvecTexte(ctx, replaySrc))!,
+          comboKey: replaySrc.comboKey,
+        }
       : null;
   if (verbatimCombo) {
     const c = verbatimCombo.combo;
@@ -1674,7 +1687,6 @@ export async function assignScriptCampaignCore(
               : {}),
             fluxBrickId: verbatimCombo.combo.fluxBrickId,
             ctaBrickId: verbatimCombo.combo.ctaBrickId,
-            assembledScript: verbatimCombo.combo.assembledScript,
             // À l'identique : la notif de la source aussi.
             ...notifFieldsOf(verbatimCombo.combo),
           }
@@ -1683,7 +1695,6 @@ export async function assignScriptCampaignCore(
             hookBrickId: combo.hookBrickId,
             fluxBrickId: combo.fluxBrickId,
             ctaBrickId: combo.ctaBrickId,
-            assembledScript: combo.assembledScript,
             // Absente si la campagne n'a pas la notif → combo inchangé.
             ...(notifs[i] ?? {}),
           },
@@ -1718,6 +1729,12 @@ export async function assignScriptCampaignCore(
       ...(args.remunerated !== undefined ? { remunerated: args.remunerated } : {}),
       createdAt: now,
     });
+    // Le TEXTE monté, hors du document (verbatim : celui de la source).
+    await ecrireTexteDuCombo(
+      ctx,
+      { _id: insertedId, projectId: ctx.projectId },
+      verbatimCombo ? verbatimCombo.combo.assembledScript : combo.assembledScript,
+    );
     if (firstAssignmentId === null) firstAssignmentId = insertedId;
     assignmentIds.push(insertedId);
     created++;
@@ -1808,13 +1825,11 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
       if (notifText.length === 0) {
         throw err(ERR.BRICK_TEXT_REQUIRED, "Le texte de la brique est requis.");
       }
-      await ctx.db.patch(args.id, {
-        scriptCombo: {
-          ...combo,
-          notifBrickId: newBrick._id,
-          notifText,
-          editedOnce: true,
-        },
+      await ecrireCombo(ctx, a, {
+        ...combo,
+        notifBrickId: newBrick._id,
+        notifText,
+        editedOnce: true,
       });
       return { ok: true, comboKey: a.comboKey ?? null };
     }
@@ -1853,11 +1868,13 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
       projectId: ctx.projectId,
     });
 
-    await ctx.db.patch(args.id, {
-      // Combo RE-FIGÉ (3 kinds, sans corpsBrickId legacy). editedOnce = simple
-      // TRACEUR « corrigé au moins une fois » — PLUS un verrou (on corrige autant
-      // que nécessaire avant publication ; le seul verrou est representativePostedAt).
-      scriptCombo: {
+    // Combo RE-FIGÉ (3 kinds, sans corpsBrickId legacy). editedOnce = simple
+    // TRACEUR « corrigé au moins une fois » — PLUS un verrou (on corrige autant
+    // que nécessaire avant publication ; le seul verrou est representativePostedAt).
+    await ecrireCombo(
+      ctx,
+      a,
+      {
         campaignId: combo.campaignId,
         hookBrickId,
         fluxBrickId,
@@ -1867,9 +1884,9 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
         // La notif ne dépend pas de la brique changée : elle reste.
         ...notifFieldsOf(combo),
       },
-      comboKey,
       // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
-    });
+      { comboKey },
+    );
     return { ok: true, comboKey };
   },
 });
@@ -1946,13 +1963,11 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
     // NOTIF — hors combo : la variante remplace la notif figée, le texte monté
     // et le comboKey ne bougent pas.
     if (args.slot === "notif") {
-      await ctx.db.patch(args.id, {
-        scriptCombo: {
-          ...combo,
-          notifBrickId: forkedId,
-          notifText: text,
-          editedOnce: true,
-        },
+      await ecrireCombo(ctx, a, {
+        ...combo,
+        notifBrickId: forkedId,
+        notifText: text,
+        editedOnce: true,
       });
       return { ok: true, forkedBrickId: forkedId, comboKey: a.comboKey ?? null };
     }
@@ -1979,8 +1994,10 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
     // avec un assignment existant. Pas de garde nécessaire ici (cf #53).
     const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
 
-    await ctx.db.patch(args.id, {
-      scriptCombo: {
+    await ecrireCombo(
+      ctx,
+      a,
+      {
         campaignId: combo.campaignId,
         hookBrickId,
         fluxBrickId,
@@ -1989,9 +2006,9 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
         editedOnce: true, // TRACEUR « corrigé au moins une fois » (plus un verrou)
         ...notifFieldsOf(combo),
       },
-      comboKey,
       // pricingSnapshot, rateSnapshot, status… : STRICTEMENT inchangés.
-    });
+      { comboKey },
+    );
     return { ok: true, forkedBrickId: forkedId, comboKey };
   },
 });
@@ -2069,10 +2086,14 @@ export const notifBackfillCandidates = permissionQuery("scripts.manage")({
         }
       }
     }
+    const textes = new Map<string, string>();
+    for (const a of targets) {
+      textes.set(a._id, (await texteDuCombo(ctx, a)) ?? "");
+    }
     return targets.map((a) => ({
       assignmentId: a._id,
       creatorName: names.get(a.creatorId) ?? "—",
-      hook: (a.scriptCombo!.assembledScript.split("\n\n")[0] ?? "").trim(),
+      hook: (textes.get(a._id)!.split("\n\n")[0] ?? "").trim(),
       accounts: (a.targets ?? []).map((t) => ({
         platform: t.platform,
         handle: t.accountId ? (handles.get(t.accountId) ?? null) : null,
@@ -2130,12 +2151,10 @@ export const backfillNotifs = permissionMutation("scripts.manage")({
       freeingStatuses: COMBO_FREEING_STATUSES,
     });
     for (const { row, notif } of picks) {
-      await ctx.db.patch(row._id, {
-        scriptCombo: {
-          ...row.scriptCombo!,
-          notifBrickId: notif._id,
-          notifText: notif.content.trim(),
-        },
+      await ecrireCombo(ctx, row, {
+        ...row.scriptCombo!,
+        notifBrickId: notif._id,
+        notifText: notif.content.trim(),
       });
     }
     return { added: picks.length };
@@ -2483,7 +2502,6 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
         hookBrickId: combo.hookBrickId,
         fluxBrickId: combo.fluxBrickId,
         ctaBrickId: combo.ctaBrickId,
-        assembledScript: combo.assembledScript,
         ...(notif ?? {}),
       },
       comboKey: comboKeyOf(combo),
@@ -2512,6 +2530,12 @@ export const assignScriptToRush = permissionMutation("assignments.manage")({
         : {}),
       createdAt: now,
     });
+    // Le TEXTE monté, hors du document (cf convex/assignmentScriptText).
+    await ecrireTexteDuCombo(
+      ctx,
+      { _id: assignmentId, projectId: ctx.projectId },
+      combo.assembledScript,
+    );
 
     // Rush retenu — le talent lira « Validé », jamais « Assigné » (cf
     // convex/rushStatus.TALENT_STATUS_LABELS).

@@ -79,6 +79,7 @@ import { isStrictAccountValidationFor } from "./projects";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { plateformeValidator, type Plateforme } from "./platforms";
 import { formatPostWindow } from "./postWindow";
+import { comboAvecTexte, ecrireCombo, texteDuCombo } from "./assignmentScriptText";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -373,13 +374,16 @@ export async function trouverMission(
     }
     const campagne = idCampagne ? (campagnes.get(idCampagne) ?? null) : null;
     const jour = a.postDate == null ? null : plannedDayKey(a.postDate);
+    // Le texte du script (hors du document) : désigner une mission par un
+    // extrait, et le montrer quand plusieurs se ressemblent.
+    const texte = (await texteDuCombo(ctx, a)) ?? "";
     const libelle = [
       creatrice.name,
       cs.map((c) => `${c.handle} (${c.plateforme})`).join(", ") || "sans compte",
       jour === null ? "sans date" : jourTexte(jour),
       campagne ?? "sans campagne",
     ].join(" · ");
-    return { a, comptes: cs, campagne, jour, libelle };
+    return { a, comptes: cs, campagne, jour, libelle, texte };
   };
   const decrites = await Promise.all(lignes.map(decrire));
 
@@ -389,11 +393,11 @@ export async function trouverMission(
       m.jour === d.jour &&
       (d.compte === undefined || m.comptes.some((c) => plie(c.handle).includes(plie(d.compte!)))) &&
       (d.campagne === undefined || plie(m.campagne ?? "").includes(plie(d.campagne))) &&
-      (d.script === undefined || plie(m.a.scriptCombo?.assembledScript ?? "").includes(plie(d.script))),
+      (d.script === undefined || plie(m.texte).includes(plie(d.script))),
   );
   const eligibles = correspond.filter((m) => refus(m.a) === null);
   const extrait = (m: (typeof decrites)[number]) => {
-    const texte = (m.a.scriptCombo?.assembledScript ?? "").replace(/\s+/g, " ").trim();
+    const texte = m.texte.replace(/\s+/g, " ").trim();
     return `${m.libelle} · ${STATUTS[m.a.status] ?? m.a.status}${texte ? ` · « ${texte.slice(0, 50)}${texte.length > 50 ? "…" : ""} »` : ""}`;
   };
   if (eligibles.length === 1) {
@@ -922,7 +926,8 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       if (hasSubmittedVideo(x)) return `vidéo déjà envoyée (statut ${STATUTS[x.status] ?? x.status}) : déjà tournée`;
       return x.status === "todo" || x.status === "in_progress" ? null : `${STATUTS[x.status] ?? x.status} : déjà tournée`;
     });
-    const avant = m.a.scriptCombo;
+    // Le combo d'avant AVEC son texte (il vit hors du document).
+    const avant = await comboAvecTexte(ctx, m.a);
     if (!avant) throw err(ERR.MCP_DESIGNATION, `${m.libelle} : pas de script de campagne à réécrire.`);
 
     const campagnes = await ctx.db
@@ -966,7 +971,7 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
     }
 
     const photos = await photographier(ctx, "assignments", [m.a._id]);
-    const scriptAvant = scriptDeMission(m.a);
+    const scriptAvant = await scriptDeMission(ctx, m.a);
     if (texteChange || a.notif !== undefined || autreCampagne) {
       const combo = texteChange || autreCampagne
         ? {
@@ -984,24 +989,26 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
             ctaBrickId: avant.ctaBrickId,
             assembledScript: avant.assembledScript,
           };
-      await ctx.db.patch(m.a._id, {
-        scriptCombo: { ...combo, editedOnce: true, ...(notif ?? {}) },
-        ...(texteChange || autreCampagne
+      await ecrireCombo(
+        ctx,
+        m.a,
+        { ...combo, editedOnce: true, ...(notif ?? {}) },
+        texteChange || autreCampagne
           ? { comboKey: `${hook._id}:${flux._id}:${cta._id}`, comboImposed: true }
-          : {}),
-      });
+          : {},
+      );
     }
     if (a.consigne !== undefined) await setAssignmentInstructionsCore(ctx, m.a._id, a.consigne);
 
     const apres = (await ctx.db.get(m.a._id))!;
-    const scriptApres = scriptDeMission(apres);
+    const scriptApres = await scriptDeMission(ctx, apres);
     if (scriptApres === scriptAvant) return { summary: `${m.libelle} : déjà ce script — rien n'a changé` };
     const extrait = (t: string) => {
       const x = t.replace(/\s+/g, " ").trim();
       return x.length > 50 ? `${x.slice(0, 47)}…` : x;
     };
     const faits = [
-      ...(texteChange || autreCampagne ? [`script « ${extrait(apres.scriptCombo!.assembledScript)} »`] : []),
+      ...(texteChange || autreCampagne ? [`script « ${extrait((await texteDuCombo(ctx, apres)) ?? "")} »`] : []),
       ...(a.notif !== undefined ? [notif ? `notif « ${notif.notifText} »` : "notif retirée"] : []),
       ...(a.consigne !== undefined ? [a.consigne.trim() === "" ? "consigne effacée" : `consigne « ${extrait(a.consigne)} »`] : []),
     ];

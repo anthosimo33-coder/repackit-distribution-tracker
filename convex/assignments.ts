@@ -86,6 +86,13 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { resolveCreatorPricing } from "./creatorPricing";
 import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
+import {
+  remettreTexteDe,
+  sortirTexteDe,
+  supprimerTexteDuCombo,
+  texteDeMission,
+  texteDuCombo,
+} from "./assignmentScriptText";
 
 /**
  * P7 Portail créateur — assignments. ISOLATION serveur non négociable : toutes
@@ -1269,6 +1276,7 @@ export async function cancelAssignmentCore(
  */
 export async function archiveAndDeleteAssignment(ctx: MutationCtx, a: Doc<"assignments">): Promise<void> {
   await archiveSubmittedVideo(ctx, a);
+  await supprimerTexteDuCombo(ctx, a._id);
   await ctx.db.delete(a._id);
 }
 
@@ -1290,6 +1298,7 @@ export async function purgeAndDeleteAssignment(
       { uid: a.submittedVideoStreamUid },
     );
   }
+  await supprimerTexteDuCombo(ctx, a._id);
   await ctx.db.delete(a._id);
 }
 
@@ -1395,7 +1404,7 @@ export const getAssignmentScript = permissionQuery("assignments.manage")({
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
     // Le premier des DEUX porteurs de texte : combo monté (production normale)
     // ou script libre (défi). Aucun écran n'a à connaître la différence.
-    const texte = a.scriptCombo?.assembledScript ?? a.freeScript;
+    const texte = await texteDeMission(ctx, a);
     return texte === undefined ? null : { assembledScript: texte };
   },
 });
@@ -1640,8 +1649,11 @@ export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
           // demande, par `getAssignmentScript`.
           scriptCombo: scriptComboSansTexte(a.scriptCombo),
           /** Y a-t-il un script monté ? (le texte, lui, se demande à part) */
+          // Sans LIRE le texte (il vit hors du document) : toute assignation
+          // « script » en a un — combo et texte s'écrivent ensemble (cf
+          // convex/assignmentScriptText) —, et un défi porte le sien.
           hasAssembledScript:
-            (a.scriptCombo?.assembledScript ?? a.freeScript) != null,
+            a.scriptCombo !== undefined || a.freeScript !== undefined,
           comboKey: a.comboKey,
           comboImposed: a.comboImposed,
           replayedFrom: a.replayedFrom,
@@ -2157,7 +2169,7 @@ export async function listVideoSubmittedCore(ctx: ProjectQueryCtx) {
             // SCRIPT MONTÉ FIGÉ (labels:false, sans titres ##) : on l'AFFICHE
             // tel quel pour comparer vidéo ↔ script attendu. JAMAIS re-dérivé —
             // cohérent avec AssignmentScriptDialog. Null hors origine script.
-            assembledScript: combo?.assembledScript ?? a.freeScript ?? null,
+            assembledScript: (await texteDeMission(ctx, a)) ?? null,
             comboSummary,
           };
         }),
@@ -2679,6 +2691,8 @@ async function splitScriptZones(
   ctx: QueryCtx,
   a: Doc<"assignments">,
   combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
+  /** Le texte FIGÉ de l'assignation (hors du document, cf assignmentScriptText). */
+  texte: string | undefined,
 ): Promise<ScriptZones | null> {
   // Réglage DU PROJET (convex/scriptZonesSetting) — même décision que l'aperçu
   // admin, qui la reçoit résolue par projectForClient.
@@ -2696,7 +2710,7 @@ async function splitScriptZones(
   // Garde anti-divergence : le découpage n'est fidèle que s'il reconstitue le
   // texte figé exactement (même assemblage que le write path, labels:false). Le
   // MODE est ORTHOGONAL au contenu → n'entre pas dans cette garde.
-  if ([h, f, c].join("\n\n") !== combo.assembledScript) return null;
+  if ([h, f, c].join("\n\n") !== texte) return null;
   return {
     // Zone vidéo PAR BRIQUE : chaque bloc porte son mode (défaut "les_deux" au
     // read, rétrocompat — réplique de lib/script-mode.resolveBrickMode, A6).
@@ -2821,7 +2835,7 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
     ...safe,
     targets,
     ...label,
-    assembledScript: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
+    assembledScript: (await texteDeMission(ctx, a)) ?? null,
   };
 }
 
@@ -3093,7 +3107,7 @@ async function enrichForClipper(ctx: QueryCtx, a: Doc<"assignments">) {
     targets,
     // Le TEXTE monté, jamais la décomposition (briques/ids/campagne) : elle
     // sert à l'anti-coordination et aux analytics, pas au montage.
-    assembledScript: a.scriptCombo?.assembledScript ?? a.freeScript ?? null,
+    assembledScript: (await texteDeMission(ctx, a)) ?? null,
   };
 }
 
@@ -3136,7 +3150,7 @@ async function clipDetailFor(
     : null;
   const assets = await resolveAssignmentAssets(ctx, a);
   const scriptZones = a.scriptCombo
-    ? await splitScriptZones(ctx, a, a.scriptCombo)
+    ? await splitScriptZones(ctx, a, a.scriptCombo, base.assembledScript ?? undefined)
     : null;
   const scriptInstructions = a.scriptCombo
     ? await scriptInstructionsOf(ctx, a.scriptCombo)
@@ -3218,14 +3232,15 @@ async function assignmentDetailFor(
   // Libellé de mission (nom de campagne / format) — MÊME source que la liste.
   const label = await missionLabelFor(ctx, a);
   if (a.scriptCombo) {
-    const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo);
+    const texte = await texteDuCombo(ctx, a);
+    const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo, texte);
     const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
     const scriptNotif = await scriptNotifOf(ctx, a.scriptCombo);
     return {
       assignment: safe,
       ...label,
       format: null,
-      assembledScript: a.scriptCombo.assembledScript,
+      assembledScript: texte ?? "",
       scriptZones,
       scriptInstructions,
       scriptNotif,
@@ -4187,6 +4202,56 @@ export const e2eSetAssignmentStatus = e2eMutation({
       ...(createdAt !== undefined ? { createdAt } : {}),
     });
     return { ok: true };
+  },
+});
+
+/**
+ * E2E — remet une assignation dans l'état d'AVANT la sortie des textes (texte
+ * dans `scriptCombo.assembledScript`, aucune ligne dans `assignmentScripts`) :
+ * de quoi prouver que le code lit encore ces missions, que leurs écritures ne
+ * perdent pas le texte, et que la migration les déplace sans rien perdre.
+ */
+export const e2eRemettreTexteDansLeDocument = e2eMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const ligne = await ctx.db
+      .query("assignmentScripts")
+      .withIndex("by_assignment", (q) => q.eq("assignmentId", id))
+      .unique();
+    if (ligne === null) throw new Error("Aucun texte à remettre.");
+    await remettreTexteDe(ctx, ligne);
+    await supprimerTexteDuCombo(ctx, id);
+    return { ok: true };
+  },
+});
+
+/** E2E — la migration (`sortirTexteDe`, le même code que la prod) sur ces assignations. */
+export const e2eSortirTextes = e2eMutation({
+  args: { ids: v.array(v.id("assignments")) },
+  handler: async (ctx, { ids }) => {
+    const out: string[] = [];
+    for (const id of ids) {
+      const a = await ctx.db.get(id);
+      out.push(a ? await sortirTexteDe(ctx, a) : "absente");
+    }
+    return out;
+  },
+});
+
+/** E2E — OÙ vit le texte d'une assignation : son document, la table, ou nulle part. */
+export const e2eEtatDuTexte = e2eMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    const ligne = await ctx.db
+      .query("assignmentScripts")
+      .withIndex("by_assignment", (q) => q.eq("assignmentId", id))
+      .unique();
+    return {
+      existe: a !== null,
+      dansLeDocument: a?.scriptCombo?.assembledScript ?? null,
+      ligne: ligne?.text ?? null,
+    };
   },
 });
 
