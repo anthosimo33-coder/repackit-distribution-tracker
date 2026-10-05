@@ -323,3 +323,30 @@ Ce fichier liste les anti-patterns repérés dans la zone touchée par chaque fe
 - **Ce qui rendrait ça urgent** : rien avant la prochaine évolution de
   `scriptBricks` — le risque est qu'un futur champ soit modelé sur ces deux-là,
   ou qu'une requête les relise « puisqu'ils sont là ».
+
+## Détecté pendant la sortie du texte des scripts (octobre 2026)
+
+### TD-029 — `assignments.scriptCombo.assembledScript` survit au schéma le temps de la migration
+- **Fichiers** : `convex/schema.ts` (champ marqué ANCIEN EMPLACEMENT),
+  `convex/assignmentScriptText.ts` (repli de lecture `texteDuCombo`,
+  `sortirTexteDe`, `remettreTexteDe`), `convex/migrations.ts`
+  (`sortirTextesDesScripts`, `remettreTextesDansLesScripts`,
+  `auditTextesDesScripts`), `convex/assignments.ts` (`e2eRemettreTexteDansLeDocument`,
+  `e2eSortirTextes`).
+- **Constat** : le texte monté vit dans `assignmentScripts` depuis le
+  05/10/2026 (32 % des octets de la table des missions, relus par chaque query
+  qui la parcourt). L'ancien champ reste DÉCLARÉ, optionnel, et LU en repli :
+  les missions pas encore migrées gardent leur texte dans le document, et un
+  `convex deploy` refuse tout document portant un champ absent du schéma.
+- **Ce qui débloque le retrait** : `auditTextesDesScripts` à `aMigrer: 0` en
+  PROD **et** sur le déploiement de DEV cloud (`useful-hummingbird-821`, cf
+  TD-028 : il ne reçoit pas le code tout seul — le nettoyer ou constater qu'il
+  est mort).
+- **Forme du correctif** : retirer le champ du schéma, le repli de
+  `texteDuCombo`, `sortirTexteDe` / `remettreTexteDe`, les trois migrations et
+  les deux `e2e…` qui recréent une mission « d'avant », et les étapes 2-3 de
+  `e2e/assignments-script-text.spec.ts`. tsc interdira alors toute écriture du
+  texte dans le document.
+- **Ce qui rendrait ça urgent** : rien tant que le repli est là — mais tant
+  qu'il y est, une écriture qui remettrait le texte dans le document
+  compilerait.

@@ -36,6 +36,7 @@ import {
 import { resolveCreatorKind } from "./roles";
 import { ERR, err } from "./errorCodes";
 import type { Plateforme } from "./platforms";
+import { supprimerTexteDuCombo } from "./assignmentScriptText";
 
 /**
  * DÉFIS — administration : création, matériel, ciblage nominatif, lecture.
@@ -674,7 +675,10 @@ export const deleteChallenge = permissionMutation("challenges.money")({
         { published: faits.published, wins: faits.wins },
       );
     }
-    for (const a of faits.deletable) await ctx.db.delete(a._id);
+    for (const a of faits.deletable) {
+      await supprimerTexteDuCombo(ctx, a._id);
+      await ctx.db.delete(a._id);
+    }
     const participants = await ctx.db
       .query("challengeParticipants")
       .withIndex("by_challenge", (q) => q.eq("challengeId", id))

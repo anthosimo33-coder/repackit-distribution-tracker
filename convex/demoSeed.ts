@@ -14,6 +14,7 @@ import {
   deleteStorageBestEffort,
   purgePublicationImage,
 } from "./storageCleanup";
+import { comboSansTexte, ecrireTexteDuCombo, supprimerTexteDuCombo } from "./assignmentScriptText";
 
 /**
  * Seed de DÉMO RÉVERSIBLE — peuple le projet repackit d'un créateur de test
@@ -457,13 +458,20 @@ export const seedDemoCreator = internalMutation({
       fields: AssignmentFields,
     ): Promise<Id<"assignments">> => {
       counts.assignments += 1;
-      return ctx.db.insert("assignments", {
+      // Le texte du combo vit hors du document (convex/assignmentScriptText).
+      const { scriptCombo, ...reste } = fields;
+      const id = await ctx.db.insert("assignments", {
         projectId,
         creatorId,
         rateSnapshot: DEMO_RATE,
         createdAt: now,
-        ...fields,
+        ...reste,
+        ...(scriptCombo ? { scriptCombo: comboSansTexte(scriptCombo) } : {}),
       });
+      if (scriptCombo?.assembledScript !== undefined) {
+        await ecrireTexteDuCombo(ctx, { _id: id, projectId }, scriptCombo.assembledScript);
+      }
+      return id;
     };
 
     // 1 cible — todo (à temps).
@@ -806,6 +814,7 @@ export const cleanupDemoData = internalMutation({
         // TD-011 — le seed n'uploade pas de vidéo, mais une soumission réelle
         // faite depuis le portail sur une mission démo en laisserait une.
         await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
+        await supprimerTexteDuCombo(ctx, a._id);
         await ctx.db.delete(a._id);
         counts.assignments += 1;
       }

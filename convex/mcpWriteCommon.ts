@@ -23,6 +23,7 @@ import { designer } from "./mcpWriteArgs";
 import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
 import type { Annulation } from "./mcpAnnulation";
 import type { PermissionId } from "./permissions";
+import { comboAvecTexte, missionAvecTexte } from "./assignmentScriptText";
 
 export const ARG_PROJET = {
   type: "string",
@@ -82,9 +83,14 @@ export function jsonCanonique(x: unknown): string {
  * figé, notif — et sa consigne : ce que `reecrire_mission` écrit et ce que
  * `defaire` remet (annulation « combo »).
  */
-export function scriptDeMission(a: Doc<"assignments">): string {
+export async function scriptDeMission(
+  ctx: Pick<EcritureCtx, "db">,
+  a: Doc<"assignments">,
+): Promise<string> {
   return jsonCanonique({
-    scriptCombo: a.scriptCombo ?? null,
+    // AVEC son texte, qui vit hors du document : même forme qu'avant la sortie
+    // du texte, donc les entrées déjà au journal se comparent pareil.
+    scriptCombo: (await comboAvecTexte(ctx, a)) ?? null,
     comboKey: a.comboKey ?? null,
     comboImposed: a.comboImposed ?? null,
     instructions: a.instructions ?? null,
@@ -96,9 +102,19 @@ export type Etat = { table: string; id: string; avant: string | null; apres: str
 /** Un document photographié AVANT l'écriture, à compléter par `etatsApres`. */
 export type Photo = { table: TableNames; id: string; avant: string | null };
 
-async function lireDoc(ctx: Pick<EcritureCtx, "db">, id: string): Promise<string | null> {
+async function lireDoc(
+  ctx: Pick<EcritureCtx, "db">,
+  table: string,
+  id: string,
+): Promise<string | null> {
   const d = await ctx.db.get(id as Id<TableNames>);
-  return d ? JSON.stringify(d) : null;
+  if (!d) return null;
+  // Une MISSION se photographie avec son texte de script, comme avant qu'il ne
+  // sorte du document (convex/assignmentScriptText) : de quoi la reconstruire,
+  // script compris, et la même forme que les entrées déjà au journal.
+  return JSON.stringify(
+    table === "assignments" ? await missionAvecTexte(ctx, d as Doc<"assignments">) : d,
+  );
 }
 
 /** Photographie des documents AVANT de les écrire (null = n'existe pas). */
@@ -107,7 +123,7 @@ export async function photographier(
   table: TableNames,
   ids: readonly string[],
 ): Promise<Photo[]> {
-  return Promise.all(ids.map(async (id) => ({ table, id, avant: await lireDoc(ctx, id) })));
+  return Promise.all(ids.map(async (id) => ({ table, id, avant: await lireDoc(ctx, table, id) })));
 }
 
 /** Photographie les documents qu'une ligne du journal a touchés (pour `defaire`). */
@@ -115,12 +131,12 @@ export async function photographierEtats(
   ctx: Pick<EcritureCtx, "db">,
   etats: readonly { table: string; id: string }[],
 ): Promise<Photo[]> {
-  return Promise.all(etats.map(async (e) => ({ table: e.table as TableNames, id: e.id, avant: await lireDoc(ctx, e.id) })));
+  return Promise.all(etats.map(async (e) => ({ table: e.table as TableNames, id: e.id, avant: await lireDoc(ctx, e.table, e.id) })));
 }
 
 /** Les photos d'avant, complétées de l'état relu APRÈS l'écriture. */
 export async function etatsApres(ctx: Pick<EcritureCtx, "db">, photos: readonly Photo[]): Promise<Etat[]> {
-  return Promise.all(photos.map(async (p) => ({ table: p.table, id: p.id, avant: p.avant, apres: await lireDoc(ctx, p.id) })));
+  return Promise.all(photos.map(async (p) => ({ table: p.table, id: p.id, avant: p.avant, apres: await lireDoc(ctx, p.table, p.id) })));
 }
 
 /** Des documents CRÉÉS par l'écriture : rien avant, l'état relu après. */

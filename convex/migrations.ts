@@ -1,4 +1,5 @@
 import { internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { ConvexError, v } from "convex/values";
 import { divergesFromWarmup, isRemunerated } from "./remunerate";
 import type { Id } from "./_generated/dataModel";
@@ -25,6 +26,11 @@ import { GUIDE_FR_FIXES } from "./guideFrFixes";
 import { rolesOf } from "./roles";
 import { DELETABLE_STATUSES } from "./assignments";
 import { unpayPostsOfDeletedCreator } from "./publications";
+import {
+  etatDesTextes,
+  remettreTexteDe,
+  sortirTexteDe,
+} from "./assignmentScriptText";
 
 const DEFAULT_ACCENT = "#FF5200";
 const DEFAULT_PAYOUT_DAY = 5;
@@ -1412,4 +1418,98 @@ export const unpayDeletedCreatorsPosts = internalMutation({
     }
     return { dryRun, done, skipped };
   },
+});
+
+// ─── Texte des scripts HORS du document `assignments` (05/10/2026) ───────────
+//
+// `scriptCombo.assembledScript` faisait 32 % des octets de la table des
+// missions, relus par chaque query qui la parcourt. Il vit désormais dans
+// `assignmentScripts` (cf convex/assignmentScriptText). Le code lit la ligne,
+// sinon l'ancien champ : la migration peut donc passer APRÈS le déploiement,
+// sans fenêtre où un texte manquerait.
+//
+// ORDRE : `auditTextesDesScripts` (lecture) → `sortirTextesDesScripts` (copie
+// puis retrait, par lots, se relance seule jusqu'au bout) → audit à nouveau.
+// RETOUR ARRIÈRE (avant de revenir à un code qui lit l'ancien champ) :
+// `remettreTextesDansLesScripts`.
+
+/** Lignes traitées par passage — un passage reste loin des limites de mutation. */
+const TEXTES_PAR_PASSAGE = 100;
+
+/**
+ * Copie le texte de chaque assignation dans `assignmentScripts`, PUIS le retire
+ * du document (`sortirTexteDe`). Idempotente ; se relance seule jusqu'au bout.
+ * Les `conflits` (cf sortirTexteDe) laissent l'assignation intacte.
+ */
+export const sortirTextesDesScripts = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    lot: v.optional(v.number()),
+  },
+  handler: async (ctx, { cursor, lot }) => {
+    const page = await ctx.db
+      .query("assignments")
+      .paginate({ cursor: cursor ?? null, numItems: lot ?? TEXTES_PAR_PASSAGE });
+    let deplaces = 0;
+    let conflits = 0;
+    for (const a of page.page) {
+      const r = await sortirTexteDe(ctx, a);
+      if (r === "deplace") deplaces++;
+      if (r === "conflit") {
+        conflits++;
+        console.warn(`sortirTextesDesScripts : conflit sur ${a._id}, assignation laissée intacte`);
+      }
+    }
+    console.log(
+      `sortirTextesDesScripts : ${page.page.length} vues, ${deplaces} déplacées, ${conflits} conflits${page.isDone ? " — terminé" : ""}`,
+    );
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.sortirTextesDesScripts, {
+        cursor: page.continueCursor,
+        lot,
+      });
+    }
+    return { vues: page.page.length, deplaces, conflits, suite: !page.isDone };
+  },
+});
+
+/**
+ * RETOUR ARRIÈRE : remet le texte de chaque ligne dans son document (sans
+ * supprimer la ligne). À passer AVANT de redéployer un code qui ne lit que
+ * l'ancien champ — sinon les créatrices verraient des fiches sans script.
+ */
+export const remettreTextesDansLesScripts = internalMutation({
+  args: {
+    cursor: v.optional(v.union(v.string(), v.null())),
+    lot: v.optional(v.number()),
+  },
+  handler: async (ctx, { cursor, lot }) => {
+    const page = await ctx.db
+      .query("assignmentScripts")
+      .paginate({ cursor: cursor ?? null, numItems: lot ?? TEXTES_PAR_PASSAGE });
+    let remis = 0;
+    for (const ligne of page.page) {
+      if (await remettreTexteDe(ctx, ligne)) remis++;
+    }
+    console.log(
+      `remettreTextesDansLesScripts : ${page.page.length} lignes, ${remis} remises${page.isDone ? " — terminé" : ""}`,
+    );
+    if (!page.isDone) {
+      await ctx.scheduler.runAfter(0, internal.migrations.remettreTextesDansLesScripts, {
+        cursor: page.continueCursor,
+        lot,
+      });
+    }
+    return { lignes: page.page.length, remis, suite: !page.isDone };
+  },
+});
+
+/** État de la sortie des textes, tous projets (cf etatDesTextes). Lecture seule. */
+export const auditTextesDesScripts = internalQuery({
+  args: {},
+  handler: async (ctx) =>
+    etatDesTextes(
+      await ctx.db.query("assignments").collect(),
+      await ctx.db.query("assignmentScripts").collect(),
+    ),
 });

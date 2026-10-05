@@ -4,6 +4,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { comboCooldownDaysOf } from "./comboCooldown";
 import { invalidateDashboardCache } from "./dashboardCache";
 import { planMissionOps, type OpsScriptCombo } from "./missionOpsPlan";
+import { ecrireCombo, missionAvecTexte } from "./assignmentScriptText";
 
 /**
  * ⚠️ NE PLUS S'EN SERVIR SUR LA PROD (règle du 05/10/2026) : ces écritures
@@ -109,7 +110,7 @@ export const apply = internalMutation({
     if (!project) throw new Error(`Projet introuvable : « ${projectSlug} ».`);
     const projectId = project._id;
 
-    const [bricks, campaigns, assignments] = await Promise.all([
+    const [bricks, campaigns, stockees] = await Promise.all([
       ctx.db
         .query("scriptBricks")
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -123,6 +124,13 @@ export const apply = internalMutation({
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect(),
     ]);
+
+    // Le plan raisonne sur les combos AVEC leur texte (il les compare, il peut
+    // corriger le texte) : on le lui rend, il vit hors du document.
+    const assignments = await Promise.all(
+      stockees.map((a) => missionAvecTexte(ctx, a)),
+    );
+    const stockeeParId = new Map(stockees.map((a) => [a._id as string, a]));
 
     // Le plan ne voit QUE ce projet : un id d'un autre projet y est « inconnu »
     // et fait échouer le passage.
@@ -173,8 +181,7 @@ export const apply = internalMutation({
     });
 
     for (const p of plan.assignmentPatches) {
-      await ctx.db.patch(p.id as Id<"assignments">, {
-        ...(p.set.scriptCombo ? { scriptCombo: toDbCombo(p.set.scriptCombo) } : {}),
+      const reste = {
         ...(p.set.comboKey !== undefined ? { comboKey: p.set.comboKey } : {}),
         ...(p.set.comboImposed ? { comboImposed: true } : {}),
         ...(p.set.dueDate !== undefined ? { dueDate: p.set.dueDate } : {}),
@@ -182,7 +189,18 @@ export const apply = internalMutation({
         ...(p.set.remunerated !== undefined ? { remunerated: p.set.remunerated } : {}),
         // `undefined` RETIRE le champ : « pas de consigne » est une absence.
         ...Object.fromEntries(p.clear.map((f) => [f, undefined])),
-      });
+      };
+      if (p.set.scriptCombo) {
+        // Le combo et son texte s'écrivent ensemble, le texte hors du document.
+        await ecrireCombo(
+          ctx,
+          stockeeParId.get(p.id)!,
+          toDbCombo(p.set.scriptCombo),
+          reste,
+        );
+      } else {
+        await ctx.db.patch(p.id as Id<"assignments">, reste);
+      }
     }
 
     for (const p of plan.campaignPatches) {

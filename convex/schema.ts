@@ -2172,6 +2172,28 @@ export default defineSchema({
   // « 3 posts » = 3 rows (suivi + payé à l'unité, pas de qty). rateSnapshot =
   // COPIE du rateModel du format au moment de l'assignation (les tarifs du
   // format peuvent changer, pas ceux d'un assignment déjà donné). Table neuve.
+  /**
+   * TEXTE MONTÉ d'une assignation « script » (hook + flux + CTA, figé à
+   * l'assignation) — sorti du document `assignments` le 05/10/2026.
+   *
+   * Pourquoi : le texte faisait 32 % des octets de la table (588 Kio sur
+   * 1 863), et chaque query qui parcourt les missions d'un projet (écran,
+   * paie, classement, accueil, analytics, connecteur) le relisait pour rien —
+   * Convex lit les documents ENTIERS, et la lecture en base est l'essentiel de
+   * la facture. Il ne se lit plus qu'à l'ouverture d'UNE mission.
+   *
+   * Une ligne par assignation (1:1), écrite et lue UNIQUEMENT par
+   * convex/assignmentScriptText. Le script libre d'un DÉFI (`freeScript`)
+   * reste sur l'assignation (aucune ligne en prod au 05/10/2026).
+   */
+  assignmentScripts: defineTable({
+    projectId: v.id("projects"),
+    assignmentId: v.id("assignments"),
+    text: v.string(),
+  })
+    .index("by_assignment", ["assignmentId"])
+    .index("by_project", ["projectId"]),
+
   assignments: defineTable({
     projectId: v.id("projects"),
     creatorId: v.id("creators"),
@@ -2197,7 +2219,14 @@ export default defineSchema({
         corpsBrickId: v.optional(v.id("scriptBricks")),
         fluxBrickId: v.id("scriptBricks"),
         ctaBrickId: v.id("scriptBricks"),
-        assembledScript: v.string(),
+        // ⚠️ ANCIEN EMPLACEMENT du texte monté — il vit désormais dans
+        // `assignmentScripts` (une ligne par assignation, hors du document :
+        // 32 % des octets de cette table, relus par chaque query qui la
+        // parcourt). Optional le temps de la migration
+        // `migrations:sortirTextesDesScripts`, qui le copie puis le retire ;
+        // champ à supprimer du schéma ensuite. Ne JAMAIS l'écrire : passer par
+        // convex/assignmentScriptText.
+        assembledScript: v.optional(v.string()),
         // TRACEUR « corrigé au moins une fois » : posé (true) par editScriptCombo/
         // editScriptBrickText à chaque correction. N'EST PLUS UN VERROU depuis
         // « éditer jusqu'à la publication » (le seul verrou est la publication,

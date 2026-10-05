@@ -24,6 +24,7 @@ import type * as apifyItem from "../apifyItem.js";
 import type * as apifySync from "../apifySync.js";
 import type * as assets from "../assets.js";
 import type * as assetsMigration from "../assetsMigration.js";
+import type * as assignmentScriptText from "../assignmentScriptText.js";
 import type * as assignmentVideo from "../assignmentVideo.js";
 import type * as assignments from "../assignments.js";
 import type * as attributionWindow from "../attributionWindow.js";
@@ -281,6 +282,7 @@ declare const fullApi: ApiFromModules<{
   apifySync: typeof apifySync;
   assets: typeof assets;
   assetsMigration: typeof assetsMigration;
+  assignmentScriptText: typeof assignmentScriptText;
   assignmentVideo: typeof assignmentVideo;
   assignments: typeof assignments;
   attributionWindow: typeof attributionWindow;

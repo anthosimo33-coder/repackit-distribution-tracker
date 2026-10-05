@@ -61,6 +61,7 @@ import {
   ventilateTransferCore,
 } from "./compta";
 import { representativePostedAt } from "./calendarStatus";
+import { ecrireCombo, supprimerTexteDuCombo } from "./assignmentScriptText";
 
 const FENETRE_MS = 30 * 86_400_000;
 const LIMITE = 30;
@@ -315,19 +316,26 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       const m = await ctx.db.get(a.assignmentId);
       if (!m) throw refus("Cette mission a été supprimée depuis : rien à remettre.");
       if (representativePostedAt(m) !== null) throw refus("Publiée depuis : son script ne se réécrit plus.");
-      if (scriptDeMission(m) !== a.apres) throw refus("Le script de la mission a changé depuis : rien n'a été écrasé.");
+      if ((await scriptDeMission(ctx, m)) !== a.apres) throw refus("Le script de la mission a changé depuis : rien n'a été écrasé.");
       const avant = JSON.parse(a.avant) as {
         scriptCombo: Doc<"assignments">["scriptCombo"] | null;
         comboKey: string | null;
         comboImposed: boolean | null;
         instructions: string | null;
       };
-      await ctx.db.patch(a.assignmentId, {
-        scriptCombo: avant.scriptCombo ?? undefined,
+      const champs = {
         comboKey: avant.comboKey ?? undefined,
         comboImposed: avant.comboImposed ?? undefined,
         instructions: avant.instructions ?? undefined,
-      });
+      };
+      // Le combo d'avant porte son texte (photo prise avec) : il repart dans
+      // `assignmentScripts`, le document ne le garde pas.
+      if (avant.scriptCombo) {
+        await ecrireCombo(ctx, m, avant.scriptCombo, champs);
+      } else {
+        await ctx.db.patch(a.assignmentId, { scriptCombo: undefined, ...champs });
+        await supprimerTexteDuCombo(ctx, a.assignmentId);
+      }
       return "Script d'avant remis (combinaison, texte, notif, consigne).";
     }
     case "experienceCreee":

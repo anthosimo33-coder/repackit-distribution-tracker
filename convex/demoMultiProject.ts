@@ -11,6 +11,7 @@ import {
   purgePublicationImage,
 } from "./storageCleanup";
 import { hasRole } from "./roles";
+import { supprimerTexteDuCombo } from "./assignmentScriptText";
 
 /**
  * Seed de DÉMO MULTI-PROJETS — cible un COMPTE CRÉATEUR EXISTANT (par email,
@@ -141,6 +142,7 @@ async function cleanupProjectDemo(
     }
     // TD-011 — voir demoSeed : une soumission réelle sur une mission démo.
     await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
+    await supprimerTexteDuCombo(ctx, a._id);
     await ctx.db.delete(a._id);
     counts.assignments += 1;
   }

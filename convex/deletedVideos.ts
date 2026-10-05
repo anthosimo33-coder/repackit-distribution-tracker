@@ -19,6 +19,7 @@ import { internalMutation, internalQuery, type MutationCtx } from "./_generated/
 import { e2eMutation } from "./functions";
 import { DELETED_VIDEO_RETENTION_DAYS, hasSubmittedVideo } from "./assignmentVideo";
 import { deleteStorageBestEffort } from "./storageCleanup";
+import { missionAvecTexte } from "./assignmentScriptText";
 
 const DAY_MS = 86_400_000;
 /** Lignes purgées par passage : un passage reste léger, le suivant reprend. */
@@ -35,7 +36,9 @@ export async function archiveSubmittedVideo(ctx: MutationCtx, a: Doc<"assignment
     ...(a.submittedVideoStorageId ? { storageId: a.submittedVideoStorageId } : {}),
     ...(a.submittedVideoStreamUid ? { streamUid: a.submittedVideoStreamUid } : {}),
     ...(a.submittedVideoMimeType ? { mimeType: a.submittedVideoMimeType } : {}),
-    mission: JSON.stringify(a),
+    // La mission ENTIÈRE, texte du script compris (il vit hors du document) :
+    // de quoi la reconstruire.
+    mission: JSON.stringify(await missionAvecTexte(ctx, a)),
     deletedAt: now,
     purgeAfter: now + DELETED_VIDEO_RETENTION_DAYS * DAY_MS,
   });

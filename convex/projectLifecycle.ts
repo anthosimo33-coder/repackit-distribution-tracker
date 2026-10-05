@@ -189,6 +189,11 @@ const ETAPES: Record<TablePurgee, Etape> = {
       ctx.db.query("assignments").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
     { remplacer: purgeAndDeleteAssignment },
   ),
+  // Textes des scripts : `purgeAndDeleteAssignment` retire déjà celui de chaque
+  // assignation ; cette étape ramasse ce qui resterait (aucune ligne attendue).
+  assignmentScripts: etape((ctx, pid, n) =>
+    ctx.db.query("assignmentScripts").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   // Archive des vidéos de missions supprimées : supprimer le PROJET est un
   // effacement total et voulu — les fichiers partent avec, sans délai de 30 j.
   deletedSubmittedVideos: etape(
