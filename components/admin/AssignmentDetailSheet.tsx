@@ -98,6 +98,7 @@ import { format as formatDay } from "date-fns";
 import { parisDayOf } from "@/convex/managerCpm";
 import { countryFlag } from "@/lib/countries";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { DELETED_VIDEO_RETENTION_DAYS, hasSubmittedVideo } from "@/lib/assignment-video";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { useLabel } from "@/lib/use-label";
 import { useTranslations } from "next-intl";
@@ -208,10 +209,9 @@ export function AssignmentDetailSheet({
   const scriptLockedPublished = hasScript && !canEditText;
   // Suppressible ? réplique pure du garde-fou serveur (published/paid bloqués).
   const deletable = canDeleteAssignment(row.status as AssignmentStatus);
-  // Une vidéo a-t-elle déjà été soumise ? → la confirmation le signale (on
-  // n'écarte jamais un travail soumis silencieusement).
-  const hasSubmittedVideo =
-    row.status === "video_submitted" || row.status === "video_rejected";
+  // Une vidéo envoyée est-elle jointe (fichier, quel que soit le statut — « à
+  // publier » compris) ? → la confirmation le dit : elle est gardée 30 jours.
+  const hasVideo = hasSubmittedVideo(row);
 
   async function handleDelete() {
     setDeleting(true);
@@ -359,9 +359,11 @@ export function AssignmentDetailSheet({
                   ? ` ${tr("postPrevuLe", { date: formatDate(row.postDate, loc) })}`
                   : ""}
                 .{" "}
-                {hasSubmittedVideo
-                  ? `${tr("laVideoDejaSoumiseSera")} `
-                  : ""}
+                {hasVideo ? (
+                  <span className="font-medium text-amber-700" data-testid="delete-video-warning">
+                    {tr("videoJointeConservee", { jours: DELETED_VIDEO_RETENTION_DAYS })}{" "}
+                  </span>
+                ) : null}
                 {row.status === "cancelled"
                   ? tr("missionAbandonneeDisparaitra")
                   : tr("leComboSeraLibereEt")}

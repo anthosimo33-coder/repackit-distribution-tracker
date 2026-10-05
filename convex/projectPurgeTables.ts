@@ -25,6 +25,7 @@
 export const TABLES_PURGEES = [
   "comptes",
   "assignments",
+  "deletedSubmittedVideos",
   "publications",
   "metricSnapshots",
   "earlyReadings",

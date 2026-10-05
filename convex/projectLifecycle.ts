@@ -30,6 +30,7 @@ import { superadminMutation, superadminQuery, e2eMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { REPACKIT_SLUG } from "./projects";
 import { purgeAndDeleteAssignment } from "./assignments";
+import { purgeDeletedVideoFiles } from "./deletedVideos";
 import { deleteStorageBestEffort } from "./storageCleanup";
 import { deleteAuthDataOfUser } from "./authCleanup";
 import {
@@ -187,6 +188,13 @@ const ETAPES: Record<TablePurgee, Etape> = {
     (ctx, pid, n) =>
       ctx.db.query("assignments").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
     { remplacer: purgeAndDeleteAssignment },
+  ),
+  // Archive des vidéos de missions supprimées : supprimer le PROJET est un
+  // effacement total et voulu — les fichiers partent avec, sans délai de 30 j.
+  deletedSubmittedVideos: etape(
+    (ctx, pid, n) =>
+      ctx.db.query("deletedSubmittedVideos").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+    { avant: (ctx, d) => purgeDeletedVideoFiles(ctx, d) },
   ),
   publications: etape(
     (ctx, pid, n) =>

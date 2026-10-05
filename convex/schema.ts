@@ -1816,12 +1816,50 @@ export default defineSchema({
      * convex/mcpAnnulation. Absent = elle ne se défait pas par Claude.
      */
     annulation: v.optional(annulationValidator),
+    /**
+     * Les documents TOUCHÉS, en entier, avant et après (JSON) — de quoi défaire
+     * ET reconstruire ce que la modification a écrit (une mission supprimée
+     * depuis se relit ici : script, notif, consigne, comptes, dates…). `avant`
+     * null = créé ; `apres` null = supprimé. Absent sur les lignes d'avant le
+     * 05/10/2026.
+     */
+    etats: v.optional(
+      v.array(
+        v.object({
+          table: v.string(),
+          id: v.string(),
+          avant: v.union(v.string(), v.null()),
+          apres: v.union(v.string(), v.null()),
+        }),
+      ),
+    ),
     /** Défaite par l'outil `defaire`, à cet instant. */
     defaiteLe: v.optional(v.number()),
     at: v.number(),
   })
     .index("by_user_at", ["userId", "at"])
     .index("by_project", ["projectId"]),
+
+  // VIDÉOS DES MISSIONS SUPPRIMÉES (convex/assignmentVideo) : supprimer une
+  // mission n'efface plus la vidéo envoyée — ses références partent ici avec la
+  // mission en JSON, récupérables 30 jours, puis purgées par le cron
+  // `purge-deleted-submitted-videos`. Ids en texte : la mission (et parfois la
+  // créatrice) n'existent plus.
+  deletedSubmittedVideos: defineTable({
+    projectId: v.id("projects"),
+    assignmentId: v.string(),
+    creatorId: v.string(),
+    storageId: v.optional(v.id("_storage")),
+    streamUid: v.optional(v.string()),
+    mimeType: v.optional(v.string()),
+    /** La mission entière au moment de la suppression (JSON). */
+    mission: v.string(),
+    deletedAt: v.number(),
+    purgeAfter: v.number(),
+  })
+    .index("by_purgeAfter", ["purgeAfter"])
+    .index("by_project", ["projectId", "deletedAt"])
+    .index("by_assignment", ["assignmentId"]),
 
   // MESSAGES DE L'ÉQUIPE À UNE CRÉATRICE (le coach, convex/mcpCoach.ts) : écrits
   // par Claude, relus, envoyés par email (convex/emails.sendTeamMessage). Gardés

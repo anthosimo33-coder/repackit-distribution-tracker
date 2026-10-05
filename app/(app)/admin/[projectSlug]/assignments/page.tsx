@@ -105,6 +105,7 @@ import {
 import { countryLabel } from "@/lib/countries";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { DELETED_VIDEO_RETENTION_DAYS, hasSubmittedVideo } from "@/lib/assignment-video";
 import { useLabel } from "@/lib/use-label";
 import {
   assignmentGroupKey,
@@ -309,9 +310,10 @@ function AssignmentsPageInner() {
 
   // Une ABANDONNÉE a déjà libéré son combo : la confirmation parle alors de ce
   // qui change vraiment — elle quitte la liste et l'historique.
-  const deleteAbandoned =
-    deleteId !== null &&
-    (assignments ?? []).find((a) => a._id === deleteId)?.status === "cancelled";
+  const deleteRow = deleteId !== null ? (assignments ?? []).find((a) => a._id === deleteId) : undefined;
+  const deleteAbandoned = deleteRow?.status === "cancelled";
+  // Une vidéo envoyée jointe : la confirmation dit qu'elle est gardée 30 jours.
+  const deleteHasVideo = deleteRow !== undefined && hasSubmittedVideo(deleteRow);
 
   async function handleDelete() {
     if (!deleteId) return;
@@ -983,6 +985,11 @@ function AssignmentsPageInner() {
           <AlertDialogHeader>
             <AlertDialogTitle>{tr("supprimerCetAssignment")}</AlertDialogTitle>
             <AlertDialogDescription>
+              {deleteHasVideo ? (
+                <span className="font-medium text-amber-700" data-testid="delete-video-warning">
+                  {tr("videoJointeConservee", { jours: DELETED_VIDEO_RETENTION_DAYS })}{" "}
+                </span>
+              ) : null}
               {deleteAbandoned
                 ? tr("missionAbandonneeDisparaitra")
                 : tr("leComboSeraLibereEt")}

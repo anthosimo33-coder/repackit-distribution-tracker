@@ -8,7 +8,7 @@
  * autre modification — n'est jamais écrasée, le refus le dit.
  *
  * Absent = la modification ne se défait pas par Claude (un email parti, une
- * publication confirmée, un abandon) : le journal dit où agir à l'écran.
+ * publication confirmée) : le journal dit où agir à l'écran.
  *
  * Module de VALIDATEURS seulement : importé par convex/schema.ts.
  */
@@ -58,6 +58,17 @@ export const annulationValidator = v.union(
     consigne: v.optional(v.object({ avant: v.union(v.string(), v.null()), apres: v.union(v.string(), v.null()) })),
     incruste: v.optional(v.object({ avant: v.union(v.string(), v.null()), apres: v.union(v.string(), v.null()) })),
   }),
+  /**
+   * annuler_mission : le statut d'avant l'abandon. Défaire le remet — seulement
+   * si la mission est toujours abandonnée (et donc pas supprimée depuis).
+   */
+  v.object({ type: v.literal("abandon"), assignmentId: v.id("assignments"), avant: v.string() }),
+  /**
+   * reecrire_mission : le script de la mission (combinaison, texte figé, notif,
+   * consigne), avant et après, en JSON (cf `scriptDeMission`). Défaire remet
+   * l'avant si la mission montre encore exactement l'après.
+   */
+  v.object({ type: v.literal("combo"), assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() }),
   // ── Scripts ───────────────────────────────────────────────────────────────
   /** creer_campagne : la campagne créée (et ses briques). */
   v.object({ type: v.literal("campagneCreee"), campaignId: v.id("scriptCampaigns") }),

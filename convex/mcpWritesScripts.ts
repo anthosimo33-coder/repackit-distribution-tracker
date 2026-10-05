@@ -26,7 +26,10 @@ import {
   designerOuRefuser,
   ecrire,
   ECRIT,
+  etatsApres,
+  etatsCrees,
   journaliser,
+  photographier,
   resultatEcriture,
   texteArg,
   textesArg,
@@ -262,6 +265,7 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
         section: "campaign",
         path: `scripts/${campagne._id}`,
         annulation: { type: "briquesCreees", brickIds: crees },
+        etats: await etatsCrees(ctx, "scriptBricks", crees),
       });
     }
     return { summary, ajoutes, doublons };
@@ -318,6 +322,7 @@ export const ecrireFluxCta = mcpWriteMutation("scripts.manage", "scripts")({
         section: "campaign",
         path: `scripts/${campagne._id}`,
         annulation: { type: "briquesCreees", brickIds: crees },
+        etats: await etatsCrees(ctx, "scriptBricks", crees),
       });
     }
     return { summary, doublons };
@@ -343,13 +348,14 @@ export const ecrireCampagne = mcpWriteMutation("scripts.manage", "scripts")({
     }
     const campaignId = await createCampaignCore(ctx, { name: nom });
     const compte: Record<"hook" | "flux" | "cta", number> = { hook: 0, flux: 0, cta: 0 };
+    const briquesCreees: Id<"scriptBricks">[] = [];
     for (const [role, textes] of [["hook", a.hooks], ["flux", a.flux], ["cta", a.ctas]] as const) {
       const vus = new Set<string>();
       for (const brut of textes) {
         const texte = brut.trim();
         if (texte === "" || vus.has(identite(role, texte))) continue;
         vus.add(identite(role, texte));
-        await createBrickCore(ctx, { campaignId, kind: role, label: hookLabelOf(texte), content: texte, active: a.actives });
+        briquesCreees.push(await createBrickCore(ctx, { campaignId, kind: role, label: hookLabelOf(texte), content: texte, active: a.actives }));
         compte[role]++;
       }
     }
@@ -362,6 +368,7 @@ export const ecrireCampagne = mcpWriteMutation("scripts.manage", "scripts")({
       section: "campaign",
       path: `scripts/${campaignId}`,
       annulation: { type: "campagneCreee", campaignId },
+      etats: [...(await etatsCrees(ctx, "scriptCampaigns", [campaignId])), ...(await etatsCrees(ctx, "scriptBricks", briquesCreees))],
     });
     return { summary };
   },
@@ -398,6 +405,7 @@ export const ecrireActivation = mcpWriteMutation("scripts.manage", "scripts")({
     }
     const ids = [...choisies.keys()] as Id<"scriptBricks">[];
     const basculees = [...choisies.values()].filter((b) => b.active !== a.actif);
+    const photos = await photographier(ctx, "scriptBricks", basculees.map((b) => b._id));
     const { touched } = await setBricksActiveCore(ctx, { ids, active: a.actif });
     const libelles = [...choisies.values()].map((b) => `${b.kind} « ${b.label} »`);
     const deja = ids.length - touched;
@@ -416,6 +424,7 @@ export const ecrireActivation = mcpWriteMutation("scripts.manage", "scripts")({
           apres: a.actif,
           briques: basculees.map((b) => ({ brickId: b._id, avant: b.active })),
         },
+        etats: await etatsApres(ctx, photos),
       });
     }
     return { summary };
@@ -432,12 +441,22 @@ export const ecrireGraduation = mcpWriteMutation("scripts.manage", "scripts")({
       .collect();
     const r = briqueDe(hooks, a.hook);
     if (!r.ok) throw err(ERR.MCP_DESIGNATION, `${r.probleme} parmi les hooks de « ${campagne.name} ».`);
+    const photos = await photographier(ctx, "scriptBricks", [r.brique._id]);
     const g = await graduateHookCore(ctx, r.brique._id);
     const summary =
       g.outcome === "graduated"
         ? `« ${r.brique.label} » copié dans « ${g.targetCampaignName} », désactivé dans « ${campagne.name} »`
         : `« ${r.brique.label} » était déjà dans « ${g.targetCampaignName} » : désactivé dans « ${campagne.name} »`;
-    await journaliser(ctx, { tool: "graduer_hook", summary, section: "campaign", path: `scripts/${campagne._id}` });
+    await journaliser(ctx, {
+      tool: "graduer_hook",
+      summary,
+      section: "campaign",
+      path: `scripts/${campagne._id}`,
+      etats: [
+        ...(await etatsApres(ctx, photos)),
+        ...(g.outcome === "graduated" ? await etatsCrees(ctx, "scriptBricks", [g.targetBrickId]) : []),
+      ],
+    });
     return { summary };
   },
 });

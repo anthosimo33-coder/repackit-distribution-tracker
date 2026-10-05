@@ -26,7 +26,10 @@ import {
   ecrire,
   ECRIT,
   EFFACE,
+  etatsApres,
+  etatsCrees,
   journaliser,
+  photographier,
   resultatEcriture,
   texteArg,
   textesArg,
@@ -132,6 +135,7 @@ export const ecrireSuivi = mcpWriteMutation("radar.use", "veille")({
       section: "radar",
       path: "radar",
       annulation: { type: "veilleSuivi", accountId, handle: compte.handle },
+      etats: await etatsCrees(ctx, "radarAccounts", [accountId]),
     });
     return { summary, avertissement: warning };
   },
@@ -147,6 +151,7 @@ export const ecrireRetraitSuivi = mcpWriteMutation("radar.use", "veille")({
         .withIndex("by_radarAccount", (q) => q.eq("radarAccountId", compte._id))
         .collect()
     ).length;
+    const photos = await photographier(ctx, "radarAccounts", [compte._id]);
     await removeRadarAccountCore(ctx, compte._id);
     const summary = `@${compte.handle} n'est plus suivi (${videos} vidéo${videos > 1 ? "s" : ""} relevée${videos > 1 ? "s" : ""} supprimée${videos > 1 ? "s" : ""})`;
     await journaliser(ctx, {
@@ -155,6 +160,7 @@ export const ecrireRetraitSuivi = mcpWriteMutation("radar.use", "veille")({
       section: "radar",
       path: "radar",
       annulation: { type: "veilleRetire", handle: compte.handle, note: compte.note ?? null },
+      etats: await etatsApres(ctx, photos),
     });
     return { summary };
   },
@@ -164,6 +170,7 @@ export const ecrireNoteSuivi = mcpWriteMutation("radar.use", "veille")({
   args: { compte: v.string(), note: v.string() },
   handler: async (ctx, a) => {
     const compte = await compteSuivi(ctx, a.compte);
+    const photos = await photographier(ctx, "radarAccounts", [compte._id]);
     await updateRadarAccountNoteCore(ctx, compte._id, a.note);
     const apres = (await ctx.db.get(compte._id))!.note ?? null;
     const summary = `@${compte.handle} : ${apres === null ? "note effacée" : `note « ${apres} »`}`;
@@ -173,6 +180,7 @@ export const ecrireNoteSuivi = mcpWriteMutation("radar.use", "veille")({
       section: "radar",
       path: "radar",
       annulation: { type: "veilleNote", accountId: compte._id, avant: compte.note ?? null, apres },
+      etats: await etatsApres(ctx, photos),
     });
     return { summary };
   },
@@ -213,6 +221,7 @@ export const ecrireInspiration = mcpWriteMutation("library.manage", "veille")({
       section: "inspirations",
       path: "inspirations",
       annulation: { type: "inspirationCreee", inspirationId },
+      etats: await etatsCrees(ctx, "inspirations", [inspirationId]),
     });
     return { summary };
   },

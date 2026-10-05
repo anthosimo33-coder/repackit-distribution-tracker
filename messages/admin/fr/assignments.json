@@ -52,7 +52,8 @@
     "masquerInactives": "Masquer les inactives",
     "sansPays": "Sans pays",
     "missionAbandonneeDisparaitra": "Cette mission abandonnée disparaîtra de la liste et de l'historique. Cette action est irréversible.",
-    "missionAbandonneeSupprimee": "Mission abandonnée supprimée."
+    "missionAbandonneeSupprimee": "Mission abandonnée supprimée.",
+    "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée."
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Compte cohérent (@{detected})",
@@ -99,7 +100,6 @@
     "supprimerLAssignation": "Supprimer l'assignation",
     "assignationPublieeOuPayeeSuppression": "Assignation publiée ou payée — suppression indisponible (l'historique financier est conservé).",
     "postPrevuLe": "· post prévu le {date}",
-    "laVideoDejaSoumiseSera": "La vidéo déjà soumise sera définitivement écartée.",
     "compte": "Compte",
     "statutCalendrier": "Statut calendrier",
     "dateDePost": "Date de post",
@@ -122,7 +122,8 @@
     "echeanceMiseAJour": "Échéance mise à jour.",
     "abandonneeHorsCalendrier": "Abandonnée — hors calendrier",
     "missionAbandonneeDisparaitra": "Mission abandonnée : elle disparaîtra de la liste et de l'historique. Action irréversible.",
-    "missionAbandonneeSupprimee": "Mission abandonnée supprimée."
+    "missionAbandonneeSupprimee": "Mission abandonnée supprimée.",
+    "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée."
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",

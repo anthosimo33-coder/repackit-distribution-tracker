@@ -54,6 +54,7 @@ describe("garde-fou : champs _storage vs balayage des orphelins", () => {
       "inspirations",
       "formats",
       "assignments",
+      "deletedSubmittedVideos",
       "assets",
       "creatorContracts",
       "comptes",

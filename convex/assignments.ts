@@ -62,6 +62,8 @@ import { effectiveStatus } from "./comptes";
 import { isStrictAccountValidationFor } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
 import { representativePostedAt } from "./calendarStatus";
+import { hasSubmittedVideo } from "./assignmentVideo";
+import { archiveSubmittedVideo } from "./deletedVideos";
 import { buildZoneMap } from "./creatorDay";
 import { creatorZoneOnly } from "./creatorTimezone";
 import { ERR, err } from "./errorCodes";
@@ -1221,12 +1223,23 @@ export const DELETABLE_STATUSES = new Set<string>([
  * hard-delete — on n'abandonne jamais un post publié ou payé.
  */
 export const cancelAssignment = permissionMutation("assignments.manage")({
-  args: { id: v.id("assignments") },
-  handler: (ctx, { id }) => cancelAssignmentCore(ctx, id),
+  args: { id: v.id("assignments"), force: v.optional(v.boolean()) },
+  handler: (ctx, { id, force }) => cancelAssignmentCore(ctx, id, { force }),
 });
 
-/** Cœur de l'abandon — le bouton « Abandonner » et l'outil MCP `annuler_mission`. */
-export async function cancelAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assignments">) {
+/**
+ * Cœur de l'abandon — le bouton « Abandonner » et l'outil MCP `annuler_mission`.
+ *
+ * Une mission qui porte une VIDÉO ENVOYÉE (convex/assignmentVideo) ne
+ * s'abandonne qu'avec `force` : le refus nomme le statut, l'appelant confirme.
+ * L'abandon ne touche jamais au fichier — seule la suppression le met en
+ * archive (deleteAssignmentCore).
+ */
+export async function cancelAssignmentCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  opts: { force?: boolean } = {},
+) {
   const a = await requireProjectAssignmentInScope(ctx, id);
   if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
   if (!DELETABLE_STATUSES.has(a.status)) {
@@ -1235,17 +1248,35 @@ export async function cancelAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assi
       "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
     );
   }
+  if (hasSubmittedVideo(a) && opts.force !== true) {
+    throw err(
+      ERR.ASSIGNMENT_HAS_VIDEO,
+      `Vidéo déjà envoyée (statut ${a.status}) : abandon refusé sans confirmation explicite.`,
+      { status: a.status },
+    );
+  }
   await ctx.db.patch(id, { status: "cancelled" });
   return { ok: true, alreadyCancelled: false };
 }
 
 /**
- * Purge best-effort la vidéo soumise orpheline d'un assignment (blob Convex +
- * copie Cloudflare Stream, no-op si env absent) PUIS hard-delete la row — ce qui
- * LIBÈRE son comboKey (l'unicité créateur+plateforme est purement basée sur
- * l'existence de la row, cf by_creator_combo). Partagé par deleteAssignment
- * (unitaire) et deleteCreator (cascade) — source unique du nettoyage vidéo.
- * N'effectue AUCUNE garde de statut : l'appelant filtre les statuts supprimables.
+ * SUPPRIME la row d'une mission en GARDANT sa vidéo envoyée : les fichiers
+ * (Convex + Stream) passent en archive 30 jours (convex/deletedVideos), avec la
+ * mission entière. La row partie LIBÈRE son comboKey (l'unicité
+ * créateur+plateforme est purement basée sur l'existence de la row, cf
+ * by_creator_combo). Partagé par deleteAssignment (unitaire) et deleteCreator
+ * (cascade). N'effectue AUCUNE garde de statut : l'appelant filtre.
+ */
+export async function archiveAndDeleteAssignment(ctx: MutationCtx, a: Doc<"assignments">): Promise<void> {
+  await archiveSubmittedVideo(ctx, a);
+  await ctx.db.delete(a._id);
+}
+
+/**
+ * Purge SUR-LE-CHAMP la vidéo soumise (blob Convex + copie Cloudflare Stream,
+ * no-op si env absent) PUIS hard-delete la row. Réservée aux effacements voulus
+ * totaux : purge des données de TEST et suppression d'un PROJET. Une suppression
+ * de mission passe par archiveAndDeleteAssignment (vidéo récupérable 30 jours).
  */
 export async function purgeAndDeleteAssignment(
   ctx: MutationCtx,
@@ -1308,8 +1339,9 @@ export async function deleteAssignmentCore(ctx: ProjectMutationCtx, id: Id<"assi
   if (!canHardDeleteAssignment(a)) {
     throw err(ERR.ASSIGNMENT_DELETE_LOCKED, "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).");
   }
-  // Purge vidéo orpheline (Convex + Stream) + hard-delete → comboKey libéré.
-  await purgeAndDeleteAssignment(ctx, a);
+  // Vidéo envoyée en archive 30 jours (jamais effacée ici) + hard-delete →
+  // comboKey libéré.
+  await archiveAndDeleteAssignment(ctx, a);
   return { ok: true as const, alreadyGone: false };
 }
 

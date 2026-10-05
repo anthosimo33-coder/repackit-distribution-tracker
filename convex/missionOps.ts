@@ -6,6 +6,13 @@ import { invalidateDashboardCache } from "./dashboardCache";
 import { planMissionOps, type OpsScriptCombo } from "./missionOpsPlan";
 
 /**
+ * ⚠️ NE PLUS S'EN SERVIR SUR LA PROD (règle du 05/10/2026) : ces écritures
+ * passent HORS du journal des modifications — ni traçables, ni défaisables. La
+ * réécriture d'une mission (hook, flux, légende, notif, consigne) passe par
+ * l'outil MCP `reecrire_mission` (convex/mcpWritesMissions), journalisé avec la
+ * mission avant/après et défaisable par `defaire`. Gardé pour les tests et le
+ * dépannage local.
+ *
  * RÉÉCRITURE DE MISSIONS SUR PLACE — l'exécutant du plan de
  * convex/missionOpsPlan.ts (le POURQUOI et les garde-fous y sont écrits).
  *

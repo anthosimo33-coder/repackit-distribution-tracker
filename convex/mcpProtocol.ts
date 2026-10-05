@@ -111,6 +111,28 @@ export function textResult(text: string, isError = false): ToolResult {
 }
 
 /**
+ * Rend aux booléens et aux entiers leur TYPE quand ils arrivent en texte
+ * (« true », « 3 »). Un connecteur garde parfois en cache un schéma d'outil
+ * périmé : un paramètre ajouté depuis lui est inconnu, et il l'envoie en texte
+ * (vu le 04/10/2026 avec `remuneree`). Seuls les textes SANS ambiguïté sont
+ * convertis ; tout le reste passe tel quel à `validateArgs`, qui le refuse.
+ */
+export function coerceArgs(
+  schema: ToolInputSchema | ObjectSchema,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...args };
+  for (const [nom, valeur] of Object.entries(args)) {
+    const def = schema.properties[nom];
+    if (!def || typeof valeur !== "string") continue;
+    const t = valeur.trim().toLowerCase();
+    if (def.type === "boolean" && (t === "true" || t === "false")) out[nom] = t === "true";
+    else if (def.type === "integer" && /^-?\d+$/.test(t)) out[nom] = Number(t);
+  }
+  return out;
+}
+
+/**
  * Arguments conformes au schéma de l'outil ? Rend le PREMIER problème, lisible
  * par le modèle (qui peut alors corriger son appel), ou `null`.
  */
@@ -254,7 +276,7 @@ async function traiterMessage(
       if (typeof nom !== "string" || !outil) {
         return erreur(id, RPC.INVALID_PARAMS, `Outil inconnu : ${String(nom)}.`);
       }
-      const args = estObjet(params.arguments) ? params.arguments : {};
+      const args = coerceArgs(outil.inputSchema, estObjet(params.arguments) ? params.arguments : {});
       const invalide = validateArgs(outil.inputSchema, args);
       // Erreur d'OUTIL (résultat), pas de protocole : le modèle lit le message
       // et corrige son appel, au lieu de voir un échec technique.

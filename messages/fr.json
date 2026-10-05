@@ -1233,6 +1233,7 @@
     "ERR_ASSET_FOLDER_NOT_FOUND": "Dossier d'assets introuvable.",
     "ERR_ASSIGNMENT_ALREADY_STARTED": "Cet assignment est déjà démarré.",
     "ERR_ASSIGNMENT_CANCEL_LOCKED": "Cette assignation est publiée ou payée : elle ne peut plus être abandonnée.",
+    "ERR_ASSIGNMENT_HAS_VIDEO": "Une vidéo a déjà été envoyée pour cette mission : confirme l'abandon (la vidéo est conservée).",
     "ERR_ASSIGNMENT_DELETE_LOCKED": "Un assignment publié ou payé ne peut pas être supprimé (historique financier/analytics).",
     "ERR_ASSIGNMENT_NOT_FOUND": "Assignment introuvable.",
     "ERR_ASSIGNMENT_NOT_SCRIPT": "Cet assignment n'est pas un script.",

@@ -929,6 +929,7 @@
       "replanifier_mission": "Replanifier une mission",
       "consigne_mission": "Consigne d’une mission",
       "annuler_mission": "Abandonner une mission",
+      "reecrire_mission": "Réécrire le script d'une mission",
       "ajouter_hooks": "Ajouter des hooks",
       "activer_briques": "Activer / désactiver des briques",
       "graduer_hook": "Graduer un hook",

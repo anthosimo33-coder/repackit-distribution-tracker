@@ -52,7 +52,8 @@
     "masquerInactives": "Hide inactive",
     "sansPays": "No country",
     "missionAbandonneeDisparaitra": "This abandoned mission will disappear from the list and the history. This can't be undone.",
-    "missionAbandonneeSupprimee": "Abandoned mission deleted."
+    "missionAbandonneeSupprimee": "Abandoned mission deleted.",
+    "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased."
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Account matches (@{detected})",
@@ -99,7 +100,6 @@
     "supprimerLAssignation": "Delete the assignment",
     "assignationPublieeOuPayeeSuppression": "Assignment published or paid — delete unavailable (the financial history is kept).",
     "postPrevuLe": "· post planned for {date}",
-    "laVideoDejaSoumiseSera": "The video already submitted will be discarded for good.",
     "compte": "Account",
     "statutCalendrier": "Calendar status",
     "dateDePost": "Post date",
@@ -122,7 +122,8 @@
     "echeanceMiseAJour": "Due date updated.",
     "abandonneeHorsCalendrier": "Abandoned — off the calendar",
     "missionAbandonneeDisparaitra": "Abandoned mission: it will disappear from the list and the history. This can't be undone.",
-    "missionAbandonneeSupprimee": "Abandoned mission deleted."
+    "missionAbandonneeSupprimee": "Abandoned mission deleted.",
+    "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased."
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",

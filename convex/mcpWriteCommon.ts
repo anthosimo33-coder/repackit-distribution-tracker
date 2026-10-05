@@ -16,7 +16,7 @@
 
 import { ConvexError } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id, TableNames } from "./_generated/dataModel";
 import type { McpWriteScope, ProjectMutationCtx } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { designer } from "./mcpWriteArgs";
@@ -61,13 +61,94 @@ export interface DomaineEcriture {
   ): Promise<ToolResult>;
 }
 
+/** JSON à clés TRIÉES : deux états égaux s'écrivent pareil, quel que soit l'ordre des champs. */
+export function jsonCanonique(x: unknown): string {
+  const trier = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(trier)
+      : v !== null && typeof v === "object"
+        ? Object.fromEntries(
+            Object.keys(v as Record<string, unknown>)
+              .sort()
+              .filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+              .map((k) => [k, trier((v as Record<string, unknown>)[k])]),
+          )
+        : v;
+  return JSON.stringify(trier(x));
+}
+
+/**
+ * Le SCRIPT d'une mission tel que la créatrice le reçoit — combinaison, texte
+ * figé, notif — et sa consigne : ce que `reecrire_mission` écrit et ce que
+ * `defaire` remet (annulation « combo »).
+ */
+export function scriptDeMission(a: Doc<"assignments">): string {
+  return jsonCanonique({
+    scriptCombo: a.scriptCombo ?? null,
+    comboKey: a.comboKey ?? null,
+    comboImposed: a.comboImposed ?? null,
+    instructions: a.instructions ?? null,
+  });
+}
+
+/** Un document touché par une écriture : en entier (JSON), avant et après. */
+export type Etat = { table: string; id: string; avant: string | null; apres: string | null };
+/** Un document photographié AVANT l'écriture, à compléter par `etatsApres`. */
+export type Photo = { table: TableNames; id: string; avant: string | null };
+
+async function lireDoc(ctx: Pick<EcritureCtx, "db">, id: string): Promise<string | null> {
+  const d = await ctx.db.get(id as Id<TableNames>);
+  return d ? JSON.stringify(d) : null;
+}
+
+/** Photographie des documents AVANT de les écrire (null = n'existe pas). */
+export async function photographier(
+  ctx: Pick<EcritureCtx, "db">,
+  table: TableNames,
+  ids: readonly string[],
+): Promise<Photo[]> {
+  return Promise.all(ids.map(async (id) => ({ table, id, avant: await lireDoc(ctx, id) })));
+}
+
+/** Photographie les documents qu'une ligne du journal a touchés (pour `defaire`). */
+export async function photographierEtats(
+  ctx: Pick<EcritureCtx, "db">,
+  etats: readonly { table: string; id: string }[],
+): Promise<Photo[]> {
+  return Promise.all(etats.map(async (e) => ({ table: e.table as TableNames, id: e.id, avant: await lireDoc(ctx, e.id) })));
+}
+
+/** Les photos d'avant, complétées de l'état relu APRÈS l'écriture. */
+export async function etatsApres(ctx: Pick<EcritureCtx, "db">, photos: readonly Photo[]): Promise<Etat[]> {
+  return Promise.all(photos.map(async (p) => ({ table: p.table, id: p.id, avant: p.avant, apres: await lireDoc(ctx, p.id) })));
+}
+
+/** Des documents CRÉÉS par l'écriture : rien avant, l'état relu après. */
+export async function etatsCrees(ctx: Pick<EcritureCtx, "db">, table: TableNames, ids: readonly string[]): Promise<Etat[]> {
+  return etatsApres(ctx, ids.map((id) => ({ table, id, avant: null })));
+}
+
 /**
  * Note une écriture réussie au journal (« Connecter Claude › Modifications faites
  * par Claude »). `path` = l'écran où la défaire, sous `/admin/<projet>/`.
+ *
+ * `etats` est OBLIGATOIRE : chaque outil d'écriture garde les documents qu'il a
+ * touchés, en entier, avant et après — de quoi défaire, et de quoi reconstruire
+ * une mission supprimée depuis (incident du 05/10/2026 : la combinaison d'une
+ * mission abandonnée puis supprimée n'était nulle part). Le type le tient : un
+ * outil qui l'oublie ne compile pas.
  */
 export async function journaliser(
   ctx: Pick<EcritureCtx, "db" | "userId" | "projectId" | "via">,
-  e: { tool: string; summary: string; section: string; month?: string; path?: string; annulation?: Annulation },
+  e: {
+    tool: string;
+    summary: string;
+    section: string;
+    month?: string;
+    path?: string;
+    annulation?: Annulation;
+    etats: readonly Etat[];
+  },
 ) {
   await ctx.db.insert("mcpWriteLog", {
     userId: ctx.userId,
@@ -79,6 +160,7 @@ export async function journaliser(
     ...(e.month ? { month: e.month } : {}),
     ...(e.path ? { path: e.path } : {}),
     ...(e.annulation ? { annulation: e.annulation } : {}),
+    etats: [...e.etats],
     at: Date.now(),
   });
 }
@@ -177,4 +259,22 @@ export function textesArg(args: Record<string, unknown>, cle: string): string[] 
     throw new ToolError(`« ${cle} » doit être une liste de textes.`);
   }
   return x.map((t) => t.trim()).filter((t) => t !== "");
+}
+
+/**
+ * UNE brique par son libellé (ce que l'outil `scripts` montre), sinon par un
+ * morceau de son texte ; ambiguë ou introuvable → refus qui cite les candidats.
+ */
+export function briqueDe(briques: readonly Doc<"scriptBricks">[], demande: string, role: string): Doc<"scriptBricks"> {
+  const parLibelle = designer(briques, (b) => b.label, demande);
+  if (parLibelle.ok) return parLibelle.item;
+  const parTexte = designer(briques, (b) => b.content, demande);
+  if (parTexte.ok) return parTexte.item;
+  const candidats = parLibelle.candidats.length > 0 ? parLibelle.candidats : parTexte.candidats;
+  throw err(
+    ERR.MCP_DESIGNATION,
+    candidats.length > 1
+      ? `« ${demande} » désigne plusieurs ${role}s : ${candidats.slice(0, 6).map((b) => `« ${b.label} »`).join(", ")}.`
+      : `${role} « ${demande} » introuvable dans la campagne. Possibles : ${briques.slice(0, 15).map((b) => `« ${b.label} »`).join(", ")}.`,
+  );
 }
