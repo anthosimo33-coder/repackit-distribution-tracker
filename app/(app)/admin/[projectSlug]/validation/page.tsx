@@ -36,6 +36,8 @@ import {
 } from "@/components/ui/table";
 import { VideoExample } from "@/components/formats/VideoExample";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
+import { ListPager } from "@/components/admin/ListPager";
+import { listPage } from "@/lib/list-page";
 import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/format-rate";
@@ -171,6 +173,18 @@ function ValidationPageInner() {
   // pas vers la liste »). Sa carte est surlignée et amenée à l'écran.
   const highlightedId = useSearchParams().get("soumission");
   const published = useProjectQuery(api.assignments.listPublished, {});
+  // « Publiées récemment » PAR PAGES de 100 (même découpage que la vue Liste
+  // des missions) : le 05/10/2026 la section rendait les 602 publications de
+  // Snytch d'un bloc depuis juillet — 9 800 nœuds pour en lire les premières.
+  // Pas de filtre ici : la page ne change que par le pager (et se rabat dans
+  // les bornes si la liste raccourcit).
+  const [publishedPage, setPublishedPage] = useState(0);
+  const publishedView = listPage(published ?? [], publishedPage);
+  const publishedTopRef = useRef<HTMLElement>(null);
+  function goToPublishedPage(page: number) {
+    setPublishedPage(page);
+    publishedTopRef.current?.scrollIntoView({ block: "start" });
+  }
   // Bonus de vues = ARGENT (bloc `payments.manage`). Sans le bloc, la query
   // lèverait et emporterait la page entière : on la skippe et on ne rend pas la
   // section. Valider une vidéo, lui, reste dans `review.manage`.
@@ -248,17 +262,18 @@ function ValidationPageInner() {
 
       {/* ─── Publiées récemment ────────────────────────────────────────────── */}
       {published !== undefined && published.length > 0 && (
-        <section className="space-y-3">
+        <section ref={publishedTopRef} className="scroll-mt-4 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
             {tr("publieesRecemment")}
           </h2>
           {isMobile ? (
             <Card className="py-0">
               <ul className="divide-y divide-slate-100">
-                {published.map((p) => (
+                {publishedView.items.map((p) => (
                   <PublishedTableRow key={p._id} p={p} mobile />
                 ))}
               </ul>
+              <ListPager view={publishedView} onPage={goToPublishedPage} />
             </Card>
           ) : (
           <Card>
@@ -273,12 +288,13 @@ function ValidationPageInner() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {published.map((p) => (
+                  {publishedView.items.map((p) => (
                     <PublishedTableRow key={p._id} p={p} />
                   ))}
                 </TableBody>
               </Table>
             </CardContent>
+            <ListPager view={publishedView} onPage={goToPublishedPage} />
           </Card>
           )}
         </section>
@@ -295,7 +311,7 @@ function ValidationPageInner() {
         ) : bonusRows.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center text-sm text-slate-500">
-              {tr("aucunPostPubliePourL")}
+              {tr("aucuneVideoABonusManuel")}
             </CardContent>
           </Card>
         ) : isMobile ? (
