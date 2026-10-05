@@ -1,7 +1,7 @@
 "use client";
 
 import { useIsMobile } from "@/components/layout/use-is-mobile";
-import { Suspense, useEffect, useRef, useState, type MouseEvent } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   useProjectQuery,
@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { submittedVideoFilename } from "@/lib/video-download";
+import { useVideoDownload } from "@/components/admin/use-video-download";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -384,7 +385,6 @@ function VideoReviewCard({
   // Le lecteur inline signale s'il ne sait pas afficher la vidéo (HEVC iPhone) :
   // on met alors le téléchargement en avant comme seule façon de la visionner.
   const [unreadable, setUnreadable] = useState(false);
-  const [downloading, setDownloading] = useState(false);
 
   const downloadName = submittedVideoFilename({
     creatorName: a.creatorName,
@@ -399,34 +399,12 @@ function VideoReviewCard({
   const hasScript = a.origin === "script" && scriptText.trim().length > 0;
   const [scriptOpen, setScriptOpen] = useState(scriptText.length <= 360);
 
-  // Télécharge le FICHIER ORIGINAL déjà stocké (URL signée Convex du
-  // storageId). On passe par fetch → blob → <a download> : cross-origin, c'est
-  // le seul moyen FIABLE d'imposer le téléchargement (et le nom de fichier)
-  // plutôt qu'une ouverture inline que le navigateur ne sait pas lire (HEVC).
-  // Repli : ouverture dans un onglet si le fetch échoue (réseau/CORS).
-  async function onDownload(e: MouseEvent<HTMLAnchorElement>) {
-    e.preventDefault();
-    if (!a.videoUrl || downloading) return;
-    setDownloading(true);
-    try {
-      const res = await fetch(a.videoUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = downloadName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(objectUrl);
-    } catch {
-      window.open(a.videoUrl, "_blank", "noopener,noreferrer");
-      toast.error(tr("telechargementDirectImpossibleOuvertDans"));
-    } finally {
-      setDownloading(false);
-    }
-  }
+  // Télécharge le FICHIER ORIGINAL déjà stocké (cf useVideoDownload).
+  const { downloading, onDownload } = useVideoDownload(
+    a.videoUrl,
+    downloadName,
+    tr("telechargementDirectImpossibleOuvertDans"),
+  );
 
   async function onApprove() {
     setBusy(true);

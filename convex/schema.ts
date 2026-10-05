@@ -1855,11 +1855,47 @@ export default defineSchema({
     /** La mission entière au moment de la suppression (JSON). */
     mission: v.string(),
     deletedAt: v.number(),
+    /** Qui a supprimé (absent : archive d'avant ce champ). */
+    deletedBy: v.optional(v.id("users")),
+    // Ce que l'écran « Vidéos supprimées » affiche, FIGÉ à la suppression : la
+    // cascade d'une créatrice supprimée efface aussi sa fiche et ses comptes.
+    creatorName: v.optional(v.string()),
+    comptes: v.optional(v.array(v.object({ platform: v.string(), handle: v.string() }))),
+    campaignName: v.optional(v.string()),
+    /**
+     * RATTACHÉE à une autre mission (écran « Vidéos supprimées ») : le fichier
+     * appartient désormais à cette mission, la ligne ne le référence plus — la
+     * purge à 30 jours n'efface que la ligne, jamais la vidéo rattachée.
+     */
+    reattachedTo: v.optional(v.string()),
+    reattachedAt: v.optional(v.number()),
+    reattachedBy: v.optional(v.id("users")),
     purgeAfter: v.number(),
   })
     .index("by_purgeAfter", ["purgeAfter"])
     .index("by_project", ["projectId", "deletedAt"])
     .index("by_assignment", ["assignmentId"]),
+
+  // ABANDONS ET RÉTABLISSEMENTS d'une mission (convex/missionAbandon) — la trace
+  // de la fiche : qui, quand, depuis quel statut, créatrice prévenue ou non. À
+  // part de la mission : `defaire` la remet à l'identique sans effacer la trace,
+  // et « Rétablir » y lit le statut d'avant le dernier abandon. Supprimée avec
+  // la mission.
+  assignmentStatusEvents: defineTable({
+    projectId: v.id("projects"),
+    assignmentId: v.id("assignments"),
+    action: v.union(v.literal("cancelled"), v.literal("restored")),
+    from: v.string(),
+    to: v.string(),
+    at: v.number(),
+    by: v.optional(v.id("users")),
+    /** Fait par Claude (outil MCP) plutôt qu'à l'écran. */
+    via: v.optional(v.literal("claude")),
+    /** Abandon : la créatrice a été prévenue par email. */
+    emailed: v.optional(v.boolean()),
+  })
+    .index("by_assignment", ["assignmentId", "at"])
+    .index("by_project", ["projectId"]),
 
   // MESSAGES DE L'ÉQUIPE À UNE CRÉATRICE (le coach, convex/mcpCoach.ts) : écrits
   // par Claude, relus, envoyés par email (convex/emails.sendTeamMessage). Gardés

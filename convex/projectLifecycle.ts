@@ -194,6 +194,10 @@ const ETAPES: Record<TablePurgee, Etape> = {
   assignmentScripts: etape((ctx, pid, n) =>
     ctx.db.query("assignmentScripts").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  // Trace des abandons / rétablissements (la fiche) : part avec les missions.
+  assignmentStatusEvents: etape((ctx, pid, n) =>
+    ctx.db.query("assignmentStatusEvents").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   // Archive des vidéos de missions supprimées : supprimer le PROJET est un
   // effacement total et voulu — les fichiers partent avec, sans délai de 30 j.
   deletedSubmittedVideos: etape(

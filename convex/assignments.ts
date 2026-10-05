@@ -61,9 +61,12 @@ import {
 import { effectiveStatus } from "./comptes";
 import { isStrictAccountValidationFor } from "./projects";
 import { countOnHandle, ownerIsClipper, publicationsInRange } from "./clipQuota";
-import { representativePostedAt } from "./calendarStatus";
+import { plannedDayStart, representativePostedAt } from "./calendarStatus";
+import { COMBO_FREEING_STATUSES } from "./comboFreeing";
+import { statutARetablir } from "./missionAbandon";
 import { hasSubmittedVideo } from "./assignmentVideo";
 import { archiveSubmittedVideo } from "./deletedVideos";
+import { poserVideoSoumise } from "./videoSubmission";
 import { buildZoneMap } from "./creatorDay";
 import { creatorZoneOnly } from "./creatorTimezone";
 import { ERR, err } from "./errorCodes";
@@ -80,7 +83,7 @@ import {
 // Statuts « balle au créateur » — source unique partagée avec le cron de rappel.
 import { UNFINISHED_STATUSES } from "./emails";
 import { internal } from "./_generated/api";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -1230,22 +1233,32 @@ export const DELETABLE_STATUSES = new Set<string>([
  * hard-delete — on n'abandonne jamais un post publié ou payé.
  */
 export const cancelAssignment = permissionMutation("assignments.manage")({
-  args: { id: v.id("assignments"), force: v.optional(v.boolean()) },
-  handler: (ctx, { id, force }) => cancelAssignmentCore(ctx, id, { force }),
+  args: {
+    id: v.id("assignments"),
+    force: v.optional(v.boolean()),
+    /** Prévenir la créatrice par email (la case de la confirmation, cochée par défaut). */
+    notify: v.optional(v.boolean()),
+  },
+  handler: (ctx, { id, force, notify }) => cancelAssignmentCore(ctx, id, { force, notify }),
 });
 
 /**
- * Cœur de l'abandon — le bouton « Abandonner » et l'outil MCP `annuler_mission`.
+ * Cœur de l'abandon — le bouton « Abandonner » (fiche, liste) et l'outil MCP
+ * `annuler_mission`.
  *
  * Une mission qui porte une VIDÉO ENVOYÉE (convex/assignmentVideo) ne
  * s'abandonne qu'avec `force` : le refus nomme le statut, l'appelant confirme.
  * L'abandon ne touche jamais au fichier — seule la suppression le met en
  * archive (deleteAssignmentCore).
+ *
+ * Trace (`assignmentStatusEvents`) : qui, quand, depuis quel statut — c'est ce
+ * que « Rétablir » relit. `notify` planifie l'email à la créatrice (elle ne voit
+ * plus la mission dans son espace) ; l'outil MCP ne prévient pas.
  */
 export async function cancelAssignmentCore(
   ctx: ProjectMutationCtx,
   id: Id<"assignments">,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; notify?: boolean; via?: "claude" } = {},
 ) {
   const a = await requireProjectAssignmentInScope(ctx, id);
   if (a.status === "cancelled") return { ok: true, alreadyCancelled: true };
@@ -1263,8 +1276,137 @@ export async function cancelAssignmentCore(
     );
   }
   await ctx.db.patch(id, { status: "cancelled" });
+  const notify = opts.notify === true;
+  await ctx.db.insert("assignmentStatusEvents", {
+    projectId: a.projectId,
+    assignmentId: id,
+    action: "cancelled",
+    from: a.status,
+    to: "cancelled",
+    at: Date.now(),
+    by: ctx.userId,
+    ...(opts.via ? { via: opts.via } : {}),
+    emailed: notify,
+  });
+  if (notify) {
+    await ctx.scheduler.runAfter(0, internal.emails.sendAssignmentCancelled, {
+      assignmentId: id,
+      videoKept: hasSubmittedVideo(a),
+    });
+  }
   return { ok: true, alreadyCancelled: false };
 }
+
+/** Les abandons et rétablissements d'une mission, du plus ancien au plus récent. */
+async function statusEventsOf(ctx: QueryCtx, id: Id<"assignments">) {
+  return ctx.db
+    .query("assignmentStatusEvents")
+    .withIndex("by_assignment", (q) => q.eq("assignmentId", id))
+    .collect();
+}
+
+/**
+ * RÉTABLIR une mission abandonnée — le bouton « Rétablir » (fiche, liste) et
+ * `defaire` d'un `annuler_mission`.
+ */
+export const restoreAssignment = permissionMutation("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: (ctx, { id }) => restoreAssignmentCore(ctx, id),
+});
+
+/**
+ * Remet le statut d'avant le DERNIER abandon tracé (cf
+ * convex/missionAbandon.statutARetablir) — ou `opts.to`, que `defaire` lit dans
+ * son journal. Sans trace (abandon ancien), le statut est déduit et le retour le
+ * dit (`exact: false`).
+ *
+ * Refusé si la créatrice a, entre-temps, une AUTRE mission vivante sur le même
+ * script : l'abandon avait libéré la combinaison, la rétablir la ferait tourner
+ * deux fois.
+ */
+export async function restoreAssignmentCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  opts: { to?: Doc<"assignments">["status"]; via?: "claude" } = {},
+): Promise<{ ok: true; status: Doc<"assignments">["status"]; exact: boolean }> {
+  const a = await requireProjectAssignmentInScope(ctx, id);
+  if (a.status !== "cancelled") {
+    throw err(ERR.ASSIGNMENT_NOT_CANCELLED, "Cette mission n'est pas abandonnée : rien à rétablir.");
+  }
+  const cible = opts.to
+    ? { status: opts.to as string, exact: true }
+    : statutARetablir(await statusEventsOf(ctx, id), hasSubmittedVideo(a));
+  const status = cible.status as Doc<"assignments">["status"];
+  if (a.comboKey && !COMBO_FREEING_STATUSES.has(status)) {
+    const memeScript = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator_combo", (q) => q.eq("creatorId", a.creatorId).eq("comboKey", a.comboKey))
+      .collect();
+    if (memeScript.some((x) => x._id !== id && !COMBO_FREEING_STATUSES.has(x.status))) {
+      throw err(
+        ERR.ASSIGNMENT_RESTORE_COMBO_TAKEN,
+        "La créatrice a déjà une autre mission sur ce même script : abandonne ou supprime l'autre avant de rétablir celle-ci.",
+      );
+    }
+  }
+  await ctx.db.patch(id, { status });
+  await ctx.db.insert("assignmentStatusEvents", {
+    projectId: a.projectId,
+    assignmentId: id,
+    action: "restored",
+    from: "cancelled",
+    to: status,
+    at: Date.now(),
+    by: ctx.userId,
+    ...(opts.via ? { via: opts.via } : {}),
+  });
+  return { ok: true, status, exact: cible.exact };
+}
+
+/** La trace de la fiche : abandons et rétablissements, avec qui les a faits. */
+export const getAssignmentStatusEvents = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return [];
+    const events = await statusEventsOf(ctx, id);
+    return Promise.all(
+      events.map(async (e) => {
+        const u = e.by ? await ctx.db.get(e.by) : null;
+        return {
+          _id: e._id,
+          action: e.action,
+          from: e.from,
+          to: e.to,
+          at: e.at,
+          byName: u?.name?.trim() || u?.email || null,
+          viaClaude: e.via === "claude",
+          emailed: e.emailed === true,
+        };
+      }),
+    );
+  },
+});
+
+/** Les données de l'email « mission annulée » (convex/emails.sendAssignmentCancelled). */
+export const getCancelNotifyData = internalQuery({
+  args: { assignmentId: v.id("assignments") },
+  handler: async (ctx, { assignmentId }) => {
+    const a = await ctx.db.get(assignmentId);
+    if (!a) return null;
+    const c = await ctx.db.get(a.creatorId);
+    if (!c) return null;
+    return {
+      email: c.email,
+      name: c.name,
+      locale: c.locale ?? null,
+      // Le nom qu'ELLE voit (displayName de campagne), jamais le nom interne.
+      missionLabel: (await missionLabelFor(ctx, a)).formatName,
+      // Le jour prévu (étiquette Paris), sinon l'échéance de production.
+      day: a.postDate !== undefined ? plannedDayStart(a.postDate) : a.dueDate,
+    };
+  },
+});
 
 /**
  * SUPPRIME la row d'une mission en GARDANT sa vidéo envoyée : les fichiers
@@ -1274,10 +1416,19 @@ export async function cancelAssignmentCore(
  * by_creator_combo). Partagé par deleteAssignment (unitaire) et deleteCreator
  * (cascade). N'effectue AUCUNE garde de statut : l'appelant filtre.
  */
-export async function archiveAndDeleteAssignment(ctx: MutationCtx, a: Doc<"assignments">): Promise<void> {
-  await archiveSubmittedVideo(ctx, a);
+export async function archiveAndDeleteAssignment(
+  ctx: MutationCtx & { userId: Id<"users"> },
+  a: Doc<"assignments">,
+): Promise<void> {
+  await archiveSubmittedVideo(ctx, a, ctx.userId);
   await supprimerTexteDuCombo(ctx, a._id);
+  await deleteStatusEvents(ctx, a._id);
   await ctx.db.delete(a._id);
+}
+
+/** La trace d'abandon part avec la mission (cf `assignmentStatusEvents`). */
+async function deleteStatusEvents(ctx: MutationCtx, id: Id<"assignments">): Promise<void> {
+  for (const e of await statusEventsOf(ctx, id)) await ctx.db.delete(e._id);
 }
 
 /**
@@ -1299,6 +1450,7 @@ export async function purgeAndDeleteAssignment(
     );
   }
   await supprimerTexteDuCombo(ctx, a._id);
+  await deleteStatusEvents(ctx, a._id);
   await ctx.db.delete(a._id);
 }
 
@@ -3389,8 +3541,9 @@ export const startClip = clipperMutation({
  * l'appelant (`requireOwnAssignment`).
  *
  * Le client a déjà poussé le blob (generateUploadUrl → storage) et fournit le
- * storageId. Autorisé depuis todo / in_progress / video_rejected (re-soumission
- * après refus). Une re-soumission PURGE l'ancien blob refusé.
+ * storageId. La vidéo se pose par `poserVideoSoumise` (convex/videoSubmission) —
+ * le même cœur que le rattachement d'une vidéo archivée par l'équipe : depuis
+ * todo / in_progress / video_rejected, une re-soumission PURGE l'ancien blob.
  *
  * ⚠️ Partager ce cœur fait entrer les CLIPS dans la notification Telegram de
  * soumission — c'est voulu (l'admin doit le savoir), et le message distingue
@@ -3403,58 +3556,18 @@ async function submitVideoCore(
   storageId: Id<"_storage">,
   mimeType: string | undefined,
 ): Promise<{ ok: true }> {
-  const id = a._id;
-  {
-    if (
-      a.status !== "todo" &&
-      a.status !== "in_progress" &&
-      a.status !== "video_rejected"
-    ) {
-      throw err(ERR.VIDEO_SUBMIT_WRONG_STATE, "Soumission vidéo impossible dans cet état.");
-    }
-    // Remplacement : l'ancienne vidéo (refusée) est purgée du storage, et sa
-    // copie Cloudflare Stream supprimée (best-effort, hygiène de coût).
-    if (a.submittedVideoStorageId && a.submittedVideoStorageId !== storageId) {
-      await deleteStorageBestEffort(ctx, a.submittedVideoStorageId);
-    }
-    if (a.submittedVideoStreamUid) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.cloudflareStream.deleteStreamAsset,
-        { uid: a.submittedVideoStreamUid },
-      );
-    }
-    await ctx.db.patch(id, {
-      status: "video_submitted",
-      submittedVideoStorageId: storageId,
-      submittedVideoMimeType: mimeType ?? "video/mp4",
-      // Reset Stream : la nouvelle vidéo repart d'un transcoding neuf (l'UI
-      // retombe sur le <video> Convex tant que le UID n'est pas reposé).
-      submittedVideoStreamUid: undefined,
-      submittedVideoStreamStatus: undefined,
-      videoReviewFeedback: undefined,
-    });
-    // TRANSCODING HEVC (hors chemin critique) : Cloudflare Stream récupère la
-    // vidéo depuis l'URL signée Convex et la transcode. Sans env Cloudflare,
-    // l'action no-op proprement → fallback Convex. La soumission n'est JAMAIS
-    // bloquée par Cloudflare.
-    await ctx.scheduler.runAfter(
-      0,
-      internal.cloudflareStream.startStreamCopy,
-      { assignmentId: id },
-    );
-    // NOTIFICATION hors-app (Telegram) — même contrat que Cloudflare ci-dessus :
-    // planifiée, donc la soumission est DÉJÀ committée quand l'action part. Un
-    // canal en panne ne peut structurellement pas faire échouer la soumission.
-    // Le statut de DÉPART distingue la première soumission de la re-soumission
-    // après refus : c'est la seule chose que l'action ne pourrait plus lire (le
-    // statut vaut déjà "video_submitted" quand elle s'exécute).
-    await ctx.scheduler.runAfter(0, internal.notifications.notifySubmission, {
-      assignmentId: id,
-      isResubmission: a.status === "video_rejected",
-    });
-    return { ok: true };
-  }
+  await poserVideoSoumise(ctx, a, storageId, mimeType);
+  // NOTIFICATION hors-app (Telegram) — même contrat que Cloudflare : planifiée,
+  // donc la soumission est DÉJÀ committée quand l'action part. Un canal en panne
+  // ne peut structurellement pas faire échouer la soumission. Le statut de
+  // DÉPART distingue la première soumission de la re-soumission après refus :
+  // c'est la seule chose que l'action ne pourrait plus lire (le statut vaut déjà
+  // "video_submitted" quand elle s'exécute).
+  await ctx.scheduler.runAfter(0, internal.notifications.notifySubmission, {
+    assignmentId: a._id,
+    isResubmission: a.status === "video_rejected",
+  });
+  return { ok: true };
 }
 
 export const submitVideo = creatorMutation({
@@ -4280,6 +4393,22 @@ export const e2eEtatDuTexte = e2eMutation({
       dansLeDocument: a?.scriptCombo?.assembledScript ?? null,
       ligne: ligne?.text ?? null,
     };
+  },
+});
+
+/**
+ * E2E — les emails « mission annulée » PLANIFIÉS pour une mission. Localement
+ * Resend n'est pas configuré : l'action part et ne fait rien, mais sa
+ * planification est la preuve que l'abandon a demandé l'envoi.
+ */
+export const e2eCancelEmailsFor = e2eMutation({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const recents = await ctx.db.system.query("_scheduled_functions").order("desc").take(2000);
+    return recents
+      .filter((f) => f.name.includes("sendAssignmentCancelled"))
+      .map((f) => f.args[0] as { assignmentId: string; videoKept: boolean })
+      .filter((a) => a.assignmentId === id);
   },
 });
 

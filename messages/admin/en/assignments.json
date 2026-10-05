@@ -53,7 +53,10 @@
     "sansPays": "No country",
     "missionAbandonneeDisparaitra": "This abandoned mission will disappear from the list and the history. This can't be undone.",
     "missionAbandonneeSupprimee": "Abandoned mission deleted.",
-    "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased."
+    "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased.",
+    "abandonnerPlutot": "Drop instead",
+    "abandonnerCetteMission": "Drop this mission",
+    "retablirCetteMission": "Restore this mission"
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Account matches (@{detected})",
@@ -123,7 +126,10 @@
     "abandonneeHorsCalendrier": "Abandoned — off the calendar",
     "missionAbandonneeDisparaitra": "Abandoned mission: it will disappear from the list and the history. This can't be undone.",
     "missionAbandonneeSupprimee": "Abandoned mission deleted.",
-    "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased."
+    "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased.",
+    "abandonnerPlutot": "Drop instead",
+    "abandonnerLaMission": "Drop the mission",
+    "retablirLaMission": "Restore the mission"
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",
@@ -209,7 +215,9 @@
     "supprimer": "Delete",
     "suppressionIndisponible": "Delete unavailable",
     "texteOverlay": "Overlay text",
-    "instructions": "Instructions"
+    "instructions": "Instructions",
+    "abandonner": "Drop",
+    "retablir": "Restore"
   },
   "AssignmentCard": {
     "combinaisonImposee": "Enforced combination",
@@ -350,10 +358,12 @@
     "all": "All statuses",
     "todo": "To do",
     "in_progress": "In progress",
-    "submitted": "Submitted",
-    "validated": "Approved",
-    "rejected": "Rejected",
-    "paid": "Paid"
+    "video_submitted": "Video in review",
+    "video_rejected": "Video to redo",
+    "to_publish": "To publish",
+    "published": "Published",
+    "paid": "Paid",
+    "cancelled": "Dropped"
   },
   "calStatusFilter": {
     "all": "All statuses",
@@ -368,5 +378,62 @@
     "precedente": "Previous",
     "suivante": "Next",
     "pageSur": "Page {page} of {pageCount}"
+  },
+  "AbandonMissionDialog": {
+    "titre": "Drop this mission?",
+    "postPrevuLe": "· post planned for {date}",
+    "resteDansLaListe": "It stays in the list with the “Dropped” status; “Restore” puts it back in its current status.",
+    "videoEnvoyeeConservee": "A video has already been sent for this mission (status: {statut}). It is kept: the mission just won't be approved or published.",
+    "prevenirParEmail": "Let the creator know by email",
+    "prevenirParEmailAide": "The mission disappears from her space: the email tells her there's nothing to shoot or post.",
+    "annuler": "Cancel",
+    "abandonner": "Drop",
+    "abandonnerMalgreLaVideo": "Drop despite the video",
+    "abandonnee": "Mission dropped.",
+    "abandonneeEtPrevenue": "Mission dropped — {creatorName} is notified by email.",
+    "retablie": "Mission restored: status “{statut}”.",
+    "retablieDeduite": "Mission restored as “{statut}” — its status before being dropped wasn't recorded.",
+    "historique": "History",
+    "quelquUn": "someone",
+    "par": "by {qui}",
+    "parViaClaude": "by {qui} via Claude",
+    "evenementAbandon": "Dropped on {quand} {par} (was: {statut})",
+    "evenementRetablie": "Restored on {quand} {par} (status: {statut})",
+    "createatricePrevenue": "creator notified by email",
+    "createatriceNonPrevenue": "creator not notified"
+  },
+  "DeletedVideosPage": {
+    "titre": "Deleted videos",
+    "intro": "When a mission is deleted, its submitted video stays here for {jours} days: download it, or attach it to another mission of the same creator. After that, it is permanently erased.",
+    "aucune": "No video deleted in the last {jours} days.",
+    "createatrice": "Creator",
+    "createatriceInconnue": "Deleted creator",
+    "compte": "Account",
+    "campagne": "Campaign",
+    "supprimeeLe": "Deleted on",
+    "par": "by {qui}",
+    "auteurInconnu": "author not recorded",
+    "statutAlors": "it was “{statut}”",
+    "joursRestants": "{count, plural, one {Permanently erased in # day} other {Permanently erased in # days}}",
+    "effaceeAujourdhui": "Permanently erased today",
+    "apercuIndisponible": "Preview unavailable — download the video to watch it.",
+    "illisibleIci": "This browser can't play this video (iPhone HEVC): download it to watch it.",
+    "telecharger": "Download",
+    "telechargementOuvertDansOnglet": "Direct download failed: the video opens in a new tab.",
+    "rattacher": "Attach to a mission",
+    "rattacherTitre": "Attach to a mission",
+    "rattacherIntro": "Pick a mission of {createatrice} that hasn't sent anything yet.",
+    "rattacherSuite": "The video is attached as if the creator had just sent it: it waits in Validation, then follows the usual flow.",
+    "choisirUneMission": "Mission that receives the video",
+    "missionDu": "Mission of {jour}",
+    "missionSansDate": "Undated mission",
+    "echeance": "due {jour}",
+    "impossibleFichierAbsent": "The original file no longer exists (only the playback copy remains): the video can't be attached. Download it if needed.",
+    "impossibleCreatriceSupprimee": "The creator was deleted: none of her missions can receive the video. Download it if needed.",
+    "impossibleAucuneMission": "No mission of this creator expects a video: {envoyees, plural, =0 {} one {# already has a submitted video, } other {# already have a submitted video, }}{terminees, plural, =0 {no other one is to do.} one {# is dropped, published or paid.} other {# are dropped, published or paid.}} Assign her a mission, then come back here.",
+    "annuler": "Cancel",
+    "rattacherConfirmer": "Attach",
+    "rattachee": "Video attached: it waits in Validation.",
+    "ouvrirValidation": "Open Validation"
   }
 }

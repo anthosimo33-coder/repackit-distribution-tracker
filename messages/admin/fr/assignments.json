@@ -53,7 +53,10 @@
     "sansPays": "Sans pays",
     "missionAbandonneeDisparaitra": "Cette mission abandonnée disparaîtra de la liste et de l'historique. Cette action est irréversible.",
     "missionAbandonneeSupprimee": "Mission abandonnée supprimée.",
-    "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée."
+    "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée.",
+    "abandonnerPlutot": "Abandonner plutôt",
+    "abandonnerCetteMission": "Abandonner cette mission",
+    "retablirCetteMission": "Rétablir cette mission"
   },
   "AccountCheckLine": {
     "compteCoherent": "✓ Compte cohérent (@{detected})",
@@ -123,7 +126,10 @@
     "abandonneeHorsCalendrier": "Abandonnée — hors calendrier",
     "missionAbandonneeDisparaitra": "Mission abandonnée : elle disparaîtra de la liste et de l'historique. Action irréversible.",
     "missionAbandonneeSupprimee": "Mission abandonnée supprimée.",
-    "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée."
+    "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée.",
+    "abandonnerPlutot": "Abandonner plutôt",
+    "abandonnerLaMission": "Abandonner la mission",
+    "retablirLaMission": "Rétablir la mission"
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",
@@ -209,7 +215,9 @@
     "supprimer": "Supprimer",
     "suppressionIndisponible": "Suppression indisponible",
     "texteOverlay": "Texte overlay",
-    "instructions": "Instructions"
+    "instructions": "Instructions",
+    "abandonner": "Abandonner",
+    "retablir": "Rétablir"
   },
   "AssignmentCard": {
     "combinaisonImposee": "Combinaison imposée",
@@ -350,10 +358,12 @@
     "all": "Tous statuts",
     "todo": "À faire",
     "in_progress": "En cours",
-    "submitted": "Soumis",
-    "validated": "Validé",
-    "rejected": "Rejeté",
-    "paid": "Payé"
+    "video_submitted": "Vidéo en revue",
+    "video_rejected": "Vidéo à refaire",
+    "to_publish": "À publier",
+    "published": "Publié",
+    "paid": "Payé",
+    "cancelled": "Abandonné"
   },
   "calStatusFilter": {
     "all": "Tous statuts",
@@ -368,5 +378,62 @@
     "precedente": "Précédente",
     "suivante": "Suivante",
     "pageSur": "Page {page} sur {pageCount}"
+  },
+  "AbandonMissionDialog": {
+    "titre": "Abandonner cette mission ?",
+    "postPrevuLe": "· post prévu le {date}",
+    "resteDansLaListe": "Elle reste dans la liste avec le statut « Abandonné » ; « Rétablir » la remet dans son statut actuel.",
+    "videoEnvoyeeConservee": "Une vidéo a déjà été envoyée pour cette mission (statut : {statut}). Elle est conservée : la mission ne sera simplement ni validée ni publiée.",
+    "prevenirParEmail": "Prévenir la créatrice par email",
+    "prevenirParEmailAide": "La mission disparaît de son espace : l'email lui dit qu'elle n'a rien à tourner ni à publier.",
+    "annuler": "Annuler",
+    "abandonner": "Abandonner",
+    "abandonnerMalgreLaVideo": "Abandonner malgré la vidéo",
+    "abandonnee": "Mission abandonnée.",
+    "abandonneeEtPrevenue": "Mission abandonnée — {creatorName} est prévenue par email.",
+    "retablie": "Mission rétablie : statut « {statut} ».",
+    "retablieDeduite": "Mission rétablie en « {statut} » — son statut d'avant l'abandon n'avait pas été enregistré.",
+    "historique": "Historique",
+    "quelquUn": "quelqu'un",
+    "par": "par {qui}",
+    "parViaClaude": "par {qui} via Claude",
+    "evenementAbandon": "Abandonnée le {quand} {par} (était : {statut})",
+    "evenementRetablie": "Rétablie le {quand} {par} (statut : {statut})",
+    "createatricePrevenue": "créatrice prévenue par email",
+    "createatriceNonPrevenue": "créatrice non prévenue"
+  },
+  "DeletedVideosPage": {
+    "titre": "Vidéos supprimées",
+    "intro": "Quand une mission est supprimée, sa vidéo envoyée reste ici {jours} jours : télécharge-la, ou rattache-la à une autre mission de la même créatrice. Ensuite, elle est effacée définitivement.",
+    "aucune": "Aucune vidéo supprimée ces {jours} derniers jours.",
+    "createatrice": "Créatrice",
+    "createatriceInconnue": "Créatrice supprimée",
+    "compte": "Compte",
+    "campagne": "Campagne",
+    "supprimeeLe": "Supprimée le",
+    "par": "par {qui}",
+    "auteurInconnu": "auteur non enregistré",
+    "statutAlors": "elle était « {statut} »",
+    "joursRestants": "{count, plural, one {Effacée définitivement dans # jour} other {Effacée définitivement dans # jours}}",
+    "effaceeAujourdhui": "Effacée définitivement aujourd'hui",
+    "apercuIndisponible": "Aperçu indisponible — télécharge la vidéo pour la voir.",
+    "illisibleIci": "Ce navigateur ne lit pas cette vidéo (HEVC d'iPhone) : télécharge-la pour la voir.",
+    "telecharger": "Télécharger",
+    "telechargementOuvertDansOnglet": "Téléchargement direct impossible : la vidéo s'ouvre dans un onglet.",
+    "rattacher": "Rattacher à une mission",
+    "rattacherTitre": "Rattacher à une mission",
+    "rattacherIntro": "Choisis une mission de {createatrice} qui n'a encore rien envoyé.",
+    "rattacherSuite": "La vidéo y est jointe comme si la créatrice venait de l'envoyer : elle attend dans Validation, puis suit le circuit habituel.",
+    "choisirUneMission": "Mission qui reçoit la vidéo",
+    "missionDu": "Mission du {jour}",
+    "missionSansDate": "Mission sans date",
+    "echeance": "échéance {jour}",
+    "impossibleFichierAbsent": "Le fichier d'origine n'existe plus (seule la copie de lecture reste) : la vidéo ne peut pas être rattachée. Télécharge-la si besoin.",
+    "impossibleCreatriceSupprimee": "La créatrice a été supprimée : aucune de ses missions ne peut recevoir la vidéo. Télécharge-la si besoin.",
+    "impossibleAucuneMission": "Aucune mission de cette créatrice n'attend de vidéo : {envoyees, plural, =0 {} one {# a déjà une vidéo envoyée, } other {# ont déjà une vidéo envoyée, }}{terminees, plural, =0 {aucune autre n'est à faire.} one {# est abandonnée, publiée ou payée.} other {# sont abandonnées, publiées ou payées.}} Assigne-lui une mission, puis reviens ici.",
+    "annuler": "Annuler",
+    "rattacherConfirmer": "Rattacher",
+    "rattachee": "Vidéo rattachée : elle attend dans Validation.",
+    "ouvrirValidation": "Ouvrir Validation"
   }
 }

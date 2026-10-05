@@ -20,6 +20,7 @@ import {
   validateProjectFolderIds,
   validateTargets,
   DELETABLE_STATUSES,
+  archiveAndDeleteAssignment,
 } from "./assignments";
 import { assembleNoLabels } from "./scripts";
 import {
@@ -36,7 +37,6 @@ import {
 import { resolveCreatorKind } from "./roles";
 import { ERR, err } from "./errorCodes";
 import type { Plateforme } from "./platforms";
-import { supprimerTexteDuCombo } from "./assignmentScriptText";
 
 /**
  * DÉFIS — administration : création, matériel, ciblage nominatif, lecture.
@@ -675,10 +675,9 @@ export const deleteChallenge = permissionMutation("challenges.money")({
         { published: faits.published, wins: faits.wins },
       );
     }
-    for (const a of faits.deletable) {
-      await supprimerTexteDuCombo(ctx, a._id);
-      await ctx.db.delete(a._id);
-    }
+    // Une vidéo envoyée part en archive 30 jours, comme pour toute mission
+    // supprimée (convex/deletedVideos) — jamais effacée avec le défi.
+    for (const a of faits.deletable) await archiveAndDeleteAssignment(ctx, a);
     const participants = await ctx.db
       .query("challengeParticipants")
       .withIndex("by_challenge", (q) => q.eq("challengeId", id))

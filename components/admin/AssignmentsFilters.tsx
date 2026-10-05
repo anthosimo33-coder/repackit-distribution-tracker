@@ -15,17 +15,10 @@ import type { FilterMultiSelectOption } from "@/components/filters/FilterMultiSe
 import type { CalendarStatusFilter } from "@/components/admin/AssignmentsCalendar";
 import { cn } from "@/lib/utils";
 import { useTranslations } from "next-intl";
+import { STATUS_FILTER_OPTIONS } from "@/lib/assignment-status-filter";
 
 // Libellés : `admin.assignments.statusFilter.<valeur>` (le statut de PRODUCTION).
-export const STATUS_OPTIONS = [
-  "all",
-  "todo",
-  "in_progress",
-  "submitted",
-  "validated",
-  "rejected",
-  "paid",
-] as const;
+export const STATUS_OPTIONS = STATUS_FILTER_OPTIONS;
 
 /** Options du filtre de STATUT CALENDRIER (vue calendrier). Même axe que la
  *  pastille : à l'heure / en retard / manqué / prévu (≠ statut de PRODUCTION). */

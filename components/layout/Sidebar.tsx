@@ -14,6 +14,7 @@ import {
   ChevronsRightIcon,
   ClapperboardIcon,
   ClipboardCheckIcon,
+  ArchiveRestoreIcon,
   ClipboardListIcon,
   CoinsIcon,
   FilmIcon,
@@ -178,6 +179,13 @@ export function Sidebar({
       icon: ClipboardListIcon,
       label: t("item.assignments"),
       ...item(projectPath("/assignments")),
+    },
+    // Vidéos des missions supprimées, gardées 30 jours (télécharger,
+    // rattacher). Même bloc que la suppression : assignments.manage.
+    {
+      icon: ArchiveRestoreIcon,
+      label: t("item.videosSupprimees"),
+      ...item(projectPath("/videos-supprimees")),
     },
     {
       icon: TrophyIcon,

@@ -8,6 +8,7 @@ import {
 } from "@/convex/postWindow";
 import type { FunctionReturnType } from "convex/server";
 import {
+  BanIcon,
   CalendarIcon,
   CheckCircle2Icon,
   ClipboardListIcon,
@@ -18,6 +19,7 @@ import {
   PencilIcon,
   PlusIcon,
   RepeatIcon,
+  RotateCcwIcon,
   Trash2Icon,
   TypeIcon,
 } from "lucide-react";
@@ -97,7 +99,12 @@ import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
 import { format as formatDay } from "date-fns";
 import { parisDayOf } from "@/convex/managerCpm";
 import { countryFlag } from "@/lib/countries";
-import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { canCancelAssignment, canDeleteAssignment } from "@/lib/assignment-delete";
+import {
+  AbandonMissionDialog,
+  AssignmentStatusHistory,
+  useRestoreAssignment,
+} from "@/components/admin/AbandonMissionDialog";
 import { DELETED_VIDEO_RETENTION_DAYS, hasSubmittedVideo } from "@/lib/assignment-video";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { useLabel } from "@/lib/use-label";
@@ -169,6 +176,10 @@ export function AssignmentDetailSheet({
   // serveur deleteAssignment + la réplique pure canDeleteAssignment pour l'UI.
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Abandon (la ligne reste, statut « Abandonné ») et « Rétablir » — le même
+  // cœur serveur que l'outil `annuler_mission`.
+  const [abandonOpen, setAbandonOpen] = useState(false);
+  const { restore, restoringId } = useRestoreAssignment();
 
   const label = row.scriptCampaignName ?? row.formatName ?? "—";
   const platforms = row.targets.map((t) => t.platform);
@@ -219,6 +230,8 @@ export function AssignmentDetailSheet({
   // Une vidéo envoyée est-elle jointe (fichier, quel que soit le statut — « à
   // publier » compris) ? → la confirmation le dit : elle est gardée 30 jours.
   const hasVideo = hasSubmittedVideo(row);
+  // Abandonnable : les statuts pré-publication (pas déjà abandonnée).
+  const cancellable = canCancelAssignment(row.status as AssignmentStatus);
 
   async function handleDelete() {
     setDeleting(true);
@@ -378,6 +391,21 @@ export function AssignmentDetailSheet({
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
+              {/* L'option SÛRE : la mission reste, et « Rétablir » la reprend. */}
+              {cancellable && (
+                <Button
+                  variant="outline"
+                  disabled={deleting}
+                  onClick={() => {
+                    setConfirmDelete(false);
+                    setAbandonOpen(true);
+                  }}
+                  data-testid="assignment-detail-abandon-instead"
+                >
+                  <BanIcon className="size-4" />
+                  {tr("abandonnerPlutot")}
+                </Button>
+              )}
               <AlertDialogAction
                 variant="destructive"
                 onClick={(e) => {
@@ -394,6 +422,22 @@ export function AssignmentDetailSheet({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <AbandonMissionDialog
+          target={
+            abandonOpen
+              ? {
+                  _id: row._id,
+                  creatorName: row.creatorName,
+                  label,
+                  postDate: row.postDate,
+                  status: row.status,
+                  hasVideo,
+                }
+              : null
+          }
+          onClose={() => setAbandonOpen(false)}
+        />
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4">
           {/* Contexte */}
@@ -682,10 +726,41 @@ export function AssignmentDetailSheet({
             <PublicationSection row={row} />
           </section>
 
-          {/* Suppression — hard-delete borné aux statuts SÛRS (garde serveur
-              deleteAssignment + réplique canDeleteAssignment). Publié/payé :
-              indisponible avec message clair (historique financier conservé). */}
-          <section className="border-t border-slate-100 pt-4">
+          {/* Trace : qui a abandonné ou rétabli la mission, et quand. */}
+          <AssignmentStatusHistory assignmentId={row._id} />
+
+          {/* Abandonner / Rétablir, puis suppression — hard-delete borné aux
+              statuts SÛRS (garde serveur deleteAssignment + réplique
+              canDeleteAssignment). Publié/payé : indisponible avec message
+              clair (historique financier conservé). */}
+          <section className="space-y-2 border-t border-slate-100 pt-4">
+            {cancellable && (
+              <Button
+                variant="outline"
+                className="w-full gap-2 text-slate-700"
+                onClick={() => setAbandonOpen(true)}
+                data-testid="assignment-detail-abandon"
+              >
+                <BanIcon className="size-4" />
+                {tr("abandonnerLaMission")}
+              </Button>
+            )}
+            {row.status === "cancelled" && (
+              <Button
+                variant="outline"
+                className="w-full gap-2 text-slate-700"
+                disabled={restoringId === row._id}
+                onClick={() => void restore(row._id)}
+                data-testid="assignment-detail-restore"
+              >
+                {restoringId === row._id ? (
+                  <Loader2Icon className="size-4 animate-spin" />
+                ) : (
+                  <RotateCcwIcon className="size-4" />
+                )}
+                {tr("retablirLaMission")}
+              </Button>
+            )}
             {deletable ? (
               <Button
                 variant="outline"

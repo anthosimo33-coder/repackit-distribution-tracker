@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { FunctionReturnType } from "convex/server";
 import {
+  BanIcon,
   BellIcon,
   CalendarIcon,
   ChevronDownIcon,
@@ -16,6 +17,7 @@ import {
   MoreHorizontalIcon,
   PanelRightOpenIcon,
   PencilIcon,
+  RotateCcwIcon,
   Trash2Icon,
   TypeIcon,
 } from "lucide-react";
@@ -30,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { countryFlag } from "@/lib/countries";
-import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { canCancelAssignment, canDeleteAssignment } from "@/lib/assignment-delete";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
 import { useLabel } from "@/lib/use-label";
 import {
@@ -75,6 +77,10 @@ export type AssignmentRowGestures = {
   onInstructions: (id: Id<"assignments">) => void;
   onPostDate: (id: Id<"assignments">) => void;
   onNudge: (id: Id<"assignments">, creatorName: string) => void;
+  /** Ouvre la confirmation d'abandon (la ligne reste, statut « Abandonné »). */
+  onCancel: (id: Id<"assignments">) => void;
+  /** Remet une abandonnée dans son statut d'avant l'abandon. */
+  onRestore: (id: Id<"assignments">) => void;
   onDelete: (id: Id<"assignments">) => void;
 };
 
@@ -469,6 +475,20 @@ export function AssignmentRowMenu({
           </>
         )}
         <DropdownMenuSeparator />
+        {/* Abandonner (l'option sûre : la ligne reste) ou Rétablir — à côté de
+            Supprimer. */}
+        {canCancelAssignment(row.status as AssignmentStatus) && (
+          <DropdownMenuItem onClick={() => actions.onCancel(row._id)}>
+            <BanIcon className="size-4" />
+            {tr("abandonner")}
+          </DropdownMenuItem>
+        )}
+        {row.status === "cancelled" && (
+          <DropdownMenuItem onClick={() => actions.onRestore(row._id)}>
+            <RotateCcwIcon className="size-4" />
+            {tr("retablir")}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           variant="destructive"
           disabled={!deletable}

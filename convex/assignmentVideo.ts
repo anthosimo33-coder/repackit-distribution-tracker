@@ -32,3 +32,39 @@ export interface SubmittedVideoRefs {
 export function hasSubmittedVideo(a: SubmittedVideoRefs): boolean {
   return Boolean(a.submittedVideoStorageId) || Boolean(a.submittedVideoStreamUid);
 }
+
+const DAY_MS = 86_400_000;
+
+/** Jours entiers restants avant l'effacement définitif d'une vidéo archivée (0 = échue). */
+export function joursAvantEffacement(purgeAfter: number, now: number): number {
+  return Math.max(0, Math.ceil((purgeAfter - now) / DAY_MS));
+}
+
+/**
+ * RATTACHER une vidéo archivée à une mission (écran « Vidéos supprimées ») : la
+ * vidéo reprend le circuit normal, comme si la créatrice venait de l'envoyer —
+ * donc seulement là où elle POURRAIT l'envoyer, et sans rien écraser.
+ */
+export const STATUTS_RATTACHABLES: ReadonlySet<string> = new Set(["todo", "in_progress"]);
+
+export type RefusRattachement =
+  /** Le fichier d'origine n'existe plus (seule la copie de lecture reste). */
+  | "fichier_absent"
+  /** La mission est celle d'une autre créatrice. */
+  | "autre_createatrice"
+  /** La mission a déjà une vidéo envoyée : on ne la remplace pas. */
+  | "deja_une_video"
+  /** La mission n'attend pas de vidéo (abandonnée, publiée, payée…). */
+  | "statut";
+
+/** Pourquoi cette vidéo archivée ne peut pas rejoindre cette mission (null : elle peut). */
+export function refusRattachement(
+  archive: { creatorId: string; storageId?: string | null },
+  mission: { creatorId: string; status: string } & SubmittedVideoRefs,
+): RefusRattachement | null {
+  if (!archive.storageId) return "fichier_absent";
+  if (mission.creatorId !== archive.creatorId) return "autre_createatrice";
+  if (hasSubmittedVideo(mission)) return "deja_une_video";
+  if (!STATUTS_RATTACHABLES.has(mission.status)) return "statut";
+  return null;
+}

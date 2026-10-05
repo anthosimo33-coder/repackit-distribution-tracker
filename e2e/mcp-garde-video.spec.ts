@@ -212,6 +212,9 @@ test.describe("Garde-fous vidéo et journal", () => {
     const dialog = page.getByRole("alertdialog");
     await expect(dialog.getByTestId("delete-video-warning")).toContainText("conservée 30 jours après la suppression");
     await dialog.getByRole("button", { name: "Supprimer" }).click();
+    // La fenêtre fermée = la suppression est enregistrée. Tant qu'elle est
+    // ouverte, la page dessous est masquée : « 0 ligne » serait vrai trop tôt.
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(row).toHaveCount(0, { timeout: 10_000 });
 
     // Partie la mission, PAS la vidéo : archivée avec la mission entière, 30 jours.

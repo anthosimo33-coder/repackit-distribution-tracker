@@ -11,7 +11,7 @@ import { localeOrDefault, type Locale } from "./locales";
  *
  * Les e-mails sont traduits dans les QUATRE langues livrées (fr, en, es, pt) :
  * INVITE, PASSWORD_RESET, APPROVED, REJECTED, PAID, REVERTED, ASSIGNED, NUDGE,
- * REMINDER. Le type `Record<Locale, …>` refuse de compiler une langue oubliée.
+ * REMINDER, CANCELLED. Le type `Record<Locale, …>` refuse de compiler une langue oubliée.
  *
  * L'invitation compte double : c'est le premier contact d'un créateur étranger,
  * reçu AVANT sa première connexion — donc avant tout écran, avant tout
@@ -529,6 +529,60 @@ const NUDGE: Record<Locale, NudgeCopy> = {
   },
 };
 
+/**
+ * MISSION ANNULÉE — la case « Prévenir la créatrice par email » de l'abandon.
+ * La mission disparaît de son espace : sans ce mot, elle la cherche (ou la
+ * tourne quand même). Si une vidéo était déjà envoyée, on lui dit qu'elle est
+ * gardée — elle n'a rien à refaire.
+ */
+export interface CancelledCopy {
+  subject: string;
+  greeting: (name: string) => string;
+  body: (missionStrong: string, dateStrong: string) => string;
+  videoKept: string;
+  closing: string;
+  ctaLabel: string;
+}
+
+const CANCELLED: Record<Locale, CancelledCopy> = {
+  fr: {
+    subject: "Une de tes missions est annulée",
+    greeting: (name) => `Salut ${name},`,
+    body: (m, d) =>
+      `Ta mission ${m} prévue le ${d} est annulée : tu n'as rien à tourner ni à publier pour elle, et elle n'apparaît plus dans ton espace.`,
+    videoKept: "La vidéo que tu avais envoyée est bien conservée de notre côté.",
+    closing: "Si tu as une question, réponds simplement à cet email.",
+    ctaLabel: "Voir mes missions",
+  },
+  en: {
+    subject: "One of your assignments is cancelled",
+    greeting: (name) => `Hi ${name},`,
+    body: (m, d) =>
+      `Your assignment ${m} planned for ${d} is cancelled: there's nothing to shoot or post for it, and it no longer shows in your space.`,
+    videoKept: "The video you sent is safely kept on our side.",
+    closing: "If you have any question, just reply to this email.",
+    ctaLabel: "View my assignments",
+  },
+  es: {
+    subject: "Una de tus misiones está cancelada",
+    greeting: (name) => `Hola ${name}:`,
+    body: (m, d) =>
+      `Tu misión ${m} prevista para el ${d} está cancelada: no tienes nada que grabar ni publicar para ella, y ya no aparece en tu espacio.`,
+    videoKept: "El vídeo que enviaste se conserva sin problema de nuestro lado.",
+    closing: "Si tienes alguna pregunta, simplemente responde a este correo.",
+    ctaLabel: "Ver mis misiones",
+  },
+  pt: {
+    subject: "Uma das suas missões foi cancelada",
+    greeting: (name) => `Oi ${name},`,
+    body: (m, d) =>
+      `Sua missão ${m} prevista para ${d} foi cancelada: você não precisa gravar nem publicar nada para ela, e ela não aparece mais no seu espaço.`,
+    videoKept: "O vídeo que você enviou está guardado do nosso lado.",
+    closing: "Se tiver alguma dúvida, é só responder a este e-mail.",
+    ctaLabel: "Ver minhas missões",
+  },
+};
+
 export interface ReminderCopy {
   subject: (late: boolean) => string;
   greeting: (name: string) => string;
@@ -673,6 +727,7 @@ export const revertedEmailCopy = (l: unknown): RevertedCopy =>
 export const assignedEmailCopy = (l: unknown): AssignedCopy =>
   ASSIGNED[localeOrDefault(l)];
 export const nudgeEmailCopy = (l: unknown): NudgeCopy => NUDGE[localeOrDefault(l)];
+export const cancelledEmailCopy = (l: unknown): CancelledCopy => CANCELLED[localeOrDefault(l)];
 export const reminderEmailCopy = (l: unknown): ReminderCopy =>
   REMINDER[localeOrDefault(l)];
 

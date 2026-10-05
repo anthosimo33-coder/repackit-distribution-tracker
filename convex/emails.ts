@@ -25,6 +25,7 @@ import {
   revertedEmailCopy,
   assignedEmailCopy,
   nudgeEmailCopy,
+  cancelledEmailCopy,
   reminderEmailCopy,
   emailDate,
   emailAmount,
@@ -568,6 +569,41 @@ export const sendManualNudge = internalAction({
       cta: { label: copy.ctaLabel(rejected), url },
     });
     return deliver(cfg, "relance manuelle", d.email, subject, html);
+  },
+});
+
+/**
+ * MISSION ANNULÉE — planifié par l'abandon quand la case « Prévenir la
+ * créatrice par email » est cochée (assignments.cancelAssignmentCore). La
+ * mission disparaît de son espace ; si une vidéo était envoyée, l'email dit
+ * qu'elle est conservée.
+ */
+export const sendAssignmentCancelled = internalAction({
+  args: { assignmentId: v.id("assignments"), videoKept: v.boolean() },
+  handler: async (ctx, { assignmentId, videoKept }): Promise<Outcome> => {
+    const cfg = emailConfig();
+    if (!cfg) return warnDisabled("mission annulée");
+    const d = await ctx.runQuery(internal.assignments.getCancelNotifyData, { assignmentId });
+    if (!d) return { ok: false, reason: "not-found" };
+    if (isNonNotifiableRecipient(d.email, d.name)) {
+      return { ok: false, reason: "test-recipient" };
+    }
+    const copy = cancelledEmailCopy(d.locale);
+    const html = renderEmail({
+      title: copy.subject,
+      bodyHtml:
+        p(copy.greeting(escapeHtml(d.name))) +
+        p(
+          copy.body(
+            `<strong>${escapeHtml(d.missionLabel)}</strong>`,
+            `<strong>${escapeHtml(emailDate(d.day, d.locale))}</strong>`,
+          ),
+        ) +
+        (videoKept ? p(copy.videoKept) : "") +
+        p(copy.closing),
+      cta: { label: copy.ctaLabel, url: `${cfg.appBaseUrl}/app` },
+    });
+    return deliver(cfg, "mission annulée", d.email, copy.subject, html);
   },
 });
 

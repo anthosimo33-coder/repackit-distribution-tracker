@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
+  BanIcon,
   BellIcon,
   CalendarDaysIcon,
   CalendarIcon,
@@ -56,6 +57,7 @@ import {
   ListIcon,
   Loader2Icon,
   LockIcon,
+  RotateCcwIcon,
   SearchIcon,
   SlidersHorizontalIcon,
   XIcon,
@@ -104,7 +106,11 @@ import {
 } from "@/lib/country-filter";
 import { countryLabel } from "@/lib/countries";
 import { canEditScriptCombo } from "@/lib/script-combo-edit";
-import { canDeleteAssignment } from "@/lib/assignment-delete";
+import { canCancelAssignment, canDeleteAssignment } from "@/lib/assignment-delete";
+import {
+  AbandonMissionDialog,
+  useRestoreAssignment,
+} from "@/components/admin/AbandonMissionDialog";
 import { DELETED_VIDEO_RETENTION_DAYS, hasSubmittedVideo } from "@/lib/assignment-video";
 import { useLabel } from "@/lib/use-label";
 import {
@@ -318,6 +324,17 @@ function AssignmentsPageInner() {
   }
   const [deleteId, setDeleteId] = useState<Id<"assignments"> | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Abandon — confirmation (vidéo envoyée, email à la créatrice) ; la ligne
+  // reste. « Rétablir » remet le statut d'avant l'abandon.
+  const [abandonId, setAbandonId] = useState<Id<"assignments"> | null>(null);
+  const abandonRow = abandonId !== null ? (assignments ?? []).find((a) => a._id === abandonId) : undefined;
+  const { restore } = useRestoreAssignment();
+  // Les gestes de ligne sont STABLES (lignes mémoïsées) : ils appellent la
+  // dernière version par une ref, comme la relance.
+  const restoreRef = useRef(restore);
+  useEffect(() => {
+    restoreRef.current = restore;
+  });
 
   // Une ABANDONNÉE a déjà libéré son combo : la confirmation parle alors de ce
   // qui change vraiment — elle quitte la liste et l'historique.
@@ -609,6 +626,8 @@ function AssignmentsPageInner() {
       onPostDate: setPostDateId,
       onNudge: (id, creatorName) =>
         void handleNudgeRef.current(id, creatorName),
+      onCancel: setAbandonId,
+      onRestore: (id) => void restoreRef.current(id),
       onDelete: setDeleteId,
     }),
     // Des setters de useState : stables, l'objet ne se reconstruit jamais.
@@ -622,6 +641,7 @@ function AssignmentsPageInner() {
       setOverlayId,
       setInstructionsId,
       setPostDateId,
+      setAbandonId,
       setDeleteId,
     ],
   );
@@ -1008,6 +1028,21 @@ function AssignmentsPageInner() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>{tr("annuler")}</AlertDialogCancel>
+            {/* L'option SÛRE : la mission reste, et « Rétablir » la reprend. */}
+            {deleteRow && canCancelAssignment(deleteRow.status as AssignmentStatus) && (
+              <Button
+                variant="outline"
+                disabled={deleting}
+                onClick={() => {
+                  setAbandonId(deleteRow._id);
+                  setDeleteId(null);
+                }}
+                data-testid="assignment-abandon-instead"
+              >
+                <BanIcon className="size-4" />
+                {tr("abandonnerPlutot")}
+              </Button>
+            )}
             <AlertDialogAction
               variant="destructive"
               onClick={(e) => {
@@ -1024,6 +1059,22 @@ function AssignmentsPageInner() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AbandonMissionDialog
+        target={
+          abandonRow
+            ? {
+                _id: abandonRow._id,
+                creatorName: abandonRow.creatorName,
+                label: abandonRow.scriptCampaignName ?? abandonRow.formatName ?? "—",
+                postDate: abandonRow.postDate,
+                status: abandonRow.status,
+                hasVideo: hasSubmittedVideo(abandonRow),
+              }
+            : null
+        }
+        onClose={() => setAbandonId(null)}
+      />
     </div>
   );
 }
@@ -1298,6 +1349,30 @@ const AssignmentTableRow = memo(function AssignmentTableRow({
             hasScript={a.hasAssembledScript}
             variant="row"
           />
+          {/* Abandonner (la ligne reste) ou Rétablir — à côté de la corbeille. */}
+          {canCancelAssignment(a.status as AssignmentStatus) ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="size-8 p-0 text-slate-400 hover:text-amber-700"
+              onClick={() => gestures.onCancel(a._id)}
+              aria-label={tr("abandonnerCetteMission")}
+              title={tr("abandonnerCetteMission")}
+            >
+              <BanIcon className="size-4" />
+            </Button>
+          ) : a.status === "cancelled" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="size-8 p-0 text-slate-400 hover:text-primary"
+              onClick={() => gestures.onRestore(a._id)}
+              aria-label={tr("retablirCetteMission")}
+              title={tr("retablirCetteMission")}
+            >
+              <RotateCcwIcon className="size-4" />
+            </Button>
+          ) : null}
           {canDeleteAssignment(a.status as AssignmentStatus) ? (
             <Button
               variant="ghost"
