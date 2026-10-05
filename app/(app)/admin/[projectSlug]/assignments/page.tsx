@@ -120,6 +120,8 @@ import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 import { sameContent } from "@/lib/same-content";
+import { listPage } from "@/lib/list-page";
+import { ListPager } from "@/components/admin/ListPager";
 
 function formatDate(ts: number, locale: string = "fr-FR") {
   return new Date(ts).toLocaleDateString(locale);
@@ -523,6 +525,30 @@ function AssignmentsPageInner() {
     viewMode,
   ]);
 
+  // PAGE de la vue Liste, attachée à la combinaison de filtres qui l'a
+  // produite : changer un filtre ou la recherche revient à la page 1 (la page 3
+  // d'une autre sélection ne désigne rien). Une écriture — nouvelle version de
+  // la query — ne touche pas cette clé : on reste sur sa page pendant qu'on y
+  // travaille. Dérivée au rendu plutôt que remise à zéro dans un effet, donc
+  // jamais un rendu intermédiaire sur la mauvaise page.
+  const pageKey = [
+    [...creatorIds].sort().join(","),
+    [...campaignIds].sort().join(","),
+    [...countryCodes].sort().join(","),
+    statusFilter,
+    overdueOnly ? "retard" : "",
+    terms.join(" "),
+  ].join("|");
+  const [pageAt, setPageAt] = useState({ key: pageKey, page: 0 });
+  const listView = listPage(rows, pageAt.key === pageKey ? pageAt.page : 0);
+  const tableTopRef = useRef<HTMLDivElement>(null);
+  function goToPage(page: number) {
+    setPageAt({ key: pageKey, page });
+    // Le pager est en BAS du tableau : on repart du haut de la nouvelle page,
+    // juste sous la barre d'outils collante (scroll-mt).
+    tableTopRef.current?.scrollIntoView({ block: "start" });
+  }
+
   // Les gestes d'une ligne, en UN objet : la carte mobile et le menu de la ligne
   // desktop ouvrent EXACTEMENT les mêmes modales, tenues ici. Rassemblés plutôt
   // que passés un par un — onze `on…` en props, c'est onze occasions d'en
@@ -797,7 +823,10 @@ function AssignmentsPageInner() {
           expanded={terms.length > 0}
         />
       ) : (
-        <Card>
+        <Card
+          ref={tableTopRef}
+          className="scroll-mt-[var(--assignments-sticky-top)]"
+        >
           <CardContent className="overflow-x-auto p-0">
             <Table>
               <TableHeader>
@@ -820,7 +849,7 @@ function AssignmentsPageInner() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((a) => (
+                {listView.items.map((a) => (
                   <AssignmentTableRow
                     key={a._id}
                     row={a}
@@ -831,6 +860,11 @@ function AssignmentsPageInner() {
               </TableBody>
             </Table>
           </CardContent>
+          {/* 787 lignes d'un bloc = ~70 000 nœuds : ~0,9 s pour afficher la
+              liste, ~0,5 s pour y revenir après une recherche. Par pages de
+              100, la recherche et les filtres portant toujours sur TOUTES
+              les lignes (ils s'appliquent avant le découpage). */}
+          <ListPager view={listView} onPage={goToPage} />
         </Card>
       )}
 

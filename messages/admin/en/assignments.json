@@ -360,5 +360,12 @@
     "late": "Late",
     "missed": "Missed",
     "scheduled": "Scheduled"
+  },
+  "ListPager": {
+    "pagination": "List pagination",
+    "plage": "{from}–{to} of {total}",
+    "precedente": "Previous",
+    "suivante": "Next",
+    "pageSur": "Page {page} of {pageCount}"
   }
 }
