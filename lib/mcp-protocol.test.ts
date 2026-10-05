@@ -4,6 +4,7 @@ import {
   RPC,
   ToolError,
   bearerToken,
+  coerceArgs,
   handleMcpHttp,
   handleMcpMessage,
   textResult,
@@ -363,5 +364,29 @@ describe("argument objet libre (les arguments d'un autre outil)", () => {
     expect(validateArgs(schema, { arguments: { campagne: "Snytch FR", jours: ["2026-10-06"] } })).toBeNull();
     expect(validateArgs(schema, { arguments: ["2026-10-06"] })).toBe("« arguments » doit être un objet.");
     expect(validateArgs(schema, { arguments: "campagne" })).toBe("« arguments » doit être un objet.");
+  });
+});
+
+/**
+ * Un connecteur peut garder en cache un schéma d'outil PÉRIMÉ : un paramètre
+ * ajouté depuis lui est inconnu, et il l'envoie en texte. Vu le 04/10/2026 :
+ * `remuneree: "true"` refusé (« doit valoir true ou false »). Le serveur rend
+ * leur type aux booléens et entiers sans ambiguïté — et à eux seuls.
+ */
+describe("coerceArgs — booléens et entiers arrivés en texte", () => {
+  it("convertit « true »/« false » et un entier écrit en texte", () => {
+    expect(coerceArgs(SCHEMA, { inclure: "true", limite: "12" })).toEqual({ inclure: true, limite: 12 });
+    expect(coerceArgs(SCHEMA, { inclure: " FALSE " })).toEqual({ inclure: false });
+  });
+
+  it("laisse passer tout le reste tel quel, pour que validateArgs le refuse", () => {
+    expect(coerceArgs(SCHEMA, { inclure: "oui", limite: "1,5", projet: "true" })).toEqual({ inclure: "oui", limite: "1,5", projet: "true" });
+    expect(validateArgs(SCHEMA, coerceArgs(SCHEMA, { inclure: "oui" }))).toBe("« inclure » doit valoir true ou false.");
+  });
+
+  it("un appel avec « true » en texte arrive à l'outil en VRAI booléen", async () => {
+    const r = await handleMcpMessage(serveur(), req(9, "tools/call", { name: "comptes", arguments: { inclure: "true", limite: "3" } }));
+    const texte = (r as { result: { content: { text: string }[] } }).result.content[0].text;
+    expect(JSON.parse(texte)).toEqual({ recu: { inclure: true, limite: 3 } });
   });
 });

@@ -100,6 +100,16 @@ crons.hourly(
   { mode: "incremental" },
 );
 
+// Vidéos des missions SUPPRIMÉES — gardées 30 jours en archive, puis purgées
+// (fichier Convex + copie Stream). Cf convex/deletedVideos.ts. 04:10 UTC, heure
+// creuse.
+crons.daily(
+  "purge-deleted-submitted-videos",
+  { hourUTC: 4, minuteUTC: 10 },
+  internal.deletedVideos.purgeExpired,
+  {},
+);
+
 // Compta — relecture QUOTIDIENNE depuis le début du mois précédent : rattrape
 // une écriture postée avec une date plus ancienne que la fenêtre horaire.
 // 03:20 UTC, heure creuse.

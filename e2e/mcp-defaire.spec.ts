@@ -61,7 +61,20 @@ async function cle(page: Page, nom: string, domaines: string[]) {
     expect(cible, `aucune modification « ${outil} » défaisable contenant « ${morceau} »`).toBeDefined();
     return appel(projet, "defaire", { rang: cible!.rang, outil });
   };
-  return { appel, defaire };
+  /**
+   * Chaque ligne du journal garde ses documents, avant et après (05/10/2026 :
+   * plus jamais un simple résumé) — lu par `modifications` avec un rang.
+   */
+  const toutesOntLeursDocuments = async (projet: string) => {
+    const liste = JSON.parse((await appel(projet, "modifications", { limite: 30 })).texte).modifications as { rang: number; outil: string }[];
+    expect(liste.length).toBeGreaterThan(0);
+    for (const l of liste) {
+      const d = JSON.parse((await appel(projet, "modifications", { rang: l.rang })).texte) as { documents: unknown };
+      expect(Array.isArray(d.documents), `${l.outil} n°${l.rang} : pas de documents au journal`).toBe(true);
+      expect((d.documents as unknown[]).length, `${l.outil} n°${l.rang} : aucun document`).toBeGreaterThan(0);
+    }
+  };
+  return { appel, defaire, toutesOntLeursDocuments };
 }
 
 /**
@@ -98,7 +111,7 @@ test.describe("MCP — défaire une modification", () => {
     const P = E2E_PROJECT_SLUG;
     const [J3, J4, J5, J6, J7, J8] = [3, 4, 5, 6, 7, 8].map(jourParis);
 
-    const { appel, defaire } = await cle(page, `E2E défaire ${ts}`, ["missions", "scripts", "publications"]);
+    const { appel, defaire, toutesOntLeursDocuments } = await cle(page, `E2E défaire ${ts}`, ["missions", "scripts", "publications"]);
 
     // ── Replanifier puis défaire : jour ET plage d'origine ────────────────────
     expect((await appel(P, "assigner_scripts", { campagne, createatrices: [nom], jours: [J3, J4], bareme })).erreur).toBe(false);
@@ -176,6 +189,9 @@ test.describe("MCP — défaire une modification", () => {
     const journal = page.getByTestId("mcp-journal");
     await expect(journal).toContainText("Défaire une modification");
     await expect(journal).toContainText("Défaite le");
+
+    // ── Chaque écriture a gardé ses documents, avant et après ─────────────────
+    await toutesOntLeursDocuments(P);
   });
 
   test("Compta : charge, règle, ventilation, relevé, mis de côté — chacun remis comme avant", async ({ page }) => {
@@ -204,7 +220,7 @@ test.describe("MCP — défaire une modification", () => {
           { whopId: id("x"), lineType: "referral_bonus", amount: 12.4, currency: "eur", postedAt: at("2025-09-20T09:00:00Z") },
         ],
       });
-      const { appel, defaire } = await cle(page, `E2E défaire compta ${ts}`, ["compta"]);
+      const { appel, defaire, toutesOntLeursDocuments } = await cle(page, `E2E défaire compta ${ts}`, ["compta"]);
       const charges = async () => (await admin.query(api.compta.listComptaCharges, { projectId, month: "2025-09" })).charges.map((c) => c.label);
       const treso = () => admin.query(api.compta.getComptaTreasury, { projectId });
 
@@ -249,6 +265,9 @@ test.describe("MCP — défaire une modification", () => {
       expect((await treso()).setAside.used).toBe(320);
       expect((await defaire(slug, "marquer_mis_de_cote_paye")).erreur).toBe(false);
       expect((await treso()).setAside.used).toBe(0);
+
+      // Chaque écriture Compta a gardé ses documents, avant et après.
+      await toutesOntLeursDocuments(slug);
     } finally {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nomProjet });
     }

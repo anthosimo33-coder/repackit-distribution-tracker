@@ -419,6 +419,7 @@ type OutilEcriture =
   | "replanifier_mission"
   | "consigne_mission"
   | "annuler_mission"
+  | "reecrire_mission"
   | "ajouter_hooks"
   | "activer_briques"
   | "graduer_hook"

@@ -32,13 +32,18 @@ import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
 import {
   AJOUTE,
   ARG_PROJET,
+  briqueDe,
   designerOuRefuser,
   ecrire,
   ECRIT,
   EFFACE,
+  etatsApres,
+  etatsCrees,
   journaliser,
+  photographier,
   RefusEcriture,
   resultatEcriture,
+  scriptDeMission,
   texteArg,
   textesArg,
   type CibleEcriture,
@@ -52,7 +57,7 @@ import {
   plierTexte,
   typeContenuDepuis,
 } from "./mcpWriteArgs";
-import { assignScriptCampaignCore, previewCombosCore, replaySourceCore } from "./scripts";
+import { assembleNoLabels, assignScriptCampaignCore, previewCombosCore, replaySourceCore } from "./scripts";
 import {
   cancelAssignmentCore,
   nudgeAssignmentCore,
@@ -66,6 +71,7 @@ import {
   setAssignmentPostWindowCore,
 } from "./assignments";
 import { plannedDayKey, representativePostedAt } from "./calendarStatus";
+import { hasSubmittedVideo } from "./assignmentVideo";
 import { parisDayOf, parisDayStart } from "./managerCpm";
 import { shiftDay } from "./analyticsDates";
 import { parisDayKey } from "./comptaMath";
@@ -244,14 +250,40 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     name: "annuler_mission",
     title: "Abandonner une mission",
     description:
-      "MODIFIE les missions : abandonne une mission qui ne sortira pas (pas encore publiée ni payée). Elle reste dans l'historique et son script redevient disponible. Un abandon ne se défait pas : pour la remettre, il faut réassigner. Désignation comme dans `planning`.",
+      "MODIFIE les missions : abandonne une mission qui ne sortira pas (pas encore publiée ni payée). Elle reste dans l'historique et son script redevient disponible. Si une VIDÉO a déjà été envoyée, l'abandon est refusé par défaut : redemande l'accord, puis rappelle avec « forcer » (la vidéo est conservée). `defaire` la remet dans son statut d'avant. Désignation comme dans `planning`.",
     inputSchema: {
       type: "object",
-      properties: { projet: ARG_PROJET, ...ARGS_DESIGNATION },
+      properties: {
+        projet: ARG_PROJET,
+        ...ARGS_DESIGNATION,
+        forcer: { type: "boolean", description: "true = abandonner MÊME si une vidéo a été envoyée (après accord explicite). La vidéo est conservée." },
+      },
       required: ["createatrice", "jour"],
       additionalProperties: false,
     },
     annotations: EFFACE,
+  },
+  {
+    name: "reecrire_mission",
+    title: "Réécrire le script d'une mission",
+    description:
+      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        ...ARGS_DESIGNATION,
+        campagne_briques: { type: "string", description: "Campagne d'où viennent les briques, si ce n'est pas celle de la mission (hook, flux et légende requis)." },
+        hook: { type: "string", description: "Le hook : libellé (outil `scripts`) ou morceau de texte." },
+        flux: { type: "string", description: "Le flux : libellé ou morceau de texte." },
+        legende: { type: "string", description: "La légende (cta) : libellé ou morceau de texte." },
+        notif: { type: "string", description: "La notif : libellé ou morceau de texte, ou « aucune » pour la retirer." },
+        consigne: { type: "string", description: "Consigne de tournage de la mission (texte vide = l'effacer)." },
+      },
+      required: ["createatrice", "jour"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
   },
 ];
 
@@ -666,6 +698,7 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
         section: "planning",
         path: "assignments",
         annulation: { type: "missionsCreees", assignmentIds: res.assignmentIds },
+        etats: await etatsCrees(ctx, "assignments", res.assignmentIds),
       });
     }
     return {
@@ -696,6 +729,7 @@ export const ecrireReplanification = mcpWriteMutation("assignments.manage", "mis
   },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, pasPubliee);
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
     const changes: string[] = [];
     let jour: { avant: number | null; apres: number | null } | undefined;
     let echeance: { avant: number; apres: number } | undefined;
@@ -736,6 +770,7 @@ export const ecrireReplanification = mcpWriteMutation("assignments.manage", "mis
         ...(plage ? { plage } : {}),
         ...(echeance ? { echeance } : {}),
       },
+      etats: await etatsApres(ctx, photos),
     });
     return { summary };
   },
@@ -749,6 +784,7 @@ export const ecrireConsigne = mcpWriteMutation("assignments.manage", "missions")
   },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, () => null);
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
     const changes: string[] = [];
     const court = (t: string) => (t.length > 60 ? `${t.slice(0, 57)}…` : t);
     if (a.consigne !== undefined) {
@@ -774,6 +810,7 @@ export const ecrireConsigne = mcpWriteMutation("assignments.manage", "missions")
         ...(a.consigne !== undefined ? { consigne: { avant: m.a.instructions ?? null, apres: apres.instructions ?? null } } : {}),
         ...(a.texteAIncruster !== undefined ? { incruste: { avant: m.a.overlayText ?? null, apres: apres.overlayText ?? null } } : {}),
       },
+      etats: await etatsApres(ctx, photos),
     });
     return { summary };
   },
@@ -783,6 +820,7 @@ export const ecrireCompteCible = mcpWriteMutation("assignments.manage", "mission
   args: { ...designationValidator, nouveauCompte: v.string() },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, pasPubliee);
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
     const comptes = await ctx.db
       .query("comptes")
       .withIndex("by_project_creator", (q) => q.eq("projectId", ctx.projectId).eq("creatorId", m.a.creatorId))
@@ -804,6 +842,7 @@ export const ecrireCompteCible = mcpWriteMutation("assignments.manage", "mission
         section: "planning",
         path: "assignments",
         annulation: { type: "compteCible", assignmentId: m.a._id, platform: nouveau.plateforme, avant: cible.accountId, apres: nouveau._id },
+        etats: await etatsApres(ctx, photos),
       });
     }
     return { summary };
@@ -818,23 +857,163 @@ export const ecrireRelance = mcpWriteMutation("assignments.manage", "missions")(
         ? null
         : `${STATUTS[x.status] ?? x.status} : n'attend pas la créatrice`,
     );
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
     const r = await nudgeAssignmentCore(ctx, m.a._id);
     if (!r.sent) return { summary: `${m.libelle} : déjà relancée il y a moins de 24 h — rien n'est parti`, envoye: false };
     const summary = `${m.libelle} : relance envoyée`;
-    await journaliser(ctx, { tool: "relancer", summary, section: "planning", path: "assignments" });
+    await journaliser(ctx, { tool: "relancer", summary, section: "planning", path: "assignments", etats: await etatsApres(ctx, photos) });
     return { summary, envoye: true };
   },
 });
 
 export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")({
-  args: designationValidator,
+  args: { ...designationValidator, forcer: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, (x) =>
       DELETABLE_STATUSES.has(x.status) ? null : `${STATUTS[x.status] ?? x.status} : ne s'abandonne plus`,
     );
-    await cancelAssignmentCore(ctx, m.a._id);
-    const summary = `${m.libelle} : abandonnée`;
-    await journaliser(ctx, { tool: "annuler_mission", summary, section: "planning", path: "assignments" });
+    // Une vidéo déjà envoyée ne se perd pas sur un abandon réflexe : refus par
+    // défaut, en clair, avec la façon de confirmer (cf convex/assignmentVideo).
+    if (hasSubmittedVideo(m.a) && a.forcer !== true) {
+      throw err(
+        ERR.ASSIGNMENT_HAS_VIDEO,
+        `${m.libelle} : vidéo déjà envoyée (statut ${STATUTS[m.a.status] ?? m.a.status}), annulation refusée ; passe forcer: true pour confirmer. La vidéo est conservée.`,
+      );
+    }
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
+    await cancelAssignmentCore(ctx, m.a._id, { force: a.forcer === true });
+    const summary = `${m.libelle} : abandonnée${hasSubmittedVideo(m.a) ? " (vidéo envoyée conservée)" : ""}`;
+    await journaliser(ctx, {
+      tool: "annuler_mission",
+      summary,
+      section: "planning",
+      path: "assignments",
+      annulation: { type: "abandon", assignmentId: m.a._id, avant: m.a.status },
+      etats: await etatsApres(ctx, photos),
+    });
+    return { summary };
+  },
+});
+
+/**
+ * RÉÉCRIRE LE SCRIPT d'une mission pas encore tournée — le geste que faisait
+ * `missionOps` (convex/missionOps.ts), directement en base et hors journal.
+ * Désormais par un outil, journalisé avec la mission avant/après, et défaisable
+ * (annulation « combo »). Combinaison CHOISIE (`comboImposed`), comme le mode
+ * « Combinaison choisie » de l'assignation : unicité et délai ne bloquent pas.
+ */
+export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions")({
+  args: {
+    ...designationValidator,
+    campagneBriques: v.optional(v.string()),
+    hook: v.optional(v.string()),
+    flux: v.optional(v.string()),
+    legende: v.optional(v.string()),
+    notif: v.optional(v.string()),
+    consigne: v.optional(v.string()),
+  },
+  handler: async (ctx, a) => {
+    if ([a.hook, a.flux, a.legende, a.notif, a.consigne].every((x) => x === undefined)) {
+      throw err(ERR.MCP_DESIGNATION, "Rien à réécrire : donne hook, flux, legende, notif et/ou consigne.");
+    }
+    const m = await trouverMission(ctx, a, (x) => {
+      const publiee = pasPubliee(x);
+      if (publiee) return publiee;
+      if (hasSubmittedVideo(x)) return `vidéo déjà envoyée (statut ${STATUTS[x.status] ?? x.status}) : déjà tournée`;
+      return x.status === "todo" || x.status === "in_progress" ? null : `${STATUTS[x.status] ?? x.status} : déjà tournée`;
+    });
+    const avant = m.a.scriptCombo;
+    if (!avant) throw err(ERR.MCP_DESIGNATION, `${m.libelle} : pas de script de campagne à réécrire.`);
+
+    const campagnes = await ctx.db
+      .query("scriptCampaigns")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const cible = a.campagneBriques ? designerOuRefuser(campagnes, (c) => c.name, a.campagneBriques, "campagnes") : null;
+    const campaignId = cible?._id ?? avant.campaignId;
+    const autreCampagne = campaignId !== avant.campaignId;
+    if (cible && cible.status !== "active") throw err(ERR.MCP_DESIGNATION, `La campagne « ${cible.name} » est archivée.`);
+    if (autreCampagne && (a.hook === undefined || a.flux === undefined || a.legende === undefined)) {
+      throw err(ERR.MCP_DESIGNATION, "Autre campagne : donne hook, flux ET legende, tous trois de cette campagne.");
+    }
+    const briques = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign", (q) => q.eq("campaignId", campaignId))
+      .collect();
+    const deRole = (role: string) => briques.filter((b) => b.kind === role);
+    const choisie = async (demande: string | undefined, role: "hook" | "flux" | "cta", actuelle: Id<"scriptBricks">) => {
+      if (demande !== undefined) return briqueDe(deRole(role), demande, role === "cta" ? "légende" : role);
+      const b = await ctx.db.get(actuelle);
+      if (!b) throw err(ERR.MCP_DESIGNATION, `La brique ${role === "cta" ? "légende" : role} actuelle n'existe plus : donne-la.`);
+      return b;
+    };
+    const hook = await choisie(a.hook, "hook", avant.hookBrickId);
+    const flux = await choisie(a.flux, "flux", avant.fluxBrickId);
+    const cta = await choisie(a.legende, "cta", avant.ctaBrickId);
+    const texteChange = a.hook !== undefined || a.flux !== undefined || a.legende !== undefined;
+
+    // Notif : désignée, retirée (« aucune »), ou gardée si la campagne ne change pas.
+    let notif: { notifBrickId: Id<"scriptBricks">; notifText: string } | null =
+      !autreCampagne && avant.notifBrickId && avant.notifText !== undefined
+        ? { notifBrickId: avant.notifBrickId, notifText: avant.notifText }
+        : null;
+    if (a.notif !== undefined) {
+      if (["aucune", "aucun", "sans"].includes(plierTexte(a.notif))) notif = null;
+      else {
+        const b = briqueDe(deRole("notif"), a.notif, "notif");
+        notif = { notifBrickId: b._id, notifText: b.content.trim() };
+      }
+    }
+
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
+    const scriptAvant = scriptDeMission(m.a);
+    if (texteChange || a.notif !== undefined || autreCampagne) {
+      const combo = texteChange || autreCampagne
+        ? {
+            campaignId,
+            hookBrickId: hook._id,
+            fluxBrickId: flux._id,
+            ctaBrickId: cta._id,
+            assembledScript: assembleNoLabels({ hook: hook.content, flux: flux.content, cta: cta.content }),
+          }
+        : {
+            campaignId: avant.campaignId,
+            hookBrickId: avant.hookBrickId,
+            ...(avant.corpsBrickId ? { corpsBrickId: avant.corpsBrickId } : {}),
+            fluxBrickId: avant.fluxBrickId,
+            ctaBrickId: avant.ctaBrickId,
+            assembledScript: avant.assembledScript,
+          };
+      await ctx.db.patch(m.a._id, {
+        scriptCombo: { ...combo, editedOnce: true, ...(notif ?? {}) },
+        ...(texteChange || autreCampagne
+          ? { comboKey: `${hook._id}:${flux._id}:${cta._id}`, comboImposed: true }
+          : {}),
+      });
+    }
+    if (a.consigne !== undefined) await setAssignmentInstructionsCore(ctx, m.a._id, a.consigne);
+
+    const apres = (await ctx.db.get(m.a._id))!;
+    const scriptApres = scriptDeMission(apres);
+    if (scriptApres === scriptAvant) return { summary: `${m.libelle} : déjà ce script — rien n'a changé` };
+    const extrait = (t: string) => {
+      const x = t.replace(/\s+/g, " ").trim();
+      return x.length > 50 ? `${x.slice(0, 47)}…` : x;
+    };
+    const faits = [
+      ...(texteChange || autreCampagne ? [`script « ${extrait(apres.scriptCombo!.assembledScript)} »`] : []),
+      ...(a.notif !== undefined ? [notif ? `notif « ${notif.notifText} »` : "notif retirée"] : []),
+      ...(a.consigne !== undefined ? [a.consigne.trim() === "" ? "consigne effacée" : `consigne « ${extrait(a.consigne)} »`] : []),
+    ];
+    const summary = `${m.libelle} : ${faits.join(", ")}`;
+    await journaliser(ctx, {
+      tool: "reecrire_mission",
+      summary,
+      section: "planning",
+      path: "assignments",
+      annulation: { type: "combo", assignmentId: m.a._id, avant: scriptAvant, apres: scriptApres },
+      etats: await etatsApres(ctx, photos),
+    });
     return { summary };
   },
 });
@@ -848,7 +1027,8 @@ const OU_DEFAIRE: Record<string, string> = {
     "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
   replanifier_mission: "`defaire`, ou Assignments › la mission › date de publication / échéance prod.",
   consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
-  annuler_mission: "Un abandon ne se défait pas : réassigne (assigner_scripts, ou rejouer_script avec le lien du post).",
+  annuler_mission: "`defaire` la remet dans son statut d'avant (tant qu'elle n'a pas été supprimée). Une vidéo envoyée est conservée.",
+  reecrire_mission: "`defaire` remet le script d'avant (tant que la mission n'a pas changé depuis).",
   changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
   relancer: "Une relance ne se reprend pas : l'email est parti.",
 };
@@ -1033,7 +1213,23 @@ async function appelerEcritureMissions(
   } else if (name === "relancer") {
     r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireRelance, { ...cible, ...d }));
   } else if (name === "annuler_mission") {
-    r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireAbandon, { ...cible, ...d }));
+    r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesMissions.ecrireAbandon, { ...cible, ...d, ...(args.forcer === true ? { forcer: true } : {}) }),
+    );
+  } else if (name === "reecrire_mission") {
+    const opt = (cle: string, vers: string) => (typeof args[cle] === "string" ? { [vers]: args[cle] as string } : {});
+    r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesMissions.ecrireReecriture, {
+        ...cible,
+        ...d,
+        ...opt("campagne_briques", "campagneBriques"),
+        ...opt("hook", "hook"),
+        ...opt("flux", "flux"),
+        ...opt("legende", "legende"),
+        ...opt("notif", "notif"),
+        ...opt("consigne", "consigne"),
+      }),
+    );
   } else {
     throw new ToolError(`Outil inconnu : ${name}.`);
   }

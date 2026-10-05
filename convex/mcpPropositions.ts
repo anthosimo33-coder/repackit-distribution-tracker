@@ -23,7 +23,7 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authedAction, authedMutation, authedQuery, requirePermission } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { textResult, ToolError, validateArgs, type McpTool, type ToolResult } from "./mcpProtocol";
+import { coerceArgs, textResult, ToolError, validateArgs, type McpTool, type ToolResult } from "./mcpProtocol";
 import { ARG_PROJET, refusDe, texteArg } from "./mcpWriteCommon";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import type { PermissionId } from "./permissions";
@@ -199,8 +199,9 @@ export async function appelerPropositions(
   if (!e) throw new ToolError(`« outil » : un outil d'écriture (${NOMS_PROPOSABLES.join(", ")}).`);
   const brut = (args.arguments ?? {}) as Record<string, unknown>;
   // Le projet est celui de la proposition ; la simulation n'a rien à appliquer.
-  const { projet: _p, ...arguments_ } = brut;
+  const { projet: _p, ...bruts } = brut;
   void _p;
+  const arguments_ = coerceArgs(e.tool.inputSchema, bruts);
   if (arguments_.simuler === true) throw new ToolError("Une proposition ne se simule pas : propose l'écriture elle-même.");
   const invalide = validateArgs(e.tool.inputSchema, arguments_);
   if (invalide) throw new ToolError(`Arguments de ${outil} : ${invalide}`);

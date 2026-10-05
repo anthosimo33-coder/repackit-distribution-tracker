@@ -96,7 +96,7 @@ export async function purgeAssetBlobs(
  * Garde-fou : lib/storage-fields.test.ts compte les `v.id("_storage")` de
  * schema.ts et échoue dès que le compte diverge de cette constante.
  */
-export const STORAGE_FIELD_COUNT = 9;
+export const STORAGE_FIELD_COUNT = 10;
 
 async function collecterStorageIdsReferences(
   ctx: MutationCtx,
@@ -120,6 +120,12 @@ async function collecterStorageIdsReferences(
   }
   for (const a of await ctx.db.query("assignments").collect()) {
     ajouter(a.submittedVideoStorageId);
+  }
+  // Vidéo d'une mission SUPPRIMÉE, gardée 30 jours en archive : sa mission n'est
+  // plus là pour la référencer — sans cette ligne, ce cron l'effacerait au bout
+  // de 24 h et l'archive ne garderait rien (cf convex/deletedVideos.ts).
+  for (const d of await ctx.db.query("deletedSubmittedVideos").collect()) {
+    ajouter(d.storageId);
   }
   for (const a of await ctx.db.query("assets").collect()) {
     ajouter(a.storageId);

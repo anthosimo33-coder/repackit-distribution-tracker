@@ -18,13 +18,23 @@ import { v } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalQuery, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import type { PermissionId } from "./permissions";
 import { exigerEcritureMcp, mcpWriteMutationDifferee, type McpWriteScope } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
-import { ARG_PROJET, ecrire, journaliser, resultatEcriture, texteArg, type CibleEcriture } from "./mcpWriteCommon";
-import type { Annulation } from "./mcpAnnulation";
+import {
+  ARG_PROJET,
+  ecrire,
+  etatsApres,
+  journaliser,
+  photographierEtats,
+  resultatEcriture,
+  scriptDeMission,
+  texteArg,
+  type CibleEcriture,
+} from "./mcpWriteCommon";
+import { annulationValidator, type Annulation } from "./mcpAnnulation";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import {
   deleteAssignmentCore,
@@ -68,6 +78,13 @@ export const OUTILS_DEFAIRE: readonly McpTool[] = [
       properties: {
         projet: ARG_PROJET,
         limite: { type: "integer", description: "Nombre de modifications listées (défaut 15).", minimum: 1, maximum: LIMITE },
+        rang: {
+          type: "integer",
+          description:
+            "Le DÉTAIL d'une modification (son rang) : les documents qu'elle a touchés, en entier, avant et après — de quoi reconstruire une mission supprimée depuis (script, notif, consigne, comptes, dates).",
+          minimum: 1,
+          maximum: LIMITE,
+        },
       },
       additionalProperties: false,
     },
@@ -91,9 +108,41 @@ export const OUTILS_DEFAIRE: readonly McpTool[] = [
   },
 ];
 
+/**
+ * Les outils dont l'écriture se DÉFAIT (le journal porte une `annulation`) — et,
+ * ci-dessous, ceux qui ne se défont pas, avec la raison. Chaque outil
+ * d'écriture est dans l'une des deux listes, jamais dans aucune ni dans les deux
+ * (lib/mcp-journal-audit.test.ts) ; TOUS gardent au journal les documents
+ * touchés, avant et après (`etats`, obligatoire dans `journaliser`).
+ */
+export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
+  "assigner_scripts",
+  "rejouer_script",
+  "lancer_experience",
+  "replanifier_mission",
+  "consigne_mission",
+  "changer_compte_cible",
+  "annuler_mission",
+  "reecrire_mission",
+  "creer_campagne",
+  "ajouter_hooks",
+  "ajouter_flux_cta",
+  "activer_briques",
+  "marquer_warmup",
+  "suivre_compte",
+  "ne_plus_suivre",
+  "noter_compte_suivi",
+  "ajouter_inspiration",
+  "ventiler_virement",
+  "relever_solde",
+  "marquer_mis_de_cote_paye",
+  "ajouter_charge",
+  "supprimer_charge",
+  "classer_type_whop",
+]);
+
 /** Pourquoi une modification ne se défait pas par Claude. */
-const NON_DEFAISABLE: Record<string, string> = {
-  annuler_mission: "un abandon ne se défait pas : réassigne (assigner_scripts, ou rejouer_script).",
+export const NON_DEFAISABLE: Record<string, string> = {
   relancer: "l'email de relance est parti.",
   confirmer_publication: "une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
   valider_video: "la créatrice a reçu la validation et peut publier.",
@@ -158,6 +207,68 @@ export const lireModifications = internalQuery({
     })),
 });
 
+/** `modifications` avec un rang — le détail : les documents touchés, avant et après. */
+export const lireModification = internalQuery({
+  args: { userId: v.id("users"), projectId: v.id("projects"), rang: v.number() },
+  handler: async (ctx, { userId, projectId, rang }) => {
+    const l = (await journalDuProjet(ctx, userId, projectId, LIMITE))[rang - 1];
+    if (!l) return null;
+    const lire = (x: string | null) => (x === null ? null : (JSON.parse(x) as unknown));
+    return {
+      rang,
+      le: instantParis(l.at),
+      outil: l.tool,
+      fait: l.summary,
+      etat: l.defaiteLe !== undefined ? `défaite le ${instantParis(l.defaiteLe)}` : l.annulation ? "se défait" : `ne se défait pas — ${pourquoiPas(l)}`,
+      documents:
+        l.etats?.map((e) => ({ table: e.table, id: e.id, avant: lire(e.avant), apres: lire(e.apres) })) ??
+        "non gardés : modification d'avant le 05/10/2026",
+    };
+  },
+});
+
+/**
+ * RATTRAPAGE — inscrit au journal une écriture faite HORS des outils, pour
+ * qu'elle se lise (`modifications`, avec son détail) et se défasse comme les
+ * autres. Cas connu : la réécriture de la LAB 2 du 08/10 de Juliette, faite par
+ * `missionOps` le 05/10/2026. Interne, lancée à la main par
+ * scripts/convex-prod.sh ; aucune écriture des données elles-mêmes.
+ */
+export const inscrireRattrapage = internalMutation({
+  args: {
+    userId: v.id("users"),
+    projectId: v.id("projects"),
+    via: v.object({
+      kind: v.union(v.literal("token"), v.literal("oauth"), v.literal("proposition")),
+      name: v.string(),
+    }),
+    tool: v.string(),
+    summary: v.string(),
+    section: v.string(),
+    path: v.optional(v.string()),
+    annulation: v.optional(annulationValidator),
+    etats: v.array(
+      v.object({ table: v.string(), id: v.string(), avant: v.union(v.string(), v.null()), apres: v.union(v.string(), v.null()) }),
+    ),
+    at: v.number(),
+  },
+  handler: async (ctx, a) => {
+    const id = await ctx.db.insert("mcpWriteLog", {
+      userId: a.userId,
+      projectId: a.projectId,
+      via: a.via,
+      tool: a.tool,
+      summary: a.summary,
+      section: a.section,
+      ...(a.path ? { path: a.path } : {}),
+      ...(a.annulation ? { annulation: a.annulation } : {}),
+      etats: a.etats,
+      at: a.at,
+    });
+    return { id };
+  },
+});
+
 // ─── Défaire ────────────────────────────────────────────────────────────────
 
 type DefaireCtx = Parameters<typeof deleteAssignmentCore>[0];
@@ -193,6 +304,32 @@ async function supprimerNonCommencees(ctx: DefaireCtx, ids: readonly Id<"assignm
  */
 async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
   switch (a.type) {
+    case "abandon": {
+      const m = await ctx.db.get(a.assignmentId);
+      if (!m) throw refus("Cette mission a été supprimée depuis : relis son état dans `modifications` (rang) pour la recréer.");
+      if (m.status !== "cancelled") throw refus(`Elle n'est plus abandonnée (statut ${m.status}) : rien n'a été écrasé.`);
+      await ctx.db.patch(a.assignmentId, { status: a.avant as Doc<"assignments">["status"] });
+      return "Mission remise dans son statut d'avant l'abandon.";
+    }
+    case "combo": {
+      const m = await ctx.db.get(a.assignmentId);
+      if (!m) throw refus("Cette mission a été supprimée depuis : rien à remettre.");
+      if (representativePostedAt(m) !== null) throw refus("Publiée depuis : son script ne se réécrit plus.");
+      if (scriptDeMission(m) !== a.apres) throw refus("Le script de la mission a changé depuis : rien n'a été écrasé.");
+      const avant = JSON.parse(a.avant) as {
+        scriptCombo: Doc<"assignments">["scriptCombo"] | null;
+        comboKey: string | null;
+        comboImposed: boolean | null;
+        instructions: string | null;
+      };
+      await ctx.db.patch(a.assignmentId, {
+        scriptCombo: avant.scriptCombo ?? undefined,
+        comboKey: avant.comboKey ?? undefined,
+        comboImposed: avant.comboImposed ?? undefined,
+        instructions: avant.instructions ?? undefined,
+      });
+      return "Script d'avant remis (combinaison, texte, notif, consigne).";
+    }
     case "experienceCreee":
     case "missionsCreees": {
       const { supprimees, gardees } = await supprimerNonCommencees(ctx, a.assignmentIds);
@@ -401,12 +538,20 @@ export const ecrireDefaire = mcpWriteMutationDifferee()({
     if (!droit) throw refus("Outil inconnu au journal.");
     // La garde de l'écriture d'origine : son domaine, son bouton.
     const via = await exigerEcritureMcp(ctx, droit.scope, droit.permission);
+    const photos = await photographierEtats(ctx, l.etats ?? []);
     const fait = await annuler(ctx, l.annulation);
     await ctx.db.patch(l._id, { defaiteLe: Date.now() });
     const summary = `Défait : ${l.summary} — ${fait}`;
     await journaliser(
       { db: ctx.db, userId: ctx.userId, projectId: ctx.projectId, via },
-      { tool: "defaire", summary, section: l.section, ...(l.month ? { month: l.month } : {}), ...(l.path ? { path: l.path } : {}) },
+      {
+        tool: "defaire",
+        summary,
+        section: l.section,
+        ...(l.month ? { month: l.month } : {}),
+        ...(l.path ? { path: l.path } : {}),
+        etats: await etatsApres(ctx, photos),
+      },
     );
     return { summary };
   },
@@ -423,6 +568,15 @@ export async function appelerDefaire(
   cible: CibleEcriture,
   projet: string,
 ): Promise<ToolResult> {
+  if (name === "modifications" && typeof args.rang === "number") {
+    const detail = await ctx.runQuery(internal.mcpDefaire.lireModification, {
+      userId: cible.userId,
+      projectId: cible.projectId,
+      rang: args.rang,
+    });
+    if (!detail) throw new ToolError(`Pas de modification n°${args.rang} sur ce projet (30 derniers jours).`);
+    return textResult(JSON.stringify({ projet, ...detail }, null, 1));
+  }
   if (name === "modifications") {
     const limite = typeof args.limite === "number" ? args.limite : 15;
     const liste = await ctx.runQuery(internal.mcpDefaire.lireModifications, {

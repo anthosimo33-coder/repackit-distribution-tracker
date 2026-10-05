@@ -27,7 +27,10 @@ import {
   ecrire,
   ECRIT,
   EFFACE,
+  etatsApres,
+  etatsCrees,
   journaliser,
+  photographier,
   resultatEcriture,
   type CibleEcriture,
   type DomaineEcriture,
@@ -246,6 +249,7 @@ export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
     }
     const ligne = candidats[0];
     const avant = { parts: ligne.parts ?? null, usage: ligne.usage ?? null, note: ligne.note ?? null };
+    const photos = await photographier(ctx, "whopLedgerLines", [ligne._id]);
     await ventilateTransferCore(ctx, {
       lineId: ligne._id,
       parts: a.parts.map((p, i) => ({
@@ -269,6 +273,7 @@ export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
       section: "transfers",
       month: a.jour.slice(0, 7),
       annulation: { type: "ventilation", lineId: ligne._id, avant, apres },
+      etats: await etatsApres(ctx, photos),
     });
     return { summary, devise: ligne.currency };
   },
@@ -290,14 +295,17 @@ export const ecrireReleve = mcpWriteMutation("business.read", "compta")({
     const existant = comptes.find((c) => plierTexte(c.name) === plierTexte(a.compte)) ?? null;
     const devise =
       existant?.currency ?? a.devise?.trim().toLowerCase() ?? (await comptaReferenceCurrency(ctx, ctx.projectId)) ?? "";
-    const releveAvant = existant
-      ? ((
-          await ctx.db
-            .query("comptaAccountReadings")
-            .withIndex("by_account_day", (q) => q.eq("accountId", existant._id).eq("day", a.jour))
-            .first()
-        )?.amount ?? null)
+    const docReleveAvant = existant
+      ? await ctx.db
+          .query("comptaAccountReadings")
+          .withIndex("by_account_day", (q) => q.eq("accountId", existant._id).eq("day", a.jour))
+          .first()
       : null;
+    const releveAvant = docReleveAvant?.amount ?? null;
+    const photos = [
+      ...(existant ? await photographier(ctx, "comptaAccounts", [existant._id]) : []),
+      ...(docReleveAvant ? await photographier(ctx, "comptaAccountReadings", [docReleveAvant._id]) : []),
+    ];
     const { accountId } = await saveAccountReadingCore(ctx, {
       ...(existant ? { accountId: existant._id } : { newAccount: { name: a.compte.trim(), currency: devise } }),
       destinations: a.destinations ?? existant?.destinations ?? [],
@@ -318,6 +326,22 @@ export const ecrireReleve = mcpWriteMutation("business.read", "compta")({
         apres: round2(a.solde),
         destinationsAvant: existant?.destinations ?? [],
       },
+      etats: [
+        ...(await etatsApres(ctx, photos)),
+        ...(existant ? [] : await etatsCrees(ctx, "comptaAccounts", [accountId])),
+        ...(docReleveAvant
+          ? []
+          : await etatsCrees(
+              ctx,
+              "comptaAccountReadings",
+              (
+                await ctx.db
+                  .query("comptaAccountReadings")
+                  .withIndex("by_account_day", (q) => q.eq("accountId", accountId).eq("day", a.jour))
+                  .collect()
+              ).map((r) => r._id),
+            )),
+      ],
     });
     return { summary, cree: existant === null };
   },
@@ -334,6 +358,7 @@ export const ecrireMisDeCotePaye = mcpWriteMutation("business.read", "compta")({
       summary,
       section: "treasury",
       annulation: { type: "misDeCote", useId },
+      etats: await etatsCrees(ctx, "comptaProvisionUses", [useId]),
     });
     return { summary };
   },
@@ -365,6 +390,7 @@ export const ecrireCharge = mcpWriteMutation("business.read", "compta")({
       section: "charges",
       month: a.jour.slice(0, 7),
       annulation: { type: "chargeAjoutee", chargeId },
+      etats: await etatsCrees(ctx, "comptaCharges", [chargeId]),
     });
     return { summary };
   },
@@ -389,6 +415,7 @@ export const effacerCharge = mcpWriteMutation("business.read", "compta")({
       );
     }
     const charge = candidats[0];
+    const photos = await photographier(ctx, "comptaCharges", [charge._id]);
     await deleteComptaChargeCore(ctx, { chargeId: charge._id });
     const summary = `${charge.label} : ${eur(charge.amount, charge.currency)} du ${jourTexte(charge.day)}`;
     await journaliser(ctx, {
@@ -407,6 +434,7 @@ export const effacerCharge = mcpWriteMutation("business.read", "compta")({
           recurring: charge.recurring === true,
         },
       },
+      etats: await etatsApres(ctx, photos),
     });
     return { summary };
   },
@@ -420,13 +448,19 @@ export const ecrireClassement = mcpWriteMutation("business.read", "compta")({
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
       .first();
     const avant = etat?.rules.find((r) => r.lineType === a.type)?.bucket ?? null;
+    const photos = etat ? await photographier(ctx, "comptaState", [etat._id]) : [];
     await setLineRuleCore(ctx, { lineType: a.type, bucket: a.colonne });
+    const etatApres = await ctx.db
+      .query("comptaState")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .first();
     const summary = `Type Whop « ${a.type} » rangé dans « ${LIBELLE_COLONNE[a.colonne as ComptaBucket] ?? a.colonne} »`;
     await journaliser(ctx, {
       tool: "classer_type_whop",
       summary,
       section: "rules",
       annulation: { type: "regle", lineType: a.type, avant, apres: a.colonne },
+      etats: etat ? await etatsApres(ctx, photos) : etatApres ? await etatsCrees(ctx, "comptaState", [etatApres._id]) : [],
     });
     return { summary };
   },

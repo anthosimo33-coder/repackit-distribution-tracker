@@ -28,6 +28,7 @@ import {
   ARG_PROJET,
   designerOuRefuser,
   ecrire,
+  etatsCrees,
   journaliser,
   resultatEcriture,
   texteArg,
@@ -298,7 +299,13 @@ export const ecrireMessage = mcpWriteMutation("creators.manage", "messages")({
     await ctx.scheduler.runAfter(0, internal.emails.sendTeamMessage, { messageId });
     const extrait = a.message.trim().replace(/\s+/g, " ");
     const summary = `${c.name} : « ${a.objet.trim()} » — ${extrait.length > 90 ? `${extrait.slice(0, 87)}…` : extrait}`;
-    await journaliser(ctx, { tool: "envoyer_message_createatrice", summary, section: "messages", path: "createurs" });
+    await journaliser(ctx, {
+      tool: "envoyer_message_createatrice",
+      summary,
+      section: "messages",
+      path: "createurs",
+      etats: await etatsCrees(ctx, "creatorMessages", [messageId]),
+    });
     return { summary };
   },
 });

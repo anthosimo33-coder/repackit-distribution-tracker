@@ -1233,6 +1233,7 @@
     "ERR_ASSET_FOLDER_NOT_FOUND": "Pasta de recursos não encontrada.",
     "ERR_ASSIGNMENT_ALREADY_STARTED": "Esta missão já foi iniciada.",
     "ERR_ASSIGNMENT_CANCEL_LOCKED": "Esta missão está publicada ou paga: não pode mais ser abandonada.",
+    "ERR_ASSIGNMENT_HAS_VIDEO": "Um vídeo já foi enviado para esta missão: confirme o abandono (o vídeo é mantido).",
     "ERR_ASSIGNMENT_DELETE_LOCKED": "Uma missão publicada ou paga não pode ser excluída (histórico financeiro/análises).",
     "ERR_ASSIGNMENT_NOT_FOUND": "Missão não encontrada.",
     "ERR_ASSIGNMENT_NOT_SCRIPT": "Esta missão não é um roteiro.",

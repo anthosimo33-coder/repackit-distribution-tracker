@@ -36,7 +36,7 @@ import {
 } from "./roles";
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
-import { DELETABLE_STATUSES, purgeAndDeleteAssignment } from "./assignments";
+import { DELETABLE_STATUSES, archiveAndDeleteAssignment } from "./assignments";
 import {
   assignmentCycleIsPaid,
   unpayPostsOfDeletedCreator,
@@ -1048,9 +1048,9 @@ export const getCreatorDeletionImpact = permissionQuery("creators.delete")({
  * la Rentabilité l'oubliait et Paiements affichait 0 $ — trois lectures du même
  * argent, qui n'a jamais été versé.
  *
- * Les effets externes (storage.delete, Cloudflare) sont best-effort/post-commit
- * via purgeAndDeleteAssignment (idiome deleteAssignment) — un échec externe ne
- * casse pas la suppression DB (transactionnelle).
+ * Les vidéos envoyées des missions supprimées ne sont PAS effacées : elles
+ * partent en archive 30 jours (archiveAndDeleteAssignment, idiome
+ * deleteAssignment), récupérables, puis purgées par le cron.
  */
 export const deleteCreator = permissionMutation("creators.delete")({
   args: { id: v.id("creators") },
@@ -1104,7 +1104,7 @@ export const deleteCreator = permissionMutation("creators.delete")({
     for (const a of assignments) {
       if (DELETABLE_STATUSES.has(a.status)) {
         if (a.comboKey !== undefined) freedCombos++;
-        await purgeAndDeleteAssignment(ctx, a);
+        await archiveAndDeleteAssignment(ctx, a);
         deletedAssignments++;
       } else {
         await ctx.db.patch(a._id, { creatorNameSnapshot: name });

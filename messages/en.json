@@ -1233,6 +1233,7 @@
     "ERR_ASSET_FOLDER_NOT_FOUND": "Asset folder not found.",
     "ERR_ASSIGNMENT_ALREADY_STARTED": "This assignment has already been started.",
     "ERR_ASSIGNMENT_CANCEL_LOCKED": "This assignment is published or paid: it can't be dropped any more.",
+    "ERR_ASSIGNMENT_HAS_VIDEO": "A video has already been sent for this mission: confirm to drop it (the video is kept).",
     "ERR_ASSIGNMENT_DELETE_LOCKED": "A published or paid assignment can't be deleted (financial/analytics history).",
     "ERR_ASSIGNMENT_NOT_FOUND": "Assignment not found.",
     "ERR_ASSIGNMENT_NOT_SCRIPT": "This assignment isn't a script.",

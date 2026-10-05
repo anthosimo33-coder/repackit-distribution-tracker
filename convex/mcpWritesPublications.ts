@@ -19,12 +19,16 @@ import { internal } from "./_generated/api";
 import { mcpWriteMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
+import type { Id } from "./_generated/dataModel";
 import {
   AJOUTE,
   ARG_PROJET,
   ecrire,
   ECRIT,
+  etatsApres,
+  etatsCrees,
   journaliser,
+  photographier,
   RefusEcriture,
   resultatEcriture,
   texteArg,
@@ -150,9 +154,10 @@ export const ecrireValidationVideo = mcpWriteMutation("review.manage", "publicat
   args: designationValidator,
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, enRevue);
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
     await reviewVideoApproveCore(ctx, m.a._id);
     const summary = `${m.libelle} : vidéo validée`;
-    await journaliser(ctx, { tool: "valider_video", summary, section: "validation", path: "validation" });
+    await journaliser(ctx, { tool: "valider_video", summary, section: "validation", path: "validation", etats: await etatsApres(ctx, photos) });
     return { summary };
   },
 });
@@ -161,10 +166,11 @@ export const ecrireRefusVideo = mcpWriteMutation("review.manage", "publications"
   args: { ...designationValidator, motif: v.string() },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, enRevue);
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
     await reviewVideoRejectCore(ctx, m.a._id, a.motif);
     const court = a.motif.trim().length > 80 ? `${a.motif.trim().slice(0, 77)}…` : a.motif.trim();
     const summary = `${m.libelle} : vidéo refusée — « ${court} »`;
-    await journaliser(ctx, { tool: "refuser_video", summary, section: "validation", path: "validation" });
+    await journaliser(ctx, { tool: "refuser_video", summary, section: "validation", path: "validation", etats: await etatsApres(ctx, photos) });
     return { summary };
   },
 });
@@ -210,6 +216,8 @@ export const ecrirePublication = mcpWriteMutation("review.manage", "publications
     const aujourdhui = parisDayKey(Date.now());
     const publishedAt =
       a.publieLe !== undefined && a.publieLe < aujourdhui ? parisDayStart(a.publieLe)! + 12 * 3_600_000 : undefined;
+    const photos = await photographier(ctx, "assignments", [m.a._id]);
+    const postsAvant = new Set((m.a.targets ?? []).map((t) => t.publicationId).filter((x) => x !== undefined));
     await confirmPublicationAsAdminCore(ctx, {
       id: m.a._id,
       urls,
@@ -219,7 +227,16 @@ export const ecrirePublication = mcpWriteMutation("review.manage", "publications
     const summary =
       `${m.libelle} : publiée — ${urls.map((u) => u.url).join(", ")}` +
       (publishedAt !== undefined ? ` (sortie le ${jourTexte(a.publieLe!)})` : "");
-    await journaliser(ctx, { tool: "confirmer_publication", summary, section: "planning", path: "assignments" });
+    const postsCrees = ((await ctx.db.get(m.a._id))?.targets ?? [])
+      .map((t) => t.publicationId)
+      .filter((x): x is Id<"publications"> => x !== undefined && !postsAvant.has(x));
+    await journaliser(ctx, {
+      tool: "confirmer_publication",
+      summary,
+      section: "planning",
+      path: "assignments",
+      etats: [...(await etatsApres(ctx, photos)), ...(await etatsCrees(ctx, "publications", postsCrees))],
+    });
     return { summary };
   },
 });
@@ -228,6 +245,7 @@ export const ecrireWarmup = mcpWriteMutation("tracker.manage", "publications")({
   args: { lien: v.string(), warmup: v.boolean() },
   handler: async (ctx, a) => {
     const pub = await publicationParLien(ctx, a.lien);
+    const photos = await photographier(ctx, "publications", [pub._id]);
     const avant = { warmup: pub.isWarmup === true, remuneree: isRemunerated({ isWarmup: pub.isWarmup === true, remunere: pub.remunere }) };
     await setPublicationWarmupCore(ctx, pub._id, a.warmup);
     const apres = (await ctx.db.get(pub._id))!;
@@ -247,6 +265,7 @@ export const ecrireWarmup = mcpWriteMutation("tracker.manage", "publications")({
         section: "tracker",
         path: "dashboard",
         annulation: { type: "warmup", publicationId: pub._id, avant: pub.isWarmup ?? null, apres: etat.warmup },
+        etats: await etatsApres(ctx, photos),
       });
     }
     return {

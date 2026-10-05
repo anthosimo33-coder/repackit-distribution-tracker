@@ -1233,6 +1233,7 @@
     "ERR_ASSET_FOLDER_NOT_FOUND": "Carpeta de recursos no encontrada.",
     "ERR_ASSIGNMENT_ALREADY_STARTED": "Esta misión ya está empezada.",
     "ERR_ASSIGNMENT_CANCEL_LOCKED": "Esta misión está publicada o pagada: ya no se puede abandonar.",
+    "ERR_ASSIGNMENT_HAS_VIDEO": "Ya se envió un video para esta misión: confirma el abandono (el video se conserva).",
     "ERR_ASSIGNMENT_DELETE_LOCKED": "Una misión publicada o pagada no se puede eliminar (historial financiero/analítico).",
     "ERR_ASSIGNMENT_NOT_FOUND": "Misión no encontrada.",
     "ERR_ASSIGNMENT_NOT_SCRIPT": "Esta misión no es un guion.",

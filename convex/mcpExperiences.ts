@@ -27,8 +27,10 @@ import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProto
 import {
   AJOUTE,
   ARG_PROJET,
+  briqueDe,
   designerOuRefuser,
   ecrire,
+  etatsCrees,
   journaliser,
   resultatEcriture,
   texteArg,
@@ -99,19 +101,6 @@ export const OUTIL_EXPERIENCES: McpTool = {
 
 // ─── Lancer ─────────────────────────────────────────────────────────────────
 
-function briqueDe(briques: readonly Doc<"scriptBricks">[], demande: string, role: string): Doc<"scriptBricks"> {
-  const parLibelle = designer(briques, (b) => b.label, demande);
-  if (parLibelle.ok) return parLibelle.item;
-  const parTexte = designer(briques, (b) => b.content, demande);
-  if (parTexte.ok) return parTexte.item;
-  const candidats = parLibelle.candidats.length > 0 ? parLibelle.candidats : parTexte.candidats;
-  throw err(
-    ERR.MCP_DESIGNATION,
-    candidats.length > 1
-      ? `« ${demande} » désigne plusieurs ${role}s : ${candidats.slice(0, 6).map((b) => `« ${b.label} »`).join(", ")}.`
-      : `${role} « ${demande} » introuvable dans la campagne. Possibles : ${briques.slice(0, 15).map((b) => `« ${b.label} »`).join(", ")}.`,
-  );
-}
 
 export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions")({
   args: {
@@ -296,6 +285,10 @@ export const ecrireExperience = mcpWriteMutation("assignments.manage", "missions
       section: "planning",
       path: "assignments",
       annulation: { type: "experienceCreee", experienceId, assignmentIds: cellules.map((c) => c.assignmentId) },
+      etats: [
+        ...(await etatsCrees(ctx, "hookExperiments", [experienceId])),
+        ...(await etatsCrees(ctx, "assignments", cellules.map((c) => c.assignmentId))),
+      ],
     });
     return { simulation: false as const, plan, scripts, communs, summary };
   },
