@@ -395,6 +395,7 @@
     "lib/radarParsing.ts",
     "lib/retention-cost.ts",
     "lib/review-queue.ts",
+    "lib/same-content.ts",
     "lib/script-combo-edit.ts",
     "lib/scriptAssembly.ts",
     "lib/scriptCombos.ts",

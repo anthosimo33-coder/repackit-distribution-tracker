@@ -59,8 +59,12 @@ const COLLAPSE_ABOVE = 60;
 /** Lignes affichées par groupe avant le bouton « voir les N restantes ». */
 const PAGE_SIZE = 25;
 
-/** Les gestes de la vue liste, injectés par la page (qui tient les modales). */
-export type AssignmentRowActions = {
+/**
+ * Les gestes d'une ligne, injectés par la page (qui tient les modales). La page
+ * les garde STABLES d'un rendu à l'autre : les lignes mémoïsées du tableau
+ * desktop en dépendent.
+ */
+export type AssignmentRowGestures = {
   onDetail: (id: Id<"assignments">) => void;
   onScript: (id: Id<"assignments">) => void;
   onEditCombo: (id: Id<"assignments">) => void;
@@ -72,6 +76,10 @@ export type AssignmentRowActions = {
   onPostDate: (id: Id<"assignments">) => void;
   onNudge: (id: Id<"assignments">, creatorName: string) => void;
   onDelete: (id: Id<"assignments">) => void;
+};
+
+/** Les gestes + la relance en cours — ce que reçoit la liste mobile. */
+export type AssignmentRowActions = AssignmentRowGestures & {
   nudgingId: Id<"assignments"> | null;
 };
 
@@ -379,7 +387,7 @@ export function AssignmentRowMenu({
   variant = "full",
 }: {
   row: AssignmentRow;
-  actions: AssignmentRowActions;
+  actions: AssignmentRowGestures;
   editable: boolean;
   hasScript: boolean;
   variant?: "full" | "row";

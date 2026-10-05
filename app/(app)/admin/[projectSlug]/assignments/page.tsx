@@ -1,12 +1,21 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Suspense,
+  memo,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import {
   useProjectQuery,
   useProjectMutation,
 } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
+import type { FunctionReturnType } from "convex/server";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -74,6 +83,7 @@ import {
   AssignmentMobileList,
   AssignmentRowMenu,
   type AssignmentRowActions,
+  type AssignmentRowGestures,
 } from "@/components/admin/AssignmentMobileList";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { useProject } from "@/components/project/ProjectProvider";
@@ -109,6 +119,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
+import { sameContent } from "@/lib/same-content";
 
 function formatDate(ts: number, locale: string = "fr-FR") {
   return new Date(ts).toLocaleDateString(locale);
@@ -143,7 +154,6 @@ function AssignmentsPageInner() {
   const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentsPageInner");
-  const tLabel = useLabel();
   const assignments = useProjectQuery(api.assignments.listAssignments, {});
   const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
@@ -215,7 +225,11 @@ function AssignmentsPageInner() {
   // pas du tout. Elle est partagée par les deux vues (chercher une créatrice
   // puis basculer sur son calendrier est le geste naturel).
   const [search, setSearch] = useState("");
-  const terms = useMemo(() => searchTerms(search), [search]);
+  // Le FILTRE suit une valeur DIFFÉRÉE : le champ affiche la frappe tout de
+  // suite, le re-tri de ~800 lignes vient ensuite, en rendu interruptible —
+  // une lettre de plus l'abandonne au lieu de s'empiler derrière lui.
+  const deferredSearch = useDeferredValue(search);
+  const terms = useMemo(() => searchTerms(deferredSearch), [deferredSearch]);
   // Vidéos modèles : gestion à chaud d'un assignment (dialog). On dérive la row
   // LIVE depuis `assignments` (réactif) → la liste se rafraîchit après ajout/retrait.
   const [manageId, setManageId] = useState<Id<"assignments"> | null>(null);
@@ -530,20 +544,52 @@ function AssignmentsPageInner() {
     return () => ro.disconnect();
   }, []);
 
-  const rowActions: AssignmentRowActions = {
-    onDetail: setDetailId,
-    onScript: setScriptId,
-    onEditCombo: setEditId,
-    onEditText: setTextEditId,
-    onModelVideos: setManageId,
-    onAssets: setAssetLinkId,
-    onOverlay: setOverlayId,
-    onInstructions: setInstructionsId,
-    onPostDate: setPostDateId,
-    onNudge: (id, creatorName) => void handleNudge(id, creatorName),
-    onDelete: setDeleteId,
-    nudgingId,
-  };
+  // Relance : la DERNIÈRE version de `handleNudge` (elle referme sur `nudge`,
+  // `tr`, `showError`), lue au moment du clic. Sans ce relais, les gestes
+  // ci-dessous changeraient d'identité à chaque rendu, et toutes les lignes du
+  // tableau avec eux.
+  const handleNudgeRef = useRef(handleNudge);
+  useEffect(() => {
+    handleNudgeRef.current = handleNudge;
+  });
+  // Gestes STABLES — le même objet d'un rendu à l'autre. C'est ce qui permet
+  // aux lignes mémoïsées du tableau de NE PAS se re-rendre quand on ouvre une
+  // modale ou qu'on tape dans la recherche : sur Snytch (787 lignes, ~70 000
+  // nœuds), chacun de ces gestes bloquait l'écran ~500 ms. `nudgingId` n'en
+  // fait pas partie : il change, lui, et la ligne le reçoit à part.
+  const rowGestures = useMemo<AssignmentRowGestures>(
+    () => ({
+      onDetail: setDetailId,
+      onScript: setScriptId,
+      onEditCombo: setEditId,
+      onEditText: setTextEditId,
+      onModelVideos: setManageId,
+      onAssets: setAssetLinkId,
+      onOverlay: setOverlayId,
+      onInstructions: setInstructionsId,
+      onPostDate: setPostDateId,
+      onNudge: (id, creatorName) =>
+        void handleNudgeRef.current(id, creatorName),
+      onDelete: setDeleteId,
+    }),
+    // Des setters de useState : stables, l'objet ne se reconstruit jamais.
+    [
+      setDetailId,
+      setScriptId,
+      setEditId,
+      setTextEditId,
+      setManageId,
+      setAssetLinkId,
+      setOverlayId,
+      setInstructionsId,
+      setPostDateId,
+      setDeleteId,
+    ],
+  );
+  const rowActions = useMemo<AssignmentRowActions>(
+    () => ({ ...rowGestures, nudgingId }),
+    [rowGestures, nudgingId],
+  );
 
   return (
     <div ref={rootRef} className="space-y-4 sm:space-y-6">
@@ -774,272 +820,14 @@ function AssignmentsPageInner() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((a) => {
-                  const overdue =
-                    assignmentUrgency(a.dueDate, a.status as AssignmentStatus) ===
-                    "overdue";
-                  const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
-                  const editable = canEditScriptCombo({ postedAt: a.postedAt });
-                  return (
-                    <TableRow
-                      key={a._id}
-                      className={cn(overdue && "bg-rose-50/60")}
-                    >
-                      <TableCell className="font-medium text-slate-900">
-                        {a.creatorName}
-                      </TableCell>
-                      <TableCell className="text-slate-700">
-                        {/* Largeurs BORNÉES : un nom de campagne ou un résumé de
-                            combo long poussait la moitié du tableau hors de
-                            l'écran, et les colonnes de droite (statut, brief,
-                            actions) ne se voyaient plus qu'au défilement
-                            horizontal. */}
-                        <div className="space-y-1.5">
-                          {a.origin === "script" ? (
-                            <div className="max-w-72 space-y-1">
-                              <div className="truncate font-medium text-slate-900">
-                                {a.scriptCampaignName}
-                              </div>
-                              {a.comboImposed && <ImposedComboBadge />}
-                              <div className="truncate text-xs text-slate-500">
-                                {a.comboSummary}
-                              </div>
-                              {a.hasAssembledScript && (
-                                <div className="flex flex-wrap items-center gap-1">
-                                  {/* Le seul geste de LECTURE reste en clair ;
-                                      « modifier le combo » et « éditer le texte »
-                                      sont partis dans le menu de ligne. Trois
-                                      boutons empilés par ligne, sur 480 lignes,
-                                      doublaient la hauteur du tableau pour des
-                                      gestes qu'on fait une fois sur cent. */}
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 gap-1.5 px-2 text-xs text-primary"
-                                    onClick={() => setScriptId(a._id)}
-                                  >
-                                    <FileTextIcon className="size-3.5" />
-                                    {tr("voirLeScript")}
-                                  </Button>
-                                  {!editable && (
-                                    // Publié → verrouillé (même règle que le
-                                    // panneau) : on l'explicite, pas d'absence muette.
-                                    <span className="flex items-center gap-1 text-xs text-slate-400">
-                                      <LockIcon className="size-3 shrink-0" />
-                                      {tr("publieVerrouille")}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <div>{a.formatName}</div>
-                          )}
-                          {/* Assets + vidéos modèles rattachés — compact, visible
-                              seulement s'il y en a (mêmes données que le brief). */}
-                          <AssignmentAttachments
-                            variant="list"
-                            assetFolderNames={a.assetFolderNames}
-                            assetFolderCount={a.assetFolderCount}
-                            modelVideos={a.modelVideos ?? []}
-                          />
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-slate-500">
-                        {a.targets.length === 0 ? (
-                          "—"
-                        ) : (
-                          <div className="space-y-0.5">
-                            {a.targets.map((t) => (
-                              <div
-                                key={t.platform}
-                                className="flex items-center gap-1.5"
-                              >
-                                <span className="text-xs text-slate-400">
-                                  {t.platform}
-                                </span>
-                                <span
-                                  className="max-w-44 truncate font-mono text-slate-600"
-                                  title={t.accountHandle ?? undefined}
-                                >
-                                  {t.accountHandle ?? "—"}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        <span className={cn(overdue && "font-semibold text-rose-700")}>
-                          {formatDate(a.dueDate, loc)}
-                        </span>
-                        {overdue && (
-                          <span className="ml-1 text-xs font-semibold text-rose-600">
-                            {tr("retard")}
-                          </span>
-                        )}
-                        {/* Relance, SOUS la date et non à côté : en ligne, ce
-                            bouton ajoutait ~90 px à la colonne pour TOUTES les
-                            lignes, y compris celles qui ne l'affichent pas.
-                            Uniquement sur les statuts où la balle est au
-                            créateur (cf nudgeAssignment côté serveur) :
-                            to_publish, géré par l'équipe, en est exclu. */}
-                        {overdue &&
-                          (a.status === "todo" ||
-                            a.status === "in_progress" ||
-                            a.status === "video_rejected") && (
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              className="mt-1 flex h-6 gap-1 px-1.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
-                              onClick={() => handleNudge(a._id, a.creatorName)}
-                              disabled={nudgingId === a._id}
-                              data-testid={`nudge-${a._id}`}
-                            >
-                              {nudgingId === a._id ? (
-                                <Loader2Icon className="size-3 animate-spin" />
-                              ) : (
-                                <BellIcon className="size-3" />
-                              )}
-                              {tr("relancer")}
-                            </Button>
-                          )}
-                      </TableCell>
-                      <TableCell className="text-sm">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            "h-8 gap-1.5 px-2",
-                            a.postDate ? "text-slate-700" : "text-slate-500",
-                          )}
-                          onClick={() => setPostDateId(a._id)}
-                          aria-label={tr("modifierLaDateDePublication")}
-                        >
-                          <CalendarIcon className="size-4" />
-                          {a.postDate ? formatDate(a.postDate, loc) : "—"}
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <div className="space-y-1">
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                              st.className,
-                            )}
-                          >
-                            {tLabel(st.labelKey)}
-                          </span>
-                          {/* Ancienne colonne « Soumis » : c'est la DATE de ce
-                              statut, elle se lit collée à lui, pas six colonnes
-                              plus loin. */}
-                          {a.submittedAt && (
-                            <div className="text-xs text-slate-400">
-                              {tr("soumis", { date: formatDate(a.submittedAt, loc) })}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {/* BRIEF — les quatre gestes qui composent la consigne
-                            envoyée à la créatrice, groupés. Le compteur (ou le
-                            point) dit lesquels sont renseignés. */}
-                        <div className="flex items-center gap-0.5">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-1 px-1.5 text-slate-600"
-                            onClick={() => setManageId(a._id)}
-                            aria-label={tr("gererLesVideosModeles")}
-                            title={tr("videosModeles")}
-                          >
-                            <ClapperboardIcon className="size-4" />
-                            {a.modelVideos && a.modelVideos.length > 0
-                              ? a.modelVideos.length
-                              : "+"}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 gap-1 px-1.5 text-slate-600"
-                            onClick={() => setAssetLinkId(a._id)}
-                            aria-label={tr("lierDesDossiersDAssets")}
-                            title={tr("dossiersDAssets")}
-                          >
-                            <ImagesIcon className="size-4" />
-                            {a.linkedFolderIds.length > 0
-                              ? a.assetFolderCount
-                              : "+"}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={cn(
-                              "h-8 gap-1 px-1.5",
-                              a.overlayText ? "text-amber-700" : "text-slate-600",
-                            )}
-                            onClick={() => setOverlayId(a._id)}
-                            aria-label={tr("texteAIncrusterEnHaut")}
-                            title={a.overlayText ?? tr("ajouterUnTexteOverlay")}
-                          >
-                            <TypeIcon className="size-4" />
-                            {a.overlayText ? "•" : "+"}
-                          </Button>
-                          {/* Instructions libres pour la créatrice (consigne). */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={cn(
-                              "h-8 gap-1 px-1.5",
-                              a.instructions ? "text-indigo-700" : "text-slate-600",
-                            )}
-                            onClick={() => setInstructionsId(a._id)}
-                            aria-label={tr("instructionsPourLaCreatrice")}
-                            title={a.instructions ?? tr("ajouterDesInstructions")}
-                          >
-                            <ClipboardListIcon className="size-4" />
-                            {a.instructions ? "•" : "+"}
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-0.5">
-                          {/* Même menu que la carte mobile — les gestes rares
-                              (détail, combo, texte) y vivent une seule fois. */}
-                          <AssignmentRowMenu
-                            row={a}
-                            actions={rowActions}
-                            editable={editable}
-                            hasScript={a.hasAssembledScript}
-                            variant="row"
-                          />
-                          {canDeleteAssignment(a.status as AssignmentStatus) ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="size-8 p-0 text-slate-400 hover:text-rose-600"
-                              onClick={() => setDeleteId(a._id)}
-                              aria-label={tr("supprimerCetAssignment2")}
-                            >
-                              <Trash2Icon className="size-4" />
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="size-8 p-0 text-slate-300"
-                              disabled
-                              aria-label={tr("suppressionIndisponibleAssignmentPublieO")}
-                              title={tr("unAssignmentPublieOuPaye")}
-                            >
-                              <Trash2Icon className="size-4" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {rows.map((a) => (
+                  <AssignmentTableRow
+                    key={a._id}
+                    row={a}
+                    gestures={rowGestures}
+                    nudging={nudgingId === a._id}
+                  />
+                ))}
               </TableBody>
             </Table>
           </CardContent>
@@ -1185,5 +973,314 @@ function AssignmentsPageInner() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+type AssignmentListRow =
+  FunctionReturnType<typeof api.assignments.listAssignments>[number];
+
+type AssignmentTableRowProps = {
+  row: AssignmentListRow;
+  gestures: AssignmentRowGestures;
+  /** Relance en cours sur CETTE ligne (le spinner du bouton). */
+  nudging: boolean;
+};
+
+/**
+ * UNE ligne du tableau desktop, MÉMOÏSÉE.
+ *
+ * La page tient une dizaine de modales et la recherche dans son état : chaque
+ * geste la re-rend. Tant que les lignes étaient écrites en ligne dans la page,
+ * ouvrir une modale reconstruisait les 787 lignes de Snytch (~70 000 nœuds) et
+ * gelait l'écran ~500 ms. Mémoïsée, une ligne ne se re-rend que si SA donnée,
+ * ses gestes ou sa relance changent.
+ *
+ * La donnée se compare au CONTENU (`sameContent`), pas à la référence : chaque
+ * écriture qui touche la query (une vidéo modèle ajoutée, un relevé de compte)
+ * renvoie TOUTE la liste en objets neufs, et la comparaison par référence
+ * re-rendrait les 787 lignes pour une seule qui a bougé.
+ *
+ * Libellés : ceux de la page (`AssignmentsPageInner`), dont la ligne est sortie
+ * telle quelle.
+ */
+const AssignmentTableRow = memo(function AssignmentTableRow({
+  row: a,
+  gestures,
+  nudging,
+}: AssignmentTableRowProps) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.assignments.AssignmentsPageInner");
+  const tLabel = useLabel();
+  const overdue =
+    assignmentUrgency(a.dueDate, a.status as AssignmentStatus) ===
+    "overdue";
+  const st = ASSIGNMENT_STATUS[a.status as AssignmentStatus];
+  const editable = canEditScriptCombo({ postedAt: a.postedAt });
+  return (
+    <TableRow className={cn(overdue && "bg-rose-50/60")}>
+      <TableCell className="font-medium text-slate-900">
+        {a.creatorName}
+      </TableCell>
+      <TableCell className="text-slate-700">
+        {/* Largeurs BORNÉES : un nom de campagne ou un résumé de
+            combo long poussait la moitié du tableau hors de
+            l'écran, et les colonnes de droite (statut, brief,
+            actions) ne se voyaient plus qu'au défilement
+            horizontal. */}
+        <div className="space-y-1.5">
+          {a.origin === "script" ? (
+            <div className="max-w-72 space-y-1">
+              <div className="truncate font-medium text-slate-900">
+                {a.scriptCampaignName}
+              </div>
+              {a.comboImposed && <ImposedComboBadge />}
+              <div className="truncate text-xs text-slate-500">
+                {a.comboSummary}
+              </div>
+              {a.hasAssembledScript && (
+                <div className="flex flex-wrap items-center gap-1">
+                  {/* Le seul geste de LECTURE reste en clair ;
+                      « modifier le combo » et « éditer le texte »
+                      sont partis dans le menu de ligne. Trois
+                      boutons empilés par ligne, sur 480 lignes,
+                      doublaient la hauteur du tableau pour des
+                      gestes qu'on fait une fois sur cent. */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 text-xs text-primary"
+                    onClick={() => gestures.onScript(a._id)}
+                  >
+                    <FileTextIcon className="size-3.5" />
+                    {tr("voirLeScript")}
+                  </Button>
+                  {!editable && (
+                    // Publié → verrouillé (même règle que le
+                    // panneau) : on l'explicite, pas d'absence muette.
+                    <span className="flex items-center gap-1 text-xs text-slate-400">
+                      <LockIcon className="size-3 shrink-0" />
+                      {tr("publieVerrouille")}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div>{a.formatName}</div>
+          )}
+          {/* Assets + vidéos modèles rattachés — compact, visible
+              seulement s'il y en a (mêmes données que le brief). */}
+          <AssignmentAttachments
+            variant="list"
+            assetFolderNames={a.assetFolderNames}
+            assetFolderCount={a.assetFolderCount}
+            modelVideos={a.modelVideos ?? []}
+          />
+        </div>
+      </TableCell>
+      <TableCell className="text-sm text-slate-500">
+        {a.targets.length === 0 ? (
+          "—"
+        ) : (
+          <div className="space-y-0.5">
+            {a.targets.map((t) => (
+              <div
+                key={t.platform}
+                className="flex items-center gap-1.5"
+              >
+                <span className="text-xs text-slate-400">
+                  {t.platform}
+                </span>
+                <span
+                  className="max-w-44 truncate font-mono text-slate-600"
+                  title={t.accountHandle ?? undefined}
+                >
+                  {t.accountHandle ?? "—"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </TableCell>
+      <TableCell className="text-sm">
+        <span className={cn(overdue && "font-semibold text-rose-700")}>
+          {formatDate(a.dueDate, loc)}
+        </span>
+        {overdue && (
+          <span className="ml-1 text-xs font-semibold text-rose-600">
+            {tr("retard")}
+          </span>
+        )}
+        {/* Relance, SOUS la date et non à côté : en ligne, ce
+            bouton ajoutait ~90 px à la colonne pour TOUTES les
+            lignes, y compris celles qui ne l'affichent pas.
+            Uniquement sur les statuts où la balle est au
+            créateur (cf nudgeAssignment côté serveur) :
+            to_publish, géré par l'équipe, en est exclu. */}
+        {overdue &&
+          (a.status === "todo" ||
+            a.status === "in_progress" ||
+            a.status === "video_rejected") && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="mt-1 flex h-6 gap-1 px-1.5 text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+              onClick={() => gestures.onNudge(a._id, a.creatorName)}
+              disabled={nudging}
+              data-testid={`nudge-${a._id}`}
+            >
+              {nudging ? (
+                <Loader2Icon className="size-3 animate-spin" />
+              ) : (
+                <BellIcon className="size-3" />
+              )}
+              {tr("relancer")}
+            </Button>
+          )}
+      </TableCell>
+      <TableCell className="text-sm">
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-8 gap-1.5 px-2",
+            a.postDate ? "text-slate-700" : "text-slate-500",
+          )}
+          onClick={() => gestures.onPostDate(a._id)}
+          aria-label={tr("modifierLaDateDePublication")}
+        >
+          <CalendarIcon className="size-4" />
+          {a.postDate ? formatDate(a.postDate, loc) : "—"}
+        </Button>
+      </TableCell>
+      <TableCell>
+        <div className="space-y-1">
+          <span
+            className={cn(
+              "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+              st.className,
+            )}
+          >
+            {tLabel(st.labelKey)}
+          </span>
+          {/* Ancienne colonne « Soumis » : c'est la DATE de ce
+              statut, elle se lit collée à lui, pas six colonnes
+              plus loin. */}
+          {a.submittedAt && (
+            <div className="text-xs text-slate-400">
+              {tr("soumis", { date: formatDate(a.submittedAt, loc) })}
+            </div>
+          )}
+        </div>
+      </TableCell>
+      <TableCell>
+        {/* BRIEF — les quatre gestes qui composent la consigne
+            envoyée à la créatrice, groupés. Le compteur (ou le
+            point) dit lesquels sont renseignés. */}
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 px-1.5 text-slate-600"
+            onClick={() => gestures.onModelVideos(a._id)}
+            aria-label={tr("gererLesVideosModeles")}
+            title={tr("videosModeles")}
+          >
+            <ClapperboardIcon className="size-4" />
+            {a.modelVideos && a.modelVideos.length > 0
+              ? a.modelVideos.length
+              : "+"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 px-1.5 text-slate-600"
+            onClick={() => gestures.onAssets(a._id)}
+            aria-label={tr("lierDesDossiersDAssets")}
+            title={tr("dossiersDAssets")}
+          >
+            <ImagesIcon className="size-4" />
+            {a.linkedFolderIds.length > 0
+              ? a.assetFolderCount
+              : "+"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-8 gap-1 px-1.5",
+              a.overlayText ? "text-amber-700" : "text-slate-600",
+            )}
+            onClick={() => gestures.onOverlay(a._id)}
+            aria-label={tr("texteAIncrusterEnHaut")}
+            title={a.overlayText ?? tr("ajouterUnTexteOverlay")}
+          >
+            <TypeIcon className="size-4" />
+            {a.overlayText ? "•" : "+"}
+          </Button>
+          {/* Instructions libres pour la créatrice (consigne). */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "h-8 gap-1 px-1.5",
+              a.instructions ? "text-indigo-700" : "text-slate-600",
+            )}
+            onClick={() => gestures.onInstructions(a._id)}
+            aria-label={tr("instructionsPourLaCreatrice")}
+            title={a.instructions ?? tr("ajouterDesInstructions")}
+          >
+            <ClipboardListIcon className="size-4" />
+            {a.instructions ? "•" : "+"}
+          </Button>
+        </div>
+      </TableCell>
+      <TableCell className="text-right">
+        <div className="flex items-center justify-end gap-0.5">
+          {/* Même menu que la carte mobile — les gestes rares
+              (détail, combo, texte) y vivent une seule fois. */}
+          <AssignmentRowMenu
+            row={a}
+            actions={gestures}
+            editable={editable}
+            hasScript={a.hasAssembledScript}
+            variant="row"
+          />
+          {canDeleteAssignment(a.status as AssignmentStatus) ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="size-8 p-0 text-slate-400 hover:text-rose-600"
+              onClick={() => gestures.onDelete(a._id)}
+              aria-label={tr("supprimerCetAssignment2")}
+            >
+              <Trash2Icon className="size-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="size-8 p-0 text-slate-300"
+              disabled
+              aria-label={tr("suppressionIndisponibleAssignmentPublieO")}
+              title={tr("unAssignmentPublieOuPaye")}
+            >
+              <Trash2Icon className="size-4" />
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}, sameRowProps);
+
+function sameRowProps(
+  prev: AssignmentTableRowProps,
+  next: AssignmentTableRowProps,
+): boolean {
+  return (
+    prev.gestures === next.gestures &&
+    prev.nudging === next.nudging &&
+    sameContent(prev.row, next.row)
   );
 }
