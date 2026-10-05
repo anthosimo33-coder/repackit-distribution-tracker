@@ -4,6 +4,7 @@ import {
   PERMISSION_IDS,
   PERMISSION_ID_LITERALS,
   PERMISSION_SECTIONS,
+  canSeeRoute,
   defaultManagerPermissions,
   grantedPermissions,
   isPermissionId,
@@ -96,5 +97,12 @@ describe("grantedPermissions — ce qui est RÉELLEMENT accordé", () => {
     // Le cas qui compte : des droits écrits à la main en base, ou un catalogue
     // renommé sous les pieds d'un membership. Aucune porte ne s'ouvre.
     expect(grantedPermissions(["admin", "*", "all", "superadmin"]).size).toBe(0);
+  });
+});
+
+describe("« Vidéos supprimées » — réservé à qui peut supprimer une mission", () => {
+  it("le bloc assignments.manage ouvre l'écran, son absence le ferme", () => {
+    expect(canSeeRoute("/videos-supprimees", grantedPermissions(["assignments.manage"]))).toBe(true);
+    expect(canSeeRoute("/videos-supprimees", grantedPermissions(["review.manage", "creators.read"]))).toBe(false);
   });
 });

@@ -6,6 +6,7 @@ import { formatDateFr } from "../convex/dateFr";
 import {
   approvedEmailCopy,
   assignedEmailCopy,
+  cancelledEmailCopy,
   emailAmount,
   emailDate,
   inviteEmailCopy,
@@ -125,6 +126,7 @@ describe("e-mails — une vraie branche par langue", () => {
       assignedEmailCopy,
       nudgeEmailCopy,
       reminderEmailCopy,
+      cancelledEmailCopy,
     ];
     // Rend chaque champ en texte : les fonctions sont appelées avec des
     // arguments plausibles, pour comparer des phrases et non des références.

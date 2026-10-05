@@ -885,7 +885,7 @@ export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")(
       );
     }
     const photos = await photographier(ctx, "assignments", [m.a._id]);
-    await cancelAssignmentCore(ctx, m.a._id, { force: a.forcer === true });
+    await cancelAssignmentCore(ctx, m.a._id, { force: a.forcer === true, via: "claude" });
     const summary = `${m.libelle} : abandonnée${hasSubmittedVideo(m.a) ? " (vidéo envoyée conservée)" : ""}`;
     await journaliser(ctx, {
       tool: "annuler_mission",

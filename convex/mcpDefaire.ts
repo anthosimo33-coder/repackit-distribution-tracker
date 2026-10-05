@@ -38,6 +38,7 @@ import { annulationValidator, type Annulation } from "./mcpAnnulation";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import {
   deleteAssignmentCore,
+  restoreAssignmentCore,
   setAssignmentTargetAccountCore,
   setAssignmentInstructionsCore,
   setAssignmentOverlayTextCore,
@@ -309,7 +310,9 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       const m = await ctx.db.get(a.assignmentId);
       if (!m) throw refus("Cette mission a été supprimée depuis : relis son état dans `modifications` (rang) pour la recréer.");
       if (m.status !== "cancelled") throw refus(`Elle n'est plus abandonnée (statut ${m.status}) : rien n'a été écrasé.`);
-      await ctx.db.patch(a.assignmentId, { status: a.avant as Doc<"assignments">["status"] });
+      // Le cœur du bouton « Rétablir » : même garde (script repris entre-temps
+      // par une autre mission), même trace sur la fiche.
+      await restoreAssignmentCore(ctx, a.assignmentId, { to: a.avant as Doc<"assignments">["status"], via: "claude" });
       return "Mission remise dans son statut d'avant l'abandon.";
     }
     case "combo": {
