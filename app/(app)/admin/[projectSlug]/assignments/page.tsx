@@ -157,7 +157,7 @@ function AssignmentsPageInner() {
   const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.assignments.AssignmentsPageInner");
-  const assignments = useProjectQuery(api.assignments.listAssignments, {});
+  const assignments = useProjectQuery(api.assignments.listAssignmentsPilotage, {});
   const projectSlug = useProject().project.slug;
   // Ancre temporelle stable au montage (rang d'urgence de l'ordre + filtre
   // « en retard »). Impure au render sinon (cf react-hooks/purity, comme le
@@ -254,6 +254,17 @@ function AssignmentsPageInner() {
   const textEditRow = textEditId
     ? ((assignments ?? []).find((a) => a._id === textEditId) ?? null)
     : null;
+  // Le COMBO de briques de la ligne éditée, demandé À L'OUVERTURE : la liste ne
+  // le porte plus (cf listAssignmentsPilotage), comme elle ne porte plus le
+  // texte du script. La modale s'ouvre quand il est arrivé.
+  const editCombo = useProjectQuery(
+    api.assignments.getAssignmentCombo,
+    editId ? { id: editId } : "skip",
+  );
+  const textEditCombo = useProjectQuery(
+    api.assignments.getAssignmentCombo,
+    textEditId ? { id: textEditId } : "skip",
+  );
   // Lier un dossier d'assets (images à télécharger) — row dérivée live.
   const [assetLinkId, setAssetLinkId] = useState<Id<"assignments"> | null>(null);
   const assetLinkRow = assetLinkId
@@ -891,32 +902,32 @@ function AssignmentsPageInner() {
         />
       )}
 
-      {editRow?.scriptCombo && (
+      {editRow && editCombo && (
         <EditScriptComboDialog
           open
           onOpenChange={(o) => !o && setEditId(null)}
           assignmentId={editRow._id}
-          campaignId={editRow.scriptCombo.campaignId}
+          campaignId={editCombo.campaignId}
           combo={{
-            hookBrickId: editRow.scriptCombo.hookBrickId,
-            fluxBrickId: editRow.scriptCombo.fluxBrickId,
-            ctaBrickId: editRow.scriptCombo.ctaBrickId,
+            hookBrickId: editCombo.hookBrickId,
+            fluxBrickId: editCombo.fluxBrickId,
+            ctaBrickId: editCombo.ctaBrickId,
           }}
           creatorName={editRow.creatorName}
         />
       )}
 
-      {textEditRow?.scriptCombo && (
+      {textEditRow && textEditCombo && (
         <EditBrickTextDialog
           open
           onOpenChange={(o) => !o && setTextEditId(null)}
           assignmentId={textEditRow._id}
-          campaignId={textEditRow.scriptCombo.campaignId}
+          campaignId={textEditCombo.campaignId}
           combo={{
-            hookBrickId: textEditRow.scriptCombo.hookBrickId,
-            fluxBrickId: textEditRow.scriptCombo.fluxBrickId,
-            ctaBrickId: textEditRow.scriptCombo.ctaBrickId,
-            notifBrickId: textEditRow.scriptCombo.notifBrickId,
+            hookBrickId: textEditCombo.hookBrickId,
+            fluxBrickId: textEditCombo.fluxBrickId,
+            ctaBrickId: textEditCombo.ctaBrickId,
+            notifBrickId: textEditCombo.notifBrickId,
           }}
           creatorName={textEditRow.creatorName}
         />
@@ -1018,7 +1029,7 @@ function AssignmentsPageInner() {
 }
 
 type AssignmentListRow =
-  FunctionReturnType<typeof api.assignments.listAssignments>[number];
+  FunctionReturnType<typeof api.assignments.listAssignmentsPilotage>[number];
 
 type AssignmentTableRowProps = {
   row: AssignmentListRow;

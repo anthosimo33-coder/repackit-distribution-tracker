@@ -90,7 +90,7 @@ function tomorrowMidnightLocal(now: number): number {
 
 /**
  * Dashboard d'accueil orienté ACTION — agrège des queries DÉJÀ existantes
- * (listAssignments, listComptes, listCreators) côté client : chaque carte ne
+ * (compte des vidéos à valider, listComptes, listCreators) côté client : chaque carte ne
  * fait que filtrer/compter l'existant (cf lib/warmup, lib/compte-status).
  * Toutes les cartes sont cliquables et mènent à la page concernée.
  *
@@ -137,8 +137,11 @@ export function ActionDashboard() {
   const voitComptes = droits.has("accounts.manage");
   const voitCreateurs = droits.has("creators.read");
   const voitDecisions = droits.has("content.analytics");
-  const assignments = useProjectQuery(
-    api.assignments.listAssignments,
+  // Le NOMBRE de vidéos à valider, rien de plus : la carte n'affiche que lui.
+  // L'accueil lisait `listAssignments` entier (1,4 Mio sur Snytch, renvoyé à
+  // chaque écriture sur une mission) pour ce seul compte.
+  const toReview = useProjectQuery(
+    api.assignments.countVideoSubmittedForDashboard,
     droits.skipUnless("assignments.manage", {}),
   );
   // Version LÉGÈRE (table `comptes` seule) : cet écran ne compte que des
@@ -194,7 +197,7 @@ export function ActionDashboard() {
   const attend = (accorde: boolean, valeur: unknown) =>
     accorde && valeur === undefined;
   const loading =
-    attend(voitAssignments, assignments) ||
+    attend(voitAssignments, toReview) ||
     attend(voitComptes, comptes) ||
     attend(droits.has("payments.manage"), due) ||
     attend(voitCreateurs, creators) ||
@@ -202,7 +205,7 @@ export function ActionDashboard() {
 
   const data = useMemo(() => {
     if (
-      attend(voitAssignments, assignments) ||
+      attend(voitAssignments, toReview) ||
       attend(voitComptes, comptes) ||
       attend(droits.has("payments.manage"), due) ||
       attend(voitCreateurs, creators)
@@ -212,8 +215,11 @@ export function ActionDashboard() {
     // Cartes 1, 2 et 2 bis — le calcul PARTAGÉ avec l'outil MCP `dashboard`
     // (convex/dashboardActions : prédicats du digest quotidien, clippeurs exclus
     // des warmups en retard, `warmupDone` servi par le serveur).
-    const { submitted, warmupLate, warmupReady, totalCreators } = dashboardActions({
-      assignments,
+    // Carte 1 (à valider) : le compte serveur ci-dessus, même ensemble que
+    // `submitted` de dashboardActions (statut video_submitted, périmètre du
+    // manager) — l'outil MCP `dashboard`, lui, le calcule sur la liste.
+    const { warmupLate, warmupReady, totalCreators } = dashboardActions({
+      assignments: undefined,
       comptes,
       creators,
       now,
@@ -228,17 +234,17 @@ export function ActionDashboard() {
     const dueTotal = due?.byCurrency ?? null;
 
     return {
-      submitted,
+      submittedCount: toReview ?? 0,
       warmupLate,
       warmupReady,
       dueTotal,
       totalCreators,
     };
-  }, [assignments, comptes, due, creators, now]);
+  }, [toReview, comptes, due, creators, now]);
 
   if (loading || data === null) return <ActionSkeleton />;
 
-  const { submitted, warmupLate, warmupReady, dueTotal, totalCreators } = data;
+  const { submittedCount, warmupLate, warmupReady, dueTotal, totalCreators } = data;
 
   // État vide : ni créateur ni soumission → message d'accueil (pas des cartes à
   // zéro qui semblent cassées).
@@ -247,7 +253,7 @@ export function ActionDashboard() {
   // parce qu'on n'a pas LE DROIT de compter, pas parce qu'il n'y a personne.
   // « Invite tes premiers créateurs » serait alors un mensonge, et il enverrait
   // la personne sur un écran qu'elle ne peut pas ouvrir.
-  if (voitCreateurs && totalCreators === 0 && submitted.length === 0) {
+  if (voitCreateurs && totalCreators === 0 && submittedCount === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center gap-4 py-20 text-center">
@@ -291,7 +297,7 @@ export function ActionDashboard() {
             href={projectPath("/validation")}
             icon={CheckCircle2Icon}
             label={tr("aValider")}
-            value={String(submitted.length)}
+            value={String(submittedCount)}
             hint={tr("soumissionsEnAttente")}
             accent
           />

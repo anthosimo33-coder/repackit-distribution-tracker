@@ -46,6 +46,13 @@ Ces trois champs restent servis : c'est un arbitrage produit, pas un oubli.
 La projection explicite de `listAssignments` existe pour que **le prochain**
 champ financier ajouté à la table soit une décision, pas une fuite.
 
+L'écran Missions (liste, calendrier, panneau) lit **`listAssignmentsPilotage`**,
+seconde projection de la même ligne, qui ne porte **aucun** des trois : aucun
+écran de pilotage ne les affiche (le tarif se lit dans l'espace créatrice, par
+ses propres queries). `listAssignments` complète reste servie au connecteur et
+aux specs e2e. L'accueil admin ne lit plus la liste du tout
+(`countVideoSubmittedForDashboard`).
+
 ## Agrégats — jamais recalculés côté client
 
 | Donnée | Query autorisée | Ce qui est interdit |

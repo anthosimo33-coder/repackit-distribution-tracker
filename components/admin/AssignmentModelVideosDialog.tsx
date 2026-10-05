@@ -54,7 +54,8 @@ export function AssignmentModelVideosDialog({
   onOpenChange: (o: boolean) => void;
   assignmentId: Id<"assignments">;
   creatorName: string;
-  modelVideos: ModelVideo[];
+  /** Sans `addedAt` : la liste ne le sert pas, la modale ne l'affiche pas. */
+  modelVideos: Omit<ModelVideo, "addedAt">[];
 }) {
   const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AssignmentModelVideosDialog");
