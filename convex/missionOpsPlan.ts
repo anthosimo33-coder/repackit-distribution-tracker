@@ -4,8 +4,8 @@
  * POURQUOI. L'écran corrige un script brique par brique, dans SA campagne et
  * avec des briques ACTIVES (editScriptCombo). Il ne sait ni déplacer une mission
  * vers une autre campagne, ni lui donner une brique désactivée (gardée hors du
- * tirage des autres créatrices), ni changer l'échéance de production une fois la
- * mission créée. Annuler puis réassigner en ferait une partie, au prix d'un
+ * tirage des autres créatrices), ni changer l'échéance de production ou la
+ * qualification (promo/warmup, rémunérée) une fois la mission créée. Annuler puis réassigner en ferait une partie, au prix d'un
  * email « nouvelle mission » par vidéo et d'une activation temporaire des
  * briques. Ce module fait ces gestes SUR PLACE, pour une liste NOMMÉE de
  * missions, sans email.
@@ -81,6 +81,8 @@ export interface OpsAssignment {
   comboImposed?: boolean;
   instructions?: string;
   overlayText?: string;
+  contentType?: string;
+  remunerated?: boolean;
   publishedAt?: number;
   targets?: { publishedAt?: number }[];
   scriptCombo?: OpsScriptCombo;
@@ -141,6 +143,13 @@ export interface MissionOpsRequest {
     dueDay?: string;
     clearInstructions?: boolean;
     clearOverlayText?: boolean;
+    /**
+     * Qualification de la mission, que l'écran ne pose qu'à l'assignation :
+     * contenu promo/warmup et rémunérée oui/non. La publication en hérite — la
+     * rémunération n'y compte que si le type est posé (sinon elle est ignorée).
+     */
+    contentType?: "promo" | "warmup";
+    remunerated?: boolean;
   }[];
   archiveCampaignIds?: string[];
 }
@@ -170,6 +179,8 @@ export interface MissionView {
   dueDay: string;
   instructions: string | null;
   overlayText: string | null;
+  contentType: string | null;
+  remunerated: boolean | null;
 }
 
 export type ClearableField = "instructions" | "overlayText";
@@ -181,6 +192,8 @@ export interface PlannedAssignmentPatch {
     comboKey?: string;
     comboImposed?: true;
     dueDate?: number;
+    contentType?: "promo" | "warmup";
+    remunerated?: boolean;
   };
   clear: ClearableField[];
   before: MissionView;
@@ -351,6 +364,8 @@ export function planMissionOps(input: {
     dueDay: parisDayOf(a.dueDate),
     instructions: a.instructions ?? null,
     overlayText: a.overlayText ?? null,
+    contentType: a.contentType ?? null,
+    remunerated: a.remunerated ?? null,
   });
   const requireMission = (id: string, expectCreatorId: string, what: string): OpsAssignment => {
     const a = assignments.get(id);
@@ -525,6 +540,12 @@ export function planMissionOps(input: {
 
     if (r.clearInstructions && a.instructions !== undefined) w.clear.add("instructions");
     if (r.clearOverlayText && a.overlayText !== undefined) w.clear.add("overlayText");
+
+    if (r.contentType !== undefined) w.now = { ...w.now, contentType: r.contentType };
+    if (r.remunerated !== undefined) w.now = { ...w.now, remunerated: r.remunerated };
+    if (r.remunerated !== undefined && w.now.contentType === undefined) {
+      plan.warnings.push(`Mission ${a._id} : « rémunérée » sans type promo/warmup — la publication l'ignorera.`);
+    }
   }
 
   for (const w of working.values()) {
@@ -538,6 +559,8 @@ export function planMissionOps(input: {
       set.scriptCombo = now.scriptCombo;
     }
     if (now.dueDate !== before.dueDate) set.dueDate = now.dueDate;
+    if (now.contentType !== before.contentType) set.contentType = now.contentType as "promo" | "warmup";
+    if (now.remunerated !== before.remunerated) set.remunerated = now.remunerated;
     const clear = [...w.clear];
     if (Object.keys(set).length === 0 && clear.length === 0) {
       plan.skipped.push(`Mission ${before._id} : déjà dans l'état visé.`);
