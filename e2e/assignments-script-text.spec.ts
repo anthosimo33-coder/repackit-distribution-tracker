@@ -24,7 +24,7 @@ const DAY = 86_400_000;
  * déplace sans rien perdre.
  */
 test.describe("Texte des scripts hors du document", () => {
-  test("lu pareil partout ; une mission d'avant la migration ne perd rien ; supprimée, son texte part", async () => {
+  test("lu pareil partout, absent de la liste créatrice ; une mission d'avant la migration ne perd rien ; supprimée, son texte part", async () => {
     test.setTimeout(120_000);
     const ts = Date.now();
     const creator = await createCreatorSession(url, {
@@ -86,6 +86,20 @@ test.describe("Texte des scripts hors du document", () => {
     expect(e0.ligne).toContain(`contenu ${ts}`);
     expect(await assembledScriptOf(admin, m0._id)).toBe(e0.ligne);
     expect(await fiche(m0._id)).toBe(e0.ligne);
+
+    // La LISTE de la créatrice (et sa vue « voir comme ») ne le porte pas :
+    // aucune surface de la liste ne l'affiche, la fiche ci-dessus le rend.
+    const liste = await creator.client.query(api.assignments.listMyAssignments, {
+      projectId: creator.projectId,
+    });
+    const vueAdmin = await admin.query(api.assignments.listAssignmentsAsAdmin, {
+      creatorId: creator.creatorId,
+    });
+    for (const rows of [liste, vueAdmin]) {
+      const ligne = rows.find((x) => x._id === m0._id);
+      expect(ligne).toBeDefined();
+      expect(Object.keys(ligne!)).not.toContain("assembledScript");
+    }
 
     // ── 2. Une mission d'AVANT la migration (texte dans le document, pas de
     //       ligne) se lit pareil…

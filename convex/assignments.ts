@@ -2831,11 +2831,15 @@ async function enrichForCreator(ctx: QueryCtx, a: Doc<"assignments">) {
   // ajouté à la liste : plus de fuite par défaut (le piège replayVerbatim/publishedBy).
   const safe = pickCreatorAssignment(a) as CreatorAssignment;
   const label = await missionLabelFor(ctx, a);
+  // SANS le texte du script : aucune surface de la liste ne l'affiche (missions,
+  // accueil, pastilles du jour, série, célébrations). Il pesait 40 % de la liste
+  // le 05/10/2026 (Kelly : 475 → 270 Kio pour 269 missions), et le servir
+  // coûtait une lecture par mission à chaque rafraîchissement. La fiche d'UNE
+  // mission le rend (`assignmentDetailFor`).
   return {
     ...safe,
     targets,
     ...label,
-    assembledScript: (await texteDeMission(ctx, a)) ?? null,
   };
 }
 
