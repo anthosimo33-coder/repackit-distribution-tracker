@@ -87,6 +87,8 @@ export const apply = internalMutation({
           dueDay: v.optional(v.string()),
           clearInstructions: v.optional(v.boolean()),
           clearOverlayText: v.optional(v.boolean()),
+          contentType: v.optional(v.union(v.literal("promo"), v.literal("warmup"))),
+          remunerated: v.optional(v.boolean()),
         }),
       ),
     ),
@@ -169,6 +171,8 @@ export const apply = internalMutation({
         ...(p.set.comboKey !== undefined ? { comboKey: p.set.comboKey } : {}),
         ...(p.set.comboImposed ? { comboImposed: true } : {}),
         ...(p.set.dueDate !== undefined ? { dueDate: p.set.dueDate } : {}),
+        ...(p.set.contentType !== undefined ? { contentType: p.set.contentType } : {}),
+        ...(p.set.remunerated !== undefined ? { remunerated: p.set.remunerated } : {}),
         // `undefined` RETIRE le champ : « pas de consigne » est une absence.
         ...Object.fromEntries(p.clear.map((f) => [f, undefined])),
       });

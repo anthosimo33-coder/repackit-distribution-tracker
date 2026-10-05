@@ -450,3 +450,52 @@ describe("planMissionOps — archiver la campagne vidée", () => {
     expect(p.warnings).toEqual(["Campagne « Kelly · @thekellychapters_ · semaine du 5/10 🇫🇷 » archivée avec 1 mission(s) non publiée(s) encore dessus."]);
   });
 });
+
+/**
+ * QUALIFICATION — cas du 05/10 : les 24 missions du test A/B sont « promo »
+ * sans rémunération (l'outil la refusait à leur création), et 13 missions
+ * (Kelly LAB 2, Mewen) n'ont ni type ni rémunération. L'écran ne la pose qu'à
+ * l'assignation : ce plan la pose sur place, sans toucher au reste.
+ */
+describe("planMissionOps — type et rémunération d'une mission existante", () => {
+  const qualif = (a: OpsAssignment, extra: Partial<MissionOpsRequest["assignmentRewrites"] extends (infer R)[] | undefined ? R : never>): MissionOpsRequest => ({
+    assignmentRewrites: [{ assignmentId: a._id, expectCreatorId: KELLY, expectCampaignId: WEEK, ...extra }],
+  });
+
+  it("pose « rémunérée » sur une mission promo sans rien changer d'autre", () => {
+    const a = midi({ contentType: "promo" });
+    const p = plan([a], qualif(a, { remunerated: true }));
+    expect(p.assignmentPatches).toHaveLength(1);
+    expect(p.assignmentPatches[0].set).toEqual({ remunerated: true });
+    expect(p.assignmentPatches[0].clear).toEqual([]);
+    expect(p.assignmentPatches[0].before.remunerated).toBeNull();
+    expect(p.assignmentPatches[0].after).toMatchObject({ contentType: "promo", remunerated: true, script: a.scriptCombo!.assembledScript });
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("pose type ET rémunération sur une mission non qualifiée", () => {
+    const a = midi();
+    const p = plan([a], qualif(a, { contentType: "promo", remunerated: true }));
+    expect(p.assignmentPatches[0].set).toEqual({ contentType: "promo", remunerated: true });
+    expect(p.warnings).toEqual([]);
+  });
+
+  it("avertit qu'une rémunération sans type sera ignorée à la publication", () => {
+    const a = midi();
+    const p = plan([a], qualif(a, { remunerated: true }));
+    expect(p.assignmentPatches[0].set).toEqual({ remunerated: true });
+    expect(p.warnings).toEqual([`Mission ${a._id} : « rémunérée » sans type promo/warmup — la publication l'ignorera.`]);
+  });
+
+  it("une mission déjà qualifiée n'est pas réécrite", () => {
+    const a = midi({ contentType: "promo", remunerated: true });
+    const p = plan([a], qualif(a, { contentType: "promo", remunerated: true }));
+    expect(p.assignmentPatches).toEqual([]);
+    expect(p.skipped).toEqual([`Mission ${a._id} : déjà dans l'état visé.`]);
+  });
+
+  it("refuse une mission déjà publiée", () => {
+    const a = midi({ contentType: "promo", targets: [{ publishedAt: OCT5 + DAY }] });
+    expect(() => plan([a], qualif(a, { remunerated: true }))).toThrow(MissionOpsError);
+  });
+});
