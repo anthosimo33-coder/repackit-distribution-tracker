@@ -251,13 +251,18 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     name: "annuler_mission",
     title: "Abandonner une mission",
     description:
-      "MODIFIE les missions : abandonne une mission qui ne sortira pas (pas encore publiée ni payée). Elle reste dans l'historique et son script redevient disponible. Si une VIDÉO a déjà été envoyée, l'abandon est refusé par défaut : redemande l'accord, puis rappelle avec « forcer » (la vidéo est conservée). `defaire` la remet dans son statut d'avant. Désignation comme dans `planning`.",
+      "MODIFIE les missions : abandonne une mission qui ne sortira pas (pas encore publiée ni payée). Elle reste dans l'historique et son script redevient disponible. Si une VIDÉO a déjà été envoyée, l'abandon est refusé par défaut : redemande l'accord, puis rappelle avec « forcer » (la vidéo est conservée). Sans « prevenir », aucun email ; avec prevenir: true, ENVOIE à la créatrice l'email « mission annulée » (la mission disparaît de son espace) — dis-le avant. `defaire` la remet dans son statut d'avant. Désignation comme dans `planning`.",
     inputSchema: {
       type: "object",
       properties: {
         projet: ARG_PROJET,
         ...ARGS_DESIGNATION,
         forcer: { type: "boolean", description: "true = abandonner MÊME si une vidéo a été envoyée (après accord explicite). La vidéo est conservée." },
+        prevenir: {
+          type: "boolean",
+          description:
+            "true = ENVOIE à la créatrice l'email « mission annulée », comme la case « Prévenir la créatrice par email » de l'écran (il dit que sa vidéo est conservée s'il y en a une). Absent : aucun email.",
+        },
       },
       required: ["createatrice", "jour"],
       additionalProperties: false,
@@ -871,7 +876,7 @@ export const ecrireRelance = mcpWriteMutation("assignments.manage", "missions")(
 });
 
 export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")({
-  args: { ...designationValidator, forcer: v.optional(v.boolean()) },
+  args: { ...designationValidator, forcer: v.optional(v.boolean()), prevenir: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     const m = await trouverMission(ctx, a, (x) =>
       DELETABLE_STATUSES.has(x.status) ? null : `${STATUTS[x.status] ?? x.status} : ne s'abandonne plus`,
@@ -885,8 +890,11 @@ export const ecrireAbandon = mcpWriteMutation("assignments.manage", "missions")(
       );
     }
     const photos = await photographier(ctx, "assignments", [m.a._id]);
-    await cancelAssignmentCore(ctx, m.a._id, { force: a.forcer === true, via: "claude" });
-    const summary = `${m.libelle} : abandonnée${hasSubmittedVideo(m.a) ? " (vidéo envoyée conservée)" : ""}`;
+    // `prevenir` : le même email que la case de l'écran, planifié par le cœur.
+    await cancelAssignmentCore(ctx, m.a._id, { force: a.forcer === true, notify: a.prevenir === true, via: "claude" });
+    const summary =
+      `${m.libelle} : abandonnée${hasSubmittedVideo(m.a) ? " (vidéo envoyée conservée)" : ""}` +
+      (a.prevenir === true ? " — créatrice prévenue par email" : "");
     await journaliser(ctx, {
       tool: "annuler_mission",
       summary,
@@ -1034,7 +1042,8 @@ const OU_DEFAIRE: Record<string, string> = {
     "`defaire` supprime les missions pas encore commencées ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
   replanifier_mission: "`defaire`, ou Assignments › la mission › date de publication / échéance prod.",
   consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
-  annuler_mission: "`defaire` la remet dans son statut d'avant (tant qu'elle n'a pas été supprimée). Une vidéo envoyée est conservée.",
+  annuler_mission:
+    "`defaire` la remet dans son statut d'avant (tant qu'elle n'a pas été supprimée). Une vidéo envoyée est conservée. L'email « mission annulée », s'il est parti, ne se reprend pas.",
   reecrire_mission: "`defaire` remet le script d'avant (tant que la mission n'a pas changé depuis).",
   changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
   relancer: "Une relance ne se reprend pas : l'email est parti.",
@@ -1221,7 +1230,12 @@ async function appelerEcritureMissions(
     r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireRelance, { ...cible, ...d }));
   } else if (name === "annuler_mission") {
     r = await ecrire(() =>
-      ctx.runMutation(internal.mcpWritesMissions.ecrireAbandon, { ...cible, ...d, ...(args.forcer === true ? { forcer: true } : {}) }),
+      ctx.runMutation(internal.mcpWritesMissions.ecrireAbandon, {
+        ...cible,
+        ...d,
+        ...(args.forcer === true ? { forcer: true } : {}),
+        ...(args.prevenir === true ? { prevenir: true } : {}),
+      }),
     );
   } else if (name === "reecrire_mission") {
     const opt = (cle: string, vers: string) => (typeof args[cle] === "string" ? { [vers]: args[cle] as string } : {});

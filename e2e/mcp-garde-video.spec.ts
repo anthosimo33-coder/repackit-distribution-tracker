@@ -116,6 +116,8 @@ test.describe("Garde-fous vidéo et journal", () => {
     const abandonnee = await mission();
     expect(abandonnee.status).toBe("cancelled");
     expect(abandonnee.submittedVideoStreamUid).toBe(`uid-garde-${ts}`);
+    // Sans « prevenir » : aucun email à la créatrice.
+    expect(await admin.mutation(api.assignments.e2eCancelEmailsFor, { secret: E2E_SECRET, id: m0._id })).toEqual([]);
 
     // Le journal a la mission entière avant/après — et l'abandon se DÉFAIT.
     const j = await journal("annuler_mission");
@@ -125,6 +127,17 @@ test.describe("Garde-fous vidéo et journal", () => {
     const d = await appel("defaire", { rang: j.rang, outil: "annuler_mission" });
     expect(d.erreur, d.texte).toBe(false);
     expect(await mission()).toEqual(avantAbandon);
+
+    // « prevenir » (en TEXTE, schéma périmé) : le même email que la case de l'écran.
+    const prevenue = await appel("annuler_mission", { createatrice: nom, jour: J3, forcer: true, prevenir: "true" });
+    expect(prevenue.erreur, prevenue.texte).toBe(false);
+    expect((await mission()).status).toBe("cancelled");
+    expect(await admin.mutation(api.assignments.e2eCancelEmailsFor, { secret: E2E_SECRET, id: m0._id })).toEqual([
+      { assignmentId: m0._id, videoKept: true },
+    ]);
+    const j2 = await journal("annuler_mission");
+    const ligne = JSON.parse((await appel("modifications", { limite: 30 })).texte).modifications.find((x: { rang: number }) => x.rang === j2.rang);
+    expect(ligne.fait).toContain("créatrice prévenue par email");
   });
 
   test("reecrire_mission : hook, notif et consigne réécrits sans email ; défait à l'identique ; refusé si vidéo envoyée", async ({ page }) => {
