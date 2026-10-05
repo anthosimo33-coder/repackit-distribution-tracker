@@ -238,4 +238,80 @@ test.describe("Admin — assignation + table", () => {
       )
       .toBe(false);
   });
+  /**
+   * Les lignes de la table sont MÉMOÏSÉES (le 05/10/2026 : ouvrir une modale
+   * re-rendait les 787 lignes de Snytch et gelait l'écran ~500 ms). Le risque
+   * d'une ligne mémoïsée est de rester FIGÉE : ce test vérifie qu'une ligne se
+   * met à jour quand SA donnée change — par le geste de l'écran (vidéo modèle
+   * ajoutée depuis la modale) comme par une écriture venue d'ailleurs
+   * (consigne posée par un autre client, le connecteur par exemple).
+   */
+  test("une ligne de la table suit SA donnée (modale + écriture extérieure)", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const C = await createCreatorSession(convexUrl, {
+      name: `[E2E_TEST] RowMemo ${ts}`,
+      email: `e2e-creator-rowmemo-${ts}@repackit.test`,
+      password: "creator-rowmemo-12345",
+    });
+    const formatName = `[E2E_TEST] RowMemo Fmt ${ts}`;
+    const fid = (await createFormatWithRate(admin, {
+      name: formatName,
+      type: "short",
+      rateModel: { basePerPost: 30 },
+    })) as Id<"formats">;
+    const target = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: `@e2erowmemo${ts}`,
+    });
+    await admin.mutation(api.assignments.assignFormat, {
+      formatId: fid,
+      creatorId: C.creatorId,
+      targets: [target],
+      postsPerCreator: 1,
+      dueDate: ts + 7 * 86_400_000,
+    });
+    const [mission] = (await admin.query(api.assignments.listAssignments, {})).filter(
+      (a) => a.formatId === fid,
+    );
+
+    await page.goto(adminPath("/assignments"));
+    await page.getByRole("radio", { name: "Liste" }).click();
+    const row = page.getByRole("row").filter({ hasText: formatName });
+    await expect(row).toHaveCount(1, { timeout: 10_000 });
+    const models = row.getByRole("button", { name: "Gérer les vidéos modèles" });
+    const overlay = row.getByRole("button", {
+      name: "Texte à incruster en haut de la vidéo",
+    });
+    await expect(models).toHaveText("+");
+    await expect(overlay).toHaveText("+");
+
+    // 1) Le geste de l'écran : la modale s'ouvre sur CETTE ligne, l'ajout
+    //    remonte dans le compteur de la ligne.
+    await models.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText(`[E2E_TEST] RowMemo ${ts}`);
+    await dialog
+      .getByLabel("URL de la vidéo modèle")
+      .fill(`https://www.tiktok.com/@e2e/video/${ts}`);
+    await dialog.getByRole("button", { name: "Ajouter la vidéo modèle" }).click();
+    await expect(page.getByText("Vidéo modèle ajoutée.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(models).toHaveText("1");
+
+    // 2) Une écriture venue d'AILLEURS : la liste revient en objets neufs, seule
+    //    cette ligne a changé — elle doit le montrer sans rechargement.
+    await admin.mutation(api.assignments.setAssignmentOverlayText, {
+      id: mission._id,
+      overlayText: "Lien en bio",
+    });
+    await expect(overlay).toHaveText("•", { timeout: 10_000 });
+    await expect(overlay).toHaveAttribute("title", "Lien en bio");
+    await expect(models).toHaveText("1");
+  });
 });
