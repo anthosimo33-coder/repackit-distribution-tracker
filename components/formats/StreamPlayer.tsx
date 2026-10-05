@@ -34,6 +34,10 @@ export function StreamPlayer({
             title={title || t("stream.submitted")}
             allow="accelerometer; gyroscope; encrypted-media; picture-in-picture;"
             allowFullScreen
+            // Chargé quand il approche de l'écran : la file de validation en
+            // empile un par soumission, et sans ça tous les lecteurs Cloudflare
+            // se chargent d'un coup à l'ouverture de la page.
+            loading="lazy"
             className="aspect-video w-full"
             data-testid="stream-player"
           />

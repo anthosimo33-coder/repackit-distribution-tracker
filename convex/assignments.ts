@@ -2464,9 +2464,27 @@ export const migrateAssignmentsToTargets = internalMutation({
 });
 
 /**
- * P8 — assignments PUBLIÉS (avec publication) candidats au calcul de bonus,
- * enrichis des vues du dernier snapshot (préremplissage) et du bonus déjà
- * crédité s'il existe.
+ * Le bonus de vues MANUEL (P8) ne vaut que pour une assignation SANS barème
+ * figé : avec un `pricingSnapshot`, le bonus est dérivé automatiquement par la
+ * paie (CPM + seuil). LA règle — la liste de l'écran Validation ne propose que
+ * ce que `computeViewBonus` accepte.
+ */
+export function bonusManuelPossible(
+  a: Pick<Doc<"assignments">, "pricingSnapshot">,
+): boolean {
+  return a.pricingSnapshot === undefined;
+}
+
+/**
+ * P8 — assignments PUBLIÉS (avec publication) candidats au calcul de bonus
+ * MANUEL, enrichis des vues du dernier snapshot (préremplissage) et du bonus
+ * déjà crédité s'il existe.
+ *
+ * Seulement les éligibles (`bonusManuelPossible`), filtrés AVANT le calcul des
+ * vues : le 05/10/2026, les 631 vidéos publiées des 5 projets avaient toutes un
+ * barème — l'écran listait 602 lignes dont aucune ne pouvait recevoir de bonus
+ * (le serveur refusait), et relevait leurs vues pour rien (844 Mo lus en base
+ * sur 7 jours).
  */
 export const listValidatedForBonus = permissionQuery("payments.manage")({
   args: {},
@@ -2478,7 +2496,13 @@ export const listValidatedForBonus = permissionQuery("payments.manage")({
           q.eq("projectId", ctx.projectId).eq("status", "published"),
         )
         .collect()
-    ).filter((a) => (a.targets ?? []).some((t) => t.publicationId !== undefined));
+    ).filter(
+      (a) =>
+        bonusManuelPossible(a) &&
+        (a.targets ?? []).some((t) => t.publicationId !== undefined),
+    );
+    // Rien d'éligible : ni créatrices, ni formats, ni paie à relire.
+    if (validated.length === 0) return [];
 
     const [creators, formats, payments] = await Promise.all([
       ctx.db
@@ -2556,7 +2580,7 @@ export const computeViewBonus = permissionMutation("payments.manage")({
     if (a.status !== "published") {
       throw err(ERR.BONUS_NEEDS_PUBLISHED, "Le bonus se calcule sur un assignment publié.");
     }
-    if (a.pricingSnapshot !== undefined) {
+    if (!bonusManuelPossible(a)) {
       throw err(ERR.BONUS_IS_AUTOMATIC, "Bonus dérivé automatiquement du pricing (CPM + seuil) — non applicable manuellement.");
     }
     const hasPub = (a.targets ?? []).some((t) => t.publicationId !== undefined);
