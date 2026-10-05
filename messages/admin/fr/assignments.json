@@ -360,5 +360,12 @@
     "late": "En retard",
     "missed": "Manqué",
     "scheduled": "Prévu"
+  },
+  "ListPager": {
+    "pagination": "Pagination de la liste",
+    "plage": "{from}–{to} sur {total}",
+    "precedente": "Précédente",
+    "suivante": "Suivante",
+    "pageSur": "Page {page} sur {pageCount}"
   }
 }
