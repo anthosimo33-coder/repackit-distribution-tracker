@@ -109,7 +109,7 @@ import type { Plateforme } from "@/convex/platforms";
 
 /** Row LIVE de listAssignments (dérivée côté page → réactive : statut/pub à jour). */
 type AssignmentRow =
-  FunctionReturnType<typeof api.assignments.listAssignments>[number];
+  FunctionReturnType<typeof api.assignments.listAssignmentsPilotage>[number];
 
 const formatDate = (ts: number, locale: string = "fr-FR") =>
   new Date(ts).toLocaleDateString(locale);
@@ -179,7 +179,14 @@ export function AssignmentDetailSheet({
     // Même règle que le calendrier : la journée se termine chez elle.
     timeZone: row.creatorTimezone,
   });
-  const combo = row.scriptCombo ?? null;
+  // COMBO de briques (sans texte) demandé à l'ouverture, comme le texte : la
+  // liste ne le porte plus (cf listAssignmentsPilotage). Tant qu'il n'est pas
+  // arrivé, les gestes qui en dépendent (éditer le texte, notif) attendent.
+  const combo =
+    useProjectQuery(
+      api.assignments.getAssignmentCombo,
+      open && row.origin === "script" ? { id: row._id } : "skip",
+    ) ?? null;
   // TEXTE du script demandé À L'OUVERTURE du panneau : la liste ne le porte plus
   // (240 Kio sur 478 lignes, cf convex/assignments getAssignmentScript). Le
   // panneau n'existe que quand il est ouvert, donc la requête ne part que là.

@@ -1400,10 +1400,105 @@ export const getAssignmentScript = permissionQuery("assignments.manage")({
   },
 });
 
+/**
+ * COMBINAISON de briques d'une assignation (sans le texte), à la demande.
+ *
+ * Compagnon de `listAssignmentsPilotage`, qui ne la sert plus : quatre
+ * identifiants de brique par ligne (~120 Kio sur 780 lignes) que seules les
+ * modales « Modifier le combo » / « Éditer le texte » et le panneau de détail
+ * lisent — à leur ouverture, pour UNE assignation.
+ */
+export const getAssignmentCombo = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return null;
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+    return scriptComboSansTexte(a.scriptCombo) ?? null;
+  },
+});
+
+/**
+ * Ligne COMPLÈTE de l'écran Assignments — le connecteur (`planning`,
+ * `dashboard`) et les specs e2e, qui s'en servent d'oracle de l'état serveur.
+ * L'écran lit `listAssignmentsPilotage`.
+ */
 export const listAssignments = permissionQuery("assignments.manage")({
   args: {},
   handler: (ctx) => listAssignmentsCore(ctx),
 });
+
+/**
+ * L'écran Missions (liste, calendrier, panneau de détail) — version LÉGÈRE de
+ * `listAssignments`, sur le modèle de `listComptesChoix` / `listComptesSuivi`.
+ *
+ * Mesuré le 05/10/2026 sur Snytch : 1 443 Kio pour 780 lignes, RENVOYÉS EN
+ * ENTIER à chaque écriture qui touche la query (une vidéo modèle ajoutée, une
+ * mission replanifiée par le connecteur — 60 fois en 3 min). Cette projection
+ * ne garde que ce que l'écran lit :
+ *   - retirés car lus par AUCUN écran de pilotage : tarifs figés
+ *     (`rateSnapshot`, `pricingSnapshot`, `clipRateSnapshot` — affichés
+ *     seulement dans l'espace créatrice, par d'autres queries), `comboKey`,
+ *     `projectId` (le même sur toutes les lignes), `_creationTime`,
+ *     horodatages de relance / rappel / refus, statut et type MIME de la
+ *     vidéo soumise (ses deux porteurs restent : cf `hasSubmittedVideo`) ;
+ *   - servis À LA DEMANDE : le combo de briques (`getAssignmentCombo`), comme
+ *     le texte du script (`getAssignmentScript`) ;
+ *   - vidéos modèles sans leur date d'ajout (jamais affichée).
+ *
+ * Calcul et périmètre identiques : c'est `listAssignmentsCore`, projeté. Un
+ * champ ajouté à `listAssignments` n'arrive ici que s'il est ajouté ci-dessous.
+ */
+export const listAssignmentsPilotage = permissionQuery("assignments.manage")({
+  args: {},
+  handler: async (ctx) => (await listAssignmentsCore(ctx)).map(lignePilotage),
+});
+
+type LigneAssignments = Awaited<ReturnType<typeof listAssignmentsCore>>[number];
+
+function lignePilotage(a: LigneAssignments) {
+  return {
+    _id: a._id,
+    creatorId: a.creatorId,
+    creatorName: a.creatorName,
+    creatorStatus: a.creatorStatus,
+    creatorTimezone: a.creatorTimezone,
+    formatId: a.formatId,
+    formatName: a.formatName,
+    origin: a.origin,
+    scriptCampaignId: a.scriptCampaignId,
+    scriptCampaignName: a.scriptCampaignName,
+    scriptCampaignStatus: a.scriptCampaignStatus,
+    comboSummary: a.comboSummary,
+    comboImposed: a.comboImposed,
+    hasAssembledScript: a.hasAssembledScript,
+    status: a.status,
+    dueDate: a.dueDate,
+    postDate: a.postDate,
+    postWindow: a.postWindow,
+    postedAt: a.postedAt,
+    managedByAdmin: a.managedByAdmin,
+    submittedAt: a.submittedAt,
+    // Les deux porteurs de la vidéo envoyée : l'écran demande à
+    // `hasSubmittedVideo` (convex/assignmentVideo) si une suppression ou un
+    // abandon toucherait une vidéo. ~1,6 Kio sur 780 lignes.
+    submittedVideoStorageId: a.submittedVideoStorageId,
+    submittedVideoStreamUid: a.submittedVideoStreamUid,
+    publishedBy: a.publishedBy,
+    targets: a.targets,
+    overlayText: a.overlayText,
+    instructions: a.instructions,
+    modelVideos: a.modelVideos?.map((mv) => ({
+      id: mv.id,
+      url: mv.url,
+      title: mv.title,
+      note: mv.note,
+    })),
+    linkedFolderIds: a.linkedFolderIds,
+    assetFolderNames: a.assetFolderNames,
+    assetFolderCount: a.assetFolderCount,
+  };
+}
 
 /** Le calcul de l'écran Assignments — appelé par la query ci-dessus ET par l'outil MCP `planning`. */
 export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
@@ -1620,21 +1715,36 @@ export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
 /** Compteur d'assignments "video_submitted" — badge sidebar de la file de revue. */
 export const countVideoSubmitted = permissionQuery("review.manage")({
   args: {},
-  handler: async (ctx) => {
-    const subs = await ctx.db
-      .query("assignments")
-      .withIndex("by_project_status", (q) =>
-        q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
-      )
-      .collect();
-    // Même périmètre que la file : le badge ne compte que ce que l'écran montre.
-    return filterByCreatorScope(
-      subs,
-      (a) => a.creatorId,
-      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
-    ).length;
-  },
+  handler: (ctx) => countVideoSubmittedCore(ctx),
 });
+
+/**
+ * Le MÊME compte pour la carte « À valider » de l'accueil, sous le bloc qui
+ * gouverne cette carte (`assignments.manage`, cf ActionDashboard). L'accueil
+ * lisait `listAssignments` entier (1,4 Mio sur Snytch, renvoyé à chaque
+ * écriture) pour n'en afficher que ce nombre.
+ */
+export const countVideoSubmittedForDashboard = permissionQuery(
+  "assignments.manage",
+)({
+  args: {},
+  handler: (ctx) => countVideoSubmittedCore(ctx),
+});
+
+async function countVideoSubmittedCore(ctx: ProjectQueryCtx): Promise<number> {
+  const subs = await ctx.db
+    .query("assignments")
+    .withIndex("by_project_status", (q) =>
+      q.eq("projectId", ctx.projectId).eq("status", "video_submitted"),
+    )
+    .collect();
+  // Même périmètre que la file : le badge ne compte que ce que l'écran montre.
+  return filterByCreatorScope(
+    subs,
+    (a) => a.creatorId,
+    await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+  ).length;
+}
 
 /**
  * La NOTIF du combo, à recopier sur la publication (analytics par notif). Objet

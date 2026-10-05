@@ -43,7 +43,7 @@ import { useTranslations } from "next-intl";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type AssignmentRow =
-  FunctionReturnType<typeof api.assignments.listAssignments>[number];
+  FunctionReturnType<typeof api.assignments.listAssignmentsPilotage>[number];
 
 const formatDay = (ts: number, locale: string) =>
   new Date(ts).toLocaleDateString(locale, { day: "2-digit", month: "2-digit" });
