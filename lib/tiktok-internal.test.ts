@@ -359,6 +359,8 @@ describe("rescueWithApify — le secours payant, borné", () => {
         status: 402,
       })) as unknown as typeof fetch;
     await rescueWithApify(ctx, [aSecourir("7675779059342642465")], 42, "apify_api_xxx", 100, impl);
-    expect(echecs()[0].args.reason).toBe("HTTP 429 ; Apify en erreur (402)");
+    expect(echecs()[0].args.reason).toBe(
+      "HTTP 429 ; crédit Apify épuisé (limite mensuelle du plan atteinte)",
+    );
   });
 });
