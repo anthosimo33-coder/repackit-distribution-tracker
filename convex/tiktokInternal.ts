@@ -5,7 +5,11 @@ import {
   fetchTikTokPublicStats,
   refusalLabel,
 } from "./tiktokPublicPage";
-import { fetchApifyViewsForPlatform, type ApifyPostStat } from "./apifyApi";
+import {
+  apifyFailureReason,
+  fetchApifyViewsForPlatform,
+  type ApifyPostStat,
+} from "./apifyApi";
 
 /**
  * RELEVÉ TIKTOK MAISON — source PRINCIPALE, Apify en secours.
@@ -301,10 +305,7 @@ export async function rescueWithApify(
       );
       stats = r.stats;
       out.runs = r.runs;
-      if (r.errors.length > 0) {
-        const e = r.errors[0];
-        motifApify = `Apify en erreur (${e.status})`;
-      }
+      if (r.errors.length > 0) motifApify = apifyFailureReason(r.errors[0]);
     } catch (e) {
       motifApify = `Apify en erreur (${String(e).slice(0, 60)})`;
     }

@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
+  apifyFailureReason,
   fetchApifyViewsForPlatform,
   fetchInstagramProfiles,
   tiktokPostId,
@@ -696,10 +697,7 @@ async function syncFacebookLot(
   } else {
     const r = await fetchFacebookViews(targets, apiToken);
     stats = r.stats;
-    if (r.errors.length > 0) {
-      const e = r.errors[0];
-      motif = `Apify en erreur (${e.status}) — ${e.message}`.slice(0, 200);
-    }
+    if (r.errors.length > 0) motif = apifyFailureReason(r.errors[0]);
   }
 
   for (const t of targets) {
@@ -759,9 +757,7 @@ async function syncInstagramLot(
         apiToken,
       );
       stats = r.stats;
-      if (r.errors.length > 0) {
-        motif = `Apify en erreur (${r.errors[0].status}) — aucun repli sur cette plateforme`;
-      }
+      if (r.errors.length > 0) motif = apifyFailureReason(r.errors[0]);
     } catch (e) {
       console.error(
         `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} Instagram — Apify en échec :`,

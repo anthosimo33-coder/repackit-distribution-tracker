@@ -11,19 +11,18 @@ import {
 } from "../convex/facebookApify";
 
 /**
- * Items de la forme du dataset de `apify/facebook-posts-scraper` (schéma du
- * build du 2026-09-25) : `postId` DIFFÉRENT de l'id du Reel dans son URL,
- * `likes` = total des réactions, `timestamp` en secondes, `inputUrl` = l'URL
- * envoyée telle quelle.
+ * Items de la forme du dataset de `apify/facebook-posts-scraper` (relevée sur
+ * un run réel le 2026-10-06, cf `itemReelDeProd`) : `postId` DIFFÉRENT de l'id
+ * du Reel dans son URL, `likes` = total des réactions, `timestamp` en secondes,
+ * `facebookUrl` = l'URL envoyée telle quelle.
  */
 const REEL_URL = "https://m.facebook.com/reel/1284539976120931/?mibextid=wwXIfr";
 const PARTAGE_URL = "https://www.facebook.com/share/r/1AbCdEfGh2/?mibextid=wwXIfr";
 
 const itemReel = {
-  facebookUrl: "https://www.facebook.com/kelly.snytch",
+  facebookUrl: REEL_URL,
   postId: "1441693187314472",
   url: "https://www.facebook.com/reel/1284539976120931/",
-  inputUrl: REEL_URL,
   time: "2026-09-21T18:04:12.000Z",
   timestamp: 1_789_927_452,
   viewsCount: 18_342,
@@ -36,12 +35,12 @@ const itemReel = {
   user: { id: "100044214140223", name: "Kelly Snytch" },
 };
 
-/** Le lien de partage : Facebook rend l'URL canonique, `inputUrl` porte le nôtre. */
+/** Le lien de partage : Facebook rend l'URL canonique, `facebookUrl` porte le nôtre. */
 const itemPartage = {
   ...itemReel,
   postId: "1441693187399999",
   url: "https://www.facebook.com/reel/1284539976777777/",
-  inputUrl: PARTAGE_URL,
+  facebookUrl: PARTAGE_URL,
   viewsCount: 2_405,
   likes: 88,
 };
@@ -87,8 +86,56 @@ describe("facebookVideoId", () => {
   });
 });
 
+/**
+ * Item RÉEL — run `apify/facebook-posts-scraper` du 2026-10-06 sur un lien de
+ * partage déclaré en prod, clés et types tels que rendus (`clean=0`). L'URL
+ * envoyée revient dans `facebookUrl` ; `inputUrl` n'existe PAS. Les 9 posts
+ * Facebook de prod étaient rendus par l'actor et rapprochés de rien : jamais
+ * mesurés depuis leur déclaration.
+ */
+const PARTAGE_REEL_URL = "https://www.facebook.com/share/r/194DPTAyG2/?mibextid=wwXIfr";
+const itemReelDeProd = {
+  collaborators: [],
+  comments: 0,
+  facebookId: "61594677271719",
+  facebookUrl: PARTAGE_REEL_URL,
+  feedbackId: "ZmVlZGJhY2s6MTIyMTA0MjM5MDAzNDg5MjQy",
+  isVideo: true,
+  likes: 0,
+  liveViewerCount: 0,
+  media: [],
+  pageName: "Kelly",
+  paidPartnership: false,
+  postId: "122104239003489242",
+  shares: 0,
+  text: "Tous les memes finalement",
+  time: "2026-10-03T20:12:02.000Z",
+  timestamp: 1_791_046_322,
+  topReactionsCount: 0,
+  url: "https://www.facebook.com/reel/29471908052410933/",
+  user: { id: "61594677271719", name: "Kelly" },
+  videoPostViewCount: 1,
+  viewsCount: 5,
+};
+
+describe("parseFacebookPosts — forme RÉELLE du dataset (run du 2026-10-06)", () => {
+  it("un lien de partage est rapproché par `facebookUrl`, l'URL envoyée telle que l'actor la rend", () => {
+    const cible = { key: facebookMatchKey(PARTAGE_REEL_URL)!, url: PARTAGE_REEL_URL };
+    const r = parseFacebookPosts([itemReelDeProd], [cible]);
+    expect(r.unavailable).toEqual([]);
+    expect(r.stats[cible.key]).toEqual({
+      views: 5,
+      likes: 0,
+      comments: 0,
+      shares: 0,
+      title: "Tous les memes finalement",
+      publishedAt: 1_791_046_322_000,
+    });
+  });
+});
+
 describe("parseFacebookPosts — rapprochement par l'URL envoyée, jamais par postId", () => {
-  it("rapproche par `inputUrl`, lien de partage compris ; vues = viewsCount (pas les vues de 3 s)", () => {
+  it("rapproche par `facebookUrl`, lien de partage compris ; vues = viewsCount (pas les vues de 3 s)", () => {
     const r = parseFacebookPosts([itemPartage, itemReel], cibles);
     expect(r.unavailable).toEqual([]);
     expect(r.stats[cibles[0].key]).toEqual({
@@ -103,10 +150,25 @@ describe("parseFacebookPosts — rapprochement par l'URL envoyée, jamais par po
     expect(r.stats[cibles[1].key]).toMatchObject({ views: 2_405, likes: 88 });
   });
 
-  it("sans `inputUrl` exploitable : repli sur l'id de vidéo de `url`", () => {
-    const { inputUrl: _omis, ...sansEntree } = itemReel;
-    const r = parseFacebookPosts([sansEntree], [cibles[0]]);
+  it("sans `facebookUrl` exploitable : repli sur l'id de vidéo de `url`", () => {
+    const r = parseFacebookPosts([{ ...itemReel, facebookUrl: undefined }], [cibles[0]]);
     expect(r.stats[cibles[0].key]?.views).toBe(18_342);
+  });
+
+  it("`inputUrl` (annoncé par le schéma, jamais rendu) reste lu en second", () => {
+    const r = parseFacebookPosts(
+      [{ ...itemPartage, facebookUrl: undefined, inputUrl: PARTAGE_URL }],
+      [cibles[1]],
+    );
+    expect(r.stats[cibles[1].key]?.views).toBe(2_405);
+  });
+
+  it("`facebookUrl` qui désigne la PAGE (pas le post) : on passe au champ suivant", () => {
+    const r = parseFacebookPosts(
+      [{ ...itemPartage, facebookUrl: "https://www.facebook.com/kelly.snytch", inputUrl: PARTAGE_URL }],
+      [cibles[1]],
+    );
+    expect(r.stats[cibles[1].key]?.views).toBe(2_405);
   });
 
   it("un post sans compteur de vues (photo) n'est PAS inscrit à 0 : il est indisponible", () => {
@@ -120,7 +182,7 @@ describe("parseFacebookPosts — rapprochement par l'URL envoyée, jamais par po
     const autre = {
       ...itemReel,
       url: "https://www.facebook.com/reel/9999999999999/",
-      inputUrl: "https://www.facebook.com/reel/9999999999999/",
+      facebookUrl: "https://www.facebook.com/reel/9999999999999/",
     };
     const r = parseFacebookPosts([autre], [cibles[0]]);
     expect(r.stats).toEqual({});

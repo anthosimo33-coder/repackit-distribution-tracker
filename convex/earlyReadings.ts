@@ -9,7 +9,11 @@ import { e2eMutation } from "./functions";
 import { internal } from "./_generated/api";
 import { v, type Infer } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { fetchApifyViewsForPlatform, type ApifyPostStat } from "./apifyApi";
+import {
+  apifyFailureReason,
+  fetchApifyViewsForPlatform,
+  type ApifyPostStat,
+} from "./apifyApi";
 import { fetchTikTokPublicStats } from "./tiktokPublicPage";
 import {
   BREAKER_CLOSED,
@@ -382,7 +386,7 @@ async function collectInstagram(targets: readonly EarlyTarget[]): Promise<{
     );
     stats = r.stats;
     runs = r.runs;
-    if (r.errors.length > 0) error = `Apify en erreur (${r.errors[0].status})`;
+    if (r.errors.length > 0) error = apifyFailureReason(r.errors[0]);
   } catch (e) {
     error = `Apify en échec (${String(e).slice(0, 80)})`;
   }

@@ -13,22 +13,26 @@
  * même un actor qui rendrait plus de posts que demandé ne peut pas dépasser la
  * somme fixée ici.
  *
- * ── La forme de la sortie (schéma du dataset de l'actor, build du 25/09) ─────
- *   { url, postId, inputUrl, viewsCount, videoPostViewCount, likes, comments,
- *     shares, text, timestamp, time, isVideo, user: { name, profileUrl } }
+ * ── La forme de la sortie (relevée sur un run RÉEL le 2026-10-06) ───────────
+ *   { facebookUrl, url, postId, viewsCount, videoPostViewCount, likes,
+ *     comments, shares, text, timestamp, time, isVideo, pageName, user }
  *  - `viewsCount` = « le nombre de vues affiché par Facebook » : c'est lui qu'on
  *    retient. `videoPostViewCount` (vues de 3 s) ne sert que de repli.
  *  - `likes` = TOTAL des réactions (j'aime, j'adore, haha…).
  *  - `postId` ≠ l'identifiant du Reel dans son URL (`/reel/895509256298494/`
  *    porte le postId 1441693187314472) : on ne rapproche JAMAIS par postId.
- *  - `inputUrl` = l'URL qu'on a envoyée : c'est la clé de rapprochement ;
- *    l'identifiant de vidéo de `url` sert de repli.
+ *  - `facebookUrl` = l'URL qu'on a envoyée, telle quelle (lien de partage
+ *    compris) : c'est la clé de rapprochement ; l'identifiant de vidéo de `url`
+ *    (l'URL canonique `/reel/<id>/`) sert de repli.
  *
- * ⚠️ NON VÉRIFIÉ au 2026-09-25 (aucun run réel) :
- *  - que les liens de PARTAGE (`/share/r/…`) et `fb.watch/…` soient rendus ;
- *  - les Reels de PROFILS PERSONNELS : la description de l'entrée dit « pages
- *    publiques uniquement », le README « pages et profils ». Un post non rendu
- *    est inscrit en échec avec son motif, jamais laissé à « 0 vue ».
+ * ⚠️ Le schéma lu le 25/09 annonçait `inputUrl` pour l'URL envoyée. L'actor ne
+ * le rend pas : du 26/09 au 06/10, les 9 Reels de prod — tous des liens de
+ * partage `/share/r/…` — étaient rendus avec leurs vues et rapprochés de rien.
+ *
+ * Vérifié le 2026-10-06 : les liens de partage `/share/r/…` sont rendus. NON
+ * VÉRIFIÉ : `fb.watch/…`, et la différence Page / profil personnel (on ne sait
+ * pas lequel des deux est le compte relevé ce jour-là). Un post non rendu est
+ * inscrit en échec avec son motif, jamais laissé à « 0 vue ».
  */
 
 const APIFY_ACTS_BASE = "https://api.apify.com/v2/acts";
@@ -151,11 +155,16 @@ export function parseFacebookPosts(
   for (const raw of Array.isArray(items) ? items : []) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    const parEntree = facebookMatchKey(typeof item.inputUrl === "string" ? item.inputUrl : null);
+    // L'URL envoyée revient dans `facebookUrl` (run réel du 2026-10-06).
+    // `inputUrl`, annoncé par le schéma de l'actor, n'a jamais été rendu : il
+    // reste lu en second, au cas où un build le rétablirait.
+    const parEntree =
+      [item.facebookUrl, item.inputUrl]
+        .map((u) => facebookMatchKey(typeof u === "string" ? u : null))
+        .find((k): k is string => k !== null && parKle.has(k)) ?? null;
     const idVideo = facebookVideoId(typeof item.url === "string" ? item.url : null);
     const key =
-      (parEntree !== null && parKle.has(parEntree) ? parEntree : null) ??
-      (idVideo !== null ? (parVideo.get(idVideo) ?? null) : null);
+      parEntree ?? (idVideo !== null ? (parVideo.get(idVideo) ?? null) : null);
     if (key === null || key in stats) continue;
 
     const views = count(item.viewsCount) ?? count(item.videoPostViewCount);

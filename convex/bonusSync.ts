@@ -37,6 +37,11 @@ import {
  * jamais ce qui est payé : le gel d'un paiement (`markPaymentPaid`,
  * `markPeriodPaid`, `markCyclePaid`) rejoue lui-même `syncBonusUnlocks` juste
  * avant de figer, et l'affichage des paliers lit le cumul en direct.
+ *
+ * DEUX PASSAGES SIMULTANÉS (le bouton en lance deux, cf `requestApifySync`) :
+ * chacun synchronise ses créatrices à SA fin. Si la synchro d'une créatrice
+ * entre en conflit avec les écritures de l'autre passage, Convex la rejoue ; au
+ * pire elle est journalisée, et le passage qui finit le dernier la refait.
  */
 
 /** Ids par requête : borne la lecture (publication + résolution) d'un appel. */
