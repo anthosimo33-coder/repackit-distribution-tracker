@@ -1078,9 +1078,10 @@ export async function syncBonusUnlocks(
 
 /**
  * Sync des paliers du créateur PROPRIÉTAIRE d'une publication (après mise à jour
- * de ses vues). Résout l'assignment (chemin rapide par le compte, sinon scan
- * by_project → target.publicationId) → creatorId → syncBonusUnlocks. No-op si
- * non trouvé. Appelé depuis les écritures de snapshots (manuel + cron).
+ * de ses vues). Résout l'assignment (`publicationOwnerAssignment`) → creatorId
+ * → syncBonusUnlocks. No-op si non trouvé. Appelé par les écritures UNITAIRES
+ * de snapshots (saisie manuelle, YouTube, e2e) ; les relevés en masse diffèrent
+ * la synchro à la fin de leur passage (cf convex/bonusSync.ts).
  */
 export async function syncBonusForPublication(
   ctx: MutationCtx,
@@ -1088,15 +1089,55 @@ export async function syncBonusForPublication(
 ): Promise<void> {
   const pub = await ctx.db.get(publicationId);
   if (!pub) return;
-  const a =
-    (await assignmentOfPublicationViaCompte(ctx, pub)) ??
-    (await ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
-      .collect()
-    ).find((x) => targetsPublication(x, publicationId));
+  const a = await publicationOwnerAssignment(ctx, pub);
   if (!a) return;
   await syncBonusUnlocks(ctx, pub.projectId, a.creatorId);
+}
+
+/**
+ * Lectures partagées par les résolutions d'UNE même transaction. Un relevé
+ * touche des centaines de publications des mêmes comptes : sans ce cache, la
+ * résolution de chacune relirait les comptes de la plateforme, les assignations
+ * de la créatrice et, pour une publication orpheline, celles de tout le projet.
+ */
+export interface OwnerLookupCache {
+  comptes: Map<string, Doc<"comptes">[]>;
+  byCreator: Map<string, Doc<"assignments">[]>;
+  byProject: Map<string, Doc<"assignments">[]>;
+}
+
+export function newOwnerLookupCache(): OwnerLookupCache {
+  return { comptes: new Map(), byCreator: new Map(), byProject: new Map() };
+}
+
+/**
+ * L'assignation PROPRIÉTAIRE d'une publication — celle dont la créatrice voit
+ * ses paliers bouger quand les vues du post bougent. Chemin rapide par le
+ * compte (`assignmentOfPublicationViaCompte`), sinon scan de toutes les
+ * assignations du projet. `null` = aucune assignation ne cible le post.
+ *
+ * SOURCE UNIQUE de la résolution : la synchro unitaire
+ * (`syncBonusForPublication`) et la synchro de fin de relevé
+ * (`bonusSync.bonusOwnersOfPublications`) passent toutes deux par ici, pour
+ * qu'un palier ne puisse pas revenir à une créatrice différente selon le chemin.
+ */
+export async function publicationOwnerAssignment(
+  ctx: QueryCtx | MutationCtx,
+  pub: Doc<"publications">,
+  cache: OwnerLookupCache = newOwnerLookupCache(),
+): Promise<Doc<"assignments"> | null> {
+  const viaCompte = await assignmentOfPublicationViaCompte(ctx, pub, cache);
+  if (viaCompte) return viaCompte;
+  const projectKey = pub.projectId as string;
+  let duProjet = cache.byProject.get(projectKey);
+  if (duProjet === undefined) {
+    duProjet = await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", pub.projectId))
+      .collect();
+    cache.byProject.set(projectKey, duProjet);
+  }
+  return duProjet.find((x) => targetsPublication(x, pub._id)) ?? null;
 }
 
 function targetsPublication(
@@ -1128,23 +1169,30 @@ function targetsPublication(
 async function assignmentOfPublicationViaCompte(
   ctx: QueryCtx | MutationCtx,
   pub: Doc<"publications">,
+  cache: OwnerLookupCache,
 ): Promise<Doc<"assignments"> | null> {
-  const compte = matchCompteByHandle(
-    await ctx.db
+  const comptesKey = `${pub.projectId}|${pub.plateforme}`;
+  let comptes = cache.comptes.get(comptesKey);
+  if (comptes === undefined) {
+    comptes = await ctx.db
       .query("comptes")
       .withIndex("by_project_plateforme", (q) =>
         q.eq("projectId", pub.projectId).eq("plateforme", pub.plateforme),
       )
-      .collect(),
-    pub.compte,
-    pub.plateforme,
-  );
+      .collect();
+    cache.comptes.set(comptesKey, comptes);
+  }
+  const compte = matchCompteByHandle(comptes, pub.compte, pub.plateforme);
   if (!compte?.creatorId) return null;
   const creatorId = compte.creatorId;
-  const siennes = await ctx.db
-    .query("assignments")
-    .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-    .collect();
+  let siennes = cache.byCreator.get(creatorId as string);
+  if (siennes === undefined) {
+    siennes = await ctx.db
+      .query("assignments")
+      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
+      .collect();
+    cache.byCreator.set(creatorId as string, siennes);
+  }
   return (
     siennes.find(
       (x) => x.projectId === pub.projectId && targetsPublication(x, pub._id),

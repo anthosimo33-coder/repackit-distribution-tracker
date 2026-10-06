@@ -14,6 +14,92 @@ const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
 /**
+ * Une vidéo publiée par l'AUTRICE, dont le compte passe ensuite à une AUTRE
+ * créatrice (la REPRISE). Les deux ont la même grille : un palier en nature à
+ * 1 850 000 vues. Le palier doit revenir à l'autrice — c'est le cas qui fait
+ * quitter à la résolution son chemin rapide (le compte ne mène plus à elle).
+ */
+const videoDeCompteReassigne = async () => {
+  const ts = Date.now();
+  const autrice = await createCreatorSession(url, {
+    name: `[E2E_TEST] Léa Fontaine-Marchetti ${ts}`,
+    email: `e2e-sobre-autrice-${ts}@repackit.test`,
+    password: "sobre-autrice-12345",
+  });
+  const reprise = await createCreatorSession(url, {
+    name: `[E2E_TEST] Camille Oyelaran ${ts}`,
+    email: `e2e-sobre-reprise-${ts}@repackit.test`,
+    password: "sobre-reprise-12345",
+  });
+  const projectId = autrice.projectId;
+
+  const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+    name: `[E2E_TEST] Palier réassigné ${ts}`,
+    montantFixe: 0,
+    nbVideosCible: 1,
+    tauxCPM: 0,
+    bonusTiers: [
+      { seuilVues: 1_850_000, rewardType: "nature", libelle: "AirPods Pro" },
+    ],
+  });
+  for (const c of [autrice, reprise]) {
+    await admin.mutation(api.creators.updateCreatorPayTerms, {
+      id: c.creatorId,
+      bonusPricingId: pricingId,
+    });
+  }
+
+  const formatId = await admin.mutation(api.formats.createFormat, {
+    name: `[E2E_TEST] Format palier réassigné ${ts}`,
+    type: "short",
+  });
+  const target = await availableTarget({
+    e2eClient: admin,
+    creatorId: autrice.creatorId,
+    platform: "TikTok",
+    handle: `@lea.fontaine_${ts}`,
+  });
+  await admin.mutation(api.assignments.assignFormat, {
+    formatId,
+    creatorId: autrice.creatorId,
+    targets: [target],
+    postsPerCreator: 1,
+    dueDate: ts + 5 * DAY,
+    pricingId,
+  });
+  const assignmentId = (
+    await admin.query(api.assignments.listAssignments, {})
+  ).find((a) => a.formatId === formatId && a.creatorId === autrice.creatorId)!._id;
+  await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
+    secret: E2E_SECRET,
+    id: assignmentId,
+    status: "to_publish",
+  });
+  const { publicationIds } = await autrice.client.mutation(
+    api.assignments.confirmPublication,
+    {
+      projectId,
+      id: assignmentId,
+      urls: [
+        {
+          platform: "TikTok",
+          url: `https://www.tiktok.com/@lea.fontaine_${ts}/video/7349${ts % 1_000_000}`,
+        },
+      ],
+    },
+  );
+
+  // Le compte passe à une AUTRE créatrice APRÈS la publication. La
+  // réassignation est prospective : la vidéo reste celle de l'autrice.
+  await admin.mutation(api.comptes.updateCompte, {
+    id: target.accountId,
+    creatorId: reprise.creatorId,
+  });
+
+  return { autrice, reprise, projectId, publicationId: publicationIds[0] };
+};
+
+/**
  * COÛTS CONVEX, ÉTAPE 2 — ne plus écrire ni relire pour rien.
  *
  * La facture Convex est la bande passante base : chaque octet lu, et chaque
@@ -22,7 +108,9 @@ const HOUR = 3_600_000;
  *   2. chaque relevé de vues relisait toutes les assignations du projet pour
  *      retrouver la créatrice d'une publication ;
  *   3. les listes déroulantes de comptes relisaient publications et
- *      assignations pour afficher un @.
+ *      assignations pour afficher un @ ;
+ *   4. chaque relevé recalculait le cumul de paliers de sa créatrice — une
+ *      fois PAR POST, soit ~440 fois par passage pour la plus prolifique.
  * Chaque optimisation a son risque ; chaque test ci-dessous en vise un.
  */
 test.describe("Coûts Convex — écritures et lectures sobres", () => {
@@ -146,85 +234,12 @@ test.describe("Coûts Convex — écritures et lectures sobres", () => {
 
   test("Relevé : le palier revient à la créatrice de la VIDÉO, même quand son compte a été réassigné", async () => {
     test.setTimeout(120_000);
-    const ts = Date.now();
-    const autrice = await createCreatorSession(url, {
-      name: `[E2E_TEST] Léa Fontaine-Marchetti ${ts}`,
-      email: `e2e-sobre-autrice-${ts}@repackit.test`,
-      password: "sobre-autrice-12345",
-    });
-    const reprise = await createCreatorSession(url, {
-      name: `[E2E_TEST] Camille Oyelaran ${ts}`,
-      email: `e2e-sobre-reprise-${ts}@repackit.test`,
-      password: "sobre-reprise-12345",
-    });
-    const projectId = autrice.projectId;
-
-    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
-      name: `[E2E_TEST] Palier réassigné ${ts}`,
-      montantFixe: 0,
-      nbVideosCible: 1,
-      tauxCPM: 0,
-      bonusTiers: [
-        { seuilVues: 1_850_000, rewardType: "nature", libelle: "AirPods Pro" },
-      ],
-    });
-    for (const c of [autrice, reprise]) {
-      await admin.mutation(api.creators.updateCreatorPayTerms, {
-        id: c.creatorId,
-        bonusPricingId: pricingId,
-      });
-    }
-
-    const formatId = await admin.mutation(api.formats.createFormat, {
-      name: `[E2E_TEST] Format palier réassigné ${ts}`,
-      type: "short",
-    });
-    const target = await availableTarget({
-      e2eClient: admin,
-      creatorId: autrice.creatorId,
-      platform: "TikTok",
-      handle: `@lea.fontaine_${ts}`,
-    });
-    await admin.mutation(api.assignments.assignFormat, {
-      formatId,
-      creatorId: autrice.creatorId,
-      targets: [target],
-      postsPerCreator: 1,
-      dueDate: ts + 5 * DAY,
-      pricingId,
-    });
-    const assignmentId = (
-      await admin.query(api.assignments.listAssignments, {})
-    ).find((a) => a.formatId === formatId && a.creatorId === autrice.creatorId)!._id;
-    await admin.mutation(api.assignments.e2eSetAssignmentStatus, {
-      secret: E2E_SECRET,
-      id: assignmentId,
-      status: "to_publish",
-    });
-    const { publicationIds } = await autrice.client.mutation(
-      api.assignments.confirmPublication,
-      {
-        projectId,
-        id: assignmentId,
-        urls: [
-          {
-            platform: "TikTok",
-            url: `https://www.tiktok.com/@lea.fontaine_${ts}/video/7349${ts % 1_000_000}`,
-          },
-        ],
-      },
-    );
-
-    // Le compte passe à une AUTRE créatrice APRÈS la publication. La
-    // réassignation est prospective : la vidéo reste celle de l'autrice.
-    await admin.mutation(api.comptes.updateCompte, {
-      id: target.accountId,
-      creatorId: reprise.creatorId,
-    });
+    const { autrice, reprise, projectId, publicationId } =
+      await videoDeCompteReassigne();
 
     await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
       secret: E2E_SECRET,
-      publicationId: publicationIds[0],
+      publicationId,
       vues: 2_047_318,
       capturedAt: Date.now(),
       source: "tiktok",
@@ -240,5 +255,51 @@ test.describe("Coûts Convex — écritures et lectures sobres", () => {
       projectId,
     });
     expect(chezReprise?.natureUnlocked ?? []).toEqual([]);
+  });
+
+  test("Relevé en masse : le palier n'est posé qu'en FIN de passage, une fois, chez la créatrice de la vidéo", async () => {
+    test.setTimeout(120_000);
+    const { autrice, reprise, projectId, publicationId } =
+      await videoDeCompteReassigne();
+
+    // Le relevé en masse écrit ses vues SANS toucher aux paliers…
+    await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
+      secret: E2E_SECRET,
+      publicationId,
+      vues: 2_047_318,
+      capturedAt: Date.now(),
+      source: "tiktok",
+      differerBonus: true,
+    });
+    const avant = await autrice.client.query(api.pricing.getMyBonusStatus, {
+      projectId,
+    });
+    expect(avant?.natureUnlocked ?? []).toEqual([]);
+
+    // …puis la fin de passage synchronise chaque créatrice UNE fois, même si
+    // la publication revient plusieurs fois dans la liste.
+    const fin = await admin.action(api.bonusSync.e2eSyncBonusAfterReleves, {
+      secret: E2E_SECRET,
+      publicationIds: [publicationId, publicationId],
+    });
+    expect(fin).toEqual({ creatrices: 1, unlocked: 1, revoked: 0, echecs: 0 });
+
+    const chezAutrice = await autrice.client.query(api.pricing.getMyBonusStatus, {
+      projectId,
+    });
+    expect(chezAutrice!.natureUnlocked.map((r) => r.libelle)).toEqual([
+      "AirPods Pro",
+    ]);
+    const chezReprise = await reprise.client.query(api.pricing.getMyBonusStatus, {
+      projectId,
+    });
+    expect(chezReprise?.natureUnlocked ?? []).toEqual([]);
+
+    // Idempotent : un second passage ne débloque rien de plus.
+    const encore = await admin.action(api.bonusSync.e2eSyncBonusAfterReleves, {
+      secret: E2E_SECRET,
+      publicationIds: [publicationId],
+    });
+    expect(encore).toMatchObject({ creatrices: 1, unlocked: 0, revoked: 0 });
   });
 });

@@ -31,6 +31,7 @@ import { TRACKING_WINDOW_DAYS, planLots, selectDueOnManualSync } from "./syncSco
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
 import { syncBonusForPublication } from "./pricing";
+import { syncBonusAfterReleves } from "./bonusSync";
 import { collectSnapchatInternally } from "./snapchatInternal";
 import { isSnapchatShortlink, snapchatSpotlightId } from "./snapchatPublicPage";
 import {
@@ -147,6 +148,11 @@ export interface ApifySyncSummary {
  * Titre : si fourni (légende du post), patché sur la publication (postTitle) —
  * propriété du post, pas une série temporelle, donc hors snapshot.
  *
+ * PALIERS : `differerBonus` retire la synchro des paliers de l'écriture. Les
+ * relevés en masse le passent tous, puis appellent `syncBonusAfterReleves` en
+ * fin de passage — une synchro par créatrice au lieu d'une par post (cf
+ * convex/bonusSync.ts). Absent = synchro immédiate, comme avant.
+ *
  * Partagé par recordApifySnapshot (cron) et e2eRecordApifySnapshot (test).
  */
 async function upsertApifySnapshot(
@@ -160,6 +166,7 @@ async function upsertApifySnapshot(
     title?: string | null;
     capturedAt: number;
     source: ApifySource;
+    differerBonus?: boolean;
   },
 ): Promise<{ action: "inserted" | "updated" | "skipped" }> {
   const pub = await ctx.db.get(args.publicationId);
@@ -224,7 +231,9 @@ async function upsertApifySnapshot(
       daysSincePublication,
     });
     await recomputeLatestMetrics(ctx, args.publicationId);
-    await syncBonusForPublication(ctx, args.publicationId);
+    if (args.differerBonus !== true) {
+      await syncBonusForPublication(ctx, args.publicationId);
+    }
     await ctx.db.patch(args.publicationId, pubPatch);
     return { action: "updated" };
   }
@@ -242,7 +251,9 @@ async function upsertApifySnapshot(
     source: args.source,
   });
   await recomputeLatestMetrics(ctx, args.publicationId);
-  await syncBonusForPublication(ctx, args.publicationId);
+  if (args.differerBonus !== true) {
+    await syncBonusForPublication(ctx, args.publicationId);
+  }
   await ctx.db.patch(args.publicationId, pubPatch);
   return { action: "inserted" };
 }
@@ -327,6 +338,8 @@ export const recordApifySnapshot = internalMutation({
     title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,
+    /** Paliers synchronisés en fin de passage par l'appelant (cf bonusSync). */
+    differerBonus: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -572,349 +585,369 @@ export const runDailySync = internalAction({
     plateformes: v.optional(v.array(plateformeValidator)),
   },
   handler: async (ctx, { projectId, plateformes }): Promise<ApifySyncSummary> => {
-    const apiToken = process.env.APIFY_API_TOKEN;
-    const now = Date.now();
-    const cutoff = now - ACTIVE_WINDOW_DAYS * DAY_MS;
-    const releve = (p: Plateforme): boolean =>
-      plateformes === undefined || plateformes.includes(p);
-    // Vidéos d'un défi actif : relevées par le bouton quel que soit leur âge,
-    // comme la nuit (cf `selectDueOnManualSync`).
-    const defisActifs = new Set<string>(
-      releve("Instagram") || releve("Facebook")
-        ? await ctx.runQuery(internal.challengeSync.listLiveChallengePublicationIds, {})
-        : [],
-    );
-    const summary: ApifySyncSummary = {
-      ok: true,
-      scanned: 0,
-      matched: 0,
-      synced: 0,
-      unavailable: 0,
-      errors: 0,
-      runs: 0,
-      recovered: 0,
-      deferred: 0,
-      failed: 0,
-    };
-
-    for (const { plateforme, source } of APIFY_PLATFORMS) {
-      if (!releve(plateforme)) continue;
-      const actives = await ctx.runQuery(
-        internal.apifySync.listActiveApifyPublications,
-        projectId ? { cutoff, plateforme, projectId } : { cutoff, plateforme },
+    // Publications dont le relevé est TENTÉ pendant ce passage : leurs
+    // propriétaires voient leurs paliers synchronisés UNE fois, en fin de
+    // passage (cf convex/bonusSync.ts) — y compris si le passage lève à
+    // mi-chemin, d'où le `finally`.
+    const tentees: Id<"publications">[] = [];
+    try {
+      const apiToken = process.env.APIFY_API_TOKEN;
+      const now = Date.now();
+      const cutoff = now - ACTIVE_WINDOW_DAYS * DAY_MS;
+      const releve = (p: Plateforme): boolean =>
+        plateformes === undefined || plateformes.includes(p);
+      // Vidéos d'un défi actif : relevées par le bouton quel que soit leur âge,
+      // comme la nuit (cf `selectDueOnManualSync`).
+      const defisActifs = new Set<string>(
+        releve("Instagram") || releve("Facebook")
+          ? await ctx.runQuery(internal.challengeSync.listLiveChallengePublicationIds, {})
+          : [],
       );
-      summary.scanned += actives.length;
-      // Instagram est payé au post : la cadence de la nuit, pas tout le
-      // catalogue (cf `selectDueOnManualSync`). TikTok, lu sur sa page, est
-      // gratuit : périmètre complet.
-      const pubs =
-        plateforme === "Instagram"
-          ? selectDueOnManualSync(actives, now, defisActifs)
-          : actives;
+      const summary: ApifySyncSummary = {
+        ok: true,
+        scanned: 0,
+        matched: 0,
+        synced: 0,
+        unavailable: 0,
+        errors: 0,
+        runs: 0,
+        recovered: 0,
+        deferred: 0,
+        failed: 0,
+      };
 
-      // Clé de post par publication (id TikTok / shortcode Insta).
-      const keyFor = (url: string): string | null =>
-        plateforme === "TikTok" ? tiktokPostId(url) : instagramShortcode(url);
-      const targets: {
-        publicationId: Id<"publications">;
-        key: string;
-        url: string;
-        /** @ TEL QU'IL EST EN BASE — la photo s'accroche là-dessus. */
-        compte: string;
-        projectId: Id<"projects">;
-      }[] = [];
-      // Les plus RÉCENTES d'abord : si le temps manque (TikTok), ce sont les
-      // vidéos qui bougent le plus qui passent.
-      for (const p of [...pubs].sort((a, b) => b.datePubli - a.datePubli)) {
-        const key = keyFor(p.postUrl);
-        // URL non rapprochable : inscrite comme échec de collecte AVEC son motif
-        // (même traitement que le relevé nocturne, cf convex/nightlyViewsSync).
-        // Le `continue` d'origine ne laissait qu'un écart entre `scanned` et
-        // `matched` dans un log — invisible depuis l'application.
-        if (!key) {
-          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-            publicationId: p._id,
-            at: now,
-            reason: unmatchableUrlReason(p.postUrl, plateforme),
-          });
-          if (plateforme === "TikTok" && isTikTokShortlink(p.postUrl)) {
-            await ctx.scheduler.runAfter(
-              0,
-              internal.postUrlResolution.resolvePublicationShortlink,
-              { publicationId: p._id },
-            );
+      for (const { plateforme, source } of APIFY_PLATFORMS) {
+        if (!releve(plateforme)) continue;
+        const actives = await ctx.runQuery(
+          internal.apifySync.listActiveApifyPublications,
+          projectId ? { cutoff, plateforme, projectId } : { cutoff, plateforme },
+        );
+        summary.scanned += actives.length;
+        // Instagram est payé au post : la cadence de la nuit, pas tout le
+        // catalogue (cf `selectDueOnManualSync`). TikTok, lu sur sa page, est
+        // gratuit : périmètre complet.
+        const pubs =
+          plateforme === "Instagram"
+            ? selectDueOnManualSync(actives, now, defisActifs)
+            : actives;
+
+        // Clé de post par publication (id TikTok / shortcode Insta).
+        const keyFor = (url: string): string | null =>
+          plateforme === "TikTok" ? tiktokPostId(url) : instagramShortcode(url);
+        const targets: {
+          publicationId: Id<"publications">;
+          key: string;
+          url: string;
+          /** @ TEL QU'IL EST EN BASE — la photo s'accroche là-dessus. */
+          compte: string;
+          projectId: Id<"projects">;
+        }[] = [];
+        // Les plus RÉCENTES d'abord : si le temps manque (TikTok), ce sont les
+        // vidéos qui bougent le plus qui passent.
+        for (const p of [...pubs].sort((a, b) => b.datePubli - a.datePubli)) {
+          const key = keyFor(p.postUrl);
+          // URL non rapprochable : inscrite comme échec de collecte AVEC son motif
+          // (même traitement que le relevé nocturne, cf convex/nightlyViewsSync).
+          // Le `continue` d'origine ne laissait qu'un écart entre `scanned` et
+          // `matched` dans un log — invisible depuis l'application.
+          if (!key) {
+            await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+              publicationId: p._id,
+              at: now,
+              reason: unmatchableUrlReason(p.postUrl, plateforme),
+            });
+            if (plateforme === "TikTok" && isTikTokShortlink(p.postUrl)) {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.postUrlResolution.resolvePublicationShortlink,
+                { publicationId: p._id },
+              );
+            }
+            continue;
           }
+          targets.push({
+            publicationId: p._id,
+            key,
+            url: p.postUrl,
+            compte: p.compte,
+            projectId: p.projectId,
+          });
+        }
+        summary.matched += targets.length;
+        for (const t of targets) tentees.push(t.publicationId);
+        if (targets.length === 0) continue;
+
+        if (plateforme === "TikTok") {
+          // PAGE PUBLIQUE d'abord, dans la limite de MANUAL_TIKTOK_BUDGET_MS : une
+          // action Convex a une durée maximale, et une page toutes les ~2 s ne
+          // relève pas un gros projet d'un bloc. Le reste n'est PAS un échec :
+          // il attend le relevé de nuit, qui découpe en lots.
+          const interne = await collectTikTokInternally(
+            ctx,
+            targets,
+            now,
+            BREAKER_CLOSED,
+            { deadline: Date.now() + MANUAL_TIKTOK_BUDGET_MS },
+          );
+          if (interne.avatars.length > 0) {
+            await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
+              candidats: interne.avatars.map((a) => ({ ...a, plateforme })),
+            });
+          }
+          const secours = await rescueWithApify(
+            ctx,
+            interne.aSecourir,
+            now,
+            apiToken,
+            APIFY_RESCUE_BUDGET,
+          );
+          summary.recovered += interne.releves.length;
+          summary.synced += interne.releves.length + secours.releves.length;
+          summary.runs += secours.runs;
+          summary.deferred += interne.nonTentes.length;
+          summary.failed += interne.refused + secours.failed;
+          console.info(
+            `[apify-sync] TikTok — ${targets.length} post(s) : ${interne.releves.length} par la page, ` +
+              `${secours.releves.length} par Apify (${secours.runs} run(s)), ${interne.refused} refusé(s), ` +
+              `${secours.failed} perdu(s), ${interne.nonTentes.length} reporté(s) au relevé de nuit` +
+              (interne.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${interne.breaker.trippedReason}` : "") +
+              ".",
+          );
           continue;
         }
-        targets.push({
-          publicationId: p._id,
-          key,
-          url: p.postUrl,
-          compte: p.compte,
-          projectId: p.projectId,
-        });
-      }
-      summary.matched += targets.length;
-      if (targets.length === 0) continue;
 
-      if (plateforme === "TikTok") {
-        // PAGE PUBLIQUE d'abord, dans la limite de MANUAL_TIKTOK_BUDGET_MS : une
-        // action Convex a une durée maximale, et une page toutes les ~2 s ne
-        // relève pas un gros projet d'un bloc. Le reste n'est PAS un échec :
-        // il attend le relevé de nuit, qui découpe en lots.
-        const interne = await collectTikTokInternally(
-          ctx,
-          targets,
-          now,
-          BREAKER_CLOSED,
-          { deadline: Date.now() + MANUAL_TIKTOK_BUDGET_MS },
-        );
-        if (interne.avatars.length > 0) {
-          await ctx.runAction(internal.compteAvatar.rafraichirAvatars, {
-            candidats: interne.avatars.map((a) => ({ ...a, plateforme })),
-          });
-        }
-        const secours = await rescueWithApify(
-          ctx,
-          interne.aSecourir,
-          now,
-          apiToken,
-          APIFY_RESCUE_BUDGET,
-        );
-        summary.recovered += interne.releves.length;
-        summary.synced += interne.releves.length + secours.releves.length;
-        summary.runs += secours.runs;
-        summary.deferred += interne.nonTentes.length;
-        summary.failed += interne.refused + secours.failed;
-        console.info(
-          `[apify-sync] TikTok — ${targets.length} post(s) : ${interne.releves.length} par la page, ` +
-            `${secours.releves.length} par Apify (${secours.runs} run(s)), ${interne.refused} refusé(s), ` +
-            `${secours.failed} perdu(s), ${interne.nonTentes.length} reporté(s) au relevé de nuit` +
-            (interne.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${interne.breaker.trippedReason}` : "") +
-            ".",
-        );
-        continue;
-      }
-
-      if (!apiToken) {
-        console.error(
-          "[apify-sync] APIFY_API_TOKEN absent — relevé Instagram annulé. " +
-            "Posez le token : npx convex env set APIFY_API_TOKEN <token>.",
-        );
-        for (const t of targets) {
-          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-            publicationId: t.publicationId,
-            at: now,
-            reason: "pas de relevé Instagram (APIFY_API_TOKEN absent)",
-          });
-        }
-        summary.ok = false;
-        summary.reason = "missing-api-token";
-        summary.failed += targets.length;
-        continue;
-      }
-
-      // LOT PAR LOT, écrit dès qu'il revient : les chiffres apparaissent au fil
-      // des runs au lieu d'attendre le dernier. Le 2026-10-06, 17 lots en série
-      // ont laissé l'écran figé 7 min avant la première écriture.
-      let runs = 0;
-      let unavailable = 0;
-      const errors: ApifyBatchError[] = [];
-      for (const lot of planLots(targets)) {
-        const r = await fetchApifyViewsForPlatform(
-          plateforme,
-          lot.map((t) => t.url),
-          apiToken,
-        );
-        runs += r.runs;
-        unavailable += r.unavailable.length;
-        errors.push(...r.errors);
-        // Instagram n'a pas de lecture publique : le post est inscrit en
-        // échec avec son motif, jamais laissé à « 0 vue » sans explication.
-        const motif =
-          r.errors.length > 0
-            ? apifyFailureReason(r.errors[0])
-            : "Apify n'a pas rendu le post (aucun repli sur cette plateforme)";
-        for (const t of lot) {
-          const stat = r.stats[t.key];
-          if (stat === undefined) {
+        if (!apiToken) {
+          console.error(
+            "[apify-sync] APIFY_API_TOKEN absent — relevé Instagram annulé. " +
+              "Posez le token : npx convex env set APIFY_API_TOKEN <token>.",
+          );
+          for (const t of targets) {
             await ctx.runMutation(internal.apifySync.recordCollectFailure, {
               publicationId: t.publicationId,
               at: now,
-              reason: motif,
+              reason: "pas de relevé Instagram (APIFY_API_TOKEN absent)",
             });
-            summary.failed += 1;
-            continue;
           }
-          const w = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
-            publicationId: t.publicationId,
-            vues: stat.views,
-            likes: stat.likes,
-            comments: stat.comments,
-            saves: stat.saves,
-            title: stat.title ?? undefined,
-            capturedAt: now,
-            source,
-          });
-          if (w.action !== "skipped") summary.synced += 1;
+          summary.ok = false;
+          summary.reason = "missing-api-token";
+          summary.failed += targets.length;
+          continue;
         }
-      }
-      summary.unavailable += unavailable;
-      summary.errors += errors.length;
-      summary.runs += runs;
 
-      if (errors.length > 0) {
-        console.error(
-          `[apify-sync] ${plateforme} — ${errors.length} lot(s) en erreur:`,
-          errors,
+        // LOT PAR LOT, écrit dès qu'il revient : les chiffres apparaissent au fil
+        // des runs au lieu d'attendre le dernier. Le 2026-10-06, 17 lots en série
+        // ont laissé l'écran figé 7 min avant la première écriture.
+        let runs = 0;
+        let unavailable = 0;
+        const errors: ApifyBatchError[] = [];
+        for (const lot of planLots(targets)) {
+          const r = await fetchApifyViewsForPlatform(
+            plateforme,
+            lot.map((t) => t.url),
+            apiToken,
+          );
+          runs += r.runs;
+          unavailable += r.unavailable.length;
+          errors.push(...r.errors);
+          // Instagram n'a pas de lecture publique : le post est inscrit en
+          // échec avec son motif, jamais laissé à « 0 vue » sans explication.
+          const motif =
+            r.errors.length > 0
+              ? apifyFailureReason(r.errors[0])
+              : "Apify n'a pas rendu le post (aucun repli sur cette plateforme)";
+          for (const t of lot) {
+            const stat = r.stats[t.key];
+            if (stat === undefined) {
+              await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+                publicationId: t.publicationId,
+                at: now,
+                reason: motif,
+              });
+              summary.failed += 1;
+              continue;
+            }
+            const w = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+              publicationId: t.publicationId,
+              vues: stat.views,
+              likes: stat.likes,
+              comments: stat.comments,
+              saves: stat.saves,
+              title: stat.title ?? undefined,
+              capturedAt: now,
+              source,
+              differerBonus: true,
+            });
+            if (w.action !== "skipped") summary.synced += 1;
+          }
+        }
+        summary.unavailable += unavailable;
+        summary.errors += errors.length;
+        summary.runs += runs;
+
+        if (errors.length > 0) {
+          console.error(
+            `[apify-sync] ${plateforme} — ${errors.length} lot(s) en erreur:`,
+            errors,
+          );
+        }
+        if (unavailable > 0) {
+          console.warn(
+            `[apify-sync] ${plateforme} — ${unavailable} post(s) indisponible(s) (privé/supprimé/image).`,
+          );
+        }
+        console.info(
+          `[apify-sync] ${plateforme} OK — ${targets.length} post(s) dus sur ${actives.length} actif(s), ${runs} run(s) Apify.`,
         );
       }
-      if (unavailable > 0) {
-        console.warn(
-          `[apify-sync] ${plateforme} — ${unavailable} post(s) indisponible(s) (privé/supprimé/image).`,
-        );
-      }
-      console.info(
-        `[apify-sync] ${plateforme} OK — ${targets.length} post(s) dus sur ${actives.length} actif(s), ${runs} run(s) Apify.`,
-      );
-    }
 
-    // ── Snapchat : pages publiques des Spotlight, gratuites ───────────────────
-    const pubsSnap = releve("Snapchat")
-      ? await ctx.runQuery(
-          internal.apifySync.listActiveApifyPublications,
-          projectId
-            ? { cutoff, plateforme: "Snapchat" as const, projectId }
-            : { cutoff, plateforme: "Snapchat" as const },
-        )
-      : [];
-    summary.scanned += pubsSnap.length;
-    const ciblesSnap: {
-      publicationId: Id<"publications">;
-      projectId: Id<"projects">;
-      compte: string;
-      key: string;
-      url: string;
-    }[] = [];
-    for (const p of [...pubsSnap].sort((a, b) => b.datePubli - a.datePubli)) {
-      // Lien court : "" — l'identifiant sera lu dans l'URL où il redirige.
-      const key =
-        snapchatSpotlightId(p.postUrl) ?? (isSnapchatShortlink(p.postUrl) ? "" : null);
-      if (key === null) {
-        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-          publicationId: p._id,
-          at: now,
-          reason: unmatchableUrlReason(p.postUrl, "Snapchat"),
-        });
-        summary.failed += 1;
-        continue;
-      }
-      ciblesSnap.push({
-        publicationId: p._id,
-        projectId: p.projectId,
-        compte: p.compte,
-        key,
-        url: p.postUrl,
-      });
-    }
-    summary.matched += ciblesSnap.length;
-    if (ciblesSnap.length > 0) {
-      const snap = await collectSnapchatInternally(ctx, ciblesSnap, now, BREAKER_CLOSED, {
-        deadline: Date.now() + MANUAL_SNAPCHAT_BUDGET_MS,
-      });
-      summary.synced += snap.releves.length;
-      summary.recovered += snap.releves.length;
-      summary.deferred += snap.nonTentes.length;
-      summary.failed += snap.gone + snap.failed;
-      console.info(
-        `[apify-sync] Snapchat — ${ciblesSnap.length} Spotlight : ${snap.releves.length} relevé(s), ` +
-          `${snap.gone} introuvable(s), ${snap.failed} en échec, ${snap.nonTentes.length} reporté(s) au relevé de nuit` +
-          (snap.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${snap.breaker.trippedReason}` : "") +
-          ".",
-      );
-    }
-
-    // ── Facebook : actor Apify officiel, payé au post ────────────────────────
-    const pubsFb = releve("Facebook")
-      ? await ctx.runQuery(
-          internal.apifySync.listActiveApifyPublications,
-          projectId
-            ? { cutoff, plateforme: "Facebook" as const, projectId }
-            : { cutoff, plateforme: "Facebook" as const },
-        )
-      : [];
-    summary.scanned += pubsFb.length;
-    // Payé au post, comme Instagram : la cadence de la nuit, moins ce qui a
-    // été relevé il y a moins de 6 h (cf `selectDueOnManualSync`).
-    const aRelever = selectDueOnManualSync(pubsFb, now, defisActifs);
-    const { retenus: fbRetenus } = planFacebookBudget(
-      aRelever,
-      facebookNightlyBudget(process.env.APIFY_FACEBOOK_NIGHTLY_BUDGET),
-    );
-    const ciblesFb: { publicationId: Id<"publications">; key: string; url: string }[] = [];
-    for (const p of fbRetenus) {
-      const key = facebookMatchKey(p.postUrl);
-      if (key === null) {
-        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-          publicationId: p._id,
-          at: now,
-          reason: unmatchableUrlReason(p.postUrl, "Facebook"),
-        });
-        summary.failed += 1;
-        continue;
-      }
-      ciblesFb.push({ publicationId: p._id, key, url: p.postUrl });
-    }
-    summary.matched += ciblesFb.length;
-    if (ciblesFb.length > 0 && !apiToken) {
-      for (const t of ciblesFb) {
-        await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-          publicationId: t.publicationId,
-          at: now,
-          reason: "pas de relevé Facebook (APIFY_API_TOKEN absent)",
-        });
-      }
-      summary.failed += ciblesFb.length;
-    } else if (ciblesFb.length > 0 && apiToken) {
-      const fb = await fetchFacebookViews(ciblesFb, apiToken);
-      summary.runs += fb.runs;
-      summary.errors += fb.errors.length;
-      for (const t of ciblesFb) {
-        const stat = fb.stats[t.key];
-        if (stat === undefined) {
+      // ── Snapchat : pages publiques des Spotlight, gratuites ───────────────────
+      const pubsSnap = releve("Snapchat")
+        ? await ctx.runQuery(
+            internal.apifySync.listActiveApifyPublications,
+            projectId
+              ? { cutoff, plateforme: "Snapchat" as const, projectId }
+              : { cutoff, plateforme: "Snapchat" as const },
+          )
+        : [];
+      summary.scanned += pubsSnap.length;
+      const ciblesSnap: {
+        publicationId: Id<"publications">;
+        projectId: Id<"projects">;
+        compte: string;
+        key: string;
+        url: string;
+      }[] = [];
+      for (const p of [...pubsSnap].sort((a, b) => b.datePubli - a.datePubli)) {
+        // Lien court : "" — l'identifiant sera lu dans l'URL où il redirige.
+        const key =
+          snapchatSpotlightId(p.postUrl) ?? (isSnapchatShortlink(p.postUrl) ? "" : null);
+        if (key === null) {
           await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-            publicationId: t.publicationId,
+            publicationId: p._id,
             at: now,
-            reason:
-              fb.errors.length > 0
-                ? apifyFailureReason(fb.errors[0])
-                : "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)",
+            reason: unmatchableUrlReason(p.postUrl, "Snapchat"),
           });
           summary.failed += 1;
           continue;
         }
-        const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
-          publicationId: t.publicationId,
-          vues: stat.views,
-          likes: stat.likes,
-          comments: stat.comments,
-          saves: null,
-          title: stat.title ?? undefined,
-          capturedAt: now,
-          source: "facebook",
+        ciblesSnap.push({
+          publicationId: p._id,
+          projectId: p.projectId,
+          compte: p.compte,
+          key,
+          url: p.postUrl,
         });
-        if (r.action !== "skipped") summary.synced += 1;
       }
+      summary.matched += ciblesSnap.length;
+      for (const c of ciblesSnap) tentees.push(c.publicationId);
+      if (ciblesSnap.length > 0) {
+        const snap = await collectSnapchatInternally(ctx, ciblesSnap, now, BREAKER_CLOSED, {
+          deadline: Date.now() + MANUAL_SNAPCHAT_BUDGET_MS,
+        });
+        summary.synced += snap.releves.length;
+        summary.recovered += snap.releves.length;
+        summary.deferred += snap.nonTentes.length;
+        summary.failed += snap.gone + snap.failed;
+        console.info(
+          `[apify-sync] Snapchat — ${ciblesSnap.length} Spotlight : ${snap.releves.length} relevé(s), ` +
+            `${snap.gone} introuvable(s), ${snap.failed} en échec, ${snap.nonTentes.length} reporté(s) au relevé de nuit` +
+            (snap.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${snap.breaker.trippedReason}` : "") +
+            ".",
+        );
+      }
+
+      // ── Facebook : actor Apify officiel, payé au post ────────────────────────
+      const pubsFb = releve("Facebook")
+        ? await ctx.runQuery(
+            internal.apifySync.listActiveApifyPublications,
+            projectId
+              ? { cutoff, plateforme: "Facebook" as const, projectId }
+              : { cutoff, plateforme: "Facebook" as const },
+          )
+        : [];
+      summary.scanned += pubsFb.length;
+      // Payé au post, comme Instagram : la cadence de la nuit, moins ce qui a
+      // été relevé il y a moins de 6 h (cf `selectDueOnManualSync`).
+      const aRelever = selectDueOnManualSync(pubsFb, now, defisActifs);
+      const { retenus: fbRetenus } = planFacebookBudget(
+        aRelever,
+        facebookNightlyBudget(process.env.APIFY_FACEBOOK_NIGHTLY_BUDGET),
+      );
+      const ciblesFb: { publicationId: Id<"publications">; key: string; url: string }[] = [];
+      for (const p of fbRetenus) {
+        const key = facebookMatchKey(p.postUrl);
+        if (key === null) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: p._id,
+            at: now,
+            reason: unmatchableUrlReason(p.postUrl, "Facebook"),
+          });
+          summary.failed += 1;
+          continue;
+        }
+        ciblesFb.push({ publicationId: p._id, key, url: p.postUrl });
+      }
+      summary.matched += ciblesFb.length;
+      for (const c of ciblesFb) tentees.push(c.publicationId);
+      if (ciblesFb.length > 0 && !apiToken) {
+        for (const t of ciblesFb) {
+          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+            publicationId: t.publicationId,
+            at: now,
+            reason: "pas de relevé Facebook (APIFY_API_TOKEN absent)",
+          });
+        }
+        summary.failed += ciblesFb.length;
+      } else if (ciblesFb.length > 0 && apiToken) {
+        const fb = await fetchFacebookViews(ciblesFb, apiToken);
+        summary.runs += fb.runs;
+        summary.errors += fb.errors.length;
+        for (const t of ciblesFb) {
+          const stat = fb.stats[t.key];
+          if (stat === undefined) {
+            await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+              publicationId: t.publicationId,
+              at: now,
+              reason:
+                fb.errors.length > 0
+                  ? apifyFailureReason(fb.errors[0])
+                  : "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)",
+            });
+            summary.failed += 1;
+            continue;
+          }
+          const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+            publicationId: t.publicationId,
+            vues: stat.views,
+            likes: stat.likes,
+            comments: stat.comments,
+            saves: null,
+            title: stat.title ?? undefined,
+            capturedAt: now,
+            source: "facebook",
+            differerBonus: true,
+          });
+          if (r.action !== "skipped") summary.synced += 1;
+        }
+        console.info(
+          `[apify-sync] Facebook — ${ciblesFb.length} post(s) demandé(s) sur ${pubsFb.length}, ` +
+            `${Object.keys(fb.stats).length} rendu(s), ${fb.runs} run(s), ${fb.errors.length} lot(s) en erreur.`,
+        );
+      }
+
       console.info(
-        `[apify-sync] Facebook — ${ciblesFb.length} post(s) demandé(s) sur ${pubsFb.length}, ` +
-          `${Object.keys(fb.stats).length} rendu(s), ${fb.runs} run(s), ${fb.errors.length} lot(s) en erreur.`,
+        `[apify-sync] Terminé — ${summary.synced} snapshot(s), ${summary.runs} run(s) Apify au total (~coût).`,
+      );
+      return summary;
+    } finally {
+      const b = await syncBonusAfterReleves(ctx, tentees);
+      console.info(
+        `[apify-sync] Paliers — ${b.creatrices} créatrice(s) synchronisée(s), ` +
+          `${b.unlocked} débloqué(s), ${b.revoked} révoqué(s)` +
+          (b.echecs > 0 ? `, ${b.echecs} échec(s)` : "") +
+          ".",
       );
     }
-
-    console.info(
-      `[apify-sync] Terminé — ${summary.synced} snapshot(s), ${summary.runs} run(s) Apify au total (~coût).`,
-    );
-    return summary;
   },
 });
 
@@ -960,6 +993,8 @@ export const e2eRecordApifySnapshot = e2eMutation({
     title: v.optional(v.string()),
     capturedAt: v.number(),
     source: apifySourceValidator,
+    /** Paliers synchronisés en fin de passage par l'appelant (cf bonusSync). */
+    differerBonus: v.optional(v.boolean()),
   },
   handler: async (
     ctx,

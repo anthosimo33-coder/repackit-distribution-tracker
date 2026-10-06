@@ -133,6 +133,8 @@ export async function collectSnapchatInternally(
       saves: null,
       capturedAt,
       source: "snapchat" as const,
+      // Paliers synchronisés par l'appelant en fin de passage (cf bonusSync).
+      differerBonus: true,
     });
     if (res.action !== "skipped") out.releves.push(t.publicationId as string);
   }
