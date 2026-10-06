@@ -221,6 +221,8 @@ export async function collectTikTokInternally(
       // `source: "tiktok"` : c'est un relevé TikTok, la série reste homogène.
       // La provenance (page ou Apify) n'a aucune conséquence à la lecture.
       source: "tiktok" as const,
+      // Paliers synchronisés par l'appelant en fin de passage (cf bonusSync).
+      differerBonus: true,
     });
     // `skipped` = snapshot refusé par l'invariant (capture antérieure à la
     // publication) : ni un relevé, ni un échec de collecte.
@@ -320,6 +322,7 @@ export async function rescueWithApify(
         title: stat.title ?? undefined,
         capturedAt,
         source: "tiktok" as const,
+        differerBonus: true,
       });
       if (res.action !== "skipped") out.releves.push(t.publicationId as string);
       continue;

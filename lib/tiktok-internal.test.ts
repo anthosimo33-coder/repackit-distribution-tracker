@@ -168,6 +168,8 @@ describe("collectTikTokInternally", () => {
       saves: 108,
       capturedAt: 1_789_421_400_000,
       source: "tiktok",
+      // Paliers synchronisés en fin de passage par l'appelant (cf bonusSync).
+      differerBonus: true,
     });
     // Deux vidéos du même compte : les compteurs de compte ne sont écrits qu'une fois.
     expect(profils()).toHaveLength(1);
@@ -316,7 +318,11 @@ describe("rescueWithApify — le secours payant, borné", () => {
     );
 
     expect(r.releves).toEqual(["pub_7675779059342642465"]);
-    expect(snapshots()[0].args).toMatchObject({ vues: 40_112, source: "tiktok" });
+    expect(snapshots()[0].args).toMatchObject({
+      vues: 40_112,
+      source: "tiktok",
+      differerBonus: true,
+    });
     expect(r.failed).toBe(1);
     expect(echecs()[0].args.reason).toBe(
       "balise de réhydratation absente ; Apify n'a pas rendu le post",

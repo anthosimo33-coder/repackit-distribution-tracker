@@ -1,4 +1,5 @@
 import { internalAction, type ActionCtx } from "./_generated/server";
+import { syncBonusAfterReleves } from "./bonusSync";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
@@ -553,6 +554,21 @@ export const syncApifyLot = internalAction({
       );
     }
 
+    // PALIERS — une synchro par créatrice du lot, après ses écritures et avant
+    // le lot suivant (jamais en parallèle d'un relevé). Sur TOUTES les cibles
+    // du lot et non sur `releves` : un lot qui a levé à mi-chemin a écrit une
+    // partie de ses snapshots, que `releves` ne dit plus. Ne lève jamais.
+    const paliers = await syncBonusAfterReleves(
+      ctx,
+      lot.targets.map((t) => t.publicationId),
+    );
+    if (paliers.unlocked + paliers.revoked + paliers.echecs > 0) {
+      console.info(
+        `[nightly-views] lot ${args.lotIndex + 1}/${args.lotTotal} — paliers : ` +
+          `${paliers.unlocked} débloqué(s), ${paliers.revoked} révoqué(s), ${paliers.echecs} échec(s).`,
+      );
+    }
+
     const tally = mergeTallies(args.tally, tallyFor(lot.targets, releves));
     if (reste.length === 0) {
       await ctx.runAction(internal.nightlyViewsSync.finishNightlyRun, {
@@ -706,6 +722,7 @@ async function syncFacebookLot(
       title: stat.title ?? undefined,
       capturedAt,
       source: "facebook",
+      differerBonus: true,
     });
     if (r.action !== "skipped") releves.add(t.publicationId as string);
   }
@@ -772,6 +789,7 @@ async function syncInstagramLot(
       title: stat.title ?? undefined,
       capturedAt,
       source: lot.source,
+      differerBonus: true,
     });
     if (r.action !== "skipped") releves.add(t.publicationId as string);
   }

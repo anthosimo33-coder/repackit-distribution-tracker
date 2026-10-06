@@ -522,18 +522,27 @@ export const superadminQuery = customQuery(
   }),
 );
 
+/**
+ * Gate des fonctions e2e — UN seul exemplaire, partagé par `e2eMutation` et les
+ * rares actions e2e (qui n'ont pas de wrapper) : deux copies d'un contrôle
+ * d'accès finissent par diverger.
+ */
+export function assertE2eSecret(secret: string): void {
+  const expected = process.env.E2E_SECRET;
+  if (expected === undefined || expected.length === 0) {
+    throw new ConvexError(
+      "Fonctions e2e désactivées sur ce deployment (E2E_SECRET non défini).",
+    );
+  }
+  if (secret !== expected) {
+    throw new ConvexError("Secret e2e invalide.");
+  }
+}
+
 export const e2eMutation = customMutation(mutation, {
   args: { secret: v.string() },
   input: async (_ctx, { secret }) => {
-    const expected = process.env.E2E_SECRET;
-    if (expected === undefined || expected.length === 0) {
-      throw new ConvexError(
-        "Fonctions e2e désactivées sur ce deployment (E2E_SECRET non défini).",
-      );
-    }
-    if (secret !== expected) {
-      throw new ConvexError("Secret e2e invalide.");
-    }
+    assertE2eSecret(secret);
     // `secret` est consommé ici : il n'atteint jamais le handler.
     return { ctx: {}, args: {} };
   },

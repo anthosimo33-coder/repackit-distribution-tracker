@@ -106,6 +106,7 @@ describe("collectSnapchatInternally", () => {
       saves: null,
       capturedAt: 1_790_000_000_000,
       source: "snapchat",
+      differerBonus: true,
     });
     expect(echecs()).toHaveLength(0);
   });
