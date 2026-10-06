@@ -13,9 +13,11 @@ import { matchCompteByHandle } from "./creatorAvatar";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
+  apifyFailureReason,
   fetchApifyViewsForPlatform,
   tiktokPostId,
   instagramShortcode,
+  type ApifyBatchError,
   type ApifyPlatform,
 } from "./apifyApi";
 import {
@@ -25,7 +27,7 @@ import {
   rescueWithApify,
 } from "./tiktokInternal";
 import { recomputeLatestMetrics } from "./metricSnapshots";
-import { TRACKING_WINDOW_DAYS } from "./syncScope";
+import { TRACKING_WINDOW_DAYS, planLots, selectDueOnManualSync } from "./syncScope";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
 import { syncBonusForPublication } from "./pricing";
@@ -37,7 +39,7 @@ import {
   fetchFacebookViews,
   planFacebookBudget,
 } from "./facebookApify";
-import type { Plateforme } from "./platforms";
+import { plateformeValidator, type Plateforme } from "./platforms";
 
 /**
  * S — Tracking AUTO des vues TikTok/Instagram via Apify. CALQUÉ sur le tracking
@@ -63,22 +65,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Temps accordé aux pages TikTok dans la sync MANUELLE. Une action Convex vit
- * 10 minutes au plus ; 5 laissent la place à Instagram et au secours Apify.
+ * 10 minutes au plus ; 5 laissent la place au secours Apify et à Snapchat.
+ * Instagram et Facebook tournent dans une action à part (cf `requestApifySync`).
  */
 const MANUAL_TIKTOK_BUDGET_MS = 5 * 60 * 1000;
 
 /**
- * Temps accordé aux pages Snapchat dans la sync MANUELLE, APRÈS TikTok et
- * Instagram. Le reste attend le relevé de nuit — ce n'est pas un échec.
+ * Temps accordé aux pages Snapchat dans la sync MANUELLE, APRÈS TikTok. Le
+ * reste attend le relevé de nuit — ce n'est pas un échec.
  */
 const MANUAL_SNAPCHAT_BUDGET_MS = 2 * 60 * 1000;
-
-/**
- * Un post Facebook mesuré depuis moins que ça n'est PAS re-demandé par le
- * bouton manuel : chaque relevé est payé, et un double clic n'apporte rien
- * (le snapshot du jour est de toute façon remplacé, pas ajouté).
- */
-const MANUAL_FACEBOOK_FRESH_MS = 6 * 60 * 60 * 1000;
 
 /** Fenêtre de tracking partagée avec YouTube — définition unique dans
  *  convex/syncScope.ts (plus deux constantes « à garder synchrones »). */
@@ -561,18 +557,33 @@ export const recordAccountProfileByCompte = internalMutation({
 });
 
 /**
- * Cœur du relevé Apify. `projectId` absent = tous les projets (cron) ; présent =
- * scopé (sync manuelle d'un admin). Si APIFY_API_TOKEN est absent du deployment,
- * log clair + rejet PROPRE (pas d'exception). Un lot Apify en erreur n'empêche
- * pas les autres ; un post indisponible (privé/supprimé/image Insta) est ignoré
- * sans crash. Traite TikTok puis Instagram (1 run par lot par plateforme).
+ * Cœur du relevé MANUEL. `projectId` présent = scopé au projet de l'admin.
+ * `plateformes` absent = toutes ; le bouton lance deux exécutions en parallèle,
+ * l'une pour les plateformes payées au post, l'autre pour les pages publiques
+ * (cf `requestApifySync`). Si APIFY_API_TOKEN est absent du deployment, log
+ * clair + rejet PROPRE (pas d'exception). Un lot Apify en erreur n'empêche pas
+ * les autres ; un post indisponible (privé/supprimé/image Insta) est inscrit en
+ * échec avec son motif, sans crash. 1 run Apify par lot de 25.
  */
 export const runDailySync = internalAction({
-  args: { projectId: v.optional(v.id("projects")) },
-  handler: async (ctx, { projectId }): Promise<ApifySyncSummary> => {
+  args: {
+    projectId: v.optional(v.id("projects")),
+    /** Plateformes relevées par CETTE exécution ; absent = toutes. */
+    plateformes: v.optional(v.array(plateformeValidator)),
+  },
+  handler: async (ctx, { projectId, plateformes }): Promise<ApifySyncSummary> => {
     const apiToken = process.env.APIFY_API_TOKEN;
     const now = Date.now();
     const cutoff = now - ACTIVE_WINDOW_DAYS * DAY_MS;
+    const releve = (p: Plateforme): boolean =>
+      plateformes === undefined || plateformes.includes(p);
+    // Vidéos d'un défi actif : relevées par le bouton quel que soit leur âge,
+    // comme la nuit (cf `selectDueOnManualSync`).
+    const defisActifs = new Set<string>(
+      releve("Instagram") || releve("Facebook")
+        ? await ctx.runQuery(internal.challengeSync.listLiveChallengePublicationIds, {})
+        : [],
+    );
     const summary: ApifySyncSummary = {
       ok: true,
       scanned: 0,
@@ -587,11 +598,19 @@ export const runDailySync = internalAction({
     };
 
     for (const { plateforme, source } of APIFY_PLATFORMS) {
-      const pubs = await ctx.runQuery(
+      if (!releve(plateforme)) continue;
+      const actives = await ctx.runQuery(
         internal.apifySync.listActiveApifyPublications,
         projectId ? { cutoff, plateforme, projectId } : { cutoff, plateforme },
       );
-      summary.scanned += pubs.length;
+      summary.scanned += actives.length;
+      // Instagram est payé au post : la cadence de la nuit, pas tout le
+      // catalogue (cf `selectDueOnManualSync`). TikTok, lu sur sa page, est
+      // gratuit : périmètre complet.
+      const pubs =
+        plateforme === "Instagram"
+          ? selectDueOnManualSync(actives, now, defisActifs)
+          : actives;
 
       // Clé de post par publication (id TikTok / shortcode Insta).
       const keyFor = (url: string): string | null =>
@@ -695,42 +714,54 @@ export const runDailySync = internalAction({
         continue;
       }
 
-      const { stats, unavailable, errors, runs } =
-        await fetchApifyViewsForPlatform(
+      // LOT PAR LOT, écrit dès qu'il revient : les chiffres apparaissent au fil
+      // des runs au lieu d'attendre le dernier. Le 2026-10-06, 17 lots en série
+      // ont laissé l'écran figé 7 min avant la première écriture.
+      let runs = 0;
+      let unavailable = 0;
+      const errors: ApifyBatchError[] = [];
+      for (const lot of planLots(targets)) {
+        const r = await fetchApifyViewsForPlatform(
           plateforme,
-          targets.map((t) => t.url),
+          lot.map((t) => t.url),
           apiToken,
         );
-      summary.unavailable += unavailable.length;
+        runs += r.runs;
+        unavailable += r.unavailable.length;
+        errors.push(...r.errors);
+        // Instagram n'a pas de lecture publique : le post est inscrit en
+        // échec avec son motif, jamais laissé à « 0 vue » sans explication.
+        const motif =
+          r.errors.length > 0
+            ? apifyFailureReason(r.errors[0])
+            : "Apify n'a pas rendu le post (aucun repli sur cette plateforme)";
+        for (const t of lot) {
+          const stat = r.stats[t.key];
+          if (stat === undefined) {
+            await ctx.runMutation(internal.apifySync.recordCollectFailure, {
+              publicationId: t.publicationId,
+              at: now,
+              reason: motif,
+            });
+            summary.failed += 1;
+            continue;
+          }
+          const w = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+            publicationId: t.publicationId,
+            vues: stat.views,
+            likes: stat.likes,
+            comments: stat.comments,
+            saves: stat.saves,
+            title: stat.title ?? undefined,
+            capturedAt: now,
+            source,
+          });
+          if (w.action !== "skipped") summary.synced += 1;
+        }
+      }
+      summary.unavailable += unavailable;
       summary.errors += errors.length;
       summary.runs += runs;
-
-      for (const t of targets) {
-        const stat = stats[t.key];
-        if (stat === undefined) {
-          // Instagram n'a pas de lecture publique : le post est inscrit en
-          // échec avec son motif, jamais laissé à « 0 vue » sans explication.
-          await ctx.runMutation(internal.apifySync.recordCollectFailure, {
-            publicationId: t.publicationId,
-            at: now,
-            reason:
-              "Apify n'a pas rendu le post (aucun repli sur cette plateforme)",
-          });
-          summary.failed += 1;
-          continue;
-        }
-        const r = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
-          publicationId: t.publicationId,
-          vues: stat.views,
-          likes: stat.likes,
-          comments: stat.comments,
-          saves: stat.saves,
-          title: stat.title ?? undefined,
-          capturedAt: now,
-          source,
-        });
-        if (r.action !== "skipped") summary.synced += 1;
-      }
 
       if (errors.length > 0) {
         console.error(
@@ -738,23 +769,25 @@ export const runDailySync = internalAction({
           errors,
         );
       }
-      if (unavailable.length > 0) {
+      if (unavailable > 0) {
         console.warn(
-          `[apify-sync] ${plateforme} — ${unavailable.length} post(s) indisponible(s) (privé/supprimé/image).`,
+          `[apify-sync] ${plateforme} — ${unavailable} post(s) indisponible(s) (privé/supprimé/image).`,
         );
       }
       console.info(
-        `[apify-sync] ${plateforme} OK — ${pubs.length} pub(s) active(s), ${targets.length} post(s), ${runs} run(s) Apify.`,
+        `[apify-sync] ${plateforme} OK — ${targets.length} post(s) dus sur ${actives.length} actif(s), ${runs} run(s) Apify.`,
       );
     }
 
     // ── Snapchat : pages publiques des Spotlight, gratuites ───────────────────
-    const pubsSnap = await ctx.runQuery(
-      internal.apifySync.listActiveApifyPublications,
-      projectId
-        ? { cutoff, plateforme: "Snapchat" as const, projectId }
-        : { cutoff, plateforme: "Snapchat" as const },
-    );
+    const pubsSnap = releve("Snapchat")
+      ? await ctx.runQuery(
+          internal.apifySync.listActiveApifyPublications,
+          projectId
+            ? { cutoff, plateforme: "Snapchat" as const, projectId }
+            : { cutoff, plateforme: "Snapchat" as const },
+        )
+      : [];
     summary.scanned += pubsSnap.length;
     const ciblesSnap: {
       publicationId: Id<"publications">;
@@ -802,16 +835,18 @@ export const runDailySync = internalAction({
     }
 
     // ── Facebook : actor Apify officiel, payé au post ────────────────────────
-    const pubsFb = await ctx.runQuery(
-      internal.apifySync.listActiveApifyPublications,
-      projectId
-        ? { cutoff, plateforme: "Facebook" as const, projectId }
-        : { cutoff, plateforme: "Facebook" as const },
-    );
+    const pubsFb = releve("Facebook")
+      ? await ctx.runQuery(
+          internal.apifySync.listActiveApifyPublications,
+          projectId
+            ? { cutoff, plateforme: "Facebook" as const, projectId }
+            : { cutoff, plateforme: "Facebook" as const },
+        )
+      : [];
     summary.scanned += pubsFb.length;
-    const aRelever = pubsFb.filter(
-      (p) => p.lastSyncAt === undefined || now - p.lastSyncAt >= MANUAL_FACEBOOK_FRESH_MS,
-    );
+    // Payé au post, comme Instagram : la cadence de la nuit, moins ce qui a
+    // été relevé il y a moins de 6 h (cf `selectDueOnManualSync`).
+    const aRelever = selectDueOnManualSync(pubsFb, now, defisActifs);
     const { retenus: fbRetenus } = planFacebookBudget(
       aRelever,
       facebookNightlyBudget(process.env.APIFY_FACEBOOK_NIGHTLY_BUDGET),
@@ -852,7 +887,7 @@ export const runDailySync = internalAction({
             at: now,
             reason:
               fb.errors.length > 0
-                ? `Apify en erreur (${fb.errors[0].status}) — ${fb.errors[0].message}`.slice(0, 200)
+                ? apifyFailureReason(fb.errors[0])
                 : "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)",
           });
           summary.failed += 1;
@@ -885,9 +920,13 @@ export const runDailySync = internalAction({
 
 /**
  * Déclenchement MANUEL (admin) — « Synchroniser TikTok/Insta maintenant ».
- * Planifie le même relevé, SCOPÉ au projet de l'admin (ctx.projectId), sans
- * attendre le cron. Asynchrone : les snapshots apparaissent dans la seconde
+ * Planifie le relevé, SCOPÉ au projet de l'admin (ctx.projectId), sans
+ * attendre le cron. Asynchrone : les snapshots apparaissent au fil de l'eau
  * (réactivité Convex). Gardée par un bloc de permission → le créateur est rejeté.
+ *
+ * DEUX actions en parallèle : les plateformes payées au post (Apify) n'attendent
+ * plus les 5 min de pages TikTok. Le 2026-10-06, en une seule action, le premier
+ * chiffre Instagram est arrivé 12 min après le clic, et le relevé a duré 18 min.
  *
  * ⚠️ TS7022 — référence internal.apifySync.runDailySync via le scheduler : type
  * de retour annoté.
@@ -897,6 +936,11 @@ export const requestApifySync = permissionMutation("tracker.manage")({
   handler: async (ctx): Promise<{ scheduled: true }> => {
     await ctx.scheduler.runAfter(0, internal.apifySync.runDailySync, {
       projectId: ctx.projectId,
+      plateformes: ["Instagram", "Facebook"],
+    });
+    await ctx.scheduler.runAfter(0, internal.apifySync.runDailySync, {
+      projectId: ctx.projectId,
+      plateformes: ["TikTok", "Snapchat"],
     });
     return { scheduled: true };
   },

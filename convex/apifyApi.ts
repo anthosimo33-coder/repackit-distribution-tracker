@@ -237,6 +237,25 @@ export interface ApifyBatchError {
   batchSize: number;
 }
 
+/**
+ * Motif d'échec INSCRIT sur une publication dont le lot a été refusé — c'est
+ * ce que l'écran affiche à la place du chiffre (« Non mesuré — <motif> »).
+ *
+ * Le crédit épuisé est nommé : le 2026-10-05, tout Instagram et Facebook a
+ * échoué sur « Monthly usage hard limit exceeded » (plan gratuit, 5 $/mois),
+ * et le motif ne disait que « Apify en erreur (403) ». Toute autre erreur garde
+ * le statut ET le message d'Apify, plus précis que ce qu'on pourrait redire.
+ */
+export function apifyFailureReason(e: {
+  status: number | "network";
+  message: string;
+}): string {
+  if (/usage hard limit|monthly usage limit/i.test(e.message)) {
+    return "crédit Apify épuisé (limite mensuelle du plan atteinte)";
+  }
+  return `Apify en erreur (${e.status}) — ${e.message}`.slice(0, 200);
+}
+
 export interface FetchApifyViewsResult {
   /** clé de post → stat (vues + likes + titre). */
   stats: Record<string, ApifyPostStat>;

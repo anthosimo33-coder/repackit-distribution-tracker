@@ -204,6 +204,36 @@ export function selectDueTonight<T extends ScopedPublication & { _id: string }>(
 }
 
 /**
+ * Un post relevé depuis moins que ça n'est PAS relu par le bouton manuel sur
+ * une plateforme payée au post (Instagram, Facebook) : un double clic
+ * n'apporte rien — le snapshot du jour est remplacé, pas ajouté — et se paie.
+ */
+export const MANUAL_PAID_FRESH_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Périmètre du bouton « Synchroniser » sur une plateforme PAYÉE au post : la
+ * cadence de la nuit (`resyncReason`), moins ce qui a été relevé il y a moins
+ * de 6 h.
+ *
+ * Le bouton relisait TOUT ce qui avait moins de 90 jours. Le 2026-10-06, un
+ * clic a relu 431 posts Instagram — 17 runs, 1,13 $ sur un crédit de 5 $ par
+ * mois — dont les trois quarts avaient plus de 14 jours et des vues qui ne
+ * bougent plus. Quatre clics vidaient le mois. Rejoué sur la prod à 09:14 du
+ * 30/09 au 03/10 : 154 à 180 posts au lieu de 390 à 405. TikTok et Snapchat,
+ * lus sur leur page publique, gardent le périmètre complet : ils ne coûtent
+ * rien.
+ */
+export function selectDueOnManualSync<T extends ScopedPublication & { _id: string }>(
+  pubs: readonly T[],
+  now: number,
+  liveChallengePubs: ReadonlySet<string>,
+): T[] {
+  return selectDueTonight(pubs, now, liveChallengePubs).filter(
+    (p) => p.lastSyncAt === undefined || now - p.lastSyncAt >= MANUAL_PAID_FRESH_MS,
+  );
+}
+
+/**
  * Découpe en lots de `max` URLs, un lot = un run Apify = une unité de coût.
  *
  * Les cibles d'un même compte sont RASSEMBLÉES (regroupement par compte avant

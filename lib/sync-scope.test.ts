@@ -19,6 +19,7 @@ import {
   shouldAlert,
   resyncReason,
   selectDueTonight,
+  selectDueOnManualSync,
   ageInDays,
   ACTIVE_ACCOUNT_WINDOW_DAYS,
   MANUAL_SYNC_GUARD_MS,
@@ -350,5 +351,55 @@ describe("resyncReason — cadence des vidéos TikTok/Instagram", () => {
       aucunDefi,
     );
     expect(retenues.map((p) => p._id)).toEqual(["a", "c", "d"]);
+  });
+});
+
+describe("selectDueOnManualSync — le bouton « Synchroniser » sur Instagram et Facebook", () => {
+  // Le 2026-10-06 à 09:14 UTC, UN clic a relu les 431 posts Instagram des
+  // 90 derniers jours : 17 runs, 1,13 $ sur un crédit de 5 $ par mois.
+  const CLIC = Date.UTC(2026, 9, 6, 9, 14);
+  /** Publiée à 07:10 UTC : avant l'heure du clic, l'âge vaut `jours` pile. */
+  const publieeIlYA = (jours: number) => Date.UTC(2026, 9, 6 - jours, 7, 10);
+  /** Relevé de nuit d'il y a `nuits` nuits (23h30 Paris = 21:3x UTC). */
+  const nuitIlYA = (nuits: number) => Date.UTC(2026, 9, 6 - nuits, 21, 41);
+  const video = (id: string, jours: number, lastSyncAt?: number) => ({
+    _id: id,
+    compte: "@juliettesnytch",
+    datePubli: publieeIlYA(jours),
+    ...(lastSyncAt === undefined ? {} : { lastSyncAt }),
+  });
+  const aucunDefi = new Set<string>();
+
+  it("une vidéo récente relevée cette nuit est relue : c'est ce qu'on attend du bouton", () => {
+    const r = selectDueOnManualSync([video("recente", 3, nuitIlYA(1))], CLIC, aucunDefi);
+    expect(r.map((p) => p._id)).toEqual(["recente"]);
+  });
+
+  it("relevée il y a moins de 6 h : pas relue — chaque relevé se paie, un double clic n'apporte rien", () => {
+    const ilYa2h = CLIC - 2 * HOUR;
+    const ilYa7h = CLIC - 7 * HOUR;
+    expect(selectDueOnManualSync([video("fraiche", 3, ilYa2h)], CLIC, aucunDefi)).toEqual([]);
+    expect(
+      selectDueOnManualSync([video("rassise", 3, ilYa7h)], CLIC, aucunDefi).map((p) => p._id),
+    ).toEqual(["rassise"]);
+  });
+
+  it("au-delà de J+14 : la cadence de la nuit — relue si son relevé hebdomadaire est dû", () => {
+    const r = selectDueOnManualSync(
+      [video("j20-relevee-avant-hier", 20, nuitIlYA(2)), video("j20-relevee-il-y-a-8-nuits", 20, nuitIlYA(8))],
+      CLIC,
+      aucunDefi,
+    );
+    expect(r.map((p) => p._id)).toEqual(["j20-relevee-il-y-a-8-nuits"]);
+  });
+
+  it("jamais mesurée, fenêtre de paie qui se ferme, défi actif : toujours relue", () => {
+    const defi = new Set(["defi"]);
+    const r = selectDueOnManualSync(
+      [video("jamais", 40), video("j29", 29, nuitIlYA(1)), video("defi", 44, nuitIlYA(1))],
+      CLIC,
+      defi,
+    );
+    expect(r.map((p) => p._id)).toEqual(["jamais", "j29", "defi"]);
   });
 });
