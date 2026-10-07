@@ -22,6 +22,7 @@ import {
   HelpCircleIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MessagesSquareIcon,
   RadarIcon,
   ReceiptTextIcon,
   TrophyIcon,
@@ -270,6 +271,17 @@ export function Sidebar({
       label: t("item.guide"),
       ...item(projectPath("/guide")),
     },
+    // Générateur de conversations Instagram : outil navigateur, ADMINS seulement
+    // (la page rend elle-même un refus aux autres rôles).
+    ...(droits.role === "admin" || droits.role === "superadmin"
+      ? [
+          {
+            icon: MessagesSquareIcon,
+            label: t("item.conversations"),
+            ...item(projectPath("/conversations")),
+          },
+        ]
+      : []),
   ];
 
   // ADMINISTRATION — rôles et droits. SUPERADMIN uniquement : `me.isSuperadmin`
