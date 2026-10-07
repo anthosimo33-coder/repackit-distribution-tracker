@@ -121,7 +121,9 @@
     "certifie": "Verified",
     "photoCompte": "Account photo",
     "legende": "Caption",
-    "miniatureStory": "Story thumbnail"
+    "miniatureStory": "Story thumbnail",
+    "debutDuFil": "Start of thread (profile card)",
+    "debutDuFilAide": "Shows the contact's profile card (large photo, name, “View profile”) above the first message, like the start of a real thread."
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

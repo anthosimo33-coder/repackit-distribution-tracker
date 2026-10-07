@@ -97,3 +97,34 @@ export function extractTikTokMedia(html: string): TikTokMedia {
   if (typeof cover === "string") return { kind: "video", images: [cover], ...author };
   return { kind: "unreadable", reason: "ni photos ni couverture dans la page" };
 }
+
+/** Lien d'un PROFIL TikTok (`tiktok.com/@compte`), par opposition au lien d'un post. */
+export function isTikTokProfileUrl(url: string): boolean {
+  try {
+    const u = new URL(url.trim());
+    return u.protocol === "https:" && /(^|\.)tiktok\.com$/.test(u.hostname) && /^\/@[^/]+\/?$/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Le compte d'une page de PROFIL (`webapp.user-detail.userInfo.user`, relevé sur
+ * une vraie page publique le 07/10/2026) : nom, photo sur le CDN, badge.
+ */
+export function extractTikTokProfile(html: string): TikTokAuthor | null {
+  const m = UNIVERSAL_DATA_RE.exec(html);
+  if (!m) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+  const detail = rec(rec(rec(data).__DEFAULT_SCOPE__)["webapp.user-detail"]);
+  if (typeof detail.statusCode === "number" && detail.statusCode !== 0) return null;
+  const u = rec(rec(detail.userInfo).user);
+  if (typeof u.uniqueId !== "string" || !u.uniqueId) return null;
+  const avatar = [u.avatarLarger, u.avatarMedium, u.avatarThumb].find((x) => typeof x === "string" && isTikTokCdnUrl(x));
+  return { username: u.uniqueId, ...(typeof avatar === "string" ? { avatar } : {}), ...(u.verified === true ? { verified: true } : {}) };
+}

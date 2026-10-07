@@ -9,6 +9,7 @@ import {
   MAX_CAPTION,
   MAX_ITEMS,
   MAX_TEXT,
+  idImage,
   newItemId,
   nettoyerCompte,
   type Conversation,
@@ -78,21 +79,56 @@ const TYPES_MCP = ["message", "date", ...Object.keys(MEDIA_DE_MCP)].join(", ");
 
 /** Préfixe d'une image du projet telle que Claude la lit (et la renvoie pour la garder). */
 export const PREFIXE_IMAGE = "img:";
-/** Jeton posé par l'action à la place d'un lien TikTok, une fois l'image rangée. */
-export const PREFIXE_TIKTOK = "tiktok:";
+/**
+ * Jeton posé par l'action à la place d'une image qu'elle vient de ranger dans le
+ * storage (lien TikTok, lien d'image, data URL) ; la mutation le résout en id.
+ */
+export const PREFIXE_FICHIER = "fichier:";
 
 /**
  * Une référence d'image écrite par Claude → ce que porte la conversation : l'id
- * (« img:<id> »), ou le jeton d'une image tout juste récupérée (« tiktok:<n> »),
+ * (« img:<id> »), ou le jeton d'une image tout juste rangée (« fichier:<n> »),
  * résolu par la mutation. `null` : forme refusée.
  */
 export function refImage(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   if (t.startsWith(PREFIXE_IMAGE) && /^[a-z0-9]{8,64}$/i.test(t.slice(PREFIXE_IMAGE.length))) return t.slice(PREFIXE_IMAGE.length);
-  if (/^tiktok:\d{1,3}$/.test(t)) return t;
+  if (/^fichier:\d{1,3}$/.test(t)) return t;
   return null;
 }
+
+/** Une image en data URL (photo envoyée dans la discussion, encodée par Claude) → ses octets. */
+export function octetsDataUrl(v: string): { octets: Uint8Array; type: string } | null {
+  const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(v.trim());
+  if (!m) return null;
+  try {
+    const bin = atob(m[2].replace(/\s+/g, ""));
+    return { octets: Uint8Array.from(bin, (c) => c.charCodeAt(0)), type: m[1] };
+  } catch {
+    return null;
+  }
+}
+
+/** Lien d'image hors TikTok : https, un vrai nom d'hôte (ni IP, ni réseau local). */
+export function lienImagePublic(v: string): boolean {
+  try {
+    const u = new URL(v.trim());
+    const h = u.hostname.toLowerCase();
+    return (
+      u.protocol === "https:" &&
+      h.includes(".") &&
+      !/^[\d.]+$/.test(h) &&
+      !h.includes(":") &&
+      !/(^|\.)(localhost|local|internal|lan)$/.test(h)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Les formes qu'une image peut prendre côté Claude (rappelées dans chaque refus). */
+const FORMES_IMAGE = "un lien TikTok, un lien d'image (https), une image en data URL, ou « img:<id> » lu dans lire_conversation";
 const CITATION_DE_MCP = { photo: "photo", video: "video", vocal: "voice" } as const;
 const CITATION_MCP = { photo: "photo", video: "video", voice: "vocal" } as const;
 
@@ -108,6 +144,10 @@ export type ChampsMcp = {
   economie_energie?: unknown;
   reseau?: unknown;
   defilement?: unknown;
+  /** Photo du contact (mêmes formes qu'une image ; "" la retire). */
+  photo_contact?: unknown;
+  /** Le fil commence ici : fiche du contact au-dessus du premier message. */
+  debut_du_fil?: unknown;
 };
 
 /** Messages écrits par Claude → éléments de la conversation (ids neufs), ou le refus à lui rendre. */
@@ -146,9 +186,9 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
       ...coupure,
     };
     const image = o.image === undefined ? undefined : refImage(o.image);
-    if (image === null) return { refus: `Élément ${n} : « image » = un lien TikTok, ou « img:<id> » lu dans lire_conversation.` };
+    if (image === null) return { refus: `Élément ${n} : « image » = ${FORMES_IMAGE}.` };
     const avatar = o.photo_compte === undefined ? undefined : refImage(o.photo_compte);
-    if (avatar === null) return { refus: `Élément ${n} : « photo_compte » = un lien TikTok, ou « img:<id> » lu dans lire_conversation.` };
+    if (avatar === null) return { refus: `Élément ${n} : « photo_compte » = ${FORMES_IMAGE}.` };
     if (media === "voice") message.media = { type: "voice", seconds: clamp(Math.round(Number(o.duree) || 3), 1, 600) };
     else if (media === "photoOnce" || media === "videoOnce") message.media = { type: media };
     else if (media === "photo" || media === "video") message.media = { type: media, ...(image ? { image } : {}) };
@@ -178,7 +218,7 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
     const story = o.story as Record<string, unknown> | undefined;
     if (story !== undefined) {
       const miniature = story?.image === undefined ? undefined : refImage(story.image);
-      if (miniature === null) return { refus: `Élément ${n} : « story.image » = un lien TikTok, ou « img:<id> » lu dans lire_conversation.` };
+      if (miniature === null) return { refus: `Élément ${n} : « story.image » = ${FORMES_IMAGE}.` };
       message.story = {
         ...(story && story.amis_proches === true ? { closeFriends: true } : {}),
         ...(story && story.indisponible === true ? { unavailable: true } : {}),
@@ -224,6 +264,18 @@ export function appliquerChampsMcp(base: Conversation, champs: ChampsMcp): { con
   if (typeof champs.economie_energie === "boolean") c.status.lowPower = champs.economie_energie;
   if (typeof champs.reseau === "number") c.status.signal = clamp(Math.round(champs.reseau), 0, 4);
   if (typeof champs.defilement === "number") c.scroll = clamp(Math.round(champs.defilement), -200, 1200);
+  if (typeof champs.debut_du_fil === "boolean") {
+    if (champs.debut_du_fil) c.threadStart = true;
+    else delete c.threadStart;
+  }
+  if (champs.photo_contact !== undefined) {
+    if (champs.photo_contact === "" || champs.photo_contact === null) c.contact.avatar = null;
+    else {
+      const photo = refImage(champs.photo_contact);
+      if (photo === null) return { refus: `« photo_contact » = ${FORMES_IMAGE} ("" la retire).` };
+      c.contact.avatar = photo;
+    }
+  }
   return { conversation: c };
 }
 
@@ -232,7 +284,12 @@ export function conversationPourMcp(c: Conversation) {
   return {
     theme: THEME_MCP[c.themeId],
     langue: c.locale,
-    contact: { nom: c.contact.name, pseudo: c.contact.username, photo: c.contact.avatar ? "posée à l'écran" : "aucune" },
+    contact: {
+      nom: c.contact.name,
+      pseudo: c.contact.username,
+      photo: idImage(c.contact.avatar) ? PREFIXE_IMAGE + c.contact.avatar : c.contact.avatar ? "posée à l'écran" : "aucune",
+    },
+    debutDuFil: c.threadStart === true,
     barreEtat: { heure: c.status.time, batterie: c.status.battery, economieEnergie: c.status.lowPower, reseau: c.status.signal },
     defilement: c.scroll,
     messages: c.items.map((it): ElementMcp => {

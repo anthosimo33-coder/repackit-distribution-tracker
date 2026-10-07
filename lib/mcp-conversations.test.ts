@@ -3,9 +3,11 @@ import {
   appliquerChampsMcp,
   conversationPourMcp,
   elementsDeMcp,
+  lienImagePublic,
+  octetsDataUrl,
 } from "../convex/mcpConversationsArgs";
 import { conversationDeData, defaultConversation, imagesDeConversation, parseConversation } from "../convex/instaConvModel";
-import { extractTikTokMedia, isTikTokCdnUrl, isTikTokPostUrl } from "../convex/tiktokMedia";
+import { extractTikTokMedia, extractTikTokProfile, isTikTokCdnUrl, isTikTokPostUrl, isTikTokProfileUrl } from "../convex/tiktokMedia";
 
 describe("ce que Claude écrit → la conversation", () => {
   it("convertit messages et séparateurs, côtés compris", () => {
@@ -88,7 +90,7 @@ describe("ce que Claude écrit → la conversation", () => {
       { type: "publication", cote: "recu", compte: "regina.santos" },
       { type: "video", cote: "envoye", image: "img:ghi13579rst" },
       { cote: "recu", texte: "T’aurais du m’inviter", story: { amis_proches: true, image: "img:jkl24680opq" } },
-      { type: "story_partagee", cote: "recu", compte: "chloe.difrancesco", image: "tiktok:0" },
+      { type: "story_partagee", cote: "recu", compte: "chloe.difrancesco", image: "fichier:0" },
     ]);
     if ("refus" in r) throw new Error(r.refus);
     const [reel, post, video, reponse, partagee] = r.items as Array<Record<string, unknown>>;
@@ -99,8 +101,8 @@ describe("ce que Claude écrit → la conversation", () => {
     expect(post).toMatchObject({ media: { type: "post", account: "regina.santos" } });
     expect(video).toMatchObject({ side: "out", media: { type: "video", image: "ghi13579rst" } });
     expect(reponse).toMatchObject({ story: { closeFriends: true, image: "jkl24680opq" } });
-    // Le jeton d'une image TikTok tout juste rangée reste tel quel : la mutation le résout.
-    expect(partagee).toMatchObject({ media: { type: "storyShare", image: "tiktok:0", account: "chloe.difrancesco" } });
+    // Le jeton d'une image tout juste rangée par l'action reste tel quel : la mutation le résout.
+    expect(partagee).toMatchObject({ media: { type: "storyShare", image: "fichier:0", account: "chloe.difrancesco" } });
 
     const c = { ...defaultConversation(), items: r.items.slice(0, 4) };
     const lu = conversationPourMcp(c).messages;
@@ -135,6 +137,26 @@ describe("ce que Claude écrit → la conversation", () => {
     expect(r.conversation.themeId).toBe("hearts");
     expect(r.conversation.items).toEqual(base.items);
     expect(base.status.time).toBe("23:47"); // l'original n'est pas touché
+  });
+
+  it("photo du contact et début du fil : posés, relus, retirés", () => {
+    const r = appliquerChampsMcp(defaultConversation(), { photo_contact: "img:abc12345xyz", debut_du_fil: false });
+    if ("refus" in r) throw new Error(r.refus);
+    expect(r.conversation.contact.avatar).toBe("abc12345xyz");
+    expect(r.conversation.threadStart).toBeUndefined();
+    expect(conversationPourMcp(r.conversation)).toMatchObject({ contact: { photo: "img:abc12345xyz" }, debutDuFil: false });
+    expect(imagesDeConversation(r.conversation)).toContain("abc12345xyz");
+    // Le jeton d'une photo rangée par l'action passe ; "" la retire ; une URL brute n'arrive jamais ici.
+    const jeton = appliquerChampsMcp(defaultConversation(), { photo_contact: "fichier:2" });
+    expect("conversation" in jeton && jeton.conversation.contact.avatar).toBe("fichier:2");
+    const sans = appliquerChampsMcp(r.conversation, { photo_contact: "", debut_du_fil: true });
+    expect("conversation" in sans && [sans.conversation.contact.avatar, sans.conversation.threadStart]).toEqual([null, true]);
+    expect(appliquerChampsMcp(defaultConversation(), { photo_contact: "https://exemple.com/a.jpg" })).toMatchObject({
+      refus: expect.stringContaining("« photo_contact »"),
+    });
+    // Posée à l'écran (data URL) : Claude sait qu'elle existe, sans la recevoir.
+    const ecran = { ...defaultConversation(), contact: { name: "L", username: "l", avatar: "data:image/jpeg;base64,AAA" } };
+    expect(conversationPourMcp(ecran).contact.photo).toBe("posée à l'écran");
   });
 
   it("refuse un thème ou une langue inconnus", () => {
@@ -202,6 +224,36 @@ describe("images d'un TikTok", () => {
     });
     const ailleurs = extractTikTokMedia(page({ id: "6", video: { originCover: cdn("o.jpeg") }, author: { uniqueId: "x", avatarMedium: "https://evil.example.com/a.jpeg" } }));
     expect(ailleurs).toEqual({ kind: "video", images: [cdn("o.jpeg")], author: { username: "x" } });
+  });
+
+  it("profil : lien reconnu, compte lu dans la page publique (forme relevée le 07/10/2026)", () => {
+    expect(isTikTokProfileUrl("https://www.tiktok.com/@plein_astuces_")).toBe(true);
+    expect(isTikTokProfileUrl("https://www.tiktok.com/@plein_astuces_/")).toBe(true);
+    expect(isTikTokProfileUrl("https://www.tiktok.com/@a/video/123")).toBe(false);
+    expect(isTikTokProfileUrl("https://tiktok.com.evil.io/@a")).toBe(false);
+    const profil = (user: object, statusCode = 0) =>
+      `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({
+        __DEFAULT_SCOPE__: { "webapp.user-detail": { statusCode, userInfo: { user } } },
+      })}</script>`;
+    expect(extractTikTokProfile(profil({ uniqueId: "tiktok", avatarLarger: cdn("av.jpeg"), verified: true }))).toEqual({
+      username: "tiktok",
+      avatar: cdn("av.jpeg"),
+      verified: true,
+    });
+    expect(extractTikTokProfile(profil({ uniqueId: "x", avatarLarger: "https://evil.example.com/a.jpeg" }))).toEqual({ username: "x" });
+    expect(extractTikTokProfile(profil({ uniqueId: "x" }, 10221))).toBeNull();
+    expect(extractTikTokProfile("<html></html>")).toBeNull();
+  });
+
+  it("image donnée par Claude : data URL décodée, lien public seulement (ni IP, ni réseau local, ni http)", () => {
+    const d = octetsDataUrl("data:image/png;base64,iVBORw0KGgo=");
+    expect(d && { type: d.type, debut: Array.from(d.octets.slice(0, 4)) }).toEqual({ type: "image/png", debut: [0x89, 0x50, 0x4e, 0x47] });
+    expect(octetsDataUrl("data:image/gif;base64,R0lGOD")).toBeNull();
+    expect(octetsDataUrl("data:text/html;base64,PHNjcmlwdD4=")).toBeNull();
+    expect(lienImagePublic("https://i.pinimg.com/originals/ab/cd/ef.jpg")).toBe(true);
+    for (const refuse of ["http://exemple.com/a.jpg", "https://127.0.0.1/a.jpg", "https://[::1]/a.jpg", "https://localhost/a.jpg", "https://nas.local/a.jpg", "https://intranet/a.jpg"]) {
+      expect(lienImagePublic(refuse), refuse).toBe(false);
+    }
   });
 
   it("valide les liens de post et les hôtes d'image", () => {

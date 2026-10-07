@@ -92,12 +92,18 @@ function CardHeader({ avatar, account, verified, width }: { avatar?: string; acc
           borderRadius: "50%",
           overflow: "hidden",
           boxShadow: "0 0 0 0.75px rgba(255,255,255,0.55)",
-          background: img ? undefined : "linear-gradient(135deg, #5B5F66, #34383D)", // i18n-exempt: couleur CSS
+          background: img ? undefined : METRICS.defaultAvatar.background,
         }}
       >
-        {img && (
+        {img ? (
           // eslint-disable-next-line @next/next/no-img-element -- rendu rastérisé à l'export
           <img src={img.url} alt="" crossOrigin="anonymous" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : (
+          // Compte sans photo : la photo par défaut d'Instagram.
+          <svg viewBox="0 0 100 100" width={H.avatar} height={H.avatar} aria-hidden style={{ display: "block" }}>
+            <circle cx="50" cy="39" r="19" fill={METRICS.defaultAvatar.figure} />
+            <path d="M13 104c0-24 16.5-38 37-38s37 14 37 38Z" fill={METRICS.defaultAvatar.figure} />
+          </svg>
         )}
       </div>
       <div

@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { forwardRef, useContext, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import {
   ENGINE_TUNING,
   MESSAGES_BOTTOM,
@@ -42,7 +42,6 @@ import { ImagesContext, MediaBubble, SharedCard, SideButtons, StoryShareCard, St
  */
 
 const SYSTEM_FONT = "system-ui, -apple-system, 'SF Pro Text', sans-serif"; // i18n-exempt: pile de polices CSS
-const AVATAR_PLACEHOLDER_BG = "linear-gradient(135deg, #5B5F66, #34383D)"; // i18n-exempt: couleur CSS
 
 /** Haut de la boîte de ligne pour poser la ligne de base de SF Pro à `baseline`. */
 function lineTop(baseline: number, fontSize: number, lineHeight: number): number {
@@ -93,6 +92,9 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
             transform: `translateY(${conversation.scroll}px)`, // i18n-exempt: valeur CSS
           }}
         >
+          {conversation.threadStart && (
+            <ProfileCard contact={conversation.contact} strings={strings} theme={theme} shift={emoji.textShiftY} />
+          )}
           {plan.map((p, i) =>
             p.kind === "date" ? (
               <div
@@ -875,20 +877,95 @@ function withEmojiSpans(text: string, emoji: EngineTuning, mentions = false): Re
   );
 }
 
+/**
+ * Photo du contact : data URL (posée à l'écran), image du projet (posée par
+ * Claude, résolue par contexte), ou la photo par défaut d'Instagram — disque
+ * gris clair, tête et épaules blanches coupées par le cercle.
+ */
 function Avatar({ src, size, style }: { src: string | null; size: number; style?: React.CSSProperties }) {
+  const images = useContext(ImagesContext);
   const base: React.CSSProperties = { width: size, height: size, borderRadius: "50%", ...style };
-  if (!src) {
+  const url = src && !src.startsWith("data:") ? images[src]?.url : src;
+  if (!url) {
+    const D = METRICS.defaultAvatar;
     return (
-      <div style={{ ...base, background: AVATAR_PLACEHOLDER_BG, overflow: "hidden" }}>
-        <svg viewBox="0 0 28 28" width={size} height={size} aria-hidden>
-          <circle cx="14" cy="11" r="5" fill="#C9CDD2" />
-          <path d="M4.5 25c1.6-4.6 5.2-7 9.5-7s7.9 2.4 9.5 7" fill="#C9CDD2" />
+      <div style={{ ...base, background: D.background, overflow: "hidden" }}>
+        <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden style={{ display: "block" }}>
+          <circle cx="50" cy="39" r="19" fill={D.figure} />
+          <path d="M13 104c0-24 16.5-38 37-38s37 14 37 38Z" fill={D.figure} />
         </svg>
       </div>
     );
   }
-  // eslint-disable-next-line @next/next/no-img-element -- data URL locale, rastérisée à l'export
-  return <img src={src} alt="" style={{ ...base, objectFit: "cover" }} />;
+  // eslint-disable-next-line @next/next/no-img-element -- rastérisée à l'export
+  return <img src={url} alt="" crossOrigin={url.startsWith("data:") ? undefined : "anonymous"} style={{ ...base, objectFit: "cover" }} />;
+}
+
+/** Fiche du contact en tête d'un fil qui commence (proportions de l'app, non relevées sur capture). */
+function ProfileCard({
+  contact,
+  strings,
+  theme,
+  shift,
+}: {
+  contact: Conversation["contact"];
+  strings: ScreenStrings;
+  theme: ConvTheme;
+  shift: number;
+}) {
+  const P = METRICS.profile;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: P.toFirst }}>
+      <Avatar src={contact.avatar} size={P.avatar} />
+      <div
+        style={{
+          marginTop: P.nameGap,
+          fontSize: P.nameSize,
+          lineHeight: `${P.nameLine}px`,
+          fontWeight: 700,
+          letterSpacing: -0.45,
+          color: theme.text,
+          whiteSpace: "pre",
+          position: "relative",
+          top: shift,
+        }}
+      >
+        {contact.name}
+      </div>
+      <div
+        style={{
+          marginTop: P.subGap,
+          fontSize: P.subSize,
+          lineHeight: `${P.subLine}px`,
+          letterSpacing: -0.15,
+          color: theme.subtext,
+          whiteSpace: "pre",
+          position: "relative",
+          top: shift,
+        }}
+      >
+        {contact.username ? `${contact.username} · ${strings.instagram}` : strings.instagram}
+      </div>
+      <div
+        style={{
+          marginTop: P.buttonGap,
+          height: P.buttonHeight,
+          padding: `0 ${P.buttonPadX}px`,
+          borderRadius: P.buttonRadius,
+          background: theme.inBubble,
+          display: "flex",
+          alignItems: "center",
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: -0.15,
+          color: theme.text,
+          whiteSpace: "pre",
+        }}
+      >
+        <span style={{ position: "relative", top: shift }}>{strings.viewProfile}</span>
+      </div>
+    </div>
+  );
 }
 
 /** Barre d'état : heure centrée dans l'oreille gauche (ligne de base 30,75 pt), réseau, Wi-Fi, batterie. */

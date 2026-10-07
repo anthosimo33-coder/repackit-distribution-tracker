@@ -68,10 +68,17 @@ export type ThemeId = (typeof THEME_IDS)[number];
 export type Conversation = {
   themeId: ThemeId;
   locale: ConvLocale;
+  /** `avatar` : photo en data URL (posée à l'écran), id d'une image du projet (posée par Claude), ou rien. */
   contact: { name: string; username: string; avatar: string | null };
   status: { time: string; battery: number; lowPower: boolean; signal: number };
   /** Décalage de défilement, en pt : 0 = dernier message posé au-dessus de la saisie. */
   scroll: number;
+  /**
+   * Le fil COMMENCE au premier élément : Instagram montre alors, au-dessus, la
+   * fiche du contact (grande photo, nom, « View profile »), visible si le fil
+   * est court. Faux pour une capture prise au milieu d'un fil.
+   */
+  threadStart?: boolean;
   items: ConvItem[];
 };
 
@@ -106,8 +113,10 @@ export function defaultConversation(): Conversation {
     contact: { name: "Lucas", username: "lucas.mrtn", avatar: null },
     status: { time: "23:47", battery: 62, lowPower: false, signal: 3 },
     scroll: 0,
+    threadStart: true,
     items: [
-      { id: newItemId(), kind: "date", text: "AUJOURD'HUI 23:12" }, // i18n-exempt: donnée de la capture, pas de l'interface
+      // Une heure du jour s'affiche seule (« 14:35 » sur capture) ; « YESTERDAY AT… », « MON… » pour les autres jours.
+      { id: newItemId(), kind: "date", text: "23:12" },
       m("out", "tu peux m'expliquer pk t'étais en ligne à 3h ?"), // i18n-exempt: donnée de la capture, pas de l'interface
       m("in", "jdormais"),
       m("out", "arrête de mentir je l'ai vu"), // i18n-exempt: donnée de la capture, pas de l'interface
@@ -124,7 +133,7 @@ function clamp(v: number, lo: number, hi: number): number {
 }
 
 /** Un identifiant d'image (table `instaConvImages`) plausible, ou rien. */
-function idImage(v: unknown): string | undefined {
+export function idImage(v: unknown): string | undefined {
   return typeof v === "string" && /^[a-z0-9]{8,64}$/i.test(v) ? v : undefined;
 }
 
@@ -133,9 +142,11 @@ export function nettoyerCompte(v: unknown): string {
   return typeof v === "string" ? v.trim().replace(/^@+/, "").replace(/[^A-Za-z0-9._]/g, "").slice(0, 30) : "";
 }
 
-/** Toutes les images qu'une conversation référence (sans doublon). */
-export function imagesDeConversation(c: Pick<Conversation, "items">): string[] {
+/** Toutes les images qu'une conversation référence (sans doublon), photo du contact comprise. */
+export function imagesDeConversation(c: Pick<Conversation, "items"> & { contact?: Conversation["contact"] }): string[] {
   const ids = new Set<string>();
+  const photo = idImage(c.contact?.avatar);
+  if (photo) ids.add(photo);
   for (const it of c.items) {
     if (it.kind !== "message") continue;
     if (it.story?.image) ids.add(it.story.image);
@@ -221,6 +232,7 @@ export function parseConversation(raw: unknown): Conversation | null {
       signal: clamp(Math.round(Number(c.status.signal) || 0), 0, 4),
     },
     scroll: Number(c.scroll) || 0,
+    ...(c.threadStart === true ? { threadStart: true } : {}),
     items,
   };
 }
