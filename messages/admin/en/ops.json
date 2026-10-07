@@ -92,7 +92,12 @@
       "texte": "Text",
       "vocal": "Voice",
       "photo": "View-once photo",
-      "video": "View-once video"
+      "video": "View-once video",
+      "photoEnvoyee": "Photo",
+      "videoEnvoyee": "Video",
+      "reel": "Reel",
+      "post": "Post",
+      "storyPartagee": "Shared story"
     },
     "duree": "Length (s)",
     "repondA": "Replies to a message",
@@ -104,7 +109,19 @@
     "storyIndisponible": "Story unavailable",
     "appuiLong": "Long press (reactions and menu)",
     "heureMessage": "Message time",
-    "heureExemple": "2:35 PM"
+    "heureExemple": "2:35 PM",
+    "image": "Image",
+    "choisirImage": "Choose…",
+    "changerImage": "Change",
+    "retirerImage": "Remove",
+    "imageEnCours": "Uploading…",
+    "echecImage": "Image rejected (JPEG, PNG or WebP, 8 MB at most).",
+    "compte": "Account",
+    "compteExemple": "account_name",
+    "certifie": "Verified",
+    "photoCompte": "Account photo",
+    "legende": "Caption",
+    "miniatureStory": "Story thumbnail"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

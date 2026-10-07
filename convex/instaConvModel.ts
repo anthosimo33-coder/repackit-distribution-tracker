@@ -21,9 +21,9 @@ export type ConvMessage = {
   cut?: boolean;
   /** Réponse citée : le message auquel celui-ci répond, qui l'avait écrit, et sa nature. */
   reply?: ConvReply;
-  /** Réponse à une story (en-tête au-dessus du message). */
-  story?: { closeFriends?: boolean; unavailable?: boolean };
-  /** Contenu à la place du texte : message vocal, ou photo/vidéo éphémère déjà vue. */
+  /** Réponse à une story (en-tête au-dessus du message, miniature de la story si `image`). */
+  story?: { closeFriends?: boolean; unavailable?: boolean; image?: string };
+  /** Contenu à la place du texte : vocal, éphémère déjà vu, photo/vidéo, reel, publication, story partagée. */
   media?: ConvMedia;
   /** L'écran montre l'APPUI LONG sur ce message (réactions et menu) — un seul par écran. */
   longPress?: boolean;
@@ -33,7 +33,28 @@ export type ConvMessage = {
 
 export type ConvReply = { side: Side; text: string; kind?: "photo" | "video" | "voice"; seconds?: number };
 
-export type ConvMedia = { type: "voice"; seconds: number } | { type: "photoOnce" } | { type: "videoOnce" };
+/**
+ * Les images (`image`, `avatar`) sont des IDENTIFIANTS de la table
+ * `instaConvImages` (fichier dans le storage du projet), jamais des URL : la
+ * conversation reste légère (le journal MCP en garde plusieurs copies) et une
+ * image d'un autre projet ne se résout pas.
+ */
+export type ConvMedia =
+  | { type: "voice"; seconds: number }
+  | { type: "photoOnce" }
+  | { type: "videoOnce" }
+  /** Photo ou vidéo envoyée dans la conversation (▶ en haut à droite pour une vidéo). */
+  | { type: "photo" | "video"; image?: string }
+  /** Reel ou publication partagés : carte avec le compte en tête, légende facultative. */
+  | { type: "reel" | "post"; image?: string; avatar?: string; account: string; verified?: boolean; caption?: string }
+  /** Story partagée (« Sent @compte's story ») : carte 9:16 derrière une barre. */
+  | { type: "storyShare"; image?: string; avatar?: string; account: string; verified?: boolean };
+
+export type ConvMediaType = ConvMedia["type"];
+
+/** Médias à carte : ni groupés avec les messages voisins, ni « jumbo ». */
+export const CARD_MEDIA: readonly ConvMediaType[] = ["reel", "post", "storyShare"];
+export const MAX_CAPTION = 300;
 
 export type ConvDate = { id: string; kind: "date"; text: string; cut?: boolean };
 
@@ -96,6 +117,29 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
+/** Un identifiant d'image (table `instaConvImages`) plausible, ou rien. */
+function idImage(v: unknown): string | undefined {
+  return typeof v === "string" && /^[a-z0-9]{8,64}$/i.test(v) ? v : undefined;
+}
+
+/** Nom de compte Instagram : sans @, lettres, chiffres, points et soulignés, 30 caractères. */
+export function nettoyerCompte(v: unknown): string {
+  return typeof v === "string" ? v.trim().replace(/^@+/, "").replace(/[^A-Za-z0-9._]/g, "").slice(0, 30) : "";
+}
+
+/** Toutes les images qu'une conversation référence (sans doublon). */
+export function imagesDeConversation(c: Pick<Conversation, "items">): string[] {
+  const ids = new Set<string>();
+  for (const it of c.items) {
+    if (it.kind !== "message") continue;
+    if (it.story?.image) ids.add(it.story.image);
+    const md = it.media;
+    if (md && "image" in md && md.image) ids.add(md.image);
+    if (md && "avatar" in md && md.avatar) ids.add(md.avatar);
+  }
+  return [...ids];
+}
+
 /** Les champs facultatifs d'un message, relus sans faire confiance au stockage. */
 function nettoyerMessage(it: ConvMessage): ConvMessage {
   const m: ConvMessage = { id: it.id, kind: "message", side: it.side, text: it.text };
@@ -113,11 +157,29 @@ function nettoyerMessage(it: ConvMessage): ConvMessage {
     }
   }
   if (it.story && typeof it.story === "object") {
-    m.story = { ...(it.story.closeFriends === true ? { closeFriends: true } : {}), ...(it.story.unavailable === true ? { unavailable: true } : {}) };
+    const image = idImage(it.story.image);
+    m.story = {
+      ...(it.story.closeFriends === true ? { closeFriends: true } : {}),
+      ...(it.story.unavailable === true ? { unavailable: true } : {}),
+      ...(image ? { image } : {}),
+    };
   }
-  const md = it.media;
+  const md = it.media as (Partial<Record<string, unknown>> & { type?: unknown }) | undefined;
+  const image = idImage(md?.image);
+  const avatar = idImage(md?.avatar);
   if (md?.type === "voice") m.media = { type: "voice", seconds: clamp(Math.round(Number(md.seconds) || 1), 1, 600) };
   else if (md?.type === "photoOnce" || md?.type === "videoOnce") m.media = { type: md.type };
+  else if (md?.type === "photo" || md?.type === "video") m.media = { type: md.type, ...(image ? { image } : {}) };
+  else if (md?.type === "reel" || md?.type === "post" || md?.type === "storyShare") {
+    const caption = typeof md.caption === "string" ? md.caption.trim().slice(0, MAX_CAPTION) : "";
+    const commun = {
+      ...(image ? { image } : {}),
+      ...(avatar ? { avatar } : {}),
+      account: nettoyerCompte(md.account),
+      ...(md.verified === true ? { verified: true } : {}),
+    };
+    m.media = md.type === "storyShare" ? { type: "storyShare", ...commun } : { type: md.type, ...commun, ...(caption ? { caption } : {}) };
+  }
   return m;
 }
 

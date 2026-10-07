@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from "react";
 import {
   ENGINE_TUNING,
   MESSAGES_BOTTOM,
@@ -11,7 +11,6 @@ import {
   formatDuration,
   outGradientCss,
   planConversation,
-  renderEngine,
   voiceBars,
   voiceWidth,
   waveform,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/insta-conv";
 import { ComposerIcons, HeaderIcons, HeartsLayer, StatusIcons } from "./InstaIcons";
 import { LONG_PRESS, LongPressMenu, ReactionBar } from "./InstaLongPress";
+import { ImagesContext, MediaBubble, SharedCard, SideButtons, StoryShareCard, StoryThumb, useRenderEngine, type ConvImages } from "./InstaMedia";
 
 /**
  * L'ÉCRAN — une capture de DM Instagram iOS redessinée en HTML, à 414×896 pt.
@@ -53,14 +53,9 @@ function lineTop(baseline: number, fontSize: number, lineHeight: number): number
 
 export type InstaScreenHandle = { node: HTMLDivElement | null };
 
-const noSubscribe = () => () => {};
-/** Moteur du navigateur ; « blink » au rendu serveur, corrigé à l'hydratation. */
-function useRenderEngine(): "blink" | "webkit" {
-  return useSyncExternalStore(noSubscribe, () => renderEngine(navigator.userAgent), () => "blink");
-}
 
-export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Conversation }>(
-  function InstaScreen({ conversation }, ref) {
+export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Conversation; images?: ConvImages }>(
+  function InstaScreen({ conversation, images }, ref) {
     const rootRef = useRef<HTMLDivElement>(null);
     useImperativeHandle(ref, () => ({ node: rootRef.current }), []);
     const theme = THEMES[conversation.themeId];
@@ -138,6 +133,7 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
     );
 
     return (
+      <ImagesContext.Provider value={images ?? NO_IMAGES}>
       <div
         ref={rootRef}
         style={{
@@ -188,9 +184,12 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
           fil
         )}
       </div>
+      </ImagesContext.Provider>
     );
   },
 );
+
+const NO_IMAGES: ConvImages = {};
 
 /** Coupe un texte à `data-clamp` lignes, terminé par « … » + `data-more` (citation). */
 function clampLines(el: HTMLElement) {
@@ -271,14 +270,16 @@ function MessageRow({
   const isIn = item.side === "in";
   const B = METRICS.bubble;
   const side = isIn ? "Left" : "Right";
+  const md = item.media;
+  // Photo/vidéo envoyée : rayon 14 (capture 8), coin groupé de 4 pt comme une bulle.
   const corners: React.CSSProperties = {
-    borderRadius: B.radius,
+    borderRadius: md?.type === "photo" || md?.type === "video" ? METRICS.media.radius : B.radius,
     ...(p.joinedTop ? { [`borderTop${side}Radius`]: B.groupedRadius } : {}), // i18n-exempt: propriété CSS
     ...(p.joinedBottom ? { [`borderBottom${side}Radius`]: B.groupedRadius } : {}), // i18n-exempt: propriété CSS
   };
   const R = METRICS.reaction;
   const Q = METRICS.quote;
-  const headerTop = first ? 0 : METRICS.label.marginTop;
+  const headerTop = first ? 0 : p.afterDate ? METRICS.label.afterDate : METRICS.label.marginTop;
   return (
     <>
       {item.edited && (
@@ -304,6 +305,17 @@ function MessageRow({
       )}
       {item.story && (
         <StoryHeader index={index} item={item} strings={strings} theme={theme} marginTop={item.edited ? 0 : headerTop} shift={emoji.textShiftY} />
+      )}
+      {md?.type === "storyShare" && (
+        <Label
+          index={index}
+          side={item.side}
+          text={(isIn ? strings.sentStory : strings.youSentStory).replace("{account}", md.account)}
+          inset={METRICS.storyLabelInset}
+          outInset={METRICS.outMargin + Q.bar + Q.barGap}
+          marginTop={item.edited ? 6 : headerTop}
+          shift={emoji.textShiftY}
+        />
       )}
       {item.reply && (
         <>
@@ -340,7 +352,17 @@ function MessageRow({
           display: "flex",
           justifyContent: isIn ? "flex-start" : "flex-end",
           alignItems: "flex-end",
-          marginTop: item.reply ? Q.toBubble : item.story ? (item.story.unavailable ? METRICS.storyUnavailable.toBubble : 5.8) : p.gapBefore,
+          marginTop: item.reply
+            ? Q.toBubble
+            : item.story
+              ? item.story.unavailable
+                ? METRICS.storyUnavailable.toBubble
+                : item.story.image
+                  ? METRICS.storyThumb.toBubble
+                  : METRICS.storyThumb.labelGap
+              : md?.type === "storyShare"
+                ? METRICS.card.storyLabelGap
+                : p.gapBefore + (md?.type === "reel" || md?.type === "post" ? METRICS.card.topInset : 0),
           marginBottom: item.reaction ? R.height - R.overlap : 0,
           paddingLeft: isIn ? METRICS.inIndent : 0,
           paddingRight: isIn ? 0 : METRICS.outMargin,
@@ -372,6 +394,7 @@ function MessageRow({
               <span style={{ transform: `translateX(${emoji.reactionShiftX}px)` }}>{item.reaction}</span>
             </div>
           )}
+          {md && md.type !== "voice" && md.type !== "photoOnce" && md.type !== "videoOnce" && <SideButtons media={md} isIn={isIn} />}
         </div>
         {p.showAvatar && (
           <Avatar
@@ -532,7 +555,7 @@ function Label({
 /**
  * Réponse à une story : libellé (« Replied to your story », « You replied to
  * their story », variante « close friends » à l'étoile verte), et « Story
- * unavailable » quand elle a expiré. La miniature viendra avec les images.
+ * unavailable » quand elle a expiré, sinon sa miniature si une image est posée.
  */
 function StoryHeader({
   index,
@@ -578,12 +601,25 @@ function StoryHeader({
         side={item.side}
         text={label}
         before={star}
-        inset={story.closeFriends && isIn ? 68 : METRICS.inIndent + Q.bar + Q.barGap}
+        inset={METRICS.storyLabelInset}
         outInset={METRICS.outMargin + textInset}
         marginTop={marginTop}
         shift={shift}
-        fontSize={12.5}
       />
+      {story.image && !story.unavailable && (
+        <div
+          data-item={index}
+          style={{
+            display: "flex",
+            justifyContent: isIn ? "flex-start" : "flex-end",
+            marginTop: METRICS.storyThumb.labelGap,
+            paddingLeft: isIn ? METRICS.inIndent : 0,
+            paddingRight: isIn ? 0 : METRICS.outMargin,
+          }}
+        >
+          <StoryThumb image={story.image} theme={theme} isIn={isIn} />
+        </div>
+      )}
       {story.unavailable && (
         <div
           data-item={index}
@@ -637,6 +673,9 @@ function Body({
   const bg: React.CSSProperties = isIn ? { background: theme.inBubble } : outBackground(theme);
   const grad = isIn ? {} : { "data-grad": "1" };
   const media = item.media;
+  if (media?.type === "photo" || media?.type === "video") return <MediaBubble media={media} corners={corners} />;
+  if (media?.type === "reel" || media?.type === "post") return <SharedCard media={media} theme={theme} isIn={isIn} />;
+  if (media?.type === "storyShare") return <StoryShareCard media={media} theme={theme} isIn={isIn} />;
   if (media?.type === "voice") return <Voice item={item} seconds={media.seconds} theme={theme} strings={strings} shift={emoji.textShiftY} />;
   if (media?.type === "photoOnce" || media?.type === "videoOnce") {
     const V = METRICS.viewOnce;

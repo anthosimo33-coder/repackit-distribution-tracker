@@ -1535,7 +1535,8 @@
     "ERR_ACCOUNT_URL_INVALID": "Lien trop long (500 caractères au plus).",
     "ERR_INSTA_CONV_INVALID": "Conversation invalide : titre vide ou trop long, ou contenu illisible.",
     "ERR_INSTA_CONV_TITLE_TAKEN": "Une conversation s'appelle déjà « {titre} ».",
-    "ERR_INSTA_CONV_NOT_FOUND": "Cette conversation n'existe plus."
+    "ERR_INSTA_CONV_NOT_FOUND": "Cette conversation n'existe plus.",
+    "ERR_INSTA_CONV_IMAGE_REJECTED": "Image refusée : JPEG, PNG ou WebP de 8 Mo au plus."
   },
   "calendar": {
     "weekday": {

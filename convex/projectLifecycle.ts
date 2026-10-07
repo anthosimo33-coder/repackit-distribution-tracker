@@ -431,9 +431,14 @@ const ETAPES: Record<TablePurgee, Etape> = {
   creatorMessages: etape((ctx, pid, n) =>
     ctx.db.query("creatorMessages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
-  // Brouillons de captures (photo du contact en data URL dans `data`, pas de _storage).
+  // Brouillons de captures (photo du contact en data URL dans `data` ; les
+  // autres images sont dans instaConvImages, purgée juste après).
   instaConversations: etape((ctx, pid, n) =>
     ctx.db.query("instaConversations").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
+  instaConvImages: etape(
+    (ctx, pid, n) => ctx.db.query("instaConvImages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+    { avant: (ctx, img) => deleteStorageBestEffort(ctx, img.storageId) },
   ),
   marketGroups: etape((ctx, pid, n) =>
     ctx.db.query("marketGroups").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),

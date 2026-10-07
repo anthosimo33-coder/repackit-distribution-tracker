@@ -92,7 +92,12 @@
       "texte": "Texte",
       "vocal": "Vocal",
       "photo": "Photo éphémère",
-      "video": "Vidéo éphémère"
+      "video": "Vidéo éphémère",
+      "photoEnvoyee": "Photo",
+      "videoEnvoyee": "Vidéo",
+      "reel": "Reel",
+      "post": "Publication",
+      "storyPartagee": "Story partagée"
     },
     "duree": "Durée (s)",
     "repondA": "Répond à un message",
@@ -104,7 +109,19 @@
     "storyIndisponible": "Story indisponible",
     "appuiLong": "Appui long (réactions et menu)",
     "heureMessage": "Heure du message",
-    "heureExemple": "14:35"
+    "heureExemple": "14:35",
+    "image": "Image",
+    "choisirImage": "Choisir…",
+    "changerImage": "Changer",
+    "retirerImage": "Retirer",
+    "imageEnCours": "Envoi…",
+    "echecImage": "Image refusée (JPEG, PNG ou WebP, 8 Mo au plus).",
+    "compte": "Compte",
+    "compteExemple": "nom_du_compte",
+    "certifie": "Certifié",
+    "photoCompte": "Photo du compte",
+    "legende": "Légende",
+    "miniatureStory": "Miniature de la story"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Ouvrir sur TikTok",

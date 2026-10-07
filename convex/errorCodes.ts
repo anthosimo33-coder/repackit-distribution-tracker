@@ -376,6 +376,8 @@ export const ERR = {
   /** Titre déjà pris dans le projet (paramètre `titre`) : il sert à désigner la conversation. */
   INSTA_CONV_TITLE_TAKEN: "ERR_INSTA_CONV_TITLE_TAKEN",
   INSTA_CONV_NOT_FOUND: "ERR_INSTA_CONV_NOT_FOUND",
+  /** Image d'une conversation : ni JPEG, ni PNG, ni WebP, trop lourde, ou d'un autre projet. */
+  INSTA_CONV_IMAGE_REJECTED: "ERR_INSTA_CONV_IMAGE_REJECTED",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];
