@@ -5,9 +5,12 @@
  * importe le modèle, jamais ces messages destinés au modèle de langage.
  */
 import {
+  CARD_MEDIA,
+  MAX_CAPTION,
   MAX_ITEMS,
   MAX_TEXT,
   newItemId,
+  nettoyerCompte,
   type Conversation,
   type ConvItem,
   type ConvMessage,
@@ -23,7 +26,7 @@ const THEME_DE_MCP: Record<string, ThemeId> = { sombre: "dark", coeurs: "hearts"
 
 /** Un élément tel que Claude l'écrit et le lit. */
 export type ElementMcp = {
-  type: "message" | "date" | "vocal" | "photo_ephemere" | "video_ephemere";
+  type: "message" | "date" | "vocal" | "photo_ephemere" | "video_ephemere" | "photo" | "video" | "reel" | "publication" | "story_partagee";
   cote?: "recu" | "envoye";
   texte?: string;
   modifie?: boolean;
@@ -34,16 +37,62 @@ export type ElementMcp = {
   duree?: number;
   /** Réponse citée : le message cité (son côté, son texte, ou sa nature). */
   reponse?: { cote: "recu" | "envoye"; texte?: string; type?: "texte" | "photo" | "video" | "vocal"; duree?: number };
-  /** Réponse à une story. */
-  story?: { amis_proches?: boolean; indisponible?: boolean };
+  /** Réponse à une story (`image` : sa miniature). */
+  story?: { amis_proches?: boolean; indisponible?: boolean; image?: string };
+  /** Photo, vidéo, reel, publication, story partagée : l'image (« img:<id> » ou lien TikTok). */
+  image?: string;
+  /** Lien TikTok : quelle photo d'un carrousel (1 = la première). */
+  image_rang?: number;
+  /** Reel, publication, story partagée : le compte, sa photo, son badge, la légende. */
+  compte?: string;
+  photo_compte?: string;
+  certifie?: boolean;
+  legende?: string;
   /** L'écran montre l'appui long sur ce message (un seul). */
   appui_long?: boolean;
   /** Heure du message (menu d'appui long). */
   heure?: string;
 };
 
-const MEDIA_DE_MCP = { vocal: "voice", photo_ephemere: "photoOnce", video_ephemere: "videoOnce" } as const;
-const MEDIA_MCP = { voice: "vocal", photoOnce: "photo_ephemere", videoOnce: "video_ephemere" } as const;
+const MEDIA_DE_MCP = {
+  vocal: "voice",
+  photo_ephemere: "photoOnce",
+  video_ephemere: "videoOnce",
+  photo: "photo",
+  video: "video",
+  reel: "reel",
+  publication: "post",
+  story_partagee: "storyShare",
+} as const;
+const MEDIA_MCP = {
+  voice: "vocal",
+  photoOnce: "photo_ephemere",
+  videoOnce: "video_ephemere",
+  photo: "photo",
+  video: "video",
+  reel: "reel",
+  post: "publication",
+  storyShare: "story_partagee",
+} as const;
+const TYPES_MCP = ["message", "date", ...Object.keys(MEDIA_DE_MCP)].join(", ");
+
+/** Préfixe d'une image du projet telle que Claude la lit (et la renvoie pour la garder). */
+export const PREFIXE_IMAGE = "img:";
+/** Jeton posé par l'action à la place d'un lien TikTok, une fois l'image rangée. */
+export const PREFIXE_TIKTOK = "tiktok:";
+
+/**
+ * Une référence d'image écrite par Claude → ce que porte la conversation : l'id
+ * (« img:<id> »), ou le jeton d'une image tout juste récupérée (« tiktok:<n> »),
+ * résolu par la mutation. `null` : forme refusée.
+ */
+export function refImage(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  if (t.startsWith(PREFIXE_IMAGE) && /^[a-z0-9]{8,64}$/i.test(t.slice(PREFIXE_IMAGE.length))) return t.slice(PREFIXE_IMAGE.length);
+  if (/^tiktok:\d{1,3}$/.test(t)) return t;
+  return null;
+}
 const CITATION_DE_MCP = { photo: "photo", video: "video", vocal: "voice" } as const;
 const CITATION_MCP = { photo: "photo", video: "video", voice: "vocal" } as const;
 
@@ -73,7 +122,7 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
     const type = typeof o.type === "string" ? o.type : "message";
     const media = type in MEDIA_DE_MCP ? MEDIA_DE_MCP[type as keyof typeof MEDIA_DE_MCP] : null;
     if (type !== "message" && type !== "date" && !media) {
-      return { refus: `Élément ${n} : « type » vaut message, date, vocal, photo_ephemere ou video_ephemere.` };
+      return { refus: `Élément ${n} : « type » vaut ${TYPES_MCP}.` };
     }
     const texte = typeof o.texte === "string" ? o.texte.trim() : "";
     if (!texte && !media) return { refus: `Élément ${n} : « texte » vide.` };
@@ -96,8 +145,21 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
       ...(reaction ? { reaction } : {}),
       ...coupure,
     };
+    const image = o.image === undefined ? undefined : refImage(o.image);
+    if (image === null) return { refus: `Élément ${n} : « image » = un lien TikTok, ou « img:<id> » lu dans lire_conversation.` };
+    const avatar = o.photo_compte === undefined ? undefined : refImage(o.photo_compte);
+    if (avatar === null) return { refus: `Élément ${n} : « photo_compte » = un lien TikTok, ou « img:<id> » lu dans lire_conversation.` };
     if (media === "voice") message.media = { type: "voice", seconds: clamp(Math.round(Number(o.duree) || 3), 1, 600) };
-    else if (media) message.media = { type: media };
+    else if (media === "photoOnce" || media === "videoOnce") message.media = { type: media };
+    else if (media === "photo" || media === "video") message.media = { type: media, ...(image ? { image } : {}) };
+    else if (media && (CARD_MEDIA as readonly string[]).includes(media)) {
+      const account = nettoyerCompte(o.compte);
+      if (!account) return { refus: `Élément ${n} : « compte » = le nom du compte qui a publié (sans @).` };
+      const commun = { ...(image ? { image } : {}), ...(avatar ? { avatar } : {}), account, ...(o.certifie === true ? { verified: true } : {}) };
+      const caption = typeof o.legende === "string" ? o.legende.trim().slice(0, MAX_CAPTION) : "";
+      message.media =
+        media === "storyShare" ? { type: "storyShare", ...commun } : { type: media as "reel" | "post", ...commun, ...(caption ? { caption } : {}) };
+    }
     const rep = o.reponse as Record<string, unknown> | undefined;
     if (rep !== undefined) {
       if (!rep || typeof rep !== "object" || (rep.cote !== "recu" && rep.cote !== "envoye")) {
@@ -115,9 +177,12 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
     }
     const story = o.story as Record<string, unknown> | undefined;
     if (story !== undefined) {
+      const miniature = story?.image === undefined ? undefined : refImage(story.image);
+      if (miniature === null) return { refus: `Élément ${n} : « story.image » = un lien TikTok, ou « img:<id> » lu dans lire_conversation.` };
       message.story = {
         ...(story && story.amis_proches === true ? { closeFriends: true } : {}),
         ...(story && story.indisponible === true ? { unavailable: true } : {}),
+        ...(miniature ? { image: miniature } : {}),
       };
     }
     if (o.appui_long === true) {
@@ -173,11 +238,17 @@ export function conversationPourMcp(c: Conversation) {
     messages: c.items.map((it): ElementMcp => {
       if (it.kind === "date") return { type: "date", texte: it.text, ...(it.cut ? { coupure: true } : {}) };
       const r = it.reply;
+      const md = it.media;
       return {
-        type: it.media ? MEDIA_MCP[it.media.type] : "message",
+        type: md ? MEDIA_MCP[md.type] : "message",
         cote: it.side === "out" ? "envoye" : "recu",
-        ...(it.media ? {} : { texte: it.text }),
-        ...(it.media?.type === "voice" ? { duree: it.media.seconds } : {}),
+        ...(md ? {} : { texte: it.text }),
+        ...(md?.type === "voice" ? { duree: md.seconds } : {}),
+        ...(md && "image" in md && md.image ? { image: PREFIXE_IMAGE + md.image } : {}),
+        ...(md && "account" in md ? { compte: md.account } : {}),
+        ...(md && "avatar" in md && md.avatar ? { photo_compte: PREFIXE_IMAGE + md.avatar } : {}),
+        ...(md && "verified" in md && md.verified ? { certifie: true } : {}),
+        ...(md && "caption" in md && md.caption ? { legende: md.caption } : {}),
         ...(it.edited ? { modifie: true } : {}),
         ...(it.reaction ? { reaction: it.reaction } : {}),
         ...(r
@@ -189,7 +260,15 @@ export function conversationPourMcp(c: Conversation) {
               },
             }
           : {}),
-        ...(it.story ? { story: { ...(it.story.closeFriends ? { amis_proches: true } : {}), ...(it.story.unavailable ? { indisponible: true } : {}) } } : {}),
+        ...(it.story
+          ? {
+              story: {
+                ...(it.story.closeFriends ? { amis_proches: true } : {}),
+                ...(it.story.unavailable ? { indisponible: true } : {}),
+                ...(it.story.image ? { image: PREFIXE_IMAGE + it.story.image } : {}),
+              },
+            }
+          : {}),
         ...(it.longPress ? { appui_long: true } : {}),
         ...(it.time ? { heure: it.time } : {}),
         ...(it.cut ? { coupure: true } : {}),

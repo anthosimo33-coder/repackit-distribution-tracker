@@ -1,6 +1,13 @@
 import { readFileSync } from "node:fs";
 import { unzipSync } from "fflate";
+import sharp from "sharp";
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
+
+const admin = createE2eClient(process.env.NEXT_PUBLIC_CONVEX_URL ?? "");
+const DAY = 86_400_000;
 
 /**
  * Générateur de conversations Instagram — outil 100 % navigateur.
@@ -95,5 +102,63 @@ test.describe("Conversations Instagram", () => {
     }
     await page.getByRole("button", { name: "Découper en slides" }).click();
     await expect(page.getByText(/^[2-9] slides$/)).toBeVisible();
+  });
+
+  /**
+   * IMAGES — déposée dans l'éditeur, une photo va dans le storage du projet, se
+   * dessine dans l'aperçu et SORT dans le PNG (le storage doit la servir au
+   * rastériseur). Remplacée, l'ancienne n'est plus citée par rien : le ramassage
+   * l'efface, et garde celle qui sert.
+   */
+  test("photo envoyée : l'image déposée s'affiche et sort dans le PNG ; remplacée, l'ancienne part au ramassage", async ({ page }) => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    await page.goto(adminPath("/conversations"));
+    await page.getByRole("button", { name: "Nouvelle conversation" }).first().click();
+    await expect(page).toHaveURL(/\/conversations\?c=/);
+    const convId = new URL(page.url()).searchParams.get("c") as Id<"instaConversations">;
+    await page.getByLabel("Titre").fill(`Photo e2e ${ts}`);
+    await page.getByLabel("Titre").press("Enter");
+
+    await page.getByRole("button", { name: "+ Message envoyé" }).click();
+    const item = page.getByTestId("conv-item").last();
+    await item.locator("summary").click();
+    await item.getByRole("button", { name: "Photo", exact: true }).click();
+    const unie = (background: string) => sharp({ create: { width: 360, height: 640, channels: 3, background } }).png().toBuffer();
+    await item.getByLabel("Image", { exact: true }).setInputFiles({ name: "rouge.png", mimeType: "image/png", buffer: await unie("#ff0000") });
+
+    const preview = page.getByRole("img", { name: "Aperçu de la capture" });
+    await expect(preview.locator('img[src*="/api/storage/"]')).toHaveCount(1);
+    const imageEnregistree = async () => {
+      const doc = await admin.query(api.instaConversations.getInstaConversation, { id: convId });
+      const items = doc ? (JSON.parse(doc.data).items as Array<{ media?: { image?: string } }>) : [];
+      return items.at(-1)?.media?.image ?? null;
+    };
+    await expect.poll(imageEnregistree, { timeout: 15_000 }).not.toBeNull();
+    const rouge = (await imageEnregistree())!;
+
+    // Le PNG exporté porte la photo : rouge au centre de son cadre (164×255 pt,
+    // en bas à droite, juste au-dessus de la saisie).
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Exporter en PNG" }).click()]);
+    const { data, info } = await sharp(readFileSync(await download.path())).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const at = (x: number, y: number) => Array.from(data.subarray((y * info.width + x) * 3, (y * info.width + x) * 3 + 3));
+    const [r, g, b] = at(324 * 2, 666 * 2);
+    expect({ r: r > 200, g: g < 60, b: b < 60 }, `pixel ${[r, g, b]}`).toEqual({ r: true, g: true, b: true });
+
+    // Remplacée par une autre : l'ancienne n'est plus citée.
+    await item.getByLabel("Image", { exact: true }).setInputFiles({ name: "bleu.png", mimeType: "image/png", buffer: await unie("#0000ff") });
+    await expect.poll(imageEnregistree, { timeout: 15_000 }).not.toBe(rouge);
+    const bleu = (await imageEnregistree())!;
+
+    // Ramassage, « maintenant » avancé de 40 jours (au-delà des 31 de garde).
+    const effacees: string[] = [];
+    for (let k = 0; k < 30; k++) {
+      const r = await admin.mutation(api.instaConvImages.e2eRamasserImages, { secret: E2E_SECRET, maintenant: Date.now() + 40 * DAY });
+      effacees.push(...r.effacees);
+      if (r.relues === 0) break;
+    }
+    expect(effacees).toContain(rouge);
+    expect(effacees).not.toContain(bleu);
+    expect(Object.keys(await admin.query(api.instaConvImages.getInstaConvImages, { ids: [rouge, bleu] }))).toEqual([bleu]);
   });
 });

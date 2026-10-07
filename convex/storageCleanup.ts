@@ -96,7 +96,7 @@ export async function purgeAssetBlobs(
  * Garde-fou : lib/storage-fields.test.ts compte les `v.id("_storage")` de
  * schema.ts et échoue dès que le compte diverge de cette constante.
  */
-export const STORAGE_FIELD_COUNT = 10;
+export const STORAGE_FIELD_COUNT = 11;
 
 async function collecterStorageIdsReferences(
   ctx: MutationCtx,
@@ -142,6 +142,12 @@ async function collecterStorageIdsReferences(
   // cassée.
   for (const p of await ctx.db.query("projects").collect()) {
     ajouter(p.logoStorageId);
+  }
+  // Images des conversations Instagram (convex/instaConvImages.ts) : leur ligne
+  // vit tant qu'une conversation ou le journal MCP les cite ; leur propre
+  // ramassage efface ligne ET fichier.
+  for (const img of await ctx.db.query("instaConvImages").collect()) {
+    ajouter(img.storageId);
   }
   return refs;
 }

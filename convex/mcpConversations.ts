@@ -38,8 +38,11 @@ import {
   type DomaineEcriture,
 } from "./mcpWriteCommon";
 import { base64 } from "./mcpVideo";
-import { conversationDeData, defaultConversation, MAX_ITEMS, MAX_TITRE, THEME_IDS } from "./instaConvModel";
-import { appliquerChampsMcp, conversationPourMcp, THEME_MCP, type ChampsMcp } from "./mcpConversationsArgs";
+import { conversationDeData, defaultConversation, MAX_ITEMS, MAX_TITRE, THEME_IDS, type Conversation } from "./instaConvModel";
+import { appliquerChampsMcp, conversationPourMcp, PREFIXE_TIKTOK, THEME_MCP, type ChampsMcp } from "./mcpConversationsArgs";
+import { enregistrerImageCore, POIDS_IMAGE_MAX } from "./instaConvImages";
+import { imageSize } from "./imageSize";
+import type { ProjectMutationCtx } from "./functions";
 import {
   conversationDuProjet,
   conversationsDuProjet,
@@ -47,7 +50,7 @@ import {
   deleteConversationCore,
   updateConversationCore,
 } from "./instaConversations";
-import { extractTikTokMedia, isTikTokCdnUrl, isTikTokPostUrl } from "./tiktokMedia";
+import { extractTikTokMedia, isTikTokCdnUrl, isTikTokPostUrl, type TikTokMedia } from "./tiktokMedia";
 
 // ─── Lien vers l'écran ──────────────────────────────────────────────────────
 
@@ -71,9 +74,9 @@ const ARG_MESSAGES = {
     properties: {
       type: {
         type: "string",
-        enum: ["message", "date", "vocal", "photo_ephemere", "video_ephemere"],
+        enum: ["message", "date", "vocal", "photo_ephemere", "video_ephemere", "photo", "video", "reel", "publication", "story_partagee"],
         description:
-          "message (défaut) ; date = séparateur centré (« AUJOURD'HUI 21:43 », « 25 AUG AT 22:14 ») ; vocal = message vocal (« duree ») ; photo_ephemere / video_ephemere = pastille « ▶ Photo » / « ▶ Video » d'un média éphémère déjà vu (sans texte).",
+          "message (défaut) ; date = séparateur centré (« AUJOURD'HUI 21:43 », « 25 AUG AT 22:14 ») ; vocal = message vocal (« duree ») ; photo_ephemere / video_ephemere = pastille « ▶ Photo » / « ▶ Video » d'un média éphémère déjà vu ; photo / video = photo ou vidéo envoyée dans la conversation (« image ») ; reel / publication = reel ou post partagé (« image », « compte », « legende ») ; story_partagee = « Sent @compte's story » (« image », « compte »). Aucun de ces médias n'a de texte.",
       },
       cote: { type: "string", enum: ["recu", "envoye"], description: "recu = bulle à gauche (l'autre personne) ; envoye = à droite (le propriétaire du téléphone). Obligatoire sauf pour une date." },
       texte: { type: "string", description: "Le texte de la bulle, ou du séparateur (inutile pour vocal et éphémères)." },
@@ -86,7 +89,21 @@ const ARG_MESSAGES = {
         description:
           "Réponse CITÉE au-dessus de la bulle (« Replied to you » / « You replied ») : { cote: recu|envoye (qui avait écrit le message cité), texte: le message cité (coupé à 3 lignes), type?: texte|photo|video|vocal, duree?: secondes si vocal }.",
       },
-      story: { type: "object", description: "Réponse à une story (libellé au-dessus) : { amis_proches?: true (étoile verte, message reçu), indisponible?: true (« Story unavailable ») }." },
+      story: {
+        type: "object",
+        description:
+          "Réponse à une story (libellé au-dessus) : { amis_proches?: true (étoile verte, message reçu), indisponible?: true (« Story unavailable »), image?: miniature de la story (comme « image ») }.",
+      },
+      image: {
+        type: "string",
+        description:
+          "L'image d'une photo, vidéo, reel, publication ou story partagée : un LIEN TikTok (l'app récupère sa couverture, ou la photo « image_rang » d'un carrousel, et pour un reel le compte et sa photo) ; « img:<id> » (lu dans lire_conversation) GARDE une image déjà posée. Sans image, un cadre gris attend qu'on en dépose une à l'écran.",
+      },
+      image_rang: { type: "integer", minimum: 1, maximum: 35, description: "Lien TikTok d'un carrousel : quelle photo (1 = la première)." },
+      compte: { type: "string", description: "Reel, publication, story partagée : le compte qui a publié (sans @). Avec un lien TikTok, celui de l'auteur par défaut." },
+      photo_compte: { type: "string", description: "Photo de ce compte (comme « image ») ; avec un lien TikTok, celle de l'auteur par défaut." },
+      certifie: { type: "boolean", description: "Badge certifié à côté du compte." },
+      legende: { type: "string", description: "Reel, publication : légende sous l'image (2 lignes, coupée par « … »)." },
       appui_long: { type: "boolean", description: "L'écran montre l'APPUI LONG sur ce message : fil flouté, barre de réactions, menu (Répondre, Transférer…). Un seul par conversation." },
       heure: { type: "string", description: "Heure du message, affichée en tête du menu d'appui long (ex. « 14:35 »)." },
     },
@@ -176,9 +193,11 @@ const NAVIGATEUR = {
   Accept: "text/html,application/xhtml+xml",
 };
 const IMAGES_TIKTOK_MAX = 10;
-const POIDS_IMAGE_MAX = 1_500_000;
+/** Images RENDUES à Claude (base64 dans la réponse) : plus bas que celles qu'on range. */
+const POIDS_IMAGE_LUE_MAX = 1_500_000;
 
-async function imagesTiktok(lien: string): Promise<ToolResult> {
+/** La page publique d'un post TikTok → ses images et son auteur (refus en clair sinon). */
+async function lirePageTiktok(lien: string): Promise<Exclude<TikTokMedia, { kind: "unreadable" }>> {
   if (!isTikTokPostUrl(lien)) throw new ToolError("« lien » : un lien tiktok.com (https).");
   let html: string;
   try {
@@ -190,19 +209,31 @@ async function imagesTiktok(lien: string): Promise<ToolResult> {
   }
   const media = extractTikTokMedia(html);
   if (media.kind === "unreadable") throw new ToolError(`TikTok illisible : ${media.reason}.`);
+  return media;
+}
+
+/** Une image du CDN de TikTok (et de lui seul) → ses octets, ou la raison de l'échec. */
+async function telechargerImage(url: string, max: number): Promise<{ octets: Uint8Array; type: string } | { echec: string }> {
+  if (!isTikTokCdnUrl(url)) return { echec: "hôte refusé" };
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": NAVIGATEUR["User-Agent"] }, signal: AbortSignal.timeout(15_000) });
+    const type = (r.headers.get("content-type") ?? "").split(";")[0];
+    if (!r.ok || !/^image\/(jpeg|png|webp)$/.test(type)) return { echec: `HTTP ${r.status} ${type}` };
+    const octets = new Uint8Array(await r.arrayBuffer());
+    if (octets.length > max) return { echec: "image trop lourde" };
+    return { octets, type };
+  } catch (e) {
+    return { echec: String(e).slice(0, 60) };
+  }
+}
+
+async function imagesTiktok(lien: string): Promise<ToolResult> {
+  const media = await lirePageTiktok(lien);
   const urls = media.images.filter(isTikTokCdnUrl).slice(0, IMAGES_TIKTOK_MAX);
   const lues = await Promise.all(
     urls.map(async (url, i) => {
-      try {
-        const r = await fetch(url, { headers: { "User-Agent": NAVIGATEUR["User-Agent"] }, signal: AbortSignal.timeout(15_000) });
-        const type = (r.headers.get("content-type") ?? "").split(";")[0];
-        if (!r.ok || !/^image\/(jpeg|png|webp)$/.test(type)) return { rang: i + 1, echec: `HTTP ${r.status} ${type}` };
-        const octets = new Uint8Array(await r.arrayBuffer());
-        if (octets.length > POIDS_IMAGE_MAX) return { rang: i + 1, echec: "image trop lourde" };
-        return { rang: i + 1, data: base64(octets), mimeType: type };
-      } catch (e) {
-        return { rang: i + 1, echec: String(e).slice(0, 60) };
-      }
+      const r = await telechargerImage(url, POIDS_IMAGE_LUE_MAX);
+      return "echec" in r ? { rang: i + 1, echec: r.echec } : { rang: i + 1, data: base64(r.octets), mimeType: r.type };
     }),
   );
   const entete = {
@@ -334,11 +365,123 @@ function champsDe(args: Record<string, unknown>): ChampsMcp {
 
 const resume = (titre: string, n: number) => `« ${titre} » — ${n} message${n > 1 ? "s" : ""}`;
 
+// ─── Images (photo, vidéo, reel, story partagée) ────────────────────────────
+
+const fichierValidator = v.object({ storageId: v.id("_storage"), w: v.number(), h: v.number() });
+type Fichier = { storageId: Id<"_storage">; w: number; h: number };
+const CARTES_MCP = ["reel", "publication", "story_partagee"];
+
+/**
+ * ACTION : chaque lien TikTok donné comme image est récupéré (couverture, ou la
+ * photo « image_rang » d'un carrousel), rangé dans le storage, et remplacé par
+ * un jeton « tiktok:<n> » que la mutation résout après avoir enregistré le
+ * fichier. Pour une carte (reel, publication, story), le compte, sa photo et son
+ * badge viennent de l'auteur du TikTok quand Claude ne les donne pas. Un échec
+ * efface ce qui a déjà été rangé.
+ */
+async function rangerImagesTiktok(ctx: ActionCtx, messages: unknown): Promise<{ messages: unknown; fichiers: Fichier[] }> {
+  const fichiers: Fichier[] = [];
+  if (!Array.isArray(messages)) return { messages, fichiers };
+  const pages = new Map<string, Promise<Awaited<ReturnType<typeof lirePageTiktok>>>>();
+  const page = (lien: string) => {
+    const cle = lien.trim().split("?")[0];
+    if (!pages.has(cle)) pages.set(cle, lirePageTiktok(lien));
+    return pages.get(cle)!;
+  };
+  const jetons = new Map<string, string>();
+  const ranger = async (url: string, quoi: string): Promise<string> => {
+    const deja = jetons.get(url);
+    if (deja) return deja;
+    const r = await telechargerImage(url, POIDS_IMAGE_MAX);
+    if ("echec" in r) throw new ToolError(`${quoi} : image TikTok illisible (${r.echec}).`);
+    const storageId = await ctx.storage.store(new Blob([r.octets as BlobPart], { type: r.type }));
+    fichiers.push({ storageId, ...(imageSize(r.octets) ?? { w: 9, h: 16 }) });
+    const jeton = PREFIXE_TIKTOK + (fichiers.length - 1);
+    jetons.set(url, jeton);
+    return jeton;
+  };
+  try {
+    const sortie: unknown[] = [];
+    for (const [i, brut] of messages.entries()) {
+      if (!brut || typeof brut !== "object") {
+        sortie.push(brut);
+        continue;
+      }
+      const o: Record<string, unknown> = { ...(brut as Record<string, unknown>) };
+      const quoi = `Élément ${i + 1}`;
+      if (typeof o.image === "string" && isTikTokPostUrl(o.image)) {
+        const media = await page(o.image);
+        const rang = Math.min(media.images.length, Math.max(1, Math.round(Number(o.image_rang) || 1)));
+        o.image = await ranger(media.images[rang - 1], quoi);
+        if (CARTES_MCP.includes(String(o.type)) && media.author) {
+          if (o.compte === undefined) o.compte = media.author.username;
+          if (o.certifie === undefined && media.author.verified) o.certifie = true;
+          if (o.photo_compte === undefined && media.author.avatar) o.photo_compte = await ranger(media.author.avatar, `${quoi} (photo du compte)`);
+        }
+      }
+      if (typeof o.photo_compte === "string" && isTikTokPostUrl(o.photo_compte)) {
+        const auteur = (await page(o.photo_compte)).author;
+        if (!auteur?.avatar) throw new ToolError(`${quoi} : ce TikTok ne montre pas la photo de son auteur.`);
+        o.photo_compte = await ranger(auteur.avatar, `${quoi} (photo du compte)`);
+      }
+      const story = o.story as Record<string, unknown> | undefined;
+      if (story && typeof story === "object" && typeof story.image === "string" && isTikTokPostUrl(story.image)) {
+        const media = await page(story.image);
+        o.story = { ...story, image: await ranger(media.images[0], `${quoi} (miniature de la story)`) };
+      }
+      sortie.push(o);
+    }
+    return { messages: sortie, fichiers };
+  } catch (e) {
+    await effacerFichiers(ctx, fichiers);
+    throw e;
+  }
+}
+
+async function effacerFichiers(ctx: ActionCtx, fichiers: Fichier[]): Promise<void> {
+  await Promise.all(fichiers.map((f) => ctx.storage.delete(f.storageId).catch(() => undefined)));
+}
+
+/**
+ * MUTATION : enregistre les fichiers rangés par l'action, remplace les jetons
+ * « tiktok:<n> » par leurs ids, et vérifie que chaque autre image citée est bien
+ * une image de CE projet (un id inventé ou venu d'ailleurs est refusé).
+ */
+async function resoudreImages(ctx: ProjectMutationCtx, c: Conversation, fichiers: Fichier[]): Promise<void> {
+  const ids: string[] = [];
+  for (const f of fichiers) ids.push(await enregistrerImageCore(ctx, f));
+  const verifiees = new Set<string>();
+  const resoudre = async (ref: string): Promise<string> => {
+    if (ref.startsWith(PREFIXE_TIKTOK)) {
+      const id = ids[Number(ref.slice(PREFIXE_TIKTOK.length))];
+      if (!id) throw err(ERR.INSTA_CONV_IMAGE_REJECTED, `Image « ${ref} » inconnue : donne le lien TikTok.`);
+      return id;
+    }
+    if (!verifiees.has(ref)) {
+      const id = ctx.db.normalizeId("instaConvImages", ref);
+      const img = id ? await ctx.db.get(id) : null;
+      if (!img || img.projectId !== ctx.projectId) {
+        throw err(ERR.INSTA_CONV_IMAGE_REJECTED, `Image « img:${ref} » inconnue dans ce projet : relis lire_conversation.`);
+      }
+      verifiees.add(ref);
+    }
+    return ref;
+  };
+  for (const it of c.items) {
+    if (it.kind !== "message") continue;
+    if (it.story?.image) it.story.image = await resoudre(it.story.image);
+    const md = it.media;
+    if (md && "image" in md && md.image) md.image = await resoudre(md.image);
+    if (md && "avatar" in md && md.avatar) md.avatar = await resoudre(md.avatar);
+  }
+}
+
 export const ecrireCreation = mcpWriteMutation("conversations.use", "conversations")({
-  args: { titre: v.string(), champs: v.string() },
+  args: { titre: v.string(), champs: v.string(), fichiers: v.optional(v.array(fichierValidator)) },
   handler: async (ctx, a) => {
     const r = appliquerChampsMcp({ ...defaultConversation(), items: [] }, JSON.parse(a.champs) as ChampsMcp);
     if ("refus" in r) throw err(ERR.INSTA_CONV_INVALID, r.refus);
+    await resoudreImages(ctx, r.conversation, a.fichiers ?? []);
     const data = JSON.stringify(r.conversation);
     const id = await createConversationCore(ctx, { titre: a.titre, data });
     const doc = await ctx.db.get(id);
@@ -356,11 +499,12 @@ export const ecrireCreation = mcpWriteMutation("conversations.use", "conversatio
 });
 
 export const ecrireModification = mcpWriteMutation("conversations.use", "conversations")({
-  args: { conversation: v.string(), nouveauTitre: v.optional(v.string()), champs: v.string() },
+  args: { conversation: v.string(), nouveauTitre: v.optional(v.string()), champs: v.string(), fichiers: v.optional(v.array(fichierValidator)) },
   handler: async (ctx, a) => {
     const c = designerOuRefuser(await conversationsDuProjet(ctx), (x) => x.titre, a.conversation, "conversations");
     const r = appliquerChampsMcp(conversationDeData(c.data), JSON.parse(a.champs) as ChampsMcp);
     if ("refus" in r) throw err(ERR.INSTA_CONV_INVALID, r.refus);
+    await resoudreImages(ctx, r.conversation, a.fichiers ?? []);
     const photos = await photographier(ctx, "instaConversations", [c._id]);
     const data = JSON.stringify(r.conversation);
     await updateConversationCore(ctx, c._id, { data, ...(a.nouveauTitre ? { titre: a.nouveauTitre } : {}) });
@@ -402,6 +546,23 @@ export const ecrireSuppression = mcpWriteMutation("conversations.use", "conversa
   },
 });
 
+/** Les champs pour la mutation, liens TikTok d'images déjà rangés dans le storage. */
+async function champsEtImages(ctx: ActionCtx, args: Record<string, unknown>): Promise<{ champs: string; fichiers: Fichier[] }> {
+  if (args.messages === undefined) return { champs: JSON.stringify(champsDe(args)), fichiers: [] };
+  const { messages, fichiers } = await rangerImagesTiktok(ctx, args.messages);
+  return { champs: JSON.stringify(champsDe({ ...args, messages })), fichiers };
+}
+
+/** Si l'écriture échoue, les fichiers rangés pour elle ne servent à personne : effacés. */
+async function avecFichiers<T>(ctx: ActionCtx, fichiers: Fichier[], f: () => Promise<T>): Promise<T> {
+  try {
+    return await f();
+  } catch (e) {
+    await effacerFichiers(ctx, fichiers);
+    throw e;
+  }
+}
+
 async function appelerEcriture(
   ctx: ActionCtx,
   name: string,
@@ -409,20 +570,23 @@ async function appelerEcriture(
   cible: CibleEcriture,
   projet: string,
 ): Promise<ToolResult> {
-  const champs = JSON.stringify(champsDe(args));
   if (name === "creer_conversation") {
     const titre = texteArg(args, "titre");
     if (!titre) throw new ToolError("« titre » : le nom du brouillon.");
     if (!Array.isArray(args.messages) || args.messages.length === 0) throw new ToolError("« messages » : au moins un élément.");
-    const r = await ecrire(() => ctx.runMutation(internal.mcpConversations.ecrireCreation, { ...cible, titre, champs }));
+    const { champs, fichiers } = await champsEtImages(ctx, args);
+    const r = await avecFichiers(ctx, fichiers, () => ecrire(() => ctx.runMutation(internal.mcpConversations.ecrireCreation, { ...cible, titre, champs, fichiers })));
     return resultatEcriture(projet, r.summary, "`defaire` la supprime (tant qu'elle n'a pas été modifiée depuis).", { lien: lienConversation(projet, r.id), ouvrir: OUVRIR });
   }
   if (name === "modifier_conversation") {
     const conversation = texteArg(args, "conversation");
     if (!conversation) throw new ToolError("« conversation » : son titre.");
     const nouveauTitre = texteArg(args, "nouveau_titre");
-    const r = await ecrire(() =>
-      ctx.runMutation(internal.mcpConversations.ecrireModification, { ...cible, conversation, champs, ...(nouveauTitre ? { nouveauTitre } : {}) }),
+    const { champs, fichiers } = await champsEtImages(ctx, args);
+    const r = await avecFichiers(ctx, fichiers, () =>
+      ecrire(() =>
+        ctx.runMutation(internal.mcpConversations.ecrireModification, { ...cible, conversation, champs, fichiers, ...(nouveauTitre ? { nouveauTitre } : {}) }),
+      ),
     );
     return resultatEcriture(projet, r.summary, "`defaire` remet la version d'avant (si personne ne l'a modifiée depuis).", { lien: lienConversation(projet, r.id), ouvrir: OUVRIR });
   }

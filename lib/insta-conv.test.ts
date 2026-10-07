@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  imagesDeConversation,
+  mediaBox,
   voiceBars,
   voiceWidth,
   waveform,
@@ -189,5 +191,45 @@ describe("planConversation — éléments riches", () => {
     expect(b.gapBefore).toBe(0);
     const [, d] = messages([msg("c", "out", "un"), msg("d", "out", "deux", { story: {} })]);
     expect([d.joinedTop, d.gapBefore]).toEqual([false, 0]);
+  });
+});
+
+describe("photos, vidéos et cartes partagées", () => {
+  it("cadre d'une photo/vidéo envoyée : 164 pt de large, 255 au plus (capture 8)", () => {
+    expect(mediaBox(720, 1280)).toEqual({ width: 164, height: 255 });
+    expect(mediaBox(3, 4)).toEqual({ width: 164, height: 218.5 });
+    expect(mediaBox()).toEqual({ width: 164, height: 255 });
+    expect(mediaBox(1600, 900)).toEqual({ width: 240, height: 135 });
+  });
+
+  it("une photo envoyée se groupe avec le texte (2 pt) ; un reel garde sa place ; une story partagée porte son écart", () => {
+    const [, photo] = messages([msg("a", "out", "javais envoye ce snap"), msg("b", "out", "", { media: { type: "video" } })]);
+    expect([photo.joinedTop, photo.gapBefore]).toEqual([true, 2]);
+    const [, reel] = messages([msg("c", "in", "regarde"), msg("d", "in", "", { media: { type: "reel", account: "x" } })]);
+    expect([reel.joinedTop, reel.gapBefore, reel.showAvatar, reel.jumbo]).toEqual([false, 12, true, false]);
+    const [, partagee] = messages([msg("e", "in", "un"), msg("f", "in", "", { media: { type: "storyShare", account: "x" } })]);
+    expect([partagee.joinedTop, partagee.gapBefore]).toEqual([false, 0]);
+  });
+
+  it("repère un message posé juste sous une date (son libellé s'y colle)", () => {
+    const plan = planConversation([msg("a", "out", "un"), { id: "d", kind: "date", text: "HIER" }, msg("b", "in", "deux", { story: {} })]);
+    expect(plan.map((p) => (p.kind === "message" ? p.afterDate : null))).toEqual([false, null, true]);
+  });
+
+  it("liste les images citées par la conversation, sans doublon", () => {
+    const items: ConvItem[] = [
+      msg("a", "in", "", { media: { type: "reel", image: "img1aaaaaa", avatar: "img2aaaaaa", account: "x" } }),
+      msg("b", "out", "", { media: { type: "photo", image: "img1aaaaaa" } }),
+      msg("c", "in", "ok", { story: { image: "img3aaaaaa" } }),
+    ];
+    expect(imagesDeConversation({ items }).sort()).toEqual(["img1aaaaaa", "img2aaaaaa", "img3aaaaaa"]);
+  });
+
+  it("au stockage : un id d'image douteux tombe, le compte est nettoyé, le badge n'est vrai que s'il l'est", () => {
+    const c = {
+      ...defaultConversation(),
+      items: [{ id: "a", kind: "message", side: "in", text: "", media: { type: "reel", image: "../../x", account: " @Plein Astuces! ", verified: "oui" } }],
+    };
+    expect(parseConversation(c)?.items[0]).toEqual({ id: "a", kind: "message", side: "in", text: "", media: { type: "reel", account: "PleinAstuces" } });
   });
 });

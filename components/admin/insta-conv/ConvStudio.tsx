@@ -26,15 +26,18 @@ import {
   conversationDeData,
   slideEnds,
   defaultConversation,
+  imagesDeConversation,
   newItemId,
   type Conversation,
   type ConvItem,
+  type ConvMedia,
   type ConvMessage,
   type ConvLocale,
   type Side,
   type ThemeId,
 } from "@/lib/insta-conv";
 import { InstaScreen, type InstaScreenHandle } from "./InstaScreen";
+import type { ConvImages } from "./InstaMedia";
 
 const PREVIEW_SCALE = 0.75;
 const THUMB_SCALE = 0.17;
@@ -63,6 +66,26 @@ async function toAvatarDataUrl(file: File): Promise<string> {
     AVATAR_PX,
   );
   return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+/** Plus grand côté d'une image déposée : de quoi rester nette à l'export ×2 (story 170×306 pt). */
+const IMAGE_PX = 1600;
+
+/** Image réduite et réencodée en JPEG (sans ses métadonnées) avant d'aller dans le storage. */
+async function toUploadJpeg(file: File): Promise<{ blob: Blob; w: number; h: number }> {
+  const bitmap = await createImageBitmap(file);
+  const k = Math.min(1, IMAGE_PX / Math.max(bitmap.width, bitmap.height));
+  const w = Math.round(bitmap.width * k);
+  const h = Math.round(bitmap.height * k);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas");
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", 0.9));
+  if (!blob) throw new Error("jpeg");
+  return { blob, w, h };
 }
 
 const baseDe = (titre: string) =>
@@ -103,6 +126,8 @@ export function ConvStudio() {
   const create = useProjectMutation(api.instaConversations.createInstaConversation);
   const save = useProjectMutation(api.instaConversations.saveInstaConversation);
   const remove = useProjectMutation(api.instaConversations.deleteInstaConversation);
+  const uploadUrl = useProjectMutation(api.instaConvImages.generateInstaConvUploadUrl);
+  const registerImage = useProjectMutation(api.instaConvImages.registerInstaConvImage);
 
   const [conv, setConv] = useState<Conversation | null>(null);
   const [titre, setTitre] = useState("");
@@ -120,6 +145,12 @@ export function ConvStudio() {
   const [slide, setSlide] = useState(0);
   const [serieProgress, setSerieProgress] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Images : celles que la conversation cite (résolues par le serveur), plus celles
+  // qu'on vient de déposer (visibles avant que la requête ne se rafraîchisse).
+  const [deposees, setDeposees] = useState<ConvImages>({});
+  const idsImages = conv ? imagesDeConversation(conv) : [];
+  const resolues = useProjectQuery(api.instaConvImages.getInstaConvImages, idsImages.length ? { ids: idsImages } : "skip");
+  const images: ConvImages = { ...deposees, ...(resolues ?? {}) };
 
   // Adoption PENDANT le rendu (et non dans un effet) : la version serveur ne
   // remplace la locale que si elle ne vient pas de notre propre enregistrement.
@@ -297,6 +328,22 @@ export function ConvStudio() {
     } finally {
       setSerieProgress(null);
       setExporting(false);
+    }
+  }
+
+  async function deposerImage(file: File): Promise<string | null> {
+    try {
+      const { blob, w, h } = await toUploadJpeg(file);
+      const res = await fetch(await uploadUrl({}), { method: "POST", headers: { "Content-Type": blob.type }, body: blob });
+      if (!res.ok) throw new Error(`upload ${res.status}`); // i18n-exempt: erreur interne, message générique à l'écran
+      const { storageId } = (await res.json()) as { storageId: Id<"_storage"> };
+      const img = await registerImage({ storageId, w, h });
+      if (img.url) setDeposees((d) => ({ ...d, [img.id]: { url: img.url!, w: img.w, h: img.h } }));
+      setError(null);
+      return img.id;
+    } catch (e) {
+      setError(errorText(e, tr("echecImage")));
+      return null;
     }
   }
 
@@ -592,12 +639,15 @@ export function ConvStudio() {
                 </div>
                 {it.kind === "message" ? (
                   <>
-                    <Textarea
-                      aria-label={tr("texte")}
-                      rows={2}
-                      value={it.text}
-                      onChange={(e) => patchItem(it.id, { text: e.target.value })}
-                    />
+                    {/* Un média (vocal, photo, reel…) n'a pas de texte. */}
+                    {!it.media && (
+                      <Textarea
+                        aria-label={tr("texte")}
+                        rows={2}
+                        value={it.text}
+                        onChange={(e) => patchItem(it.id, { text: e.target.value })}
+                      />
+                    )}
                     <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
                       <label className="flex items-center gap-2 text-sm text-slate-700">
                         <Switch
@@ -620,6 +670,7 @@ export function ConvStudio() {
                     <MessageOptions
                       item={it}
                       tr={tr}
+                      onUpload={deposerImage}
                       onChange={(p) => patchItem(it.id, p)}
                       onLongPress={(on) =>
                         patch({
@@ -678,7 +729,7 @@ export function ConvStudio() {
             role="img"
           >
             <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}>
-              <InstaScreen ref={screenRef} conversation={apercu} />
+              <InstaScreen ref={screenRef} conversation={apercu} images={images} />
             </div>
           </div>
           {serie && (
@@ -700,7 +751,7 @@ export function ConvStudio() {
                     style={{ width: SCREEN.width * THUMB_SCALE, height: SCREEN.height * THUMB_SCALE }}
                   >
                     <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: "top left" }} aria-hidden>
-                      <InstaScreen ref={(h) => { slideRefs.current[k] = h; }} conversation={slideConv(k)} />
+                      <InstaScreen ref={(h) => { slideRefs.current[k] = h; }} conversation={slideConv(k)} images={images} />
                     </div>
                     <span className="absolute right-0.5 bottom-0.5 rounded bg-black/60 px-1 text-[10px] font-medium text-white">
                       {k + 1}
@@ -723,7 +774,7 @@ export function ConvStudio() {
           {exportError && <p className="text-sm text-red-600">{tr("exportEchec")}</p>}
           {/* Fil complet, hors écran, à l'échelle 1 : sert à mesurer pour la découpe automatique. */}
           <div aria-hidden style={{ position: "fixed", left: -10_000, top: 0, visibility: "hidden", pointerEvents: "none" }}>
-            <InstaScreen ref={measureRef} conversation={{ ...conv, scroll: 0 }} />
+            <InstaScreen ref={measureRef} conversation={{ ...conv, scroll: 0 }} images={images} />
           </div>
         </div>
       </div>
@@ -733,22 +784,42 @@ export function ConvStudio() {
 
 type Tr = ReturnType<typeof useTranslations<"admin.ops.ConvStudio">>;
 
+type Nature = ConvMedia["type"] | "text";
+
+/** La nature choisie → le média, en gardant l'image et le compte déjà posés. */
+function mediaPour(v: Nature, prev: ConvMedia | undefined): ConvMedia | undefined {
+  const image = prev && "image" in prev && prev.image ? { image: prev.image } : {};
+  const compte = prev && "account" in prev ? { account: prev.account, ...(prev.avatar ? { avatar: prev.avatar } : {}), ...(prev.verified ? { verified: true } : {}) } : { account: "" };
+  if (v === "text") return undefined;
+  if (v === "voice") return { type: "voice", seconds: 3 };
+  if (v === "photoOnce" || v === "videoOnce") return { type: v };
+  if (v === "photo" || v === "video") return { type: v, ...image };
+  if (v === "storyShare") return { type: v, ...image, ...compte };
+  return { type: v, ...image, ...compte };
+}
+
 /**
- * Options d'un message, repliées par défaut : nature (texte, vocal, photo ou
- * vidéo éphémère), réponse citée, réponse à une story, appui long, heure.
+ * Options d'un message, repliées par défaut : nature (texte, vocal, éphémère,
+ * photo/vidéo, reel, publication, story partagée) et son image, réponse citée,
+ * réponse à une story (et sa miniature), appui long, heure.
  */
 function MessageOptions({
   item,
   tr,
+  onUpload,
   onChange,
   onLongPress,
 }: {
   item: ConvMessage;
   tr: Tr;
+  onUpload: (file: File) => Promise<string | null>;
   onChange: (p: Partial<ConvMessage>) => void;
   onLongPress: (on: boolean) => void;
 }) {
-  const nature = item.media?.type ?? "text";
+  const md = item.media;
+  const nature: Nature = md?.type ?? "text";
+  const card = md && (md.type === "reel" || md.type === "post" || md.type === "storyShare") ? md : null;
+  const withImage = md && "image" in md ? md : md?.type === "photo" || md?.type === "video" ? md : null;
   const reply = item.reply;
   const actives = [item.media, item.reply, item.story, item.longPress, item.time].filter(Boolean).length;
   return (
@@ -759,20 +830,30 @@ function MessageOptions({
       </summary>
       <div className="mt-2 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <Choice
+          <Choice<Nature>
             value={nature}
             options={[
               ["text", tr("natures.texte")],
               ["voice", tr("natures.vocal")],
               ["photoOnce", tr("natures.photo")],
               ["videoOnce", tr("natures.video")],
+              ["photo", tr("natures.photoEnvoyee")],
+              ["video", tr("natures.videoEnvoyee")],
+              ["reel", tr("natures.reel")],
+              ["post", tr("natures.post")],
+              ["storyShare", tr("natures.storyPartagee")],
             ]}
-            onChange={(v) =>
-              onChange({
-                media: v === "text" ? undefined : v === "voice" ? { type: "voice", seconds: 3 } : { type: v },
-              })
-            }
+            onChange={(v) => onChange({ media: mediaPour(v, md) })}
           />
+          {withImage && (
+            <ImagePick
+              label={tr("image")}
+              value={withImage.image}
+              tr={tr}
+              onUpload={onUpload}
+              onChange={(image) => onChange({ media: { ...withImage, image } })}
+            />
+          )}
           {item.media?.type === "voice" && (
             <label className="flex items-center gap-2 text-sm text-slate-700">
               {tr("duree")}
@@ -787,6 +868,40 @@ function MessageOptions({
             </label>
           )}
         </div>
+        {card && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              {tr("compte")}
+              <Input
+                className="h-8 w-40"
+                placeholder={tr("compteExemple")}
+                value={card.account}
+                onChange={(e) => onChange({ media: { ...card, account: e.target.value.replace(/^@+/, "") } })}
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <Switch checked={!!card.verified} onCheckedChange={(on) => onChange({ media: { ...card, verified: on || undefined } })} />
+              {tr("certifie")}
+            </label>
+            <ImagePick
+              label={tr("photoCompte")}
+              value={card.avatar}
+              tr={tr}
+              onUpload={onUpload}
+              onChange={(avatar) => onChange({ media: { ...card, avatar } })}
+            />
+            {card.type !== "storyShare" && (
+              <Textarea
+                className="min-h-0"
+                rows={2}
+                aria-label={tr("legende")}
+                placeholder={tr("legende")}
+                value={card.caption ?? ""}
+                onChange={(e) => onChange({ media: { ...card, caption: e.target.value || undefined } })}
+              />
+            )}
+          </div>
+        )}
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <Switch
@@ -854,6 +969,15 @@ function MessageOptions({
               {tr("storyIndisponible")}
             </label>
           )}
+          {item.story && !item.story.unavailable && (
+            <ImagePick
+              label={tr("miniatureStory")}
+              value={item.story.image}
+              tr={tr}
+              onUpload={onUpload}
+              onChange={(image) => onChange({ story: { ...item.story, image } })}
+            />
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -872,6 +996,57 @@ function MessageOptions({
         </div>
       </div>
     </details>
+  );
+}
+
+/** Dépôt d'une image : bouton (le champ fichier est caché), remplacer, retirer. */
+function ImagePick({
+  label,
+  value,
+  tr,
+  onUpload,
+  onChange,
+}: {
+  label: string;
+  value: string | undefined;
+  tr: Tr;
+  onUpload: (file: File) => Promise<string | null>;
+  onChange: (id: string | undefined) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex items-center gap-2 text-sm text-slate-700">
+      <span>{label}</span>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => ref.current?.click()}>
+        <ImageUpIcon className="size-4" />
+        {busy ? tr("imageEnCours") : value ? tr("changerImage") : tr("choisirImage")}
+      </Button>
+      {value && (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(undefined)}>
+          {tr("retirerImage")}
+        </Button>
+      )}
+      <input
+        ref={ref}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        aria-label={label}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          setBusy(true);
+          try {
+            const id = await onUpload(file);
+            if (id) onChange(id);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </div>
   );
 }
 

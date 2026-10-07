@@ -1930,6 +1930,23 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_project", ["projectId", "updatedAt"]),
 
+  // IMAGES DES CONVERSATIONS (convex/instaConvImages.ts) — photo/vidéo envoyée,
+  // reel, story partagée… : le fichier est dans le storage, la conversation ne
+  // porte que l'id de cette ligne (jamais d'URL). `checkedAt` fait tourner le
+  // ramassage des orphelines (une image gardée repasse en fin de file).
+  instaConvImages: defineTable({
+    projectId: v.id("projects"),
+    storageId: v.id("_storage"),
+    w: v.number(),
+    h: v.number(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    checkedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_storage", ["storageId"])
+    .index("by_checked", ["checkedAt"]),
+
   // EXPÉRIENCES DE HOOKS (convex/mcpExperiences.ts) — un test A/B : chaque
   // créatrice tourne TOUTES les variantes (hooks), en carré latin sur les jours,
   // même flux et même cta. Le verdict se lit à J+7 (convex/experienceStats).

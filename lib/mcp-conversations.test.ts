@@ -4,7 +4,7 @@ import {
   conversationPourMcp,
   elementsDeMcp,
 } from "../convex/mcpConversationsArgs";
-import { conversationDeData, defaultConversation, parseConversation } from "../convex/instaConvModel";
+import { conversationDeData, defaultConversation, imagesDeConversation, parseConversation } from "../convex/instaConvModel";
 import { extractTikTokMedia, isTikTokCdnUrl, isTikTokPostUrl } from "../convex/tiktokMedia";
 
 describe("ce que Claude écrit → la conversation", () => {
@@ -82,6 +82,45 @@ describe("ce que Claude écrit → la conversation", () => {
     expect(elementsDeMcp([{ type: "gif", cote: "recu" }])).toMatchObject({ refus: expect.stringContaining("« type »") });
   });
 
+  it("médias avec image : reel, publication, story partagée, vidéo, miniature de story — relus à l'identique", () => {
+    const r = elementsDeMcp([
+      { type: "reel", cote: "recu", compte: "@plein_astuces_", image: "img:abc12345xyz", photo_compte: "img:def67890uvw", certifie: true, legende: "pourquoi PERSONNE" },
+      { type: "publication", cote: "recu", compte: "regina.santos" },
+      { type: "video", cote: "envoye", image: "img:ghi13579rst" },
+      { cote: "recu", texte: "T’aurais du m’inviter", story: { amis_proches: true, image: "img:jkl24680opq" } },
+      { type: "story_partagee", cote: "recu", compte: "chloe.difrancesco", image: "tiktok:0" },
+    ]);
+    if ("refus" in r) throw new Error(r.refus);
+    const [reel, post, video, reponse, partagee] = r.items as Array<Record<string, unknown>>;
+    expect(reel).toMatchObject({
+      text: "",
+      media: { type: "reel", image: "abc12345xyz", avatar: "def67890uvw", account: "plein_astuces_", verified: true, caption: "pourquoi PERSONNE" },
+    });
+    expect(post).toMatchObject({ media: { type: "post", account: "regina.santos" } });
+    expect(video).toMatchObject({ side: "out", media: { type: "video", image: "ghi13579rst" } });
+    expect(reponse).toMatchObject({ story: { closeFriends: true, image: "jkl24680opq" } });
+    // Le jeton d'une image TikTok tout juste rangée reste tel quel : la mutation le résout.
+    expect(partagee).toMatchObject({ media: { type: "storyShare", image: "tiktok:0", account: "chloe.difrancesco" } });
+
+    const c = { ...defaultConversation(), items: r.items.slice(0, 4) };
+    const lu = conversationPourMcp(c).messages;
+    expect(lu[0]).toMatchObject({ type: "reel", image: "img:abc12345xyz", photo_compte: "img:def67890uvw", compte: "plein_astuces_", certifie: true, legende: "pourquoi PERSONNE" });
+    expect(lu[3]).toMatchObject({ story: { amis_proches: true, image: "img:jkl24680opq" } });
+    const back = appliquerChampsMcp(c, { messages: lu });
+    if ("refus" in back) throw new Error(back.refus);
+    const sansId = (xs: typeof c.items) => xs.map((x) => ({ ...x, id: "" }));
+    expect(sansId(back.conversation.items)).toEqual(sansId(c.items));
+    expect(parseConversation(JSON.parse(JSON.stringify(c)))?.items).toEqual(c.items);
+    expect(imagesDeConversation(c).sort()).toEqual(["abc12345xyz", "def67890uvw", "ghi13579rst", "jkl24680opq"]);
+  });
+
+  it("refuse une carte sans compte, et une image qui n'est ni un lien TikTok ni « img:<id> »", () => {
+    expect(elementsDeMcp([{ type: "reel", cote: "recu" }])).toMatchObject({ refus: expect.stringContaining("« compte »") });
+    expect(elementsDeMcp([{ type: "photo", cote: "envoye", image: "https://evil.example/x.jpg" }])).toMatchObject({ refus: expect.stringContaining("« image »") });
+    expect(elementsDeMcp([{ cote: "recu", texte: "x", story: { image: "img:" } }])).toMatchObject({ refus: expect.stringContaining("story.image") });
+    expect(elementsDeMcp([{ type: "reel", cote: "recu", compte: "x", photo_compte: 42 }])).toMatchObject({ refus: expect.stringContaining("photo_compte") });
+  });
+
   it("une réaction trop longue est coupée sans briser un emoji", () => {
     const r = elementsDeMcp([{ cote: "recu", texte: "x", reaction: "😂😂😂😂😂😂" }]);
     expect("items" in r && r.items[0]).toMatchObject({ reaction: "😂😂😂😂" });
@@ -152,6 +191,17 @@ describe("images d'un TikTok", () => {
     expect(extractTikTokMedia(page({ id: "4", video: { originCover: "https://evil.example.com/x.jpeg" } }))).toMatchObject({
       kind: "unreadable",
     });
+  });
+
+  it("auteur : nom, photo prise sur le CDN seulement, badge — de quoi dessiner un reel partagé", () => {
+    const html = page({ id: "5", video: { originCover: cdn("o.jpeg") }, author: { uniqueId: "plein_astuces_", avatarMedium: cdn("av.jpeg"), verified: true } });
+    expect(extractTikTokMedia(html)).toEqual({
+      kind: "video",
+      images: [cdn("o.jpeg")],
+      author: { username: "plein_astuces_", avatar: cdn("av.jpeg"), verified: true },
+    });
+    const ailleurs = extractTikTokMedia(page({ id: "6", video: { originCover: cdn("o.jpeg") }, author: { uniqueId: "x", avatarMedium: "https://evil.example.com/a.jpeg" } }));
+    expect(ailleurs).toEqual({ kind: "video", images: [cdn("o.jpeg")], author: { username: "x" } });
   });
 
   it("valide les liens de post et les hôtes d'image", () => {

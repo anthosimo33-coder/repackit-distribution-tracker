@@ -100,6 +100,15 @@ crons.hourly(
   { mode: "incremental" },
 );
 
+// Images des conversations Instagram que plus rien ne cite (ni conversation, ni
+// journal MCP des 31 derniers jours) — cf convex/instaConvImages.ts. 04:25 UTC.
+crons.daily(
+  "purge-orphan-insta-conv-images",
+  { hourUTC: 4, minuteUTC: 25 },
+  internal.instaConvImages.purgerImagesOrphelines,
+  {},
+);
+
 // Vidéos des missions SUPPRIMÉES — gardées 30 jours en archive, puis purgées
 // (fichier Convex + copie Stream). Cf convex/deletedVideos.ts. 04:10 UTC, heure
 // creuse.

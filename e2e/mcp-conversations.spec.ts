@@ -1,5 +1,11 @@
 import { test, expect, adminPath, E2E_PROJECT_SLUG } from "./fixtures/auth-fixture";
 import type { Page } from "@playwright/test";
+import sharp from "sharp";
+import { createE2eClient } from "./helpers/authed-client";
+import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
+
+const admin = createE2eClient(process.env.NEXT_PUBLIC_CONVEX_URL ?? "");
 
 type Rpc = { result?: { content?: { text: string }[]; isError?: boolean }; error?: { message: string } };
 
@@ -137,5 +143,48 @@ test.describe("MCP — conversations Instagram", () => {
     // L'appui long : le menu par-dessus la conversation floutée, à l'heure du message.
     await expect(apercu.getByText("Reply", { exact: true })).toBeVisible();
     await expect(apercu.getByText("14:35", { exact: true })).toBeVisible();
+  });
+
+  test("cartes par Claude : reel et story partagée dessinés ; une image du projet se garde, une inventée est refusée", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { appel } = await cle(page, `E2E conv cartes ${ts}`);
+
+    // Une image du projet, déposée comme le fait l'écran.
+    const bleu = await sharp({ create: { width: 360, height: 640, channels: 3, background: "#2050ff" } }).jpeg().toBuffer();
+    const envoi = await fetch(await admin.mutation(api.instaConvImages.generateInstaConvUploadUrl, {}), {
+      method: "POST",
+      headers: { "Content-Type": "image/jpeg" },
+      body: new Uint8Array(bleu),
+    });
+    const { storageId } = (await envoi.json()) as { storageId: Id<"_storage"> };
+    const image = await admin.mutation(api.instaConvImages.registerInstaConvImage, { storageId, w: 360, h: 640 });
+
+    // Un id qui n'est pas une image de ce projet ne passe pas.
+    const invente = await appel("creer_conversation", { titre: `Cartes refus ${ts}`, messages: [{ type: "photo", cote: "envoye", image: "img:k17abcdefghijkl" }] });
+    expect(invente.erreur).toBe(true);
+    expect(invente.texte).toContain("inconnue dans ce projet");
+
+    const titre = `Cartes ${ts}`;
+    const cree = await appel("creer_conversation", {
+      titre,
+      langue: "en",
+      messages: [
+        { type: "reel", cote: "recu", compte: "plein_astuces_", certifie: true },
+        { type: "story_partagee", cote: "recu", compte: "chloe.difrancesco", image: `img:${image.id}` },
+      ],
+    });
+    expect(cree.erreur, cree.texte).toBe(false);
+    await page.goto((JSON.parse(cree.texte).lien as string).replace(/^https?:\/\/[^/]+/, ""));
+    const apercu = page.getByRole("img", { name: "Aperçu de la capture" });
+    await expect(apercu.getByText("plein_astuces_", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Sent @chloe.difrancesco's story", { exact: true })).toBeVisible();
+    // Le reel sans image attend dans un cadre gris ; la story montre l'image du projet.
+    await expect(apercu.locator('img[src*="/api/storage/"]')).toHaveCount(1);
+
+    // Claude relit l'image sous la forme qu'il renverra pour la garder.
+    const lu = JSON.parse((await appel("lire_conversation", { conversation: titre })).texte) as { messages: Array<Record<string, unknown>> };
+    expect(lu.messages[1]).toMatchObject({ type: "story_partagee", compte: "chloe.difrancesco", image: `img:${image.id}` });
+    expect(lu.messages[0]).toMatchObject({ type: "reel", compte: "plein_astuces_", certifie: true });
   });
 });

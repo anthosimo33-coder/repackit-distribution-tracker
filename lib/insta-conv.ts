@@ -48,8 +48,12 @@ export const METRICS = {
   edited: { fontSize: 12.3, lineHeight: 16, marginTop: 13.15, marginBottom: 4.5, inset: 12.4 },
   reaction: { width: 29, height: 24, inset: 5, overlap: 7, ring: 1.5 },
   date: { fontSize: 12, lineHeight: 16, marginTop: 21, marginBottom: 16 },
-  /** Libellés gris au-dessus d'une citation ou d'une réponse à une story (« Replied to you »…). */
-  label: { fontSize: 12, lineHeight: 16, marginTop: 14, color: "#A0A9B5" },
+  /**
+   * Libellés gris au-dessus d'une citation ou d'une story (« Replied to you »…),
+   * 12 pt. Juste sous une date, le libellé remonte : sa capitale est à 22 pt de la
+   * ligne de base de la date (captures 9 et 12).
+   */
+  label: { fontSize: 12, lineHeight: 16, marginTop: 14, color: "#A0A9B5", afterDate: -1.5 },
   /**
    * Réponse citée : barre de 4 pt + 12 pt + bulle citée (texte 14,7 pt sur 20,
    * 3 lignes au plus, « … more »), puis 8 pt jusqu'à la réponse. La bulle citée est celle de son
@@ -62,6 +66,46 @@ export const METRICS = {
   voice: { height: 98, playLeft: 15, playCenterY: 31.75, firstBar: 48, barWidth: 3, barPitch: 6, maxBarHeight: 40, minBarHeight: 3, durationGap: 16.5, durationWidth: 24, padRight: 16, transcriptionTop: 66.5 },
   /** Photo ou vidéo éphémère déjà vue : pastille 86 pt ; bouton appareil photo 32 pt à côté (reçue). */
   viewOnce: { width: 86, cameraSize: 32, cameraGap: 8.5 },
+  /**
+   * Photo ou vidéo envoyée (capture 8) : 164 pt de large, 255 pt de haut au plus
+   * (au-delà, l'image est recadrée), rayon 14, coin groupé 4 pt ; une vidéo porte
+   * un ▶ blanc à 10 pt du bord droit et 9 pt du haut. Format paysage NON relevé
+   * (240 pt de large estimés).
+   */
+  media: { width: 164, maxHeight: 255, landscapeWidth: 240, minHeight: 120, radius: 14, play: { width: 20, height: 21.5, right: 10, top: 9 } },
+  /**
+   * Cartes partagées (captures 11 à 14) : reel 160×288, story 170×306 derrière
+   * une barre de 4 pt, rayon 14 ; en tête, photo du compte 20 pt à 12 pt des
+   * bords et nom 14 pt semi-gras (ligne de base à 27 pt), badge 11 pt. Publication :
+   * 240 pt de large et légende sur 2 lignes relevées ; en-tête et format de
+   * l'image NON relevés (repris du reel, 4:5).
+   */
+  card: {
+    reel: { width: 160, height: 288 },
+    storyShare: { width: 170, height: 306 },
+    post: { width: 240, imageHeight: 300 },
+    radius: 14,
+    header: { avatar: 20, inset: 12, gap: 10.5, fontSize: 14, baseline: 27, badge: 11, badgeGap: 5, padRight: 12 },
+    reelIcon: { size: 22, inset: 13 },
+    play: { width: 24, height: 26 },
+    caption: { fontSize: 14, lineHeight: 16.5, padX: 13, padTop: 8, padBottom: 10, maxLines: 2 },
+    /** Libellé « Sent @compte's story » : à 68 pt (comme les libellés de story), 13,25 pt jusqu'à la carte. */
+    storyLabelGap: 13.25,
+    /**
+     * Une carte se pose ~7 pt plus bas qu'une bulle (date → reel : 26,5 pt au lieu
+     * de 19,7) ; les boutons latéraux sont centrés sur carte + cet espace, d'où
+     * les −4 pt de `side.cardOffset`.
+     */
+    topInset: 7,
+  },
+  /** Bouton « partager » (et « enregistrer » sous un reel) : 32 pt à 8 pt du média, empilés à 12 pt ; centrés sur une carte −4 pt. */
+  side: { size: 32, gap: 8, stackGap: 12, background: "#2B3035", cardOffset: -4 },
+  /** Miniature d'une réponse à une story (capture 9) : 88×156, rayon 14 ; 5,8 pt sous le libellé, 8 pt jusqu'à la bulle. */
+  storyThumb: { width: 88, height: 156, labelGap: 5.8, toBubble: 8 },
+  /** Libellés de story (« Replied to your story », « Sent @x's story ») : à 68 pt du bord. */
+  storyLabelInset: 68,
+  /** Image absente (Claude a créé la conversation, l'image reste à déposer). */
+  imagePlaceholder: "linear-gradient(160deg, #474C53 0%, #2A2E33 55%, #1C1F23 100%)", // i18n-exempt: valeur CSS
   mention: "#85A1F9",
   jumbo: { fontSize: 52, lineHeight: 59, maxCount: 5 },
 } as const;
@@ -170,6 +214,8 @@ export type PlannedMessage = {
   /** Collée au message suivant du même auteur (petit coin en bas). */
   joinedBottom: boolean;
   showAvatar: boolean;
+  /** Juste sous un séparateur de date (l'en-tête d'un libellé s'y colle). */
+  afterDate: boolean;
   /** Espace au-dessus, en pt (hors label « Modifié », qui porte le sien). */
   gapBefore: number;
 };
@@ -185,6 +231,8 @@ export type PlannedItem = PlannedMessage | PlannedDate;
  * capture : chacun garde alors son avatar). L'avatar va au DERNIER message d'un
  * groupe reçu.
  */
+const groupable = (m: ConvMessage) => !m.media || m.media.type === "photo" || m.media.type === "video";
+
 export function planConversation(items: ConvItem[]): PlannedItem[] {
   const joins = (a: ConvItem | undefined, b: ConvItem | undefined): boolean =>
     !!a &&
@@ -196,9 +244,10 @@ export function planConversation(items: ConvItem[]): PlannedItem[] {
     !b.reply &&
     !b.story &&
     !a.reaction &&
-    // Vocal, photo ou vidéo éphémère : chacun garde sa propre place (vu sur capture).
-    !a.media &&
-    !b.media &&
+    // Vocal, éphémère, carte partagée : chacun garde sa propre place (vu sur
+    // capture). Une photo ou vidéo envoyée, elle, se groupe (capture 8 : 2 pt).
+    groupable(a) &&
+    groupable(b) &&
     !isJumbo(a.text) &&
     !isJumbo(b.text);
 
@@ -213,8 +262,8 @@ export function planConversation(items: ConvItem[]): PlannedItem[] {
     if (i === 0 || prev?.kind === "date") gapBefore = 0;
     else if (prev?.kind === "message" && prev.reaction) gapBefore = METRICS.gap.afterReaction;
     else if (joinedTop) gapBefore = METRICS.gap.sameSender;
-    // « Modifié », citation, story : l'en-tête porte son propre écart.
-    if ((item.edited || item.reply || item.story) && i > 0) gapBefore = 0;
+    // « Modifié », citation, story (répondue ou partagée) : l'en-tête porte son propre écart.
+    if ((item.edited || item.reply || item.story || item.media?.type === "storyShare") && i > 0) gapBefore = 0;
     return {
       kind: "message",
       item,
@@ -222,6 +271,7 @@ export function planConversation(items: ConvItem[]): PlannedItem[] {
       joinedTop,
       joinedBottom,
       showAvatar: item.side === "in" && !joinedBottom,
+      afterDate: prev?.kind === "date",
       gapBefore,
     };
   });
@@ -360,6 +410,9 @@ export type ScreenStrings = {
   viewTranscription: string;
   photo: string;
   video: string;
+  /** Story partagée : `{account}` = le compte, sans @. */
+  sentStory: string;
+  youSentStory: string;
   menu: { reply: string; addSticker: string; forward: string; deleteForYou: string; report: string; more: string; edit: string; unsend: string };
 };
 
@@ -377,6 +430,8 @@ export const SCREEN_STRINGS: Record<ConvLocale, ScreenStrings> = {
     viewTranscription: "View transcription", // i18n-exempt: donnée de la capture, pas de l'interface
     photo: "Photo", // i18n-exempt: donnée de la capture, pas de l'interface
     video: "Video", // i18n-exempt: donnée de la capture, pas de l'interface
+    sentStory: "Sent @{account}'s story", // i18n-exempt: donnée de la capture, pas de l'interface
+    youSentStory: "You sent @{account}'s story", // i18n-exempt: donnée de la capture, pas de l'interface
     menu: { reply: "Reply", addSticker: "Add sticker", forward: "Forward", deleteForYou: "Delete for you", report: "Report", more: "More", edit: "Edit", unsend: "Unsend" }, // i18n-exempt: donnée de la capture, pas de l'interface
   },
   // Menu relevé sur une capture FR (Répondre, Ajouter un sticker, Transférer,
@@ -394,9 +449,21 @@ export const SCREEN_STRINGS: Record<ConvLocale, ScreenStrings> = {
     viewTranscription: "Voir la transcription", // i18n-exempt: donnée de la capture, pas de l'interface
     photo: "Photo", // i18n-exempt: donnée de la capture, pas de l'interface
     video: "Vidéo", // i18n-exempt: donnée de la capture, pas de l'interface
+    sentStory: "A envoyé la story de @{account}", // i18n-exempt: donnée de la capture, pas de l'interface
+    youSentStory: "Vous avez envoyé la story de @{account}", // i18n-exempt: donnée de la capture, pas de l'interface
     menu: { reply: "Répondre", addSticker: "Ajouter un sticker", forward: "Transférer", deleteForYou: "Supprimer pour vous", report: "Signaler", more: "Plus", edit: "Modifier", unsend: "Annuler l'envoi" }, // i18n-exempt: donnée de la capture, pas de l'interface
   },
 };
+
+// ── Photos et vidéos envoyées ─────────────────────────────────────────────────
+
+/** Cadre d'une photo/vidéo envoyée, selon les dimensions de l'image (inconnues : portrait). */
+export function mediaBox(w?: number, h?: number): { width: number; height: number } {
+  const M = METRICS.media;
+  const ratio = w && h && w > 0 && h > 0 ? w / h : 9 / 16;
+  const width = ratio > 1 ? M.landscapeWidth : M.width;
+  return { width, height: Math.round(Math.min(M.maxHeight, Math.max(M.minHeight, width / ratio)) * 2) / 2 };
+}
 
 // ── Messages vocaux ───────────────────────────────────────────────────────────
 

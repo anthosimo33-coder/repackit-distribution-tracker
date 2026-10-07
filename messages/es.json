@@ -1535,7 +1535,8 @@
     "ERR_ACCOUNT_URL_INVALID": "Enlace demasiado largo (500 caracteres como máximo).",
     "ERR_INSTA_CONV_INVALID": "Conversación no válida: título vacío o demasiado largo, o contenido ilegible.",
     "ERR_INSTA_CONV_TITLE_TAKEN": "Ya hay una conversación llamada «{titre}».",
-    "ERR_INSTA_CONV_NOT_FOUND": "Esta conversación ya no existe."
+    "ERR_INSTA_CONV_NOT_FOUND": "Esta conversación ya no existe.",
+    "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagen rechazada: JPEG, PNG o WebP de 8 MB como máximo."
   },
   "calendar": {
     "weekday": {

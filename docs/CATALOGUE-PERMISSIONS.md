@@ -552,9 +552,9 @@ Le bloc ouvre la création de liens publics (`/s/<token>`). Ce que le lien montr
 | `requestRadarSync` | M | radar | Resynchronise toute la veille |  |
 | `updateRadarAccountNote` | M | radar | Annote un compte suivi |  |
 
-### `conversations.use` — 5 fonctions
+### `conversations.use` — 8 fonctions
 
-Bibliothèque du générateur de captures (`/conversations`). Les outils MCP du même nom (`conversations`, `lire_conversation`, `images_tiktok` en lecture ; `creer_conversation`, `modifier_conversation`, `supprimer_conversation` derrière l'interrupteur « Conversations ») passent par le même bloc et les mêmes cœurs (`convex/instaConversations.ts`).
+Bibliothèque du générateur de captures (`/conversations`). Les outils MCP du même nom (`conversations`, `lire_conversation`, `images_tiktok` en lecture ; `creer_conversation`, `modifier_conversation`, `supprimer_conversation` derrière l'interrupteur « Conversations ») passent par le même bloc et les mêmes cœurs (`convex/instaConversations.ts`). Les images des conversations (photo, reel, story partagée…) vivent dans le storage du projet, une ligne `instaConvImages` chacune (`convex/instaConvImages.ts`).
 
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|
@@ -563,6 +563,9 @@ Bibliothèque du générateur de captures (`/conversations`). Les outils MCP du 
 | `createInstaConversation` | M | instaConversations | Crée un brouillon |  |
 | `saveInstaConversation` | M | instaConversations | Enregistre le contenu ou le titre |  |
 | `deleteInstaConversation` | M | instaConversations | Supprime un brouillon |  |
+| `getInstaConvImages` | Q | instaConvImages | URL et dimensions des images citées par un brouillon (celles du projet seulement) |  |
+| `generateInstaConvUploadUrl` | M | instaConvImages | Adresse d'envoi d'une image vers le storage |  |
+| `registerInstaConvImage` | M | instaConvImages | Enregistre l'image envoyée (type et poids relus côté serveur) |  |
 
 ### `creators.pay_terms` — 2 fonctions
 
