@@ -96,6 +96,10 @@ test.describe("Manager — le parcours complet", () => {
     await expect(
       nav.getByRole("link", { name: "Rôles et droits", exact: true }),
     ).toHaveCount(0);
+    // « Conversations » (générateur de captures) est un outil admin, pas un bloc.
+    await expect(
+      nav.getByRole("link", { name: "Conversations", exact: true }),
+    ).toHaveCount(0);
 
     // ── 3. Il ouvre un écran qu'il a ─────────────────────────────────────────
     await nav.getByRole("link", { name: "Créateurs", exact: true }).click();
