@@ -213,9 +213,18 @@ function clampLines(el: HTMLElement) {
   el.textContent = full.slice(0, lo).trimEnd() + suffix;
 }
 
-/** Largeur « serrée » façon UIKit d'une bulle sur plusieurs lignes. */
+/**
+ * Largeur « serrée » façon UIKit d'une bulle sur plusieurs lignes — et coupures
+ * FIGÉES pour l'export : la copie que rastérise modern-screenshot reprend la
+ * largeur et la hauteur calculées ici, au pixel près ; si son texte mesure une
+ * fraction de pixel de plus (police, zoom du navigateur), il repasse à la ligne
+ * et déborde sous la bulle (vu sur un export réel : « seriously? 😂 », emoji
+ * tombé sous la bulle). Une bulle d'une ligne ne se coupe donc plus ; celle de
+ * plusieurs lignes garde 1 px de marge.
+ */
 function tighten(b: HTMLElement, scale: number) {
   b.style.width = "";
+  b.style.whiteSpace = "pre-wrap";
   const cs = getComputedStyle(b);
   const lh = parseFloat(cs.lineHeight);
   const top = b.getBoundingClientRect().top / scale + parseFloat(cs.paddingTop);
@@ -232,7 +241,9 @@ function tighten(b: HTMLElement, scale: number) {
   }
   if (lines.size > 1) {
     const widest = Math.max(...[...lines.values()].map(([l, r]) => r - l));
-    b.style.width = `${widest / scale + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 0.01}px`;
+    b.style.width = `${widest / scale + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 1}px`;
+  } else {
+    b.style.whiteSpace = "pre";
   }
 }
 

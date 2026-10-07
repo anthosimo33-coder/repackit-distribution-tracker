@@ -197,4 +197,33 @@ test.describe("Conversations Instagram", () => {
     expect(d2.suggestedFilename()).toBe(`lien-e2e-${ts}.zip`);
     expect(Object.keys(unzipSync(readFileSync(await d2.path())))).toHaveLength(2);
   });
+
+  /**
+   * EXPORT FIDÈLE — la copie rastérisée reprend la largeur de chaque bulle au
+   * pixel près. Vu sur un export réel : « seriously? 😂 » mesuré une fraction de
+   * pixel plus large dans la copie, l'emoji était repassé à la ligne, SOUS la
+   * bulle. Une bulle d'une ligne ne doit plus pouvoir se couper : on lui retire
+   * 1 px de largeur (ce que fait une copie plus large) et elle reste sur une ligne.
+   */
+  test("une bulle d'une ligne avec emoji ne repasse pas à la ligne quand sa copie est un peu plus étroite", async ({ page }) => {
+    const ts = Date.now();
+    await page.goto(adminPath("/conversations"));
+    await page.getByRole("button", { name: "Nouvelle conversation" }).first().click();
+    await expect(page).toHaveURL(/\/conversations\?c=/);
+    await page.getByLabel("Titre").fill(`Emoji e2e ${ts}`);
+    await page.getByLabel("Titre").press("Enter");
+    await page.getByRole("button", { name: "+ Message reçu" }).click();
+    await page.getByTestId("conv-item").last().getByRole("textbox", { name: "Texte du message" }).fill("seriously? 😂");
+
+    const bulle = page.getByRole("img", { name: "Aperçu de la capture" }).locator("[data-tight]", { hasText: "seriously?" });
+    await expect(bulle).toHaveCount(1);
+    const hauteurs = await bulle.evaluate((el) => {
+      const b = el as HTMLElement;
+      const avant = b.offsetHeight;
+      b.style.width = `${b.offsetWidth - 1}px`;
+      return { avant, apres: b.offsetHeight };
+    });
+    expect(hauteurs.avant).toBe(40);
+    expect(hauteurs.apres).toBe(hauteurs.avant);
+  });
 });

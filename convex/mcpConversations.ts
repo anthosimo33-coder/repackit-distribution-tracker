@@ -100,7 +100,11 @@ const ARG_MESSAGES = {
       cote: { type: "string", enum: ["recu", "envoye"], description: "recu = bulle à gauche (l'autre personne) ; envoye = à droite (le propriétaire du téléphone). Obligatoire sauf pour une date." },
       texte: { type: "string", description: "Le texte de la bulle, ou du séparateur (inutile pour vocal et éphémères)." },
       modifie: { type: "boolean", description: "Label « Modifié » au-dessus de la bulle." },
-      reaction: { type: "string", description: "Un emoji de réaction posé sous la bulle (ex. « 😂 »)." },
+      reaction: {
+        type: "string",
+        description:
+          "Un emoji de RÉACTION, dans une pastille sous la bulle (ex. « 😂 »). « Il répond X avec 😂 » sans autre précision veut le plus souvent dire une réaction ; un emoji écrit DANS le message va dans « texte ».",
+      },
       coupure: { type: "boolean", description: "Fin de slide APRÈS cet élément : l'écran exporte alors une SÉRIE de captures (carrousel), chacune montrant la conversation jusqu'à sa coupure, la plus récente en bas." },
       duree: { type: "integer", minimum: 1, maximum: 600, description: "Vocal : durée en secondes (défaut 3)." },
       reponse: {
