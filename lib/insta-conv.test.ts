@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  voiceBars,
+  voiceWidth,
+  waveform,
+  formatDuration,
   autoCuts,
   slideEnds,
   renderEngine,
@@ -98,7 +102,9 @@ describe("thèmes", () => {
   it("le dégradé sombre suit la hauteur de l'écran, arrêts croissants", () => {
     const ys = THEMES.dark.outStops.map(([y]) => y);
     expect([...ys].sort((p, q) => p - q)).toEqual(ys);
-    expect(outGradientCss(THEMES.dark)).toContain("rgb(148,52,234) 325px");
+    // Arrêts relevés sur 11 captures : magenta en haut, bleu-violet en bas.
+    expect(outGradientCss(THEMES.dark)).toContain("rgb(188,49,212) 104px");
+    expect(outGradientCss(THEMES.dark)).toContain("rgb(91,77,249) 805px");
   });
 });
 
@@ -148,5 +154,40 @@ describe("moteur de rendu", () => {
     expect(renderEngine(`${mac} Chrome/140.0.0.0 Safari/537.36`)).toBe("blink");
     expect(renderEngine(`${mac} Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0`)).toBe("blink");
     expect(renderEngine("Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0 Mobile/15E148 Safari/604.1")).toBe("webkit");
+  });
+});
+
+describe("messages vocaux", () => {
+  it("largeur mesurée sur capture : 4 s et plus → 299,5 pt ; 3 s → 281,5", () => {
+    expect(voiceBars(3)).toBe(30);
+    expect(voiceBars(9)).toBe(33);
+    expect(voiceWidth(9)).toBe(299.5);
+    expect(voiceWidth(3)).toBe(281.5);
+    expect(formatDuration(9)).toBe("0:09");
+    expect(formatDuration(75)).toBe("1:15");
+  });
+
+  it("forme d'onde déterministe et bornée", () => {
+    const a = waveform("msg-1", 33);
+    expect(waveform("msg-1", 33)).toEqual(a);
+    expect(waveform("msg-2", 33)).not.toEqual(a);
+    expect(a.every((h) => h >= 3 && h <= 40)).toBe(true);
+  });
+});
+
+describe("planConversation — éléments riches", () => {
+  it("un vocal ou une pastille éphémère ne se groupe pas (chacun son avatar)", () => {
+    const [a, b] = messages([msg("a", "in", "ça zone pas trop au theatro"), msg("b", "in", "", { media: { type: "voice", seconds: 9 } })]);
+    expect([a.joinedBottom, a.showAvatar, b.joinedTop, b.showAvatar]).toEqual([false, true, false, true]);
+    expect(b.gapBefore).toBe(12);
+    expect(b.jumbo).toBe(false);
+  });
+
+  it("une citation ou une story s'intercale : groupe coupé, écart porté par l'en-tête", () => {
+    const [, b] = messages([msg("a", "in", "un"), msg("b", "in", "deux", { reply: { side: "out", text: "x" } })]);
+    expect(b.joinedTop).toBe(false);
+    expect(b.gapBefore).toBe(0);
+    const [, d] = messages([msg("c", "out", "un"), msg("d", "out", "deux", { story: {} })]);
+    expect([d.joinedTop, d.gapBefore]).toEqual([false, 0]);
   });
 });

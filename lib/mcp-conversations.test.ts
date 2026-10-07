@@ -43,6 +43,45 @@ describe("ce que Claude écrit → la conversation", () => {
     expect(lu.messages.map((m) => m.coupure ?? false)).toEqual([true, true, false]);
   });
 
+  it("vocal, éphémères, citation, story, appui long, heure : écrits puis relus à l'identique", () => {
+    const r = elementsDeMcp([
+      { type: "vocal", cote: "recu", duree: 9, reaction: "😂" },
+      { type: "photo_ephemere", cote: "envoye" },
+      { cote: "recu", texte: "bah en vrai", reponse: { cote: "envoye", texte: "t’as hiberné carrément" } },
+      { cote: "envoye", texte: "going to school rn?", reponse: { cote: "recu", type: "photo" } },
+      { cote: "envoye", texte: "tu m’étonnes", reponse: { cote: "recu", type: "vocal", duree: 9 } },
+      { cote: "recu", texte: "T’aurais du m’inviter", story: { amis_proches: true } },
+      { cote: "envoye", texte: "🤣🤣", story: { indisponible: true } },
+      { cote: "recu", texte: "Ta meuf ?", appui_long: true, heure: "14:35" },
+    ]);
+    if ("refus" in r) throw new Error(r.refus);
+    const [vocal, photo, cite, citePhoto, citeVocal, story, storyKo, appui] = r.items as Array<Record<string, unknown>>;
+    expect(vocal).toMatchObject({ side: "in", text: "", media: { type: "voice", seconds: 9 }, reaction: "😂" });
+    expect(photo).toMatchObject({ side: "out", media: { type: "photoOnce" } });
+    expect(cite).toMatchObject({ reply: { side: "out", text: "t’as hiberné carrément" } });
+    expect(citePhoto).toMatchObject({ reply: { side: "in", text: "", kind: "photo" } });
+    expect(citeVocal).toMatchObject({ reply: { side: "in", kind: "voice", seconds: 9 } });
+    expect(story).toMatchObject({ story: { closeFriends: true } });
+    expect(storyKo).toMatchObject({ story: { unavailable: true } });
+    expect(appui).toMatchObject({ longPress: true, time: "14:35" });
+    // Aller-retour : ce que Claude lit se réécrit sans perte.
+    const c = { ...defaultConversation(), items: r.items };
+    const back = appliquerChampsMcp(c, { messages: conversationPourMcp(c).messages });
+    if ("refus" in back) throw new Error(back.refus);
+    const sansId = (xs: typeof c.items) => xs.map((x) => ({ ...x, id: "" }));
+    expect(sansId(back.conversation.items)).toEqual(sansId(c.items));
+    // Et le stockage le relit pareil.
+    expect(parseConversation(JSON.parse(JSON.stringify(c)))?.items).toEqual(c.items);
+  });
+
+  it("refuse deux appuis longs, une citation vide, un type inconnu", () => {
+    expect(elementsDeMcp([{ cote: "recu", texte: "a", appui_long: true }, { cote: "recu", texte: "b", appui_long: true }])).toEqual({
+      refus: "Élément 2 : un seul « appui_long » par conversation.",
+    });
+    expect(elementsDeMcp([{ cote: "recu", texte: "a", reponse: { cote: "envoye" } }])).toMatchObject({ refus: expect.stringContaining("reponse.texte") });
+    expect(elementsDeMcp([{ type: "gif", cote: "recu" }])).toMatchObject({ refus: expect.stringContaining("« type »") });
+  });
+
   it("une réaction trop longue est coupée sans briser un emoji", () => {
     const r = elementsDeMcp([{ cote: "recu", texte: "x", reaction: "😂😂😂😂😂😂" }]);
     expect("items" in r && r.items[0]).toMatchObject({ reaction: "😂😂😂😂" });

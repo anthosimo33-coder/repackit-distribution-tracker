@@ -109,4 +109,33 @@ test.describe("MCP — conversations Instagram", () => {
     expect(d2.erreur, d2.texte).toBe(false);
     expect(await titres()).toContain(titre);
   });
+
+  test("éléments riches écrits par Claude : citation, vocal, appui long — l'écran les dessine", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { appel } = await cle(page, `E2E conv riche ${ts}`);
+    const cree = await appel("creer_conversation", {
+      titre: `Conv riche ${ts}`,
+      langue: "en",
+      messages: [
+        { cote: "envoye", texte: "t’as hiberné carrément" },
+        { cote: "recu", texte: "bah en vrai", reponse: { cote: "envoye", texte: "t’as hiberné carrément" } },
+        { type: "vocal", cote: "recu", duree: 9 },
+        { cote: "recu", texte: "Ta meuf ?", appui_long: true, heure: "14:35" },
+      ],
+    });
+    expect(cree.erreur, cree.texte).toBe(false);
+    await page.goto((JSON.parse(cree.texte).lien as string).replace(/^https?:\/\/[^/]+/, ""));
+    const apercu = page.getByRole("img", { name: "Aperçu de la capture" });
+
+    // La citation : l'étiquette, et le texte cité en plus de l'original.
+    await expect(apercu.getByText("Replied to you", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("t’as hiberné carrément", { exact: true })).toHaveCount(2);
+    // Le vocal : sa durée et le lien de transcription.
+    await expect(apercu.getByText("0:09", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("View transcription", { exact: true })).toBeVisible();
+    // L'appui long : le menu par-dessus la conversation floutée, à l'heure du message.
+    await expect(apercu.getByText("Reply", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("14:35", { exact: true })).toBeVisible();
+  });
 });
