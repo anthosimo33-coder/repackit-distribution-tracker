@@ -31,6 +31,18 @@ describe("ce que Claude écrit → la conversation", () => {
     expect(elementsDeMcp("pas une liste")).toEqual({ refus: "« messages » : une liste." });
   });
 
+  it("« coupure » = fin de slide, dans les deux sens", () => {
+    const r = elementsDeMcp([
+      { cote: "envoye", texte: "un", coupure: true },
+      { type: "date", texte: "HIER", coupure: true },
+      { cote: "recu", texte: "deux" },
+    ]);
+    if ("refus" in r) throw new Error(r.refus);
+    expect(r.items.map((it) => it.cut ?? false)).toEqual([true, true, false]);
+    const lu = conversationPourMcp({ ...defaultConversation(), items: r.items });
+    expect(lu.messages.map((m) => m.coupure ?? false)).toEqual([true, true, false]);
+  });
+
   it("une réaction trop longue est coupée sans briser un emoji", () => {
     const r = elementsDeMcp([{ cote: "recu", texte: "x", reaction: "😂😂😂😂😂😂" }]);
     expect("items" in r && r.items[0]).toMatchObject({ reaction: "😂😂😂😂" });

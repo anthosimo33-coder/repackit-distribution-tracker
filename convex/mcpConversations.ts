@@ -57,7 +57,8 @@ export function lienConversation(projet: string, id: string): string {
   return `${base}/admin/${projet}/conversations?c=${id}`;
 }
 
-const OUVRIR = "Ouvre le lien : la capture est dessinée par l'app ; « Exporter en PNG » la télécharge (828×1792). La photo du contact se pose à l'écran.";
+const OUVRIR =
+  "Ouvre le lien : la capture est dessinée par l'app ; « Exporter en PNG » la télécharge (828×1792), « Exporter la série » télécharge un ZIP d'une capture par slide quand il y a des coupures. La photo du contact se pose à l'écran.";
 
 // ─── Arguments partagés ─────────────────────────────────────────────────────
 
@@ -73,6 +74,7 @@ const ARG_MESSAGES = {
       texte: { type: "string", description: "Le texte de la bulle, ou du séparateur." },
       modifie: { type: "boolean", description: "Label « Modifié » au-dessus de la bulle." },
       reaction: { type: "string", description: "Un emoji de réaction posé sous la bulle (ex. « 😂 »)." },
+      coupure: { type: "boolean", description: "Fin de slide APRÈS cet élément : l'écran exporte alors une SÉRIE de captures (carrousel), chacune montrant la conversation jusqu'à sa coupure, la plus récente en bas." },
     },
     required: ["texte"],
     additionalProperties: false,

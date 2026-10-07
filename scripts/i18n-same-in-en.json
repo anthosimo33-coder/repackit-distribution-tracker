@@ -180,6 +180,8 @@
     "admin.money.VideoBonusEditor.bonusWithCurrency",
     "admin.money.VideoBonusEditor.colBonus",
     "admin.ops.ConvStudio.contact",
+    "admin.ops.ConvStudio.slideN",
+    "admin.ops.ConvStudio.slides",
     "admin.ops.ConvStudio.titreParDefaut",
     "admin.ops.HashtagRow.posts",
     "admin.ops.HashtagRow.trend.stable",

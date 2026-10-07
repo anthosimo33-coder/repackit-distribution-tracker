@@ -39,8 +39,6 @@ export const METRICS = {
     groupedRadius: 4,
     /** Largeur max, padding compris. */
     maxWidth: 300,
-    /** Emojis dans le texte : agrandis pour retrouver la taille iOS. */
-    emojiScale: 1.17,
   },
   /** Bulles reçues : décalées pour l'avatar (28 pt à x = 16, aligné en bas). */
   inIndent: 56,
@@ -48,10 +46,79 @@ export const METRICS = {
   avatar: { size: 28, left: 16 },
   gap: { sameSender: 2, senderChange: 12, afterReaction: 14 },
   edited: { fontSize: 12.3, lineHeight: 16, marginTop: 13.15, marginBottom: 4.5, inset: 12.4 },
-  reaction: { width: 29, height: 24, inset: 5, overlap: 7, ring: 1.5, emojiSize: 15.2 },
+  reaction: { width: 29, height: 24, inset: 5, overlap: 7, ring: 1.5 },
   date: { fontSize: 12, lineHeight: 16, marginTop: 21, marginBottom: 16 },
-  jumbo: { fontSize: 52, letterSpacing: 4, lineHeight: 59, maxCount: 5 },
+  jumbo: { fontSize: 52, lineHeight: 59, maxCount: 5 },
 } as const;
+
+// ── Série de captures (carrousel) ─────────────────────────────────────────────
+
+/** Bas de la zone des messages (dernier élément posé au-dessus de la saisie). */
+export const MESSAGES_BOTTOM = METRICS.composerTop + 2 - METRICS.bottomGap;
+/** Hauteur visible entre l'en-tête et la saisie. */
+export const VISIBLE_HEIGHT = MESSAGES_BOTTOM - METRICS.headerBottom;
+
+/**
+ * Dernier élément de chaque slide : chaque coupure clôt une slide, le dernier
+ * élément clôt toujours la dernière. Une slide montre la conversation JUSQU'À
+ * sa fin, la plus récente en bas — comme une capture prise à ce moment-là.
+ */
+export function slideEnds(items: ReadonlyArray<{ cut?: boolean }>): number[] {
+  const ends = items.flatMap((it, i) => (it.cut && i < items.length - 1 ? [i] : []));
+  if (items.length > 0) ends.push(items.length - 1);
+  return ends;
+}
+
+/**
+ * Découpe automatique : chaque slide ajoute autant d'éléments NOUVEAUX que
+ * l'écran en montre (`visible`, en pt), au-dessus restent les plus anciens.
+ * `spans` = haut et bas de chaque élément dans le fil complet. Un élément plus
+ * haut que l'écran fait une slide à lui seul. Rend les indices des coupures.
+ */
+export function autoCuts(spans: ReadonlyArray<{ top: number; bottom: number }>, visible: number): number[] {
+  const cuts: number[] = [];
+  let start = 0;
+  while (start < spans.length) {
+    let end = start;
+    while (end + 1 < spans.length && spans[end + 1].bottom - spans[start].top <= visible) end++;
+    if (end < spans.length - 1) cuts.push(end);
+    start = end + 1;
+  }
+  return cuts;
+}
+
+// ── Réglages PAR MOTEUR (texte et emojis) ─────────────────────────────────────
+
+/**
+ * Chromium et WebKit (Safari, et TOUT navigateur sur iPhone) donnent au TEXTE
+ * les mêmes largeurs (à 0,1 % près), mais WebKit le pose 1 pt plus bas, et les
+ * EMOJIS diffèrent : à corps égal, WebKit les fait plus grands et plus espacés.
+ * Chaque moteur a donc ses réglages, calés au pixel sur capture (oct. 2026).
+ */
+export type EngineTuning = {
+  /** Décalage vertical du TEXTE (pt) : WebKit le pose 1 pt plus bas qu'iOS. */
+  textShiftY: number;
+  /** Emoji dans une bulle : agrandi (em) pour retrouver la taille iOS (17 pt de large). */
+  inlineScale: number;
+  inlineSpacing: number;
+  /** Emojis seuls en grand : espacement (avance mesurée 56 pt) et calage horizontal. */
+  jumboSpacing: number;
+  jumboShiftX: number;
+  /** Emoji d'une réaction (12,5 pt de large sur capture) et son centrage. */
+  reactionSize: number;
+  reactionShiftX: number;
+};
+
+export const ENGINE_TUNING: Record<"blink" | "webkit", EngineTuning> = {
+  blink: { textShiftY: 0, inlineScale: 1.17, inlineSpacing: 0.9, jumboSpacing: 4, jumboShiftX: 0.75, reactionSize: 15.2, reactionShiftX: 2.5 },
+  webkit: { textShiftY: -1, inlineScale: 1, inlineSpacing: 0, jumboSpacing: 0, jumboShiftX: -0.25, reactionSize: 11.9, reactionShiftX: 0.25 },
+};
+
+/** Le moteur de rendu d'après l'agent : sur iPhone/iPad, tout navigateur est WebKit. */
+export function renderEngine(userAgent: string): "blink" | "webkit" {
+  if (/iPhone|iPad|iPod/.test(userAgent)) return "webkit";
+  return /AppleWebKit/.test(userAgent) && !/Chrome|Chromium|Edg\/|OPR\//.test(userAgent) ? "webkit" : "blink";
+}
 
 // ── Emojis en grand ───────────────────────────────────────────────────────────
 

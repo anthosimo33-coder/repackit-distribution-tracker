@@ -77,7 +77,16 @@
     "echecEnregistrement": "Enregistrement impossible, réessaie.",
     "aucuneConversation": "Aucune conversation pour l'instant.",
     "avecClaude": "Avec Claude (Jarvia connecté, interrupteur « Conversations » allumé dans Connecter Claude) : envoie-lui un screen ou un lien TikTok, ou décris la conversation ; il la crée ici et te donne le lien.",
-    "titreParDefaut": "Conversation {n}"
+    "titreParDefaut": "Conversation {n}",
+    "decoupageAuto": "Découper en slides",
+    "retirerCoupures": "Retirer les coupures",
+    "finDeSlide": "Fin de slide après ce message",
+    "slideN": "Slide {n}",
+    "slides": "{count, plural, one {# slide} other {# slides}}",
+    "serieAide": "Chaque slide montre la conversation jusqu'à sa coupure, la plus récente en bas. Clique une vignette pour l'afficher.",
+    "exporterSlide": "Exporter la slide {n}",
+    "exporterSerie": "{count, plural, one {Exporter la série (# PNG, ZIP)} other {Exporter la série (# PNG, ZIP)}}",
+    "exportSerieEnCours": "Export… {n}/{total}"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Ouvrir sur TikTok",

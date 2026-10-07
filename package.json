@@ -24,6 +24,7 @@
     "convex": "^1.37.0",
     "convex-helpers": "^0.1.119",
     "date-fns": "^4.1.0",
+    "fflate": "^0.8.3",
     "lucide-react": "^1.14.0",
     "modern-screenshot": "^4.7.0",
     "next": "16.2.4",

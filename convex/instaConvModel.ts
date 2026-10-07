@@ -17,9 +17,11 @@ export type ConvMessage = {
   edited?: boolean;
   /** Emoji de réaction posé sous la bulle (termine le groupe). */
   reaction?: string;
+  /** Fin de slide après ce message (export en série). */
+  cut?: boolean;
 };
 
-export type ConvDate = { id: string; kind: "date"; text: string };
+export type ConvDate = { id: string; kind: "date"; text: string; cut?: boolean };
 
 export type ConvItem = ConvMessage | ConvDate;
 
