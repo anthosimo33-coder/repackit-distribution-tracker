@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  autoCuts,
+  slideEnds,
+  renderEngine,
   emojiOnlyCount,
   isJumbo,
   outGradientCss,
@@ -110,5 +113,40 @@ describe("parseConversation", () => {
     expect(parseConversation({ themeId: "inconnu" })).toBeNull();
     const c = { ...defaultConversation(), status: { time: "1", battery: 140, lowPower: 1, signal: 9 } };
     expect(parseConversation(c)?.status).toEqual({ time: "1", battery: 100, lowPower: true, signal: 4 });
+  });
+});
+
+describe("série de captures", () => {
+  it("chaque coupure clôt une slide, le dernier élément clôt la dernière", () => {
+    expect(slideEnds([])).toEqual([]);
+    expect(slideEnds([{}, {}, {}])).toEqual([2]);
+    expect(slideEnds([{}, { cut: true }, {}, { cut: true }, {}])).toEqual([1, 3, 4]);
+    // Une coupure sur le dernier élément ne crée pas de slide vide.
+    expect(slideEnds([{}, { cut: true }])).toEqual([1]);
+  });
+
+  it("la découpe automatique remplit chaque écran de messages NOUVEAUX", () => {
+    // Six bulles de 40 pt espacées de 12 : 52 pt par bulle.
+    const spans = Array.from({ length: 6 }, (_, i) => ({ top: i * 52, bottom: i * 52 + 40 }));
+    // Écran de 150 pt : 3 bulles tiennent (0→144), la 4e non (0→196).
+    expect(autoCuts(spans, 150)).toEqual([2]);
+    // Écran de 100 pt : 2 par slide.
+    expect(autoCuts(spans, 100)).toEqual([1, 3]);
+    // Tout tient : aucune coupure.
+    expect(autoCuts(spans, 1_000)).toEqual([]);
+  });
+
+  it("un élément plus haut que l'écran fait une slide à lui seul", () => {
+    expect(autoCuts([{ top: 0, bottom: 40 }, { top: 52, bottom: 900 }, { top: 912, bottom: 952 }], 690)).toEqual([0, 1]);
+  });
+});
+
+describe("moteur de rendu", () => {
+  it("Safari et tout navigateur iPhone = WebKit ; Chrome et Edge sur Mac = Blink", () => {
+    const mac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)";
+    expect(renderEngine(`${mac} Version/26.4 Safari/605.1.15`)).toBe("webkit");
+    expect(renderEngine(`${mac} Chrome/140.0.0.0 Safari/537.36`)).toBe("blink");
+    expect(renderEngine(`${mac} Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0`)).toBe("blink");
+    expect(renderEngine("Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0 Mobile/15E148 Safari/604.1")).toBe("webkit");
   });
 });

@@ -77,7 +77,16 @@
     "echecEnregistrement": "Couldn't save, try again.",
     "aucuneConversation": "No conversations yet.",
     "avecClaude": "With Claude (Jarvia connected, \"Conversations\" switch on in Connect Claude): send it a screenshot or a TikTok link, or describe the conversation; it creates it here and gives you the link.",
-    "titreParDefaut": "Conversation {n}"
+    "titreParDefaut": "Conversation {n}",
+    "decoupageAuto": "Split into slides",
+    "retirerCoupures": "Remove the cuts",
+    "finDeSlide": "End of slide after this message",
+    "slideN": "Slide {n}",
+    "slides": "{count, plural, one {# slide} other {# slides}}",
+    "serieAide": "Each slide shows the conversation up to its cut, the latest at the bottom. Click a thumbnail to show it.",
+    "exporterSlide": "Export slide {n}",
+    "exporterSerie": "{count, plural, one {Export the series (# PNG, ZIP)} other {Export the series (# PNGs, ZIP)}}",
+    "exportSerieEnCours": "Exporting… {n}/{total}"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { ArrowDownIcon, ArrowUpIcon, DownloadIcon, ImageUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, DownloadIcon, ImageUpIcon, PlusIcon, ScissorsIcon, Trash2Icon } from "lucide-react";
 import { domToPng } from "modern-screenshot";
+import { zipSync } from "fflate";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
@@ -20,7 +21,10 @@ import { cn } from "@/lib/utils";
 import {
   SCREEN,
   THEME_IDS,
+  VISIBLE_HEIGHT,
+  autoCuts,
   conversationDeData,
+  slideEnds,
   defaultConversation,
   newItemId,
   type Conversation,
@@ -32,6 +36,7 @@ import {
 import { InstaScreen, type InstaScreenHandle } from "./InstaScreen";
 
 const PREVIEW_SCALE = 0.75;
+const THUMB_SCALE = 0.17;
 const AVATAR_PX = 192;
 /** Délai d'enregistrement après la dernière frappe. */
 const SAVE_DELAY_MS = 600;
@@ -59,13 +64,20 @@ async function toAvatarDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
-const fichierDe = (titre: string) =>
-  (titre
+const baseDe = (titre: string) =>
+  titre
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "") || "conversation") + ".png";
+    .replace(/^-|-$/g, "") || "conversation";
+const fichierDe = (titre: string) => `${baseDe(titre)}.png`;
+
+/** Rastérise un écran (414×896 pt) en PNG ×2 — polices système seulement, rien à embarquer. */
+const versPng = (node: HTMLElement) =>
+  domToPng(node, { width: SCREEN.width, height: SCREEN.height, scale: SCREEN.exportScale, font: false });
+
+const octetsDe = (dataUrl: string) => Uint8Array.from(atob(dataUrl.split(",")[1] ?? ""), (c) => c.charCodeAt(0));
 
 /**
  * L'ÉCRAN — une bibliothèque de brouillons enregistrés dans Jarvia (bloc
@@ -102,6 +114,10 @@ export function ConvStudio() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(false);
   const screenRef = useRef<InstaScreenHandle>(null);
+  const measureRef = useRef<InstaScreenHandle>(null);
+  const slideRefs = useRef<(InstaScreenHandle | null)[]>([]);
+  const [slide, setSlide] = useState(0);
+  const [serieProgress, setSerieProgress] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Adoption PENDANT le rendu (et non dans un effet) : la version serveur ne
@@ -204,26 +220,81 @@ export function ConvStudio() {
   const addMessage = (side: Side) =>
     patch({ items: [...conv.items, { id: newItemId(), kind: "message", side, text: "" }] });
 
+  // Série : chaque slide montre le fil jusqu'à sa coupure, la plus récente en bas.
+  const ends = slideEnds(conv.items);
+  const serie = ends.length > 1;
+  const sel = Math.min(slide, ends.length - 1);
+  const slideConv = (k: number): Conversation => ({ ...conv, items: conv.items.slice(0, ends[k] + 1), scroll: 0 });
+  const apercu = serie ? slideConv(sel) : conv;
+
+  const sansCoupure = (it: ConvItem): ConvItem => {
+    const copie = { ...it };
+    delete copie.cut;
+    return copie;
+  };
+  const setCoupures = (cuts: ReadonlySet<number>) =>
+    patch({ items: conv.items.map((it, i) => (cuts.has(i) ? { ...it, cut: true } : sansCoupure(it))) });
+
+  /** Mesure le fil COMPLET (écran caché, échelle 1) et coupe dès qu'un écran est plein. */
+  const decouper = () => {
+    const root = measureRef.current?.node;
+    if (!root) return;
+    const haut = root.getBoundingClientRect().top;
+    const spans: { top: number; bottom: number }[] = conv.items.map(() => ({ top: Infinity, bottom: -Infinity }));
+    root.querySelectorAll<HTMLElement>("[data-item]").forEach((el) => {
+      const i = Number(el.dataset.item);
+      const r = el.getBoundingClientRect();
+      const s = spans[i];
+      if (!s) return;
+      s.top = Math.min(s.top, r.top - haut);
+      s.bottom = Math.max(s.bottom, r.bottom - haut + parseFloat(getComputedStyle(el).marginBottom || "0"));
+    });
+    setCoupures(new Set(autoCuts(spans, VISIBLE_HEIGHT)));
+    setSlide(0);
+  };
+
+  async function telecharger(href: string, nom: string) {
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = nom;
+    a.click();
+  }
+
   async function onExport() {
     const node = screenRef.current?.node;
     if (!node) return;
     setExporting(true);
     setExportError(false);
     try {
-      const url = await domToPng(node, {
-        width: SCREEN.width,
-        height: SCREEN.height,
-        scale: SCREEN.exportScale,
-        // Polices système uniquement (SF Pro, emojis Apple) : rien à embarquer.
-        font: false,
-      });
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fichierDe(titre);
-      a.click();
+      const nom = serie ? `${baseDe(titre)}-${String(sel + 1).padStart(2, "0")}.png` : fichierDe(titre);
+      await telecharger(await versPng(node), nom);
     } catch {
       setExportError(true);
     } finally {
+      setExporting(false);
+    }
+  }
+
+  async function onExportSerie() {
+    setExporting(true);
+    setExportError(false);
+    try {
+      const fichiers: Record<string, Uint8Array> = {};
+      for (let k = 0; k < ends.length; k++) {
+        setSerieProgress(tr("exportSerieEnCours", { n: k + 1, total: ends.length }));
+        const node = slideRefs.current[k]?.node;
+        if (!node) throw new Error("slide"); // i18n-exempt: erreur interne, jamais affichée (message générique à l'écran)
+        fichiers[`${baseDe(titre)}-${String(k + 1).padStart(2, "0")}.png`] = octetsDe(await versPng(node));
+      }
+      // Niveau 0 : un PNG est déjà compressé.
+      const zip = zipSync(fichiers, { level: 0 });
+      const url = URL.createObjectURL(new Blob([zip], { type: "application/zip" }));
+      await telecharger(url, `${baseDe(titre)}.zip`);
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      setExportError(true);
+    } finally {
+      setSerieProgress(null);
       setExporting(false);
     }
   }
@@ -437,10 +508,22 @@ export function ConvStudio() {
             <CardTitle>{tr("messages")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={decouper} disabled={conv.items.length < 2}>
+                <ScissorsIcon className="size-4" />
+                {tr("decoupageAuto")}
+              </Button>
+              {serie && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setCoupures(new Set())}>
+                  {tr("retirerCoupures")}
+                </Button>
+              )}
+              <span className="text-xs text-slate-500">{tr("slides", { count: ends.length })}</span>
+            </div>
             {conv.items.length === 0 && <p className="text-sm text-slate-500">{tr("aucunMessage")}</p>}
             {conv.items.map((it, i) => (
+              <div key={it.id} className="space-y-3">
               <div
-                key={it.id}
                 data-testid="conv-item"
                 className={cn(
                   "space-y-2 rounded-lg border p-3",
@@ -482,6 +565,18 @@ export function ConvStudio() {
                       onClick={() => move(i, 1)}
                     >
                       <ArrowDownIcon />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={tr("finDeSlide")}
+                      aria-pressed={!!it.cut}
+                      disabled={i === conv.items.length - 1}
+                      className={cn(it.cut && "bg-slate-900 text-white hover:bg-slate-800 hover:text-white")}
+                      onClick={() => patchItem(it.id, it.cut ? { cut: undefined } : { cut: true })}
+                    >
+                      <ScissorsIcon />
                     </Button>
                     <Button
                       type="button"
@@ -530,6 +625,14 @@ export function ConvStudio() {
                   />
                 )}
               </div>
+              {it.cut && i < conv.items.length - 1 && (
+                <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                  <span className="h-px flex-1 bg-slate-200" />
+                  {tr("slideN", { n: ends.indexOf(i) + 2 })}
+                  <span className="h-px flex-1 bg-slate-200" />
+                </div>
+              )}
+              </div>
             ))}
             <div className="flex flex-wrap gap-2 pt-1">
               <Button type="button" variant="outline" size="sm" onClick={() => addMessage("in")}>
@@ -562,14 +665,53 @@ export function ConvStudio() {
             role="img"
           >
             <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}>
-              <InstaScreen ref={screenRef} conversation={conv} />
+              <InstaScreen ref={screenRef} conversation={apercu} />
             </div>
           </div>
+          {serie && (
+            <div className="space-y-1.5">
+              <p className="max-w-[310px] text-xs text-slate-500">{tr("serieAide")}</p>
+              <div className="flex max-w-[310px] gap-1.5 overflow-x-auto pb-1" role="list" aria-label={tr("slides", { count: ends.length })}>
+                {ends.map((_, k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="listitem"
+                    aria-label={tr("slideN", { n: k + 1 })}
+                    aria-current={k === sel ? "true" : undefined}
+                    onClick={() => setSlide(k)}
+                    className={cn(
+                      "relative shrink-0 overflow-hidden rounded-md ring-1 transition",
+                      k === sel ? "ring-2 ring-slate-900" : "ring-slate-200 hover:ring-slate-400",
+                    )}
+                    style={{ width: SCREEN.width * THUMB_SCALE, height: SCREEN.height * THUMB_SCALE }}
+                  >
+                    <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: "top left" }} aria-hidden>
+                      <InstaScreen ref={(h) => { slideRefs.current[k] = h; }} conversation={slideConv(k)} />
+                    </div>
+                    <span className="absolute right-0.5 bottom-0.5 rounded bg-black/60 px-1 text-[10px] font-medium text-white">
+                      {k + 1}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <Button type="button" className="w-full" onClick={onExport} disabled={exporting}>
             <DownloadIcon className="size-4" />
-            {exporting ? tr("exportEnCours") : tr("exporter")}
+            {exporting && !serieProgress ? tr("exportEnCours") : serie ? tr("exporterSlide", { n: sel + 1 }) : tr("exporter")}
           </Button>
+          {serie && (
+            <Button type="button" variant="outline" className="w-full" onClick={onExportSerie} disabled={exporting}>
+              <DownloadIcon className="size-4" />
+              {serieProgress ?? tr("exporterSerie", { count: ends.length })}
+            </Button>
+          )}
           {exportError && <p className="text-sm text-red-600">{tr("exportEchec")}</p>}
+          {/* Fil complet, hors écran, à l'échelle 1 : sert à mesurer pour la découpe automatique. */}
+          <div aria-hidden style={{ position: "fixed", left: -10_000, top: 0, visibility: "hidden", pointerEvents: "none" }}>
+            <InstaScreen ref={measureRef} conversation={{ ...conv, scroll: 0 }} />
+          </div>
         </div>
       </div>
     </div>

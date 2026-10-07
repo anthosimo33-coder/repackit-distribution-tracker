@@ -27,6 +27,8 @@ export type ElementMcp = {
   texte: string;
   modifie?: boolean;
   reaction?: string;
+  /** Fin de slide après cet élément (export en série). */
+  coupure?: boolean;
 };
 
 /** Les champs qu'un outil d'écriture peut poser (tous facultatifs en modification). */
@@ -54,8 +56,9 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
     const texte = typeof o.texte === "string" ? o.texte.trim() : "";
     if (!texte) return { refus: `Élément ${n} : « texte » vide.` };
     if (texte.length > MAX_TEXT) return { refus: `Élément ${n} : ${MAX_TEXT} caractères au plus.` };
+    const coupure = o.coupure === true ? { cut: true } : {};
     if (o.type === "date") {
-      items.push({ id: newItemId(), kind: "date", text: texte });
+      items.push({ id: newItemId(), kind: "date", text: texte, ...coupure });
       continue;
     }
     if (o.cote !== "recu" && o.cote !== "envoye") {
@@ -69,6 +72,7 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
       text: texte,
       ...(o.modifie === true ? { edited: true } : {}),
       ...(reaction ? { reaction } : {}),
+      ...coupure,
     });
   }
   return { items };
@@ -116,13 +120,14 @@ export function conversationPourMcp(c: Conversation) {
     messages: c.items.map(
       (it): ElementMcp =>
         it.kind === "date"
-          ? { type: "date", texte: it.text }
+          ? { type: "date", texte: it.text, ...(it.cut ? { coupure: true } : {}) }
           : {
               type: "message",
               cote: it.side === "out" ? "envoye" : "recu",
               texte: it.text,
               ...(it.edited ? { modifie: true } : {}),
               ...(it.reaction ? { reaction: it.reaction } : {}),
+              ...(it.cut ? { coupure: true } : {}),
             },
     ),
   };

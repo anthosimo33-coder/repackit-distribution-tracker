@@ -1,15 +1,19 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import {
+  ENGINE_TUNING,
+  MESSAGES_BOTTOM,
   METRICS,
   SCREEN,
   SCREEN_STRINGS,
   THEMES,
   outGradientCss,
   planConversation,
+  renderEngine,
   type Conversation,
   type ConvTheme,
+  type EngineTuning,
   type PlannedMessage,
 } from "@/lib/insta-conv";
 import { ComposerIcons, HeaderIcons, HeartsLayer, StatusIcons } from "./InstaIcons";
@@ -40,6 +44,12 @@ function lineTop(baseline: number, fontSize: number, lineHeight: number): number
 
 export type InstaScreenHandle = { node: HTMLDivElement | null };
 
+const noSubscribe = () => () => {};
+/** Moteur du navigateur ; « blink » au rendu serveur, corrigé à l'hydratation. */
+function useRenderEngine(): "blink" | "webkit" {
+  return useSyncExternalStore(noSubscribe, () => renderEngine(navigator.userAgent), () => "blink");
+}
+
 export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Conversation }>(
   function InstaScreen({ conversation }, ref) {
     const rootRef = useRef<HTMLDivElement>(null);
@@ -47,6 +57,7 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
     const theme = THEMES[conversation.themeId];
     const strings = SCREEN_STRINGS[conversation.locale];
     const plan = planConversation(conversation.items);
+    const emoji = ENGINE_TUNING[useRenderEngine()];
 
     useLayoutEffect(() => {
       const root = rootRef.current;
@@ -100,7 +111,7 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
             position: "absolute",
             left: 0,
             right: 0,
-            bottom: SCREEN.height - (METRICS.composerTop + 2) + METRICS.bottomGap,
+            bottom: SCREEN.height - MESSAGES_BOTTOM,
             display: "flex",
             flexDirection: "column",
             transform: `translateY(${conversation.scroll}px)`, // i18n-exempt: valeur CSS
@@ -110,6 +121,7 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
             p.kind === "date" ? (
               <div
                 key={p.item.id}
+                data-item={i}
                 style={{
                   marginTop: p.gapBefore,
                   marginBottom: METRICS.date.marginBottom,
@@ -119,6 +131,8 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
                   fontWeight: 500,
                   color: theme.subtext,
                   whiteSpace: "pre",
+                  position: "relative",
+                  top: emoji.textShiftY,
                 }}
               >
                 {p.item.text}
@@ -126,34 +140,40 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
             ) : (
               <MessageRow
                 key={p.item.id}
+                index={i}
                 p={p}
                 theme={theme}
                 first={i === 0}
                 editedLabel={strings.edited}
                 avatar={conversation.contact.avatar}
+                emoji={emoji}
               />
             ),
           )}
         </div>
-        <Header conversation={conversation} theme={theme} />
-        <Composer theme={theme} placeholder={strings.placeholder} />
+        <Header conversation={conversation} theme={theme} shift={emoji.textShiftY} />
+        <Composer theme={theme} placeholder={strings.placeholder} shift={emoji.textShiftY} />
       </div>
     );
   },
 );
 
 function MessageRow({
+  index,
   p,
   theme,
   first,
   editedLabel,
   avatar,
+  emoji,
 }: {
+  index: number;
   p: PlannedMessage;
   theme: ConvTheme;
   first: boolean;
   editedLabel: string;
   avatar: string | null;
+  emoji: EngineTuning;
 }) {
   const { item } = p;
   const isIn = item.side === "in";
@@ -169,6 +189,7 @@ function MessageRow({
     <>
       {item.edited && (
         <div
+          data-item={index}
           style={{
             marginTop: first ? 0 : METRICS.edited.marginTop,
             marginBottom: METRICS.edited.marginBottom,
@@ -180,12 +201,15 @@ function MessageRow({
             textAlign: isIn ? "left" : "right",
             paddingLeft: isIn ? METRICS.inIndent + METRICS.edited.inset : 0,
             paddingRight: isIn ? 0 : METRICS.outMargin + METRICS.edited.inset,
+            position: "relative",
+            top: emoji.textShiftY,
           }}
         >
           {editedLabel}
         </div>
       )}
       <div
+        data-item={index}
         style={{
           position: "relative",
           display: "flex",
@@ -202,9 +226,9 @@ function MessageRow({
             style={{
               fontSize: METRICS.jumbo.fontSize,
               lineHeight: `${METRICS.jumbo.lineHeight}px`,
-              letterSpacing: METRICS.jumbo.letterSpacing,
+              letterSpacing: emoji.jumboSpacing,
               whiteSpace: "pre",
-              transform: "translate(0.75px, 2.75px)",
+              transform: `translate(${emoji.jumboShiftX}px, 2.75px)`,
             }}
           >
             {item.text.replace(/\s+/g, "")}
@@ -215,7 +239,7 @@ function MessageRow({
             style={{
               boxSizing: "border-box",
               maxWidth: B.maxWidth,
-              padding: `${B.padY}px ${B.padX}px`,
+              padding: `${B.padY + emoji.textShiftY}px ${B.padX}px ${B.padY - emoji.textShiftY}px`,
               fontSize: B.fontSize,
               lineHeight: `${B.lineHeight}px`,
               letterSpacing: B.letterSpacing,
@@ -232,7 +256,7 @@ function MessageRow({
               ...corners,
             }}
           >
-            {withEmojiSpans(item.text)}
+            {withEmojiSpans(item.text, emoji)}
           </div>
         )}
         {p.showAvatar && (
@@ -258,12 +282,13 @@ function MessageRow({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: R.emojiSize,
+              fontSize: emoji.reactionSize,
               lineHeight: 1,
               boxSizing: "content-box",
             }}
           >
-            <span style={{ transform: "translateX(2.5px)" }}>{item.reaction}</span>
+            {/* i18n-exempt: valeur CSS */}
+            <span style={{ transform: `translateX(${emoji.reactionShiftX}px)` }}>{item.reaction}</span>
           </div>
         )}
       </div>
@@ -275,12 +300,12 @@ function MessageRow({
  * Emojis dans le texte d'une bulle : iOS les dessine ~17 % plus grands que
  * Chromium à corps égal (mesuré : 17 pt de large contre 14,5), centrés pareil.
  */
-function withEmojiSpans(text: string): React.ReactNode {
+function withEmojiSpans(text: string, emoji: EngineTuning): React.ReactNode {
   const parts = text.split(/(\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier}|\u200D\p{Extended_Pictographic}\uFE0F?)*)/u);
   if (parts.length === 1) return text;
   return parts.map((part, i) =>
     i % 2 === 1 ? (
-      <span key={i} style={{ fontSize: `${METRICS.bubble.emojiScale}em`, lineHeight: 0, verticalAlign: "-0.06em", letterSpacing: 0.9 }}>
+      <span key={i} style={{ fontSize: `${emoji.inlineScale}em`, lineHeight: 0, verticalAlign: "-0.06em", letterSpacing: emoji.inlineSpacing }}>
         {part}
       </span>
     ) : (
@@ -305,7 +330,7 @@ function Avatar({ src, size, style }: { src: string | null; size: number; style?
   return <img src={src} alt="" style={{ ...base, objectFit: "cover" }} />;
 }
 
-function Header({ conversation, theme }: { conversation: Conversation; theme: ConvTheme }) {
+function Header({ conversation, theme, shift }: { conversation: Conversation; theme: ConvTheme; shift: number }) {
   const { contact, status } = conversation;
   return (
     <div
@@ -327,7 +352,7 @@ function Header({ conversation, theme }: { conversation: Conversation; theme: Co
           position: "absolute",
           left: 51.75 - 40,
           width: 80,
-          top: lineTop(30.75, 17, 20),
+          top: lineTop(30.75, 17, 20) + shift,
           textAlign: "center",
           fontSize: 17,
           lineHeight: "20px",
@@ -345,7 +370,7 @@ function Header({ conversation, theme }: { conversation: Conversation; theme: Co
         style={{
           position: "absolute",
           left: 106,
-          top: lineTop(74.25, 17, 20),
+          top: lineTop(74.25, 17, 20) + shift,
           display: "flex",
           alignItems: "center",
           gap: 7,
@@ -366,7 +391,7 @@ function Header({ conversation, theme }: { conversation: Conversation; theme: Co
         style={{
           position: "absolute",
           left: 106,
-          top: lineTop(91.5, 12.5, 16),
+          top: lineTop(91.5, 12.5, 16) + shift,
           fontSize: 12.5,
           lineHeight: "16px",
           letterSpacing: 0,
@@ -380,7 +405,7 @@ function Header({ conversation, theme }: { conversation: Conversation; theme: Co
   );
 }
 
-function Composer({ theme, placeholder }: { theme: ConvTheme; placeholder: string }) {
+function Composer({ theme, placeholder, shift }: { theme: ConvTheme; placeholder: string; shift: number }) {
   return (
     <div
       style={{
@@ -418,7 +443,7 @@ function Composer({ theme, placeholder }: { theme: ConvTheme; placeholder: strin
         style={{
           position: "absolute",
           left: 57,
-          top: lineTop(837.5, 17, 20) - METRICS.composerTop,
+          top: lineTop(837.5, 17, 20) - METRICS.composerTop + shift,
           fontSize: 17,
           lineHeight: "20px",
           letterSpacing: -0.43,
