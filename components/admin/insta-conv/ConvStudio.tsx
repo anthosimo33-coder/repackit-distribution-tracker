@@ -1,22 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { ArrowDownIcon, ArrowUpIcon, DownloadIcon, ImageUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, DownloadIcon, ImageUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { domToPng } from "modern-screenshot";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
+import { useConvexError } from "@/lib/use-convex-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   SCREEN,
   THEME_IDS,
+  conversationDeData,
   defaultConversation,
   newItemId,
-  parseConversation,
   type Conversation,
   type ConvItem,
   type ConvLocale,
@@ -25,22 +31,12 @@ import {
 } from "@/lib/insta-conv";
 import { InstaScreen, type InstaScreenHandle } from "./InstaScreen";
 
-/** Brouillon par navigateur : confort, jamais une donnée à garder. */
-const DRAFT_KEY = "jarvia.insta-conv.draft.v1";
 const PREVIEW_SCALE = 0.75;
 const AVATAR_PX = 192;
+/** Délai d'enregistrement après la dernière frappe. */
+const SAVE_DELAY_MS = 600;
 
-function loadDraft(): Conversation {
-  try {
-    const raw = window.localStorage.getItem(DRAFT_KEY);
-    if (raw) return parseConversation(JSON.parse(raw)) ?? defaultConversation();
-  } catch {
-    // stockage indisponible ou brouillon illisible : on repart de l'exemple
-  }
-  return defaultConversation();
-}
-
-/** Photo recadrée au carré et réduite : le brouillon tient dans le stockage local. */
+/** Photo recadrée au carré et réduite (~20 Ko) : elle voyage dans la conversation. */
 async function toAvatarDataUrl(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file);
   const side = Math.min(bitmap.width, bitmap.height);
@@ -63,22 +59,138 @@ async function toAvatarDataUrl(file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
+const fichierDe = (titre: string) =>
+  (titre
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "") || "conversation") + ".png";
+
+/**
+ * L'ÉCRAN — une bibliothèque de brouillons enregistrés dans Jarvia (bloc
+ * `conversations.use`), écrits ici ou par Claude (outils MCP, convex/mcpConversations).
+ * `?c=<id>` ouvre un brouillon : c'est le lien que rend Claude.
+ *
+ * Synchronisation : chaque frappe s'enregistre après un court délai ; une version
+ * qui change côté serveur SANS venir de nous (Claude l'a réécrite) est adoptée
+ * telle quelle.
+ */
 export function ConvStudio() {
   const tr = useTranslations("admin.ops.ConvStudio");
-  // Lazy : composant chargé sans rendu serveur (cf. la page), le stockage local existe.
-  const [conv, setConv] = useState<Conversation>(loadDraft);
+  const errorText = useConvexError();
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const liste = useProjectQuery(api.instaConversations.listInstaConversations, {});
+  const idUrl = params.get("c");
+  const selectedId: Id<"instaConversations"> | null =
+    liste?.find((c) => c._id === idUrl)?._id ?? liste?.[0]?._id ?? null;
+  const doc = useProjectQuery(api.instaConversations.getInstaConversation, selectedId ? { id: selectedId } : "skip");
+  const create = useProjectMutation(api.instaConversations.createInstaConversation);
+  const save = useProjectMutation(api.instaConversations.saveInstaConversation);
+  const remove = useProjectMutation(api.instaConversations.deleteInstaConversation);
+
+  const [conv, setConv] = useState<Conversation | null>(null);
+  const [titre, setTitre] = useState("");
+  // Ce que le serveur porte de NOTRE fait (dernier enregistrement ou dernière adoption).
+  const [base, setBase] = useState<{ id: string; data: string; titre: string } | null>(null);
+  const [seen, setSeen] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(false);
   const screenRef = useRef<InstaScreenHandle>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(DRAFT_KEY, JSON.stringify(conv));
-    } catch {
-      // quota ou navigation privée : le brouillon n'est simplement pas gardé
+  // Adoption PENDANT le rendu (et non dans un effet) : la version serveur ne
+  // remplace la locale que si elle ne vient pas de notre propre enregistrement.
+  const docKey = doc ? `${doc._id}:${doc.updatedAt}` : null;
+  if (doc && docKey !== seen) {
+    setSeen(docKey);
+    if (!base || base.id !== doc._id || base.data !== doc.data || base.titre !== doc.titre) {
+      setConv(conversationDeData(doc.data));
+      setTitre(doc.titre);
+      setBase({ id: doc._id, data: doc.data, titre: doc.titre });
+      setConfirmDelete(false);
+      setError(null);
     }
-  }, [conv]);
+  }
+
+  const data = conv ? JSON.stringify(conv) : null;
+  useEffect(() => {
+    if (!base || data === null || data === base.data) return;
+    const id = base.id as Id<"instaConversations">;
+    const t = window.setTimeout(() => {
+      setSaving(true);
+      save({ id, data })
+        .then(() => {
+          setBase((b) => (b && b.id === id ? { ...b, data } : b));
+          setError(null);
+        })
+        .catch((e) => setError(errorText(e, tr("echecEnregistrement"))))
+        .finally(() => setSaving(false));
+    }, SAVE_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [data, base, save, errorText, tr]);
+
+  const ouvrir = (id: string | null) => router.replace(id ? `${pathname}?c=${id}` : pathname);
+
+  async function nouvelle() {
+    const pris = new Set((liste ?? []).map((c) => c.titre));
+    let n = (liste?.length ?? 0) + 1;
+    while (pris.has(tr("titreParDefaut", { n }))) n++;
+    try {
+      const id = await create({ titre: tr("titreParDefaut", { n }), data: JSON.stringify(defaultConversation()) });
+      ouvrir(id);
+    } catch (e) {
+      setError(errorText(e, tr("echecEnregistrement")));
+    }
+  }
+
+  async function renommer() {
+    if (!base || titre.trim() === base.titre) return;
+    try {
+      await save({ id: base.id as Id<"instaConversations">, titre });
+      setBase({ ...base, titre: titre.trim() });
+      setError(null);
+    } catch (e) {
+      setError(errorText(e, tr("echecEnregistrement")));
+    }
+  }
+
+  async function supprimer() {
+    if (!base) return;
+    try {
+      await remove({ id: base.id as Id<"instaConversations"> });
+      setConv(null);
+      setBase(null);
+      ouvrir(null);
+    } catch (e) {
+      setError(errorText(e, tr("echecEnregistrement")));
+    }
+  }
+
+  if (liste === undefined) return <Skeleton className="h-[672px] w-full" />;
+
+  if (liste.length === 0) {
+    return (
+      <Card>
+        <CardContent className="space-y-4 py-12 text-center">
+          <p className="text-sm font-medium text-slate-900">{tr("aucuneConversation")}</p>
+          <p className="mx-auto max-w-xl text-sm text-slate-500">{tr("avecClaude")}</p>
+          <Button type="button" onClick={nouvelle}>
+            <PlusIcon className="size-4" />
+            {tr("nouvelle")}
+          </Button>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!conv || !base) return <Skeleton className="h-[672px] w-full" />;
 
   const patch = (p: Partial<Conversation>) => setConv({ ...conv, ...p });
   const patchItem = (id: string, p: Partial<ConvItem>) =>
@@ -106,9 +218,8 @@ export function ConvStudio() {
         font: false,
       });
       const a = document.createElement("a");
-      const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
       a.href = url;
-      a.download = `conversation-${stamp}.png`;
+      a.download = fichierDe(titre);
       a.click();
     } catch {
       setExportError(true);
@@ -120,7 +231,8 @@ export function ConvStudio() {
   async function onAvatar(file: File | undefined) {
     if (!file) return;
     try {
-      patch({ contact: { ...conv.contact, avatar: await toAvatarDataUrl(file) } });
+      const avatar = await toAvatarDataUrl(file);
+      setConv((c) => (c ? { ...c, contact: { ...c.contact, avatar } } : c));
     } catch {
       // image illisible : on garde la précédente
     }
@@ -129,6 +241,69 @@ export function ConvStudio() {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0 space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>{tr("bibliotheque")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-1.5" role="list" aria-label={tr("bibliotheque")}>
+              {liste.map((c) => (
+                <button
+                  key={c._id}
+                  type="button"
+                  role="listitem"
+                  aria-current={c._id === base.id ? "true" : undefined}
+                  onClick={() => ouvrir(c._id)}
+                  className={cn(
+                    "max-w-[16rem] truncate rounded-md border px-2.5 py-1 text-sm transition-colors",
+                    c._id === base.id
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 text-slate-700 hover:border-slate-400",
+                  )}
+                >
+                  {c.titre}
+                </button>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={nouvelle}>
+                <PlusIcon className="size-4" />
+                {tr("nouvelle")}
+              </Button>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <Field label={tr("titreConversation")} htmlFor="conv-titre">
+                  <Input
+                    id="conv-titre"
+                    value={titre}
+                    maxLength={80}
+                    onChange={(e) => setTitre(e.target.value)}
+                    onBlur={renommer}
+                    onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+                  />
+                </Field>
+              </div>
+              {confirmDelete ? (
+                <div className="flex gap-2">
+                  <Button type="button" variant="destructive" size="sm" onClick={supprimer}>
+                    {tr("confirmerSuppression")}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
+                    {tr("annuler")}
+                  </Button>
+                </div>
+              ) : (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDelete(true)}>
+                  <Trash2Icon className="size-4" />
+                  {tr("supprimerConversation")}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-slate-500" aria-live="polite">
+              {error ? <span className="text-red-600">{error}</span> : saving ? tr("enregistrement") : tr("enregistre")}
+            </p>
+            <p className="text-xs text-slate-500">{tr("avecClaude")}</p>
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>{tr("ecran")}</CardTitle>
@@ -390,20 +565,10 @@ export function ConvStudio() {
               <InstaScreen ref={screenRef} conversation={conv} />
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button type="button" className="flex-1" onClick={onExport} disabled={exporting}>
-              <DownloadIcon className="size-4" />
-              {exporting ? tr("exportEnCours") : tr("exporter")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              aria-label={tr("reinitialiser")}
-              onClick={() => setConv(defaultConversation())}
-            >
-              <RotateCcwIcon className="size-4" />
-            </Button>
-          </div>
+          <Button type="button" className="w-full" onClick={onExport} disabled={exporting}>
+            <DownloadIcon className="size-4" />
+            {exporting ? tr("exportEnCours") : tr("exporter")}
+          </Button>
           {exportError && <p className="text-sm text-red-600">{tr("exportEchec")}</p>}
         </div>
       </div>

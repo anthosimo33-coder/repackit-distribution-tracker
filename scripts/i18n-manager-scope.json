@@ -307,6 +307,7 @@
     "convex/handleHygiene.ts",
     "convex/hogWindow.ts",
     "convex/hookAvailability.ts",
+    "convex/instaConvModel.ts",
     "convex/internalAccounts.ts",
     "convex/managerCpm.ts",
     "convex/marketAggregate.ts",

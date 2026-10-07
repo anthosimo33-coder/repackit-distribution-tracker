@@ -191,9 +191,9 @@ describe("sur le vrai dépôt", () => {
       surDisque,
       "convex/permissionCoverage.ts est périmé — régénère-le : node scripts/check-permission-coverage.mjs --write",
     ).toBe(attendu);
-    // Contrôle de PRÉSENCE : le scanner voit bien les 22 blocs. Sans lui, un
+    // Contrôle de PRÉSENCE : le scanner voit bien les 23 blocs. Sans lui, un
     // scanner cassé rendrait deux chaînes vides identiques, donc un test vert.
-    expect(Object.keys(scanPermissionUsage())).toHaveLength(22);
+    expect(Object.keys(scanPermissionUsage())).toHaveLength(23);
   });
 
   it("le catalogue du module et celui du document coïncident", () => {
@@ -208,8 +208,8 @@ describe("sur le vrai dépôt", () => {
     );
     // Contrôle de PRÉSENCE d'abord : un parseur cassé rendrait deux listes vides,
     // donc un diff vide, donc un test vert pour la pire des raisons.
-    expect(fromModule).toHaveLength(22);
-    expect(fromDoc).toHaveLength(22);
+    expect(fromModule).toHaveLength(23);
+    expect(fromDoc).toHaveLength(23);
     expect(diffCatalogues(fromModule, fromDoc)).toEqual([]);
   });
 });

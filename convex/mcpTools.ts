@@ -92,6 +92,7 @@ import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
 import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
+import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -1313,7 +1314,12 @@ export function jarviaServer(
     publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
     messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
+    conversations: "les conversations Instagram (créer, modifier, supprimer un brouillon de capture ; l'image s'exporte depuis l'écran de l'app)",
   };
+  // Un libellé par INTERRUPTEUR : deux domaines peuvent partager le même
+  // (expériences et missions) — sans ce dédoublonnage, « les missions » sortait
+  // deux fois dans les instructions.
+  const libellesOuverts = [...new Set(domaines.map((d) => d.scope))].map((s) => LIBELLE_DOMAINE[s]);
   let projetsP: Promise<Projet[]> | null = null;
   const projets = () =>
     (projetsP ??= ctx.runQuery(internal.mcpTools.projetsAccessibles, { userId }));
@@ -1579,7 +1585,7 @@ export function jarviaServer(
     instructions:
       (domaines.length === 0
         ? "Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), en LECTURE SEULE, avec les droits de la personne qui a créé la clé."
-        : `Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), avec les droits de la personne qui a créé la clé. Cette connexion peut aussi MODIFIER : ${domaines.map((d) => LIBELLE_DOMAINE[d.scope]).join(", ")} — par les outils annotés écriture, jamais autrement. Avant chacun, dis en clair ce qui va changer et pour qui, et attends l'accord ; ensuite, rapporte ce que la réponse dit avoir fait et où le défaire (\`modifications\` puis \`defaire\`, quand c'est possible). Désigne les choses par les noms que les outils de lecture t'ont montrés.`) +
+        : `Données de Jarvia Creator Studio (distribution de vidéos par des créatrices), avec les droits de la personne qui a créé la clé. Cette connexion peut aussi MODIFIER : ${libellesOuverts.join(", ")} — par les outils annotés écriture, jamais autrement. Avant chacun, dis en clair ce qui va changer et pour qui, et attends l'accord ; ensuite, rapporte ce que la réponse dit avoir fait et où le défaire (\`modifications\` puis \`defaire\`, quand c'est possible). Désigne les choses par les noms que les outils de lecture t'ont montrés.`) +
       " Les chiffres sont ceux de l'app au moment de l'appel. Si plusieurs projets sont accessibles, précise `projet` (appelle `projets` pour la liste). Les dates sont des jours de Paris (AAAA-MM-JJ). « clients » ne compte PAS la même population partout : economie_unitaire (clientsAcquis) et les ventes par pays de facturation de parcours comptent des PERSONNES Whop ; retention, marches et revenus comptent des ABONNEMENTS Whop (une personne peut en avoir plusieurs) ; trafic, tunnel et test A/B (parcours, offres, acquisition, clientsPostHog de marches) comptent des personnes PostHog. Ne compare jamais deux « clients » de deux outils sans le dire.",
     // `modifications` / `defaire` : dès qu'un domaine s'écrit — le domaine de
     // CHAQUE modification est revérifié au moment de la défaire.
@@ -1590,6 +1596,7 @@ export function jarviaServer(
       ...OUTILS_PROPOSITIONS,
       OUTIL_EXPERIENCES,
       OUTIL_BILAN,
+      ...OUTILS_CONVERSATIONS_LECTURE,
       ...domaines.flatMap((d) => d.outils),
       ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
     ],
@@ -1611,6 +1618,9 @@ export function jarviaServer(
       }
       if (NOMS_BILAN.has(name)) {
         return appelerBilan(ctx, args, ids, projet.slug, lire);
+      }
+      if (NOMS_CONVERSATIONS_LECTURE.has(name)) {
+        return appelerConversationsLecture(ctx, name, args, ids, projet.slug, lire);
       }
       if (NOMS_PROPOSITIONS.has(name)) {
         return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);

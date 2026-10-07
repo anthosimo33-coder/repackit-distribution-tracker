@@ -947,7 +947,10 @@
       "noter_compte_suivi": "Noter un compte suivi",
       "ajouter_inspiration": "Ajouter une inspiration",
       "lancer_experience": "Lancer un test A/B",
-      "envoyer_message_createatrice": "Écrire à une créatrice"
+      "envoyer_message_createatrice": "Écrire à une créatrice",
+      "creer_conversation": "Conversation créée",
+      "modifier_conversation": "Conversation modifiée",
+      "supprimer_conversation": "Conversation supprimée"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -960,7 +963,8 @@
       "validation": "Validation",
       "radar": "Radar",
       "inspirations": "Inspirations",
-      "messages": "Créatrices"
+      "messages": "Créatrices",
+      "conversations": "Conversations Instagram"
     },
     "domaine": {
       "compta": {
@@ -992,6 +996,11 @@
         "titre": "Messages",
         "objet": "les messages aux créatrices",
         "aria": "Modifications des messages pour {name}"
+      },
+      "conversations": {
+        "titre": "Conversations",
+        "objet": "les conversations Instagram",
+        "aria": "Modifications des conversations pour {name}"
       }
     }
   },

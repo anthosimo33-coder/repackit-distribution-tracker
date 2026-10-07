@@ -371,6 +371,11 @@ export const ERR = {
   CREATOR_PAY_CURRENCY_MISMATCH: "ERR_CREATOR_PAY_CURRENCY_MISMATCH",
   PAYMENT_MIXED_CURRENCY: "ERR_PAYMENT_MIXED_CURRENCY",
   ACCOUNT_URL_INVALID: "ERR_ACCOUNT_URL_INVALID",
+  /** Conversations Instagram : titre vide ou trop long, contenu illisible ou trop lourd. */
+  INSTA_CONV_INVALID: "ERR_INSTA_CONV_INVALID",
+  /** Titre déjà pris dans le projet (paramètre `titre`) : il sert à désigner la conversation. */
+  INSTA_CONV_TITLE_TAKEN: "ERR_INSTA_CONV_TITLE_TAKEN",
+  INSTA_CONV_NOT_FOUND: "ERR_INSTA_CONV_NOT_FOUND",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

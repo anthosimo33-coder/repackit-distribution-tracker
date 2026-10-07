@@ -16,15 +16,16 @@ const ConvStudio = dynamic(
 
 /**
  * CONVERSATIONS INSTAGRAM — reproduit une capture de DM pour les carrousels.
- * Outil 100 % navigateur (aucune donnée serveur), réservé aux ADMINS : le
- * gate est du confort, il n'y a rien derrière à protéger côté serveur.
+ * Bloc `conversations.use` (décoché pour un manager) : les fonctions de la
+ * bibliothèque le vérifient côté serveur ; ce gate évite seulement un écran
+ * qui échouerait.
  */
 export default function ConversationsPage() {
   const tr = useTranslations("admin.ops.ConvStudio");
-  const { role, chargement } = usePermissions();
+  const { has, chargement } = usePermissions();
 
   if (chargement) return <Skeleton className="h-96 w-full" />;
-  if (role !== "admin" && role !== "superadmin") {
+  if (!has("conversations.use")) {
     return (
       <Card>
         <CardContent className="py-16 text-center">

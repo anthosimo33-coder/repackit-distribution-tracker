@@ -200,6 +200,15 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     defaultForManager: true,
     routes: ["/radar"],
   },
+  {
+    id: "conversations.use",
+    section: "Contenu",
+    label: "Conversations Instagram",
+    description:
+      "Créer, modifier et exporter des captures de conversations Instagram reproduites, à l'écran ou par Claude.",
+    defaultForManager: false,
+    routes: ["/conversations"],
+  },
   // ─── Argent ───────────────────────────────────────────────────────────────
   {
     id: "creators.pay_terms",
@@ -298,6 +307,7 @@ export const PERMISSION_ID_LITERALS = [
   "content.analytics",
   "content.share",
   "radar.use",
+  "conversations.use",
   "creators.pay_terms",
   "pricing.manage",
   "payments.manage",

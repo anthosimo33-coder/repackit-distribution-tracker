@@ -1532,7 +1532,10 @@
     "ERR_PRICING_CURRENCY_LOCKED": "This pay grid is already in use, so its currency can no longer change. Create a new pay grid in the new currency.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} is paid in {creatorCurrency}, so a pay grid in {pricingCurrency} can't be assigned. Pick a pay grid in {creatorCurrency}.",
     "ERR_PAYMENT_MIXED_CURRENCY": "This cycle mixes several currencies, so it can't be paid as is. Fix the pay grids of its videos first.",
-    "ERR_ACCOUNT_URL_INVALID": "Link too long (500 characters max)."
+    "ERR_ACCOUNT_URL_INVALID": "Link too long (500 characters max).",
+    "ERR_INSTA_CONV_INVALID": "Invalid conversation: empty or too long title, or unreadable content.",
+    "ERR_INSTA_CONV_TITLE_TAKEN": "A conversation is already called \"{titre}\".",
+    "ERR_INSTA_CONV_NOT_FOUND": "This conversation no longer exists."
   },
   "calendar": {
     "weekday": {

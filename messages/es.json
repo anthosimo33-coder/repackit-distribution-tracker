@@ -1532,7 +1532,10 @@
     "ERR_PRICING_CURRENCY_LOCKED": "Esta tarifa ya está en uso: su moneda ya no puede cambiar. Crea una nueva tarifa en la nueva moneda.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} cobra en {creatorCurrency}: no se le puede asignar una tarifa en {pricingCurrency}. Elige una tarifa en {creatorCurrency}.",
     "ERR_PAYMENT_MIXED_CURRENCY": "Este ciclo mezcla varias monedas: no se puede pagar así. Regulariza antes las tarifas de sus vídeos.",
-    "ERR_ACCOUNT_URL_INVALID": "Enlace demasiado largo (500 caracteres como máximo)."
+    "ERR_ACCOUNT_URL_INVALID": "Enlace demasiado largo (500 caracteres como máximo).",
+    "ERR_INSTA_CONV_INVALID": "Conversación no válida: título vacío o demasiado largo, o contenido ilegible.",
+    "ERR_INSTA_CONV_TITLE_TAKEN": "Ya hay una conversación llamada «{titre}».",
+    "ERR_INSTA_CONV_NOT_FOUND": "Esta conversación ya no existe."
   },
   "calendar": {
     "weekday": {

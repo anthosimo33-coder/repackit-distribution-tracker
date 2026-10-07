@@ -48,6 +48,7 @@ import {
 import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore } from "./scripts";
 import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
 import { deleteInspirationCore } from "./inspirations";
+import { deleteConversationCore, restoreConversationCore, updateConversationCore } from "./instaConversations";
 import type { Plateforme } from "./platforms";
 import { setPublicationWarmupCore } from "./publications";
 import {
@@ -141,6 +142,9 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "ajouter_charge",
   "supprimer_charge",
   "classer_type_whop",
+  "creer_conversation",
+  "modifier_conversation",
+  "supprimer_conversation",
 ]);
 
 /** Pourquoi une modification ne se défait pas par Claude. */
@@ -530,6 +534,24 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       if (a.avant === null) await removeLineRuleCore(ctx, a.lineType);
       else await setLineRuleCore(ctx, { lineType: a.lineType, bucket: a.avant });
       return a.avant === null ? "Type remis en « non classé »." : "Classement d'origine remis.";
+    }
+    case "conversationCreee": {
+      const c = await ctx.db.get(a.conversationId);
+      if (!c) throw refus("Cette conversation a déjà été supprimée.");
+      if (c.data !== a.apres) throw refus("Elle a été modifiée depuis : rien n'a été supprimé (supprime-la avec `supprimer_conversation` si c'est voulu).");
+      await deleteConversationCore(ctx, a.conversationId);
+      return "Conversation supprimée.";
+    }
+    case "conversationModifiee": {
+      const c = await ctx.db.get(a.conversationId);
+      if (!c) throw refus("Cette conversation a été supprimée depuis.");
+      if (c.data !== a.apres.data || c.titre !== a.apres.titre) throw refus("Elle a changé depuis : rien n'a été écrasé.");
+      await updateConversationCore(ctx, a.conversationId, { titre: a.avant.titre, data: a.avant.data });
+      return "Version d'avant remise.";
+    }
+    case "conversationSupprimee": {
+      await restoreConversationCore(ctx, { titre: a.titre, data: a.data });
+      return "Conversation recréée (nouveau lien : outil `conversations`).";
     }
   }
 }
