@@ -431,6 +431,10 @@ const ETAPES: Record<TablePurgee, Etape> = {
   creatorMessages: etape((ctx, pid, n) =>
     ctx.db.query("creatorMessages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  // Brouillons de captures (photo du contact en data URL dans `data`, pas de _storage).
+  instaConversations: etape((ctx, pid, n) =>
+    ctx.db.query("instaConversations").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   marketGroups: etape((ctx, pid, n) =>
     ctx.db.query("marketGroups").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),

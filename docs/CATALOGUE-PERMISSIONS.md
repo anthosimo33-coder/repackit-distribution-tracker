@@ -49,18 +49,19 @@ Décisions actées :
 | 12 | `content.analytics` | Contenu | **Performance des contenus** | Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure. | ✓ | 14 | 🟢 Faible — vues et engagement, jamais d'euros. |
 | 13 | `content.share` | Contenu | **Partager des dashboards** | Créer des liens publics vers une partie du Tracker, pour une marque ou une créatrice, et les révoquer. | ✗ | 4 | 🟠 Moyen — le lien sort les chiffres de l'app vers quelqu'un sans compte ; aucun montant n'y figure jamais, et un lien se révoque. |
 | 14 | `radar.use` | Contenu | **Radar** | Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers. | ✓ | 11 | 🟠 Moyen — chaque synchro est **facturée à l'usage** (Apify). |
-| 15 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
-| 16 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
-| 17 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
-| 18 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit, compta. | ✗ | 29 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
-| 19 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
-| 20 | `notifications.manage` | Système | **Notifications** | Choisir les alertes Telegram de l'équipe et leur destinataire. | ✗ | 2 | 🔴 **Élevé** — le digest transporte le **total dû**, et on peut rediriger les alertes. |
-| 21 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
-| 22 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 5 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
+| 15 | `conversations.use` | Contenu | **Conversations Instagram** | Créer, modifier et exporter des captures de conversations Instagram reproduites, à l'écran ou par Claude. | ✗ | 5 | 🟢 Faible — brouillons de captures inventées, sans donnée de créatrice ni montant. |
+| 16 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
+| 17 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
+| 18 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
+| 19 | `business.read` | Argent | **Analytics et revenus** | Revenu Whop, marge, RPM, rétention et churn, conversions par créatrice, analytics produit, compta. | ✗ | 29 | 🔴 **Élevé** — c'est le compte d'exploitation de la boîte. |
+| 20 | `challenges.money` | Argent | **Budget des Défis** | Créer et modifier un défi : objectif, récompense, budget et barème associé. | ✗ | 4 | 🔴 **Élevé** — fixe un budget et un barème, donc ce que le défi va coûter. |
+| 21 | `notifications.manage` | Système | **Notifications** | Choisir les alertes Telegram de l'équipe et leur destinataire. | ✗ | 2 | 🔴 **Élevé** — le digest transporte le **total dû**, et on peut rediriger les alertes. |
+| 22 | `project.settings` | Système | **Réglages du projet** | Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent. | ✗ | 6 | 🟠 Moyen — règles structurantes qui s'appliquent à toutes les créatrices. |
+| 23 | `legacy.access` | Système | **Écrans historiques** | Carrousels, Shorts et sources — des écrans retirés du menu dont les routes répondent encore. | ✗ | 5 | 🟢 Faible — écrans hors menu, sans donnée financière. Décoché pour ne pas prolonger leur vie. |
 
 `creators.pay_terms` **n'est plus vide** : le découpage de l'étape 3 lui a donné `getCreatorPayTerms` et `updateCreatorPayTerms`, extraites de `getCreator` et `updateCreator`. Avant lui, « gérer une créatrice » signifiait littéralement « modifier sa rémunération » — aucune permission ne pouvait séparer les deux.
 
-**22 blocs · 12 cochés · 10 décochés · 220 fonctions** — les 212 d'administration, plus les 4 fonctions financières nées du découpage (2 sur la fiche créatrice, 2 sur la grille d'un format). Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
+**23 blocs · 12 cochés · 11 décochés · 225 fonctions** — les 212 d'administration, plus les 4 fonctions financières nées du découpage (2 sur la fiche créatrice, 2 sur la grille d'un format), plus les 5 de la bibliothèque de conversations Instagram (octobre 2026). Elles ne sont PAS dans le baseline du cliquet : celui-ci compte ce qui reste à migrer, et elles sont déjà gardées par leur bloc.
 
 > ⚠️ Ce tableau et le module `convex/permissions.ts` sont **tenus alignés par un test**
 > (`scripts/check-permission-coverage.mjs`, porté par `pnpm test:unit`). Un bloc ajouté
@@ -550,6 +551,18 @@ Le bloc ouvre la création de liens publics (`/s/<token>`). Ce que le lien montr
 | `requestRadarAccountSync` | M | radar | Resynchronise un compte suivi |  |
 | `requestRadarSync` | M | radar | Resynchronise toute la veille |  |
 | `updateRadarAccountNote` | M | radar | Annote un compte suivi |  |
+
+### `conversations.use` — 5 fonctions
+
+Bibliothèque du générateur de captures (`/conversations`). Les outils MCP du même nom (`conversations`, `lire_conversation`, `images_tiktok` en lecture ; `creer_conversation`, `modifier_conversation`, `supprimer_conversation` derrière l'interrupteur « Conversations ») passent par le même bloc et les mêmes cœurs (`convex/instaConversations.ts`).
+
+| Fonction | T | Fichier | Ce qu'elle fait | |
+|---|---|---|---|---|
+| `listInstaConversations` | Q | instaConversations | Titres et dates des brouillons du projet |  |
+| `getInstaConversation` | Q | instaConversations | Contenu d'un brouillon |  |
+| `createInstaConversation` | M | instaConversations | Crée un brouillon |  |
+| `saveInstaConversation` | M | instaConversations | Enregistre le contenu ou le titre |  |
+| `deleteInstaConversation` | M | instaConversations | Supprime un brouillon |  |
 
 ### `creators.pay_terms` — 2 fonctions
 

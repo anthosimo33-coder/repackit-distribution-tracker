@@ -20,7 +20,7 @@
     "titre": "Instagram conversations",
     "sousTitre": "Recreate an Instagram DM screenshot: write the messages, export a full-screen PNG (828×1792).",
     "accesRefuse": "Access denied",
-    "reserveAdmins": "This tool is for administrators only.",
+    "reserveAdmins": "You need the \"Instagram conversations\" permission (Roles and permissions) to open this tool.",
     "ecran": "Screen",
     "theme": "Theme",
     "themes": {
@@ -66,7 +66,18 @@
     "exporter": "Export as PNG",
     "exportEnCours": "Exporting…",
     "exportEchec": "Export failed. Try again, or reload the page.",
-    "reinitialiser": "Start over from the example"
+    "bibliotheque": "Saved conversations",
+    "nouvelle": "New conversation",
+    "titreConversation": "Title",
+    "supprimerConversation": "Delete",
+    "confirmerSuppression": "Confirm deletion",
+    "annuler": "Cancel",
+    "enregistrement": "Saving…",
+    "enregistre": "Saved in Jarvia.",
+    "echecEnregistrement": "Couldn't save, try again.",
+    "aucuneConversation": "No conversations yet.",
+    "avecClaude": "With Claude (Jarvia connected, \"Conversations\" switch on in Connect Claude): send it a screenshot or a TikTok link, or describe the conversation; it creates it here and gives you the link.",
+    "titreParDefaut": "Conversation {n}"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

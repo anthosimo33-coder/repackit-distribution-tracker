@@ -77,6 +77,7 @@ export const TABLES_PURGEES = [
   "mcpPropositions",
   "hookExperiments",
   "creatorMessages",
+  "instaConversations",
   "marketGroups",
   "offerChanges",
   "notificationWindows",

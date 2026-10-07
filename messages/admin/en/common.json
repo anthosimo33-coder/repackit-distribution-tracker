@@ -947,7 +947,10 @@
       "noter_compte_suivi": "Note a followed account",
       "ajouter_inspiration": "Add an inspiration",
       "lancer_experience": "Start an A/B test",
-      "envoyer_message_createatrice": "Write to a creator"
+      "envoyer_message_createatrice": "Write to a creator",
+      "creer_conversation": "Conversation created",
+      "modifier_conversation": "Conversation edited",
+      "supprimer_conversation": "Conversation deleted"
     },
     "section": {
       "treasury": "Cash",
@@ -960,7 +963,8 @@
       "validation": "Review",
       "radar": "Radar",
       "inspirations": "Inspirations",
-      "messages": "Creators"
+      "messages": "Creators",
+      "conversations": "Instagram conversations"
     },
     "domaine": {
       "compta": {
@@ -992,6 +996,11 @@
         "titre": "Messages",
         "objet": "messages to creators",
         "aria": "Message edits for {name}"
+      },
+      "conversations": {
+        "titre": "Conversations",
+        "objet": "Instagram conversations",
+        "aria": "Conversation edits for {name}"
       }
     }
   },

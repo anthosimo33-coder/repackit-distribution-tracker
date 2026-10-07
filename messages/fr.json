@@ -1532,7 +1532,10 @@
     "ERR_PRICING_CURRENCY_LOCKED": "Ce barème est déjà utilisé : sa devise ne change plus. Crée un nouveau barème dans la nouvelle devise.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} est payée en {creatorCurrency} : un barème en {pricingCurrency} ne peut pas lui être attribué. Choisis un barème en {creatorCurrency}.",
     "ERR_PAYMENT_MIXED_CURRENCY": "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel. Régularise d'abord les barèmes de ses vidéos.",
-    "ERR_ACCOUNT_URL_INVALID": "Lien trop long (500 caractères au plus)."
+    "ERR_ACCOUNT_URL_INVALID": "Lien trop long (500 caractères au plus).",
+    "ERR_INSTA_CONV_INVALID": "Conversation invalide : titre vide ou trop long, ou contenu illisible.",
+    "ERR_INSTA_CONV_TITLE_TAKEN": "Une conversation s'appelle déjà « {titre} ».",
+    "ERR_INSTA_CONV_NOT_FOUND": "Cette conversation n'existe plus."
   },
   "calendar": {
     "weekday": {

@@ -20,7 +20,7 @@
     "titre": "Conversations Instagram",
     "sousTitre": "Reproduis une capture de DM Instagram : écris les messages, exporte un PNG plein écran (828×1792).",
     "accesRefuse": "Accès refusé",
-    "reserveAdmins": "Cet outil est réservé aux administrateurs.",
+    "reserveAdmins": "Il faut le droit « Conversations Instagram » (Rôles et droits) pour ouvrir cet outil.",
     "ecran": "Écran",
     "theme": "Thème",
     "themes": {
@@ -66,7 +66,18 @@
     "exporter": "Exporter en PNG",
     "exportEnCours": "Export…",
     "exportEchec": "L'export a échoué. Réessaie, ou recharge la page.",
-    "reinitialiser": "Repartir de l'exemple"
+    "bibliotheque": "Conversations enregistrées",
+    "nouvelle": "Nouvelle conversation",
+    "titreConversation": "Titre",
+    "supprimerConversation": "Supprimer",
+    "confirmerSuppression": "Confirmer la suppression",
+    "annuler": "Annuler",
+    "enregistrement": "Enregistrement…",
+    "enregistre": "Enregistré dans Jarvia.",
+    "echecEnregistrement": "Enregistrement impossible, réessaie.",
+    "aucuneConversation": "Aucune conversation pour l'instant.",
+    "avecClaude": "Avec Claude (Jarvia connecté, interrupteur « Conversations » allumé dans Connecter Claude) : envoie-lui un screen ou un lien TikTok, ou décris la conversation ; il la crée ici et te donne le lien.",
+    "titreParDefaut": "Conversation {n}"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Ouvrir sur TikTok",

@@ -1916,6 +1916,20 @@ export default defineSchema({
     .index("by_creator_envoye", ["creatorId", "envoyeLe"])
     .index("by_project", ["projectId"]),
 
+  // CONVERSATIONS INSTAGRAM (convex/instaConversations.ts) — brouillons de
+  // captures de DM, écrits à l'écran ou par Claude (MCP, convex/mcpConversations).
+  // `data` = la conversation en JSON (forme de convex/instaConvModel, relue par
+  // `parseConversation`) : la forme évolue avec les éléments dessinés, sans
+  // migration de schéma. La photo du contact y est (data URL réduite, ~30 Ko).
+  instaConversations: defineTable({
+    projectId: v.id("projects"),
+    titre: v.string(),
+    data: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId", "updatedAt"]),
+
   // EXPÉRIENCES DE HOOKS (convex/mcpExperiences.ts) — un test A/B : chaque
   // créatrice tourne TOUTES les variantes (hooks), en carré latin sur les jours,
   // même flux et même cta. Le verdict se lit à J+7 (convex/experienceStats).

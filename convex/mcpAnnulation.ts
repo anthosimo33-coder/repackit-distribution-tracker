@@ -145,6 +145,18 @@ export const annulationValidator = v.union(
   }),
   /** classer_type_whop : la colonne d'avant (`null` = non classé) et celle posée. */
   v.object({ type: v.literal("regle"), lineType: v.string(), avant: v.union(v.string(), v.null()), apres: v.string() }),
+  // ── Conversations Instagram ───────────────────────────────────────────────
+  /** creer_conversation : la conversation créée, et son contenu à la création. */
+  v.object({ type: v.literal("conversationCreee"), conversationId: v.id("instaConversations"), apres: v.string() }),
+  /** modifier_conversation : titre et contenu, avant et après. */
+  v.object({
+    type: v.literal("conversationModifiee"),
+    conversationId: v.id("instaConversations"),
+    avant: v.object({ titre: v.string(), data: v.string() }),
+    apres: v.object({ titre: v.string(), data: v.string() }),
+  }),
+  /** supprimer_conversation : de quoi la recréer. */
+  v.object({ type: v.literal("conversationSupprimee"), titre: v.string(), data: v.string() }),
 );
 
 export type Annulation = Infer<typeof annulationValidator>;

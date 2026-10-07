@@ -351,7 +351,7 @@ export function mcpPermissionQuery(permission: PermissionId) {
  * (comptes suivis, inspirations), les messages aux créatrices (le coach : un
  * email, qui ne se reprend pas).
  */
-export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications", "veille", "messages"] as const;
+export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications", "veille", "messages", "conversations"] as const;
 export type McpWriteScope = (typeof MCP_WRITE_SCOPES)[number];
 
 /** La connexion MCP (clé ou application OAuth) qui porte un appel d'écriture. */
