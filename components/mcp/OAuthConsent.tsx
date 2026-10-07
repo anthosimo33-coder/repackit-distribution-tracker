@@ -44,6 +44,7 @@ export type ParametresAutorisation = FunctionArgs<typeof api.mcpOAuth.describeAu
 
 export function OAuthConsent({ params }: { params: ParametresAutorisation }) {
   const tr = useTranslations("admin.common.OAuthConsent");
+  const trDomaine = useTranslations("admin.common.McpAccessDialog.domaine");
   const showError = useConvexError();
   const demande = useQuery(api.mcpOAuth.describeAuthorization, params);
   const approuver = useAction(api.mcpOAuth.approveAuthorization);
@@ -150,7 +151,18 @@ export function OAuthConsent({ params }: { params: ParametresAutorisation }) {
           <div className="space-y-2">
             <p className="text-sm font-medium text-slate-700">{tr("ceQuiEstAccorde")}</p>
             <ul className="space-y-1.5 text-sm text-slate-600">
-              {[tr("droitLecture"), tr("droitAucuneEcriture"), tr("droitRevocable")].map((d) => (
+              {[
+                tr("droitLecture"),
+                // Reconnexion depuis le même hôte : les domaines ouverts à l'écriture sur
+                // la connexion précédente sont repris — l'écran le dit, nommément.
+                demande.reprise.length > 0
+                  ? tr("droitReprise", {
+                      host: demande.hote,
+                      domains: demande.reprise.map((d) => trDomaine(`${d}.titre`)).join(", "),
+                    })
+                  : tr("droitAucuneEcriture"),
+                tr("droitRevocable"),
+              ].map((d) => (
                 <li key={d} className="flex items-start gap-2">
                   <CheckIcon className="mt-0.5 size-4 shrink-0 text-slate-400" />
                   <span>{d}</span>

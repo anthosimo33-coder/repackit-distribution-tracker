@@ -1030,7 +1030,8 @@
     "nonAutoriseTitre": "Team only",
     "nonAutorise": "Connecting Claude is for admins and managers only. Your account doesn’t have access.",
     "encadreTitre": "Open this page directly",
-    "encadre": "For your safety, this authorization page can’t be shown inside another site. Open it directly in your browser."
+    "encadre": "For your safety, this authorization page can’t be shown inside another site. Open it directly in your browser.",
+    "droitReprise": "Like your previous connection from {host}, Claude will also be able to change: {domains}. You can turn this off at any time."
   },
   "PropositionsClaude": {
     "titre": "{count, plural, one {Claude suggests # change} other {Claude suggests # changes}}",

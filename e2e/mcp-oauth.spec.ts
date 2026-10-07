@@ -317,4 +317,72 @@ test.describe("Connecteur OAuth du serveur MCP", () => {
       creatrice.client.action(api.mcpOAuth.approveAuthorization, params),
     ).rejects.toThrow(/ERR_MCP_TOKEN_NOT_ALLOWED/);
   });
+
+  /**
+   * RECONNEXION — pour recharger les outils, on se déconnecte puis se reconnecte
+   * dans Claude. La nouvelle connexion reprend les domaines ouverts à l'écriture
+   * sur la précédente (même hôte de retour) au lieu de tout repasser en lecture
+   * seule, et la page de consentement le dit avant qu'on autorise.
+   */
+  test("reconnexion depuis claude.ai : les modifications autorisées sont reprises, et le consentement le dit", async ({ page }) => {
+    test.setTimeout(120_000);
+    const meta = await decouvrir(page);
+    const clientId = await enregistrerClaude(meta);
+    await intercepterClaude(page);
+    const jetons = async (code: string, verifier: string) => {
+      const j = await formulaire(meta.token_endpoint, {
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: CALLBACK,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource: meta.mcpUrl,
+      });
+      expect(j.status).toBe(200);
+      return j.json!.access_token;
+    };
+    const outils = async (jeton: string) => {
+      const r = await fetch(meta.mcpUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${jeton}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+      return ((await r.json()) as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name);
+    };
+
+    const p1 = pkce();
+    const a1 = await jetons((await autoriser(page, consentement(meta, clientId, p1.challenge, "s1"))).searchParams.get("code")!, p1.verifier);
+    expect(await outils(a1)).not.toContain("creer_conversation");
+
+    // L'écriture des conversations ouverte sur cette connexion.
+    await page.goto(adminPath("/comptes"));
+    await page.getByRole("button", { name: "Connecter Claude" }).click();
+    const lignes = page.getByRole("list", { name: "Applications connectées" }).getByRole("listitem").filter({ hasText: "claude.ai" });
+    await expect(lignes).toHaveCount(1);
+    const interrupteur = lignes.getByRole("switch", { name: /conversations/i });
+    await interrupteur.click();
+    await expect(interrupteur).toBeChecked();
+    await page.keyboard.press("Escape");
+    expect(await outils(a1)).toContain("creer_conversation");
+
+    // Reconnexion : le consentement annonce la reprise, nommément…
+    const p2 = pkce();
+    await page.goto(consentement(meta, clientId, p2.challenge, "s2"));
+    await expect(page.getByText("Claude pourra aussi modifier : Conversations")).toBeVisible();
+    await expect(page.getByText("Lecture seule : rien ne pourra être modifié")).toHaveCount(0);
+    await page.getByRole("button", { name: "Autoriser" }).click();
+    await page.waitForURL((u) => u.hostname === "claude.ai");
+    const a2 = await jetons(new URL(page.url()).searchParams.get("code")!, p2.verifier);
+    // … et la nouvelle connexion écrit d'emblée, sans repasser par l'écran.
+    expect(await outils(a2)).toContain("creer_conversation");
+
+    // Ménage : les deux connexions coupées.
+    await page.goto(adminPath("/comptes"));
+    await page.getByRole("button", { name: "Connecter Claude" }).click();
+    await expect(lignes).toHaveCount(2);
+    await lignes.first().getByRole("button", { name: "Couper l’accès" }).click();
+    await expect(lignes).toHaveCount(1);
+    await lignes.first().getByRole("button", { name: "Couper l’accès" }).click();
+    await expect(lignes).toHaveCount(0);
+  });
 });

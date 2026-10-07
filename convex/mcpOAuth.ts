@@ -21,10 +21,10 @@
 import { v, type Infer } from "convex/values";
 import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import type { Doc } from "./_generated/dataModel";
-import { authedAction, authedMutation, authedQuery, e2eMutation } from "./functions";
+import type { Doc, Id } from "./_generated/dataModel";
+import { authedAction, authedMutation, authedQuery, e2eMutation, type McpWriteScope } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { assertPeutDetenirUneCle, basculerScope, peutDetenirUneCle } from "./mcpTokens";
+import { assertPeutDetenirUneCle, basculerScope, normaliserScopes, peutDetenirUneCle } from "./mcpTokens";
 import {
   ACCESS_TTL_S,
   CODE_TTL_MS,
@@ -117,6 +117,24 @@ async function preparerDemande(ctx: QueryCtx, p: Parametres): Promise<Demande> {
 }
 
 /**
+ * RECONNEXION — les domaines que la personne avait ouverts à l'écriture sur sa
+ * connexion encore vivante la plus récente depuis le MÊME hôte de retour
+ * (claude.ai). Se déconnecter puis se reconnecter dans Claude (pour recharger
+ * les outils) ne doit pas tout repasser en lecture seule : la nouvelle connexion
+ * les reprend, et la page de consentement le dit.
+ */
+async function droitsRepris(ctx: QueryCtx, userId: Id<"users">, hote: string, maintenant: number): Promise<McpWriteScope[]> {
+  const precedentes = (
+    await ctx.db
+      .query("mcpOAuthGrants")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect()
+  ).filter((g) => g.redirectHost === hote && g.refreshExpiresAt >= maintenant);
+  const derniere = precedentes.sort((a, b) => (b.lastUsedAt ?? b.createdAt) - (a.lastUsedAt ?? a.createdAt))[0];
+  return derniere ? normaliserScopes(derniere.writeScopes ?? []) : [];
+}
+
+/**
  * Ce que la page de consentement affiche. Le NOM du client est déclaré par le
  * client lui-même : l'écran ne dit « Claude » que si le code repart vers
  * claude.ai, et montre toujours l'hôte de retour.
@@ -138,6 +156,7 @@ export const describeAuthorization = authedQuery({
       claude: estRetourClaude(d.redirectUri),
       boucleLocale: estBoucleLocale(d.redirectUri),
       compte: user?.email ?? user?.name ?? "",
+      reprise: await droitsRepris(ctx, ctx.userId, hoteDe(d.redirectUri), Date.now()),
       refus,
     };
   },
@@ -288,11 +307,13 @@ export const echangerCode = internalMutation({
       .collect()) {
       if (g.refreshExpiresAt < maintenant) await ctx.db.delete(g._id);
     }
+    const reprise = await droitsRepris(ctx, code.userId, hoteDe(code.redirectUri), maintenant);
     await ctx.db.insert("mcpOAuthGrants", {
       userId: code.userId,
       clientId: client.clientId,
       clientName: client.clientName,
       redirectHost: hoteDe(code.redirectUri),
+      ...(reprise.length > 0 ? { writeScopes: reprise } : {}),
       scope: code.scope,
       accessTokenHash: a.accessTokenHash,
       accessExpiresAt: maintenant + ACCESS_TTL_S * 1000,
