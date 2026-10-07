@@ -28,6 +28,7 @@ import {
   defaultConversation,
   imagesDeConversation,
   newItemId,
+  PARAM_EXPORT,
   type Conversation,
   type ConvItem,
   type ConvMedia,
@@ -97,9 +98,24 @@ const baseDe = (titre: string) =>
     .replace(/^-|-$/g, "") || "conversation";
 const fichierDe = (titre: string) => `${baseDe(titre)}.png`;
 
+/** Attend que les images de l'écran soient chargées (ou en échec) : rastérisées trop tôt, elles manqueraient. */
+async function attendreImages(node: HTMLElement): Promise<void> {
+  await Promise.all(
+    Array.from(node.querySelectorAll("img"))
+      .filter((img) => !img.complete)
+      .map((img) => new Promise<void>((ok) => {
+        img.addEventListener("load", () => ok(), { once: true });
+        img.addEventListener("error", () => ok(), { once: true });
+      })),
+  );
+}
+
 /** Rastérise un écran (414×896 pt) en PNG ×2 — polices système seulement, rien à embarquer. */
-const versPng = (node: HTMLElement) =>
-  domToPng(node, { width: SCREEN.width, height: SCREEN.height, scale: SCREEN.exportScale, font: false });
+const versPng = async (node: HTMLElement) => {
+  await attendreImages(node);
+  return domToPng(node, { width: SCREEN.width, height: SCREEN.height, scale: SCREEN.exportScale, font: false });
+};
+
 
 const octetsDe = (dataUrl: string) => Uint8Array.from(atob(dataUrl.split(",")[1] ?? ""), (c) => c.charCodeAt(0));
 
@@ -120,6 +136,7 @@ export function ConvStudio() {
   const params = useSearchParams();
   const liste = useProjectQuery(api.instaConversations.listInstaConversations, {});
   const idUrl = params.get("c");
+  const exportAuto = params.get(PARAM_EXPORT) === "1";
   const selectedId: Id<"instaConversations"> | null =
     liste?.find((c) => c._id === idUrl)?._id ?? liste?.[0]?._id ?? null;
   const doc = useProjectQuery(api.instaConversations.getInstaConversation, selectedId ? { id: selectedId } : "skip");
@@ -329,6 +346,12 @@ export function ConvStudio() {
       setSerieProgress(null);
       setExporting(false);
     }
+  }
+
+  /** Lien `&exporter=1` : la série en ZIP, sinon la capture ; puis le paramètre part (un rechargement ne retélécharge pas). */
+  async function exporterAuto() {
+    await (serie ? onExportSerie() : onExport());
+    router.replace(`${pathname}?c=${base!.id}`);
   }
 
   async function deposerImage(file: File): Promise<string | null> {
@@ -772,6 +795,7 @@ export function ConvStudio() {
             </Button>
           )}
           {exportError && <p className="text-sm text-red-600">{tr("exportEchec")}</p>}
+          {exportAuto && <AutoExport pret={idsImages.length === 0 || resolues !== undefined} lancer={exporterAuto} />}
           {/* Fil complet, hors écran, à l'échelle 1 : sert à mesurer pour la découpe automatique. */}
           <div aria-hidden style={{ position: "fixed", left: -10_000, top: 0, visibility: "hidden", pointerEvents: "none" }}>
             <InstaScreen ref={measureRef} conversation={{ ...conv, scroll: 0 }} images={images} />
@@ -783,6 +807,28 @@ export function ConvStudio() {
 }
 
 type Tr = ReturnType<typeof useTranslations<"admin.ops.ConvStudio">>;
+
+/**
+ * Export lancé par le lien de Claude, UNE fois, quand les images citées sont
+ * résolues ; un court délai laisse la mise en page (largeurs serrées, dégradé)
+ * se poser avant la rastérisation.
+ */
+function AutoExport({ pret, lancer }: { pret: boolean; lancer: () => Promise<void> }) {
+  // `lancer` change à chaque rendu (enregistrement, requêtes) : on garde la
+  // dernière dans une ref plutôt que de la mettre en dépendance — un nettoyage à
+  // chaque rendu annulerait le minuteur, et l'export ne partirait jamais.
+  const lancerRef = useRef(lancer);
+  useEffect(() => {
+    lancerRef.current = lancer;
+  });
+  const fait = useRef(false);
+  useEffect(() => {
+    if (!pret || fait.current) return;
+    fait.current = true;
+    window.setTimeout(() => void lancerRef.current(), 400);
+  }, [pret]);
+  return null;
+}
 
 type Nature = ConvMedia["type"] | "text";
 
