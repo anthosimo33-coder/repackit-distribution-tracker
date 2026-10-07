@@ -75,6 +75,12 @@ export type Conversation = {
   items: ConvItem[];
 };
 
+/**
+ * Paramètre du lien « télécharger » que rend le MCP (`…/conversations?c=<id>&exporter=1`) :
+ * l'écran dessine la conversation et lance l'export tout seul (PNG, ou ZIP pour une série).
+ */
+export const PARAM_EXPORT = "exporter";
+
 /** Bornes : un fil de capture tient en quelques dizaines de bulles. */
 export const MAX_ITEMS = 120;
 export const MAX_TEXT = 1_000;

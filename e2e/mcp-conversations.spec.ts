@@ -67,8 +67,10 @@ test.describe("MCP — conversations Instagram", () => {
       ],
     });
     expect(cree.erreur, cree.texte).toBe(false);
-    const lien = JSON.parse(cree.texte).lien as string;
+    const { lien, telecharger } = JSON.parse(cree.texte) as { lien: string; telecharger: string };
     expect(lien).toMatch(/\/admin\/e2e-test\/conversations\?c=/);
+    // Le lien à donner pour « sortir les captures » : le même écran, export lancé à l'ouverture.
+    expect(telecharger).toBe(`${lien}&exporter=1`);
 
     // Le lien ouvre l'écran sur CE brouillon (origine retirée : le déploiement
     // de test peut ne pas connaître son adresse publique).

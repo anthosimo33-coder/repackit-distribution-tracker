@@ -161,4 +161,40 @@ test.describe("Conversations Instagram", () => {
     expect(effacees).not.toContain(bleu);
     expect(Object.keys(await admin.query(api.instaConvImages.getInstaConvImages, { ids: [rouge, bleu] }))).toEqual([bleu]);
   });
+
+  /**
+   * LIEN « TÉLÉCHARGER » — celui que rend Claude : l'ouvrir dessine la
+   * conversation et lance l'export SANS clic (PNG, ou ZIP dès qu'il y a une
+   * coupure), puis le paramètre disparaît (recharger ne retélécharge pas).
+   */
+  test("lien « télécharger » : l'ouvrir exporte tout seul — PNG, ZIP pour une série — puis le paramètre part", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    await page.goto(adminPath("/conversations"));
+    await page.getByRole("button", { name: "Nouvelle conversation" }).first().click();
+    await expect(page).toHaveURL(/\/conversations\?c=/);
+    const convId = new URL(page.url()).searchParams.get("c") as Id<"instaConversations">;
+    const titre = `Lien e2e ${ts}`;
+    await page.getByLabel("Titre").fill(titre);
+    await page.getByLabel("Titre").press("Enter");
+    const enBase = async () => (await admin.query(api.instaConversations.getInstaConversation, { id: convId }))!;
+    await expect.poll(async () => (await enBase()).titre).toBe(titre);
+
+    const png = page.waitForEvent("download");
+    await page.goto(adminPath(`/conversations?c=${convId}&exporter=1`));
+    const d1 = await png;
+    expect(d1.suggestedFilename()).toBe(`lien-e2e-${ts}.png`);
+    const image = readFileSync(await d1.path());
+    expect({ width: image.readUInt32BE(16), height: image.readUInt32BE(20) }).toEqual({ width: 828, height: 1792 });
+    await expect(page).toHaveURL(new RegExp(`\\?c=${convId}$`));
+
+    // Une coupure : le même lien rend la série en ZIP.
+    await page.getByTestId("conv-item").nth(2).getByRole("button", { name: "Fin de slide après ce message" }).click();
+    await expect.poll(async () => (JSON.parse((await enBase()).data).items as Array<{ cut?: boolean }>).some((it) => it.cut)).toBe(true);
+    const zip = page.waitForEvent("download");
+    await page.goto(adminPath(`/conversations?c=${convId}&exporter=1`));
+    const d2 = await zip;
+    expect(d2.suggestedFilename()).toBe(`lien-e2e-${ts}.zip`);
+    expect(Object.keys(unzipSync(readFileSync(await d2.path())))).toHaveLength(2);
+  });
 });

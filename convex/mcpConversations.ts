@@ -38,7 +38,7 @@ import {
   type DomaineEcriture,
 } from "./mcpWriteCommon";
 import { base64 } from "./mcpVideo";
-import { conversationDeData, defaultConversation, MAX_ITEMS, MAX_TITRE, THEME_IDS, type Conversation } from "./instaConvModel";
+import { conversationDeData, defaultConversation, MAX_ITEMS, MAX_TITRE, PARAM_EXPORT, THEME_IDS, type Conversation } from "./instaConvModel";
 import { appliquerChampsMcp, conversationPourMcp, PREFIXE_TIKTOK, THEME_MCP, type ChampsMcp } from "./mcpConversationsArgs";
 import { enregistrerImageCore, POIDS_IMAGE_MAX } from "./instaConvImages";
 import { imageSize } from "./imageSize";
@@ -55,13 +55,16 @@ import { extractTikTokMedia, isTikTokCdnUrl, isTikTokPostUrl, type TikTokMedia }
 // ─── Lien vers l'écran ──────────────────────────────────────────────────────
 
 /** Lien absolu quand le déploiement connaît son adresse (comme les emails), relatif sinon. */
-export function lienConversation(projet: string, id: string): string {
+export function lienConversation(projet: string, id: string, exporter = false): string {
   const base = (process.env.APP_BASE_URL || process.env.SITE_URL || "").replace(/\/+$/, "");
-  return `${base}/admin/${projet}/conversations?c=${id}`;
+  return `${base}/admin/${projet}/conversations?c=${id}${exporter ? `&${PARAM_EXPORT}=1` : ""}`;
 }
 
+/** Les deux liens d'une conversation : l'écran, et le téléchargement direct des captures. */
+const liens = (projet: string, id: string) => ({ telecharger: lienConversation(projet, id, true), lien: lienConversation(projet, id) });
+
 const OUVRIR =
-  "Ouvre le lien : la capture est dessinée par l'app ; « Exporter en PNG » la télécharge (828×1792), « Exporter la série » télécharge un ZIP d'une capture par slide quand il y a des coupures. La photo du contact se pose à l'écran.";
+  "Donne « telecharger » à la personne : l'ouvrir (connectée à Jarvia) dessine la conversation et télécharge AUSSITÔT les captures — un PNG 828×1792, ou un ZIP d'une capture par slide quand il y a des coupures. « lien » ouvre l'écran pour retoucher (photo du contact, images à déposer) puis exporter à la main. Les captures ne peuvent pas t'être rendues en image : elles se dessinent dans le navigateur (polices et emojis Apple).";
 
 // ─── Arguments partagés ─────────────────────────────────────────────────────
 
@@ -267,7 +270,7 @@ export async function appelerConversationsLecture(
       JSON.stringify(
         {
           projet,
-          conversations: liste.map((c) => ({ titre: c.titre, messages: c.messages, modifieeLe: new Date(c.modifieeLe).toISOString().slice(0, 16), lien: lienConversation(projet, c.id) })),
+          conversations: liste.map((c) => ({ titre: c.titre, messages: c.messages, modifieeLe: new Date(c.modifieeLe).toISOString().slice(0, 16), ...liens(projet, c.id) })),
           lecture: liste.length === 0 ? ["Aucune conversation : `creer_conversation` en crée une."] : [OUVRIR],
         },
         null,
@@ -284,7 +287,7 @@ export async function appelerConversationsLecture(
         {
           projet,
           titre: c.titre,
-          lien: lienConversation(projet, c.id),
+          ...liens(projet, c.id),
           ...c.contenu,
           messages: c.contenu.messages.map((m, i) => ({ n: i + 1, ...m })),
           lecture: ["`modifier_conversation` avec « messages » REMPLACE toute la liste : renvoie-la entière, corrigée (sans le champ n)."],
@@ -308,7 +311,7 @@ const OUTILS_ECRITURE: readonly McpTool[] = [
     name: "creer_conversation",
     title: "Créer une conversation Instagram",
     description:
-      "Crée un brouillon de capture de conversation Instagram (DM iOS) que l'app dessine à l'identique ; la réponse donne le lien pour l'ouvrir et exporter le PNG. Pour reproduire une capture : recopie chaque bulle exactement. Pour inventer : écris comme de vrais messages (courts, minuscules si le ton s'y prête, une bulle par phrase). Les champs absents prennent les valeurs de l'exemple (contact, heure, batterie…).",
+      "Crée un brouillon de capture de conversation Instagram (DM iOS) que l'app dessine à l'identique ; la réponse donne « telecharger » (l'ouvrir télécharge les captures : PNG, ou ZIP par slide) et « lien » (l'écran, pour retoucher). Pour reproduire une capture : recopie chaque bulle exactement. Pour inventer : écris comme de vrais messages (courts, minuscules si le ton s'y prête, une bulle par phrase). Les champs absents prennent les valeurs de l'exemple (contact, heure, batterie…).",
     inputSchema: {
       type: "object",
       properties: {
@@ -576,7 +579,7 @@ async function appelerEcriture(
     if (!Array.isArray(args.messages) || args.messages.length === 0) throw new ToolError("« messages » : au moins un élément.");
     const { champs, fichiers } = await champsEtImages(ctx, args);
     const r = await avecFichiers(ctx, fichiers, () => ecrire(() => ctx.runMutation(internal.mcpConversations.ecrireCreation, { ...cible, titre, champs, fichiers })));
-    return resultatEcriture(projet, r.summary, "`defaire` la supprime (tant qu'elle n'a pas été modifiée depuis).", { lien: lienConversation(projet, r.id), ouvrir: OUVRIR });
+    return resultatEcriture(projet, r.summary, "`defaire` la supprime (tant qu'elle n'a pas été modifiée depuis).", { ...liens(projet, r.id), ouvrir: OUVRIR });
   }
   if (name === "modifier_conversation") {
     const conversation = texteArg(args, "conversation");
@@ -588,7 +591,7 @@ async function appelerEcriture(
         ctx.runMutation(internal.mcpConversations.ecrireModification, { ...cible, conversation, champs, fichiers, ...(nouveauTitre ? { nouveauTitre } : {}) }),
       ),
     );
-    return resultatEcriture(projet, r.summary, "`defaire` remet la version d'avant (si personne ne l'a modifiée depuis).", { lien: lienConversation(projet, r.id), ouvrir: OUVRIR });
+    return resultatEcriture(projet, r.summary, "`defaire` remet la version d'avant (si personne ne l'a modifiée depuis).", { ...liens(projet, r.id), ouvrir: OUVRIR });
   }
   if (name === "supprimer_conversation") {
     const conversation = texteArg(args, "conversation");
