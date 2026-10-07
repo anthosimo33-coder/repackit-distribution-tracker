@@ -38,7 +38,7 @@ export const METRICS = {
     /** Coin côté groupe : 4 pt, du côté où deux bulles du même auteur se touchent. */
     groupedRadius: 4,
     /** Largeur max, padding compris. */
-    maxWidth: 300,
+    maxWidth: 304,
   },
   /** Bulles reçues : décalées pour l'avatar (28 pt à x = 16, aligné en bas). */
   inIndent: 56,
@@ -48,6 +48,21 @@ export const METRICS = {
   edited: { fontSize: 12.3, lineHeight: 16, marginTop: 13.15, marginBottom: 4.5, inset: 12.4 },
   reaction: { width: 29, height: 24, inset: 5, overlap: 7, ring: 1.5 },
   date: { fontSize: 12, lineHeight: 16, marginTop: 21, marginBottom: 16 },
+  /** Libellés gris au-dessus d'une citation ou d'une réponse à une story (« Replied to you »…). */
+  label: { fontSize: 12, lineHeight: 16, marginTop: 14, color: "#A0A9B5" },
+  /**
+   * Réponse citée : barre de 4 pt + 12 pt + bulle citée (texte 14,7 pt sur 20,
+   * 3 lignes au plus, « … more »), puis 8 pt jusqu'à la réponse. La bulle citée est celle de son
+   * auteur ASSOMBRIE : dégradé ×0,5 pour un message envoyé, gris à 50 % sinon.
+   */
+  quote: { labelGap: 10.8, toBubble: 8, bar: 4, barGap: 12, maxWidth: 288, maxLines: 3, fontSize: 14.7, letterSpacing: -0.3, inBg: "#171C21", outShade: "rgba(0,0,0,0.5)", inText: "#929598", outText: "rgba(255,255,255,0.82)" },
+  /** « Story unavailable » : texte gris sur une ligne, barre à côté. */
+  storyUnavailable: { gap: 4, lineHeight: 20, toBubble: 9 },
+  /** Message vocal : lecture à 15 pt du bord, barres de 3 pt tous les 6 pt (40 pt de haut au plus). */
+  voice: { height: 98, playLeft: 15, playCenterY: 31.75, firstBar: 48, barWidth: 3, barPitch: 6, maxBarHeight: 40, minBarHeight: 3, durationGap: 16.5, durationWidth: 24, padRight: 16, transcriptionTop: 66.5 },
+  /** Photo ou vidéo éphémère déjà vue : pastille 86 pt ; bouton appareil photo 32 pt à côté (reçue). */
+  viewOnce: { width: 86, cameraSize: 32, cameraGap: 8.5 },
+  mention: "#85A1F9",
   jumbo: { fontSize: 52, lineHeight: 59, maxCount: 5 },
 } as const;
 
@@ -178,7 +193,12 @@ export function planConversation(items: ConvItem[]): PlannedItem[] {
     b.kind === "message" &&
     a.side === b.side &&
     !b.edited &&
+    !b.reply &&
+    !b.story &&
     !a.reaction &&
+    // Vocal, photo ou vidéo éphémère : chacun garde sa propre place (vu sur capture).
+    !a.media &&
+    !b.media &&
     !isJumbo(a.text) &&
     !isJumbo(b.text);
 
@@ -193,11 +213,12 @@ export function planConversation(items: ConvItem[]): PlannedItem[] {
     if (i === 0 || prev?.kind === "date") gapBefore = 0;
     else if (prev?.kind === "message" && prev.reaction) gapBefore = METRICS.gap.afterReaction;
     else if (joinedTop) gapBefore = METRICS.gap.sameSender;
-    if (item.edited && i > 0) gapBefore = 0;
+    // « Modifié », citation, story : l'en-tête porte son propre écart.
+    if ((item.edited || item.reply || item.story) && i > 0) gapBefore = 0;
     return {
       kind: "message",
       item,
-      jumbo: isJumbo(item.text),
+      jumbo: !item.media && isJumbo(item.text),
       joinedTop,
       joinedBottom,
       showAvatar: item.side === "in" && !joinedBottom,
@@ -232,20 +253,32 @@ export type ConvTheme = {
   cameraButton: string;
   placeholder: string;
   edited: string;
+  /** Fond d'une bulle REÇUE citée (la bulle de l'autre, assombrie). */
+  quoteIn: string;
 };
 
+// Relevé sur 11 vraies captures (médiane par tranche de 20 pt, 120 → 800 pt) ;
+// seuls 104 et 805 sont prolongés.
 const DARK_OUT_STOPS = [
-  // 104 et 805 : EXTRAPOLÉS (aucune bulle mesurée si haut ni si bas).
-  [104, "rgb(186,48,216)"],
-  [325, "rgb(148,52,234)"],
-  [381, "rgb(137,53,239)"],
-  [423, "rgb(131,54,242)"],
-  [457, "rgb(125,56,245)"],
-  [514.5, "rgb(116,57,249)"],
-  [586, "rgb(110,62,250)"],
-  [646.5, "rgb(105,65,250)"],
-  [716.5, "rgb(99,70,249)"],
-  [805, "rgb(91,78,246)"],
+  [104, "rgb(188,49,212)"],
+  [120, "rgb(183,50,214)"],
+  [140, "rgb(178,50,216)"],
+  [180, "rgb(173,51,221)"],
+  [220, "rgb(166,51,224)"],
+  [300, "rgb(150,52,233)"],
+  [340, "rgb(143,52,236)"],
+  [380, "rgb(136,53,240)"],
+  [420, "rgb(129,55,242)"],
+  [440, "rgb(125,56,244)"],
+  [500, "rgb(116,57,249)"],
+  [540, "rgb(112,60,250)"],
+  [580, "rgb(110,62,250)"],
+  [620, "rgb(106,64,250)"],
+  [660, "rgb(103,67,250)"],
+  [700, "rgb(99,70,250)"],
+  [740, "rgb(96,72,249)"],
+  [780, "rgb(92,75,249)"],
+  [805, "rgb(91,77,249)"],
 ] as const;
 
 export const THEMES: Record<ThemeId, ConvTheme> = {
@@ -265,6 +298,8 @@ export const THEMES: Record<ThemeId, ConvTheme> = {
     cameraButton: "#5A4EF9",
     placeholder: "#A0A9B5",
     edited: "#4A5DF9",
+    // Mesuré : #24292E à 50 % sur le fond.
+    quoteIn: "#171C21",
   },
   // Inventé : violet profond à cœurs, bulles roses.
   hearts: {
@@ -283,6 +318,7 @@ export const THEMES: Record<ThemeId, ConvTheme> = {
     cameraButton: "#EF2A8A",
     placeholder: "#E3C6E6",
     edited: "#FF8FC4",
+    quoteIn: "rgba(60,25,65,0.85)",
   },
   // Inventé : nuit marine, dégradé turquoise → bleu.
   ocean: {
@@ -300,6 +336,7 @@ export const THEMES: Record<ThemeId, ConvTheme> = {
     cameraButton: "#19A7D6",
     placeholder: "#8FB3C9",
     edited: "#5FD3F3",
+    quoteIn: "#0E1E28",
   },
 };
 
@@ -310,8 +347,97 @@ export function outGradientCss(theme: ConvTheme): string {
 
 // ── Textes de l'écran Instagram (donnée de la capture, pas de l'interface) ────
 
-export const SCREEN_STRINGS: Record<ConvLocale, { placeholder: string; edited: string }> = {
-  en: { placeholder: "Message...", edited: "Edited" }, // i18n-exempt: donnée de la capture, pas de l'interface
-  // Libellés FR non relevés sur capture : à corriger si Instagram dit autre chose.
-  fr: { placeholder: "Message...", edited: "Modifié" }, // i18n-exempt: donnée de la capture, pas de l'interface
+export type ScreenStrings = {
+  placeholder: string;
+  edited: string;
+  repliedToYou: string;
+  youReplied: string;
+  repliedToYourStory: string;
+  /** Avant / mot en gras / après : « Replied to your **close friends** story ». */
+  repliedToCloseFriends: [string, string, string];
+  youRepliedToStory: string;
+  storyUnavailable: string;
+  viewTranscription: string;
+  photo: string;
+  video: string;
+  menu: { reply: string; addSticker: string; forward: string; deleteForYou: string; report: string; more: string; edit: string; unsend: string };
 };
+
+export const SCREEN_STRINGS: Record<ConvLocale, ScreenStrings> = {
+  // Relevés sur capture (oct. 2026).
+  en: {
+    placeholder: "Message...", // i18n-exempt: donnée de la capture, pas de l'interface
+    edited: "Edited", // i18n-exempt: donnée de la capture, pas de l'interface
+    repliedToYou: "Replied to you", // i18n-exempt: donnée de la capture, pas de l'interface
+    youReplied: "You replied", // i18n-exempt: donnée de la capture, pas de l'interface
+    repliedToYourStory: "Replied to your story", // i18n-exempt: donnée de la capture, pas de l'interface
+    repliedToCloseFriends: ["Replied to your ", "close friends", " story"], // i18n-exempt: donnée de la capture, pas de l'interface
+    youRepliedToStory: "You replied to their story", // i18n-exempt: donnée de la capture, pas de l'interface
+    storyUnavailable: "Story unavailable", // i18n-exempt: donnée de la capture, pas de l'interface
+    viewTranscription: "View transcription", // i18n-exempt: donnée de la capture, pas de l'interface
+    photo: "Photo", // i18n-exempt: donnée de la capture, pas de l'interface
+    video: "Video", // i18n-exempt: donnée de la capture, pas de l'interface
+    menu: { reply: "Reply", addSticker: "Add sticker", forward: "Forward", deleteForYou: "Delete for you", report: "Report", more: "More", edit: "Edit", unsend: "Unsend" }, // i18n-exempt: donnée de la capture, pas de l'interface
+  },
+  // Menu relevé sur une capture FR (Répondre, Ajouter un sticker, Transférer,
+  // Supprimer pour vous, Signaler) ; le reste n'est PAS relevé : à corriger si
+  // Instagram dit autre chose.
+  fr: {
+    placeholder: "Message...", // i18n-exempt: donnée de la capture, pas de l'interface
+    edited: "Modifié", // i18n-exempt: donnée de la capture, pas de l'interface
+    repliedToYou: "Vous a répondu", // i18n-exempt: donnée de la capture, pas de l'interface
+    youReplied: "Vous avez répondu", // i18n-exempt: donnée de la capture, pas de l'interface
+    repliedToYourStory: "A répondu à votre story", // i18n-exempt: donnée de la capture, pas de l'interface
+    repliedToCloseFriends: ["A répondu à votre story ", "Ami(e)s proches", ""], // i18n-exempt: donnée de la capture, pas de l'interface
+    youRepliedToStory: "Vous avez répondu à sa story", // i18n-exempt: donnée de la capture, pas de l'interface
+    storyUnavailable: "Story indisponible", // i18n-exempt: donnée de la capture, pas de l'interface
+    viewTranscription: "Voir la transcription", // i18n-exempt: donnée de la capture, pas de l'interface
+    photo: "Photo", // i18n-exempt: donnée de la capture, pas de l'interface
+    video: "Vidéo", // i18n-exempt: donnée de la capture, pas de l'interface
+    menu: { reply: "Répondre", addSticker: "Ajouter un sticker", forward: "Transférer", deleteForYou: "Supprimer pour vous", report: "Signaler", more: "Plus", edit: "Modifier", unsend: "Annuler l'envoi" }, // i18n-exempt: donnée de la capture, pas de l'interface
+  },
+};
+
+// ── Messages vocaux ───────────────────────────────────────────────────────────
+
+/** Nombre de barres : ~10 par seconde, plafonné à 33 (vu : 3 s → 26 à 31, 4 s et plus → 33). */
+export function voiceBars(seconds: number): number {
+  return Math.max(10, Math.min(33, Math.round(seconds * 10)));
+}
+
+/** Largeur de la bulle vocale (pt) : la forme d'onde, la durée, les marges mesurées. */
+export function voiceWidth(seconds: number): number {
+  const V = METRICS.voice;
+  return V.firstBar + voiceBars(seconds) * V.barPitch - (V.barPitch - V.barWidth) + V.durationGap + V.durationWidth + V.padRight;
+}
+
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Hauteurs des barres (pt), DÉTERMINISTES : même message → même forme d'onde
+ * à chaque rendu et à chaque export. Une voix monte et descend par paquets,
+ * avec des creux, et finit souvent sur quelques points de silence.
+ */
+export function waveform(seed: string, count: number): number[] {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
+  const rand = () => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+  const { maxBarHeight: max, minBarHeight: min } = METRICS.voice;
+  const silence = Math.floor(rand() * 5);
+  let prev = 0.6;
+  return Array.from({ length: count }, (_, i) => {
+    if (i >= count - silence) return min;
+    let v = rand() < 0.1 ? 0.05 : 0.3 + 0.7 * rand();
+    v = 0.65 * v + 0.35 * prev;
+    prev = v;
+    return Math.round(min + v * (max - min));
+  });
+}

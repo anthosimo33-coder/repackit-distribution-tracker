@@ -29,6 +29,7 @@ import {
   newItemId,
   type Conversation,
   type ConvItem,
+  type ConvMessage,
   type ConvLocale,
   type Side,
   type ThemeId,
@@ -616,6 +617,18 @@ export function ConvStudio() {
                         />
                       </label>
                     </div>
+                    <MessageOptions
+                      item={it}
+                      tr={tr}
+                      onChange={(p) => patchItem(it.id, p)}
+                      onLongPress={(on) =>
+                        patch({
+                          items: conv.items.map((x) =>
+                            x.kind !== "message" ? x : x.id === it.id ? { ...x, longPress: on || undefined } : { ...x, longPress: undefined },
+                          ),
+                        })
+                      }
+                    />
                   </>
                 ) : (
                   <Input
@@ -715,6 +728,150 @@ export function ConvStudio() {
         </div>
       </div>
     </div>
+  );
+}
+
+type Tr = ReturnType<typeof useTranslations<"admin.ops.ConvStudio">>;
+
+/**
+ * Options d'un message, repliées par défaut : nature (texte, vocal, photo ou
+ * vidéo éphémère), réponse citée, réponse à une story, appui long, heure.
+ */
+function MessageOptions({
+  item,
+  tr,
+  onChange,
+  onLongPress,
+}: {
+  item: ConvMessage;
+  tr: Tr;
+  onChange: (p: Partial<ConvMessage>) => void;
+  onLongPress: (on: boolean) => void;
+}) {
+  const nature = item.media?.type ?? "text";
+  const reply = item.reply;
+  const actives = [item.media, item.reply, item.story, item.longPress, item.time].filter(Boolean).length;
+  return (
+    <details className="group rounded-md bg-slate-50 px-2.5 py-1.5" open={actives > 0 ? true : undefined}>
+      <summary className="cursor-pointer text-xs font-medium text-slate-600 select-none">
+        {tr("options")}
+        {actives > 0 && <span className="ml-1 text-slate-400">({actives})</span>}
+      </summary>
+      <div className="mt-2 space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Choice
+            value={nature}
+            options={[
+              ["text", tr("natures.texte")],
+              ["voice", tr("natures.vocal")],
+              ["photoOnce", tr("natures.photo")],
+              ["videoOnce", tr("natures.video")],
+            ]}
+            onChange={(v) =>
+              onChange({
+                media: v === "text" ? undefined : v === "voice" ? { type: "voice", seconds: 3 } : { type: v },
+              })
+            }
+          />
+          {item.media?.type === "voice" && (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              {tr("duree")}
+              <Input
+                className="h-8 w-20"
+                type="number"
+                min={1}
+                max={600}
+                value={item.media.seconds}
+                onChange={(e) => onChange({ media: { type: "voice", seconds: Math.max(1, Math.min(600, Number(e.target.value) || 1)) } })}
+              />
+            </label>
+          )}
+        </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <Switch
+              checked={!!reply}
+              onCheckedChange={(on) => onChange({ reply: on ? { side: item.side === "in" ? "out" : "in", text: "" } : undefined })}
+            />
+            {tr("repondA")}
+          </label>
+          {reply && (
+            <div className="flex flex-wrap items-center gap-2 pl-1">
+              <Choice
+                value={reply.side}
+                options={[
+                  ["in", tr("citationRecu")],
+                  ["out", tr("citationEnvoye")],
+                ]}
+                onChange={(side) => onChange({ reply: { ...reply, side } })}
+              />
+              <Choice
+                value={reply.kind ?? "text"}
+                options={[
+                  ["text", tr("natures.texte")],
+                  ["photo", tr("natures.photo")],
+                  ["video", tr("natures.video")],
+                  ["voice", tr("natures.vocal")],
+                ]}
+                onChange={(k) =>
+                  onChange({
+                    reply: { side: reply.side, text: reply.text, ...(k === "text" ? {} : { kind: k }), ...(k === "voice" ? { seconds: reply.seconds ?? 3 } : {}) },
+                  })
+                }
+              />
+              {!reply.kind && (
+                <Input
+                  className="h-8 min-w-48 flex-1"
+                  aria-label={tr("texteCite")}
+                  placeholder={tr("texteCite")}
+                  value={reply.text}
+                  onChange={(e) => onChange({ reply: { ...reply, text: e.target.value } })}
+                />
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <Switch checked={!!item.story} onCheckedChange={(on) => onChange({ story: on ? {} : undefined })} />
+            {tr("story")}
+          </label>
+          {item.story && item.side === "in" && (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <Switch
+                checked={!!item.story.closeFriends}
+                onCheckedChange={(on) => onChange({ story: { ...item.story, closeFriends: on || undefined } })}
+              />
+              {tr("amisProches")}
+            </label>
+          )}
+          {item.story && (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <Switch
+                checked={!!item.story.unavailable}
+                onCheckedChange={(on) => onChange({ story: { ...item.story, unavailable: on || undefined } })}
+              />
+              {tr("storyIndisponible")}
+            </label>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <Switch checked={!!item.longPress} onCheckedChange={onLongPress} />
+            {tr("appuiLong")}
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            {tr("heureMessage")}
+            <Input
+              className="h-8 w-24"
+              placeholder={tr("heureExemple")}
+              value={item.time ?? ""}
+              onChange={(e) => onChange({ time: e.target.value || undefined })}
+            />
+          </label>
+        </div>
+      </div>
+    </details>
   );
 }
 

@@ -86,7 +86,25 @@
     "serieAide": "Each slide shows the conversation up to its cut, the latest at the bottom. Click a thumbnail to show it.",
     "exporterSlide": "Export slide {n}",
     "exporterSerie": "{count, plural, one {Export the series (# PNG, ZIP)} other {Export the series (# PNGs, ZIP)}}",
-    "exportSerieEnCours": "Exporting… {n}/{total}"
+    "exportSerieEnCours": "Exporting… {n}/{total}",
+    "options": "Options",
+    "natures": {
+      "texte": "Text",
+      "vocal": "Voice",
+      "photo": "View-once photo",
+      "video": "View-once video"
+    },
+    "duree": "Length (s)",
+    "repondA": "Replies to a message",
+    "citationRecu": "Quotes a received message",
+    "citationEnvoye": "Quotes a sent message",
+    "texteCite": "Quoted message text",
+    "story": "Story reply",
+    "amisProches": "Close friends",
+    "storyIndisponible": "Story unavailable",
+    "appuiLong": "Long press (reactions and menu)",
+    "heureMessage": "Message time",
+    "heureExemple": "2:35 PM"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

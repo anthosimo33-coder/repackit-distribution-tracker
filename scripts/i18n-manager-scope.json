@@ -98,6 +98,7 @@
     "components/admin/YouTubeSyncButton.tsx",
     "components/admin/insta-conv/ConvStudio.tsx",
     "components/admin/insta-conv/InstaIcons.tsx",
+    "components/admin/insta-conv/InstaLongPress.tsx",
     "components/admin/insta-conv/InstaScreen.tsx",
     "components/admin/leaderboard/CreatorLeaderboard.tsx",
     "components/admin/radar/AddRadarAccountDialog.tsx",

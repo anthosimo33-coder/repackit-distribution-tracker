@@ -19,7 +19,21 @@ export type ConvMessage = {
   reaction?: string;
   /** Fin de slide après ce message (export en série). */
   cut?: boolean;
+  /** Réponse citée : le message auquel celui-ci répond, qui l'avait écrit, et sa nature. */
+  reply?: ConvReply;
+  /** Réponse à une story (en-tête au-dessus du message). */
+  story?: { closeFriends?: boolean; unavailable?: boolean };
+  /** Contenu à la place du texte : message vocal, ou photo/vidéo éphémère déjà vue. */
+  media?: ConvMedia;
+  /** L'écran montre l'APPUI LONG sur ce message (réactions et menu) — un seul par écran. */
+  longPress?: boolean;
+  /** Heure du message, affichée en tête du menu d'appui long (à défaut : l'heure de la barre d'état). */
+  time?: string;
 };
+
+export type ConvReply = { side: Side; text: string; kind?: "photo" | "video" | "voice"; seconds?: number };
+
+export type ConvMedia = { type: "voice"; seconds: number } | { type: "photoOnce" } | { type: "videoOnce" };
 
 export type ConvDate = { id: string; kind: "date"; text: string; cut?: boolean };
 
@@ -82,6 +96,31 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
+/** Les champs facultatifs d'un message, relus sans faire confiance au stockage. */
+function nettoyerMessage(it: ConvMessage): ConvMessage {
+  const m: ConvMessage = { id: it.id, kind: "message", side: it.side, text: it.text };
+  if (it.edited === true) m.edited = true;
+  if (typeof it.reaction === "string" && it.reaction) m.reaction = it.reaction;
+  if (it.cut === true) m.cut = true;
+  if (it.longPress === true) m.longPress = true;
+  if (typeof it.time === "string" && it.time.trim()) m.time = it.time.trim().slice(0, 8);
+  const r = it.reply;
+  if (r && (r.side === "in" || r.side === "out")) {
+    const kind = r.kind === "photo" || r.kind === "video" || r.kind === "voice" ? r.kind : undefined;
+    const text = typeof r.text === "string" ? r.text : "";
+    if (kind || text.trim()) {
+      m.reply = { side: r.side, text, ...(kind ? { kind } : {}), ...(kind === "voice" ? { seconds: clamp(Math.round(Number(r.seconds) || 1), 1, 600) } : {}) };
+    }
+  }
+  if (it.story && typeof it.story === "object") {
+    m.story = { ...(it.story.closeFriends === true ? { closeFriends: true } : {}), ...(it.story.unavailable === true ? { unavailable: true } : {}) };
+  }
+  const md = it.media;
+  if (md?.type === "voice") m.media = { type: "voice", seconds: clamp(Math.round(Number(md.seconds) || 1), 1, 600) };
+  else if (md?.type === "photoOnce" || md?.type === "videoOnce") m.media = { type: md.type };
+  return m;
+}
+
 /** Relit une conversation stockée ; null si elle est illisible ou d'une autre forme. */
 export function parseConversation(raw: unknown): Conversation | null {
   if (!raw || typeof raw !== "object") return null;
@@ -97,7 +136,8 @@ export function parseConversation(raw: unknown): Conversation | null {
         typeof it.text === "string" &&
         (it.kind === "date" || (it.kind === "message" && (it.side === "in" || it.side === "out"))),
     )
-    .slice(0, MAX_ITEMS);
+    .slice(0, MAX_ITEMS)
+    .map((it) => (it.kind === "message" ? nettoyerMessage(it) : { id: it.id, kind: "date" as const, text: it.text, ...(it.cut === true ? { cut: true } : {}) }));
   return {
     themeId: c.themeId,
     locale: c.locale,

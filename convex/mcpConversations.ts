@@ -69,14 +69,27 @@ const ARG_MESSAGES = {
   items: {
     type: "object",
     properties: {
-      type: { type: "string", enum: ["message", "date"], description: "« date » = séparateur centré (ex. « AUJOURD'HUI 21:43 », « 25 AUG AT 22:14 »). Défaut : message." },
-      cote: { type: "string", enum: ["recu", "envoye"], description: "recu = bulle à gauche (l'autre personne) ; envoye = à droite (le propriétaire du téléphone). Obligatoire pour un message." },
-      texte: { type: "string", description: "Le texte de la bulle, ou du séparateur." },
+      type: {
+        type: "string",
+        enum: ["message", "date", "vocal", "photo_ephemere", "video_ephemere"],
+        description:
+          "message (défaut) ; date = séparateur centré (« AUJOURD'HUI 21:43 », « 25 AUG AT 22:14 ») ; vocal = message vocal (« duree ») ; photo_ephemere / video_ephemere = pastille « ▶ Photo » / « ▶ Video » d'un média éphémère déjà vu (sans texte).",
+      },
+      cote: { type: "string", enum: ["recu", "envoye"], description: "recu = bulle à gauche (l'autre personne) ; envoye = à droite (le propriétaire du téléphone). Obligatoire sauf pour une date." },
+      texte: { type: "string", description: "Le texte de la bulle, ou du séparateur (inutile pour vocal et éphémères)." },
       modifie: { type: "boolean", description: "Label « Modifié » au-dessus de la bulle." },
       reaction: { type: "string", description: "Un emoji de réaction posé sous la bulle (ex. « 😂 »)." },
       coupure: { type: "boolean", description: "Fin de slide APRÈS cet élément : l'écran exporte alors une SÉRIE de captures (carrousel), chacune montrant la conversation jusqu'à sa coupure, la plus récente en bas." },
+      duree: { type: "integer", minimum: 1, maximum: 600, description: "Vocal : durée en secondes (défaut 3)." },
+      reponse: {
+        type: "object",
+        description:
+          "Réponse CITÉE au-dessus de la bulle (« Replied to you » / « You replied ») : { cote: recu|envoye (qui avait écrit le message cité), texte: le message cité (coupé à 3 lignes), type?: texte|photo|video|vocal, duree?: secondes si vocal }.",
+      },
+      story: { type: "object", description: "Réponse à une story (libellé au-dessus) : { amis_proches?: true (étoile verte, message reçu), indisponible?: true (« Story unavailable ») }." },
+      appui_long: { type: "boolean", description: "L'écran montre l'APPUI LONG sur ce message : fil flouté, barre de réactions, menu (Répondre, Transférer…). Un seul par conversation." },
+      heure: { type: "string", description: "Heure du message, affichée en tête du menu d'appui long (ex. « 14:35 »)." },
     },
-    required: ["texte"],
     additionalProperties: false,
   },
 } as const;
