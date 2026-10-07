@@ -216,6 +216,20 @@ describe("photos, vidéos et cartes partagées", () => {
     expect(plan.map((p) => (p.kind === "message" ? p.afterDate : null))).toEqual([false, null, true]);
   });
 
+  it("une conversation neuve commence son fil (fiche du contact) par une heure seule, comme Instagram pour aujourd'hui", () => {
+    const c = defaultConversation();
+    expect(c.threadStart).toBe(true);
+    expect(c.items[0]).toMatchObject({ kind: "date", text: "23:12" });
+    expect(parseConversation(JSON.parse(JSON.stringify(c)))?.threadStart).toBe(true);
+    expect(parseConversation({ ...c, threadStart: "oui" })?.threadStart).toBeUndefined();
+  });
+
+  it("la photo du contact compte parmi les images quand c'est une image du projet, pas une data URL", () => {
+    const c = defaultConversation();
+    expect(imagesDeConversation({ ...c, contact: { ...c.contact, avatar: "photo12345" } })).toEqual(["photo12345"]);
+    expect(imagesDeConversation({ ...c, contact: { ...c.contact, avatar: "data:image/jpeg;base64,AAA" } })).toEqual([]);
+  });
+
   it("liste les images citées par la conversation, sans doublon", () => {
     const items: ConvItem[] = [
       msg("a", "in", "", { media: { type: "reel", image: "img1aaaaaa", avatar: "img2aaaaaa", account: "x" } }),

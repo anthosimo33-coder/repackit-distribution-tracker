@@ -121,7 +121,9 @@
     "certifie": "Certifié",
     "photoCompte": "Photo du compte",
     "legende": "Légende",
-    "miniatureStory": "Miniature de la story"
+    "miniatureStory": "Miniature de la story",
+    "debutDuFil": "Début du fil (fiche du contact)",
+    "debutDuFilAide": "Affiche la fiche du contact (grande photo, nom, « Voir le profil ») au-dessus du premier message, comme au début d'un vrai fil."
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Ouvrir sur TikTok",

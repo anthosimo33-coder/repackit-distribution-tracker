@@ -499,6 +499,13 @@ export function ConvStudio() {
                 />
                 {tr("economie")}
               </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700" title={tr("debutDuFilAide")}>
+                <Switch
+                  checked={!!conv.threadStart}
+                  onCheckedChange={(on) => patch({ threadStart: on || undefined })}
+                />
+                {tr("debutDuFil")}
+              </label>
               <Field label={tr("reseau")}>
                 <Choice
                   value={String(conv.status.signal)}

@@ -59,7 +59,7 @@ export const METRICS = {
    * 3 lignes au plus, « … more »), puis 8 pt jusqu'à la réponse. La bulle citée est celle de son
    * auteur ASSOMBRIE : dégradé ×0,5 pour un message envoyé, gris à 50 % sinon.
    */
-  quote: { labelGap: 10.8, toBubble: 8, bar: 4, barGap: 12, maxWidth: 288, maxLines: 3, fontSize: 14.7, letterSpacing: -0.3, inBg: "#171C21", outShade: "rgba(0,0,0,0.5)", inText: "#929598", outText: "rgba(255,255,255,0.82)" },
+  quote: { labelGap: 9.8, toBubble: 8, bar: 4, barGap: 12, maxWidth: 288, maxLines: 3, fontSize: 14.7, letterSpacing: -0.3, inBg: "#171C21", outShade: "rgba(0,0,0,0.5)", inText: "#929598", outText: "rgba(255,255,255,0.82)" },
   /** « Story unavailable » : texte gris sur une ligne, barre à côté. */
   storyUnavailable: { gap: 4, lineHeight: 20, toBubble: 9 },
   /** Message vocal : lecture à 15 pt du bord, barres de 3 pt tous les 6 pt (40 pt de haut au plus). */
@@ -104,6 +104,27 @@ export const METRICS = {
   storyThumb: { width: 88, height: 156, labelGap: 5.8, toBubble: 8 },
   /** Libellés de story (« Replied to your story », « Sent @x's story ») : à 68 pt du bord. */
   storyLabelInset: 68,
+  /**
+   * Fiche du contact en tête d'un fil qui commence (`threadStart`) : grande
+   * photo, nom, « pseudo · Instagram », bouton « View profile ». NON relevée sur
+   * capture (aucune montrant le haut d'un fil) : proportions de l'app iOS.
+   */
+  profile: {
+    avatar: 96,
+    nameGap: 12,
+    nameSize: 20,
+    nameLine: 24,
+    subGap: 2,
+    subSize: 14,
+    subLine: 18,
+    buttonGap: 14,
+    buttonHeight: 32,
+    buttonPadX: 16,
+    buttonRadius: 8,
+    toFirst: 28,
+  },
+  /** Photo par défaut d'Instagram (compte sans photo) : disque gris clair, silhouette blanche. */
+  defaultAvatar: { background: "#DBDBDB", figure: "#FFFFFF" },
   /** Image absente (Claude a créé la conversation, l'image reste à déposer). */
   imagePlaceholder: "linear-gradient(160deg, #474C53 0%, #2A2E33 55%, #1C1F23 100%)", // i18n-exempt: valeur CSS
   mention: "#85A1F9",
@@ -413,6 +434,9 @@ export type ScreenStrings = {
   /** Story partagée : `{account}` = le compte, sans @. */
   sentStory: string;
   youSentStory: string;
+  /** Fiche du contact en tête du fil. */
+  viewProfile: string;
+  instagram: string;
   menu: { reply: string; addSticker: string; forward: string; deleteForYou: string; report: string; more: string; edit: string; unsend: string };
 };
 
@@ -432,6 +456,8 @@ export const SCREEN_STRINGS: Record<ConvLocale, ScreenStrings> = {
     video: "Video", // i18n-exempt: donnée de la capture, pas de l'interface
     sentStory: "Sent @{account}'s story", // i18n-exempt: donnée de la capture, pas de l'interface
     youSentStory: "You sent @{account}'s story", // i18n-exempt: donnée de la capture, pas de l'interface
+    viewProfile: "View profile", // i18n-exempt: donnée de la capture, pas de l'interface
+    instagram: "Instagram", // i18n-exempt: nom de marque
     menu: { reply: "Reply", addSticker: "Add sticker", forward: "Forward", deleteForYou: "Delete for you", report: "Report", more: "More", edit: "Edit", unsend: "Unsend" }, // i18n-exempt: donnée de la capture, pas de l'interface
   },
   // Menu relevé sur une capture FR (Répondre, Ajouter un sticker, Transférer,
@@ -451,6 +477,8 @@ export const SCREEN_STRINGS: Record<ConvLocale, ScreenStrings> = {
     video: "Vidéo", // i18n-exempt: donnée de la capture, pas de l'interface
     sentStory: "A envoyé la story de @{account}", // i18n-exempt: donnée de la capture, pas de l'interface
     youSentStory: "Vous avez envoyé la story de @{account}", // i18n-exempt: donnée de la capture, pas de l'interface
+    viewProfile: "Voir le profil", // i18n-exempt: donnée de la capture, pas de l'interface
+    instagram: "Instagram", // i18n-exempt: nom de marque
     menu: { reply: "Répondre", addSticker: "Ajouter un sticker", forward: "Transférer", deleteForYou: "Supprimer pour vous", report: "Signaler", more: "Plus", edit: "Modifier", unsend: "Annuler l'envoi" }, // i18n-exempt: donnée de la capture, pas de l'interface
   },
 };

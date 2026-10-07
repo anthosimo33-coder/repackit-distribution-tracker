@@ -77,7 +77,8 @@ test.describe("MCP — conversations Instagram", () => {
     await page.goto(lien.replace(/^https?:\/\/[^/]+/, ""));
     const apercu = page.getByRole("img", { name: "Aperçu de la capture" });
     await expect(apercu.getByText("tu fais quoi ce soir ?", { exact: true })).toBeVisible();
-    await expect(apercu.getByText("Jeremy", { exact: true })).toBeVisible();
+    // Le nom : dans l'en-tête ET dans la fiche du contact (le fil commence ici).
+    await expect(apercu.getByText("Jeremy", { exact: true })).toHaveCount(2);
     await expect(page.getByLabel("Titre")).toHaveValue(titre);
 
     // Lire, puis renvoyer la liste corrigée : l'écran ouvert suit sans recharger.
@@ -167,10 +168,13 @@ test.describe("MCP — conversations Instagram", () => {
     expect(invente.erreur).toBe(true);
     expect(invente.texte).toContain("inconnue dans ce projet");
 
+    // Une photo envoyée dans la discussion, telle que Claude la transmet : en data URL.
+    const photo = await sharp({ create: { width: 120, height: 120, channels: 3, background: "#e05a2a" } }).jpeg().toBuffer();
     const titre = `Cartes ${ts}`;
     const cree = await appel("creer_conversation", {
       titre,
       langue: "en",
+      photo_contact: `data:image/jpeg;base64,${photo.toString("base64")}`,
       messages: [
         { type: "reel", cote: "recu", compte: "plein_astuces_", certifie: true },
         { type: "story_partagee", cote: "recu", compte: "chloe.difrancesco", image: `img:${image.id}` },
@@ -181,11 +185,20 @@ test.describe("MCP — conversations Instagram", () => {
     const apercu = page.getByRole("img", { name: "Aperçu de la capture" });
     await expect(apercu.getByText("plein_astuces_", { exact: true })).toBeVisible();
     await expect(apercu.getByText("Sent @chloe.difrancesco's story", { exact: true })).toBeVisible();
-    // Le reel sans image attend dans un cadre gris ; la story montre l'image du projet.
-    await expect(apercu.locator('img[src*="/api/storage/"]')).toHaveCount(1);
+    // Le fil commence : la fiche du contact est au-dessus du premier message.
+    await expect(apercu.getByText("View profile", { exact: true })).toBeVisible();
+    // Le reel sans image attend dans un cadre gris ; la story montre l'image du
+    // projet ; la photo du contact (rangée par le serveur) remplace la silhouette.
+    await expect.poll(async () => new Set(await apercu.locator('img[src*="/api/storage/"]').evaluateAll((els) => els.map((e) => e.getAttribute("src")))).size).toBe(2);
 
-    // Claude relit l'image sous la forme qu'il renverra pour la garder.
-    const lu = JSON.parse((await appel("lire_conversation", { conversation: titre })).texte) as { messages: Array<Record<string, unknown>> };
+    // Claude relit les images sous la forme qu'il renverra pour les garder.
+    const lu = JSON.parse((await appel("lire_conversation", { conversation: titre })).texte) as {
+      messages: Array<Record<string, unknown>>;
+      contact: { photo: string };
+      debutDuFil: boolean;
+    };
+    expect(lu.contact.photo).toMatch(/^img:/);
+    expect(lu.debutDuFil).toBe(true);
     expect(lu.messages[1]).toMatchObject({ type: "story_partagee", compte: "chloe.difrancesco", image: `img:${image.id}` });
     expect(lu.messages[0]).toMatchObject({ type: "reel", compte: "plein_astuces_", certifie: true });
   });
