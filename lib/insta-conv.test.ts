@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyReading,
+  fromLlmItems,
+  toLlmItems,
   emojiOnlyCount,
   isJumbo,
   outGradientCss,
@@ -110,5 +113,51 @@ describe("parseConversation", () => {
     expect(parseConversation({ themeId: "inconnu" })).toBeNull();
     const c = { ...defaultConversation(), status: { time: "1", battery: 140, lowPower: 1, signal: 9 } };
     expect(parseConversation(c)?.status).toEqual({ time: "1", battery: 100, lowPower: true, signal: 4 });
+  });
+});
+
+describe("échanges avec l'IA", () => {
+  it("aller-retour éditeur → modèle → éditeur sans perte (ids neufs)", () => {
+    const items: ConvItem[] = [
+      { id: "d", kind: "date", text: "AUJOURD'HUI 21:43" },
+      msg("a", "out", "t'es où", { edited: true }),
+      msg("b", "in", "chez moi", { reaction: "❤️" }),
+    ];
+    const back = fromLlmItems(toLlmItems(items));
+    const sansId = (list: ConvItem[]) => list.map((it) => ({ ...it, id: "" }));
+    expect(sansId(back)).toEqual(sansId(items));
+    expect(back.every((it, i) => it.id !== items[i].id)).toBe(true);
+  });
+
+  it("une capture recadrée (sans en-tête) garde le contact et la barre d'état en place", () => {
+    const conv = { ...defaultConversation(), themeId: "hearts" as const, scroll: 120 };
+    const next = applyReading(conv, {
+      theme: "custom",
+      locale: "fr",
+      contact: { name: "", username: "" },
+      status: { time: null, battery: null, lowPower: false, signal: null },
+      items: [{ kind: "message", side: "in", text: "emma", edited: false, reaction: null }],
+    });
+    expect(next.contact).toEqual(conv.contact);
+    expect(next.status).toEqual(conv.status);
+    expect(next.themeId).toBe("hearts");
+    expect(next.scroll).toBe(0);
+    expect(next.items).toMatchObject([{ kind: "message", side: "in", text: "emma" }]);
+  });
+
+  it("une capture plein écran reprend nom, pseudo, heure, batterie et thème sombre", () => {
+    const next = applyReading({ ...defaultConversation(), themeId: "ocean" }, {
+      theme: "dark",
+      locale: "en",
+      contact: { name: "Jeremy", username: "jeremy_viers" },
+      status: { time: "11:52", battery: 44, lowPower: true, signal: 2 },
+      items: [],
+    });
+    expect(next).toMatchObject({
+      themeId: "dark",
+      locale: "en",
+      contact: { name: "Jeremy", username: "jeremy_viers" },
+      status: { time: "11:52", battery: 44, lowPower: true, signal: 2 },
+    });
   });
 });

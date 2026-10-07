@@ -23,6 +23,7 @@ import {
   type Side,
   type ThemeId,
 } from "@/lib/insta-conv";
+import { ConvAiPanel } from "./ConvAiPanel";
 import { InstaScreen, type InstaScreenHandle } from "./InstaScreen";
 
 /** Brouillon par navigateur : confort, jamais une donnée à garder. */
@@ -67,6 +68,9 @@ export function ConvStudio() {
   const tr = useTranslations("admin.ops.ConvStudio");
   // Lazy : composant chargé sans rendu serveur (cf. la page), le stockage local existe.
   const [conv, setConv] = useState<Conversation>(loadDraft);
+  // Versions d'avant chaque passage de l'IA : un import ou une réécriture
+  // remplace tout le fil, il doit pouvoir s'annuler.
+  const [history, setHistory] = useState<Conversation[]>([]);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(false);
   const screenRef = useRef<InstaScreenHandle>(null);
@@ -129,6 +133,20 @@ export function ConvStudio() {
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0 space-y-6">
+        <ConvAiPanel
+          conv={conv}
+          onApply={(next) => {
+            setHistory((h) => [...h.slice(-9), conv]);
+            setConv(next);
+          }}
+          canUndo={history.length > 0}
+          onUndo={() => {
+            const prev = history[history.length - 1];
+            if (!prev) return;
+            setHistory((h) => h.slice(0, -1));
+            setConv(prev);
+          }}
+        />
         <Card>
           <CardHeader>
             <CardTitle>{tr("ecran")}</CardTitle>

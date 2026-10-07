@@ -1532,7 +1532,12 @@
     "ERR_PRICING_CURRENCY_LOCKED": "Esta tabela de preço já está em uso: a moeda não pode mais mudar. Crie uma nova tabela na nova moeda.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} é paga em {creatorCurrency}: uma tabela em {pricingCurrency} não pode ser atribuída. Escolha uma tabela em {creatorCurrency}.",
     "ERR_PAYMENT_MIXED_CURRENCY": "Este ciclo mistura várias moedas: não pode ser pago assim. Regularize antes as tabelas dos vídeos.",
-    "ERR_ACCOUNT_URL_INVALID": "Link longo demais (no máximo 500 caracteres)."
+    "ERR_ACCOUNT_URL_INVALID": "Link longo demais (no máximo 500 caracteres).",
+    "ERR_INSTA_LLM_NOT_CONFIGURED": "A chave da OpenAI não está configurada no servidor (variável OPENAI_API_KEY do deploy Convex).",
+    "ERR_INSTA_LLM_FAILED": "A IA não conseguiu processar o pedido ({reason}).",
+    "ERR_INSTA_IMAGE_INVALID": "Imagem ilegível ou pesada demais.",
+    "ERR_INSTA_INSTRUCTION_EMPTY": "Escreva primeiro o que a IA deve mudar.",
+    "ERR_TIKTOK_POST_UNREADABLE": "Não foi possível ler este TikTok ({reason})."
   },
   "calendar": {
     "weekday": {

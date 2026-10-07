@@ -11,6 +11,8 @@
  * défaut (oct. 2026) — un écart ici se voit sur la capture.
  */
 
+import type { LlmItem, ScreenshotReading } from "@/convex/instaConvTypes";
+
 export type Side = "in" | "out";
 
 export type ConvMessage = {
@@ -308,6 +310,60 @@ export function defaultConversation(): Conversation {
       m("in", "laisse moi t'expliquer stp"),
       m("out", "c'est trop tard", { edited: true }),
     ],
+  };
+}
+
+// ── Échanges avec l'IA (lecture de capture, réécriture) ──────────────────────
+
+/** Éléments au format du modèle (sans id). */
+export function toLlmItems(items: ConvItem[]): LlmItem[] {
+  return items.map((it) =>
+    it.kind === "date"
+      ? { kind: "date", side: "none", text: it.text, edited: false, reaction: null }
+      : { kind: "message", side: it.side, text: it.text, edited: !!it.edited, reaction: it.reaction ?? null },
+  );
+}
+
+/** Éléments rendus par le modèle → éléments de l'éditeur (ids neufs). */
+export function fromLlmItems(items: LlmItem[]): ConvItem[] {
+  return items.map((it): ConvItem =>
+    it.kind === "date" || it.side === "none"
+      ? { id: newItemId(), kind: "date", text: it.text }
+      : {
+          id: newItemId(),
+          kind: "message",
+          side: it.side,
+          text: it.text,
+          ...(it.edited ? { edited: true } : {}),
+          ...(it.reaction ? { reaction: it.reaction } : {}),
+        },
+  );
+}
+
+/**
+ * Applique la lecture d'une capture : messages remplacés, en-tête et barre
+ * d'état repris QUAND la capture les montre (une capture recadrée n'en a pas,
+ * on garde alors les réglages en place). Un thème coloré n'est pas reconnu :
+ * on garde le thème choisi.
+ */
+export function applyReading(conv: Conversation, r: ScreenshotReading): Conversation {
+  return {
+    ...conv,
+    themeId: r.theme === "dark" ? "dark" : conv.themeId,
+    locale: r.locale,
+    contact: {
+      ...conv.contact,
+      name: r.contact.name || conv.contact.name,
+      username: r.contact.username || conv.contact.username,
+    },
+    status: {
+      time: r.status.time ?? conv.status.time,
+      battery: r.status.battery ?? conv.status.battery,
+      lowPower: r.status.time !== null ? r.status.lowPower : conv.status.lowPower,
+      signal: r.status.signal ?? conv.status.signal,
+    },
+    scroll: 0,
+    items: fromLlmItems(r.items),
   };
 }
 

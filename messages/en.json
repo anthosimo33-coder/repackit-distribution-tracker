@@ -1532,7 +1532,12 @@
     "ERR_PRICING_CURRENCY_LOCKED": "This pay grid is already in use, so its currency can no longer change. Create a new pay grid in the new currency.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} is paid in {creatorCurrency}, so a pay grid in {pricingCurrency} can't be assigned. Pick a pay grid in {creatorCurrency}.",
     "ERR_PAYMENT_MIXED_CURRENCY": "This cycle mixes several currencies, so it can't be paid as is. Fix the pay grids of its videos first.",
-    "ERR_ACCOUNT_URL_INVALID": "Link too long (500 characters max)."
+    "ERR_ACCOUNT_URL_INVALID": "Link too long (500 characters max).",
+    "ERR_INSTA_LLM_NOT_CONFIGURED": "The OpenAI key isn't set up on the server (OPENAI_API_KEY variable of the Convex deployment).",
+    "ERR_INSTA_LLM_FAILED": "The AI couldn't process the request ({reason}).",
+    "ERR_INSTA_IMAGE_INVALID": "Unreadable or oversized image.",
+    "ERR_INSTA_INSTRUCTION_EMPTY": "First write what the AI should change.",
+    "ERR_TIKTOK_POST_UNREADABLE": "Couldn't read this TikTok ({reason})."
   },
   "calendar": {
     "weekday": {

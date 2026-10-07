@@ -371,6 +371,14 @@ export const ERR = {
   CREATOR_PAY_CURRENCY_MISMATCH: "ERR_CREATOR_PAY_CURRENCY_MISMATCH",
   PAYMENT_MIXED_CURRENCY: "ERR_PAYMENT_MIXED_CURRENCY",
   ACCOUNT_URL_INVALID: "ERR_ACCOUNT_URL_INVALID",
+  /** Générateur de conversations : clé OpenAI absente du déploiement. */
+  INSTA_LLM_NOT_CONFIGURED: "ERR_INSTA_LLM_NOT_CONFIGURED",
+  /** L'appel OpenAI a échoué ; le motif voyage en paramètre `reason`. */
+  INSTA_LLM_FAILED: "ERR_INSTA_LLM_FAILED",
+  INSTA_IMAGE_INVALID: "ERR_INSTA_IMAGE_INVALID",
+  INSTA_INSTRUCTION_EMPTY: "ERR_INSTA_INSTRUCTION_EMPTY",
+  /** Page ou image TikTok illisible ; motif en paramètre `reason`. */
+  TIKTOK_POST_UNREADABLE: "ERR_TIKTOK_POST_UNREADABLE",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

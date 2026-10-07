@@ -1532,7 +1532,12 @@
     "ERR_PRICING_CURRENCY_LOCKED": "Ce barème est déjà utilisé : sa devise ne change plus. Crée un nouveau barème dans la nouvelle devise.",
     "ERR_CREATOR_PAY_CURRENCY_MISMATCH": "{name} est payée en {creatorCurrency} : un barème en {pricingCurrency} ne peut pas lui être attribué. Choisis un barème en {creatorCurrency}.",
     "ERR_PAYMENT_MIXED_CURRENCY": "Ce cycle mélange plusieurs devises : il ne peut pas être payé tel quel. Régularise d'abord les barèmes de ses vidéos.",
-    "ERR_ACCOUNT_URL_INVALID": "Lien trop long (500 caractères au plus)."
+    "ERR_ACCOUNT_URL_INVALID": "Lien trop long (500 caractères au plus).",
+    "ERR_INSTA_LLM_NOT_CONFIGURED": "La clé OpenAI n'est pas configurée sur le serveur (variable OPENAI_API_KEY du déploiement Convex).",
+    "ERR_INSTA_LLM_FAILED": "L'IA n'a pas pu traiter la demande ({reason}).",
+    "ERR_INSTA_IMAGE_INVALID": "Image illisible ou trop lourde.",
+    "ERR_INSTA_INSTRUCTION_EMPTY": "Écris d'abord ce que l'IA doit changer.",
+    "ERR_TIKTOK_POST_UNREADABLE": "Impossible de lire ce TikTok ({reason})."
   },
   "calendar": {
     "weekday": {
