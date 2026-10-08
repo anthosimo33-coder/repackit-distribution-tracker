@@ -264,3 +264,95 @@ describe("buildDayDetail — libellés pays", () => {
     expect(d.billingCountries[0].label).toBe("Pays non renseigné");
   });
 });
+
+/**
+ * DEVISES — les montants arrivent ramenés à la devise du revenu par le serveur
+ * (convex/dayDetail, testé dans lib/day-detail-money.test.ts). Ce module-ci
+ * doit faire deux choses : garder le TIRET d'un montant non additionnable (une
+ * devise encaissée sans taux), et dire ce que la journée a converti — seulement
+ * ce qu'ELLE a converti.
+ */
+describe("buildDayDetail — devises", () => {
+  const JOUR = "2026-10-07";
+  const VEILLE = "2026-10-06";
+  const CONVERSIONS = [
+    { from: "rsd", rate: 0.00852 },
+    { from: "usd", rate: 0.86 },
+  ];
+  const socle = {
+    day: JOUR,
+    countries: [],
+    refs: [],
+    revenue: [
+      { day: JOUR, newNet: 27.19, renewalNet: 8.94, refunded: 0, currencies: ["eur", "rsd"], excludedCurrencies: [] },
+      { day: VEILLE, newNet: 9.99, renewalNet: 0, refunded: 0, currencies: ["eur"], excludedCurrencies: [] },
+    ],
+    currency: "eur",
+    currencies: ["eur", "rsd", "usd"],
+    mixedCurrency: false,
+    conversions: CONVERSIONS,
+  };
+
+  it("annonce les conversions de LA journée, pas celles du projet", () => {
+    const n = buildDayDetail(socle).currencyNotice;
+    expect(n).toEqual({
+      mixed: false,
+      conversions: [{ from: "rsd", rate: 0.00852 }],
+      currency: "eur",
+      currencies: ["eur", "rsd"],
+      excludedCurrencies: [],
+    });
+  });
+
+  it("une journée payée seulement en euros n'annonce rien", () => {
+    expect(buildDayDetail({ ...socle, day: VEILLE }).currencyNotice).toBeNull();
+  });
+
+  it("non additionnable : la ligne de revenu reste, avec un tiret (null) — jamais −0", () => {
+    const d = buildDayDetail({
+      ...socle,
+      revenue: [
+        { day: JOUR, newNet: null, renewalNet: 0, refunded: null, currencies: ["eur", "rsd"], excludedCurrencies: [] },
+      ],
+      currency: null,
+      mixedCurrency: true,
+      conversions: [],
+    });
+    expect(d.revenue).toEqual([
+      { label: "Nouveaux", net: null },
+      { label: "Remboursements", net: null },
+    ]);
+    // Le signalement nomme TOUTES les devises encaissées : c'est le projet qui
+    // n'est pas additionnable, pas la journée.
+    expect(d.currencyNotice).toMatchObject({
+      mixed: true,
+      currencies: ["eur", "rsd", "usd"],
+    });
+  });
+
+  it("ref et pays de facturation : un net non additionnable reste un tiret (null), un vrai zéro reste 0", () => {
+    const d = buildDayDetail({
+      ...socle,
+      refs: [
+        { day: JOUR, ref: "kelly", visitors: 5, signups: 0, clients: 1, renewals: 0, failures: 0, net: null },
+        { day: JOUR, ref: "lea", visitors: 40, signups: 2, clients: 0, renewals: 0, failures: 0, net: 0 },
+      ],
+      billingCountries: [
+        { day: JOUR, country: "RS", clients: 0, renewals: 1, failures: 0, net: null },
+      ],
+    });
+    expect(d.refs.find((r) => r.label === "kelly")?.net).toBeNull();
+    expect(d.refs.find((r) => r.label === "lea")?.net).toBe(0);
+    expect(d.billingCountries[0].net).toBeNull();
+  });
+
+  it("remboursement d'une devise exclue : signalé même sans conversion", () => {
+    const n = buildDayDetail({
+      ...socle,
+      revenue: [
+        { day: JOUR, newNet: 9.99, renewalNet: 0, refunded: 0, currencies: ["eur", "gbp"], excludedCurrencies: ["gbp"] },
+      ],
+    }).currencyNotice;
+    expect(n).toMatchObject({ mixed: false, conversions: [], excludedCurrencies: ["gbp"] });
+  });
+});

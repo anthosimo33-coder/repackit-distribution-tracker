@@ -3142,6 +3142,18 @@ export function jarviaServer(
             "Ingestion PostHog coupée du 07/09 21:00 au 08/09 11:53 (Paris) : visiteurs, inscriptions et paywalls sont creux sur ces heures ; clients et revenu viennent de Whop et restent justes.",
           );
         }
+        if (facturation.mixedCurrency) {
+          avertissements.push(
+            "Ventes par pays de facturation : revenus encaissés dans plusieurs devises NON convertibles (une devise sans taux du projet) — « revenuNet » vaut null par abstention, les pays sont classés par clients.",
+          );
+        }
+        if (facturation.conversions.length > 0) {
+          avertissements.push(
+            `Ventes par pays de facturation : une partie du revenu a été convertie au taux du projet (${facturation.conversions
+              .map((c) => `${c.from} × ${c.rate}`)
+              .join(", ")}) : un taux posé à la main n'est pas une comptabilité.`,
+          );
+        }
 
         return json({
           projet: projet.slug,
@@ -3192,7 +3204,9 @@ export function jarviaServer(
           traficParLangue: segments(a.funnels.language, [], true),
           ventesParPaysDeFacturation: {
             sur: "toute la profondeur (pas la période)",
-            devise: "currency" in facturation ? (facturation.currency ?? null) : null,
+            // Devise du revenu : chaque paiement y est ramené au taux du projet
+            // (cf avertissements) — jamais une somme de dinars, dollars et euros.
+            devise: facturation.currency,
             clientsAvecPays: facturation.clientsWithCountry,
             clients: facturation.clients,
             paiementsAvecPays: facturation.withCountry,
