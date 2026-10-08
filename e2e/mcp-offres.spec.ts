@@ -355,4 +355,183 @@ test.describe("Outil MCP offres", () => {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }
   });
+
+  // Snytch encaisse en euros, en dollars et en dinars. Le revenu par bras
+  // additionnait le net de chaque paiement DANS SA DEVISE : 1 049 RSD (≈ 8,94 €)
+  // pesaient comme 1 049 € dans le bras. Les deux queries (toute la durée, période)
+  // et l'outil doivent recevoir le taux du projet.
+  test("revenu par bras en EUR + RSD + USD : ramené en euros au taux du projet", async ({ page }) => {
+    test.setTimeout(240_000);
+    const ts = Date.now();
+    const slug = `e2e-mcp-offres-fx-${ts}`;
+    const nom = `E2E MCP Offres FX ${ts}`;
+    const { projectId } = (await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+      secret: E2E_SECRET,
+      slug,
+      name: nom,
+    })) as { projectId: Id<"projects"> };
+    const aujourdHui = parisDayKey(ts);
+    const premier = parisDayKey(ts - 59 * DAY);
+    const debutTest = ts - 40 * DAY;
+
+    try {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        whop: { companyId: `biz_e2e_offfx_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+      });
+      await admin.mutation(api.compta.e2eSetProjectFx, {
+        secret: E2E_SECRET,
+        projectId,
+        payCurrency: "usd",
+        fxRateToRevenue: 0.86,
+        fxRatesToRevenue: [{ currency: "rsd", rate: 0.00852 }],
+      });
+      const abonnements = [
+        { n: "s1", variant: "soft", currency: "eur", net: 9.99 },
+        { n: "s2", variant: "soft", currency: "rsd", net: 1049 },
+        { n: "h1", variant: "hard", currency: "usd", net: 20 },
+      ];
+      for (const a of abonnements) {
+        await admin.mutation(api.whopSync.e2eSeedWhopMembership, {
+          secret: E2E_SECRET,
+          projectId,
+          whopMembershipId: `mem_e2e_offfx_${ts}_${a.n}`,
+          abVariant: a.variant,
+          createdAt: ts - 10 * DAY,
+        });
+      }
+      await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
+        secret: E2E_SECRET,
+        projectId,
+        payments: abonnements.map((a, i) => ({
+          whopId: `pay_e2e_offfx_${ts}_${i}`,
+          status: "paid" as const,
+          rawStatus: "paid",
+          currency: a.currency,
+          grossAmount: a.net,
+          feeAmount: 0,
+          netAmount: a.net,
+          refundedAmount: 0,
+          paidAt: ts - 10 * DAY + i * HOUR,
+          membershipId: `mem_e2e_offfx_${ts}_${a.n}`,
+          billingReason: "subscription_create",
+        })),
+      });
+      const cache = (key: string, valeur: unknown) => ({ key, json: JSON.stringify(valeur), computedAt: ts - 30 * MIN });
+      await admin.mutation(api.posthogSync.e2eSeedPosthogCache, {
+        secret: E2E_SECRET,
+        projectId,
+        entries: [
+          cache("overview", {
+            daily: Array.from({ length: 60 }, (_, i) => ({ ts: ts - (59 - i) * DAY, visitors: 80, signups: 20, checkouts: 6, subs: 2 })),
+          }),
+          cache("abArms", {
+            rows: [bras("soft", 100, 50, 10, 2, 0, 2, 4, 0, 0), bras("hard", 100, 50, 10, 1, 0, 1, 2, 0, 0)],
+            startMs: debutTest,
+          }),
+        ],
+      });
+      // La période par défaut de l'écran, mêmes assignés : sans elle, l'onglet
+      // recalculerait chez PostHog.
+      const ecran = { from: shiftDay(aujourdHui, -29), to: aujourdHui };
+      await admin.mutation(api.analyticsWindowed.e2eSeedWindowCache, {
+        secret: E2E_SECRET,
+        projectId,
+        from: ecran.from,
+        to: ecran.to,
+        computedAt: ts - 10 * MIN,
+        json: JSON.stringify({
+          funnels: {
+            global: { segments: [] },
+            sequential: { segments: [] },
+            source: { segments: [] },
+            language: { segments: [] },
+            country: { segments: [] },
+            countryPersons: { segments: [] },
+          },
+          activation: { rows: [] },
+          checkoutReliability: { rows: [] },
+          serverSideSplit: { rows: [] },
+          offres: {
+            abVariants: { rows: [] },
+            abArms: {
+              rows: [bras("soft", 100, 50, 10, 2, 0, 2, 4, 0, 0), bras("hard", 100, 50, 10, 1, 0, 1, 2, 0, 0)],
+              startMs: debutTest,
+            },
+            abOffers: { rows: [] },
+            abPurchases: { rows: [] },
+            paywallById: { rows: [], startMs: null },
+            freePlan: { signups: 0, used: 0, convertedPaid: 0 },
+            scanCost: { rows: [] },
+          },
+          sante: {
+            firstSearchAfterPay: { paid: 0, paidExcluded: 0, instrStartMs: null, searched: 0, results: [], medDelaySec: null, p90DelaySec: null, cancelJoinable: 0 },
+            searchResults: { rows: [] },
+            scanReliability: { rows: [] },
+            scanLatency: { rows: [] },
+            friction: { rows: [] },
+            frictionByStep: { rows: [] },
+            instrumentation: { events: [], props: [] },
+          },
+          from: ecran.from,
+          to: ecran.to,
+          elapsedMs: 1_000,
+          cachedAt: null,
+          stale: false,
+        }),
+      });
+
+      // ── Les deux appelants du calcul : toute la durée du test, puis une période ─
+      const conversions = [
+        { from: "rsd", rate: 0.00852 },
+        { from: "usd", rate: 0.86 },
+      ];
+      const revenu = await admin.query(api.analyticsHub.getRevenueBreakdown, { projectId });
+      expect(revenu.currency).toBe("eur");
+      expect(revenu.abRevenue).toMatchObject({ currency: "eur", mixedCurrency: false, conversions });
+      // 9,99 € + 1 049 × 0,00852 (= 8,94 €) — et non 1 058,99 ; 20 $ × 0,86.
+      expect(revenu.abRevenue.rows.map((r) => [r.variant, r.net])).toEqual([
+        ["hard", 17.2],
+        ["soft", 18.93],
+      ]);
+      const periode = await admin.query(api.analyticsHub.getAbRevenueForPeriod, {
+        projectId,
+        from: ts - 30 * DAY,
+        to: ts,
+      });
+      expect(periode).toMatchObject({ currency: "eur", conversions });
+      expect(periode!.rows.map((r) => [r.variant, r.net])).toEqual([
+        ["hard", 17.2],
+        ["soft", 18.93],
+      ]);
+
+      // ── L'outil : net par assigné en euros, conversion annoncée ─────────────
+      await page.goto(adminPath("/comptes"));
+      await page.getByRole("button", { name: "Connecter Claude" }).click();
+      await page.getByLabel("Nom de la clé").fill(`E2E offres fx ${ts}`);
+      await page.getByRole("button", { name: "Créer une clé" }).click();
+      const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+      const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!.match(/jarvia (\S+\/mcp) /)![1];
+      const r = await outil(url, token, { projet: slug, du: premier, au: aujourdHui });
+      expect(r.testAB.bras.map((b: Bras) => b.netParAssigne)).toEqual([
+        { valeur: netPerAssigned(18.93, 100), devise: "eur" },
+        { valeur: netPerAssigned(17.2, 100), devise: "eur" },
+      ]);
+      expect(r.avertissements).toContain(
+        "Revenu par bras : une partie a été convertie au taux du projet (rsd × 0.00852, usd × 0.86) : un taux posé à la main n'est pas une comptabilité.",
+      );
+
+      // ── L'écran : la cellule en euros, la conversion annoncée DANS la carte ──
+      await page.goto(`/admin/${slug}/analytics`);
+      await page.getByRole("tab", { name: "Offres & tests" }).click();
+      const brasA = page.getByRole("row").filter({ hasText: "A — 1 cible" }).first();
+      // 18,93 € ÷ 100 assignés — et non 1 058,99 ÷ 100.
+      await expect(brasA).toContainText(formatMoney(0.19, "eur"));
+      const carteAB = page.locator('[data-slot="card"]').filter({ hasText: "Net par assigné" });
+      await expect(carteAB).toContainText("1 RSD = 0.00852 EUR");
+    } finally {
+      await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
+    }
+  });
 });

@@ -19,6 +19,7 @@
  * de devises. Un vrai zéro (rien encaissé) reste 0.
  */
 import {
+  amountInReferenceCurrency,
   summarizeWhopRevenue,
   whopCollectedAmount,
   whopNetContribution,
@@ -26,7 +27,6 @@ import {
   type WhopConversion,
   type WhopFx,
   type WhopPaymentLike,
-  type WhopRevenueSummary,
 } from "./whopRevenue";
 
 export interface DayDetailPaymentLike extends WhopPaymentLike {
@@ -111,24 +111,6 @@ function parisDay(ms: number): string {
 
 const currencyKey = (p: { currency?: string }): string =>
   p.currency?.trim().toLowerCase() || "(inconnue)";
-
-/**
- * Montant d'un paiement (remboursement, ici) exprimé dans la devise du
- * référentiel : tel quel s'il y est déjà, converti si le référentiel porte un
- * taux pour sa devise, `null` sinon — jamais additionné en devise d'origine.
- */
-function amountInReference(
-  amount: number,
-  p: { currency?: string },
-  ref: Pick<WhopRevenueSummary, "currency" | "conversions">,
-): number | null {
-  const cur = currencyKey(p);
-  if (ref.currency !== null && cur === ref.currency.trim().toLowerCase()) {
-    return round2(amount);
-  }
-  const c = ref.conversions.find((x) => x.from === cur);
-  return c ? round2(amount * c.rate) : null;
-}
 
 export function dayDetailOf(input: {
   traffic: readonly DayDetailTraffic[];
@@ -229,7 +211,7 @@ export function dayDetailOf(input: {
       rev.currencies.add(currencyKey(p));
       if (mixed) rev.refunded = null;
       else {
-        const converti = amountInReference(rembourse, p, ref);
+        const converti = amountInReferenceCurrency(rembourse, p, ref);
         if (converti === null) rev.excludedCurrencies.add(currencyKey(p));
         else rev.refunded = add(rev.refunded, converti);
       }

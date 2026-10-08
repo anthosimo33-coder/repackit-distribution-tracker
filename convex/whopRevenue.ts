@@ -232,6 +232,25 @@ function conversionOf(
   return ref?.conversions.find((x) => x.from === cur);
 }
 
+/**
+ * Montant quelconque d'un paiement (remboursement, litige) exprimé dans la
+ * devise du référentiel : tel quel s'il y est déjà, converti si le référentiel
+ * porte un taux pour sa devise, `null` sinon — jamais additionné en devise
+ * d'origine.
+ */
+export function amountInReferenceCurrency(
+  amount: number,
+  p: { currency?: string },
+  ref: WhopRevenueReference,
+): number | null {
+  const cur = p.currency?.trim().toLowerCase() || "(inconnue)";
+  if (ref.currency !== null && cur === ref.currency.trim().toLowerCase()) {
+    return round2(amount);
+  }
+  const c = ref.conversions.find((x) => x.from === cur);
+  return c ? round2(amount * c.rate) : null;
+}
+
 /** Devise dans laquelle le montant d'un paiement est EXPRIMÉ, conversion faite. */
 function expressedCurrency(
   p: { currency?: string },

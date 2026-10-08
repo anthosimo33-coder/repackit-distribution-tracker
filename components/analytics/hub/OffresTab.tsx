@@ -206,6 +206,10 @@ export function OffresTab({
   const netByArm = new Map(
     (abRev?.rows ?? []).map((r) => [r.variant, r] as const),
   );
+  // Devise du revenu par bras : chaque paiement y est ramené au taux du projet
+  // côté serveur. Jamais celle d'une autre query — tant que `abRev` manque, les
+  // montants restent au tiret.
+  const abCurrency = abRev?.currency ?? undefined;
   const abStart =
     analyticsW.abArms.startMs != null
       ? new Date(analyticsW.abArms.startMs).toLocaleDateString("fr-FR", {
@@ -621,16 +625,19 @@ export function OffresTab({
                           // Dénominateur = les ASSIGNÉS, pas ceux qui ont vu le
                           // paywall : c'est la comparaison en intention de traiter,
                           // la seule que la randomisation garantit non biaisée.
-                          const perAssigned = netPerAssigned(r.net, a.exposed);
+                          // Net null = devises encaissées non convertibles (A5) :
+                          // tiret, jamais une somme de dinars et d'euros.
+                          const perAssigned =
+                            r.net === null ? null : netPerAssigned(r.net, a.exposed);
                           return (
                             <>
                               {perAssigned === null
                                 ? "—"
-                                : formatMoney(perAssigned, currency)}
+                                : formatMoney(perAssigned, abCurrency)}
                               {r.atRiskMemberships > 0 ? (
                                 <span
                                   className="ml-1 cursor-help font-medium text-amber-700"
-                                  title={`${r.memberships} abonnement(s) rattaché(s) à ce bras, dont ${r.atRiskMemberships} dont l'argent est EN LITIGE : ${formatMoney(r.atRiskAmount, currency)} contestés, exclus du net tant que l'issue est inconnue. Un net à 0,00 € ici signale un litige, PAS une absence de conversion.`}
+                                  title={`${r.memberships} abonnement(s) rattaché(s) à ce bras, dont ${r.atRiskMemberships} dont l'argent est EN LITIGE : ${r.atRiskAmount === null ? "montant non additionnable (devises sans taux)" : formatMoney(r.atRiskAmount, abCurrency)} contestés, exclus du net tant que l'issue est inconnue. Un net à 0,00 € ici signale un litige, PAS une absence de conversion.`}
                                 >
                                   ⚠
                                 </span>
@@ -707,7 +714,11 @@ export function OffresTab({
                     {formatNumber(abRev.excludedFlippers)} abonnement(s) écarté(s) du
                     revenu par bras
                   </strong>{" "}
-                  ({formatMoney(abRev.excludedFlippersNet, revenue?.currency)}) : leur
+                  (
+                  {abRev.excludedFlippersNet === null
+                    ? "montant non additionnable"
+                    : formatMoney(abRev.excludedFlippersNet, abCurrency)}
+                  ) : leur
                   personne a changé de bras. Le tableau les retirait déjà de ses
                   colonnes, mais leur argent y entrait encore par la metadata Whop —
                   numérateur et dénominateur ne portaient pas sur la même population.
@@ -722,6 +733,16 @@ export function OffresTab({
                 cibles du plan gratuit, ni celles ajoutées avant l&apos;abonnement, ni
                 celles des personnes qui n&apos;ont jamais payé.
               </p>
+              {/* Revenu par bras ramené à la devise du revenu au taux du
+                  projet : le dire ici, c'est la seule colonne monétaire du tableau. */}
+              {abRev ? (
+                <MixedCurrencyNotice
+                  mixed={abRev.mixedCurrency}
+                  conversions={abRev.conversions}
+                  currency={abRev.currency}
+                  currencies={abRev.currencies}
+                />
+              ) : null}
               <p className="text-xs text-slate-500">
                 <strong>Net par assigné</strong> = revenu net sécurisé des abonnements
                 rattachés au bras, divisé par les <strong>assignés</strong> : c&apos;est

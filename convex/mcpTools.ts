@@ -1936,6 +1936,9 @@ export function jarviaServer(
             ? {
                 testAB: {
                   depuis: jour(ab.startMs),
+                  // Montants ramenés à la devise du revenu (même référentiel que
+                  // `devise`) ; null si devises encaissées non convertibles.
+                  devise: ab.currency,
                   bras: ab.rows.map((b) => ({
                     bras: b.variant,
                     net: b.net,
@@ -3242,7 +3245,6 @@ export function jarviaServer(
         const attribution = await lire(() => ctx.runQuery(internal.mcpTools.lireAttribution, ids));
         const f = periode.fenetre;
         const bras = (v: string) => AB_ARM_LABELS[v] ?? v;
-        const devise = revenu.currency ?? null;
 
         const arms = abArmRows(a.abArms.rows);
         const alertes = abArmChecks(arms).filter((c) => c.status !== "ok");
@@ -3261,6 +3263,9 @@ export function jarviaServer(
               )
             : null) ?? revenu.abRevenue;
         const netParBras = new Map(abRev.rows.map((r) => [r.variant, r] as const));
+        // Devise du revenu par bras : chaque paiement y est ramené au taux du projet
+        // (même référentiel que `revenus`) — jamais une somme de dinars et d'euros.
+        const deviseAB = abRev.currency;
 
         const offres = attributedOffers(a.abOffers.rows, revenu.plans);
         const comparabilite = armComparability(a.abOffers.rows, revenu.plans);
@@ -3295,6 +3300,18 @@ export function jarviaServer(
         }
         if (incoherences.length > 0) {
           avertissements.push(`Achats par bras incohérents avec le tableau des bras : ${incoherences.join(" · ")}.`);
+        }
+        if (abRev.mixedCurrency) {
+          avertissements.push(
+            `Revenu par bras : encaissé dans plusieurs devises NON convertibles (${abRev.currencies.join(", ")} — une devise sans taux du projet) : « netParAssigne », « enLitige » et « netEcarte » valent null par abstention, les compteurs restent justes.`,
+          );
+        }
+        if (abRev.conversions.length > 0) {
+          avertissements.push(
+            `Revenu par bras : une partie a été convertie au taux du projet (${abRev.conversions
+              .map((c) => `${c.from} × ${c.rate}`)
+              .join(", ")}) : un taux posé à la main n'est pas une comptabilité.`,
+          );
         }
 
         return json({
@@ -3333,9 +3350,18 @@ export function jarviaServer(
                       netParAssigne:
                         !rev || rev.memberships === 0
                           ? null
-                          : { valeur: netPerAssigned(rev.net, r.exposed), devise },
+                          : {
+                              valeur: rev.net === null ? null : netPerAssigned(rev.net, r.exposed),
+                              devise: deviseAB,
+                            },
                       ...(rev && rev.atRiskMemberships > 0
-                        ? { enLitige: { abonnements: rev.atRiskMemberships, montant: rev.atRiskAmount, devise } }
+                        ? {
+                            enLitige: {
+                              abonnements: rev.atRiskMemberships,
+                              montant: rev.atRiskAmount,
+                              devise: deviseAB,
+                            },
+                          }
                         : {}),
                     };
                   }),
@@ -3349,7 +3375,7 @@ export function jarviaServer(
                     netEcarte: abRev.excludedFlippersNet,
                     rattachementsDivergents: abRev.divergences.length,
                     abonnementsNonRattaches: abRev.unattached,
-                    devise,
+                    devise: deviseAB,
                   },
                   rupture: `Le ${AB_BREAK_LABEL} : avant, le bras était tiré deux fois (navigateur puis serveur) et divergeait ; les données d'avant ne se comparent pas à celles d'après.`,
                 },

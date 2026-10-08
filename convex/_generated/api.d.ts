@@ -11,6 +11,7 @@
 import type * as abAttribution from "../abAttribution.js";
 import type * as abOffers from "../abOffers.js";
 import type * as abPurchases from "../abPurchases.js";
+import type * as abRevenue from "../abRevenue.js";
 import type * as accountPhase from "../accountPhase.js";
 import type * as accountValidation from "../accountValidation.js";
 import type * as adminRecovery from "../adminRecovery.js";
@@ -281,6 +282,7 @@ declare const fullApi: ApiFromModules<{
   abAttribution: typeof abAttribution;
   abOffers: typeof abOffers;
   abPurchases: typeof abPurchases;
+  abRevenue: typeof abRevenue;
   accountPhase: typeof accountPhase;
   accountValidation: typeof accountValidation;
   adminRecovery: typeof adminRecovery;
