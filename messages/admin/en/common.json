@@ -235,7 +235,7 @@
     "auTauxDuProjet": "at the project rate",
     "poseALaMainEt": ", set by hand and never refreshed: read them as an order of magnitude. The per-currency breakdown is exact.",
     "plusieursDevisesEncaissees": "Several currencies collected",
-    "lesMontantsNeSontPas": "The amounts can't be added up: they're deliberately left at zero rather than mixed. No revenue, margin or RPM total is usable until every collected currency has an exchange rate set on the project.",
+    "lesMontantsNeSontPas": "The amounts can't be added up: rather than mixing currencies, they aren't totalled. A dash or a zero without a currency symbol doesn't necessarily mean \"nothing collected\". No revenue, margin or RPM total is usable until every collected currency has an exchange rate set on the project.",
     "uneSeuleEstEncaisseeLes": "Only one is collected: the amounts below stay accurate. Lines in the other currency (failed, refunded or disputed) are left out of the totals, never converted.",
     "deuxDevisesPresentes": "Two currencies present",
     "singleCurrency": "a single currency"

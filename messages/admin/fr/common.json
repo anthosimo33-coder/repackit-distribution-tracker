@@ -235,7 +235,7 @@
     "auTauxDuProjet": "au taux du projet",
     "poseALaMainEt": ", posé à la main et jamais rafraîchi : lisez-les comme un ordre de grandeur. Le détail par devise, lui, est exact.",
     "plusieursDevisesEncaissees": "Plusieurs devises encaissées",
-    "lesMontantsNeSontPas": "Les montants ne sont pas additionnables : ils sont volontairement laissés à zéro plutôt que mélangés. Aucun total de revenu, de marge ni de RPM n'est exploitable tant qu'une devise encaissée n'a pas de taux de change réglé sur le projet.",
+    "lesMontantsNeSontPas": "Les montants ne sont pas additionnables : plutôt que de mélanger les devises, ils ne sont pas totalisés. Un tiret ou un zéro sans symbole de devise ne veut donc pas forcément dire « rien encaissé ». Aucun total de revenu, de marge ni de RPM n'est exploitable tant qu'une devise encaissée n'a pas de taux de change réglé sur le projet.",
     "uneSeuleEstEncaisseeLes": "Une seule est encaissée : les montants ci-dessous restent justes. Les lignes de l'autre devise (échec, remboursement ou litige) sont exclues des totaux, jamais converties.",
     "deuxDevisesPresentes": "Deux devises présentes",
     "singleCurrency": "une seule devise"
