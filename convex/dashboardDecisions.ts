@@ -11,7 +11,8 @@ import { internalQuery } from "./_generated/server";
 import { e2eMutation } from "./functions";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { buildPublicationAssignmentMap, postLabel } from "./trackerData";
+import { loadPublicationAssignmentIndex, postLabel } from "./trackerData";
+import { recruitsFromDocs } from "./recruitTrial";
 import {
   detectOpenDoor,
   detectDeadHooks,
@@ -62,6 +63,10 @@ import {
  *  - GRADUATION : hooks ACTIFS du LAB dont le MEILLEUR run qualifie. La règle
  *    exige les saves : tant que la collecte ne peuple pas, la liste est vide —
  *    dormance voulue, cf convex/decisions.ts.
+ *  - RECRUES À TRANCHER : fiches en test (ni en pause, ni parties, ni déjà
+ *    tranchées) dont les 10 premières vidéos promo rendent un verdict — règle
+ *    et seuils dans convex/recruitTrial.ts. Vues = relevé le plus récent, le
+ *    relevé rapide des 48 h primant sur celui de la nuit.
  */
 export const decisionDashboard = permissionQuery("content.analytics")({
   args: {},
@@ -75,7 +80,15 @@ export async function decisionDashboardCore(ctx: ProjectQueryCtx): Promise<Decis
     // (~2,4 MB) et se relançait à chaque écriture de la journée — 689 MB le
     // 2026-09-19. Sans row en cache (projet neuf), calcul en direct.
     const cached = await readDashboardCache(ctx, ctx.projectId, "decisions");
-    if (cached !== null) return JSON.parse(cached) as DecisionDashboard;
+    if (cached !== null) {
+      const parsed = JSON.parse(cached) as Omit<DecisionDashboard, "recruits"> &
+        Partial<Pick<DecisionDashboard, "recruits">>;
+      // Une row écrite AVANT l'ajout des recrues n'a pas le champ jusqu'au
+      // recalcul suivant (≤ 30 min) : sans ce défaut, l'écran lirait
+      // `undefined.length` et l'accueil entier tomberait.
+      if (parsed.recruits === undefined) parsed.recruits = [];
+      return parsed as DecisionDashboard;
+    }
     return computeDecisionDashboard(ctx, ctx.projectId, Date.now());
 }
 
@@ -89,12 +102,12 @@ export async function computeDecisionDashboard(
   now: number,
 ) {
 
-    const [pubs, refs, bricks, campaigns, comptes] = await Promise.all([
+    const [pubs, index, bricks, campaigns, comptes] = await Promise.all([
       ctx.db
         .query("publications")
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect(),
-      buildPublicationAssignmentMap({ ...ctx, projectId }),
+      loadPublicationAssignmentIndex({ ...ctx, projectId }),
       ctx.db
         .query("scriptBricks")
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
@@ -109,6 +122,7 @@ export async function computeDecisionDashboard(
         .collect(),
     ]);
 
+    const refs = index.refs;
     const brickById = new Map(bricks.map((b) => [b._id as string, b]));
     const campaignById = new Map(campaigns.map((c) => [c._id as string, c]));
     const compteByHandle = new Map(comptes.map((c) => [c.handle, c]));
@@ -360,12 +374,28 @@ export async function computeDecisionDashboard(
             ];
           });
 
+    // ── RECRUES À TRANCHER — test des 10 premières vidéos, cf recruitTrial ───
+    // Le relevé rapide des posts récents prime sur celui de la nuit : un post
+    // de 20 h à 12 000 vues ne doit pas attendre 23 h 30 pour faire garder.
+    const fresher = new Map<string, number>();
+    for (const p of posts48h) {
+      if (p.snapshotAt !== null) fresher.set(p.publicationId, p.vues);
+    }
+    const recruits = recruitsFromDocs({
+      creators: index.creators,
+      assignments: index.assignments,
+      publications: pubs,
+      fresher,
+      now,
+    });
+
     return {
       posts48h,
       openDoors,
       alarms,
       deadHooks,
       graduations,
+      recruits,
       // La modale « Programmer la frappe » assigne la campagne des ouvertures
       // prouvées ; absente sur ce projet → le bouton l'explique au lieu d'ouvrir.
       provenCampaign: proven

@@ -105,7 +105,19 @@
     "desactiver": "Turn off",
     "alarmesCompte": "Account alarms",
     "postsConsecutifsSousLesSeuils": "{streak} posts in a row below thresholds — stop promos, proven warm-up for 5-7 days",
-    "abonnes": "+{count} followers"
+    "abonnes": "+{count} followers",
+    "recruesATrancher": "Recruits to decide",
+    "recruePropositionGarder": "Suggested: keep — {vues} views on {plateforme} ({compte}, {jour}) · {videos, plural, one {# video posted} other {# videos posted}} of the {total}-video trial",
+    "recruePropositionArreter": "Suggested: stop — {total} videos, best post at {vues} views ({plateforme}, {jour}), none at {seuil}",
+    "recrueSuspendu": "Verdict on hold — {count, plural, one {# trial post not measured} other {# trial posts not measured}}; best measured: {vues} views",
+    "recrueSuspenduSansMesure": "Verdict on hold — {count, plural, one {# trial post not measured} other {# trial posts not measured}}, none measured",
+    "garder": "Keep",
+    "arreter": "Stop",
+    "recrueGardee": "{name} — decision saved: keep",
+    "recrueArretee": "{name} — decision saved: stop (status, missions and pay unchanged)",
+    "annuler": "Undo",
+    "decisionImpossible": "Could not save the decision",
+    "annulationImpossible": "Could not undo"
   },
   "ApifySyncButton": {
     "synchroniserTiktokInsta": "Sync TikTok/Insta/Snap/FB",

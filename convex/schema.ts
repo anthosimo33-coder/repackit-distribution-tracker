@@ -1617,6 +1617,20 @@ export default defineSchema({
      * TikTok ne transmettant pas de referrer). Normalisée par normalizeRef.
      */
     refSlug: v.optional(v.string()),
+    /**
+     * DÉCISION DE FIN DE TEST — « garder » ou « arrêter », cliquée depuis la
+     * carte « Recrues à trancher » du Dashboard (cf convex/recruitTrial.ts).
+     * Un ENREGISTREMENT, rien de plus : ni le statut, ni les missions, ni la
+     * paie n'en dépendent. Absente = pas encore tranchée ; posée, la créatrice
+     * sort de la liste pour de bon. Optional → 0 migration.
+     */
+    trialDecision: v.optional(
+      v.object({
+        decision: v.union(v.literal("keep"), v.literal("stop")),
+        decidedAt: v.number(),
+        decidedBy: v.id("users"),
+      }),
+    ),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])

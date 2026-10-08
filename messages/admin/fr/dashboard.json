@@ -105,7 +105,19 @@
     "desactiver": "Désactiver",
     "alarmesCompte": "Alarmes compte",
     "postsConsecutifsSousLesSeuils": "{streak} posts consécutifs sous les seuils — stop promos, warmup prouvé pendant 5-7 jours",
-    "abonnes": "+{count} abonnés"
+    "abonnes": "+{count} abonnés",
+    "recruesATrancher": "Recrues à trancher",
+    "recruePropositionGarder": "Proposé : garder — {vues} vues sur {plateforme} ({compte}, le {jour}) · {videos, plural, one {# vidéo publiée} other {# vidéos publiées}} sur les {total} du test",
+    "recruePropositionArreter": "Proposé : arrêter — {total} vidéos, la meilleure publication à {vues} vues ({plateforme}, le {jour}), aucune à {seuil}",
+    "recrueSuspendu": "Verdict suspendu — {count, plural, one {# publication du test sans relevé} other {# publications du test sans relevé}} ; meilleure mesurée : {vues} vues",
+    "recrueSuspenduSansMesure": "Verdict suspendu — {count, plural, one {# publication du test sans relevé} other {# publications du test sans relevé}}, aucune mesurée",
+    "garder": "Garder",
+    "arreter": "Arrêter",
+    "recrueGardee": "{name} — décision enregistrée : garder",
+    "recrueArretee": "{name} — décision enregistrée : arrêter (statut, missions et paie inchangés)",
+    "annuler": "Annuler",
+    "decisionImpossible": "Décision impossible à enregistrer",
+    "annulationImpossible": "Annulation impossible"
   },
   "ApifySyncButton": {
     "synchroniserTiktokInsta": "Synchroniser TikTok/Insta/Snap/FB",

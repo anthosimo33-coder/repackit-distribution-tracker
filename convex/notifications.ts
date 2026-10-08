@@ -4,8 +4,10 @@ import {
   internalMutation,
   internalQuery,
   type ActionCtx,
+  type QueryCtx,
 } from "./_generated/server";
 import {
+  e2eMutation,
   permissionMutation,
   permissionQuery,
 } from "./functions";
@@ -37,6 +39,7 @@ import {
   buildSubmissionMessage,
   buildTestMessage,
   submissionLine,
+  type DigestSections,
 } from "./notificationMessage";
 import {
   isCycleDue,
@@ -51,6 +54,8 @@ import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
 import { creatorZoneOnly } from "./creatorTimezone";
 import { eveningUnpublishedReports } from "./publicationLateness";
 import { talentPayRecap } from "./talentPay";
+import { computeDecisionDashboard, type DecisionDashboard } from "./dashboardDecisions";
+import { readDashboardCache } from "./dashboardCache";
 import {
   isChauffeSansTalent,
   joursAvantSortieDeChauffe,
@@ -965,7 +970,20 @@ const DIGEST_SECTION_LIMIT = 100;
  */
 export const collectDigest = internalQuery({
   args: { projectId: v.id("projects") },
-  handler: async (ctx, { projectId }) => {
+  handler: (ctx, { projectId }) => collectDigestCore(ctx, projectId),
+});
+
+/**
+ * E2E — le digest tel que le cron l'assemble, sans Telegram : c'est la seule
+ * façon de vérifier le CÂBLAGE de ses sections (une section bien calculée mais
+ * jamais branchée passe tous les tests du message).
+ */
+export const e2eCollectDigest = e2eMutation({
+  args: { projectId: v.id("projects") },
+  handler: (ctx, { projectId }) => collectDigestCore(ctx, projectId),
+});
+
+export async function collectDigestCore(ctx: QueryCtx, projectId: Id<"projects">) {
     const project = await ctx.db.get(projectId);
     if (project === null) return null;
     const enabled = project.notify?.enabledEvents;
@@ -1200,6 +1218,29 @@ export const collectDigest = internalQuery({
       }
     }
 
+    // ── Recrues à trancher — la carte du Dashboard, lue dans SON cache ───────
+    // Le MÊME calcul que l'écran (convex/recruitTrial.ts via decisionDashboard),
+    // rangé toutes les 30 min : un digest quotidien n'a pas à relire tout le
+    // projet. Sans row (projet neuf, cache invalidé à l'instant) ou row écrite
+    // avant l'ajout des recrues : calcul direct, une fois.
+    const recruesATrancher: DigestSections["recruesATrancher"] = [];
+    if (isEventEnabled(enabled, "digest_recrues_a_trancher")) {
+      const cached = await readDashboardCache(ctx, projectId, "decisions");
+      const enCache =
+        cached === null
+          ? undefined
+          : (JSON.parse(cached) as Partial<DecisionDashboard>).recruits;
+      const recruits =
+        enCache ?? (await computeDecisionDashboard(ctx, projectId, now)).recruits;
+      for (const r of recruits) {
+        recruesATrancher.push({
+          creatorName: r.creatorName,
+          proposition:
+            r.proposed === "keep" ? "garder" : r.proposed === "stop" ? "arrêter" : "suspendu",
+        });
+      }
+    }
+
     return {
       projectName: project.name,
       projectSlug: project.slug,
@@ -1215,10 +1256,10 @@ export const collectDigest = internalQuery({
           DIGEST_SECTION_LIMIT,
         ),
         jamaisMesurees: jamaisMesurees.slice(0, DIGEST_SECTION_LIMIT),
+        recruesATrancher: recruesATrancher.slice(0, DIGEST_SECTION_LIMIT),
       },
     };
-  },
-});
+}
 
 /** Projets ayant une config de notification — seuls candidats au digest. */
 /** Heure de bilan par défaut, en heure de Paris. */

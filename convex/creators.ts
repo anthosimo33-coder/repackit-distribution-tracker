@@ -37,6 +37,7 @@ import {
 import { internal } from "./_generated/api";
 import { syncBonusUnlocks } from "./pricing";
 import { DELETABLE_STATUSES, archiveAndDeleteAssignment } from "./assignments";
+import { invalidateDashboardCache } from "./dashboardCache";
 import {
   assignmentCycleIsPaid,
   unpayPostsOfDeletedCreator,
@@ -199,6 +200,12 @@ export async function listCreatorsCore(
       firstPostAt: c.firstPostAt,
       payStartAt: c.payStartAt,
       refSlug: c.refSlug,
+      // Décision de fin de test (carte « Recrues à trancher ») — le choix et
+      // sa date, jamais l'identifiant de qui a cliqué.
+      trialDecision:
+        c.trialDecision === undefined
+          ? null
+          : { decision: c.trialDecision.decision, decidedAt: c.trialDecision.decidedAt },
       createdAt: c.createdAt,
       invitation,
       locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
@@ -563,6 +570,37 @@ function normalizeHandlesToCreate(
   };
   return Object.values(out).some(Boolean) ? out : undefined;
 }
+
+/**
+ * RECRUE À TRANCHER — enregistre « garder » ou « arrêter » sur la fiche, depuis
+ * la carte du Dashboard (cf convex/recruitTrial.ts). `null` efface la décision :
+ * c'est le « Annuler » du toast, pour un clic de travers.
+ *
+ * Un ENREGISTREMENT, rien d'autre (arbitrage du 08/10/2026) : le statut, les
+ * missions et la paie ne bougent pas — arrêter quelqu'un reste un geste à part.
+ * Même garde que la fiche (`creators.manage` + périmètre du manager).
+ */
+export const recordTrialDecision = permissionMutation("creators.manage")({
+  args: {
+    creatorId: v.id("creators"),
+    decision: v.union(v.literal("keep"), v.literal("stop"), v.null()),
+  },
+  handler: async (ctx, { creatorId, decision }) => {
+    const creator = await ctx.db.get(creatorId);
+    if (!creator || creator.projectId !== ctx.projectId) {
+      throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
+    }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
+    await ctx.db.patch(creator._id, {
+      trialDecision:
+        decision === null
+          ? undefined
+          : { decision, decidedAt: Date.now(), decidedBy: ctx.userId },
+    });
+    // La carte doit disparaître tout de suite, pas au recalcul de la demi-heure.
+    await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
+  },
+});
 
 /**
  * Édition de la fiche — IDENTITÉ ET SUIVI, jamais la rémunération.
