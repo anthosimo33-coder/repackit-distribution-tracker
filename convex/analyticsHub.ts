@@ -39,6 +39,7 @@ import {
   computeRenewalStats,
   whopBillingOrigin,
   type WhopConversion,
+  type WhopFx,
 } from "./whopRevenue";
 import {
   POSTHOG_CACHE_KEYS,
@@ -51,11 +52,8 @@ import {
   type AbFlippersPayload,
   type SubsByMembershipPayload,
 } from "./posthogSync";
-import {
-  resolveArm,
-  armDivergence,
-  type ArmLookup,
-} from "./abAttribution";
+import { type ArmLookup } from "./abAttribution";
+import { abRevenueOf, EMPTY_AB_REVENUE, type AbRevenue } from "./abRevenue";
 // `internalAccountsFor` n'est plus appelé ici : la config A4 arrive désormais
 // par collectProjectWhopPayments (point de passage unique).
 import { isInternalWhopMembership } from "./internalAccounts";
@@ -957,45 +955,10 @@ export interface RevenueBreakdown {
   /** Journal des changements d'offre (horodaté, plus récent d'abord) — cohortes comparables. */
   offerChanges: { at: number; title: string; detail: string | null }[];
   /**
-   * REVENU PAR BRAS du test A/B. Voie PRIMAIRE : `metadata.abVariant` du
-   * membership Whop. Voie de REPLI : `distinctId` → personne PostHog. Restreint
-   * à la FENÊTRE DU TEST — les abonnements antérieurs n'ont pas de bras parce
-   * que le test n'existait pas, les ranger en « inconnu » serait faux.
+   * REVENU PAR BRAS du test A/B (cf convex/abRevenue) — montants dans la devise
+   * du revenu, `null` si non additionnables.
    */
-  abRevenue: {
-    /** Début de la fenêtre = 1er abonnement portant un bras (ms). null = pas de test. */
-    startMs: number | null;
-    rows: {
-      variant: string;
-      /** Net SÉCURISÉ rattaché à ce bras. */
-      net: number;
-      /** Abonnements rattachés à ce bras dans la fenêtre. */
-      memberships: number;
-      /** Dont rattachés par REPLI (distinctId), faute de metadata. */
-      viaFallback: number;
-      /**
-       * Abonnements dont TOUT l'argent est en litige : ils expliquent un net à
-       * 0,00 € qui, sans ça, se lirait comme une absence de conversion.
-       */
-      atRiskMemberships: number;
-      /** Montant à risque correspondant (exclu du net). */
-      atRiskAmount: number;
-    }[];
-    /** Abonnements où metadata et PostHog ne disent PAS le même bras. */
-    divergences: { membershipId: string; metadata: string; posthog: string }[];
-    /** Abonnements de la fenêtre sans bras par aucune des deux voies. */
-    unattached: number;
-    /**
-     * Abonnements ÉCARTÉS parce que leur personne a changé de bras. Le tableau
-     * par bras les retire déjà de ses colonnes (`excludedFlippers`) : sans cette
-     * exclusion côté revenu, leur argent entrait au numérateur d'un bras dont le
-     * dénominateur les excluait. Compteur VISIBLE — une exclusion silencieuse se
-     * lit comme un bras qui vend mal.
-     */
-    excludedFlippers: number;
-    /** Net correspondant, retiré des colonnes de bras. */
-    excludedFlippersNet: number;
-  };
+  abRevenue: AbRevenue;
 }
 
 /**
@@ -1012,7 +975,8 @@ async function abRevenueCore(
   payments: Awaited<ReturnType<typeof collectProjectWhopPayments>>["payments"],
   internalCfg: Awaited<ReturnType<typeof collectProjectWhopPayments>>["cfg"],
   acquisition: { from: number; to: number } | null,
-): Promise<RevenueBreakdown["abRevenue"]> {
+  fx: WhopFx | null,
+): Promise<AbRevenue> {
   // Voie PRIMAIRE : metadata.abVariant du membership Whop (posée au checkout,
   // insensible au dénouement du paiement). Voie de REPLI : distinctId →
   // personne PostHog. Une DIVERGENCE entre les deux est SIGNALÉE plutôt que
@@ -1088,81 +1052,15 @@ async function abRevenueCore(
         m.abVariant ? (min === null || m.createdAt < min ? m.createdAt : min) : min,
       null,
     );
-  const netByMembership = new Map<string, { net: number; atRisk: number }>();
-  for (const p of payments) {
-    if (!p.membershipId) continue;
-    if (isInternalWhopMembership(p.membershipId, internalCfg)) continue;
-    const a = netByMembership.get(p.membershipId) ?? { net: 0, atRisk: 0 };
-    a.net = round2(a.net + whopNetContribution(p));
-    if (p.status === "disputed") {
-      a.atRisk = round2(a.atRisk + Math.max(0, p.netAmount - p.refundedAmount));
-    }
-    netByMembership.set(p.membershipId, a);
-  }
-  const armAcc = new Map<
-    string,
-    { net: number; memberships: number; viaFallback: number; atRiskMemberships: number; atRiskAmount: number }
-  >();
-  const abDivergences: { membershipId: string; metadata: string; posthog: string }[] = [];
-  let abUnattached = 0;
-  let abExcludedFlippers = 0;
-  let abExcludedFlippersNet = 0;
-  for (const m of abMemberships) {
-    if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
-    if (abStartMs === null || m.createdAt < abStartMs) continue; // hors fenêtre du test
-    // Période choisie : seuls les abonnements ACQUIS dedans — la même population
-    // que les « nouveaux clients » de la période côté PostHog (1er abonnement
-    // dans la fenêtre). Leur argent est compté À CE JOUR, renouvellements compris.
-    if (acquisition && (m.createdAt < acquisition.from || m.createdAt > acquisition.to)) continue;
-    // Résolution UNIQUE, gardes AVANT les deux voies (cf convex/abAttribution).
-    const resolved = resolveArm(
-      { abVariant: m.abVariant, abForced: m.abForced, distinctId: m.distinctId },
-      armLookup,
-    );
-    if (resolved.variant === null) {
-      // Une exclusion se COMPTE, sinon elle se lit comme un bras qui vend mal.
-      if (resolved.rejected === "flipper") {
-        abExcludedFlippers += 1;
-        abExcludedFlippersNet = round2(
-          abExcludedFlippersNet +
-            (netByMembership.get(m.whopMembershipId)?.net ?? 0),
-        );
-      } else if (resolved.rejected === "unassigned") {
-        abUnattached += 1;
-      }
-      continue; // "forced" : session de QA, hors revenu comme hors events
-    }
-    const variant = resolved.variant;
-    const divergence = armDivergence(
-      { abVariant: m.abVariant, distinctId: m.distinctId },
-      armLookup,
-    );
-    if (divergence) {
-      abDivergences.push({ membershipId: m.whopMembershipId, ...divergence });
-    }
-    const money = netByMembership.get(m.whopMembershipId) ?? { net: 0, atRisk: 0 };
-    const a =
-      armAcc.get(variant) ??
-      { net: 0, memberships: 0, viaFallback: 0, atRiskMemberships: 0, atRiskAmount: 0 };
-    a.net = round2(a.net + money.net);
-    a.memberships += 1;
-    if (!m.abVariant) a.viaFallback += 1;
-    if (money.atRisk > 0) {
-      a.atRiskMemberships += 1;
-      a.atRiskAmount = round2(a.atRiskAmount + money.atRisk);
-    }
-    armAcc.set(variant, a);
-  }
-  return {
+  return abRevenueOf({
+    payments,
+    memberships: abMemberships,
+    lookup: armLookup,
     startMs: abStartMs,
-    rows: [...armAcc.entries()]
-      .map(([variant, a]) => ({ variant, ...a }))
-      .sort((x, y) => x.variant.localeCompare(y.variant)),
-    divergences: abDivergences,
-    unattached: abUnattached,
-    excludedFlippers: abExcludedFlippers,
-    excludedFlippersNet: abExcludedFlippersNet,
-  };
+    acquisition,
+    internalCfg,
+    fx,
+  });
 }
 
 /**
@@ -1179,11 +1077,11 @@ export const getAbRevenueForPeriod = permissionQuery("business.read")({
 export async function getAbRevenueForPeriodCore(
   ctx: ProjectQueryCtx,
   { from, to }: { from: number; to: number },
-): Promise<RevenueBreakdown["abRevenue"] | null> {
+): Promise<AbRevenue | null> {
   const project = await ctx.db.get(ctx.projectId);
   if (!project?.whop) return null;
   const { payments, cfg } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug);
-  return abRevenueCore(ctx, payments, cfg, { from, to });
+  return abRevenueCore(ctx, payments, cfg, { from, to }, projectFx(project));
 }
 
 /**
@@ -1235,14 +1133,7 @@ export async function getRevenueBreakdownCore(
         churnAvailable: false,
         internalExcludedMembers: 0,
         offerChanges,
-        abRevenue: {
-          startMs: null,
-          rows: [],
-          divergences: [],
-          unattached: 0,
-          excludedFlippers: 0,
-          excludedFlippersNet: 0,
-        },
+        abRevenue: EMPTY_AB_REVENUE,
       };
     }
 
@@ -1455,7 +1346,7 @@ export async function getRevenueBreakdownCore(
         return b.paidAt - a.paidAt;
       });
 
-    const abRevenue = await abRevenueCore(ctx, payments, internalCfg, null);
+    const abRevenue = await abRevenueCore(ctx, payments, internalCfg, null, fx);
 
     return {
       configured: true,
