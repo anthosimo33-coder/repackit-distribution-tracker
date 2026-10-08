@@ -226,4 +226,49 @@ test.describe("Conversations Instagram", () => {
     expect(hauteurs.avant).toBe(40);
     expect(hauteurs.apres).toBe(hauteurs.avant);
   });
+
+  /**
+   * SÉRIE EXPORTÉE — vu sur un vrai ZIP : les slides sortent de leurs vignettes,
+   * des <button>, qui centrent le texte (bulles sur plusieurs lignes centrées) ;
+   * et avec un en-tête transparent, les messages plus anciens passaient sur
+   * l'heure et le nom. L'écran n'hérite plus de l'alignement, et le fil est
+   * coupé entre l'en-tête (104 pt) et la saisie (808 pt).
+   */
+  test("série : texte des slides aligné à gauche, fil coupé sous l'en-tête", async ({ page }) => {
+    const ts = Date.now();
+    await page.goto(adminPath("/conversations"));
+    await page.getByRole("button", { name: "Nouvelle conversation" }).first().click();
+    await expect(page).toHaveURL(/\/conversations\?c=/);
+    await page.getByLabel("Titre").fill(`Série alignée ${ts}`);
+    await page.getByLabel("Titre").press("Enter");
+    await page.getByRole("button", { name: "+ Message reçu" }).click();
+    await page
+      .getByTestId("conv-item")
+      .last()
+      .getByRole("textbox", { name: "Texte du message" })
+      .fill("ça fait 2 semaines que je like toutes tes stories en espérant que tu me remarques");
+    await page.getByTestId("conv-item").nth(2).getByRole("button", { name: "Fin de slide après ce message" }).click();
+    await expect(page.getByText("2 slides", { exact: true })).toBeVisible();
+
+    // La vignette de la slide 2 (celle qu'on exporte) : la longue bulle est alignée à gauche.
+    const vignette = page.getByRole("listitem", { name: "Slide 2" });
+    const longue = vignette.locator("[data-tight]", { hasText: "ça fait 2 semaines" });
+    await expect(longue).toHaveCount(1);
+    expect(await longue.evaluate((el) => getComputedStyle(el).textAlign)).toBe("left");
+
+    // Le fil de l'aperçu (slide 1) est coupé juste sous l'en-tête et au-dessus de la saisie.
+    const decoupe = await page
+      .getByRole("img", { name: "Aperçu de la capture" })
+      .locator("[data-tight]", { hasText: "jdormais" })
+      .evaluate((el) => {
+        const ecran = el.closest("[data-tight]")!.ownerDocument.querySelector('[role="img"] > div > div') as HTMLElement;
+        let clip: HTMLElement | null = el.parentElement;
+        while (clip && clip !== ecran && getComputedStyle(clip).overflow !== "hidden") clip = clip.parentElement;
+        const e = ecran.getBoundingClientRect();
+        const c = clip!.getBoundingClientRect();
+        const k = e.width / 414;
+        return { haut: Math.round((c.top - e.top) / k), bas: Math.round((c.bottom - e.top) / k) };
+      });
+    expect(decoupe).toEqual({ haut: 104, bas: 808 });
+  });
 });

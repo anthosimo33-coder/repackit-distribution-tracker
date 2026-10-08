@@ -81,12 +81,28 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
     const fil = (
       <>
         {theme.hearts && <HeartsLayer />}
+        {/*
+          Le fil est COUPÉ entre l'en-tête et la saisie. Avec un thème à en-tête
+          transparent (cœurs, océan), les messages plus anciens passaient sinon
+          PAR-DESSUS l'heure, le nom et les icônes (vu sur une série exportée) ;
+          le thème sombre, à en-tête opaque, n'y voit aucune différence.
+        */}
         <div
           style={{
             position: "absolute",
             left: 0,
             right: 0,
-            bottom: SCREEN.height - MESSAGES_BOTTOM,
+            top: METRICS.headerBottom,
+            bottom: SCREEN.height - METRICS.composerTop,
+            overflow: "hidden",
+          }}
+        >
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: METRICS.composerTop - MESSAGES_BOTTOM,
             display: "flex",
             flexDirection: "column",
             transform: `translateY(${conversation.scroll}px)`, // i18n-exempt: valeur CSS
@@ -129,6 +145,7 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
             ),
           )}
         </div>
+        </div>
         <Header conversation={conversation} theme={theme} shift={emoji.textShiftY} />
         <Composer theme={theme} placeholder={strings.placeholder} shift={emoji.textShiftY} />
       </>
@@ -147,6 +164,13 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
           fontFamily: SYSTEM_FONT,
           WebkitFontSmoothing: "antialiased",
           color: theme.text,
+          // L'écran ne doit RIEN hériter de son conteneur : les slides d'une série
+          // sont exportées depuis leurs vignettes, des <button>, qui centrent le
+          // texte — les bulles sur plusieurs lignes sortaient centrées.
+          textAlign: "left",
+          textTransform: "none",
+          textIndent: 0,
+          fontStyle: "normal",
         }}
       >
         {pressed ? (
