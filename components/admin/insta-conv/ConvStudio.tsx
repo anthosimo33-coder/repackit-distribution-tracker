@@ -156,9 +156,11 @@ export function ConvStudio() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(false);
-  const screenRef = useRef<InstaScreenHandle>(null);
   const measureRef = useRef<InstaScreenHandle>(null);
-  const slideRefs = useRef<(InstaScreenHandle | null)[]>([]);
+  // Écrans d'EXPORT : pleine taille, hors champ, un par slide. On ne rastérise ni
+  // l'aperçu (réduit à 75 %) ni les vignettes (des boutons réduits à 17 %) : le
+  // téléchargement ne doit dépendre d'aucun conteneur.
+  const exportRefs = useRef<(InstaScreenHandle | null)[]>([]);
   const [slide, setSlide] = useState(0);
   const [serieProgress, setSerieProgress] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -310,7 +312,7 @@ export function ConvStudio() {
   }
 
   async function onExport() {
-    const node = screenRef.current?.node;
+    const node = exportRefs.current[serie ? sel : 0]?.node;
     if (!node) return;
     setExporting(true);
     setExportError(false);
@@ -331,7 +333,7 @@ export function ConvStudio() {
       const fichiers: Record<string, Uint8Array> = {};
       for (let k = 0; k < ends.length; k++) {
         setSerieProgress(tr("exportSerieEnCours", { n: k + 1, total: ends.length }));
-        const node = slideRefs.current[k]?.node;
+        const node = exportRefs.current[k]?.node;
         if (!node) throw new Error("slide"); // i18n-exempt: erreur interne, jamais affichée (message générique à l'écran)
         fichiers[`${baseDe(titre)}-${String(k + 1).padStart(2, "0")}.png`] = octetsDe(await versPng(node));
       }
@@ -759,7 +761,7 @@ export function ConvStudio() {
             role="img"
           >
             <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}>
-              <InstaScreen ref={screenRef} conversation={apercu} images={images} />
+              <InstaScreen conversation={apercu} images={images} />
             </div>
           </div>
           {serie && (
@@ -781,7 +783,7 @@ export function ConvStudio() {
                     style={{ width: SCREEN.width * THUMB_SCALE, height: SCREEN.height * THUMB_SCALE }}
                   >
                     <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: "top left" }} aria-hidden>
-                      <InstaScreen ref={(h) => { slideRefs.current[k] = h; }} conversation={slideConv(k)} images={images} />
+                      <InstaScreen conversation={slideConv(k)} images={images} />
                     </div>
                     <span className="absolute right-0.5 bottom-0.5 rounded bg-black/60 px-1 text-[10px] font-medium text-white">
                       {k + 1}
@@ -806,6 +808,19 @@ export function ConvStudio() {
           {/* Fil complet, hors écran, à l'échelle 1 : sert à mesurer pour la découpe automatique. */}
           <div aria-hidden style={{ position: "fixed", left: -10_000, top: 0, visibility: "hidden", pointerEvents: "none" }}>
             <InstaScreen ref={measureRef} conversation={{ ...conv, scroll: 0 }} images={images} />
+          </div>
+          {/* Ce que téléchargent « Exporter » et le lien de Claude : pleine taille, visibles mais hors champ. */}
+          <div aria-hidden style={{ position: "fixed", left: -20_000, top: 0, pointerEvents: "none" }}>
+            {(serie ? ends.map((_, k) => slideConv(k)) : [conv]).map((c, k) => (
+              <InstaScreen
+                key={k}
+                ref={(h) => {
+                  exportRefs.current[k] = h;
+                }}
+                conversation={c}
+                images={images}
+              />
+            ))}
           </div>
         </div>
       </div>
