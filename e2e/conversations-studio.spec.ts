@@ -250,7 +250,35 @@ test.describe("Conversations Instagram", () => {
     await page.getByTestId("conv-item").nth(2).getByRole("button", { name: "Fin de slide après ce message" }).click();
     await expect(page.getByText("2 slides", { exact: true })).toBeVisible();
 
-    // La vignette de la slide 2 (celle qu'on exporte) : la longue bulle est alignée à gauche.
+    // Ce qu'on télécharge : dans le ZIP, sur la slide 2, les lignes de la bulle longue
+    // (la dernière, en bas) commencent toutes au même bord gauche.
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Exporter la série/ }).click()]);
+    const slide2 = Object.entries(unzipSync(readFileSync(await download.path()))).sort(([a], [b]) => a.localeCompare(b))[1][1];
+    const { data, info } = await sharp(Buffer.from(slide2)).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const blanc = (x: number, y: number) => {
+      const o = (y * info.width + x) * 3;
+      return data[o] > 200 && data[o + 1] > 200 && data[o + 2] > 200;
+    };
+    const lignes: number[] = []; // bord gauche du texte de chaque ligne, de bas en haut
+    let dansLigne = false;
+    let gauche = Infinity;
+    for (let y = 1580; y > 1100; y--) {
+      let g = Infinity;
+      for (let x = 120; x < 700; x++) if (blanc(x, y)) { g = x; break; }
+      if (g < Infinity) {
+        dansLigne = true;
+        gauche = Math.min(gauche, g);
+      } else if (dansLigne) {
+        lignes.push(gauche);
+        dansLigne = false;
+        gauche = Infinity;
+        if (lignes.length === 3) break;
+      }
+    }
+    expect(lignes, `bords gauches ${lignes}`).toHaveLength(3);
+    expect(Math.max(...lignes) - Math.min(...lignes), `bords gauches ${lignes}`).toBeLessThanOrEqual(6);
+
+    // La vignette de la slide 2 (l'écran affiché) : la longue bulle est alignée à gauche.
     const vignette = page.getByRole("listitem", { name: "Slide 2" });
     const longue = vignette.locator("[data-tight]", { hasText: "ça fait 2 semaines" });
     await expect(longue).toHaveCount(1);
