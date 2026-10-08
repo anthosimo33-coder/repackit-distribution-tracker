@@ -657,6 +657,12 @@ export interface DigestSections {
    * délai, il n'y a plus rien à rattraper.
    */
   jamaisMesurees: { compte: string; joursDepuisPubli: number }[];
+  /**
+   * Créatrices dont le test des 10 premières vidéos rend un verdict — la carte
+   * « Recrues à trancher » du Dashboard (convex/recruitTrial.ts). Le message
+   * nomme la proposition ; la décision, elle, se clique dans l'app.
+   */
+  recruesATrancher: { creatorName: string; proposition: "garder" | "arrêter" | "suspendu" }[];
 }
 
 export function buildDigestMessage(params: {
@@ -675,6 +681,7 @@ export function buildDigestMessage(params: {
     chauffeSansTalent,
     talentSoldeDu,
     jamaisMesurees,
+    recruesATrancher,
   } = sections;
   if (
     overdueMissions.length === 0 &&
@@ -684,7 +691,8 @@ export function buildDigestMessage(params: {
     retryableRenewalFailures.length === 0 &&
     chauffeSansTalent.length === 0 &&
     talentSoldeDu.length === 0 &&
-    jamaisMesurees.length === 0
+    jamaisMesurees.length === 0 &&
+    recruesATrancher.length === 0
   ) {
     return null;
   }
@@ -789,6 +797,20 @@ export function buildDigestMessage(params: {
               `${p.compte} — publiée il y a ${p.joursDepuisPubli} ${plural(p.joursDepuisPubli, "jour")}${
                 p.joursDepuisPubli >= 30 ? " (hors fenêtre, perdue)" : ""
               }`,
+          ),
+        ),
+    );
+  }
+
+  if (recruesATrancher.length > 0) {
+    const n = recruesATrancher.length;
+    blocks.push(
+      `⚖️ <b>${n} ${plural(n, "recrue")} à trancher</b> — test des 10 premières vidéos\n` +
+        bulletList(
+          recruesATrancher.map((r) =>
+            r.proposition === "suspendu"
+              ? `${r.creatorName} — verdict suspendu (publication sans relevé)`
+              : `${r.creatorName} — proposé : ${r.proposition}`,
           ),
         ),
     );

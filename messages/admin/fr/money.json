@@ -578,5 +578,34 @@
       "summaryTransfers": "Virements reçus",
       "summaryUnclassified": "Non classé"
     }
+  },
+  "ApplyPricingDialog": {
+    "title": "Appliquer « {pricing} » à des vidéos déjà attribuées",
+    "description": "Le barème d'une vidéo est figé le jour de son attribution : créer un nouveau barème ne change la paie d'aucune vidéo existante. Ici, les vidéos d'une créatrice passent sur ce barème à partir d'un jour — jour de publication, sinon jour prévu —, vidéos publiées comprises.",
+    "creator": "Créatrice",
+    "creatorPlaceholder": "Choisir une créatrice",
+    "from": "À partir du",
+    "to": "Jusqu'au (facultatif)",
+    "rangeInvalid": "Le dernier jour doit venir après le premier.",
+    "pickCreator": "Choisis une créatrice pour voir ses vidéos concernées.",
+    "summary": "{count, plural, =0 {Aucune vidéo ne passera sur « {pricing} ».} one {# vidéo passera sur « {pricing} » :} other {# vidéos passeront sur « {pricing} » :}}",
+    "termsFixed": "fixe {amount} pour {videos} vidéos",
+    "termsCpm": "CPM {amount}",
+    "termsThreshold": "fixe conditionné à {views} vues",
+    "currencyMismatch": "{name} est payée en {creatorCurrency}, ce barème est en {pricingCurrency} : ses vidéos ne peuvent pas passer dessus.",
+    "noVideos": "Aucune vidéo de cette créatrice sur cette plage de jours.",
+    "noPricing": "Sans barème",
+    "cycle": "Cycle de paie {range}",
+    "willChange": "Passe sur ce barème",
+    "refusal": {
+      "cycle_paye": "Laissée : cycle payé",
+      "defi": "Laissée : vidéo de défi",
+      "hors_bareme": "Laissée : pas de barème",
+      "deja": "Déjà sur ce barème"
+    },
+    "footnote": "Le fixe, le CPM, la condition de vues et le bonus par vidéo de ces vidéos deviennent ceux du barème. Un cycle déjà payé ne bouge jamais. La grille de paliers de la créatrice ne change pas, et elle ne reçoit aucun email.",
+    "cancel": "Annuler",
+    "apply": "{count, plural, =0 {Appliquer} one {Appliquer à # vidéo} other {Appliquer à # vidéos}}",
+    "done": "{count, plural, =0 {Aucune vidéo à changer.} one {# vidéo passée sur « {pricing} ».} other {# vidéos passées sur « {pricing} ».}}"
   }
 }

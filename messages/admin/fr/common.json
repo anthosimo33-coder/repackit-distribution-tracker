@@ -235,7 +235,7 @@
     "auTauxDuProjet": "au taux du projet",
     "poseALaMainEt": ", posé à la main et jamais rafraîchi : lisez-les comme un ordre de grandeur. Le détail par devise, lui, est exact.",
     "plusieursDevisesEncaissees": "Plusieurs devises encaissées",
-    "lesMontantsNeSontPas": "Les montants ne sont pas additionnables : ils sont volontairement laissés à zéro plutôt que mélangés. Aucun total de revenu, de marge ni de RPM n'est exploitable tant qu'une devise encaissée n'a pas de taux de change réglé sur le projet.",
+    "lesMontantsNeSontPas": "Les montants ne sont pas additionnables : plutôt que de mélanger les devises, ils ne sont pas totalisés. Un tiret ou un zéro sans symbole de devise ne veut donc pas forcément dire « rien encaissé ». Aucun total de revenu, de marge ni de RPM n'est exploitable tant qu'une devise encaissée n'a pas de taux de change réglé sur le projet.",
     "uneSeuleEstEncaisseeLes": "Une seule est encaissée : les montants ci-dessous restent justes. Les lignes de l'autre devise (échec, remboursement ou litige) sont exclues des totaux, jamais converties.",
     "deuxDevisesPresentes": "Deux devises présentes",
     "singleCurrency": "une seule devise"
@@ -875,7 +875,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connecter Claude",
     "titre": "Connecter Claude à l’app",
-    "description": "Claude peut lire les données de l’app pour toi : comptes, créatrices, vues, rentabilité, meilleurs posts, scripts, compta. Lecture seule par défaut, avec tes droits — il ne voit que ce que tu vois ici. Tu peux autoriser une connexion à modifier la Compta, les missions, les scripts, les publications ou la veille : Claude te demandera ton accord avant chaque modification.",
+    "description": "Claude peut lire les données de l’app pour toi : comptes, créatrices, vues, rentabilité, meilleurs posts, scripts, compta. Lecture seule par défaut, avec tes droits — il ne voit que ce que tu vois ici. Tu peux autoriser une connexion à modifier la Compta, les missions, les scripts, les publications, la veille ou les barèmes : Claude te demandera ton accord avant chaque modification.",
     "nomDeLaCle": "Nom de la clé",
     "nomPlaceholder": "ex. Claude sur mon Mac",
     "creerUneCle": "Créer une clé",
@@ -950,7 +950,8 @@
       "envoyer_message_createatrice": "Écrire à une créatrice",
       "creer_conversation": "Conversation créée",
       "modifier_conversation": "Conversation modifiée",
-      "supprimer_conversation": "Conversation supprimée"
+      "supprimer_conversation": "Conversation supprimée",
+      "changer_bareme": "Barème de vidéos changé"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -964,7 +965,8 @@
       "radar": "Radar",
       "inspirations": "Inspirations",
       "messages": "Créatrices",
-      "conversations": "Conversations Instagram"
+      "conversations": "Conversations Instagram",
+      "pricing": "Barèmes"
     },
     "domaine": {
       "compta": {
@@ -1001,6 +1003,11 @@
         "titre": "Conversations",
         "objet": "les conversations Instagram",
         "aria": "Modifications des conversations pour {name}"
+      },
+      "baremes": {
+        "titre": "Barèmes",
+        "objet": "les barèmes des vidéos déjà attribuées",
+        "aria": "Modifications des barèmes pour {name}"
       }
     }
   },

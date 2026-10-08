@@ -34,6 +34,7 @@ export type NotificationEventKey =
   | "digest_warmup_late"
   | "digest_clipper_sans_talent"
   | "digest_talent_solde_du"
+  | "digest_recrues_a_trancher"
   | "claude_propositions";
 
 /**
@@ -137,6 +138,12 @@ export const NOTIFICATION_EVENTS: readonly NotificationEventDef[] = [
     kind: "digest",
     label: "Talents arrêtés avec un forfait non payé",
     hint: "Section du digest quotidien. Un solde dû à quelqu'un qui part est ce qu'on oublie, puisqu'il cesse d'apparaître.",
+  },
+  {
+    key: "digest_recrues_a_trancher",
+    kind: "digest",
+    label: "Recrues à trancher",
+    hint: "Section du digest quotidien. Créatrices dont le test des 10 premières vidéos rend un verdict (garder, arrêter, ou suspendu faute de relevé) — la décision se prend sur la carte du Dashboard.",
   },
   {
     key: "evening_unpublished",

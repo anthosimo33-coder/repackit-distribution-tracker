@@ -14,7 +14,9 @@ import {
   FlameIcon,
   GraduationCapIcon,
   Loader2Icon,
+  UserCheckIcon,
   UserPlusIcon,
+  UserXIcon,
   WalletIcon,
   ZapOffIcon,
 } from "lucide-react";
@@ -44,7 +46,11 @@ import {
   type RateTone,
   type AccountState,
 } from "@/convex/decisions";
-import { savesAvailability } from "@/convex/decisionThresholds";
+import {
+  savesAvailability,
+  RECRUIT_KEEP_MIN_VIEWS,
+  RECRUIT_TRIAL_VIDEOS,
+} from "@/convex/decisionThresholds";
 import { type ConversionDisplayRow } from "@/convex/conversionAttribution";
 import { formatMoney } from "@/lib/format-rate";
 import { formatMoneyByCurrency } from "@/lib/money-by-currency";
@@ -73,6 +79,7 @@ type DashboardDecisions = FunctionReturnType<
   typeof api.dashboardDecisions.decisionDashboard
 >;
 type Post48h = DashboardDecisions["posts48h"][number];
+type Recruit = DashboardDecisions["recruits"][number];
 
 /** Créneau pré-rempli de « Programmer la frappe » : le soir, 21 h-23 h. */
 const SOIR = POST_WINDOW_PRESETS.find((p) => p.id === "soir")!.window;
@@ -352,6 +359,7 @@ export function ActionDashboard() {
         <Section title={tr("aDecider")}>
           <DecideList
             decisions={decisions}
+            canDecideRecruits={droits.has("creators.manage")}
             onStrike={(creatorId) => setStrikeCreator(creatorId)}
             onGraduate={(brickId) => setGraduating(brickId)}
             onDeactivate={(brickId, content) =>
@@ -424,20 +432,28 @@ export function ActionDashboard() {
 
 function DecideList({
   decisions,
+  canDecideRecruits,
   onStrike,
   onGraduate,
   onDeactivate,
 }: {
   decisions: DashboardDecisions;
+  /** `creators.manage` — sans lui la carte reste lisible, sans boutons. */
+  canDecideRecruits: boolean;
   onStrike: (creatorId: Id<"creators">) => void;
   onGraduate: (brickId: Id<"scriptBricks">) => void;
   onDeactivate: (brickId: Id<"scriptBricks">, content: string) => void;
 }) {
   const loc = useIntlLocale();
   const tr = useTranslations("admin.dashboard.DecideList");
-  const { openDoors, graduations, deadHooks, alarms, provenCampaign } = decisions;
+  const { openDoors, graduations, deadHooks, alarms, recruits, provenCampaign } =
+    decisions;
   const total =
-    openDoors.length + graduations.length + deadHooks.length + alarms.length;
+    openDoors.length +
+    recruits.length +
+    graduations.length +
+    deadHooks.length +
+    alarms.length;
 
   if (total === 0) {
     return (
@@ -483,6 +499,10 @@ function DecideList({
             ))}
           </div>
         </>
+      )}
+
+      {recruits.length > 0 && (
+        <RecruitGroup recruits={recruits} canDecide={canDecideRecruits} />
       )}
 
       {graduations.length > 0 && (
@@ -568,6 +588,120 @@ function DecideList({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * RECRUES À TRANCHER — « garder » ou « arrêter » au terme du test des 10
+ * premières vidéos (règle et seuils : convex/recruitTrial.ts). Le clic
+ * ENREGISTRE la décision sur la fiche, rien d'autre ; le toast porte un
+ * « Annuler » pour un clic de travers.
+ */
+function RecruitGroup({
+  recruits,
+  canDecide,
+}: {
+  recruits: Recruit[];
+  canDecide: boolean;
+}) {
+  const loc = useIntlLocale();
+  const tr = useTranslations("admin.dashboard.DecideList");
+  const showError = useConvexError();
+  const record = useProjectMutation(api.creators.recordTrialDecision);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function decide(r: Recruit, decision: "keep" | "stop") {
+    const creatorId = r.creatorId as Id<"creators">;
+    setBusy(r.creatorId);
+    try {
+      await record({ creatorId, decision });
+      toast.success(
+        decision === "keep"
+          ? tr("recrueGardee", { name: r.creatorName })
+          : tr("recrueArretee", { name: r.creatorName }),
+        {
+          action: {
+            label: tr("annuler"),
+            onClick: () => {
+              record({ creatorId, decision: null }).catch((e: unknown) =>
+                toast.error(showError(e, tr("annulationImpossible"))),
+              );
+            },
+          },
+        },
+      );
+    } catch (e) {
+      toast.error(showError(e, tr("decisionImpossible")));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const subtitle = (r: Recruit) => {
+    const best =
+      r.best === null
+        ? null
+        : {
+            vues: formatNumber(r.best.vues ?? 0, loc),
+            plateforme: r.best.plateforme,
+            compte: r.best.compte,
+            jour: shortParisDay(r.best.postedAt, loc),
+          };
+    if (r.proposed === "keep" && best !== null) {
+      return tr("recruePropositionGarder", {
+        ...best,
+        videos: r.videos,
+        total: RECRUIT_TRIAL_VIDEOS,
+      });
+    }
+    if (r.proposed === "stop" && best !== null) {
+      return tr("recruePropositionArreter", {
+        ...best,
+        total: RECRUIT_TRIAL_VIDEOS,
+        seuil: formatNumber(RECRUIT_KEEP_MIN_VIEWS, loc),
+      });
+    }
+    return best === null
+      ? tr("recrueSuspenduSansMesure", { count: r.unmeasured })
+      : tr("recrueSuspendu", { count: r.unmeasured, vues: best.vues });
+  };
+
+  return (
+    <>
+      <GroupHeader
+        icon={UserCheckIcon}
+        label={tr("recruesATrancher")}
+        count={recruits.length}
+        tone="text-sky-700"
+      />
+      <div className="divide-y divide-slate-100" data-testid="recrues-a-trancher">
+        {recruits.map((r) => (
+          <WorklistRow
+            key={r.creatorId}
+            title={r.creatorName}
+            subtitle={subtitle(r)}
+            action={
+              canDecide ? (
+                <>
+                  <InlineAction
+                    icon={UserCheckIcon}
+                    label={tr("garder")}
+                    busy={busy === r.creatorId}
+                    onClick={() => void decide(r, "keep")}
+                  />
+                  <InlineAction
+                    icon={UserXIcon}
+                    label={tr("arreter")}
+                    busy={busy === r.creatorId}
+                    onClick={() => void decide(r, "stop")}
+                  />
+                </>
+              ) : undefined
+            }
+          />
+        ))}
+      </div>
+    </>
   );
 }
 

@@ -12,6 +12,7 @@ import { DOMAINE_VEILLE } from "./mcpWritesVeille";
 import { DOMAINE_EXPERIENCES } from "./mcpExperiences";
 import { DOMAINE_MESSAGES } from "./mcpCoach";
 import { DOMAINE_CONVERSATIONS } from "./mcpConversations";
+import { DOMAINE_BAREMES } from "./mcpBaremes";
 import type { DomaineEcriture } from "./mcpWriteCommon";
 
 export const DOMAINES_ECRITURE: readonly DomaineEcriture[] = [
@@ -23,4 +24,5 @@ export const DOMAINES_ECRITURE: readonly DomaineEcriture[] = [
   DOMAINE_VEILLE,
   DOMAINE_MESSAGES,
   DOMAINE_CONVERSATIONS,
+  DOMAINE_BAREMES,
 ];

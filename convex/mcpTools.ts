@@ -29,6 +29,8 @@ import {
   DEAD_HOOK_MIN_RUNS,
   OPEN_DOOR_MIN_LIKE_RATE,
   OPEN_DOOR_MIN_VIEWS,
+  RECRUIT_KEEP_MIN_VIEWS,
+  RECRUIT_TRIAL_VIDEOS,
   savesAvailability,
 } from "./decisionThresholds";
 import { listCreatorActivityCore, listCreatorsCore } from "./creators";
@@ -307,6 +309,13 @@ export const lireCreatrices = mcpPermissionQuery("creators.read")({
         dernierPost: jour(a?.lastPostAt),
         premierPostPaye: jour(c.firstPostAt),
         refLien: c.refSlug ?? null,
+        decisionDeFinDeTest:
+          c.trialDecision === null
+            ? null
+            : {
+                decision: c.trialDecision.decision === "keep" ? "garder" : "arrêter",
+                le: jour(c.trialDecision.decidedAt),
+              },
       };
     });
   },
@@ -799,7 +808,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "createatrices",
     title: "Créatrices du projet",
     description:
-      "Créatrices du projet, comme l'écran Créateurs : statut (invited, onboarding, active, paused, churned), type (partner, talent, clipper), langue, fuseau, comptes actifs, publications, dernier post. Par défaut, seules les créatrices en activité (ni en pause ni parties).",
+      "Créatrices du projet, comme l'écran Créateurs : statut (invited, onboarding, active, paused, churned), type (partner, talent, clipper), langue, fuseau, comptes actifs, publications, dernier post, décision de fin de test (garder / arrêter, cliquée depuis la carte « Recrues à trancher » du Dashboard). Par défaut, seules les créatrices en activité (ni en pause ni parties).",
     inputSchema: {
       type: "object",
       properties: {
@@ -1170,7 +1179,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "dashboard",
     title: "Dashboard (accueil)",
     description:
-      "Le Dashboard de l'app, par les mêmes calculs : les quatre cartes d'action (vidéos à valider, warmups en retard, warmups terminés à valider, total dû), « À décider » (portes ouvertes à exploiter, hooks à graduer, hooks morts à désactiver, alarmes de compte) et les posts des 48 dernières heures regroupés par créatrice (état du compte, vues, abonnés gagnés, et pour chaque post : vues gagnées sur 24 h, like rate, enregistrements, verdict). Une section dont le rôle n'a pas le bloc est signalée « nonAccessible ».",
+      "Le Dashboard de l'app, par les mêmes calculs : les quatre cartes d'action (vidéos à valider, warmups en retard, warmups terminés à valider, total dû), « À décider » (portes ouvertes à exploiter, recrues à trancher — garder ou arrêter au terme du test des 10 premières vidéos —, hooks à graduer, hooks morts à désactiver, alarmes de compte) et les posts des 48 dernières heures regroupés par créatrice (état du compte, vues, abonnés gagnés, et pour chaque post : vues gagnées sur 24 h, like rate, enregistrements, verdict). Une section dont le rôle n'a pas le bloc est signalée « nonAccessible ».",
     inputSchema: {
       type: "object",
       properties: {
@@ -1315,6 +1324,7 @@ export function jarviaServer(
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
     messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
     conversations: "les conversations Instagram (créer, modifier, supprimer un brouillon de capture ; l'image s'exporte depuis l'écran de l'app)",
+    baremes: "les barèmes des vidéos déjà attribuées (passer les vidéos d'une créatrice sur un autre barème à partir d'un jour — c'est sa paie)",
   };
   // Un libellé par INTERRUPTEUR : deux domaines peuvent partager le même
   // (expériences et missions) — sans ce dédoublonnage, « les missions » sortait
@@ -3617,6 +3627,11 @@ export function jarviaServer(
           fading: "s'éteint",
           below: "sous les seuils",
         };
+        const propositionsRecrue = {
+          keep: "garder",
+          stop: "arrêter",
+          incomplete: "suspendu : mesure incomplète",
+        } as const;
         const etats: Record<string, string> = {
           window: "fenêtre active",
           cruise: "croisière",
@@ -3657,6 +3672,24 @@ export function jarviaServer(
                   enregistrements: d.post.saves,
                   abonnesGagnes: d.post.followersDelta,
                   action: "programmer la frappe (une vidéo le soir même, 21 h-23 h)",
+                })),
+                recruesATrancher: decisions.recruits.map((r) => ({
+                  createatrice: r.creatorName,
+                  proposition: propositionsRecrue[r.proposed],
+                  videosDuTest: r.videos,
+                  meilleurePublication:
+                    r.best === null
+                      ? null
+                      : {
+                          vues: r.best.vues,
+                          plateforme: r.best.plateforme,
+                          compte: r.best.compte,
+                          publieLe: jour(r.best.postedAt),
+                        },
+                  publicationsSansReleve: r.unmeasured,
+                  dixiemeVideoLe: jour(r.tenthPostedAt),
+                  action:
+                    "trancher dans le Dashboard (« Garder » ou « Arrêter ») : la décision est enregistrée sur la fiche, rien d'autre ne change",
                 })),
                 aGraduer: decisions.graduations.map((g) => ({
                   hook: g.content,
@@ -3722,6 +3755,7 @@ export function jarviaServer(
               }),
           lecture: [
             "Le Dashboard de l'app : les quatre cartes d'action, « À décider » (une ligne par DÉCISION, jamais une tâche), les posts des 48 dernières heures par créatrice. La conversion par créatrice (« Ce que ça a rapporté ») est dans l'outil « acquisition ».",
+            `Recrue à trancher = créatrice ni en pause, ni partie, ni déjà tranchée, jugée sur ses ${RECRUIT_TRIAL_VIDEOS} premières vidéos promo (une mission publiée sur TikTok et Instagram = une vidéo) : « garder » dès qu'UNE publication TikTok ou Instagram atteint ${RECRUIT_KEEP_MIN_VIEWS} vues (jamais la somme des deux) ; « arrêter » 7 jours après la ${RECRUIT_TRIAL_VIDEOS}e vidéo si aucune n'y est arrivée ; « suspendu » si une publication du test n'a jamais été relevée (elle pourrait être celle qui passe le seuil).`,
             `Porte ouverte = post de moins de 48 h à ${OPEN_DOOR_MIN_VIEWS} vues ou plus, like rate ≥ ${OPEN_DOOR_MIN_LIKE_RATE * 100} %, au moins un enregistrement et des abonnés gagnés. Alarme compte = ${ACCOUNT_ALARM_RUN_LENGTH} posts consécutifs sous les seuils. Hook mort = au moins ${DEAD_HOOK_MIN_RUNS} runs publiés, aucun au-dessus de ${DEAD_HOOK_MAX_VIEWS} vues.`,
             "Décisions recalculées toutes les 30 min (cache de l'écran). Vues, likes et saves d'un post viennent de son relevé LE PLUS RÉCENT, pris entier : « nuit » (23 h 30) ou « rapide » (toutes les 2 h pendant les 36 premières heures), daté par « releveLe ». Un compteur que ce relevé ne fournit pas (likes masqués sur Instagram) vaut null, jamais la valeur d'un autre relevé.",
             "Posts des 48 h : par défaut les 5 posts DÉJÀ RELEVÉS les plus vus par créatrice ; « sansReleve » = posts sans aucun relevé (trop récents, ou plateforme non relevée), « autresPosts » = relevés non listés. « posts » et « vues » comptent tout. Détail complet : tous_les_posts.",

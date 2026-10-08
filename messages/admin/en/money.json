@@ -578,5 +578,34 @@
       "summaryTransfers": "Withdrawals received",
       "summaryUnclassified": "Unclassified"
     }
+  },
+  "ApplyPricingDialog": {
+    "title": "Apply “{pricing}” to videos already assigned",
+    "description": "A video’s pay grid is locked on the day it is assigned: creating a new pay grid changes the pay of no existing video. Here, a creator’s videos move to this pay grid from a given day — posting day, otherwise planned day —, posted videos included.",
+    "creator": "Creator",
+    "creatorPlaceholder": "Pick a creator",
+    "from": "From",
+    "to": "Until (optional)",
+    "rangeInvalid": "The last day must come after the first one.",
+    "pickCreator": "Pick a creator to see the videos concerned.",
+    "summary": "{count, plural, =0 {No video will move to “{pricing}”.} one {# video will move to “{pricing}”:} other {# videos will move to “{pricing}”:}}",
+    "termsFixed": "fixed {amount} for {videos} videos",
+    "termsCpm": "CPM {amount}",
+    "termsThreshold": "fixed pay requires {views} views",
+    "currencyMismatch": "{name} is paid in {creatorCurrency}, this pay grid is in {pricingCurrency}: their videos can’t move to it.",
+    "noVideos": "No video from this creator in this date range.",
+    "noPricing": "No pay grid",
+    "cycle": "Pay cycle {range}",
+    "willChange": "Moves to this pay grid",
+    "refusal": {
+      "cycle_paye": "Kept: cycle paid",
+      "defi": "Kept: challenge video",
+      "hors_bareme": "Kept: no pay grid",
+      "deja": "Already on this pay grid"
+    },
+    "footnote": "These videos’ fixed pay, CPM, view requirement and per-video bonus become the pay grid’s. A paid cycle never changes. The creator’s bonus grid stays the same, and no email is sent.",
+    "cancel": "Cancel",
+    "apply": "{count, plural, =0 {Apply} one {Apply to # video} other {Apply to # videos}}",
+    "done": "{count, plural, =0 {No video to change.} one {# video moved to “{pricing}”.} other {# videos moved to “{pricing}”.}}"
   }
 }

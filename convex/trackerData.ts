@@ -111,6 +111,22 @@ type AssignmentRef = {
 export async function buildPublicationAssignmentMap(
   ctx: QueryCtx & { projectId: Id<"projects"> },
 ): Promise<Map<string, AssignmentRef>> {
+  return (await loadPublicationAssignmentIndex(ctx)).refs;
+}
+
+/**
+ * Même construction que `buildPublicationAssignmentMap`, en rendant AUSSI les
+ * missions et les fiches lues pour la faire : le dashboard décisionnel en a
+ * besoin (recrues à trancher) et relire `assignments` une seconde fois doublait
+ * le coût d'un recalcul qui tourne toutes les 30 min.
+ */
+export async function loadPublicationAssignmentIndex(
+  ctx: QueryCtx & { projectId: Id<"projects"> },
+): Promise<{
+  refs: Map<string, AssignmentRef>;
+  assignments: Doc<"assignments">[];
+  creators: Doc<"creators">[];
+}> {
   const [assignments, creators, formats] = await Promise.all([
     ctx.db
       .query("assignments")
@@ -161,7 +177,7 @@ export async function buildPublicationAssignmentMap(
         : null,
     });
   }
-  return resolved;
+  return { refs: resolved, assignments, creators };
 }
 
 // ─── Matching des filtres de dimension (multi-select) ────────────────────────

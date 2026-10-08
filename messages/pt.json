@@ -1536,7 +1536,9 @@
     "ERR_INSTA_CONV_INVALID": "Conversa inválida: título vazio ou longo demais, ou conteúdo ilegível.",
     "ERR_INSTA_CONV_TITLE_TAKEN": "Já existe uma conversa chamada «{titre}».",
     "ERR_INSTA_CONV_NOT_FOUND": "Esta conversa não existe mais.",
-    "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagem recusada: JPEG, PNG ou WebP de no máximo 8 MB."
+    "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagem recusada: JPEG, PNG ou WebP de no máximo 8 MB.",
+    "ERR_PRICING_REASSIGN_DAY_INVALID": "Intervalo de dias inválido: dias AAAA-MM-DD, o primeiro antes do último.",
+    "ERR_PRICING_REASSIGN_STALE": "A lista mudou desde a pré-visualização: {found} vídeo(s) para passar para esta tabela em vez de {expected}. Nada foi alterado: revise a pré-visualização."
   },
   "calendar": {
     "weekday": {

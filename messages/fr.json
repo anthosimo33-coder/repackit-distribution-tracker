@@ -1536,7 +1536,9 @@
     "ERR_INSTA_CONV_INVALID": "Conversation invalide : titre vide ou trop long, ou contenu illisible.",
     "ERR_INSTA_CONV_TITLE_TAKEN": "Une conversation s'appelle déjà « {titre} ».",
     "ERR_INSTA_CONV_NOT_FOUND": "Cette conversation n'existe plus.",
-    "ERR_INSTA_CONV_IMAGE_REJECTED": "Image refusée : JPEG, PNG ou WebP de 8 Mo au plus."
+    "ERR_INSTA_CONV_IMAGE_REJECTED": "Image refusée : JPEG, PNG ou WebP de 8 Mo au plus.",
+    "ERR_PRICING_REASSIGN_DAY_INVALID": "Plage de jours invalide : des jours AAAA-MM-JJ, le premier avant le dernier.",
+    "ERR_PRICING_REASSIGN_STALE": "La liste a changé depuis l'aperçu : {found} vidéo(s) à passer sur ce barème au lieu de {expected}. Rien n'a été modifié : relis l'aperçu."
   },
   "calendar": {
     "weekday": {

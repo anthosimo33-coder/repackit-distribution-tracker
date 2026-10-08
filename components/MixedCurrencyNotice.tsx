@@ -15,7 +15,11 @@ import { useTranslations } from "next-intl";
  *
  * TROIS niveaux, du plus grave au plus anodin :
  *   `mixed`     — plusieurs devises encaissées ET non convertibles. Les montants
- *                 sont zéroïsés, donc inexploitables : avertissement franc.
+ *                 ne sont pas totalisés, donc inexploitables : avertissement
+ *                 franc. Selon l'écran, ils s'affichent en TIRET (null : Vue
+ *                 d'ensemble, Parcours, détail par jour) ou en ZÉRO sans
+ *                 symbole (le 0 de la garde : Rentabilité, Revenu Whop, une
+ *                 partie de Rétention et d'Offres) — le texte couvre les deux.
  *   `converted` — plusieurs devises encaissées, ramenées à une seule au taux du
  *                 projet. Les montants SONT exploitables ; on dit d'où ils
  *                 viennent, parce qu'un taux posé à la main n'est pas une
