@@ -286,6 +286,7 @@
     "convex/analyticsWindowed.ts",
     "convex/assignmentVideo.ts",
     "convex/attributionWindow.ts",
+    "convex/billingCountries.ts",
     "convex/churn.ts",
     "convex/coherenceInputs.ts",
     "convex/collectAvailability.ts",

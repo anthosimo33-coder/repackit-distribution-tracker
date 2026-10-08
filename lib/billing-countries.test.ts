@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { billingCountriesOf, type BillingPaymentLike } from "../convex/billingCountries";
+import {
+  billingCountriesOf,
+  normalizeBillingCountry,
+  type BillingPaymentLike,
+} from "../convex/billingCountries";
 import { projectFx } from "../convex/whopRevenue";
 
 /**
@@ -114,5 +118,44 @@ describe("billingCountriesOf — devises", () => {
       mixedCurrency: false,
       conversions: [],
     });
+  });
+});
+
+describe("billingCountriesOf — casse du pays", () => {
+  // Prod Snytch, 08/10/2026 : « FR » (560 clients) et « fr » (2 clients) sortaient
+  // en deux lignes — Whop stocke l'adresse telle quelle.
+  it("« FR », « fr » et « fr » entouré d'espaces font UNE ligne FR", () => {
+    const lot = [
+      paiement("mem_a", 1, "eur", 10, "FR"),
+      paiement("mem_b", 2, "eur", 10, "fr"),
+      paiement("mem_c", 3, "eur", 10, " fr "),
+      paiement("mem_d", 4, "eur", 10, "fr", "failed"),
+    ];
+    const r = billingCountriesOf(lot, new Map(), SNYTCH_FX);
+    expect(r.rows).toEqual([
+      { country: "FR", clients: 3, renewals: 0, failures: 1, net: 30 },
+    ]);
+    expect(r.clientsWithCountry).toBe(3);
+    expect(r.withCountry).toBe(4);
+  });
+
+  it("vide ou blanc = sans pays, jamais une ligne « » à part", () => {
+    const lot = [
+      paiement("mem_a", 1, "eur", 10, undefined),
+      paiement("mem_b", 2, "eur", 10, ""),
+      paiement("mem_c", 3, "eur", 10, "  "),
+    ];
+    const r = billingCountriesOf(lot, new Map(), SNYTCH_FX);
+    expect(r.rows).toEqual([
+      { country: null, clients: 3, renewals: 0, failures: 0, net: 30 },
+    ]);
+    expect(r.clientsWithCountry).toBe(0);
+    expect(r.withCountry).toBe(0);
+  });
+
+  it("ne touche qu'à la casse : un nom complet reste distinguable d'un code", () => {
+    expect(normalizeBillingCountry("France")).toBe("FRANCE");
+    expect(normalizeBillingCountry(" rs")).toBe("RS");
+    expect(normalizeBillingCountry(undefined)).toBeNull();
   });
 });
