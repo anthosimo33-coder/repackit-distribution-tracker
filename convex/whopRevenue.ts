@@ -72,7 +72,7 @@ export interface WhopPaymentLike {
 }
 
 /** Revenu SÉCURISÉ (cf lib/whop-revenue) : "paid" seul. Litige = à risque, exclu. */
-function isSecuredRevenue(status: WhopStatus): boolean {
+export function isSecuredRevenue(status: WhopStatus): boolean {
   return status === "paid";
 }
 

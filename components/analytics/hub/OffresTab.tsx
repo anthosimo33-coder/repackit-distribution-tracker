@@ -279,33 +279,28 @@ export function OffresTab({
   const plans = useMemo(() => revenue?.plans ?? [], [revenue]);
   const hasHistorical = plans.some((p) => !p.active);
   const currency = revenue?.currency ?? undefined;
-  const mixedCurrency = revenue?.mixedCurrency ?? false;
   const offerChanges = revenue?.offerChanges ?? [];
 
   // Répartition HEBDO vs MENSUEL (le mensuel ne se vend pas : à faire ressortir).
+  // Le net de chaque offre est DÉJÀ dans la devise du revenu (converti côté
+  // serveur, paiement par paiement) : la somme est additionnable. Un net `null`
+  // (devise sans taux, A5) rend le pied non calculable — tiret, jamais 0 ; les
+  // COMPTES de clients restent justes.
   const byInterval = useMemo(() => {
     const acc = {
-      semaine: { clients: 0, net: 0 },
-      mois: { clients: 0, net: 0 },
+      semaine: { clients: 0, net: 0 as number | null },
+      mois: { clients: 0, net: 0 as number | null },
     };
     for (const p of plans) {
-      if (p.interval === "semaine") {
-        acc.semaine.clients += p.members;
-        acc.semaine.net += p.netTotal;
-      } else if (p.interval === "mois") {
-        acc.mois.clients += p.members;
-        acc.mois.net += p.netTotal;
-      }
-    }
-    // A5 — chaque LIGNE d'offre est rendue avec SA devise (p.currency), mais ce
-    // pied de tableau les additionne. En bi-devise les montants ne veulent rien
-    // dire : on les neutralise, les COMPTES de clients restent justes.
-    if (mixedCurrency) {
-      acc.semaine.net = 0;
-      acc.mois.net = 0;
+      const k =
+        p.interval === "semaine" ? "semaine" : p.interval === "mois" ? "mois" : null;
+      if (k === null) continue;
+      const cur = acc[k];
+      cur.clients += p.members;
+      cur.net = cur.net === null || p.netTotal === null ? null : cur.net + p.netTotal;
     }
     return acc;
-  }, [plans, mixedCurrency]);
+  }, [plans]);
 
   // Litiges (chargebacks) EN COURS + remboursements — argent À RISQUE / rendu, déjà
   // DÉDUIT du revenu net. Les litiges sont triés serveur (le plus urgent d'abord).
@@ -360,8 +355,8 @@ export function OffresTab({
         }
         aria-busy={windowed.loading}
       >
-      {/* A5 — chaque ligne d'offre porte SA devise, mais les pieds de tableau
-          les additionnent : le signal doit être en tête d'onglet. */}
+      {/* A5 — les nets des offres sont ramenés à la devise du revenu et les
+          pieds de tableau les additionnent : le signal doit être en tête d'onglet. */}
       <MixedCurrencyNotice
         mixed={revenue?.mixedCurrency}
         present={revenue?.mixedCurrencyPresent}
@@ -1263,10 +1258,10 @@ export function OffresTab({
                             <TableCell className="text-right text-xs tabular-nums">
                               {formatNumber(p.members)}
                             </TableCell>
+                            {/* Nets dans la devise du REVENU (convertis côté
+                                serveur) — p.currency n'est que celle du prix. */}
                             <TableCell className="text-right text-xs tabular-nums">
-                              {dash(p.netPerPayment, (n) =>
-                                formatMoney(n, p.currency ?? undefined),
-                              )}
+                              {dash(p.netPerPayment, (n) => formatMoney(n, currency))}
                             </TableCell>
                             <TableCell className="text-right text-xs tabular-nums">
                               {p.feeRate === null
@@ -1274,9 +1269,7 @@ export function OffresTab({
                                 : `${formatNumber(Math.round(p.feeRate * 1000) / 10)} %`}
                             </TableCell>
                             <TableCell className="text-right text-xs tabular-nums font-semibold">
-                              {dash(p.netPerMemberMonth, (n) =>
-                                formatMoney(n, p.currency ?? undefined),
-                              )}
+                              {dash(p.netPerMemberMonth, (n) => formatMoney(n, currency))}
                             </TableCell>
                           </>
                         )}
@@ -1293,7 +1286,9 @@ export function OffresTab({
                     </span>{" "}
                     clients ·{" "}
                     <span className="tabular-nums">
-                      {formatMoney(Math.round(byInterval.semaine.net * 100) / 100, currency)}
+                      {dash(byInterval.semaine.net, (n) =>
+                        formatMoney(Math.round(n * 100) / 100, currency),
+                      )}
                     </span>
                   </span>
                   <span className="text-slate-500">
@@ -1303,7 +1298,9 @@ export function OffresTab({
                     </span>{" "}
                     client(s) ·{" "}
                     <span className="tabular-nums">
-                      {formatMoney(Math.round(byInterval.mois.net * 100) / 100, currency)}
+                      {dash(byInterval.mois.net, (n) =>
+                        formatMoney(Math.round(n * 100) / 100, currency),
+                      )}
                     </span>
                   </span>
                 </div>
