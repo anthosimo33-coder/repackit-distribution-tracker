@@ -66,6 +66,7 @@ import {
 import { lastWhopSyncMs } from "./changedFields";
 import { countPersons, dailyNewPersons } from "./whopClients";
 import { normalizeRef } from "./conversionAttribution";
+import { dayDetailOf } from "./dayDetail";
 import { payCurrencyFactor } from "./payCurrency";
 import {
   computeViewCounters,
@@ -2147,140 +2148,36 @@ export const getDayDetail = permissionQuery("business.read")({
     }
 
     // ── Trafic par (jour, ref) : agrégat quotidien déjà stocké ──────────────
-    const conv = await ctx.db
+    const traffic = await ctx.db
       .query("creatorConversions")
       .withIndex("by_project_date", (q) => q.eq("projectId", ctx.projectId))
       .collect();
-    type RefAcc = {
-      day: string;
-      ref: string;
-      /** null = trafic PAS ENCORE COLLECTÉ ce jour-là (cf lib/day-detail). */
-      visitors: number | null;
-      signups: number | null;
-      clients: number;
-      renewals: number;
-      failures: number;
-      net: number;
-    };
-    const refs = new Map<string, RefAcc>();
-    const touch = (day: string, ref: string): RefAcc => {
-      const k = `${day}|${ref}`;
-      const cur = refs.get(k) ?? {
-        day,
-        ref,
-        // Le trafic démarre à NULL : une ref créée par un paiement Whop n'a pas
-        // de trafic collecté tant que le cron de 23 h n'est pas passé. Un 0
-        // initial aurait affiché « 0 visiteur » pour une journée non collectée.
-        visitors: null,
-        signups: null,
-        clients: 0,
-        renewals: 0,
-        failures: 0,
-        net: 0,
-      };
-      refs.set(k, cur);
-      return cur;
-    };
-    for (const r of conv) {
-      const a = touch(r.date, r.ref ?? SANS_SOURCE);
-      // Une ligne collectée fait passer le trafic de « inconnu » à une MESURE —
-      // y compris quand elle vaut zéro.
-      if (r.visitors !== undefined) a.visitors = (a.visitors ?? 0) + r.visitors;
-      if (r.signups !== undefined) a.signups = (a.signups ?? 0) + r.signups;
-    }
 
     // ── Argent par (jour, ref) et décomposition du revenu : Whop, EN DIRECT ─
-    const revenue = new Map<
-      string,
-      { day: string; newNet: number; renewalNet: number; refunded: number }
-    >();
-    /**
-     * Argent par (jour, PAYS DE FACTURATION). Groupe SÉPARÉ du trafic par pays
-     * de connexion : deux notions, deux populations. Les réunir sur une même
-     * ligne inviterait à diviser des clients par des visiteurs.
-     */
-    const billing = new Map<
-      string,
-      {
-        day: string;
-        country: string | null;
-        clients: number;
-        renewals: number;
-        failures: number;
-        net: number;
-      }
-    >();
-    const touchBilling = (day: string, country: string | undefined) => {
-      const k = `${day}|${country ?? ""}`;
-      const cur = billing.get(k) ?? {
-        day,
-        country: country ?? null,
-        clients: 0,
-        renewals: 0,
-        failures: 0,
-        net: 0,
-      };
-      billing.set(k, cur);
-      return cur;
-    };
+    // Montants ramenés à la devise du revenu au taux du projet (cf
+    // convex/dayDetail) : sans ça, des dinars s'additionnaient à des euros.
+    let payments: Awaited<ReturnType<typeof collectProjectWhopPayments>>["payments"] = [];
+    const refOf = new Map<string, string | null>();
     if (project?.whop) {
-      const { payments } = await collectProjectWhopPayments(
-        ctx,
-        ctx.projectId,
-        project.slug,
-      );
+      ({ payments } = await collectProjectWhopPayments(ctx, ctx.projectId, project.slug));
       const memberships = await ctx.db
         .query("whopMemberships")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect();
-      const refOf = new Map<string, string | null>(
-        memberships.map((m) => [m.whopMembershipId, normalizeRef(m.ref ?? null)]),
-      );
-      // 1er paiement encaissé par abonnement : un NOUVEAU client compte le jour
-      // de celui-là, jamais d'un renouvellement (cf getReliability).
-      const firstPaid = new Map<string, number>();
-      for (const p of payments) {
-        if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
-        const prev = firstPaid.get(p.membershipId);
-        if (prev === undefined || p.paidAt < prev) firstPaid.set(p.membershipId, p.paidAt);
-      }
-      for (const p of payments) {
-        const day = parisDay(p.paidAt);
-        const ref = p.membershipId ? (refOf.get(p.membershipId) ?? null) : null;
-        const a = touch(day, ref ?? SANS_SOURCE);
-        if (p.status === "failed") {
-          a.failures += 1;
-          touchBilling(day, p.billingCountry).failures += 1;
-          continue;
-        }
-        const net = whopNetContribution(p);
-        const rev = revenue.get(day) ?? { day, newNet: 0, renewalNet: 0, refunded: 0 };
-        revenue.set(day, rev);
-        const rembourse = Math.max(0, p.refundedAmount ?? 0);
-        if (rembourse > 0) rev.refunded = round2(rev.refunded + rembourse);
-        if (net <= 0) continue;
-        a.net = round2(a.net + net);
-        const estNouveau =
-          p.membershipId !== undefined && firstPaid.get(p.membershipId) === p.paidAt;
-        const b = touchBilling(day, p.billingCountry);
-        b.net = round2(b.net + net);
-        if (estNouveau) {
-          a.clients += 1;
-          b.clients += 1;
-          rev.newNet = round2(rev.newNet + net);
-        } else {
-          a.renewals += 1;
-          b.renewals += 1;
-          rev.renewalNet = round2(rev.renewalNet + net);
-        }
+      for (const m of memberships) {
+        refOf.set(m.whopMembershipId, normalizeRef(m.ref ?? null));
       }
     }
 
     return {
       countries,
-      refs: [...refs.values()],
-      revenue: [...revenue.values()],
-      billingCountries: [...billing.values()],
+      ...dayDetailOf({
+        traffic,
+        payments,
+        refOf,
+        sansSource: SANS_SOURCE,
+        fx: projectFx(project),
+      }),
     };
   },
 });
