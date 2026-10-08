@@ -875,7 +875,7 @@
   "McpAccessDialog": {
     "connecterClaude": "Connect Claude",
     "titre": "Connect Claude to the app",
-    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting, assignments, scripts, posts or the watch list: Claude will ask for your approval before each change.",
+    "description": "Claude can read the app’s data for you: accounts, creators, views, profitability, top posts, scripts, accounting. Read-only by default, with your permissions — it only sees what you see here. You can allow a connection to edit Accounting, assignments, scripts, posts, the watch list or pay grids: Claude will ask for your approval before each change.",
     "nomDeLaCle": "Key name",
     "nomPlaceholder": "e.g. Claude on my Mac",
     "creerUneCle": "Create a key",
@@ -950,7 +950,8 @@
       "envoyer_message_createatrice": "Write to a creator",
       "creer_conversation": "Conversation created",
       "modifier_conversation": "Conversation edited",
-      "supprimer_conversation": "Conversation deleted"
+      "supprimer_conversation": "Conversation deleted",
+      "changer_bareme": "Video pay grid changed"
     },
     "section": {
       "treasury": "Cash",
@@ -964,7 +965,8 @@
       "radar": "Radar",
       "inspirations": "Inspirations",
       "messages": "Creators",
-      "conversations": "Instagram conversations"
+      "conversations": "Instagram conversations",
+      "pricing": "Pay grids"
     },
     "domaine": {
       "compta": {
@@ -1001,6 +1003,11 @@
         "titre": "Conversations",
         "objet": "Instagram conversations",
         "aria": "Conversation edits for {name}"
+      },
+      "baremes": {
+        "titre": "Pay grids",
+        "objet": "the pay grids of videos already assigned",
+        "aria": "Pay grid edits for {name}"
       }
     }
   },

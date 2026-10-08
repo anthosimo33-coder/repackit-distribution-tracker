@@ -64,6 +64,8 @@ import {
 } from "./compta";
 import { representativePostedAt } from "./calendarStatus";
 import { ecrireCombo, supprimerTexteDuCombo } from "./assignmentScriptText";
+import { restaurerBaremesCore } from "./pricingReassign";
+import type { PricingSnapshot } from "./pricing";
 
 const FENETRE_MS = 30 * 86_400_000;
 const LIMITE = 30;
@@ -127,6 +129,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "changer_compte_cible",
   "annuler_mission",
   "reecrire_mission",
+  "changer_bareme",
   "creer_campagne",
   "ajouter_hooks",
   "ajouter_flux_cta",
@@ -344,6 +347,18 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
         await supprimerTexteDuCombo(ctx, a.assignmentId);
       }
       return "Script d'avant remis (combinaison, texte, notif, consigne).";
+    }
+    case "bareme": {
+      const r = await restaurerBaremesCore(
+        ctx,
+        a.lignes.map((l) => ({
+          assignmentId: l.assignmentId,
+          avant: JSON.parse(l.avant) as PricingSnapshot,
+          apres: JSON.parse(l.apres) as PricingSnapshot,
+        })),
+      );
+      if ("refus" in r) throw refus(`Rien n'a été remis : ${r.refus}.`);
+      return `${r.restaurees} vidéo(s) remise(s) sur leur barème d'avant.`;
     }
     case "experienceCreee":
     case "missionsCreees": {

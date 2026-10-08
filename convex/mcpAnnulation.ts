@@ -69,6 +69,16 @@ export const annulationValidator = v.union(
    * l'avant si la mission montre encore exactement l'après.
    */
   v.object({ type: v.literal("combo"), assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() }),
+  // ── Barèmes ───────────────────────────────────────────────────────────────
+  /**
+   * changer_bareme : le `pricingSnapshot` de chaque vidéo, avant et après, en
+   * JSON. Défaire remet l'avant si TOUTES montrent encore l'après et qu'aucune
+   * n'est entrée dans un cycle payé (cf restaurerBaremesCore).
+   */
+  v.object({
+    type: v.literal("bareme"),
+    lignes: v.array(v.object({ assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() })),
+  }),
   // ── Scripts ───────────────────────────────────────────────────────────────
   /** creer_campagne : la campagne créée (et ses briques). */
   v.object({ type: v.literal("campagneCreee"), campaignId: v.id("scriptCampaigns") }),
