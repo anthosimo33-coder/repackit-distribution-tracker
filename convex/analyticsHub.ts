@@ -67,6 +67,7 @@ import { lastWhopSyncMs } from "./changedFields";
 import { countPersons, dailyNewPersons } from "./whopClients";
 import { normalizeRef } from "./conversionAttribution";
 import { dayDetailOf } from "./dayDetail";
+import { membershipEconomicsOf, NO_PLAN_ID } from "./planEconomics";
 import { payCurrencyFactor } from "./payCurrency";
 import {
   computeViewCounters,
@@ -868,20 +869,25 @@ export interface PlanEconomics {
   interval: string | null;
   /** Prix affiché de l'offre (brut le plus fréquent) — l'ID Whop ne dit rien à personne. */
   price: number | null;
-  /** Devise de l'offre (le symbole vient de la donnée, jamais du code). */
+  /**
+   * Devise du PRIX de l'offre (le symbole vient de la donnée, jamais du code).
+   * ⚠️ PAS celle des montants nets ci-dessous, ramenés à la devise du revenu
+   * (`RevenueBreakdown.currency`) : une offre en dinars a un net en euros.
+   */
   currency: string | null;
   /** true = offre ACTIVE (au moins un paiement encaissé) ; false = offre HISTORIQUE. */
   active: boolean;
   members: number;
-  netTotal: number;
+  /** Net cumulé, devise du revenu. null si non additionnable (A5). */
+  netTotal: number | null;
   /** LTV RÉALISÉE = net cumulé / membres (pas de projection : sans signal de
-   *  churn, une LTV prédictive serait inventée). */
+   *  churn, une LTV prédictive serait inventée). Devise du revenu. */
   ltv: number | null;
-  /** B3 — Net moyen par paiement. null si aucun paiement encaissé. */
+  /** B3 — Net moyen par paiement, devise du revenu. null si aucun paiement encaissé. */
   netPerPayment: number | null;
   /** B3 — taux de frais du plan (brut − net)/brut, fraction 0–1. null si mixte/nul. */
   feeRate: number | null;
-  /** B3 — Net par mois-membre actif (« net/mois/client »). null si aucun. */
+  /** B3 — Net par mois-membre actif (« net/mois/client »), devise du revenu. null si aucun. */
   netPerMemberMonth: number | null;
   /** Raison si le net n'est pas calculable (offre sans paiement encaissé). null sinon. */
   netReason: string | null;
@@ -942,9 +948,9 @@ export interface RevenueBreakdown {
   disputedTotal: number;
   /** Litiges en cours, du délai le plus court au plus long (le plus urgent d'abord). */
   disputes: DisputeEntry[];
-  /** Revenu net moyen par membre et par mois actif (dénominateur du payback). */
+  /** Revenu net moyen par membre et par mois actif (dénominateur du payback). Devise du revenu. */
   monthlyArpu: number | null;
-  /** LTV réalisée toutes offres confondues. */
+  /** LTV réalisée toutes offres confondues. Devise du revenu. */
   ltv: number | null;
   /**
    * false — le churn n'est PAS dérivable de whopPayments (aucun cycle de vie
@@ -1290,8 +1296,10 @@ export async function getRevenueBreakdownCore(
         let unattributedNet = 0;
         const members = new Set<string>();
         for (const p of list) {
+          // Encaissé ou non : décidé sur le net BRUT — 0,50 RSD converti
+          // s'arrondit à 0,00 € mais a bien été encaissé.
+          if (whopNetContribution(p) <= 0) continue;
           const net = whopNetInSummaryCurrency(p, sPeriod);
-          if (net <= 0) continue;
           if (!p.membershipId) {
             unattributedNet += net;
             continue;
@@ -1312,44 +1320,21 @@ export async function getRevenueBreakdownCore(
       })
       .sort((a, b) => (a.period < b.period ? 1 : -1));
 
-    // LTV réalisée par plan : net cumulé rapporté au nombre de membres.
-    const perMembership = new Map<
-      string,
-      { net: number; planId: string; months: Set<string> }
-    >();
-    for (const p of payments) {
-      if (!p.membershipId) continue;
-      const net = whopNetContribution(p);
-      const cur = perMembership.get(p.membershipId) ?? {
-        net: 0,
-        planId: p.planId ?? "(sans plan)",
-        months: new Set<string>(),
-      };
-      cur.net += net;
-      if (net > 0) cur.months.add(monthKeyParis(p.paidAt));
-      perMembership.set(p.membershipId, cur);
-    }
+    // Le taux du projet rend le total BI-DEVISE additionnable (cf projectFx).
+    // Sans lui, tous les montants de cet écran retombent à zéro. C'est aussi le
+    // RÉFÉRENTIEL des agrégats ci-dessous qui somment les paiements un par un.
+    const summary = summarizeWhopRevenue(payments, fx);
 
-    const byPlan = new Map<
-      string,
-      { members: number; netTotal: number; memberMonths: number }
-    >();
-    for (const m of perMembership.values()) {
-      const cur = byPlan.get(m.planId) ?? {
-        members: 0,
-        netTotal: 0,
-        memberMonths: 0,
-      };
-      cur.members += 1;
-      cur.netTotal += m.net;
-      cur.memberMonths += m.months.size;
-      byPlan.set(m.planId, cur);
-    }
-    // Éco par offre : frais (brut − net) et net/paiement par plan, via le même
-    // moteur devise-sûr (C6) sur le sous-ensemble de paiements du plan.
+    // LTV réalisée, revenu mensuel par client et net par offre : chaque net
+    // ramené à la devise du revenu (cf convex/planEconomics — Snytch additionnait
+    // des dinars à des euros jusqu'au 08/10/2026).
+    const economics = membershipEconomicsOf(payments, summary);
+
+    // Éco par offre : frais (brut − net) par plan, via le même moteur
+    // devise-sûr (C6) sur le sous-ensemble de paiements du plan.
     const paymentsByPlan = new Map<string, typeof payments>();
     for (const p of payments) {
-      const k = p.planId ?? "(sans plan)";
+      const k = p.planId ?? NO_PLAN_ID;
       const list = paymentsByPlan.get(k) ?? [];
       list.push(p);
       paymentsByPlan.set(k, list);
@@ -1366,7 +1351,7 @@ export async function getRevenueBreakdownCore(
     );
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const plans: PlanEconomics[] = [...byPlan.entries()]
+    const plans: PlanEconomics[] = [...economics.plans.entries()]
       .map(([planId, x]) => {
         const list = paymentsByPlan.get(planId) ?? [];
         const s = summarizeWhopRevenue(list, fx);
@@ -1382,17 +1367,12 @@ export async function getRevenueBreakdownCore(
           currency: currency ?? label?.currency ?? null,
           active,
           members: x.members,
-          netTotal: round2(x.netTotal),
-          ltv: x.members > 0 ? round2(x.netTotal / x.members) : null,
-          // Même piège qu'au-dessus : net zéroïsé par la garde A5 ÷ un
-          // paymentCount non zéroïsé = 0,00 affiché au lieu d'un tiret.
-          netPerPayment:
-            s.mixedCurrency || s.paymentCount === 0
-              ? null
-              : round2(s.net / s.paymentCount),
+          // Devise du revenu, null si non additionnable — comme le total.
+          netTotal: x.netTotal,
+          ltv: x.ltv,
+          netPerPayment: x.netPerPayment,
           feeRate: s.feeRate,
-          netPerMemberMonth:
-            x.memberMonths > 0 ? round2(x.netTotal / x.memberMonths) : null,
+          netPerMemberMonth: x.netPerMemberMonth,
           // Un net non calculable a une CAUSE affichée (offre historique sans
           // encaissement) plutôt qu'un tiret muet.
           netReason: active
@@ -1403,12 +1383,9 @@ export async function getRevenueBreakdownCore(
       // Offres actives d'abord (par net décroissant), offres historiques ensuite.
       .sort(
         (a, b) =>
-          Number(b.active) - Number(a.active) || b.netTotal - a.netTotal,
+          Number(b.active) - Number(a.active) ||
+          (b.netTotal ?? 0) - (a.netTotal ?? 0),
       );
-
-    // Le taux du projet rend le total BI-DEVISE additionnable (cf projectFx).
-    // Sans lui, tous les montants de cet écran retombent à zéro.
-    const summary = summarizeWhopRevenue(payments, fx);
 
     // Revenu net par JOUR Europe/Paris (colonne « Détail par jour »). En multi-
     // devise NON convertible on ne somme pas : série vide (tiret à l'écran).
@@ -1426,14 +1403,6 @@ export async function getRevenueBreakdownCore(
     const dailyNet = [...netByDay.entries()]
       .map(([day, net]) => ({ day, net }))
       .sort((a, b) => (a.day < b.day ? -1 : 1));
-
-    const totalNet = [...perMembership.values()].reduce((s, m) => s + m.net, 0);
-    const totalMembers = perMembership.size;
-    const totalMemberMonths = [...perMembership.values()].reduce(
-      (s, m) => s + m.months.size,
-      0,
-    );
-
 
     // Litiges (chargebacks) EN COURS — argent À RISQUE, déjà EXCLU du net. Le plus
     // URGENT d'abord (échéance de réponse la plus proche ; sans échéance en dernier).
@@ -1474,9 +1443,8 @@ export async function getRevenueBreakdownCore(
       refundCount: summary.refundCount,
       disputedTotal: summary.disputed,
       disputes,
-      monthlyArpu:
-        totalMemberMonths > 0 ? round2(totalNet / totalMemberMonths) : null,
-      ltv: totalMembers > 0 ? round2(totalNet / totalMembers) : null,
+      monthlyArpu: economics.monthlyArpu,
+      ltv: economics.ltv,
       churnAvailable: false,
       internalExcludedMembers: internalMembers.size,
       offerChanges,

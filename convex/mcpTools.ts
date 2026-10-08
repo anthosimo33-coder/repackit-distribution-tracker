@@ -1878,7 +1878,7 @@ export function jarviaServer(
         const avertissements: string[] = [];
         if (r.mixedCurrency) {
           avertissements.push(
-            `Revenus encaissés dans plusieurs devises (${r.currenciesPresent.join(", ")}) sans taux de change réglé sur le projet : les totaux ne sont pas additionnés (null), jamais inventés.`,
+            `Revenus encaissés dans plusieurs devises (${r.currenciesPresent.join(", ")}) sans taux de change réglé sur le projet : les totaux ne sont pas additionnés (null), jamais inventés — LTV, revenu mensuel par client et nets par offre compris.`,
           );
         }
         if (r.conversions.length > 0) {
@@ -1919,7 +1919,9 @@ export function jarviaServer(
             offre: o.name,
             cadence: o.interval,
             prix: o.price,
-            devise: o.currency,
+            // Devise du PRIX seulement : les nets de l'offre sont dans `devise`
+            // (celle du revenu), convertis au taux du projet.
+            devisePrix: o.currency,
             active: o.active,
             clients: o.members,
             netTotal: o.netTotal,
@@ -1975,6 +1977,7 @@ export function jarviaServer(
             "Net = ce que Whop verse après ses frais, remboursements déduits ; les litiges en cours en sont EXCLUS (argent à risque).",
             "« premierPaiement » / « renouvellement » : le 1er paiement encaissé d'un abonnement contre les suivants — approximation bornée à l'historique importé.",
             "LTV RÉALISÉE = net cumulé ÷ clients, sans projection (pas de churn inventé). Les offres, remboursements, litiges et le test A/B portent sur TOUT l'historique ; seuls revenuNet, parJour et periodePrecedente suivent la période.",
+            "Offres : « prix » est dans « devisePrix » (celle de l'offre, ex. rsd) ; netTotal, ltvRealisee, netParPaiement et netParMoisClient sont, comme ltvRealiseeParClient et revenuMensuelParClient, dans « devise » (celle du revenu), chaque paiement converti au taux du projet.",
             "Avant de comparer deux périodes, regarder changementsOffre : un changement d'offre rend deux cohortes incomparables.",
             "« clients » compte ici des ABONNEMENTS Whop (une personne peut en avoir plusieurs) — pas les personnes d'economie_unitaire. Ne jamais comparer les deux sans le dire.",
           ],
