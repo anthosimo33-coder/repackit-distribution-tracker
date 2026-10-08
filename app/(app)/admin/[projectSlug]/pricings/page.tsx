@@ -7,6 +7,7 @@ import {
 } from "@/components/project/use-project-convex";
 import { useProject } from "@/components/project/ProjectProvider";
 import { PricingCreatorsDialog } from "@/components/pricing/PricingCreatorsDialog";
+import { ApplyPricingDialog } from "@/components/pricing/ApplyPricingDialog";
 import { usePermissions } from "@/components/project/use-permissions";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -216,6 +217,9 @@ function PricingsPageContenu() {
   // l'écran des barèmes sans pouvoir déplacer l'argent de quelqu'un.
   const peutPoserLesGrilles = usePermissions().has("creators.pay_terms");
   const [creatorsFor, setCreatorsFor] = useState<Pricing | null>(null);
+  // « Appliquer à des vidéos déjà attribuées » : le seul geste qui change le
+  // barème FIGÉ de vidéos existantes (nouveau contrat d'une créatrice).
+  const [applyFor, setApplyFor] = useState<Pricing | null>(null);
 
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<"active" | "archived" | "all">("active");
@@ -531,6 +535,7 @@ function PricingsPageContenu() {
                 onEditCreators={
                   peutPoserLesGrilles ? () => setCreatorsFor(p) : null
                 }
+                onApplyToVideos={() => setApplyFor(p)}
                 onSaveAsTemplate={() => saveAsTemplate(p)}
                 onArchive={() => toggleArchive(p)}
                 onDelete={() => handleDelete(p)}
@@ -553,6 +558,15 @@ function PricingsPageContenu() {
           pricingName={creatorsFor.name}
           open
           onOpenChange={(o) => !o && setCreatorsFor(null)}
+        />
+      )}
+
+      {applyFor && (
+        <ApplyPricingDialog
+          pricingId={applyFor._id}
+          pricingName={applyFor.name}
+          open
+          onOpenChange={(o) => !o && setApplyFor(null)}
         />
       )}
 
@@ -670,6 +684,7 @@ function PricingRow({
   onShowDrift,
   onSetDefault,
   onEditCreators,
+  onApplyToVideos,
   onSaveAsTemplate,
   onArchive,
   onDelete,
@@ -685,6 +700,7 @@ function PricingRow({
   onSetDefault: () => void;
   /** null = l'utilisateur n'a pas le droit de toucher aux conditions de paie. */
   onEditCreators: (() => void) | null;
+  onApplyToVideos: () => void;
   onSaveAsTemplate: () => void;
   onArchive: () => void;
   onDelete: () => void;
@@ -805,6 +821,13 @@ function PricingRow({
           {onEditCreators && (
             <DropdownMenuItem onClick={onEditCreators}>
               Créatrices sur cette grille…
+            </DropdownMenuItem>
+          )}
+          {/* Un barème archivé ne s'attribue plus : il ne se ré-applique pas
+              non plus (le serveur refuserait, comme à l'assignation). */}
+          {p.status === "active" && (
+            <DropdownMenuItem onClick={onApplyToVideos}>
+              Appliquer à des vidéos déjà attribuées…
             </DropdownMenuItem>
           )}
           {/* Amorce la bibliothèque depuis une échelle qui EXISTE : sans elle,

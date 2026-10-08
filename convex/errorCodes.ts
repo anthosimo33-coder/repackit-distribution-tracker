@@ -378,6 +378,10 @@ export const ERR = {
   INSTA_CONV_NOT_FOUND: "ERR_INSTA_CONV_NOT_FOUND",
   /** Image d'une conversation : ni JPEG, ni PNG, ni WebP, trop lourde, ou d'un autre projet. */
   INSTA_CONV_IMAGE_REJECTED: "ERR_INSTA_CONV_IMAGE_REJECTED",
+  /** Changer le barème de vidéos : jours absents, mal formés, ou fin avant le début. */
+  PRICING_REASSIGN_DAY_INVALID: "ERR_PRICING_REASSIGN_DAY_INVALID",
+  /** Changer le barème : la liste a bougé depuis l'aperçu (paramètres `found`, `expected`). */
+  PRICING_REASSIGN_STALE: "ERR_PRICING_REASSIGN_STALE",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

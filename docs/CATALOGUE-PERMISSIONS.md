@@ -598,6 +598,14 @@ Dont deux nées du découpage de l'étape 3 : la grille de rémunération d'un f
 | `setDefaultBonusPricing` | M | pricing | Désigne le barème de bonus par défaut |  |
 | `updatePricing` | M | pricing | Modifie un barème |  |
 
+Changer le barème de vidéos DÉJÀ attribuées (octobre 2026, nouveau contrat d'une créatrice) : écran Barèmes › « Appliquer à des vidéos déjà attribuées… », et l'outil MCP `changer_bareme` derrière l'interrupteur « Barèmes » — un interrupteur à lui, pour qu'ouvrir les missions à Claude ne lui ouvre pas la paie. Même cœur (`convex/pricingReassign.ts`), cycles payés jamais touchés.
+
+| Fonction | T | Fichier | Ce qu'elle fait | |
+|---|---|---|---|---|
+| `listReassignCreators` | Q | pricingReassign | Créatrices partenaires du périmètre, avec leur devise de paie |  |
+| `previewReassign` | Q | pricingReassign | Aperçu : chaque vidéo de la plage, son barème actuel, ce qui la laisse |  |
+| `reassignPricing` | M | pricingReassign | Re-tamponne le barème des vidéos de l'aperçu (refusé si la liste a bougé) |  |
+
 ### `payments.manage` — 9 fonctions
 
 | Fonction | T | Fichier | Ce qu'elle fait | |

@@ -349,9 +349,10 @@ export function mcpPermissionQuery(permission: PermissionId) {
  * (assigner, replanifier, abandonner), les scripts (briques des campagnes), les
  * publications (lien collé en secours, chauffe), la veille et la bibliothèque
  * (comptes suivis, inspirations), les messages aux créatrices (le coach : un
- * email, qui ne se reprend pas).
+ * email, qui ne se reprend pas), les conversations Instagram, et les barèmes des
+ * vidéos déjà attribuées (de l'argent : un interrupteur à lui).
  */
-export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications", "veille", "messages", "conversations"] as const;
+export const MCP_WRITE_SCOPES = ["compta", "missions", "scripts", "publications", "veille", "messages", "conversations", "baremes"] as const;
 export type McpWriteScope = (typeof MCP_WRITE_SCOPES)[number];
 
 /** La connexion MCP (clé ou application OAuth) qui porte un appel d'écriture. */

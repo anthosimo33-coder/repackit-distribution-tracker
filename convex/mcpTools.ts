@@ -1315,6 +1315,7 @@ export function jarviaServer(
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
     messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
     conversations: "les conversations Instagram (créer, modifier, supprimer un brouillon de capture ; l'image s'exporte depuis l'écran de l'app)",
+    baremes: "les barèmes des vidéos déjà attribuées (passer les vidéos d'une créatrice sur un autre barème à partir d'un jour — c'est sa paie)",
   };
   // Un libellé par INTERRUPTEUR : deux domaines peuvent partager le même
   // (expériences et missions) — sans ce dédoublonnage, « les missions » sortait

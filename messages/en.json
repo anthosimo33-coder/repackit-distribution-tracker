@@ -1536,7 +1536,9 @@
     "ERR_INSTA_CONV_INVALID": "Invalid conversation: empty or too long title, or unreadable content.",
     "ERR_INSTA_CONV_TITLE_TAKEN": "A conversation is already called \"{titre}\".",
     "ERR_INSTA_CONV_NOT_FOUND": "This conversation no longer exists.",
-    "ERR_INSTA_CONV_IMAGE_REJECTED": "Image rejected: JPEG, PNG or WebP, 8 MB at most."
+    "ERR_INSTA_CONV_IMAGE_REJECTED": "Image rejected: JPEG, PNG or WebP, 8 MB at most.",
+    "ERR_PRICING_REASSIGN_DAY_INVALID": "Invalid day range: use YYYY-MM-DD days, the first one before the last.",
+    "ERR_PRICING_REASSIGN_STALE": "The list changed since the preview: {found} video(s) to move to this pay grid instead of {expected}. Nothing was changed: check the preview again."
   },
   "calendar": {
     "weekday": {

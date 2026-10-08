@@ -405,7 +405,7 @@ function Contenu() {
 }
 
 /** Les domaines qu'une connexion peut être autorisée à modifier (convex/functions MCP_WRITE_SCOPES). */
-const DOMAINES = ["compta", "missions", "scripts", "publications", "veille", "messages", "conversations"] as const;
+const DOMAINES = ["compta", "missions", "scripts", "publications", "veille", "messages", "conversations", "baremes"] as const;
 type Domaine = (typeof DOMAINES)[number];
 type OutilEcriture =
   | "ventiler_virement"
@@ -440,7 +440,8 @@ type OutilEcriture =
   | "envoyer_message_createatrice"
   | "creer_conversation"
   | "modifier_conversation"
-  | "supprimer_conversation";
+  | "supprimer_conversation"
+  | "changer_bareme";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un
