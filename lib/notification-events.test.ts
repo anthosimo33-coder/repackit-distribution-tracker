@@ -12,7 +12,7 @@ import {
 import * as convexEvents from "../convex/notificationEvents";
 
 describe("catalogue — forme et contenu", () => {
-  it("expose les 17 événements du catalogue", () => {
+  it("expose les 18 événements du catalogue", () => {
     expect(NOTIFICATION_EVENT_KEYS).toEqual([
       "video_submitted",
       "video_resubmitted",
@@ -28,13 +28,14 @@ describe("catalogue — forme et contenu", () => {
       "digest_warmup_late",
       "digest_clipper_sans_talent",
       "digest_talent_solde_du",
+      "digest_recrues_a_trancher",
       "evening_unpublished",
       "claude_propositions",
       "sync_failures",
     ]);
   });
 
-  it("10 immédiats, 6 digest, 1 planifié — le classement arbitré", () => {
+  it("10 immédiats, 7 digest, 1 planifié — le classement arbitré", () => {
     const immediate = NOTIFICATION_EVENTS.filter((e) => e.kind === "immediate");
     const digest = NOTIFICATION_EVENTS.filter((e) => e.kind === "digest");
     expect(immediate.map((e) => e.key)).toEqual([
@@ -63,6 +64,8 @@ describe("catalogue — forme et contenu", () => {
       "digest_warmup_late",
       "digest_clipper_sans_talent",
       "digest_talent_solde_du",
+      // Une décision à prendre, pas une alerte : elle attend le matin.
+      "digest_recrues_a_trancher",
     ]);
     // `scheduled` : ni réaction à un geste, ni section du digest — un envoi à
     // une heure choisie, avec son propre message.

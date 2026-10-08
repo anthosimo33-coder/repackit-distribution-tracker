@@ -54,6 +54,38 @@ export const ACCOUNT_ALARM_MAX_LIKE_RATE = 0.08;
  */
 export const ACCOUNT_ALARM_RESCUE_VIEWS = 15_000;
 
+/* ── RECRUE À TRANCHER ────────────────────────────────────────────────────── */
+
+/**
+ * Taille du TEST d'une recrue, en VIDÉOS promo (une mission publiée sur TikTok
+ * et sur Instagram = UNE vidéo, comme au contrat). Cadre validé le 15/09/2026 :
+ * on juge une créatrice sur ses 10 premières vidéos, jamais avant.
+ */
+export const RECRUIT_TRIAL_VIDEOS = 10;
+
+/**
+ * Une SEULE publication à ce seuil ou plus → « garder ». Jamais une somme
+ * TikTok + Instagram d'une même vidéo (arbitrage du 08/10/2026). Base : les
+ * créatrices qui n'ont jamais décollé plafonnaient à 8 400 vues (mesure du
+ * 15/09/2026), celles qu'on a gardées ont toutes passé 10 000.
+ */
+export const RECRUIT_KEEP_MIN_VIEWS = 10_000;
+
+/**
+ * Délai après la 10e vidéo avant de proposer « arrêter » : à J+7, une vidéo a
+ * en médiane 86 % de ses vues finales (mesure du 15/09/2026). Plus tôt, on
+ * condamnerait une vidéo qui monte encore.
+ */
+export const RECRUIT_MATURITY_MS = 7 * 24 * HOUR_MS;
+
+/**
+ * Plateformes qui comptent pour le test — « que ce soit IG ou TikTok ». Les
+ * autres (Snapchat, Facebook, YouTube) n'entrent ni dans le seuil ni dans la
+ * complétude de la mesure : Facebook n'a longtemps pas été relevé, et un relevé
+ * absent sur une plateforme hors règle suspendrait le verdict pour rien.
+ */
+export const RECRUIT_TRIAL_PLATFORMS: readonly string[] = ["TikTok", "Instagram"];
+
 /* ── Couleurs de lecture (playbook) ───────────────────────────────────────── */
 
 /** Like rate : rouge en dessous, vert au-dessus (entre les deux : neutre). */

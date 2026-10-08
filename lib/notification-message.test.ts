@@ -468,6 +468,7 @@ const EMPTY: DigestSections = {
   chauffeSansTalent: [],
   talentSoldeDu: [],
   jamaisMesurees: [],
+  recruesATrancher: [],
 };
 
 describe("buildDigestMessage", () => {
@@ -498,6 +499,27 @@ describe("buildDigestMessage", () => {
     expect(msg).toContain("2 renouvellements en échec");
     expect(msg).toContain("Whop les relancera");
     expect(msg).toContain("marc_d");
+  });
+
+  it("recrues à trancher : la proposition nommée, le suspendu dit pourquoi — et seule, la section suffit", () => {
+    const msg = buildDigestMessage({
+      projectName: "Snytch",
+      sections: {
+        ...EMPTY,
+        recruesATrancher: [
+          { creatorName: "Quentin Lefèvre", proposition: "garder" },
+          { creatorName: "Sarah Da Costa", proposition: "arrêter" },
+          { creatorName: "Elena 🇨🇱 <test>", proposition: "suspendu" },
+        ],
+      },
+      appBaseUrl: BASE,
+      projectSlug: SLUG,
+    });
+    expect(msg).toContain("3 recrues à trancher");
+    expect(msg).toContain("Quentin Lefèvre — proposé : garder");
+    expect(msg).toContain("Sarah Da Costa — proposé : arrêter");
+    expect(msg).toContain("Elena 🇨🇱 &lt;test&gt; — verdict suspendu (publication sans relevé)");
+    expect(msg).toContain(`${BASE}/admin/${SLUG}/dashboard`);
   });
 
   it("une seule section suffit à produire un message", () => {
@@ -614,6 +636,7 @@ describe("buildDigestMessage", () => {
         chauffeSansTalent: [],
         talentSoldeDu: [],
         jamaisMesurees: [],
+        recruesATrancher: [],
       },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -664,6 +687,12 @@ function everyMessage(): string[] {
     jamaisMesurees: [
       { compte: "@sarahkl02", joursDepuisPubli: 19 },
       { compte: "@withorlane", joursDepuisPubli: 34 },
+    ],
+    // Recrues à trancher, dans le scan de fuite : un nom et une proposition,
+    // jamais un montant de test ni une adresse.
+    recruesATrancher: [
+      { creatorName: "Quentin Lefèvre", proposition: "garder" },
+      { creatorName: "Sarah Da Costa", proposition: "suspendu" },
     ],
   };
   return [
@@ -999,6 +1028,7 @@ describe("digest — warmups terminés en attente de validation", () => {
     chauffeSansTalent: [],
     talentSoldeDu: [],
     jamaisMesurees: [],
+    recruesATrancher: [],
   };
   const build = (sections: DigestSections) =>
     buildDigestMessage({

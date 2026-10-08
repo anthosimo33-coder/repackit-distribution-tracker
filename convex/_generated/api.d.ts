@@ -217,6 +217,7 @@ import type * as quadrantSettings from "../quadrantSettings.js";
 import type * as quadrantSync from "../quadrantSync.js";
 import type * as radar from "../radar.js";
 import type * as radarApi from "../radarApi.js";
+import type * as recruitTrial from "../recruitTrial.js";
 import type * as reminderGrouping from "../reminderGrouping.js";
 import type * as remunerate from "../remunerate.js";
 import type * as retentionCost from "../retentionCost.js";
@@ -490,6 +491,7 @@ declare const fullApi: ApiFromModules<{
   quadrantSync: typeof quadrantSync;
   radar: typeof radar;
   radarApi: typeof radarApi;
+  recruitTrial: typeof recruitTrial;
   reminderGrouping: typeof reminderGrouping;
   remunerate: typeof remunerate;
   retentionCost: typeof retentionCost;
