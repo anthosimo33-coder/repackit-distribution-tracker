@@ -80,6 +80,7 @@ import {
   type CreatorEfficiency,
 } from "./soloDays";
 import { isOnPublicationCalendar } from "./calendarStatus";
+import { billingCountriesOf, type BillingCountries } from "./billingCountries";
 
 /**
  * Croisement Jarvia × PostHog × Whop du hub Analytics.
@@ -2093,10 +2094,12 @@ export const getBillingCountries = permissionQuery("business.read")({
 });
 
 /** Le calcul de l'écran — appelé par la query ci-dessus ET par l'outil MCP `parcours`. */
-export async function getBillingCountriesCore(ctx: ProjectQueryCtx) {
+export async function getBillingCountriesCore(
+  ctx: ProjectQueryCtx,
+): Promise<BillingCountries> {
     const project = await ctx.db.get(ctx.projectId);
     if (!project?.whop) {
-      return { rows: [], payments: 0, withCountry: 0, clients: 0, clientsWithCountry: 0 };
+      return billingCountriesOf([], new Map(), null);
     }
     const { payments } = await collectProjectWhopPayments(
       ctx,
@@ -2111,68 +2114,9 @@ export async function getBillingCountriesCore(ctx: ProjectQueryCtx) {
     for (const m of memberships) {
       if (m.whopUserId) userOf.set(m.whopMembershipId, m.whopUserId);
     }
-
-    // Pays d'un client = celui de son PREMIER paiement encaissé.
-    const first = new Map<string, { at: number; country?: string }>();
-    for (const p of payments) {
-      if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
-      const u = userOf.get(p.membershipId) ?? `mem:${p.membershipId}`;
-      const prev = first.get(u);
-      if (prev === undefined || p.paidAt < prev.at) {
-        first.set(u, { at: p.paidAt, country: p.billingCountry });
-      }
-    }
-
-    type Row = {
-      country: string | null;
-      clients: number;
-      renewals: number;
-      failures: number;
-      net: number;
-    };
-    const rows = new Map<string, Row>();
-    const touch = (c: string | undefined): Row => {
-      const k = c ?? "";
-      const cur = rows.get(k) ?? {
-        country: c ?? null,
-        clients: 0,
-        renewals: 0,
-        failures: 0,
-        net: 0,
-      };
-      rows.set(k, cur);
-      return cur;
-    };
-    for (const [, f] of first) touch(f.country).clients += 1;
-    for (const p of payments) {
-      const r = touch(p.billingCountry);
-      if (p.status === "failed") {
-        r.failures += 1;
-        continue;
-      }
-      const net = whopNetContribution(p);
-      if (net <= 0) continue;
-      r.net = round2(r.net + net);
-      const u = p.membershipId
-        ? (userOf.get(p.membershipId) ?? `mem:${p.membershipId}`)
-        : null;
-      const estPremier = u !== null && first.get(u)?.at === p.paidAt;
-      if (!estPremier) r.renewals += 1;
-    }
-
-    const withCountry = payments.filter((p) => p.billingCountry).length;
-    const clientsWithCountry = [...first.values()].filter((f) => f.country).length;
-    // Devise du revenu — garde A5 : au-delà d'une devise encaissée, on ne somme
-    // pas (`summarizeWhopRevenue` porte la même règle ailleurs dans le hub).
-    const devises = summarizeWhopRevenue(payments).currenciesPresent;
-    return {
-      rows: [...rows.values()].sort((a, b) => b.net - a.net || b.clients - a.clients),
-      payments: payments.length,
-      withCountry,
-      clients: first.size,
-      clientsWithCountry,
-      currency: devises.length === 1 ? devises[0] : null,
-    };
+    // Montants ramenés à la devise du revenu au taux du projet (cf
+    // convex/billingCountries) : sans ça, des dinars se classaient devant des euros.
+    return billingCountriesOf(payments, userOf, projectFx(project));
 }
 
 export const getDayDetail = permissionQuery("business.read")({

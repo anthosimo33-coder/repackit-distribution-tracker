@@ -42,6 +42,7 @@ import {
 import { EXPLAIN } from "./explanations";
 import { isoCountryLabel } from "@/lib/country-name";
 import { formatMoney } from "@/lib/format-rate";
+import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import {
   buildSegmentRows,
   clientCoverage,
@@ -858,6 +859,13 @@ function BillingCountriesCard({ billing }: { billing: BillingCountriesData | und
             {formatNumber(billing.payments)}.
           </p>
         ) : null}
+        {/* Montants ramenés à la devise du revenu au taux du projet : le dire. */}
+        <MixedCurrencyNotice
+          mixed={billing.mixedCurrency}
+          conversions={billing.conversions}
+          currency={billing.currency}
+          currencies={billing.currencies}
+        />
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -885,7 +893,7 @@ function BillingCountriesCard({ billing }: { billing: BillingCountriesData | und
                     {formatNumber(r.failures)}
                   </TableCell>
                   <TableCell className="text-right text-xs tabular-nums font-medium">
-                    {formatMoney(r.net, billing.currency ?? undefined)}
+                    {r.net === null ? "—" : formatMoney(r.net, billing.currency ?? undefined)}
                   </TableCell>
                 </TableRow>
               ))}
