@@ -61,6 +61,20 @@ export interface BillingCountries {
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
+ * Pays de facturation NORMALISÉ. Whop stocke la valeur brute de l'adresse (cf
+ * schema) et la prod porte déjà « fr » à côté de « FR » — deux lignes pour un
+ * même pays. On ne normalise QUE la casse : un code ISO et un nom complet
+ * doivent rester distinguables, c'est la raison d'être du stockage brut.
+ *
+ * Partagé avec l'onglet Pays (convex/marketPnl) : une seule définition, sinon
+ * les deux tableaux finissent par ne plus compter les mêmes pays.
+ */
+export function normalizeBillingCountry(raw: string | undefined): string | null {
+  const t = (raw ?? "").trim();
+  return t === "" ? null : t.toUpperCase();
+}
+
+/**
  * `userOf` : membership Whop → personne Whop. Un client est rattaché au pays de
  * son PREMIER paiement encaissé (cf getBillingCountriesCore).
  */
@@ -76,21 +90,21 @@ export function billingCountriesOf(
     userOf.get(membershipId) ?? `mem:${membershipId}`;
 
   // Pays d'un client = celui de son PREMIER paiement encaissé.
-  const first = new Map<string, { at: number; country?: string }>();
+  const first = new Map<string, { at: number; country: string | null }>();
   for (const p of payments) {
     if (!p.membershipId || whopCollectedAmount(p) <= 0) continue;
     const u = personOf(p.membershipId);
     const prev = first.get(u);
     if (prev === undefined || p.paidAt < prev.at) {
-      first.set(u, { at: p.paidAt, country: p.billingCountry });
+      first.set(u, { at: p.paidAt, country: normalizeBillingCountry(p.billingCountry) });
     }
   }
 
   const rows = new Map<string, BillingCountryRow & { net: number }>();
-  const touch = (c: string | undefined) => {
+  const touch = (c: string | null) => {
     const k = c ?? "";
     const cur = rows.get(k) ?? {
-      country: c ?? null,
+      country: c,
       clients: 0,
       renewals: 0,
       failures: 0,
@@ -101,7 +115,7 @@ export function billingCountriesOf(
   };
   for (const [, f] of first) touch(f.country).clients += 1;
   for (const p of payments) {
-    const r = touch(p.billingCountry);
+    const r = touch(normalizeBillingCountry(p.billingCountry));
     if (p.status === "failed") {
       r.failures += 1;
       continue;
@@ -120,9 +134,10 @@ export function billingCountriesOf(
       .map((r) => ({ ...r, net: mixedCurrency ? null : r.net }))
       .sort((a, b) => (b.net ?? 0) - (a.net ?? 0) || b.clients - a.clients),
     payments: payments.length,
-    withCountry: payments.filter((p) => p.billingCountry).length,
+    withCountry: payments.filter((p) => normalizeBillingCountry(p.billingCountry) !== null)
+      .length,
     clients: first.size,
-    clientsWithCountry: [...first.values()].filter((f) => f.country).length,
+    clientsWithCountry: [...first.values()].filter((f) => f.country !== null).length,
     currency: mixedCurrency ? null : ref.currency,
     currencies: ref.currencies,
     mixedCurrency,

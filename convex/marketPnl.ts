@@ -26,6 +26,7 @@ import {
   SURVIVAL_DAYS,
 } from "./marketValue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
+import { normalizeBillingCountry } from "./billingCountries";
 import { splitCostByMarket, type MarketTarget } from "./marketCost";
 import type { PayFxProject } from "./payCurrency";
 
@@ -65,17 +66,6 @@ import type { PayFxProject } from "./payCurrency";
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-
-/**
- * Pays de facturation NORMALISÉ. Whop stocke la valeur brute de l'adresse (cf
- * schema) et la prod porte déjà « fr » à côté de « FR » — deux lignes pour un
- * même pays. On ne normalise QUE la casse : un code ISO et un nom complet
- * doivent rester distinguables, c'est la raison d'être du stockage brut.
- */
-function normalizeBillingCountry(raw: string | undefined): string | null {
-  const t = (raw ?? "").trim();
-  return t === "" ? null : t.toUpperCase();
-}
 
 /** Une case de la matrice plan × pays. */
 export type PlanCountryCell = {
