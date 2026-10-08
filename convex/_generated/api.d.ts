@@ -75,6 +75,7 @@ import type * as dashboardActions from "../dashboardActions.js";
 import type * as dashboardCache from "../dashboardCache.js";
 import type * as dashboardDecisions from "../dashboardDecisions.js";
 import type * as dateFr from "../dateFr.js";
+import type * as dayDetail from "../dayDetail.js";
 import type * as decisionThresholds from "../decisionThresholds.js";
 import type * as decisions from "../decisions.js";
 import type * as deletedVideos from "../deletedVideos.js";
@@ -343,6 +344,7 @@ declare const fullApi: ApiFromModules<{
   dashboardCache: typeof dashboardCache;
   dashboardDecisions: typeof dashboardDecisions;
   dateFr: typeof dateFr;
+  dayDetail: typeof dayDetail;
   decisionThresholds: typeof decisionThresholds;
   decisions: typeof decisions;
   deletedVideos: typeof deletedVideos;

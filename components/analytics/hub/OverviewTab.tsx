@@ -820,7 +820,6 @@ export function OverviewTab({
                         <DayDetailRows
                           jour={jour}
                           detail={dayDetail}
-                          currency={currency}
                           visitorsThrough={parisShortDate(d.ts)}
                         />
                       ) : null}
@@ -864,12 +863,10 @@ function SubCell({ value, format }: { value: number | null; format?: (n: number)
 function DayDetailRows({
   jour,
   detail,
-  currency,
   visitorsThrough,
 }: {
   jour: string;
   detail: DayDetailData | undefined;
-  currency: string | undefined;
   visitorsThrough: string;
 }) {
   if (detail === undefined) {
@@ -891,7 +888,10 @@ function DayDetailRows({
       </TableRow>
     );
   }
-  const money = (n: number) => formatMoney(n, currency);
+  // La devise vient du DÉTAIL lui-même : ses montants y sont ramenés par le
+  // serveur (convex/dayDetail), au même référentiel que la colonne « Revenu net ».
+  const money = (n: number) => formatMoney(n, detail.currency ?? undefined);
+  const notice = d.currencyNotice;
   const groupe = (titre: string) => (
     <TableRow className="bg-slate-50/60">
       <TableCell
@@ -963,14 +963,39 @@ function DayDetailRows({
               <TableCell colSpan={6} />
               <TableCell
                 className={`text-right text-xs tabular-nums ${
-                  r.net < 0 ? "text-rose-600" : "text-slate-500"
+                  r.net !== null && r.net < 0 ? "text-rose-600" : "text-slate-500"
                 }`}
               >
-                {money(r.net)}
+                {r.net === null ? <span className="text-slate-300">—</span> : money(r.net)}
               </TableCell>
             </TableRow>
           ))}
         </>
+      ) : null}
+      {/* Devises de la journée : montants ramenés au taux du projet, ou non
+          additionnables (tirets), ou remboursement d'une devise exclue. */}
+      {notice ? (
+        <TableRow className="bg-slate-50/60">
+          <TableCell colSpan={8} className="space-y-1 whitespace-normal pb-1 pl-8 pt-2">
+            <MixedCurrencyNotice
+              className="max-w-3xl"
+              mixed={notice.mixed}
+              conversions={notice.conversions}
+              currency={notice.currency}
+              currencies={notice.currencies}
+            />
+            {notice.excludedCurrencies.length > 0 ? (
+              <MixedCurrencyNotice
+                className="max-w-3xl"
+                present
+                currencies={[
+                  ...(notice.currency ? [notice.currency] : []),
+                  ...notice.excludedCurrencies,
+                ]}
+              />
+            ) : null}
+          </TableCell>
+        </TableRow>
       ) : null}
       <TableRow className="bg-slate-50/60">
         <TableCell colSpan={8} className="pb-3 pl-8 text-xs text-slate-400">

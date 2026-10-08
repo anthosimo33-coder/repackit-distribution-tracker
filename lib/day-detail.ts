@@ -18,6 +18,12 @@
  * REVENU : décomposition du net du jour. Les remboursements sortent de l'argent,
  * donc ils sont rendus NÉGATIFS — une ligne « 8,00 € » sous « Remboursements »
  * se lirait comme une recette.
+ *
+ * DEVISES : tous les montants arrivent DÉJÀ ramenés à `currency` par le serveur
+ * (convex/dayDetail). `null` = de l'argent présent mais non additionnable (une
+ * devise encaissée sans taux, garde A5) — un tiret, jamais une somme de devises.
+ * Un vrai zéro reste 0. La journée dit elle-même ce qu'elle a converti
+ * (`currencyNotice`) : seulement les devises qui y ont porté de l'argent.
  */
 
 import { isoCountryLabel } from "./country-name";
@@ -45,7 +51,8 @@ export interface RefDay {
   clients: number;
   renewals: number;
   failures: number;
-  net: number;
+  /** null = encaissé mais non additionnable (devise sans taux). */
+  net: number | null;
 }
 
 /** Argent d'un jour par pays de FACTURATION (Whop) — jamais de connexion. */
@@ -55,14 +62,38 @@ export interface BillingCountryDay {
   clients: number;
   renewals: number;
   failures: number;
-  net: number;
+  /** null = encaissé mais non additionnable (devise sans taux). */
+  net: number | null;
 }
 
 export interface RevenueDay {
   day: string;
-  newNet: number;
-  renewalNet: number;
-  refunded: number;
+  newNet: number | null;
+  renewalNet: number | null;
+  refunded: number | null;
+  /** Devises des paiements qui portent de l'argent ce jour-là (minuscules). */
+  currencies?: readonly string[];
+  /** Devises de remboursements exclues du total : hors référentiel, sans taux. */
+  excludedCurrencies?: readonly string[];
+}
+
+/** Une devise ramenée à `currency` : 1 unité de `from` = `rate` unités. */
+export interface DayConversion {
+  from: string;
+  rate: number;
+}
+
+/** Ce que l'écran DOIT dire des devises d'une journée (cf MixedCurrencyNotice). */
+export interface DayCurrencyNotice {
+  /** Devises encaissées non convertibles : les montants du jour sont des tirets. */
+  mixed: boolean;
+  /** Devises de la journée ramenées à `currency` au taux du projet. */
+  conversions: DayConversion[];
+  currency: string | null;
+  /** Devises à nommer : celles du jour, ou toutes celles encaissées si `mixed`. */
+  currencies: string[];
+  /** Remboursements dans une devise hors référentiel, exclus du total du jour. */
+  excludedCurrencies: string[];
 }
 
 /** Une sous-ligne — mêmes colonnes que le tableau, `null` = non mesurable. */
@@ -85,7 +116,10 @@ export interface DayDetail {
    *  comme un taux, or ce sont deux populations. */
   billingCountries: DetailRow[];
   refs: DetailRow[];
-  revenue: { label: string; net: number }[];
+  /** `net` null = présent mais non additionnable (tiret). */
+  revenue: { label: string; net: number | null }[];
+  /** null = rien à signaler (une seule devise ce jour-là). */
+  currencyNotice: DayCurrencyNotice | null;
   /** true = rien à déplier ce jour-là. */
   isEmpty: boolean;
 }
@@ -96,6 +130,12 @@ export function buildDayDetail(input: {
   refs: readonly RefDay[];
   revenue: readonly RevenueDay[];
   billingCountries?: readonly BillingCountryDay[];
+  /** Devise de tous les montants (référentiel du serveur). */
+  currency?: string | null;
+  /** Devises ENCAISSÉES sur le projet, avant conversion. */
+  currencies?: readonly string[];
+  mixedCurrency?: boolean;
+  conversions?: readonly DayConversion[];
 }): DayDetail {
   const countries: DetailRow[] = input.countries
     .filter((c) => c.day === input.day)
@@ -121,7 +161,11 @@ export function buildDayDetail(input: {
     .filter((r) => r.day === input.day)
     // Tri par argent puis par trafic. Un trafic NON COLLECTÉ (null) ne doit pas
     // se comporter comme un zéro dans le tri : il passe après, à argent égal.
-    .sort((a, b) => b.net - a.net || (b.visitors ?? -1) - (a.visitors ?? -1))
+    // Un net NON ADDITIONNABLE (null) n'est pas classé comme un montant.
+    .sort(
+      (a, b) =>
+        (b.net ?? 0) - (a.net ?? 0) || (b.visitors ?? -1) - (a.visitors ?? -1),
+    )
     .map((r) => ({
       label: r.ref,
       visitors: r.visitors,
@@ -138,7 +182,7 @@ export function buildDayDetail(input: {
 
   const billingCountries: DetailRow[] = (input.billingCountries ?? [])
     .filter((b) => b.day === input.day)
-    .sort((a, b) => b.net - a.net || b.clients - a.clients)
+    .sort((a, b) => (b.net ?? 0) - (a.net ?? 0) || b.clients - a.clients)
     .map((b) => ({
       label: isoCountryLabel(b.country),
       // NON MESURABLE par pays de facturation : le trafic est compté par pays de
@@ -154,22 +198,46 @@ export function buildDayDetail(input: {
     }));
 
   const rev = input.revenue.find((r) => r.day === input.day);
-  const revenue: { label: string; net: number }[] = [];
+  const revenue: { label: string; net: number | null }[] = [];
   if (rev) {
+    // 0 = rien ; null = présent mais non additionnable, la ligne reste (tiret).
     if (rev.newNet !== 0) revenue.push({ label: "Nouveaux", net: rev.newNet });
     if (rev.renewalNet !== 0)
       revenue.push({ label: "Renouvellements", net: rev.renewalNet });
     // NÉGATIF : un remboursement sort de l'argent. « 8,00 € » sous
     // « Remboursements » se lirait comme une recette.
     if (rev.refunded !== 0)
-      revenue.push({ label: "Remboursements", net: -Math.abs(rev.refunded) });
+      revenue.push({
+        label: "Remboursements",
+        net: rev.refunded === null ? null : -Math.abs(rev.refunded),
+      });
   }
+
+  // Signalement de devise PROPRE À LA JOURNÉE : un jour payé uniquement en
+  // euros n'a rien converti, il n'a pas à l'annoncer.
+  const dayCurrencies = [...(rev?.currencies ?? [])];
+  const excludedCurrencies = [...(rev?.excludedCurrencies ?? [])];
+  const mixed = input.mixedCurrency === true && dayCurrencies.length > 0;
+  const conversions = (input.conversions ?? [])
+    .filter((c) => dayCurrencies.includes(c.from))
+    .map((c) => ({ from: c.from, rate: c.rate }));
+  const currencyNotice: DayCurrencyNotice | null =
+    mixed || conversions.length > 0 || excludedCurrencies.length > 0
+      ? {
+          mixed,
+          conversions,
+          currency: input.currency ?? null,
+          currencies: mixed ? [...(input.currencies ?? [])] : dayCurrencies,
+          excludedCurrencies,
+        }
+      : null;
 
   return {
     countries,
     billingCountries,
     refs,
     revenue,
+    currencyNotice,
     isEmpty:
       countries.length === 0 &&
       billingCountries.length === 0 &&
