@@ -441,7 +441,8 @@ type OutilEcriture =
   | "creer_conversation"
   | "modifier_conversation"
   | "supprimer_conversation"
-  | "changer_bareme";
+  | "changer_bareme"
+  | "regler_taux";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

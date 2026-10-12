@@ -1,6 +1,7 @@
 /**
- * OUTIL MCP D'ÉCRITURE — les BARÈMES (interrupteur « Barèmes », éteint par
- * défaut), droit `pricing.manage` : celui de l'écran Barèmes.
+ * OUTILS MCP D'ÉCRITURE — les BARÈMES (interrupteur « Barèmes », éteint par
+ * défaut), droit `pricing.manage` : celui de l'écran Barèmes. Les taux de
+ * change (`regler_taux`, convex/mcpTaux) vivent sous le même interrupteur.
  *
  *  - `changer_bareme` : passe les vidéos d'une créatrice sur un autre barème à
  *    partir d'un jour, comme « Appliquer à ses vidéos » de l'écran. `simuler`
@@ -39,6 +40,7 @@ import { resolvePayCurrency } from "./payCurrency";
 import type { PricingSnapshot } from "./pricing";
 import { changerBaremeCore, planChangementBareme } from "./pricingReassign";
 import { jourValide, type RefusBareme } from "./pricingReassignPlan";
+import { appelerReglerTaux, OUTIL_REGLER_TAUX } from "./mcpTaux";
 
 /** Au-delà, le journal (chaque vidéo en entier, avant et après) déborderait. */
 export const MAX_VIDEOS_PAR_APPEL = 60;
@@ -65,6 +67,8 @@ export const OUTILS_ECRITURE_BAREMES: readonly McpTool[] = [
     },
     annotations: ECRIT,
   },
+  // Un taux de change admet un barème dans une autre devise : même interrupteur.
+  OUTIL_REGLER_TAUX,
 ];
 
 const RAISON: Record<RefusBareme, string> = {
@@ -237,6 +241,7 @@ async function appelerEcritureBaremes(
   cible: CibleEcriture,
   projet: string,
 ): Promise<ToolResult> {
+  if (name === "regler_taux") return appelerReglerTaux(ctx, args, cible, projet);
   if (name !== "changer_bareme") throw new ToolError(`Outil inconnu : ${name}.`);
   const createatrice = texteArg(args, "createatrice");
   const bareme = texteArg(args, "bareme");
@@ -270,10 +275,10 @@ async function appelerEcritureBaremes(
   return resultatEcriture(projet, r.summary, OU_DEFAIRE, { detail: r.vue });
 }
 
-/** Le domaine « baremes » : interrupteur « Peut modifier les barèmes ». */
+/** Le domaine « baremes » : interrupteur « Peut modifier les barèmes » (et les taux de change). */
 export const DOMAINE_BAREMES: DomaineEcriture = {
   scope: "baremes",
   outils: OUTILS_ECRITURE_BAREMES,
-  droits: { changer_bareme: "pricing.manage" },
+  droits: { changer_bareme: "pricing.manage", regler_taux: "project.settings" },
   appeler: appelerEcritureBaremes,
 };

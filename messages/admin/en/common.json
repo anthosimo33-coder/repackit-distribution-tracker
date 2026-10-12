@@ -951,7 +951,8 @@
       "creer_conversation": "Conversation created",
       "modifier_conversation": "Conversation edited",
       "supprimer_conversation": "Conversation deleted",
-      "changer_bareme": "Video pay grid changed"
+      "changer_bareme": "Video pay grid changed",
+      "regler_taux": "Exchange rate set"
     },
     "section": {
       "treasury": "Cash",
@@ -1006,7 +1007,7 @@
       },
       "baremes": {
         "titre": "Pay grids",
-        "objet": "the pay grids of videos already assigned",
+        "objet": "the pay grids of videos already assigned and exchange rates",
         "aria": "Pay grid edits for {name}"
       }
     }

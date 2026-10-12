@@ -29,6 +29,7 @@ import {
   etatsApres,
   journaliser,
   photographierEtats,
+  refusDe,
   resultatEcriture,
   scriptDeMission,
   texteArg,
@@ -65,6 +66,8 @@ import {
 import { representativePostedAt } from "./calendarStatus";
 import { ecrireCombo, supprimerTexteDuCombo } from "./assignmentScriptText";
 import { restaurerBaremesCore } from "./pricingReassign";
+import { setFxRateCore } from "./fxRates";
+import { fxRateOf } from "./fxRatesMath";
 import type { PricingSnapshot } from "./pricing";
 
 const FENETRE_MS = 30 * 86_400_000;
@@ -130,6 +133,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "annuler_mission",
   "reecrire_mission",
   "changer_bareme",
+  "regler_taux",
   "creer_campagne",
   "ajouter_hooks",
   "ajouter_flux_cta",
@@ -563,6 +567,26 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       if (c.data !== a.apres.data || c.titre !== a.apres.titre) throw refus("Elle a changé depuis : rien n'a été écrasé.");
       await updateConversationCore(ctx, a.conversationId, { titre: a.avant.titre, data: a.avant.data });
       return "Version d'avant remise.";
+    }
+    case "taux": {
+      const project = await ctx.db.get(ctx.projectId);
+      if (!project) throw refus("Projet introuvable.");
+      const C = a.devise.toUpperCase();
+      if (fxRateOf(project, a.devise) !== a.apres) throw refus(`Le taux ${C} a changé depuis : rien n'a été écrasé.`);
+      // Le geste de l'écran, sous sa règle : un taux dont un barème ou des
+      // ventes dépendent désormais ne se retire pas, même pour défaire.
+      try {
+        await setFxRateCore(ctx, project, {
+          currency: a.devise,
+          rate: a.avant,
+          ...(a.cible !== undefined ? { target: a.cible } : {}),
+        });
+      } catch (e) {
+        const m = refusDe(e);
+        if (m === null) throw e;
+        throw refus(`Rien n'a été remis : ${m}`);
+      }
+      return a.avant === null ? `Taux ${C} retiré, comme avant.` : `Taux ${C} remis à ${a.avant}.`;
     }
     case "conversationSupprimee": {
       await restoreConversationCore(ctx, { titre: a.titre, data: a.data });

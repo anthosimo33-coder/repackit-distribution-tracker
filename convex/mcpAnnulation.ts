@@ -80,6 +80,18 @@ export const annulationValidator = v.union(
     lignes: v.array(v.object({ assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() })),
   }),
   // ── Scripts ───────────────────────────────────────────────────────────────
+  /**
+   * regler_taux : le taux d'UNE devise, avant et après (`null` = pas de taux).
+   * `cible` : la devise du revenu choisie à l'appel, quand celle du projet
+   * était indéterminée. Défaire remet l'avant si le taux montre encore l'après.
+   */
+  v.object({
+    type: v.literal("taux"),
+    devise: v.string(),
+    avant: v.union(v.number(), v.null()),
+    apres: v.union(v.number(), v.null()),
+    cible: v.optional(v.string()),
+  }),
   /** creer_campagne : la campagne créée (et ses briques). */
   v.object({ type: v.literal("campagneCreee"), campaignId: v.id("scriptCampaigns") }),
   /** ajouter_hooks, ajouter_flux_cta : les briques créées. */
