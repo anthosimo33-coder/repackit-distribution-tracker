@@ -17,7 +17,7 @@ import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { ClipPublishForm } from "@/components/clip/ClipPublishForm";
 import { VideoUploader, type UploadedVideo } from "@/components/VideoUploader";
-import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { ScriptText } from "@/components/scripts/HookLibreBlock";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -202,6 +202,7 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
           videoBlocks={clip.scriptZones.videoBlocks}
           descriptionScript={clip.scriptZones.descriptionScript}
           instructions={clip.scriptInstructions}
+          hookLibre={clip.scriptHookLibre}
         />
       ) : clip.assembledScript ? (
         <Card>
@@ -209,7 +210,10 @@ export function ClipDetailScreen({ clipId }: { clipId: Id<"assignments"> }) {
             <CardTitle className="text-base">{tc("scriptToEdit")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <SimpleMarkdown content={clip.assembledScript} />
+            <ScriptText
+              text={clip.assembledScript}
+              hookLibre={clip.scriptHookLibre}
+            />
             <ScriptInstructionList items={clip.scriptInstructions} />
           </CardContent>
         </Card>

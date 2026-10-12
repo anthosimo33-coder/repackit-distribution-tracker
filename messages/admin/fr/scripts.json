@@ -97,7 +97,8 @@
     "selectionnerLaBrique": "Sélectionner la brique",
     "activerLaBrique": "Activer la brique",
     "medianeDesVuesAuDernier": "Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs",
-    "uneErreurEstSurvenue": "Une erreur est survenue."
+    "uneErreurEstSurvenue": "Une erreur est survenue.",
+    "libre": "✍️ libre"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Choisis une brique dans la liste, ou ajoutes-en une.",
@@ -123,7 +124,16 @@
     "briqueAjoutee": "Brique ajoutée",
     "uneErreurEstSurvenue": "Une erreur est survenue.",
     "briqueSupprimee": "Brique supprimée",
-    "afficheALEcran": "— affiché à l'écran, hors script"
+    "afficheALEcran": "— affiché à l'écran, hors script",
+    "hookLibre": "Hook libre",
+    "hookLibreAide": "La créatrice reformule avec ses mots. Les vues restent comptées sur cette brique : c'est la direction qu'on teste.",
+    "exemplePrincipal": "Exemple principal",
+    "montreEnPremier": "— montré en premier à la créatrice",
+    "direction": "Direction",
+    "lIdeeAGarder": "— l'idée à garder",
+    "exDirection": "Ex. Une relation qui dure, puis tu tombes sur un truc qui change tout.",
+    "autresExemples": "Autres exemples",
+    "unParLigneAuPlus": "— un par ligne, {max} au plus"
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "L'aperçu s'affiche dès qu'une brique active de chaque type porte du texte.",

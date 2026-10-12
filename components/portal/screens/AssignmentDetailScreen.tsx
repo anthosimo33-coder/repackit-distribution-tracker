@@ -25,7 +25,7 @@ import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
 import { PricingEstimator } from "@/components/portal/PricingEstimator";
 import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { MissionStepper } from "@/components/portal/MissionStepper";
-import { SimpleMarkdown } from "@/components/ui/SimpleMarkdown";
+import { ScriptText } from "@/components/scripts/HookLibreBlock";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import {
   ScriptDestinationZones,
@@ -166,6 +166,7 @@ export default function AssignmentDetailScreen({
                         videoBlocks={data.scriptZones.videoBlocks}
                         descriptionScript={data.scriptZones.descriptionScript}
                         instructions={data.scriptInstructions}
+                        hookLibre={data.scriptHookLibre}
                         openOn={
                           a.status === "to_publish" && !readOnly && !a.managedByAdmin
                             ? (data.targets.map((t) => t.platform) as OpenPlatform[])
@@ -178,7 +179,10 @@ export default function AssignmentDetailScreen({
                           <CardTitle className="text-base">{ta("videoToShoot")}</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-3">
-                          <SimpleMarkdown content={data.assembledScript} />
+                          <ScriptText
+                            text={data.assembledScript}
+                            hookLibre={data.scriptHookLibre}
+                          />
                           <ScriptInstructionList items={data.scriptInstructions} />
                         </CardContent>
                       </Card>

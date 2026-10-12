@@ -97,7 +97,8 @@
     "selectionnerLaBrique": "Select the brick",
     "activerLaBrique": "Turn the brick on",
     "medianeDesVuesAuDernier": "Median views, at each post's last reading, and the slope of the latest runs",
-    "uneErreurEstSurvenue": "Something went wrong."
+    "uneErreurEstSurvenue": "Something went wrong.",
+    "libre": "✍️ free"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Pick a brick from the list, or add one.",
@@ -123,7 +124,16 @@
     "briqueAjoutee": "Brick added",
     "uneErreurEstSurvenue": "Something went wrong.",
     "briqueSupprimee": "Brick deleted",
-    "afficheALEcran": "— shown on screen, not part of the script"
+    "afficheALEcran": "— shown on screen, not part of the script",
+    "hookLibre": "Free hook",
+    "hookLibreAide": "The creator rewords it in their own words. Views still count toward this brick: the direction is what's being tested.",
+    "exemplePrincipal": "Main example",
+    "montreEnPremier": "— shown to the creator first",
+    "direction": "Direction",
+    "lIdeeAGarder": "— the idea to keep",
+    "exDirection": "E.g. A relationship that's been going on a while, then you stumble on something that changes everything.",
+    "autresExemples": "Other examples",
+    "unParLigneAuPlus": "— one per line, {max} at most"
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",

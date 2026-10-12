@@ -41,6 +41,7 @@ import { designer, roleBriqueDepuis } from "./mcpWriteArgs";
 import { createBrickCore, createCampaignCore, graduateHookCore, hookLabelOf, setBricksActiveCore } from "./scripts";
 import { plierTexte } from "./mcpWriteArgs";
 import { hookIdentityKey, PROVEN_CAMPAIGN_NAME } from "./graduation";
+import { MAX_AUTRES_EXEMPLES } from "./hookLibre";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
     name: "ajouter_hooks",
     title: "Ajouter des hooks à une campagne",
     description:
-      "MODIFIE les scripts : ajoute des hooks (phrases d'ouverture) à une campagne. Ils sont créés DÉSACTIVÉS par défaut : aucun tirage ne les sert tant qu'une personne ne les a pas relus et activés (écran de la campagne, ou `activer_briques`). Un hook dont le texte existe déjà dans la campagne, actif ou non, n'est pas recréé. Son libellé court est le début du texte (60 caractères), comme à l'import de la bibliothèque.",
+      "MODIFIE les scripts : ajoute des hooks (phrases d'ouverture) à une campagne. Ils sont créés DÉSACTIVÉS par défaut : aucun tirage ne les sert tant qu'une personne ne les a pas relus et activés (écran de la campagne, ou `activer_briques`). Un hook dont le texte existe déjà dans la campagne, actif ou non, n'est pas recréé. Son libellé court est le début du texte (60 caractères), comme à l'import de la bibliothèque. Un hook LIBRE est une direction plutôt qu'une phrase : `texte` devient l'exemple principal, la créatrice tourne sa propre formulation, et les vues restent comptées sur ce hook.",
     inputSchema: {
       type: "object",
       properties: {
@@ -65,8 +66,19 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
           items: {
             type: "object",
             properties: {
-              texte: { type: "string", description: "Le texte du hook, tel que la créatrice le dira." },
+              texte: { type: "string", description: "Le texte du hook, tel que la créatrice le dira — l'exemple principal si le hook est libre." },
               consigne: { type: "string", description: "Consigne de tournage lue sous ce hook (facultatif)." },
+              libre: {
+                type: "boolean",
+                description: "true = hook LIBRE : la créatrice reformule avec ses mots. Implicite dès qu'une `direction` ou des `autres_exemples` sont donnés.",
+              },
+              direction: { type: "string", description: "Hook libre : l'idée à garder, lue au-dessus des exemples (facultatif)." },
+              autres_exemples: {
+                type: "array",
+                description: `Hook libre : d'autres formulations pour l'inspirer, ${MAX_AUTRES_EXEMPLES} au plus.`,
+                maxItems: MAX_AUTRES_EXEMPLES,
+                items: { type: "string" },
+              },
             },
             required: ["texte"],
             additionalProperties: false,
@@ -218,7 +230,15 @@ function briqueDe(
 export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
   args: {
     campagne: v.string(),
-    hooks: v.array(v.object({ texte: v.string(), consigne: v.optional(v.string()) })),
+    hooks: v.array(
+      v.object({
+        texte: v.string(),
+        consigne: v.optional(v.string()),
+        libre: v.optional(v.boolean()),
+        direction: v.optional(v.string()),
+        autresExemples: v.optional(v.array(v.string())),
+      }),
+    ),
     actifs: v.boolean(),
   },
   handler: async (ctx, a) => {
@@ -249,10 +269,11 @@ export const ecrireHooks = mcpWriteMutation("scripts.manage", "scripts")({
         label,
         content: texte,
         ...(h.consigne?.trim() ? { instruction: h.consigne } : {}),
+        ...(h.libre ? { libre: true, direction: h.direction, autresExemples: h.autresExemples } : {}),
         active: a.actifs,
       });
       crees.push(id);
-      ajoutes.push(label);
+      ajoutes.push(h.libre ? `${label} (libre)` : label);
     }
     const summary =
       `« ${campagne.name} » : ${ajoutes.length} hook${ajoutes.length > 1 ? "s" : ""} ajouté${ajoutes.length > 1 ? "s" : ""}` +
@@ -513,7 +534,24 @@ async function appelerEcritureScripts(
       const o = (typeof h === "object" && h !== null ? h : {}) as Record<string, unknown>;
       const texte = typeof o.texte === "string" ? o.texte.trim() : "";
       if (texte === "") throw new ToolError(`Hook ${i + 1} : « texte » vide.`);
-      return { texte, ...(typeof o.consigne === "string" && o.consigne.trim() !== "" ? { consigne: o.consigne.trim() } : {}) };
+      const direction = typeof o.direction === "string" ? o.direction.trim() : "";
+      const autresExemples = Array.isArray(o.autres_exemples)
+        ? o.autres_exemples.filter((e): e is string => typeof e === "string" && e.trim() !== "")
+        : [];
+      // Une direction ou des exemples n'ont de sens que sur un hook libre :
+      // les donner suffit à le rendre libre.
+      const libre = o.libre === true || direction !== "" || autresExemples.length > 0;
+      return {
+        texte,
+        ...(typeof o.consigne === "string" && o.consigne.trim() !== "" ? { consigne: o.consigne.trim() } : {}),
+        ...(libre
+          ? {
+              libre: true,
+              ...(direction !== "" ? { direction } : {}),
+              ...(autresExemples.length > 0 ? { autresExemples } : {}),
+            }
+          : {}),
+      };
     });
     r = await ecrire(() =>
       ctx.runMutation(internal.mcpWritesScripts.ecrireHooks, { ...cible, campagne, hooks, actifs: args.actifs === true }),

@@ -49,6 +49,7 @@ import {
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { ERR, err } from "./errorCodes";
+import { MAX_AUTRES_EXEMPLES, normaliserAutresExemples } from "./hookLibre";
 import { plateformeValidator } from "./platforms";
 import {
   drawableNotifs,
@@ -1043,6 +1044,41 @@ function normalizeInstruction(
   return trimmed ? trimmed : undefined;
 }
 
+/**
+ * DIRECTION d'un hook libre STOCKÉE (cf convex/hookLibre.ts) : même règle que la
+ * consigne — une saisie blanche est une absence —, bornée comme un texte de
+ * brique.
+ */
+function normalizeDirection(
+  input: string | null | undefined,
+): string | undefined {
+  const direction = normalizeInstruction(input);
+  if (direction && direction.length > MAX_BRICK_TEXT) {
+    throw err(ERR.BRICK_TEXT_TOO_LONG, `Texte trop long (max ${MAX_BRICK_TEXT} caractères).`, { p1: MAX_BRICK_TEXT });
+  }
+  return direction;
+}
+
+/**
+ * AUTRES EXEMPLES d'un hook libre STOCKÉS : nettoyés, sans répéter l'exemple
+ * principal (le `content`). Trop d'exemples est REFUSÉ, jamais tronqué en
+ * silence : la saisie enregistrée doit être celle qui s'affichera. Aucun =
+ * absence.
+ */
+function normalizeAutresExemples(
+  input: readonly string[],
+  exemplePrincipal: string,
+): string[] | undefined {
+  const exemples = normaliserAutresExemples(input, exemplePrincipal);
+  if (exemples.length > MAX_AUTRES_EXEMPLES) {
+    throw err(ERR.HOOK_EXAMPLES_TOO_MANY, `${MAX_AUTRES_EXEMPLES} autres exemples au plus.`, { p1: MAX_AUTRES_EXEMPLES });
+  }
+  if (exemples.some((e) => e.length > MAX_BRICK_TEXT)) {
+    throw err(ERR.BRICK_TEXT_TOO_LONG, `Texte trop long (max ${MAX_BRICK_TEXT} caractères).`, { p1: MAX_BRICK_TEXT });
+  }
+  return exemples.length > 0 ? exemples : undefined;
+}
+
 // ─── Mutations — bricks ──────────────────────────────────────────────────────
 
 const createBrickArgs = {
@@ -1055,6 +1091,10 @@ const createBrickArgs = {
   // bloc. Blanche = absence (jamais la chaîne vide, qui afficherait un encart
   // vide côté créatrice).
   instruction: v.optional(v.string()),
+  // HOOK LIBRE (hook uniquement, ignoré ailleurs) — cf convex/hookLibre.ts.
+  libre: v.optional(v.boolean()),
+  direction: v.optional(v.string()),
+  autresExemples: v.optional(v.array(v.string())),
 };
 
 export const createBrick = permissionMutation("scripts.manage")({
@@ -1087,6 +1127,17 @@ export async function createBrickCore(
     mode:
       args.kind === "hook" || args.kind === "flux" ? args.mode : undefined,
     instruction: normalizeInstruction(args.instruction),
+    // HOOK LIBRE — hook uniquement ; éteint = absence.
+    ...(args.kind === "hook"
+      ? {
+          libre: args.libre === true ? true : undefined,
+          direction: normalizeDirection(args.direction),
+          autresExemples: normalizeAutresExemples(
+            args.autresExemples ?? [],
+            args.content,
+          ),
+        }
+      : {}),
     active: args.active ?? true,
     createdAt: Date.now(),
   });
@@ -1103,6 +1154,11 @@ export const updateBrick = permissionMutation("scripts.manage")({
     // null = retirer la consigne ; chaîne = définir. Une saisie blanche vaut
     // `null` (normalizeInstruction) : effacer le champ EFFACE la consigne.
     instruction: v.optional(v.union(v.string(), v.null())),
+    // HOOK LIBRE (hook uniquement) — mêmes règles : null ou blanc efface la
+    // direction, une liste vide efface les autres exemples.
+    libre: v.optional(v.boolean()),
+    direction: v.optional(v.union(v.string(), v.null())),
+    autresExemples: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
@@ -1130,6 +1186,21 @@ export const updateBrick = permissionMutation("scripts.manage")({
     }
     if (args.instruction !== undefined) {
       patch.instruction = normalizeInstruction(args.instruction);
+    }
+    // HOOK LIBRE — lu LIVE par la fiche : basculer met à jour les missions déjà
+    // assignées, comme une consigne corrigée. Direction et exemples survivent à
+    // l'extinction, pour qu'un aller-retour de l'interrupteur ne perde rien.
+    if (brick.kind === "hook") {
+      if (args.libre !== undefined) patch.libre = args.libre || undefined;
+      if (args.direction !== undefined) {
+        patch.direction = normalizeDirection(args.direction);
+      }
+      if (args.autresExemples !== undefined) {
+        patch.autresExemples = normalizeAutresExemples(
+          args.autresExemples,
+          args.content ?? brick.content,
+        );
+      }
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
@@ -1956,6 +2027,11 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
       label: `${orig.label} (variante)`,
       content: text,
       instruction: orig.instruction,
+      // HOOK LIBRE — suit le texte comme la consigne : corriger une coquille de
+      // l'exemple ne doit pas refaire du hook une phrase imposée.
+      libre: orig.libre,
+      direction: orig.direction,
+      autresExemples: orig.autresExemples,
       active: true,
       createdAt: Date.now(),
     });
@@ -2673,8 +2749,12 @@ export async function graduateHookCore(
     content: brick.content,
     mode: brick.mode,
     // La CONSIGNE suit le hook : c'est une propriété du texte, pas de la
-    // campagne qui l'héberge.
+    // campagne qui l'héberge. Le mode LIBRE aussi : c'est la direction qu'on a
+    // prouvée, pas une formulation.
     instruction: brick.instruction,
+    libre: brick.libre,
+    direction: brick.direction,
+    autresExemples: brick.autresExemples,
     active: true,
     createdAt: Date.now(),
   });

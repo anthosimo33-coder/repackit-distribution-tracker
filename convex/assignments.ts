@@ -32,6 +32,7 @@ import {
   retrackPublication,
 } from "./publications";
 import { isScriptZonesEnabled } from "./scriptZonesSetting";
+import { hookLibreDuTexte, hookLibreOf, type HookLibre } from "./hookLibre";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
   pickCreatorAssignment,
@@ -2268,11 +2269,16 @@ export async function listVideoSubmittedCore(ctx: ProjectQueryCtx) {
           // Résumé combo (Hook · Flux · CTA) — contexte ADMIN, comme la modale
           // « Voir le script » côté Assignments. Null hors origine script.
           let comboSummary: string | null = null;
+          // HOOK LIBRE — la créatrice a reformulé l'accroche : le relecteur doit
+          // le savoir avant de comparer la vidéo au texte figé, sinon il refuse
+          // une vidéo conforme parce qu'elle ne dit pas l'exemple mot pour mot.
+          let hookLibre = false;
           if (combo) {
             const hook = brickMap.get(combo.hookBrickId);
             const flux = brickMap.get(combo.fluxBrickId);
             const cta = brickMap.get(combo.ctaBrickId);
             comboSummary = `${hook?.label ?? "?"} · ${flux?.label ?? "?"} · ${cta?.label ?? "?"}`;
+            hookLibre = hookLibreOf(hook) !== null;
           }
           return {
             _id: a._id,
@@ -2323,6 +2329,7 @@ export async function listVideoSubmittedCore(ctx: ProjectQueryCtx) {
             // cohérent avec AssignmentScriptDialog. Null hors origine script.
             assembledScript: (await texteDeMission(ctx, a)) ?? null,
             comboSummary,
+            hookLibre,
           };
         }),
     );
@@ -2933,6 +2940,32 @@ async function scriptInstructionsOf(
   return out;
 }
 
+/** Un hook LIBRE tel que la fiche l'affiche, et le script qui le suit. */
+type ScriptHookLibre = HookLibre & {
+  /** Le texte figé SANS l'accroche (flux puis cta) — pour la carte unique. */
+  reste: string;
+};
+
+/**
+ * HOOK LIBRE du combo (cf convex/hookLibre.ts) — la brique hook donnée comme une
+ * DIRECTION : l'idée, l'exemple principal et les autres formulations, lus LIVE
+ * comme la consigne (basculer la brique met à jour les missions déjà
+ * assignées).
+ *
+ * Null quand le hook est ordinaire, ou quand le texte figé ne commence plus par
+ * l'exemple actuel (exemple corrigé depuis l'assignation) : la fiche garde alors
+ * l'affichage ordinaire du texte figé, qui reste la source de vérité. Aucune
+ * gate projet : une direction vaut pour la carte unique comme pour les deux
+ * zones.
+ */
+async function scriptHookLibreOf(
+  ctx: QueryCtx,
+  combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
+  texte: string | undefined,
+): Promise<ScriptHookLibre | null> {
+  return hookLibreDuTexte(await ctx.db.get(combo.hookBrickId), texte);
+}
+
 /**
  * NOTIF de la vidéo, telle que la créatrice doit la recopier à l'écran (brique
  * optionnelle, cf convex/scriptNotif). Le TEXTE est celui FIGÉ à l'assignation,
@@ -3338,6 +3371,9 @@ async function clipDetailFor(
   const scriptNotif = a.scriptCombo
     ? await scriptNotifOf(ctx, a.scriptCombo)
     : null;
+  const scriptHookLibre = a.scriptCombo
+    ? await scriptHookLibreOf(ctx, a.scriptCombo, base.assembledScript ?? undefined)
+    : null;
   return {
     ...base,
     submittedVideoUrl,
@@ -3346,6 +3382,7 @@ async function clipDetailFor(
     scriptZones,
     scriptInstructions,
     scriptNotif,
+    scriptHookLibre,
   };
 }
 
@@ -3416,6 +3453,7 @@ async function assignmentDetailFor(
     const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo, texte);
     const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
     const scriptNotif = await scriptNotifOf(ctx, a.scriptCombo);
+    const scriptHookLibre = await scriptHookLibreOf(ctx, a.scriptCombo, texte);
     return {
       assignment: safe,
       ...label,
@@ -3424,6 +3462,7 @@ async function assignmentDetailFor(
       scriptZones,
       scriptInstructions,
       scriptNotif,
+      scriptHookLibre,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -3442,6 +3481,7 @@ async function assignmentDetailFor(
       scriptZones: null as ScriptZones | null,
       scriptInstructions: [] as ScriptInstruction[],
       scriptNotif: null as ScriptNotif | null,
+      scriptHookLibre: null as ScriptHookLibre | null,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -3458,6 +3498,7 @@ async function assignmentDetailFor(
     scriptZones: null as ScriptZones | null,
     scriptInstructions: [] as ScriptInstruction[],
     scriptNotif: null as ScriptNotif | null,
+    scriptHookLibre: null as ScriptHookLibre | null,
     targets,
     submittedVideoUrl,
     submittedVideoMimeType,

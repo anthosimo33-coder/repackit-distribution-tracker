@@ -110,6 +110,7 @@ import type * as guideModulesPt from "../guideModulesPt.js";
 import type * as handleHygiene from "../handleHygiene.js";
 import type * as hogWindow from "../hogWindow.js";
 import type * as hookAvailability from "../hookAvailability.js";
+import type * as hookLibre from "../hookLibre.js";
 import type * as hooks from "../hooks.js";
 import type * as http from "../http.js";
 import type * as i18n from "../i18n.js";
@@ -388,6 +389,7 @@ declare const fullApi: ApiFromModules<{
   handleHygiene: typeof handleHygiene;
   hogWindow: typeof hogWindow;
   hookAvailability: typeof hookAvailability;
+  hookLibre: typeof hookLibre;
   hooks: typeof hooks;
   http: typeof http;
   i18n: typeof i18n;

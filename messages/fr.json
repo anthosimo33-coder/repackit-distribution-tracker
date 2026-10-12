@@ -303,7 +303,10 @@
       "instruction": "Instruction",
       "notifTitle": "Notification à afficher",
       "notifHint": "Recopie ce texte tel quel dans la notif qui apparaît à l'écran.",
-      "copyNotif": "Copier la notif"
+      "copyNotif": "Copier la notif",
+      "hookLibreTitle": "Ton hook, avec tes mots",
+      "hookLibreExamples": "Par exemple",
+      "hookLibreHint": "Garde l'idée, invente ta phrase : les exemples sont là pour t'inspirer, pas pour être récités."
     },
     "copy": {
       "copy": "Copier",
@@ -1261,6 +1264,7 @@
     "ERR_BRICK_SLOT_WRONG_KIND": "Brique {kind} de type inattendu ({kind2}).",
     "ERR_BRICK_TEXT_REQUIRED": "Le texte de la brique est requis.",
     "ERR_BRICK_TEXT_TOO_LONG": "Texte trop long (max {p1} caractères).",
+    "ERR_HOOK_EXAMPLES_TOO_MANY": "{p1} autres exemples au plus.",
     "ERR_BRICK_WRONG_SLOT": "La brique doit être de type « {slot} ».",
     "ERR_BULK_EMPTY": "Aucune brique sélectionnée.",
     "ERR_BULK_TOO_MANY": "Trop de briques d'un coup ({length} > {p2}).",

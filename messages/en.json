@@ -303,7 +303,10 @@
       "instruction": "Instruction",
       "notifTitle": "Notification to show",
       "notifHint": "Copy this text exactly into the notification that pops up on screen.",
-      "copyNotif": "Copy the notification"
+      "copyNotif": "Copy the notification",
+      "hookLibreTitle": "Your hook, in your own words",
+      "hookLibreExamples": "For example",
+      "hookLibreHint": "Keep the idea and make up your own line: the examples are there to inspire you, not to be recited."
     },
     "copy": {
       "copy": "Copy",
@@ -1261,6 +1264,7 @@
     "ERR_BRICK_SLOT_WRONG_KIND": "{kind} brick of unexpected type ({kind2}).",
     "ERR_BRICK_TEXT_REQUIRED": "The brick text is required.",
     "ERR_BRICK_TEXT_TOO_LONG": "Text too long (max {p1} characters).",
+    "ERR_HOOK_EXAMPLES_TOO_MANY": "{p1} other examples at most.",
     "ERR_BRICK_WRONG_SLOT": "The brick has to be of type “{slot}”.",
     "ERR_BULK_EMPTY": "No brick selected.",
     "ERR_BULK_TOO_MANY": "Too many bricks at once ({length} > {p2}).",

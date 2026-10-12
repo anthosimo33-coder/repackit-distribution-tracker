@@ -303,7 +303,10 @@
       "instruction": "Instrução",
       "notifTitle": "Notificação a mostrar",
       "notifHint": "Copie este texto exatamente na notificação que aparece na tela.",
-      "copyNotif": "Copiar a notificação"
+      "copyNotif": "Copiar a notificação",
+      "hookLibreTitle": "Seu hook, com suas palavras",
+      "hookLibreExamples": "Por exemplo",
+      "hookLibreHint": "Mantenha a ideia e invente sua frase: os exemplos servem para inspirar, não para serem recitados."
     },
     "copy": {
       "copy": "Copiar",
@@ -1261,6 +1264,7 @@
     "ERR_BRICK_SLOT_WRONG_KIND": "Peça {kind} de tipo inesperado ({kind2}).",
     "ERR_BRICK_TEXT_REQUIRED": "O texto da peça é obrigatório.",
     "ERR_BRICK_TEXT_TOO_LONG": "Texto longo demais (máx. {p1} caracteres).",
+    "ERR_HOOK_EXAMPLES_TOO_MANY": "No máximo {p1} outros exemplos.",
     "ERR_BRICK_WRONG_SLOT": "A peça precisa ser do tipo “{slot}”.",
     "ERR_BULK_EMPTY": "Nenhuma peça selecionada.",
     "ERR_BULK_TOO_MANY": "Peças demais de uma vez ({length} > {p2}).",
