@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canAdoptPayCurrency,
   isPayCurrencyConvertible,
   normalizeCurrency,
   payCurrencyFactor,
@@ -65,6 +66,35 @@ describe("isPayCurrencyConvertible — la garde d'écriture du barème", () => {
     expect(isPayCurrencyConvertible("eur", SNYTCH, null)).toBe(false);
     // Aucun taux de paie : rien d'autre que la devise du projet.
     expect(isPayCurrencyConvertible("eur", { payCurrency: "usd" }, "eur")).toBe(false);
+  });
+});
+
+describe("canAdoptPayCurrency — un projet neuf prend la devise de son premier barème", () => {
+  // BLUSH au 12/10 : paie en dollars par défaut, aucun taux, aucun revenu Whop.
+  const NEUF = { payCurrency: "usd" };
+
+  it("projet sans taux : prend l'euro si le revenu est en euros ou absent", () => {
+    expect(canAdoptPayCurrency("eur", NEUF, null)).toBe(true);
+    expect(canAdoptPayCurrency(" EUR", NEUF, "eur")).toBe(true);
+  });
+
+  it("revenu dans une autre devise : la paie resterait hors de la marge, refus", () => {
+    expect(canAdoptPayCurrency("eur", NEUF, "usd")).toBe(false);
+  });
+
+  it("taux de paie réglé : il mentirait sous la nouvelle devise, refus", () => {
+    expect(canAdoptPayCurrency("eur", SNYTCH, "eur")).toBe(false);
+    expect(canAdoptPayCurrency("eur", { payCurrency: "usd", fxRateToRevenue: 0.86 }, null)).toBe(false);
+  });
+
+  it("taux propre déjà posé pour cette devise : elle en aurait deux, refus", () => {
+    expect(
+      canAdoptPayCurrency("rsd", { payCurrency: "usd", fxRatesToRevenue: [{ currency: "rsd", rate: 0.00852 }] }, null),
+    ).toBe(false);
+  });
+
+  it("devise vide : refus", () => {
+    expect(canAdoptPayCurrency("  ", NEUF, null)).toBe(false);
   });
 });
 

@@ -1,9 +1,10 @@
-import type { Doc } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { referenceCurrency } from "./comptaMath";
 import { ERR, err } from "./errorCodes";
 import { projectFx } from "./whopRevenue";
 import {
+  canAdoptPayCurrency,
   isPayCurrencyConvertible,
   normalizeCurrency,
   resolvePayCurrency,
@@ -71,15 +72,142 @@ async function revenueReferenceCurrency(
 }
 
 /**
- * Refuse une devise de barème que les écrans d'analyse ne sauraient pas
- * convertir. C'est ce contrôle, fait UNE fois à l'écriture, qui permet à
- * `payCurrencyFactor` de lire une devise sans taux propre comme la devise du
- * revenu sans jamais se tromper.
+ * DE L'ARGENT EST-IL DÉJÀ ENGAGÉ DANS LA DEVISE DU PROJET ?
+ *
+ * `projects.payCurrency` est la devise de tout ce qui n'en porte pas en propre
+ * (cf convex/payCurrency, règle 2) : barèmes et paiements d'avant, primes de
+ * défi et paliers débloqués, versements et CPM des managers, tarif par clip et
+ * forfait des talents. Tant que rien de tout ça n'existe, la changer ne
+ * réinterprète aucun montant. Rend le premier motif trouvé, `null` si libre.
+ *
+ * `exceptPricingId` : le barème qu'on modifie, que l'appelant sait inutilisé
+ * (pricingCurrencyLocked) — il change de devise AVEC le projet.
+ *
+ * Les tests les moins chers d'abord : un projet qui a déjà un barème (tous les
+ * projets qui tournent) répond au premier, sans balayer ses assignations.
  */
-export async function assertPayCurrencyConvertible(
+export async function payCurrencyEngagement(
   ctx: QueryCtx,
   project: Doc<"projects">,
+  exceptPricingId?: Id<"pricings">,
+): Promise<string | null> {
+  const projectId = project._id;
+  const pricings = await ctx.db
+    .query("pricings")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .take(2);
+  if (pricings.some((p) => p._id !== exceptPricingId)) return "pricing";
+  if (
+    await ctx.db
+      .query("payments")
+      .withIndex("by_project_period", (q) => q.eq("projectId", projectId))
+      .first()
+  ) {
+    return "payment";
+  }
+  if (
+    await ctx.db
+      .query("managerPayouts")
+      .withIndex("by_project_manager", (q) => q.eq("projectId", projectId))
+      .first()
+  ) {
+    return "managerPayout";
+  }
+  // Défis, primes et paliers pendent à un barème, mais lui survivent : un
+  // barème sans vidéo se supprime même quand une grille ou un défi s'y réfère.
+  if (
+    await ctx.db
+      .query("challenges")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .first()
+  ) {
+    return "challenge";
+  }
+  if (
+    await ctx.db
+      .query("challengeWins")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .first()
+  ) {
+    return "challengeWin";
+  }
+  if (
+    await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .first()
+  ) {
+    return "bonusUnlock";
+  }
+  const members = await ctx.db
+    .query("memberships")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  if (members.some((m) => (m.managerCpms ?? []).length > 0)) return "managerCpm";
+  const creators = await ctx.db
+    .query("creators")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  if (
+    creators.some(
+      (c) => c.clipRate !== undefined || c.monthlyRetainer !== undefined,
+    )
+  ) {
+    return "creatorRate";
+  }
+  // Un clip commandé garde son tarif même si le clippeur n'en a plus.
+  for await (const a of ctx.db
+    .query("assignments")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))) {
+    if (a.clipRateSnapshot !== undefined) return "clip";
+  }
+  return null;
+}
+
+/**
+ * Parmi `choices`, les devises qu'un barème ferait ADOPTER au projet (cf
+ * admitPricingCurrency). L'écran l'annonce sous le choix de devise : la devise
+ * du projet ne change jamais en silence.
+ */
+export async function adoptablePayCurrencies(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+  choices: readonly string[],
+  exceptPricingId?: Id<"pricings">,
+): Promise<string[]> {
+  const pay = normalizeCurrency(project.payCurrency);
+  const reference = await revenueReferenceCurrency(ctx, project);
+  const candidates = choices
+    .map((c) => normalizeCurrency(c))
+    .filter((c): c is string => c !== null && c !== pay)
+    .filter((c) => !isPayCurrencyConvertible(c, project, reference))
+    .filter((c) => canAdoptPayCurrency(c, project, reference));
+  if (candidates.length === 0) return [];
+  return (await payCurrencyEngagement(ctx, project, exceptPricingId)) === null
+    ? candidates
+    : [];
+}
+
+/**
+ * ADMET la devise d'un barème qu'on écrit :
+ *  - le projet sait la convertir → rien ;
+ *  - le projet n'a encore rien engagé → elle devient SA devise de paie ;
+ *  - sinon → refus. C'est ce contrôle, fait UNE fois à l'écriture, qui permet à
+ *    `payCurrencyFactor` de lire une devise sans taux propre comme la devise du
+ *    revenu sans jamais se tromper.
+ *
+ * Le deuxième cas est celui du PREMIER BARÈME d'un projet neuf. Tout projet naît
+ * en dollars et sans taux (createProject) : sans lui, un projet dont les
+ * créatrices sont payées en euros ne pourrait pas créer de barème du tout, et
+ * la devise du projet ne se change qu'en ligne de commande. Tant que rien n'est
+ * engagé dans l'ancienne devise (payCurrencyEngagement) et que taux et revenu
+ * le permettent (canAdoptPayCurrency), en changer ne réinterprète aucun montant.
+ */
+export async function admitPricingCurrency(
+  ctx: MutationCtx,
+  project: Doc<"projects">,
   currency: string,
+  exceptPricingId?: Id<"pricings">,
 ): Promise<void> {
   const c = normalizeCurrency(currency);
   if (c === null) {
@@ -90,15 +218,21 @@ export async function assertPayCurrencyConvertible(
   }
   if (c === normalizeCurrency(project.payCurrency)) return;
   const reference = await revenueReferenceCurrency(ctx, project);
-  if (!isPayCurrencyConvertible(c, project, reference)) {
-    throw err(
-      ERR.PRICING_CURRENCY_INVALID,
-      // Repli FR du code, que le client traduit (cf messages/*.json, error.*).
-      `Ce projet ne sait pas convertir la devise ${c.toUpperCase()} : sans taux de change réglé, ` + // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
-        "le coût d'une créatrice payée dans cette devise ne pourrait pas entrer dans la marge.", // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
-      { currency: c.toUpperCase() },
-    );
+  if (isPayCurrencyConvertible(c, project, reference)) return;
+  if (
+    canAdoptPayCurrency(c, project, reference) &&
+    (await payCurrencyEngagement(ctx, project, exceptPricingId)) === null
+  ) {
+    await ctx.db.patch(project._id, { payCurrency: c });
+    return;
   }
+  throw err(
+    ERR.PRICING_CURRENCY_INVALID,
+    // Repli FR du code, que le client traduit (cf messages/*.json, error.*).
+    `Ce projet ne sait pas convertir la devise ${c.toUpperCase()} : sans taux de change réglé, ` + // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
+      "le coût d'une créatrice payée dans cette devise ne pourrait pas entrer dans la marge.", // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
+    { currency: c.toUpperCase() },
+  );
 }
 
 /**

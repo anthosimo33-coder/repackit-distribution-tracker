@@ -37,6 +37,7 @@ import {
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { normalizeCurrency, payCurrencyFactor } from "./payCurrency";
+import { payCurrencyEngagement } from "./creatorPayCurrency";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, convexErrorText, err } from "./errorCodes";
 
@@ -398,17 +399,10 @@ export const setProjectCurrencyBySlug = internalMutation({
       // deviendraient 465 €. Une devise par barème se règle sur le barème.
       const before = normalizeCurrency(project.payCurrency);
       if (before !== null && before !== normalizeCurrency(patch.payCurrency)) {
-        const pricing = await ctx.db
-          .query("pricings")
-          .withIndex("by_project", (q) => q.eq("projectId", project._id))
-          .first();
-        const payment = await ctx.db
-          .query("payments")
-          .withIndex("by_project_period", (q) => q.eq("projectId", project._id))
-          .first();
-        if (pricing !== null || payment !== null) {
+        const engaged = await payCurrencyEngagement(ctx, project);
+        if (engaged !== null) {
           throw new Error(
-            `La devise de paie du projet (${before.toUpperCase()}) est celle de tout l'historique sans devise : ` +
+            `La devise de paie du projet (${before.toUpperCase()}) est celle de tout l'historique sans devise (${engaged}) : ` +
               "la changer réinterpréterait ses montants. Choisis la devise sur les barèmes.",
           );
         }
