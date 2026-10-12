@@ -607,5 +607,43 @@
     "cancel": "Annuler",
     "apply": "{count, plural, =0 {Appliquer} one {Appliquer à # vidéo} other {Appliquer à # vidéos}}",
     "done": "{count, plural, =0 {Aucune vidéo à changer.} one {# vidéo passée sur « {pricing} ».} other {# vidéos passées sur « {pricing} ».}}"
+  },
+  "FxRates": {
+    "button": "Taux de change",
+    "title": "Taux de change du projet",
+    "description": "Chaque taux ramène une devise dans la devise du revenu, pour la marge, les coûts et les totaux.",
+    "payUnaffected": "Ils ne changent jamais ce qu'une créatrice touche : elle est payée dans la devise de son barème, sans conversion. Un taux permet aussi de créer des barèmes dans une autre devise que celle du projet.",
+    "targetRevenue": "Devise du revenu : {target}. Tous les taux ramènent vers elle, elle n'en a pas.",
+    "targetPay": "Pas encore de revenu encaissé : les taux ramènent vers la devise de paie du projet, {target}.",
+    "targetUnknown": "Plusieurs devises sont encaissées sans taux ({currencies}) : la devise du revenu est celle qui reste sans taux. Choisis-la, puis règle le taux des autres.",
+    "targetPick": "Devise du revenu",
+    "targetHasRate": "{target} est la devise du revenu mais porte un taux : retire-le, sans quoi les totaux du revenu en plusieurs devises restent à zéro.",
+    "remove": "Retirer",
+    "empty": "Aucune autre devise dans ce projet : tout est en {target}. Ajoute une devise ci-dessous pour régler son taux d'avance.",
+    "addLabel": "Ajouter une devise (code à trois lettres)",
+    "addPlaceholder": "ex. GBP",
+    "add": "Ajouter",
+    "saved": "Taux {currency} enregistré.",
+    "removed": "Taux {currency} retiré.",
+    "error": "Le taux n'a pas pu être enregistré.",
+    "tagPay": "devise de paie",
+    "tagPricings": "{count, plural, one {# barème} other {# barèmes}}",
+    "tagCollected": "ventes encaissées",
+    "tagCatalog": "catalogue Whop",
+    "rateOf": "Taux : 1 {currency} en {target}",
+    "noRate": "aucun taux",
+    "save": "Enregistrer",
+    "inverse": "soit 1 {target} = {inverse} {currency}",
+    "missing": "Aucun taux : cette devise n'est pas convertie.",
+    "invalid": "Un nombre strictement positif (0,86 ou 0.86).",
+    "blocked": {
+      "FX_RATE_NEEDED_BY_REVENUE": "Ne se retire pas : des ventes sont encaissées en {currency}. Corrige le taux.",
+      "FX_RATE_NEEDED_BY_MARGIN": "Ne se retire pas : le revenu est en {target}, la marge en dépend. Corrige le taux.",
+      "FX_RATE_NEEDED_BY_PRICING": "Ne se retire pas : des barèmes en dépendent pour être convertis.",
+      "FX_CURRENCY_INVALID": "Ne se retire pas : code devise invalide.",
+      "FX_RATE_INVALID": "Ne se retire pas : taux invalide.",
+      "FX_TARGET_UNKNOWN": "Ne se retire pas : choisis d'abord la devise du revenu.",
+      "FX_RATE_ON_TARGET": "Ne se retire pas : {currency} est la devise du revenu."
+    }
   }
 }

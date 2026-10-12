@@ -1,8 +1,7 @@
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { referenceCurrency } from "./comptaMath";
 import { ERR, err } from "./errorCodes";
-import { projectFx } from "./whopRevenue";
+import { fxTargetFrom, type FxCollected, type FxTargetState } from "./fxRatesMath";
 import {
   canAdoptPayCurrency,
   isPayCurrencyConvertible,
@@ -43,32 +42,58 @@ export function pricingPayCurrency(
 }
 
 /**
- * DEVISE DE RÉFÉRENCE DU REVENU — la seule devise encaissée sans taux (même
- * règle que la compta, cf comptaMath.referenceCurrency). Lue sur les derniers
- * paiements Whop et la devise retenue au dernier import du grand livre. `null`
- * si elle est indéterminée (pas de Whop, ou deux devises sans taux).
+ * DEVISES ENCAISSÉES — celles des derniers paiements Whop, plus la devise
+ * retenue au dernier import du grand livre (`comptaReference`).
  *
  * Volontairement SANS passer par convex/compta : ce module est atteint par les
  * écrans (via convex/pricing), et le grand livre n'a rien à y faire.
  */
-async function revenueReferenceCurrency(
+export async function collectedCurrencies(
   ctx: QueryCtx,
   project: Doc<"projects">,
-): Promise<string | null> {
+): Promise<FxCollected> {
   const seen = new Set<string>();
   const state = await ctx.db
     .query("comptaState")
     .withIndex("by_project", (q) => q.eq("projectId", project._id))
     .first();
-  if (state?.referenceCurrency) seen.add(state.referenceCurrency);
   for (const p of await ctx.db
     .query("whopPayments")
     .withIndex("by_project_paidAt", (q) => q.eq("projectId", project._id))
     .order("desc")
     .take(500)) {
-    if (p.currency) seen.add(p.currency.toLowerCase());
+    const c = normalizeCurrency(p.currency);
+    if (c) seen.add(c);
   }
-  return referenceCurrency(seen, projectFx(project)) ?? state?.referenceCurrency ?? null;
+  return {
+    seen: [...seen],
+    comptaReference: normalizeCurrency(state?.referenceCurrency),
+  };
+}
+
+/** Cible des taux du projet (cf fxRatesMath.fxTargetFrom). */
+export async function fxTargetOf(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<FxTargetState> {
+  return fxTargetFrom(await collectedCurrencies(ctx, project), project);
+}
+
+/** Devises RÉSOLUES des barèmes du projet, archivés compris (leurs vidéos restent). */
+export async function pricingCurrenciesOf(
+  ctx: QueryCtx,
+  project: Doc<"projects">,
+): Promise<string[]> {
+  const pricings = await ctx.db
+    .query("pricings")
+    .withIndex("by_project", (q) => q.eq("projectId", project._id))
+    .collect();
+  const out = new Set<string>();
+  for (const p of pricings) {
+    const c = pricingPayCurrency(p, project);
+    if (c !== null) out.add(c);
+  }
+  return [...out].sort();
 }
 
 /**
@@ -176,11 +201,12 @@ export async function adoptablePayCurrencies(
   exceptPricingId?: Id<"pricings">,
 ): Promise<string[]> {
   const pay = normalizeCurrency(project.payCurrency);
-  const reference = await revenueReferenceCurrency(ctx, project);
+  const fx = await fxTargetOf(ctx, project);
+  const reference = fx.source === "revenue" ? fx.target : null;
   const candidates = choices
     .map((c) => normalizeCurrency(c))
     .filter((c): c is string => c !== null && c !== pay)
-    .filter((c) => !isPayCurrencyConvertible(c, project, reference))
+    .filter((c) => !isPayCurrencyConvertible(c, project, fx.target))
     .filter((c) => canAdoptPayCurrency(c, project, reference));
   if (candidates.length === 0) return [];
   return (await payCurrencyEngagement(ctx, project, exceptPricingId)) === null
@@ -217,8 +243,9 @@ export async function admitPricingCurrency(
     });
   }
   if (c === normalizeCurrency(project.payCurrency)) return;
-  const reference = await revenueReferenceCurrency(ctx, project);
-  if (isPayCurrencyConvertible(c, project, reference)) return;
+  const fx = await fxTargetOf(ctx, project);
+  const reference = fx.source === "revenue" ? fx.target : null;
+  if (isPayCurrencyConvertible(c, project, fx.target)) return;
   if (
     canAdoptPayCurrency(c, project, reference) &&
     (await payCurrencyEngagement(ctx, project, exceptPricingId)) === null
@@ -229,8 +256,8 @@ export async function admitPricingCurrency(
   throw err(
     ERR.PRICING_CURRENCY_INVALID,
     // Repli FR du code, que le client traduit (cf messages/*.json, error.*).
-    `Ce projet ne sait pas convertir la devise ${c.toUpperCase()} : sans taux de change réglé, ` + // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
-      "le coût d'une créatrice payée dans cette devise ne pourrait pas entrer dans la marge.", // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
+    `Ce projet ne sait pas convertir la devise ${c.toUpperCase()} : règle d'abord son taux (bouton « Taux de change » en haut des barèmes), ` + // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
+      "sans quoi le coût d'une créatrice payée dans cette devise ne pourrait pas entrer dans la marge.", // i18n-exempt: repli FR du code ERR_PRICING_CURRENCY_INVALID
     { currency: c.toUpperCase() },
   );
 }

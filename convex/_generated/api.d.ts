@@ -96,6 +96,8 @@ import type * as filterPresets from "../filterPresets.js";
 import type * as folders from "../folders.js";
 import type * as formats from "../formats.js";
 import type * as functions from "../functions.js";
+import type * as fxRates from "../fxRates.js";
+import type * as fxRatesMath from "../fxRatesMath.js";
 import type * as googleDriveApi from "../googleDriveApi.js";
 import type * as graduation from "../graduation.js";
 import type * as guide from "../guide.js";
@@ -372,6 +374,8 @@ declare const fullApi: ApiFromModules<{
   folders: typeof folders;
   formats: typeof formats;
   functions: typeof functions;
+  fxRates: typeof fxRates;
+  fxRatesMath: typeof fxRatesMath;
   googleDriveApi: typeof googleDriveApi;
   graduation: typeof graduation;
   guide: typeof guide;

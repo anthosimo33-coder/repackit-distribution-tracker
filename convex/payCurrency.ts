@@ -36,6 +36,12 @@ export function normalizeCurrency(c?: string | null): string | null {
   return t ? t : null;
 }
 
+/** Un code devise ISO 4217 : trois lettres (« eur », « RSD »). */
+export function isCurrencyCode(c: string | null | undefined): boolean {
+  const t = normalizeCurrency(c);
+  return t !== null && /^[a-z]{3}$/.test(t);
+}
+
 /**
  * Devise EFFECTIVE d'un montant de paie : la sienne si elle est posée, sinon
  * celle du projet (règle 2). `null` si ni l'une ni l'autre — le montant
@@ -65,10 +71,15 @@ export interface PayFxProject {
  *    montants d'avant les barèmes en devise ;
  *  - devise avec son propre taux vers le revenu → taux / taux de la paie ;
  *  - devise SANS taux propre → c'est la devise du REVENU, la cible de tous les
- *    taux (chez Snytch : l'euro, 1 $ = 0,86 € ⇒ 1 € = 1 / 0,86 $). Cette
- *    lecture n'est sûre que parce que `admitPricingCurrency` l'a
- *    vérifiée à la création du barème ;
- *  - aucun taux de paie réglé → `null` : on ne sait pas, on ne devine pas.
+ *    taux (chez Snytch : l'euro, 1 $ = 0,86 € ⇒ 1 € = 1 / 0,86 $) ;
+ *  - AUCUN taux de paie : la paie est elle-même la cible des taux (paie et
+ *    revenu dans la même devise, ou pas encore de revenu) — un taux posé sur
+ *    elle ferait perdre au revenu sa devise cible (cf summarizeWhopRevenue).
+ *    Une devise à taux propre vaut alors ce taux ; une autre → `null`.
+ *
+ * Ces lectures ne sont sûres que parce que `admitPricingCurrency` les a
+ * vérifiées à la création du barème (isPayCurrencyConvertible, qui connaît la
+ * cible), et que l'écran des taux ne retire pas un taux dont un barème dépend.
  */
 export function payCurrencyFactor(
   currency: string | null | undefined,
@@ -77,36 +88,41 @@ export function payCurrencyFactor(
   const pay = normalizeCurrency(project?.payCurrency);
   const c = normalizeCurrency(currency) ?? pay;
   if (c === null || c === pay) return 1;
-  const payRate = project?.fxRateToRevenue;
-  if (typeof payRate !== "number" || !(payRate > 0)) return null;
   const own = (project?.fxRatesToRevenue ?? []).find(
-    (r) => normalizeCurrency(r.currency) === c,
+    (r) => normalizeCurrency(r.currency) === c && r.rate > 0,
   );
-  if (own && own.rate > 0) return own.rate / payRate;
+  const payRate = project?.fxRateToRevenue;
+  if (typeof payRate !== "number" || !(payRate > 0)) return own ? own.rate : null;
+  if (own) return own.rate / payRate;
   return 1 / payRate;
 }
 
 /**
  * Une devise de paie est-elle CONVERTIBLE dans ce projet ? Oui si c'est la
- * sienne, si elle a son propre taux vers le revenu, ou si c'est la devise de
- * référence du revenu elle-même (et que la paie du projet a un taux vers elle).
+ * sienne, si elle a son propre taux vers la cible, ou si c'est la cible
+ * elle-même — à condition que la paie du projet sache rejoindre la cible :
+ * par son taux, ou parce qu'elle EST la cible (paie et revenu dans la même
+ * devise, ou pas de revenu du tout : cf creatorPayCurrency.fxTargetOf).
  * C'est la condition pour que `payCurrencyFactor` ne mente jamais.
  */
 export function isPayCurrencyConvertible(
   currency: string,
   project: PayFxProject | null | undefined,
-  revenueReferenceCurrency: string | null | undefined,
+  fxTarget: string | null | undefined,
 ): boolean {
   const c = normalizeCurrency(currency);
   if (c === null) return false;
   const pay = normalizeCurrency(project?.payCurrency);
   if (c === pay) return true;
+  const target = normalizeCurrency(fxTarget);
   const payRate = project?.fxRateToRevenue;
-  if (typeof payRate !== "number" || !(payRate > 0)) return false;
+  const payReachesTarget =
+    (pay !== null && pay === target) || (typeof payRate === "number" && payRate > 0);
+  if (!payReachesTarget) return false;
   const own = (project?.fxRatesToRevenue ?? []).some(
     (r) => normalizeCurrency(r.currency) === c && r.rate > 0,
   );
-  return own || c === normalizeCurrency(revenueReferenceCurrency);
+  return own || c === target;
 }
 
 /**

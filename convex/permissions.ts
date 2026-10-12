@@ -268,7 +268,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     section: "Système",
     label: "Réglages du projet",
     description:
-      "Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent.",
+      "Durée de chauffe, délai de réutilisation d'un combo, réglages de l'espace talent, taux de change.",
     defaultForManager: false,
   },
   {
