@@ -140,6 +140,10 @@ export default defineSchema({
   projects: defineTable({
     name: v.string(),
     slug: v.string(),
+    // Adresses QUITTÉES (Modifier le projet) : un lien `/admin/<ancienne>/…`
+    // déjà partagé mène à l'adresse actuelle, et aucun autre projet ne peut les
+    // reprendre. ABSENT = le projet n'a jamais changé d'adresse.
+    previousSlugs: v.optional(v.array(v.string())),
     accentColor: v.string(),
     payoutDay: v.number(),
     status: v.union(v.literal("active"), v.literal("archived")),

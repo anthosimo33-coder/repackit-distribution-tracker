@@ -53,3 +53,84 @@ export function logoRefusal(file: {
 export function deletionConfirmed(projectName: string, typed: string): boolean {
   return typed.trim() === projectName.trim() && typed.trim() !== "";
 }
+
+// ─── Adresse (slug) ──────────────────────────────────────────────────────────
+
+/**
+ * Segments top-level de l'app (`/admin`, `/app`, `/login`, `/s/<token>`…) et
+ * segment statique `/admin/voir` : un projet qui porterait l'un de ces noms
+ * serait masqué par la route du même nom, ou la masquerait.
+ */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
+  "admin",
+  "app",
+  "login",
+  "api",
+  "p",
+  "s",
+  "join",
+  "oauth",
+  "reset-password",
+  "accueil",
+  "voir",
+  "_next",
+  "dashboard",
+  // Portails talent / clippeur (segments top-level, cf lib/portal-path.ts).
+  "talent",
+  "clip",
+]);
+
+/**
+ * Projets dont le CODE nomme le slug (REPACKIT_SLUG, SNYTCH_SLUG et les replis
+ * `LEGACY_*_SLUG = "snytch"`) : changer leur adresse ferait basculer en silence
+ * le dépôt Drive, la validation stricte des comptes, les zones de script et la
+ * vitrine publique. Leur adresse reste figée.
+ */
+export const LOCKED_SLUGS: ReadonlySet<string> = new Set(["repackit", "snytch"]);
+
+/** Le code dépend-il de l'adresse de ce projet ? */
+export function isSlugLocked(slug: string): boolean {
+  return LOCKED_SLUGS.has(slug);
+}
+
+/**
+ * Adresse normalisée (minuscules, chiffres, tirets internes), ou `null` si la
+ * saisie n'en est pas une. Pas de « réparation » silencieuse des espaces ou des
+ * accents : l'adresse s'affiche telle quelle dans les liens, on la veut tapée.
+ */
+export function normalizeProjectSlug(raw: string): string | null {
+  const slug = raw.trim().toLowerCase();
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug) ? slug : null;
+}
+
+/**
+ * Anciennes adresses du projet après un changement `ancien → nouveau` :
+ * l'ancienne y entre (ses liens déjà partagés doivent mener à la nouvelle), la
+ * nouvelle en sort (revenir à une adresse passée la reprend), sans doublon.
+ */
+export function previousSlugsAfterChange(
+  previous: readonly string[] | undefined,
+  oldSlug: string,
+  newSlug: string,
+): string[] {
+  const out = (previous ?? []).filter((s) => s !== newSlug && s !== oldSlug);
+  return oldSlug === newSlug ? out : [...out, oldSlug];
+}
+
+/**
+ * Le chemin courant, réécrit pour la nouvelle adresse du projet : seul le
+ * PREMIER segment égal à l'ancienne adresse change (`/admin/<slug>/…`,
+ * `/admin/voir/<slug>/…`, `/<slug>/login`). Un segment plus loin qui porterait
+ * le même texte (un id, un onglet) n'est pas touché.
+ */
+export function pathWithSlug(
+  pathname: string,
+  oldSlug: string,
+  newSlug: string,
+): string {
+  const segments = pathname.split("/");
+  const i = segments.indexOf(oldSlug);
+  if (i === -1) return pathname;
+  segments[i] = newSlug;
+  return segments.join("/");
+}

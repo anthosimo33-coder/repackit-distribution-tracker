@@ -92,8 +92,8 @@ test.describe("Projets — modifier et supprimer (superadmin)", () => {
       await expect(
         page.getByRole("heading", { name: "Modifier le projet" }),
       ).toBeVisible();
-      // Le slug est montré, pas modifiable.
-      await expect(page.getByText(`/admin/${slug}`, { exact: true })).toBeVisible();
+      // L'adresse est pré-remplie avec l'actuelle (son changement a son test).
+      await expect(page.getByLabel("Adresse", { exact: true })).toHaveValue(slug);
 
       await page.getByLabel("Nom", { exact: true }).fill(nouveauNom);
       await page.getByLabel("Code de la couleur").fill("#7C3AED");
@@ -210,6 +210,123 @@ test.describe("Projets — modifier et supprimer (superadmin)", () => {
         secret: E2E_SECRET,
         slug,
       });
+    }
+  });
+
+  test("adresse changée : l'écran suit, les anciens liens mènent à la nouvelle, l'ancienne reste au projet", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const ts = Date.now();
+    const ancien = `e2e-adr-${ts}`;
+    const nouveau = `e2e-adr-neuf-${ts}`;
+    const autre = `e2e-adr-autre-${ts}`;
+    const nom = `E2E Adresse ${ts}`;
+    const { projectId } = (await convex.mutation(
+      api.projects.e2eEnsureProjectBySlug,
+      { secret: E2E_SECRET, slug: ancien, name: nom },
+    )) as { projectId: Id<"projects"> };
+    const { projectId: autreId } = (await convex.mutation(
+      api.projects.e2eEnsureProjectBySlug,
+      { secret: E2E_SECRET, slug: autre, name: `E2E Adresse autre ${ts}` },
+    )) as { projectId: Id<"projects"> };
+
+    try {
+      // ── Changer l'adresse depuis l'écran ───────────────────────────────────
+      await page.goto(`/admin/${ancien}/createurs`);
+      await page.getByRole("button", { name: "Changer de projet" }).click();
+      await page.getByRole("menuitem", { name: "Modifier ce projet" }).click();
+      const champ = page.getByLabel("Adresse", { exact: true });
+      await expect(champ).toHaveValue(ancien);
+
+      // Saisie hors format : dite, et l'enregistrement est bloqué.
+      await champ.fill("Pas une adresse");
+      await expect(
+        page.getByText("Adresse invalide : minuscules, chiffres et tirets uniquement."),
+      ).toBeVisible();
+      await expect(page.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+
+      await champ.fill(nouveau);
+      await expect(
+        page.getByText(
+          `Les liens déjà partagés vers /admin/${ancien} mèneront à la nouvelle adresse.`,
+        ),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Enregistrer" }).click();
+
+      // L'écran ouvert suit le projet à sa nouvelle adresse.
+      await expect(page).toHaveURL(new RegExp(`/admin/${nouveau}/createurs$`), {
+        timeout: 15_000,
+      });
+      await expect(page.getByRole("heading", { name: "Créateurs" })).toBeVisible();
+
+      // ── Un lien déjà partagé, query et ancre comprises ─────────────────────
+      await page.goto(`/admin/${ancien}/comptes?vue=liste#bas`);
+      await expect(page).toHaveURL(
+        new RegExp(`/admin/${nouveau}/comptes\\?vue=liste#bas$`),
+        { timeout: 15_000 },
+      );
+      // « Retour » saute l'ancienne adresse (replace, pas push) : il ramène à
+      // l'écran d'avant, pas à un lien qui re-déclencherait le saut.
+      await page.goBack();
+      await expect(page).toHaveURL(new RegExp(`/admin/${nouveau}/createurs$`));
+
+      // La page de connexion brandée d'un ancien lien garde son habillage.
+      const public_ = new ConvexHttpClient(convexUrl!);
+      expect(
+        await public_.query(api.projects.getProjectBrandingBySlug, { slug: ancien }),
+      ).toEqual(expect.objectContaining({ name: nom }));
+
+      // ── Refus côté SERVEUR ─────────────────────────────────────────────────
+      // L'ancienne adresse reste au projet : un autre ne la prend pas.
+      await expect(
+        convex.mutation(api.projectLifecycle.updateProject, {
+          projectId: autreId,
+          slug: ancien,
+        }),
+      ).rejects.toThrow(/ERR_SLUG_TAKEN/);
+      await expect(
+        convex.mutation(api.projectLifecycle.updateProject, {
+          projectId: autreId,
+          slug: "voir",
+        }),
+      ).rejects.toThrow(/ERR_SLUG_RESERVED/);
+      await expect(
+        convex.mutation(api.projectLifecycle.updateProject, {
+          projectId: autreId,
+          slug: "Pas bon",
+        }),
+      ).rejects.toThrow(/ERR_SLUG_INVALID/);
+      // Une adresse que le code nomme est figée.
+      // Même semis idempotent que creator-portal-nav : le projet socle existe
+      // ou est créé, jamais supprimé.
+      const { projectId: repackitId } = (await convex.mutation(
+        api.projects.e2eEnsureProjectBySlug,
+        { secret: E2E_SECRET, slug: "repackit", name: "RepackIt" },
+      )) as { projectId: Id<"projects"> };
+      await expect(
+        convex.mutation(api.projectLifecycle.updateProject, {
+          projectId: repackitId,
+          slug: `e2e-repackit-${ts}`,
+        }),
+      ).rejects.toThrow(/ERR_SLUG_LOCKED/);
+
+      // ── Revenir à l'ancienne adresse la reprend ───────────────────────────
+      await convex.mutation(api.projectLifecycle.updateProject, {
+        projectId,
+        slug: ancien,
+      });
+      await page.goto(`/admin/${nouveau}/dashboard`);
+      await expect(page).toHaveURL(new RegExp(`/admin/${ancien}/dashboard$`), {
+        timeout: 15_000,
+      });
+    } finally {
+      for (const slug of [ancien, nouveau, autre]) {
+        await convex.mutation(api.projects.e2eDeleteProject, {
+          secret: E2E_SECRET,
+          slug,
+        });
+      }
     }
   });
 });

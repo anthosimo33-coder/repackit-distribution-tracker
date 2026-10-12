@@ -49,6 +49,7 @@ import {
 } from "./fxRatesMath";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, convexErrorText, err } from "./errorCodes";
+import { RESERVED_SLUGS, normalizeProjectSlug } from "./projectLifecycleRules";
 
 /**
  * P2 Multi-tenant — résolution du projet courant.
@@ -73,6 +74,39 @@ export async function getProjectBySlug(
     .query("projects")
     .withIndex("by_slug", (q) => q.eq("slug", slug))
     .first();
+}
+
+/**
+ * Le projet qui a PORTÉ cette adresse avant d'en changer (cf
+ * `projectLifecycle.updateProject`) : ses liens déjà partagés doivent mener à
+ * la nouvelle. Lu seulement quand l'adresse exacte n'existe pas — le chemin
+ * d'un vieux lien, pas celui de chaque écran. Pas d'index sur un tableau : on
+ * parcourt les projets, une poignée.
+ */
+export async function getProjectByPreviousSlug(
+  ctx: QueryCtx,
+  slug: string,
+): Promise<Doc<"projects"> | null> {
+  const projects = await ctx.db.query("projects").collect();
+  return projects.find((p) => p.previousSlugs?.includes(slug) ?? false) ?? null;
+}
+
+/**
+ * L'adresse est-elle déjà prise — portée aujourd'hui OU naguère par un autre
+ * projet ? Une ancienne adresse reste réservée à son projet : la donner à un
+ * autre détournerait ses liens déjà partagés.
+ */
+export async function isSlugTaken(
+  ctx: QueryCtx,
+  slug: string,
+  exceptProjectId?: Id<"projects">,
+): Promise<boolean> {
+  const projects = await ctx.db.query("projects").collect();
+  return projects.some(
+    (p) =>
+      p._id !== exceptProjectId &&
+      (p.slug === slug || (p.previousSlugs?.includes(slug) ?? false)),
+  );
 }
 
 /**
@@ -136,24 +170,6 @@ export const getCurrentProject = authedQuery({
 });
 
 /**
- * P3 — slugs réservés à l'arborescence de routes (`/admin/[slug]/…`, segment
- * `/app` futur portail créateur, `/login`, `/p`). Empêche de créer un projet
- * dont le slug entrerait en collision avec un segment top-level.
- */
-const RESERVED_SLUGS = new Set([
-  "admin",
-  "app",
-  "login",
-  "api",
-  "p",
-  "_next",
-  "dashboard",
-  // Portails talent / clippeur (segments top-level, cf lib/portal-path.ts).
-  "talent",
-  "clip",
-]);
-
-/**
  * PROJECTION du document projet servie au CLIENT (app interne).
  *
  * `getProjectForCurrentUser` renvoyait le document COMPLET à tout membre — donc
@@ -204,10 +220,17 @@ export function projectForClient(p: Doc<"projects">) {
 export const getProjectForCurrentUser = authedQuery({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
-    const project = await getProjectBySlug(ctx, slug);
+    // Adresse quittée : le projet existe sous sa nouvelle adresse. On ne la
+    // donne qu'à qui a accès au projet — les autres voient le même « accès
+    // refusé » qu'à l'adresse actuelle.
+    const exact = await getProjectBySlug(ctx, slug);
+    const project = exact ?? (await getProjectByPreviousSlug(ctx, slug));
     if (project === null) return { status: "not_found" as const };
+    const moved =
+      exact === null ? { status: "moved" as const, slug: project.slug } : null;
     const user = await ctx.db.get(ctx.userId);
     if (user?.role === "superadmin") {
+      if (moved) return moved;
       // P1 — superadmin n'est jamais un rôle de portail (accès admin implicite).
       return {
         status: "ok" as const,
@@ -222,6 +245,7 @@ export const getProjectForCurrentUser = authedQuery({
       )
       .first();
     if (membership === null) return { status: "forbidden" as const };
+    if (moved) return moved;
     // Un rôle de PORTAIL (creator partenaire / talent / clippeur) a accès au projet
     // (membership) mais PAS à l'app interne : le ProjectProvider le renvoie vers SON
     // portail (lib/portal-path). On renvoie le rôle plutôt qu'un booléen — avec trois
@@ -256,7 +280,12 @@ export const getProjectForCurrentUser = authedQuery({
 export const getProjectBrandingBySlug = publicQuery({
   args: { slug: v.string() },
   handler: async (ctx, { slug }) => {
-    const project = await getProjectBySlug(ctx, slug);
+    // Un lien de connexion envoyé avant un changement d'adresse garde son
+    // habillage. La page ne fait que pousser vers `/` après connexion : pas de
+    // redirection à faire, et la nouvelle adresse n'est pas révélée.
+    const project =
+      (await getProjectBySlug(ctx, slug)) ??
+      (await getProjectByPreviousSlug(ctx, slug));
     if (project === null) return null;
     return { name: project.name, accentColor: project.accentColor };
   },
@@ -747,15 +776,14 @@ export const createProject = superadminMutation({
     if (name.length === 0) {
       throw err(ERR.PROJECT_NAME_REQUIRED, "Le nom du projet est requis.");
     }
-    const slug = args.slug.trim().toLowerCase();
-    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(slug)) {
+    const slug = normalizeProjectSlug(args.slug);
+    if (slug === null) {
       throw err(ERR.SLUG_INVALID, "Slug invalide : minuscules, chiffres et tirets uniquement.");
     }
     if (RESERVED_SLUGS.has(slug)) {
       throw err(ERR.SLUG_RESERVED, `Slug réservé : « ${slug} ».`, { slug });
     }
-    const existing = await getProjectBySlug(ctx, slug);
-    if (existing !== null) {
+    if (await isSlugTaken(ctx, slug)) {
       throw err(ERR.SLUG_TAKEN, `Un projet « ${slug} » existe déjà.`, { slug });
     }
     const accentColor = args.accentColor?.trim() || "#FF5200";

@@ -1,9 +1,10 @@
 /**
  * MODIFIER et SUPPRIMER un projet — réservé au superadmin.
  *
- * Modifier : nom, couleur d'accent, logo téléversé. Le SLUG n'est pas
- * modifiable : il est dans les URL partagées (connexion brandée, liens des
- * notifications) et le code en dépend nommément (`snytch`, `repackit`).
+ * Modifier : nom, couleur d'accent, logo téléversé, adresse (slug). L'adresse
+ * quittée est gardée dans `previousSlugs` : les URL déjà partagées (connexion
+ * brandée, liens des notifications, favoris) mènent à la nouvelle. Seuls les
+ * projets que le code nomme (`snytch`, `repackit`) gardent la leur.
  *
  * Supprimer : opération la plus destructrice de l'app, en deux temps.
  *   1. `deleteProject` — dans UNE transaction : les accès (memberships), les
@@ -28,7 +29,7 @@ import { internal } from "./_generated/api";
 import type { Id, TableNames } from "./_generated/dataModel";
 import { superadminMutation, superadminQuery, e2eMutation } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { REPACKIT_SLUG } from "./projects";
+import { REPACKIT_SLUG, isSlugTaken } from "./projects";
 import { purgeAndDeleteAssignment } from "./assignments";
 import { purgeDeletedVideoFiles } from "./deletedVideos";
 import { deleteStorageBestEffort } from "./storageCleanup";
@@ -36,10 +37,14 @@ import { deleteAuthDataOfUser } from "./authCleanup";
 import {
   PROJECT_NAME_MAX,
   LOGO_MAX_BYTES,
+  RESERVED_SLUGS,
   deletionConfirmed,
+  isSlugLocked,
   logoRefusal,
   normalizeAccentColor,
   normalizeProjectName,
+  normalizeProjectSlug,
+  previousSlugsAfterChange,
 } from "./projectLifecycleRules";
 import { TABLES_PURGEES, type TablePurgee } from "./projectPurgeTables";
 
@@ -52,6 +57,8 @@ export const updateProject = superadminMutation({
     projectId: v.id("projects"),
     name: v.optional(v.string()),
     accentColor: v.optional(v.string()),
+    // Nouvelle adresse ; absent ou identique = ne pas toucher.
+    slug: v.optional(v.string()),
     // Id = nouveau logo, DÉJÀ téléversé (storage.generateUploadUrl) ;
     // null = retirer le logo ; absent = ne pas toucher.
     logo: v.optional(v.union(v.id("_storage"), v.null())),
@@ -61,6 +68,8 @@ export const updateProject = superadminMutation({
     if (!project) throw err(ERR.PROJECT_NOT_FOUND, "Projet introuvable.");
     const patch: {
       name?: string;
+      slug?: string;
+      previousSlugs?: string[];
       accentColor?: string;
       logoUrl?: string;
       logoStorageId?: Id<"_storage">;
@@ -79,6 +88,32 @@ export const updateProject = superadminMutation({
         );
       }
       patch.name = name;
+    }
+
+    if (args.slug !== undefined && args.slug.trim().toLowerCase() !== project.slug) {
+      if (isSlugLocked(project.slug)) {
+        throw err(
+          ERR.SLUG_LOCKED,
+          `L'adresse « ${project.slug} » est figée : le code de l'app en dépend.`,
+          { slug: project.slug },
+        );
+      }
+      const slug = normalizeProjectSlug(args.slug);
+      if (slug === null) {
+        throw err(ERR.SLUG_INVALID, "Slug invalide : minuscules, chiffres et tirets uniquement.");
+      }
+      if (RESERVED_SLUGS.has(slug) || isSlugLocked(slug)) {
+        throw err(ERR.SLUG_RESERVED, `Slug réservé : « ${slug} ».`, { slug });
+      }
+      if (await isSlugTaken(ctx, slug, project._id)) {
+        throw err(ERR.SLUG_TAKEN, `Un projet « ${slug} » existe déjà.`, { slug });
+      }
+      patch.slug = slug;
+      patch.previousSlugs = previousSlugsAfterChange(
+        project.previousSlugs,
+        project.slug,
+        slug,
+      );
     }
 
     if (args.accentColor !== undefined) {
@@ -129,7 +164,7 @@ export const updateProject = superadminMutation({
 
     await ctx.db.patch(project._id, patch);
     await deleteStorageBestEffort(ctx, blobARetirer);
-    return { slug: project.slug };
+    return { slug: patch.slug ?? project.slug };
   },
 });
 

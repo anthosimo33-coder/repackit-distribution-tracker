@@ -15,6 +15,7 @@ import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { projectPath } from "@/lib/project-path";
+import { pathWithSlug } from "@/convex/projectLifecycleRules";
 import { portalPathForRole } from "@/lib/portal-path";
 import { useTranslations } from "next-intl";
 
@@ -30,6 +31,9 @@ import { useTranslations } from "next-intl";
  * projet valide, et les call sites passent projectId sans logique de skip.
  *
  * États non-ok rendus proprement :
+ *   - moved : ancienne adresse d'un projet qui en a changé (Modifier le projet)
+ *     → même écran sous la nouvelle adresse, query et ancre comprises. Un lien
+ *     déjà partagé ou un favori ne tombe donc jamais sur « introuvable ».
  *   - not_found : slug inexistant → 404 applicatif.
  *   - forbidden : slug existant mais l'utilisateur n'a pas de membership
  *     (et n'est pas superadmin) → accès refusé.
@@ -69,6 +73,10 @@ export function ProjectProvider({
 
   if (result === undefined) {
     return <FullPageLoader />;
+  }
+
+  if (result.status === "moved") {
+    return <MovedTo from={slug} to={result.slug} />;
   }
 
   if (result.status === "not_found") {
@@ -138,6 +146,21 @@ function RedirectTo({ href }: { href: string }) {
   useEffect(() => {
     router.replace(href);
   }, [router, href]);
+  return <FullPageLoader />;
+}
+
+/**
+ * Ancienne adresse → la nouvelle, sur le MÊME écran. Lu dans `window.location`
+ * au moment de partir : la query (`?tab=…`) et l'ancre font partie du lien
+ * qu'on a suivi. `replace` : l'ancienne adresse ne reste pas dans l'historique,
+ * sinon « Retour » y ramènerait et re-déclencherait le saut.
+ */
+function MovedTo({ from, to }: { from: string; to: string }) {
+  const router = useRouter();
+  useEffect(() => {
+    const { pathname, search, hash } = window.location;
+    router.replace(`${pathWithSlug(pathname, from, to)}${search}${hash}`);
+  }, [router, from, to]);
   return <FullPageLoader />;
 }
 

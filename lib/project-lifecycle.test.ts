@@ -1,12 +1,18 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
+  LOCKED_SLUGS,
   LOGO_MAX_BYTES,
+  RESERVED_SLUGS,
   deletionConfirmed,
+  isSlugLocked,
   logoRefusal,
   normalizeAccentColor,
   normalizeProjectName,
+  normalizeProjectSlug,
+  pathWithSlug,
+  previousSlugsAfterChange,
 } from "../convex/projectLifecycleRules";
 import { HORS_PURGE, TABLES_PURGEES } from "../convex/projectPurgeTables";
 
@@ -105,5 +111,107 @@ describe("deletionConfirmed", () => {
     expect(deletionConfirmed("Thea App", "thea app")).toBe(false);
     expect(deletionConfirmed("Thea App", "Thea")).toBe(false);
     expect(deletionConfirmed("Thea App", "")).toBe(false);
+  });
+});
+
+describe("normalizeProjectSlug", () => {
+  it("accepte minuscules, chiffres et tirets internes ; met en minuscules", () => {
+    expect(normalizeProjectSlug("blush")).toBe("blush");
+    expect(normalizeProjectSlug("  Blush-2 ")).toBe("blush-2");
+    expect(normalizeProjectSlug("a")).toBe("a");
+  });
+
+  it("refuse ce qui ne tiendrait pas dans une URL telle quelle", () => {
+    for (const s of ["", " ", "blush par crush", "-blush", "blush-", "blüsh", "a/b", "a_b", "a.b"]) {
+      expect(normalizeProjectSlug(s)).toBeNull();
+    }
+  });
+});
+
+describe("previousSlugsAfterChange", () => {
+  it("l'ancienne adresse entre dans la liste", () => {
+    expect(previousSlugsAfterChange(undefined, "crush", "blush")).toEqual(["crush"]);
+    expect(previousSlugsAfterChange(["old"], "crush", "blush")).toEqual(["old", "crush"]);
+  });
+
+  it("revenir à une adresse passée la retire de la liste, sans doublon", () => {
+    expect(previousSlugsAfterChange(["crush"], "blush", "crush")).toEqual(["blush"]);
+    expect(previousSlugsAfterChange(["crush", "blush"], "blush", "crush")).toEqual(["blush"]);
+  });
+
+  it("adresse inchangée : liste inchangée", () => {
+    expect(previousSlugsAfterChange(["old"], "crush", "crush")).toEqual(["old"]);
+  });
+});
+
+describe("pathWithSlug", () => {
+  it("réécrit le segment du projet, sur les trois familles de routes", () => {
+    expect(pathWithSlug("/admin/crush/createurs", "crush", "blush")).toBe("/admin/blush/createurs");
+    expect(pathWithSlug("/admin/crush", "crush", "blush")).toBe("/admin/blush");
+    expect(pathWithSlug("/admin/voir/crush/abc/gains", "crush", "blush")).toBe(
+      "/admin/voir/blush/abc/gains",
+    );
+    expect(pathWithSlug("/crush/login", "crush", "blush")).toBe("/blush/login");
+  });
+
+  it("ne touche que le premier segment égal, jamais une sous-chaîne", () => {
+    expect(pathWithSlug("/admin/crush/scripts/crush", "crush", "blush")).toBe(
+      "/admin/blush/scripts/crush",
+    );
+    expect(pathWithSlug("/admin/crushed/x", "crush", "blush")).toBe("/admin/crushed/x");
+  });
+});
+
+describe("adresses figées et réservées", () => {
+  /**
+   * Toute adresse que le CODE nomme (constante `*_SLUG = "…"` ou lecture
+   * `eq("slug", "…")`) doit être figée : sinon renommer le projet ferait
+   * basculer en silence le comportement qui en dépend.
+   */
+  function slugsNommesDansLeCode(): string[] {
+    const racine = path.join(__dirname, "..");
+    const fichiers = [
+      ...readdirSync(path.join(racine, "convex"))
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+        .map((f) => path.join(racine, "convex", f)),
+      ...readdirSync(path.join(racine, "lib"))
+        .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+        .map((f) => path.join(racine, "lib", f)),
+    ];
+    const trouves = new Set<string>();
+    for (const f of fichiers) {
+      const src = readFileSync(f, "utf8");
+      for (const m of src.matchAll(/_SLUG = "([a-z0-9-]+)"|eq\("slug", "([a-z0-9-]+)"\)/g)) {
+        trouves.add(m[1] ?? m[2]);
+      }
+    }
+    return [...trouves].sort();
+  }
+
+  it("le lecteur voit bien les adresses nommées (présence)", () => {
+    expect(slugsNommesDansLeCode()).toEqual(expect.arrayContaining(["repackit", "snytch"]));
+  });
+
+  it("chaque adresse nommée dans le code est figée", () => {
+    for (const slug of slugsNommesDansLeCode()) {
+      expect(isSlugLocked(slug), slug).toBe(true);
+    }
+  });
+
+  it("une adresse ordinaire se change", () => {
+    expect(isSlugLocked("crush")).toBe(false);
+    expect(LOCKED_SLUGS.size).toBe(2);
+  });
+
+  it("chaque segment top-level de app/(app) est réservé", () => {
+    const segments = readdirSync(path.join(__dirname, "..", "app", "(app)"), {
+      withFileTypes: true,
+    })
+      .filter((d) => d.isDirectory() && !d.name.startsWith("[") && !d.name.startsWith("("))
+      .map((d) => d.name);
+    expect(segments).toContain("admin");
+    for (const s of segments) expect(RESERVED_SLUGS.has(s), s).toBe(true);
+    // Segment statique sous /admin, frère de /admin/[projectSlug].
+    expect(RESERVED_SLUGS.has("voir")).toBe(true);
   });
 });
