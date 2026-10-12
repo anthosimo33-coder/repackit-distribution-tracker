@@ -196,6 +196,7 @@
     "admin.ops.RadarPage.outliers",
     "admin.ops.RadarPage.radar",
     "admin.ops.radarSort.engagement",
+    "admin.scripts.BrickEditor.direction",
     "admin.scripts.BrickRow.inactive",
     "admin.scripts.BrickRow.run",
     "admin.scripts.ComboSection.signal",

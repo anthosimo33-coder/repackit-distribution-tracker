@@ -67,7 +67,9 @@
     "echecDeLaValidationDe": "Échec de la validation de la vidéo",
     "unMotifDeRefusEst": "Un motif de refus est requis.",
     "refuseeLeCreateurPeutRe": "Refusée — le créateur peut re-soumettre.",
-    "echecDuRefusDeLa": "Échec du refus de la vidéo"
+    "echecDuRefusDeLa": "Échec du refus de la vidéo",
+    "hookLibre": "✍️ hook libre",
+    "hookLibreAValider": "Hook libre : la créatrice dit l'accroche avec ses mots. Vérifie l'idée, pas la phrase de l'exemple."
   },
   "BonusRow": {
     "post": "{postCount} {postCount, plural, one {post} other {posts}}",

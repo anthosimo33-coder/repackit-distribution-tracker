@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import {
   assembleScript,
+  type AssembleInput,
   countCombinations,
   editableKinds,
   KIND_LABEL_KEYS,
@@ -77,6 +78,13 @@ import {
   ScriptDestinationZones,
   ScriptInstructionList,
 } from "@/components/scripts/ScriptDestinationZones";
+import { ScriptText } from "@/components/scripts/HookLibreBlock";
+import {
+  hookLibreDuTexte,
+  hookLibreOf,
+  MAX_AUTRES_EXEMPLES,
+  type BriqueHook,
+} from "@/convex/hookLibre";
 import { GraduateHookDialog } from "@/components/admin/GraduateHookDialog";
 import { HookAvailabilityBadge } from "@/components/admin/HookAvailabilityBadge";
 import { BrickSparkline } from "@/components/admin/BrickSparkline";
@@ -764,8 +772,17 @@ function BrickRow({
         <p className="line-clamp-2 text-sm font-medium text-slate-900">
           {brick.content}
         </p>
-        {(brick.instruction || note || availability || !brick.active) && (
+        {(brick.instruction || brick.libre || note || availability || !brick.active) && (
           <span className="flex flex-wrap items-center gap-1.5">
+            {brick.kind === "hook" && brick.libre && (
+              <Badge
+                variant="outline"
+                className="border-sky-200 bg-sky-50 text-[10px] text-sky-700"
+                data-testid="brick-libre-tag"
+              >
+                {tr("libre")}
+              </Badge>
+            )}
             {brick.instruction && (
               <Badge
                 variant="outline"
@@ -881,6 +898,14 @@ function BrickEditor({
   const [content, setContent] = useState(brick?.content ?? "");
   const [instruction, setInstruction] = useState(brick?.instruction ?? "");
   const [mode, setMode] = useState<BrickMode>(resolveBrickMode(brick?.mode));
+  // HOOK LIBRE (cf convex/hookLibre.ts) — hook uniquement. Les autres exemples
+  // se saisissent un par ligne ; le serveur les nettoie.
+  const isHook = kind === "hook";
+  const [libre, setLibre] = useState(brick?.libre === true);
+  const [direction, setDirection] = useState(brick?.direction ?? "");
+  const [autresExemples, setAutresExemples] = useState(
+    (brick?.autresExemples ?? []).join("\n"),
+  );
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -911,6 +936,9 @@ function BrickEditor({
           // ramène une saisie blanche à l'absence).
           instruction,
           ...(showMode ? { mode } : {}),
+          ...(isHook
+            ? { libre, direction, autresExemples: autresExemples.split("\n") }
+            : {}),
         });
         toast.success(tr("briqueMiseAJour"));
       } else {
@@ -921,6 +949,9 @@ function BrickEditor({
           content,
           ...(instruction.trim() ? { instruction } : {}),
           ...(showMode ? { mode } : {}),
+          ...(isHook
+            ? { libre, direction, autresExemples: autresExemples.split("\n") }
+            : {}),
         });
         toast.success(tr("briqueAjoutee"));
         onCreated(newId);
@@ -994,20 +1025,75 @@ function BrickEditor({
             )}
           </div>
 
+          {/* HOOK LIBRE — la brique devient une direction : la créatrice
+              tourne sa propre formulation, les vues restent comptées ici. */}
+          {isHook && (
+            <div className="flex items-start justify-between gap-3 rounded-md border border-sky-200 bg-sky-50/40 px-3 py-2">
+              <div className="space-y-0.5">
+                <Label htmlFor="brick-libre">{tr("hookLibre")}</Label>
+                <p className="text-xs text-slate-500">{tr("hookLibreAide")}</p>
+              </div>
+              <Switch
+                id="brick-libre"
+                checked={libre}
+                onCheckedChange={(v) => touch(setLibre)(v === true)}
+                className="mt-0.5"
+              />
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <Label htmlFor="brick-content">
-              {tr("texte")}{" "}
+              {isHook && libre ? tr("exemplePrincipal") : tr("texte")}{" "}
               <span className="font-normal text-slate-400">
-                {kind === "notif" ? tr("afficheALEcran") : tr("partDansLeScript")}
+                {kind === "notif"
+                  ? tr("afficheALEcran")
+                  : isHook && libre
+                    ? tr("montreEnPremier")
+                    : tr("partDansLeScript")}
               </span>
             </Label>
             <Textarea
               id="brick-content"
               value={content}
               onChange={(e) => touch(setContent)(e.target.value)}
-              rows={6}
+              rows={isHook && libre ? 2 : 6}
             />
           </div>
+
+          {isHook && libre && (
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="brick-direction">
+                  {tr("direction")}{" "}
+                  <span className="font-normal text-slate-400">
+                    {tr("lIdeeAGarder")}
+                  </span>
+                </Label>
+                <Textarea
+                  id="brick-direction"
+                  value={direction}
+                  onChange={(e) => touch(setDirection)(e.target.value)}
+                  rows={2}
+                  placeholder={tr("exDirection")}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="brick-autres-exemples">
+                  {tr("autresExemples")}{" "}
+                  <span className="font-normal text-slate-400">
+                    {tr("unParLigneAuPlus", { max: MAX_AUTRES_EXEMPLES })}
+                  </span>
+                </Label>
+                <Textarea
+                  id="brick-autres-exemples"
+                  value={autresExemples}
+                  onChange={(e) => touch(setAutresExemples)(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            </>
+          )}
 
           {/* CONSIGNE — texte libre OPTIONNEL, lu par la créatrice sous ce bloc
               dans sa fiche. Ce n'est PAS du script : rien n'en part dans la
@@ -1114,7 +1200,14 @@ function BrickEditor({
       <CreatorPreview
         kind={kind}
         bricks={bricks}
-        draft={{ content, instruction, mode }}
+        draft={{
+          content,
+          instruction,
+          mode,
+          libre,
+          direction,
+          autresExemples: autresExemples.split("\n"),
+        }}
       />
     </div>
   );
@@ -1133,7 +1226,14 @@ function CreatorPreview({
 }: {
   kind: BrickKind;
   bricks: Brick[];
-  draft: { content: string; instruction: string; mode: BrickMode };
+  draft: {
+    content: string;
+    instruction: string;
+    mode: BrickMode;
+    libre: boolean;
+    direction: string;
+    autresExemples: string[];
+  };
 }) {
   const tr = useTranslations("admin.scripts.CreatorPreview");
   const tKind = useTranslations("admin.scripts.brickKind");
@@ -1191,6 +1291,12 @@ function CreatorPreview({
   const hook = slot("hook");
   const flux = slot("flux");
   const cta = slot("cta");
+  // Le hook de l'aperçu, mode LIBRE compris : la saisie en cours si c'est lui
+  // qu'on édite, la première brique hook active sinon — comme son texte.
+  const hookBrick: BriqueHook | null =
+    kind === "hook"
+      ? { kind: "hook", ...draft }
+      : (bricks.find((x) => x.kind === "hook" && x.active) ?? null);
   if (
     !hook ||
     !flux ||
@@ -1233,22 +1339,46 @@ function CreatorPreview({
           ]}
           descriptionScript={cta.content.trim()}
           instructions={instructions}
+          hookLibre={hookLibreOf(hookBrick)}
         />
       ) : (
         <Card>
           <CardContent className="space-y-3 p-4">
-            <SimpleMarkdown
-              content={assembleScript({
+            <SingleCardPreview
+              input={{
                 hook: hook.content,
                 flux: flux.content,
                 cta: cta.content,
-              })}
+              }}
+              hookBrick={hookBrick}
             />
             <ScriptInstructionList items={instructions} />
           </CardContent>
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * CARTE UNIQUE des aperçus admin. Hook ordinaire : le script avec ses titres de
+ * section (on veut voir la structure). Hook LIBRE : exactement la fiche
+ * créatrice — bloc de direction puis la suite —, car un titre « Hook » posé
+ * au-dessus d'une phrase qu'elle ne dira pas induirait en erreur.
+ */
+function SingleCardPreview({
+  input,
+  hookBrick,
+}: {
+  input: AssembleInput;
+  hookBrick: BriqueHook | null;
+}) {
+  const naturel = assembleScript(input, { labels: false });
+  const libre = hookLibreDuTexte(hookBrick, naturel);
+  return libre ? (
+    <ScriptText text={naturel} hookLibre={libre} />
+  ) : (
+    <SimpleMarkdown content={assembleScript(input)} />
   );
 }
 
@@ -1572,14 +1702,6 @@ function PreviewDialog({
   const cta = resolve("cta");
   const ready = hook && flux && cta;
 
-  const assembled = ready
-    ? assembleScript({
-        hook: hook.content,
-        flux: flux.content,
-        cta: cta.content,
-      })
-    : "";
-
   // Les CONSIGNES des trois briques choisies, dans l'ordre de montage — même
   // rendu que côté créatrice (encart ambre sous le bloc), pour que l'aperçu
   // continue de tenir sa promesse : « ce que verra la créatrice ».
@@ -1660,10 +1782,18 @@ function PreviewDialog({
                 ]}
                 descriptionScript={cta.content.trim()}
                 instructions={previewInstructions}
+                hookLibre={hookLibreOf(hook)}
               />
             ) : (
               <div className="space-y-3">
-                <SimpleMarkdown content={assembled} />
+                <SingleCardPreview
+                  input={{
+                    hook: hook.content,
+                    flux: flux.content,
+                    cta: cta.content,
+                  }}
+                  hookBrick={hook}
+                />
                 <ScriptInstructionList items={previewInstructions} />
               </div>
             )

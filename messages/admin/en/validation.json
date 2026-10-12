@@ -67,7 +67,9 @@
     "echecDeLaValidationDe": "Couldn't approve the video",
     "unMotifDeRefusEst": "A rejection reason is required.",
     "refuseeLeCreateurPeutRe": "Rejected — the creator can submit again.",
-    "echecDuRefusDeLa": "Couldn't reject the video"
+    "echecDuRefusDeLa": "Couldn't reject the video",
+    "hookLibre": "✍️ free hook",
+    "hookLibreAValider": "Free hook: the creator says the opening in their own words. Check the idea, not the example's wording."
   },
   "BonusRow": {
     "post": "{postCount} {postCount, plural, one {post} other {posts}}",

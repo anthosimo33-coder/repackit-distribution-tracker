@@ -14,6 +14,8 @@ import {
 import { brickModeDisplay, type BrickMode } from "@/lib/script-mode";
 import { useTranslations } from "next-intl";
 import { useLabel } from "@/lib/use-label";
+import { HookLibreBlock } from "@/components/scripts/HookLibreBlock";
+import type { HookLibre } from "@/convex/hookLibre";
 
 /** Slot d'origine des blocs de la zone vidéo, DANS L'ORDRE de montage — la zone
  *  🎬 est construite [hook, flux] par splitScriptZones comme par l'aperçu admin.
@@ -41,11 +43,15 @@ export function ScriptDestinationZones({
   descriptionScript,
   instructions = [],
   openOn = [],
+  hookLibre = null,
 }: {
   videoBlocks: { text: string; mode: BrickMode }[];
   descriptionScript: string;
   /** Consignes par slot (absentes = aucun encart). */
   instructions?: readonly { slot: "hook" | "flux" | "cta"; text: string }[];
+  /** Hook LIBRE : le premier bloc devient une direction à reformuler, son
+   *  mode (dire / afficher) reste affiché. Null = hook dit tel quel. */
+  hookLibre?: HookLibre | null;
   /**
    * Plateformes où PUBLIER maintenant : un bouton « Copier et ouvrir » par
    * plateforme. Vide (défaut) hors de l'étape de publication, et TOUJOURS vide
@@ -79,7 +85,11 @@ export function ScriptDestinationZones({
                   <span aria-hidden>{d.icon}</span>
                   {tLabel(d.labelKey)}
                 </p>
-                <SimpleMarkdown content={b.text} />
+                {i === 0 && hookLibre ? (
+                  <HookLibreBlock hook={hookLibre} />
+                ) : (
+                  <SimpleMarkdown content={b.text} />
+                )}
                 <BlockInstruction text={instruction} label={t("instruction")} />
               </div>
             );

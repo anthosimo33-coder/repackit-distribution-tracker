@@ -3574,6 +3574,14 @@ export default defineSchema({
     // les missions déjà assignées, ce qui est bien l'intention (« la consigne
     // était fausse, je la répare »). Absente ou vide = aucun encart affiché.
     instruction: v.optional(v.string()),
+    // HOOK LIBRE (hook uniquement, cf convex/hookLibre.ts) — la brique est une
+    // DIRECTION : `content` devient l'exemple principal, la créatrice tourne sa
+    // propre formulation. Lus LIVE comme la consigne, hors du texte figé et du
+    // comboKey : les stats restent agrégées par brique, donc par direction.
+    // Absent = hook ordinaire, dit tel quel.
+    libre: v.optional(v.boolean()),
+    direction: v.optional(v.string()),
+    autresExemples: v.optional(v.array(v.string())),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),

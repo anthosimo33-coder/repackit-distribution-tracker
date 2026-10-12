@@ -568,6 +568,15 @@ function VideoReviewCard({
               <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-700">
                 <FileTextIcon className="size-4 shrink-0 text-slate-400" />
                 <span className="shrink-0">{tr("scriptASuivre")}</span>
+                {a.hookLibre && (
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 border-sky-200 bg-sky-50 text-[10px] font-normal text-sky-700"
+                    data-testid={`hook-libre-${a._id}`}
+                  >
+                    {tr("hookLibre")}
+                  </Badge>
+                )}
                 {a.comboSummary && (
                   <span className="truncate text-xs font-normal text-slate-400">
                     · {a.comboSummary}
@@ -586,6 +595,11 @@ function VideoReviewCard({
                 className="border-t border-slate-200 px-3 py-2.5"
                 data-testid={`script-content-${a._id}`}
               >
+                {/* HOOK LIBRE — l'accroche du texte figé n'est qu'un exemple :
+                    la vidéo dit la même idée avec d'autres mots, et c'est conforme. */}
+                {a.hookLibre && (
+                  <p className="mb-2 text-xs text-sky-800">{tr("hookLibreAValider")}</p>
+                )}
                 <SimpleMarkdown content={scriptText} />
               </div>
             )}
