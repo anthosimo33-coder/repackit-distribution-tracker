@@ -951,7 +951,8 @@
       "creer_conversation": "Conversation créée",
       "modifier_conversation": "Conversation modifiée",
       "supprimer_conversation": "Conversation supprimée",
-      "changer_bareme": "Barème de vidéos changé"
+      "changer_bareme": "Barème de vidéos changé",
+      "regler_taux": "Taux de change réglé"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -1006,7 +1007,7 @@
       },
       "baremes": {
         "titre": "Barèmes",
-        "objet": "les barèmes des vidéos déjà attribuées",
+        "objet": "les barèmes des vidéos déjà attribuées et les taux de change",
         "aria": "Modifications des barèmes pour {name}"
       }
     }
