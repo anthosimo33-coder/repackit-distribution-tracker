@@ -29,12 +29,14 @@ import { resolveCreatorKind } from "./roles";
 import { matchCompteByHandle } from "./creatorAvatar";
 import {
   normalizeCurrency,
+  PAY_CURRENCY_CHOICES,
   payCurrencyFactor,
   resolvePayCurrency,
   type PayFxProject,
 } from "./payCurrency";
 import {
-  assertPayCurrencyConvertible,
+  admitPricingCurrency,
+  adoptablePayCurrencies,
   creatorPayCurrency,
   ensureCreatorPayCurrency,
   pricingPayCurrency,
@@ -1539,7 +1541,7 @@ function scalePayout(p: MonthlyPayout, f: number): MonthlyPayout {
  *
  * Un facteur introuvable (`null`) est impossible par construction : un barème
  * dans une devise non convertible est refusé à l'écriture
- * (assertPayCurrencyConvertible), et les taux ne se retirent pas sous un barème
+ * (admitPricingCurrency), et les taux ne se retirent pas sous un barème
  * qui en dépend (convex/projects). On garde alors le montant tel quel.
  */
 // Exportée pour les tests (lib/pay-currency.test.ts) : pure, aucun ctx.
@@ -2445,7 +2447,7 @@ export const createPricing = permissionMutation("pricing.manage")({
     // une devise explicite se lit sans détour.
     const currency =
       normalizeCurrency(args.currency) ?? normalizeCurrency(project.payCurrency);
-    if (currency !== null) await assertPayCurrencyConvertible(ctx, project, currency);
+    if (currency !== null) await admitPricingCurrency(ctx, project, currency);
     const fields = pricingWriteFields(validatePricingFields(args));
     const pricingId = await ctx.db.insert("pricings", {
       projectId: ctx.projectId,
@@ -2485,7 +2487,9 @@ export const updatePricing = permissionMutation("pricing.manage")({
           "Ce barème est déjà utilisé : sa devise ne change plus. Crée un nouveau barème dans la nouvelle devise.",
         );
       }
-      await assertPayCurrencyConvertible(ctx, project, wanted);
+      // Barème inutilisé (vérifié juste au-dessus) : s'il est le seul du projet,
+      // le projet peut changer de devise avec lui.
+      await admitPricingCurrency(ctx, project, wanted, id);
       fields.currency = wanted;
     }
     // Snapshot figé sur les assignments → modifier n'affecte QUE les futures
@@ -2522,6 +2526,20 @@ export const deletePricing = permissionMutation("pricing.manage")({
     }
     await ctx.db.delete(id);
     return { ok: true };
+  },
+});
+
+/**
+ * Devises qu'un barème ferait ADOPTER au projet (premier barème d'un projet
+ * neuf, cf admitPricingCurrency). `exceptPricingId` : le barème qu'on modifie.
+ * L'écran l'annonce sous le choix de devise.
+ */
+export const listAdoptablePayCurrencies = permissionQuery("pricing.manage")({
+  args: { exceptPricingId: v.optional(v.id("pricings")) },
+  handler: async (ctx, { exceptPricingId }) => {
+    const project = await ctx.db.get(ctx.projectId);
+    if (!project) return [];
+    return adoptablePayCurrencies(ctx, project, PAY_CURRENCY_CHOICES, exceptPricingId);
   },
 });
 

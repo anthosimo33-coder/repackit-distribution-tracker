@@ -1621,6 +1621,14 @@ function PricingEditorDialog({
     ]),
   ];
   const deviseFigee = editing !== null && editing.currencyLocked;
+  // Premier barème d'un projet neuf : sa devise devient celle du PROJET (cf
+  // convex/creatorPayCurrency.admitPricingCurrency). Annoncé, jamais silencieux.
+  const adoptables = useProjectQuery(
+    api.pricing.listAdoptablePayCurrencies,
+    !open ? "skip" : editing ? { exceptPricingId: editing._id } : {},
+  );
+  const deviseAdoptee =
+    !deviseFigee && form.currency !== "" && (adoptables ?? []).includes(form.currency);
   // Les deux types de modèle ne se piquent pas au même endroit du barème.
   const cumulativeTemplates = templates.filter((t) => templateKind(t) === "cumulative");
   const perVideoTemplates = templates.filter((t) => templateKind(t) === "per_video");
@@ -1702,6 +1710,12 @@ function PricingEditorDialog({
             <p className="text-xs leading-relaxed text-slate-500">
               Devise figée : ce barème est déjà utilisé. Pour payer dans une
               autre devise, duplique-le et choisis la nouvelle.
+            </p>
+          ) : deviseAdoptee ? (
+            <p className="text-xs leading-relaxed text-slate-500">
+              Premier barème du projet : le {form.currency.toUpperCase()}{" "}
+              deviendra la devise de paie du projet. Rien n&apos;y est encore
+              tarifé ni payé, aucun montant ne change.
             </p>
           ) : form.currency && form.currency !== (payCurrency ?? "") ? (
             <p className="text-xs leading-relaxed text-slate-500">

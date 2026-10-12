@@ -66,7 +66,7 @@ export interface PayFxProject {
  *  - devise avec son propre taux vers le revenu → taux / taux de la paie ;
  *  - devise SANS taux propre → c'est la devise du REVENU, la cible de tous les
  *    taux (chez Snytch : l'euro, 1 $ = 0,86 € ⇒ 1 € = 1 / 0,86 $). Cette
- *    lecture n'est sûre que parce que `assertPayCurrencyConvertible` l'a
+ *    lecture n'est sûre que parce que `admitPricingCurrency` l'a
  *    vérifiée à la création du barème ;
  *  - aucun taux de paie réglé → `null` : on ne sait pas, on ne devine pas.
  */
@@ -107,6 +107,38 @@ export function isPayCurrencyConvertible(
     (r) => normalizeCurrency(r.currency) === c && r.rate > 0,
   );
   return own || c === normalizeCurrency(revenueReferenceCurrency);
+}
+
+/**
+ * Le projet peut-il PRENDRE cette devise de paie, côté taux et revenu ? (L'argent
+ * déjà engagé dans l'ancienne se vérifie en base, cf
+ * creatorPayCurrency.payCurrencyEngagement.)
+ *
+ *  - aucun taux de paie réglé : `fxRateToRevenue` dit « 1 unité de l'ANCIENNE
+ *    devise = x du revenu », il mentirait sous la nouvelle ;
+ *  - aucun taux propre déjà posé pour elle : elle en aurait deux ;
+ *  - le revenu est dans cette devise, ou indéterminé : un revenu dans une AUTRE
+ *    devise laisserait la paie hors de la marge, ce que le refus de
+ *    `isPayCurrencyConvertible` protège.
+ */
+export function canAdoptPayCurrency(
+  currency: string,
+  project: PayFxProject | null | undefined,
+  revenueReferenceCurrency: string | null | undefined,
+): boolean {
+  const c = normalizeCurrency(currency);
+  if (c === null) return false;
+  const payRate = project?.fxRateToRevenue;
+  if (typeof payRate === "number" && payRate > 0) return false;
+  if (
+    (project?.fxRatesToRevenue ?? []).some(
+      (r) => normalizeCurrency(r.currency) === c && r.rate > 0,
+    )
+  ) {
+    return false;
+  }
+  const ref = normalizeCurrency(revenueReferenceCurrency);
+  return ref === null || ref === c;
 }
 
 /**

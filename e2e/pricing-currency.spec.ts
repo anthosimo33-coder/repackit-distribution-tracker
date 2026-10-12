@@ -263,3 +263,132 @@ test.describe("Barème en euros dans un projet en dollars", () => {
     }
   });
 });
+
+/**
+ * PREMIER BARÈME D'UN PROJET NEUF — cas BLUSH du 12/10 : projet né en dollars,
+ * sans taux ni revenu, dont les créatrices sont payées en euros. Le barème en
+ * euros était refusé (« ne sait pas convertir la devise EUR ») et la devise du
+ * projet ne se changeait qu'en ligne de commande.
+ *
+ * Ce que la spec prouve :
+ *  1. à l'écran, le premier barème en euros est accepté, l'adoption est annoncée
+ *     AVANT, et le projet passe en euros (le barème suivant y part par défaut) ;
+ *  2. dès qu'un barème existe, l'autre devise redevient un refus ;
+ *  3. un projet qui encaisse en dollars ne prend pas l'euro (la paie resterait
+ *     hors de la marge) ;
+ *  4. un barème unique et inutilisé, MODIFIÉ en euros, emmène le projet.
+ */
+test.describe("Premier barème d'un projet neuf", () => {
+  test("sa devise devient celle du projet, tant que rien n'est engagé", async ({ page }) => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const projets: { projectId: Id<"projects">; nom: string }[] = [];
+    // Comme createProject : paie en dollars, aucun taux, aucun revenu.
+    async function projetNeuf(cle: string) {
+      const slug = `e2e-devise-${cle}-${ts}`;
+      const nom = `E2E Devise ${cle} ${ts}`;
+      const { projectId } = (await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+        secret: E2E_SECRET,
+        slug,
+        name: nom,
+      })) as { projectId: Id<"projects"> };
+      projets.push({ projectId, nom });
+      await admin.mutation(api.projects.e2eSetProjectCurrency, {
+        secret: E2E_SECRET,
+        projectId,
+        payCurrency: "usd",
+        fxRateToRevenue: null,
+      });
+      return { projectId, slug };
+    }
+    const bareme = (projectId: Id<"projects">, name: string, currency: string) =>
+      admin.mutation(api.pricing.createPricing, {
+        projectId,
+        name: `[E2E_TEST] ${name} ${ts}`,
+        currency,
+        montantFixe: 0,
+        nbVideosCible: 30,
+        tauxCPM: 1,
+      });
+
+    try {
+      // ── 1. À L'ÉCRAN : le premier barème en euros ──────────────────────────────
+      const a = await projetNeuf("neuf");
+      const nomEur = `[E2E_TEST] Créatrice FR - CPM ${ts}`;
+      await page.goto(`/admin/${a.slug}/pricings`);
+      await page.getByRole("button", { name: "Nouveau pricing" }).click();
+      const modale = page.getByRole("dialog");
+      await modale.getByLabel("Nom").fill(nomEur);
+      await expect(modale.getByText("Montant fixe ($)")).toBeVisible();
+      const annonce = modale.getByText(/deviendra la devise de paie du projet/);
+      await expect(annonce).toHaveCount(0);
+      await modale.getByLabel("Devise du barème").click();
+      await page.getByRole("option", { name: "EUR (€)" }).click();
+      await expect(annonce).toContainText("le EUR deviendra la devise de paie du projet");
+      await modale.getByLabel("Montant fixe (€)").fill("0");
+      await modale.getByLabel("Nb vidéos cible").fill("30");
+      await modale.getByLabel("CPM (€/1000 vues)").fill("1");
+      await modale.getByRole("button", { name: "Créer" }).click();
+      await expect(modale).toHaveCount(0, { timeout: 15_000 });
+      const crees = await admin.query(api.pricing.listPricings, { projectId: a.projectId });
+      expect(crees.map((p) => [p.name, p.currency])).toEqual([[nomEur, "eur"]]);
+
+      // Le projet est passé en euros : un barème neuf y part par défaut, et
+      // l'annonce ne revient plus pour aucune devise.
+      await page.getByRole("button", { name: "Nouveau pricing" }).click();
+      await expect(modale.getByText("Montant fixe (€)")).toBeVisible();
+      await modale.getByLabel("Devise du barème").click();
+      await page.getByRole("option", { name: "USD ($)" }).click();
+      await expect(modale.getByText("Montant fixe ($)")).toBeVisible();
+      await expect(annonce).toHaveCount(0);
+      await modale.getByRole("button", { name: "Annuler" }).click();
+
+      // ── 2. Un barème existe : l'autre devise redevient un refus ────────────────
+      expect(await refus(bareme(a.projectId, "US CPM", "usd"))).toBe("ERR_PRICING_CURRENCY_INVALID");
+
+      // ── 3. Revenu encaissé en dollars : l'euro n'est pas adopté ────────────────
+      const b = await projetNeuf("revenu-usd");
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId: b.projectId,
+        whop: { companyId: `biz_e2e_devise_neuf_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+      });
+      await admin.mutation(api.whopSync.e2eSeedWhopPayment, {
+        secret: E2E_SECRET,
+        projectId: b.projectId,
+        whopId: `pay_e2e_devise_neuf_${ts}`,
+        status: "paid",
+        grossAmount: 1999,
+        netAmount: 1873.42,
+        paidAt: Date.now(),
+        currency: "usd",
+      });
+      expect(await refus(bareme(b.projectId, "FR CPM", "eur"))).toBe("ERR_PRICING_CURRENCY_INVALID");
+      expect(await admin.query(api.pricing.listPricings, { projectId: b.projectId })).toEqual([]);
+
+      // ── 4. Le barème unique, saisi en dollars puis passé en euros ──────────────
+      const c = await projetNeuf("modifie");
+      const { pricingId } = await bareme(c.projectId, "FR CPM", "usd");
+      await admin.mutation(api.pricing.updatePricing, {
+        projectId: c.projectId,
+        id: pricingId,
+        name: `[E2E_TEST] FR CPM ${ts}`,
+        currency: "eur",
+        montantFixe: 0,
+        nbVideosCible: 30,
+        tauxCPM: 1,
+      });
+      const [modifie] = await admin.query(api.pricing.listPricings, { projectId: c.projectId });
+      expect(modifie.currency).toBe("eur");
+      // Le projet a suivi : le dollar y est désormais l'autre devise, refusée.
+      expect(await refus(bareme(c.projectId, "US CPM", "usd"))).toBe("ERR_PRICING_CURRENCY_INVALID");
+    } finally {
+      for (const p of projets) {
+        await admin.mutation(api.projectLifecycle.deleteProject, {
+          projectId: p.projectId,
+          confirmation: p.nom,
+        });
+      }
+    }
+  });
+});
