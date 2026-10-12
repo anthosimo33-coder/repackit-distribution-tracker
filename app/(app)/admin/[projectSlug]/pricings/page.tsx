@@ -73,6 +73,7 @@ import {
   type VideoBonusForm,
 } from "@/components/pricing/VideoBonusEditor";
 import { PayCurrencyWarning } from "@/components/PayCurrencyWarning";
+import { FxRatesButton } from "@/components/pricing/FxRatesPanel";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { PermissionGate } from "@/components/project/PermissionGate";
@@ -413,10 +414,15 @@ function PricingsPageContenu() {
             bonus par vidéo.
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Nouveau pricing
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {/* Un barème dans une autre devise que celle du projet attend son
+              taux : il se règle ici (bloc « Réglages du projet »). */}
+          <FxRatesButton />
+          <Button onClick={openCreate}>
+            <PlusIcon className="mr-2 size-4" />
+            Nouveau pricing
+          </Button>
+        </div>
       </header>
 
       {/* Grille de bonus par défaut — UNE ligne, sur la même surface que ce

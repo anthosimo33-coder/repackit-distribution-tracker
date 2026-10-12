@@ -607,5 +607,43 @@
     "cancel": "Cancel",
     "apply": "{count, plural, =0 {Apply} one {Apply to # video} other {Apply to # videos}}",
     "done": "{count, plural, =0 {No video to change.} one {# video moved to “{pricing}”.} other {# videos moved to “{pricing}”.}}"
+  },
+  "FxRates": {
+    "button": "Exchange rates",
+    "title": "Project exchange rates",
+    "description": "Each rate converts a currency into the revenue currency, for margin, costs and totals.",
+    "payUnaffected": "They never change what a creator earns: creators are paid in the currency of their pay grid, with no conversion. A rate also lets you create pay grids in a currency other than the project's.",
+    "targetRevenue": "Revenue currency: {target}. Every rate converts into it; it has none itself.",
+    "targetPay": "No revenue collected yet: rates convert into the project's pay currency, {target}.",
+    "targetUnknown": "Several currencies are collected without a rate ({currencies}): the revenue currency is the one left without a rate. Pick it, then set the rate of the others.",
+    "targetPick": "Revenue currency",
+    "targetHasRate": "{target} is the revenue currency but carries a rate: remove it, otherwise multi-currency revenue totals stay at zero.",
+    "remove": "Remove",
+    "empty": "No other currency in this project: everything is in {target}. Add a currency below to set its rate in advance.",
+    "addLabel": "Add a currency (three-letter code)",
+    "addPlaceholder": "e.g. GBP",
+    "add": "Add",
+    "saved": "{currency} rate saved.",
+    "removed": "{currency} rate removed.",
+    "error": "The rate could not be saved.",
+    "tagPay": "pay currency",
+    "tagPricings": "{count, plural, one {# pay grid} other {# pay grids}}",
+    "tagCollected": "sales collected",
+    "tagCatalog": "Whop catalog",
+    "rateOf": "Rate: 1 {currency} in {target}",
+    "noRate": "no rate",
+    "save": "Save",
+    "inverse": "i.e. 1 {target} = {inverse} {currency}",
+    "missing": "No rate: this currency is not converted.",
+    "invalid": "A number greater than zero (0.86).",
+    "blocked": {
+      "FX_RATE_NEEDED_BY_REVENUE": "Can't be removed: sales are collected in {currency}. Correct the rate instead.",
+      "FX_RATE_NEEDED_BY_MARGIN": "Can't be removed: revenue is in {target} and the margin depends on it. Correct the rate instead.",
+      "FX_RATE_NEEDED_BY_PRICING": "Can't be removed: pay grids depend on it to be converted.",
+      "FX_CURRENCY_INVALID": "Can't be removed: invalid currency code.",
+      "FX_RATE_INVALID": "Can't be removed: invalid rate.",
+      "FX_TARGET_UNKNOWN": "Can't be removed: pick the revenue currency first.",
+      "FX_RATE_ON_TARGET": "Can't be removed: {currency} is the revenue currency."
+    }
   }
 }

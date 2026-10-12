@@ -43,6 +43,7 @@ export type { DisplayAmount } from "../convex/currencyRate";
 // implémentation, partagée par l'écran et le serveur.
 export {
   PAY_CURRENCY_CHOICES,
+  isCurrencyCode,
   normalizeCurrency,
   payCurrencyFactor,
   resolvePayCurrency,

@@ -36,8 +36,17 @@ import {
 } from "./comboCooldown";
 import { ConvexError, v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { normalizeCurrency, payCurrencyFactor } from "./payCurrency";
-import { payCurrencyEngagement } from "./creatorPayCurrency";
+import { normalizeCurrency } from "./payCurrency";
+import {
+  collectedCurrencies,
+  payCurrencyEngagement,
+  pricingCurrenciesOf,
+} from "./creatorPayCurrency";
+import {
+  applyFxChange,
+  fxRefusalMessage,
+  unconvertiblePricingCurrency,
+} from "./fxRatesMath";
 import type { Doc, Id } from "./_generated/dataModel";
 import { ERR, convexErrorText, err } from "./errorCodes";
 
@@ -361,18 +370,15 @@ async function assertPricingCurrenciesConvertible(
   ctx: MutationCtx,
   after: Doc<"projects">,
 ): Promise<void> {
-  const pricings = await ctx.db
-    .query("pricings")
-    .withIndex("by_project", (q) => q.eq("projectId", after._id))
-    .collect();
-  for (const c of new Set(pricings.map((p) => normalizeCurrency(p.currency)))) {
-    if (c === null) continue;
-    if (payCurrencyFactor(c, after) === null) {
-      throw new Error(
-        `Des barèmes sont en ${c.toUpperCase()} : sans ce taux, leur coût ne pourrait plus ` +
-          "être ramené dans la devise du projet. Garde un taux, ou passe ces barèmes dans une autre devise.",
-      );
-    }
+  const blocked = unconvertiblePricingCurrency(
+    after,
+    await collectedCurrencies(ctx, after),
+    await pricingCurrenciesOf(ctx, after),
+  );
+  if (blocked !== null) {
+    throw new Error(
+      fxRefusalMessage({ code: "FX_RATE_NEEDED_BY_PRICING", params: { currency: blocked.toUpperCase() } }),
+    );
   }
 }
 
@@ -439,19 +445,17 @@ export const setProjectFxRateBySlug = internalMutation({
         `${cur} est la devise de paie : son taux se règle avec setProjectCurrencyBySlug.`,
       );
     }
-    const rates = (project.fxRatesToRevenue ?? []).filter(
-      (x) => x.currency !== cur,
+    // Même règle que l'écran des taux (convex/fxRates) : jamais de taux sur la
+    // devise du revenu, ni de retrait sous un barème ou des ventes qui en dépendent.
+    const res = applyFxChange(
+      project,
+      await collectedCurrencies(ctx, project),
+      await pricingCurrenciesOf(ctx, project),
+      { currency: cur, rate: rate > 0 ? rate : null },
     );
-    if (rate > 0) rates.push({ currency: cur, rate });
-    rates.sort((a, b) => a.currency.localeCompare(b.currency));
-    await assertPricingCurrenciesConvertible(ctx, {
-      ...project,
-      fxRatesToRevenue: rates.length > 0 ? rates : undefined,
-    });
-    await ctx.db.patch(project._id, {
-      fxRatesToRevenue: rates.length > 0 ? rates : undefined,
-    });
-    return { updated: true, rates };
+    if (!res.ok) throw new Error(fxRefusalMessage(res.refusal));
+    await ctx.db.patch(project._id, res.patch);
+    return { updated: true, rates: res.patch.fxRatesToRevenue ?? [] };
   },
 });
 
