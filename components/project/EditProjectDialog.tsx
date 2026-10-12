@@ -7,8 +7,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   LOGO_MAX_BYTES,
+  isSlugLocked,
   logoRefusal,
   normalizeAccentColor,
+  normalizeProjectSlug,
   PROJECT_NAME_MAX,
 } from "@/convex/projectLifecycleRules";
 import { useProject } from "@/components/project/ProjectProvider";
@@ -28,12 +30,14 @@ import { useTranslations } from "next-intl";
 import { useConvexError } from "@/lib/use-convex-error";
 
 /**
- * MODIFIER LE PROJET COURANT (superadmin) : nom, logo, couleur d'accent. La
- * garde réelle est côté Convex (`superadminMutation`).
+ * MODIFIER LE PROJET COURANT (superadmin) : nom, logo, couleur d'accent,
+ * adresse. La garde réelle est côté Convex (`superadminMutation`).
  *
- * Le slug est AFFICHÉ, pas modifiable : il est dans les URL déjà partagées, et le
- * code en dépend nommément. La suppression vit en bas, dans une zone à part, et
- * ouvre sa propre confirmation (`onDelete`).
+ * L'adresse (slug) se change : l'ancienne reste connue du serveur et les liens
+ * déjà partagés y mènent encore — c'est le ProjectProvider qui, voyant l'URL
+ * courante devenue ancienne, saute à la nouvelle. Seuls les projets que le code
+ * nomme (`isSlugLocked`) gardent la leur, affichée sans champ. La suppression
+ * vit en bas, dans une zone à part, et ouvre sa propre confirmation (`onDelete`).
  */
 export function EditProjectDialog({
   open,
@@ -75,6 +79,8 @@ function FormulaireProjet({
   const fichierRef = useRef<HTMLInputElement>(null);
 
   const [name, setName] = useState(project.name);
+  const slugFige = isSlugLocked(project.slug);
+  const [slugSaisi, setSlugSaisi] = useState(project.slug);
   const [accent, setAccent] = useState(project.accentColor || "#ff5200");
   // Logo : fichier choisi (pas encore envoyé), ou demande de retrait.
   const [fichier, setFichier] = useState<File | null>(null);
@@ -92,6 +98,9 @@ function FormulaireProjet({
 
   const logoAffiche = apercu ?? (retirerLogo ? null : project.logoUrl);
   const couleur = normalizeAccentColor(accent);
+  // `null` = saisie invalide. Une adresse figée n'est jamais envoyée.
+  const slug = slugFige ? project.slug : normalizeProjectSlug(slugSaisi);
+  const slugChange = slug !== null && slug !== project.slug;
 
   function choisirFichier(f: File | undefined) {
     if (!f) return;
@@ -146,6 +155,7 @@ function FormulaireProjet({
         projectId: project._id,
         name,
         accentColor: couleur,
+        ...(slugChange ? { slug } : {}),
         ...(logo !== undefined ? { logo } : {}),
       });
       toast.success(tr("projetMisAJour"));
@@ -250,14 +260,45 @@ function FormulaireProjet({
           </div>
         </div>
 
-        <div className="space-y-1">
-          <span className="text-sm font-medium text-slate-700">{tr("slug")}</span>
-          <p className="text-xs text-slate-500">
-            {/* i18n-exempt: chemin d'URL, pas du texte */}
-            <span className="font-mono">/admin/{project.slug}</span>{" "}
-            — {tr("slugFige")}
-          </p>
-        </div>
+        {slugFige ? (
+          <div className="space-y-1">
+            <span className="text-sm font-medium text-slate-700">{tr("slug")}</span>
+            <p className="text-xs text-slate-500">
+              {/* i18n-exempt: chemin d'URL, pas du texte */}
+              <span className="font-mono">/admin/{project.slug}</span>{" "}
+              — {tr("slugFige")}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-project-slug">{tr("slug")}</Label>
+            <div className="flex min-w-0 items-center gap-1.5">
+              {/* i18n-exempt: chemin d'URL, pas du texte */}
+              <span className="font-mono text-sm text-slate-500">/admin/</span>
+              <Input
+                id="edit-project-slug"
+                value={slugSaisi}
+                onChange={(e) => setSlugSaisi(e.target.value)}
+                className="min-w-0 font-mono"
+                spellCheck={false}
+                aria-invalid={slug === null}
+                aria-describedby="edit-project-slug-aide"
+              />
+            </div>
+            <p
+              id="edit-project-slug-aide"
+              className={
+                slug === null ? "text-xs text-rose-600" : "text-xs text-slate-400"
+              }
+            >
+              {slug === null
+                ? tr("slugInvalide")
+                : slugChange
+                  ? tr("slugAncienRedirige", { ancien: project.slug })
+                  : tr("slugAide")}
+            </p>
+          </div>
+        )}
 
         {error && (
           <p role="alert" className="text-sm text-rose-600">
@@ -291,7 +332,10 @@ function FormulaireProjet({
         <Button type="button" variant="outline" onClick={onClose}>
           {tr("annuler")}
         </Button>
-        <Button type="submit" disabled={submitting || couleur === null}>
+        <Button
+          type="submit"
+          disabled={submitting || couleur === null || slug === null}
+        >
           {submitting && <Loader2Icon className="size-4 animate-spin" />}
           {tr("enregistrer")}
         </Button>
