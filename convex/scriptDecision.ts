@@ -188,7 +188,7 @@ const WINDOW = v.union(
   v.literal("j30"),
 );
 
-export type DecisionDimensionKind = "hook" | "flux" | "cta" | "notif";
+export type DecisionDimensionKind = "hook" | "flux" | "cta" | "notif" | "conversation";
 
 export interface DecisionDimension {
   kind: DecisionDimensionKind;
@@ -197,8 +197,8 @@ export interface DecisionDimension {
 
 export interface CampaignDecisions {
   found: boolean;
-  /** Verdicts par dimension, ordre hook → flux → cta (→ notif si la campagne
-   *  en a). */
+  /** Verdicts par dimension, ordre hook → flux → cta (→ notif, → conversation
+   *  si la campagne en a). */
   dimensions: DecisionDimension[];
   /** Signaux forts (combos/briques sous le seuil mais explosifs) à valider à la main. */
   strongSignals: StrongSignal[];
@@ -236,6 +236,7 @@ export function buildDecisions(views: CampaignViews): CampaignDecisions {
   const flux = bricks.filter((b) => b.kind === "flux");
   const cta = bricks.filter((b) => b.kind === "cta");
   const notifs = bricks.filter((b) => b.kind === "notif");
+  const conversations = bricks.filter((b) => b.kind === "conversation");
 
   const dimensions: DecisionDimension[] = [
     { kind: "hook", decisions: decideKind(brickInputs(hooks, "hook")) },
@@ -245,6 +246,15 @@ export function buildDecisions(views: CampaignViews): CampaignDecisions {
     // campagne sans notif n'a pas cette dimension (pas de bloc vide à l'écran).
     ...(notifs.length > 0
       ? [{ kind: "notif" as const, decisions: decideKind(brickInputs(notifs, "notif")) }]
+      : []),
+    // CONVERSATION — même règle : jugée entre conversations, absente sans conv.
+    ...(conversations.length > 0
+      ? [
+          {
+            kind: "conversation" as const,
+            decisions: decideKind(brickInputs(conversations, "conversation")),
+          },
+        ]
       : []),
   ];
 

@@ -88,7 +88,10 @@
     "notifRattrapageToutCocher": "Check all",
     "notifRattrapageToutDecocher": "Uncheck all",
     "notifRattrapageSansDate": "no post date",
-    "notifRattrapageInclure": "Include this video"
+    "notifRattrapageInclure": "Include this video",
+    "conversationToggle": "Conversation in the video",
+    "conversationToggleHint": "Each assigned video gets a conversation to download (WhatsApp export, screenshots), drawn in rotation — analytics tells which one drives views.",
+    "conversationAucuneActive": "Conversations are on but no active conversation has a file: upload one in the Conversation tab, or turn conversations off, to assign."
   },
   "BrickRow": {
     "consigne": "💡 note",
@@ -98,7 +101,8 @@
     "activerLaBrique": "Turn the brick on",
     "medianeDesVuesAuDernier": "Median views, at each post's last reading, and the slope of the latest runs",
     "uneErreurEstSurvenue": "Something went wrong.",
-    "libre": "✍️ free"
+    "libre": "✍️ free",
+    "fichiers": "{count, plural, =0 {no file} one {# file} other {# files}}"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Pick a brick from the list, or add one.",
@@ -133,12 +137,29 @@
     "lIdeeAGarder": "— the idea to keep",
     "exDirection": "E.g. A relationship that's been going on a while, then you stumble on something that changes everything.",
     "autresExemples": "Other examples",
-    "unParLigneAuPlus": "— one per line, {max} at most"
+    "unParLigneAuPlus": "— one per line, {max} at most",
+    "conversationTexte": "— what the conversation is about, read by the creator above the files",
+    "conversationFichiersApres": "Add the conversation, then upload its files (WhatsApp export, screenshots)."
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",
     "ceQueVerraLaCreatrice": "What the creator will see",
     "enCoursDEdition": "— {value} being edited"
+  },
+  "ConversationFilesPanel": {
+    "fichiers": "Files to download",
+    "deposer": "Upload",
+    "aide": "WhatsApp export (.txt): the creator gets it under her first name, dated from the day she downloads it. Screenshots (PNG, JPEG, WebP): served as is.",
+    "aucunFichier": "No file: this conversation won't be drawn until it has one.",
+    "pasUnExport": "“{name}”: no message recognised, this isn't a WhatsApp export.",
+    "echecDepot": "The upload didn't work.",
+    "messages": "{count, plural, one {# message} other {# messages}}",
+    "retirer": "Remove {name}",
+    "elle": "“Her” in the export",
+    "neRienRemplacer": "Don't replace the first name",
+    "prenomNonRemplace": "The creator's first name won't be put in the export.",
+    "ecart": "Last message, in days before the download",
+    "ecartAide": "{count, plural, =0 {The last message is dated the day she downloads it.} one {The last message is dated the day before the download.} other {The last message is dated # days before the download.}}"
   },
   "BulkBar": {
     "selectionne": "{count, plural, one {{kindLabel} selected} other {{kindLabel} selected}}",
@@ -249,7 +270,8 @@
     "hook": "Hook",
     "flux": "Flow",
     "cta": "Description",
-    "notif": "Notification"
+    "notif": "Notification",
+    "conversation": "Conversation"
   },
   "decision": {
     "aPousser": "Push {label}{hasRatio, select, yes { — median {ratio} vs peers} other {}}, on {posts} posts.",

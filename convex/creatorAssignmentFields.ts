@@ -80,6 +80,9 @@ export const NON_CREATOR_ASSIGNMENT_FIELDS = [
   // met à filtrer, l'autre ne filtrerait pas.
   "freeScript",
   "scriptCombo",
+  // CONVERSATION — servie à part sous `scriptConversation` (texte, consigne,
+  // fichiers), jamais l'id de la brique : même règle que la notif.
+  "conversationBrickId",
   "comboKey",
   "comboImposed",
   "replayedFrom",

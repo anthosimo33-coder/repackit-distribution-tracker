@@ -59,6 +59,12 @@ import {
   pickNotifs,
 } from "./scriptNotif";
 import {
+  conversationUsageOf,
+  drawableConversations,
+  isConversationEnabled,
+  pickConversations,
+} from "./scriptConversation";
+import {
   comboAvecTexte,
   ecrireCombo,
   ecrireTexteDuCombo,
@@ -78,14 +84,16 @@ import {
  * ne peut pas importer lib/) pour l'anti-coordination serveur.
  */
 
-// Kinds créables : refonte → hook/flux/cta, + "notif" (brique OPTIONNELLE hors
-// combo, cf convex/scriptNotif). "corps" n'est plus créable (les corps
-// existants sont reclassés en hook par migrateCorpsToHooks).
+// Kinds créables : refonte → hook/flux/cta, + "notif" et "conversation"
+// (briques OPTIONNELLES hors combo, cf convex/scriptNotif et
+// convex/scriptConversation). "corps" n'est plus créable (les corps existants
+// sont reclassés en hook par migrateCorpsToHooks).
 const KIND = v.union(
   v.literal("hook"),
   v.literal("flux"),
   v.literal("cta"),
   v.literal("notif"),
+  v.literal("conversation"),
 );
 
 // SNYTCH — mode d'usage d'une brique DANS LA VIDÉO (hook / flux) : à dire / à
@@ -103,6 +111,7 @@ const KIND_ORDER: Record<string, number> = {
   flux: 1,
   cta: 2,
   notif: 3,
+  conversation: 4,
 };
 
 /** Récupère une campagne du projet courant ou rejette. */
@@ -320,6 +329,42 @@ async function notifsForNewVideos(
     notifBrickId: b._id,
     notifText: b.content.trim(),
   }));
+}
+
+/**
+ * CONVERSATIONS des `count` vidéos qu'on s'apprête à créer pour `creatorId`,
+ * une par vidéo, dans l'ordre — la rotation des notifs, appliquée aux
+ * conversations (cf convex/scriptConversation).
+ *
+ * Campagne sans conversation → tableau vide, l'assignation est celle d'avant la
+ * brique. Allumée mais aucune conversation tirable (active, avec un fichier) →
+ * REFUS : une vidéo partie sans conv n'aurait rien à importer à l'écran.
+ */
+async function conversationsForNewVideos(
+  ctx: MutationCtx,
+  input: {
+    campaign: Doc<"scriptCampaigns">;
+    bricks: Doc<"scriptBricks">[];
+    creatorId: Id<"creators">;
+    count: number;
+    rows?: Doc<"assignments">[];
+  },
+): Promise<Id<"scriptBricks">[]> {
+  if (!isConversationEnabled(input.campaign) || input.count <= 0) return [];
+  const conversations = drawableConversations(input.bricks);
+  if (conversations.length === 0) {
+    throw err(
+      ERR.NO_ACTIVE_CONVERSATION,
+      "Conversation activée sur cette campagne, mais aucune conversation active avec un fichier : ajoutes-en une, ou désactive la conversation.",
+    );
+  }
+  const rows = input.rows ?? (await projectAssignmentsForCooldown(ctx, input.campaign.projectId));
+  const usage = conversationUsageOf(rows, {
+    campaignId: input.campaign._id,
+    creatorId: input.creatorId,
+    freeingStatuses: COMBO_FREEING_STATUSES,
+  });
+  return pickConversations(conversations, usage, input.count).map((b) => b._id);
 }
 
 /**
@@ -836,7 +881,16 @@ export const getCampaign = permissionQuery("scripts.manage")({
         return (KIND_ORDER[a.kind] ?? 99) - (KIND_ORDER[b.kind] ?? 99);
       return (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     });
-    return { ...campaign, bricks };
+    // CONVERSATION — l'URL de chaque fichier, pour que l'équipe revoie ce
+    // qu'elle a déposé (aperçu des captures, export brut avant personnalisation).
+    // À côté des briques, indexée par fichier : les briques restent les documents.
+    const conversationFileUrls: Record<string, string | null> = {};
+    for (const b of bricks) {
+      for (const f of b.conversationFiles ?? []) {
+        conversationFileUrls[f.storageId] = await ctx.storage.getUrl(f.storageId);
+      }
+    }
+    return { ...campaign, bricks, conversationFileUrls };
   },
 });
 
@@ -985,6 +1039,8 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
     // Brique NOTIF allumée / éteinte pour la campagne (cf convex/scriptNotif).
     notifEnabled: v.optional(v.boolean()),
+    // Brique CONVERSATION allumée / éteinte (cf convex/scriptConversation).
+    conversationEnabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.id, ctx.projectId);
@@ -997,6 +1053,9 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     if (args.demoBlock !== undefined) patch.demoBlock = args.demoBlock;
     if (args.status !== undefined) patch.status = args.status;
     if (args.notifEnabled !== undefined) patch.notifEnabled = args.notifEnabled;
+    if (args.conversationEnabled !== undefined) {
+      patch.conversationEnabled = args.conversationEnabled;
+    }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
   },
@@ -1728,6 +1787,20 @@ export async function assignScriptCampaignCore(
           count: picked.length,
           ...(options.projectRows ? { rows: options.projectRows } : {}),
         });
+  // ─── Conversation : une par vidéo, tirée À PART du combo, comme la notif ───
+  // Le rejeu à l'identique reprend celle de la source (même histoire, même
+  // fichier) ; tout le reste la tire en rotation équilibrée.
+  const conversations = verbatimCombo
+    ? []
+    : await conversationsForNewVideos(ctx, {
+        campaign,
+        bricks: allBricks,
+        creatorId: args.creatorId,
+        count: picked.length,
+        ...(options.projectRows ? { rows: options.projectRows } : {}),
+      });
+  const conversationOf = (i: number): Id<"scriptBricks"> | undefined =>
+    verbatimCombo ? replaySrc?.conversationBrickId : conversations[i];
 
   let created = 0;
   let firstAssignmentId: Id<"assignments"> | null = null;
@@ -1772,6 +1845,10 @@ export async function assignScriptCampaignCore(
       // Verbatim → comboKey EXACT de la source (gère le legacy 4 segments) ;
       // sinon signature des 3 briques choisies.
       comboKey: verbatimCombo ? verbatimCombo.comboKey : comboKeyOf(combo),
+      // Absente si la campagne n'a pas la conversation → row inchangée.
+      ...(conversationOf(i) !== undefined
+        ? { conversationBrickId: conversationOf(i) }
+        : {}),
       // Rejeu / choix manuel — flag + lignage (undefined en auto → 0 bruit).
       ...(args.imposedCombo || verbatimCombo ? { comboImposed: true } : {}),
       ...(args.replayedFrom !== undefined
@@ -1856,6 +1933,48 @@ function assertScriptEditable(a: Doc<"assignments">): void {
  * → AUCUNE donnée de perf/publication rattachée n'est jamais altérée (la
  * publication matérialise la perf ; avant, re-figer est sans conséquence).
  */
+/**
+ * CONVERSATION d'une vidéo (brique optionnelle hors combo, cf
+ * convex/scriptConversation) — l'ajouter (vidéo assignée avant que la campagne
+ * ait les siennes), la changer, ou la retirer (`null`), TANT QUE le post n'est
+ * pas publié : une vidéo en ligne a été tournée avec la sienne, et ses vues lui
+ * sont comptées. Ni le texte, ni la clé de combo, ni la paie ne bougent.
+ */
+export const setAssignmentConversation = permissionMutation("scripts.manage")({
+  args: {
+    id: v.id("assignments"),
+    brickId: v.union(v.id("scriptBricks"), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const a = await ctx.db.get(args.id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+    const combo = a.scriptCombo;
+    if (!combo) {
+      throw err(ERR.ASSIGNMENT_NOT_SCRIPT, "Cet assignment n'est pas un script.");
+    }
+    assertScriptEditable(a);
+    if (args.brickId === null) {
+      await ctx.db.patch(a._id, { conversationBrickId: undefined });
+      return { ok: true };
+    }
+    const brick = await ctx.db.get(args.brickId);
+    if (!brick || brick.projectId !== ctx.projectId || brick.campaignId !== combo.campaignId) {
+      throw err(ERR.BRICK_NOT_IN_CAMPAIGN, "Brique introuvable dans la campagne.");
+    }
+    if (brick.kind !== "conversation") {
+      throw err(ERR.BRICK_WRONG_SLOT, "La brique doit être de type « conversation ».", { slot: "conversation" });
+    }
+    if (!brick.active) {
+      throw err(ERR.BRICK_DISABLED, "La brique choisie est désactivée.");
+    }
+    await ctx.db.patch(a._id, { conversationBrickId: brick._id });
+    return { ok: true };
+  },
+});
+
 export const editScriptCombo = permissionMutation("scripts.manage")({
   args: {
     id: v.id("assignments"),

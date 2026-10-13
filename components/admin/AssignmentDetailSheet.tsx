@@ -93,6 +93,7 @@ import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments"
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
 import { AssignmentNotifPicker } from "@/components/admin/AssignmentNotifPicker";
+import { AssignmentConversationPicker } from "@/components/admin/AssignmentConversationPicker";
 import { AssignmentInstructionsDialog } from "@/components/admin/AssignmentInstructionsDialog";
 import { ImposedComboBadge } from "@/components/admin/ImposedComboBadge";
 import { dayStartMs } from "@/components/admin/AssignmentPlanningCalendar";
@@ -665,6 +666,16 @@ export function AssignmentDetailSheet({
                   campaignId={combo.campaignId}
                   notifBrickId={combo.notifBrickId}
                   notifText={combo.notifText}
+                  editable={canEditText}
+                />
+              )}
+              {/* CONVERSATION de la vidéo (brique optionnelle, hors script) —
+                  fichiers lus en direct ; changeable tant que le post n'est
+                  pas publié. */}
+              {combo && (
+                <AssignmentConversationPicker
+                  assignmentId={row._id}
+                  campaignId={combo.campaignId}
                   editable={canEditText}
                 />
               )}

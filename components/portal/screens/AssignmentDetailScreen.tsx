@@ -27,6 +27,7 @@ import { AssignmentActions } from "@/components/portal/AssignmentActions";
 import { MissionStepper } from "@/components/portal/MissionStepper";
 import { ScriptText } from "@/components/scripts/HookLibreBlock";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
+import { MissionConversationCard } from "@/components/portal/MissionConversationCard";
 import {
   ScriptDestinationZones,
   ScriptInstructionList,
@@ -207,6 +208,17 @@ export default function AssignmentDetailScreen({
                     className="order-5"
                     text={data.scriptNotif.text}
                     instruction={data.scriptNotif.instruction}
+                  />
+                )}
+
+                {/* CONVERSATION à importer à l'écran — brique optionnelle de la
+                    campagne : export personnalisé au téléchargement, captures. */}
+                {data.scriptConversation && (
+                  <MissionConversationCard
+                    className="order-5"
+                    projectId={projectId}
+                    assignmentId={assignmentId}
+                    conversation={data.scriptConversation}
                   />
                 )}
 

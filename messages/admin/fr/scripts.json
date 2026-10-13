@@ -88,7 +88,10 @@
     "notifRattrapageToutCocher": "Tout cocher",
     "notifRattrapageToutDecocher": "Tout décocher",
     "notifRattrapageSansDate": "sans date de post",
-    "notifRattrapageInclure": "Inclure cette vidéo"
+    "notifRattrapageInclure": "Inclure cette vidéo",
+    "conversationToggle": "Conversation dans la vidéo",
+    "conversationToggleHint": "Chaque vidéo assignée reçoit une conversation à télécharger (export WhatsApp, captures), tirée en rotation — l'analytics dit laquelle fait les vues.",
+    "conversationAucuneActive": "Conversation activée mais aucune conversation active avec un fichier : dépose un fichier dans l'onglet Conversation, ou désactive la conversation, pour pouvoir assigner."
   },
   "BrickRow": {
     "consigne": "💡 consigne",
@@ -98,7 +101,8 @@
     "activerLaBrique": "Activer la brique",
     "medianeDesVuesAuDernier": "Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs",
     "uneErreurEstSurvenue": "Une erreur est survenue.",
-    "libre": "✍️ libre"
+    "libre": "✍️ libre",
+    "fichiers": "{count, plural, =0 {aucun fichier} one {# fichier} other {# fichiers}}"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Choisis une brique dans la liste, ou ajoutes-en une.",
@@ -133,12 +137,29 @@
     "lIdeeAGarder": "— l'idée à garder",
     "exDirection": "Ex. Une relation qui dure, puis tu tombes sur un truc qui change tout.",
     "autresExemples": "Autres exemples",
-    "unParLigneAuPlus": "— un par ligne, {max} au plus"
+    "unParLigneAuPlus": "— un par ligne, {max} au plus",
+    "conversationTexte": "— ce que raconte la conv, lu par la créatrice au-dessus des fichiers",
+    "conversationFichiersApres": "Ajoute la conversation, puis dépose ses fichiers (export WhatsApp, captures)."
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "L'aperçu s'affiche dès qu'une brique active de chaque type porte du texte.",
     "ceQueVerraLaCreatrice": "Ce que verra la créatrice",
     "enCoursDEdition": "— {value} en cours d'édition"
+  },
+  "ConversationFilesPanel": {
+    "fichiers": "Fichiers à télécharger",
+    "deposer": "Déposer",
+    "aide": "Export WhatsApp (.txt) : la créatrice le reçoit à son prénom, daté du jour où elle le télécharge. Captures (PNG, JPEG, WebP) : servies telles quelles.",
+    "aucunFichier": "Aucun fichier : cette conversation ne sera pas tirée tant qu'elle n'en a pas.",
+    "pasUnExport": "« {name} » : aucun message reconnu, ce n'est pas un export WhatsApp.",
+    "echecDepot": "Le dépôt n'a pas marché.",
+    "messages": "{count, plural, one {# message} other {# messages}}",
+    "retirer": "Retirer {name}",
+    "elle": "« Elle » dans l'export",
+    "neRienRemplacer": "Ne pas remplacer le prénom",
+    "prenomNonRemplace": "Le prénom de la créatrice ne sera pas mis dans l'export.",
+    "ecart": "Dernier message, en jours avant le téléchargement",
+    "ecartAide": "{count, plural, =0 {Le dernier message est daté du jour où elle télécharge.} one {Le dernier message est daté de la veille du téléchargement.} other {Le dernier message est daté de # jours avant le téléchargement.}}"
   },
   "BulkBar": {
     "selectionne": "{kindLabel} {count, plural, one {sélectionné} other {sélectionnés}}",
@@ -249,7 +270,8 @@
     "hook": "Hook",
     "flux": "Flux",
     "cta": "Description",
-    "notif": "Notif"
+    "notif": "Notif",
+    "conversation": "Conversation"
   },
   "decision": {
     "aPousser": "Pousse {label}{hasRatio, select, yes { — médiane {ratio} vs pairs} other {}}, sur {posts} posts.",

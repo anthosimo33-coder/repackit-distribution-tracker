@@ -60,6 +60,7 @@ describe("garde-fou : champs _storage vs balayage des orphelins", () => {
       "comptes",
       "projects",
       "instaConvImages",
+      "scriptBricks",
     ]) {
       expect(
         cleanup.includes(`ctx.db.query("${table}")`),
