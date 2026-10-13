@@ -22,7 +22,6 @@ export type ComboSlots = {
   fluxBrickId: string;
   ctaBrickId: string;
   notifBrickId?: string | null;
-  conversationBrickId?: string | null;
 };
 
 /** brickId porté par le slot correspondant au `kind` (null : pas de notif).
@@ -35,8 +34,6 @@ export function slotBrickIdOf(slots: ComboSlots, kind: BrickKind): string | null
       return slots.fluxBrickId;
     case "notif":
       return slots.notifBrickId ?? null;
-    case "conversation":
-      return slots.conversationBrickId ?? null;
     default:
       return slots.ctaBrickId;
   }

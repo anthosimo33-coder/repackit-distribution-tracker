@@ -60,19 +60,19 @@ async function scenarioDuProjet(ctx: ProjectMutationCtx, id: Id<"scenarios">): P
   return s;
 }
 
-/** Les ids des scénarios ACTIFS du projet — les seuls qu'une campagne peut tirer. */
-export async function scenariosActifsDuProjet(
+/** Les scénarios du projet, sans leur bible — de quoi tirer ceux d'une campagne (convex/scriptConversation). */
+export async function scenariosDuProjet(
   ctx: { db: ProjectMutationCtx["db"] },
   projectId: Id<"projects">,
-): Promise<Set<string>> {
+): Promise<{ _id: Id<"scenarios">; theme: string; statut: Doc<"scenarios">["statut"]; createdAt: number }[]> {
   const rows = await ctx.db
     .query("scenarios")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
-  return new Set(rows.filter((s) => s.statut === "actif").map((s) => s._id as string));
+  return rows.map((s) => ({ _id: s._id, theme: s.theme, statut: s.statut, createdAt: s.createdAt }));
 }
 
-/** Refuse un scénario d'un autre projet (ou supprimé) avant de le relier à une brique. */
+/** Refuse un scénario d'un autre projet (ou supprimé) avant de le donner à une mission. */
 export async function requireScenarioDuProjet(
   ctx: { db: ProjectMutationCtx["db"] },
   projectId: Id<"projects">,
@@ -101,6 +101,7 @@ export const listScenarios = permissionQuery("scripts.manage")({
         type: s.type,
         theme: s.theme,
         statut: s.statut,
+        createdAt: s.createdAt,
         updatedAt: s.updatedAt,
       }))
       .sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true }));

@@ -66,22 +66,16 @@ const DIMENSION_LABEL_KEY: Record<string, string> = {
   flux: KIND_LABEL_KEYS.flux,
   cta: KIND_LABEL_KEYS.cta,
   notif: KIND_LABEL_KEYS.notif,
-  conversation: KIND_LABEL_KEYS.conversation,
 };
 
 /**
- * Sections du détail : les 3 briques du combo, + la NOTIF et la CONVERSATION
- * dès que la campagne en a (briques optionnelles hors combo) — c'est la section
- * qui dit laquelle fait les vues. Une campagne sans elles n'a pas de section
- * vide en plus.
+ * Sections du détail : les 3 briques du combo, + la NOTIF dès que la campagne
+ * en a (brique optionnelle hors combo) — c'est la section qui dit laquelle fait
+ * les vues. Une campagne sans notif n'a pas de section vide en plus.
  */
 function detailKinds(bricks: readonly { kind: string }[]): string[] {
-  return [
-    "hook",
-    "flux",
-    "cta",
-    ...(["notif", "conversation"] as const).filter((k) => bricks.some((b) => b.kind === k)),
-  ];
+  const kinds = ["hook", "flux", "cta"];
+  return bricks.some((b) => b.kind === "notif") ? [...kinds, "notif"] : kinds;
 }
 
 export default function ScriptAnalyticsPage() {

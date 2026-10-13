@@ -67,14 +67,11 @@ import {
 } from "@/lib/scriptAssembly";
 import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
 import {
-  drawableConversations,
+  cleTheme,
   isConversationEnabled,
+  scenariosTirables,
 } from "@/convex/scriptConversation";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
-import { ScriptConversationCard } from "@/components/scripts/ScriptConversationCard";
-import { ConversationFilesPanel } from "@/components/scripts/ConversationFilesPanel";
-import { MissionScenarioCard } from "@/components/portal/MissionScenarioCard";
-import { ScenarioPicker } from "@/components/scenarios/ScenarioPicker";
 import { NotifBackfill } from "@/components/scripts/NotifBackfill";
 import {
   BRICK_MODE_OPTIONS,
@@ -140,7 +137,6 @@ const KIND_PLURAL: Record<BrickKind, string> = {
   flux: "flux",
   cta: "descriptions",
   notif: "notifs",
-  conversation: "conversations",
 };
 
 /** Valeur du select « aucune créatrice » (Select n'accepte pas ""). */
@@ -245,17 +241,9 @@ export default function ScriptCampaignDetailPage() {
   const [now] = useState(() => Date.now());
 
   const bricks = useMemo(() => campaign?.bricks ?? [], [campaign]);
-  // SCÉNARIOS du projet (bloc `scripts.manage`, celui de cet écran) : une brique
-  // conversation reliée à un scénario n'est tirable que s'il est ACTIF.
+  // SCÉNARIOS du projet (bloc `scripts.manage`, celui de cet écran) : la
+  // conversation tire parmi les actifs des thèmes cochés.
   const scenarios = useProjectQuery(api.scenarios.listScenarios, {});
-  const scenarioParId = useMemo(
-    () => new Map((scenarios ?? []).map((sc) => [sc._id as string, sc])),
-    [scenarios],
-  );
-  const scenariosActifs = useMemo(
-    () => new Set((scenarios ?? []).filter((sc) => sc.statut === "actif").map((sc) => sc._id as string)),
-    [scenarios],
-  );
 
   // Plateformes réellement servies par cette créatrice : l'unicité à vie est
   // PAR PLATEFORME, l'évaluer sur les trois en dur inventerait des collisions.
@@ -355,23 +343,15 @@ export default function ScriptCampaignDetailPage() {
   // tirable, le serveur REFUSE l'assignation : on le dit ici, avant le clic.
   const notifOn = isNotifEnabled(campaign);
   const notifMissing = notifOn && drawableNotifs(bricks).length === 0;
-  // CONVERSATION — même règle : allumée sans conversation tirable (active, avec
-  // au moins un fichier), le serveur refuse l'assignation.
+  // CONVERSATION — même règle : allumée sans scénario actif dans ses thèmes,
+  // le serveur refuse l'assignation.
   const conversationOn = isConversationEnabled(campaign);
+  const conversationThemes = campaign.conversationThemes ?? [];
   const conversationMissing =
-    conversationOn && drawableConversations(bricks, scenariosActifs).length === 0;
-  // Une campagne sert UN style de conv : des scénarios de thèmes différents
-  // dans la même rotation donneraient à une créatrice une conv qui ne colle pas
-  // à son script.
-  const themesCampagne = [
-    ...new Set(
-      bricks
-        .filter((b) => b.kind === "conversation" && b.active && b.scenarioId)
-        .map((b) => scenarioParId.get(b.scenarioId as string)?.theme.trim() ?? "")
-        .filter(Boolean),
-    ),
-  ];
-  const kinds = editableKinds(notifOn, conversationOn);
+    conversationOn &&
+    scenarios !== undefined &&
+    scenariosTirables(scenarios, conversationThemes).length === 0;
+  const kinds = editableKinds(notifOn);
   const activeCount = ofKind.filter((b) => b.active).length;
   const checkedIds = [...checked].filter((cid) =>
     ofKind.some((b) => b._id === cid),
@@ -409,11 +389,10 @@ export default function ScriptCampaignDetailPage() {
           <ConversationToggle
             campaignId={campaign._id}
             enabled={conversationOn}
+            themes={conversationThemes}
+            scenarios={scenarios}
             missing={conversationMissing}
-            themes={themesCampagne}
-            onDisabled={() => {
-              if (kind === "conversation") void switchKind("hook");
-            }}
+            scenariosHref={projectPath("/scenarios")}
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -607,7 +586,6 @@ export default function ScriptCampaignDetailPage() {
                   availability={
                     b.kind === "hook" ? availabilityOf(b._id as string) : undefined
                   }
-                  scenario={b.scenarioId ? scenarioParId.get(b.scenarioId as string) : undefined}
                 />
               ))}
             </div>
@@ -626,7 +604,6 @@ export default function ScriptCampaignDetailPage() {
             creating={editing === "new"}
             bricks={bricks}
             isLab={isLab}
-            fileUrls={campaign.conversationFileUrls}
             onDirtyChange={setDirty}
             ref={editorRef}
             onCreated={(newId) => setSelectedId(newId as string)}
@@ -720,36 +697,56 @@ function NotifToggle({
 }
 
 /**
- * Interrupteur CONVERSATION de la campagne (cf convex/scriptConversation).
- * Allumé : un onglet « Conversation » apparaît et chaque vidéo assignée reçoit
- * une conv à télécharger, tirée en rotation. Éteint : les convs restent, mais
- * aucune ne part.
+ * Interrupteur CONVERSATION de la campagne (cf convex/scriptConversation), et
+ * ses THÈMES. Allumé : chaque vidéo assignée reçoit une conversation WhatsApp
+ * générée à son prénom, depuis un scénario actif tiré dans les thèmes cochés.
+ * Un scénario passé en « Actif » rejoint tout seul les campagnes de son thème.
  */
 function ConversationToggle({
   campaignId,
   enabled,
-  missing,
   themes,
-  onDisabled,
+  scenarios,
+  missing,
+  scenariosHref,
 }: {
   campaignId: Id<"scriptCampaigns">;
   enabled: boolean;
-  /** Allumée mais aucune conversation tirable : l'assignation sera refusée. */
-  missing: boolean;
-  /** Thèmes des scénarios en rotation : plus d'un = des convs qui ne collent pas toutes au script. */
+  /** Thèmes cochés, tels qu'enregistrés sur la campagne. */
   themes: string[];
-  onDisabled: () => void;
+  /** Scénarios du projet ; undefined = en chargement. */
+  scenarios: { theme: string; statut: string }[] | undefined;
+  /** Allumée mais aucun scénario actif dans ses thèmes : l'assignation sera refusée. */
+  missing: boolean;
+  scenariosHref: string;
 }) {
   const showError = useConvexError();
   const tr = useTranslations("admin.scripts.ScriptCampaignDetailPage");
   const update = useProjectMutation(api.scripts.updateCampaign);
   const [busy, setBusy] = useState(false);
 
-  async function toggle(next: boolean) {
+  // Un thème par clé (casse ignorée), avec son nombre de scénarios actifs. Un
+  // thème coché qui n'a plus aucun scénario reste affiché, pour qu'on le décoche.
+  const options = useMemo(() => {
+    const parCle = new Map<string, { theme: string; actifs: number }>();
+    for (const sc of scenarios ?? []) {
+      const cle = cleTheme(sc.theme);
+      if (!cle || sc.statut === "archive") continue;
+      const o = parCle.get(cle) ?? { theme: sc.theme.trim(), actifs: 0 };
+      if (sc.statut === "actif") o.actifs += 1;
+      parCle.set(cle, o);
+    }
+    for (const t of themes) {
+      if (!parCle.has(cleTheme(t))) parCle.set(cleTheme(t), { theme: t, actifs: 0 });
+    }
+    return [...parCle.entries()].sort(([, a], [, b]) => a.theme.localeCompare(b.theme, "fr"));
+  }, [scenarios, themes]);
+  const coches = new Set(themes.map(cleTheme));
+
+  async function enregistrer(patch: { conversationEnabled?: boolean; conversationThemes?: string[] }) {
     setBusy(true);
     try {
-      await update({ id: campaignId, conversationEnabled: next });
-      if (!next) onDisabled();
+      await update({ id: campaignId, ...patch });
     } catch (e) {
       toast.error(showError(e));
     } finally {
@@ -757,12 +754,31 @@ function ConversationToggle({
     }
   }
 
+  function basculer(theme: string, on: boolean) {
+    const cle = cleTheme(theme);
+    void enregistrer({
+      conversationThemes: on
+        ? [...themes, theme]
+        : themes.filter((t) => cleTheme(t) !== cle),
+    });
+  }
+
+  const lienScenarios = (
+    <Link
+      href={scenariosHref}
+      prefetch={false}
+      className="font-medium text-primary underline-offset-2 hover:underline"
+    >
+      {tr("conversationGererScenarios")}
+    </Link>
+  );
+
   return (
     <div className="space-y-1 pt-1">
       <label className="flex w-fit items-center gap-2 text-sm text-slate-700">
         <Switch
           checked={enabled}
-          onCheckedChange={toggle}
+          onCheckedChange={(next) => void enregistrer({ conversationEnabled: next })}
           disabled={busy}
           aria-label={tr("conversationToggle")}
           data-testid="conversation-toggle"
@@ -771,14 +787,36 @@ function ConversationToggle({
         {tr("conversationToggle")}
       </label>
       <p className="text-xs text-slate-400">{tr("conversationToggleHint")}</p>
-      {missing && (
-        <p className="text-xs text-amber-700" data-testid="conversation-missing">
-          {tr("conversationAucuneActive")}
-        </p>
+      {enabled && (
+        <div className="space-y-1 pt-1" data-testid="conversation-themes">
+          <p className="text-xs font-medium text-slate-600">{tr("conversationThemes")}</p>
+          {options.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              {tr("conversationAucunScenario")}{" "}{lienScenarios}
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {options.map(([cle, o]) => (
+                <label key={cle} className="flex items-center gap-1.5 text-sm text-slate-700">
+                  <Checkbox
+                    checked={coches.has(cle)}
+                    onCheckedChange={(v) => basculer(o.theme, v === true)}
+                    disabled={busy}
+                    aria-label={o.theme}
+                  />
+                  {o.theme}
+                  <span className="text-xs text-slate-400">
+                    {tr("conversationThemeActifs", { count: o.actifs })}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       )}
-      {enabled && themes.length > 1 && (
-        <p className="text-xs text-amber-700" data-testid="conversation-themes-melanges">
-          {tr("conversationThemesMelanges", { themes: themes.join(" · ") })}
+      {missing && options.length > 0 && (
+        <p className="text-xs text-amber-700" data-testid="conversation-missing">
+          {tr("conversationAucuneActive")}{" "}{lienScenarios}
         </p>
       )}
     </div>
@@ -825,7 +863,6 @@ function BrickRow({
   onSelect,
   perf,
   availability,
-  scenario,
 }: {
   brick: Brick;
   selected: boolean;
@@ -839,8 +876,6 @@ function BrickRow({
   };
   /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
   availability?: HookAvailability;
-  /** Le scénario d'une brique conversation générée (absent : fichiers déposés, ou pas encore chargé). */
-  scenario?: { code: string; statut: string };
 }) {
   const showError = useConvexError();
   const loc = useIntlLocale();
@@ -897,43 +932,8 @@ function BrickRow({
         <p className="line-clamp-2 text-sm font-medium text-slate-900">
           {brick.content}
         </p>
-        {(brick.instruction ||
-          brick.libre ||
-          note ||
-          availability ||
-          !brick.active ||
-          brick.kind === "conversation") && (
+        {(brick.instruction || brick.libre || note || availability || !brick.active) && (
           <span className="flex flex-wrap items-center gap-1.5">
-            {brick.kind === "conversation" && brick.scenarioId && (
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-[10px]",
-                  scenario?.statut === "actif"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-700",
-                )}
-                data-testid="brick-scenario-tag"
-              >
-                {scenario
-                  ? tr("scenarioTag", { code: scenario.code, actif: scenario.statut === "actif" ? "yes" : "no" })
-                  : tr("scenarioIntrouvable")}
-              </Badge>
-            )}
-            {brick.kind === "conversation" && !brick.scenarioId && (
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-[10px]",
-                  (brick.conversationFiles?.length ?? 0) > 0
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-amber-200 bg-amber-50 text-amber-700",
-                )}
-                data-testid="brick-files-tag"
-              >
-                {tr("fichiers", { count: brick.conversationFiles?.length ?? 0 })}
-              </Badge>
-            )}
             {brick.kind === "hook" && brick.libre && (
               <Badge
                 variant="outline"
@@ -1023,7 +1023,6 @@ function BrickEditor({
   creating,
   bricks,
   isLab,
-  fileUrls,
   onDirtyChange,
   ref,
   onCreated,
@@ -1036,8 +1035,6 @@ function BrickEditor({
   creating: boolean;
   bricks: Brick[];
   isLab: boolean;
-  /** URL de chaque fichier de conversation de la campagne (aperçu, fichier brut). */
-  fileUrls: Record<string, string | null>;
   onDirtyChange: (d: boolean) => void;
   /** React 19 : le ref est une prop ordinaire, pas de forwardRef. */
   ref: React.Ref<BrickEditorHandle>;
@@ -1069,9 +1066,6 @@ function BrickEditor({
   const [autresExemples, setAutresExemples] = useState(
     (brick?.autresExemples ?? []).join("\n"),
   );
-  // SCÉNARIO (conversation uniquement) — "" = fichiers déposés.
-  const isConversation = kind === "conversation";
-  const [scenarioId, setScenarioId] = useState<string>(brick?.scenarioId ?? "");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -1105,9 +1099,6 @@ function BrickEditor({
           ...(isHook
             ? { libre, direction, autresExemples: autresExemples.split("\n") }
             : {}),
-          ...(isConversation
-            ? { scenarioId: scenarioId ? (scenarioId as Id<"scenarios">) : null }
-            : {}),
         });
         toast.success(tr("briqueMiseAJour"));
       } else {
@@ -1121,7 +1112,6 @@ function BrickEditor({
           ...(isHook
             ? { libre, direction, autresExemples: autresExemples.split("\n") }
             : {}),
-          ...(isConversation && scenarioId ? { scenarioId: scenarioId as Id<"scenarios"> } : {}),
         });
         toast.success(tr("briqueAjoutee"));
         onCreated(newId);
@@ -1195,18 +1185,6 @@ function BrickEditor({
             )}
           </div>
 
-          {/* SCÉNARIO — la conv est générée depuis une bible, au prénom de la
-              créatrice ; sans scénario, ce sont des fichiers déposés. */}
-          {isConversation && (
-            <ScenarioPicker
-              value={scenarioId}
-              onChange={(id, sc) => {
-                touch(setScenarioId)(id);
-                if (sc && label.trim().length === 0) setLabel(`${sc.code} · ${sc.titre}`);
-              }}
-            />
-          )}
-
           {/* HOOK LIBRE — la brique devient une direction : la créatrice
               tourne sa propre formulation, les vues restent comptées ici. */}
           {isHook && (
@@ -1230,36 +1208,18 @@ function BrickEditor({
               <span className="font-normal text-slate-400">
                 {kind === "notif"
                   ? tr("afficheALEcran")
-                  : kind === "conversation"
-                    ? tr("conversationTexte")
-                    : isHook && libre
-                      ? tr("montreEnPremier")
-                      : tr("partDansLeScript")}
+                  : isHook && libre
+                    ? tr("montreEnPremier")
+                    : tr("partDansLeScript")}
               </span>
             </Label>
             <Textarea
               id="brick-content"
               value={content}
               onChange={(e) => touch(setContent)(e.target.value)}
-              rows={isHook && libre ? 2 : kind === "conversation" ? 3 : 6}
+              rows={isHook && libre ? 2 : 6}
             />
           </div>
-
-          {/* CONVERSATION — les fichiers que la créatrice télécharge. Ils se
-              déposent sur une brique EXISTANTE : créer d'abord, déposer ensuite. */}
-          {kind === "conversation" &&
-            !scenarioId &&
-            (brick ? (
-              <ConversationFilesPanel
-                brickId={brick._id}
-                files={(brick.conversationFiles ?? []).map((f) => ({
-                  ...f,
-                  url: fileUrls[f.storageId] ?? null,
-                }))}
-              />
-            ) : (
-              <p className="text-xs text-slate-400">{tr("conversationFichiersApres")}</p>
-            ))}
 
           {isHook && libre && (
             <>
@@ -1400,11 +1360,6 @@ function BrickEditor({
       <CreatorPreview
         kind={kind}
         bricks={bricks}
-        genere={isConversation && scenarioId !== ""}
-        files={(brick?.conversationFiles ?? []).map((f) => ({
-          ...f,
-          url: fileUrls[f.storageId] ?? null,
-        }))}
         draft={{
           content,
           instruction,
@@ -1427,22 +1382,10 @@ function BrickEditor({
 function CreatorPreview({
   kind,
   bricks,
-  genere,
-  files,
   draft,
 }: {
   kind: BrickKind;
   bricks: Brick[];
-  /** Conversation générée depuis un scénario (sinon : fichiers déposés). */
-  genere: boolean;
-  /** Fichiers de la conversation éditée (kind "conversation"). */
-  files: readonly {
-    storageId: string;
-    name: string;
-    kind: "export" | "image";
-    size: number;
-    url: string | null;
-  }[];
   draft: {
     content: string;
     instruction: string;
@@ -1477,30 +1420,6 @@ function CreatorPreview({
               {tr("lApercuSAfficheDes")}
             </CardContent>
           </Card>
-        )}
-      </div>
-    );
-  }
-
-  // CONVERSATION — hors script, dans sa propre carte : même composant que la
-  // fiche, sans téléchargement personnalisé (les liens ouvrent le fichier brut).
-  if (kind === "conversation") {
-    return (
-      <div className="space-y-2" data-testid="editor-preview">
-        <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          {tr("ceQueVerraLaCreatrice")}
-        </p>
-        {genere ? (
-          <MissionScenarioCard
-            text={draft.content.trim()}
-            instruction={draft.instruction.trim() || null}
-          />
-        ) : (
-          <ScriptConversationCard
-            text={draft.content.trim()}
-            instruction={draft.instruction.trim() || null}
-            files={files}
-          />
         )}
       </div>
     );

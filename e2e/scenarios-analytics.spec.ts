@@ -28,13 +28,16 @@ test.describe("Scénarios — analytics", () => {
     const base = ts.toString(36).toUpperCase();
     const s1Code = `P${base}`.slice(0, 12);
     const s2Code = `Q${base}`.slice(0, 12);
+    // Un thème par scénario, propres à ce test (la base e2e en garde d'autres).
+    const dispute = `Dispute ${ts}`;
+    const jalousie = `Jalousie ${ts}`;
     const s1 = await admin.mutation(api.scenarios.creerScenario, {
       bible: BIBLE_C2.replace('"id": "C2"', `"id": "${s1Code}"`),
-      theme: "La dispute",
+      theme: dispute,
     });
     const s2 = await admin.mutation(api.scenarios.creerScenario, {
       bible: BIBLE_C2.replace('"id": "C2"', `"id": "${s2Code}"`),
-      theme: "La dispute",
+      theme: jalousie,
     });
     for (const id of [s1, s2]) await admin.mutation(api.scenarios.changerStatutScenario, { id, statut: "actif" });
 
@@ -56,8 +59,8 @@ test.describe("Scénarios — analytics", () => {
       handle: `@e2escenan${ts}`,
     });
 
-    // Deux campagnes : X fait tourner S1 et S2, Y seulement S1.
-    async function campagne(nom: string, scenarios: Id<"scenarios">[], videos: number) {
+    // Deux campagnes : X coche les deux thèmes (S1 et S2), Y seulement celui de S1.
+    async function campagne(nom: string, themes: string[], videos: number) {
       const campaignId = await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] ${nom} ${ts}` });
       const add = (kind: "hook" | "flux" | "cta", content: string) =>
         admin.mutation(api.scripts.createBrick, { campaignId, kind, label: kind, content: `${content} ${nom} ${ts}` });
@@ -65,10 +68,11 @@ test.describe("Scénarios — analytics", () => {
       await add("hook", "Ce site va RUINER tellement de couples");
       await add("flux", "Montre la conv, puis importe-la");
       await add("cta", "Le site est en bio 💬");
-      await admin.mutation(api.scripts.updateCampaign, { id: campaignId, conversationEnabled: true });
-      for (const scenarioId of scenarios) {
-        await admin.mutation(api.scripts.createBrick, { campaignId, kind: "conversation", label: "s", content: "", scenarioId });
-      }
+      await admin.mutation(api.scripts.updateCampaign, {
+        id: campaignId,
+        conversationEnabled: true,
+        conversationThemes: themes,
+      });
       await admin.mutation(api.scripts.assignScriptCampaign, {
         campaignId,
         creatorId: creator.creatorId,
@@ -77,20 +81,19 @@ test.describe("Scénarios — analytics", () => {
         dueDate: ts + 7 * DAY,
         pricingId,
       });
-      const bricks = (await admin.query(api.scripts.getCampaign, { id: campaignId }))!.bricks;
       const rows = (await admin.query(api.assignments.listAssignments, {})).filter(
         (a) => a.scriptCombo?.campaignId === campaignId,
       );
-      return { campaignId, rows, scenarioDe: (brickId?: Id<"scriptBricks">) => bricks.find((b) => b._id === brickId)?.scenarioId };
+      return { campaignId, rows };
     }
-    const x = await campagne("X", [s1, s2], 2);
-    const y = await campagne("Y", [s1], 1);
+    const x = await campagne("X", [dispute, jalousie], 2);
+    const y = await campagne("Y", [dispute], 1);
 
     // Publication + relevé à J+7, des vues de forme réelle.
     const vues: Record<string, number[]> = { [s1]: [], [s2]: [] };
     const valeurs = [48_211, 2_904, 131_877];
     let k = 0;
-    for (const { rows, scenarioDe } of [x, y]) {
+    for (const { rows } of [x, y]) {
       for (const r of rows) {
         const v = valeurs[k++]!;
         const res = await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
@@ -103,7 +106,7 @@ test.describe("Scénarios — analytics", () => {
           vues: v,
           likes: 0,
         });
-        vues[scenarioDe(r.conversationBrickId) as string]!.push(v);
+        vues[r.scenarioId as Id<"scenarios">]!.push(v);
       }
     }
     expect(vues[s1]).toHaveLength(2);

@@ -414,8 +414,8 @@ export const createFromAssignment = internalMutation({
         comboKey: v.string(),
         // Notif de la vidéo (optionnelle, hors comboKey — cf schema).
         notifBrickId: v.optional(v.id("scriptBricks")),
-        // Conversation de la vidéo (optionnelle, hors comboKey — cf schema).
-        conversationBrickId: v.optional(v.id("scriptBricks")),
+        // Scénario de la conversation (optionnel, hors comboKey — cf schema).
+        scenarioId: v.optional(v.id("scenarios")),
       }),
     ),
     // QUALIFICATION héritée de l'assignation (cf assignments.contentType /

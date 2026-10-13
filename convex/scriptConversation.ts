@@ -1,28 +1,22 @@
 /**
- * CONVERSATION — la brique OPTIONNELLE d'une campagne de scripts : la conv que
- * la créatrice importe à l'écran dans l'app (export WhatsApp, captures), et
- * l'écran choc qu'elle filme. Fichiers à télécharger depuis sa mission.
+ * CONVERSATION — l'option d'une campagne de scripts : chaque vidéo reçoit une
+ * conversation WhatsApp GÉNÉRÉE depuis un scénario (convex/scenarios), que la
+ * créatrice télécharge à son prénom et importe dans l'app à l'écran.
  *
- * MÊME MÉCANIQUE QUE LA NOTIF (convex/scriptNotif), réutilisée telle quelle :
- * tirée HORS combo (la clé de combo, l'unicité, le cooldown ne bougent pas),
- * une par vidéo, en rotation équilibrée — la moins servie À CETTE CRÉATRICE
- * d'abord, puis la moins servie sur la campagne, puis l'ordre de la liste.
- * Mesurée par brique dans l'analytics (seuil « jugeable » = 50 posts).
+ * La campagne coche des THÈMES (`conversationThemes`), jamais des scénarios :
+ * chaque vidéo tire un scénario ACTIF de l'un de ces thèmes. Un scénario passé
+ * en « Actif » part donc tout seul dans les campagnes de son thème ; archivé,
+ * il n'est plus tiré (les missions qui l'ont gardent le leur).
  *
- * DIFFÉRENCE : rien n'est figé à l'assignation. Une notif est un texte recopié
- * dans la fiche ; une conversation est un jeu de FICHIERS lus en direct sur la
- * brique — remplacer un export raté répare les missions déjà assignées. Seul
- * l'id de la brique est posé, sur `assignments.conversationBrickId` (hors du
- * combo, cf schema).
+ * Tirage HORS combo (la clé de combo, l'unicité, le cooldown ne bougent pas),
+ * en rotation équilibrée — la mécanique de la notif (convex/scriptNotif) : le
+ * scénario le moins servi À CETTE CRÉATRICE d'abord, puis le moins servi sur la
+ * campagne, puis le plus ancien. Seul l'id du scénario est posé, sur
+ * `assignments.scenarioId` (hors du combo, cf schema).
  *
  * Module PUR (aucun import `_generated`). Garde : lib/script-conversation.test.ts.
  */
-import {
-  notifUsageOf,
-  pickNotifs,
-  type NotifBrickLike,
-  type NotifUsage,
-} from "./scriptNotif";
+import { pickNotifs, type NotifUsage } from "./scriptNotif";
 
 /** Réglage PAR CAMPAGNE. Absent = désactivé (0 migration). */
 export function isConversationEnabled(
@@ -31,32 +25,46 @@ export function isConversationEnabled(
   return campaign?.conversationEnabled === true;
 }
 
-export interface ConversationBrickLike extends NotifBrickLike {
-  conversationFiles?: readonly unknown[];
-  scenarioId?: string;
+/** Clé de comparaison d'un thème : ni la casse ni les espaces autour ne comptent. */
+export function cleTheme(theme: string): string {
+  return theme.trim().toLocaleLowerCase("fr");
 }
 
 /**
- * Les conversations TIRABLES : actives, de kind "conversation", et qui ont de
- * quoi importer — un scénario ACTIF (`scenariosActifs`, ids des scénarios au
- * statut « actif ») ou au moins un fichier déposé. Une brique reliée à un
- * scénario archivé ou en brouillon ne part pas, même si elle porte encore des
- * fichiers : c'est le scénario qui décide. Dans l'ordre de la liste.
+ * Les thèmes d'une campagne, nettoyés : blancs retirés, doublons (à la casse
+ * près) fusionnés, dans l'ordre reçu.
  */
-export function drawableConversations<T extends ConversationBrickLike>(
-  bricks: readonly T[],
-  scenariosActifs: ReadonlySet<string> = new Set(),
+export function themesNettoyes(themes: readonly string[]): string[] {
+  const vus = new Set<string>();
+  const out: string[] = [];
+  for (const t of themes) {
+    const cle = cleTheme(t);
+    if (!cle || vus.has(cle)) continue;
+    vus.add(cle);
+    out.push(t.trim());
+  }
+  return out;
+}
+
+export interface ScenarioLike {
+  _id: string;
+  theme: string;
+  statut: string;
+  createdAt: number;
+}
+
+/**
+ * Les scénarios TIRABLES pour une campagne : actifs, d'un de ses thèmes, du
+ * plus ancien au plus récent (l'ordre départage la rotation).
+ */
+export function scenariosTirables<T extends ScenarioLike>(
+  scenarios: readonly T[],
+  themes: readonly string[],
 ): T[] {
-  return bricks
-    .filter(
-      (b) =>
-        b.kind === "conversation" &&
-        b.active &&
-        (b.scenarioId !== undefined
-          ? scenariosActifs.has(b.scenarioId)
-          : (b.conversationFiles?.length ?? 0) > 0),
-    )
-    .sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
+  const cles = new Set(themes.map(cleTheme));
+  return scenarios
+    .filter((s) => s.statut === "actif" && cles.has(cleTheme(s.theme)))
+    .sort((a, b) => a.createdAt - b.createdAt);
 }
 
 /**
@@ -75,39 +83,38 @@ export function graineMission(assignmentId: string): number {
 }
 
 /** Forme minimale d'une assignation pour le comptage d'usage. */
-export interface ConversationUsageRow {
+export interface ScenarioUsageRow {
   creatorId: string;
   status: string;
   scriptCombo?: { campaignId: string } | null;
-  conversationBrickId?: string;
+  scenarioId?: string;
 }
 
 /**
- * Compte les conversations DÉJÀ servies sur la campagne — même règle que les
- * notifs (statuts libérants exclus : refus, abandon). Le comptage est celui de
- * notifUsageOf, appliqué au champ de la conversation.
+ * Compte les scénarios DÉJÀ servis sur la campagne — même règle que les notifs
+ * (statuts libérants exclus : refus, abandon).
  */
-export function conversationUsageOf(
-  rows: readonly ConversationUsageRow[],
+export function scenarioUsageOf(
+  rows: readonly ScenarioUsageRow[],
   input: { campaignId: string; creatorId: string; freeingStatuses: ReadonlySet<string> },
 ): NotifUsage {
-  return notifUsageOf(
-    rows.map((r) => ({
-      creatorId: r.creatorId,
-      status: r.status,
-      scriptCombo: r.scriptCombo
-        ? { campaignId: r.scriptCombo.campaignId, notifBrickId: r.conversationBrickId }
-        : null,
-    })),
-    input,
-  );
+  const creator = new Map<string, number>();
+  const campaign = new Map<string, number>();
+  const bump = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) ?? 0) + 1);
+  for (const r of rows) {
+    if (!r.scenarioId || r.scriptCombo?.campaignId !== input.campaignId) continue;
+    if (input.freeingStatuses.has(r.status)) continue;
+    bump(campaign, r.scenarioId);
+    if (r.creatorId === input.creatorId) bump(creator, r.scenarioId);
+  }
+  return { creator, campaign };
 }
 
-/** Tire `count` conversations, une par vidéo — la rotation des notifs, à l'identique. */
-export function pickConversations<T extends ConversationBrickLike>(
-  conversations: readonly T[],
+/** Tire `count` scénarios, un par vidéo — la rotation des notifs, à l'identique. */
+export function pickScenarios<T extends ScenarioLike>(
+  scenarios: readonly T[],
   usage: NotifUsage,
   count: number,
 ): T[] {
-  return pickNotifs(conversations, usage, count);
+  return pickNotifs(scenarios, usage, count);
 }

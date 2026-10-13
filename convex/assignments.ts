@@ -33,7 +33,7 @@ import {
 } from "./publications";
 import { isScriptZonesEnabled } from "./scriptZonesSetting";
 import { hookLibreDuTexte, hookLibreOf, type HookLibre } from "./hookLibre";
-import { conversationBrickOf } from "./conversationFiles";
+import { scenarioDeMission } from "./scenarioMission";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
   pickCreatorAssignment,
@@ -1582,16 +1582,16 @@ export const getAssignmentCombo = permissionQuery("assignments.manage")({
 });
 
 /**
- * La CONVERSATION d'une mission (hors du combo, cf schema) — pour que le panneau
- * de détail la montre et la change, comme la notif.
+ * Le SCÉNARIO de la conversation d'une mission (hors du combo, cf schema) —
+ * pour que le panneau de détail le montre et le change, comme la notif.
  */
-export const getAssignmentConversation = permissionQuery("assignments.manage")({
+export const getAssignmentScenario = permissionQuery("assignments.manage")({
   args: { id: v.id("assignments") },
   handler: async (ctx, { id }) => {
     const a = await ctx.db.get(id);
     if (!a || a.projectId !== ctx.projectId) return null;
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    return { conversationBrickId: a.conversationBrickId ?? null };
+    return { scenarioId: a.scenarioId ?? null };
   },
 });
 
@@ -1823,9 +1823,9 @@ export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
           hasAssembledScript:
             a.scriptCombo !== undefined || a.freeScript !== undefined,
           comboKey: a.comboKey,
-          // Conversation tirée pour la vidéo (hors du combo, cf schema) — l'id
-          // seul, comme les briques du combo.
-          conversationBrickId: a.conversationBrickId,
+          // Scénario de la conversation tiré pour la vidéo (hors du combo, cf
+          // schema) — l'id seul, comme les briques du combo.
+          scenarioId: a.scenarioId,
           comboImposed: a.comboImposed,
           replayedFrom: a.replayedFrom,
           replayVerbatim: a.replayVerbatim,
@@ -1941,13 +1941,14 @@ function notifOfCombo(combo: {
 }
 
 /**
- * La CONVERSATION de la vidéo, recopiée sur la publication (analytics par conv,
- * cf convex/scriptConversation). Objet vide sans conv : publication inchangée.
+ * Le SCÉNARIO de la conversation de la vidéo, recopié sur la publication
+ * (analytics par scénario, cf convex/scenarioAnalytics). Objet vide sans conv :
+ * publication inchangée.
  */
-function conversationOfAssignment(a: Doc<"assignments">): {
-  conversationBrickId?: Id<"scriptBricks">;
+function scenarioOfAssignment(a: Doc<"assignments">): {
+  scenarioId?: Id<"scenarios">;
 } {
-  return a.conversationBrickId ? { conversationBrickId: a.conversationBrickId } : {};
+  return a.scenarioId ? { scenarioId: a.scenarioId } : {};
 }
 
 /**
@@ -1989,7 +1990,7 @@ async function materializeScriptPublication(
       ctaBrickId: a.scriptCombo.ctaBrickId,
       comboKey: a.comboKey,
       ...notifOfCombo(a.scriptCombo),
-      ...conversationOfAssignment(a),
+      ...scenarioOfAssignment(a),
     },
   });
 }
@@ -2054,7 +2055,7 @@ async function materializeTargetPublication(
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
         ...notifOfCombo(a.scriptCombo),
-        ...conversationOfAssignment(a),
+        ...scenarioOfAssignment(a),
       },
       ...qualification,
     });
@@ -2503,7 +2504,7 @@ export const backfillPublicationCombos = internalMutation({
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
         ...notifOfCombo(a.scriptCombo),
-        ...conversationOfAssignment(a),
+        ...scenarioOfAssignment(a),
       };
       if (a.publicationId === undefined) {
         // Cas S2 : pas de publication. La matérialiser rétroactivement exige une
@@ -3015,63 +3016,17 @@ async function scriptNotifOf(
 }
 
 /**
- * CONVERSATION de la vidéo (brique optionnelle, cf convex/scriptConversation) :
- * ce que la créatrice télécharge pour l'importer à l'écran. Tout est lu LIVE sur
- * la brique — remplacer un fichier répare la mission. Les images sortent avec
- * leur URL signée ; un export, jamais tel quel : il passe par
- * `conversationFiles.downloadConversationExport`, qui le personnalise. Ni label
- * ni id de brique (taxonomie de pilotage).
+ * CONVERSATION de la vidéo (option de la campagne, cf convex/scriptConversation) :
+ * la mission a-t-elle un scénario à générer à son prénom (convex/scenarioMission) ?
+ * Rien du scénario lui-même (code, bible, thème) ne sort : la conv se fabrique
+ * au téléchargement.
  */
-type ScriptConversationFile = {
-  storageId: Id<"_storage">;
-  name: string;
-  kind: "export" | "image";
-  size: number;
-  url: string | null;
-};
-type ScriptConversation = {
-  text: string;
-  instruction: string | null;
-  files: ScriptConversationFile[];
-  /**
-   * La conv est GÉNÉRÉE depuis un scénario (convex/scenarioMission) : pas de
-   * fichier déposé, un export fabriqué au téléchargement, à son prénom. Rien du
-   * scénario lui-même (code, bible) ne sort.
-   */
-  genere: boolean;
-};
+type ScriptConversation = { genere: true };
 async function scriptConversationOf(
   ctx: QueryCtx,
   a: Doc<"assignments">,
 ): Promise<ScriptConversation | null> {
-  const brick = await conversationBrickOf(ctx, a);
-  if (!brick) return null;
-  if (brick.scenarioId) {
-    const scenario = await ctx.db.get(brick.scenarioId);
-    if (!scenario || scenario.projectId !== a.projectId) return null;
-    return {
-      text: brick.content.trim(),
-      instruction: brick.instruction?.trim() || null,
-      files: [],
-      genere: true,
-    };
-  }
-  if ((brick.conversationFiles?.length ?? 0) === 0) return null;
-  const files = await Promise.all(
-    (brick.conversationFiles ?? []).map(async (f) => ({
-      storageId: f.storageId,
-      name: f.name,
-      kind: f.kind,
-      size: f.size,
-      url: f.kind === "image" ? await ctx.storage.getUrl(f.storageId) : null,
-    })),
-  );
-  return {
-    text: brick.content.trim(),
-    instruction: brick.instruction?.trim() || null,
-    files,
-    genere: false,
-  };
+  return (await scenarioDeMission(ctx, a)) ? { genere: true } : null;
 }
 
 /**

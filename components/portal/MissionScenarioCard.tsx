@@ -9,7 +9,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useViewAs } from "@/components/portal/ViewAsContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BlockInstruction } from "@/components/scripts/ScriptDestinationZones";
 import { ecranChocPng } from "@/components/scenarios/ecranChoc";
 import { blobTexte, enregistrer } from "@/components/scenarios/telechargement";
 
@@ -34,14 +33,10 @@ type Mission = {
  */
 export function MissionScenarioCard({
   mission,
-  text,
-  instruction,
   className,
 }: {
   /** La mission dont on génère la conv ; absente = APERÇU admin (rien ne se génère). */
   mission?: Mission;
-  text: string;
-  instruction: string | null;
   className?: string;
 }) {
   const t = useTranslations("portal.scenario");
@@ -99,9 +94,6 @@ export function MissionScenarioCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {text && <p className="whitespace-pre-wrap break-words text-sm text-slate-900">{text}</p>}
-        <BlockInstruction text={instruction} label={t("consigne")} />
-
         {!pret ? (
           <Button
             className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"

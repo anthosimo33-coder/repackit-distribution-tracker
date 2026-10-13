@@ -89,10 +89,13 @@
     "notifRattrapageToutDecocher": "Uncheck all",
     "notifRattrapageSansDate": "no post date",
     "notifRattrapageInclure": "Include this video",
-    "conversationToggle": "Scenario in the video",
-    "conversationToggleHint": "Each assigned video gets a conversation to import into BLUSH — generated under her first name from a scenario (or made of uploaded files) —, drawn in rotation: analytics tells which one drives views.",
-    "conversationAucuneActive": "Scenarios are on but no active scenario is in rotation: add one in the Scenario tab (and set it to “Active” in Scenarios), or turn scenarios off, to assign.",
-    "conversationThemesMelanges": "This campaign mixes themes ({themes}): a creator may get a conversation that doesn't fit her script."
+    "conversationToggle": "WhatsApp conversation in the video",
+    "conversationToggleHint": "Each assigned video gets a WhatsApp conversation (.txt) generated with the creator's first name, to import into the app on screen — an active scenario drawn from the ticked themes.",
+    "conversationAucuneActive": "No active scenario in the ticked themes: assigning is blocked.",
+    "conversationThemes": "Themes",
+    "conversationThemeActifs": "{count, plural, =0 {no active scenario} one {# active scenario} other {# active scenarios}}",
+    "conversationAucunScenario": "No scenario in this project yet.",
+    "conversationGererScenarios": "Manage scenarios"
   },
   "BrickRow": {
     "consigne": "💡 note",
@@ -102,10 +105,7 @@
     "activerLaBrique": "Turn the brick on",
     "medianeDesVuesAuDernier": "Median views, at each post's last reading, and the slope of the latest runs",
     "uneErreurEstSurvenue": "Something went wrong.",
-    "libre": "✍️ free",
-    "fichiers": "{count, plural, =0 {no file} one {# file} other {# files}}",
-    "scenarioTag": "{actif, select, yes {scenario {code}} other {scenario {code} — not active}}",
-    "scenarioIntrouvable": "scenario not found"
+    "libre": "✍️ free"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Pick a brick from the list, or add one.",
@@ -140,29 +140,12 @@
     "lIdeeAGarder": "— the idea to keep",
     "exDirection": "E.g. A relationship that's been going on a while, then you stumble on something that changes everything.",
     "autresExemples": "Other examples",
-    "unParLigneAuPlus": "— one per line, {max} at most",
-    "conversationTexte": "— read by the creator above her conversation (optional)",
-    "conversationFichiersApres": "Add the brick, then upload its files (WhatsApp export, screenshots)."
+    "unParLigneAuPlus": "— one per line, {max} at most"
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",
     "ceQueVerraLaCreatrice": "What the creator will see",
     "enCoursDEdition": "— {value} being edited"
-  },
-  "ConversationFilesPanel": {
-    "fichiers": "Files to download",
-    "deposer": "Upload",
-    "aide": "WhatsApp export (.txt): the creator gets it under her first name, dated from the day she downloads it. Screenshots (PNG, JPEG, WebP): served as is.",
-    "aucunFichier": "No file: this conversation won't be drawn until it has one.",
-    "pasUnExport": "“{name}”: no message recognised, this isn't a WhatsApp export.",
-    "echecDepot": "The upload didn't work.",
-    "messages": "{count, plural, one {# message} other {# messages}}",
-    "retirer": "Remove {name}",
-    "elle": "“Her” in the export",
-    "neRienRemplacer": "Don't replace the first name",
-    "prenomNonRemplace": "The creator's first name won't be put in the export.",
-    "ecart": "Last message, in days before the download",
-    "ecartAide": "{count, plural, =0 {The last message is dated the day she downloads it.} one {The last message is dated the day before the download.} other {The last message is dated # days before the download.}}"
   },
   "BulkBar": {
     "selectionne": "{count, plural, one {{kindLabel} selected} other {{kindLabel} selected}}",
@@ -273,8 +256,7 @@
     "hook": "Hook",
     "flux": "Flow",
     "cta": "Description",
-    "notif": "Notification",
-    "conversation": "Scenario"
+    "notif": "Notification"
   },
   "decision": {
     "aPousser": "Push {label}{hasRatio, select, yes { — median {ratio} vs peers} other {}}, on {posts} posts.",
@@ -305,7 +287,7 @@
     "codeAide": "Short, no spaces (A1, C2-bis…), unique in the project. It becomes the bible's “id”.",
     "theme": "Theme",
     "themeExemple": "The fight",
-    "themeAide": "The campaign family this scenario serves: a campaign will only draw from its own theme.",
+    "themeAide": "Campaigns that tick this theme draw this scenario as soon as it is “Active”.",
     "annuler": "Cancel",
     "creer": "Create",
     "cree": "Scenario created",
@@ -391,15 +373,6 @@
     "ex": "Ex",
     "famille": "Family",
     "groupe": "Friend group"
-  },
-  "ScenarioPicker": {
-    "scenario": "Scenario",
-    "aucun": "None — uploaded files",
-    "sansTheme": "No theme",
-    "aideScenario": "The conversation is generated under each creator's first name, different for every mission, and ends on the day she gets it.",
-    "aideFichiers": "Without a scenario, the creator downloads the files uploaded below.",
-    "tester": "Test this scenario",
-    "inactif": "This scenario isn't “Active”: it won't go into any mission until it is."
   },
   "ScenarioPerformance": {
     "titre": "Performance at D+7",

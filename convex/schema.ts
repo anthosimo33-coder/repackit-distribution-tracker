@@ -775,9 +775,9 @@ export default defineSchema({
         // comboKey : absente = vidéo sans notif (campagne sans notif, ou
         // publication d'avant la brique).
         notifBrickId: v.optional(v.id("scriptBricks")),
-        // CONVERSATION (cf convex/scriptConversation) — copiée depuis
-        // `assignments.conversationBrickId`, pour ranger les vues PAR CONV.
-        conversationBrickId: v.optional(v.id("scriptBricks")),
+        // SCÉNARIO de la conversation (cf convex/scriptConversation) — copié
+        // depuis `assignments.scenarioId`, pour ranger les vues PAR SCÉNARIO.
+        scenarioId: v.optional(v.id("scenarios")),
       }),
     ),
     // ─── Refactor multi-snapshots — valeurs dénormalisées "latest known" ───
@@ -2354,13 +2354,14 @@ export default defineSchema({
         notifText: v.optional(v.string()),
       }),
     ),
-    // CONVERSATION de la vidéo (brique optionnelle hors combo, cf
-    // convex/scriptConversation) — HORS de `scriptCombo`, volontairement : les
-    // nombreux chemins qui réécrivent le combo (correction de brique, rejeu,
+    // SCÉNARIO de la conversation de la vidéo (option de campagne, cf
+    // convex/scriptConversation) — tiré à l'assignation parmi les scénarios
+    // actifs des thèmes de la campagne. HORS de `scriptCombo`, volontairement :
+    // les nombreux chemins qui réécrivent le combo (correction de brique, rejeu,
     // outils MCP) ne peuvent pas l'effacer en silence, comme c'est arrivé à la
-    // notif. Ses fichiers sont lus LIVE sur la brique ; servie seulement si la
-    // brique appartient encore à la campagne du combo. Absent = sans conv.
-    conversationBrickId: v.optional(v.id("scriptBricks")),
+    // notif. La conv se génère au téléchargement (convex/scenarioMission).
+    // Absent = sans conv.
+    scenarioId: v.optional(v.id("scenarios")),
     /**
      * SCRIPT LIBRE — le texte figé d'une vidéo de DÉFI.
      *
@@ -3544,11 +3545,15 @@ export default defineSchema({
     // en rotation équilibrée hors combo (convex/scriptNotif). Absent = non :
     // les campagnes existantes sont inchangées, 0 migration.
     notifEnabled: v.optional(v.boolean()),
-    // CONVERSATION — la campagne a-t-elle une brique « conversation » (export
-    // WhatsApp / captures à télécharger, importés dans l'app à l'écran) ? true =
-    // chaque vidéo assignée en reçoit une, tirée en rotation hors combo comme la
-    // notif (convex/scriptConversation). Absent = non : 0 migration.
+    // CONVERSATION — chaque vidéo assignée reçoit-elle une conversation
+    // WhatsApp générée à importer dans l'app à l'écran ? true = oui, tirée en
+    // rotation hors combo parmi les scénarios ACTIFS des thèmes cochés
+    // (convex/scriptConversation). Absent = non : 0 migration.
     conversationEnabled: v.optional(v.boolean()),
+    // Les THÈMES de scénarios de la campagne (scenarios.theme, comparés sans
+    // casse). Un scénario passé en « Actif » part tout seul dans les campagnes
+    // de son thème. Absent = aucun thème.
+    conversationThemes: v.optional(v.array(v.string())),
     // LEGACY (refonte 3 briques) — socle démo, plus monté ni édité côté UI.
     // Conservé (required, défaut "") pour 0 migration sur scriptCampaigns ;
     // suppression = resserrage ultérieur.
@@ -3576,10 +3581,6 @@ export default defineSchema({
       v.literal("cta"),
       // NOTIF — brique OPTIONNELLE, hors combo (cf scriptCampaigns.notifEnabled).
       v.literal("notif"),
-      // CONVERSATION — brique OPTIONNELLE, hors combo (cf
-      // scriptCampaigns.conversationEnabled) : `content` dit à la créatrice ce
-      // que raconte la conv, `conversationFiles` porte ce qu'elle télécharge.
-      v.literal("conversation"),
     ),
     label: v.string(),
     content: v.string(),
@@ -3624,37 +3625,6 @@ export default defineSchema({
     libre: v.optional(v.boolean()),
     direction: v.optional(v.string()),
     autresExemples: v.optional(v.array(v.string())),
-    // CONVERSATION (kind "conversation" uniquement) — les fichiers que la
-    // créatrice télécharge depuis sa mission. Lus LIVE comme la consigne :
-    // remplacer un fichier répare les missions déjà assignées.
-    //  - "export" : export WhatsApp .txt, PERSONNALISÉ au téléchargement (cf
-    //    convex/conversationExport) — dates glissées pour que le dernier
-    //    message tombe `gapDays` jours avant le jour du téléchargement, nom de
-    //    « elle » (`selfName`) remplacé par le prénom de la créatrice ;
-    //  - "image" : capture servie telle quelle (écran à filmer, captures à
-    //    importer).
-    // Blobs câblés dans collecterStorageIdsReferences (convex/storageCleanup).
-    // SCÉNARIO (kind "conversation") — la conv est GÉNÉRÉE depuis cette bible
-    // (convex/scenarios) au prénom de la créatrice, au lieu d'être déposée en
-    // fichiers. Tirable seulement si le scénario est ACTIF.
-    scenarioId: v.optional(v.id("scenarios")),
-    conversationFiles: v.optional(
-      v.array(
-        v.object({
-          storageId: v.id("_storage"),
-          name: v.string(),
-          contentType: v.string(),
-          size: v.number(),
-          kind: v.union(v.literal("export"), v.literal("image")),
-          selfName: v.optional(v.string()),
-          // Auteurs lus au dépôt (export), pour choisir « elle » ensuite.
-          participants: v.optional(v.array(v.string())),
-          gapDays: v.optional(v.number()),
-          messages: v.optional(v.number()),
-          uploadedAt: v.number(),
-        }),
-      ),
-    ),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),
