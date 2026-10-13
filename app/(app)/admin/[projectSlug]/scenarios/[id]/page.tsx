@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { ArrowLeftIcon, CopyIcon, Loader2Icon } from "lucide-react";
@@ -34,7 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useConvexError } from "@/lib/use-convex-error";
 import { codeValide, lireBible } from "@/convex/scenarioBible";
 import { BibleErreurs } from "@/components/scenarios/BibleErreurs";
-import { ScenarioTesteur } from "@/components/scenarios/ScenarioTesteur";
+import { ScenarioTesteur, type TestAuto } from "@/components/scenarios/ScenarioTesteur";
 import { ScenarioPerformance } from "@/components/scenarios/ScenarioPerformance";
 import { StatutScenario, type Statut } from "@/components/scenarios/StatutScenario";
 
@@ -102,6 +102,7 @@ function Editeur({ scenario }: { scenario: Scenario }) {
   const [theme, setTheme] = useState(scenario.theme);
   const [busy, setBusy] = useState(false);
   const [duplication, setDuplication] = useState(false);
+  const auto = useTestAuto();
 
   // La vérification suit la frappe sans la ralentir (une bible fait ~1 000 lignes).
   const texteDiffere = useDeferredValue(texte);
@@ -193,7 +194,7 @@ function Editeur({ scenario }: { scenario: Scenario }) {
         </section>
         <section className="space-y-4 lg:sticky lg:top-4 lg:self-start" aria-label={tr("tester")}>
           <ScenarioPerformance scenarioId={scenario._id} />
-          <ScenarioTesteur bible={lue.ok ? lue.bible : null} />
+          <ScenarioTesteur bible={lue.ok ? lue.bible : null} auto={auto.test} onAutoFait={auto.fait} />
         </section>
       </div>
 
@@ -204,6 +205,39 @@ function Editeur({ scenario }: { scenario: Scenario }) {
       />
     </>
   );
+}
+
+/**
+ * Le test demandé par un lien de l'outil MCP `tester_scenario` :
+ * `?tester=<prénom>&graine=<n>[&dates=bible][&telecharger=txt|zip|png]`. Une
+ * fois fait, `telecharger` quitte l'adresse : recharger ne retélécharge pas.
+ */
+function useTestAuto(): { test: TestAuto | null; fait: () => void } {
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const prenom = params.get("tester");
+  const quoi = params.get("telecharger");
+  // Figé à l'ouverture : retirer `telecharger` de l'adresse ne relance rien.
+  const [test] = useState<TestAuto | null>(() =>
+    prenom
+      ? {
+          prenom,
+          graine: Math.max(0, Math.trunc(Number(params.get("graine") ?? 7)) || 0),
+          datesBible: params.get("dates") === "bible",
+          telecharger: quoi === "txt" || quoi === "zip" || quoi === "png" ? quoi : null,
+        }
+      : null,
+  );
+  return {
+    test,
+    fait: () => {
+      if (!quoi) return;
+      const reste = new URLSearchParams(params.toString());
+      reste.delete("telecharger");
+      router.replace(`${pathname}?${reste.toString()}`);
+    },
+  };
 }
 
 function DuplicationDialog({

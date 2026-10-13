@@ -955,7 +955,12 @@
       "modifier_conversation": "Conversation modifiée",
       "supprimer_conversation": "Conversation supprimée",
       "changer_bareme": "Barème de vidéos changé",
-      "regler_taux": "Taux de change réglé"
+      "regler_taux": "Taux de change réglé",
+      "ajouter_notifs": "Notifs ajoutées",
+      "creer_scenario": "Scénario créé",
+      "modifier_scenario": "Scénario modifié",
+      "activer_scenario": "Statut de scénario changé",
+      "scenarios_campagne": "Thèmes de scénarios d'une campagne"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -970,7 +975,8 @@
       "inspirations": "Inspirations",
       "messages": "Créatrices",
       "conversations": "Conversations Instagram",
-      "pricing": "Barèmes"
+      "pricing": "Barèmes",
+      "scenarios": "Scénarios"
     },
     "domaine": {
       "compta": {
@@ -985,7 +991,7 @@
       },
       "scripts": {
         "titre": "Scripts",
-        "objet": "les scripts",
+        "objet": "les scripts et les scénarios",
         "aria": "Modifications des scripts pour {name}"
       },
       "publications": {

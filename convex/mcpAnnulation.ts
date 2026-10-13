@@ -94,13 +94,36 @@ export const annulationValidator = v.union(
   }),
   /** creer_campagne : la campagne créée (et ses briques). */
   v.object({ type: v.literal("campagneCreee"), campaignId: v.id("scriptCampaigns") }),
-  /** ajouter_hooks, ajouter_flux_cta : les briques créées. */
+  /** ajouter_hooks, ajouter_flux_cta, ajouter_notifs : les briques créées. */
   v.object({ type: v.literal("briquesCreees"), brickIds: v.array(v.id("scriptBricks")) }),
   /** activer_briques : les briques réellement basculées, et leur état d'avant. */
   v.object({
     type: v.literal("briquesActives"),
     apres: v.boolean(),
     briques: v.array(v.object({ brickId: v.id("scriptBricks"), avant: v.boolean() })),
+  }),
+  // ── Scénarios de conversation ─────────────────────────────────────────────
+  /** creer_scenario : le scénario créé, et l'empreinte de sa bible à la création. */
+  v.object({ type: v.literal("scenarioCree"), scenarioId: v.id("scenarios"), empreinte: v.string() }),
+  /**
+   * modifier_scenario : l'EMPREINTE de la bible et le thème, avant et après. La
+   * bible d'avant n'est pas recopiée ici (jusqu'à 300 000 caractères, sous la
+   * limite d'un document) : `defaire` la relit dans les `etats` de la ligne.
+   */
+  v.object({
+    type: v.literal("scenarioModifie"),
+    scenarioId: v.id("scenarios"),
+    avant: v.object({ empreinte: v.string(), theme: v.string() }),
+    apres: v.object({ empreinte: v.string(), theme: v.string() }),
+  }),
+  /** activer_scenario : le statut, avant et après. */
+  v.object({ type: v.literal("scenarioStatut"), scenarioId: v.id("scenarios"), avant: v.string(), apres: v.string() }),
+  /** scenarios_campagne : l'interrupteur et les thèmes de la conversation, avant et après. */
+  v.object({
+    type: v.literal("conversationCampagne"),
+    campaignId: v.id("scriptCampaigns"),
+    avant: v.object({ allumee: v.boolean(), themes: v.array(v.string()) }),
+    apres: v.object({ allumee: v.boolean(), themes: v.array(v.string()) }),
   }),
   // ── Publications ──────────────────────────────────────────────────────────
   /** marquer_warmup : `null` = « non qualifié » (champ absent), pas « promo ». */

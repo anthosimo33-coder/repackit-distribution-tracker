@@ -1536,6 +1536,7 @@
     "ERR_SCENARIO_CODE_TAKEN": "Le code {code} est déjà pris par un autre scénario du projet.",
     "ERR_SCENARIO_NOT_FOUND": "Scénario introuvable.",
     "ERR_SCENARIO_ARCHIVED": "Le scénario {code} est archivé : remets-le en « Actif » pour le donner.",
+    "ERR_SCENARIO_IN_USE": "Le scénario {code} a déjà été donné à des missions : archive-le plutôt que de le supprimer.",
     "ERR_NO_ACTIVE_CONVERSATION": "Scénario activé sur cette campagne, mais aucun scénario actif dans ses thèmes : coche un thème, passe un de ses scénarios en « Actif », ou désactive le scénario.",
     "ERR_COMPTA_CHARGE_INVALID": "Charge invalide : il faut une date, un libellé, un montant positif et une devise que le projet sait convertir.",
     "ERR_COMPTA_CHARGE_NOT_FOUND": "Cette charge n'existe plus.",

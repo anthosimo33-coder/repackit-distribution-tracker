@@ -95,6 +95,7 @@ import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./m
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
 import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
+import { appelerScenariosLecture, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -1319,7 +1320,7 @@ export function jarviaServer(
   const LIBELLE_DOMAINE: Record<string, string> = {
     compta: "la Compta",
     missions: "les missions (assigner, replanifier, changer de compte, relancer, abandonner — l'assignation et la relance envoient un email à la créatrice)",
-    scripts: "les scripts (créer une campagne, ajouter et activer des briques, graduer un hook)",
+    scripts: "les scripts (créer une campagne, ajouter et activer des briques et des notifs, graduer un hook) et les scénarios de conversation WhatsApp (créer, modifier, activer une bible ; choisir les thèmes d'une campagne)",
     publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
     messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
@@ -1607,6 +1608,7 @@ export function jarviaServer(
       OUTIL_EXPERIENCES,
       OUTIL_BILAN,
       ...OUTILS_CONVERSATIONS_LECTURE,
+      ...OUTILS_SCENARIOS_LECTURE,
       ...domaines.flatMap((d) => d.outils),
       ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
     ],
@@ -1631,6 +1633,9 @@ export function jarviaServer(
       }
       if (NOMS_CONVERSATIONS_LECTURE.has(name)) {
         return appelerConversationsLecture(ctx, name, args, ids, projet.slug, lire);
+      }
+      if (NOMS_SCENARIOS_LECTURE.has(name)) {
+        return appelerScenariosLecture(ctx, name, args, ids, projet.slug, lire);
       }
       if (NOMS_PROPOSITIONS.has(name)) {
         return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);

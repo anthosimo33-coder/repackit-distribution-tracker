@@ -27,6 +27,7 @@ import {
   ARG_PROJET,
   ecrire,
   etatsApres,
+  jsonCanonique,
   journaliser,
   photographierEtats,
   refusDe,
@@ -46,7 +47,9 @@ import {
   setAssignmentPostDateCore,
   setAssignmentPostWindowCore,
 } from "./assignments";
-import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore } from "./scripts";
+import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore, updateCampaignCore } from "./scripts";
+import { changerStatutScenarioCore, modifierScenarioCore, supprimerScenarioCore, type StatutScenario } from "./scenarios";
+import { empreinteBible } from "./mcpScenarios";
 import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
 import { deleteInspirationCore } from "./inspirations";
 import { deleteConversationCore, restoreConversationCore, updateConversationCore } from "./instaConversations";
@@ -152,6 +155,11 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "creer_conversation",
   "modifier_conversation",
   "supprimer_conversation",
+  "ajouter_notifs",
+  "creer_scenario",
+  "modifier_scenario",
+  "activer_scenario",
+  "scenarios_campagne",
 ]);
 
 /** Pourquoi une modification ne se défait pas par Claude. */
@@ -315,7 +323,12 @@ async function supprimerNonCommencees(ctx: DefaireCtx, ids: readonly Id<"assignm
  * Restaure l'état d'avant d'UNE modification. Rend ce qui a été fait (une ou
  * deux phrases) ; lève un refus lisible si la base n'est plus dans l'état écrit.
  */
-async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
+async function annuler(
+  ctx: DefaireCtx,
+  a: Annulation,
+  /** Les documents de la ligne, avant et après (de quoi remettre une bible). */
+  etats: readonly { table: string; id: string; avant: string | null }[],
+): Promise<string> {
   switch (a.type) {
     case "abandon": {
       const m = await ctx.db.get(a.assignmentId);
@@ -456,7 +469,7 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       const existantes = (await Promise.all(a.brickIds.map((id) => ctx.db.get(id)))).filter(
         (b): b is Doc<"scriptBricks"> => b !== null,
       );
-      if (existantes.length === 0) throw refus("Ces hooks ont déjà été supprimés.");
+      if (existantes.length === 0) throw refus("Ces briques ont déjà été supprimées.");
       // Un hook déjà TIRÉ dans une mission ne se supprime pas : son texte y vit.
       const ids = new Set<string>(existantes.map((b) => b._id));
       const servis = new Set<string>();
@@ -464,7 +477,7 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
         .query("assignments")
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect()) {
-        for (const id of [m.scriptCombo?.hookBrickId, m.scriptCombo?.fluxBrickId, m.scriptCombo?.ctaBrickId]) {
+        for (const id of [m.scriptCombo?.hookBrickId, m.scriptCombo?.fluxBrickId, m.scriptCombo?.ctaBrickId, m.scriptCombo?.notifBrickId]) {
           if (id && ids.has(id)) servis.add(id);
         }
       }
@@ -473,7 +486,7 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
         throw refus(`Déjà tiré(s) dans une mission : ${noms.join(", ")}. Désactive-les plutôt (activer_briques).`);
       }
       const { deleted } = await deleteBricksCore(ctx, existantes.map((b) => b._id));
-      return `${deleted} hook(s) supprimé(s).`;
+      return `${deleted} brique(s) supprimée(s).`;
     }
     case "briquesActives": {
       const docs = await Promise.all(a.briques.map((b) => ctx.db.get(b.brickId)));
@@ -588,6 +601,59 @@ async function annuler(ctx: DefaireCtx, a: Annulation): Promise<string> {
       }
       return a.avant === null ? `Taux ${C} retiré, comme avant.` : `Taux ${C} remis à ${a.avant}.`;
     }
+    case "scenarioCree": {
+      const sc = await ctx.db.get(a.scenarioId);
+      if (!sc) throw refus("Ce scénario a déjà été supprimé.");
+      if (empreinteBible(sc.bible) !== a.empreinte || sc.statut !== "brouillon") {
+        throw refus("Il a changé depuis (bible ou statut) : rien n'a été supprimé — archive-le avec `activer_scenario` si c'est voulu.");
+      }
+      try {
+        await supprimerScenarioCore(ctx, sc._id);
+      } catch (e) {
+        const m = refusDe(e);
+        if (m === null) throw e;
+        throw refus(`Rien n'a été supprimé : ${m}`);
+      }
+      return `Scénario ${sc.code} supprimé.`;
+    }
+    case "scenarioModifie": {
+      const sc = await ctx.db.get(a.scenarioId);
+      if (!sc) throw refus("Ce scénario a été supprimé depuis.");
+      if (empreinteBible(sc.bible) !== a.apres.empreinte || sc.theme !== a.apres.theme) {
+        throw refus("Il a changé depuis : rien n'a été écrasé.");
+      }
+      // La bible d'avant vit dans la photo de la ligne (cf mcpAnnulation).
+      const photo = etats.find((e) => e.table === "scenarios" && e.id === sc._id)?.avant;
+      const avant = photo ? (JSON.parse(photo) as Doc<"scenarios">) : null;
+      if (!avant || empreinteBible(avant.bible) !== a.avant.empreinte) {
+        throw refus("La version d'avant n'est pas au journal : rien n'a été écrasé.");
+      }
+      try {
+        await modifierScenarioCore(ctx, sc._id, { bible: avant.bible, theme: a.avant.theme });
+      } catch (e) {
+        const m = refusDe(e);
+        if (m === null) throw e;
+        throw refus(`Rien n'a été remis : ${m}`);
+      }
+      return `Version d'avant remise (${avant.code}).`;
+    }
+    case "scenarioStatut": {
+      const sc = await ctx.db.get(a.scenarioId);
+      if (!sc) throw refus("Ce scénario a été supprimé depuis.");
+      if (sc.statut !== a.apres) throw refus(`Son statut a changé depuis (${sc.statut}) : rien n'a été écrasé.`);
+      await changerStatutScenarioCore(ctx, sc._id, a.avant as StatutScenario);
+      return `Scénario ${sc.code} remis en « ${a.avant} ».`;
+    }
+    case "conversationCampagne": {
+      const c = await ctx.db.get(a.campaignId);
+      if (!c) throw refus("Cette campagne n'existe plus.");
+      const maintenant = { allumee: c.conversationEnabled === true, themes: c.conversationThemes ?? [] };
+      if (jsonCanonique(maintenant) !== jsonCanonique(a.apres)) {
+        throw refus("La conversation de la campagne a changé depuis : rien n'a été écrasé.");
+      }
+      await updateCampaignCore(ctx, { id: c._id, conversationEnabled: a.avant.allumee, conversationThemes: a.avant.themes });
+      return a.avant.allumee ? "Thèmes d'avant remis." : "Conversation éteinte, thèmes d'avant remis.";
+    }
     case "conversationSupprimee": {
       await restoreConversationCore(ctx, { titre: a.titre, data: a.data });
       return "Conversation recréée (nouveau lien : outil `conversations`).";
@@ -611,7 +677,7 @@ export const ecrireDefaire = mcpWriteMutationDifferee()({
     // La garde de l'écriture d'origine : son domaine, son bouton.
     const via = await exigerEcritureMcp(ctx, droit.scope, droit.permission);
     const photos = await photographierEtats(ctx, l.etats ?? []);
-    const fait = await annuler(ctx, l.annulation);
+    const fait = await annuler(ctx, l.annulation, l.etats ?? []);
     await ctx.db.patch(l._id, { defaiteLe: Date.now() });
     const summary = `Défait : ${l.summary} — ${fait}`;
     await journaliser(

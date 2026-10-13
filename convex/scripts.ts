@@ -1023,39 +1023,49 @@ export async function createCampaignCore(
   });
 }
 
+const updateCampaignArgs = {
+  id: v.id("scriptCampaigns"),
+  name: v.optional(v.string()),
+  demoBlock: v.optional(v.string()),
+  status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
+  // Brique NOTIF allumée / éteinte pour la campagne (cf convex/scriptNotif).
+  notifEnabled: v.optional(v.boolean()),
+  // CONVERSATION allumée / éteinte, et ses thèmes (cf convex/scriptConversation).
+  conversationEnabled: v.optional(v.boolean()),
+  conversationThemes: v.optional(v.array(v.string())),
+};
+
 export const updateCampaign = permissionMutation("scripts.manage")({
-  args: {
-    id: v.id("scriptCampaigns"),
-    name: v.optional(v.string()),
-    demoBlock: v.optional(v.string()),
-    status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
-    // Brique NOTIF allumée / éteinte pour la campagne (cf convex/scriptNotif).
-    notifEnabled: v.optional(v.boolean()),
-    // CONVERSATION allumée / éteinte, et ses thèmes (cf convex/scriptConversation).
-    conversationEnabled: v.optional(v.boolean()),
-    conversationThemes: v.optional(v.array(v.string())),
-  },
+  args: updateCampaignArgs,
   handler: async (ctx, args) => {
-    await requireCampaign(ctx, args.id, ctx.projectId);
-    const patch: Partial<Doc<"scriptCampaigns">> = { updatedAt: Date.now() };
-    if (args.name !== undefined) {
-      const name = args.name.trim();
-      if (name.length === 0) throw err(ERR.NAME_REQUIRED, "Le nom est requis.");
-      patch.name = name;
-    }
-    if (args.demoBlock !== undefined) patch.demoBlock = args.demoBlock;
-    if (args.status !== undefined) patch.status = args.status;
-    if (args.notifEnabled !== undefined) patch.notifEnabled = args.notifEnabled;
-    if (args.conversationEnabled !== undefined) {
-      patch.conversationEnabled = args.conversationEnabled;
-    }
-    if (args.conversationThemes !== undefined) {
-      patch.conversationThemes = themesNettoyes(args.conversationThemes);
-    }
-    await ctx.db.patch(args.id, patch);
+    await updateCampaignCore(ctx, args);
     return { ok: true };
   },
 });
+
+/** Cœur des réglages d'une campagne — l'écran, et l'outil MCP `scenarios_campagne`. */
+export async function updateCampaignCore(
+  ctx: ProjectMutationCtx,
+  args: ObjectType<typeof updateCampaignArgs>,
+): Promise<void> {
+  await requireCampaign(ctx, args.id, ctx.projectId);
+  const patch: Partial<Doc<"scriptCampaigns">> = { updatedAt: Date.now() };
+  if (args.name !== undefined) {
+    const name = args.name.trim();
+    if (name.length === 0) throw err(ERR.NAME_REQUIRED, "Le nom est requis.");
+    patch.name = name;
+  }
+  if (args.demoBlock !== undefined) patch.demoBlock = args.demoBlock;
+  if (args.status !== undefined) patch.status = args.status;
+  if (args.notifEnabled !== undefined) patch.notifEnabled = args.notifEnabled;
+  if (args.conversationEnabled !== undefined) {
+    patch.conversationEnabled = args.conversationEnabled;
+  }
+  if (args.conversationThemes !== undefined) {
+    patch.conversationThemes = themesNettoyes(args.conversationThemes);
+  }
+  await ctx.db.patch(args.id, patch);
+}
 
 /**
  * Suppression d'une campagne (cascade ses bricks). S2 : REFUSÉE si la campagne
