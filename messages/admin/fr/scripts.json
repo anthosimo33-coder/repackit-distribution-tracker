@@ -308,7 +308,9 @@
     "themeAide": "La famille de campagne que ce scénario sert : une campagne ne tirera que dans son thème.",
     "annuler": "Annuler",
     "creer": "Créer",
-    "cree": "Scénario créé"
+    "cree": "Scénario créé",
+    "perf": "{posts, plural, one {# post} other {# posts}} · {vues} vues",
+    "perfAucune": "pas encore de post"
   },
   "ScenarioPage": {
     "introuvable": "Scénario introuvable.",
@@ -398,5 +400,13 @@
     "aideFichiers": "Sans scénario, la créatrice télécharge les fichiers déposés ci-dessous.",
     "tester": "Tester ce scénario",
     "inactif": "Ce scénario n'est pas « Actif » : il ne partira dans aucune mission tant qu'il ne l'est pas."
+  },
+  "ScenarioPerformance": {
+    "titre": "Performance à J+7",
+    "aucunPost": "Aucun post mesuré à J+7 pour l'instant : les vues remontent 7 jours après publication.",
+    "resume": "{posts, plural, one {# post} other {# posts}}, médiane {vues} vues",
+    "enTest": "Jugé à partir de {seuil} posts ({posts} pour l'instant), contre les autres scénarios du projet.",
+    "ligne": "{posts, plural, one {# post} other {# posts}} · {vues} vues",
+    "campagneSupprimee": "Campagne supprimée"
   }
 }

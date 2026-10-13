@@ -308,7 +308,9 @@
     "themeAide": "The campaign family this scenario serves: a campaign will only draw from its own theme.",
     "annuler": "Cancel",
     "creer": "Create",
-    "cree": "Scenario created"
+    "cree": "Scenario created",
+    "perf": "{posts, plural, one {# post} other {# posts}} · {vues} views",
+    "perfAucune": "no post yet"
   },
   "ScenarioPage": {
     "introuvable": "Scenario not found.",
@@ -398,5 +400,13 @@
     "aideFichiers": "Without a scenario, the creator downloads the files uploaded below.",
     "tester": "Test this scenario",
     "inactif": "This scenario isn't “Active”: it won't go into any mission until it is."
+  },
+  "ScenarioPerformance": {
+    "titre": "Performance at D+7",
+    "aucunPost": "No post measured at D+7 yet: views come in 7 days after publication.",
+    "resume": "{posts, plural, one {# post} other {# posts}}, median {vues} views",
+    "enTest": "Judged from {seuil} posts ({posts} so far), against the project's other scenarios.",
+    "ligne": "{posts, plural, one {# post} other {# posts}} · {vues} views",
+    "campagneSupprimee": "Deleted campaign"
   }
 }

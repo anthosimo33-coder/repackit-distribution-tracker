@@ -30,8 +30,14 @@ import { codeValide, lireBible, type ErreurBible } from "@/convex/scenarioBible"
 import modele from "@/convex/scenarioModele.json";
 import { BibleErreurs } from "@/components/scenarios/BibleErreurs";
 import { StatutScenario, useTypeScenario } from "@/components/scenarios/StatutScenario";
+import { VerdictScenario } from "@/components/scenarios/VerdictScenario";
+import { formatNumber } from "@/lib/format";
+import { useIntlLocale } from "@/lib/use-intl-locale";
 
 type Creation = { mode: "nouveau" } | { mode: "import"; texte: string; nom: string };
+
+/** Une médiane de vues s'affiche entière (la moyenne des deux du milieu peut tomber sur ,5). */
+const arrondi = (x: number | null) => (x === null ? null : Math.round(x));
 
 /**
  * SCÉNARIOS — les bibles des fausses conversations WhatsApp (BLUSH), rangées par
@@ -42,10 +48,18 @@ export default function ScenariosPage() {
   const tr = useTranslations("admin.scripts.ScenariosPage");
   const typeLabel = useTypeScenario();
   const projectPath = useProjectPath();
-  const { has, chargement } = usePermissions();
+  const { has, chargement, skipUnless } = usePermissions();
+  const loc = useIntlLocale();
   const scenarios = useProjectQuery(
     api.scenarios.listScenarios,
     has("scripts.manage") ? {} : "skip",
+  );
+  // PERFORMANCE à J+7, toutes campagnes confondues — bloc analytics : sans lui,
+  // la liste reste là, sans les chiffres.
+  const perf = useProjectQuery(api.scenarioAnalytics.perfParScenario, skipUnless("content.analytics", {}));
+  const perfParId = useMemo(
+    () => new Map((perf?.scenarios ?? []).map((p) => [p.scenarioId as string, p])),
+    [perf],
   );
   const [creation, setCreation] = useState<Creation | null>(null);
   const fichier = useRef<HTMLInputElement>(null);
@@ -129,11 +143,25 @@ export default function ScenariosPage() {
                   className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50"
                   data-testid="scenario-row"
                 >
-                  <span className="w-14 shrink-0 font-mono text-sm font-semibold text-slate-900">{s.code}</span>
+                  <span className="min-w-14 shrink-0 font-mono text-sm font-semibold text-slate-900">{s.code}</span>
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{s.titre}</span>
                   <Badge variant="outline" className="hidden text-[10px] text-slate-500 sm:inline-flex">
                     {typeLabel(s.type)}
                   </Badge>
+                  {perf && (
+                    <span
+                      className="hidden w-36 shrink-0 text-right text-xs tabular-nums text-slate-500 md:inline"
+                      data-testid="scenario-perf"
+                    >
+                      {perfParId.get(s._id)
+                        ? tr("perf", {
+                            posts: perfParId.get(s._id)!.posts,
+                            vues: formatNumber(arrondi(perfParId.get(s._id)!.vuesMediane), loc),
+                          })
+                        : tr("perfAucune")}
+                    </span>
+                  )}
+                  {perf && perfParId.get(s._id) && <VerdictScenario verdict={perfParId.get(s._id)!.verdict} />}
                   <StatutScenario statut={s.statut} />
                 </Link>
               ))}
