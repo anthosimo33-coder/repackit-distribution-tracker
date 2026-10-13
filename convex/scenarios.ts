@@ -60,6 +60,29 @@ async function scenarioDuProjet(ctx: ProjectMutationCtx, id: Id<"scenarios">): P
   return s;
 }
 
+/** Les ids des scénarios ACTIFS du projet — les seuls qu'une campagne peut tirer. */
+export async function scenariosActifsDuProjet(
+  ctx: { db: ProjectMutationCtx["db"] },
+  projectId: Id<"projects">,
+): Promise<Set<string>> {
+  const rows = await ctx.db
+    .query("scenarios")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  return new Set(rows.filter((s) => s.statut === "actif").map((s) => s._id as string));
+}
+
+/** Refuse un scénario d'un autre projet (ou supprimé) avant de le relier à une brique. */
+export async function requireScenarioDuProjet(
+  ctx: { db: ProjectMutationCtx["db"] },
+  projectId: Id<"projects">,
+  id: Id<"scenarios">,
+): Promise<Doc<"scenarios">> {
+  const s = await ctx.db.get(id);
+  if (!s || s.projectId !== projectId) throw err(ERR.SCENARIO_NOT_FOUND, "Scénario introuvable.");
+  return s;
+}
+
 // ─── Lecture ─────────────────────────────────────────────────────────────────
 
 /** La liste, sans les bibles (la page n'en a pas besoin, et elles pèsent). */

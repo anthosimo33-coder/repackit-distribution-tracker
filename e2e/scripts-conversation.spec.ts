@@ -261,7 +261,7 @@ test.describe("Brique conversation", () => {
 
     await page.goto(adminPath(`/scripts/${campaignId}`));
     await expect(page.getByTestId("combo-count")).toContainText("1", { timeout: 15_000 });
-    const convTab = page.getByRole("tab", { name: /^Conversation/ });
+    const convTab = page.getByRole("tab", { name: /^Scénario/ });
     const assignButton = page.getByRole("button", { name: "Assigner cette campagne" });
 
     // Éteinte : pas d'onglet (l'onglet Hook, lui, est là), assignable.

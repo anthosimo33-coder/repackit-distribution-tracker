@@ -89,9 +89,10 @@
     "notifRattrapageToutDecocher": "Tout décocher",
     "notifRattrapageSansDate": "sans date de post",
     "notifRattrapageInclure": "Inclure cette vidéo",
-    "conversationToggle": "Conversation dans la vidéo",
-    "conversationToggleHint": "Chaque vidéo assignée reçoit une conversation à télécharger (export WhatsApp, captures), tirée en rotation — l'analytics dit laquelle fait les vues.",
-    "conversationAucuneActive": "Conversation activée mais aucune conversation active avec un fichier : dépose un fichier dans l'onglet Conversation, ou désactive la conversation, pour pouvoir assigner."
+    "conversationToggle": "Scénario dans la vidéo",
+    "conversationToggleHint": "Chaque vidéo assignée reçoit une conversation à importer sur BLUSH — générée à son prénom depuis un scénario (ou faite de fichiers déposés) —, tirée en rotation : l'analytics dit laquelle fait les vues.",
+    "conversationAucuneActive": "Scénario activé mais aucun scénario actif en rotation : ajoutes-en un dans l'onglet Scénario (et passe-le en « Actif » dans Scénarios), ou désactive le scénario, pour pouvoir assigner.",
+    "conversationThemesMelanges": "Cette campagne mélange des thèmes ({themes}) : une créatrice peut recevoir une conv qui ne colle pas à son script."
   },
   "BrickRow": {
     "consigne": "💡 consigne",
@@ -102,7 +103,9 @@
     "medianeDesVuesAuDernier": "Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs",
     "uneErreurEstSurvenue": "Une erreur est survenue.",
     "libre": "✍️ libre",
-    "fichiers": "{count, plural, =0 {aucun fichier} one {# fichier} other {# fichiers}}"
+    "fichiers": "{count, plural, =0 {aucun fichier} one {# fichier} other {# fichiers}}",
+    "scenarioTag": "{actif, select, yes {scénario {code}} other {scénario {code} — pas actif}}",
+    "scenarioIntrouvable": "scénario introuvable"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Choisis une brique dans la liste, ou ajoutes-en une.",
@@ -138,8 +141,8 @@
     "exDirection": "Ex. Une relation qui dure, puis tu tombes sur un truc qui change tout.",
     "autresExemples": "Autres exemples",
     "unParLigneAuPlus": "— un par ligne, {max} au plus",
-    "conversationTexte": "— ce que raconte la conv, lu par la créatrice au-dessus des fichiers",
-    "conversationFichiersApres": "Ajoute la conversation, puis dépose ses fichiers (export WhatsApp, captures)."
+    "conversationTexte": "— lu par la créatrice au-dessus de sa conv (facultatif)",
+    "conversationFichiersApres": "Ajoute la brique, puis dépose ses fichiers (export WhatsApp, captures)."
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "L'aperçu s'affiche dès qu'une brique active de chaque type porte du texte.",
@@ -271,7 +274,7 @@
     "flux": "Flux",
     "cta": "Description",
     "notif": "Notif",
-    "conversation": "Conversation"
+    "conversation": "Scénario"
   },
   "decision": {
     "aPousser": "Pousse {label}{hasRatio, select, yes { — médiane {ratio} vs pairs} other {}}, sur {posts} posts.",
@@ -386,5 +389,14 @@
     "ex": "Ex",
     "famille": "Famille",
     "groupe": "Groupe d'amis"
+  },
+  "ScenarioPicker": {
+    "scenario": "Scénario",
+    "aucun": "Aucun — fichiers déposés",
+    "sansTheme": "Sans thème",
+    "aideScenario": "La conv est générée au prénom de chaque créatrice, différente pour chaque mission, et finit le jour où elle la récupère.",
+    "aideFichiers": "Sans scénario, la créatrice télécharge les fichiers déposés ci-dessous.",
+    "tester": "Tester ce scénario",
+    "inactif": "Ce scénario n'est pas « Actif » : il ne partira dans aucune mission tant qu'il ne l'est pas."
   }
 }

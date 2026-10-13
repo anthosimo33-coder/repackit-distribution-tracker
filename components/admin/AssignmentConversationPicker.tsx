@@ -53,12 +53,20 @@ export function AssignmentConversationPicker({
   const assigned = useProjectQuery(api.assignments.getAssignmentConversation, {
     id: assignmentId,
   });
+  // Une conversation reliée à un scénario n'est proposable que s'il est ACTIF.
+  const scenarios = useProjectQuery(
+    api.scenarios.listScenarios,
+    droits.skipUnless("scripts.manage", {}),
+  );
   const set = useProjectMutation(api.scripts.setAssignmentConversation);
   const [saving, setSaving] = useState(false);
 
   if (!campaign || !assigned) return null;
   const conversationBrickId = assigned.conversationBrickId ?? undefined;
-  const conversations = drawableConversations(campaign.bricks);
+  const actifs = new Set(
+    (scenarios ?? []).filter((sc) => sc.statut === "actif").map((sc) => sc._id as string),
+  );
+  const conversations = drawableConversations(campaign.bricks, actifs);
   const current = campaign.bricks.find((b) => b._id === conversationBrickId);
   const canPick =
     editable &&

@@ -237,6 +237,7 @@ import type * as rushStatus from "../rushStatus.js";
 import type * as rushes from "../rushes.js";
 import type * as scenarioBible from "../scenarioBible.js";
 import type * as scenarioEngine from "../scenarioEngine.js";
+import type * as scenarioMission from "../scenarioMission.js";
 import type * as scenarios from "../scenarios.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
 import type * as scriptConversation from "../scriptConversation.js";
@@ -524,6 +525,7 @@ declare const fullApi: ApiFromModules<{
   rushes: typeof rushes;
   scenarioBible: typeof scenarioBible;
   scenarioEngine: typeof scenarioEngine;
+  scenarioMission: typeof scenarioMission;
   scenarios: typeof scenarios;
   scriptAnalytics: typeof scriptAnalytics;
   scriptConversation: typeof scriptConversation;

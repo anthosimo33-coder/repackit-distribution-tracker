@@ -73,6 +73,8 @@ import {
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { ScriptConversationCard } from "@/components/scripts/ScriptConversationCard";
 import { ConversationFilesPanel } from "@/components/scripts/ConversationFilesPanel";
+import { MissionScenarioCard } from "@/components/portal/MissionScenarioCard";
+import { ScenarioPicker } from "@/components/scenarios/ScenarioPicker";
 import { NotifBackfill } from "@/components/scripts/NotifBackfill";
 import {
   BRICK_MODE_OPTIONS,
@@ -243,6 +245,17 @@ export default function ScriptCampaignDetailPage() {
   const [now] = useState(() => Date.now());
 
   const bricks = useMemo(() => campaign?.bricks ?? [], [campaign]);
+  // SCÉNARIOS du projet (bloc `scripts.manage`, celui de cet écran) : une brique
+  // conversation reliée à un scénario n'est tirable que s'il est ACTIF.
+  const scenarios = useProjectQuery(api.scenarios.listScenarios, {});
+  const scenarioParId = useMemo(
+    () => new Map((scenarios ?? []).map((sc) => [sc._id as string, sc])),
+    [scenarios],
+  );
+  const scenariosActifs = useMemo(
+    () => new Set((scenarios ?? []).filter((sc) => sc.statut === "actif").map((sc) => sc._id as string)),
+    [scenarios],
+  );
 
   // Plateformes réellement servies par cette créatrice : l'unicité à vie est
   // PAR PLATEFORME, l'évaluer sur les trois en dur inventerait des collisions.
@@ -346,7 +359,18 @@ export default function ScriptCampaignDetailPage() {
   // au moins un fichier), le serveur refuse l'assignation.
   const conversationOn = isConversationEnabled(campaign);
   const conversationMissing =
-    conversationOn && drawableConversations(bricks).length === 0;
+    conversationOn && drawableConversations(bricks, scenariosActifs).length === 0;
+  // Une campagne sert UN style de conv : des scénarios de thèmes différents
+  // dans la même rotation donneraient à une créatrice une conv qui ne colle pas
+  // à son script.
+  const themesCampagne = [
+    ...new Set(
+      bricks
+        .filter((b) => b.kind === "conversation" && b.active && b.scenarioId)
+        .map((b) => scenarioParId.get(b.scenarioId as string)?.theme.trim() ?? "")
+        .filter(Boolean),
+    ),
+  ];
   const kinds = editableKinds(notifOn, conversationOn);
   const activeCount = ofKind.filter((b) => b.active).length;
   const checkedIds = [...checked].filter((cid) =>
@@ -386,6 +410,7 @@ export default function ScriptCampaignDetailPage() {
             campaignId={campaign._id}
             enabled={conversationOn}
             missing={conversationMissing}
+            themes={themesCampagne}
             onDisabled={() => {
               if (kind === "conversation") void switchKind("hook");
             }}
@@ -582,6 +607,7 @@ export default function ScriptCampaignDetailPage() {
                   availability={
                     b.kind === "hook" ? availabilityOf(b._id as string) : undefined
                   }
+                  scenario={b.scenarioId ? scenarioParId.get(b.scenarioId as string) : undefined}
                 />
               ))}
             </div>
@@ -703,12 +729,15 @@ function ConversationToggle({
   campaignId,
   enabled,
   missing,
+  themes,
   onDisabled,
 }: {
   campaignId: Id<"scriptCampaigns">;
   enabled: boolean;
   /** Allumée mais aucune conversation tirable : l'assignation sera refusée. */
   missing: boolean;
+  /** Thèmes des scénarios en rotation : plus d'un = des convs qui ne collent pas toutes au script. */
+  themes: string[];
   onDisabled: () => void;
 }) {
   const showError = useConvexError();
@@ -745,6 +774,11 @@ function ConversationToggle({
       {missing && (
         <p className="text-xs text-amber-700" data-testid="conversation-missing">
           {tr("conversationAucuneActive")}
+        </p>
+      )}
+      {enabled && themes.length > 1 && (
+        <p className="text-xs text-amber-700" data-testid="conversation-themes-melanges">
+          {tr("conversationThemesMelanges", { themes: themes.join(" · ") })}
         </p>
       )}
     </div>
@@ -791,6 +825,7 @@ function BrickRow({
   onSelect,
   perf,
   availability,
+  scenario,
 }: {
   brick: Brick;
   selected: boolean;
@@ -804,6 +839,8 @@ function BrickRow({
   };
   /** Disponibilité pour la créatrice sélectionnée ; absent = aucune sélection. */
   availability?: HookAvailability;
+  /** Le scénario d'une brique conversation générée (absent : fichiers déposés, ou pas encore chargé). */
+  scenario?: { code: string; statut: string };
 }) {
   const showError = useConvexError();
   const loc = useIntlLocale();
@@ -867,7 +904,23 @@ function BrickRow({
           !brick.active ||
           brick.kind === "conversation") && (
           <span className="flex flex-wrap items-center gap-1.5">
-            {brick.kind === "conversation" && (
+            {brick.kind === "conversation" && brick.scenarioId && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[10px]",
+                  scenario?.statut === "actif"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700",
+                )}
+                data-testid="brick-scenario-tag"
+              >
+                {scenario
+                  ? tr("scenarioTag", { code: scenario.code, actif: scenario.statut === "actif" ? "yes" : "no" })
+                  : tr("scenarioIntrouvable")}
+              </Badge>
+            )}
+            {brick.kind === "conversation" && !brick.scenarioId && (
               <Badge
                 variant="outline"
                 className={cn(
@@ -1016,6 +1069,9 @@ function BrickEditor({
   const [autresExemples, setAutresExemples] = useState(
     (brick?.autresExemples ?? []).join("\n"),
   );
+  // SCÉNARIO (conversation uniquement) — "" = fichiers déposés.
+  const isConversation = kind === "conversation";
+  const [scenarioId, setScenarioId] = useState<string>(brick?.scenarioId ?? "");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
 
@@ -1049,6 +1105,9 @@ function BrickEditor({
           ...(isHook
             ? { libre, direction, autresExemples: autresExemples.split("\n") }
             : {}),
+          ...(isConversation
+            ? { scenarioId: scenarioId ? (scenarioId as Id<"scenarios">) : null }
+            : {}),
         });
         toast.success(tr("briqueMiseAJour"));
       } else {
@@ -1062,6 +1121,7 @@ function BrickEditor({
           ...(isHook
             ? { libre, direction, autresExemples: autresExemples.split("\n") }
             : {}),
+          ...(isConversation && scenarioId ? { scenarioId: scenarioId as Id<"scenarios"> } : {}),
         });
         toast.success(tr("briqueAjoutee"));
         onCreated(newId);
@@ -1135,6 +1195,18 @@ function BrickEditor({
             )}
           </div>
 
+          {/* SCÉNARIO — la conv est générée depuis une bible, au prénom de la
+              créatrice ; sans scénario, ce sont des fichiers déposés. */}
+          {isConversation && (
+            <ScenarioPicker
+              value={scenarioId}
+              onChange={(id, sc) => {
+                touch(setScenarioId)(id);
+                if (sc && label.trim().length === 0) setLabel(`${sc.code} · ${sc.titre}`);
+              }}
+            />
+          )}
+
           {/* HOOK LIBRE — la brique devient une direction : la créatrice
               tourne sa propre formulation, les vues restent comptées ici. */}
           {isHook && (
@@ -1176,6 +1248,7 @@ function BrickEditor({
           {/* CONVERSATION — les fichiers que la créatrice télécharge. Ils se
               déposent sur une brique EXISTANTE : créer d'abord, déposer ensuite. */}
           {kind === "conversation" &&
+            !scenarioId &&
             (brick ? (
               <ConversationFilesPanel
                 brickId={brick._id}
@@ -1327,6 +1400,7 @@ function BrickEditor({
       <CreatorPreview
         kind={kind}
         bricks={bricks}
+        genere={isConversation && scenarioId !== ""}
         files={(brick?.conversationFiles ?? []).map((f) => ({
           ...f,
           url: fileUrls[f.storageId] ?? null,
@@ -1353,11 +1427,14 @@ function BrickEditor({
 function CreatorPreview({
   kind,
   bricks,
+  genere,
   files,
   draft,
 }: {
   kind: BrickKind;
   bricks: Brick[];
+  /** Conversation générée depuis un scénario (sinon : fichiers déposés). */
+  genere: boolean;
   /** Fichiers de la conversation éditée (kind "conversation"). */
   files: readonly {
     storageId: string;
@@ -1413,11 +1490,18 @@ function CreatorPreview({
         <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
           {tr("ceQueVerraLaCreatrice")}
         </p>
-        <ScriptConversationCard
-          text={draft.content.trim()}
-          instruction={draft.instruction.trim() || null}
-          files={files}
-        />
+        {genere ? (
+          <MissionScenarioCard
+            text={draft.content.trim()}
+            instruction={draft.instruction.trim() || null}
+          />
+        ) : (
+          <ScriptConversationCard
+            text={draft.content.trim()}
+            instruction={draft.instruction.trim() || null}
+            files={files}
+          />
+        )}
       </div>
     );
   }

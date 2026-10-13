@@ -33,19 +33,45 @@ export function isConversationEnabled(
 
 export interface ConversationBrickLike extends NotifBrickLike {
   conversationFiles?: readonly unknown[];
+  scenarioId?: string;
 }
 
 /**
- * Les conversations TIRABLES : actives, de kind "conversation", avec AU MOINS
- * un fichier (une conv sans fichier laisserait la créatrice sans rien à
- * importer), dans l'ordre de la liste.
+ * Les conversations TIRABLES : actives, de kind "conversation", et qui ont de
+ * quoi importer — un scénario ACTIF (`scenariosActifs`, ids des scénarios au
+ * statut « actif ») ou au moins un fichier déposé. Une brique reliée à un
+ * scénario archivé ou en brouillon ne part pas, même si elle porte encore des
+ * fichiers : c'est le scénario qui décide. Dans l'ordre de la liste.
  */
-export function drawableConversations<T extends ConversationBrickLike>(bricks: readonly T[]): T[] {
+export function drawableConversations<T extends ConversationBrickLike>(
+  bricks: readonly T[],
+  scenariosActifs: ReadonlySet<string> = new Set(),
+): T[] {
   return bricks
     .filter(
-      (b) => b.kind === "conversation" && b.active && (b.conversationFiles?.length ?? 0) > 0,
+      (b) =>
+        b.kind === "conversation" &&
+        b.active &&
+        (b.scenarioId !== undefined
+          ? scenariosActifs.has(b.scenarioId)
+          : (b.conversationFiles?.length ?? 0) > 0),
     )
     .sort((a, b) => (a.order ?? a.createdAt) - (b.order ?? b.createdAt));
+}
+
+/**
+ * La GRAINE d'une mission (FNV-1a 32 bits de son id) : chaque mission a SA
+ * conversation — deux vidéos du même scénario chez la même créatrice ne
+ * reçoivent pas le même remplissage —, et la même mission retélécharge
+ * toujours la même.
+ */
+export function graineMission(assignmentId: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < assignmentId.length; i++) {
+    h ^= assignmentId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
 }
 
 /** Forme minimale d'une assignation pour le comptage d'usage. */

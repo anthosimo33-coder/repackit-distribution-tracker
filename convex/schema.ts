@@ -3634,6 +3634,10 @@ export default defineSchema({
     //  - "image" : capture servie telle quelle (écran à filmer, captures à
     //    importer).
     // Blobs câblés dans collecterStorageIdsReferences (convex/storageCleanup).
+    // SCÉNARIO (kind "conversation") — la conv est GÉNÉRÉE depuis cette bible
+    // (convex/scenarios) au prénom de la créatrice, au lieu d'être déposée en
+    // fichiers. Tirable seulement si le scénario est ACTIF.
+    scenarioId: v.optional(v.id("scenarios")),
     conversationFiles: v.optional(
       v.array(
         v.object({
