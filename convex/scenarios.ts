@@ -14,6 +14,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { permissionMutation, permissionQuery, type ProjectMutationCtx } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { lireBible, type Bible } from "./scenarioBible";
+import { cleTheme } from "./scriptConversation";
 
 /** Une bible pèse ~25 Ko (C2) ; plafond large, sous la limite d'un document (1 Mo). */
 export const MAX_BIBLE = 300_000;
@@ -108,6 +109,30 @@ export const listScenarios = permissionQuery("scripts.manage")({
   },
 });
 
+/**
+ * Les THÈMES qu'une assignation peut choisir (fenêtre « Assigner ») : ceux qui
+ * ont au moins un scénario tirable (pas archivé), avec leur nombre. Bloc
+ * `assignments.manage`, celui de l'assignation : seuls les thèmes sortent.
+ */
+export const themesPourAssignation = permissionQuery("assignments.manage")({
+  args: {},
+  handler: async (ctx) => {
+    const parCle = new Map<string, { theme: string; scenarios: number }>();
+    for (const s of await ctx.db
+      .query("scenarios")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()) {
+      const theme = s.theme.trim();
+      if (theme === "" || s.statut === "archive") continue;
+      const cle = cleTheme(theme);
+      const t = parCle.get(cle) ?? { theme, scenarios: 0 };
+      t.scenarios += 1;
+      parCle.set(cle, t);
+    }
+    return [...parCle.values()].sort((a, b) => a.theme.localeCompare(b.theme, "fr"));
+  },
+});
+
 export const getScenario = permissionQuery("scripts.manage")({
   args: { id: v.id("scenarios") },
   handler: async (ctx, { id }) => {
@@ -143,7 +168,8 @@ export async function creerScenarioCore(
     titre: bible.titre.trim(),
     type: bible.type,
     theme: themeValide(args.theme),
-    statut: "brouillon",
+    // Tiré dès qu'une assignation choisit son thème ; « archivé » le retire.
+    statut: "actif",
     bible: args.bible,
     createdBy: ctx.userId,
     createdAt: maintenant,
@@ -201,7 +227,7 @@ export const dupliquerScenario = permissionMutation("scripts.manage")({
 
 export type StatutScenario = Doc<"scenarios">["statut"];
 
-/** Brouillon → actif (tirable par les campagnes) → archivé. */
+/** Actif (tiré quand une assignation choisit son thème) ↔ archivé (plus tiré). « brouillon » = ancien statut, tiré comme actif. */
 export async function changerStatutScenarioCore(
   ctx: ProjectMutationCtx,
   id: Id<"scenarios">,

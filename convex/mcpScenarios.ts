@@ -8,8 +8,11 @@
  *    MÊME moteur que la mission (convex/scenarioEngine) et ne rend que du texte :
  *    les fichiers s'enregistrent depuis le navigateur, d'où des liens ;
  *  - écriture (interrupteur « Scripts », même droit) : `creer_scenario`,
- *    `modifier_scenario`, `activer_scenario`, `scenarios_campagne` — toutes
- *    défaisables, toutes par les cœurs de l'écran.
+ *    `modifier_scenario`, `activer_scenario` — toutes défaisables, toutes par
+ *    les cœurs de l'écran.
+ *
+ * Le THÈME d'une conversation se choisit à l'assignation (`assigner_scripts`,
+ * argument « conversation »), comme dans la fenêtre « Assigner ».
  */
 
 import { v } from "convex/values";
@@ -17,7 +20,6 @@ import type { ActionCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mcpPermissionQuery, mcpWriteMutation } from "./functions";
-import { ERR, err } from "./errorCodes";
 import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
 import {
   AJOUTE,
@@ -27,7 +29,6 @@ import {
   ecrire,
   etatsApres,
   etatsCrees,
-  jsonCanonique,
   journaliser,
   photographier,
   resultatEcriture,
@@ -37,8 +38,6 @@ import {
 import { lireBible, nomExportValide, type ErreurBible } from "./scenarioBible";
 import { genererConversation, statsConversation, statsTexte } from "./scenarioEngine";
 import { changerStatutScenarioCore, creerScenarioCore, MAX_THEME, modifierScenarioCore, type StatutScenario } from "./scenarios";
-import { cleTheme, isConversationEnabled, scenariosTirables, themesNettoyes } from "./scriptConversation";
-import { updateCampaignCore } from "./scripts";
 import { parisDayKey } from "./viewsDaily";
 
 /** Plafond d'une bible écrite par Claude (l'écran va jusqu'à 300 000) : le journal garde avant ET après. */
@@ -90,7 +89,7 @@ export const OUTILS_SCENARIOS_LECTURE: readonly McpTool[] = [
     name: "scenarios",
     title: "Scénarios de conversation",
     description:
-      "Les scénarios du projet : les « recettes » des fausses conversations WhatsApp que les créatrices téléchargent à leur prénom et importent à l'écran (BLUSH), rangées par THÈME. Pour chacun : code, titre, type, thème, statut (brouillon = jamais tiré ; actif = tiré par les campagnes qui cochent son thème ; archivé = plus tiré, les missions qui l'ont reçu gardent leur conv), les campagnes qui le tirent, et sa performance à J+7 (posts, vues médianes, verdict) quand la connexion a accès aux analytics.",
+      "Les scénarios du projet : les « recettes » des fausses conversations WhatsApp que les créatrices téléchargent à leur prénom et importent à l'écran (BLUSH), rangées par THÈME. Pour chacun : code, titre, type, thème, statut (actif = tiré quand une assignation choisit son thème ; archivé = plus tiré, les missions qui l'ont reçu gardent leur conv) et sa performance à J+7 (posts, vues médianes, verdict) quand la connexion a accès aux analytics.",
     inputSchema: { type: "object", properties: { projet: ARG_PROJET }, additionalProperties: false },
   },
   {
@@ -142,21 +141,10 @@ async function scenarioDe(ctx: { db: QueryCtx["db"]; projectId: Id<"projects"> }
   return designerOuRefuser(await scenariosDe(ctx), (s) => s.code, code, "scénarios");
 }
 
-/** Les campagnes qui tirent dans un thème (conversation allumée ou non). */
-function campagnesDuTheme(campagnes: readonly Doc<"scriptCampaigns">[], theme: string) {
-  return campagnes
-    .filter((c) => c.status !== "archived" && (c.conversationThemes ?? []).some((t) => cleTheme(t) === cleTheme(theme)))
-    .map((c) => ({ nom: c.name, conversationAllumee: isConversationEnabled(c) }));
-}
-
 export const lireScenarios = mcpPermissionQuery("scripts.manage")({
   args: {},
-  handler: async (ctx) => {
-    const campagnes = await ctx.db
-      .query("scriptCampaigns")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    return (await scenariosDe(ctx))
+  handler: async (ctx) =>
+    (await scenariosDe(ctx))
       .sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true }))
       .map((s) => ({
         id: s._id,
@@ -164,11 +152,10 @@ export const lireScenarios = mcpPermissionQuery("scripts.manage")({
         titre: s.titre,
         type: s.type,
         theme: s.theme,
-        statut: s.statut,
+        // « brouillon » (ancien statut) est tiré comme « actif ».
+        statut: s.statut === "archive" ? ("archive" as const) : ("actif" as const),
         modifieLe: s.updatedAt,
-        campagnes: campagnesDuTheme(campagnes, s.theme),
-      }));
-  },
+      })),
 });
 
 export const lireScenario = mcpPermissionQuery("scripts.manage")({
@@ -244,15 +231,14 @@ export async function appelerScenariosLecture(
               theme: s.theme || null,
               statut: s.statut,
               modifieLe: new Date(s.modifieLe).toISOString().slice(0, 10),
-              campagnes: s.campagnes,
               ...(perf ? { perfJ7: p ? { posts: p.posts, vuesMediane: p.vuesMediane, verdict: p.verdict } : { posts: 0 } } : {}),
               lien: lienScenario(projet, s.id),
             };
           }),
           lecture: [
             liste.length === 0
-              ? "Aucun scénario : `creer_scenario` en crée un (en brouillon)."
-              : "Un scénario ACTIF est tiré par chaque campagne qui coche son thème (`scenarios_campagne`) ; un brouillon ne part jamais.",
+              ? "Aucun scénario : `creer_scenario` en crée un."
+              : "Un scénario actif est tiré quand une assignation choisit son THÈME (`assigner_scripts`, argument « conversation ») ; archivé, il ne l'est plus.",
             ...(perf ? ["perfJ7 : posts mesurés à J+7 (chauffe exclue), vues médianes, verdict jugé à partir de 50 posts contre les autres scénarios."] : []),
           ],
         },
@@ -341,14 +327,14 @@ export async function appelerScenariosLecture(
 
 // ─── Écriture ───────────────────────────────────────────────────────────────
 
-const STATUTS = ["brouillon", "actif", "archive"] as const;
+const STATUTS = ["actif", "archive"] as const;
 
 export const OUTILS_ECRITURE_SCENARIOS: readonly McpTool[] = [
   {
     name: "creer_scenario",
     title: "Créer un scénario",
     description:
-      "MODIFIE les scripts : crée un scénario de conversation à partir d'une BIBLE (JSON), en BROUILLON — aucune campagne ne le tire avant `activer_scenario`. La bible est vérifiée champ par champ : la moindre erreur refuse tout et liste les champs à corriger. Son `id` devient le code du scénario (unique dans le projet). Pars de `lire_scenario` d'un scénario existant pour la forme, puis vérifie le résultat avec `tester_scenario`.",
+      "MODIFIE les scripts : crée un scénario de conversation à partir d'une BIBLE (JSON). Il est tiré dès qu'une assignation choisit son thème (`assigner_scripts`, argument « conversation ») : teste-le d'abord avec `tester_scenario`. La bible est vérifiée champ par champ : la moindre erreur refuse tout et liste les champs à corriger. Son `id` devient le code du scénario (unique dans le projet). Pars de `lire_scenario` d'un scénario existant pour la forme.",
     inputSchema: {
       type: "object",
       properties: {
@@ -356,7 +342,7 @@ export const OUTILS_ECRITURE_SCENARIOS: readonly McpTool[] = [
         bible: { type: "object", description: `La bible complète (objet JSON ; un texte JSON est accepté aussi), ${MAX_BIBLE_MCP} caractères au plus.` },
         theme: {
           type: "string",
-          description: "Le thème (famille de conversation, ex. « Il revient ») : les campagnes qui le cochent tireront ce scénario une fois actif. Reprends l'orthographe d'un thème existant (outil `scenarios`) pour qu'il rejoigne ses campagnes.",
+          description: "Le thème (famille de conversation, ex. « Il revient ») : une assignation qui choisit ce thème tire parmi ses scénarios. Reprends l'orthographe d'un thème existant (outil `scenarios`) pour l'y ranger.",
         },
       },
       required: ["bible", "theme"],
@@ -368,7 +354,7 @@ export const OUTILS_ECRITURE_SCENARIOS: readonly McpTool[] = [
     name: "modifier_scenario",
     title: "Modifier un scénario",
     description:
-      "MODIFIE les scripts : REMPLACE la bible entière d'un scénario (lis-la d'abord avec `lire_scenario`) et/ou change son thème. Les missions qui ont reçu ce scénario génèrent leur conv depuis la nouvelle version au prochain téléchargement ; changer le thème le fait passer dans les campagnes de l'autre thème. Changer l'`id` de la bible change le code.",
+      "MODIFIE les scripts : REMPLACE la bible entière d'un scénario (lis-la d'abord avec `lire_scenario`) et/ou change son thème. Les missions qui ont reçu ce scénario génèrent leur conv depuis la nouvelle version au prochain téléchargement ; changer le thème le range ailleurs pour les prochaines assignations. Changer l'`id` de la bible change le code.",
     inputSchema: {
       type: "object",
       properties: {
@@ -386,38 +372,15 @@ export const OUTILS_ECRITURE_SCENARIOS: readonly McpTool[] = [
     name: "activer_scenario",
     title: "Activer ou archiver un scénario",
     description:
-      "MODIFIE les scripts : change le statut d'un scénario. actif = tiré dès la prochaine assignation par chaque campagne qui coche son thème ; archive = plus tiré (les missions qui l'ont reçu gardent leur conv) ; brouillon = retiré du tirage, en travail.",
+      "MODIFIE les scripts : archive un scénario (plus tiré ; les missions qui l'ont reçu gardent leur conv) ou le remet en service (actif = tiré quand une assignation choisit son thème).",
     inputSchema: {
       type: "object",
       properties: {
         projet: ARG_PROJET,
         scenario: ARG_SCENARIO,
-        statut: { type: "string", enum: [...STATUTS], description: "actif, archive ou brouillon." },
+        statut: { type: "string", enum: [...STATUTS], description: "actif ou archive." },
       },
       required: ["scenario", "statut"],
-      additionalProperties: false,
-    },
-    annotations: ECRIT,
-  },
-  {
-    name: "scenarios_campagne",
-    title: "Thèmes de scénarios d'une campagne",
-    description:
-      "MODIFIE les scripts : choisit les THÈMES de scénarios d'une campagne et allume sa conversation — chaque vidéo assignée ensuite reçoit une conv WhatsApp tirée parmi les scénarios ACTIFS de ces thèmes, en rotation. REMPLACE la liste des thèmes. `activer: false` éteint la conversation (les thèmes restent). Les missions déjà assignées gardent la leur. Allumée sans aucun scénario actif dans ses thèmes, la campagne ne peut plus être assignée.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        projet: ARG_PROJET,
-        campagne: { type: "string", description: "Nom de la campagne, comme dans l'outil `scripts`." },
-        themes: {
-          type: "array",
-          description: "Les thèmes, tels que l'outil `scenarios` les liste (la casse ne compte pas).",
-          items: { type: "string" },
-          maxItems: 20,
-        },
-        activer: { type: "boolean", description: "true (défaut) = conversation allumée ; false = éteinte." },
-      },
-      required: ["campagne", "themes"],
       additionalProperties: false,
     },
     annotations: ECRIT,
@@ -433,7 +396,7 @@ export const ecrireCreationScenario = mcpWriteMutation("scripts.manage", "script
   handler: async (ctx, a) => {
     const id = await creerScenarioCore(ctx, a);
     const s = (await ctx.db.get(id))!;
-    const summary = `Scénario ${libelle(s)} créé en brouillon, thème « ${s.theme || "sans thème"} »`;
+    const summary = `Scénario ${libelle(s)} créé, thème « ${s.theme || "sans thème"} »`;
     await journaliser(ctx, {
       tool: "creer_scenario",
       summary,
@@ -483,18 +446,13 @@ export const ecrireModificationScenario = mcpWriteMutation("scripts.manage", "sc
 });
 
 export const ecrireStatutScenario = mcpWriteMutation("scripts.manage", "scripts")({
-  args: { scenario: v.string(), statut: v.union(v.literal("brouillon"), v.literal("actif"), v.literal("archive")) },
+  args: { scenario: v.string(), statut: v.union(v.literal("actif"), v.literal("archive")) },
   handler: async (ctx, a) => {
     const s = await scenarioDe(ctx, a.scenario);
-    const campagnes = campagnesDuTheme(
-      await ctx.db
-        .query("scriptCampaigns")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      s.theme,
-    ).filter((c) => c.conversationAllumee);
-    if (s.statut === a.statut) {
-      return { summary: `Scénario ${libelle(s)} : déjà « ${a.statut} ».`, id: s._id, inchange: true, campagnes: campagnes.map((c) => c.nom) };
+    // « brouillon » (ancien statut) vaut « actif ».
+    const actuel = s.statut === "archive" ? "archive" : "actif";
+    if (actuel === a.statut) {
+      return { summary: `Scénario ${libelle(s)} : déjà « ${a.statut} ».`, id: s._id, inchange: true };
     }
     const photos = await photographier(ctx, "scenarios", [s._id]);
     await changerStatutScenarioCore(ctx, s._id, a.statut);
@@ -507,66 +465,16 @@ export const ecrireStatutScenario = mcpWriteMutation("scripts.manage", "scripts"
       annulation: { type: "scenarioStatut", scenarioId: s._id, avant: s.statut, apres: a.statut },
       etats: await etatsApres(ctx, photos),
     });
-    return { summary, id: s._id, inchange: false, campagnes: campagnes.map((c) => c.nom) };
-  },
-});
-
-export const ecrireScenariosCampagne = mcpWriteMutation("scripts.manage", "scripts")({
-  args: { campagne: v.string(), themes: v.array(v.string()), activer: v.boolean() },
-  handler: async (ctx, a) => {
-    const campagne = designerOuRefuser(
-      await ctx.db
-        .query("scriptCampaigns")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect(),
-      (c) => c.name,
-      a.campagne,
-      "campagnes",
-    );
-    const scenarios = await scenariosDe(ctx);
-    // Chaque thème demandé doit être celui d'un scénario du projet, écrit comme
-    // lui : un thème inventé ne tirerait jamais rien.
-    const parCle = new Map<string, string>();
-    for (const s of scenarios) if (cleTheme(s.theme) !== "") parCle.set(cleTheme(s.theme), s.theme.trim());
-    const inconnus = a.themes.filter((t) => cleTheme(t) !== "" && !parCle.has(cleTheme(t)));
-    if (inconnus.length > 0) {
-      throw err(
-        ERR.MCP_DESIGNATION,
-        `Rien n'a changé : thème(s) qu'aucun scénario du projet n'a — ${inconnus.map((t) => `« ${t} »`).join(", ")}. Thèmes possibles : ${[...parCle.values()].map((t) => `« ${t} »`).join(", ") || "aucun (crée d'abord un scénario)"}.`,
-      );
-    }
-    const themes = themesNettoyes(a.themes.map((t) => parCle.get(cleTheme(t)) ?? t));
-    const avant = { allumee: isConversationEnabled(campagne), themes: campagne.conversationThemes ?? [] };
-    const apres = { allumee: a.activer, themes };
-    const tirables = scenariosTirables(scenarios, themes);
-    const enRotation = tirables.map((s) => s.code);
-    if (jsonCanonique(avant) === jsonCanonique(apres)) {
-      return { summary: `« ${campagne.name} » : déjà ainsi, rien n'a changé.`, enRotation, inchange: true };
-    }
-    const photos = await photographier(ctx, "scriptCampaigns", [campagne._id]);
-    await updateCampaignCore(ctx, { id: campagne._id, conversationEnabled: a.activer, conversationThemes: themes });
-    const summary = a.activer
-      ? `« ${campagne.name} » : conversation allumée, thème(s) ${themes.map((t) => `« ${t} »`).join(", ") || "aucun"} — ${enRotation.length} scénario(s) actif(s) en rotation${enRotation.length > 0 ? ` (${enRotation.join(", ")})` : ""}`
-      : `« ${campagne.name} » : conversation éteinte${themes.length > 0 ? ` (thèmes gardés : ${themes.map((t) => `« ${t} »`).join(", ")})` : ""}`;
-    await journaliser(ctx, {
-      tool: "scenarios_campagne",
-      summary,
-      section: "campaign",
-      path: `scripts/${campagne._id}`,
-      annulation: { type: "conversationCampagne", campaignId: campagne._id, avant, apres },
-      etats: await etatsApres(ctx, photos),
-    });
-    return { summary, enRotation, inchange: false };
+    return { summary, id: s._id, inchange: false };
   },
 });
 
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
-  creer_scenario: "`defaire` (tant qu'il est en brouillon, inchangé, et qu'aucune mission ne l'a reçu), ou Scénarios › le scénario › Archivé.",
+  creer_scenario: "`defaire` (tant qu'il est inchangé, pas archivé, et qu'aucune mission ne l'a reçu), ou Scénarios › le scénario › Archivé.",
   modifier_scenario: "`defaire` (tant que personne ne l'a remodifié), ou Scénarios › le scénario › corriger la bible.",
   activer_scenario: "`defaire`, ou Scénarios › le scénario › Statut.",
-  scenarios_campagne: "`defaire`, ou Scripts › la campagne › « Conversation WhatsApp dans la vidéo » et ses thèmes.",
 };
 
 export async function appelerEcritureScenarios(
@@ -585,24 +493,7 @@ export async function appelerEcritureScenarios(
     return resultatEcriture(projet, r.summary, OU_DEFAIRE[name], {
       code: r.code,
       lien: lienScenario(projet, r.id),
-      ensuite: "Teste-le (`tester_scenario`), puis `activer_scenario` pour qu'il parte dans les campagnes de son thème.",
-    });
-  }
-  if (name === "scenarios_campagne") {
-    const campagne = texteArg(args, "campagne");
-    if (campagne === "") throw new ToolError("« campagne » : le nom de la campagne (outil `scripts`).");
-    if (!Array.isArray(args.themes) || !args.themes.every((t) => typeof t === "string")) {
-      throw new ToolError("« themes » : une liste de thèmes (outil `scenarios`).");
-    }
-    const activer = args.activer === undefined ? true : args.activer === true;
-    const r = await ecrire(() =>
-      ctx.runMutation(internal.mcpScenarios.ecrireScenariosCampagne, { ...cible, campagne, themes: args.themes as string[], activer }),
-    );
-    return resultatEcriture(projet, r.summary, OU_DEFAIRE[name], {
-      enRotation: r.enRotation,
-      ...(activer && r.enRotation.length === 0
-        ? { attention: "Aucun scénario ACTIF dans ces thèmes : la campagne ne peut pas être assignée tant qu'aucun n'est passé en actif (`activer_scenario`)." }
-        : {}),
+      ensuite: "Teste-le (`tester_scenario`) : il part dès qu'une assignation choisit son thème (`assigner_scripts`, « conversation »).",
     });
   }
   const scenario = texteArg(args, "scenario");
@@ -623,15 +514,11 @@ export async function appelerEcritureScenarios(
   }
   if (name === "activer_scenario") {
     const statut = texteArg(args, "statut") as StatutScenario;
-    if (!(STATUTS as readonly string[]).includes(statut)) throw new ToolError("« statut » : actif, archive ou brouillon.");
-    const r = await ecrire(() => ctx.runMutation(internal.mcpScenarios.ecrireStatutScenario, { ...cible, scenario, statut }));
-    return resultatEcriture(projet, r.summary, r.inchange ? "Rien à défaire." : OU_DEFAIRE[name], {
-      ...(statut === "actif"
-        ? r.campagnes.length > 0
-          ? { tirePar: r.campagnes }
-          : { attention: "Aucune campagne à conversation allumée ne coche son thème : `scenarios_campagne` pour l'y mettre." }
-        : {}),
-    });
+    if (!(STATUTS as readonly string[]).includes(statut)) throw new ToolError("« statut » : actif ou archive.");
+    const r = await ecrire(() =>
+      ctx.runMutation(internal.mcpScenarios.ecrireStatutScenario, { ...cible, scenario, statut: statut as "actif" | "archive" }),
+    );
+    return resultatEcriture(projet, r.summary, r.inchange ? "Rien à défaire." : OU_DEFAIRE[name]);
   }
   throw new ToolError(`Outil inconnu : ${name}.`);
 }

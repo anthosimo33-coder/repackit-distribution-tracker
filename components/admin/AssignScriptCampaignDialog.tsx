@@ -64,6 +64,24 @@ import type { Plateforme } from "@/convex/platforms";
  */
 
 const NONE = "__none__";
+
+/** Le dernier thème de conversation choisi pour une campagne, dans CE navigateur. */
+function themeMemorise(cle: string): string {
+  try {
+    return window.localStorage.getItem(cle) ?? NONE;
+  } catch {
+    return NONE;
+  }
+}
+
+function memoriserTheme(cle: string, theme: string) {
+  try {
+    if (theme === NONE) window.localStorage.removeItem(cle);
+    else window.localStorage.setItem(cle, theme);
+  } catch {
+    // Stockage indisponible (navigation privée) : le choix vaut pour cette fois.
+  }
+}
 // Ordre d'affichage propre à cette modale (YouTube avant Instagram, historique).
 // i18n-exempt: valeurs d'enum plateforme envoyées au serveur, pas du texte
 const PLATFORMS = ["TikTok", "YouTube", "Instagram", "Facebook", "Snapchat"] as const satisfies readonly Plateforme[];
@@ -181,6 +199,21 @@ export function AssignScriptCampaignDialog({
     api.inspirations.listInspirations,
     open ? { types: ["video"] } : "skip",
   );
+  // CONVERSATION WhatsApp : le THÈME choisi ici fait recevoir à chaque vidéo une
+  // conv différente de ce thème (cf convex/scriptConversation). Rien à régler
+  // sur la campagne ; le dernier choix pour CETTE campagne est retenu par
+  // navigateur (simple confort).
+  const themesConv = useProjectQuery(
+    api.scenarios.themesPourAssignation,
+    open ? {} : "skip",
+  );
+  const [themeConv, setThemeConv] = useState<string>(NONE);
+  const cleThemeMemo = `jarvia:assign-conv-theme:${campaignId}`;
+  // Un thème qui n'existe plus (scénarios archivés) retombe sur « Aucune ».
+  const themeChoisi =
+    themeConv !== NONE && (themesConv ?? []).some((t) => t.theme === themeConv)
+      ? themeConv
+      : NONE;
 
   // ── Mode COMBO : "auto" (tirage serveur anti-coordination) ou "chosen"
   // (combinaison IMPOSÉE — rejeu ou choix manuel). getCampaign (contenu des
@@ -277,6 +310,7 @@ export function AssignScriptCampaignDialog({
       setPricingId(NONE);
       setPricingTouched(false);
       setOverlayText("");
+      setThemeConv(themeMemorise(cleThemeMemo));
       setSelectedFolderIds(new Set());
       setSelectedVideoIds(new Set());
       setMode("single");
@@ -413,6 +447,7 @@ export function AssignScriptCampaignDialog({
         dueDate: dueMs,
         pricingId: pricingForSingle as Id<"pricings">,
         overlayText: overlayText.trim() || undefined,
+        ...(themeChoisi !== NONE ? { conversationTheme: themeChoisi } : {}),
         assetFolderIds:
           // i18n-exempt: code TypeScript (`> 0 ? (… as Id<…>)`), pas du texte
           selectedFolderIds.size > 0
@@ -623,6 +658,7 @@ export function AssignScriptCampaignDialog({
           dueDate: dueMs,
           pricingId: b.pricingId as Id<"pricings">,
           overlayText: overlayText.trim() || undefined,
+          ...(themeChoisi !== NONE ? { conversationTheme: themeChoisi } : {}),
           assetFolderIds:
             // i18n-exempt: code TypeScript (`> 0 ? (… as Id<…>)`), pas du texte
             selectedFolderIds.size > 0
@@ -1366,6 +1402,48 @@ export function AssignScriptCampaignDialog({
               )}
             </div>
           </div>
+
+          {themesConv !== undefined && themesConv.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="conversation-theme">{tr("conversationWhatsApp")}</Label>
+              <Select
+                value={themeChoisi}
+                items={{
+                  [NONE]: tr("conversationAucune"),
+                  ...Object.fromEntries(themesConv.map((t) => [t.theme, t.theme])),
+                }}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  setThemeConv(v);
+                  memoriserTheme(cleThemeMemo, v);
+                }}
+              >
+                <SelectTrigger
+                  id="conversation-theme"
+                  className="w-full min-w-0"
+                  data-testid="assign-conversation-theme"
+                >
+                  <SelectValue>
+                    {themeChoisi === NONE ? tr("conversationAucune") : themeChoisi}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent align="start">
+                  <SelectItem value={NONE}>{tr("conversationAucune")}</SelectItem>
+                  {themesConv.map((t) => (
+                    <SelectItem key={t.theme} value={t.theme}>
+                      <span className="min-w-0 break-words">{t.theme}</span>
+                      <span className="text-xs text-slate-400">
+                        {tr("conversationScenarios", { count: t.scenarios })}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                {themeChoisi === NONE ? tr("conversationAideAucune") : tr("conversationAide")}
+              </p>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label htmlFor="overlay">

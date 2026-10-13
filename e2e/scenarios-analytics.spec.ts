@@ -39,7 +39,6 @@ test.describe("Scénarios — analytics", () => {
       bible: BIBLE_C2.replace('"id": "C2"', `"id": "${s2Code}"`),
       theme: jalousie,
     });
-    for (const id of [s1, s2]) await admin.mutation(api.scenarios.changerStatutScenario, { id, statut: "actif" });
 
     const creator = await createCreatorSession(url, {
       name: `Charlyse [E2E_TEST] ${ts}`,
@@ -59,8 +58,9 @@ test.describe("Scénarios — analytics", () => {
       handle: `@e2escenan${ts}`,
     });
 
-    // Deux campagnes : X coche les deux thèmes (S1 et S2), Y seulement celui de S1.
-    async function campagne(nom: string, themes: string[], videos: number) {
+    // Deux campagnes : X assignée une fois avec le thème de S1, une fois avec
+    // celui de S2 ; Y une fois avec celui de S1. Le thème se choisit à l'assignation.
+    async function campagne(nom: string, themes: string[]) {
       const campaignId = await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] ${nom} ${ts}` });
       const add = (kind: "hook" | "flux" | "cta", content: string) =>
         admin.mutation(api.scripts.createBrick, { campaignId, kind, label: kind, content: `${content} ${nom} ${ts}` });
@@ -68,26 +68,24 @@ test.describe("Scénarios — analytics", () => {
       await add("hook", "Ce site va RUINER tellement de couples");
       await add("flux", "Montre la conv, puis importe-la");
       await add("cta", "Le site est en bio 💬");
-      await admin.mutation(api.scripts.updateCampaign, {
-        id: campaignId,
-        conversationEnabled: true,
-        conversationThemes: themes,
-      });
-      await admin.mutation(api.scripts.assignScriptCampaign, {
-        campaignId,
-        creatorId: creator.creatorId,
-        targets: [target],
-        videosPerCreator: videos,
-        dueDate: ts + 7 * DAY,
-        pricingId,
-      });
+      for (const conversationTheme of themes) {
+        await admin.mutation(api.scripts.assignScriptCampaign, {
+          campaignId,
+          creatorId: creator.creatorId,
+          targets: [target],
+          videosPerCreator: 1,
+          dueDate: ts + 7 * DAY,
+          pricingId,
+          conversationTheme,
+        });
+      }
       const rows = (await admin.query(api.assignments.listAssignments, {})).filter(
         (a) => a.scriptCombo?.campaignId === campaignId,
       );
       return { campaignId, rows };
     }
-    const x = await campagne("X", [dispute, jalousie], 2);
-    const y = await campagne("Y", [dispute], 1);
+    const x = await campagne("X", [dispute, jalousie]);
+    const y = await campagne("Y", [dispute]);
 
     // Publication + relevé à J+7, des vues de forme réelle.
     const vues: Record<string, number[]> = { [s1]: [], [s2]: [] };

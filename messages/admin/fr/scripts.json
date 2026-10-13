@@ -88,14 +88,7 @@
     "notifRattrapageToutCocher": "Tout cocher",
     "notifRattrapageToutDecocher": "Tout décocher",
     "notifRattrapageSansDate": "sans date de post",
-    "notifRattrapageInclure": "Inclure cette vidéo",
-    "conversationToggle": "Conversation WhatsApp dans la vidéo",
-    "conversationToggleHint": "Chaque vidéo assignée reçoit une conversation WhatsApp (.txt) générée au prénom de la créatrice, à importer dans l'app à l'écran — un scénario actif tiré dans les thèmes cochés.",
-    "conversationAucuneActive": "Aucun scénario actif dans les thèmes cochés : l'assignation est bloquée.",
-    "conversationThemes": "Thèmes",
-    "conversationThemeActifs": "{count, plural, =0 {aucun scénario actif} one {# scénario actif} other {# scénarios actifs}}",
-    "conversationAucunScenario": "Aucun scénario dans ce projet pour l'instant.",
-    "conversationGererScenarios": "Gérer les scénarios"
+    "notifRattrapageInclure": "Inclure cette vidéo"
   },
   "BrickRow": {
     "consigne": "💡 consigne",
@@ -280,14 +273,14 @@
     "aucun": "Aucun scénario pour l'instant : importe une bible (.json) ou pars du modèle.",
     "sansTheme": "Sans thème",
     "nouveauTitre": "Nouveau scénario",
-    "nouveauAide": "Le scénario part d'un modèle de bible à compléter, en brouillon.",
+    "nouveauAide": "Le scénario part d'un modèle de bible à compléter. Il est tiré dès qu'une assignation choisit son thème.",
     "importerTitre": "Importer une bible",
     "code": "Code",
     "codeExemple": "A1",
     "codeAide": "Court et sans espace (A1, C2-bis…), unique dans le projet. Il devient l'« id » de la bible.",
     "theme": "Thème",
     "themeExemple": "La dispute",
-    "themeAide": "Les campagnes qui cochent ce thème tirent ce scénario dès qu'il est « Actif ».",
+    "themeAide": "Le thème que tu choisis dans « Assigner » : chaque vidéo reçoit une conversation tirée parmi les scénarios de ce thème.",
     "annuler": "Annuler",
     "creer": "Créer",
     "cree": "Scénario créé",
@@ -308,7 +301,7 @@
     "tester": "Tester",
     "dupliquerTitre": "Dupliquer le scénario",
     "nouveauCode": "Code de la copie",
-    "duplique": "Copie créée, en brouillon",
+    "duplique": "Copie créée",
     "annuler": "Annuler"
   },
   "ScenarioTesteur": {
@@ -360,7 +353,6 @@
     "trop_long": "bible trop longue."
   },
   "scenarioStatut": {
-    "brouillon": "Brouillon",
     "actif": "Actif",
     "archive": "Archivé"
   },

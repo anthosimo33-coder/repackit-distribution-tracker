@@ -77,9 +77,9 @@ export function AssignmentConversationPicker({
   if (!courant && !canPick) return null;
 
   const libelle = (sc: (typeof scenarios)[number]) =>
-    sc.statut === "actif"
-      ? `${sc.code} · ${sc.titre}`
-      : `${sc.code} · ${sc.titre} (${tStatut(sc.statut)})`;
+    sc.statut === "archive"
+      ? `${sc.code} · ${sc.titre} (${tStatut("archive")})`
+      : `${sc.code} · ${sc.titre}`;
   const items: Record<string, string> = { [AUCUNE]: tr("conversationAucune") };
   for (const sc of scenarios) items[sc._id] = libelle(sc);
 

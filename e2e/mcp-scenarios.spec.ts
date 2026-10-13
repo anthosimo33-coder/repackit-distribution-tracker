@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { test, expect, adminPath, E2E_PROJECT_SLUG } from "./fixtures/auth-fixture";
 import type { Page } from "@playwright/test";
 import { createE2eClient } from "./helpers/authed-client";
+import { createCreatorSession } from "./helpers/creator-client";
+import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import { config } from "dotenv";
 
@@ -26,8 +28,11 @@ async function rpc(url: string, token: string, method: string, params?: unknown)
   return (await r.json()) as Rpc;
 }
 
-/** Une clé créée dans l'écran, interrupteur « Scripts » allumé. */
-async function cle(page: Page, nom: string) {
+const jourParis = (n: number) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date(Date.now() + n * 86_400_000));
+
+/** Une clé créée dans l'écran, interrupteur « Scripts » allumé (et « Missions » si demandé). */
+async function cle(page: Page, nom: string, missions = false) {
   await page.goto(adminPath("/comptes"));
   await page.getByRole("button", { name: "Connecter Claude" }).click();
   await page.getByLabel("Nom de la clé").fill(nom);
@@ -43,8 +48,15 @@ async function cle(page: Page, nom: string) {
   await interrupteur.click();
   await expect(interrupteur).toBeChecked();
   expect(await noms()).toEqual(
-    expect.arrayContaining(["creer_scenario", "modifier_scenario", "activer_scenario", "scenarios_campagne", "ajouter_notifs"]),
+    expect.arrayContaining(["creer_scenario", "modifier_scenario", "activer_scenario", "ajouter_notifs"]),
   );
+  // Le thème se choisit à l'assignation : plus d'outil pour le régler sur une campagne.
+  expect(await noms()).not.toContain("scenarios_campagne");
+  if (missions) {
+    const m = page.getByRole("switch", { name: `Modifications des missions pour ${nom}` });
+    await m.click();
+    await expect(m).toBeChecked();
+  }
   await page.keyboard.press("Escape");
   const appel = async (name: string, args: Record<string, unknown>) => {
     const r = await rpc(url, token, "tools/call", { name, arguments: { projet: E2E_PROJECT_SLUG, ...args } });
@@ -60,14 +72,14 @@ async function cle(page: Page, nom: string) {
 }
 
 /**
- * SCÉNARIOS PAR CLAUDE (étape 4) — créer une bible en brouillon (vérifiée champ
+ * SCÉNARIOS PAR CLAUDE (étape 4) — créer une bible (vérifiée champ
  * par champ), la lire, la tester pour un prénom (stats + liens qui génèrent et
  * téléchargent la conv dans le navigateur), l'activer, cocher son thème sur une
  * campagne — et tout défaire. Plus les deux trous comblés : `ajouter_notifs` et
  * les champs du hook libre sur `ajouter_hooks`.
  */
 test.describe("MCP — scénarios de conversation", () => {
-  test("créer, lire, tester (lien = téléchargement), activer, cocher le thème — et défaire", async ({ page }) => {
+  test("créer, lire, tester (lien = téléchargement), modifier, archiver — et défaire", async ({ page }) => {
     test.setTimeout(240_000);
     const ts = Date.now();
     const { appel, defaire } = await cle(page, `E2E scénarios ${ts}`);
@@ -80,16 +92,16 @@ test.describe("MCP — scénarios de conversation", () => {
     expect(fausse.texte).toContain("Bible refusée");
     expect(fausse.texte).toContain("type : type");
 
-    // ── Créée en brouillon, désignée par son code.
+    // ── Créée (tirée dès qu'une assignation choisit son thème), désignée par son code.
     const cree = await appel("creer_scenario", { bible: { ...BIBLE_C2, id: code }, theme });
     expect(cree.erreur, cree.texte).toBe(false);
     const c = JSON.parse(cree.texte) as { fait: string; code: string; lien: string; pourDefaire: string };
     expect(c.code).toBe(code);
-    expect(c.fait).toContain("créé en brouillon");
+    expect(c.fait).toContain("créé, thème");
     expect(c.lien).toMatch(new RegExp(`/admin/${E2E_PROJECT_SLUG}/scenarios/`));
 
     const liste = JSON.parse((await appel("scenarios", {})).texte) as { themes: string[]; scenarios: { code: string; statut: string; theme: string }[] };
-    expect(liste.scenarios.find((s) => s.code === code)).toMatchObject({ statut: "brouillon", theme });
+    expect(liste.scenarios.find((s) => s.code === code)).toMatchObject({ statut: "actif", theme });
     expect(liste.themes).toContain(theme);
     const lu = JSON.parse((await appel("lire_scenario", { scenario: code.toLowerCase() })).texte) as { bible: { id: string; lui: string } };
     expect(lu.bible.id).toBe(code);
@@ -132,30 +144,61 @@ test.describe("MCP — scénarios de conversation", () => {
     expect((await defaire("modifier_scenario")).erreur).toBe(false);
     expect((await scenarioDb())?.theme).toBe(theme);
 
-    // ── Activer, puis cocher son thème sur une campagne (casse ignorée).
-    expect((await appel("activer_scenario", { scenario: code, statut: "actif" })).erreur).toBe(false);
-    const campaignId = await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] Scénarios MCP ${ts}` });
-    const inconnu = await appel("scenarios_campagne", { campagne: `Scénarios MCP ${ts}`, themes: [`Inventé ${ts}`] });
-    expect(inconnu.erreur).toBe(true);
-    expect(inconnu.texte).toContain("aucun scénario du projet");
-    const coche = await appel("scenarios_campagne", { campagne: `Scénarios MCP ${ts}`, themes: [theme.toUpperCase()] });
-    expect(coche.erreur, coche.texte).toBe(false);
-    expect(JSON.parse(coche.texte).enRotation).toEqual([code]);
-    const campagne = async () => (await admin.query(api.scripts.getCampaign, { id: campaignId }))!;
-    expect(await campagne()).toMatchObject({ conversationEnabled: true, conversationThemes: [theme] });
-    // L'écran de la campagne le montre coché.
-    await page.goto(adminPath(`/scripts/${campaignId}`));
-    await expect(
-      page.getByTestId("conversation-themes").getByRole("checkbox", { name: new RegExp(`^${theme}(\\s|$)`) }),
-    ).toBeChecked({ timeout: 15_000 });
-
-    // ── Tout se défait, dans l'ordre inverse.
-    expect((await defaire("scenarios_campagne")).erreur).toBe(false);
-    expect(await campagne()).toMatchObject({ conversationEnabled: false, conversationThemes: [] });
+    // ── Archiver, puis défaire : remis en service.
+    const deja = JSON.parse((await appel("activer_scenario", { scenario: code, statut: "actif" })).texte) as { fait: string };
+    expect(deja.fait).toContain("déjà « actif »");
+    expect((await appel("activer_scenario", { scenario: code, statut: "archive" })).erreur).toBe(false);
+    expect((await scenarioDb())?.statut).toBe("archive");
     expect((await defaire("activer_scenario")).erreur).toBe(false);
-    expect((await scenarioDb())?.statut).toBe("brouillon");
+    expect((await scenarioDb())?.statut).toBe("actif");
+
+    // ── Défaire la création : supprimé (aucune mission ne l'a reçu).
     expect((await defaire("creer_scenario")).erreur).toBe(false);
     expect(await scenarioDb()).toBeUndefined();
+  });
+
+  test("assigner_scripts avec « conversation » : chaque vidéo reçoit un scénario du thème", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { appel } = await cle(page, `E2E assign conv ${ts}`, true);
+    const theme = `Il revient ${ts}`;
+    const scenarioId = await admin.mutation(api.scenarios.creerScenario, {
+      bible: JSON.stringify({ ...BIBLE_C2, id: `R${ts.toString(36).toUpperCase()}`.slice(0, 12) }, null, 2),
+      theme,
+    });
+    const campagne = `[E2E_TEST] Assign conv ${ts}`;
+    const campaignId = await admin.mutation(api.scripts.createCampaign, { name: campagne });
+    for (const [kind, content] of [
+      ["hook", `4 ans de situationship et je découvre ÇA ${ts}`],
+      ["hook", `Ce site va RUINER tellement de couples ${ts}`],
+      ["flux", `Montre la conv, puis importe-la ${ts}`],
+      ["cta", `Le site est en bio 💬 ${ts}`],
+    ] as const) {
+      await admin.mutation(api.scripts.createBrick, { campaignId, kind, label: kind, content });
+    }
+    const bareme = `[E2E_TEST] Barème conv ${ts}`;
+    await admin.mutation(api.pricing.createPricing, { name: bareme, montantFixe: 100, nbVideosCible: 10, tauxCPM: 2 });
+    const nom = `Kelly Martin ${ts}`;
+    const kelly = await createCreatorSession(convexUrl!, {
+      name: `[E2E_TEST] ${nom}`,
+      email: `e2e-mcp-conv-${ts}@repackit.test`,
+      password: "kelly-12345",
+    });
+    await availableTarget({ e2eClient: admin, creatorId: kelly.creatorId, platform: "TikTok", handle: `@kellymartin${ts}` });
+    const assigner = { campagne, createatrices: [nom], jours: [jourParis(3)], bareme };
+
+    // Un thème qu'aucun scénario n'a : refusé, rien de créé.
+    const inconnu = await appel("assigner_scripts", { ...assigner, conversation: `Inventé ${ts}` });
+    expect(inconnu.texte).toContain(`Inventé ${ts}`);
+    const missions = async () =>
+      (await admin.query(api.assignments.listAssignments, {})).filter((a) => a.scriptCombo?.campaignId === campaignId);
+    expect(await missions()).toHaveLength(0);
+
+    // Le bon thème (casse libre) : la mission reçoit son scénario.
+    const ok = await appel("assigner_scripts", { ...assigner, conversation: theme.toUpperCase() });
+    expect(ok.erreur, ok.texte).toBe(false);
+    expect(ok.texte).toContain(`conversation WhatsApp « ${theme.toUpperCase()} »`);
+    expect((await missions()).map((m) => m.scenarioId)).toEqual([scenarioId]);
   });
 
   test("ajouter_notifs (désactivées, doublons, défaire) et hook libre par `exemples`", async ({ page }) => {

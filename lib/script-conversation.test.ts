@@ -2,19 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   cleTheme,
   graineMission,
-  isConversationEnabled,
   pickScenarios,
   scenarioUsageOf,
   scenariosTirables,
-  themesNettoyes,
   type ScenarioUsageRow,
 } from "../convex/scriptConversation";
 
 /**
- * Conversation d'une campagne — la campagne coche des THÈMES, chaque vidéo tire
- * un scénario ACTIF de ces thèmes, en rotation équilibrée hors combo (celle de
- * la notif), lue sur `assignments.scenarioId`. Ids, statuts et thèmes ont la
- * forme de la production.
+ * Conversation d'une vidéo — l'assignation choisit un THÈME, chaque vidéo tire
+ * un scénario de ce thème (sauf archivé), en rotation équilibrée hors combo
+ * (celle de la notif), lue sur `assignments.scenarioId`. Ids, statuts et thèmes
+ * ont la forme de la production.
  */
 const C2 = "kx7scen0000000000000000000000c2";
 const C3 = "kx7scen0000000000000000000000c3";
@@ -33,7 +31,7 @@ const PROJET = [
   scenario(C3, "Il revient", "actif", 1_760_500_000_000),
   scenario(C2, "Il revient ", "actif", 1_760_400_000_000),
   scenario(A1, "La dispute", "actif"),
-  scenario(E4, "il revient", "brouillon"),
+  scenario(E4, "il revient", "archive"),
 ];
 
 function row(creatorId: string, scenarioId: string | undefined, extra: Partial<ScenarioUsageRow> = {}): ScenarioUsageRow {
@@ -46,37 +44,26 @@ function row(creatorId: string, scenarioId: string | undefined, extra: Partial<S
   };
 }
 
-describe("isConversationEnabled", () => {
-  it("n'est allumée que sur true explicite (absent = campagnes existantes inchangées)", () => {
-    expect(isConversationEnabled({ conversationEnabled: true })).toBe(true);
-    expect(isConversationEnabled({ conversationEnabled: false })).toBe(false);
-    expect(isConversationEnabled({})).toBe(false);
-    expect(isConversationEnabled(null)).toBe(false);
-  });
-});
-
 describe("thèmes", () => {
   it("compare sans casse ni espaces autour", () => {
     expect(cleTheme("  Il revient ")).toBe(cleTheme("il REVIENT"));
   });
-
-  it("nettoie la liste d'une campagne : blancs retirés, doublons fusionnés, ordre gardé", () => {
-    expect(themesNettoyes(["La dispute", "  ", " Il revient", "la dispute"])).toEqual(["La dispute", "Il revient"]);
-  });
 });
 
 describe("scenariosTirables", () => {
-  it("ne garde que les ACTIFS des thèmes cochés, du plus ancien au plus récent", () => {
+  it("garde ceux du thème choisi, du plus ancien au plus récent, sans les archivés", () => {
     expect(scenariosTirables(PROJET, ["il revient"]).map((s) => s._id)).toEqual([C2, C3]);
   });
 
-  it("un brouillon du bon thème ne part pas ; actif, il part sans toucher à la campagne", () => {
+  it("un archivé ne part pas ; remis en service — ou ancien « brouillon » —, il part", () => {
     expect(scenariosTirables(PROJET, ["Il revient"]).map((s) => s._id)).not.toContain(E4);
-    const active = PROJET.map((s) => (s._id === E4 ? { ...s, statut: "actif" } : s));
-    expect(scenariosTirables(active, ["Il revient"]).map((s) => s._id)).toContain(E4);
+    for (const statut of ["actif", "brouillon"]) {
+      const remis = PROJET.map((s) => (s._id === E4 ? { ...s, statut } : s));
+      expect(scenariosTirables(remis, ["Il revient"]).map((s) => s._id)).toContain(E4);
+    }
   });
 
-  it("aucun thème coché : rien à tirer", () => {
+  it("aucun thème : rien à tirer", () => {
     expect(scenariosTirables(PROJET, [])).toEqual([]);
   });
 });

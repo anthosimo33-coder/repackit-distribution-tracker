@@ -88,14 +88,7 @@
     "notifRattrapageToutCocher": "Check all",
     "notifRattrapageToutDecocher": "Uncheck all",
     "notifRattrapageSansDate": "no post date",
-    "notifRattrapageInclure": "Include this video",
-    "conversationToggle": "WhatsApp conversation in the video",
-    "conversationToggleHint": "Each assigned video gets a WhatsApp conversation (.txt) generated with the creator's first name, to import into the app on screen — an active scenario drawn from the ticked themes.",
-    "conversationAucuneActive": "No active scenario in the ticked themes: assigning is blocked.",
-    "conversationThemes": "Themes",
-    "conversationThemeActifs": "{count, plural, =0 {no active scenario} one {# active scenario} other {# active scenarios}}",
-    "conversationAucunScenario": "No scenario in this project yet.",
-    "conversationGererScenarios": "Manage scenarios"
+    "notifRattrapageInclure": "Include this video"
   },
   "BrickRow": {
     "consigne": "💡 note",
@@ -280,14 +273,14 @@
     "aucun": "No scenario yet: import a bible (.json) or start from the template.",
     "sansTheme": "No theme",
     "nouveauTitre": "New scenario",
-    "nouveauAide": "The scenario starts from a bible template to fill in, as a draft.",
+    "nouveauAide": "The scenario starts from a bible template to fill in. It is drawn as soon as an assignment picks its theme.",
     "importerTitre": "Import a bible",
     "code": "Code",
     "codeExemple": "A1",
     "codeAide": "Short, no spaces (A1, C2-bis…), unique in the project. It becomes the bible's “id”.",
     "theme": "Theme",
     "themeExemple": "The fight",
-    "themeAide": "Campaigns that tick this theme draw this scenario as soon as it is “Active”.",
+    "themeAide": "The theme you pick in “Assign”: each video gets a conversation drawn from this theme's scenarios.",
     "annuler": "Cancel",
     "creer": "Create",
     "cree": "Scenario created",
@@ -308,7 +301,7 @@
     "tester": "Test",
     "dupliquerTitre": "Duplicate the scenario",
     "nouveauCode": "Code of the copy",
-    "duplique": "Copy created, as a draft",
+    "duplique": "Copy created",
     "annuler": "Cancel"
   },
   "ScenarioTesteur": {
@@ -360,7 +353,6 @@
     "trop_long": "bible too long."
   },
   "scenarioStatut": {
-    "brouillon": "Draft",
     "actif": "Active",
     "archive": "Archived"
   },
