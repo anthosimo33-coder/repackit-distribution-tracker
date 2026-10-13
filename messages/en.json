@@ -1536,6 +1536,7 @@
     "ERR_SCENARIO_CODE_TAKEN": "Code {code} is already used by another scenario in this project.",
     "ERR_SCENARIO_NOT_FOUND": "Scenario not found.",
     "ERR_SCENARIO_ARCHIVED": "Scenario {code} is archived: set it back to “Active” to give it.",
+    "ERR_SCENARIO_IN_USE": "Scenario {code} has already been given to missions: archive it instead of deleting it.",
     "ERR_NO_ACTIVE_CONVERSATION": "Scenarios are on for this campaign, but none of its themes has an active scenario: tick a theme, set one of its scenarios to “Active”, or turn scenarios off.",
     "ERR_COMPTA_CHARGE_INVALID": "Invalid expense: it needs a date, a label, a positive amount and a currency the project can convert.",
     "ERR_COMPTA_CHARGE_NOT_FOUND": "This expense no longer exists.",

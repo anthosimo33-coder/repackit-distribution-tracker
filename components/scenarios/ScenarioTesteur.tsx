@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { DicesIcon, DownloadIcon, FlaskConicalIcon, Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,13 @@ import { genererConversation, statsConversation, statsTexte } from "@/convex/sce
 import { parisDayKey } from "@/convex/viewsDaily";
 import { ecranChocPng } from "@/components/scenarios/ecranChoc";
 import { blobTexte, blobZip, enregistrer } from "@/components/scenarios/telechargement";
+
+/** Les trois fichiers d'un test, tels que les boutons les enregistrent. */
+function telecharger(r: Resultat, quoi: "txt" | "zip" | "png") {
+  if (quoi === "txt") enregistrer(blobTexte(r.texte), r.nomFichier);
+  else if (quoi === "zip") enregistrer(blobZip(r.texte), r.nomZip);
+  else enregistrer(r.png, `${r.nomFichier.replace(/\.txt$/, "")} - ecran choc.png`);
+}
 
 type Resultat = {
   stats: string;
@@ -34,12 +41,32 @@ type Resultat = {
  * Par défaut la conv FINIT AUJOURD'HUI (option A : BLUSH compare les messages
  * au jour de l'import) ; « dates de la bible » rend la conv telle qu'écrite, ce
  * qui permet de la comparer au moteur Python.
+ *
+ * `auto` : un lien de l'outil MCP `tester_scenario` — les réglages sont repris,
+ * la conv se génère à l'ouverture et, s'il le demande, le fichier s'enregistre
+ * aussitôt ; `onAutoFait` retire alors le paramètre (un rechargement ne
+ * retélécharge pas).
  */
-export function ScenarioTesteur({ bible }: { bible: Bible | null }) {
+export type TestAuto = {
+  prenom: string;
+  graine: number;
+  datesBible: boolean;
+  telecharger: "txt" | "zip" | "png" | null;
+};
+
+export function ScenarioTesteur({
+  bible,
+  auto = null,
+  onAutoFait,
+}: {
+  bible: Bible | null;
+  auto?: TestAuto | null;
+  onAutoFait?: () => void;
+}) {
   const tr = useTranslations("admin.scripts.ScenarioTesteur");
-  const [prenom, setPrenom] = useState("Kelly");
-  const [graine, setGraine] = useState(7);
-  const [aujourdhui, setAujourdhui] = useState(true);
+  const [prenom, setPrenom] = useState(auto?.prenom ?? "Kelly");
+  const [graine, setGraine] = useState(auto?.graine ?? 7);
+  const [aujourdhui, setAujourdhui] = useState(!(auto?.datesBible ?? false));
   const [busy, setBusy] = useState(false);
   const [resultat, setResultat] = useState<Resultat | null>(null);
   const [echec, setEchec] = useState(false);
@@ -51,20 +78,22 @@ export function ScenarioTesteur({ bible }: { bible: Bible | null }) {
 
   const prenomOk = nomExportValide(prenom);
 
-  async function tester() {
-    if (!bible || !prenomOk) return;
+  async function generer(
+    b: Bible,
+    reglages: { prenom: string; graine: number; aujourdhui: boolean },
+  ): Promise<Resultat | null> {
     setBusy(true);
     setEchec(false);
     try {
-      const gen = genererConversation(bible, {
-        prenom: prenom.trim(),
-        graine,
-        ...(aujourdhui ? { finLe: parisDayKey(Date.now()) } : {}),
+      const gen = genererConversation(b, {
+        prenom: reglages.prenom.trim(),
+        graine: reglages.graine,
+        ...(reglages.aujourdhui ? { finLe: parisDayKey(Date.now()) } : {}),
       });
-      const stats = statsConversation(gen, [bible.mot_a_vous.mot]);
+      const stats = statsConversation(gen, [b.mot_a_vous.mot]);
       const png = await ecranChocPng({ texte: gen.texte, prenom: gen.noms.L, lui: gen.noms.Y });
-      setResultat({
-        stats: statsTexte(bible, gen, stats),
+      const r = {
+        stats: statsTexte(b, gen, stats),
         texte: gen.texte,
         nomFichier: gen.nomFichier,
         nomZip: gen.nomZip,
@@ -72,13 +101,43 @@ export function ScenarioTesteur({ bible }: { bible: Bible | null }) {
         apercu: URL.createObjectURL(png),
         decalageJours: gen.decalageJours,
         messages: stats.messages,
-      });
+      };
+      setResultat(r);
+      return r;
     } catch {
       setEchec(true);
+      return null;
     } finally {
       setBusy(false);
     }
   }
+
+  async function tester() {
+    if (!bible || !prenomOk) return;
+    await generer(bible, { prenom, graine, aujourdhui });
+  }
+
+  // Lien de `tester_scenario` : une seule fois, dès que la bible est lue. La
+  // dernière version des fonctions est gardée dans une ref (cf AutoExport de
+  // components/admin/insta-conv/ConvStudio.tsx).
+  const autoRef = useRef({ generer, onAutoFait });
+  useEffect(() => {
+    autoRef.current = { generer, onAutoFait };
+  });
+  const autoFait = useRef(false);
+  useEffect(() => {
+    if (!auto || !bible || autoFait.current || !nomExportValide(auto.prenom)) return;
+    autoFait.current = true;
+    window.setTimeout(async () => {
+      const r = await autoRef.current.generer(bible, {
+        prenom: auto.prenom,
+        graine: auto.graine,
+        aujourdhui: !auto.datesBible,
+      });
+      if (r && auto.telecharger) telecharger(r, auto.telecharger);
+      autoRef.current.onAutoFait?.();
+    }, 300);
+  }, [auto, bible]);
 
   return (
     <Card>
@@ -168,7 +227,7 @@ export function ScenarioTesteur({ bible }: { bible: Bible | null }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => enregistrer(blobTexte(resultat.texte), resultat.nomFichier)}
+                onClick={() => telecharger(resultat, "txt")}
                 data-testid="telecharger-txt"
               >
                 <DownloadIcon className="mr-2 size-4" />
@@ -177,7 +236,7 @@ export function ScenarioTesteur({ bible }: { bible: Bible | null }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => enregistrer(blobZip(resultat.texte), resultat.nomZip)}
+                onClick={() => telecharger(resultat, "zip")}
                 data-testid="telecharger-zip"
               >
                 <DownloadIcon className="mr-2 size-4" />
@@ -186,7 +245,7 @@ export function ScenarioTesteur({ bible }: { bible: Bible | null }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => enregistrer(resultat.png, `${resultat.nomFichier.replace(/\.txt$/, "")} - ecran choc.png`)}
+                onClick={() => telecharger(resultat, "png")}
                 data-testid="telecharger-png"
               >
                 <DownloadIcon className="mr-2 size-4" />

@@ -442,7 +442,12 @@ type OutilEcriture =
   | "modifier_conversation"
   | "supprimer_conversation"
   | "changer_bareme"
-  | "regler_taux";
+  | "regler_taux"
+  | "ajouter_notifs"
+  | "creer_scenario"
+  | "modifier_scenario"
+  | "activer_scenario"
+  | "scenarios_campagne";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

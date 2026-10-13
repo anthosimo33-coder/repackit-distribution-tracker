@@ -153,6 +153,7 @@ import type * as mcpOAuthHttp from "../mcpOAuthHttp.js";
 import type * as mcpPrompts from "../mcpPrompts.js";
 import type * as mcpPropositions from "../mcpPropositions.js";
 import type * as mcpProtocol from "../mcpProtocol.js";
+import type * as mcpScenarios from "../mcpScenarios.js";
 import type * as mcpTaux from "../mcpTaux.js";
 import type * as mcpTokens from "../mcpTokens.js";
 import type * as mcpTools from "../mcpTools.js";
@@ -441,6 +442,7 @@ declare const fullApi: ApiFromModules<{
   mcpPrompts: typeof mcpPrompts;
   mcpPropositions: typeof mcpPropositions;
   mcpProtocol: typeof mcpProtocol;
+  mcpScenarios: typeof mcpScenarios;
   mcpTaux: typeof mcpTaux;
   mcpTokens: typeof mcpTokens;
   mcpTools: typeof mcpTools;

@@ -13,89 +13,98 @@
  */
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { permissionQuery } from "./functions";
+import type { QueryCtx } from "./_generated/server";
+import { mcpPermissionQuery, permissionQuery } from "./functions";
 import { findMatchingSnapshot } from "./snapshotMatching";
 import { passesWarmupMode } from "./warmupMode";
 import { decideBriques, DECISION_THRESHOLD } from "./scriptDecision";
 import { agregerParScenario, type EchantillonScenario } from "./scenarioPerf";
 
 const FENETRE = v.union(v.literal("j3"), v.literal("j7"), v.literal("j14"), v.literal("j30"));
+type Fenetre = "j3" | "j7" | "j14" | "j30";
 
+/** L'écran Scénarios et l'outil MCP `scenarios` : le même calcul. */
 export const perfParScenario = permissionQuery("content.analytics")({
   args: { fenetre: v.optional(FENETRE) },
-  handler: async (ctx, args) => {
-    const fenetre = args.fenetre ?? "j7";
-    const duProjet = new Set<string>(
-      (
-        await ctx.db
-          .query("scenarios")
-          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-          .collect()
-      ).map((sc) => sc._id),
-    );
-    if (duProjet.size === 0) {
-      return { fenetre, seuil: DECISION_THRESHOLD, scenarios: [] };
-    }
-
-    const pubs = (
-      await ctx.db
-        .query("publications")
-        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-        .collect()
-    ).filter(
-      (p) =>
-        p.scriptCombo?.scenarioId !== undefined &&
-        duProjet.has(p.scriptCombo.scenarioId) &&
-        passesWarmupMode(p.isWarmup === true, "exclude"),
-    );
-    const echantillons: EchantillonScenario[] = [];
-    for (const p of pubs) {
-      const releves = await ctx.db
-        .query("metricSnapshots")
-        .withIndex("by_publication", (q) => q.eq("publicationId", p._id))
-        .collect();
-      const match = findMatchingSnapshot(releves, fenetre);
-      if (!match) continue; // pas encore de relevé à la fenêtre : hors échantillon
-      echantillons.push({
-        scenarioId: p.scriptCombo!.scenarioId!,
-        campaignId: p.scriptCombo!.campaignId,
-        vues: match.vues,
-      });
-    }
-
-    const perf = agregerParScenario(echantillons);
-    const verdicts = new Map(
-      decideBriques(
-        perf.map((s) => ({
-          key: s.scenarioId,
-          label: s.scenarioId,
-          kind: "scenario",
-          postCount: s.posts,
-          viewsMedian: s.vuesMediane,
-        })),
-      ).map((d) => [d.key, d]),
-    );
-    const nomsCampagnes = new Map<string, string>();
-    for (const id of new Set(perf.flatMap((s) => s.campagnes.map((c) => c.campaignId)))) {
-      const c = await ctx.db.get(id as Id<"scriptCampaigns">);
-      if (c && c.projectId === ctx.projectId) nomsCampagnes.set(id, c.name);
-    }
-    return {
-      fenetre,
-      seuil: DECISION_THRESHOLD,
-      scenarios: perf.map((s) => ({
-        scenarioId: s.scenarioId as Id<"scenarios">,
-        posts: s.posts,
-        vuesMediane: s.vuesMediane,
-        verdict: verdicts.get(s.scenarioId)?.verdict ?? "en_test",
-        ecartPairs: verdicts.get(s.scenarioId)?.deltaVsPeerMedian ?? null,
-        campagnes: s.campagnes.map((c) => ({
-          campaignId: c.campaignId as Id<"scriptCampaigns">,
-          nom: nomsCampagnes.get(c.campaignId) ?? null,
-          posts: c.posts,
-          vuesMediane: c.vuesMediane,
-        })),
-      })),
-    };
-  },
+  handler: (ctx, args) => perfParScenarioCore(ctx, ctx.projectId, args.fenetre ?? "j7"),
 });
+
+export const perfParScenarioMcp = mcpPermissionQuery("content.analytics")({
+  args: {},
+  handler: (ctx) => perfParScenarioCore(ctx, ctx.projectId, "j7"),
+});
+
+async function perfParScenarioCore(ctx: QueryCtx, projectId: Id<"projects">, fenetre: Fenetre) {
+  const duProjet = new Set<string>(
+    (
+      await ctx.db
+        .query("scenarios")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect()
+    ).map((sc) => sc._id),
+  );
+  if (duProjet.size === 0) {
+    return { fenetre, seuil: DECISION_THRESHOLD, scenarios: [] };
+  }
+
+  const pubs = (
+    await ctx.db
+      .query("publications")
+      .withIndex("by_project", (q) => q.eq("projectId", projectId))
+      .collect()
+  ).filter(
+    (p) =>
+      p.scriptCombo?.scenarioId !== undefined &&
+      duProjet.has(p.scriptCombo.scenarioId) &&
+      passesWarmupMode(p.isWarmup === true, "exclude"),
+  );
+  const echantillons: EchantillonScenario[] = [];
+  for (const p of pubs) {
+    const releves = await ctx.db
+      .query("metricSnapshots")
+      .withIndex("by_publication", (q) => q.eq("publicationId", p._id))
+      .collect();
+    const match = findMatchingSnapshot(releves, fenetre);
+    if (!match) continue; // pas encore de relevé à la fenêtre : hors échantillon
+    echantillons.push({
+      scenarioId: p.scriptCombo!.scenarioId!,
+      campaignId: p.scriptCombo!.campaignId,
+      vues: match.vues,
+    });
+  }
+
+  const perf = agregerParScenario(echantillons);
+  const verdicts = new Map(
+    decideBriques(
+      perf.map((s) => ({
+        key: s.scenarioId,
+        label: s.scenarioId,
+        kind: "scenario",
+        postCount: s.posts,
+        viewsMedian: s.vuesMediane,
+      })),
+    ).map((d) => [d.key, d]),
+  );
+  const nomsCampagnes = new Map<string, string>();
+  for (const id of new Set(perf.flatMap((s) => s.campagnes.map((c) => c.campaignId)))) {
+    const c = await ctx.db.get(id as Id<"scriptCampaigns">);
+    if (c && c.projectId === projectId) nomsCampagnes.set(id, c.name);
+  }
+  return {
+    fenetre,
+    seuil: DECISION_THRESHOLD,
+    scenarios: perf.map((s) => ({
+      scenarioId: s.scenarioId as Id<"scenarios">,
+      posts: s.posts,
+      vuesMediane: s.vuesMediane,
+      verdict: verdicts.get(s.scenarioId)?.verdict ?? "en_test",
+      ecartPairs: verdicts.get(s.scenarioId)?.deltaVsPeerMedian ?? null,
+      campagnes: s.campagnes.map((c) => ({
+        campaignId: c.campaignId as Id<"scriptCampaigns">,
+        nom: nomsCampagnes.get(c.campaignId) ?? null,
+        posts: c.posts,
+        vuesMediane: c.vuesMediane,
+      })),
+    })),
+  };
+}

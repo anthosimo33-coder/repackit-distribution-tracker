@@ -955,7 +955,12 @@
       "modifier_conversation": "Conversation edited",
       "supprimer_conversation": "Conversation deleted",
       "changer_bareme": "Video pay grid changed",
-      "regler_taux": "Exchange rate set"
+      "regler_taux": "Exchange rate set",
+      "ajouter_notifs": "Notifs added",
+      "creer_scenario": "Scenario created",
+      "modifier_scenario": "Scenario edited",
+      "activer_scenario": "Scenario status changed",
+      "scenarios_campagne": "Campaign scenario themes"
     },
     "section": {
       "treasury": "Cash",
@@ -970,7 +975,8 @@
       "inspirations": "Inspirations",
       "messages": "Creators",
       "conversations": "Instagram conversations",
-      "pricing": "Pay grids"
+      "pricing": "Pay grids",
+      "scenarios": "Scenarios"
     },
     "domaine": {
       "compta": {
@@ -985,7 +991,7 @@
       },
       "scripts": {
         "titre": "Scripts",
-        "objet": "scripts",
+        "objet": "scripts and scenarios",
         "aria": "Script edits for {name}"
       },
       "publications": {

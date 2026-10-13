@@ -4,6 +4,8 @@
  *
  *  - `ajouter_hooks` : des hooks écrits par Claude, créés DÉSACTIVÉS par défaut
  *    — aucun tirage ne les sert avant qu'une personne les ait relus ;
+ *  - `ajouter_notifs` : des notifs (texte affiché à l'écran comme une
+ *    notification), désactivées par défaut elles aussi ;
  *  - `activer_briques` : allumer ou éteindre des briques en une fois (le banc
  *    de montage) ;
  *  - `graduer_hook` : le bouton « Graduer » (copie dans les ouvertures prouvées
@@ -11,6 +13,9 @@
  *
  * Une brique se désigne par son LIBELLÉ, tel que l'outil `scripts` le montre, ou
  * par un morceau de son texte.
+ *
+ * Le même interrupteur ouvre les outils des SCÉNARIOS de conversation
+ * (convex/mcpScenarios) : même droit, même écran de campagne.
  */
 
 import { v } from "convex/values";
@@ -42,6 +47,8 @@ import { createBrickCore, createCampaignCore, graduateHookCore, hookLabelOf, set
 import { plierTexte } from "./mcpWriteArgs";
 import { hookIdentityKey, PROVEN_CAMPAIGN_NAME } from "./graduation";
 import { MAX_AUTRES_EXEMPLES } from "./hookLibre";
+import { isNotifEnabled } from "./scriptNotif";
+import { appelerEcritureScenarios, NOMS_ECRITURE_SCENARIOS, OUTILS_ECRITURE_SCENARIOS } from "./mcpScenarios";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -70,12 +77,18 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
               consigne: { type: "string", description: "Consigne de tournage lue sous ce hook (facultatif)." },
               libre: {
                 type: "boolean",
-                description: "true = hook LIBRE : la créatrice reformule avec ses mots. Implicite dès qu'une `direction` ou des `autres_exemples` sont donnés.",
+                description: "true = hook LIBRE : la créatrice reformule avec ses mots. Implicite dès qu'une `direction` ou des `exemples` sont donnés.",
               },
               direction: { type: "string", description: "Hook libre : l'idée à garder, lue au-dessus des exemples (facultatif)." },
+              exemples: {
+                type: "array",
+                description: `Hook libre : d'autres formulations pour l'inspirer, ${MAX_AUTRES_EXEMPLES} au plus (en plus de \`texte\`).`,
+                maxItems: MAX_AUTRES_EXEMPLES,
+                items: { type: "string" },
+              },
               autres_exemples: {
                 type: "array",
-                description: `Hook libre : d'autres formulations pour l'inspirer, ${MAX_AUTRES_EXEMPLES} au plus.`,
+                description: "Ancien nom de `exemples`, accepté aussi.",
                 maxItems: MAX_AUTRES_EXEMPLES,
                 items: { type: "string" },
               },
@@ -123,6 +136,38 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
         actives: { type: "boolean", description: "true = les créer ACTIVES. Défaut : désactivées." },
       },
       required: ["campagne", "role", "briques"],
+      additionalProperties: false,
+    },
+    annotations: AJOUTE,
+  },
+  {
+    name: "ajouter_notifs",
+    title: "Ajouter des notifs à une campagne",
+    description:
+      "MODIFIE les scripts : ajoute des notifs à une campagne — le texte que la créatrice affiche à l'écran comme une notification, une par vidéo, tiré en rotation. Créées DÉSACTIVÉES par défaut, comme les hooks. Une notif dont le texte existe déjà dans la campagne n'est pas recréée. Elles ne partent que si la campagne a « Notif dans la vidéo » allumée (écran de la campagne).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        campagne: ARG_CAMPAGNE,
+        notifs: {
+          type: "array",
+          description: "Les notifs, 20 au plus.",
+          minItems: 1,
+          maxItems: 20,
+          items: {
+            type: "object",
+            properties: {
+              texte: { type: "string", description: "Le texte de la notif, tel qu'il s'affiche." },
+              consigne: { type: "string", description: "Consigne lue sous la notif (facultatif)." },
+            },
+            required: ["texte"],
+            additionalProperties: false,
+          },
+        },
+        actives: { type: "boolean", description: "true = les créer ACTIVES. Défaut : désactivées." },
+      },
+      required: ["campagne", "notifs"],
       additionalProperties: false,
     },
     annotations: AJOUTE,
@@ -350,6 +395,59 @@ export const ecrireFluxCta = mcpWriteMutation("scripts.manage", "scripts")({
   },
 });
 
+export const ecrireNotifs = mcpWriteMutation("scripts.manage", "scripts")({
+  args: {
+    campagne: v.string(),
+    notifs: v.array(v.object({ texte: v.string(), consigne: v.optional(v.string()) })),
+    actives: v.boolean(),
+  },
+  handler: async (ctx, a) => {
+    const campagne = await campagneDe(ctx, a.campagne);
+    const existantes = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_campaign_kind", (q) => q.eq("campaignId", campagne._id).eq("kind", "notif"))
+      .collect();
+    const vus = new Set(existantes.map((b) => plierTexte(b.content)));
+    const crees: Id<"scriptBricks">[] = [];
+    const doublons: string[] = [];
+    for (const n of a.notifs) {
+      const texte = n.texte.trim();
+      if (texte === "") continue;
+      if (vus.has(plierTexte(texte))) {
+        doublons.push(texte);
+        continue;
+      }
+      vus.add(plierTexte(texte));
+      crees.push(
+        await createBrickCore(ctx, {
+          campaignId: campagne._id,
+          kind: "notif",
+          label: hookLabelOf(texte),
+          content: texte,
+          ...(n.consigne?.trim() ? { instruction: n.consigne } : {}),
+          active: a.actives,
+        }),
+      );
+    }
+    const k = crees.length;
+    const summary =
+      `« ${campagne.name} » : ${k} notif${k > 1 ? "s" : ""} ajoutée${k > 1 ? "s" : ""}` +
+      (k > 0 ? ` (${a.actives ? "active" : "désactivée"}${k > 1 ? "s" : ""})` : "") +
+      (doublons.length > 0 ? `, ${doublons.length} déjà présente${doublons.length > 1 ? "s" : ""}` : "");
+    if (k > 0) {
+      await journaliser(ctx, {
+        tool: "ajouter_notifs",
+        summary,
+        section: "campaign",
+        path: `scripts/${campagne._id}`,
+        annulation: { type: "briquesCreees", brickIds: crees },
+        etats: await etatsCrees(ctx, "scriptBricks", crees),
+      });
+    }
+    return { summary, doublons, notifAllumee: isNotifEnabled(campagne) };
+  },
+});
+
 export const ecrireCampagne = mcpWriteMutation("scripts.manage", "scripts")({
   args: {
     nom: v.string(),
@@ -488,6 +586,7 @@ const OU_DEFAIRE: Record<string, string> = {
   ajouter_flux_cta: "`defaire`, ou Scripts › la campagne › supprime les briques ajoutées (désactivées, elles ne sortent dans aucun tirage).",
   creer_campagne: "`defaire` (tant qu'aucune mission ne l'utilise), ou Scripts › la campagne › supprimer.",
   ajouter_hooks: "Scripts › la campagne › supprime les hooks ajoutés (désactivés, ils ne sortent dans aucun tirage).",
+  ajouter_notifs: "`defaire` (tant qu'aucune mission ne les a reçues), ou Scripts › la campagne › onglet Notif.",
   activer_briques: "Rappelle activer_briques avec l'état inverse, ou Scripts › la campagne › le banc de montage.",
   graduer_hook: `Scripts › « ${PROVEN_CAMPAIGN_NAME} » › supprime la copie, puis réactive l'original dans sa campagne.`,
 };
@@ -516,7 +615,7 @@ async function appelerEcritureScripts(
   }
   const campagne = texteArg(args, "campagne");
   if (campagne === "") throw new ToolError("« campagne » : le nom de la campagne (outil `scripts`).");
-  let r: { summary: string; doublons?: string[] };
+  let r: { summary: string; doublons?: string[]; notifAllumee?: boolean };
   if (name === "ajouter_flux_cta") {
     const role = roleBriqueDepuis(args.role);
     if (role !== "flux" && role !== "cta") throw new ToolError("« role » : flux ou cta (les hooks : ajouter_hooks).");
@@ -535,8 +634,10 @@ async function appelerEcritureScripts(
       const texte = typeof o.texte === "string" ? o.texte.trim() : "";
       if (texte === "") throw new ToolError(`Hook ${i + 1} : « texte » vide.`);
       const direction = typeof o.direction === "string" ? o.direction.trim() : "";
-      const autresExemples = Array.isArray(o.autres_exemples)
-        ? o.autres_exemples.filter((e): e is string => typeof e === "string" && e.trim() !== "")
+      // `exemples` (nom de la spec) ou `autres_exemples` (premier nom) : les deux.
+      const exemples = o.exemples ?? o.autres_exemples;
+      const autresExemples = Array.isArray(exemples)
+        ? exemples.filter((e): e is string => typeof e === "string" && e.trim() !== "")
         : [];
       // Une direction ou des exemples n'ont de sens que sur un hook libre :
       // les donner suffit à le rendre libre.
@@ -555,6 +656,17 @@ async function appelerEcritureScripts(
     });
     r = await ecrire(() =>
       ctx.runMutation(internal.mcpWritesScripts.ecrireHooks, { ...cible, campagne, hooks, actifs: args.actifs === true }),
+    );
+  } else if (name === "ajouter_notifs") {
+    const notifs = (Array.isArray(args.notifs) ? args.notifs : []).map((n, i) => {
+      const o = (typeof n === "object" && n !== null ? n : {}) as Record<string, unknown>;
+      const texte = typeof o.texte === "string" ? o.texte.trim() : "";
+      if (texte === "") throw new ToolError(`Notif ${i + 1} : « texte » vide.`);
+      return { texte, ...(typeof o.consigne === "string" && o.consigne.trim() !== "" ? { consigne: o.consigne.trim() } : {}) };
+    });
+    if (notifs.length === 0) throw new ToolError("« notifs » : au moins une notif.");
+    r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesScripts.ecrireNotifs, { ...cible, campagne, notifs, actives: args.actives === true }),
     );
   } else if (name === "activer_briques") {
     if (typeof args.actif !== "boolean") throw new ToolError("« actif » : true pour activer, false pour désactiver.");
@@ -577,18 +689,23 @@ async function appelerEcritureScripts(
   } else {
     throw new ToolError(`Outil inconnu : ${name}.`);
   }
-  return resultatEcriture(
-    projet,
-    r.summary,
-    OU_DEFAIRE[name],
-    r.doublons && r.doublons.length > 0 ? { dejaPresents: r.doublons } : {},
-  );
+  return resultatEcriture(projet, r.summary, OU_DEFAIRE[name], {
+    ...(r.doublons && r.doublons.length > 0 ? { dejaPresents: r.doublons } : {}),
+    ...(r.notifAllumee === false
+      ? { attention: "La notif est éteinte sur cette campagne : ces notifs ne partiront qu'une fois « Notif dans la vidéo » allumée (écran de la campagne)." }
+      : {}),
+  });
 }
 
-/** Le domaine « scripts » : interrupteur « Peut modifier les scripts ». */
+const OUTILS_DOMAINE_SCRIPTS = [...OUTILS_ECRITURE_SCRIPTS, ...OUTILS_ECRITURE_SCENARIOS];
+
+/** Le domaine « scripts » : interrupteur « Peut modifier les scripts » — briques ET scénarios. */
 export const DOMAINE_SCRIPTS: DomaineEcriture = {
   scope: "scripts",
-  outils: OUTILS_ECRITURE_SCRIPTS,
-  droits: Object.fromEntries(OUTILS_ECRITURE_SCRIPTS.map((t) => [t.name, "scripts.manage" as const])),
-  appeler: appelerEcritureScripts,
+  outils: OUTILS_DOMAINE_SCRIPTS,
+  droits: Object.fromEntries(OUTILS_DOMAINE_SCRIPTS.map((t) => [t.name, "scripts.manage" as const])),
+  appeler: (ctx, name, args, cible, projet) =>
+    NOMS_ECRITURE_SCENARIOS.has(name)
+      ? appelerEcritureScenarios(ctx, name, args, cible, projet)
+      : appelerEcritureScripts(ctx, name, args, cible, projet),
 };

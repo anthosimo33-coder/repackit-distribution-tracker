@@ -157,18 +157,29 @@ export const creerScenario = permissionMutation("scripts.manage")({
 });
 
 /** Remplace la bible et/ou le thème. Changer l'`id` de la bible change le code. */
+export async function modifierScenarioCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"scenarios">,
+  args: { bible?: string; theme?: string },
+): Promise<void> {
+  const s = await scenarioDuProjet(ctx, id);
+  const patch: Partial<Doc<"scenarios">> = { updatedAt: Date.now() };
+  if (args.bible !== undefined) {
+    const bible = bibleValide(args.bible);
+    await codeLibre(ctx, bible.id, s._id);
+    Object.assign(patch, { bible: args.bible, code: bible.id, titre: bible.titre.trim(), type: bible.type });
+  }
+  if (args.theme !== undefined) patch.theme = themeValide(args.theme);
+  await ctx.db.patch(s._id, patch);
+}
+
 export const modifierScenario = permissionMutation("scripts.manage")({
   args: { id: v.id("scenarios"), bible: v.optional(v.string()), theme: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const s = await scenarioDuProjet(ctx, args.id);
-    const patch: Partial<Doc<"scenarios">> = { updatedAt: Date.now() };
-    if (args.bible !== undefined) {
-      const bible = bibleValide(args.bible);
-      await codeLibre(ctx, bible.id, s._id);
-      Object.assign(patch, { bible: args.bible, code: bible.id, titre: bible.titre.trim(), type: bible.type });
-    }
-    if (args.theme !== undefined) patch.theme = themeValide(args.theme);
-    await ctx.db.patch(s._id, patch);
+    await modifierScenarioCore(ctx, args.id, {
+      ...(args.bible !== undefined ? { bible: args.bible } : {}),
+      ...(args.theme !== undefined ? { theme: args.theme } : {}),
+    });
     return { ok: true };
   },
 });
@@ -188,12 +199,41 @@ export const dupliquerScenario = permissionMutation("scripts.manage")({
   },
 });
 
-/** Brouillon → actif (tirable par les campagnes, étape 2) → archivé. */
+export type StatutScenario = Doc<"scenarios">["statut"];
+
+/** Brouillon → actif (tirable par les campagnes) → archivé. */
+export async function changerStatutScenarioCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"scenarios">,
+  statut: StatutScenario,
+): Promise<void> {
+  const s = await scenarioDuProjet(ctx, id);
+  await ctx.db.patch(s._id, { statut, updatedAt: Date.now() });
+}
+
 export const changerStatutScenario = permissionMutation("scripts.manage")({
   args: { id: v.id("scenarios"), statut: STATUT },
   handler: async (ctx, args) => {
-    const s = await scenarioDuProjet(ctx, args.id);
-    await ctx.db.patch(s._id, { statut: args.statut, updatedAt: Date.now() });
+    await changerStatutScenarioCore(ctx, args.id, args.statut);
     return { ok: true };
   },
 });
+
+/**
+ * Supprime un scénario QU'AUCUNE MISSION N'A REÇU — seul « défaire » d'une
+ * création par Claude s'en sert (l'écran archive). Donné à une mission, il est
+ * refusé : elle en génère encore sa conversation.
+ */
+export async function supprimerScenarioCore(ctx: ProjectMutationCtx, id: Id<"scenarios">): Promise<void> {
+  const s = await scenarioDuProjet(ctx, id);
+  const donne = (
+    await ctx.db
+      .query("assignments")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect()
+  ).some((a) => a.scenarioId === s._id);
+  if (donne) {
+    throw err(ERR.SCENARIO_IN_USE, `Le scénario ${s.code} a déjà été donné à des missions : archive-le plutôt.`, { code: s.code });
+  }
+  await ctx.db.delete(s._id);
+}
