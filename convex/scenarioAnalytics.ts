@@ -2,14 +2,13 @@
  * ANALYTICS PAR SCÉNARIO — « Scénario » mesuré comme hook, flux, description et
  * notif : nombre de posts, vues médianes à J+7, verdict à partir de 50 posts.
  *
- * Dans une campagne, chaque scénario est déjà une brique (onglet Scénario) et
- * l'analytics de la campagne le juge parmi les autres. Ici, le scénario est
- * mesuré TOUTES CAMPAGNES CONFONDUES (il peut tourner en A et en E), et jugé
- * parmi les autres scénarios du projet — avec le même moteur de verdict que
- * les briques (convex/scriptDecision).
+ * Le scénario de chaque vidéo est recopié sur sa publication
+ * (`scriptCombo.scenarioId`). Il est mesuré TOUTES CAMPAGNES CONFONDUES (un
+ * thème peut tourner en A et en E), et jugé parmi les autres scénarios du
+ * projet — avec le même moteur de verdict que les briques (convex/scriptDecision).
  *
- * Coût borné : un projet sans brique reliée à un scénario sort tout de suite ;
- * sinon on ne relit les relevés QUE des posts de scénario (index by_publication).
+ * Coût borné : un projet sans scénario sort tout de suite ; sinon on ne relit
+ * les relevés QUE des posts de scénario (index by_publication).
  * Les posts de chauffe sont exclus, comme partout dans les verdicts (TD-019).
  */
 import { v } from "convex/values";
@@ -26,15 +25,15 @@ export const perfParScenario = permissionQuery("content.analytics")({
   args: { fenetre: v.optional(FENETRE) },
   handler: async (ctx, args) => {
     const fenetre = args.fenetre ?? "j7";
-    const bricks = await ctx.db
-      .query("scriptBricks")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const briqueVersScenario = new Map<string, Id<"scenarios">>();
-    for (const b of bricks) {
-      if (b.kind === "conversation" && b.scenarioId) briqueVersScenario.set(b._id, b.scenarioId);
-    }
-    if (briqueVersScenario.size === 0) {
+    const duProjet = new Set<string>(
+      (
+        await ctx.db
+          .query("scenarios")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      ).map((sc) => sc._id),
+    );
+    if (duProjet.size === 0) {
       return { fenetre, seuil: DECISION_THRESHOLD, scenarios: [] };
     }
 
@@ -45,8 +44,8 @@ export const perfParScenario = permissionQuery("content.analytics")({
         .collect()
     ).filter(
       (p) =>
-        p.scriptCombo?.conversationBrickId !== undefined &&
-        briqueVersScenario.has(p.scriptCombo.conversationBrickId) &&
+        p.scriptCombo?.scenarioId !== undefined &&
+        duProjet.has(p.scriptCombo.scenarioId) &&
         passesWarmupMode(p.isWarmup === true, "exclude"),
     );
     const echantillons: EchantillonScenario[] = [];
@@ -58,7 +57,7 @@ export const perfParScenario = permissionQuery("content.analytics")({
       const match = findMatchingSnapshot(releves, fenetre);
       if (!match) continue; // pas encore de relevé à la fenêtre : hors échantillon
       echantillons.push({
-        scenarioId: briqueVersScenario.get(p.scriptCombo!.conversationBrickId!)!,
+        scenarioId: p.scriptCombo!.scenarioId!,
         campaignId: p.scriptCombo!.campaignId,
         vues: match.vues,
       });

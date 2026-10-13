@@ -59,12 +59,13 @@ import {
   pickNotifs,
 } from "./scriptNotif";
 import {
-  conversationUsageOf,
-  drawableConversations,
   isConversationEnabled,
-  pickConversations,
+  pickScenarios,
+  scenarioUsageOf,
+  scenariosTirables,
+  themesNettoyes,
 } from "./scriptConversation";
-import { requireScenarioDuProjet, scenariosActifsDuProjet } from "./scenarios";
+import { requireScenarioDuProjet, scenariosDuProjet } from "./scenarios";
 import {
   comboAvecTexte,
   ecrireCombo,
@@ -85,16 +86,14 @@ import {
  * ne peut pas importer lib/) pour l'anti-coordination serveur.
  */
 
-// Kinds créables : refonte → hook/flux/cta, + "notif" et "conversation"
-// (briques OPTIONNELLES hors combo, cf convex/scriptNotif et
-// convex/scriptConversation). "corps" n'est plus créable (les corps existants
-// sont reclassés en hook par migrateCorpsToHooks).
+// Kinds créables : refonte → hook/flux/cta, + "notif" (brique OPTIONNELLE hors
+// combo, cf convex/scriptNotif). "corps" n'est plus créable (les corps
+// existants sont reclassés en hook par migrateCorpsToHooks).
 const KIND = v.union(
   v.literal("hook"),
   v.literal("flux"),
   v.literal("cta"),
   v.literal("notif"),
-  v.literal("conversation"),
 );
 
 // SNYTCH — mode d'usage d'une brique DANS LA VIDÉO (hook / flux) : à dire / à
@@ -112,7 +111,6 @@ const KIND_ORDER: Record<string, number> = {
   flux: 1,
   cta: 2,
   notif: 3,
-  conversation: 4,
 };
 
 /** Récupère une campagne du projet courant ou rejette. */
@@ -333,42 +331,41 @@ async function notifsForNewVideos(
 }
 
 /**
- * CONVERSATIONS des `count` vidéos qu'on s'apprête à créer pour `creatorId`,
- * une par vidéo, dans l'ordre — la rotation des notifs, appliquée aux
- * conversations (cf convex/scriptConversation).
+ * SCÉNARIOS des `count` vidéos qu'on s'apprête à créer pour `creatorId`, un par
+ * vidéo, dans l'ordre — tirés parmi les scénarios ACTIFS des thèmes de la
+ * campagne, en rotation équilibrée (cf convex/scriptConversation).
  *
- * Campagne sans conversation → tableau vide, l'assignation est celle d'avant la
- * brique. Allumée mais aucune conversation tirable (active, avec un fichier) →
- * REFUS : une vidéo partie sans conv n'aurait rien à importer à l'écran.
+ * Campagne sans conversation → tableau vide, l'assignation est celle d'avant.
+ * Allumée mais aucun scénario tirable → REFUS : une vidéo partie sans conv
+ * n'aurait rien à importer à l'écran.
  */
-async function conversationsForNewVideos(
+async function scenariosForNewVideos(
   ctx: MutationCtx,
   input: {
     campaign: Doc<"scriptCampaigns">;
-    bricks: Doc<"scriptBricks">[];
     creatorId: Id<"creators">;
     count: number;
     rows?: Doc<"assignments">[];
   },
-): Promise<Id<"scriptBricks">[]> {
+): Promise<Id<"scenarios">[]> {
   if (!isConversationEnabled(input.campaign) || input.count <= 0) return [];
-  const conversations = drawableConversations(
-    input.bricks,
-    await scenariosActifsDuProjet(ctx, input.campaign.projectId),
+  const scenarios = scenariosTirables(
+    await scenariosDuProjet(ctx, input.campaign.projectId),
+    input.campaign.conversationThemes ?? [],
   );
-  if (conversations.length === 0) {
+  if (scenarios.length === 0) {
     throw err(
       ERR.NO_ACTIVE_CONVERSATION,
-      "Conversation activée sur cette campagne, mais aucune conversation active avec un fichier : ajoutes-en une, ou désactive la conversation.",
+      "Scénario activé sur cette campagne, mais aucun scénario actif dans ses thèmes : coche un thème, passe un de ses scénarios en « Actif », ou désactive le scénario.",
     );
   }
   const rows = input.rows ?? (await projectAssignmentsForCooldown(ctx, input.campaign.projectId));
-  const usage = conversationUsageOf(rows, {
+  const usage = scenarioUsageOf(rows, {
     campaignId: input.campaign._id,
     creatorId: input.creatorId,
     freeingStatuses: COMBO_FREEING_STATUSES,
   });
-  return pickConversations(conversations, usage, input.count).map((b) => b._id);
+  return pickScenarios(scenarios, usage, input.count).map((sc) => sc._id);
 }
 
 /**
@@ -885,16 +882,7 @@ export const getCampaign = permissionQuery("scripts.manage")({
         return (KIND_ORDER[a.kind] ?? 99) - (KIND_ORDER[b.kind] ?? 99);
       return (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     });
-    // CONVERSATION — l'URL de chaque fichier, pour que l'équipe revoie ce
-    // qu'elle a déposé (aperçu des captures, export brut avant personnalisation).
-    // À côté des briques, indexée par fichier : les briques restent les documents.
-    const conversationFileUrls: Record<string, string | null> = {};
-    for (const b of bricks) {
-      for (const f of b.conversationFiles ?? []) {
-        conversationFileUrls[f.storageId] = await ctx.storage.getUrl(f.storageId);
-      }
-    }
-    return { ...campaign, bricks, conversationFileUrls };
+    return { ...campaign, bricks };
   },
 });
 
@@ -1043,8 +1031,9 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
     // Brique NOTIF allumée / éteinte pour la campagne (cf convex/scriptNotif).
     notifEnabled: v.optional(v.boolean()),
-    // Brique CONVERSATION allumée / éteinte (cf convex/scriptConversation).
+    // CONVERSATION allumée / éteinte, et ses thèmes (cf convex/scriptConversation).
     conversationEnabled: v.optional(v.boolean()),
+    conversationThemes: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     await requireCampaign(ctx, args.id, ctx.projectId);
@@ -1059,6 +1048,9 @@ export const updateCampaign = permissionMutation("scripts.manage")({
     if (args.notifEnabled !== undefined) patch.notifEnabled = args.notifEnabled;
     if (args.conversationEnabled !== undefined) {
       patch.conversationEnabled = args.conversationEnabled;
+    }
+    if (args.conversationThemes !== undefined) {
+      patch.conversationThemes = themesNettoyes(args.conversationThemes);
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
@@ -1158,9 +1150,6 @@ const createBrickArgs = {
   libre: v.optional(v.boolean()),
   direction: v.optional(v.string()),
   autresExemples: v.optional(v.array(v.string())),
-  // SCÉNARIO (conversation uniquement, ignoré ailleurs) — la conv générée depuis
-  // cette bible (cf convex/scenarios).
-  scenarioId: v.optional(v.id("scenarios")),
 };
 
 export const createBrick = permissionMutation("scripts.manage")({
@@ -1181,9 +1170,6 @@ export async function createBrickCore(
   const label = args.label.trim();
   if (label.length === 0) {
     throw err(ERR.BRICK_LABEL_REQUIRED, "Le label de la brique est requis.");
-  }
-  if (args.kind === "conversation" && args.scenarioId !== undefined) {
-    await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
   }
   return await ctx.db.insert("scriptBricks", {
     projectId: ctx.projectId,
@@ -1207,9 +1193,6 @@ export async function createBrickCore(
           ),
         }
       : {}),
-    ...(args.kind === "conversation" && args.scenarioId !== undefined
-      ? { scenarioId: args.scenarioId }
-      : {}),
     active: args.active ?? true,
     createdAt: Date.now(),
   });
@@ -1231,8 +1214,6 @@ export const updateBrick = permissionMutation("scripts.manage")({
     libre: v.optional(v.boolean()),
     direction: v.optional(v.union(v.string(), v.null())),
     autresExemples: v.optional(v.array(v.string())),
-    // SCÉNARIO (conversation uniquement) — null = repasser aux fichiers déposés.
-    scenarioId: v.optional(v.union(v.id("scenarios"), v.null())),
   },
   handler: async (ctx, args) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
@@ -1275,12 +1256,6 @@ export const updateBrick = permissionMutation("scripts.manage")({
           args.content ?? brick.content,
         );
       }
-    }
-    if (brick.kind === "conversation" && args.scenarioId !== undefined) {
-      if (args.scenarioId !== null) {
-        await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
-      }
-      patch.scenarioId = args.scenarioId ?? undefined;
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
@@ -1808,20 +1783,19 @@ export async function assignScriptCampaignCore(
           count: picked.length,
           ...(options.projectRows ? { rows: options.projectRows } : {}),
         });
-  // ─── Conversation : une par vidéo, tirée À PART du combo, comme la notif ───
-  // Le rejeu à l'identique reprend celle de la source (même histoire, même
-  // fichier) ; tout le reste la tire en rotation équilibrée.
-  const conversations = verbatimCombo
+  // ─── Conversation : un scénario par vidéo, tiré À PART du combo ────────────
+  // Le rejeu à l'identique reprend celui de la source (même histoire) ; tout le
+  // reste le tire en rotation équilibrée dans les thèmes de la campagne.
+  const scenariosTires = verbatimCombo
     ? []
-    : await conversationsForNewVideos(ctx, {
+    : await scenariosForNewVideos(ctx, {
         campaign,
-        bricks: allBricks,
         creatorId: args.creatorId,
         count: picked.length,
         ...(options.projectRows ? { rows: options.projectRows } : {}),
       });
-  const conversationOf = (i: number): Id<"scriptBricks"> | undefined =>
-    verbatimCombo ? replaySrc?.conversationBrickId : conversations[i];
+  const scenarioOf = (i: number): Id<"scenarios"> | undefined =>
+    verbatimCombo ? replaySrc?.scenarioId : scenariosTires[i];
 
   let created = 0;
   let firstAssignmentId: Id<"assignments"> | null = null;
@@ -1866,10 +1840,8 @@ export async function assignScriptCampaignCore(
       // Verbatim → comboKey EXACT de la source (gère le legacy 4 segments) ;
       // sinon signature des 3 briques choisies.
       comboKey: verbatimCombo ? verbatimCombo.comboKey : comboKeyOf(combo),
-      // Absente si la campagne n'a pas la conversation → row inchangée.
-      ...(conversationOf(i) !== undefined
-        ? { conversationBrickId: conversationOf(i) }
-        : {}),
+      // Absent si la campagne n'a pas la conversation → row inchangée.
+      ...(scenarioOf(i) !== undefined ? { scenarioId: scenarioOf(i) } : {}),
       // Rejeu / choix manuel — flag + lignage (undefined en auto → 0 bruit).
       ...(args.imposedCombo || verbatimCombo ? { comboImposed: true } : {}),
       ...(args.replayedFrom !== undefined
@@ -1955,16 +1927,17 @@ function assertScriptEditable(a: Doc<"assignments">): void {
  * publication matérialise la perf ; avant, re-figer est sans conséquence).
  */
 /**
- * CONVERSATION d'une vidéo (brique optionnelle hors combo, cf
+ * SCÉNARIO de la conversation d'une vidéo (hors combo, cf
  * convex/scriptConversation) — l'ajouter (vidéo assignée avant que la campagne
- * ait les siennes), la changer, ou la retirer (`null`), TANT QUE le post n'est
- * pas publié : une vidéo en ligne a été tournée avec la sienne, et ses vues lui
- * sont comptées. Ni le texte, ni la clé de combo, ni la paie ne bougent.
+ * ait la conversation), le changer, ou le retirer (`null`), TANT QUE le post
+ * n'est pas publié : une vidéo en ligne a été tournée avec le sien, et ses vues
+ * lui sont comptées. Un scénario ARCHIVÉ ne se donne plus. Ni le texte, ni la
+ * clé de combo, ni la paie ne bougent.
  */
-export const setAssignmentConversation = permissionMutation("scripts.manage")({
+export const setAssignmentScenario = permissionMutation("scripts.manage")({
   args: {
     id: v.id("assignments"),
-    brickId: v.union(v.id("scriptBricks"), v.null()),
+    scenarioId: v.union(v.id("scenarios"), v.null()),
   },
   handler: async (ctx, args) => {
     const a = await ctx.db.get(args.id);
@@ -1972,26 +1945,19 @@ export const setAssignmentConversation = permissionMutation("scripts.manage")({
       throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
     }
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    const combo = a.scriptCombo;
-    if (!combo) {
+    if (!a.scriptCombo) {
       throw err(ERR.ASSIGNMENT_NOT_SCRIPT, "Cet assignment n'est pas un script.");
     }
     assertScriptEditable(a);
-    if (args.brickId === null) {
-      await ctx.db.patch(a._id, { conversationBrickId: undefined });
+    if (args.scenarioId === null) {
+      await ctx.db.patch(a._id, { scenarioId: undefined });
       return { ok: true };
     }
-    const brick = await ctx.db.get(args.brickId);
-    if (!brick || brick.projectId !== ctx.projectId || brick.campaignId !== combo.campaignId) {
-      throw err(ERR.BRICK_NOT_IN_CAMPAIGN, "Brique introuvable dans la campagne.");
+    const scenario = await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
+    if (scenario.statut === "archive") {
+      throw err(ERR.SCENARIO_ARCHIVED, "Ce scénario est archivé : remets-le en « Actif » pour le donner.", { code: scenario.code });
     }
-    if (brick.kind !== "conversation") {
-      throw err(ERR.BRICK_WRONG_SLOT, "La brique doit être de type « conversation ».", { slot: "conversation" });
-    }
-    if (!brick.active) {
-      throw err(ERR.BRICK_DISABLED, "La brique choisie est désactivée.");
-    }
-    await ctx.db.patch(a._id, { conversationBrickId: brick._id });
+    await ctx.db.patch(a._id, { scenarioId: scenario._id });
     return { ok: true };
   },
 });

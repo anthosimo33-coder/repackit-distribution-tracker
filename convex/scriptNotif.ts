@@ -93,9 +93,10 @@ export function notifUsageOf(
  * Tire `count` notifs, une par vidéo, en rotation équilibrée (cf en-tête). Les
  * compteurs avancent à chaque tirage : 3 vidéos et 3 notifs ⇒ 3 notifs
  * différentes. Aucune notif tirable ⇒ tableau vide (à l'appelant de refuser).
- * N'altère pas `usage`.
+ * N'altère pas `usage`. Seul l'`_id` compte : les scénarios d'une conversation
+ * tournent par la même règle (convex/scriptConversation).
  */
-export function pickNotifs<T extends NotifBrickLike>(
+export function pickNotifs<T extends { _id: string }>(
   notifs: readonly T[],
   usage: NotifUsage,
   count: number,

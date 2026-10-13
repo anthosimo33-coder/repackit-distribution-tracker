@@ -24,22 +24,11 @@ export const SCRIPT_KINDS: readonly ScriptKind[] = [
  * dessous, ni dans le décompte des combinaisons, ni dans la clé de combo (cf
  * convex/scriptNotif).
  */
-export type BrickKind = ScriptKind | "notif" | "conversation";
+export type BrickKind = ScriptKind | "notif";
 
-/**
- * Les kinds montrés dans l'éditeur d'une campagne, selon ses réglages : la
- * notif et la conversation (briques optionnelles hors combo, cf
- * convex/scriptNotif et convex/scriptConversation) n'ont d'onglet qu'allumées.
- */
-export function editableKinds(
-  notifEnabled: boolean,
-  conversationEnabled = false,
-): readonly BrickKind[] {
-  return [
-    ...SCRIPT_KINDS,
-    ...(notifEnabled ? (["notif"] as const) : []),
-    ...(conversationEnabled ? (["conversation"] as const) : []),
-  ];
+/** Les kinds montrés dans l'éditeur d'une campagne, selon son réglage notif. */
+export function editableKinds(notifEnabled: boolean): readonly BrickKind[] {
+  return notifEnabled ? [...SCRIPT_KINDS, "notif"] : SCRIPT_KINDS;
 }
 
 /**
@@ -58,7 +47,6 @@ export const KIND_LABEL_KEYS: Record<BrickKind, BrickKind> = {
   flux: "flux",
   cta: "cta",
   notif: "notif",
-  conversation: "conversation",
 };
 
 /**

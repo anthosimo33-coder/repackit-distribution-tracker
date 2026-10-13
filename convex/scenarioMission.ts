@@ -13,12 +13,11 @@
  * de cet export (components/scenarios/ecranChoc.ts).
  */
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server";
+import { internalQuery, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { authedAction } from "./functions";
+import type { Doc, Id } from "./_generated/dataModel";
+import { authedAction, requireCreator, requireCreatorObservable } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { conversationDeMission } from "./conversationFiles";
-import { firstNameOf } from "./conversationExport";
 import { lireBible } from "./scenarioBible";
 import { genererConversation } from "./scenarioEngine";
 import { graineMission } from "./scriptConversation";
@@ -30,13 +29,54 @@ const ACCES = {
   viewAsCreatorId: v.optional(v.id("creators")),
 };
 
+/** Le prénom d'un nom complet (« Juliette Chetrit » → « Juliette »). Vide si le nom l'est. */
+export function firstNameOf(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? "";
+}
+
+/**
+ * Le scénario d'une mission, s'il est encore servable : une mission de script
+ * qui en a reçu un, de son projet. null sinon. Archivé, il reste servi — la
+ * mission l'a reçu quand il tournait.
+ */
+export async function scenarioDeMission(
+  ctx: QueryCtx,
+  a: Doc<"assignments">,
+): Promise<Doc<"scenarios"> | null> {
+  if (!a.scenarioId || !a.scriptCombo) return null;
+  const scenario = await ctx.db.get(a.scenarioId);
+  return scenario && scenario.projectId === a.projectId ? scenario : null;
+}
+
+/**
+ * La GARDE du téléchargement : la créatrice de la mission, ou une personne de
+ * l'équipe qui observe son espace. Une mission d'une autre créatrice rend une
+ * conversation ABSENTE (introuvable, jamais « refusée »).
+ */
+async function missionDeLaCreatrice(
+  ctx: QueryCtx,
+  args: {
+    userId: Id<"users">;
+    projectId: Id<"projects">;
+    assignmentId: Id<"assignments">;
+    viewAsCreatorId?: Id<"creators">;
+  },
+): Promise<{ a: Doc<"assignments"> | null; creatorId: Id<"creators"> }> {
+  const creatorId = args.viewAsCreatorId
+    ? (await requireCreatorObservable(ctx, args.userId, args.projectId, args.viewAsCreatorId))._id
+    : await requireCreator(ctx, args.userId, args.projectId);
+  const a = await ctx.db.get(args.assignmentId);
+  const mienne = a !== null && a.creatorId === creatorId && a.projectId === args.projectId;
+  return { a: mienne ? a : null, creatorId };
+}
+
 /** Interne : la garde d'accès, puis la bible et le prénom. */
 export const planConversationMission = internalQuery({
   args: { userId: v.id("users"), ...ACCES },
   handler: async (ctx, args) => {
-    const { a, brick, creatorId } = await conversationDeMission(ctx, args);
-    const scenario = brick?.scenarioId ? await ctx.db.get(brick.scenarioId) : null;
-    if (!a || !scenario || scenario.projectId !== args.projectId) {
+    const { a, creatorId } = await missionDeLaCreatrice(ctx, args);
+    const scenario = a ? await scenarioDeMission(ctx, a) : null;
+    if (!a || !scenario) {
       throw err(ERR.SCENARIO_NOT_FOUND, "Scénario introuvable.");
     }
     const creator = await ctx.db.get(creatorId);

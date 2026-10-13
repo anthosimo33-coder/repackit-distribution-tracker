@@ -669,13 +669,11 @@ export function AssignmentDetailSheet({
                   editable={canEditText}
                 />
               )}
-              {/* CONVERSATION de la vidéo (brique optionnelle, hors script) —
-                  fichiers lus en direct ; changeable tant que le post n'est
-                  pas publié. */}
+              {/* CONVERSATION de la vidéo (option de campagne, hors script) —
+                  son scénario, changeable tant que le post n'est pas publié. */}
               {combo && (
                 <AssignmentConversationPicker
                   assignmentId={row._id}
-                  campaignId={combo.campaignId}
                   editable={canEditText}
                 />
               )}

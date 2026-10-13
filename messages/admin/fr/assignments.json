@@ -130,10 +130,13 @@
     "abandonnerPlutot": "Abandonner plutôt",
     "abandonnerLaMission": "Abandonner la mission",
     "retablirLaMission": "Rétablir la mission",
-    "conversation": "Conversation à importer",
-    "conversationAucuneChoisir": "Aucune conversation — en choisir une",
+    "conversation": "Conversation WhatsApp",
+    "conversationAucune": "Aucune conversation",
+    "conversationAucuneChoisir": "Aucune conversation — en donner une",
     "conversationAjoutee": "Conversation ajoutée",
-    "conversationChangee": "Conversation changée"
+    "conversationChangee": "Conversation changée",
+    "conversationRetiree": "Conversation retirée",
+    "conversationSansTheme": "Sans thème"
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",

@@ -26,7 +26,9 @@ function crochetDuJour(): string {
 
 async function campagneAvecScenario(ts: number) {
   const code = `M${ts.toString(36).toUpperCase()}`.slice(0, 12);
-  const scenarioId = await admin.mutation(api.scenarios.creerScenario, { bible: bibleSous(code), theme: "La dispute" });
+  // Thème propre à ce test : la base e2e garde les scénarios des autres.
+  const theme = `Dispute ${ts}`;
+  const scenarioId = await admin.mutation(api.scenarios.creerScenario, { bible: bibleSous(code), theme });
   const campaignId = await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] Scénario ${ts}` });
   const add = (kind: "hook" | "flux" | "cta", label: string, content: string) =>
     admin.mutation(api.scripts.createBrick, { campaignId, kind, label, content });
@@ -40,20 +42,21 @@ async function campagneAvecScenario(ts: number) {
     nbVideosCible: 10,
     tauxCPM: 2,
   });
-  return { code, scenarioId, campaignId, pricingId };
+  return { code, theme, scenarioId, campaignId, pricingId, add };
 }
 
 /**
- * Scénarios dans les campagnes (étape 2) — une brique « conversation » reliée à
- * un scénario : tirée en rotation tant que le scénario est ACTIF, générée au
- * prénom de la créatrice, différente pour chaque mission, finissant le jour où
- * elle la récupère. Le moteur est couvert par lib/scenario-engine.test.ts.
+ * Conversations dans les campagnes — la campagne coche des THÈMES ; chaque
+ * vidéo tire un scénario ACTIF de ces thèmes, en rotation, posé sur la mission
+ * (`scenarioId`). La conv est générée au prénom de la créatrice, différente
+ * pour chaque mission, et finit le jour où elle la récupère. Le moteur est
+ * couvert par lib/scenario-engine.test.ts.
  */
 test.describe("Scénarios dans les missions", () => {
-  test("rotation si actif, conv au prénom et du jour, une par mission, isolation", async () => {
+  test("thème coché : actifs tirés en rotation, conv au prénom et du jour, une par mission, isolation", async () => {
     test.setTimeout(180_000);
     const ts = Date.now();
-    const { scenarioId, campaignId, pricingId } = await campagneAvecScenario(ts);
+    const { theme, scenarioId, campaignId, pricingId, add } = await campagneAvecScenario(ts);
     const juliette = await createCreatorSession(url, {
       name: `Juliette Chetrit [E2E_TEST] ${ts}`,
       email: `e2e-creator-scen-${ts}@repackit.test`,
@@ -80,31 +83,39 @@ test.describe("Scénarios dans les missions", () => {
         (a) => a.scriptCombo?.campaignId === campaignId && a.creatorId === creatorId,
       );
 
-    await admin.mutation(api.scripts.updateCampaign, { id: campaignId, conversationEnabled: true });
-    const brique = await admin.mutation(api.scripts.createBrick, {
-      campaignId,
-      kind: "conversation",
-      label: "C2 · Le like de l'ex",
-      content: "",
-      scenarioId,
+    // Thème coché tel qu'on le tape : la casse et les espaces ne comptent pas.
+    await admin.mutation(api.scripts.updateCampaign, {
+      id: campaignId,
+      conversationEnabled: true,
+      conversationThemes: [` ${theme.toLowerCase()} `],
     });
 
     // ── Scénario en BROUILLON : pas tirable, l'assignation est refusée.
     await expect(assign(juliette.creatorId, `@e2escen${ts}`, 1)).rejects.toThrow(/ERR_NO_ACTIVE_CONVERSATION/);
     expect(await rowsFor(juliette.creatorId)).toHaveLength(0);
 
-    // ── Actif : deux vidéos, la conv du scénario sur chacune.
+    // ── Actif : deux vidéos, le scénario du thème sur chacune.
     await admin.mutation(api.scenarios.changerStatutScenario, { id: scenarioId, statut: "actif" });
     expect((await assign(juliette.creatorId, `@e2escen${ts}`, 2)).created).toBe(2);
     const [a, b] = await rowsFor(juliette.creatorId);
-    expect([a!.conversationBrickId, b!.conversationBrickId]).toEqual([brique, brique]);
+    expect([a!.scenarioId, b!.scenarioId]).toEqual([scenarioId, scenarioId]);
+
+    // ── Un 2e scénario du thème passé en « Actif » part tout seul, en rotation :
+    // le moins servi sur la campagne d'abord.
+    const second = await admin.mutation(api.scenarios.creerScenario, {
+      bible: bibleSous(`N${ts.toString(36).toUpperCase()}`.slice(0, 12)),
+      theme,
+    });
+    await admin.mutation(api.scenarios.changerStatutScenario, { id: second, statut: "actif" });
+    expect((await assign(ines.creatorId, `@e2escen2${ts}`, 2)).created).toBe(2);
+    expect(new Set((await rowsFor(ines.creatorId)).map((r) => r.scenarioId))).toEqual(new Set([second, scenarioId]));
 
     // ── Fiche : une conv GÉNÉRÉE, rien du scénario lui-même.
     const fiche = await juliette.client.query(api.assignments.getMyAssignment, {
       projectId: juliette.projectId,
       id: a!._id,
     });
-    expect(fiche!.scriptConversation).toEqual({ text: "", instruction: null, files: [], genere: true });
+    expect(fiche!.scriptConversation).toEqual({ genere: true });
     expect(JSON.stringify(fiche)).not.toContain(scenarioId);
 
     // ── La conv : à SON prénom, qui finit aujourd'hui, la même à chaque fois.
@@ -126,45 +137,57 @@ test.describe("Scénarios dans les missions", () => {
     expect(convB.texte.trimEnd().split("\n").slice(-5)).toEqual(finA);
 
     // ── Isolation : la mission d'une autre créatrice est introuvable.
-    await assign(ines.creatorId, `@e2escen2${ts}`, 1);
     const [missionInes] = await rowsFor(ines.creatorId);
     await expect(generer(missionInes!._id)).rejects.toThrow(/ERR_SCENARIO_NOT_FOUND/);
 
-    // ── Archivé : plus de nouvelle vidéo ; les missions déjà assignées gardent leur conv.
-    await admin.mutation(api.scenarios.changerStatutScenario, { id: scenarioId, statut: "archive" });
-    // (Inès a encore une combinaison libre : le refus vient bien du scénario.)
-    await expect(assign(ines.creatorId, `@e2escen2${ts}`, 1)).rejects.toThrow(/ERR_NO_ACTIVE_CONVERSATION/);
+    // ── À la main (panneau de mission) : changer, retirer ; un archivé ne se donne pas.
+    await admin.mutation(api.scripts.setAssignmentScenario, { id: b!._id, scenarioId: second });
+    expect(await admin.query(api.assignments.getAssignmentScenario, { id: b!._id })).toEqual({ scenarioId: second });
+    await admin.mutation(api.scripts.setAssignmentScenario, { id: b!._id, scenarioId: null });
+    expect(await admin.query(api.assignments.getAssignmentScenario, { id: b!._id })).toEqual({ scenarioId: null });
+    expect(
+      await juliette.client.query(api.assignments.getMyAssignment, { projectId: juliette.projectId, id: b!._id }),
+    ).toMatchObject({ scriptConversation: null });
+
+    // ── Archivés : plus de nouvelle vidéo ; les missions déjà assignées gardent leur conv.
+    for (const id of [scenarioId, second]) {
+      await admin.mutation(api.scenarios.changerStatutScenario, { id, statut: "archive" });
+    }
+    await expect(
+      admin.mutation(api.scripts.setAssignmentScenario, { id: b!._id, scenarioId }),
+    ).rejects.toThrow(/ERR_SCENARIO_ARCHIVED/);
+    // Un 3e hook libère une combinaison : le refus vient bien des scénarios.
+    await add("hook", "Remplaçant", `Il m'a remplacée en 3 jours ${ts}`);
+    await expect(assign(juliette.creatorId, `@e2escen${ts}`, 1)).rejects.toThrow(/ERR_NO_ACTIVE_CONVERSATION/);
     expect((await generer(a!._id)).texte).toBe(convA.texte);
   });
 
-  test("écran campagne : choisir le scénario ; fiche : préparer puis télécharger la conv", async ({ page }) => {
+  test("écran campagne : cocher un thème ; fiche : préparer puis télécharger la conv", async ({ page }) => {
     test.setTimeout(150_000);
     const ts = Date.now();
-    const { code, scenarioId, campaignId, pricingId } = await campagneAvecScenario(ts);
+    const { theme, scenarioId, campaignId, pricingId } = await campagneAvecScenario(ts);
     await admin.mutation(api.scenarios.changerStatutScenario, { id: scenarioId, statut: "actif" });
 
     await page.goto(adminPath(`/scripts/${campaignId}`));
     await expect(page.getByTestId("combo-count")).toContainText("2", { timeout: 15_000 });
+    // Plus d'onglet de brique pour la conversation : les thèmes sont sous l'interrupteur.
+    await expect(page.getByRole("tab", { name: /^Scénario/ })).toHaveCount(0);
     await page.getByTestId("conversation-toggle").click();
+    const themes = page.getByTestId("conversation-themes");
+    // Nom accessible = le libellé entier (« thème · N scénarios actifs »).
+    const coche = themes.getByRole("checkbox", { name: new RegExp(`^${theme}(\\s|$)`) });
+    await expect(coche).toBeVisible({ timeout: 15_000 });
+    await expect(themes.locator("label").filter({ hasText: theme })).toContainText("1 scénario actif");
+    // Aucun thème coché : l'assignation est bloquée, et l'écran le dit.
     await expect(page.getByTestId("conversation-missing")).toBeVisible();
-    await page.getByRole("tab", { name: /^Scénario/ }).click();
-    await page.getByRole("button", { name: "Ajouter" }).first().click();
-    const volet = page.getByRole("region", { name: "Édition de la brique sélectionnée" });
-    await volet.getByTestId("brick-scenario").click();
-    await page.getByRole("option", { name: new RegExp(`^${code} · `) }).click();
-    // Le nom court se remplit avec le scénario ; pas de dépôt de fichiers.
-    await expect(volet.locator("#brick-label")).toHaveValue(`${code} · Le like de l'ex`);
-    await expect(volet.getByTestId("conversation-files")).toHaveCount(0);
-    await volet.getByRole("button", { name: "Ajouter" }).click();
-    await expect(page.getByTestId("brick-scenario-tag")).toHaveText(`scénario ${code}`, { timeout: 15_000 });
+    await expect(page.getByRole("button", { name: "Assigner cette campagne" })).toBeDisabled();
+    await coche.click();
+    await expect(coche).toBeChecked();
     await expect(page.getByTestId("conversation-missing")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Assigner cette campagne" })).toBeEnabled();
     await expect
-      .poll(async () =>
-        (await admin.query(api.scripts.getCampaign, { id: campaignId }))!.bricks
-          .filter((x) => x.kind === "conversation")
-          .map((x) => x.scenarioId),
-      )
-      .toEqual([scenarioId]);
+      .poll(async () => (await admin.query(api.scripts.getCampaign, { id: campaignId }))!.conversationThemes)
+      .toEqual([theme]);
 
     // Fiche de la créatrice (vue observée) : 1. préparer, 2. télécharger.
     const creator = await createCreatorSession(url, {
@@ -189,6 +212,7 @@ test.describe("Scénarios dans les missions", () => {
     const row = (await admin.query(api.assignments.listAssignments, {})).find(
       (x) => x.scriptCombo?.campaignId === campaignId,
     )!;
+    expect(row.scenarioId).toBe(scenarioId);
     await page.goto(`/admin/voir/${E2E_PROJECT_SLUG}/${creator.creatorId}/assignments/${row._id}`);
     const carte = page.getByTestId("mission-scenario");
     await expect(carte).toBeVisible({ timeout: 20_000 });

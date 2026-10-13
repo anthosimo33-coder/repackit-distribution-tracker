@@ -96,7 +96,7 @@ export async function purgeAssetBlobs(
  * Garde-fou : lib/storage-fields.test.ts compte les `v.id("_storage")` de
  * schema.ts et échoue dès que le compte diverge de cette constante.
  */
-export const STORAGE_FIELD_COUNT = 12;
+export const STORAGE_FIELD_COUNT = 11;
 
 async function collecterStorageIdsReferences(
   ctx: MutationCtx,
@@ -148,11 +148,6 @@ async function collecterStorageIdsReferences(
   // ramassage efface ligne ET fichier.
   for (const img of await ctx.db.query("instaConvImages").collect()) {
     ajouter(img.storageId);
-  }
-  // Fichiers des briques « conversation » (export WhatsApp, captures) que les
-  // créatrices téléchargent depuis leur mission (convex/conversationFiles.ts).
-  for (const b of await ctx.db.query("scriptBricks").collect()) {
-    for (const f of b.conversationFiles ?? []) ajouter(f.storageId);
   }
   return refs;
 }

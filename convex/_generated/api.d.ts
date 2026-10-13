@@ -55,8 +55,6 @@ import type * as comptaMath from "../comptaMath.js";
 import type * as compteAvatar from "../compteAvatar.js";
 import type * as compteStatut from "../compteStatut.js";
 import type * as comptes from "../comptes.js";
-import type * as conversationExport from "../conversationExport.js";
-import type * as conversationFiles from "../conversationFiles.js";
 import type * as conversionAttribution from "../conversionAttribution.js";
 import type * as conversionSync from "../conversionSync.js";
 import type * as countries from "../countries.js";
@@ -345,8 +343,6 @@ declare const fullApi: ApiFromModules<{
   compteAvatar: typeof compteAvatar;
   compteStatut: typeof compteStatut;
   comptes: typeof comptes;
-  conversationExport: typeof conversationExport;
-  conversationFiles: typeof conversationFiles;
   conversionAttribution: typeof conversionAttribution;
   conversionSync: typeof conversionSync;
   countries: typeof countries;
