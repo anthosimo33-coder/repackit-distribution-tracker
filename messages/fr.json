@@ -314,10 +314,6 @@
       "preparer": "Préparer ma conv",
       "telechargerConv": "Télécharger la conv (.txt)",
       "aideConv": "Enregistre-la dans Fichiers, puis importe-la sur askblush.com.",
-      "ecranTitre": "L'écran à filmer",
-      "ecranAlt": "La fin de la conversation, façon WhatsApp",
-      "aideEcran": "Ouvre-le en plein écran, touche l'image pour masquer les boutons, et filme-le avec un autre téléphone.",
-      "enregistrerEcran": "Enregistrer l'écran dans mes photos",
       "echec": "La conv n'a pas pu être préparée. Réessaie.",
       "filme": "2. Filme : suis le script de la mission."
     },

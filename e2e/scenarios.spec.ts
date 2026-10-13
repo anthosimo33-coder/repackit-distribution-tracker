@@ -119,7 +119,10 @@ test.describe("Scénarios", () => {
     const stats = page.getByTestId("scenario-stats");
     await expect(stats).toContainText("messages : 5920 (Kelly 2996, Yanis 2924)", { timeout: 30_000 });
     await expect(stats).toContainText("jour record : 212 messages le 2026-02-14");
-    await expect(page.getByTestId("scenario-ecran")).toBeVisible();
+    // Plus de capture à filmer : Jarvia ne fabrique que l'export WhatsApp.
+    await expect(page.getByTestId("telecharger-txt")).toBeVisible();
+    await expect(page.getByTestId("telecharger-png")).toHaveCount(0);
+    await expect(page.getByTestId("scenario-resultat").getByRole("img")).toHaveCount(0);
 
     // …et le .txt téléchargé est, octet pour octet, celui du moteur de référence.
     const dlTxt = page.waitForEvent("download");
@@ -135,12 +138,6 @@ test.describe("Scénarios", () => {
     const contenu = unzipSync(new Uint8Array(readFileSync((await zip.path())!)));
     expect(Object.keys(contenu)).toEqual(["_chat.txt"]);
     expect(sha(strFromU8(contenu["_chat.txt"]!))).toBe(sha(EXPORT_KELLY));
-
-    const dlPng = page.waitForEvent("download");
-    await page.getByTestId("telecharger-png").click();
-    const png = readFileSync((await (await dlPng).path())!);
-    expect(png.subarray(1, 4).toString()).toBe("PNG");
-    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([1170, 2532]);
 
     // Option A (défaut) : la même conv finit aujourd'hui.
     await page.getByRole("button", { name: "Finir aujourd'hui" }).click();

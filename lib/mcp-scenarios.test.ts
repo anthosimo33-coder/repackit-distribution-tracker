@@ -28,12 +28,12 @@ describe("lienScenario", () => {
       prenom: "Inès Garnier",
       graine: 7,
       datesBible: true,
-      telecharger: "png",
+      telecharger: "zip",
     });
     const q = new URL(lien, "https://jarvia.test").searchParams;
     expect(q.get("tester")).toBe("Inès Garnier");
     expect(q.get("graine")).toBe("7");
     expect(q.get("dates")).toBe("bible");
-    expect(q.get("telecharger")).toBe("png");
+    expect(q.get("telecharger")).toBe("zip");
   });
 });

@@ -11,14 +11,12 @@ import { cn } from "@/lib/utils";
 import { nomExportValide, type Bible } from "@/convex/scenarioBible";
 import { genererConversation, statsConversation, statsTexte } from "@/convex/scenarioEngine";
 import { parisDayKey } from "@/convex/viewsDaily";
-import { ecranChocPng } from "@/components/scenarios/ecranChoc";
 import { blobTexte, blobZip, enregistrer } from "@/components/scenarios/telechargement";
 
-/** Les trois fichiers d'un test, tels que les boutons les enregistrent. */
-function telecharger(r: Resultat, quoi: "txt" | "zip" | "png") {
+/** Les deux fichiers d'un test, tels que les boutons les enregistrent. */
+function telecharger(r: Resultat, quoi: "txt" | "zip") {
   if (quoi === "txt") enregistrer(blobTexte(r.texte), r.nomFichier);
-  else if (quoi === "zip") enregistrer(blobZip(r.texte), r.nomZip);
-  else enregistrer(r.png, `${r.nomFichier.replace(/\.txt$/, "")} - ecran choc.png`);
+  else enregistrer(blobZip(r.texte), r.nomZip);
 }
 
 type Resultat = {
@@ -26,17 +24,15 @@ type Resultat = {
   texte: string;
   nomFichier: string;
   nomZip: string;
-  png: Blob;
-  apercu: string;
   decalageJours: number;
   messages: number;
 };
 
 /**
- * « TESTER » un scénario : un prénom → la conv générée, ses stats, l'écran choc
- * et les fichiers à télécharger. Tout tourne dans le navigateur (moteur pur,
- * dessin Canvas) : rien n'est écrit, et on peut tester une bible pas encore
- * enregistrée.
+ * « TESTER » un scénario : un prénom → la conv générée, ses stats et l'export
+ * WhatsApp à télécharger (.txt, ou le zip d'iPhone). Tout tourne dans le
+ * navigateur (moteur pur) : rien n'est écrit, et on peut tester une bible pas
+ * encore enregistrée.
  *
  * Par défaut la conv FINIT AUJOURD'HUI (option A : BLUSH compare les messages
  * au jour de l'import) ; « dates de la bible » rend la conv telle qu'écrite, ce
@@ -51,7 +47,7 @@ export type TestAuto = {
   prenom: string;
   graine: number;
   datesBible: boolean;
-  telecharger: "txt" | "zip" | "png" | null;
+  telecharger: "txt" | "zip" | null;
 };
 
 export function ScenarioTesteur({
@@ -71,11 +67,6 @@ export function ScenarioTesteur({
   const [resultat, setResultat] = useState<Resultat | null>(null);
   const [echec, setEchec] = useState(false);
 
-  // L'aperçu est une URL d'objet : la rendre à la mémoire quand il change.
-  useEffect(() => () => {
-    if (resultat) URL.revokeObjectURL(resultat.apercu);
-  }, [resultat]);
-
   const prenomOk = nomExportValide(prenom);
 
   async function generer(
@@ -91,14 +82,11 @@ export function ScenarioTesteur({
         ...(reglages.aujourdhui ? { finLe: parisDayKey(Date.now()) } : {}),
       });
       const stats = statsConversation(gen, [b.mot_a_vous.mot]);
-      const png = await ecranChocPng({ texte: gen.texte, prenom: gen.noms.L, lui: gen.noms.Y });
       const r = {
         stats: statsTexte(b, gen, stats),
         texte: gen.texte,
         nomFichier: gen.nomFichier,
         nomZip: gen.nomZip,
-        png,
-        apercu: URL.createObjectURL(png),
         decalageJours: gen.decalageJours,
         messages: stats.messages,
       };
@@ -242,23 +230,7 @@ export function ScenarioTesteur({
                 <DownloadIcon className="mr-2 size-4" />
                 {tr("telechargerZip")}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => telecharger(resultat, "png")}
-                data-testid="telecharger-png"
-              >
-                <DownloadIcon className="mr-2 size-4" />
-                {tr("telechargerPng")}
-              </Button>
             </div>
-            {/* eslint-disable-next-line @next/next/no-img-element -- aperçu d'un blob local, pas une image du site */}
-            <img
-              src={resultat.apercu}
-              alt={tr("apercuEcran")}
-              className="mx-auto w-full max-w-[280px] rounded-xl border border-slate-200 shadow-sm"
-              data-testid="scenario-ecran"
-            />
           </div>
         )}
       </CardContent>

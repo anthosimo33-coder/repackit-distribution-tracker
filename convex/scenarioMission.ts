@@ -8,9 +8,6 @@
  * la même mission retélécharge donc le même fichier ; un autre jour, le même
  * contenu, dates glissées. Corriger une bible répare les missions pas encore
  * filmées, comme une consigne.
- *
- * Le PNG de l'écran choc se dessine dans le navigateur de la créatrice à partir
- * de cet export (components/scenarios/ecranChoc.ts).
  */
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";

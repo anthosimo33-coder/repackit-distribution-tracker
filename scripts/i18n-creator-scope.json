@@ -110,7 +110,6 @@
     "components/public-home/ShowcaseFigures.tsx",
     "components/public-home/home.module.css",
     "components/public/LocaleSwitch.tsx",
-    "components/scenarios/ecranChoc.ts",
     "components/scenarios/telechargement.ts",
     "components/scripts/HookLibreBlock.tsx",
     "components/scripts/ScriptDestinationZones.tsx",

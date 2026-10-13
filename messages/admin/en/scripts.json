@@ -325,9 +325,7 @@
     "datesTellesQuelles": "Bible dates, as written.",
     "decalage": "{jours, plural, one {Dates shifted by # day to end today.} other {Dates shifted by # days to end today.}}",
     "telechargerTxt": ".txt export",
-    "telechargerZip": "WhatsApp zip",
-    "telechargerPng": "Hook screen .png",
-    "apercuEcran": "Hook screen preview"
+    "telechargerZip": "WhatsApp zip"
   },
   "ScenarioErreur": {
     "valide": "Valid bible.",
