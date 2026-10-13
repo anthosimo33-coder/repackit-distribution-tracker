@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   conversationUsageOf,
   drawableConversations,
+  graineMission,
   isConversationEnabled,
   pickConversations,
   type ConversationUsageRow,
@@ -13,7 +14,10 @@ import {
  * libellés ont la forme de la production.
  */
 const FILE = { storageId: "kg2abc", name: "WhatsApp Chat - Jules.txt" };
-function conv(id: string, extra: Partial<{ active: boolean; files: unknown[]; order: number; kind: string }> = {}) {
+function conv(
+  id: string,
+  extra: Partial<{ active: boolean; files: unknown[]; order: number; kind: string; scenarioId: string }> = {},
+) {
   return {
     _id: id,
     kind: extra.kind ?? "conversation",
@@ -22,6 +26,7 @@ function conv(id: string, extra: Partial<{ active: boolean; files: unknown[]; or
     conversationFiles: extra.files ?? [FILE],
     createdAt: 1_760_000_000_000,
     ...(extra.order !== undefined ? { order: extra.order } : {}),
+    ...(extra.scenarioId !== undefined ? { scenarioId: extra.scenarioId } : {}),
   };
 }
 const A1 = "kd7conv0000000000000000000000a1";
@@ -115,5 +120,38 @@ describe("pickConversations", () => {
   it("rend un tableau vide sans conversation tirable", () => {
     const usage = conversationUsageOf([], { campaignId: CAMP, creatorId: KELLY, freeingStatuses: FREEING });
     expect(pickConversations([], usage, 2)).toEqual([]);
+  });
+});
+
+describe("conversations générées depuis un scénario", () => {
+  const ACTIF = "kx7scen00000000000000000000actif";
+  const BROUILLON = "kx7scen000000000000000000brouil";
+
+  it("ne tire qu'une brique dont le scénario est ACTIF, même sans fichier déposé", () => {
+    const out = drawableConversations(
+      [
+        conv(A1, { files: [], scenarioId: ACTIF }),
+        conv(C2, { files: [], scenarioId: BROUILLON }),
+        conv(B1, { files: [] }),
+      ],
+      new Set([ACTIF]),
+    );
+    expect(out.map((b) => b._id)).toEqual([A1]);
+  });
+
+  it("le scénario décide : des fichiers restés sur une brique à scénario inactif ne la rendent pas tirable", () => {
+    expect(drawableConversations([conv(A1, { scenarioId: BROUILLON })], new Set([ACTIF]))).toEqual([]);
+    // Présence : la même brique, scénario actif.
+    expect(drawableConversations([conv(A1, { scenarioId: BROUILLON })], new Set([BROUILLON]))).toHaveLength(1);
+  });
+});
+
+describe("graineMission", () => {
+  it("est stable pour une mission et différente d'une mission à l'autre", () => {
+    const a = "kd73ppqhwfe8ycz6a3m7h0jhan7sfh8x";
+    const b = "kd73ppqhwfe8ycz6a3m7h0jhan7sfh8y";
+    expect(graineMission(a)).toBe(graineMission(a));
+    expect(graineMission(a)).not.toBe(graineMission(b));
+    expect(Number.isInteger(graineMission(a)) && graineMission(a) >= 0).toBe(true);
   });
 });

@@ -89,9 +89,10 @@
     "notifRattrapageToutDecocher": "Uncheck all",
     "notifRattrapageSansDate": "no post date",
     "notifRattrapageInclure": "Include this video",
-    "conversationToggle": "Conversation in the video",
-    "conversationToggleHint": "Each assigned video gets a conversation to download (WhatsApp export, screenshots), drawn in rotation — analytics tells which one drives views.",
-    "conversationAucuneActive": "Conversations are on but no active conversation has a file: upload one in the Conversation tab, or turn conversations off, to assign."
+    "conversationToggle": "Scenario in the video",
+    "conversationToggleHint": "Each assigned video gets a conversation to import into BLUSH — generated under her first name from a scenario (or made of uploaded files) —, drawn in rotation: analytics tells which one drives views.",
+    "conversationAucuneActive": "Scenarios are on but no active scenario is in rotation: add one in the Scenario tab (and set it to “Active” in Scenarios), or turn scenarios off, to assign.",
+    "conversationThemesMelanges": "This campaign mixes themes ({themes}): a creator may get a conversation that doesn't fit her script."
   },
   "BrickRow": {
     "consigne": "💡 note",
@@ -102,7 +103,9 @@
     "medianeDesVuesAuDernier": "Median views, at each post's last reading, and the slope of the latest runs",
     "uneErreurEstSurvenue": "Something went wrong.",
     "libre": "✍️ free",
-    "fichiers": "{count, plural, =0 {no file} one {# file} other {# files}}"
+    "fichiers": "{count, plural, =0 {no file} one {# file} other {# files}}",
+    "scenarioTag": "{actif, select, yes {scenario {code}} other {scenario {code} — not active}}",
+    "scenarioIntrouvable": "scenario not found"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Pick a brick from the list, or add one.",
@@ -138,8 +141,8 @@
     "exDirection": "E.g. A relationship that's been going on a while, then you stumble on something that changes everything.",
     "autresExemples": "Other examples",
     "unParLigneAuPlus": "— one per line, {max} at most",
-    "conversationTexte": "— what the conversation is about, read by the creator above the files",
-    "conversationFichiersApres": "Add the conversation, then upload its files (WhatsApp export, screenshots)."
+    "conversationTexte": "— read by the creator above her conversation (optional)",
+    "conversationFichiersApres": "Add the brick, then upload its files (WhatsApp export, screenshots)."
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",
@@ -271,7 +274,7 @@
     "flux": "Flow",
     "cta": "Description",
     "notif": "Notification",
-    "conversation": "Conversation"
+    "conversation": "Scenario"
   },
   "decision": {
     "aPousser": "Push {label}{hasRatio, select, yes { — median {ratio} vs peers} other {}}, on {posts} posts.",
@@ -386,5 +389,14 @@
     "ex": "Ex",
     "famille": "Family",
     "groupe": "Friend group"
+  },
+  "ScenarioPicker": {
+    "scenario": "Scenario",
+    "aucun": "None — uploaded files",
+    "sansTheme": "No theme",
+    "aideScenario": "The conversation is generated under each creator's first name, different for every mission, and ends on the day she gets it.",
+    "aideFichiers": "Without a scenario, the creator downloads the files uploaded below.",
+    "tester": "Test this scenario",
+    "inactif": "This scenario isn't “Active”: it won't go into any mission until it is."
   }
 }

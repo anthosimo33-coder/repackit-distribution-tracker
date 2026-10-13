@@ -3033,13 +3033,30 @@ type ScriptConversation = {
   text: string;
   instruction: string | null;
   files: ScriptConversationFile[];
+  /**
+   * La conv est GÉNÉRÉE depuis un scénario (convex/scenarioMission) : pas de
+   * fichier déposé, un export fabriqué au téléchargement, à son prénom. Rien du
+   * scénario lui-même (code, bible) ne sort.
+   */
+  genere: boolean;
 };
 async function scriptConversationOf(
   ctx: QueryCtx,
   a: Doc<"assignments">,
 ): Promise<ScriptConversation | null> {
   const brick = await conversationBrickOf(ctx, a);
-  if (!brick || (brick.conversationFiles?.length ?? 0) === 0) return null;
+  if (!brick) return null;
+  if (brick.scenarioId) {
+    const scenario = await ctx.db.get(brick.scenarioId);
+    if (!scenario || scenario.projectId !== a.projectId) return null;
+    return {
+      text: brick.content.trim(),
+      instruction: brick.instruction?.trim() || null,
+      files: [],
+      genere: true,
+    };
+  }
+  if ((brick.conversationFiles?.length ?? 0) === 0) return null;
   const files = await Promise.all(
     (brick.conversationFiles ?? []).map(async (f) => ({
       storageId: f.storageId,
@@ -3053,6 +3070,7 @@ async function scriptConversationOf(
     text: brick.content.trim(),
     instruction: brick.instruction?.trim() || null,
     files,
+    genere: false,
   };
 }
 

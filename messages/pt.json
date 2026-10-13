@@ -316,6 +316,19 @@
       "hookLibreExamples": "Por exemplo",
       "hookLibreHint": "Mantenha a ideia e invente sua frase: os exemplos servem para inspirar, não para serem recitados."
     },
+    "scenario": {
+      "titre": "1. Pegue a conversa",
+      "consigne": "Orientação",
+      "preparer": "Preparar minha conversa",
+      "telechargerConv": "Baixar a conversa (.txt)",
+      "aideConv": "Salve em Arquivos e depois importe no askblush.com.",
+      "ecranTitre": "A tela para gravar",
+      "ecranAlt": "O fim da conversa, estilo WhatsApp",
+      "aideEcran": "Abra em tela cheia, toque na imagem para esconder os botões e grave com outro celular.",
+      "enregistrerEcran": "Salvar a tela nas minhas fotos",
+      "echec": "Não deu para preparar a conversa. Tente de novo.",
+      "filme": "2. Grave: siga o roteiro da missão."
+    },
     "copy": {
       "copy": "Copiar",
       "copied": "Copiado!"

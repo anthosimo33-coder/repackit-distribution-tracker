@@ -28,6 +28,7 @@ import { MissionStepper } from "@/components/portal/MissionStepper";
 import { ScriptText } from "@/components/scripts/HookLibreBlock";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { MissionConversationCard } from "@/components/portal/MissionConversationCard";
+import { MissionScenarioCard } from "@/components/portal/MissionScenarioCard";
 import {
   ScriptDestinationZones,
   ScriptInstructionList,
@@ -158,6 +159,27 @@ export default function AssignmentDetailScreen({
                   </div>
                 )}
 
+                {/* CONVERSATION à importer à l'écran — brique optionnelle de la
+                    campagne, AVANT le script : on récupère la conv (1), puis on
+                    filme (2). Générée depuis un scénario au prénom de la
+                    créatrice, ou fichiers déposés. */}
+                {data.scriptConversation &&
+                  (data.scriptConversation.genere ? (
+                    <MissionScenarioCard
+                      className="order-5"
+                      mission={{ projectId, assignmentId }}
+                      text={data.scriptConversation.text}
+                      instruction={data.scriptConversation.instruction}
+                    />
+                  ) : (
+                    <MissionConversationCard
+                      className="order-5"
+                      projectId={projectId}
+                      assignmentId={assignmentId}
+                      conversation={data.scriptConversation}
+                    />
+                  ))}
+
                 {/* Script monté OU brief de format. SNYTCH : deux zones de
                     destination (dans la vidéo / en description). */}
                 <div className="order-5">
@@ -211,16 +233,6 @@ export default function AssignmentDetailScreen({
                   />
                 )}
 
-                {/* CONVERSATION à importer à l'écran — brique optionnelle de la
-                    campagne : export personnalisé au téléchargement, captures. */}
-                {data.scriptConversation && (
-                  <MissionConversationCard
-                    className="order-5"
-                    projectId={projectId}
-                    assignmentId={assignmentId}
-                    conversation={data.scriptConversation}
-                  />
-                )}
 
                 {/* INSTRUCTIONS de l'équipe POUR la créatrice — consigne de
                     tournage/montage, distincte du script et de l'overlay. */}

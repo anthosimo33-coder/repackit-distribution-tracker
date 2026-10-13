@@ -226,6 +226,33 @@ export const removeConversationFile = permissionMutation("scripts.manage")({
 // ─── Téléchargement (créatrice) ──────────────────────────────────────────────
 
 /**
+ * La GARDE commune des téléchargements d'une mission : la créatrice de la
+ * mission, ou une personne de l'équipe qui observe son espace. Une mission
+ * d'une autre créatrice rend une conversation ABSENTE (introuvable, jamais
+ * « refusée »).
+ */
+export async function conversationDeMission(
+  ctx: QueryCtx,
+  args: {
+    userId: Id<"users">;
+    projectId: Id<"projects">;
+    assignmentId: Id<"assignments">;
+    viewAsCreatorId?: Id<"creators">;
+  },
+): Promise<{ a: Doc<"assignments"> | null; brick: Doc<"scriptBricks"> | null; creatorId: Id<"creators"> }> {
+  const creatorId = args.viewAsCreatorId
+    ? (await requireCreatorObservable(ctx, args.userId, args.projectId, args.viewAsCreatorId))._id
+    : await requireCreator(ctx, args.userId, args.projectId);
+  const a = await ctx.db.get(args.assignmentId);
+  const mienne = a !== null && a.creatorId === creatorId && a.projectId === args.projectId;
+  return {
+    a: mienne ? a : null,
+    brick: mienne ? await conversationBrickOf(ctx, a) : null,
+    creatorId,
+  };
+}
+
+/**
  * Ce qu'il faut pour personnaliser UN export d'UNE mission : la garde d'accès
  * (la créatrice de la mission, ou une personne de l'équipe qui observe son
  * espace) et les réglages du fichier. Interne : appelée par l'action seule.
@@ -239,14 +266,7 @@ export const exportDownloadPlan = internalQuery({
     viewAsCreatorId: v.optional(v.id("creators")),
   },
   handler: async (ctx, args) => {
-    const creatorId = args.viewAsCreatorId
-      ? (await requireCreatorObservable(ctx, args.userId, args.projectId, args.viewAsCreatorId))._id
-      : await requireCreator(ctx, args.userId, args.projectId);
-    const a = await ctx.db.get(args.assignmentId);
-    // Isolation : la mission d'une autre créatrice est INTROUVABLE, pas refusée.
-    const brick = a && a.creatorId === creatorId && a.projectId === args.projectId
-      ? await conversationBrickOf(ctx, a)
-      : null;
+    const { brick, creatorId } = await conversationDeMission(ctx, args);
     const file = brick?.conversationFiles?.find(
       (f) => f.storageId === args.storageId && f.kind === "export",
     );

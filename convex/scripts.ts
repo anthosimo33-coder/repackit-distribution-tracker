@@ -64,6 +64,7 @@ import {
   isConversationEnabled,
   pickConversations,
 } from "./scriptConversation";
+import { requireScenarioDuProjet, scenariosActifsDuProjet } from "./scenarios";
 import {
   comboAvecTexte,
   ecrireCombo,
@@ -351,7 +352,10 @@ async function conversationsForNewVideos(
   },
 ): Promise<Id<"scriptBricks">[]> {
   if (!isConversationEnabled(input.campaign) || input.count <= 0) return [];
-  const conversations = drawableConversations(input.bricks);
+  const conversations = drawableConversations(
+    input.bricks,
+    await scenariosActifsDuProjet(ctx, input.campaign.projectId),
+  );
   if (conversations.length === 0) {
     throw err(
       ERR.NO_ACTIVE_CONVERSATION,
@@ -1154,6 +1158,9 @@ const createBrickArgs = {
   libre: v.optional(v.boolean()),
   direction: v.optional(v.string()),
   autresExemples: v.optional(v.array(v.string())),
+  // SCÉNARIO (conversation uniquement, ignoré ailleurs) — la conv générée depuis
+  // cette bible (cf convex/scenarios).
+  scenarioId: v.optional(v.id("scenarios")),
 };
 
 export const createBrick = permissionMutation("scripts.manage")({
@@ -1174,6 +1181,9 @@ export async function createBrickCore(
   const label = args.label.trim();
   if (label.length === 0) {
     throw err(ERR.BRICK_LABEL_REQUIRED, "Le label de la brique est requis.");
+  }
+  if (args.kind === "conversation" && args.scenarioId !== undefined) {
+    await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
   }
   return await ctx.db.insert("scriptBricks", {
     projectId: ctx.projectId,
@@ -1197,6 +1207,9 @@ export async function createBrickCore(
           ),
         }
       : {}),
+    ...(args.kind === "conversation" && args.scenarioId !== undefined
+      ? { scenarioId: args.scenarioId }
+      : {}),
     active: args.active ?? true,
     createdAt: Date.now(),
   });
@@ -1218,6 +1231,8 @@ export const updateBrick = permissionMutation("scripts.manage")({
     libre: v.optional(v.boolean()),
     direction: v.optional(v.union(v.string(), v.null())),
     autresExemples: v.optional(v.array(v.string())),
+    // SCÉNARIO (conversation uniquement) — null = repasser aux fichiers déposés.
+    scenarioId: v.optional(v.union(v.id("scenarios"), v.null())),
   },
   handler: async (ctx, args) => {
     // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
@@ -1260,6 +1275,12 @@ export const updateBrick = permissionMutation("scripts.manage")({
           args.content ?? brick.content,
         );
       }
+    }
+    if (brick.kind === "conversation" && args.scenarioId !== undefined) {
+      if (args.scenarioId !== null) {
+        await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
+      }
+      patch.scenarioId = args.scenarioId ?? undefined;
     }
     await ctx.db.patch(args.id, patch);
     return { ok: true };
