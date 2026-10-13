@@ -314,10 +314,6 @@
       "preparer": "Prepare my conversation",
       "telechargerConv": "Download the conversation (.txt)",
       "aideConv": "Save it to Files, then import it on askblush.com.",
-      "ecranTitre": "The screen to film",
-      "ecranAlt": "The end of the conversation, WhatsApp style",
-      "aideEcran": "Open it full screen, tap the image to hide the buttons, and film it with another phone.",
-      "enregistrerEcran": "Save the screen to my photos",
       "echec": "The conversation couldn't be prepared. Try again.",
       "filme": "2. Film: follow the mission's script."
     },

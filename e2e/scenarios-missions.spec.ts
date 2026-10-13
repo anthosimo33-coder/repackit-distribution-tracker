@@ -218,7 +218,10 @@ test.describe("Scénarios dans les missions", () => {
     await expect(carte).toBeVisible({ timeout: 20_000 });
     await expect(carte).toContainText("1. Récupère la conv");
     await carte.getByTestId("mission-scenario-preparer").click();
-    await expect(carte.getByTestId("mission-scenario-ecran")).toBeVisible({ timeout: 30_000 });
+    await expect(carte.getByTestId("mission-scenario-txt")).toBeVisible({ timeout: 30_000 });
+    // Le .txt seul : plus de capture d'écran à enregistrer.
+    await expect(carte.getByRole("img")).toHaveCount(0);
+    await expect(carte.getByTestId("mission-scenario-png")).toHaveCount(0);
     const telechargement = page.waitForEvent("download");
     await carte.getByTestId("mission-scenario-txt").click();
     const fichier = await telechargement;

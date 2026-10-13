@@ -6,7 +6,7 @@
  *  - lecture (droit `scripts.manage`, celui de l'écran Scénarios) : `scenarios`,
  *    `lire_scenario`, `tester_scenario` — ce dernier génère la conv avec le
  *    MÊME moteur que la mission (convex/scenarioEngine) et ne rend que du texte :
- *    l'écran choc se dessine dans le navigateur, d'où des liens ;
+ *    les fichiers s'enregistrent depuis le navigateur, d'où des liens ;
  *  - écriture (interrupteur « Scripts », même droit) : `creer_scenario`,
  *    `modifier_scenario`, `activer_scenario`, `scenarios_campagne` — toutes
  *    défaisables, toutes par les cœurs de l'écran.
@@ -60,7 +60,7 @@ export function empreinteBible(texte: string): string {
 
 // ─── Liens vers l'écran ─────────────────────────────────────────────────────
 
-export type Telechargement = "txt" | "zip" | "png";
+export type Telechargement = "txt" | "zip";
 
 /**
  * L'écran d'un scénario ; avec un prénom, il génère la conv à l'ouverture
@@ -97,7 +97,7 @@ export const OUTILS_SCENARIOS_LECTURE: readonly McpTool[] = [
     name: "lire_scenario",
     title: "Lire un scénario",
     description:
-      "La BIBLE entière d'un scénario (JSON) : personnages, dates, rythme, munitions, écran choc. À lire avant `modifier_scenario`, qui remplace la bible ENTIÈRE, et comme modèle avant `creer_scenario`.",
+      "La BIBLE entière d'un scénario (JSON) : personnages, dates, rythme, munitions, et la fin qui choque (`ecran_choc` : les derniers messages, sur lesquels l'export se termine). À lire avant `modifier_scenario`, qui remplace la bible ENTIÈRE, et comme modèle avant `creer_scenario`.",
     inputSchema: {
       type: "object",
       properties: { projet: ARG_PROJET, scenario: ARG_SCENARIO },
@@ -109,14 +109,14 @@ export const OUTILS_SCENARIOS_LECTURE: readonly McpTool[] = [
     name: "tester_scenario",
     title: "Tester un scénario",
     description:
-      "Génère la conversation d'un scénario pour un prénom, avec le moteur des missions : les stats (messages, réponse médiane de chacun, qui lance les échanges, jour record, « je t'aime », mots partagés, vocaux), la fin de la conv (l'écran choc) et les liens qui téléchargent le .txt, le zip WhatsApp et l'écran choc en PNG (dessiné dans le navigateur de la personne, connectée à Jarvia). Rien n'est écrit. Même prénom + même graine = même conversation.",
+      "Génère la conversation d'un scénario pour un prénom, avec le moteur des missions : les stats (messages, réponse médiane de chacun, qui lance les échanges, jour record, « je t'aime », mots partagés, vocaux), les derniers messages et les liens qui téléchargent l'export WhatsApp (.txt, ou le zip d'iPhone) dans le navigateur de la personne, connectée à Jarvia. Rien n'est écrit. Même prénom + même graine = même conversation.",
     inputSchema: {
       type: "object",
       properties: {
         projet: ARG_PROJET,
         scenario: ARG_SCENARIO,
         prenom: { type: "string", description: "Le prénom de la créatrice (« elle » dans la conv)." },
-        graine: { type: "integer", minimum: 0, description: "Variante de la conv (défaut 7). Une autre graine = un autre remplissage, même écran choc." },
+        graine: { type: "integer", minimum: 0, description: "Variante de la conv (défaut 7). Une autre graine = un autre remplissage, même fin." },
         dates: {
           type: "string",
           enum: ["aujourdhui", "bible"],
@@ -320,16 +320,15 @@ export async function appelerScenariosLecture(
           dates: datesBible ? "celles de la bible" : `glissées de ${gen.decalageJours} jour(s) pour finir aujourd'hui`,
           stats,
           rapport: statsTexte(lue.bible, gen, stats),
-          ecranChoc: lignes.slice(-lue.bible.ecran_choc.length),
+          fin: lignes.slice(-lue.bible.ecran_choc.length),
           liens: {
             txt: lienScenario(projet, s.id, { ...test, telecharger: "txt" }),
             zip: lienScenario(projet, s.id, { ...test, telecharger: "zip" }),
-            png: lienScenario(projet, s.id, { ...test, telecharger: "png" }),
             ecran: lienScenario(projet, s.id, test),
           },
           lecture: [
-            "Donne les liens à la personne : l'ouvrir (connectée à Jarvia) génère CETTE conversation dans son navigateur et télécharge le fichier aussitôt. Le PNG ne peut pas t'être rendu : il se dessine dans le navigateur.",
-            "La conv d'une MISSION utilise le prénom de la créatrice et une graine propre à la mission : elle diffère de ce test, avec le même écran choc.",
+            "Donne les liens à la personne : l'ouvrir (connectée à Jarvia) génère CETTE conversation dans son navigateur et télécharge le fichier aussitôt.",
+            "La conv d'une MISSION utilise le prénom de la créatrice et une graine propre à la mission : elle diffère de ce test, avec la même fin.",
           ],
         },
         null,

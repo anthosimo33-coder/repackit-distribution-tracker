@@ -325,9 +325,7 @@
     "datesTellesQuelles": "Dates de la bible, telles qu'écrites.",
     "decalage": "{jours, plural, one {Dates glissées de # jour pour finir aujourd'hui.} other {Dates glissées de # jours pour finir aujourd'hui.}}",
     "telechargerTxt": "Export .txt",
-    "telechargerZip": "Zip WhatsApp",
-    "telechargerPng": "Écran choc .png",
-    "apercuEcran": "Aperçu de l'écran choc"
+    "telechargerZip": "Zip WhatsApp"
   },
   "ScenarioErreur": {
     "valide": "Bible valide.",

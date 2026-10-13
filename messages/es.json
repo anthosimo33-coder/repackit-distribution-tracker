@@ -314,10 +314,6 @@
       "preparer": "Preparar mi conversación",
       "telechargerConv": "Descargar la conversación (.txt)",
       "aideConv": "Guárdala en Archivos y luego impórtala en askblush.com.",
-      "ecranTitre": "La pantalla que hay que grabar",
-      "ecranAlt": "El final de la conversación, estilo WhatsApp",
-      "aideEcran": "Ábrela a pantalla completa, toca la imagen para ocultar los botones y grábala con otro teléfono.",
-      "enregistrerEcran": "Guardar la pantalla en mis fotos",
       "echec": "No se pudo preparar la conversación. Inténtalo de nuevo.",
       "filme": "2. Graba: sigue el guion de la misión."
     },

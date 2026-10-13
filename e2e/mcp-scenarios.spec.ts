@@ -99,15 +99,17 @@ test.describe("MCP — scénarios de conversation", () => {
     const t = JSON.parse((await appel("tester_scenario", { scenario: code, prenom: "Kelly", dates: "bible" })).texte) as {
       fichier: string;
       stats: { messages: number; record: { jour: string } };
-      ecranChoc: string[];
-      liens: { txt: string; png: string };
+      fin: string[];
+      liens: { txt: string; zip: string; png?: string };
     };
     expect(t.fichier).toBe("WhatsApp Chat - Kelly, Yanis.txt");
     expect(t.stats.messages).toBeGreaterThan(5_300);
     expect(t.stats.messages).toBeLessThan(6_500);
     expect(t.stats.record.jour).toBe("2026-02-14");
-    expect(t.ecranChoc).toHaveLength(5);
-    expect(t.ecranChoc.at(-1)).toMatch(/22:33:05\] Kelly: t'as raison pardon$/);
+    expect(t.fin).toHaveLength(5);
+    expect(t.fin.at(-1)).toMatch(/22:33:05\] Kelly: t'as raison pardon$/);
+    expect(t.liens.zip).toContain("telecharger=zip");
+    expect(t.liens.png).toBeUndefined();
     expect(t.liens.txt).toContain("tester=Kelly");
     expect(t.liens.txt).toContain("telecharger=txt");
 
@@ -117,7 +119,7 @@ test.describe("MCP — scénarios de conversation", () => {
     const fichier = await telechargement;
     expect(fichier.suggestedFilename()).toBe("WhatsApp Chat - Kelly, Yanis.txt");
     const texte = readFileSync((await fichier.path())!, "utf8");
-    expect(texte.trimEnd().split(/\r?\n/).at(-1)).toBe(t.ecranChoc.at(-1));
+    expect(texte.trimEnd().split(/\r?\n/).at(-1)).toBe(t.fin.at(-1));
     await expect(page).not.toHaveURL(/telecharger=/);
     await expect(page.getByTestId("scenario-stats")).toContainText("Kelly");
 

@@ -209,7 +209,7 @@ function Editeur({ scenario }: { scenario: Scenario }) {
 
 /**
  * Le test demandé par un lien de l'outil MCP `tester_scenario` :
- * `?tester=<prénom>&graine=<n>[&dates=bible][&telecharger=txt|zip|png]`. Une
+ * `?tester=<prénom>&graine=<n>[&dates=bible][&telecharger=txt|zip]`. Une
  * fois fait, `telecharger` quitte l'adresse : recharger ne retélécharge pas.
  */
 function useTestAuto(): { test: TestAuto | null; fait: () => void } {
@@ -225,7 +225,7 @@ function useTestAuto(): { test: TestAuto | null; fait: () => void } {
           prenom,
           graine: Math.max(0, Math.trunc(Number(params.get("graine") ?? 7)) || 0),
           datesBible: params.get("dates") === "bible",
-          telecharger: quoi === "txt" || quoi === "zip" || quoi === "png" ? quoi : null,
+          telecharger: quoi === "txt" || quoi === "zip" ? quoi : null,
         }
       : null,
   );
