@@ -27,7 +27,6 @@ import {
   ARG_PROJET,
   ecrire,
   etatsApres,
-  jsonCanonique,
   journaliser,
   photographierEtats,
   refusDe,
@@ -47,7 +46,7 @@ import {
   setAssignmentPostDateCore,
   setAssignmentPostWindowCore,
 } from "./assignments";
-import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore, updateCampaignCore } from "./scripts";
+import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore } from "./scripts";
 import { changerStatutScenarioCore, modifierScenarioCore, supprimerScenarioCore, type StatutScenario } from "./scenarios";
 import { empreinteBible } from "./mcpScenarios";
 import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
@@ -159,7 +158,6 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "creer_scenario",
   "modifier_scenario",
   "activer_scenario",
-  "scenarios_campagne",
 ]);
 
 /** Pourquoi une modification ne se défait pas par Claude. */
@@ -604,7 +602,7 @@ async function annuler(
     case "scenarioCree": {
       const sc = await ctx.db.get(a.scenarioId);
       if (!sc) throw refus("Ce scénario a déjà été supprimé.");
-      if (empreinteBible(sc.bible) !== a.empreinte || sc.statut !== "brouillon") {
+      if (empreinteBible(sc.bible) !== a.empreinte || sc.statut === "archive") {
         throw refus("Il a changé depuis (bible ou statut) : rien n'a été supprimé — archive-le avec `activer_scenario` si c'est voulu.");
       }
       try {
@@ -643,16 +641,6 @@ async function annuler(
       if (sc.statut !== a.apres) throw refus(`Son statut a changé depuis (${sc.statut}) : rien n'a été écrasé.`);
       await changerStatutScenarioCore(ctx, sc._id, a.avant as StatutScenario);
       return `Scénario ${sc.code} remis en « ${a.avant} ».`;
-    }
-    case "conversationCampagne": {
-      const c = await ctx.db.get(a.campaignId);
-      if (!c) throw refus("Cette campagne n'existe plus.");
-      const maintenant = { allumee: c.conversationEnabled === true, themes: c.conversationThemes ?? [] };
-      if (jsonCanonique(maintenant) !== jsonCanonique(a.apres)) {
-        throw refus("La conversation de la campagne a changé depuis : rien n'a été écrasé.");
-      }
-      await updateCampaignCore(ctx, { id: c._id, conversationEnabled: a.avant.allumee, conversationThemes: a.avant.themes });
-      return a.avant.allumee ? "Thèmes d'avant remis." : "Conversation éteinte, thèmes d'avant remis.";
     }
     case "conversationSupprimee": {
       await restoreConversationCore(ctx, { titre: a.titre, data: a.data });

@@ -150,6 +150,11 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
           description: "Clés de scripts à écarter (« cle » rendue par la simulation) : le tirage propose le suivant.",
           items: { type: "string" },
         },
+        conversation: {
+          type: "string",
+          description:
+            "Thème de conversation WhatsApp (outil `scenarios`) : chaque vidéo reçoit une conv différente de ce thème, à télécharger à son prénom dans sa mission (.txt à importer sur BLUSH). Absent = sans conversation.",
+        },
       },
       required: ["campagne", "createatrices", "jours"],
       additionalProperties: false,
@@ -660,6 +665,7 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
     remuneree: v.optional(v.boolean()),
     consigne: v.optional(v.string()),
     texteAIncruster: v.optional(v.string()),
+    conversation: v.optional(v.string()),
   },
   handler: async (ctx, a) => {
     const r = await resoudre(ctx, a);
@@ -679,6 +685,7 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
       postDates: r.postDates,
       ...(a.plage ? { postWindows: r.postDates.map(() => a.plage!) } : {}),
       ...(a.exclure.length > 0 ? { excludedComboKeys: a.exclure } : {}),
+      ...(a.conversation ? { conversationTheme: a.conversation } : {}),
       ...(contentType !== undefined ? { contentType } : {}),
       ...(remunerated !== undefined ? { remunerated } : {}),
       ...(r.rejeu
@@ -699,7 +706,8 @@ export const ecrireAssignation = mcpWriteMutation("assignments.manage", "mission
       (a.rejeu ? " (rejeu)" : "") +
       ` sur ${r.handles.join(", ")}` +
       (jours.length > 0 ? `, ${jours.map(jourTexte).join(", ")}` : "") +
-      (a.plage ? `, ${formatPostWindow(a.plage)}` : "");
+      (a.plage ? `, ${formatPostWindow(a.plage)}` : "") +
+      (a.conversation && res.created > 0 ? `, conversation WhatsApp « ${a.conversation} »` : "");
     if (res.created > 0) {
       await journaliser(ctx, {
         tool: a.rejeu ? "rejouer_script" : "assigner_scripts",
@@ -1159,6 +1167,7 @@ async function appelerEcritureMissions(
             ...(typeof args.remuneree === "boolean" ? { remuneree: args.remuneree } : {}),
             ...(texteArg(args, "consigne") ? { consigne: texteArg(args, "consigne") } : {}),
             ...(texteArg(args, "texte_a_incruster") ? { texteAIncruster: texteArg(args, "texte_a_incruster") } : {}),
+            ...(texteArg(args, "conversation") ? { conversation: texteArg(args, "conversation") } : {}),
           }),
         );
         if (r.creees > 0) faits.push(r.summary);

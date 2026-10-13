@@ -561,7 +561,12 @@
     "phaseUntil": "En chauffe jusqu'au {date} — la publication sera refusée.",
     "phaseNone": "Aucune publication possible dans cette phase.",
     "qualifiedSummary": "{type, select, warmup {Warmup} other {Promo}} · {paid, select, yes {rémunérée} other {non rémunérée}} — repris sur la publication à sa création.",
-    "noAccountAvailable": "aucun compte disponible"
+    "noAccountAvailable": "aucun compte disponible",
+    "conversationWhatsApp": "Conversation WhatsApp",
+    "conversationAucune": "Aucune",
+    "conversationScenarios": "{count, plural, one {# scénario} other {# scénarios}}",
+    "conversationAide": "Chaque vidéo reçoit une conversation différente de ce thème, à son prénom : la créatrice télécharge le .txt dans sa mission et l'importe sur BLUSH.",
+    "conversationAideAucune": "Les vidéos partent sans conversation WhatsApp."
   },
   "AssignmentPlanningCalendar": {
     "videosAPlacer": "Vidéos à placer",
@@ -959,8 +964,7 @@
       "ajouter_notifs": "Notifs ajoutées",
       "creer_scenario": "Scénario créé",
       "modifier_scenario": "Scénario modifié",
-      "activer_scenario": "Statut de scénario changé",
-      "scenarios_campagne": "Thèmes de scénarios d'une campagne"
+      "activer_scenario": "Statut de scénario changé"
     },
     "section": {
       "treasury": "Trésorerie",

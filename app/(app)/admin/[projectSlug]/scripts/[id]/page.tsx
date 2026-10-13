@@ -66,11 +66,6 @@ import {
   type ScriptKind,
 } from "@/lib/scriptAssembly";
 import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
-import {
-  cleTheme,
-  isConversationEnabled,
-  scenariosTirables,
-} from "@/convex/scriptConversation";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { NotifBackfill } from "@/components/scripts/NotifBackfill";
 import {
@@ -241,9 +236,6 @@ export default function ScriptCampaignDetailPage() {
   const [now] = useState(() => Date.now());
 
   const bricks = useMemo(() => campaign?.bricks ?? [], [campaign]);
-  // SCÉNARIOS du projet (bloc `scripts.manage`, celui de cet écran) : la
-  // conversation tire parmi les actifs des thèmes cochés.
-  const scenarios = useProjectQuery(api.scenarios.listScenarios, {});
 
   // Plateformes réellement servies par cette créatrice : l'unicité à vie est
   // PAR PLATEFORME, l'évaluer sur les trois en dur inventerait des collisions.
@@ -343,14 +335,6 @@ export default function ScriptCampaignDetailPage() {
   // tirable, le serveur REFUSE l'assignation : on le dit ici, avant le clic.
   const notifOn = isNotifEnabled(campaign);
   const notifMissing = notifOn && drawableNotifs(bricks).length === 0;
-  // CONVERSATION — même règle : allumée sans scénario actif dans ses thèmes,
-  // le serveur refuse l'assignation.
-  const conversationOn = isConversationEnabled(campaign);
-  const conversationThemes = campaign.conversationThemes ?? [];
-  const conversationMissing =
-    conversationOn &&
-    scenarios !== undefined &&
-    scenariosTirables(scenarios, conversationThemes).length === 0;
   const kinds = editableKinds(notifOn);
   const activeCount = ofKind.filter((b) => b.active).length;
   const checkedIds = [...checked].filter((cid) =>
@@ -386,14 +370,6 @@ export default function ScriptCampaignDetailPage() {
               if (kind === "notif") void switchKind("hook");
             }}
           />
-          <ConversationToggle
-            campaignId={campaign._id}
-            enabled={conversationOn}
-            themes={conversationThemes}
-            scenarios={scenarios}
-            missing={conversationMissing}
-            scenariosHref={projectPath("/scenarios")}
-          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
@@ -419,18 +395,9 @@ export default function ScriptCampaignDetailPage() {
           <Button
             onClick={() => setAssignOpen(true)}
             disabled={
-              combos.total === 0 ||
-              campaign.status === "archived" ||
-              notifMissing ||
-              conversationMissing
+              combos.total === 0 || campaign.status === "archived" || notifMissing
             }
-            title={
-              notifMissing
-                ? tr("notifAucuneActive")
-                : conversationMissing
-                  ? tr("conversationAucuneActive")
-                  : undefined
-            }
+            title={notifMissing ? tr("notifAucuneActive") : undefined}
           >
             <SendIcon className="mr-2 size-4" />
             {tr("assignerCetteCampagne")}
@@ -692,133 +659,6 @@ function NotifToggle({
         </p>
       )}
       {enabled && !missing && <NotifBackfill campaignId={campaignId} />}
-    </div>
-  );
-}
-
-/**
- * Interrupteur CONVERSATION de la campagne (cf convex/scriptConversation), et
- * ses THÈMES. Allumé : chaque vidéo assignée reçoit une conversation WhatsApp
- * générée à son prénom, depuis un scénario actif tiré dans les thèmes cochés.
- * Un scénario passé en « Actif » rejoint tout seul les campagnes de son thème.
- */
-function ConversationToggle({
-  campaignId,
-  enabled,
-  themes,
-  scenarios,
-  missing,
-  scenariosHref,
-}: {
-  campaignId: Id<"scriptCampaigns">;
-  enabled: boolean;
-  /** Thèmes cochés, tels qu'enregistrés sur la campagne. */
-  themes: string[];
-  /** Scénarios du projet ; undefined = en chargement. */
-  scenarios: { theme: string; statut: string }[] | undefined;
-  /** Allumée mais aucun scénario actif dans ses thèmes : l'assignation sera refusée. */
-  missing: boolean;
-  scenariosHref: string;
-}) {
-  const showError = useConvexError();
-  const tr = useTranslations("admin.scripts.ScriptCampaignDetailPage");
-  const update = useProjectMutation(api.scripts.updateCampaign);
-  const [busy, setBusy] = useState(false);
-
-  // Un thème par clé (casse ignorée), avec son nombre de scénarios actifs. Un
-  // thème coché qui n'a plus aucun scénario reste affiché, pour qu'on le décoche.
-  const options = useMemo(() => {
-    const parCle = new Map<string, { theme: string; actifs: number }>();
-    for (const sc of scenarios ?? []) {
-      const cle = cleTheme(sc.theme);
-      if (!cle || sc.statut === "archive") continue;
-      const o = parCle.get(cle) ?? { theme: sc.theme.trim(), actifs: 0 };
-      if (sc.statut === "actif") o.actifs += 1;
-      parCle.set(cle, o);
-    }
-    for (const t of themes) {
-      if (!parCle.has(cleTheme(t))) parCle.set(cleTheme(t), { theme: t, actifs: 0 });
-    }
-    return [...parCle.entries()].sort(([, a], [, b]) => a.theme.localeCompare(b.theme, "fr"));
-  }, [scenarios, themes]);
-  const coches = new Set(themes.map(cleTheme));
-
-  async function enregistrer(patch: { conversationEnabled?: boolean; conversationThemes?: string[] }) {
-    setBusy(true);
-    try {
-      await update({ id: campaignId, ...patch });
-    } catch (e) {
-      toast.error(showError(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function basculer(theme: string, on: boolean) {
-    const cle = cleTheme(theme);
-    void enregistrer({
-      conversationThemes: on
-        ? [...themes, theme]
-        : themes.filter((t) => cleTheme(t) !== cle),
-    });
-  }
-
-  const lienScenarios = (
-    <Link
-      href={scenariosHref}
-      prefetch={false}
-      className="font-medium text-primary underline-offset-2 hover:underline"
-    >
-      {tr("conversationGererScenarios")}
-    </Link>
-  );
-
-  return (
-    <div className="space-y-1 pt-1">
-      <label className="flex w-fit items-center gap-2 text-sm text-slate-700">
-        <Switch
-          checked={enabled}
-          onCheckedChange={(next) => void enregistrer({ conversationEnabled: next })}
-          disabled={busy}
-          aria-label={tr("conversationToggle")}
-          data-testid="conversation-toggle"
-        />
-        <span aria-hidden>💬</span>
-        {tr("conversationToggle")}
-      </label>
-      <p className="text-xs text-slate-400">{tr("conversationToggleHint")}</p>
-      {enabled && (
-        <div className="space-y-1 pt-1" data-testid="conversation-themes">
-          <p className="text-xs font-medium text-slate-600">{tr("conversationThemes")}</p>
-          {options.length === 0 ? (
-            <p className="text-xs text-slate-500">
-              {tr("conversationAucunScenario")}{" "}{lienScenarios}
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-              {options.map(([cle, o]) => (
-                <label key={cle} className="flex items-center gap-1.5 text-sm text-slate-700">
-                  <Checkbox
-                    checked={coches.has(cle)}
-                    onCheckedChange={(v) => basculer(o.theme, v === true)}
-                    disabled={busy}
-                    aria-label={o.theme}
-                  />
-                  {o.theme}
-                  <span className="text-xs text-slate-400">
-                    {tr("conversationThemeActifs", { count: o.actifs })}
-                  </span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {missing && options.length > 0 && (
-        <p className="text-xs text-amber-700" data-testid="conversation-missing">
-          {tr("conversationAucuneActive")}{" "}{lienScenarios}
-        </p>
-      )}
     </div>
   );
 }

@@ -1533,7 +1533,7 @@
     "ERR_SCENARIO_NOT_FOUND": "Scénario introuvable.",
     "ERR_SCENARIO_ARCHIVED": "Le scénario {code} est archivé : remets-le en « Actif » pour le donner.",
     "ERR_SCENARIO_IN_USE": "Le scénario {code} a déjà été donné à des missions : archive-le plutôt que de le supprimer.",
-    "ERR_NO_ACTIVE_CONVERSATION": "Scénario activé sur cette campagne, mais aucun scénario actif dans ses thèmes : coche un thème, passe un de ses scénarios en « Actif », ou désactive le scénario.",
+    "ERR_NO_ACTIVE_CONVERSATION": "Aucun scénario dans le thème « {theme} » : importes-en un dans Scénarios, ou assigne sans conversation.",
     "ERR_COMPTA_CHARGE_INVALID": "Charge invalide : il faut une date, un libellé, un montant positif et une devise que le projet sait convertir.",
     "ERR_COMPTA_CHARGE_NOT_FOUND": "Cette charge n'existe plus.",
     "ERR_COMPTA_RULE_BUILTIN": "Ce type de ligne est déjà classé par Jarvia : sa colonne ne se change pas depuis la page.",

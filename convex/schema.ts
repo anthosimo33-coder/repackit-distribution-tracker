@@ -2354,9 +2354,9 @@ export default defineSchema({
         notifText: v.optional(v.string()),
       }),
     ),
-    // SCÉNARIO de la conversation de la vidéo (option de campagne, cf
-    // convex/scriptConversation) — tiré à l'assignation parmi les scénarios
-    // actifs des thèmes de la campagne. HORS de `scriptCombo`, volontairement :
+    // SCÉNARIO de la conversation de la vidéo (cf convex/scriptConversation) —
+    // tiré à l'assignation parmi les scénarios du thème choisi. HORS de
+    // `scriptCombo`, volontairement :
     // les nombreux chemins qui réécrivent le combo (correction de brique, rejeu,
     // outils MCP) ne peuvent pas l'effacer en silence, comme c'est arrivé à la
     // notif. La conv se génère au téléchargement (convex/scenarioMission).
@@ -3545,14 +3545,11 @@ export default defineSchema({
     // en rotation équilibrée hors combo (convex/scriptNotif). Absent = non :
     // les campagnes existantes sont inchangées, 0 migration.
     notifEnabled: v.optional(v.boolean()),
-    // CONVERSATION — chaque vidéo assignée reçoit-elle une conversation
-    // WhatsApp générée à importer dans l'app à l'écran ? true = oui, tirée en
-    // rotation hors combo parmi les scénarios ACTIFS des thèmes cochés
-    // (convex/scriptConversation). Absent = non : 0 migration.
+    // LEGACY (13/10/2026, plus lus) — la conversation se réglait sur la
+    // campagne ; le thème se choisit désormais à l'assignation (argument
+    // `conversationTheme`, cf convex/scriptConversation). Gardés : des
+    // campagnes BLUSH les portent encore. Suppression = resserrage ultérieur.
     conversationEnabled: v.optional(v.boolean()),
-    // Les THÈMES de scénarios de la campagne (scenarios.theme, comparés sans
-    // casse). Un scénario passé en « Actif » part tout seul dans les campagnes
-    // de son thème. Absent = aucun thème.
     conversationThemes: v.optional(v.array(v.string())),
     // LEGACY (refonte 3 briques) — socle démo, plus monté ni édité côté UI.
     // Conservé (required, défaut "") pour 0 migration sur scriptCampaigns ;

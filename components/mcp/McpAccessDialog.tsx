@@ -446,8 +446,7 @@ type OutilEcriture =
   | "ajouter_notifs"
   | "creer_scenario"
   | "modifier_scenario"
-  | "activer_scenario"
-  | "scenarios_campagne";
+  | "activer_scenario";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

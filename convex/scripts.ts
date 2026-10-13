@@ -58,13 +58,7 @@ import {
   notifUsageOf,
   pickNotifs,
 } from "./scriptNotif";
-import {
-  isConversationEnabled,
-  pickScenarios,
-  scenarioUsageOf,
-  scenariosTirables,
-  themesNettoyes,
-} from "./scriptConversation";
+import { pickScenarios, scenarioUsageOf, scenariosTirables } from "./scriptConversation";
 import { requireScenarioDuProjet, scenariosDuProjet } from "./scenarios";
 import {
   comboAvecTexte,
@@ -332,31 +326,31 @@ async function notifsForNewVideos(
 
 /**
  * SCÉNARIOS des `count` vidéos qu'on s'apprête à créer pour `creatorId`, un par
- * vidéo, dans l'ordre — tirés parmi les scénarios ACTIFS des thèmes de la
- * campagne, en rotation équilibrée (cf convex/scriptConversation).
+ * vidéo, dans l'ordre — tirés parmi les scénarios du THÈME choisi à
+ * l'assignation, en rotation équilibrée (cf convex/scriptConversation).
  *
- * Campagne sans conversation → tableau vide, l'assignation est celle d'avant.
- * Allumée mais aucun scénario tirable → REFUS : une vidéo partie sans conv
- * n'aurait rien à importer à l'écran.
+ * Pas de thème → tableau vide, l'assignation est sans conversation. Un thème
+ * sans scénario tirable → REFUS : une vidéo partie sans conv n'aurait rien à
+ * importer à l'écran.
  */
 async function scenariosForNewVideos(
   ctx: MutationCtx,
   input: {
+    theme: string | undefined;
     campaign: Doc<"scriptCampaigns">;
     creatorId: Id<"creators">;
     count: number;
     rows?: Doc<"assignments">[];
   },
 ): Promise<Id<"scenarios">[]> {
-  if (!isConversationEnabled(input.campaign) || input.count <= 0) return [];
-  const scenarios = scenariosTirables(
-    await scenariosDuProjet(ctx, input.campaign.projectId),
-    input.campaign.conversationThemes ?? [],
-  );
+  const theme = input.theme?.trim() ?? "";
+  if (theme === "" || input.count <= 0) return [];
+  const scenarios = scenariosTirables(await scenariosDuProjet(ctx, input.campaign.projectId), [theme]);
   if (scenarios.length === 0) {
     throw err(
       ERR.NO_ACTIVE_CONVERSATION,
-      "Scénario activé sur cette campagne, mais aucun scénario actif dans ses thèmes : coche un thème, passe un de ses scénarios en « Actif », ou désactive le scénario.",
+      `Aucun scénario dans le thème « ${theme} » : importes-en un dans Scénarios, ou assigne sans conversation.`,
+      { theme },
     );
   }
   const rows = input.rows ?? (await projectAssignmentsForCooldown(ctx, input.campaign.projectId));
@@ -1030,9 +1024,6 @@ const updateCampaignArgs = {
   status: v.optional(v.union(v.literal("active"), v.literal("archived"))),
   // Brique NOTIF allumée / éteinte pour la campagne (cf convex/scriptNotif).
   notifEnabled: v.optional(v.boolean()),
-  // CONVERSATION allumée / éteinte, et ses thèmes (cf convex/scriptConversation).
-  conversationEnabled: v.optional(v.boolean()),
-  conversationThemes: v.optional(v.array(v.string())),
 };
 
 export const updateCampaign = permissionMutation("scripts.manage")({
@@ -1043,7 +1034,7 @@ export const updateCampaign = permissionMutation("scripts.manage")({
   },
 });
 
-/** Cœur des réglages d'une campagne — l'écran, et l'outil MCP `scenarios_campagne`. */
+/** Cœur des réglages d'une campagne. */
 export async function updateCampaignCore(
   ctx: ProjectMutationCtx,
   args: ObjectType<typeof updateCampaignArgs>,
@@ -1058,12 +1049,6 @@ export async function updateCampaignCore(
   if (args.demoBlock !== undefined) patch.demoBlock = args.demoBlock;
   if (args.status !== undefined) patch.status = args.status;
   if (args.notifEnabled !== undefined) patch.notifEnabled = args.notifEnabled;
-  if (args.conversationEnabled !== undefined) {
-    patch.conversationEnabled = args.conversationEnabled;
-  }
-  if (args.conversationThemes !== undefined) {
-    patch.conversationThemes = themesNettoyes(args.conversationThemes);
-  }
   await ctx.db.patch(args.id, patch);
 }
 
@@ -1468,6 +1453,10 @@ const assignScriptCampaignArgs = {
   // ils n'en relâchent aucune : rejeter un script est une contrainte de plus.
   // Absent → tirage inchangé, exactement comme avant l'aperçu.
   excludedComboKeys: v.optional(v.array(v.string())),
+  // CONVERSATION WhatsApp : le THÈME de scénarios choisi à l'assignation —
+  // chaque vidéo en reçoit une, différente, tirée dans ce thème (cf
+  // convex/scriptConversation). Absent = sans conversation.
+  conversationTheme: v.optional(v.string()),
   // PLAGE HORAIRE par vidéo, positionnelle comme postDates : postWindows[i]
   // accompagne postDates[i]. Minutes depuis minuit LOCAL (cf convex/postWindow).
   // Absente ⇒ aucune consigne d'heure, l'assignation reste valide.
@@ -1795,10 +1784,11 @@ export async function assignScriptCampaignCore(
         });
   // ─── Conversation : un scénario par vidéo, tiré À PART du combo ────────────
   // Le rejeu à l'identique reprend celui de la source (même histoire) ; tout le
-  // reste le tire en rotation équilibrée dans les thèmes de la campagne.
+  // reste le tire en rotation équilibrée dans le thème choisi à l'assignation.
   const scenariosTires = verbatimCombo
     ? []
     : await scenariosForNewVideos(ctx, {
+        theme: args.conversationTheme,
         campaign,
         creatorId: args.creatorId,
         count: picked.length,

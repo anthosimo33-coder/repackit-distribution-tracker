@@ -36,9 +36,14 @@ import { codeValide, lireBible } from "@/convex/scenarioBible";
 import { BibleErreurs } from "@/components/scenarios/BibleErreurs";
 import { ScenarioTesteur, type TestAuto } from "@/components/scenarios/ScenarioTesteur";
 import { ScenarioPerformance } from "@/components/scenarios/ScenarioPerformance";
-import { StatutScenario, type Statut } from "@/components/scenarios/StatutScenario";
+import {
+  StatutScenario,
+  statutAffiche,
+  type Statut,
+  type StatutAffiche,
+} from "@/components/scenarios/StatutScenario";
 
-const STATUTS: Statut[] = ["brouillon", "actif", "archive"];
+const STATUTS: StatutAffiche[] = ["actif", "archive"];
 
 /**
  * Un SCÉNARIO : sa bible (éditeur JSON, vérifiée à chaque frappe), son thème,
@@ -126,7 +131,7 @@ function Editeur({ scenario }: { scenario: Scenario }) {
     }
   }
 
-  async function statut(s: Statut) {
+  async function statut(s: StatutAffiche) {
     try {
       await changerStatut({ id: scenario._id, statut: s });
     } catch (e) {
@@ -144,9 +149,12 @@ function Editeur({ scenario }: { scenario: Scenario }) {
           <StatutScenario statut={scenario.statut} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={scenario.statut} onValueChange={(v) => v && void statut(v as Statut)}>
+          <Select
+            value={statutAffiche(scenario.statut)}
+            onValueChange={(v) => v && v !== statutAffiche(scenario.statut) && void statut(v as StatutAffiche)}
+          >
             <SelectTrigger className="h-9 w-36" aria-label={tr("statut")} data-testid="scenario-statut-select">
-              <SelectValue>{tStatut(scenario.statut)}</SelectValue>
+              <SelectValue>{tStatut(statutAffiche(scenario.statut))}</SelectValue>
             </SelectTrigger>
             <SelectContent align="start">
               {STATUTS.map((s) => (

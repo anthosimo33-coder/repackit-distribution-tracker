@@ -36,7 +36,8 @@ test.describe("Scénarios", () => {
     const code = `T${ts}`.slice(0, 12);
     const id = await admin.mutation(api.scenarios.creerScenario, { bible: bibleSous(code), theme: " La dispute " });
     const lu = await admin.query(api.scenarios.getScenario, { id });
-    expect(lu).toMatchObject({ code, titre: "Le like de l'ex", type: "couple", theme: "La dispute", statut: "brouillon" });
+    // Créé ACTIF : tiré dès qu'une assignation choisit son thème.
+    expect(lu).toMatchObject({ code, titre: "Le like de l'ex", type: "couple", theme: "La dispute", statut: "actif" });
 
     // Le même code une seconde fois : refusé.
     await expect(
@@ -52,16 +53,16 @@ test.describe("Scénarios", () => {
     );
 
     await admin.mutation(api.scenarios.modifierScenario, { id, theme: "Il répond plus pareil" });
-    await admin.mutation(api.scenarios.changerStatutScenario, { id, statut: "actif" });
+    await admin.mutation(api.scenarios.changerStatutScenario, { id, statut: "archive" });
     expect(await admin.query(api.scenarios.getScenario, { id })).toMatchObject({
       theme: "Il répond plus pareil",
-      statut: "actif",
+      statut: "archive",
       bible: bibleSous(code),
     });
 
     const copie = await admin.mutation(api.scenarios.dupliquerScenario, { id, code: `${code}B` });
     const c = await admin.query(api.scenarios.getScenario, { id: copie });
-    expect(c).toMatchObject({ code: `${code}B`, statut: "brouillon", theme: "Il répond plus pareil" });
+    expect(c).toMatchObject({ code: `${code}B`, statut: "actif", theme: "Il répond plus pareil" });
     expect(JSON.parse(c!.bible).ecran_choc).toEqual(JSON.parse(BIBLE_C2).ecran_choc);
 
     const liste = await admin.query(api.scenarios.listScenarios, {});

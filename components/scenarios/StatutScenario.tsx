@@ -5,20 +5,25 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { TYPES_SCENARIO, type TypeScenario } from "@/convex/scenarioBible";
 
+/** Ce qu'enregistre la base ; « brouillon » est un ancien statut, montré et tiré comme « actif ». */
 export type Statut = "brouillon" | "actif" | "archive";
+/** Les deux états qu'on choisit : tiré à l'assignation, ou archivé. */
+export type StatutAffiche = "actif" | "archive";
 
-const COULEUR: Record<Statut, string> = {
-  brouillon: "border-slate-200 bg-slate-50 text-slate-600",
+export const statutAffiche = (s: Statut): StatutAffiche => (s === "archive" ? "archive" : "actif");
+
+const COULEUR: Record<StatutAffiche, string> = {
   actif: "border-emerald-200 bg-emerald-50 text-emerald-700",
   archive: "border-slate-200 bg-white text-slate-400",
 };
 
-/** Le statut d'un scénario : brouillon, actif (tirable par les campagnes), archivé. */
+/** Le statut d'un scénario : actif (tiré quand une assignation choisit son thème) ou archivé. */
 export function StatutScenario({ statut }: { statut: Statut }) {
   const t = useTranslations("admin.scripts.scenarioStatut");
+  const s = statutAffiche(statut);
   return (
-    <Badge variant="outline" className={cn("text-[10px]", COULEUR[statut])} data-testid="scenario-statut">
-      {t(statut)}
+    <Badge variant="outline" className={cn("text-[10px]", COULEUR[s])} data-testid="scenario-statut">
+      {t(s)}
     </Badge>
   );
 }

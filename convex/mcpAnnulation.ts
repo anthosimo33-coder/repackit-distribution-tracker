@@ -118,13 +118,6 @@ export const annulationValidator = v.union(
   }),
   /** activer_scenario : le statut, avant et après. */
   v.object({ type: v.literal("scenarioStatut"), scenarioId: v.id("scenarios"), avant: v.string(), apres: v.string() }),
-  /** scenarios_campagne : l'interrupteur et les thèmes de la conversation, avant et après. */
-  v.object({
-    type: v.literal("conversationCampagne"),
-    campaignId: v.id("scriptCampaigns"),
-    avant: v.object({ allumee: v.boolean(), themes: v.array(v.string()) }),
-    apres: v.object({ allumee: v.boolean(), themes: v.array(v.string()) }),
-  }),
   // ── Publications ──────────────────────────────────────────────────────────
   /** marquer_warmup : `null` = « non qualifié » (champ absent), pas « promo ». */
   v.object({

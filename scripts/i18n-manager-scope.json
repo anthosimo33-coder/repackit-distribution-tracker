@@ -357,7 +357,6 @@
     "convex/scenarioEngine.ts",
     "convex/scenarioModele.json",
     "convex/scenarioRemplissage.json",
-    "convex/scriptConversation.ts",
     "convex/scriptNotif.ts",
     "convex/segmentFunnel.ts",
     "convex/snapshotMatching.ts",
