@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bible de scénario BLUSH",
+  "description": "Tout ce qui rend un scénario unique. Le moteur fournit le reste (remplissage banal, timing, format d'export). L = la créatrice (son prénom est injecté à la génération), Y = lui.",
+  "type": "object",
+  "required": ["id", "titre", "type", "lui", "dates", "rythme", "mot_a_vous", "vocaux", "munitions", "derniere_semaine", "ecran_choc"],
+  "$defs": {
+    "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "speaker": {"enum": ["L", "Y"]},
+    "message": {
+      "description": "[horodatage, qui, texte]. Horodatage 'AAAA-MM-JJ HH:MM' (secondes ajoutées au hasard) ou 'AAAA-MM-JJ HH:MM:SS' (exact). Texte libre, ou marqueur : [image], [supprimé], [vocal].",
+      "type": "array",
+      "prefixItems": [
+        {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}(:\\d{2})?$"},
+        {"$ref": "#/$defs/speaker"},
+        {"type": "string", "minLength": 1}
+      ],
+      "minItems": 3, "maxItems": 3
+    },
+    "bloc": {"description": "Un échange planté, dans l'ordre chronologique.", "type": "array", "items": {"$ref": "#/$defs/message"}, "minItems": 1},
+    "ligne": {"type": "array", "prefixItems": [{"$ref": "#/$defs/speaker"}, {"type": "string"}], "minItems": 2, "maxItems": 2},
+    "pair": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 2, "maxItems": 2}
+  },
+  "properties": {
+    "id": {"type": "string", "description": "Code court unique dans le projet, ex. C2."},
+    "titre": {"type": "string"},
+    "type": {"enum": ["couple", "talking_stage", "meilleur_ami", "ex", "famille", "groupe"]},
+    "lui": {"type": "string", "description": "Prénom de l'autre personne, tel qu'il apparaît dans l'export et en haut de l'écran choc."},
+    "dates": {
+      "type": "object",
+      "required": ["debut", "fin", "lune_de_miel_fin", "tournant", "record"],
+      "properties": {
+        "debut": {"$ref": "#/$defs/date"},
+        "fin": {"$ref": "#/$defs/date", "description": "Jour de l'écran choc = dernier jour de la conv."},
+        "lune_de_miel_fin": {"$ref": "#/$defs/date", "description": "Avant : il répond vite, pas d'échanges froids."},
+        "tournant": {"$ref": "#/$defs/date", "description": "Après : volume en baisse, plus d'échanges froids, il répond plus lentement."},
+        "record": {"$ref": "#/$defs/date", "description": "Jour au volume record (pastille « jour record »)."}
+      }
+    },
+    "rythme": {
+      "type": "object",
+      "required": ["elle_lance", "lui_reponse_min", "elle_reponse_s", "dialogues_par_jour"],
+      "properties": {
+        "elle_lance": {"type": "object", "properties": {"avant": {"type": "number"}, "apres": {"type": "number"}}, "description": "Probabilité qu'elle lance un échange, avant / après le tournant."},
+        "lui_reponse_min": {"type": "object", "properties": {"lune_de_miel": {"type": "number"}, "avant": {"type": "number"}, "apres": {"type": "number"}, "nuit": {"type": "number"}, "record": {"type": "number"}}, "description": "Son temps de réponse médian en minutes, selon la période."},
+        "elle_reponse_s": {"type": "number", "description": "Son temps de réponse médian à elle, en secondes."},
+        "dialogues_par_jour": {
+          "type": "object",
+          "properties": {"lune_de_miel": {"$ref": "#/$defs/pair"}, "avant": {"$ref": "#/$defs/pair"}, "apres": {"$ref": "#/$defs/pair"}, "record": {"type": "integer"}}
+        }
+      }
+    },
+    "mot_a_vous": {
+      "type": "object",
+      "description": "Le mot que les deux utilisent le plus. BLUSH l'affiche dans la pastille « Votre mot à vous ». Il doit sortir premier des mots partagés.",
+      "required": ["mot", "debut", "proba_par_jour", "dialogues"],
+      "properties": {
+        "mot": {"type": "string"},
+        "debut": {"$ref": "#/$defs/date"},
+        "proba_par_jour": {"type": "number"},
+        "dialogues": {"type": "array", "items": {"type": "array", "items": {"$ref": "#/$defs/ligne"}}}
+      }
+    },
+    "vocaux": {"type": "object", "description": "Probabilité d'ajouter un vocal omis après un message.", "properties": {"L": {"type": "number"}, "Y": {"type": "number"}, "Y_nuit": {"type": "number"}}},
+    "munitions": {"type": "array", "items": {"$ref": "#/$defs/bloc"}, "description": "Les échanges plantés dans l'historique : running gag, contradictions, tournant, répliques citables. Ils nourrissent le rapport écrit."},
+    "derniere_semaine": {"type": "array", "items": {"$ref": "#/$defs/bloc"}, "description": "Les 7 derniers jours, chargés en munitions récentes : c'est ce que reprend le vocal."},
+    "ecran_choc": {"type": "array", "items": {"$ref": "#/$defs/message"}, "minItems": 3, "maxItems": 6, "description": "Les derniers messages de la conv, horodatage exact à la seconde. C'est ce qu'on filme vers 3 s, et la colonne vertébrale du vocal."}
+  }
+}

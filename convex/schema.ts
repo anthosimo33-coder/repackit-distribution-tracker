@@ -1951,6 +1951,29 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_project", ["projectId", "updatedAt"]),
 
+  // SCÉNARIOS (convex/scenarios.ts) — les bibles des fausses conversations
+  // WhatsApp que les créatrices importent dans l'app analysée (BLUSH). `bible` =
+  // le TEXTE JSON tel que saisi (relu par convex/scenarioBible.lireBible) ; le
+  // moteur (convex/scenarioEngine) en tire l'export au prénom de la créatrice.
+  // `code` = l'`id` de la bible (« C2 »), unique dans le projet ; `titre` et
+  // `type` en sont recopiés pour la liste. `theme` range les scénarios par
+  // famille de campagne (« La dispute ») : une campagne ne tirera que dans le
+  // sien.
+  scenarios: defineTable({
+    projectId: v.id("projects"),
+    code: v.string(),
+    titre: v.string(),
+    type: v.string(),
+    theme: v.string(),
+    statut: v.union(v.literal("brouillon"), v.literal("actif"), v.literal("archive")),
+    bible: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_code", ["projectId", "code"]),
+
   // IMAGES DES CONVERSATIONS (convex/instaConvImages.ts) — photo/vidéo envoyée,
   // reel, story partagée… : le fichier est dans le storage, la conversation ne
   // porte que l'id de cette ligne (jamais d'URL). `checkedAt` fait tourner le

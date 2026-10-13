@@ -22,6 +22,7 @@ import {
   HelpCircleIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MessageCircleHeartIcon,
   MessagesSquareIcon,
   RadarIcon,
   ReceiptTextIcon,
@@ -255,6 +256,13 @@ export function Sidebar({
       icon: ClapperboardIcon,
       label: t("item.scripts"),
       ...item(projectPath("/scripts")),
+    },
+    // Scénarios : les bibles des fausses conversations (bloc `scripts.manage`,
+    // route déclarée au catalogue).
+    {
+      icon: MessageCircleHeartIcon,
+      label: t("item.scenarios"),
+      ...item(projectPath("/scenarios")),
     },
     {
       icon: BookmarkIcon,

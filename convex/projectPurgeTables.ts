@@ -79,6 +79,7 @@ export const TABLES_PURGEES = [
   "creatorMessages",
   "instaConversations",
   "instaConvImages",
+  "scenarios",
   "marketGroups",
   "offerChanges",
   "notificationWindows",
