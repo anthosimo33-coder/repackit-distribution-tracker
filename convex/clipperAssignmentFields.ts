@@ -85,6 +85,9 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   // ici en plus le rendrait DEUX FOIS, et le jour où l'un des deux chemins se
   // met à filtrer, l'autre ne filtrerait pas.
   "freeScript",
+  // CONVERSATION de la vidéo (brique hors combo) — l'espace clippeur ne la
+  // sert pas : aucune campagne à conversation n'a de clippeur.
+  "conversationBrickId",
   "scriptCombo",
   "comboKey",
   "comboImposed",

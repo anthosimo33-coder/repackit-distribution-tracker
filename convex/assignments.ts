@@ -33,6 +33,7 @@ import {
 } from "./publications";
 import { isScriptZonesEnabled } from "./scriptZonesSetting";
 import { hookLibreDuTexte, hookLibreOf, type HookLibre } from "./hookLibre";
+import { conversationBrickOf } from "./conversationFiles";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
   pickCreatorAssignment,
@@ -1581,6 +1582,20 @@ export const getAssignmentCombo = permissionQuery("assignments.manage")({
 });
 
 /**
+ * La CONVERSATION d'une mission (hors du combo, cf schema) — pour que le panneau
+ * de détail la montre et la change, comme la notif.
+ */
+export const getAssignmentConversation = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (ctx, { id }) => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return null;
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+    return { conversationBrickId: a.conversationBrickId ?? null };
+  },
+});
+
+/**
  * Ligne COMPLÈTE de l'écran Assignments — le connecteur (`planning`,
  * `dashboard`) et les specs e2e, qui s'en servent d'oracle de l'état serveur.
  * L'écran lit `listAssignmentsPilotage`.
@@ -1808,6 +1823,9 @@ export async function listAssignmentsCore(ctx: ProjectQueryCtx) {
           hasAssembledScript:
             a.scriptCombo !== undefined || a.freeScript !== undefined,
           comboKey: a.comboKey,
+          // Conversation tirée pour la vidéo (hors du combo, cf schema) — l'id
+          // seul, comme les briques du combo.
+          conversationBrickId: a.conversationBrickId,
           comboImposed: a.comboImposed,
           replayedFrom: a.replayedFrom,
           replayVerbatim: a.replayVerbatim,
@@ -1923,6 +1941,16 @@ function notifOfCombo(combo: {
 }
 
 /**
+ * La CONVERSATION de la vidéo, recopiée sur la publication (analytics par conv,
+ * cf convex/scriptConversation). Objet vide sans conv : publication inchangée.
+ */
+function conversationOfAssignment(a: Doc<"assignments">): {
+  conversationBrickId?: Id<"scriptBricks">;
+} {
+  return a.conversationBrickId ? { conversationBrickId: a.conversationBrickId } : {};
+}
+
+/**
  * Matérialise la publication d'un assignment de SCRIPT et y RACCORDE le combo
  * (analytics S3). Un script = vidéo verticale → mediaType "short". `opts` porte
  * l'URL/plateforme/date du POST PUBLIÉ (résolus à l'étape `published`).
@@ -1961,6 +1989,7 @@ async function materializeScriptPublication(
       ctaBrickId: a.scriptCombo.ctaBrickId,
       comboKey: a.comboKey,
       ...notifOfCombo(a.scriptCombo),
+      ...conversationOfAssignment(a),
     },
   });
 }
@@ -2025,6 +2054,7 @@ async function materializeTargetPublication(
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
         ...notifOfCombo(a.scriptCombo),
+        ...conversationOfAssignment(a),
       },
       ...qualification,
     });
@@ -2473,6 +2503,7 @@ export const backfillPublicationCombos = internalMutation({
         ctaBrickId: a.scriptCombo.ctaBrickId,
         comboKey: a.comboKey,
         ...notifOfCombo(a.scriptCombo),
+        ...conversationOfAssignment(a),
       };
       if (a.publicationId === undefined) {
         // Cas S2 : pas de publication. La matérialiser rétroactivement exige une
@@ -2984,6 +3015,48 @@ async function scriptNotifOf(
 }
 
 /**
+ * CONVERSATION de la vidéo (brique optionnelle, cf convex/scriptConversation) :
+ * ce que la créatrice télécharge pour l'importer à l'écran. Tout est lu LIVE sur
+ * la brique — remplacer un fichier répare la mission. Les images sortent avec
+ * leur URL signée ; un export, jamais tel quel : il passe par
+ * `conversationFiles.downloadConversationExport`, qui le personnalise. Ni label
+ * ni id de brique (taxonomie de pilotage).
+ */
+type ScriptConversationFile = {
+  storageId: Id<"_storage">;
+  name: string;
+  kind: "export" | "image";
+  size: number;
+  url: string | null;
+};
+type ScriptConversation = {
+  text: string;
+  instruction: string | null;
+  files: ScriptConversationFile[];
+};
+async function scriptConversationOf(
+  ctx: QueryCtx,
+  a: Doc<"assignments">,
+): Promise<ScriptConversation | null> {
+  const brick = await conversationBrickOf(ctx, a);
+  if (!brick || (brick.conversationFiles?.length ?? 0) === 0) return null;
+  const files = await Promise.all(
+    (brick.conversationFiles ?? []).map(async (f) => ({
+      storageId: f.storageId,
+      name: f.name,
+      kind: f.kind,
+      size: f.size,
+      url: f.kind === "image" ? await ctx.storage.getUrl(f.storageId) : null,
+    })),
+  );
+  return {
+    text: brick.content.trim(),
+    instruction: brick.instruction?.trim() || null,
+    files,
+  };
+}
+
+/**
  * Libellé de mission RÉEXPOSÉ au créateur — le SEUL élément du `scriptCombo`
  * qu'il reçoit. Script → NOM DE CAMPAGNE (ex. « Format 3 - POV Demo ») ; format
  * → nom + type du format. La décomposition (bricks/comboKey) et les données
@@ -3374,6 +3447,7 @@ async function clipDetailFor(
   const scriptHookLibre = a.scriptCombo
     ? await scriptHookLibreOf(ctx, a.scriptCombo, base.assembledScript ?? undefined)
     : null;
+  const scriptConversation = await scriptConversationOf(ctx, a);
   return {
     ...base,
     submittedVideoUrl,
@@ -3383,6 +3457,7 @@ async function clipDetailFor(
     scriptInstructions,
     scriptNotif,
     scriptHookLibre,
+    scriptConversation,
   };
 }
 
@@ -3454,6 +3529,7 @@ async function assignmentDetailFor(
     const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
     const scriptNotif = await scriptNotifOf(ctx, a.scriptCombo);
     const scriptHookLibre = await scriptHookLibreOf(ctx, a.scriptCombo, texte);
+    const scriptConversation = await scriptConversationOf(ctx, a);
     return {
       assignment: safe,
       ...label,
@@ -3463,6 +3539,7 @@ async function assignmentDetailFor(
       scriptInstructions,
       scriptNotif,
       scriptHookLibre,
+      scriptConversation,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -3482,6 +3559,7 @@ async function assignmentDetailFor(
       scriptInstructions: [] as ScriptInstruction[],
       scriptNotif: null as ScriptNotif | null,
       scriptHookLibre: null as ScriptHookLibre | null,
+      scriptConversation: null as ScriptConversation | null,
       targets,
       submittedVideoUrl,
       submittedVideoMimeType,
@@ -3499,6 +3577,7 @@ async function assignmentDetailFor(
     scriptInstructions: [] as ScriptInstruction[],
     scriptNotif: null as ScriptNotif | null,
     scriptHookLibre: null as ScriptHookLibre | null,
+    scriptConversation: null as ScriptConversation | null,
     targets,
     submittedVideoUrl,
     submittedVideoMimeType,

@@ -66,7 +66,13 @@ import {
   type ScriptKind,
 } from "@/lib/scriptAssembly";
 import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
+import {
+  drawableConversations,
+  isConversationEnabled,
+} from "@/convex/scriptConversation";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
+import { ScriptConversationCard } from "@/components/scripts/ScriptConversationCard";
+import { ConversationFilesPanel } from "@/components/scripts/ConversationFilesPanel";
 import { NotifBackfill } from "@/components/scripts/NotifBackfill";
 import {
   BRICK_MODE_OPTIONS,
@@ -132,6 +138,7 @@ const KIND_PLURAL: Record<BrickKind, string> = {
   flux: "flux",
   cta: "descriptions",
   notif: "notifs",
+  conversation: "conversations",
 };
 
 /** Valeur du select « aucune créatrice » (Select n'accepte pas ""). */
@@ -335,7 +342,12 @@ export default function ScriptCampaignDetailPage() {
   // tirable, le serveur REFUSE l'assignation : on le dit ici, avant le clic.
   const notifOn = isNotifEnabled(campaign);
   const notifMissing = notifOn && drawableNotifs(bricks).length === 0;
-  const kinds = editableKinds(notifOn);
+  // CONVERSATION — même règle : allumée sans conversation tirable (active, avec
+  // au moins un fichier), le serveur refuse l'assignation.
+  const conversationOn = isConversationEnabled(campaign);
+  const conversationMissing =
+    conversationOn && drawableConversations(bricks).length === 0;
+  const kinds = editableKinds(notifOn, conversationOn);
   const activeCount = ofKind.filter((b) => b.active).length;
   const checkedIds = [...checked].filter((cid) =>
     ofKind.some((b) => b._id === cid),
@@ -370,6 +382,14 @@ export default function ScriptCampaignDetailPage() {
               if (kind === "notif") void switchKind("hook");
             }}
           />
+          <ConversationToggle
+            campaignId={campaign._id}
+            enabled={conversationOn}
+            missing={conversationMissing}
+            onDisabled={() => {
+              if (kind === "conversation") void switchKind("hook");
+            }}
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
@@ -395,9 +415,18 @@ export default function ScriptCampaignDetailPage() {
           <Button
             onClick={() => setAssignOpen(true)}
             disabled={
-              combos.total === 0 || campaign.status === "archived" || notifMissing
+              combos.total === 0 ||
+              campaign.status === "archived" ||
+              notifMissing ||
+              conversationMissing
             }
-            title={notifMissing ? tr("notifAucuneActive") : undefined}
+            title={
+              notifMissing
+                ? tr("notifAucuneActive")
+                : conversationMissing
+                  ? tr("conversationAucuneActive")
+                  : undefined
+            }
           >
             <SendIcon className="mr-2 size-4" />
             {tr("assignerCetteCampagne")}
@@ -571,6 +600,7 @@ export default function ScriptCampaignDetailPage() {
             creating={editing === "new"}
             bricks={bricks}
             isLab={isLab}
+            fileUrls={campaign.conversationFileUrls}
             onDirtyChange={setDirty}
             ref={editorRef}
             onCreated={(newId) => setSelectedId(newId as string)}
@@ -659,6 +689,64 @@ function NotifToggle({
         </p>
       )}
       {enabled && !missing && <NotifBackfill campaignId={campaignId} />}
+    </div>
+  );
+}
+
+/**
+ * Interrupteur CONVERSATION de la campagne (cf convex/scriptConversation).
+ * Allumé : un onglet « Conversation » apparaît et chaque vidéo assignée reçoit
+ * une conv à télécharger, tirée en rotation. Éteint : les convs restent, mais
+ * aucune ne part.
+ */
+function ConversationToggle({
+  campaignId,
+  enabled,
+  missing,
+  onDisabled,
+}: {
+  campaignId: Id<"scriptCampaigns">;
+  enabled: boolean;
+  /** Allumée mais aucune conversation tirable : l'assignation sera refusée. */
+  missing: boolean;
+  onDisabled: () => void;
+}) {
+  const showError = useConvexError();
+  const tr = useTranslations("admin.scripts.ScriptCampaignDetailPage");
+  const update = useProjectMutation(api.scripts.updateCampaign);
+  const [busy, setBusy] = useState(false);
+
+  async function toggle(next: boolean) {
+    setBusy(true);
+    try {
+      await update({ id: campaignId, conversationEnabled: next });
+      if (!next) onDisabled();
+    } catch (e) {
+      toast.error(showError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1 pt-1">
+      <label className="flex w-fit items-center gap-2 text-sm text-slate-700">
+        <Switch
+          checked={enabled}
+          onCheckedChange={toggle}
+          disabled={busy}
+          aria-label={tr("conversationToggle")}
+          data-testid="conversation-toggle"
+        />
+        <span aria-hidden>💬</span>
+        {tr("conversationToggle")}
+      </label>
+      <p className="text-xs text-slate-400">{tr("conversationToggleHint")}</p>
+      {missing && (
+        <p className="text-xs text-amber-700" data-testid="conversation-missing">
+          {tr("conversationAucuneActive")}
+        </p>
+      )}
     </div>
   );
 }
@@ -772,8 +860,27 @@ function BrickRow({
         <p className="line-clamp-2 text-sm font-medium text-slate-900">
           {brick.content}
         </p>
-        {(brick.instruction || brick.libre || note || availability || !brick.active) && (
+        {(brick.instruction ||
+          brick.libre ||
+          note ||
+          availability ||
+          !brick.active ||
+          brick.kind === "conversation") && (
           <span className="flex flex-wrap items-center gap-1.5">
+            {brick.kind === "conversation" && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[10px]",
+                  (brick.conversationFiles?.length ?? 0) > 0
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-amber-200 bg-amber-50 text-amber-700",
+                )}
+                data-testid="brick-files-tag"
+              >
+                {tr("fichiers", { count: brick.conversationFiles?.length ?? 0 })}
+              </Badge>
+            )}
             {brick.kind === "hook" && brick.libre && (
               <Badge
                 variant="outline"
@@ -863,6 +970,7 @@ function BrickEditor({
   creating,
   bricks,
   isLab,
+  fileUrls,
   onDirtyChange,
   ref,
   onCreated,
@@ -875,6 +983,8 @@ function BrickEditor({
   creating: boolean;
   bricks: Brick[];
   isLab: boolean;
+  /** URL de chaque fichier de conversation de la campagne (aperçu, fichier brut). */
+  fileUrls: Record<string, string | null>;
   onDirtyChange: (d: boolean) => void;
   /** React 19 : le ref est une prop ordinaire, pas de forwardRef. */
   ref: React.Ref<BrickEditorHandle>;
@@ -1048,18 +1158,35 @@ function BrickEditor({
               <span className="font-normal text-slate-400">
                 {kind === "notif"
                   ? tr("afficheALEcran")
-                  : isHook && libre
-                    ? tr("montreEnPremier")
-                    : tr("partDansLeScript")}
+                  : kind === "conversation"
+                    ? tr("conversationTexte")
+                    : isHook && libre
+                      ? tr("montreEnPremier")
+                      : tr("partDansLeScript")}
               </span>
             </Label>
             <Textarea
               id="brick-content"
               value={content}
               onChange={(e) => touch(setContent)(e.target.value)}
-              rows={isHook && libre ? 2 : 6}
+              rows={isHook && libre ? 2 : kind === "conversation" ? 3 : 6}
             />
           </div>
+
+          {/* CONVERSATION — les fichiers que la créatrice télécharge. Ils se
+              déposent sur une brique EXISTANTE : créer d'abord, déposer ensuite. */}
+          {kind === "conversation" &&
+            (brick ? (
+              <ConversationFilesPanel
+                brickId={brick._id}
+                files={(brick.conversationFiles ?? []).map((f) => ({
+                  ...f,
+                  url: fileUrls[f.storageId] ?? null,
+                }))}
+              />
+            ) : (
+              <p className="text-xs text-slate-400">{tr("conversationFichiersApres")}</p>
+            ))}
 
           {isHook && libre && (
             <>
@@ -1200,6 +1327,10 @@ function BrickEditor({
       <CreatorPreview
         kind={kind}
         bricks={bricks}
+        files={(brick?.conversationFiles ?? []).map((f) => ({
+          ...f,
+          url: fileUrls[f.storageId] ?? null,
+        }))}
         draft={{
           content,
           instruction,
@@ -1222,10 +1353,19 @@ function BrickEditor({
 function CreatorPreview({
   kind,
   bricks,
+  files,
   draft,
 }: {
   kind: BrickKind;
   bricks: Brick[];
+  /** Fichiers de la conversation éditée (kind "conversation"). */
+  files: readonly {
+    storageId: string;
+    name: string;
+    kind: "export" | "image";
+    size: number;
+    url: string | null;
+  }[];
   draft: {
     content: string;
     instruction: string;
@@ -1261,6 +1401,23 @@ function CreatorPreview({
             </CardContent>
           </Card>
         )}
+      </div>
+    );
+  }
+
+  // CONVERSATION — hors script, dans sa propre carte : même composant que la
+  // fiche, sans téléchargement personnalisé (les liens ouvrent le fichier brut).
+  if (kind === "conversation") {
+    return (
+      <div className="space-y-2" data-testid="editor-preview">
+        <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {tr("ceQueVerraLaCreatrice")}
+        </p>
+        <ScriptConversationCard
+          text={draft.content.trim()}
+          instruction={draft.instruction.trim() || null}
+          files={files}
+        />
       </div>
     );
   }

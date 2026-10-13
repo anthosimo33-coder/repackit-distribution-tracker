@@ -90,12 +90,12 @@ const WINDOW = v.union(
   v.literal("latest"),
 );
 
-// Refonte 3 briques + notif (brique optionnelle, hors combo). Un kind inconnu
-// (corps legacy) retombe en fin via `?? 99`.
-const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2, notif: 3 };
+// Refonte 3 briques + notif et conversation (briques optionnelles, hors combo).
+// Un kind inconnu (corps legacy) retombe en fin via `?? 99`.
+const KIND_ORDER: Record<string, number> = { hook: 0, flux: 1, cta: 2, notif: 3, conversation: 4 };
 
 /** Kinds qui ont un SLOT dans un échantillon (le corps legacy n'en a pas). */
-type SlotKind = "hook" | "flux" | "cta" | "notif";
+type SlotKind = "hook" | "flux" | "cta" | "notif" | "conversation";
 
 /** Un échantillon = une publication de script ayant une vue résolue à la fenêtre.
  *
@@ -111,6 +111,8 @@ interface ViewSample {
   ctaBrickId: Id<"scriptBricks">;
   /** Notif de la vidéo — null = vidéo sans notif (hors comboKey, cf scriptNotif). */
   notifBrickId: Id<"scriptBricks"> | null;
+  /** Conversation de la vidéo — null = sans conv (cf scriptConversation). */
+  conversationBrickId: Id<"scriptBricks"> | null;
   views: number;
   // ─── Drill-down (additif) — métriques du snapshot matché à la fenêtre ───────
   likes: number;
@@ -222,6 +224,7 @@ export async function gatherCampaignViews(
       fluxBrickId: combo.fluxBrickId,
       ctaBrickId: combo.ctaBrickId,
       notifBrickId: combo.notifBrickId ?? null,
+      conversationBrickId: combo.conversationBrickId ?? null,
       views: match.vues,
       // Même snapshot matché que `views` — likes requis, comments optionnel (→ 0
       // comme le tracker, pour l'engagement dérivé au rendu).
@@ -251,6 +254,8 @@ function slotOf(s: ViewSample, kind: SlotKind): Id<"scriptBricks"> | null {
       return s.fluxBrickId;
     case "notif":
       return s.notifBrickId;
+    case "conversation":
+      return s.conversationBrickId;
     default:
       return s.ctaBrickId;
   }

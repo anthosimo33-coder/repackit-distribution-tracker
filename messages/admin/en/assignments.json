@@ -129,7 +129,11 @@
     "videoJointeConservee": "A sent video is attached to this mission: it will be kept {jours} days after deletion, then erased.",
     "abandonnerPlutot": "Drop instead",
     "abandonnerLaMission": "Drop the mission",
-    "retablirLaMission": "Restore the mission"
+    "retablirLaMission": "Restore the mission",
+    "conversation": "Conversation to import",
+    "conversationAucuneChoisir": "No conversation — pick one",
+    "conversationAjoutee": "Conversation added",
+    "conversationChangee": "Conversation changed"
   },
   "TargetAccountSelect": {
     "compteDePublication": "{platform} account",

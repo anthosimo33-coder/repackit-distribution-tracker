@@ -129,7 +129,11 @@
     "videoJointeConservee": "Une vidéo envoyée est jointe à cette mission : elle sera conservée {jours} jours après la suppression, puis effacée.",
     "abandonnerPlutot": "Abandonner plutôt",
     "abandonnerLaMission": "Abandonner la mission",
-    "retablirLaMission": "Rétablir la mission"
+    "retablirLaMission": "Rétablir la mission",
+    "conversation": "Conversation à importer",
+    "conversationAucuneChoisir": "Aucune conversation — en choisir une",
+    "conversationAjoutee": "Conversation ajoutée",
+    "conversationChangee": "Conversation changée"
   },
   "TargetAccountSelect": {
     "compteDePublication": "Compte {platform}",
