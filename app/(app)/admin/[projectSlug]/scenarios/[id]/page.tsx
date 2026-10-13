@@ -35,6 +35,7 @@ import { useConvexError } from "@/lib/use-convex-error";
 import { codeValide, lireBible } from "@/convex/scenarioBible";
 import { BibleErreurs } from "@/components/scenarios/BibleErreurs";
 import { ScenarioTesteur } from "@/components/scenarios/ScenarioTesteur";
+import { ScenarioPerformance } from "@/components/scenarios/ScenarioPerformance";
 import { StatutScenario, type Statut } from "@/components/scenarios/StatutScenario";
 
 const STATUTS: Statut[] = ["brouillon", "actif", "archive"];
@@ -190,7 +191,8 @@ function Editeur({ scenario }: { scenario: Scenario }) {
           <BibleErreurs erreurs={lue.ok ? [] : lue.erreurs} />
           {modifie && <p className="text-xs text-amber-700">{tr("nonEnregistre")}</p>}
         </section>
-        <section className="lg:sticky lg:top-4 lg:self-start" aria-label={tr("tester")}>
+        <section className="space-y-4 lg:sticky lg:top-4 lg:self-start" aria-label={tr("tester")}>
+          <ScenarioPerformance scenarioId={scenario._id} />
           <ScenarioTesteur bible={lue.ok ? lue.bible : null} />
         </section>
       </div>

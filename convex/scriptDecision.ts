@@ -40,7 +40,7 @@ const MIN_SIGNAL_POSTS = 3;
 
 type BrickVerdict = "en_test" | "a_pousser" | "a_couper" | "neutre";
 
-interface BrickInput {
+export interface BrickInput {
   key: string;
   label: string;
   kind: string;
@@ -152,6 +152,15 @@ function decideBrick(
 
 function decideKind(bricks: readonly BrickInput[]): BrickDecision[] {
   return bricks.map((b) => decideBrick(b, bricks));
+}
+
+/**
+ * Les verdicts d'un ensemble jugé ENTRE SOI (mêmes seuils que les briques) —
+ * exporté pour les scénarios, mesurés toutes campagnes confondues
+ * (convex/scenarioAnalytics).
+ */
+export function decideBriques(items: readonly BrickInput[]): BrickDecision[] {
+  return decideKind(items);
 }
 
 function detectStrongSignals(
