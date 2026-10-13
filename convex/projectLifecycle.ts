@@ -471,6 +471,9 @@ const ETAPES: Record<TablePurgee, Etape> = {
   instaConversations: etape((ctx, pid, n) =>
     ctx.db.query("instaConversations").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  scenarios: etape((ctx, pid, n) =>
+    ctx.db.query("scenarios").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   instaConvImages: etape(
     (ctx, pid, n) => ctx.db.query("instaConvImages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
     { avant: (ctx, img) => deleteStorageBestEffort(ctx, img.storageId) },

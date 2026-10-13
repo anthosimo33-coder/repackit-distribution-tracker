@@ -1,0 +1,1479 @@
+{
+ "_": "Extrait de docs/scenarios/reference/moteur.py par script — ne pas éditer à la main sans re-vérifier l'égalité avec le Python (lib/scenario-engine.test.ts).",
+ "remplissage": {
+  "food": [
+   "sushis",
+   "pizza",
+   "kebab",
+   "poke",
+   "tacos",
+   "burger",
+   "pâtes",
+   "raclette",
+   "indien",
+   "thaï",
+   "chinois"
+  ],
+  "fl": [
+   "Inès",
+   "Sarah",
+   "Camille",
+   "Jade"
+  ],
+  "fy": [
+   "Karim",
+   "Mehdi",
+   "Lucas",
+   "Bilal"
+  ],
+  "pl": [
+   "dans le métro",
+   "au taf",
+   "chez Inès",
+   "au Franprix",
+   "à la salle",
+   "dans le bus",
+   "chez ma mère"
+  ],
+  "py": [
+   "chez Karim",
+   "au taf",
+   "à la salle",
+   "dans le RER",
+   "chez ma mère",
+   "au five"
+  ],
+  "show": [
+   "la série coréenne",
+   "Love Island",
+   "le docu Netflix",
+   "Koh-Lanta",
+   "la série espagnole"
+  ],
+  "mn": [
+   "5",
+   "10",
+   "15",
+   "20",
+   "30"
+  ],
+  "hr": [
+   "18h",
+   "18h30",
+   "19h",
+   "20h",
+   "21h"
+  ]
+ },
+ "dialogues": [
+  {
+   "creneau": "morning",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "bien dormi ?"
+    ],
+    [
+     "Y",
+     "bof"
+    ],
+    [
+     "Y",
+     "et toi"
+    ],
+    [
+     "L",
+     "j'ai rêvé de toi mdr"
+    ],
+    [
+     "Y",
+     "mdr raconte"
+    ]
+   ]
+  },
+  {
+   "creneau": "morning",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "coucou toi"
+    ],
+    [
+     "Y",
+     "wsh"
+    ],
+    [
+     "L",
+     "t'es réveillé ?"
+    ],
+    [
+     "Y",
+     "à moitié"
+    ]
+   ]
+  },
+  {
+   "creneau": "morning",
+   "poidsAvant": 3,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "je suis {pl}"
+    ],
+    [
+     "L",
+     "il y a un monde de fou"
+    ],
+    [
+     "Y",
+     "courage"
+    ]
+   ]
+  },
+  {
+   "creneau": "morning",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "bonjour 🌞"
+    ],
+    [
+     "Y",
+     "bonjour"
+    ]
+   ]
+  },
+  {
+   "creneau": "morning",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "t'as bien dormi ?"
+    ],
+    [
+     "Y",
+     "ouais"
+    ],
+    [
+     "L",
+     "moi pas du tout"
+    ],
+    [
+     "L",
+     "les voisins ont fait la fête jusqu'à 4h"
+    ],
+    [
+     "Y",
+     "chaud"
+    ]
+   ]
+  },
+  {
+   "creneau": "morning",
+   "poidsAvant": 2,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "Y",
+     "t'es réveillée ?"
+    ],
+    [
+     "L",
+     "oui !"
+    ],
+    [
+     "Y",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "L",
+     "c'est quoi ton midi ?"
+    ],
+    [
+     "Y",
+     "{food}"
+    ],
+    [
+     "L",
+     "encore mdr"
+    ],
+    [
+     "Y",
+     "laisse moi"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "ma manager m'a encore saoulée"
+    ],
+    [
+     "L",
+     "je vais craquer"
+    ],
+    [
+     "Y",
+     "elle a fait quoi"
+    ],
+    [
+     "L",
+     "je te raconte ce soir c'est trop long"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "t'as vu ce que je t'ai envoyé ?"
+    ],
+    [
+     "Y",
+     "non attends"
+    ],
+    [
+     "Y",
+     "ptdr"
+    ],
+    [
+     "L",
+     "c'est trop nous"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "[image]"
+    ],
+    [
+     "L",
+     "regarde ce que j'ai trouvé"
+    ],
+    [
+     "Y",
+     "😂"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 3,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "on se voit ce soir ?"
+    ],
+    [
+     "Y",
+     "je sais pas encore"
+    ],
+    [
+     "L",
+     "dis-moi vite"
+    ],
+    [
+     "Y",
+     "je te dis après"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "tu finis à quelle heure ?"
+    ],
+    [
+     "Y",
+     "{hr}"
+    ],
+    [
+     "L",
+     "je passe te chercher ?"
+    ],
+    [
+     "Y",
+     "nn t'inquiète"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "je pense à toi"
+    ],
+    [
+     "Y",
+     "❤️"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "{fl} m'a raconté un truc de fou"
+    ],
+    [
+     "Y",
+     "quoi"
+    ],
+    [
+     "L",
+     "je peux pas par écrit"
+    ],
+    [
+     "Y",
+     "mdr ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 1,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "j'ai réunion là"
+    ],
+    [
+     "Y",
+     "je te rappelle"
+    ],
+    [
+     "L",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 1,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "L",
+     "viens on se fait un {food} ce soir"
+    ],
+    [
+     "Y",
+     "chaud"
+    ],
+    [
+     "Y",
+     "on verra"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 1,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "t'as pensé à me rembourser le ciné ?"
+    ],
+    [
+     "Y",
+     "ah oui"
+    ],
+    [
+     "Y",
+     "ce soir"
+    ],
+    [
+     "L",
+     "tu dis ça depuis 2 semaines"
+    ],
+    [
+     "Y",
+     "mdr"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "{fy} fait un foot dimanche"
+    ],
+    [
+     "Y",
+     "tu viens ?"
+    ],
+    [
+     "L",
+     "pour te regarder 2h ?"
+    ],
+    [
+     "L",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "pause avec {fl}"
+    ],
+    [
+     "L",
+     "elle te passe le bonjour"
+    ],
+    [
+     "Y",
+     "bjr"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "j'ai réservé pour samedi"
+    ],
+    [
+     "Y",
+     "réservé quoi"
+    ],
+    [
+     "L",
+     "le resto ??"
+    ],
+    [
+     "L",
+     "on en a parlé hier"
+    ],
+    [
+     "Y",
+     "ah oui ouais"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 2,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "Y",
+     "regarde"
+    ],
+    [
+     "Y",
+     "[image]"
+    ],
+    [
+     "L",
+     "mdrrr"
+    ],
+    [
+     "L",
+     "c'est qui"
+    ],
+    [
+     "Y",
+     "{fy}"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 1,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "tu peux m'appeler 2 min ?"
+    ],
+    [
+     "Y",
+     "là je peux pas"
+    ],
+    [
+     "L",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "day",
+   "poidsAvant": 1,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "L",
+     "j'ai eu mon entretien"
+    ],
+    [
+     "L",
+     "je crois que c'était bien"
+    ],
+    [
+     "Y",
+     "trop bien"
+    ],
+    [
+     "L",
+     "tu m'avais même pas demandé"
+    ],
+    [
+     "Y",
+     "je savais que ça allait bien se passer"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 3,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "t'es où ?"
+    ],
+    [
+     "Y",
+     "{py}"
+    ],
+    [
+     "L",
+     "tu rentres quand ?"
+    ],
+    [
+     "Y",
+     "jsp"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "sushis ou pizza ?"
+    ],
+    [
+     "Y",
+     "pizza"
+    ],
+    [
+     "L",
+     "j'ai commandé des sushis mdr"
+    ],
+    [
+     "Y",
+     "pourquoi tu demandes alors"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "L",
+     "j'ai lancé {show} sans toi"
+    ],
+    [
+     "L",
+     "pardon"
+    ],
+    [
+     "Y",
+     "trahison"
+    ],
+    [
+     "L",
+     "je reprends depuis le début si tu viens"
+    ],
+    [
+     "Y",
+     "demain"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "je suis crevée"
+    ],
+    [
+     "Y",
+     "moi aussi"
+    ],
+    [
+     "L",
+     "toi t'as rien fait mdr"
+    ],
+    [
+     "Y",
+     "j'ai fait du sport"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "match ce soir"
+    ],
+    [
+     "L",
+     "encore ?"
+    ],
+    [
+     "Y",
+     "c'est la ligue des champions"
+    ],
+    [
+     "L",
+     "ok bon match"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 4,
+   "lignes": [
+    [
+     "L",
+     "tu viens dormir ?"
+    ],
+    [
+     "Y",
+     "ce soir je peux pas"
+    ],
+    [
+     "L",
+     "pourquoi"
+    ],
+    [
+     "Y",
+     "je suis claqué"
+    ],
+    [
+     "L",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "Y",
+     "fifa avec {fy}"
+    ],
+    [
+     "Y",
+     "je t'appelle après"
+    ],
+    [
+     "L",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 1,
+   "poidsApres": 4,
+   "lignes": [
+    [
+     "L",
+     "ça va toi ?"
+    ],
+    [
+     "Y",
+     "ouais tranquille"
+    ],
+    [
+     "L",
+     "t'es bizarre aujourd'hui"
+    ],
+    [
+     "Y",
+     "nn je suis fatigué c'est tout"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "tu me manques"
+    ],
+    [
+     "Y",
+     "toi aussi"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "je t'aime"
+    ],
+    [
+     "Y",
+     "moi aussi"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "je t'aime ❤️"
+    ],
+    [
+     "Y",
+     "moi aussi ❤️"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 1,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "je t'aime"
+    ],
+    [
+     "Y",
+     "mdr moi aussi"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "L",
+     "j'ai trop hâte de te voir"
+    ],
+    [
+     "Y",
+     "moi aussi"
+    ],
+    [
+     "L",
+     "demain ?"
+    ],
+    [
+     "Y",
+     "on verra"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "j'arrive dans {mn} min"
+    ],
+    [
+     "Y",
+     "ok"
+    ],
+    [
+     "L",
+     "ouvre"
+    ],
+    [
+     "L",
+     "je suis en bas"
+    ],
+    [
+     "Y",
+     "j'arrive"
+    ]
+   ]
+  },
+  {
+   "creneau": "evening",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "j'arrive dans {mn} min"
+    ],
+    [
+     "L",
+     "ok"
+    ],
+    [
+     "P",
+     ""
+    ],
+    [
+     "L",
+     "ça fait 40 min"
+    ],
+    [
+     "Y",
+     "j'ai eu un souci"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 4,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "bonne nuit"
+    ],
+    [
+     "Y",
+     "bonne nuit"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 3,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "dors bien ❤️"
+    ],
+    [
+     "Y",
+     "toi aussi"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "tu dors ?"
+    ],
+    [
+     "Y",
+     "nn"
+    ],
+    [
+     "L",
+     "viens on s'appelle"
+    ],
+    [
+     "Y",
+     "flemme"
+    ],
+    [
+     "Y",
+     "demain"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "t'es réveillée ?"
+    ],
+    [
+     "L",
+     "oui"
+    ],
+    [
+     "Y",
+     "rien"
+    ],
+    [
+     "Y",
+     "bonne nuit"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 1,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "Y",
+     "jsuis encore dehors"
+    ],
+    [
+     "L",
+     "il est 1h"
+    ],
+    [
+     "Y",
+     "je rentre bientôt"
+    ],
+    [
+     "L",
+     "préviens quand t'es rentré"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 1,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "dsl j'avais plus de batterie"
+    ],
+    [
+     "L",
+     "ok"
+    ]
+   ]
+  },
+  {
+   "creneau": "night",
+   "poidsAvant": 1,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "tu rentres ?"
+    ],
+    [
+     "L",
+     "?"
+    ],
+    [
+     "L",
+     "allo"
+    ],
+    [
+     "Y",
+     "oui je rentre"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "regarde ce tiktok"
+    ],
+    [
+     "L",
+     "[image]"
+    ],
+    [
+     "Y",
+     "ptdr"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 1,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "Y",
+     "[image]"
+    ],
+    [
+     "L",
+     "c'est quoi ça"
+    ],
+    [
+     "Y",
+     "mon plat"
+    ],
+    [
+     "L",
+     "beurk"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 1,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "tu m'en veux ?"
+    ],
+    [
+     "Y",
+     "nn pourquoi"
+    ],
+    [
+     "L",
+     "t'es froid"
+    ],
+    [
+     "Y",
+     "je suis pas froid"
+    ],
+    [
+     "L",
+     "ok."
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 1,
+   "poidsApres": 4,
+   "lignes": [
+    [
+     "L",
+     "t'as vu mon message ?"
+    ],
+    [
+     "Y",
+     "oui"
+    ],
+    [
+     "L",
+     "et ?"
+    ],
+    [
+     "Y",
+     "et rien"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "on fait quoi ce week-end ?"
+    ],
+    [
+     "Y",
+     "{fy} fait un anniv samedi"
+    ],
+    [
+     "L",
+     "et moi ?"
+    ],
+    [
+     "Y",
+     "viens si tu veux"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "ma mère demande quand tu passes"
+    ],
+    [
+     "Y",
+     "bientôt"
+    ],
+    [
+     "L",
+     "tu dis ça depuis 3 mois"
+    ],
+    [
+     "Y",
+     "mdr"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 1,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "Y",
+     "t'as dîné ?"
+    ],
+    [
+     "L",
+     "pas encore"
+    ],
+    [
+     "Y",
+     "va"
+    ],
+    [
+     "L",
+     "oui papa"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 1,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "L",
+     "j'ai vu {fy} ce midi"
+    ],
+    [
+     "L",
+     "il dit que t'étais pas là samedi"
+    ],
+    [
+     "Y",
+     "il dit n'importe quoi"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 0,
+   "poidsApres": 4,
+   "lignes": [
+    [
+     "L",
+     "?"
+    ],
+    [
+     "L",
+     "allo"
+    ],
+    [
+     "L",
+     "tu réponds plus ?"
+    ],
+    [
+     "Y",
+     "dsl j'étais occupé"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 0,
+   "poidsApres": 3,
+   "lignes": [
+    [
+     "L",
+     "on peut parler ce soir ?"
+    ],
+    [
+     "Y",
+     "de quoi"
+    ],
+    [
+     "L",
+     "de nous"
+    ],
+    [
+     "Y",
+     "encore ?"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 2,
+   "poidsApres": 1,
+   "lignes": [
+    [
+     "L",
+     "mdr"
+    ],
+    [
+     "Y",
+     "quoi"
+    ],
+    [
+     "L",
+     "rien je repensais à hier"
+    ],
+    [
+     "Y",
+     "ptdr"
+    ]
+   ]
+  },
+  {
+   "creneau": "any",
+   "poidsAvant": 2,
+   "poidsApres": 2,
+   "lignes": [
+    [
+     "Y",
+     "jsp ce que je prends ce soir"
+    ],
+    [
+     "L",
+     "{food} ?"
+    ],
+    [
+     "Y",
+     "carré"
+    ]
+   ]
+  }
+ ],
+ "creneauxPoids": [
+  [
+   "morning",
+   0.2
+  ],
+  [
+   "day",
+   0.35
+  ],
+  [
+   "evening",
+   0.3
+  ],
+  [
+   "night",
+   0.15
+  ]
+ ],
+ "creneaux": {
+  "morning": [
+   450,
+   630
+  ],
+  "day": [
+   660,
+   1050
+  ],
+  "evening": [
+   1080,
+   1350
+  ],
+  "night": [
+   1380,
+   1530
+  ],
+  "any": [
+   540,
+   1320
+  ]
+ },
+ "motsVides": [
+  "je",
+  "tu",
+  "il",
+  "elle",
+  "on",
+  "nous",
+  "vous",
+  "ils",
+  "elles",
+  "me",
+  "te",
+  "se",
+  "moi",
+  "toi",
+  "lui",
+  "le",
+  "la",
+  "les",
+  "un",
+  "une",
+  "des",
+  "de",
+  "du",
+  "au",
+  "aux",
+  "et",
+  "ou",
+  "mais",
+  "donc",
+  "or",
+  "ni",
+  "car",
+  "que",
+  "qui",
+  "quoi",
+  "ce",
+  "ça",
+  "cet",
+  "cette",
+  "ces",
+  "mon",
+  "ma",
+  "mes",
+  "ton",
+  "ta",
+  "tes",
+  "son",
+  "sa",
+  "ses",
+  "notre",
+  "votre",
+  "leur",
+  "leurs",
+  "en",
+  "y",
+  "a",
+  "à",
+  "est",
+  "es",
+  "suis",
+  "sont",
+  "pas",
+  "ne",
+  "n",
+  "plus",
+  "très",
+  "trop",
+  "bien",
+  "oui",
+  "non",
+  "nn",
+  "ok",
+  "mdr",
+  "ptdr",
+  "jsp",
+  "t",
+  "c",
+  "j",
+  "l",
+  "d",
+  "s",
+  "qu",
+  "m",
+  "dans",
+  "sur",
+  "pour",
+  "par",
+  "avec",
+  "sans",
+  "chez",
+  "quand",
+  "comment",
+  "pourquoi",
+  "si",
+  "là",
+  "ici",
+  "aussi",
+  "encore",
+  "juste",
+  "fait",
+  "faire",
+  "dit",
+  "dis",
+  "vais",
+  "va",
+  "vas",
+  "veux",
+  "peux",
+  "être",
+  "avoir",
+  "as",
+  "ai",
+  "ont",
+  "tout",
+  "tous",
+  "rien",
+  "bon",
+  "ah",
+  "oh",
+  "hier",
+  "demain",
+  "soir",
+  "ce",
+  "soir"
+ ]
+}
