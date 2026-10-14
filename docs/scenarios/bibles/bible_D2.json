@@ -1,0 +1,1600 @@
+{
+  "id": "D2",
+  "titre": "Le mec de 2 h du mat",
+  "type": "talking_stage",
+  "lui": "Adam",
+  "dates": {
+    "debut": "2026-05-03",
+    "fin": "2026-10-12",
+    "lune_de_miel_fin": "2026-06-07",
+    "tournant": "2026-08-30",
+    "record": "2026-05-17"
+  },
+  "rythme": {
+    "elle_lance": {
+      "avant": 0.7,
+      "apres": 0.82
+    },
+    "lui_reponse_min": {
+      "lune_de_miel": 12,
+      "avant": 70,
+      "apres": 120,
+      "nuit": 4,
+      "record": 2
+    },
+    "elle_reponse_s": 80,
+    "dialogues_par_jour": {
+      "lune_de_miel": [
+        5,
+        7
+      ],
+      "avant": [
+        4,
+        6
+      ],
+      "apres": [
+        2,
+        4
+      ],
+      "record": 42
+    }
+  },
+  "mot_a_vous": {
+    "mot": "pigeon",
+    "debut": "2026-05-24",
+    "proba_par_jour": 0.5,
+    "dialogues": [
+      [
+        [
+          "Y",
+          "il est là ton pigeon ?"
+        ],
+        [
+          "L",
+          "il est toujours là le pigeon lui"
+        ]
+      ],
+      [
+        [
+          "L",
+          "le pigeon a encore dormi sur ma chaise"
+        ],
+        [
+          "Y",
+          "il paye un loyer le pigeon ?"
+        ]
+      ],
+      [
+        [
+          "Y",
+          "bonne nuit au pigeon"
+        ],
+        [
+          "L",
+          "le pigeon te dit bonne nuit"
+        ]
+      ],
+      [
+        [
+          "L",
+          "j'ai donné du pain au pigeon"
+        ],
+        [
+          "Y",
+          "tu le nourris mieux que moi le pigeon"
+        ]
+      ],
+      [
+        [
+          "Y",
+          "ton pigeon il a un prénom ?"
+        ],
+        [
+          "L",
+          "nn c'est le pigeon"
+        ],
+        [
+          "Y",
+          "respect au pigeon"
+        ]
+      ],
+      [
+        [
+          "L",
+          "le pigeon me regarde manger"
+        ],
+        [
+          "Y",
+          "partage avec le pigeon"
+        ]
+      ],
+      [
+        [
+          "Y",
+          "envoie une photo du pigeon"
+        ],
+        [
+          "L",
+          "[image]"
+        ],
+        [
+          "L",
+          "le pigeon est timide ce soir"
+        ]
+      ],
+      [
+        [
+          "L",
+          "le pigeon a fait tomber ma plante"
+        ],
+        [
+          "Y",
+          "le pigeon fait sa loi chez toi"
+        ]
+      ],
+      [
+        [
+          "Y",
+          "le pigeon est réveillé ?"
+        ],
+        [
+          "L",
+          "le pigeon dort lui"
+        ]
+      ],
+      [
+        [
+          "L",
+          "y a un deuxième pigeon"
+        ],
+        [
+          "Y",
+          "ton pigeon a ramené quelqu'un ?"
+        ],
+        [
+          "L",
+          "le pigeon a une vie sociale"
+        ]
+      ],
+      [
+        [
+          "Y",
+          "salue le pigeon"
+        ],
+        [
+          "L",
+          "le pigeon te salue"
+        ]
+      ],
+      [
+        [
+          "L",
+          "le pigeon m'attend tous les soirs"
+        ],
+        [
+          "Y",
+          "fidèle le pigeon"
+        ]
+      ]
+    ]
+  },
+  "vocaux": {
+    "L": 0.01,
+    "Y": 0.02,
+    "Y_nuit": 0.16
+  },
+  "munitions": [
+    [
+      [
+        "2026-05-03 14:05",
+        "Y",
+        "c'est adam"
+      ],
+      [
+        "2026-05-03 14:05",
+        "Y",
+        "de la soirée chez mehdi"
+      ],
+      [
+        "2026-05-03 14:07",
+        "L",
+        "ahh le mec du balcon"
+      ],
+      [
+        "2026-05-03 14:07",
+        "L",
+        "mdr"
+      ],
+      [
+        "2026-05-03 14:16",
+        "Y",
+        "on a parlé 2h sur ce balcon"
+      ],
+      [
+        "2026-05-03 14:16",
+        "Y",
+        "je pouvais pas partir sans ton num"
+      ]
+    ],
+    [
+      [
+        "2026-05-05 23:48",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-05-05 23:48",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-05-05 23:49",
+        "Y",
+        "moi non plus"
+      ],
+      [
+        "2026-05-05 23:49",
+        "Y",
+        "je repense à notre conv sur le balcon"
+      ],
+      [
+        "2026-05-05 23:50",
+        "L",
+        "laquelle"
+      ],
+      [
+        "2026-05-05 23:51",
+        "Y",
+        "toutes"
+      ]
+    ],
+    [
+      [
+        "2026-05-09 16:20",
+        "L",
+        "t'es toujours aussi mystérieux ou c'est que avec moi ?"
+      ],
+      [
+        "2026-05-09 16:41",
+        "Y",
+        "moi je suis cash"
+      ],
+      [
+        "2026-05-09 16:41",
+        "Y",
+        "si je veux un truc je le dis"
+      ],
+      [
+        "2026-05-09 16:42",
+        "L",
+        "ok noté"
+      ]
+    ],
+    [
+      [
+        "2026-05-12 22:10",
+        "L",
+        "mon ex il disparaissait des jours entiers"
+      ],
+      [
+        "2026-05-12 22:13",
+        "Y",
+        "moi je disparais jamais"
+      ],
+      [
+        "2026-05-12 22:13",
+        "Y",
+        "j'ai horreur des gens qui répondent pas"
+      ],
+      [
+        "2026-05-12 22:14",
+        "L",
+        "ça me rassure mdr"
+      ]
+    ],
+    [
+      [
+        "2026-05-15 12:40",
+        "Y",
+        "c'était trop bien hier soir"
+      ],
+      [
+        "2026-05-15 12:41",
+        "L",
+        "trop"
+      ],
+      [
+        "2026-05-15 12:52",
+        "Y",
+        "on se refait ça vite"
+      ]
+    ],
+    [
+      [
+        "2026-05-17 23:56",
+        "Y",
+        "on a parlé toute la journée mdr"
+      ],
+      [
+        "2026-05-17 23:56",
+        "Y",
+        "j'ai jamais autant écrit à quelqu'un"
+      ],
+      [
+        "2026-05-17 23:57",
+        "L",
+        "moi non plus"
+      ],
+      [
+        "2026-05-17 23:58",
+        "Y",
+        "pourtant je suis pas du tout téléphone moi"
+      ]
+    ],
+    [
+      [
+        "2026-05-21 20:14",
+        "L",
+        "y a un pigeon qui dort sur mon balcon"
+      ],
+      [
+        "2026-05-21 20:14",
+        "L",
+        "[image]"
+      ],
+      [
+        "2026-05-21 20:39",
+        "Y",
+        "il a l'air plus posé que toi"
+      ],
+      [
+        "2026-05-21 20:40",
+        "L",
+        "il vient tous les soirs"
+      ],
+      [
+        "2026-05-21 20:40",
+        "L",
+        "je crois qu'il habite ici maintenant"
+      ],
+      [
+        "2026-05-21 21:02",
+        "Y",
+        "dis au pigeon que le prochain sur ce balcon c'est moi"
+      ]
+    ],
+    [
+      [
+        "2026-05-24 01:37",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-05-24 01:37",
+        "L",
+        "chez moi pourquoi ?"
+      ],
+      [
+        "2026-05-24 01:39",
+        "Y",
+        "pour savoir"
+      ],
+      [
+        "2026-05-24 01:39",
+        "Y",
+        "t'es avec qui ?"
+      ],
+      [
+        "2026-05-24 01:40",
+        "L",
+        "avec le pigeon mdr"
+      ],
+      [
+        "2026-05-24 01:44",
+        "Y",
+        "dis lui bonne nuit"
+      ]
+    ],
+    [
+      [
+        "2026-05-30 00:41",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-05-30 00:41",
+        "L",
+        "chez ma pote"
+      ],
+      [
+        "2026-05-30 00:42",
+        "L",
+        "et toi ?"
+      ],
+      [
+        "2026-05-30 00:58",
+        "Y",
+        "dehors"
+      ],
+      [
+        "2026-05-30 00:58",
+        "L",
+        "dehors où mdr"
+      ],
+      [
+        "2026-05-30 01:21",
+        "Y",
+        "tu dors chez elle ?"
+      ]
+    ],
+    [
+      [
+        "2026-06-04 23:12",
+        "Y",
+        "faut que tu rencontres karim et bilal"
+      ],
+      [
+        "2026-06-04 23:12",
+        "Y",
+        "samedi prochain"
+      ],
+      [
+        "2026-06-04 23:13",
+        "L",
+        "grave"
+      ],
+      [
+        "2026-06-04 23:13",
+        "L",
+        "je ramène le pigeon ?"
+      ],
+      [
+        "2026-06-04 23:16",
+        "Y",
+        "le pigeon est pas invité"
+      ]
+    ],
+    [
+      [
+        "2026-06-13 18:20",
+        "L",
+        "c'est toujours ce soir avec tes potes ?"
+      ],
+      [
+        "2026-06-13 20:47",
+        "Y",
+        "ah nn finalement on reste entre nous"
+      ],
+      [
+        "2026-06-13 20:47",
+        "Y",
+        "une autre fois"
+      ],
+      [
+        "2026-06-13 20:48",
+        "L",
+        "ok"
+      ]
+    ],
+    [
+      [
+        "2026-06-14 02:04",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-06-14 02:04",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-06-14 02:05",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-06-14 02:05",
+        "L",
+        "chez moi"
+      ],
+      [
+        "2026-06-14 02:19",
+        "Y",
+        "ok"
+      ],
+      [
+        "2026-06-14 02:19",
+        "Y",
+        "bonne nuit"
+      ]
+    ],
+    [
+      [
+        "2026-06-19 13:05",
+        "L",
+        "tu remarques que tu m'écris que la nuit ?"
+      ],
+      [
+        "2026-06-19 15:48",
+        "Y",
+        "c'est faux"
+      ],
+      [
+        "2026-06-19 15:48",
+        "Y",
+        "je t'ai écrit mardi à midi"
+      ],
+      [
+        "2026-06-19 15:49",
+        "L",
+        "pour me demander si j'avais un chargeur"
+      ],
+      [
+        "2026-06-19 17:30",
+        "Y",
+        "c'est un message quand même"
+      ]
+    ],
+    [
+      [
+        "2026-06-21 01:12",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-06-21 01:12",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-06-21 01:13",
+        "Y",
+        "rien"
+      ],
+      [
+        "2026-06-21 01:13",
+        "Y",
+        "je voulais juste voir si tu répondais"
+      ]
+    ],
+    [
+      [
+        "2026-06-27 02:37",
+        "Y",
+        "t'es réveillée ?"
+      ],
+      [
+        "2026-06-27 02:37",
+        "L",
+        "oui"
+      ],
+      [
+        "2026-06-27 02:38",
+        "Y",
+        "t'es la seule qui répond à cette heure là"
+      ],
+      [
+        "2026-06-27 02:38",
+        "L",
+        "c'est un compliment ?"
+      ],
+      [
+        "2026-06-27 02:51",
+        "Y",
+        "[vocal]"
+      ],
+      [
+        "2026-06-27 02:52",
+        "L",
+        "j'entends rien t'es où ?"
+      ],
+      [
+        "2026-06-27 03:10",
+        "Y",
+        "bonne nuit"
+      ]
+    ],
+    [
+      [
+        "2026-07-03 23:20",
+        "Y",
+        "c'est qui le mec sur ta story ?"
+      ],
+      [
+        "2026-07-03 23:20",
+        "L",
+        "mon cousin"
+      ],
+      [
+        "2026-07-03 23:21",
+        "Y",
+        "ok"
+      ],
+      [
+        "2026-07-03 23:21",
+        "Y",
+        "je demande juste"
+      ],
+      [
+        "2026-07-03 23:21",
+        "Y",
+        "moi je suis pas jaloux"
+      ],
+      [
+        "2026-07-03 23:22",
+        "L",
+        "et toi t'étais où ce soir ?"
+      ],
+      [
+        "2026-07-03 23:58",
+        "Y",
+        "tu dors ?"
+      ]
+    ],
+    [
+      [
+        "2026-07-08 01:52",
+        "Y",
+        "[supprimé]"
+      ],
+      [
+        "2026-07-08 01:53",
+        "Y",
+        "[supprimé]"
+      ],
+      [
+        "2026-07-08 08:14",
+        "L",
+        "t'as supprimé quoi ?"
+      ],
+      [
+        "2026-07-08 12:40",
+        "Y",
+        "rien je me suis trompé de conv"
+      ]
+    ],
+    [
+      [
+        "2026-07-14 21:10",
+        "L",
+        "on voit le feu d'artifice de mon balcon"
+      ],
+      [
+        "2026-07-14 21:10",
+        "L",
+        "tu viens ?"
+      ],
+      [
+        "2026-07-14 22:46",
+        "Y",
+        "jsuis avec les gars"
+      ],
+      [
+        "2026-07-14 22:46",
+        "Y",
+        "je passe peut-être après"
+      ],
+      [
+        "2026-07-14 22:47",
+        "L",
+        "ok dis moi"
+      ],
+      [
+        "2026-07-15 01:58",
+        "L",
+        "tu passes toujours ?"
+      ],
+      [
+        "2026-07-15 14:12",
+        "Y",
+        "dsl je me suis endormi"
+      ]
+    ],
+    [
+      [
+        "2026-07-21 12:30",
+        "L",
+        "t'es vivant ?"
+      ],
+      [
+        "2026-07-21 15:10",
+        "L",
+        "?"
+      ],
+      [
+        "2026-07-21 17:55",
+        "Y",
+        "je suis pas un mec de journée"
+      ],
+      [
+        "2026-07-21 17:55",
+        "Y",
+        "tu sais bien"
+      ],
+      [
+        "2026-07-21 17:56",
+        "L",
+        "t'es un mec de quoi alors"
+      ],
+      [
+        "2026-07-21 17:56",
+        "L",
+        "de nuit ?"
+      ],
+      [
+        "2026-07-21 19:30",
+        "Y",
+        "mdr"
+      ]
+    ],
+    [
+      [
+        "2026-07-26 01:12",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-07-26 01:12",
+        "L",
+        "en soirée chez une pote"
+      ],
+      [
+        "2026-07-26 01:13",
+        "Y",
+        "t'es avec qui ?"
+      ],
+      [
+        "2026-07-26 01:13",
+        "L",
+        "des amis"
+      ],
+      [
+        "2026-07-26 01:14",
+        "Y",
+        "quels amis"
+      ],
+      [
+        "2026-07-26 01:14",
+        "L",
+        "et toi t'es où ?"
+      ],
+      [
+        "2026-07-26 01:40",
+        "Y",
+        "envoie l'adresse"
+      ],
+      [
+        "2026-07-26 01:41",
+        "L",
+        "tu viens ?"
+      ],
+      [
+        "2026-07-26 02:30",
+        "Y",
+        "nn laisse je suis claqué"
+      ]
+    ],
+    [
+      [
+        "2026-08-01 23:05",
+        "L",
+        "je peux te demander un truc ?"
+      ],
+      [
+        "2026-08-01 23:30",
+        "Y",
+        "vas y"
+      ],
+      [
+        "2026-08-01 23:31",
+        "L",
+        "en fait nn laisse"
+      ],
+      [
+        "2026-08-01 23:31",
+        "L",
+        "c'est bête"
+      ],
+      [
+        "2026-08-01 23:44",
+        "Y",
+        "ok"
+      ]
+    ],
+    [
+      [
+        "2026-08-06 19:20",
+        "L",
+        "ma meilleure pote me demande ce qu'on est"
+      ],
+      [
+        "2026-08-06 19:20",
+        "L",
+        "mdr"
+      ],
+      [
+        "2026-08-06 21:52",
+        "Y",
+        "dis lui qu'on se prend pas la tête"
+      ],
+      [
+        "2026-08-06 21:53",
+        "L",
+        "c'est pas une réponse ça"
+      ],
+      [
+        "2026-08-06 22:40",
+        "Y",
+        "c'est la meilleure réponse"
+      ]
+    ],
+    [
+      [
+        "2026-08-08 14:10",
+        "L",
+        "tu fais quoi aujourd'hui ?"
+      ],
+      [
+        "2026-08-08 18:32",
+        "L",
+        "?"
+      ],
+      [
+        "2026-08-09 01:46",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-08-09 01:46",
+        "L",
+        "t'as vu mon message de cet aprèm ?"
+      ],
+      [
+        "2026-08-09 01:58",
+        "Y",
+        "j'ai pas eu le temps de la journée"
+      ],
+      [
+        "2026-08-09 01:58",
+        "Y",
+        "t'es où ?"
+      ]
+    ],
+    [
+      [
+        "2026-08-11 23:47",
+        "Y",
+        "dis au pigeon que je passe ce week-end"
+      ],
+      [
+        "2026-08-11 23:47",
+        "L",
+        "il va pas te croire"
+      ],
+      [
+        "2026-08-11 23:48",
+        "L",
+        "moi non plus"
+      ],
+      [
+        "2026-08-11 23:59",
+        "Y",
+        "vous êtes durs"
+      ]
+    ],
+    [
+      [
+        "2026-08-16 20:30",
+        "L",
+        "le pigeon t'a attendu"
+      ],
+      [
+        "2026-08-16 23:15",
+        "Y",
+        "j'ai eu un week-end de fou"
+      ],
+      [
+        "2026-08-16 23:15",
+        "Y",
+        "t'es où là ?"
+      ],
+      [
+        "2026-08-16 23:16",
+        "L",
+        "chez moi"
+      ],
+      [
+        "2026-08-16 23:16",
+        "Y",
+        "ok"
+      ]
+    ],
+    [
+      [
+        "2026-08-22 21:05",
+        "L",
+        "je sors avec les filles ce soir"
+      ],
+      [
+        "2026-08-22 21:40",
+        "Y",
+        "où ?"
+      ],
+      [
+        "2026-08-22 21:41",
+        "L",
+        "à bastille"
+      ],
+      [
+        "2026-08-22 21:41",
+        "Y",
+        "envoie ta position"
+      ],
+      [
+        "2026-08-22 21:42",
+        "L",
+        "mdr nn"
+      ],
+      [
+        "2026-08-22 21:58",
+        "Y",
+        "c'est pour savoir si t'es bien rentrée"
+      ]
+    ],
+    [
+      [
+        "2026-08-23 03:02",
+        "Y",
+        "t'es rentrée ?"
+      ],
+      [
+        "2026-08-23 03:02",
+        "L",
+        "oui"
+      ],
+      [
+        "2026-08-23 03:03",
+        "L",
+        "et toi ?"
+      ],
+      [
+        "2026-08-23 03:19",
+        "Y",
+        "dors bien"
+      ]
+    ],
+    [
+      [
+        "2026-08-27 02:22",
+        "Y",
+        "[supprimé]"
+      ],
+      [
+        "2026-08-27 02:23",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-08-27 02:23",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-08-27 02:24",
+        "L",
+        "t'as supprimé quoi ?"
+      ],
+      [
+        "2026-08-27 02:40",
+        "Y",
+        "rien"
+      ],
+      [
+        "2026-08-27 02:40",
+        "Y",
+        "dors"
+      ]
+    ],
+    [
+      [
+        "2026-08-30 02:41",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-08-30 02:41",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-08-30 02:42",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-08-30 02:42",
+        "L",
+        "chez moi pourquoi ?"
+      ],
+      [
+        "2026-08-30 02:43",
+        "Y",
+        "je peux passer ?"
+      ],
+      [
+        "2026-08-30 02:43",
+        "L",
+        "maintenant ??"
+      ],
+      [
+        "2026-08-30 02:44",
+        "Y",
+        "je suis pas loin"
+      ],
+      [
+        "2026-08-30 02:46",
+        "L",
+        "ok"
+      ],
+      [
+        "2026-08-30 03:06",
+        "Y",
+        "en bas"
+      ],
+      [
+        "2026-08-30 03:07",
+        "L",
+        "j'arrive"
+      ],
+      [
+        "2026-08-30 03:07",
+        "Y",
+        "ton pigeon il me regarde chelou"
+      ],
+      [
+        "2026-08-30 11:48",
+        "L",
+        "t'es bien rentré ?"
+      ],
+      [
+        "2026-08-30 14:20",
+        "L",
+        "t'as oublié ton chargeur"
+      ],
+      [
+        "2026-08-30 14:20",
+        "L",
+        "le pigeon le garde en otage mdr"
+      ],
+      [
+        "2026-08-30 19:02",
+        "L",
+        "?"
+      ],
+      [
+        "2026-08-30 23:36",
+        "L",
+        "tout va bien ?"
+      ],
+      [
+        "2026-08-31 13:15",
+        "L",
+        "adam ?"
+      ],
+      [
+        "2026-08-31 21:40",
+        "L",
+        "j'ai fait un truc ?"
+      ],
+      [
+        "2026-09-01 20:15",
+        "L",
+        "ok"
+      ],
+      [
+        "2026-09-02 01:34",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-09-02 01:34",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-09-02 01:35",
+        "L",
+        "t'étais où ??"
+      ],
+      [
+        "2026-09-02 01:52",
+        "Y",
+        "dsl grosse semaine"
+      ],
+      [
+        "2026-09-02 01:52",
+        "Y",
+        "tu sais que je suis pas téléphone"
+      ],
+      [
+        "2026-09-02 01:53",
+        "L",
+        "ok"
+      ],
+      [
+        "2026-09-02 01:53",
+        "L",
+        "t'as oublié ton chargeur"
+      ],
+      [
+        "2026-09-02 02:10",
+        "Y",
+        "garde le"
+      ],
+      [
+        "2026-09-02 02:10",
+        "Y",
+        "comme ça je reviens"
+      ]
+    ],
+    [
+      [
+        "2026-09-06 15:00",
+        "L",
+        "on peut se voir de jour un jour ?"
+      ],
+      [
+        "2026-09-06 15:00",
+        "L",
+        "genre un café"
+      ],
+      [
+        "2026-09-06 18:44",
+        "Y",
+        "un café mdr"
+      ],
+      [
+        "2026-09-06 18:44",
+        "Y",
+        "t'es sérieuse"
+      ],
+      [
+        "2026-09-06 18:45",
+        "L",
+        "bah oui"
+      ],
+      [
+        "2026-09-06 21:30",
+        "Y",
+        "on verra"
+      ]
+    ],
+    [
+      [
+        "2026-09-10 01:47",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-09-10 01:47",
+        "L",
+        "chez moi"
+      ],
+      [
+        "2026-09-10 01:47",
+        "L",
+        "comme d'hab"
+      ],
+      [
+        "2026-09-10 01:48",
+        "L",
+        "pourquoi tu demandes toujours ça ?"
+      ],
+      [
+        "2026-09-10 02:15",
+        "Y",
+        "j'aime bien savoir où t'es c'est tout"
+      ],
+      [
+        "2026-09-10 02:16",
+        "L",
+        "et moi je sais jamais où t'es"
+      ]
+    ],
+    [
+      [
+        "2026-09-13 00:52",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-09-13 00:52",
+        "L",
+        "à un anniv"
+      ],
+      [
+        "2026-09-13 00:53",
+        "Y",
+        "avec qui"
+      ],
+      [
+        "2026-09-13 00:53",
+        "L",
+        "et toi t'es où ?"
+      ],
+      [
+        "2026-09-13 01:30",
+        "Y",
+        "rentre pas trop tard"
+      ]
+    ],
+    [
+      [
+        "2026-09-19 01:21",
+        "Y",
+        "t'es réveillée ?"
+      ],
+      [
+        "2026-09-19 01:21",
+        "L",
+        "oui"
+      ],
+      [
+        "2026-09-19 01:22",
+        "Y",
+        "mdr tu réponds toujours en 2 secondes toi"
+      ],
+      [
+        "2026-09-19 01:22",
+        "L",
+        "et toi en 2 jours"
+      ],
+      [
+        "2026-09-19 01:40",
+        "Y",
+        "[vocal]"
+      ],
+      [
+        "2026-09-19 01:41",
+        "L",
+        "je peux pas écouter"
+      ],
+      [
+        "2026-09-19 01:41",
+        "L",
+        "écris"
+      ],
+      [
+        "2026-09-19 02:15",
+        "Y",
+        "laisse"
+      ]
+    ],
+    [
+      [
+        "2026-09-24 19:10",
+        "L",
+        "ton chargeur est toujours là"
+      ],
+      [
+        "2026-09-24 19:10",
+        "L",
+        "le pigeon dort dessus"
+      ],
+      [
+        "2026-09-24 23:58",
+        "Y",
+        "mdr"
+      ],
+      [
+        "2026-09-24 23:58",
+        "Y",
+        "je passe le chercher"
+      ],
+      [
+        "2026-09-24 23:59",
+        "L",
+        "quand ?"
+      ]
+    ],
+    [
+      [
+        "2026-09-27 03:04",
+        "Y",
+        "[supprimé]"
+      ],
+      [
+        "2026-09-27 03:04",
+        "Y",
+        "[supprimé]"
+      ],
+      [
+        "2026-09-27 09:15",
+        "L",
+        "?"
+      ],
+      [
+        "2026-09-27 13:02",
+        "Y",
+        "dsl mauvaise conv"
+      ]
+    ],
+    [
+      [
+        "2026-10-01 23:30",
+        "L",
+        "[supprimé]"
+      ],
+      [
+        "2026-10-01 23:51",
+        "Y",
+        "t'as supprimé quoi ?"
+      ],
+      [
+        "2026-10-01 23:52",
+        "L",
+        "rien"
+      ],
+      [
+        "2026-10-01 23:52",
+        "L",
+        "une faute"
+      ],
+      [
+        "2026-10-02 00:04",
+        "Y",
+        "ok bonne nuit"
+      ]
+    ]
+  ],
+  "derniere_semaine": [
+    [
+      [
+        "2026-10-05 13:40",
+        "L",
+        "tu fais quoi cette semaine ?"
+      ],
+      [
+        "2026-10-05 19:55",
+        "Y",
+        "jsp encore"
+      ],
+      [
+        "2026-10-05 19:55",
+        "Y",
+        "je te dis"
+      ]
+    ],
+    [
+      [
+        "2026-10-06 01:48",
+        "Y",
+        "tu dors ?"
+      ],
+      [
+        "2026-10-06 01:48",
+        "L",
+        "nn"
+      ],
+      [
+        "2026-10-06 01:49",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-10-06 01:49",
+        "L",
+        "chez moi"
+      ],
+      [
+        "2026-10-06 01:49",
+        "L",
+        "et toi ?"
+      ],
+      [
+        "2026-10-06 02:07",
+        "Y",
+        "bonne nuit"
+      ]
+    ],
+    [
+      [
+        "2026-10-07 19:30",
+        "L",
+        "le pigeon a ramené une copine"
+      ],
+      [
+        "2026-10-07 19:30",
+        "L",
+        "[image]"
+      ],
+      [
+        "2026-10-07 23:51",
+        "Y",
+        "même le pigeon il a quelqu'un"
+      ],
+      [
+        "2026-10-07 23:52",
+        "L",
+        "ça veut dire quoi ça"
+      ],
+      [
+        "2026-10-08 00:20",
+        "Y",
+        "rien mdr"
+      ]
+    ],
+    [
+      [
+        "2026-10-08 12:15",
+        "L",
+        "on se voit samedi ?"
+      ],
+      [
+        "2026-10-08 12:15",
+        "L",
+        "de jour"
+      ],
+      [
+        "2026-10-08 12:16",
+        "L",
+        "genre un vrai truc"
+      ],
+      [
+        "2026-10-08 22:48",
+        "Y",
+        "samedi jsp"
+      ],
+      [
+        "2026-10-08 22:48",
+        "Y",
+        "je te dis vendredi"
+      ]
+    ],
+    [
+      [
+        "2026-10-09 23:58",
+        "L",
+        "tu m'as pas dit pour samedi"
+      ],
+      [
+        "2026-10-10 01:37",
+        "Y",
+        "t'es où ?"
+      ],
+      [
+        "2026-10-10 01:37",
+        "L",
+        "chez moi"
+      ],
+      [
+        "2026-10-10 01:38",
+        "L",
+        "et samedi ?"
+      ],
+      [
+        "2026-10-10 01:55",
+        "Y",
+        "[vocal]"
+      ],
+      [
+        "2026-10-10 01:56",
+        "L",
+        "j'entends que du bruit t'es où ?"
+      ],
+      [
+        "2026-10-10 02:20",
+        "Y",
+        "dehors"
+      ]
+    ],
+    [
+      [
+        "2026-10-10 16:30",
+        "L",
+        "du coup on se voit ?"
+      ],
+      [
+        "2026-10-10 18:02",
+        "L",
+        "?"
+      ],
+      [
+        "2026-10-10 21:12",
+        "L",
+        "ok j'ai compris"
+      ],
+      [
+        "2026-10-10 21:13",
+        "L",
+        "soirée avec le pigeon alors"
+      ],
+      [
+        "2026-10-10 23:47",
+        "Y",
+        "mdr"
+      ],
+      [
+        "2026-10-10 23:47",
+        "Y",
+        "fais lui un bisou"
+      ]
+    ],
+    [
+      [
+        "2026-10-11 17:20",
+        "L",
+        "ma meilleure pote m'a encore demandé ce qu'on était"
+      ],
+      [
+        "2026-10-11 17:21",
+        "L",
+        "j'ai dit je sais pas mdr"
+      ],
+      [
+        "2026-10-11 21:05",
+        "Y",
+        "pourquoi faut toujours mettre des mots"
+      ],
+      [
+        "2026-10-11 21:05",
+        "Y",
+        "on est bien là non ?"
+      ],
+      [
+        "2026-10-11 21:06",
+        "L",
+        "si"
+      ],
+      [
+        "2026-10-11 21:06",
+        "L",
+        "on est bien"
+      ]
+    ],
+    [
+      [
+        "2026-10-11 23:34",
+        "Y",
+        "tu fais quoi demain ?"
+      ],
+      [
+        "2026-10-11 23:34",
+        "L",
+        "rien pourquoi"
+      ],
+      [
+        "2026-10-11 23:51",
+        "Y",
+        "pour savoir"
+      ],
+      [
+        "2026-10-11 23:51",
+        "L",
+        "tu passes ?"
+      ]
+    ]
+  ],
+  "ecran_choc": [
+    [
+      "2026-10-12 02:13:41",
+      "Y",
+      "t'es où ?"
+    ],
+    [
+      "2026-10-12 02:14:02",
+      "L",
+      "chez moi pourquoi ?"
+    ],
+    [
+      "2026-10-12 02:36:19",
+      "L",
+      "allo ?"
+    ],
+    [
+      "2026-10-12 03:17:54",
+      "L",
+      "t'es en vie ?"
+    ]
+  ]
+}

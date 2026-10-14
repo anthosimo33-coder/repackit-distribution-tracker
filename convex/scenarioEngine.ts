@@ -28,7 +28,7 @@
  * Module PUR (aucun import `_generated`).
  */
 import { PyRandom, timedeltaUs } from "./pyRandom";
-import type { Bible, Locuteur } from "./scenarioBible";
+import type { Bible, Locuteur, TypeScenario } from "./scenarioBible";
 import donnees from "./scenarioRemplissage.json";
 
 const LRM = "‎";
@@ -44,7 +44,26 @@ const LIGNE_CHIFFREMENT = `${LRM}Les messages et les appels sont chiffrés de bo
 
 type Creneau = "morning" | "day" | "evening" | "night" | "any";
 type LigneDialogue = [Locuteur | "P", string];
-type Dialogue = { creneau: Creneau; poidsAvant: number; poidsApres: number; lignes: LigneDialogue[] };
+type Dialogue = {
+  creneau: Creneau;
+  poidsAvant: number;
+  poidsApres: number;
+  lignes: LigneDialogue[];
+  /** Réservé à certains types de relation (cf RESERVE) ; absent = tout le monde. */
+  reserve?: keyof typeof RESERVE;
+};
+
+/**
+ * Le remplissage est celui d'un COUPLE (moteur Python). Les dialogues amoureux
+ * sont marqués : « je t'aime » ne se dit qu'en couple installé (ou avec un
+ * ex) ; « tu me manques », « tu viens dormir ? » restent aux relations
+ * amoureuses. Un meilleur ami, une famille, un groupe ne les tirent pas. Pour
+ * un couple, rien ne change : le tirage reste celui du Python, octet pour octet.
+ */
+const RESERVE = {
+  amour: ["couple", "ex"],
+  romance: ["couple", "ex", "talking_stage"],
+} satisfies Record<string, readonly TypeScenario[]>;
 
 const REMPLISSAGE = donnees.remplissage as Record<string, string[]>;
 const DIALOGUES = donnees.dialogues as Dialogue[];
@@ -134,8 +153,23 @@ export function genererConversation(bible: Bible, options: OptionsGeneration): G
   const RECORD = jourDe(bible.dates.record);
   const RY = bible.rythme;
 
+  // Un pote tiré au hasard ne porte jamais le prénom de l'un des deux (« Mehdi:
+  // Mehdi fait un anniv samedi », « je suis chez Inès » écrit par Inès). Sans
+  // collision, la liste est celle du Python : C2 reste identique à l'octet.
+  const echapper = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const nomsDesDeux = [NOM.L, NOM.Y]
+    .map((n) => n.trim())
+    .filter((n) => n !== "")
+    .map((n) => new RegExp(`(^|[^\\p{L}])${echapper(n)}($|[^\\p{L}])`, "iu"));
+  const portentUnNom = (option: string) => nomsDesDeux.some((re) => re.test(option));
+  const OPTIONS: Record<string, string[]> = Object.fromEntries(
+    Object.entries(REMPLISSAGE).map(([k, liste]) => {
+      const sans = liste.filter((o) => !portentUnNom(o));
+      return [k, sans.length > 0 ? sans : liste];
+    }),
+  );
   const remplir = (t: string) =>
-    t.replace(/\{(\w+)\}/g, (_, k: string) => R.choice(REMPLISSAGE[k]!));
+    t.replace(/\{(\w+)\}/g, (_, k: string) => R.choice(OPTIONS[k]!));
 
   const lognorm = (med: number, s: number) => med * Math.exp(R.gauss(0, s));
 
@@ -154,17 +188,22 @@ export function genererConversation(bible: Bible, options: OptionsGeneration): G
     return Math.min(lognorm(lui_mediane_s(d, t), 0.7), 2.8 * 3600);
   }
 
+  // Les dialogues que CE type de relation peut tenir (cf RESERVE).
+  const permis = (x: Dialogue) =>
+    x.reserve === undefined || (RESERVE[x.reserve] as readonly string[]).includes(bible.type);
   function choisir(creneau: Creneau, init: Locuteur, d: number, bannis: Set<number>): number {
     const apres = d >= TOURNANT;
     let idx = DIALOGUES.flatMap((x, i) =>
-      (x.creneau === creneau || x.creneau === "any") && x.lignes[0]![0] === init && !bannis.has(i) ? [i] : [],
+      (x.creneau === creneau || x.creneau === "any") && x.lignes[0]![0] === init && !bannis.has(i) && permis(x)
+        ? [i]
+        : [],
     );
     let w = idx.map((i) =>
       apres ? DIALOGUES[i]!.poidsApres : d < LUNE && FROIDS.has(i) ? 0 : DIALOGUES[i]!.poidsAvant,
     );
     if (w.reduce((a, b) => a + b, 0) === 0) {
-      idx = DIALOGUES.flatMap((x, i) => (x.lignes[0]![0] === init && !bannis.has(i) ? [i] : []));
-      if (idx.length === 0) idx = DIALOGUES.map((_, i) => i);
+      idx = DIALOGUES.flatMap((x, i) => (x.lignes[0]![0] === init && !bannis.has(i) && permis(x) ? [i] : []));
+      if (idx.length === 0) idx = DIALOGUES.flatMap((x, i) => (permis(x) ? [i] : []));
       w = idx.map(() => 1);
     }
     return R.weightedChoice(idx, w);
