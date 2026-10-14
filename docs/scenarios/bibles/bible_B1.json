@@ -3,6 +3,12 @@
   "titre": "Tu mérites mieux que lui",
   "type": "meilleur_ami",
   "lui": "Hugo",
+  "fiche": {
+    "relation": "mon meilleur ami",
+    "cest_normal": "on est trop proches, c'est mignon",
+    "question_chat": "est-ce qu'il est amoureux de moi ?",
+    "resume": "Hugo, ton meilleur ami et confident, démolit chaque mec que tu vois."
+  },
   "dates": {
     "debut": "2025-08-25",
     "fin": "2026-10-12",

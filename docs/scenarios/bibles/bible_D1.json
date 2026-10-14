@@ -3,6 +3,12 @@
   "titre": "Le date parfait",
   "type": "talking_stage",
   "lui": "Enzo",
+  "fiche": {
+    "relation": "mon crush",
+    "cest_normal": "il l'a sûrement pas vu",
+    "question_chat": "je lui réponds quoi ?",
+    "resume": "Après un date parfait, Enzo ne te répond plus."
+  },
   "dates": {
     "debut": "2026-05-16",
     "fin": "2026-10-12",

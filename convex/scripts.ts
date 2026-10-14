@@ -59,6 +59,8 @@ import {
   pickNotifs,
 } from "./scriptNotif";
 import { pickScenarios, scenarioUsageOf, scenariosTirables } from "./scriptConversation";
+import { remplirVariables, tirableAvec, utiliseVariables, type ValeursFiche } from "./scenarioFiche";
+import { exigerFichePour, textesDeBrique, valeursDuScenario } from "./scenarioScript";
 import { requireScenarioDuProjet, scenariosDuProjet } from "./scenarios";
 import {
   comboAvecTexte,
@@ -334,7 +336,7 @@ async function notifsForNewVideos(
  * importer à l'écran.
  */
 async function scenariosForNewVideos(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   input: {
     theme: string | undefined;
     campaign: Doc<"scriptCampaigns">;
@@ -360,6 +362,35 @@ async function scenariosForNewVideos(
     freeingStatuses: COMBO_FREEING_STATUSES,
   });
   return pickScenarios(scenarios, usage, input.count).map((sc) => sc._id);
+}
+
+/**
+ * La CONVERSATION des vidéos à créer, tirée AVANT le script : le scénario de
+ * chacune et les valeurs de sa fiche (cf convex/scenarioFiche). Le script est
+ * ensuite tiré parmi les briques que ces fiches remplissent.
+ */
+async function tirageConversation(
+  ctx: QueryCtx,
+  input: Parameters<typeof scenariosForNewVideos>[1],
+): Promise<{ scenarioIds: Id<"scenarios">[]; valeurs: (ValeursFiche | null)[] }> {
+  const scenarioIds = await scenariosForNewVideos(ctx, input);
+  const parScenario = new Map<string, ValeursFiche | null>();
+  const valeurs: (ValeursFiche | null)[] = [];
+  for (const id of scenarioIds) {
+    if (!parScenario.has(id)) parScenario.set(id, await valeursDuScenario(ctx, id));
+    valeurs.push(parScenario.get(id)!);
+  }
+  return { scenarioIds, valeurs };
+}
+
+/**
+ * La fiche qui décide des briques tirables pour un lot de vidéos : celle de la
+ * 1re vidéo si TOUTES en ont une (toutes les fiches fournissent toutes les
+ * variables), sinon null — une vidéo sans fiche (pas de conversation, ou une
+ * bible d'avant la fiche) écarte les briques à variables pour tout le lot.
+ */
+function ficheDuLot(valeurs: readonly (ValeursFiche | null)[]): ValeursFiche | null {
+  return valeurs.length > 0 && valeurs.every((x) => x !== null) ? valeurs[0]! : null;
 }
 
 /**
@@ -743,6 +774,10 @@ const previewCombosArgs = {
   videosPerCreator: v.number(),
   postDates: v.optional(v.array(v.number())),
   excludedComboKeys: v.optional(v.array(v.string())),
+  // Le thème de conversation choisi : l'aperçu tire les scénarios comme la
+  // création, ne garde que les briques que leurs fiches remplissent, et montre
+  // le texte rempli.
+  conversationTheme: v.optional(v.string()),
 };
 
 export const previewCombosForAssignment = permissionQuery("scripts.manage")({
@@ -755,13 +790,27 @@ export async function previewCombosCore(
   ctx: ProjectQueryCtx,
   args: ObjectType<typeof previewCombosArgs>,
 ) {
-  await requireCampaign(ctx, args.campaignId, ctx.projectId);
+  const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
   const allBricks = await ctx.db
     .query("scriptBricks")
     .withIndex("by_campaign", (q) => q.eq("campaignId", args.campaignId))
     .collect();
-  const combos = generateCombosServer(allBricks);
+  // Même ordre que la création : la conv d'abord. Un thème sans scénario ne
+  // casse pas l'aperçu (la création, elle, refusera en le disant).
+  let conv: { scenarioIds: Id<"scenarios">[]; valeurs: (ValeursFiche | null)[] } = { scenarioIds: [], valeurs: [] };
+  try {
+    conv = await tirageConversation(ctx, {
+      theme: args.conversationTheme,
+      campaign,
+      creatorId: args.creatorId,
+      count: args.videosPerCreator,
+    });
+  } catch {
+    conv = { scenarioIds: [], valeurs: [] };
+  }
+  const fiche = ficheDuLot(conv.valeurs);
+  const combos = generateCombosServer(allBricks.filter((b) => tirableAvec(textesDeBrique(b), fiche)));
   if (combos.length === 0) {
     return {
       combos: [],
@@ -828,7 +877,7 @@ export async function previewCombosCore(
       hookBrickId: c.hookBrickId,
       fluxBrickId: c.fluxBrickId,
       ctaBrickId: c.ctaBrickId,
-      assembledScript: c.assembledScript,
+      assembledScript: remplirVariables(c.assembledScript, conv.valeurs[i] ?? null),
       postDate: targetAt ?? null,
       dernierUsage,
     });
@@ -1635,6 +1684,25 @@ export async function assignScriptCampaignCore(
   // Auto : tirage anti-coordination least-used + unicité (comboKey × créateur ×
   // plateforme). Les lignes à combo imposé sont ignorées de usedKeys → le triplet
   // imposé reste piochable en auto.
+  // ─── Conversation D'ABORD (cf convex/scenarioFiche) ─────────────────────────
+  // Le scénario de chaque vidéo est tiré avant le script : le script ne prend
+  // que des briques que sa fiche remplit ({duree}, {lui}…), puis le texte est
+  // rempli. Rejeu à l'identique : la conv de la source (son texte est déjà
+  // rempli). Rejeu d'un script sans thème choisi : le thème de la conv source.
+  const themeConversation =
+    args.conversationTheme ??
+    (replaySrc?.scenarioId ? (await ctx.db.get(replaySrc.scenarioId))?.theme : undefined);
+  const conv = args.replayVerbatim
+    ? { scenarioIds: [] as Id<"scenarios">[], valeurs: [] as (ValeursFiche | null)[] }
+    : await tirageConversation(ctx, {
+        theme: themeConversation,
+        campaign,
+        creatorId: args.creatorId,
+        count: args.videosPerCreator,
+        ...(options.projectRows ? { rows: options.projectRows } : {}),
+      });
+  const fiche = ficheDuLot(conv.valeurs);
+
   let picked: ServerCombo[];
   let totalCombos: number;
   // Rejeu à l'identique : on REPRODUIT le combo FIGÉ de la source (validé plus
@@ -1664,11 +1732,18 @@ export async function assignScriptCampaignCore(
       args.imposedCombo,
       args.campaignId,
     );
+    // Imposé, mais pas en clair : un script qui cite la conv exige une fiche.
+    exigerFichePour(
+      allBricks.filter((b) => b._id === combo.hookBrickId || b._id === combo.fluxBrickId || b._id === combo.ctaBrickId),
+      fiche,
+    );
     picked = Array.from({ length: args.videosPerCreator }, () => combo);
     totalCombos = 1;
   } else {
-    const combos = generateCombosServer(allBricks);
+    const combos = generateCombosServer(allBricks.filter((b) => tirableAvec(textesDeBrique(b), fiche)));
     if (combos.length === 0) {
+      // Des scripts existent, mais tous citent la conv : le dire, pas « aucun combo ».
+      if (generateCombosServer(allBricks).length > 0) exigerFichePour(allBricks.filter((b) => b.active), fiche);
       throw err(ERR.NO_COMBO_AVAILABLE, "Aucun combo disponible (un type de brique manque, ou aucun hook actif).");
     }
     totalCombos = combos.length;
@@ -1782,20 +1857,10 @@ export async function assignScriptCampaignCore(
           count: picked.length,
           ...(options.projectRows ? { rows: options.projectRows } : {}),
         });
-  // ─── Conversation : un scénario par vidéo, tiré À PART du combo ────────────
-  // Le rejeu à l'identique reprend celui de la source (même histoire) ; tout le
-  // reste le tire en rotation équilibrée dans le thème choisi à l'assignation.
-  const scenariosTires = verbatimCombo
-    ? []
-    : await scenariosForNewVideos(ctx, {
-        theme: args.conversationTheme,
-        campaign,
-        creatorId: args.creatorId,
-        count: picked.length,
-        ...(options.projectRows ? { rows: options.projectRows } : {}),
-      });
+  // La conversation de chaque vidéo, tirée plus haut (rejeu à l'identique :
+  // celle de la source).
   const scenarioOf = (i: number): Id<"scenarios"> | undefined =>
-    verbatimCombo ? replaySrc?.scenarioId : scenariosTires[i];
+    verbatimCombo ? replaySrc?.scenarioId : conv.scenarioIds[i];
 
   let created = 0;
   let firstAssignmentId: Id<"assignments"> | null = null;
@@ -1870,11 +1935,14 @@ export async function assignScriptCampaignCore(
       ...(args.remunerated !== undefined ? { remunerated: args.remunerated } : {}),
       createdAt: now,
     });
-    // Le TEXTE monté, hors du document (verbatim : celui de la source).
+    // Le TEXTE monté, hors du document (verbatim : celui de la source), les
+    // variables remplies avec la fiche du scénario de CETTE vidéo.
     await ecrireTexteDuCombo(
       ctx,
       { _id: insertedId, projectId: ctx.projectId },
-      verbatimCombo ? verbatimCombo.combo.assembledScript : combo.assembledScript,
+      verbatimCombo
+        ? verbatimCombo.combo.assembledScript
+        : remplirVariables(combo.assembledScript, conv.valeurs[i] ?? null),
     );
     if (firstAssignmentId === null) firstAssignmentId = insertedId;
     assignmentIds.push(insertedId);
@@ -1949,15 +2017,34 @@ export const setAssignmentScenario = permissionMutation("scripts.manage")({
       throw err(ERR.ASSIGNMENT_NOT_SCRIPT, "Cet assignment n'est pas un script.");
     }
     assertScriptEditable(a);
-    if (args.scenarioId === null) {
-      await ctx.db.patch(a._id, { scenarioId: undefined });
-      return { ok: true };
+    if (args.scenarioId !== null) {
+      const scenario = await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
+      if (scenario.statut === "archive") {
+        throw err(ERR.SCENARIO_ARCHIVED, "Ce scénario est archivé : remets-le en « Actif » pour le donner.", { code: scenario.code });
+      }
     }
-    const scenario = await requireScenarioDuProjet(ctx, ctx.projectId, args.scenarioId);
-    if (scenario.statut === "archive") {
-      throw err(ERR.SCENARIO_ARCHIVED, "Ce scénario est archivé : remets-le en « Actif » pour le donner.", { code: scenario.code });
+    // Un script qui cite la conv ({duree}, {lui}…) suit le nouveau scénario :
+    // son texte est remonté depuis les briques et rempli avec la nouvelle
+    // fiche. Sans scénario (ou sans fiche), il ne peut plus être rempli : refus.
+    const combo = a.scriptCombo;
+    const [hook, flux, cta] = await Promise.all([
+      ctx.db.get(combo.hookBrickId),
+      ctx.db.get(combo.fluxBrickId),
+      ctx.db.get(combo.ctaBrickId),
+    ]);
+    if (hook && flux && cta && [hook, flux, cta].some((b) => textesDeBrique(b).some(utiliseVariables))) {
+      const valeurs = await valeursDuScenario(ctx, args.scenarioId);
+      exigerFichePour([hook, flux, cta], valeurs);
+      const avant = (await comboAvecTexte(ctx, a))!;
+      await ecrireCombo(ctx, a, {
+        ...avant,
+        assembledScript: remplirVariables(
+          assembleNoLabels({ hook: hook.content, flux: flux.content, cta: cta.content }),
+          valeurs,
+        ),
+      });
     }
-    await ctx.db.patch(a._id, { scenarioId: scenario._id });
+    await ctx.db.patch(a._id, { scenarioId: args.scenarioId ?? undefined });
     return { ok: true };
   },
 });
@@ -2025,11 +2112,17 @@ export const editScriptCombo = permissionMutation("scripts.manage")({
     if (!hook || !flux || !cta) {
       throw err(ERR.COMBO_BRICK_NOT_FOUND, "Brique du combo introuvable.");
     }
-    const assembledScript = assembleNoLabels({
-      hook: hook.content,
-      flux: flux.content,
-      cta: cta.content,
-    });
+    // Rempli avec la fiche du scénario de la mission (cf convex/scenarioFiche).
+    const valeurs = await valeursDuScenario(ctx, a.scenarioId);
+    exigerFichePour([hook, flux, cta], valeurs);
+    const assembledScript = remplirVariables(
+      assembleNoLabels({
+        hook: hook.content,
+        flux: flux.content,
+        cta: cta.content,
+      }),
+      valeurs,
+    );
     const comboKey = comboKeyOf({ hookBrickId, fluxBrickId, ctaBrickId });
 
     // Garde unicité (comboKey, créateur, plateforme) : le nouveau combo ne doit
@@ -2166,11 +2259,17 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
     if (!hook || !flux || !cta) {
       throw err(ERR.COMBO_BRICK_NOT_FOUND, "Brique du combo introuvable.");
     }
-    const assembledScript = assembleNoLabels({
-      hook: hook.content,
-      flux: flux.content,
-      cta: cta.content,
-    });
+    // Rempli avec la fiche du scénario de la mission (cf convex/scenarioFiche).
+    const valeurs = await valeursDuScenario(ctx, a.scenarioId);
+    exigerFichePour([hook, flux, cta], valeurs);
+    const assembledScript = remplirVariables(
+      assembleNoLabels({
+        hook: hook.content,
+        flux: flux.content,
+        cta: cta.content,
+      }),
+      valeurs,
+    );
     // Unicité (comboKey, créateur, plateforme) : le fork crée une brique NEUVE
     // (brickId inédit) → comboKey forcément unique → aucune collision possible
     // avec un assignment existant. Pas de garde nécessaire ici (cf #53).

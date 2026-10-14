@@ -355,6 +355,7 @@
     "convex/reviewQueue.ts",
     "convex/scenarioBible.ts",
     "convex/scenarioEngine.ts",
+    "convex/scenarioFiche.ts",
     "convex/scenarioModele.json",
     "convex/scenarioRemplissage.json",
     "convex/scriptNotif.ts",

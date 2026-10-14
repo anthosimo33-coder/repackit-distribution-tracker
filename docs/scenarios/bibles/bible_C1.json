@@ -3,6 +3,12 @@
   "titre": "Tu recommences",
   "type": "couple",
   "lui": "Mehdi",
+  "fiche": {
+    "relation": "mon copain",
+    "cest_normal": "bon, j'exagère peut-être",
+    "question_chat": "est-ce que c'est moi qui suis fatigante ?",
+    "resume": "Chaque fois que tu poses une question, Mehdi te dit que tu recommences."
+  },
   "dates": {
     "debut": "2025-07-19",
     "fin": "2026-10-12",

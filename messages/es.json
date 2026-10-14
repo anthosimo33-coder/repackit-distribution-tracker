@@ -311,6 +311,7 @@
     },
     "scenario": {
       "titre": "1. Consigue la conversación",
+      "fiche": "Tu conversación: {duree} con {lui}, {relation}",
       "preparer": "Preparar mi conversación",
       "telechargerConv": "Descargar la conversación (.txt)",
       "aideConv": "Guárdala en Archivos y luego impórtala en askblush.com.",
@@ -1533,6 +1534,7 @@
     "ERR_SCENARIO_NOT_FOUND": "Escenario no encontrado.",
     "ERR_SCENARIO_ARCHIVED": "El escenario {code} está archivado: vuelve a ponerlo en «Activo» para asignarlo.",
     "ERR_SCENARIO_IN_USE": "El escenario {code} ya se asignó a misiones: archívalo en lugar de borrarlo.",
+    "ERR_SCRIPT_NEEDS_CONVERSATION": "Este guion cita la conversación ({variables}): elige una conversación de WhatsApp cuyo escenario tenga ficha.",
     "ERR_NO_ACTIVE_CONVERSATION": "Ningún escenario en el tema «{theme}»: importa uno en Escenarios o asigna sin conversación.",
     "ERR_COMPTA_CHARGE_INVALID": "Gasto no válido: necesita una fecha, un concepto, un importe positivo y una moneda que el proyecto sepa convertir.",
     "ERR_COMPTA_CHARGE_NOT_FOUND": "Este gasto ya no existe.",

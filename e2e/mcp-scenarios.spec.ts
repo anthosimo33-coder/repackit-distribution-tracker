@@ -208,6 +208,9 @@ test.describe("MCP — scénarios de conversation", () => {
     expect(ok.erreur, ok.texte).toBe(false);
     expect(ok.texte).toContain(`conversation WhatsApp « ${theme.toUpperCase()} »`);
     expect((await missions()).map((m) => m.scenarioId)).toEqual([scenarioId]);
+    // Le planning dit quelle conv la mission a reçue.
+    const planning = JSON.parse((await appel("planning", { createatrice: nom, jours: 10 })).texte) as Record<string, unknown>;
+    expect(JSON.stringify(planning)).toContain(`"conversation":"R${ts.toString(36).toUpperCase()}`.slice(0, 26));
   });
 
   test("ajouter_notifs (désactivées, doublons, défaire) et hook libre par `exemples`", async ({ page }) => {

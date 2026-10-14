@@ -3,6 +3,12 @@
   "titre": "Le mec de 2 h du mat",
   "type": "talking_stage",
   "lui": "Adam",
+  "fiche": {
+    "relation": "mon crush",
+    "cest_normal": "il est juste du soir",
+    "question_chat": "il veut quoi en vrai ?",
+    "resume": "Adam t'écrit « t'es où ? » à 2h du mat, puis disparaît le jour."
+  },
   "dates": {
     "debut": "2026-05-03",
     "fin": "2026-10-12",

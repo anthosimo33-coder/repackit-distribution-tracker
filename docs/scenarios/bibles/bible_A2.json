@@ -3,6 +3,12 @@
   "titre": "Avec les gars",
   "type": "couple",
   "lui": "Rayan",
+  "fiche": {
+    "relation": "mon copain",
+    "cest_normal": "il a besoin de voir ses potes, c'est normal",
+    "question_chat": "est-ce que je suis trop collante ?",
+    "resume": "Rayan disparaît chaque soir « avec les gars » et te répond à 2h du mat."
+  },
   "dates": {
     "debut": "2025-08-10",
     "fin": "2026-10-12",

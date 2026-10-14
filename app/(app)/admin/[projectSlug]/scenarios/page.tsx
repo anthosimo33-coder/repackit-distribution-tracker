@@ -198,7 +198,7 @@ function CreationDialog({
   const [busy, setBusy] = useState(false);
   const listeThemes = useId();
 
-  const lue = creation?.mode === "import" ? lireBible(creation.texte) : null;
+  const lue = creation?.mode === "import" ? lireBible(creation.texte, { ficheRequise: true }) : null;
   const erreurs: ErreurBible[] | null = lue ? (lue.ok ? [] : lue.erreurs) : null;
   const pret = creation?.mode === "import" ? lue?.ok === true : codeValide(code.trim());
 

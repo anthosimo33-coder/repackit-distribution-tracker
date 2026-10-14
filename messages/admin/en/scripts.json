@@ -88,7 +88,8 @@
     "notifRattrapageToutCocher": "Check all",
     "notifRattrapageToutDecocher": "Uncheck all",
     "notifRattrapageSansDate": "no post date",
-    "notifRattrapageInclure": "Include this video"
+    "notifRattrapageInclure": "Include this video",
+    "enDurBandeau": "{count, plural, one {# brick writes} other {# bricks write}} a length or a relationship in plain text: the drawn conversation may contradict it. Replace it with a variable."
   },
   "BrickRow": {
     "consigne": "💡 note",
@@ -98,7 +99,11 @@
     "activerLaBrique": "Turn the brick on",
     "medianeDesVuesAuDernier": "Median views, at each post's last reading, and the slope of the latest runs",
     "uneErreurEstSurvenue": "Something went wrong.",
-    "libre": "✍️ free"
+    "libre": "✍️ free",
+    "citeLaConv": "chat: {variables}",
+    "enDur": "“{texte}” hard-coded",
+    "enDurAide": "The drawn conversation may contradict this text: write '{duree}' or '{DUREE}' for the length, '{relation}' for the relationship.",
+    "variableInconnue": "unknown variable: {variables}"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Pick a brick from the list, or add one.",
@@ -133,7 +138,9 @@
     "lIdeeAGarder": "— the idea to keep",
     "exDirection": "E.g. A relationship that's been going on a while, then you stumble on something that changes everything.",
     "autresExemples": "Other examples",
-    "unParLigneAuPlus": "— one per line, {max} at most"
+    "unParLigneAuPlus": "— one per line, {max} at most",
+    "variablesAide": "Replaced by the drawn chat's profile: {liste}.",
+    "enDurAvertissement": "“{texte}” is hard-coded: the drawn chat may contradict it. Use a variable."
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "The preview shows as soon as one active brick of each type has text.",

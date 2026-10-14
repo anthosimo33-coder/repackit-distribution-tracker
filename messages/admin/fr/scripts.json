@@ -88,7 +88,8 @@
     "notifRattrapageToutCocher": "Tout cocher",
     "notifRattrapageToutDecocher": "Tout décocher",
     "notifRattrapageSansDate": "sans date de post",
-    "notifRattrapageInclure": "Inclure cette vidéo"
+    "notifRattrapageInclure": "Inclure cette vidéo",
+    "enDurBandeau": "{count, plural, one {# brique écrit} other {# briques écrivent}} une durée ou une relation en dur : la conversation tirée peut les contredire. Remplace-les par une variable."
   },
   "BrickRow": {
     "consigne": "💡 consigne",
@@ -98,7 +99,11 @@
     "activerLaBrique": "Activer la brique",
     "medianeDesVuesAuDernier": "Médiane des vues, au dernier relevé de chaque post, et pente des derniers runs",
     "uneErreurEstSurvenue": "Une erreur est survenue.",
-    "libre": "✍️ libre"
+    "libre": "✍️ libre",
+    "citeLaConv": "conv : {variables}",
+    "enDur": "« {texte} » en dur",
+    "enDurAide": "La conversation tirée peut contredire ce texte : écris '{duree}' ou '{DUREE}' pour la durée, '{relation}' pour la relation.",
+    "variableInconnue": "variable inconnue : {variables}"
   },
   "BrickEditor": {
     "choisisUneBriqueDansLa": "Choisis une brique dans la liste, ou ajoutes-en une.",
@@ -133,7 +138,9 @@
     "lIdeeAGarder": "— l'idée à garder",
     "exDirection": "Ex. Une relation qui dure, puis tu tombes sur un truc qui change tout.",
     "autresExemples": "Autres exemples",
-    "unParLigneAuPlus": "— un par ligne, {max} au plus"
+    "unParLigneAuPlus": "— un par ligne, {max} au plus",
+    "variablesAide": "Remplacées par la fiche de la conv tirée : {liste}.",
+    "enDurAvertissement": "« {texte} » est écrit en dur : la conv tirée peut le contredire. Utilise une variable."
   },
   "CreatorPreview": {
     "lApercuSAfficheDes": "L'aperçu s'affiche dès qu'une brique active de chaque type porte du texte.",

@@ -11,6 +11,7 @@
  */
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
+import type { QueryCtx } from "./_generated/server";
 import { permissionMutation, permissionQuery, type ProjectMutationCtx } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { lireBible, type Bible } from "./scenarioBible";
@@ -26,7 +27,7 @@ function bibleValide(texte: string): Bible {
   if (texte.length > MAX_BIBLE) {
     throw err(ERR.SCENARIO_BIBLE_INVALID, "Bible trop longue.", { chemin: "", code: "trop_long" });
   }
-  const lu = lireBible(texte);
+  const lu = lireBible(texte, { ficheRequise: true });
   if (!lu.ok) {
     const e = lu.erreurs[0]!;
     throw err(ERR.SCENARIO_BIBLE_INVALID, `Bible invalide (${e.chemin || "bible"} : ${e.code}).`, {
@@ -63,7 +64,7 @@ async function scenarioDuProjet(ctx: ProjectMutationCtx, id: Id<"scenarios">): P
 
 /** Les scénarios du projet, sans leur bible — de quoi tirer ceux d'une campagne (convex/scriptConversation). */
 export async function scenariosDuProjet(
-  ctx: { db: ProjectMutationCtx["db"] },
+  ctx: { db: QueryCtx["db"] },
   projectId: Id<"projects">,
 ): Promise<{ _id: Id<"scenarios">; theme: string; statut: Doc<"scenarios">["statut"]; createdAt: number }[]> {
   const rows = await ctx.db
@@ -75,7 +76,7 @@ export async function scenariosDuProjet(
 
 /** Refuse un scénario d'un autre projet (ou supprimé) avant de le donner à une mission. */
 export async function requireScenarioDuProjet(
-  ctx: { db: ProjectMutationCtx["db"] },
+  ctx: { db: QueryCtx["db"] },
   projectId: Id<"projects">,
   id: Id<"scenarios">,
 ): Promise<Doc<"scenarios">> {

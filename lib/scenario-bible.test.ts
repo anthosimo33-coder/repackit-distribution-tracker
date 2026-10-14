@@ -103,9 +103,36 @@ describe("verifierBible", () => {
   });
 });
 
+describe("la fiche", () => {
+  it("est exigée à l'écriture, pas à la lecture (bibles d'avant la fiche)", () => {
+    const sans = c2();
+    delete sans.fiche;
+    expect(verifierBible(sans).ok).toBe(true);
+    const r = verifierBible(sans, { ficheRequise: true });
+    expect(r.ok ? [] : r.erreurs).toEqual([{ chemin: "fiche", code: "requis" }]);
+  });
+
+  it("refuse un champ vide, absent ou trop long", () => {
+    const b = c2();
+    b.fiche.cest_normal = "  ";
+    delete b.fiche.question_chat;
+    b.fiche.resume = "x".repeat(161);
+    expect(erreurs(b).map((e) => `${e.chemin}:${e.code}`)).toEqual([
+      "fiche.cest_normal:vide",
+      "fiche.question_chat:requis",
+      "fiche.resume:trop_long",
+    ]);
+  });
+
+  it("C2 a la sienne", () => {
+    const r = lireBible(TEXTE_C2, { ficheRequise: true });
+    expect(r.ok && r.bible.fiche?.relation).toBe("mon copain");
+  });
+});
+
 describe("le modèle « Nouveau scénario »", () => {
   it("est une bible valide que le moteur sait générer", () => {
-    const r = verifierBible({ ...modele, id: "A1" });
+    const r = verifierBible({ ...modele, id: "A1" }, { ficheRequise: true });
     expect(r.ok).toBe(true);
     if (r.ok) {
       const gen = genererConversation(r.bible, { prenom: "Juliette" });

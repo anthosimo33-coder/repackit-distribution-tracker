@@ -3,6 +3,12 @@
   "titre": "Le like de l'ex",
   "type": "couple",
   "lui": "Yanis",
+  "fiche": {
+    "relation": "mon copain",
+    "cest_normal": "c'est juste un like",
+    "question_chat": "est-ce que j'ai eu tort de m'excuser ?",
+    "resume": "Yanis a liké la photo de son ex, et c'est toi qui t'excuses."
+  },
   "dates": {
     "debut": "2025-08-03",
     "fin": "2026-10-12",

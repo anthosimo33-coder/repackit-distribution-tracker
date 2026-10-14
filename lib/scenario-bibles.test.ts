@@ -13,7 +13,8 @@ const dossier = new URL("../docs/scenarios/bibles/", import.meta.url);
 const fichiers = readdirSync(dossier).filter((f) => /^bible_[A-Z0-9]+\.json$/.test(f));
 
 function bibleDe(f: string): Bible {
-  const lu = lireBible(readFileSync(new URL(f, dossier), "utf8"));
+  // Fiche exigée : chaque bible livrée doit pouvoir remplir les variables des briques.
+  const lu = lireBible(readFileSync(new URL(f, dossier), "utf8"), { ficheRequise: true });
   if (!lu.ok) throw new Error(`${f} invalide : ${JSON.stringify(lu.erreurs.slice(0, 3))}`);
   return lu.bible;
 }

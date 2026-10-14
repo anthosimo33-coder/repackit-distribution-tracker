@@ -770,6 +770,8 @@ export function AssignScriptCampaignDialog({
           videosPerCreator: videosNum,
           postDates: postDatesPayload,
           excludedComboKeys: rejetes.length > 0 ? rejetes : undefined,
+          // Même ordre que la création : la conv d'abord, puis le script rempli.
+          ...(themeChoisi !== NONE ? { conversationTheme: themeChoisi } : {}),
         }
       : "skip",
   );

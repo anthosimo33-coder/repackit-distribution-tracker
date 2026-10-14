@@ -165,6 +165,7 @@ export default function AssignmentDetailScreen({
                   <MissionScenarioCard
                     className="order-5"
                     mission={{ projectId, assignmentId }}
+                    fiche={data.scriptConversation.fiche}
                   />
                 )}
 
