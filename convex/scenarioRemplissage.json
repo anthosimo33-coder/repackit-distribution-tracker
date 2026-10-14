@@ -1,5 +1,5 @@
 {
- "_": "Extrait de docs/scenarios/reference/moteur.py par script — ne pas éditer à la main sans re-vérifier l'égalité avec le Python (lib/scenario-engine.test.ts).",
+ "_": "Extrait de docs/scenarios/reference/moteur.py par script — ne pas éditer à la main sans re-vérifier l'égalité avec le Python (lib/scenario-engine.test.ts). Champ « reserve » (ajout Jarvia, sans équivalent Python) : « amour » = dialogue de couple installé (je t'aime), « romance » = dialogue amoureux ; un scénario d'un autre type ne les tire pas (cf convex/scenarioEngine RESERVE). Un couple tire exactement comme le Python.",
  "remplissage": {
   "food": [
    "sushis",
@@ -91,7 +91,8 @@
      "Y",
      "mdr raconte"
     ]
-   ]
+   ],
+   "reserve": "romance"
   },
   {
    "creneau": "morning",
@@ -343,7 +344,8 @@
      "Y",
      "❤️"
     ]
-   ]
+   ],
+   "reserve": "romance"
   },
   {
    "creneau": "day",
@@ -719,7 +721,8 @@
      "L",
      "ok"
     ]
-   ]
+   ],
+   "reserve": "romance"
   },
   {
    "creneau": "evening",
@@ -776,7 +779,8 @@
      "Y",
      "toi aussi"
     ]
-   ]
+   ],
+   "reserve": "romance"
   },
   {
    "creneau": "evening",
@@ -791,7 +795,8 @@
      "Y",
      "moi aussi"
     ]
-   ]
+   ],
+   "reserve": "amour"
   },
   {
    "creneau": "night",
@@ -806,7 +811,8 @@
      "Y",
      "moi aussi ❤️"
     ]
-   ]
+   ],
+   "reserve": "amour"
   },
   {
    "creneau": "evening",
@@ -821,7 +827,8 @@
      "Y",
      "mdr moi aussi"
     ]
-   ]
+   ],
+   "reserve": "amour"
   },
   {
    "creneau": "evening",
@@ -928,7 +935,8 @@
      "Y",
      "toi aussi"
     ]
-   ]
+   ],
+   "reserve": "romance"
   },
   {
    "creneau": "night",
@@ -1265,7 +1273,8 @@
      "Y",
      "encore ?"
     ]
-   ]
+   ],
+   "reserve": "romance"
   },
   {
    "creneau": "any",
