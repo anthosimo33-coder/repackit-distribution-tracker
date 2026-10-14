@@ -27,6 +27,7 @@ import {
   ARG_PROJET,
   ecrire,
   etatsApres,
+  jsonCanonique,
   journaliser,
   photographierEtats,
   refusDe,
@@ -46,7 +47,7 @@ import {
   setAssignmentPostDateCore,
   setAssignmentPostWindowCore,
 } from "./assignments";
-import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore } from "./scripts";
+import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore, updateBrickCore } from "./scripts";
 import {
   changerStatutScenarioCore,
   creerScenarioCore,
@@ -146,6 +147,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "ajouter_hooks",
   "ajouter_flux_cta",
   "activer_briques",
+  "modifier_briques",
   "marquer_warmup",
   "suivre_compte",
   "ne_plus_suivre",
@@ -492,6 +494,32 @@ async function annuler(
       }
       const { deleted } = await deleteBricksCore(ctx, existantes.map((b) => b._id));
       return `${deleted} brique(s) supprimée(s).`;
+    }
+    case "briquesModifiees": {
+      const docs = await Promise.all(a.briques.map((b) => ctx.db.get(b.brickId)));
+      const etat = (d: Doc<"scriptBricks">) =>
+        jsonCanonique({
+          content: d.content,
+          label: d.label,
+          instruction: d.instruction ?? null,
+          libre: d.libre === true,
+          direction: d.direction ?? null,
+          autresExemples: d.autresExemples ?? [],
+        });
+      const changees = a.briques.filter((b, i) => docs[i] === null || etat(docs[i]!) !== jsonCanonique(b.apres));
+      if (changees.length > 0) throw refus(`${changees.length} brique(s) supprimée(s) ou remodifiée(s) depuis : rien n'a été écrasé.`);
+      for (const b of a.briques) {
+        await updateBrickCore(ctx, {
+          id: b.brickId,
+          content: b.avant.content,
+          label: b.avant.label,
+          instruction: b.avant.instruction,
+          libre: b.avant.libre,
+          direction: b.avant.direction,
+          autresExemples: b.avant.autresExemples,
+        });
+      }
+      return `${a.briques.length} brique(s) remise(s) dans leur texte d'avant.`;
     }
     case "briquesActives": {
       const docs = await Promise.all(a.briques.map((b) => ctx.db.get(b.brickId)));

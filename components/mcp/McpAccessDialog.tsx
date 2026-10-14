@@ -447,7 +447,8 @@ type OutilEcriture =
   | "creer_scenario"
   | "modifier_scenario"
   | "activer_scenario"
-  | "supprimer_scenario";
+  | "supprimer_scenario"
+  | "modifier_briques";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un
