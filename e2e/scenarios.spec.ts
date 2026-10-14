@@ -151,4 +151,17 @@ test.describe("Scénarios", () => {
     expect(auj.trimEnd().split("\n").slice(-1)[0]).toBe(`[${j}/${m}/${a} 22:33:05] Kelly: t'as raison pardon`);
 
   });
+
+  test("écran : supprimer un scénario qu'aucune mission n'a reçu", async ({ page }) => {
+    test.setTimeout(90_000);
+    const code = `S${Date.now().toString(36).toUpperCase()}`.slice(0, 12);
+    const id = await admin.mutation(api.scenarios.creerScenario, { bible: bibleSous(code), theme: `Essai ${code}` });
+    await page.goto(adminPath(`/scenarios/${id}`));
+    await page.getByTestId("scenario-supprimer").click();
+    const confirmation = page.getByTestId("scenario-supprimer-dialog");
+    await expect(confirmation).toContainText(`Supprimer ${code} ?`);
+    await confirmation.getByRole("button", { name: "Supprimer" }).click();
+    await expect(page).toHaveURL(/\/scenarios$/, { timeout: 15_000 });
+    expect((await admin.query(api.scenarios.listScenarios, {})).map((s) => s.code)).not.toContain(code);
+  });
 });

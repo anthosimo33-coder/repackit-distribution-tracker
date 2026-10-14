@@ -5,13 +5,23 @@ import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { ArrowLeftIcon, CopyIcon, Loader2Icon } from "lucide-react";
+import { ArrowLeftIcon, CopyIcon, Loader2Icon, Trash2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { usePermissions } from "@/components/project/use-permissions";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -107,6 +117,7 @@ function Editeur({ scenario }: { scenario: Scenario }) {
   const [theme, setTheme] = useState(scenario.theme);
   const [busy, setBusy] = useState(false);
   const [duplication, setDuplication] = useState(false);
+  const [suppression, setSuppression] = useState(false);
   const auto = useTestAuto();
 
   // La vérification suit la frappe sans la ralentir (une bible fait ~1 000 lignes).
@@ -168,6 +179,15 @@ function Editeur({ scenario }: { scenario: Scenario }) {
             <CopyIcon className="mr-2 size-4" />
             {tr("dupliquer")}
           </Button>
+          <Button
+            variant="outline"
+            className="text-rose-600 hover:text-rose-700"
+            onClick={() => setSuppression(true)}
+            data-testid="scenario-supprimer"
+          >
+            <Trash2Icon className="mr-2 size-4" />
+            {tr("supprimer")}
+          </Button>
           <Button onClick={enregistrer} disabled={!lue.ok || !modifie || busy} data-testid="scenario-enregistrer">
             {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
             {tr("enregistrer")}
@@ -211,6 +231,11 @@ function Editeur({ scenario }: { scenario: Scenario }) {
         open={duplication}
         onOpenChange={setDuplication}
       />
+      <SuppressionDialog
+        scenario={scenario}
+        open={suppression}
+        onOpenChange={setSuppression}
+      />
     </>
   );
 }
@@ -246,6 +271,66 @@ function useTestAuto(): { test: TestAuto | null; fait: () => void } {
       router.replace(`${pathname}?${reste.toString()}`);
     },
   };
+}
+
+/**
+ * Supprimer un scénario : seulement s'il n'a été donné à aucune mission — sinon
+ * le serveur refuse (elles en génèrent encore leur conv) et dit d'archiver.
+ */
+function SuppressionDialog({
+  scenario,
+  open,
+  onOpenChange,
+}: {
+  scenario: Scenario;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const tr = useTranslations("admin.scripts.ScenarioPage");
+  const showError = useConvexError();
+  const router = useRouter();
+  const projectPath = useProjectPath();
+  const supprimer = useProjectMutation(api.scenarios.supprimerScenario);
+  const [busy, setBusy] = useState(false);
+
+  async function valider() {
+    setBusy(true);
+    try {
+      await supprimer({ id: scenario._id });
+      onOpenChange(false);
+      toast.success(tr("supprime"));
+      router.push(projectPath("/scenarios"));
+    } catch (e) {
+      toast.error(showError(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent data-testid="scenario-supprimer-dialog">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{tr("supprimerTitre", { code: scenario.code })}</AlertDialogTitle>
+          <AlertDialogDescription>{tr("supprimerTexte")}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>{tr("annuler")}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault();
+              void valider();
+            }}
+            disabled={busy}
+            className="bg-rose-600 hover:bg-rose-700"
+          >
+            {busy && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+            {tr("supprimer")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
 }
 
 function DuplicationDialog({

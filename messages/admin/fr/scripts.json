@@ -302,7 +302,11 @@
     "dupliquerTitre": "Dupliquer le scénario",
     "nouveauCode": "Code de la copie",
     "duplique": "Copie créée",
-    "annuler": "Annuler"
+    "annuler": "Annuler",
+    "supprimer": "Supprimer",
+    "supprimerTitre": "Supprimer {code} ?",
+    "supprimerTexte": "Le scénario disparaît de la liste et du menu « Assigner ». Impossible s'il a déjà été donné à une mission : archive-le alors.",
+    "supprime": "Scénario supprimé"
   },
   "ScenarioTesteur": {
     "titre": "Tester",

@@ -47,7 +47,13 @@ import {
   setAssignmentPostWindowCore,
 } from "./assignments";
 import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore } from "./scripts";
-import { changerStatutScenarioCore, modifierScenarioCore, supprimerScenarioCore, type StatutScenario } from "./scenarios";
+import {
+  changerStatutScenarioCore,
+  creerScenarioCore,
+  modifierScenarioCore,
+  supprimerScenarioCore,
+  type StatutScenario,
+} from "./scenarios";
 import { empreinteBible } from "./mcpScenarios";
 import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
 import { deleteInspirationCore } from "./inspirations";
@@ -158,6 +164,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "creer_scenario",
   "modifier_scenario",
   "activer_scenario",
+  "supprimer_scenario",
 ]);
 
 /** Pourquoi une modification ne se défait pas par Claude. */
@@ -634,6 +641,23 @@ async function annuler(
         throw refus(`Rien n'a été remis : ${m}`);
       }
       return `Version d'avant remise (${avant.code}).`;
+    }
+    case "scenarioSupprime": {
+      // Le scénario d'avant vit dans la photo de la ligne (cf mcpAnnulation).
+      const photo = etats.find((e) => e.table === "scenarios" && e.id === a.scenarioId)?.avant;
+      const avant = photo ? (JSON.parse(photo) as Doc<"scenarios">) : null;
+      if (!avant || empreinteBible(avant.bible) !== a.empreinte) {
+        throw refus("Le scénario d'avant n'est pas au journal : rien n'a été recréé.");
+      }
+      try {
+        const id = await creerScenarioCore(ctx, { bible: avant.bible, theme: avant.theme });
+        if (avant.statut === "archive") await changerStatutScenarioCore(ctx, id, "archive");
+      } catch (e) {
+        const m = refusDe(e);
+        if (m === null) throw e;
+        throw refus(`Rien n'a été recréé : ${m}`);
+      }
+      return `Scénario ${avant.code} recréé (nouveau lien : outil \`scenarios\`).`;
     }
     case "scenarioStatut": {
       const sc = await ctx.db.get(a.scenarioId);

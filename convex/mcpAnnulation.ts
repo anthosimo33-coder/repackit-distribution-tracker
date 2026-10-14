@@ -116,6 +116,11 @@ export const annulationValidator = v.union(
     avant: v.object({ empreinte: v.string(), theme: v.string() }),
     apres: v.object({ empreinte: v.string(), theme: v.string() }),
   }),
+  /**
+   * supprimer_scenario : le scénario supprimé et l'empreinte de sa bible ; le
+   * document entier (de quoi le recréer) est dans les `etats` de la ligne.
+   */
+  v.object({ type: v.literal("scenarioSupprime"), scenarioId: v.id("scenarios"), empreinte: v.string() }),
   /** activer_scenario : le statut, avant et après. */
   v.object({ type: v.literal("scenarioStatut"), scenarioId: v.id("scenarios"), avant: v.string(), apres: v.string() }),
   // ── Publications ──────────────────────────────────────────────────────────

@@ -100,6 +100,8 @@ test.describe("Scénarios dans les missions", () => {
     expect((await assign(juliette.creatorId, `@e2escen${ts}`, 2, ` ${theme.toLowerCase()} `)).created).toBe(2);
     const [a, b] = await rowsFor(juliette.creatorId);
     expect([a!.scenarioId, b!.scenarioId]).toEqual([scenarioId, scenarioId]);
+    // Donné à des missions : il ne se supprime plus (elles en génèrent leur conv).
+    await expect(admin.mutation(api.scenarios.supprimerScenario, { id: scenarioId })).rejects.toThrow(/ERR_SCENARIO_IN_USE/);
 
     // ── Un 2e scénario du thème part tout seul, en rotation : le moins servi d'abord.
     const second = await admin.mutation(api.scenarios.creerScenario, {
