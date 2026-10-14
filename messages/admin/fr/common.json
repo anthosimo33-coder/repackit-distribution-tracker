@@ -964,7 +964,8 @@
       "ajouter_notifs": "Notifs ajoutées",
       "creer_scenario": "Scénario créé",
       "modifier_scenario": "Scénario modifié",
-      "activer_scenario": "Statut de scénario changé"
+      "activer_scenario": "Statut de scénario changé",
+      "supprimer_scenario": "Scénario supprimé"
     },
     "section": {
       "treasury": "Trésorerie",

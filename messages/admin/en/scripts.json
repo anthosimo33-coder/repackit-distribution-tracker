@@ -302,7 +302,11 @@
     "dupliquerTitre": "Duplicate the scenario",
     "nouveauCode": "Code of the copy",
     "duplique": "Copy created",
-    "annuler": "Cancel"
+    "annuler": "Cancel",
+    "supprimer": "Delete",
+    "supprimerTitre": "Delete {code}?",
+    "supprimerTexte": "The scenario disappears from the list and from the “Assign” menu. Not possible if a mission already got it: archive it instead.",
+    "supprime": "Scenario deleted"
   },
   "ScenarioTesteur": {
     "titre": "Test",

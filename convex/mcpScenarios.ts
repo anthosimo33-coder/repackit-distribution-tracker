@@ -8,8 +8,8 @@
  *    MÊME moteur que la mission (convex/scenarioEngine) et ne rend que du texte :
  *    les fichiers s'enregistrent depuis le navigateur, d'où des liens ;
  *  - écriture (interrupteur « Scripts », même droit) : `creer_scenario`,
- *    `modifier_scenario`, `activer_scenario` — toutes défaisables, toutes par
- *    les cœurs de l'écran.
+ *    `modifier_scenario`, `activer_scenario`, `supprimer_scenario` — toutes
+ *    défaisables, toutes par les cœurs de l'écran.
  *
  * Le THÈME d'une conversation se choisit à l'assignation (`assigner_scripts`,
  * argument « conversation »), comme dans la fenêtre « Assigner ».
@@ -25,6 +25,7 @@ import {
   AJOUTE,
   ARG_PROJET,
   ECRIT,
+  EFFACE,
   designerOuRefuser,
   ecrire,
   etatsApres,
@@ -37,7 +38,14 @@ import {
 } from "./mcpWriteCommon";
 import { lireBible, nomExportValide, type ErreurBible } from "./scenarioBible";
 import { genererConversation, statsConversation, statsTexte } from "./scenarioEngine";
-import { changerStatutScenarioCore, creerScenarioCore, MAX_THEME, modifierScenarioCore, type StatutScenario } from "./scenarios";
+import {
+  changerStatutScenarioCore,
+  creerScenarioCore,
+  MAX_THEME,
+  modifierScenarioCore,
+  supprimerScenarioCore,
+  type StatutScenario,
+} from "./scenarios";
 import { parisDayKey } from "./viewsDaily";
 
 /** Plafond d'une bible écrite par Claude (l'écran va jusqu'à 300 000) : le journal garde avant ET après. */
@@ -385,6 +393,19 @@ export const OUTILS_ECRITURE_SCENARIOS: readonly McpTool[] = [
     },
     annotations: ECRIT,
   },
+  {
+    name: "supprimer_scenario",
+    title: "Supprimer un scénario",
+    description:
+      "MODIFIE les scripts : supprime un scénario qu'AUCUNE mission n'a reçu (un essai, un doublon). Donné à une mission, il est refusé : archive-le avec `activer_scenario`. Se défait (le scénario est recréé tel quel).",
+    inputSchema: {
+      type: "object",
+      properties: { projet: ARG_PROJET, scenario: ARG_SCENARIO },
+      required: ["scenario"],
+      additionalProperties: false,
+    },
+    annotations: EFFACE,
+  },
 ];
 
 export const NOMS_ECRITURE_SCENARIOS = new Set(OUTILS_ECRITURE_SCENARIOS.map((t) => t.name));
@@ -469,12 +490,32 @@ export const ecrireStatutScenario = mcpWriteMutation("scripts.manage", "scripts"
   },
 });
 
+export const ecrireSuppressionScenario = mcpWriteMutation("scripts.manage", "scripts")({
+  args: { scenario: v.string() },
+  handler: async (ctx, a) => {
+    const s = await scenarioDe(ctx, a.scenario);
+    const photos = await photographier(ctx, "scenarios", [s._id]);
+    await supprimerScenarioCore(ctx, s._id);
+    const summary = `Scénario ${libelle(s)} supprimé`;
+    await journaliser(ctx, {
+      tool: "supprimer_scenario",
+      summary,
+      section: "scenarios",
+      path: "scenarios",
+      annulation: { type: "scenarioSupprime", scenarioId: s._id, empreinte: empreinteBible(s.bible) },
+      etats: await etatsApres(ctx, photos),
+    });
+    return { summary };
+  },
+});
+
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
   creer_scenario: "`defaire` (tant qu'il est inchangé, pas archivé, et qu'aucune mission ne l'a reçu), ou Scénarios › le scénario › Archivé.",
   modifier_scenario: "`defaire` (tant que personne ne l'a remodifié), ou Scénarios › le scénario › corriger la bible.",
   activer_scenario: "`defaire`, ou Scénarios › le scénario › Statut.",
+  supprimer_scenario: "`defaire` (le recrée tel quel, nouveau lien), tant que son code n'a pas été repris.",
 };
 
 export async function appelerEcritureScenarios(
@@ -511,6 +552,10 @@ export async function appelerEcritureScenarios(
       }),
     );
     return resultatEcriture(projet, r.summary, r.inchange ? "Rien à défaire." : OU_DEFAIRE[name], { lien: lienScenario(projet, r.id) });
+  }
+  if (name === "supprimer_scenario") {
+    const r = await ecrire(() => ctx.runMutation(internal.mcpScenarios.ecrireSuppressionScenario, { ...cible, scenario }));
+    return resultatEcriture(projet, r.summary, OU_DEFAIRE[name]);
   }
   if (name === "activer_scenario") {
     const statut = texteArg(args, "statut") as StatutScenario;

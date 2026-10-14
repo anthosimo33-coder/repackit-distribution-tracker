@@ -48,7 +48,7 @@ async function cle(page: Page, nom: string, missions = false) {
   await interrupteur.click();
   await expect(interrupteur).toBeChecked();
   expect(await noms()).toEqual(
-    expect.arrayContaining(["creer_scenario", "modifier_scenario", "activer_scenario", "ajouter_notifs"]),
+    expect.arrayContaining(["creer_scenario", "modifier_scenario", "activer_scenario", "supprimer_scenario", "ajouter_notifs"]),
   );
   // Le thème se choisit à l'assignation : plus d'outil pour le régler sur une campagne.
   expect(await noms()).not.toContain("scenarios_campagne");
@@ -155,6 +155,15 @@ test.describe("MCP — scénarios de conversation", () => {
     // ── Défaire la création : supprimé (aucune mission ne l'a reçu).
     expect((await defaire("creer_scenario")).erreur).toBe(false);
     expect(await scenarioDb()).toBeUndefined();
+
+    // ── Supprimer, puis défaire : recréé tel quel (même code, même thème).
+    expect((await appel("creer_scenario", { bible: { ...BIBLE_C2, id: code }, theme })).erreur).toBe(false);
+    const sup = await appel("supprimer_scenario", { scenario: code });
+    expect(sup.erreur, sup.texte).toBe(false);
+    expect(await scenarioDb()).toBeUndefined();
+    expect((await defaire("supprimer_scenario")).erreur).toBe(false);
+    expect(await scenarioDb()).toMatchObject({ code, theme, statut: "actif" });
+    expect((await appel("supprimer_scenario", { scenario: code })).erreur).toBe(false);
   });
 
   test("assigner_scripts avec « conversation » : chaque vidéo reçoit un scénario du thème", async ({ page }) => {

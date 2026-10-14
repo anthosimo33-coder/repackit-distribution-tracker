@@ -246,9 +246,10 @@ export const changerStatutScenario = permissionMutation("scripts.manage")({
 });
 
 /**
- * Supprime un scénario QU'AUCUNE MISSION N'A REÇU — seul « défaire » d'une
- * création par Claude s'en sert (l'écran archive). Donné à une mission, il est
- * refusé : elle en génère encore sa conversation.
+ * Supprime un scénario QU'AUCUNE MISSION N'A REÇU — le bouton « Supprimer » de
+ * l'écran, l'outil MCP `supprimer_scenario`, et « défaire » d'une création par
+ * Claude. Donné à une mission, il est refusé : elle en génère encore sa
+ * conversation ; on l'archive alors.
  */
 export async function supprimerScenarioCore(ctx: ProjectMutationCtx, id: Id<"scenarios">): Promise<void> {
   const s = await scenarioDuProjet(ctx, id);
@@ -263,3 +264,11 @@ export async function supprimerScenarioCore(ctx: ProjectMutationCtx, id: Id<"sce
   }
   await ctx.db.delete(s._id);
 }
+
+export const supprimerScenario = permissionMutation("scripts.manage")({
+  args: { id: v.id("scenarios") },
+  handler: async (ctx, args) => {
+    await supprimerScenarioCore(ctx, args.id);
+    return { ok: true };
+  },
+});

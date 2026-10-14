@@ -964,7 +964,8 @@
       "ajouter_notifs": "Notifs added",
       "creer_scenario": "Scenario created",
       "modifier_scenario": "Scenario edited",
-      "activer_scenario": "Scenario status changed"
+      "activer_scenario": "Scenario status changed",
+      "supprimer_scenario": "Scenario deleted"
     },
     "section": {
       "treasury": "Cash",
