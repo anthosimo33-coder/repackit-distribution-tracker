@@ -204,7 +204,7 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
               role: { type: "string", description: "hook, flux, cta ou notif — pour départager." },
               texte: { type: "string", description: "Le nouveau texte, entier." },
               consigne: { type: "string", description: "La nouvelle consigne de tournage ; \"\" la retire." },
-              libelle: { type: "string", description: "Nouveau libellé court (facultatif)." },
+              libelle: { type: "string", description: "Nouveau libellé court (facultatif). Sans lui, un libellé automatique (le début de l'ancien texte) suit le nouveau texte ; un libellé choisi reste." },
               direction: { type: "string", description: "Hook libre : la nouvelle direction ; \"\" la retire." },
               exemples: {
                 type: "array",
@@ -569,10 +569,20 @@ export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scr
       const exemples = demande.exemples?.map((e) => e.trim()).filter((e) => e !== "");
       // Une direction ou des exemples donnés rendent le hook libre (comme ajouter_hooks).
       const devientLibre = brique.kind === "hook" && ((direction ?? "") !== "" || (exemples?.length ?? 0) > 0);
+      const texte = demande.texte?.trim();
+      // Le libellé AUTOMATIQUE (le début du texte, cf hookLabelOf) suit le texte,
+      // sinon `scripts` et les stats montreraient encore l'ancien (« 8 ANS
+      // D'AMITIÉ… » sur un hook devenu « {DUREE} D'AMITIÉ… ») ; un libellé choisi reste.
+      const label =
+        demande.libelle !== undefined && demande.libelle.trim() !== ""
+          ? demande.libelle.trim()
+          : texte !== undefined && brique.label === hookLabelOf(brique.content)
+            ? hookLabelOf(texte)
+            : undefined;
       await updateBrickCore(ctx, {
         id: brique._id,
-        ...(demande.texte !== undefined ? { content: demande.texte.trim() } : {}),
-        ...(demande.libelle !== undefined && demande.libelle.trim() !== "" ? { label: demande.libelle.trim() } : {}),
+        ...(texte !== undefined ? { content: texte } : {}),
+        ...(label !== undefined ? { label } : {}),
         ...(demande.consigne !== undefined ? { instruction: demande.consigne.trim() === "" ? null : demande.consigne } : {}),
         ...(direction !== undefined ? { direction: direction === "" ? null : direction } : {}),
         ...(exemples !== undefined ? { autresExemples: exemples } : {}),

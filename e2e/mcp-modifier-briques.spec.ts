@@ -73,6 +73,10 @@ test.describe("MCP — modifier le texte de briques", () => {
     });
     const flux = await creer("flux", "Flux S1", `1) Montre la conv (ex. « on est trop proches, c'est mignon »). ${ts}`);
     await creer("cta", "Cta 8 ans", `8 ans d'amitié et je vois ça que maintenant 😭 ${ts}`);
+    // Un libellé AUTOMATIQUE, comme en prod (hookLabelOf : le début du texte) : il suit le texte.
+    const auto = (t: string) => (t.length > 60 ? `${t.slice(0, 57)}…` : t);
+    const ancienC = `3 ANS QU'IL ME DIT QUE J'EXAGÈRE ET JE DÉCOUVRE ÇA, VRAIMENT ??!! ${ts}`;
+    const hc = await creer("hook", auto(ancienC), ancienC);
     const briques = async () => (await admin.query(api.scripts.getCampaign, { id: campaignId }))!.bricks;
     const contenu = async (id: Id<"scriptBricks">) => (await briques()).find((b) => b._id === id)!.content;
 
@@ -95,11 +99,12 @@ test.describe("MCP — modifier le texte de briques", () => {
         { brique: "Hook 8 ans", texte: `{DUREE} D'AMITIÉ ET JE DÉCOUVRE ÇA ??!! ${ts}` },
         { brique: "on est trop proches", role: "flux", texte: `1) Montre la conv (ex. « {cest_normal} »). ${ts}` },
         { brique: "laissée en vu", texte: `Il m'a laissée en vu ${ts}`, exemples: [`J'ai envoyé mot pour mot ce que le site m'a dit ${ts}`] },
+        { brique: "QU'IL ME DIT", texte: `{DUREE} QU'IL ME DIT QUE J'EXAGÈRE ET JE DÉCOUVRE ÇA, VRAIMENT ??!! ${ts}` },
       ],
     });
     expect(ok.erreur, ok.texte).toBe(false);
     const r = JSON.parse(ok.texte) as { fait: string; attention?: string[] };
-    expect(r.fait).toContain("3 briques modifiées");
+    expect(r.fait).toContain("4 briques modifiées");
     expect(r.attention).toBeUndefined();
     expect(await contenu(h8)).toBe(`{DUREE} D'AMITIÉ ET JE DÉCOUVRE ÇA ??!! ${ts}`);
     expect(await contenu(flux)).toBe(`1) Montre la conv (ex. « {cest_normal} »). ${ts}`);
@@ -110,6 +115,10 @@ test.describe("MCP — modifier le texte de briques", () => {
       direction: "Tu ne sais plus quoi lui répondre",
       autresExemples: [`J'ai envoyé mot pour mot ce que le site m'a dit ${ts}`],
     });
+    // Le libellé automatique a suivi le texte ; les libellés choisis (« Hook 8 ans », « Hook vu ») sont restés.
+    const c = (await briques()).find((b) => b._id === hc)!;
+    expect(c.label).toBe(auto(`{DUREE} QU'IL ME DIT QUE J'EXAGÈRE ET JE DÉCOUVRE ÇA, VRAIMENT ??!! ${ts}`));
+    expect((await briques()).find((b) => b._id === h8)!.label).toBe("Hook 8 ans");
     // Le même id : la brique (et ses stats) est la même.
     expect((await briques()).map((b) => b._id)).toContain(h8);
 
@@ -128,5 +137,6 @@ test.describe("MCP — modifier le texte de briques", () => {
     expect((await defaire("modifier_briques")).erreur).toBe(false);
     expect(await contenu(h8)).toBe(`8 ANS D'AMITIÉ ET JE DÉCOUVRE ÇA ??!! ${ts}`);
     expect((await briques()).find((b) => b.label === "Hook vu")!.autresExemples).toEqual([`Je savais plus quoi lui répondre ${ts}`]);
+    expect((await briques()).find((b) => b._id === hc)).toMatchObject({ content: ancienC, label: auto(ancienC) });
   });
 });
