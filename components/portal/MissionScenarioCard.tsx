@@ -18,6 +18,9 @@ type Mission = {
   assignmentId: Id<"assignments">;
 };
 
+/** La fiche de la conv, telle que la créatrice la lit (cf convex/scenarioScript ficheCreatrice). */
+type Fiche = { duree: string; lui: string; relation: string; resume: string };
+
 /**
  * « 1. RÉCUPÈRE LA CONV » — l'export WhatsApp (.txt) d'une mission, généré
  * depuis son scénario, à son prénom, qui finit le jour où elle le récupère (cf
@@ -30,10 +33,13 @@ type Mission = {
  */
 export function MissionScenarioCard({
   mission,
+  fiche = null,
   className,
 }: {
   /** La mission dont on génère la conv ; absente = APERÇU admin (rien ne se génère). */
   mission?: Mission;
+  /** « Ta conv : 14 mois avec Yanis, ton copain » + le résumé ; absente = bible sans fiche. */
+  fiche?: Fiche | null;
   className?: string;
 }) {
   const t = useTranslations("portal.scenario");
@@ -70,6 +76,14 @@ export function MissionScenarioCard({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {fiche && (
+          <div className="space-y-1" data-testid="mission-scenario-fiche">
+            <p className="text-sm font-medium text-slate-900">
+              {t("fiche", { duree: fiche.duree, lui: fiche.lui, relation: fiche.relation })}
+            </p>
+            <p className="text-sm text-slate-600">{fiche.resume}</p>
+          </div>
+        )}
         {!pret ? (
           <Button
             className="h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm"

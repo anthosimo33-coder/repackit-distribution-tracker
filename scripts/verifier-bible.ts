@@ -11,13 +11,14 @@
 import { readFileSync } from "node:fs";
 import { lireBible } from "../convex/scenarioBible";
 import { genererConversation, statsConversation, statsTexte } from "../convex/scenarioEngine";
+import { valeursFiche } from "../convex/scenarioFiche";
 
 const [fichier, prenom = "Kelly", graine = "7"] = process.argv.slice(2);
 if (!fichier) {
   console.error("usage : npx tsx scripts/verifier-bible.ts <bible.json> [Prénom] [graine]");
   process.exit(2);
 }
-const lue = lireBible(readFileSync(fichier, "utf8"));
+const lue = lireBible(readFileSync(fichier, "utf8"), { ficheRequise: true });
 if (!lue.ok) {
   console.error(`BIBLE INVALIDE — ${lue.erreurs.length} erreur(s) :`);
   for (const e of lue.erreurs) console.error(`  ${e.chemin || "bible"} : ${e.code}${e.params ? ` ${JSON.stringify(e.params)}` : ""}`);
@@ -38,4 +39,6 @@ if (!ok) {
   console.error("\nL'EXPORT NE FINIT PAS PAR L'ÉCRAN CHOC");
   process.exit(1);
 }
+const v = valeursFiche(bible)!;
+console.log(`\n— fiche : ${v.duree} avec ${v.lui}, ${v.relation} · c'est normal : « ${v.cest_normal} » · question : « ${v.question_chat} »`);
 console.log(`\nOK — ${stats.messages} messages, fichier « ${gen.nomFichier} »`);

@@ -116,7 +116,15 @@ test.describe("Scénarios dans les missions", () => {
       projectId: juliette.projectId,
       id: a!._id,
     });
-    expect(fiche!.scriptConversation).toEqual({ genere: true });
+    expect(fiche!.scriptConversation).toEqual({
+      genere: true,
+      fiche: {
+        duree: "14 mois",
+        lui: "Yanis",
+        relation: "ton copain",
+        resume: "Yanis a liké la photo de son ex, et c'est toi qui t'excuses.",
+      },
+    });
     expect(JSON.stringify(fiche)).not.toContain(scenarioId);
 
     // ── La conv : à SON prénom, qui finit aujourd'hui, la même à chaque fois.

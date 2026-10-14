@@ -102,5 +102,11 @@
       "L",
       "la chute"
     ]
-  ]
+  ],
+  "fiche": {
+    "relation": "mon copain",
+    "cest_normal": "la phrase qui fait passer la conv pour normale",
+    "question_chat": "la question à poser à BLUSH dans le chat",
+    "resume": "une ligne pour la créatrice : qui il est, ce qui se passe"
+  }
 }

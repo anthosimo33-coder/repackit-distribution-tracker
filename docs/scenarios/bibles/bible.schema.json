@@ -3,7 +3,7 @@
   "title": "Bible de scénario BLUSH",
   "description": "Tout ce qui rend un scénario unique. Le moteur fournit le reste (remplissage banal, timing, format d'export). L = la créatrice (son prénom est injecté à la génération), Y = lui.",
   "type": "object",
-  "required": ["id", "titre", "type", "lui", "dates", "rythme", "mot_a_vous", "vocaux", "munitions", "derniere_semaine", "ecran_choc"],
+  "required": ["id", "titre", "type", "lui", "fiche", "dates", "rythme", "mot_a_vous", "vocaux", "munitions", "derniere_semaine", "ecran_choc"],
   "$defs": {
     "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
     "speaker": {"enum": ["L", "Y"]},
@@ -26,6 +26,18 @@
     "titre": {"type": "string"},
     "type": {"enum": ["couple", "talking_stage", "meilleur_ami", "ex", "famille", "groupe"]},
     "lui": {"type": "string", "description": "Prénom de l'autre personne, tel qu'il apparaît dans l'export et en haut de l'écran choc."},
+    "fiche": {
+      "type": "object",
+      "description": "Ce que les briques du script citent ({relation}, {cest_normal}, {question_chat}) et ce que la créatrice lit au-dessus de sa conv ({resume}). La durée ({duree}, {DUREE}) ne se saisit pas : elle se calcule depuis dates.debut → dates.fin. {lui} = le champ lui.",
+      "required": ["relation", "cest_normal", "question_chat", "resume"],
+      "additionalProperties": false,
+      "properties": {
+        "relation": {"type": "string", "minLength": 1, "maxLength": 160, "description": "Qui il est pour elle, à la 1re personne : « mon copain », « mon meilleur ami », « mon crush »."},
+        "cest_normal": {"type": "string", "minLength": 1, "maxLength": 160, "description": "La phrase de la créatrice qui fait passer la conv pour normale."},
+        "question_chat": {"type": "string", "minLength": 1, "maxLength": 160, "description": "La question qu'elle pose à BLUSH dans le chat."},
+        "resume": {"type": "string", "minLength": 1, "maxLength": 160, "description": "Une ligne pour la créatrice, au-dessus de sa conv."}
+      }
+    },
     "dates": {
       "type": "object",
       "required": ["debut", "fin", "lune_de_miel_fin", "tournant", "record"],

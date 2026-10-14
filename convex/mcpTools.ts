@@ -95,7 +95,7 @@ import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./m
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
 import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
-import { appelerScenariosLecture, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
+import { appelerScenariosLecture, conversationDeMissionMcp, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -562,6 +562,8 @@ export const lireVideoSoumise = mcpPermissionQuery("review.manage")({
       texteAIncruster: a.overlayText ?? null,
       plage: formatPostWindow(a.postWindow),
       retourPrecedent: a.videoReviewFeedback ?? null,
+      // La conv WhatsApp tirée avec le script (cf convex/scenarioFiche).
+      conversation: await conversationDeMissionMcp(ctx, a.scenarioId),
     };
   },
 });
@@ -1042,7 +1044,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "planning",
     title: "Planning des publications",
     description:
-      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format. Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
+      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format, et la conversation WhatsApp tirée avec le script (son scénario). Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2577,6 +2579,10 @@ export function jarviaServer(
         const lignes = (await lire(() => ctx.runQuery(internal.mcpTools.lirePlanning, ids))).filter(
           (r) => isOnPublicationCalendar(r) && filtreNom(r.creatorName, args.createatrice),
         );
+        // La conv WhatsApp tirée avec chaque mission (son scénario, cf convex/scenarioFiche).
+        const nomsScenarios = new Map(
+          (await ctx.runQuery(internal.mcpScenarios.nomsDesScenarios, ids)).map((s) => [s.id, s.nom]),
+        );
         const maintenant = Date.now();
         const horizon = typeof args.jours === "number" ? args.jours : 7;
         const libelles = {
@@ -2608,6 +2614,7 @@ export function jarviaServer(
             jourPrevu: plannedDayKey(r.postDate!),
             statut: libelles[statut],
             quoi: r.scriptCampaignName ?? r.formatName,
+            ...(r.scenarioId ? { conversation: nomsScenarios.get(r.scenarioId) ?? "scénario supprimé" } : {}),
             ...(r.postedAt != null ? { publieLe: jour(r.postedAt) } : {}),
           };
         };

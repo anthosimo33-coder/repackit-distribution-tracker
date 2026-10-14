@@ -3,6 +3,12 @@
   "titre": "Le mdr de 5h52",
   "type": "couple",
   "lui": "Nathan",
+  "fiche": {
+    "relation": "mon copain",
+    "cest_normal": "il est juste crevé avec son nouveau taf",
+    "question_chat": "est-ce qu'il m'aime encore ?",
+    "resume": "Nathan te répond de moins en moins depuis son nouveau taf ; ton long message de minuit, sa réponse à 5h52 : « mdr »."
+  },
   "dates": {
     "debut": "2025-08-23",
     "fin": "2026-10-12",

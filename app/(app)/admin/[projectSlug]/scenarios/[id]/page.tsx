@@ -122,7 +122,7 @@ function Editeur({ scenario }: { scenario: Scenario }) {
 
   // La vérification suit la frappe sans la ralentir (une bible fait ~1 000 lignes).
   const texteDiffere = useDeferredValue(texte);
-  const lue = useMemo(() => lireBible(texteDiffere), [texteDiffere]);
+  const lue = useMemo(() => lireBible(texteDiffere, { ficheRequise: true }), [texteDiffere]);
   const modifie = texte !== scenario.bible || theme.trim() !== scenario.theme;
 
   async function enregistrer() {

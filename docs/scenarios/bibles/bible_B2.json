@@ -3,6 +3,12 @@
   "titre": "Le même lit",
   "type": "meilleur_ami",
   "lui": "Sami",
+  "fiche": {
+    "relation": "mon meilleur ami",
+    "cest_normal": "c'est mon meilleur ami, on a toujours dormi ensemble",
+    "question_chat": "est-ce que mon copain a raison d'être jaloux ?",
+    "resume": "Tu dors chez Sami quand ça va mal avec ton copain."
+  },
   "dates": {
     "debut": "2025-08-17",
     "fin": "2026-10-12",

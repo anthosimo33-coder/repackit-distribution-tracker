@@ -58,7 +58,30 @@ export type Bible = {
   munitions: MessageBible[][];
   derniere_semaine: MessageBible[][];
   ecran_choc: MessageBible[];
+  /**
+   * FICHE de la conv (cf convex/scenarioFiche) : ce que les briques citent
+   * ({relation}, {cest_normal}, {question_chat}) et ce que la créatrice lit
+   * au-dessus de sa conv ({resume}). La durée ne s'y saisit pas : elle se
+   * calcule depuis `dates`. Obligatoire à l'écriture ; une bible enregistrée
+   * avant elle se lit encore (ses briques à variables ne sont pas tirables).
+   */
+  fiche?: FicheBible;
 };
+
+export type FicheBible = {
+  /** Qui il est pour elle, à la 1re personne : « mon copain », « mon meilleur ami », « mon crush ». */
+  relation: string;
+  /** La phrase de la créatrice qui fait passer la conv pour normale. */
+  cest_normal: string;
+  /** La question qu'elle pose à BLUSH dans le chat. */
+  question_chat: string;
+  /** Une ligne pour la créatrice, au-dessus de sa conv. */
+  resume: string;
+};
+
+/** Longueur maximale d'un champ de fiche (une phrase de script). */
+export const MAX_CHAMP_FICHE = 160;
+const CHAMPS_FICHE = ["relation", "cest_normal", "question_chat", "resume"] as const;
 
 export type CodeErreurBible =
   | "json"
@@ -287,8 +310,12 @@ function ligneColonne(texte: string, pos: number): { ligne: number; colonne: num
   return { ligne: avant.length, colonne: avant[avant.length - 1]!.length + 1 };
 }
 
-/** Lit le TEXTE d'une bible (tel que saisi dans l'éditeur) puis la vérifie. */
-export function lireBible(texte: string): ResultatBible {
+/**
+ * Lit le TEXTE d'une bible (tel que saisi dans l'éditeur) puis la vérifie.
+ * `ficheRequise` : à l'écriture (écran, MCP) ; la génération d'une conv lit
+ * aussi les bibles enregistrées avant la fiche.
+ */
+export function lireBible(texte: string, options: { ficheRequise?: boolean } = {}): ResultatBible {
   let brut: unknown;
   try {
     brut = JSON.parse(texte);
@@ -303,11 +330,11 @@ export function lireBible(texte: string): ResultatBible {
         : null;
     return { ok: false, erreurs: [{ chemin: "", code: "json", params: where ?? {} }] };
   }
-  return verifierBible(brut);
+  return verifierBible(brut, options);
 }
 
 /** Vérifie une bible déjà lue (objet JSON). */
-export function verifierBible(brut: unknown): ResultatBible {
+export function verifierBible(brut: unknown, options: { ficheRequise?: boolean } = {}): ResultatBible {
   const v = new Verif();
   const b = v.objet(brut, "");
   if (!b) return { ok: false, erreurs: v.erreurs };
@@ -414,6 +441,19 @@ export function verifierBible(brut: unknown): ResultatBible {
       const prev = msgs[i - 1];
       if (prev && m[0] <= prev[0]) v.err(`ecran_choc[${i}][0]`, "ecran_ordre");
     });
+  }
+
+  // ─── Fiche ───
+  if (b.fiche === undefined) {
+    if (options.ficheRequise) v.err("fiche", "requis");
+  } else {
+    const f = v.objet(b.fiche, "fiche");
+    if (f) {
+      for (const champ of CHAMPS_FICHE) {
+        const t = v.texte(f[champ], `fiche.${champ}`);
+        if (t !== null && t.length > MAX_CHAMP_FICHE) v.err(`fiche.${champ}`, "trop_long");
+      }
+    }
   }
 
   if (v.erreurs.length > 0 || id === null || titre === null || lui === null) {

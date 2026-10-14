@@ -17,6 +17,8 @@
  */
 
 import { v } from "convex/values";
+import { exigerFichePour, valeursDuScenario } from "./scenarioScript";
+import { remplirVariables } from "./scenarioFiche";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -595,7 +597,7 @@ export async function resoudre(ctx: ProjectQueryCtx, d: Demande) {
   return { campagne, creatrice, targets, handles, manquantes, bareme, postDates, rejeu };
 }
 
-const simulationValidator = { ...demandeValidator, exclure: v.array(v.string()) };
+const simulationValidator = { ...demandeValidator, exclure: v.array(v.string()), conversation: v.optional(v.string()) };
 
 /** Simulation : les scripts que le tirage produirait — l'aperçu de la modale. */
 export const simulerAssignation = mcpPermissionQuery("assignments.manage")({
@@ -634,6 +636,7 @@ export const simulerAssignation = mcpPermissionQuery("assignments.manage")({
       videosPerCreator: a.jours.length,
       postDates: r.postDates,
       ...(a.exclure.length > 0 ? { excludedComboKeys: a.exclure } : {}),
+      ...(a.conversation ? { conversationTheme: a.conversation } : {}),
     });
     return {
       assignation,
@@ -988,6 +991,9 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
 
     const photos = await photographier(ctx, "assignments", [m.a._id]);
     const scriptAvant = await scriptDeMission(ctx, m.a);
+    // Le texte remonté se remplit avec la fiche du scénario de la mission.
+    const valeurs = texteChange || autreCampagne ? await valeursDuScenario(ctx, m.a.scenarioId) : null;
+    if (texteChange || autreCampagne) exigerFichePour([hook, flux, cta], valeurs);
     if (texteChange || a.notif !== undefined || autreCampagne) {
       const combo = texteChange || autreCampagne
         ? {
@@ -995,7 +1001,10 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
             hookBrickId: hook._id,
             fluxBrickId: flux._id,
             ctaBrickId: cta._id,
-            assembledScript: assembleNoLabels({ hook: hook.content, flux: flux.content, cta: cta.content }),
+            assembledScript: remplirVariables(
+              assembleNoLabels({ hook: hook.content, flux: flux.content, cta: cta.content }),
+              valeurs,
+            ),
           }
         : {
             campaignId: avant.campaignId,
@@ -1144,6 +1153,7 @@ async function appelerEcritureMissions(
           projectId: cible.projectId,
           ...demande(createatrices[0], 0),
           exclure: textesArg(args, "exclure"),
+          ...(texteArg(args, "conversation") ? { conversation: texteArg(args, "conversation") } : {}),
         }),
       );
       return resultatEcriture(projet, "Simulation : rien n'a été écrit.", "Rien à défaire.", {

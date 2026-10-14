@@ -66,6 +66,7 @@ import {
   type ScriptKind,
 } from "@/lib/scriptAssembly";
 import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
+import { enDur, VARIABLES, variablesDe, variablesInconnues } from "@/convex/scenarioFiche";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { NotifBackfill } from "@/components/scripts/NotifBackfill";
 import {
@@ -336,6 +337,8 @@ export default function ScriptCampaignDetailPage() {
   const notifOn = isNotifEnabled(campaign);
   const notifMissing = notifOn && drawableNotifs(bricks).length === 0;
   const kinds = editableKinds(notifOn);
+  // Briques actives qui écrivent une durée ou une relation en dur (tous onglets).
+  const briquesEnDur = bricks.filter((b) => b.active && analyseConv(b).enDur.length > 0).length;
   const activeCount = ofKind.filter((b) => b.active).length;
   const checkedIds = [...checked].filter((cid) =>
     ofKind.some((b) => b._id === cid),
@@ -404,6 +407,15 @@ export default function ScriptCampaignDetailPage() {
           </Button>
         </div>
       </header>
+
+      {briquesEnDur > 0 && (
+        <p
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          data-testid="campagne-en-dur"
+        >
+          {tr("enDurBandeau", { count: briquesEnDur })}
+        </p>
+      )}
 
       {/* ─── Barre d'outils ────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2">
@@ -695,6 +707,17 @@ function FilterChip({
  * sur l'interrupteur sélectionnerait la ligne). C'est le bloc de TEXTE qui est
  * le bouton de sélection — la surface qu'on vise naturellement.
  */
+/** Ce qu'une brique de script dit de la conv : variables, durées ou relations en dur, variables mal écrites. */
+function analyseConv(b: { kind: string; content: string; direction?: string; autresExemples?: string[] }) {
+  if (b.kind === "notif") return { variables: [] as string[], enDur: [] as string[], inconnues: [] as string[] };
+  const textes = [b.content, b.direction ?? "", ...(b.autresExemples ?? [])];
+  return {
+    variables: [...new Set(textes.flatMap(variablesDe))],
+    enDur: [...new Set(textes.flatMap(enDur))],
+    inconnues: [...new Set(textes.flatMap(variablesInconnues))],
+  };
+}
+
 function BrickRow({
   brick,
   selected,
@@ -740,6 +763,9 @@ function BrickRow({
   // « nom court » utile de façon occasionnelle (souvent un doublon du content ou
   // une ancienne version) → affiché en note SEULEMENT s'il apporte qqch.
   const note = usefulShortLabel(brick.label, brick.content);
+  // VARIABLES et durées EN DUR (cf convex/scenarioFiche) : un script qui cite la
+  // conv doit passer par {duree}, {relation}… sinon la conv tirée le contredit.
+  const conv = analyseConv(brick);
 
   return (
     <div
@@ -772,8 +798,43 @@ function BrickRow({
         <p className="line-clamp-2 text-sm font-medium text-slate-900">
           {brick.content}
         </p>
-        {(brick.instruction || brick.libre || note || availability || !brick.active) && (
+        {(brick.instruction ||
+          brick.libre ||
+          note ||
+          availability ||
+          !brick.active ||
+          conv.variables.length > 0 ||
+          conv.enDur.length > 0 ||
+          conv.inconnues.length > 0) && (
           <span className="flex flex-wrap items-center gap-1.5">
+            {conv.variables.length > 0 && (
+              <Badge
+                variant="outline"
+                className="border-violet-200 bg-violet-50 text-[10px] text-violet-700"
+                data-testid="brick-variables-tag"
+              >
+                {tr("citeLaConv", { variables: conv.variables.map((x) => `{${x}}`).join(" ") })}
+              </Badge>
+            )}
+            {conv.enDur.length > 0 && (
+              <Badge
+                variant="outline"
+                className="border-amber-300 bg-amber-50 text-[10px] text-amber-800"
+                data-testid="brick-en-dur-tag"
+                title={tr("enDurAide")}
+              >
+                {tr("enDur", { texte: conv.enDur.join(", ") })}
+              </Badge>
+            )}
+            {conv.inconnues.length > 0 && (
+              <Badge
+                variant="outline"
+                className="border-rose-200 bg-rose-50 text-[10px] text-rose-700"
+                data-testid="brick-variable-inconnue-tag"
+              >
+                {tr("variableInconnue", { variables: conv.inconnues.map((x) => `{${x}}`).join(" ") })}
+              </Badge>
+            )}
             {brick.kind === "hook" && brick.libre && (
               <Badge
                 variant="outline"
@@ -1059,6 +1120,16 @@ function BrickEditor({
               onChange={(e) => touch(setContent)(e.target.value)}
               rows={isHook && libre ? 2 : 6}
             />
+            {kind !== "notif" && (
+              <p className="text-xs text-slate-400">
+                {tr("variablesAide", { liste: VARIABLES.map((x) => `{${x}}`).join(", ") })}
+              </p>
+            )}
+            {kind !== "notif" && enDur(content).length > 0 && (
+              <p className="text-xs text-amber-700" data-testid="brick-editor-en-dur">
+                {tr("enDurAvertissement", { texte: enDur(content).join(", ") })}
+              </p>
+            )}
           </div>
 
           {isHook && libre && (

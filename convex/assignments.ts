@@ -33,6 +33,8 @@ import {
 } from "./publications";
 import { isScriptZonesEnabled } from "./scriptZonesSetting";
 import { hookLibreDuTexte, hookLibreOf, type HookLibre } from "./hookLibre";
+import { briqueRemplie, ficheCreatrice, valeursDuScenario, type FicheCreatrice } from "./scenarioScript";
+import { remplirVariables, type ValeursFiche } from "./scenarioFiche";
 import { scenarioDeMission } from "./scenarioMission";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
@@ -2908,6 +2910,8 @@ async function splitScriptZones(
   combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
   /** Le texte FIGÉ de l'assignation (hors du document, cf assignmentScriptText). */
   texte: string | undefined,
+  /** La fiche du scénario de la mission : le texte figé est rempli, les briques aussi pour se comparer. */
+  valeurs: ValeursFiche | null,
 ): Promise<ScriptZones | null> {
   // Réglage DU PROJET (convex/scriptZonesSetting) — même décision que l'aperçu
   // admin, qui la reçoit résolue par projectForClient.
@@ -2918,9 +2922,9 @@ async function splitScriptZones(
     ctx.db.get(combo.ctaBrickId),
   ]);
   if (!hook || !flux || !cta) return null;
-  const h = hook.content.trim();
-  const f = flux.content.trim();
-  const c = cta.content.trim();
+  const h = remplirVariables(hook.content, valeurs).trim();
+  const f = remplirVariables(flux.content, valeurs).trim();
+  const c = remplirVariables(cta.content, valeurs).trim();
   if (c.length === 0) return null;
   // Garde anti-divergence : le découpage n'est fidèle que s'il reconstitue le
   // texte figé exactement (même assemblage que le write path, labels:false). Le
@@ -2994,8 +2998,11 @@ async function scriptHookLibreOf(
   ctx: QueryCtx,
   combo: NonNullable<Doc<"assignments">["scriptCombo"]>,
   texte: string | undefined,
+  /** La fiche du scénario : direction et exemples remplis comme le texte figé. */
+  valeurs: ValeursFiche | null,
 ): Promise<ScriptHookLibre | null> {
-  return hookLibreDuTexte(await ctx.db.get(combo.hookBrickId), texte);
+  const hook = await ctx.db.get(combo.hookBrickId);
+  return hookLibreDuTexte(hook ? briqueRemplie(hook, valeurs) : null, texte);
 }
 
 /**
@@ -3021,12 +3028,13 @@ async function scriptNotifOf(
  * Rien du scénario lui-même (code, bible, thème) ne sort : la conv se fabrique
  * au téléchargement.
  */
-type ScriptConversation = { genere: true };
+type ScriptConversation = { genere: true; fiche: FicheCreatrice | null };
 async function scriptConversationOf(
   ctx: QueryCtx,
   a: Doc<"assignments">,
 ): Promise<ScriptConversation | null> {
-  return (await scenarioDeMission(ctx, a)) ? { genere: true } : null;
+  const s = await scenarioDeMission(ctx, a);
+  return s ? { genere: true, fiche: await ficheCreatrice(ctx, s._id) } : null;
 }
 
 /**
@@ -3408,8 +3416,9 @@ async function clipDetailFor(
     ? await ctx.storage.getUrl(a.submittedVideoStorageId)
     : null;
   const assets = await resolveAssignmentAssets(ctx, a);
+  const valeurs = await valeursDuScenario(ctx, a.scenarioId);
   const scriptZones = a.scriptCombo
-    ? await splitScriptZones(ctx, a, a.scriptCombo, base.assembledScript ?? undefined)
+    ? await splitScriptZones(ctx, a, a.scriptCombo, base.assembledScript ?? undefined, valeurs)
     : null;
   const scriptInstructions = a.scriptCombo
     ? await scriptInstructionsOf(ctx, a.scriptCombo)
@@ -3418,7 +3427,7 @@ async function clipDetailFor(
     ? await scriptNotifOf(ctx, a.scriptCombo)
     : null;
   const scriptHookLibre = a.scriptCombo
-    ? await scriptHookLibreOf(ctx, a.scriptCombo, base.assembledScript ?? undefined)
+    ? await scriptHookLibreOf(ctx, a.scriptCombo, base.assembledScript ?? undefined, valeurs)
     : null;
   const scriptConversation = await scriptConversationOf(ctx, a);
   return {
@@ -3498,10 +3507,11 @@ async function assignmentDetailFor(
   const label = await missionLabelFor(ctx, a);
   if (a.scriptCombo) {
     const texte = await texteDuCombo(ctx, a);
-    const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo, texte);
+    const valeurs = await valeursDuScenario(ctx, a.scenarioId);
+    const scriptZones = await splitScriptZones(ctx, a, a.scriptCombo, texte, valeurs);
     const scriptInstructions = await scriptInstructionsOf(ctx, a.scriptCombo);
     const scriptNotif = await scriptNotifOf(ctx, a.scriptCombo);
-    const scriptHookLibre = await scriptHookLibreOf(ctx, a.scriptCombo, texte);
+    const scriptHookLibre = await scriptHookLibreOf(ctx, a.scriptCombo, texte, valeurs);
     const scriptConversation = await scriptConversationOf(ctx, a);
     return {
       assignment: safe,

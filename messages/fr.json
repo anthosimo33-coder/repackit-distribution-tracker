@@ -311,6 +311,7 @@
     },
     "scenario": {
       "titre": "1. Récupère la conv",
+      "fiche": "Ta conv : {duree} avec {lui}, {relation}",
       "preparer": "Préparer ma conv",
       "telechargerConv": "Télécharger la conv (.txt)",
       "aideConv": "Enregistre-la dans Fichiers, puis importe-la sur askblush.com.",
@@ -1533,6 +1534,7 @@
     "ERR_SCENARIO_NOT_FOUND": "Scénario introuvable.",
     "ERR_SCENARIO_ARCHIVED": "Le scénario {code} est archivé : remets-le en « Actif » pour le donner.",
     "ERR_SCENARIO_IN_USE": "Le scénario {code} a déjà été donné à des missions : archive-le plutôt que de le supprimer.",
+    "ERR_SCRIPT_NEEDS_CONVERSATION": "Ce script cite la conversation ({variables}) : choisis une conversation WhatsApp dont le scénario a une fiche.",
     "ERR_NO_ACTIVE_CONVERSATION": "Aucun scénario dans le thème « {theme} » : importes-en un dans Scénarios, ou assigne sans conversation.",
     "ERR_COMPTA_CHARGE_INVALID": "Charge invalide : il faut une date, un libellé, un montant positif et une devise que le projet sait convertir.",
     "ERR_COMPTA_CHARGE_NOT_FOUND": "Cette charge n'existe plus.",

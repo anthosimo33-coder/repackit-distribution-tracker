@@ -37,6 +37,7 @@ import {
   type CibleEcriture,
 } from "./mcpWriteCommon";
 import { lireBible, nomExportValide, type ErreurBible } from "./scenarioBible";
+import { valeursFiche } from "./scenarioFiche";
 import { genererConversation, statsConversation, statsTexte } from "./scenarioEngine";
 import {
   changerStatutScenarioCore,
@@ -166,6 +167,34 @@ export const lireScenarios = mcpPermissionQuery("scripts.manage")({
       })),
 });
 
+/**
+ * Les scénarios du projet en une ligne chacun — pour dire, dans `planning`,
+ * quelle conv chaque mission a reçue. Bloc `assignments.manage`, celui du
+ * planning : ni bible ni fiche, le nom seulement.
+ */
+export const nomsDesScenarios = mcpPermissionQuery("assignments.manage")({
+  args: {},
+  handler: async (ctx) =>
+    (await scenariosDe(ctx)).map((s) => ({ id: s._id as string, nom: `${s.code} · ${s.titre}`, theme: s.theme })),
+});
+
+/** La conv d'une mission, pour le détail d'une mission (MCP) : quel scénario, et ce que le script en cite. */
+export async function conversationDeMissionMcp(
+  ctx: { db: QueryCtx["db"] },
+  scenarioId: Id<"scenarios"> | undefined,
+): Promise<{ scenario: string; theme: string; fiche: string | null } | null> {
+  if (!scenarioId) return null;
+  const s = await ctx.db.get(scenarioId);
+  if (!s) return null;
+  const lu = lireBible(s.bible);
+  const v = lu.ok ? valeursFiche(lu.bible) : null;
+  return {
+    scenario: `${s.code} · ${s.titre}`,
+    theme: s.theme,
+    fiche: v ? `${v.duree} avec ${v.lui}, ${v.relation}` : null,
+  };
+}
+
 export const lireScenario = mcpPermissionQuery("scripts.manage")({
   args: { scenario: v.string() },
   handler: async (ctx, { scenario }) => {
@@ -189,7 +218,7 @@ function bibleArg(args: Record<string, unknown>): string | null {
   if (texte.length > MAX_BIBLE_MCP) {
     throw new ToolError(`« bible » : ${texte.length} caractères, ${MAX_BIBLE_MCP} au plus par Claude (l'écran Scénarios accepte plus).`);
   }
-  const lue = lireBible(texte);
+  const lue = lireBible(texte, { ficheRequise: true });
   if (!lue.ok) {
     throw new ToolError(
       `Bible refusée, rien n'a été écrit — ${lue.erreurs.length} erreur(s) : ${lue.erreurs.slice(0, 12).map(erreurLisible).join(" ; ")}${lue.erreurs.length > 12 ? " ; …" : ""}. Compare avec \`lire_scenario\` d'un scénario existant.`,
