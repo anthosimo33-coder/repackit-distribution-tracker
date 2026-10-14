@@ -965,7 +965,8 @@
       "creer_scenario": "Scenario created",
       "modifier_scenario": "Scenario edited",
       "activer_scenario": "Scenario status changed",
-      "supprimer_scenario": "Scenario deleted"
+      "supprimer_scenario": "Scenario deleted",
+      "modifier_briques": "Bricks edited"
     },
     "section": {
       "treasury": "Cash",

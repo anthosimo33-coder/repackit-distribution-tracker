@@ -17,6 +17,16 @@ import { v, type Infer } from "convex/values";
 
 const plage = v.object({ startMin: v.number(), endMin: v.number() });
 
+/** Le texte d'une brique et ce qui l'accompagne — ce que `modifier_briques` écrit. */
+const etatBrique = v.object({
+  content: v.string(),
+  label: v.string(),
+  instruction: v.union(v.string(), v.null()),
+  libre: v.boolean(),
+  direction: v.union(v.string(), v.null()),
+  autresExemples: v.array(v.string()),
+});
+
 const part = v.object({
   id: v.string(),
   amount: v.number(),
@@ -96,6 +106,11 @@ export const annulationValidator = v.union(
   v.object({ type: v.literal("campagneCreee"), campaignId: v.id("scriptCampaigns") }),
   /** ajouter_hooks, ajouter_flux_cta, ajouter_notifs : les briques créées. */
   v.object({ type: v.literal("briquesCreees"), brickIds: v.array(v.id("scriptBricks")) }),
+  /** modifier_briques : le texte (et consigne, libellé, hook libre) de chaque brique, avant et après. */
+  v.object({
+    type: v.literal("briquesModifiees"),
+    briques: v.array(v.object({ brickId: v.id("scriptBricks"), avant: etatBrique, apres: etatBrique })),
+  }),
   /** activer_briques : les briques réellement basculées, et leur état d'avant. */
   v.object({
     type: v.literal("briquesActives"),

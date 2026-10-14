@@ -1242,69 +1242,84 @@ export async function createBrickCore(
   });
 }
 
+const updateBrickArgs = {
+  id: v.id("scriptBricks"),
+  label: v.optional(v.string()),
+  content: v.optional(v.string()),
+  active: v.optional(v.boolean()),
+  order: v.optional(v.number()),
+  mode: v.optional(MODE),
+  // null = retirer la consigne ; chaîne = définir. Une saisie blanche vaut
+  // `null` (normalizeInstruction) : effacer le champ EFFACE la consigne.
+  instruction: v.optional(v.union(v.string(), v.null())),
+  // HOOK LIBRE (hook uniquement) — mêmes règles : null ou blanc efface la
+  // direction, une liste vide efface les autres exemples.
+  libre: v.optional(v.boolean()),
+  direction: v.optional(v.union(v.string(), v.null())),
+  autresExemples: v.optional(v.array(v.string())),
+};
+
 export const updateBrick = permissionMutation("scripts.manage")({
-  args: {
-    id: v.id("scriptBricks"),
-    label: v.optional(v.string()),
-    content: v.optional(v.string()),
-    active: v.optional(v.boolean()),
-    order: v.optional(v.number()),
-    mode: v.optional(MODE),
-    // null = retirer la consigne ; chaîne = définir. Une saisie blanche vaut
-    // `null` (normalizeInstruction) : effacer le champ EFFACE la consigne.
-    instruction: v.optional(v.union(v.string(), v.null())),
-    // HOOK LIBRE (hook uniquement) — mêmes règles : null ou blanc efface la
-    // direction, une liste vide efface les autres exemples.
-    libre: v.optional(v.boolean()),
-    direction: v.optional(v.union(v.string(), v.null())),
-    autresExemples: v.optional(v.array(v.string())),
-  },
+  args: updateBrickArgs,
   handler: async (ctx, args) => {
-    // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
-    // l'invalide ici (cf convex/dashboardCache.ts).
-    await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
-    const brick = await ctx.db.get(args.id);
-    if (!brick || brick.projectId !== ctx.projectId) {
-      throw err(ERR.BRICK_NOT_FOUND, "Brique introuvable.");
-    }
-    const patch: Partial<Doc<"scriptBricks">> = {};
-    if (args.label !== undefined) {
-      const label = args.label.trim();
-      if (label.length === 0) throw err(ERR.LABEL_REQUIRED, "Le label est requis.");
-      patch.label = label;
-    }
-    if (args.content !== undefined) patch.content = args.content;
-    if (args.active !== undefined) patch.active = args.active;
-    if (args.order !== undefined) patch.order = args.order;
-    // mode (zone vidéo) : hook/flux uniquement.
-    if (
-      args.mode !== undefined &&
-      (brick.kind === "hook" || brick.kind === "flux")
-    ) {
-      patch.mode = args.mode;
-    }
-    if (args.instruction !== undefined) {
-      patch.instruction = normalizeInstruction(args.instruction);
-    }
-    // HOOK LIBRE — lu LIVE par la fiche : basculer met à jour les missions déjà
-    // assignées, comme une consigne corrigée. Direction et exemples survivent à
-    // l'extinction, pour qu'un aller-retour de l'interrupteur ne perde rien.
-    if (brick.kind === "hook") {
-      if (args.libre !== undefined) patch.libre = args.libre || undefined;
-      if (args.direction !== undefined) {
-        patch.direction = normalizeDirection(args.direction);
-      }
-      if (args.autresExemples !== undefined) {
-        patch.autresExemples = normalizeAutresExemples(
-          args.autresExemples,
-          args.content ?? brick.content,
-        );
-      }
-    }
-    await ctx.db.patch(args.id, patch);
+    await updateBrickCore(ctx, args);
     return { ok: true };
   },
 });
+
+/**
+ * Cœur de l'édition d'une brique — l'écran de campagne et l'outil MCP
+ * `modifier_briques`. Le texte d'une brique ne touche pas les missions déjà
+ * assignées (leur script est figé) ; consigne, direction et exemples d'un hook
+ * libre, eux, sont lus en direct par la fiche de la créatrice.
+ */
+export async function updateBrickCore(
+  ctx: ProjectMutationCtx,
+  args: ObjectType<typeof updateBrickArgs>,
+): Promise<void> {
+  // L'accueil admin lit un pré-calcul : cette écriture le rend faux, on
+  // l'invalide ici (cf convex/dashboardCache.ts).
+  await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
+  const brick = await ctx.db.get(args.id);
+  if (!brick || brick.projectId !== ctx.projectId) {
+    throw err(ERR.BRICK_NOT_FOUND, "Brique introuvable.");
+  }
+  const patch: Partial<Doc<"scriptBricks">> = {};
+  if (args.label !== undefined) {
+    const label = args.label.trim();
+    if (label.length === 0) throw err(ERR.LABEL_REQUIRED, "Le label est requis.");
+    patch.label = label;
+  }
+  if (args.content !== undefined) patch.content = args.content;
+  if (args.active !== undefined) patch.active = args.active;
+  if (args.order !== undefined) patch.order = args.order;
+  // mode (zone vidéo) : hook/flux uniquement.
+  if (
+    args.mode !== undefined &&
+    (brick.kind === "hook" || brick.kind === "flux")
+  ) {
+    patch.mode = args.mode;
+  }
+  if (args.instruction !== undefined) {
+    patch.instruction = normalizeInstruction(args.instruction);
+  }
+  // HOOK LIBRE — lu LIVE par la fiche : basculer met à jour les missions déjà
+  // assignées, comme une consigne corrigée. Direction et exemples survivent à
+  // l'extinction, pour qu'un aller-retour de l'interrupteur ne perde rien.
+  if (brick.kind === "hook") {
+    if (args.libre !== undefined) patch.libre = args.libre || undefined;
+    if (args.direction !== undefined) {
+      patch.direction = normalizeDirection(args.direction);
+    }
+    if (args.autresExemples !== undefined) {
+      patch.autresExemples = normalizeAutresExemples(
+        args.autresExemples,
+        args.content ?? brick.content,
+      );
+    }
+  }
+  await ctx.db.patch(args.id, patch);
+}
 
 export const deleteBrick = permissionMutation("scripts.manage")({
   args: { id: v.id("scriptBricks") },
