@@ -138,6 +138,16 @@ export const annulationValidator = v.union(
   v.object({ type: v.literal("scenarioSupprime"), scenarioId: v.id("scenarios"), empreinte: v.string() }),
   /** activer_scenario : le statut, avant et après. */
   v.object({ type: v.literal("scenarioStatut"), scenarioId: v.id("scenarios"), avant: v.string(), apres: v.string() }),
+  // ── Mode tournage BLUSH ───────────────────────────────────────────────────
+  /** preparer_tournages : les fichiers figés préparés (lignes + fichiers effacés au défaire). */
+  v.object({ type: v.literal("tournagesPrepares"), ids: v.array(v.id("scenarioTournages")) }),
+  /** liens_tournage : le lien de chaque paire, avant et après (null = pas de lien). */
+  v.object({
+    type: v.literal("liensTournage"),
+    lignes: v.array(
+      v.object({ id: v.id("scenarioTournages"), avant: v.union(v.string(), v.null()), apres: v.union(v.string(), v.null()) }),
+    ),
+  }),
   // ── Publications ──────────────────────────────────────────────────────────
   /** marquer_warmup : `null` = « non qualifié » (champ absent), pas « promo ». */
   v.object({

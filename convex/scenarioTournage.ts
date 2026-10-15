@@ -21,7 +21,7 @@
  * les missions de la paire.
  */
 import { v } from "convex/values";
-import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type ActionCtx, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
@@ -42,7 +42,7 @@ import { deleteStorageBestEffort } from "./storageCleanup";
 import { parisDayKey } from "./viewsDaily";
 
 /** Les créatrices à qui l'on prépare des tournages : celles qui reçoivent des missions. */
-function recoitDesMissions(c: Doc<"creators">): boolean {
+export function recoitDesMissions(c: Doc<"creators">): boolean {
   return (c.kind === undefined || c.kind === "partner") && c.status !== "churned";
 }
 
@@ -64,6 +64,95 @@ export async function supprimerTournages(ctx: MutationCtx, rows: Doc<"scenarioTo
     await ctx.db.delete(t._id);
     await deleteStorageBestEffort(ctx, t.fichierId);
   }
+}
+
+/**
+ * Les histoires à préparer pour une créatrice : en service, sans fichier pour
+ * elle (ou seulement `voulues`). Écran et Claude (convex/mcpTournage).
+ */
+export async function histoiresAPreparer(
+  ctx: { db: QueryCtx["db"] },
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  voulues: ReadonlySet<string> | null,
+): Promise<Doc<"scenarios">[]> {
+  const scenarios = await ctx.db
+    .query("scenarios")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect();
+  const out: Doc<"scenarios">[] = [];
+  for (const s of scenarios) {
+    if (voulues && !voulues.has(s._id)) continue;
+    if (s.statut === "archive" || (await tournageDe(ctx, creatorId, s._id))) continue;
+    out.push(s);
+  }
+  return out.sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true }));
+}
+
+/** Ce qu'un fichier préparé porte, rangé dans `scenarioTournages`. */
+export type FichierPrepare = {
+  scenarioId: Id<"scenarios">;
+  prenom: string;
+  graine: number;
+  finLe: string;
+  fichierId: Id<"_storage">;
+  nomFichier: string;
+  messages: number;
+};
+
+/**
+ * FABRIQUE et range dans le storage le fichier d'une paire (action) : le moteur
+ * des missions, son prénom, une graine propre à la paire, fin la veille. null =
+ * bible illisible.
+ */
+export async function fabriquerFichier(
+  ctx: Pick<ActionCtx, "storage">,
+  creatorId: Id<"creators">,
+  scenario: { scenarioId: Id<"scenarios">; bible: string },
+  prenom: string,
+): Promise<FichierPrepare | null> {
+  const lue = lireBible(scenario.bible);
+  if (!lue.ok) return null;
+  const graine = graineMission(`${creatorId}:${scenario.scenarioId}`);
+  const finLe = veille(parisDayKey(Date.now()));
+  const gen = genererConversation(lue.bible, { prenom, graine, finLe });
+  const fichierId = await ctx.storage.store(new Blob([gen.texte], { type: "text/plain;charset=utf-8" }));
+  return {
+    scenarioId: scenario.scenarioId,
+    prenom,
+    graine,
+    finLe,
+    fichierId,
+    nomFichier: gen.nomFichier,
+    messages: gen.messages.length,
+  };
+}
+
+/** Range un fichier préparé ; null si la paire en a déjà un (le fichier en trop est effacé). */
+export async function rangerTournage(
+  ctx: MutationCtx,
+  projectId: Id<"projects">,
+  creatorId: Id<"creators">,
+  f: FichierPrepare,
+): Promise<Id<"scenarioTournages"> | null> {
+  if (await tournageDe(ctx, creatorId, f.scenarioId)) {
+    await deleteStorageBestEffort(ctx, f.fichierId);
+    return null;
+  }
+  const maintenant = Date.now();
+  return ctx.db.insert("scenarioTournages", { projectId, creatorId, ...f, createdAt: maintenant, updatedAt: maintenant });
+}
+
+/** Pose (ou retire, avec "") le lien d'un tournage ; refuse ce qui n'est pas un lien https. */
+export async function poserLienCore(
+  ctx: MutationCtx,
+  t: Doc<"scenarioTournages">,
+  texte: string,
+): Promise<{ avant: string | null; apres: string | null }> {
+  const lu = lireLienTournage(texte);
+  if (!lu.ok) throw err(ERR.TOURNAGE_LINK_INVALID, "Ce n'est pas un lien https.");
+  await ctx.db.patch(t._id, { lien: lu.lien ?? undefined, updatedAt: Date.now() });
+  return { avant: t.lien ?? null, apres: lu.lien };
 }
 
 // ─── Écran « Mode tournage » ─────────────────────────────────────────────────
@@ -144,43 +233,29 @@ export const planPreparation = internalQuery({
     await requireCreatorInScope(ctx, args.userId, args.projectId, creator._id);
     const prenom = firstNameOf(creator.name);
     if (!prenom) throw err(ERR.CREATOR_NOT_FOUND, "Créatrice sans prénom.");
-    const scenarios = await ctx.db
-      .query("scenarios")
-      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
-      .collect();
     const voulues = args.scenarioIds ? new Set<string>(args.scenarioIds) : null;
-    const aPreparer: { scenarioId: Id<"scenarios">; bible: string }[] = [];
-    for (const s of scenarios) {
-      if (voulues && !voulues.has(s._id)) continue;
-      if (s.statut === "archive" || (await tournageDe(ctx, creator._id, s._id))) continue;
-      aPreparer.push({ scenarioId: s._id, bible: s.bible });
-    }
+    const aPreparer = (await histoiresAPreparer(ctx, args.projectId, creator._id, voulues)).map((s) => ({
+      scenarioId: s._id,
+      bible: s.bible,
+    }));
     return { prenom, aPreparer };
   },
 });
 
 /** Interne : range un fichier préparé — sauf si une autre préparation est passée avant. */
+export const fichierPrepareValidator = v.object({
+  scenarioId: v.id("scenarios"),
+  prenom: v.string(),
+  graine: v.number(),
+  finLe: v.string(),
+  fichierId: v.id("_storage"),
+  nomFichier: v.string(),
+  messages: v.number(),
+});
+
 export const enregistrerTournage = internalMutation({
-  args: {
-    projectId: v.id("projects"),
-    scenarioId: v.id("scenarios"),
-    creatorId: v.id("creators"),
-    prenom: v.string(),
-    graine: v.number(),
-    finLe: v.string(),
-    fichierId: v.id("_storage"),
-    nomFichier: v.string(),
-    messages: v.number(),
-  },
-  handler: async (ctx, args) => {
-    if (await tournageDe(ctx, args.creatorId, args.scenarioId)) {
-      await deleteStorageBestEffort(ctx, args.fichierId);
-      return false;
-    }
-    const maintenant = Date.now();
-    await ctx.db.insert("scenarioTournages", { ...args, createdAt: maintenant, updatedAt: maintenant });
-    return true;
-  },
+  args: { projectId: v.id("projects"), creatorId: v.id("creators"), fichier: fichierPrepareValidator },
+  handler: async (ctx, args) => (await rangerTournage(ctx, args.projectId, args.creatorId, args.fichier)) !== null,
 });
 
 /**
@@ -201,24 +276,14 @@ export const preparerTournages = authedAction({
       creatorId: args.creatorId,
       ...(args.scenarioIds ? { scenarioIds: args.scenarioIds } : {}),
     });
-    const finLe = veille(parisDayKey(Date.now()));
     let prepares = 0;
-    for (const { scenarioId, bible } of plan.aPreparer) {
-      const lue = lireBible(bible);
-      if (!lue.ok) continue;
-      const graine = graineMission(`${args.creatorId}:${scenarioId}`);
-      const gen = genererConversation(lue.bible, { prenom: plan.prenom, graine, finLe });
-      const fichierId = await ctx.storage.store(new Blob([gen.texte], { type: "text/plain;charset=utf-8" }));
+    for (const s of plan.aPreparer) {
+      const fichier = await fabriquerFichier(ctx, args.creatorId, s, plan.prenom);
+      if (!fichier) continue;
       const range = await ctx.runMutation(internal.scenarioTournage.enregistrerTournage, {
         projectId: args.projectId,
-        scenarioId,
         creatorId: args.creatorId,
-        prenom: plan.prenom,
-        graine,
-        finLe,
-        fichierId,
-        nomFichier: gen.nomFichier,
-        messages: gen.messages.length,
+        fichier,
       });
       if (range) prepares += 1;
     }
@@ -233,9 +298,7 @@ export const poserLienTournage = permissionMutation("scripts.manage")({
     const t = await ctx.db.get(args.id);
     if (!t || t.projectId !== ctx.projectId) throw err(ERR.TOURNAGE_NOT_READY, "Tournage introuvable.");
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, t.creatorId);
-    const lu = lireLienTournage(args.lien);
-    if (!lu.ok) throw err(ERR.TOURNAGE_LINK_INVALID, "Ce n'est pas un lien https.");
-    await ctx.db.patch(t._id, { lien: lu.lien ?? undefined, updatedAt: Date.now() });
+    await poserLienCore(ctx, t, args.lien);
     return { ok: true };
   },
 });

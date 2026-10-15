@@ -448,7 +448,9 @@ type OutilEcriture =
   | "modifier_scenario"
   | "activer_scenario"
   | "supprimer_scenario"
-  | "modifier_briques";
+  | "modifier_briques"
+  | "preparer_tournages"
+  | "liens_tournage";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

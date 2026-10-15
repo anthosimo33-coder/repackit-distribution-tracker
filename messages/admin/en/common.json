@@ -966,7 +966,9 @@
       "modifier_scenario": "Scenario edited",
       "activer_scenario": "Scenario status changed",
       "supprimer_scenario": "Scenario deleted",
-      "modifier_briques": "Bricks edited"
+      "modifier_briques": "Bricks edited",
+      "preparer_tournages": "Filming files prepared",
+      "liens_tournage": "Filming links pasted"
     },
     "section": {
       "treasury": "Cash",
@@ -982,7 +984,8 @@
       "messages": "Creators",
       "conversations": "Instagram conversations",
       "pricing": "Pay grids",
-      "scenarios": "Scenarios"
+      "scenarios": "Scenarios",
+      "tournage": "Filming mode"
     },
     "domaine": {
       "compta": {

@@ -157,6 +157,7 @@ import type * as mcpScenarios from "../mcpScenarios.js";
 import type * as mcpTaux from "../mcpTaux.js";
 import type * as mcpTokens from "../mcpTokens.js";
 import type * as mcpTools from "../mcpTools.js";
+import type * as mcpTournage from "../mcpTournage.js";
 import type * as mcpVideo from "../mcpVideo.js";
 import type * as mcpWriteArgs from "../mcpWriteArgs.js";
 import type * as mcpWriteCommon from "../mcpWriteCommon.js";
@@ -451,6 +452,7 @@ declare const fullApi: ApiFromModules<{
   mcpTaux: typeof mcpTaux;
   mcpTokens: typeof mcpTokens;
   mcpTools: typeof mcpTools;
+  mcpTournage: typeof mcpTournage;
   mcpVideo: typeof mcpVideo;
   mcpWriteArgs: typeof mcpWriteArgs;
   mcpWriteCommon: typeof mcpWriteCommon;
