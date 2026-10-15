@@ -11,6 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatMoney, formatViews } from "@/lib/format-rate";
 import { publishedAgo } from "@/lib/video-tracking";
+import {
+  PLATFORM_STYLE,
+  PLATFORM_STYLE_FALLBACK,
+} from "@/components/portal/platform-style";
 import { isSnytchProject } from "@/lib/snytch-drive";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useLabel } from "@/lib/use-label";
@@ -47,14 +51,6 @@ type Video = FunctionReturnType<
   typeof api.creatorVideos.listMyPublishedVideos
 >[number];
 
-const PLATFORM_STYLE: Record<string, string> = {
-  TikTok: "bg-slate-900 text-white",
-  Instagram: "bg-fuchsia-600 text-white",
-  YouTube: "bg-red-600 text-white",
-  Facebook: "bg-blue-600 text-white",
-  Snapchat: "bg-yellow-300 text-slate-900",
-};
-
 // Types de FORMAT lisibles (aligné sur le tableau de bord). Script → formatType
 // null (pas de badge, le nom de campagne porte déjà le type).
 const TYPE_LABELS: Record<string, string> = {
@@ -69,7 +65,7 @@ function PlatformBadge({ platform }: { platform: string }) {
     <span
       className={cn(
         "rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide",
-        PLATFORM_STYLE[platform] ?? "bg-slate-200 text-slate-700",
+        PLATFORM_STYLE[platform] ?? PLATFORM_STYLE_FALLBACK,
       )}
     >
       {platform}

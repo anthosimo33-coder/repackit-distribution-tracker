@@ -37,6 +37,7 @@ import {
   writeDashboardCacheIfChanged,
 } from "./dashboardCache";
 import { resolveCreatorKind } from "./roles";
+import { missionLabelFor } from "./missionLabel";
 import {
   monthLabelFr,
   monthsDue,
@@ -1181,17 +1182,104 @@ export async function getDueTotalCore(
   return computeDueTotal(ctx, ctx.projectId);
 }
 
+/**
+ * La VIDÉO derrière une ligne de bonus vidéo — de quoi la reconnaître et aller
+ * la voir : le MÊME libellé que la mission et « Mes vidéos » (missionLabelFor),
+ * sa date de publication, et le lien de chaque post.
+ */
+export type BonusVideoRef = {
+  assignmentId: string;
+  title: string;
+  publishedAt: number;
+  posts: { platform: Plateforme; url: string }[];
+};
+
+/** Liens des posts d'une vidéo : cibles, sinon le lien legacy. http(s) seulement. */
+function postLinksOf(a: Doc<"assignments">): BonusVideoRef["posts"] {
+  const isHttp = (u: string) => /^https?:\/\//i.test(u);
+  const fromTargets = (a.targets ?? []).flatMap((t) =>
+    t.publishedUrl && isHttp(t.publishedUrl)
+      ? [{ platform: t.platform, url: t.publishedUrl }]
+      : [],
+  );
+  if (fromTargets.length > 0) return fromTargets;
+  return a.publishedUrl && a.submittedPlatform && isHttp(a.publishedUrl)
+    ? [{ platform: a.submittedPlatform, url: a.publishedUrl }]
+    : [];
+}
+
+/**
+ * Cycles de l'ÉCRAN « Mes paiements » : chacun reçoit `bonusVideos`, la vidéo de
+ * chacune de ses lignes de bonus vidéo — live comme gelées, les deux portent
+ * l'assignmentId. Sans ça, « Bonus vidéo — 65 478 vues » ne disait pas laquelle.
+ *
+ * Branché sur les DEUX queries de l'écran seulement, pas dans
+ * cyclePaymentsForCreator : le classement et le digest déroulent les cycles de
+ * toutes les créatrices et n'affichent aucune vidéo.
+ *
+ * Ce qui sort : le nom de mission qu'elle voit déjà sur la mission et dans
+ * « Mes vidéos », et les liens qu'elle a elle-même collés. Rien du combo.
+ */
+async function withBonusVideos(
+  ctx: QueryCtx,
+  creatorId: Id<"creators">,
+  cycles: CyclePayment[],
+): Promise<(CyclePayment & { bonusVideos: BonusVideoRef[] })[]> {
+  const refs = new Map<string, BonusVideoRef | null>();
+  const refOf = async (id: string): Promise<BonusVideoRef | null> => {
+    const known = refs.get(id);
+    if (known !== undefined) return known;
+    const aid = ctx.db.normalizeId("assignments", id);
+    const a = aid ? await ctx.db.get(aid) : null;
+    const ref =
+      a && a.creatorId === creatorId
+        ? {
+            assignmentId: id,
+            title: (await missionLabelFor(ctx, a)).formatName,
+            publishedAt: assignmentPublishedAt(a),
+            posts: postLinksOf(a),
+          }
+        : null;
+    refs.set(id, ref);
+    return ref;
+  };
+  const out = [];
+  for (const c of cycles) {
+    const ids = new Set<string>([
+      ...c.pricingBreakdown.videoBonuses.map((b) => b.assignmentId),
+      ...c.lineItems.flatMap((li) =>
+        li.kind === "video_bonus" && li.assignmentId ? [li.assignmentId] : [],
+      ),
+    ]);
+    const bonusVideos: BonusVideoRef[] = [];
+    for (const id of ids) {
+      const ref = await refOf(id);
+      if (ref) bonusVideos.push(ref);
+    }
+    out.push({ ...c, bonusVideos });
+  }
+  return out;
+}
+
 export const getMyPayments = creatorQuery({
   args: {},
   handler: async (ctx) =>
-    cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    withBonusVideos(
+      ctx,
+      ctx.creatorId,
+      await cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    ),
 });
 
 /** ADMIN view-as — cycles/gains du créateur ciblé (lecture seule, scopé projet). */
 export const getPaymentsAsAdmin = adminViewAsMoneyQuery({
   args: {},
   handler: async (ctx) =>
-    cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    withBonusVideos(
+      ctx,
+      ctx.creatorId,
+      await cyclePaymentsForCreator(ctx, ctx.projectId, ctx.creatorId, Date.now()),
+    ),
 });
 
 /**

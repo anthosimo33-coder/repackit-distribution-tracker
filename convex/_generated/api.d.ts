@@ -172,6 +172,7 @@ import type * as metricSnapshots from "../metricSnapshots.js";
 import type * as metricsDisplay from "../metricsDisplay.js";
 import type * as migrations from "../migrations.js";
 import type * as missionAbandon from "../missionAbandon.js";
+import type * as missionLabel from "../missionLabel.js";
 import type * as missionOps from "../missionOps.js";
 import type * as missionOpsPlan from "../missionOpsPlan.js";
 import type * as modelVideoEmbeds from "../modelVideoEmbeds.js";
@@ -463,6 +464,7 @@ declare const fullApi: ApiFromModules<{
   metricsDisplay: typeof metricsDisplay;
   migrations: typeof migrations;
   missionAbandon: typeof missionAbandon;
+  missionLabel: typeof missionLabel;
   missionOps: typeof missionOps;
   missionOpsPlan: typeof missionOpsPlan;
   modelVideoEmbeds: typeof modelVideoEmbeds;

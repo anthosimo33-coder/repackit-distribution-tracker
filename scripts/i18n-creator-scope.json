@@ -84,6 +84,7 @@
     "components/portal/ViewsPulseCard.tsx",
     "components/portal/creator-data.ts",
     "components/portal/creator-tab-icons.ts",
+    "components/portal/platform-style.ts",
     "components/portal/screens/AssignmentDetailScreen.tsx",
     "components/portal/screens/ComptesScreen.tsx",
     "components/portal/screens/DashboardScreen.tsx",

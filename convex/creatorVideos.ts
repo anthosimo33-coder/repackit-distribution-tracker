@@ -7,7 +7,7 @@ import {
   MAX_PAY_PER_VIDEO_EUR,
 } from "./pricing";
 import { computeEarnings } from "./payments";
-import { missionLabelFor } from "./assignments";
+import { missionLabelFor } from "./missionLabel";
 import { calcCycle, cycleIndexOf } from "./payCycle";
 import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";

@@ -27,7 +27,9 @@ const DAY = 86_400_000;
  *
  * Vues à la forme de la prod (relevés non ronds), barème CPM 1,1 comme Snytch.
  */
-test("grille par vidéo : rétroactive sur le non-payé, promo seule, gelée au paiement", async () => {
+test("grille par vidéo : rétroactive sur le non-payé, promo seule, gelée au paiement", async ({
+  page,
+}) => {
   test.setTimeout(240_000);
   const ts = Date.now();
   const creator = await createCreatorSession(url, {
@@ -81,17 +83,13 @@ test("grille par vidéo : rétroactive sur le non-payé, promo seule, gelée au 
       id: assignmentId,
       status: "to_publish",
     });
+    const postUrl = `https://www.tiktok.com/${handle}/video/7300000000000${ts % 1000}${suffix === "promo" ? 1 : 2}`;
     const { publicationIds } = await creator.client.mutation(
       api.assignments.confirmPublication,
       {
         projectId,
         id: assignmentId,
-        urls: [
-          {
-            platform: "TikTok",
-            url: `https://www.tiktok.com/${handle}/video/7300000000000${ts % 1000}${suffix === "promo" ? 1 : 2}`,
-          },
-        ],
+        urls: [{ platform: "TikTok", url: postUrl }],
       },
     );
     await admin.mutation(api.metricSnapshots.createSnapshot, {
@@ -100,7 +98,7 @@ test("grille par vidéo : rétroactive sur le non-payé, promo seule, gelée au 
       vues,
       likes: Math.round(vues / 31),
     });
-    return { assignmentId, publicationId: publicationIds[0] };
+    return { assignmentId, publicationId: publicationIds[0], postUrl };
   }
 
   const promo = await videoPubliee("promo", 123_457);
@@ -151,6 +149,32 @@ test("grille par vidéo : rétroactive sur le non-payé, promo seule, gelée au 
     { assignmentId: promo.assignmentId, views: 123_457, montant: 20 },
   ]);
   expect(nonCumul.pricingBreakdown.videoBonusTotal).toBe(20);
+  // QUELLE vidéo : son nom de mission et le lien de son post, pour la seule
+  // vidéo bonifiée — la vidéo de chauffe n'a pas de ligne, donc pas de vidéo.
+  expect(
+    nonCumul.bonusVideos.map(({ assignmentId, title, posts }) => ({
+      assignmentId,
+      title,
+      posts,
+    })),
+  ).toEqual([
+    {
+      assignmentId: promo.assignmentId,
+      title: `[E2E_TEST] Format bonus vidéo ${ts}`,
+      posts: [{ platform: "TikTok", url: promo.postUrl }],
+    },
+  ]);
+
+  // ÉCRAN « Mes paiements » (vue admin de l'espace, même écran) : sous la
+  // ligne de bonus, le nom de la vidéo et un lien vers SON post.
+  await page.goto(`/admin/voir/e2e-test/${creator.creatorId}/paiements`);
+  const refs = page.getByTestId("bonus-video-ref");
+  await expect(refs).toHaveCount(1);
+  await expect(refs).toContainText(`[E2E_TEST] Format bonus vidéo ${ts}`);
+  await expect(refs.getByRole("link", { name: /TikTok/ })).toHaveAttribute(
+    "href",
+    promo.postUrl,
+  );
   // Le bonus S'AJOUTE : le CPM ne bouge pas, le dû prend 20.
   expect(nonCumul.pricingBreakdown.cpmTotal).toBeCloseTo(sans.pricingBreakdown.cpmTotal, 2);
   expect(nonCumul.totalDue).toBeCloseTo(sans.totalDue + 20, 2);
@@ -190,6 +214,8 @@ test("grille par vidéo : rétroactive sur le non-payé, promo seule, gelée au 
   expect(lignes[0].assignmentId).toBe(promo.assignmentId);
   expect(lignes[0].amount).toBe(30);
   expect(lignes[0].detail?.views).toBe(123_457);
+  // Gelée, la ligne garde son assignmentId : la vidéo se retrouve toujours.
+  expect(paye.bonusVideos.map((v) => v.assignmentId)).toEqual([promo.assignmentId]);
   expect(paye.pricingBreakdown.videoBonusTotal).toBe(30);
   expect(paye.totalDue).toBeCloseTo(cumul.totalDue, 2);
 

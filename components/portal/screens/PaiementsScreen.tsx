@@ -16,7 +16,12 @@ import { formatMoneyDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { PAY_WINDOW_EFFECTIVE_AT } from "@/convex/payWindow";
 import { useIntlLocale } from "@/lib/use-intl-locale";
-import { ArrowRightIcon, ChevronRightIcon } from "lucide-react";
+import { publishedAgo } from "@/lib/video-tracking";
+import {
+  PLATFORM_STYLE,
+  PLATFORM_STYLE_FALLBACK,
+} from "@/components/portal/platform-style";
+import { ArrowRightIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTranslations } from "next-intl";
@@ -30,6 +35,7 @@ import { useTranslations } from "next-intl";
  */
 
 type Payment = FunctionReturnType<typeof api.payments.getMyPayments>[number];
+type BonusVideo = Payment["bonusVideos"][number];
 
 const DAY_MS = 86_400_000;
 const fmtViews = (n: number, locale: string) => n.toLocaleString(locale);
@@ -173,14 +179,52 @@ function KindTag({
 }
 
 /**
+ * La VIDÉO qui a rapporté un bonus, sous sa ligne : son nom (celui de « Mes
+ * vidéos »), sa date, et un lien vers chaque post. Sans elle, cinq lignes
+ * « Bonus vidéo — N vues » ne disaient pas laquelle était laquelle.
+ */
+function BonusVideoRef({ video }: { video: BonusVideo | undefined }) {
+  const t = useTranslations("portal");
+  const [now] = useState(() => Date.now());
+  if (!video) return null;
+  return (
+    <div
+      data-testid="bonus-video-ref"
+      className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500"
+    >
+      <span className="min-w-0 font-medium text-slate-700">{video.title}</span>
+      <span>{t("videos.publishedAgo", publishedAgo(video.publishedAt, now))}</span>
+      {video.posts.map((p) => (
+        <a
+          key={`${p.platform}:${p.url}`}
+          href={p.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t("assignment.seePostOn", { platform: p.platform })}
+          className={cn(
+            "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide hover:opacity-80",
+            PLATFORM_STYLE[p.platform] ?? PLATFORM_STYLE_FALLBACK,
+          )}
+        >
+          {p.platform}
+          <ExternalLinkIcon className="size-3" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Aperçu PRICING temps réel d'une période non payée : fixe acquis (X/cible
  * vidéos → Y$ sur montantFixe), CPM accumulé (sur les vues), bonus, total.
  */
 function PricingBreakdown({
   b,
+  videos,
   currency,
 }: {
   b: Payment["pricingBreakdown"];
+  videos: BonusVideo[];
   currency?: string | null;
 }) {
   const t = useTranslations("portal");
@@ -293,14 +337,19 @@ function PricingBreakdown({
         />
       ))}
       {/* Bonus PAR VIDÉO — une ligne par vidéo qui a franchi un seuil, pour que
-          le sous-total s'additionne à l'œil (même leçon que la prime de défi). */}
+          le sous-total s'additionne à l'œil (même leçon que la prime de défi),
+          et sous chacune, LA vidéo qui l'a rapporté. */}
       {b.videoBonuses.map((vb, i) => (
-        <Row
-          key={`${vb.assignmentId}:${i}`}
-          label={t("paiements.line.videoBonus", { views: fmtViews(vb.views, loc) })}
-          amount={vb.montant}
-          currency={currency}
-        />
+        <div key={`${vb.assignmentId}:${i}`}>
+          <Row
+            label={t("paiements.line.videoBonus", { views: fmtViews(vb.views, loc) })}
+            amount={vb.montant}
+            currency={currency}
+          />
+          <BonusVideoRef
+            video={videos.find((v) => v.assignmentId === vb.assignmentId)}
+          />
+        </div>
       ))}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>{t("paiements.subtotal")}</span>
@@ -386,17 +435,21 @@ function LineItems({ p, currency }: { p: Payment; currency?: string | null }) {
   return (
     <ul className="divide-y divide-slate-100">
       {p.lineItems.map((li, i) => (
-        <li
-          key={i}
-          className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <KindTag kind={li.kind} />
-            <span className="truncate text-slate-700">{lineLabel(li)}</span>
-          </span>
-          <span className="shrink-0 tabular-nums text-slate-900">
-            {formatMoney(li.amount, currency, loc)}
-          </span>
+        <li key={i} className="px-4 py-2.5 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-2">
+              <KindTag kind={li.kind} />
+              <span className="truncate text-slate-700">{lineLabel(li)}</span>
+            </span>
+            <span className="shrink-0 tabular-nums text-slate-900">
+              {formatMoney(li.amount, currency, loc)}
+            </span>
+          </div>
+          {li.kind === "video_bonus" && li.assignmentId && (
+            <BonusVideoRef
+              video={p.bonusVideos.find((v) => v.assignmentId === li.assignmentId)}
+            />
+          )}
         </li>
       ))}
       <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-semibold">
@@ -551,7 +604,11 @@ export default function PaiementsScreen() {
               </Card>
             ) : (
               <div className="space-y-2">
-                <PricingBreakdown b={current.pricingBreakdown} currency={currentCurrency} />
+                <PricingBreakdown
+                  b={current.pricingBreakdown}
+                  videos={current.bonusVideos}
+                  currency={currentCurrency}
+                />
                 {current.lineItems.length > 0 && (
                   <Card>
                     <CardContent className="p-0">

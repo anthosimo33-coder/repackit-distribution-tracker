@@ -335,6 +335,7 @@
     "convex/marketValue.ts",
     "convex/marketWindow.ts",
     "convex/metricsDisplay.ts",
+    "convex/missionLabel.ts",
     "convex/opsDigest.ts",
     "convex/payCurrency.ts",
     "convex/payCycle.ts",
