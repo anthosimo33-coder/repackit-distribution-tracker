@@ -244,6 +244,8 @@ test.describe("S2 — assignation anti-coordination", () => {
     // Isolation PAIE : le nom de campagne ne fuite PAS dans les PAIEMENTS
     // (lineItems génériques). Il est en revanche affiché comme libellé de mission
     // côté créateur (cf. formatName ci-dessus) — ce sont deux surfaces distinctes.
+    // Seule exception : une ligne de BONUS VIDÉO nomme sa vidéo par ce même
+    // libellé (`bonusVideos`) — ce barème n'a pas de grille de bonus.
     expect(JSON.stringify(myPayments)).not.toContain(`[E2E_TEST] Assign ${ts}`);
 
     // ADMIN : la décomposition du combo est visible (résumé).

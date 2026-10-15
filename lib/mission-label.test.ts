@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 /**
  * NOM DE CAMPAGNE exposé au portail — règle de repli.
  *
- * `missionLabelFor` (convex/assignments.ts) est le SEUL point où le nom d'une
+ * `missionLabelFor` (convex/missionLabel.ts) est le SEUL point où le nom d'une
  * campagne atteint l'espace créatrice et l'espace clippeur. Il lisait `name`,
  * le nom INTERNE de production : « Format Warmup LAB » s'affichait tel quel sur
  * le dashboard d'une créatrice, révélant la taxonomie de pilotage.
