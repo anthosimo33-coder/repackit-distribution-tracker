@@ -82,9 +82,18 @@ export default function TournagePage() {
         </div>
       </header>
       <ol className="list-decimal space-y-1 rounded-lg border border-slate-200 bg-white py-3 pr-4 pl-9 text-sm text-slate-700">
-        <li>{tr("etape1")}</li>
-        <li>{tr("etape2")}</li>
-        <li>{tr("etape3")}</li>
+        {donnees?.apiBlush ? (
+          <>
+            <li>{tr("etapeAuto1")}</li>
+            <li>{tr("etapeAuto2")}</li>
+          </>
+        ) : (
+          <>
+            <li>{tr("etape1")}</li>
+            <li>{tr("etape2")}</li>
+            <li>{tr("etape3")}</li>
+          </>
+        )}
       </ol>
 
       {donnees === undefined ? (
@@ -99,6 +108,7 @@ export default function TournagePage() {
             key={c._id}
             createatrice={c}
             scenarios={donnees.scenarios}
+            apiBlush={donnees.apiBlush}
             ouverteAuDepart={donnees.createatrices.length <= OUVERTES_JUSQUA}
           />
         ))
@@ -111,19 +121,36 @@ function CarteCreatrice({
   createatrice: c,
   scenarios,
   ouverteAuDepart,
+  apiBlush,
 }: {
   createatrice: Createatrice;
   scenarios: Scenario[];
   ouverteAuDepart: boolean;
+  apiBlush: boolean;
 }) {
   const tr = useTranslations("admin.scripts.TournagePage");
   const showError = useConvexError();
   const preparer = useProjectAction(api.scenarioTournage.preparerTournages);
-  const [busy, setBusy] = useState<"preparer" | "zip" | null>(null);
+  const demander = useProjectMutation(api.scenarioTournage.demanderLiensTournage);
+  const [busy, setBusy] = useState<"preparer" | "zip" | "liens" | null>(null);
   const [ouverte, setOuverte] = useState(ouverteAuDepart);
   const parScenario = new Map(c.tournages.map((t) => [t.scenarioId as string, t]));
   const manquants = scenarios.filter((s) => !parScenario.has(s._id)).length;
   const liens = c.tournages.filter((t) => t.lien).length;
+  const enCours = (t: Tournage) => t.blush?.statut === "demande" || t.blush?.statut === "en_lecture";
+  const sansLien = c.tournages.filter((t) => !t.lien && !enCours(t)).length;
+
+  async function demanderLiens(scenarioIds?: Id<"scenarios">[]) {
+    setBusy("liens");
+    try {
+      const r = await demander({ creatorId: c._id, ...(scenarioIds ? { scenarioIds } : {}) });
+      toast.success(tr("liensDemandes", { n: r.demandes }));
+    } catch (e) {
+      toast.error(showError(e, tr("echec")));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function lancerPreparation(scenarioIds?: Id<"scenarios">[]) {
     setBusy("preparer");
@@ -177,6 +204,12 @@ function CarteCreatrice({
               {tr("preparer", { n: manquants })}
             </Button>
           )}
+          {apiBlush && sansLien > 0 && (
+            <Button size="sm" onClick={() => demanderLiens()} disabled={busy !== null} data-testid="tournage-creer-liens">
+              {busy === "liens" && <Loader2Icon className="mr-2 size-4 animate-spin" />}
+              {tr("creerLiens", { n: sansLien })}
+            </Button>
+          )}
           {c.tournages.length > 0 && (
             <Button size="sm" variant="outline" onClick={toutTelecharger} disabled={busy !== null}>
               {busy === "zip" ? <Loader2Icon className="mr-2 size-4 animate-spin" /> : <DownloadIcon className="mr-2 size-4" />}
@@ -195,6 +228,7 @@ function CarteCreatrice({
                 scenario={s}
                 tournage={parScenario.get(s._id) ?? null}
                 preparer={busy === null ? () => lancerPreparation([s._id as Id<"scenarios">]) : null}
+                reessayer={apiBlush && busy === null ? () => demanderLiens([s._id as Id<"scenarios">]) : null}
               />
             ))}
           </div>
@@ -209,12 +243,15 @@ function LigneTournage({
   scenario: s,
   tournage: t,
   preparer,
+  reessayer,
 }: {
   prenom: string;
   scenario: Scenario;
   tournage: Tournage | null;
   /** Préparer CE fichier seul ; null pendant une préparation. */
   preparer: (() => void) | null;
+  /** Redemander son lien à BLUSH ; null sans API ou pendant une demande. */
+  reessayer: (() => void) | null;
 }) {
   const tr = useTranslations("admin.scripts.TournagePage");
   const showError = useConvexError();
@@ -281,6 +318,24 @@ function LigneTournage({
             <DownloadIcon className="mr-1.5 size-3.5" />
             {tr("fichier")}
           </button>
+          {!t.lien && (t.blush?.statut === "demande" || t.blush?.statut === "en_lecture") && (
+            <span className="flex shrink-0 items-center gap-2 text-sm text-slate-500" data-testid="tournage-en-creation">
+              <Loader2Icon className="size-4 animate-spin" />
+              {tr("enCreation")}
+            </span>
+          )}
+          {!t.lien && t.blush?.statut === "echec" && (
+            <span className="flex shrink-0 items-center gap-2 text-sm text-rose-600" data-testid="tournage-echec">
+              <span className="max-w-64 truncate" title={t.blush.erreur ?? undefined}>
+                {tr("echecLien", { erreur: t.blush.erreur ?? "" })}
+              </span>
+              {reessayer && (
+                <Button type="button" size="sm" variant="outline" onClick={reessayer}>
+                  {tr("reessayer")}
+                </Button>
+              )}
+            </span>
+          )}
           <Input
             value={valeur}
             onChange={(e) => setSaisie(e.target.value)}

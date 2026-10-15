@@ -409,6 +409,13 @@
     "echec": "Ça n'a pas marché. Réessaie.",
     "echecTelechargement": "Le fichier n'a pas pu être téléchargé. Réessaie.",
     "preparerUn": "Préparer le fichier {code} pour {prenom}",
-    "nomZip": "Tournage {prenom}.zip"
+    "nomZip": "Tournage {prenom}.zip",
+    "etapeAuto1": "« Préparer » fabrique ses fichiers (un par histoire, à son prénom, figés) et demande à BLUSH le lien de chacun : environ 3 minutes, une lecture payée (≈ 1 €) par fichier.",
+    "etapeAuto2": "Les liens se posent tout seuls, et sa mission les affiche aussitôt. En cas d'échec, la raison s'affiche avec « Réessayer » ; tu peux aussi coller un lien à la main.",
+    "creerLiens": "Créer les liens BLUSH ({n})",
+    "liensDemandes": "{n, plural, =0 {Aucun lien à demander} one {# lien demandé à BLUSH (≈ 3 min)} other {# liens demandés à BLUSH (≈ 3 min)}}",
+    "enCreation": "Lien en cours de création dans BLUSH…",
+    "echecLien": "Échec : {erreur}",
+    "reessayer": "Réessayer"
   }
 }
