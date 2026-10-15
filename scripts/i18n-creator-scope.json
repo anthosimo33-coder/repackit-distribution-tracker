@@ -76,6 +76,7 @@
     "components/portal/PortalRoleGate.tsx",
     "components/portal/PricingEstimator.tsx",
     "components/portal/ProgressionCelebration.tsx",
+    "components/portal/ProjectAvatar.tsx",
     "components/portal/RankCard.tsx",
     "components/portal/StreakCard.tsx",
     "components/portal/TodayPostBanner.tsx",

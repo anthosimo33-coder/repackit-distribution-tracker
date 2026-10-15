@@ -13,6 +13,7 @@ import { AccentStyle } from "@/components/project/AccentStyle";
 import { SidebarItem } from "@/components/layout/SidebarItem";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
+import { ProjectAvatar } from "@/components/portal/ProjectAvatar";
 import { useViewAs } from "@/components/portal/ViewAsContext";
 import {
   useActionable,
@@ -434,6 +435,9 @@ function PartnerViewShell({ children, locale, messages }: ShellProps) {
         {/* Sidebar DESKTOP (≥ md) — réplique read-only de CreatorSidebar. */}
         <aside className="hidden h-[calc(100vh-49px)] w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:sticky md:top-[49px] md:flex">
           <div className="flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 px-4">
+            {/* Même identité que l'en-tête réel (CreatorProjectSwitcher) : le
+                logo du projet, ou son initiale sur l'accent. */}
+            <ProjectAvatar project={current} />
             <span className="truncate text-sm font-semibold text-slate-900">
               {current.name}
             </span>
