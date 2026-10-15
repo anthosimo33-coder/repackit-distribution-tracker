@@ -519,6 +519,33 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
     // 2026-09-06, donc aucun chiffre ne bouge aujourd'hui ; le trou se refermait
     // silencieusement au premier défi payé.
     let challengeTotal = 0;
+    // Paliers et victoires du projet — lus ICI une seule fois : ils complètent
+    // les breakdowns juste dessous, puis datent le bonus plus bas.
+    const unlocksDuProjet = await ctx.db
+      .query("bonusUnlocks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const victoiresDuProjet = await ctx.db
+      .query("challengeWins")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    // Une prime peut être rattachée à un mois SANS publication de sa créatrice
+    // (rollover d'une période payée, palier franchi par les vues tardives de
+    // vidéos plus anciennes). Les breakdowns ne couvraient que les mois qui ont
+    // des lignes : la prime sortait du total, donc du coût d'acquisition et du
+    // RPM coût. Même règle que la Rentabilité (mois actifs ∪ attributionPeriod).
+    // Mémoïsé : un mois déjà calculé ne coûte rien de plus.
+    const createursDesLignes = new Set(rows.map((r) => r.creatorId as string));
+    for (const p of [
+      ...unlocksDuProjet.filter((u) => u.rewardType === "cash"),
+      ...victoiresDuProjet.filter(
+        (w) => w.cancelledAt === undefined && w.reward.type === "cash",
+      ),
+    ]) {
+      if (createursDesLignes.has(p.creatorId as string)) {
+        await breakdownFor(p.creatorId, p.attributionPeriod);
+      }
+    }
     for (const b of breakdowns.values()) {
       bonusTotal = round2(bonusTotal + b.bonusTierCashTotal);
       challengeTotal = round2(challengeTotal + b.challengeTotal);
@@ -569,19 +596,13 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       const d = parisDay(at);
       bonusByDay.set(d, round2((bonusByDay.get(d) ?? 0) + amount));
     };
-    for (const u of await ctx.db
-      .query("bonusUnlocks")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect()) {
+    for (const u of unlocksDuProjet) {
       // Ramené dans la devise du projet, comme les breakdowns ci-dessus.
       if (u.rewardType === "cash") {
         addBonus(u.unlockedAt, (u.montant ?? 0) * (payCurrencyFactor(u.currency, project) ?? 1));
       }
     }
-    for (const w of await ctx.db
-      .query("challengeWins")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect()) {
+    for (const w of victoiresDuProjet) {
       // Une victoire ANNULÉE n'est plus due : elle ne doit pas peser sur une
       // fenêtre alors qu'elle est déjà hors du total.
       if (w.cancelledAt !== undefined) continue;

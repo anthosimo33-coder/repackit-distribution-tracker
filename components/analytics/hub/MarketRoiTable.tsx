@@ -287,9 +287,10 @@ function MarketRowDetail({
           </table>
         )}
         <p className="text-[11px] text-slate-400">
-          Pas de revenu par créatrice : un client n&apos;est pas rattaché à la
-          vidéo qui l&apos;a amené. « cher » = plus du double du coût / 1 000 vues
-          du marché.
+          Coût = toute sa paie promo : fixe, CPM, bonus par vidéo, paliers et
+          primes de défi. Pas de revenu par créatrice : un client n&apos;est pas
+          rattaché à la vidéo qui l&apos;a amené. « cher » = plus du double du
+          coût / 1 000 vues du marché.
         </p>
       </div>
 

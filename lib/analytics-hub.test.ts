@@ -15,6 +15,7 @@ import {
   per1kViews,
   computeUnitEconomics,
   computePromoRpm,
+  promoCostWithPrimes,
   checkMonotonicity,
   funnelCoherenceChecks,
   buildCoherenceChecks,
@@ -1166,6 +1167,35 @@ describe("buildCoherenceChecks", () => {
     expect(c?.status).toBe("violation");
     expect(c?.detail).toContain("2 jour(s) divergent(s)");
     expect(c?.detail).toContain("2026-08-04"); // écart 7 = le pire
+  });
+});
+
+/**
+ * COÛT DU RPM PROMO — la paie promo COMPLÈTE : vidéos promo + paliers + défis.
+ * La carte divisait le seul fixe + CPM par les vues promo : les 200 $ de palier
+ * de Kelly (septembre 2026) n'y entraient pas.
+ */
+describe("promoCostWithPrimes", () => {
+  it("additionne les vidéos promo et les primes", () => {
+    expect(promoCostWithPrimes({ promo: 1834.27, promoBonus: 200 })).toBe(2034.27);
+    expect(
+      computePromoRpm({
+        revenueNet: 7947.22,
+        creatorCost: promoCostWithPrimes({ promo: 1834.27, promoBonus: 200 }),
+        promoViews: 1_865_711,
+        fxRateToRevenue: 0.86,
+      }).cost,
+    ).toBe(1.09); // 2 034,27 / 1 865,711 milliers — 0,98 sans le palier
+  });
+
+  it("une moitié inconnue rend tout inconnu, jamais une somme partielle", () => {
+    expect(promoCostWithPrimes({ promo: null, promoBonus: 200 })).toBeNull();
+    expect(promoCostWithPrimes({ promo: 1834.27, promoBonus: null })).toBeNull();
+    expect(promoCostWithPrimes(undefined)).toBeNull();
+  });
+
+  it("sans prime : le coût des vidéos promo, tel quel", () => {
+    expect(promoCostWithPrimes({ promo: 1834.27, promoBonus: 0 })).toBe(1834.27);
   });
 });
 

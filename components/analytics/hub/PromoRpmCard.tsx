@@ -3,7 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { formatNumber } from "@/lib/format";
 import { formatMoney } from "@/lib/format-rate";
-import { computePromoRpm } from "@/lib/analytics-hub";
+import { computePromoRpm, promoCostWithPrimes } from "@/lib/analytics-hub";
 import { effectiveFxRate } from "@/lib/currency";
 import {
   toDisplayAmount,
@@ -24,8 +24,9 @@ import type { AttributionData, RevenueData, ViewCountersData } from "./types";
  * (hors warmup), affichées sur la carte — elles ne se déduisaient jusqu'ici que du
  * ratio arrondi de « Vues promo → abonné ».
  *
- * PÉRIMÈTRE UNIQUE des deux côtés : le coût est la paie des PUBLICATIONS PROMO
- * (fixe + CPM), jamais le coût complet du moteur. Le warmup n'est pas rémunéré —
+ * PÉRIMÈTRE UNIQUE des deux côtés : le coût est la paie PROMO (fixe, CPM et
+ * bonus des publications promo, plus paliers et primes de défi), jamais le coût
+ * complet du moteur. Le warmup n'est pas rémunéré —
  * sauf l'exception historique portée par le champ `remunere`, dont les vues
  * sortent du dénominateur ET la paie du numérateur (promoVideoCost, côté serveur).
  * Compter le warmup au numérateur reviendrait à facturer un coût qu'on ne paie
@@ -95,12 +96,13 @@ export function PromoRpmCard({
 
   const rpm = computePromoRpm({
     revenueNet,
-    // Paie des PUBLICATIONS PROMO (fixe + CPM), et rien d'autre : le warmup n'est
-    // pas rémunéré, sauf l'exception historique traitée par le champ `remunere`,
+    // Paie PROMO complète — vidéos promo (fixe, CPM, bonus par vidéo) + paliers
+    // et primes de défi, gagnés sur des vues promo. Le warmup n'est pas
+    // rémunéré, sauf l'exception historique traitée par le champ `remunere`,
     // dont les vues sortent du dénominateur — sa paie ne doit donc pas entrer au
-    // numérateur (elle en est retirée par promoVideoCost, côté serveur). Le
-    // périmètre est le même des deux côtés : les publications promo.
-    creatorCost: attribution?.costs.promo ?? null,
+    // numérateur (elle en est retirée côté serveur). Le périmètre est le même
+    // des deux côtés : la promo.
+    creatorCost: promoCostWithPrimes(attribution?.costs),
     promoViews: viewCounters?.promo ?? null,
     fxRateToRevenue: fx,
   });
@@ -113,7 +115,7 @@ export function PromoRpmCard({
   const costValue = convertedValue(costAmount);
   const costHint = [
     conversionNote(costAmount),
-    "fixe + CPM des publications promo, hors bonus de paliers",
+    "paie des vidéos promo, paliers et primes de défi compris",
   ]
     .filter((x) => x !== "")
     .join(" · ");

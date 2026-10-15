@@ -966,6 +966,31 @@ describe("assignmentCostFromBreakdown", () => {
       }),
     ).toEqual({ cost: 12, promoCost: 4.5 });
   });
+
+  it("fixe ENGAGÉ sans poids (seuil pas franchi) : promo en entier, plus zéro", () => {
+    // Mois en cours, barème à seuil : le moteur bloque tout le fixe (fixe 0,
+    // CPM 0 par vidéo) et videoCostsOfMonth répartit l'engagé à parts égales,
+    // 22,50 $ ici. Un fixe est par VIDÉO : la vidéo promo le porte en entier.
+    expect(
+      convexPricing.assignmentCostFromBreakdown({
+        ...base,
+        video: { cost: 22.5, fixed: 0, cpm: 0 },
+        payableViews: 3_917,
+        promoPaidViews: 3_917,
+      }),
+    ).toEqual({ cost: 22.5, promoCost: 22.5 });
+  });
+
+  it("vidéo payée par son seul bonus : le bonus entier, comme l'onglet Pays", () => {
+    expect(
+      convexPricing.assignmentCostFromBreakdown({
+        ...base,
+        video: { cost: 50, fixed: 0, cpm: 0, bonus: 50 },
+        payableViews: 61_388,
+        promoPaidViews: 61_388,
+      }),
+    ).toEqual({ cost: 50, promoCost: 50 });
+  });
 });
 
 /**

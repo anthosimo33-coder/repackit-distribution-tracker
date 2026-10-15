@@ -1671,6 +1671,44 @@ export function assembleBreakdown(input: {
 }
 
 /**
+ * Part PROMO du coût qu'une vidéo porte — SOURCE UNIQUE de la Vue d'ensemble
+ * (assignmentCostFromBreakdown) et de l'onglet Pays (marketPromo.promoCostOfVideo).
+ * Deux copies de la même fraction avaient divergé : l'onglet Pays rendait 0 pour
+ * une vidéo sans fixe ni CPM, et perdait son bonus par vidéo, que la Vue
+ * d'ensemble gardait.
+ *
+ *  - Le BONUS PAR VIDÉO est 100 % promo par construction (il ne se gagne que sur
+ *    des vues rémunérées ET promo) : il entre en entier.
+ *  - Le reste (fixe + CPM) prend la part promo du couple, appliquée au coût RÉEL
+ *    de la vidéo et non recalculée : il peut différer de fixe + CPM (mois en
+ *    cours = engagé).
+ *  - Sans fixe ni CPM au moteur (`brut` nul), ce qui reste est du fixe ENGAGÉ
+ *    réparti à parts égales (cf videoCostsOfMonth) : un fixe est par VIDÉO, il
+ *    est promo en entier. Le ramener à zéro perdait le coût engagé.
+ */
+export function promoPartOfVideoCost(input: {
+  cost: number;
+  fixed: number;
+  cpm: number;
+  bonus: number;
+  payableViews: number;
+  promoPaidViews: number;
+}): number {
+  const bonus = Math.min(Math.max(0, input.bonus), Math.max(0, input.cost));
+  const fixeCpm = Math.max(0, input.cost - bonus);
+  const brut = Math.max(0, input.fixed) + Math.max(0, input.cpm);
+  const share =
+    brut > 0
+      ? Math.min(
+          1,
+          promoVideoCost(input.fixed, input.cpm, input.payableViews, input.promoPaidViews) /
+            brut,
+        )
+      : 1;
+  return round2(fixeCpm * share + bonus);
+}
+
+/**
  * Coût d'UNE vidéo lu depuis un breakdown de paie — POINT DE DÉCISION UNIQUE du
  * « on sait / on ne sait pas ».
  *
@@ -1715,21 +1753,17 @@ export function assignmentCostFromBreakdown(input: {
   if (!input.hasPricingSnapshot) return { cost: null, promoCost: null };
   if (input.video !== null) {
     const { cost, fixed, cpm } = input.video;
-    // Le BONUS PAR VIDÉO est 100 % promo par construction (il ne se gagne que
-    // sur des vues rémunérées ET promo) : il entre en entier au coût promo, et
-    // le prorata ne s'applique qu'au reste (fixe + CPM).
-    const bonus = Math.max(0, input.video.bonus ?? 0);
-    const fixeCpm = cost - bonus;
-    // Part PROMO appliquée au coût RÉEL de la vidéo, pas recalculée : le coût
-    // peut différer de fixe + CPM (mois en cours = engagé). Même fraction que
-    // marketPromo.promoCostOfVideo, écrite ici faute de pouvoir l'importer
-    // (marketPromo importe ce module).
-    const brut = Math.max(0, fixed) + Math.max(0, cpm);
-    const share =
-      brut > 0
-        ? Math.min(1, promoVideoCost(fixed, cpm, input.payableViews, input.promoPaidViews) / brut)
-        : 0;
-    return { cost: round2(cost), promoCost: round2(fixeCpm * share + bonus) };
+    return {
+      cost: round2(cost),
+      promoCost: promoPartOfVideoCost({
+        cost,
+        fixed,
+        cpm,
+        bonus: input.video.bonus ?? 0,
+        payableViews: input.payableViews,
+        promoPaidViews: input.promoPaidViews,
+      }),
+    };
   }
   // Retirée de la paie par décision : coût CONNU, et il vaut zéro.
   if (!input.hasPayablePost) return { cost: 0, promoCost: 0 };

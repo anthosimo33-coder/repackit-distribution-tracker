@@ -31,6 +31,8 @@ async function video(
   pricingId: Id<"pricings">,
   url: string,
   vues: number,
+  /** Publication ANTIDATÉE — une vidéo d'un mois révolu. */
+  publishedAt?: number,
 ) {
   await admin.mutation(api.assignments.assignFormat, {
     formatId,
@@ -46,6 +48,7 @@ async function video(
   const pub = await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
     id: row._id,
     urls: [{ platform: "TikTok", url }],
+    ...(publishedAt !== undefined ? { publishedAt, allowBackdate: true } : {}),
   });
   const publicationId = (pub.publicationIds ?? [])[0] as Id<"publications">;
   await admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
@@ -196,21 +199,143 @@ test.describe("Coût d'une vidéo — le même sur tous les écrans", () => {
         platform: "TikTok",
         handle: `@nora.benali_${ts}`,
       });
+      // Un marché que le reste de la spec ne touche pas : la ligne ne porte que
+      // la créatrice de ce test (lue en écart, la base e2e est partagée).
+      await admin.mutation(api.comptes.updateCompte, {
+        id: target.accountId,
+        targetCountry: "LU",
+      });
       const rentab = async () =>
         (await admin.query(api.profitability.getProjectProfitability, {})).total
           .creatorCost;
       const analytics = async () =>
-        (await admin.query(api.analyticsHub.getAttribution, {})).costs.total;
+        (await admin.query(api.analyticsHub.getAttribution, {})).costs;
+      const luxembourg = async () =>
+        (
+          await admin.query(api.marketPnl.getMarketPnl, {
+            from: ts - DAY,
+            to: Date.now() + DAY,
+          })
+        ).rows.find((r) => r.country === "LU");
       const r0 = await rentab();
       const a0 = await analytics();
+      const p0 = await luxembourg();
 
       await video(c.creatorId, target, formatId, pricingId,
         `https://www.tiktok.com/@nora.benali_${ts}/video/74${ts}`, 63_418);
 
       // Présence : le palier est bien débloqué, et Analytics le compte…
-      expect((await analytics()) - a0).toBeCloseTo(187.5, 2);
-      // …la Rentabilité aussi.
+      const a1 = await analytics();
+      // …dans le bonus qui nourrit le coût PROMO complet (RPM promo, coût
+      // d'acquisition) — lu sur `bonusTotal`, jamais nul : `promoBonus` passe à
+      // null dès qu'UNE vidéo promo du projet a un coût inconnu, ce que la base
+      // e2e partagée finit par contenir (écart lu 0 − 0 en CI)…
+      expect(a1.bonusTotal - a0.bonusTotal).toBeCloseTo(187.5, 2);
+      expect(a1.total - a0.total).toBeCloseTo(187.5, 2);
+      // …la Rentabilité aussi…
       expect((await rentab()) - r0).toBeCloseTo(187.5, 2);
+      // …et l'onglet Pays, sur le marché de son compte. Il en était EXCLU : la
+      // vidéo ne coûte rien par le fixe/CPM, son coût / 1 000 vues affichait 0.
+      const p1 = await luxembourg();
+      expect((p1?.cost ?? 0) - (p0?.cost ?? 0)).toBeCloseTo(187.5, 2);
+      expect((p1?.promoCost ?? 0) - (p0?.promoCost ?? 0)).toBeCloseTo(187.5, 2);
+      const nora = p1?.creatorsDetail.find(
+        (d) => d.name === `[E2E_TEST] Nora Benali ${ts}`,
+      );
+      expect(nora?.promoCost).toBeCloseTo(187.5, 2);
+      expect(nora?.promoViews).toBe(63_418);
+    } finally {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        ...(ancien ? { whop: ancien } : {}),
+      });
+    }
+  });
+
+  test("un palier débloqué un mois SANS publication compte partout", async () => {
+    // La vidéo date du mois dernier, ses vues franchissent le palier aujourd'hui :
+    // le palier est rattaché au mois EN COURS, où la créatrice n'a rien publié.
+    // La Vue d'ensemble ne lisait que les mois qui ont des vidéos (le palier
+    // sortait du coût d'acquisition et du RPM coût) ; l'onglet Pays sautait la
+    // créatrice faute de publication dans la période. La Rentabilité, elle, le
+    // comptait déjà : c'est la référence.
+    test.setTimeout(180_000);
+    const ts = Date.now() + 2;
+    const projectId = await admin.getProjectId();
+    const ancien = await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+      secret: E2E_SECRET,
+      projectId,
+      whop: { companyId: `biz_e2e_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+    });
+    try {
+      const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+        name: `[E2E_TEST] Palier tardif ${ts}`,
+        montantFixe: 0,
+        nbVideosCible: 1,
+        tauxCPM: 0,
+        bonusTiers: [{ seuilVues: 60_000, rewardType: "cash", montant: 212.4 }],
+      });
+      const formatId = (await createFormatWithRate(admin, {
+        name: `[E2E_TEST] Palier tardif ${ts}`,
+        type: "short",
+        rateModel: { basePerPost: 0 },
+      })) as Id<"formats">;
+      const c = await createCreatorSession(convexUrl!, {
+        name: `[E2E_TEST] Inès Morel ${ts}`,
+        email: `e2e-palier-tardif-${ts}@repackit.test`,
+        password: `palier-tardif-${ts}-12345`,
+      });
+      await admin.mutation(api.creators.updateCreatorPayTerms, {
+        id: c.creatorId,
+        bonusPricingId: pricingId,
+      });
+      const target = await availableTarget({
+        e2eClient: admin,
+        creatorId: c.creatorId,
+        platform: "TikTok",
+        handle: `@ines.morel_${ts}`,
+      });
+      await admin.mutation(api.comptes.updateCompte, {
+        id: target.accountId,
+        targetCountry: "CY",
+      });
+      const rentab = async () =>
+        (await admin.query(api.profitability.getProjectProfitability, {})).total
+          .creatorCost;
+      const analytics = async () =>
+        (await admin.query(api.analyticsHub.getAttribution, {})).costs;
+      // Période = les 7 derniers jours : la vidéo (40 jours) en est HORS, le
+      // palier (aujourd'hui) DEDANS.
+      const chypre = async () =>
+        (
+          await admin.query(api.marketPnl.getMarketPnl, {
+            from: ts - 7 * DAY,
+            to: Date.now() + DAY,
+          })
+        ).rows.find((r) => r.country === "CY");
+      const r0 = await rentab();
+      const a0 = await analytics();
+      const p0 = await chypre();
+
+      await video(c.creatorId, target, formatId, pricingId,
+        `https://www.tiktok.com/@ines.morel_${ts}/video/75${ts}`, 61_907,
+        ts - 40 * DAY);
+
+      expect((await rentab()) - r0).toBeCloseTo(212.4, 2);
+      const a1 = await analytics();
+      // `bonusTotal` et non `promoBonus` (cf le test précédent).
+      expect(a1.bonusTotal - a0.bonusTotal).toBeCloseTo(212.4, 2);
+      expect(a1.total - a0.total).toBeCloseTo(212.4, 2);
+      const p1 = await chypre();
+      expect((p1?.promoCost ?? 0) - (p0?.promoCost ?? 0)).toBeCloseTo(212.4, 2);
+      // La vidéo est hors période : ni vue ni vidéo de plus, seulement la prime.
+      expect((p1?.promoViews ?? 0) - (p0?.promoViews ?? 0)).toBe(0);
+      const ines = p1?.creatorsDetail.find(
+        (d) => d.name === `[E2E_TEST] Inès Morel ${ts}`,
+      );
+      expect(ines?.promoCost).toBeCloseTo(212.4, 2);
+      expect(ines?.videos).toBe(0);
     } finally {
       await admin.mutation(api.whopSync.e2eSetProjectWhop, {
         secret: E2E_SECRET,
