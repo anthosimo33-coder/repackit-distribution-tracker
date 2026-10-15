@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { promoCostOfVideo, splitPromoByMarket } from "../convex/marketPromo";
+import {
+  promoCostOfVideo,
+  splitPrimeByMarket,
+  splitPromoByMarket,
+} from "../convex/marketPromo";
 
 describe("part promo d'une vidéo", () => {
   it("vidéo 100 % promo : tout le coût est promo", () => {
@@ -55,6 +59,94 @@ describe("part promo d'une vidéo", () => {
         hasPromoPost: false,
       }),
     ).toBe(0);
+  });
+});
+
+describe("bonus par vidéo dans le coût promo", () => {
+  it("vidéo au-delà du budget fixe, barème sans CPM : son bonus reste un coût promo", () => {
+    // Cas Lorena (octobre 2026) : 40 € de fixe pour 4 vidéos, 0 CPM, bonus par
+    // vidéo. La 5e vidéo n'a plus ni fixe ni CPM au moteur, seulement ses 50 €
+    // de bonus : l'onglet Pays la comptait à 0.
+    expect(
+      promoCostOfVideo({
+        videoCost: 50,
+        fixed: 0,
+        cpm: 0,
+        bonus: 50,
+        payableViews: 61_388,
+        promoPaidViews: 61_388,
+        hasPromoPost: true,
+      }),
+    ).toBe(50);
+  });
+
+  it("vidéo mixte : le prorata touche fixe + CPM, jamais le bonus", () => {
+    // Fixe 1,6667 $, CPM 12,48 $ sur 8 214 vues payables dont 5 902 promo,
+    // bonus 30 $. Part promo du couple = 10,63 $ ; le bonus, gagné sur des vues
+    // promo, entre en entier : 10,63 + 30 = 40,63 $ (et non 44,15 × 0,75).
+    expect(
+      promoCostOfVideo({
+        videoCost: 44.1467,
+        fixed: 1.6667,
+        cpm: 12.48,
+        bonus: 30,
+        payableViews: 8_214,
+        promoPaidViews: 5_902,
+        hasPromoPost: true,
+      }),
+    ).toBe(40.63);
+  });
+
+  it("vidéo 100 % warmup : zéro, même avec un bonus", () => {
+    expect(
+      promoCostOfVideo({
+        videoCost: 50,
+        fixed: 0,
+        cpm: 0,
+        bonus: 50,
+        payableViews: 61_388,
+        promoPaidViews: 0,
+        hasPromoPost: false,
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("prime créatrice (palier, défi) répartie par marché", () => {
+  it("suit la part de chaque marché dans ses vues PROMO ; le warmup ne reçoit rien", () => {
+    // Forme du palier de Kelly (200 $, septembre 2026) : deux vidéos FR, une BE,
+    // un post warmup GB très vu qui ne fait pas avancer un palier.
+    const parts = splitPrimeByMarket(200, [
+      { country: "FR", views: 412_337, promo: true },
+      { country: "FR", views: 98_211, promo: true },
+      { country: "BE", views: 31_642, promo: true },
+      { country: "GB", views: 220_000, promo: false },
+    ]);
+    expect(parts).toEqual([
+      { country: "FR", cost: 188.33 },
+      { country: "BE", cost: 11.67 },
+    ]);
+    // Le total recolle à la prime, au centime.
+    expect(parts.reduce((s, p) => s + p.cost, 0)).toBeCloseTo(200, 2);
+  });
+
+  it("un seul marché : toute la prime y va", () => {
+    expect(
+      splitPrimeByMarket(187.5, [
+        { country: "FR", views: 63_418, promo: true },
+        { country: "FR", views: 0, promo: true },
+      ]),
+    ).toEqual([{ country: "FR", cost: 187.5 }]);
+  });
+
+  it("aucun post promo : la prime reste visible sur « non défini »", () => {
+    expect(
+      splitPrimeByMarket(200, [{ country: "FR", views: 31_260, promo: false }]),
+    ).toEqual([{ country: null, cost: 200 }]);
+  });
+
+  it("prime nulle : aucune part", () => {
+    expect(splitPrimeByMarket(0, [{ country: "FR", views: 10, promo: true }])).toEqual([]);
   });
 });
 

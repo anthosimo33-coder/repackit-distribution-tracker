@@ -400,7 +400,7 @@ export function PaysTab({
                 : formatMoney(totalMarge, pnl.revenueCurrency ?? undefined)}
             </span>
             <span className="text-xs text-slate-400">
-              Hors bonus de paliers et primes de défi
+              Paliers et primes de défi compris
             </span>
           </CardContent>
         </Card>

@@ -1316,12 +1316,12 @@ export interface PromoRpmInput {
   /** Revenu Whop NET cumulé, devise du REVENU (€). null = Whop non configuré. */
   revenueNet: number | null;
   /**
-   * Paie des PUBLICATIONS PROMO cumulée (fixe + CPM), devise de la PAIE ($) —
-   * MÊME PÉRIMÈTRE que `promoViews` ci-dessous, c'est ce qui rend l'écart
-   * lisible. Le warmup en est absent des DEUX côtés : il n'est pas rémunéré,
-   * hors exception historique (champ `remunere`) dont la paie est retirée en
-   * amont, puisque ses vues sont hors promo. Le bonus de paliers n'y est pas non
-   * plus : il est attaché à la CRÉATRICE, pas à une publication.
+   * Paie PROMO cumulée, devise de la PAIE ($) — cf `promoCostWithPrimes` : fixe,
+   * CPM et bonus par vidéo des publications promo, plus les paliers et les
+   * primes de défi. MÊME PÉRIMÈTRE que `promoViews` ci-dessous, c'est ce qui rend
+   * l'écart lisible. Le warmup en est absent des DEUX côtés : il n'est pas
+   * rémunéré, hors exception historique (champ `remunere`) dont la paie est
+   * retirée en amont, puisque ses vues sont hors promo.
    */
   creatorCost: number | null;
   /** Vues PROMO cumulées (hors warmup) — dénominateur COMMUN aux trois valeurs. */
@@ -1341,6 +1341,22 @@ export interface PromoRpm {
   margin: number | null;
   /** Vues promo retenues (0 ⇒ tout est null, jamais un RPM infini). */
   promoViews: number;
+}
+
+/**
+ * Paie PROMO complète : ce que les vidéos promo coûtent (`promo` : fixe, CPM,
+ * bonus par vidéo) PLUS les paliers débloqués et les primes de défi
+ * (`promoBonus`). Un palier ne se gagne que sur des vues promo, une victoire sur
+ * des vidéos promo : ce sont des coûts promo en entier — la Vue d'ensemble les
+ * mettait déjà dans le coût d'acquisition, mais pas dans le RPM coût, qui
+ * paraissait moins cher que ce qu'on paie. `null` dès qu'une moitié manque :
+ * une somme partielle se lirait comme un coût complet.
+ */
+export function promoCostWithPrimes(
+  costs: { promo: number | null; promoBonus: number | null } | null | undefined,
+): number | null {
+  if (!costs || costs.promo === null || costs.promoBonus === null) return null;
+  return round2(costs.promo + costs.promoBonus);
 }
 
 /**

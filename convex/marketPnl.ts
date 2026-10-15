@@ -11,7 +11,11 @@ import {
   videoCostsOfMonth,
 } from "./pricing";
 import { isPromoPost } from "./viewCounters";
-import { promoCostOfVideo, splitPromoByMarket } from "./marketPromo";
+import {
+  promoCostOfVideo,
+  splitPrimeByMarket,
+  splitPromoByMarket,
+} from "./marketPromo";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import {
   projectFx,
@@ -28,7 +32,7 @@ import {
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { normalizeBillingCountry } from "./billingCountries";
 import { splitCostByMarket, type MarketTarget } from "./marketCost";
-import type { PayFxProject } from "./payCurrency";
+import { payCurrencyFactor, type PayFxProject } from "./payCurrency";
 
 /**
  * RENTABILITÉ PAR MARCHÉ — ce qu'un pays coûte en créatrices, contre ce qu'il
@@ -60,9 +64,11 @@ import type { PayFxProject } from "./payCurrency";
  * `collection`, rendu à côté des chiffres : l'écran doit pouvoir dire de quand
  * date la mesure au lieu de présenter un solde.
  *
- * Les BONUS DE PALIERS et les primes de défi sont EXCLUS : ils se gagnent sur le
- * cumul d'une créatrice, pas sur un marché. Les répartir supposerait une clé
- * qu'aucune donnée ne porte.
+ * Les BONUS DE PALIERS et les primes de DÉFI y sont, à leur date : ils se
+ * gagnent sur le cumul de vues promo d'une créatrice, donc ils se répartissent
+ * selon la part de chaque marché dans ses vues promo (marketPromo.
+ * splitPrimeByMarket). Les exclure faisait paraître moins cher qu'elle ne l'est
+ * une créatrice payée surtout en paliers.
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -103,7 +109,8 @@ export type MarketCreator = {
   videos: number;
   /** Vues MESURÉES de ses posts promo sur ce marché. */
   promoViews: number;
-  /** Part promo de son coût, en devise de PAIE. */
+  /** Part promo de son coût, en devise de PAIE — paliers et primes de défi
+   *  compris (une créatrice peut n'avoir qu'une prime sur un marché : vues 0). */
   promoCost: number;
 };
 
@@ -248,6 +255,43 @@ async function costByMarket(
 
   const moisCourant = monthKeyParis(Date.now());
 
+  // ── PRIMES CRÉATRICE de la période : paliers débloqués, victoires de défi ───
+  // DATÉES à leur déblocage / victoire, comme le fenêtrage du coût d'acquisition
+  // de la Vue d'ensemble (analyticsHub, `promoBonusByDay`) : une prime est due le
+  // jour où elle tombe. Elles manquaient à tout l'onglet — 200 $ de Kelly en
+  // septembre 2026, 18 % de son mois. Deux lectures indexées par PROJET, aucune
+  // par créatrice. Montant ramené dans la devise de référence, comme le moteur.
+  const primesDe = new Map<string, { at: number; amount: number }[]>();
+  const ajouterPrime = (
+    creatorId: string,
+    at: number,
+    montant: number,
+    devise: string | undefined,
+  ) => {
+    if (!Number.isFinite(montant) || montant <= 0) return;
+    if (at < from || at > to) return;
+    const f = toReference ? (payCurrencyFactor(devise, toReference) ?? 1) : 1;
+    const arr = primesDe.get(creatorId) ?? [];
+    arr.push({ at, amount: f === 1 ? montant : round2(montant * f) });
+    primesDe.set(creatorId, arr);
+  };
+  for (const u of await ctx.db
+    .query("bonusUnlocks")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect()) {
+    if (u.rewardType === "cash") {
+      ajouterPrime(u.creatorId as string, u.unlockedAt, u.montant ?? 0, u.currency);
+    }
+  }
+  for (const w of await ctx.db
+    .query("challengeWins")
+    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .collect()) {
+    // Une victoire ANNULÉE n'est plus due (cf challengeCashWins).
+    if (w.cancelledAt !== undefined || w.reward.type !== "cash") continue;
+    ajouterPrime(w.creatorId as string, w.wonAt, w.reward.amount ?? 0, w.currency);
+  }
+
   for (const creator of creators.values()) {
     const assignments = (
       await ctx.db
@@ -261,6 +305,43 @@ async function costByMarket(
         (a.status === "published" || a.status === "paid"),
     );
     if (assignments.length === 0) continue;
+
+    // Ses PRIMES, réparties selon la part de chaque marché dans ses vues promo
+    // de TOUTE son histoire — l'assiette du cumul qui débloque un palier (cf
+    // marketPromo.splitPrimeByMarket). Avant le `continue` qui suit : une prime
+    // tombée sans publication dans la période reste une dépense de la période.
+    const primes = primesDe.get(creator._id as string) ?? [];
+    if (primes.length > 0) {
+      const ciblesPromoDeTout = assignments.flatMap((a) =>
+        (a.targets ?? []).map((t) => {
+          const pub = t.publicationId
+            ? publiParId.get(t.publicationId as string)
+            : undefined;
+          return {
+            country: paysDuCompte.get(t.accountId as string) ?? null,
+            views: pub?.vuesLatest ?? 0,
+            promo:
+              pub !== undefined && isPromoPost({ isWarmup: pub.isWarmup === true }),
+          };
+        }),
+      );
+      const cid = creator._id as string;
+      for (const prime of primes) {
+        for (const part of splitPrimeByMarket(prime.amount, ciblesPromoDeTout)) {
+          const d = touch(part.country);
+          d.cost = round2(d.cost + part.cost);
+          d.promoCost = round2(d.promoCost + part.cost);
+          d.creators.add(cid);
+          const c =
+            d.parCreatrice.get(cid) ??
+            { creatorId: cid, name: creator.name, videos: 0, promoViews: 0, promoCost: 0 };
+          c.promoCost = round2(c.promoCost + part.cost);
+          d.parCreatrice.set(cid, c);
+          const cle = `${part.country ?? ""}|${monthKeyParis(prime.at)}`;
+          serieParMois.set(cle, round2((serieParMois.get(cle) ?? 0) + part.cost));
+        }
+      }
+    }
 
     // Les assignations de la PÉRIODE, rangées par mois de publication : le
     // moteur raisonne par mois, la période peut en couper un.
@@ -292,8 +373,9 @@ async function costByMarket(
         undefined,
         toReference ?? undefined,
       );
-      // BASE = fixe + CPM, jamais `bd.total` : celui-ci ajoute les bonus de
-      // paliers et les primes de défi, qui ne se répartissent pas par marché.
+      // BASE = fixe + CPM (+ bonus par vidéo), jamais `bd.total` : celui-ci
+      // ajoute les paliers et les primes de défi, qui n'ont pas de vidéo — ils
+      // sont comptés plus haut, à leur date (`primesDe`).
       // Mois EN COURS : le coût ENGAGÉ, comme l'écran de rentabilité — un
       // barème conditionné dont le seuil n'est pas encore franchi doit zéro à
       // ce jour, et l'afficher ainsi ferait paraître le mois excellent jusqu'à
@@ -344,6 +426,7 @@ async function costByMarket(
           videoCost: coutVidéo,
           fixed: pa?.fixed ?? 0,
           cpm: pa?.cpm ?? 0,
+          bonus: coutsDuMois.get(a._id as string)?.bonus ?? 0,
           payableViews: vues.payableViews,
           promoPaidViews: vues.bonusTierViews,
           hasPromoPost: vues.hasPromoPost,

@@ -147,6 +147,13 @@ async function creatorCostByMonth(
   // Une seule lecture des sources de la créatrice pour TOUS ses mois : le
   // moteur les relisait sinon à chaque tour de boucle (cf CreatorPayrollSources).
   const sources = await loadCreatorPayrollSources(ctx, projectId, creatorId);
+  // Une prime de DÉFI aussi peut tomber sur un mois sans publication : même
+  // règle que les paliers ci-dessus, sinon elle sortait de la marge.
+  for (const w of sources.challengeWins) {
+    if (w.cancelledAt === undefined && w.reward.type === "cash") {
+      activeMonths.add(w.attributionPeriod);
+    }
+  }
   // Le mois EN COURS n'est pas fini : ce qu'il coûte n'est pas encore ce qu'on
   // doit. Cf `engage` plus bas.
   const moisCourant = monthKeyParis(Date.now());
