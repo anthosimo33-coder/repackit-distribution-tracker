@@ -157,6 +157,115 @@ test.describe("Coût d'une vidéo — le même sur tous les écrans", () => {
     }
   });
 
+  test("un cycle payé dont les vues montent ensuite garde le même coût dans l'onglet Pays et dans la Rentabilité", async () => {
+    // Septembre 2026 coûtait 2 297,68 $ dans l'onglet Pays et 2 255,80 $ dans la
+    // Rentabilité (prod du 2026-10-15) : l'onglet Pays recalculait le CPM des
+    // vidéos déjà payées avec les vues du jour, la Rentabilité reprenait
+    // l'assiette du versement. Barème à fixe nul : le coût est le CPM seul,
+    // 1,85 $/1 000 vues — plafond de 150 $ à 81 081 vues, les relevés restent
+    // dessous (sinon c'est LUI qui figerait le coût).
+    test.setTimeout(180_000);
+    const ts = Date.now() + 3;
+    const projectId = await admin.getProjectId();
+    const ancien = await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+      secret: E2E_SECRET,
+      projectId,
+      whop: { companyId: `biz_e2e_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+    });
+    try {
+      const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+        name: `[E2E_TEST] Cycle payé ${ts}`,
+        montantFixe: 0,
+        nbVideosCible: 1,
+        tauxCPM: 1.85,
+      });
+      const formatId = (await createFormatWithRate(admin, {
+        name: `[E2E_TEST] Cycle payé ${ts}`,
+        type: "short",
+        rateModel: { basePerPost: 0 },
+      })) as Id<"formats">;
+      const c = await createCreatorSession(convexUrl!, {
+        name: `[E2E_TEST] Maëlle Lefèvre ${ts}`,
+        email: `e2e-cycle-paye-${ts}@repackit.test`,
+        password: `cycle-paye-${ts}-12345`,
+      });
+      const target = await availableTarget({
+        e2eClient: admin,
+        creatorId: c.creatorId,
+        platform: "TikTok",
+        handle: `@maelle.lefevre_${ts}`,
+      });
+      // Un marché que le reste de la suite ne touche pas : la ligne ne porte
+      // que la créatrice de ce test (lue en écart, la base e2e est partagée).
+      await admin.mutation(api.comptes.updateCompte, {
+        id: target.accountId,
+        targetCountry: "EE",
+      });
+      const rentab = async () =>
+        (await admin.query(api.profitability.getProjectProfitability, {})).total
+          .creatorCost;
+      const estonie = async () =>
+        (
+          await admin.query(api.marketPnl.getMarketPnl, {
+            from: ts - DAY,
+            to: Date.now() + DAY,
+          })
+        ).rows.find((r) => r.country === "EE")?.cost ?? 0;
+      const cpm = (vues: number) => (vues * 1.85) / 1000;
+      const r0 = await rentab();
+      const p0 = await estonie();
+
+      const { publicationId } = await video(c.creatorId, target, formatId, pricingId,
+        `https://www.tiktok.com/@maelle.lefevre_${ts}/video/76${ts}`, 23_417);
+      const releve = (vues: number) =>
+        admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
+          secret: E2E_SECRET,
+          publicationId,
+          vues,
+          capturedAt: Date.now(),
+          source: "tiktok",
+        });
+
+      // ── PRÉSENCE : cycle OUVERT, les vues pèsent sur les deux écrans ───────
+      expect((await rentab()) - r0).toBeCloseTo(cpm(23_417), 2);
+      expect((await estonie()) - p0).toBeCloseTo(cpm(23_417), 2);
+      await releve(31_862);
+      expect((await rentab()) - r0).toBeCloseTo(cpm(31_862), 2);
+      expect((await estonie()) - p0).toBeCloseTo(cpm(31_862), 2);
+
+      // ── Le cycle est PAYÉ, puis la vidéo prend encore des vues ─────────────
+      const cycle = await admin.query(api.payments.getCreatorCurrentCycle, {
+        creatorId: c.creatorId,
+      });
+      await admin.mutation(api.payments.markCyclePaid, {
+        creatorId: c.creatorId,
+        cycleIndex: cycle!.cycleIndex,
+      });
+      await releve(58_209);
+
+      // ── ABSENCE : les vues d'après le versement ne coûtent rien, ni à la
+      // Rentabilité (déjà le cas) ni à l'onglet Pays (le défaut) ─────────────
+      expect((await rentab()) - r0).toBeCloseTo(cpm(31_862), 2);
+      expect((await estonie()) - p0).toBeCloseTo(cpm(31_862), 2);
+
+      // ── PRÉSENCE : l'annulation du paiement rend la vidéo au calcul live,
+      // sur les deux écrans — sans ce bord, « ça ne bouge pas » se vérifierait
+      // aussi sur un onglet qui ne bouge jamais ─────────────────────────────
+      const paye = (await admin.query(api.payments.listPayments, {})).find(
+        (p) => p.creatorId === c.creatorId && p.status === "paid",
+      )!;
+      await admin.mutation(api.payments.revertCyclePayment, { id: paye.paymentId! });
+      expect((await rentab()) - r0).toBeCloseTo(cpm(58_209), 2);
+      expect((await estonie()) - p0).toBeCloseTo(cpm(58_209), 2);
+    } finally {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        ...(ancien ? { whop: ancien } : {}),
+      });
+    }
+  });
+
   test("un palier débloqué ce mois-ci pèse dans la Rentabilité comme dans Analytics", async () => {
     // Le mois EN COURS prenait le coût ENGAGÉ, qui ne porte que fixe + CPM : les
     // 200 $ de bonus de septembre 2026 manquaient à la marge. Barème à fixe et CPM

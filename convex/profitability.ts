@@ -13,8 +13,7 @@ import {
   type AssignmentViewsCache,
 } from "./pricing";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
-import { payAnchorOf } from "./payCycle";
-import { settledVideoBonusResolver, settledViewsResolver } from "./settledCycles";
+import { loadSettledResolvers } from "./settledCyclesRead";
 import { netInReference } from "./marketMoney";
 import { videosFacturables } from "./profitabilityMath";
 import { parisDayKey, type VideoFacturable } from "./viewsDaily";
@@ -124,20 +123,11 @@ async function creatorCostByMonth(
   // peut pas repasser dans un cycle suivant (cf convex/settledCycles). Le mois
   // affichait donc un coût que personne ne devait, et un RPM qui baissait tout
   // seul. Deux lectures de plus par créatrice, jamais par mois.
-  const creator = await ctx.db.get(creatorId);
-  const paidRows = (
-    await ctx.db
-      .query("payments")
-      .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
-      .collect()
-  ).filter((p) => p.projectId === projectId);
-  const settledViews = settledViewsResolver(
-    creator ? payAnchorOf(creator) : undefined,
-    paidRows,
-  );
-  const settledVideoBonus = settledVideoBonusResolver(
-    creator ? payAnchorOf(creator) : undefined,
-    paidRows,
+  const { settledViewsOf, settledVideoBonusOf } = await loadSettledResolvers(
+    ctx,
+    projectId,
+    creatorId,
+    await ctx.db.get(creatorId),
   );
   const out = new Map<
     string,
@@ -170,10 +160,10 @@ async function creatorCostByMonth(
       // Borne du seuil de vues : la fin du mois PARIS, la même que celle qui
       // range les publications dans ce mois.
       parisMonthEndMs(month),
-      // Vidéo d'un cycle déjà réglé ⇒ l'assiette qu'on a payée.
-      (a) => settledViews(a._id, assignmentPublishedAt(a)),
-      // … et le bonus par vidéo qu'on lui a versé (0 si aucun).
-      (a) => settledVideoBonus(a._id, assignmentPublishedAt(a)),
+      // Vidéo d'un cycle déjà réglé ⇒ l'assiette qu'on a payée, et le bonus
+      // par vidéo qu'on lui a versé (cf convex/settledCyclesRead).
+      settledViewsOf,
+      settledVideoBonusOf,
       toReference,
     );
     // Les vues FACTURÉES viennent du MÊME appel que le coût : c'est la seule

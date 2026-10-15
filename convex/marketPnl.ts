@@ -31,8 +31,13 @@ import {
 } from "./marketValue";
 import { collectProjectWhopPayments } from "./whopPaymentsAccess";
 import { normalizeBillingCountry } from "./billingCountries";
-import { splitCostByMarket, type MarketTarget } from "./marketCost";
+import {
+  roundVideoCostsToCents,
+  splitCostByMarket,
+  type MarketTarget,
+} from "./marketCost";
 import { payCurrencyFactor, type PayFxProject } from "./payCurrency";
+import { loadSettledResolvers } from "./settledCyclesRead";
 
 /**
  * RENTABILITÉ PAR MARCHÉ — ce qu'un pays coûte en créatrices, contre ce qu'il
@@ -219,18 +224,36 @@ async function costByMarket(
         .query("creators")
         .withIndex("by_project", (q) => q.eq("projectId", projectId))
         .collect()
-    ).map((c) => [c._id as string, c.name]),
+    ).map((c) => [c._id as string, c]),
   );
   const assignationsDuProjet = await ctx.db
     .query("assignments")
     .withIndex("by_project", (q) => q.eq("projectId", projectId))
     .collect();
-  const creators = new Map<string, { _id: Id<"creators">; name: string }>();
+  // Les assignations de chaque créatrice, prises dans la lecture du PROJET : les
+  // relire par créatrice coûtait deux requêtes de plus à chacune (ici et dans
+  // `loadCreatorPayrollSources`) pour le même ensemble.
+  const creators = new Map<
+    string,
+    {
+      _id: Id<"creators">;
+      name: string;
+      fiche: Doc<"creators"> | undefined;
+      assignations: Doc<"assignments">[];
+    }
+  >();
   for (const a of assignationsDuProjet) {
-    if (creators.has(a.creatorId)) continue;
+    const deja = creators.get(a.creatorId);
+    if (deja) {
+      deja.assignations.push(a);
+      continue;
+    }
+    const fiche = fiches.get(a.creatorId);
     creators.set(a.creatorId, {
       _id: a.creatorId,
-      name: fiches.get(a.creatorId) ?? a.creatorNameSnapshot ?? "—",
+      name: fiche?.name ?? a.creatorNameSnapshot ?? "—",
+      fiche,
+      assignations: [a],
     });
   }
 
@@ -293,14 +316,8 @@ async function costByMarket(
   }
 
   for (const creator of creators.values()) {
-    const assignments = (
-      await ctx.db
-        .query("assignments")
-        .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
-        .collect()
-    ).filter(
+    const assignments = creator.assignations.filter(
       (a) =>
-        a.projectId === projectId &&
         a.pricingSnapshot !== undefined &&
         (a.status === "published" || a.status === "paid"),
     );
@@ -356,7 +373,23 @@ async function costByMarket(
     }
     if (parMois.size === 0) continue;
 
-    const sources = await loadCreatorPayrollSources(ctx, projectId, creator._id);
+    const sources = await loadCreatorPayrollSources(
+      ctx,
+      projectId,
+      creator._id,
+      creator.assignations,
+    );
+    // ─── CE QUI EST DÉJÀ PAYÉ NE BOUGE PLUS ──────────────────────────────────
+    // Une vidéo dont le cycle est réglé coûte ce qu'on a versé, pas ce que ses
+    // vues du jour vaudraient : la MÊME assiette gelée que la Rentabilité (cf
+    // convex/settledCyclesRead). Sans elle, septembre 2026 coûtait ici 41,88 $
+    // de plus qu'à la Rentabilité — des vues venues après le versement.
+    const { settledViewsOf, settledVideoBonusOf } = await loadSettledResolvers(
+      ctx,
+      projectId,
+      creator._id,
+      creator.fiche,
+    );
 
     for (const [month, duMois] of parMois) {
       const bd = await computeLivePricingBreakdown(
@@ -369,8 +402,8 @@ async function costByMarket(
         undefined,
         sources,
         parisMonthEndMs(month),
-        undefined,
-        undefined,
+        settledViewsOf,
+        settledVideoBonusOf,
         toReference ?? undefined,
       );
       // BASE = fixe + CPM (+ bonus par vidéo), jamais `bd.total` : celui-ci
@@ -383,7 +416,10 @@ async function costByMarket(
       // Coût de chaque vidéo = ce que la PAIE lui impute, la MÊME source que la
       // Vue d'ensemble (cf videoCostsOfMonth) : la somme recolle au chiffre des
       // Paiements, y compris quand la base est le coût engagé.
-      const coutsDuMois = videoCostsOfMonth(bd, month === moisCourant);
+      // Au centime, recollé sur le total du moteur (cf roundVideoCostsToCents).
+      const coutsDuMois = roundVideoCostsToCents(
+        videoCostsOfMonth(bd, month === moisCourant),
+      );
 
       for (const a of duMois) {
         const coutVidéo = coutsDuMois.get(a._id as string)?.cost ?? 0;

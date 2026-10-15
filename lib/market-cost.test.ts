@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitCostByMarket } from "../convex/marketCost";
+import { roundVideoCostsToCents, splitCostByMarket } from "../convex/marketCost";
 
 /**
  * Répartition du coût d'une assignation entre ses marchés. Ce qui se joue :
@@ -65,5 +65,50 @@ describe("splitCostByMarket", () => {
 
   it("aucune cible ⇒ aucune part (jamais une ligne à zéro)", () => {
     expect(splitCostByMarket(42, [])).toEqual([]);
+  });
+});
+
+describe("roundVideoCostsToCents", () => {
+  // La forme de la prod : un mois de huit vidéos au CPM seul (1,85 $/1 000 vues),
+  // tel que `videoCostsOfMonth` le rend — des coûts à cinq décimales. Arrondies
+  // une à une, elles font 221,23 $ ; le moteur en compte 221,20 $.
+  const vues = [27_603, 7_976, 15_144, 1_041, 8_000, 22_080, 7_587, 30_138];
+  const mois = new Map(
+    vues.map((v, i) => {
+      const cpm = (v * 1.85) / 1000;
+      return [`v${i}`, { cost: cpm, fixed: 0, cpm }];
+    }),
+  );
+  const total = (m: Map<string, { cost: number }>) =>
+    Math.round([...m.values()].reduce((s, c) => s + c.cost, 0) * 100) / 100;
+
+  it("la somme des vidéos rend EXACTEMENT le total du moteur", () => {
+    // Sans le recollement : 221,23 $, trois centimes de plus que la paie — la
+    // dérive qui séparait l'onglet Pays de la Rentabilité en septembre 2026.
+    expect(total(mois)).toBe(221.2);
+    expect(total(roundVideoCostsToCents(mois))).toBe(221.2);
+  });
+
+  it("le reste d'arrondi rejoint la plus grosse vidéo, les autres sont au centime", () => {
+    const out = roundVideoCostsToCents(mois);
+    // 30 138 vues → 55,7553 $ : la plus grosse, qui absorbe les −0,03 $.
+    expect(out.get("v7")!.cost).toBe(55.73);
+    expect(out.get("v0")!.cost).toBe(51.07);
+    expect(out.get("v3")!.cost).toBe(1.93);
+  });
+
+  it("garde le reste de la ligne (fixe, CPM, bonus)", () => {
+    const out = roundVideoCostsToCents(
+      new Map([["a", { cost: 12.3456, fixed: 4.5, cpm: 7.8456, bonus: 0 }]]),
+    );
+    expect(out.get("a")).toEqual({ cost: 12.35, fixed: 4.5, cpm: 7.8456, bonus: 0 });
+  });
+
+  it("des coûts déjà au centime ne bougent pas", () => {
+    const deja = new Map([
+      ["a", { cost: 43.32 }],
+      ["b", { cost: 8.23 }],
+    ]);
+    expect(roundVideoCostsToCents(deja)).toEqual(deja);
   });
 });

@@ -361,6 +361,8 @@
     "convex/scenarioRemplissage.json",
     "convex/scriptNotif.ts",
     "convex/segmentFunnel.ts",
+    "convex/settledCycles.ts",
+    "convex/settledCyclesRead.ts",
     "convex/snapshotMatching.ts",
     "convex/soloDays.ts",
     "convex/talentRetainer.ts",
