@@ -4,17 +4,23 @@ import { payAnchorOf } from "./payCycle";
 import { assignmentPublishedAt } from "./pricing";
 import { settledVideoBonusResolver, settledViewsResolver } from "./settledCycles";
 
+/** Les deux résolveurs que le moteur attend (cf `computeLivePricingBreakdown`). */
+export type SettledResolvers = {
+  settledViewsOf: (a: Doc<"assignments">) => number | null;
+  settledVideoBonusOf: (a: Doc<"assignments">) => number | null;
+};
+
 /**
  * L'ASSIETTE GELÉE d'une créatrice, prête à passer au moteur
  * (`computeLivePricingBreakdown`, arguments `settledViewsOf` / `settledVideoBonusOf`).
  *
  * UN SEUL ENDROIT pour tous les écrans qui re-simulent la paie d'un mois : la
- * Rentabilité l'avait, l'onglet Pays non — il recalculait le CPM des vidéos déjà
- * payées avec les vues du jour. Septembre 2026 ressortait à 2 297,68 $ dans
- * l'onglet Pays contre 2 255,80 $ dans la Rentabilité (prod du 2026-10-15) : les
- * 41,88 $ d'écart étaient des vues gagnées APRÈS le versement, chez Kelly et
- * Orlane, que personne ne paiera. Deux copies de ce câblage avaient divergé ;
- * celle-ci est la seule.
+ * Rentabilité l'avait, l'onglet Pays et la Vue d'ensemble non — ils
+ * recalculaient le CPM des vidéos déjà payées avec les vues du jour. Septembre
+ * 2026 ressortait à 2 297,68 $ dans ces deux écrans contre 2 255,80 $ dans la
+ * Rentabilité (prod du 2026-10-15) : les 41,88 $ d'écart étaient des vues
+ * gagnées APRÈS le versement, chez Kelly et Orlane, que personne ne paiera. Deux
+ * copies de ce câblage avaient divergé ; celle-ci est la seule.
  *
  * Une lecture indexée par créatrice (ses rows `payments`), jamais par mois.
  * `creator` absent (fiche supprimée) ⇒ aucune ancre, donc rien de gelé : le
@@ -25,10 +31,7 @@ export async function loadSettledResolvers(
   projectId: Id<"projects">,
   creatorId: Id<"creators">,
   creator: Pick<Doc<"creators">, "firstPostAt"> | null | undefined,
-): Promise<{
-  settledViewsOf: (a: Doc<"assignments">) => number | null;
-  settledVideoBonusOf: (a: Doc<"assignments">) => number | null;
-}> {
+): Promise<SettledResolvers> {
   const paidRows = (
     await ctx.db
       .query("payments")

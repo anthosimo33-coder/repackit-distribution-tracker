@@ -20,7 +20,10 @@ import {
   assignmentCostFromBreakdown,
   videoCostsOfMonth,
   type PricingBreakdown,
+  type VideoCost,
 } from "./pricing";
+import { loadSettledResolvers, type SettledResolvers } from "./settledCyclesRead";
+import { roundVideoCostsToCents } from "./marketCost";
 import { cyclePaymentsForCreator } from "./payments";
 // Une seule définition de la cadence, partagée avec l'écran (ex-réplique serveur).
 import { intervalToDays } from "./churn";
@@ -302,7 +305,7 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
         .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
         .collect(),
     ]);
-    const creatorMap = new Map(creators.map((c) => [c._id as string, c.name]));
+    const creatorMap = new Map(creators.map((c) => [c._id as string, c]));
     const formatMap = new Map(formats.map((f) => [f._id as string, f.name]));
 
     // Série QUOTIDIENNE PostHog (overview, internes exclus, bucket Europe/Paris)
@@ -336,22 +339,36 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
     const viewsCache = newViewsCache(
       await loadProjectPublications(ctx, ctx.projectId),
     );
-    // Lectures PAR CRÉATRICE (assignations, paliers, victoires de défi) : elles
-    // ne dépendent pas du mois, donc une seule fois par créatrice pour TOUS ses
-    // mois — sans ça, `computeLivePricingBreakdown` les relisait à chaque
-    // (créatrice, mois). Cf CreatorPayrollSources.
-    const sourcesByCreator = new Map<string, CreatorPayrollSources>();
-    const sourcesFor = async (
-      creatorId: Id<"creators">,
-    ): Promise<CreatorPayrollSources> => {
-      const cached = sourcesByCreator.get(creatorId as string);
+    // Lectures PAR CRÉATRICE (assignations, paliers, victoires de défi, et ses
+    // rows `payments` pour l'assiette gelée) : elles ne dépendent pas du mois,
+    // donc une seule fois par créatrice pour TOUS ses mois — sans ça,
+    // `computeLivePricingBreakdown` les relisait à chaque (créatrice, mois).
+    // Cf CreatorPayrollSources.
+    const inputsByCreator = new Map<
+      string,
+      { sources: CreatorPayrollSources } & SettledResolvers
+    >();
+    const inputsFor = async (creatorId: Id<"creators">) => {
+      const cached = inputsByCreator.get(creatorId as string);
       if (cached) return cached;
-      const loaded = await loadCreatorPayrollSources(
-        ctx,
-        ctx.projectId,
-        creatorId,
-      );
-      sourcesByCreator.set(creatorId as string, loaded);
+      const [sources, { settledViewsOf, settledVideoBonusOf }] = await Promise.all([
+        loadCreatorPayrollSources(ctx, ctx.projectId, creatorId),
+        // ─── CE QUI EST DÉJÀ PAYÉ NE BOUGE PLUS ───────────────────────────────
+        // Une vidéo dont le cycle est réglé coûte ce qu'on a versé, pas ce que
+        // ses vues du jour vaudraient : la MÊME assiette gelée que la
+        // Rentabilité et l'onglet Pays (cf convex/settledCyclesRead). Sans elle,
+        // septembre 2026 coûtait ici 41,93 $ de plus pour Kelly, octobre
+        // 46,51 $ de plus pour Juliette (prod du 2026-10-15) — des vues venues
+        // après le versement, que personne ne paiera.
+        loadSettledResolvers(
+          ctx,
+          ctx.projectId,
+          creatorId,
+          creatorMap.get(creatorId as string),
+        ),
+      ]);
+      const loaded = { sources, settledViewsOf, settledVideoBonusOf };
+      inputsByCreator.set(creatorId as string, loaded);
       return loaded;
     };
     // Coût : un breakdown par (créatrice, mois EUROPE/PARIS), mémoïsé — le moteur
@@ -364,6 +381,8 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       const key = `${creatorId}:${period}`;
       const cached = breakdowns.get(key);
       if (cached) return cached;
+      const { sources, settledViewsOf, settledVideoBonusOf } =
+        await inputsFor(creatorId);
       const b = await computeLivePricingBreakdown(
         ctx,
         ctx.projectId,
@@ -377,19 +396,42 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
         // jamais à payer (le paiement passe par markCyclePaid → cycles J+30).
         monthKeyParis,
         viewsCache,
-        await sourcesFor(creatorId),
+        sources,
         // Borne du seuil de vues du fixe — la même fin de mois Paris que la clé
         // ci-dessus, sinon la condition se jugerait sur une autre fenêtre que
         // celle qui range les vidéos.
         parisMonthEndMs(period),
-        undefined,
-        undefined,
+        // Vidéo d'un cycle déjà réglé ⇒ l'assiette qu'on a payée, et le bonus
+        // par vidéo qu'on lui a versé.
+        settledViewsOf,
+        settledVideoBonusOf,
         // Chaque coût dans la devise de paie du PROJET : une créatrice payée en
         // euros et une autre en dollars s'additionnent ici (cf convex/payCurrency).
         project ?? undefined,
       );
       breakdowns.set(key, b);
       return b;
+    };
+    const moisCourant = monthKeyParis(Date.now());
+    // Le coût que la PAIE impute à chaque vidéo d'un (créatrice, mois) — la même
+    // source que la carte Rentabilité et l'onglet Pays (cf videoCostsOfMonth),
+    // AU CENTIME recollé sur le total du moteur (cf roundVideoCostsToCents) :
+    // arrondies une à une, les vidéos de septembre 2026 faisaient 0,12 $ de
+    // moins que la paie. Mémoïsé avec son breakdown : le recollement porte sur
+    // le mois entier, il ne se refait pas vidéo par vidéo.
+    const videoCosts = new Map<string, Map<string, VideoCost>>();
+    const videoCostsFor = async (
+      creatorId: Id<"creators">,
+      period: string,
+    ): Promise<Map<string, VideoCost>> => {
+      const key = `${creatorId}:${period}`;
+      const cached = videoCosts.get(key);
+      if (cached) return cached;
+      const costs = roundVideoCostsToCents(
+        videoCostsOfMonth(await breakdownFor(creatorId, period), period === moisCourant),
+      );
+      videoCosts.set(key, costs);
+      return costs;
     };
 
     // ── Budget d'opérations Convex ────────────────────────────────────────────
@@ -413,7 +455,6 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       ).map((p) => [p._id as string, p]),
     );
 
-    const moisCourant = monthKeyParis(Date.now());
     const rows: AttributionRow[] = [];
     for (const a of assignments) {
       const publishedAt = assignmentPublishedAt(a);
@@ -447,11 +488,8 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
       let cost: number | null = null;
       let promoCost: number | null = null;
       if (a.pricingSnapshot) {
-        const b = await breakdownFor(a.creatorId, period);
-        // Le coût que la PAIE impute à la vidéo — la même source que la carte
-        // Rentabilité et l'onglet Pays (cf videoCostsOfMonth).
         const video =
-          videoCostsOfMonth(b, period === moisCourant).get(a._id as string) ?? null;
+          (await videoCostsFor(a.creatorId, period)).get(a._id as string) ?? null;
         ({ cost, promoCost } = assignmentCostFromBreakdown({
           hasPricingSnapshot: true,
           video,
@@ -465,7 +503,7 @@ export async function getAttributionCore(ctx: ProjectQueryCtx): Promise<Attribut
         assignmentId: a._id,
         creatorId: a.creatorId,
         creatorName:
-          creatorMap.get(a.creatorId as string) ??
+          creatorMap.get(a.creatorId as string)?.name ??
           a.creatorNameSnapshot ??
           "—",
         formatName: a.formatId
