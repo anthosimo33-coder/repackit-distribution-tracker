@@ -87,3 +87,39 @@ export function splitCostByMarket(
   }
   return parts;
 }
+
+/**
+ * Coûts par vidéo d'UNE créatrice sur UN mois, ARRONDIS AU CENTIME sans en
+ * perdre : le reste d'arrondi rejoint la plus grosse vidéo, comme entre marchés
+ * ci-dessus.
+ *
+ * Le moteur arrondit une fois par créatrice et par mois ; `splitCostByMarket`,
+ * lui, arrondit chaque vidéo. Sommer deux cents vidéos arrondies une à une
+ * dérivait de quelques centimes : septembre 2026 ressortait à 2 255,68 $ dans
+ * l'onglet Pays contre 2 255,80 $ à la Rentabilité (prod du 2026-10-15), pour le
+ * même moteur et la même assiette. Recollée ici, la somme des vidéos du mois est
+ * EXACTEMENT celle que le moteur rend.
+ */
+export function roundVideoCostsToCents<T extends { cost: number }>(
+  costs: ReadonlyMap<string, T>,
+): Map<string, T> {
+  const out = new Map<string, T>();
+  let brut = 0;
+  let arrondi = 0;
+  let plusGrosse: string | null = null;
+  for (const [id, c] of costs) {
+    brut += c.cost;
+    const cost = round2(c.cost);
+    arrondi += cost;
+    out.set(id, { ...c, cost });
+    if (plusGrosse === null || cost > (out.get(plusGrosse)?.cost ?? 0)) {
+      plusGrosse = id;
+    }
+  }
+  const écart = round2(round2(brut) - arrondi);
+  if (écart !== 0 && plusGrosse !== null) {
+    const c = out.get(plusGrosse)!;
+    out.set(plusGrosse, { ...c, cost: round2(c.cost + écart) });
+  }
+  return out;
+}
