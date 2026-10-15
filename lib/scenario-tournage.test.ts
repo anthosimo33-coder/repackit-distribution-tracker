@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  faconDeRedemander,
   lireLienTournage,
   lireReponseCreation,
   lireReponseSuivi,
@@ -79,5 +80,27 @@ describe("API BLUSH — réponses", () => {
     });
     expect(lireReponseSuivi(502, {}, "K")).toMatchObject({ statut: "transitoire" });
     expect(lireReponseSuivi(404, {}, "K")).toMatchObject({ statut: "echec" });
+  });
+});
+
+describe("faconDeRedemander — ne jamais repayer une lecture pour rien", () => {
+  it("rien tant qu'un lien est posé ou qu'une demande tourne", () => {
+    expect(faconDeRedemander({ statut: "pret" }, true)).toBe("rien");
+    expect(faconDeRedemander({ statut: "en_lecture" }, false)).toBe("rien");
+    expect(faconDeRedemander({ statut: "demande" }, false)).toBe("rien");
+  });
+
+  it("reprend la même demande après une lecture trop longue ou une coupure", () => {
+    expect(faconDeRedemander({ statut: "echec", reprise: true, erreur: "BLUSH injoignable." }, false)).toBe("reprendre");
+    // Les échecs écrits avant le correctif (15/10, 20 min) se reprennent aussi.
+    expect(
+      faconDeRedemander({ statut: "echec", erreur: "BLUSH n'a pas fini la lecture en 20 minutes : réessaie." }, false),
+    ).toBe("reprendre");
+  });
+
+  it("relance (nouvelle lecture) après un vrai échec de BLUSH, ou la première fois", () => {
+    expect(faconDeRedemander({ statut: "echec", erreur: "La lecture BLUSH a échoué : alerte" }, false)).toBe("relancer");
+    expect(faconDeRedemander(undefined, false)).toBe("relancer");
+    expect(faconDeRedemander({ statut: "pret" }, false)).toBe("relancer");
   });
 });

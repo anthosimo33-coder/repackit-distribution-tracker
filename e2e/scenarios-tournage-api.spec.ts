@@ -1,7 +1,7 @@
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { test, expect, adminPath } from "./fixtures/auth-fixture";
-import { createE2eClient } from "./helpers/authed-client";
+import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { pilote } from "./helpers/faux-blush";
@@ -99,12 +99,40 @@ test.describe("Scénarios — liens de tournage par l'API BLUSH", () => {
     // Redemander : rien ne repart (le lien est là, pas de 2e lecture).
     expect(await admin.mutation(api.scenarioTournage.demanderLiensTournage, { creatorId: kelly.creatorId })).toEqual({ demandes: 0 });
 
+    // ── Lecture TROP LONGUE (BLUSH lit à la file) : échec « reprise », et
+    // « Réessayer » reprend la MÊME demande — aucune nouvelle lecture.
+    const code3 = `R${code.slice(1)}`;
+    const scenario3 = await admin.mutation(api.scenarios.creerScenario, {
+      bible: BIBLE_C2.replace('"id": "C2"', `"id": "${code3}"`),
+      theme: `${theme} ter`,
+    });
+    await admin.action(api.scenarioTournage.preparerTournages, { projectId, creatorId: kelly.creatorId, scenarioIds: [scenario3] });
+    await expect.poll(async () => (await paire(scenario3)).blush?.statut, { timeout: 20_000 }).toBe("en_lecture");
+    await admin.mutation(api.scenarioTournageBlush.e2eVieillirDemandeBlush, {
+      secret: E2E_SECRET,
+      tournageId: (await paire(scenario3))._id,
+      heures: 4,
+    });
+    await expect.poll(async () => (await paire(scenario3)).blush?.statut, { timeout: 45_000 }).toBe("echec");
+    expect((await paire(scenario3)).blush?.erreur).toContain("sans nouvelle lecture");
+    expect(await admin.mutation(api.scenarioTournage.demanderLiensTournage, { creatorId: kelly.creatorId, scenarioIds: [scenario3] })).toEqual({
+      demandes: 1,
+    });
+    await expect.poll(async () => (await paire(scenario3)).blush?.statut, { timeout: 20_000 }).toBe("en_lecture");
+    const [d3] = await demandeDe(code3);
+    await blush.pret(d3!.ref);
+    await expect.poll(async () => (await paire(scenario3)).lien, { timeout: 45_000 }).toBe(`https://askblush.test/tournage/${d3!.ref}`);
+    // Une seule demande chez BLUSH, la v1 : reprise, pas relancée.
+    expect((await demandeDe(code3)).map((x) => x.ref.slice(-3))).toEqual(["-v1"]);
+
     // ── Échec côté BLUSH : la raison s'affiche, « Réessayer » repart avec une NOUVELLE ref.
     await admin.action(api.scenarioTournage.preparerTournages, { projectId, creatorId: kelly.creatorId, scenarioIds: [scenario2] });
     await expect.poll(async () => (await demandeDe(code2)).length, { timeout: 20_000 }).toBe(1);
     await expect.poll(async () => (await paire(scenario2)).blush?.statut, { timeout: 20_000 }).toBe("en_lecture");
     await blush.echec((await demandeDe(code2))[0]!.ref, "conv illisible");
     await expect.poll(async () => (await paire(scenario2)).blush?.statut, { timeout: 45_000 }).toBe("echec");
+    // Le bouton de la carte ne relance PAS un vrai échec (ce serait une lecture payée) : seul « Réessayer ».
+    expect(await admin.mutation(api.scenarioTournage.demanderLiensTournage, { creatorId: kelly.creatorId })).toEqual({ demandes: 0 });
     await page.goto(adminPath("/scenarios/tournage"));
     const carte = page.getByTestId("tournage-createatrice").filter({ hasText: nom });
     const entete = carte.getByRole("button", { name: new RegExp(`Kelly Martin \\[E2E_TEST\\] ${ts}`) });

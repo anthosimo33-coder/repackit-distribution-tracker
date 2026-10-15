@@ -416,6 +416,8 @@
     "liensDemandes": "{n, plural, =0 {No link to request} one {# link requested from BLUSH (≈ 3 min)} other {# links requested from BLUSH (≈ 3 min)}}",
     "enCreation": "Link being created in BLUSH…",
     "echecLien": "Failed: {erreur}",
-    "reessayer": "Retry"
+    "reessayer": "Retry",
+    "reprendreAide": "Resumes the same BLUSH request: no new reading.",
+    "relancerAide": "Starts a new BLUSH reading (≈ €1)."
   }
 }

@@ -2000,6 +2000,8 @@ export default defineSchema({
         id: v.optional(v.string()),
         statut: v.union(v.literal("demande"), v.literal("en_lecture"), v.literal("pret"), v.literal("echec")),
         erreur: v.optional(v.string()),
+        // Échec qui se REPREND sans nouvelle lecture (même ref) : délai dépassé, BLUSH injoignable.
+        reprise: v.optional(v.boolean()),
         demandeLe: v.number(),
       }),
     ),
