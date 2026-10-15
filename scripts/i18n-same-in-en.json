@@ -212,6 +212,7 @@
     "admin.scripts.ScriptsPage.active",
     "admin.scripts.ScriptsPage.scripts",
     "admin.scripts.StatusBadge.posts",
+    "admin.scripts.TournagePage.messages",
     "admin.scripts.brickKind.cta",
     "admin.scripts.brickKind.hook",
     "admin.scripts.scenarioType.couple",

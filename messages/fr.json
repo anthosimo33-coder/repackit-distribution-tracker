@@ -314,9 +314,13 @@
       "fiche": "Ta conv : {duree} avec {lui}, {relation}",
       "preparer": "Préparer ma conv",
       "telechargerConv": "Télécharger la conv (.txt)",
-      "aideConv": "Enregistre-la dans Fichiers, puis importe-la sur askblush.com.",
+      "aideConv": "Enregistre-la dans Fichiers, sur le téléphone qui filme.",
       "echec": "La conv n'a pas pu être préparée. Réessaie.",
-      "filme": "2. Filme : suis le script de la mission."
+      "attente": "Ta conv et ton lien de tournage arrivent : l'équipe les prépare. N'importe rien sur BLUSH d'ici là.",
+      "tournageTitre": "2. Ouvre le mode tournage",
+      "tournageBouton": "Ouvrir le mode tournage",
+      "tournageAide": "Sur le téléphone qui filme. Connecte-toi une fois avec ton email avant de filmer (un code à 6 chiffres arrive par email). Puis touche « Commencer une prise », importe la conv et, à « Qui es-tu ? », choisis {prenom}.",
+      "filme": "3. Filme : suis le script de la mission."
     },
     "copy": {
       "copy": "Copier",
@@ -1534,6 +1538,8 @@
     "ERR_SCENARIO_NOT_FOUND": "Scénario introuvable.",
     "ERR_SCENARIO_ARCHIVED": "Le scénario {code} est archivé : remets-le en « Actif » pour le donner.",
     "ERR_SCENARIO_IN_USE": "Le scénario {code} a déjà été donné à des missions : archive-le plutôt que de le supprimer.",
+    "ERR_TOURNAGE_NOT_READY": "Ta conv et ton lien de tournage ne sont pas encore prêts : l’équipe les prépare.",
+    "ERR_TOURNAGE_LINK_INVALID": "Ce n’est pas un lien https : colle le lien copié dans BLUSH.",
     "ERR_SCRIPT_NEEDS_CONVERSATION": "Ce script cite la conversation ({variables}) : choisis une conversation WhatsApp dont le scénario a une fiche.",
     "ERR_NO_ACTIVE_CONVERSATION": "Aucun scénario dans le thème « {theme} » : importes-en un dans Scénarios, ou assigne sans conversation.",
     "ERR_COMPTA_CHARGE_INVALID": "Charge invalide : il faut une date, un libellé, un montant positif et une devise que le projet sait convertir.",

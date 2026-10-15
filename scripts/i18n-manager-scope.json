@@ -29,6 +29,7 @@
     "app/(app)/admin/[projectSlug]/rushes/page.tsx",
     "app/(app)/admin/[projectSlug]/scenarios/[id]/page.tsx",
     "app/(app)/admin/[projectSlug]/scenarios/page.tsx",
+    "app/(app)/admin/[projectSlug]/scenarios/tournage/page.tsx",
     "app/(app)/admin/[projectSlug]/screenrecorder/page.tsx",
     "app/(app)/admin/[projectSlug]/scripts/[id]/analytics/page.tsx",
     "app/(app)/admin/[projectSlug]/scripts/[id]/page.tsx",

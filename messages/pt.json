@@ -314,9 +314,13 @@
       "fiche": "Sua conversa: {duree} com {lui}, {relation}",
       "preparer": "Preparar minha conversa",
       "telechargerConv": "Baixar a conversa (.txt)",
-      "aideConv": "Salve em Arquivos e depois importe no askblush.com.",
+      "aideConv": "Salve em Arquivos, no celular com que você grava.",
       "echec": "Não deu para preparar a conversa. Tente de novo.",
-      "filme": "2. Grave: siga o roteiro da missão."
+      "attente": "Sua conversa e seu link de gravação estão chegando: a equipe está preparando. Não importe nada no BLUSH até lá.",
+      "tournageTitre": "2. Abra o modo gravação",
+      "tournageBouton": "Abrir o modo gravação",
+      "tournageAide": "No celular com que você grava. Entre uma vez com seu email antes de gravar (um código de 6 dígitos chega por email). Depois toque em « Commencer une prise », importe a conversa e, em « Qui es-tu ? », escolha {prenom}.",
+      "filme": "3. Grave: siga o roteiro da missão."
     },
     "copy": {
       "copy": "Copiar",
@@ -1534,6 +1538,8 @@
     "ERR_SCENARIO_NOT_FOUND": "Cenário não encontrado.",
     "ERR_SCENARIO_ARCHIVED": "O cenário {code} está arquivado: coloque-o de volta em “Ativo” para atribuí-lo.",
     "ERR_SCENARIO_IN_USE": "O cenário {code} já foi atribuído a missões: arquive-o em vez de apagá-lo.",
+    "ERR_TOURNAGE_NOT_READY": "Sua conversa e seu link de gravação ainda não estão prontos: a equipe está preparando.",
+    "ERR_TOURNAGE_LINK_INVALID": "Isso não é um link https: cole o link copiado no BLUSH.",
     "ERR_SCRIPT_NEEDS_CONVERSATION": "Este roteiro cita a conversa ({variables}): escolha uma conversa de WhatsApp cujo cenário tenha ficha.",
     "ERR_NO_ACTIVE_CONVERSATION": "Nenhum cenário no tema “{theme}”: importe um em Cenários ou atribua sem conversa.",
     "ERR_COMPTA_CHARGE_INVALID": "Despesa inválida: precisa de uma data, uma descrição, um valor positivo e uma moeda que o projeto saiba converter.",

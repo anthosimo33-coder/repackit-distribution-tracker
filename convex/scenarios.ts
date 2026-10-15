@@ -16,6 +16,7 @@ import { permissionMutation, permissionQuery, type ProjectMutationCtx } from "./
 import { ERR, err } from "./errorCodes";
 import { lireBible, type Bible } from "./scenarioBible";
 import { cleTheme } from "./scriptConversation";
+import { supprimerTournages } from "./scenarioTournage";
 
 /** Une bible pèse ~25 Ko (C2) ; plafond large, sous la limite d'un document (1 Mo). */
 export const MAX_BIBLE = 300_000;
@@ -263,6 +264,14 @@ export async function supprimerScenarioCore(ctx: ProjectMutationCtx, id: Id<"sce
   if (donne) {
     throw err(ERR.SCENARIO_IN_USE, `Le scénario ${s.code} a déjà été donné à des missions : archive-le plutôt.`, { code: s.code });
   }
+  // Ses fichiers figés du mode tournage partent avec (aucune mission ne les sert).
+  await supprimerTournages(
+    ctx,
+    await ctx.db
+      .query("scenarioTournages")
+      .withIndex("by_scenario", (q) => q.eq("scenarioId", s._id))
+      .collect(),
+  );
   await ctx.db.delete(s._id);
 }
 

@@ -292,7 +292,8 @@
     "creer": "Create",
     "cree": "Scenario created",
     "perf": "{posts, plural, one {# post} other {# posts}} · {vues} views",
-    "perfAucune": "no post yet"
+    "perfAucune": "no post yet",
+    "tournage": "Filming mode"
   },
   "ScenarioPage": {
     "introuvable": "Scenario not found.",
@@ -382,5 +383,32 @@
     "enTest": "Judged from {seuil} posts ({posts} so far), against the project's other scenarios.",
     "ligne": "{posts, plural, one {# post} other {# posts}} · {vues} views",
     "campagneSupprimee": "Deleted campaign"
+  },
+  "TournagePage": {
+    "titre": "Filming mode",
+    "retour": "Scenarios",
+    "sousTitre": "For each creator and each story: a file in her name to import into BLUSH, then the filming link to paste here. Her mission gives her that file and that link, and nothing until the link is pasted.",
+    "etape1": "“Prepare” makes her files: one per story, in her name. They never change afterwards.",
+    "etape2": "In BLUSH (admin account): import each file, open its report and let it finish writing, then askblush.com/admin › Tournage › Créer le lien.",
+    "etape3": "Copy the link and paste it next to the file, then Save.",
+    "accesRefuse": "Reserved for people who manage scripts and campaigns.",
+    "rien": "No creator or no active story yet.",
+    "progression": "{liens} / {total} links pasted",
+    "preparer": "Prepare {n, plural, one {her file} other {her # files}}",
+    "prepares": "{n, plural, =0 {Nothing new to prepare} one {# file prepared} other {# files prepared}} for {nom}.",
+    "toutTelecharger": "Download all (.zip)",
+    "aPreparer": "Prepare",
+    "fichier": "File",
+    "messages": "{n} messages",
+    "lienPlaceholder": "Paste the BLUSH filming link here",
+    "lienLabel": "Filming link {code} for {prenom}",
+    "enregistrer": "Save",
+    "lienEnregistre": "Link saved: the creator sees it on her missions.",
+    "lienRetire": "Link removed: her missions no longer offer this chat.",
+    "pret": "Ready",
+    "echec": "That didn't work. Try again.",
+    "echecTelechargement": "The file could not be downloaded. Try again.",
+    "preparerUn": "Prepare file {code} for {prenom}",
+    "nomZip": "Filming {prenom}.zip"
   }
 }

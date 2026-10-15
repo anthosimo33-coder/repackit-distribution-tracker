@@ -36,6 +36,7 @@ import { hookLibreDuTexte, hookLibreOf, type HookLibre } from "./hookLibre";
 import { briqueRemplie, ficheCreatrice, valeursDuScenario, type FicheCreatrice } from "./scenarioScript";
 import { remplirVariables, type ValeursFiche } from "./scenarioFiche";
 import { scenarioDeMission } from "./scenarioMission";
+import { tournageDe } from "./scenarioTournage";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
   pickCreatorAssignment,
@@ -3025,17 +3026,28 @@ async function scriptNotifOf(
 
 /**
  * CONVERSATION de la vidéo (option de la campagne, cf convex/scriptConversation) :
- * la mission a-t-elle un scénario à générer à son prénom (convex/scenarioMission) ?
- * Rien du scénario lui-même (code, bible, thème) ne sort : la conv se fabrique
- * au téléchargement.
+ * la mission a-t-elle une histoire, et son MODE TOURNAGE est-il prêt
+ * (convex/scenarioTournage) — le lien BLUSH et le prénom du fichier figé ?
+ * `tournage: null` = pas encore prêt : rien à télécharger ni à importer. Rien
+ * du scénario lui-même (code, bible, thème) ne sort.
  */
-type ScriptConversation = { genere: true; fiche: FicheCreatrice | null };
+type ScriptConversation = {
+  genere: true;
+  fiche: FicheCreatrice | null;
+  tournage: { lien: string; prenom: string } | null;
+};
 async function scriptConversationOf(
   ctx: QueryCtx,
   a: Doc<"assignments">,
 ): Promise<ScriptConversation | null> {
   const s = await scenarioDeMission(ctx, a);
-  return s ? { genere: true, fiche: await ficheCreatrice(ctx, s._id) } : null;
+  if (!s) return null;
+  const t = await tournageDe(ctx, a.creatorId, s._id);
+  return {
+    genere: true,
+    fiche: await ficheCreatrice(ctx, s._id),
+    tournage: t?.lien ? { lien: t.lien, prenom: t.prenom } : null,
+  };
 }
 
 // missionLabelFor vit dans convex/missionLabel : un module sans dépendances, que

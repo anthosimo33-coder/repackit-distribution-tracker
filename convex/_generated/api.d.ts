@@ -242,6 +242,8 @@ import type * as scenarioFiche from "../scenarioFiche.js";
 import type * as scenarioMission from "../scenarioMission.js";
 import type * as scenarioPerf from "../scenarioPerf.js";
 import type * as scenarioScript from "../scenarioScript.js";
+import type * as scenarioTournage from "../scenarioTournage.js";
+import type * as scenarioTournageRegles from "../scenarioTournageRegles.js";
 import type * as scenarios from "../scenarios.js";
 import type * as scriptAnalytics from "../scriptAnalytics.js";
 import type * as scriptConversation from "../scriptConversation.js";
@@ -534,6 +536,8 @@ declare const fullApi: ApiFromModules<{
   scenarioMission: typeof scenarioMission;
   scenarioPerf: typeof scenarioPerf;
   scenarioScript: typeof scenarioScript;
+  scenarioTournage: typeof scenarioTournage;
+  scenarioTournageRegles: typeof scenarioTournageRegles;
   scenarios: typeof scenarios;
   scriptAnalytics: typeof scriptAnalytics;
   scriptConversation: typeof scriptConversation;

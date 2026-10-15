@@ -149,6 +149,7 @@ test.describe("Scénarios — fiche et variables des briques", () => {
     expect(vue!.scriptConversation).toEqual({
       genere: true,
       fiche: { duree: "14 mois", lui: "Yanis", relation: "ton copain", resume: "Yanis a liké la photo de son ex, et c'est toi qui t'excuses." },
+      tournage: null,
     });
     // Retirer la conv d'une mission dont le script la cite : refusé.
     await expect(admin.mutation(api.scripts.setAssignmentScenario, { id: mission._id, scenarioId: null })).rejects.toThrow(
