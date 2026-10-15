@@ -481,7 +481,8 @@
       "contractHint": "Le contrat signé pour ce projet. Déposé par l'équipe — clique pour l'ouvrir ou l'enregistrer.",
       "contractEmpty": "Aucun contrat pour l'instant.",
       "contractUploadedOn": "Déposé le {date}",
-      "contractMissing": "{fileName} — fichier introuvable"
+      "contractMissing": "{fileName} — fichier introuvable",
+      "contractSeeTerms": "Voir ma grille et mes conditions"
     },
     "assignment": {
       "started": "C'est parti — bon tournage !",
@@ -599,7 +600,8 @@
         "gauge": "{done} / {target} vues",
         "locked": "Le fixe du mois se débloque à {target} vues cumulées sur tes vidéos du mois.",
         "unlocked": "Seuil atteint — le fixe du mois est acquis."
-      }
+      },
+      "seeGrid": "Voir ma grille"
     },
     "videos": {
       "trackingActive": "Suivi actif",
@@ -866,7 +868,13 @@
       "rankingTitle": "Classement du cycle",
       "videosTitle": "Tes vidéos",
       "videosAll": "Toutes mes vidéos",
-      "views": "{views} vues"
+      "views": "{views} vues",
+      "contract": {
+        "title": "Mon contrat",
+        "fixe": "{amount} / {count, plural, one {# vidéo} other {# vidéos}}",
+        "cpm": "{amount} / 1 000 vues",
+        "bonus": "Bonus jusqu'à {amount} / vidéo"
+      }
     },
     "moi": {
       "title": "Moi",
@@ -933,6 +941,48 @@
       "title": "Installer l'app",
       "hint": "Ton espace en un tap depuis l'écran d'accueil",
       "iosHint": "Touche Partager, puis « Sur l'écran d'accueil »."
+    },
+    "contrat": {
+      "title": "Mon contrat",
+      "subtitle": "Ce que tu gagnes, et comment c'est calculé.",
+      "noTerms": "Ton barème n'est pas encore rattaché à ta fiche. L'équipe s'en occupe : il apparaîtra ici.",
+      "otherTerms": "Une partie des vidéos de ce cycle reste payée selon tes conditions précédentes. Leur détail est dans « Mes paiements ».",
+      "fixe": {
+        "label": "Fixe par cycle de 30 jours",
+        "forVideos": "{count, plural, one {pour # vidéo} other {pour # vidéos}}",
+        "perVideo": "soit {amount} par vidéo publiée",
+        "seuil": "Débloqué à partir de {views} vues cumulées sur tes vidéos du cycle.",
+        "progress": "{done} / {target} ce cycle",
+        "earned": "{amount} acquis",
+        "locked": "{done} / {target} vues pour débloquer"
+      },
+      "cpm": {
+        "label": "Tes vues",
+        "rate": "{amount} pour 1 000 vues",
+        "cap": "Une vidéo rapporte au plus {amount} (fixe + vues)."
+      },
+      "bonus": {
+        "label": "Bonus par vidéo",
+        "tier": "{views} vues",
+        "toNext": "encore {views}",
+        "best": "Ta meilleure vidéo ce cycle : {title}, {views} vues",
+        "bestNoTitle": "Ta meilleure vidéo ce cycle : {views} vues",
+        "none": "Aucune vidéo n'a encore atteint le premier palier ce cycle."
+      },
+      "cumul": {
+        "label": "Paliers sur ton cumul de vues",
+        "link": "Voir ma progression"
+      },
+      "rules": {
+        "title": "Les règles",
+        "platformsAdd": "Les vues de toutes les plateformes d'une même vidéo s'additionnent (TikTok + Instagram…).",
+        "window30": "Seules les vues des 30 premiers jours après la publication comptent.",
+        "warmupNoBonus": "Les posts de chauffe ne comptent pas pour les bonus.",
+        "highestTierOnly": "Une vidéo touche le palier le plus haut qu'elle atteint : les paliers ne s'additionnent pas.",
+        "tiersAdd": "Les paliers atteints par une vidéo s'additionnent.",
+        "capPerVideo": "Fixe + vues : {amount} au plus par vidéo. Les bonus s'ajoutent en plus.",
+        "paidEvery30": "Paiement à la fin de chaque cycle de 30 jours."
+      }
     }
   },
   "status": {

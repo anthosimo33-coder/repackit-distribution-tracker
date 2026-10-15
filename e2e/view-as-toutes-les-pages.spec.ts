@@ -68,6 +68,7 @@ test.describe("Espace observé — toutes les pages montent", () => {
       { chemin: "/guide", nom: "guide", titre: /^Comment ça marche$/ },
       { chemin: "/videos", nom: "videos", titre: /^Mes vidéos$/ },
       { chemin: "/paiements", nom: "paiements", titre: /^Mes paiements$/ },
+      { chemin: "/contrat", nom: "contrat", titre: /^Mon contrat$/ },
       { chemin: "/progression", nom: "progression", titre: /^Ma progression$/ },
       { chemin: "/profil", nom: "profil", titre: /^Mon profil$|^Profil$/ },
     ];

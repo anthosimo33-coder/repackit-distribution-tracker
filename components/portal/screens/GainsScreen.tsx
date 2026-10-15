@@ -2,12 +2,20 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRightIcon, CheckIcon, LockIcon, TrendingUpIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  FileTextIcon,
+  LockIcon,
+  TrendingUpIcon,
+} from "lucide-react";
 import { useCreatorProject } from "@/components/portal/CreatorProjectProvider";
 import {
   useMyPayments,
   useMyProgression,
   useMyPublishedVideos,
+  useMyTerms,
 } from "@/components/portal/creator-data";
 import { usePortalBase } from "@/components/portal/ViewAsContext";
 import { PaymentInfoNudge } from "@/components/portal/PaymentInfoNudge";
@@ -17,7 +25,8 @@ import { ViewsPulseCard } from "@/components/portal/ViewsPulseCard";
 import { useMyViewsPulse } from "@/components/portal/creator-data";
 import { Skeleton } from "@/components/ui/skeleton";
 import { buildProgression, type ProgressionReward } from "@/lib/progression";
-import { formatMoney, formatViews } from "@/lib/format-rate";
+import { formatMoney, formatMoneyWhole, formatViews } from "@/lib/format-rate";
+import { maxVideoBonus } from "@/lib/creator-terms";
 import { formatMoneyDate } from "@/lib/format";
 import { formatCycleRange } from "@/lib/pay-cycle";
 import { isSnytchProject } from "@/lib/snytch-drive";
@@ -155,6 +164,8 @@ export default function GainsScreen() {
         </section>
       )}
 
+      <ContractCard />
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] lg:items-start">
         <div className="space-y-6">
           <TiersCard />
@@ -163,6 +174,60 @@ export default function GainsScreen() {
         <RankCard variant="full" />
       </div>
     </div>
+  );
+}
+
+/**
+ * « Mon contrat » en une ligne — l'entrée de la page du barème. Rien tant que le
+ * barème charge, rien non plus s'il n'y en a pas : une carte vide n'apprend rien
+ * (la page, elle, le dit).
+ */
+function ContractCard() {
+  const t = useTranslations("portal");
+  const loc = useIntlLocale();
+  const { current } = useCreatorProject();
+  const base = usePortalBase();
+  const terms = useMyTerms(current.projectId);
+  const p = terms?.pricing;
+  if (!p) return null;
+  const whole = (n: number) => formatMoneyWhole(n, p.currency, loc);
+  const chips = [
+    p.montantFixe > 0
+      ? t("gains.contract.fixe", { amount: whole(p.montantFixe), count: p.nbVideosCible })
+      : null,
+    p.tauxCPM > 0
+      ? t("gains.contract.cpm", { amount: formatMoney(p.tauxCPM, p.currency, loc) })
+      : null,
+    p.videoBonus
+      ? t("gains.contract.bonus", { amount: whole(maxVideoBonus(p.videoBonus)) })
+      : null,
+  ].filter((c): c is string => c !== null);
+  return (
+    <Link
+      href={portalHref(base, "/contrat")}
+      data-testid="gains-contract"
+      className="block rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:bg-slate-50"
+    >
+      <span className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          <FileTextIcon className="size-4 text-slate-400" />
+          {t("gains.contract.title")}
+        </span>
+        <ChevronRightIcon className="size-4 text-slate-400" />
+      </span>
+      {chips.length > 0 && (
+        <span className="mt-2.5 flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <span
+              key={c}
+              className="rounded-md bg-slate-100 px-2 py-1 text-xs font-medium tabular-nums text-slate-700"
+            >
+              {c}
+            </span>
+          ))}
+        </span>
+      )}
+    </Link>
   );
 }
 

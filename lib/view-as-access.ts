@@ -58,10 +58,16 @@ export function canObserveMoney(d: Droits): boolean {
  * finiraient par diverger, et la divergence ne se verrait que dans un sens —
  * celui qui fuit.
  *
- * Ce sont les trois écrans faits de gains : les cycles de paie, le gain de
- * chaque vidéo, le montant des paliers.
+ * Ce sont les écrans faits de gains : les cycles de paie, le gain de chaque
+ * vidéo, le montant des paliers, et le contrat (le barème dit ce qu'elle gagne).
  */
-export const MONEY_SUBS = ["/gains", "/paiements", "/videos", "/progression"] as const;
+export const MONEY_SUBS = [
+  "/gains",
+  "/paiements",
+  "/videos",
+  "/progression",
+  "/contrat",
+] as const;
 
 /** `sub` (relatif à la base d'observation) est-il un écran de gains ? */
 export function isMoneySub(sub: string): boolean {

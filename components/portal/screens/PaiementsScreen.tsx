@@ -214,6 +214,22 @@ function BonusVideoRef({ video }: { video: BonusVideo | undefined }) {
   );
 }
 
+/** Sous les bonus vidéo : la grille qui les a produits (« Mon contrat »). */
+function SeeGridLink() {
+  const t = useTranslations("portal");
+  const base = usePortalBase();
+  return (
+    <Link
+      href={portalHref(base, "/contrat")}
+      data-testid="see-grid"
+      className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 underline underline-offset-4 hover:text-slate-700"
+    >
+      {t("paiements.seeGrid")}
+      <ArrowRightIcon className="size-3" />
+    </Link>
+  );
+}
+
 /**
  * Aperçu PRICING temps réel d'une période non payée : fixe acquis (X/cible
  * vidéos → Y$ sur montantFixe), CPM accumulé (sur les vues), bonus, total.
@@ -351,6 +367,7 @@ function PricingBreakdown({
           />
         </div>
       ))}
+      {b.videoBonuses.length > 0 && <SeeGridLink />}
       <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-sm font-semibold">
         <span>{t("paiements.subtotal")}</span>
         <span className="tabular-nums" data-testid="pricing-total">

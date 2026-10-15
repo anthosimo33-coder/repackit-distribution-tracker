@@ -40,7 +40,7 @@ export const CREATOR_TABS: readonly CreatorTab[] = [
   {
     key: "gains",
     sub: "/gains",
-    owns: ["/gains", "/paiements", "/progression", "/videos"],
+    owns: ["/gains", "/paiements", "/progression", "/videos", "/contrat"],
     money: true,
   },
   {
