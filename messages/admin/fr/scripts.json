@@ -416,6 +416,8 @@
     "liensDemandes": "{n, plural, =0 {Aucun lien à demander} one {# lien demandé à BLUSH (≈ 3 min)} other {# liens demandés à BLUSH (≈ 3 min)}}",
     "enCreation": "Lien en cours de création dans BLUSH…",
     "echecLien": "Échec : {erreur}",
-    "reessayer": "Réessayer"
+    "reessayer": "Réessayer",
+    "reprendreAide": "Reprend la même demande chez BLUSH : pas de nouvelle lecture.",
+    "relancerAide": "Relance une lecture chez BLUSH (≈ 1 €)."
   }
 }

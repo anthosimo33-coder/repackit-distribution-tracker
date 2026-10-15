@@ -178,7 +178,7 @@ export async function appelerTournagesLecture(
         liensAutomatiques: liste.automatiques,
         createatrices: liste.createatrices,
         lecture: [
-          "liensAutomatiques = true : `preparer_tournages` fabrique le fichier ET demande le lien à BLUSH (~3 min, une lecture payée ≈ 1 € par fichier) ; l'état passe de « lien en création » à « prêt » tout seul. « échec » donne la raison : `preparer_tournages` sur la même créatrice redemande les liens manquants.",
+          "liensAutomatiques = true : `preparer_tournages` fabrique le fichier ET demande le lien à BLUSH (~3 min, une lecture payée ≈ 1 € par fichier) ; l'état passe de « lien en création » à « prêt » tout seul. « échec » donne la raison : une lecture trop longue se reprend gratuitement avec `preparer_tournages` sur la même créatrice ; un vrai échec de BLUSH se relance (lecture payée) avec « Réessayer » sur sa ligne, à l'écran.",
           "liensAutomatiques = false : l'équipe télécharge le fichier depuis l'écran (« ecran »), l'importe dans BLUSH, crée le lien (askblush.com/admin › Tournage), puis `liens_tournage` le colle.",
           "Tant qu'une paire n'est pas « prêt », ses missions n'affichent ni fichier ni bouton : importer sans lien serait une vraie lecture payée.",
         ],
@@ -196,7 +196,7 @@ export const OUTILS_ECRITURE_TOURNAGE: readonly McpTool[] = [
     name: "preparer_tournages",
     title: "Préparer des fichiers de tournage",
     description:
-      "MODIFIE les scripts : fabrique les fichiers du MODE TOURNAGE BLUSH d'une créatrice — un .txt par histoire en service (ou seulement `histoires`), à son prénom, FIGÉ (jamais refait, même si l'histoire change ensuite : c'est lui que BLUSH aura lu). Les paires déjà préparées ne bougent pas. Quand l'API BLUSH est branchée (`tournages` : liensAutomatiques), il DEMANDE AUSSI à BLUSH le lien de chaque fichier de la créatrice qui n'en a pas (nouveaux ou anciens, échecs compris) : ~3 min, UNE LECTURE PAYÉE ≈ 1 € PAR LIEN — dis-le avant. Sinon, l'équipe importe les fichiers dans BLUSH et colle les liens (`liens_tournage`). Les fichiers se défont tant qu'aucun lien n'est posé.",
+      "MODIFIE les scripts : fabrique les fichiers du MODE TOURNAGE BLUSH d'une créatrice — un .txt par histoire en service (ou seulement `histoires`), à son prénom, FIGÉ (jamais refait, même si l'histoire change ensuite : c'est lui que BLUSH aura lu). Les paires déjà préparées ne bougent pas. Quand l'API BLUSH est branchée (`tournages` : liensAutomatiques), il DEMANDE AUSSI à BLUSH le lien de chaque fichier de la créatrice qui n'en a pas : ~3 min ou plus (BLUSH lit à la file), UNE LECTURE PAYÉE ≈ 1 € PAR LIEN — dis-le avant. Une lecture trop longue est reprise sans être repayée ; un vrai échec de BLUSH (« alerte »…) ne se relance PAS ici : bouton « Réessayer » de sa ligne à l'écran. Sinon, l'équipe importe les fichiers dans BLUSH et colle les liens (`liens_tournage`). Les fichiers se défont tant qu'aucun lien n'est posé.",
     inputSchema: {
       type: "object",
       properties: {

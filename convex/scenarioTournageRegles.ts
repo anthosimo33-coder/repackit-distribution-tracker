@@ -102,3 +102,23 @@ export function lireReponseSuivi(status: number, corps: unknown, prenom: string)
   }
   return { statut: "en_lecture" };
 }
+
+/** Le message d'une lecture trop longue (celui d'avant le 15/10 au soir disait « en 20 minutes »). */
+export const LECTURE_TROP_LONGUE = "BLUSH n'a pas fini la lecture";
+
+export type FaconDeRedemander = "rien" | "reprendre" | "relancer";
+
+/**
+ * Redemander le lien d'un fichier : RIEN (lien posé, ou demande en cours),
+ * REPRENDRE la même demande (même ref : BLUSH renvoie le même lien SANS relire —
+ * lecture trop longue, BLUSH injoignable), ou RELANCER (nouvelle ref = nouvelle
+ * lecture payée — BLUSH a dit « echec », ou refus 4xx).
+ */
+export function faconDeRedemander(
+  b: { statut: string; reprise?: boolean; erreur?: string } | undefined,
+  aLien: boolean,
+): FaconDeRedemander {
+  if (aLien || b?.statut === "demande" || b?.statut === "en_lecture") return "rien";
+  if (b?.statut === "echec" && (b.reprise || (b.erreur ?? "").startsWith(LECTURE_TROP_LONGUE))) return "reprendre";
+  return "relancer";
+}

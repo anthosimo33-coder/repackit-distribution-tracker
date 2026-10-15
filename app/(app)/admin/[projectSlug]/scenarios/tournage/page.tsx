@@ -138,7 +138,10 @@ function CarteCreatrice({
   const manquants = scenarios.filter((s) => !parScenario.has(s._id)).length;
   const liens = c.tournages.filter((t) => t.lien).length;
   const enCours = (t: Tournage) => t.blush?.statut === "demande" || t.blush?.statut === "en_lecture";
-  const sansLien = c.tournages.filter((t) => !t.lien && !enCours(t)).length;
+  // Le bouton de la carte ne relance pas un VRAI échec (lecture payée) : seul « Réessayer » sur sa ligne.
+  const sansLien = c.tournages.filter(
+    (t) => !t.lien && !enCours(t) && !(t.blush?.statut === "echec" && !t.blush.reprise),
+  ).length;
 
   async function demanderLiens(scenarioIds?: Id<"scenarios">[]) {
     setBusy("liens");
@@ -330,7 +333,13 @@ function LigneTournage({
                 {tr("echecLien", { erreur: t.blush.erreur ?? "" })}
               </span>
               {reessayer && (
-                <Button type="button" size="sm" variant="outline" onClick={reessayer}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={reessayer}
+                  title={t.blush.reprise ? tr("reprendreAide") : tr("relancerAide")}
+                >
                   {tr("reessayer")}
                 </Button>
               )}

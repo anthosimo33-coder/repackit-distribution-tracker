@@ -11,19 +11,35 @@
  *
  * Chaque demande coûte une VRAIE lecture (~1 €, 40 par jour au plus avec la
  * clé). La même `ref` renvoie le même lien sans relire : un double envoi ne
- * coûte rien ; une nouvelle demande (réessai, lien remplacé) prend une nouvelle
- * version, donc une nouvelle ref. Le lien n'est posé qu'au statut « pret ».
+ * coûte rien. « Réessayer » REPREND la même ref après une lecture trop longue
+ * ou une coupure (gratuit), et ne prend une nouvelle version (nouvelle ref,
+ * nouvelle lecture) qu'après un vrai échec de BLUSH (cf faconDeRedemander).
+ * BLUSH lit à la file : 16 demandes d'un coup ont dépassé 20 min le 15/10 —
+ * on suit jusqu'à 3 h. Le lien n'est posé qu'au statut « pret ».
  */
 import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { lireReponseCreation, lireReponseSuivi, nomBlush, refBlush, type ReponseCreation, type ReponseSuivi } from "./scenarioTournageRegles";
+import { e2eMutation } from "./functions";
+import {
+  faconDeRedemander,
+  LECTURE_TROP_LONGUE,
+  lireReponseCreation,
+  lireReponseSuivi,
+  nomBlush,
+  refBlush,
+  type ReponseCreation,
+  type ReponseSuivi,
+} from "./scenarioTournageRegles";
 
 const URL_BLUSH = "https://www.askblush.com/api/admin/tournage";
 /** Au-delà, une demande qui n'aboutit pas passe en échec (BLUSH annonce ~3 min). */
-const DELAI_MAX_MS = 20 * 60_000;
+const DELAI_MAX_MS = 3 * 60 * 60_000;
 const SUIVI_MS = 12_000;
+/** Passé les premières minutes, BLUSH lit à la file (16 demandes ≠ 3 min) : on espace le suivi. */
+const SUIVI_LENT_MS = 60_000;
+const suiviApres = (demandeLe: number) => (Date.now() - demandeLe < 5 * 60_000 ? SUIVI_MS : SUIVI_LENT_MS);
 const REESSAI_MS = 30_000;
 
 /** L'API, si le déploiement a sa clé ; null = liens collés à la main. */
@@ -36,15 +52,40 @@ export function apiBlush(): { url: string; cle: string } | null {
 /**
  * Demande à BLUSH le lien des tournages qui n'en ont pas (et dont aucune
  * demande n'est en cours) : statut « demande », nouvelle version, envoi
- * programmé. Rend le nombre de demandes parties. Sans clé : 0.
+ * programmé — ou reprise gratuite d'une lecture trop longue. Un VRAI échec
+ * (« alerte »…) n'est relancé que sur demande expresse (« Réessayer » sur sa
+ * ligne) : chaque relance est une lecture payée. Rend le nombre de demandes
+ * parties. Sans clé : 0.
  */
-export async function demanderLiensBlush(ctx: MutationCtx, rows: readonly Doc<"scenarioTournages">[]): Promise<number> {
+export async function demanderLiensBlush(
+  ctx: MutationCtx,
+  rows: readonly Doc<"scenarioTournages">[],
+  /** Relancer aussi les VRAIS échecs (nouvelle lecture payée) : seulement « Réessayer » sur la ligne. */
+  opts: { relancerEchecs?: boolean } = {},
+): Promise<number> {
   if (!apiBlush()) return 0;
   let n = 0;
   for (const t of rows) {
-    if (t.lien || t.blush?.statut === "demande" || t.blush?.statut === "en_lecture") continue;
-    const version = (t.blush?.version ?? 0) + 1;
+    const facon = faconDeRedemander(t.blush, !!t.lien);
+    if (facon === "rien") continue;
+    if (facon === "relancer" && t.blush?.statut === "echec" && !opts.relancerEchecs) continue;
     const maintenant = Date.now();
+    if (facon === "reprendre" && t.blush) {
+      // Même ref : BLUSH renvoie le même lien sans relire. Avec son id, on suit directement.
+      const b = sansReprise(sansErreur(t.blush));
+      await ctx.db.patch(t._id, {
+        blush: { ...b, statut: b.id ? "en_lecture" : "demande", demandeLe: maintenant },
+        updatedAt: maintenant,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        b.id ? internal.scenarioTournageBlush.suivre : internal.scenarioTournageBlush.envoyer,
+        { tournageId: t._id, version: b.version },
+      );
+      n += 1;
+      continue;
+    }
+    const version = (t.blush?.version ?? 0) + 1;
     await ctx.db.patch(t._id, {
       blush: { ref: refBlush(t._id, version), version, statut: "demande", demandeLe: maintenant },
       updatedAt: maintenant,
@@ -81,6 +122,11 @@ function sansErreur(d: Demande): Demande {
   delete reste.erreur;
   return reste;
 }
+function sansReprise(d: Demande): Demande {
+  const reste = { ...d };
+  delete reste.reprise;
+  return reste;
+}
 
 /** La demande en cours de CETTE version, sinon null (remplacée, finie, ou lien collé à la main). */
 async function demandeCourante(ctx: MutationCtx, tournageId: Id<"scenarioTournages">, version: number) {
@@ -109,11 +155,14 @@ export const noterPret = internalMutation({
 });
 
 export const noterEchec = internalMutation({
-  args: { tournageId: v.id("scenarioTournages"), version: v.number(), erreur: v.string() },
+  args: { tournageId: v.id("scenarioTournages"), version: v.number(), erreur: v.string(), reprise: v.optional(v.boolean()) },
   handler: async (ctx, a) => {
     const d = await demandeCourante(ctx, a.tournageId, a.version);
     if (!d) return;
-    await ctx.db.patch(d.t._id, { blush: { ...d.blush, statut: "echec", erreur: a.erreur }, updatedAt: Date.now() });
+    await ctx.db.patch(d.t._id, {
+      blush: { ...sansReprise(d.blush), statut: "echec", erreur: a.erreur, ...(a.reprise ? { reprise: true } : {}) },
+      updatedAt: Date.now(),
+    });
   },
 });
 
@@ -164,7 +213,7 @@ export const envoyer = internalAction({
     }
     if (r.ok) {
       if (await ctx.runMutation(internal.scenarioTournageBlush.noterEnLecture, { ...a, id: r.id })) {
-        await ctx.scheduler.runAfter(SUIVI_MS, internal.scenarioTournageBlush.suivre, a);
+        await ctx.scheduler.runAfter(suiviApres(blush.demandeLe), internal.scenarioTournageBlush.suivre, a);
       }
       return;
     }
@@ -173,7 +222,7 @@ export const envoyer = internalAction({
       await ctx.scheduler.runAfter(REESSAI_MS, internal.scenarioTournageBlush.envoyer, a);
       return;
     }
-    await ctx.runMutation(internal.scenarioTournageBlush.noterEchec, { ...a, erreur: r.erreur });
+    await ctx.runMutation(internal.scenarioTournageBlush.noterEchec, { ...a, erreur: r.erreur, ...(r.transitoire ? { reprise: true } : {}) });
   },
 });
 
@@ -200,11 +249,17 @@ export const suivre = internalAction({
     } else if (r.statut === "echec") {
       await ctx.runMutation(internal.scenarioTournageBlush.noterEchec, { ...a, erreur: r.erreur });
     } else if (Date.now() - blush.demandeLe < DELAI_MAX_MS) {
-      await ctx.scheduler.runAfter(SUIVI_MS, internal.scenarioTournageBlush.suivre, a);
+      await ctx.scheduler.runAfter(suiviApres(blush.demandeLe), internal.scenarioTournageBlush.suivre, a);
     } else {
+      // Ni la lecture trop longue ni une coupure ne sont un échec de la demande :
+      // « Réessayer » la REPREND (même ref, sans nouvelle lecture).
       await ctx.runMutation(internal.scenarioTournageBlush.noterEchec, {
         ...a,
-        erreur: r.statut === "transitoire" ? r.erreur : "BLUSH n'a pas fini la lecture en 20 minutes : réessaie.",
+        erreur:
+          r.statut === "transitoire"
+            ? r.erreur
+            : `${LECTURE_TROP_LONGUE} en 3 heures : « Réessayer » reprend la même demande, sans nouvelle lecture.`,
+        reprise: true,
       });
     }
   },
@@ -221,5 +276,19 @@ export const arreter = internalAction({
     } catch {
       /* lien déjà arrêté ou BLUSH injoignable : à arrêter à la main dans BLUSH › Tournage */
     }
+  },
+});
+
+/**
+ * E2E — VIEILLIT une demande (recule `demandeLe`) : le prochain suivi voit le
+ * délai dépassé, comme après 3 h de lecture chez BLUSH. Le helper déplace
+ * l'horloge, pas la logique (cf e2eSetChallengeDeadline).
+ */
+export const e2eVieillirDemandeBlush = e2eMutation({
+  args: { tournageId: v.id("scenarioTournages"), heures: v.number() },
+  handler: async (ctx, { tournageId, heures }): Promise<{ ok: true }> => {
+    const t = await ctx.db.get(tournageId);
+    if (t?.blush) await ctx.db.patch(tournageId, { blush: { ...t.blush, demandeLe: t.blush.demandeLe - heures * 3_600_000 } });
+    return { ok: true };
   },
 });

@@ -36,7 +36,7 @@ import { filterByCreatorScope } from "./creatorScope";
 import { ERR, err } from "./errorCodes";
 import { lireBible } from "./scenarioBible";
 import { genererConversation } from "./scenarioEngine";
-import { firstNameOf, lireLienTournage, veille } from "./scenarioTournageRegles";
+import { faconDeRedemander, firstNameOf, lireLienTournage, veille } from "./scenarioTournageRegles";
 import { graineMission } from "./scriptConversation";
 import { deleteStorageBestEffort } from "./storageCleanup";
 import { apiBlush, arreterLiensBlush, demanderLiensBlush } from "./scenarioTournageBlush";
@@ -208,7 +208,14 @@ export const tournagesDuProjet = permissionQuery("scripts.manage")({
                 _id: t._id,
                 scenarioId: t.scenarioId,
                 lien: t.lien ?? null,
-                blush: t.blush ? { statut: t.blush.statut, erreur: t.blush.erreur ?? null } : null,
+                blush: t.blush
+                  ? {
+                      statut: t.blush.statut,
+                      erreur: t.blush.erreur ?? null,
+                      // « Réessayer » reprend gratuitement (même ref) ou relance une lecture payée.
+                      reprise: faconDeRedemander(t.blush, false) === "reprendre",
+                    }
+                  : null,
                 nomFichier: t.nomFichier,
                 messages: t.messages,
                 finLe: t.finLe,
@@ -318,7 +325,8 @@ export const demanderLiensTournage = permissionMutation("scripts.manage")({
         .withIndex("by_creator_scenario", (q) => q.eq("creatorId", args.creatorId))
         .collect()
     ).filter((t) => t.projectId === ctx.projectId && (!voulues || voulues.has(t.scenarioId)));
-    return { demandes: await demanderLiensBlush(ctx, rows) };
+    // Des lignes NOMMÉES (« Réessayer ») relancent aussi un vrai échec ; le bouton de la carte, non.
+    return { demandes: await demanderLiensBlush(ctx, rows, { relancerEchecs: voulues !== null }) };
   },
 });
 
