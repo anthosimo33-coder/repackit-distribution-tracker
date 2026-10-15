@@ -485,7 +485,8 @@
       "contractHint": "The signed contract for this project. Uploaded by the team — click to open or save it.",
       "contractEmpty": "No contract yet.",
       "contractUploadedOn": "Uploaded on {date}",
-      "contractMissing": "{fileName} — file not found"
+      "contractMissing": "{fileName} — file not found",
+      "contractSeeTerms": "See my pay grid and terms"
     },
     "assignment": {
       "started": "You're on — happy shooting!",
@@ -603,7 +604,8 @@
         "gauge": "{done} / {target} views",
         "locked": "This month's flat fee unlocks at {target} cumulative views on your videos this month.",
         "unlocked": "Threshold reached — this month's flat fee is secured."
-      }
+      },
+      "seeGrid": "See my pay grid"
     },
     "videos": {
       "trackingActive": "Tracking active",
@@ -870,7 +872,13 @@
       "rankingTitle": "Cycle ranking",
       "videosTitle": "Your videos",
       "videosAll": "All my videos",
-      "views": "{views} views"
+      "views": "{views} views",
+      "contract": {
+        "title": "My contract",
+        "fixe": "{amount} / {count, plural, one {# video} other {# videos}}",
+        "cpm": "{amount} / 1,000 views",
+        "bonus": "Bonus up to {amount} / video"
+      }
     },
     "moi": {
       "title": "Me",
@@ -937,6 +945,48 @@
       "title": "Install the app",
       "hint": "Your space one tap away from your home screen",
       "iosHint": "Tap Share, then “Add to Home Screen”."
+    },
+    "contrat": {
+      "title": "My contract",
+      "subtitle": "What you earn, and how it's calculated.",
+      "noTerms": "Your pay grid isn't linked to your profile yet. The team is on it — it will show up here.",
+      "otherTerms": "Some videos in this cycle are still paid under your previous terms. Their details are in “My payments”.",
+      "fixe": {
+        "label": "Fixed pay per 30-day cycle",
+        "forVideos": "{count, plural, one {for # video} other {for # videos}}",
+        "perVideo": "that's {amount} per published video",
+        "seuil": "Unlocked once your videos reach {views} combined views in the cycle.",
+        "progress": "{done} / {target} this cycle",
+        "earned": "{amount} earned",
+        "locked": "{done} / {target} views to unlock"
+      },
+      "cpm": {
+        "label": "Your views",
+        "rate": "{amount} per 1,000 views",
+        "cap": "A video earns at most {amount} (fixed + views)."
+      },
+      "bonus": {
+        "label": "Per-video bonus",
+        "tier": "{views} views",
+        "toNext": "{views} to go",
+        "best": "Your best video this cycle: {title}, {views} views",
+        "bestNoTitle": "Your best video this cycle: {views} views",
+        "none": "No video has reached the first tier yet this cycle."
+      },
+      "cumul": {
+        "label": "Tiers on your total views",
+        "link": "See my progress"
+      },
+      "rules": {
+        "title": "The rules",
+        "platformsAdd": "Views from every platform of the same video add up (TikTok + Instagram…).",
+        "window30": "Only views from the first 30 days after posting count.",
+        "warmupNoBonus": "Warm-up posts don't count toward bonuses.",
+        "highestTierOnly": "A video earns the highest tier it reaches — tiers don't add up.",
+        "tiersAdd": "The tiers a video reaches add up.",
+        "capPerVideo": "Fixed + views: at most {amount} per video. Bonuses come on top.",
+        "paidEvery30": "Paid at the end of each 30-day cycle."
+      }
     }
   },
   "status": {

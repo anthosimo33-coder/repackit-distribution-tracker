@@ -4,8 +4,15 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useCreatorProjectId } from "@/components/portal/use-creator-project";
-import { useMyContracts, useMyProfile } from "@/components/portal/creator-data";
-import { useReadOnly } from "@/components/portal/ViewAsContext";
+import {
+  useArgentObservable,
+  useMyContracts,
+  useMyProfile,
+} from "@/components/portal/creator-data";
+import { ContractFilesList } from "@/components/portal/ContractFilesList";
+import { usePortalBase, useReadOnly } from "@/components/portal/ViewAsContext";
+import { portalHref } from "@/lib/view-as";
+import Link from "next/link";
 import {
   Card,
   CardContent,
@@ -26,8 +33,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { useConvexError } from "@/lib/use-convex-error";
-import { FileTextIcon, Loader2Icon } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { ArrowRightIcon, Loader2Icon } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { LanguageSelector } from "@/components/layout/LanguageSelector";
 
 type PaymentMethod = "sepa" | "paypal" | "usdt" | "autre";
@@ -64,7 +71,10 @@ export default function ProfilScreen() {
   // Contrats déposés par l'équipe sur SA fiche. Lecture seule des deux côtés :
   // aucune mutation créatrice n'existe (elle ne dépose ni ne supprime rien).
   const contracts = useMyContracts(projectId);
-  const locale = useLocale();
+  // « Mon contrat » est une page d'argent : un observateur sans le droit ne
+  // doit pas se voir proposer une porte que la coque refusera.
+  const argent = useArgentObservable();
+  const base = usePortalBase();
   const readOnly = useReadOnly();
   const tSettings = useTranslations("settings.language");
   const updateProfile = useMutation(api.creators.updateMyProfile);
@@ -218,52 +228,16 @@ export default function ProfilScreen() {
               <CardDescription>{t("profil.contractHint")}</CardDescription>
             </CardHeader>
             <CardContent>
-              {contracts === undefined ? (
-                <Skeleton className="h-12 w-full" />
-              ) : contracts.length === 0 ? (
-                <p className="text-sm text-slate-400">
-                  {t("profil.contractEmpty")}
-                </p>
-              ) : (
-                <ul className="divide-y divide-slate-100">
-                  {contracts.map((c) => (
-                    <li key={c._id} className="flex items-center gap-2.5 py-2.5">
-                      <FileTextIcon className="size-4 shrink-0 text-slate-400" />
-                      <div className="min-w-0">
-                        {/* URL absente = blob introuvable. On le DIT plutôt que
-                            de rendre un lien mort qui rechargerait la page. */}
-                        {c.url ? (
-                          <a
-                            href={c.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block truncate text-sm font-medium text-slate-900 hover:underline"
-                          >
-                            {c.fileName}
-                          </a>
-                        ) : (
-                          <p className="truncate text-sm font-medium text-slate-400">
-                            {t("profil.contractMissing", {
-                              fileName: c.fileName,
-                            })}
-                          </p>
-                        )}
-                        <p className="text-xs text-slate-400">
-                          {t("profil.contractUploadedOn", {
-                            date: new Date(c.uploadedAt).toLocaleDateString(
-                              locale,
-                              {
-                                day: "2-digit",
-                                month: "2-digit",
-                                year: "numeric",
-                              },
-                            ),
-                          })}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+              <ContractFilesList contracts={contracts} />
+              {argent && (
+                <Link
+                  href={portalHref(base, "/contrat")}
+                  data-testid="profil-see-terms"
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-slate-600 underline underline-offset-4 hover:text-slate-900"
+                >
+                  {t("profil.contractSeeTerms")}
+                  <ArrowRightIcon className="size-3.5" />
+                </Link>
               )}
             </CardContent>
           </Card>

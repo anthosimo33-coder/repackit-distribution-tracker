@@ -225,6 +225,21 @@ export function useMyProfile(projectId: Id<"projects">) {
 
 /** Contrats PDF déposés par l'admin sur SA fiche. View-as →
  *  listContractsAsAdmin (même lecture serveur, scopée creator∈projet). */
+/**
+ * « Mon contrat » — le barème qui la paie. View-as → getTermsAsAdmin, gardée
+ * ARGENT comme ses paiements (un barème dit ce qu'elle gagne).
+ */
+export function useMyTerms(projectId: Id<"projects">) {
+  const va = useViewAs();
+  const argent = useArgentObservable();
+  const mine = useQuery(api.creatorTerms.getMyTerms, va ? "skip" : { projectId });
+  const asAdmin = useQuery(
+    api.creatorTerms.getTermsAsAdmin,
+    va && argent ? { projectId, creatorId: va.creatorId } : "skip",
+  );
+  return va ? asAdmin : mine;
+}
+
 export function useMyContracts(projectId: Id<"projects">) {
   const va = useViewAs();
   const mine = useQuery(

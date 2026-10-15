@@ -67,6 +67,7 @@ import type * as creatorDay from "../creatorDay.js";
 import type * as creatorPayCurrency from "../creatorPayCurrency.js";
 import type * as creatorPricing from "../creatorPricing.js";
 import type * as creatorScope from "../creatorScope.js";
+import type * as creatorTerms from "../creatorTerms.js";
 import type * as creatorTimezone from "../creatorTimezone.js";
 import type * as creatorVideos from "../creatorVideos.js";
 import type * as creators from "../creators.js";
@@ -363,6 +364,7 @@ declare const fullApi: ApiFromModules<{
   creatorPayCurrency: typeof creatorPayCurrency;
   creatorPricing: typeof creatorPricing;
   creatorScope: typeof creatorScope;
+  creatorTerms: typeof creatorTerms;
   creatorTimezone: typeof creatorTimezone;
   creatorVideos: typeof creatorVideos;
   creators: typeof creators;
