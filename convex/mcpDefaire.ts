@@ -56,6 +56,7 @@ import {
   type StatutScenario,
 } from "./scenarios";
 import { empreinteBible } from "./mcpScenarios";
+import { supprimerTournages } from "./scenarioTournage";
 import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
 import { deleteInspirationCore } from "./inspirations";
 import { deleteConversationCore, restoreConversationCore, updateConversationCore } from "./instaConversations";
@@ -167,6 +168,8 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "modifier_scenario",
   "activer_scenario",
   "supprimer_scenario",
+  "preparer_tournages",
+  "liens_tournage",
 ]);
 
 /** Pourquoi une modification ne se défait pas par Claude. */
@@ -697,6 +700,24 @@ async function annuler(
     case "conversationSupprimee": {
       await restoreConversationCore(ctx, { titre: a.titre, data: a.data });
       return "Conversation recréée (nouveau lien : outil `conversations`).";
+    }
+    case "tournagesPrepares": {
+      const rows = (await Promise.all(a.ids.map((id) => ctx.db.get(id)))).filter((t) => t !== null);
+      const avecLien = rows.filter((t) => t.lien);
+      if (avecLien.length > 0) {
+        throw refus(`${avecLien.length} fichier(s) ont un lien collé depuis : retire d'abord ces liens (\`liens_tournage\` avec "") — rien n'a été effacé.`);
+      }
+      await supprimerTournages(ctx, rows);
+      return `${rows.length} fichier(s) de tournage retiré(s) (BLUSH ne les avait pas reliés à un lien).`;
+    }
+    case "liensTournage": {
+      const rows = await Promise.all(a.lignes.map((l) => ctx.db.get(l.id)));
+      const changes = a.lignes.filter((l, i) => rows[i] === null || (rows[i]!.lien ?? null) !== l.apres);
+      if (changes.length > 0) throw refus(`${changes.length} lien(s) supprimé(s) ou changé(s) depuis : rien n'a été écrasé.`);
+      for (const [i, l] of a.lignes.entries()) {
+        await ctx.db.patch(rows[i]!._id, { lien: l.avant ?? undefined, updatedAt: Date.now() });
+      }
+      return `${a.lignes.length} lien(s) de tournage remis comme avant.`;
     }
   }
 }

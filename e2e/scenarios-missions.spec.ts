@@ -6,7 +6,6 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
-import { parisDayKey } from "../convex/viewsDaily";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -18,11 +17,6 @@ const DAY = 86_400_000;
 
 const BIBLE_C2 = readFileSync(path.resolve(__dirname, "../docs/scenarios/bibles/bible_C2.json"), "utf8");
 const bibleSous = (code: string) => BIBLE_C2.replace('"id": "C2"', `"id": "${code}"`);
-/** « [JJ/MM/AAAA » du jour de Paris : la conv d'une mission finit le jour où on la récupère. */
-function crochetDuJour(): string {
-  const [a, m, j] = parisDayKey(Date.now()).split("-");
-  return `[${j}/${m}/${a}`;
-}
 
 async function campagneAvecScenario(ts: number) {
   const code = `M${ts.toString(36).toUpperCase()}`.slice(0, 12);
@@ -111,7 +105,7 @@ test.describe("Scénarios dans les missions", () => {
     expect((await assign(ines.creatorId, `@e2escen2${ts}`, 2, theme)).created).toBe(2);
     expect(new Set((await rowsFor(ines.creatorId)).map((r) => r.scenarioId))).toEqual(new Set([second, scenarioId]));
 
-    // ── Fiche : une conv GÉNÉRÉE, rien du scénario lui-même.
+    // ── Fiche : l'histoire et sa fiche, rien du scénario lui-même ; pas encore de tournage.
     const fiche = await juliette.client.query(api.assignments.getMyAssignment, {
       projectId: juliette.projectId,
       id: a!._id,
@@ -124,30 +118,22 @@ test.describe("Scénarios dans les missions", () => {
         relation: "ton copain",
         resume: "Yanis a liké la photo de son ex, et c'est toi qui t'excuses.",
       },
+      tournage: null,
     });
     expect(JSON.stringify(fiche)).not.toContain(scenarioId);
 
-    // ── La conv : à SON prénom, qui finit aujourd'hui, la même à chaque fois.
-    const generer = (id: Id<"assignments">) =>
-      juliette.client.action(api.scenarioMission.genererConversationMission, {
+    // ── La conv : rien à récupérer tant que son lien de tournage n'est pas
+    // collé (le mode tournage est couvert par e2e/scenarios-tournage.spec.ts).
+    const recuperer = (id: Id<"assignments">) =>
+      juliette.client.action(api.scenarioMission.conversationMission, {
         projectId: juliette.projectId,
         assignmentId: id,
       });
-    const convA = await generer(a!._id);
-    expect(convA).toMatchObject({ nomFichier: "WhatsApp Chat - Juliette, Yanis.txt", prenom: "Juliette", lui: "Yanis" });
-    const finA = convA.texte.trimEnd().split("\n").slice(-5);
-    expect(finA[4]).toBe(`${crochetDuJour()} 22:33:05] Juliette: t'as raison pardon`);
-    expect(convA.texte).not.toContain("Kelly");
-    expect((await generer(a!._id)).texte).toBe(convA.texte);
-
-    // ── Une AUTRE mission : un autre remplissage, la même fin.
-    const convB = await generer(b!._id);
-    expect(convB.texte).not.toBe(convA.texte);
-    expect(convB.texte.trimEnd().split("\n").slice(-5)).toEqual(finA);
+    await expect(recuperer(a!._id)).rejects.toThrow(/ERR_TOURNAGE_NOT_READY/);
 
     // ── Isolation : la mission d'une autre créatrice est introuvable.
     const [missionInes] = await rowsFor(ines.creatorId);
-    await expect(generer(missionInes!._id)).rejects.toThrow(/ERR_SCENARIO_NOT_FOUND/);
+    await expect(recuperer(missionInes!._id)).rejects.toThrow(/ERR_SCENARIO_NOT_FOUND/);
 
     // ── À la main (panneau de mission) : changer, retirer ; un archivé ne se donne pas.
     await admin.mutation(api.scripts.setAssignmentScenario, { id: b!._id, scenarioId: second });
@@ -169,13 +155,16 @@ test.describe("Scénarios dans les missions", () => {
     // Un 3e hook libère une combinaison : le refus vient bien des scénarios.
     await add("hook", "Remplaçant", `Il m'a remplacée en 3 jours ${ts}`);
     await expect(assign(juliette.creatorId, `@e2escen${ts}`, 1, theme)).rejects.toThrow(/ERR_NO_ACTIVE_CONVERSATION/);
-    expect((await generer(a!._id)).texte).toBe(convA.texte);
+    expect(
+      (await juliette.client.query(api.assignments.getMyAssignment, { projectId: juliette.projectId, id: a!._id }))!
+        .scriptConversation,
+    ).toMatchObject({ genere: true });
     expect((await assign(juliette.creatorId, `@e2escen${ts}`, 1)).created).toBe(1);
     const sansConv = (await rowsFor(juliette.creatorId)).filter((r) => r._id !== a!._id && r._id !== b!._id);
     expect(sansConv.map((r) => r.scenarioId)).toEqual([undefined]);
   });
 
-  test("fenêtre « Assigner » : choisir le thème donne la conv ; fiche : préparer puis télécharger", async ({ page }) => {
+  test("fenêtre « Assigner » : choisir le thème donne la conv ; fiche : rien avant le lien de tournage", async ({ page }) => {
     test.setTimeout(150_000);
     const ts = Date.now();
     const { theme, scenarioId, campaignId } = await campagneAvecScenario(ts);
@@ -233,20 +222,14 @@ test.describe("Scénarios dans les missions", () => {
     await expect(page.getByRole("dialog").getByTestId("assign-conversation-theme")).toContainText(theme);
     await page.keyboard.press("Escape");
 
-    // Fiche de la créatrice (vue observée) : 1. préparer, 2. télécharger.
+    // Fiche de la créatrice (vue observée) : sans lien de tournage, rien à
+    // télécharger ni à ouvrir — importer sans lui serait une lecture payée.
     await page.goto(`/admin/voir/${E2E_PROJECT_SLUG}/${creator.creatorId}/assignments/${row._id}`);
     const carte = page.getByTestId("mission-scenario");
     await expect(carte).toBeVisible({ timeout: 20_000 });
     await expect(carte).toContainText("1. Récupère la conv");
-    await carte.getByTestId("mission-scenario-preparer").click();
-    await expect(carte.getByTestId("mission-scenario-txt")).toBeVisible({ timeout: 30_000 });
-    // Le .txt seul : plus de capture d'écran à enregistrer.
-    await expect(carte.getByRole("img")).toHaveCount(0);
-    const telechargement = page.waitForEvent("download");
-    await carte.getByTestId("mission-scenario-txt").click();
-    const fichier = await telechargement;
-    expect(fichier.suggestedFilename()).toBe("WhatsApp Chat - Kelly, Yanis.txt");
-    const texte = readFileSync((await fichier.path())!, "utf8");
-    expect(texte.trimEnd().split("\n").slice(-1)[0]).toBe(`${crochetDuJour()} 22:33:05] Kelly: t'as raison pardon`);
+    await expect(carte.getByTestId("mission-scenario-attente")).toContainText("Ta conv et ton lien de tournage arrivent");
+    await expect(carte.getByTestId("mission-scenario-preparer")).toHaveCount(0);
+    await expect(carte.getByTestId("mission-scenario-tournage")).toHaveCount(0);
   });
 });

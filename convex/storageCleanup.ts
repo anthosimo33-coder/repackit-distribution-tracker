@@ -96,7 +96,7 @@ export async function purgeAssetBlobs(
  * Garde-fou : lib/storage-fields.test.ts compte les `v.id("_storage")` de
  * schema.ts et échoue dès que le compte diverge de cette constante.
  */
-export const STORAGE_FIELD_COUNT = 11;
+export const STORAGE_FIELD_COUNT = 12;
 
 async function collecterStorageIdsReferences(
   ctx: MutationCtx,
@@ -148,6 +148,11 @@ async function collecterStorageIdsReferences(
   // ramassage efface ligne ET fichier.
   for (const img of await ctx.db.query("instaConvImages").collect()) {
     ajouter(img.storageId);
+  }
+  // Fichiers figés du mode tournage (convex/scenarioTournage.ts) : BLUSH a lu
+  // CELUI-LÀ ; l'effacer laisserait la mission sans le fichier de son lien.
+  for (const t of await ctx.db.query("scenarioTournages").collect()) {
+    ajouter(t.fichierId);
   }
   return refs;
 }

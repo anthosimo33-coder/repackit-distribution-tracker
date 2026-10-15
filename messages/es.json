@@ -314,9 +314,13 @@
       "fiche": "Tu conversación: {duree} con {lui}, {relation}",
       "preparer": "Preparar mi conversación",
       "telechargerConv": "Descargar la conversación (.txt)",
-      "aideConv": "Guárdala en Archivos y luego impórtala en askblush.com.",
+      "aideConv": "Guárdala en Archivos, en el teléfono con el que grabas.",
       "echec": "No se pudo preparar la conversación. Inténtalo de nuevo.",
-      "filme": "2. Graba: sigue el guion de la misión."
+      "attente": "Tu conversación y tu enlace de grabación están en camino: el equipo los está preparando. No importes nada en BLUSH hasta entonces.",
+      "tournageTitre": "2. Abre el modo grabación",
+      "tournageBouton": "Abrir el modo grabación",
+      "tournageAide": "En el teléfono con el que grabas. Inicia sesión una vez con tu email antes de grabar (te llega un código de 6 cifras por email). Luego toca « Commencer une prise », importa la conversación y, en « Qui es-tu ? », elige {prenom}.",
+      "filme": "3. Graba: sigue el guion de la misión."
     },
     "copy": {
       "copy": "Copiar",
@@ -1534,6 +1538,8 @@
     "ERR_SCENARIO_NOT_FOUND": "Escenario no encontrado.",
     "ERR_SCENARIO_ARCHIVED": "El escenario {code} está archivado: vuelve a ponerlo en «Activo» para asignarlo.",
     "ERR_SCENARIO_IN_USE": "El escenario {code} ya se asignó a misiones: archívalo en lugar de borrarlo.",
+    "ERR_TOURNAGE_NOT_READY": "Tu conversación y tu enlace de grabación aún no están listos: el equipo los está preparando.",
+    "ERR_TOURNAGE_LINK_INVALID": "No es un enlace https: pega el enlace copiado en BLUSH.",
     "ERR_SCRIPT_NEEDS_CONVERSATION": "Este guion cita la conversación ({variables}): elige una conversación de WhatsApp cuyo escenario tenga ficha.",
     "ERR_NO_ACTIVE_CONVERSATION": "Ningún escenario en el tema «{theme}»: importa uno en Escenarios o asigna sin conversación.",
     "ERR_COMPTA_CHARGE_INVALID": "Gasto no válido: necesita una fecha, un concepto, un importe positivo y una moneda que el proyecto sepa convertir.",

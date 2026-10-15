@@ -60,6 +60,7 @@ import { hookIdentityKey, PROVEN_CAMPAIGN_NAME } from "./graduation";
 import { MAX_AUTRES_EXEMPLES } from "./hookLibre";
 import { isNotifEnabled } from "./scriptNotif";
 import { appelerEcritureScenarios, NOMS_ECRITURE_SCENARIOS, OUTILS_ECRITURE_SCENARIOS } from "./mcpScenarios";
+import { appelerEcritureTournage, NOMS_ECRITURE_TOURNAGE, OUTILS_ECRITURE_TOURNAGE } from "./mcpTournage";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -899,9 +900,9 @@ async function appelerEcritureScripts(
   });
 }
 
-const OUTILS_DOMAINE_SCRIPTS = [...OUTILS_ECRITURE_SCRIPTS, ...OUTILS_ECRITURE_SCENARIOS];
+const OUTILS_DOMAINE_SCRIPTS = [...OUTILS_ECRITURE_SCRIPTS, ...OUTILS_ECRITURE_SCENARIOS, ...OUTILS_ECRITURE_TOURNAGE];
 
-/** Le domaine « scripts » : interrupteur « Peut modifier les scripts » — briques ET scénarios. */
+/** Le domaine « scripts » : interrupteur « Peut modifier les scripts » — briques, scénarios et mode tournage. */
 export const DOMAINE_SCRIPTS: DomaineEcriture = {
   scope: "scripts",
   outils: OUTILS_DOMAINE_SCRIPTS,
@@ -909,5 +910,7 @@ export const DOMAINE_SCRIPTS: DomaineEcriture = {
   appeler: (ctx, name, args, cible, projet) =>
     NOMS_ECRITURE_SCENARIOS.has(name)
       ? appelerEcritureScenarios(ctx, name, args, cible, projet)
-      : appelerEcritureScripts(ctx, name, args, cible, projet),
+      : NOMS_ECRITURE_TOURNAGE.has(name)
+        ? appelerEcritureTournage(ctx, name, args, cible, projet)
+        : appelerEcritureScripts(ctx, name, args, cible, projet),
 };

@@ -1,13 +1,11 @@
 /**
- * LA CONVERSATION D'UNE MISSION, générée depuis son scénario — ce que la
- * créatrice importe sur BLUSH.
+ * LA CONVERSATION D'UNE MISSION — ce que la créatrice importe sur BLUSH.
  *
- * Rien n'est stocké : l'export est DÉTERMINISTE (bible + prénom + graine de la
- * mission) et il FINIT LE JOUR DU TÉLÉCHARGEMENT (option A, décision du
- * 13/10/2026 : BLUSH compare les messages au jour de l'import). Le même jour,
- * la même mission retélécharge donc le même fichier ; un autre jour, le même
- * contenu, dates glissées. Corriger une bible répare les missions pas encore
- * filmées, comme une consigne.
+ * Depuis le MODE TOURNAGE (15/10/2026, cf convex/scenarioTournage), c'est le
+ * fichier FIGÉ de sa paire créatrice × histoire, celui que l'équipe a importé
+ * dans BLUSH : BLUSH rejoue le rapport de cet import, une version régénérée ne
+ * collerait plus (nombre de messages, dates, prénom du vocal). Rien n'est servi
+ * tant que le lien de tournage n'est pas collé.
  */
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "./_generated/server";
@@ -15,21 +13,13 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { authedAction, requireCreator, requireCreatorObservable } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { lireBible } from "./scenarioBible";
-import { genererConversation } from "./scenarioEngine";
-import { graineMission } from "./scriptConversation";
-import { parisDayKey } from "./viewsDaily";
+import { tournageDe } from "./scenarioTournage";
 
 const ACCES = {
   projectId: v.id("projects"),
   assignmentId: v.id("assignments"),
   viewAsCreatorId: v.optional(v.id("creators")),
 };
-
-/** Le prénom d'un nom complet (« Juliette Chetrit » → « Juliette »). Vide si le nom l'est. */
-export function firstNameOf(name: string): string {
-  return name.trim().split(/\s+/)[0] ?? "";
-}
 
 /**
  * Le scénario d'une mission, s'il est encore servable : une mission de script
@@ -67,44 +57,33 @@ async function missionDeLaCreatrice(
   return { a: mienne ? a : null, creatorId };
 }
 
-/** Interne : la garde d'accès, puis la bible et le prénom. */
+/** Interne : la garde d'accès, puis le fichier figé de la paire — s'il a son lien. */
 export const planConversationMission = internalQuery({
   args: { userId: v.id("users"), ...ACCES },
   handler: async (ctx, args) => {
-    const { a, creatorId } = await missionDeLaCreatrice(ctx, args);
+    const { a } = await missionDeLaCreatrice(ctx, args);
     const scenario = a ? await scenarioDeMission(ctx, a) : null;
     if (!a || !scenario) {
       throw err(ERR.SCENARIO_NOT_FOUND, "Scénario introuvable.");
     }
-    const creator = await ctx.db.get(creatorId);
-    return {
-      bible: scenario.bible,
-      prenom: firstNameOf(creator?.name ?? ""),
-      graine: graineMission(a._id),
-    };
+    const t = await tournageDe(ctx, a.creatorId, scenario._id);
+    if (!t?.lien) throw err(ERR.TOURNAGE_NOT_READY, "Conv et lien de tournage pas encore prêts.");
+    return { fichierId: t.fichierId, nomFichier: t.nomFichier };
   },
 });
 
-/** L'export WhatsApp de la mission, au prénom de la créatrice, qui finit aujourd'hui (Paris). */
-export const genererConversationMission = authedAction({
+/** Le fichier à importer en mode tournage : exactement celui que l'équipe a importé dans BLUSH. */
+export const conversationMission = authedAction({
   args: ACCES,
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ nomFichier: string; texte: string; prenom: string; lui: string }> => {
+  handler: async (ctx, args): Promise<{ nomFichier: string; texte: string }> => {
     const plan = await ctx.runQuery(internal.scenarioMission.planConversationMission, {
       userId: ctx.userId,
       projectId: args.projectId,
       assignmentId: args.assignmentId,
       ...(args.viewAsCreatorId ? { viewAsCreatorId: args.viewAsCreatorId } : {}),
     });
-    const lue = lireBible(plan.bible);
-    if (!lue.ok || !plan.prenom) throw err(ERR.SCENARIO_NOT_FOUND, "Scénario introuvable.");
-    const gen = genererConversation(lue.bible, {
-      prenom: plan.prenom,
-      graine: plan.graine,
-      finLe: parisDayKey(Date.now()),
-    });
-    return { nomFichier: gen.nomFichier, texte: gen.texte, prenom: gen.noms.L, lui: gen.noms.Y };
+    const fichier = await ctx.storage.get(plan.fichierId);
+    if (!fichier) throw err(ERR.TOURNAGE_NOT_READY, "Fichier de tournage introuvable.");
+    return { nomFichier: plan.nomFichier, texte: await fichier.text() };
   },
 });

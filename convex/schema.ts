@@ -1974,6 +1974,29 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_code", ["projectId", "code"]),
 
+  // MODE TOURNAGE BLUSH (convex/scenarioTournage.ts) — pour une créatrice et une
+  // histoire : le fichier FIGÉ que l'équipe a importé dans BLUSH (storage) et le
+  // lien de tournage que BLUSH a créé pour lui. BLUSH rejoue le rapport de CET
+  // import : la créatrice doit importer exactement ce fichier, jamais une version
+  // régénérée. `prenom`, `graine`, `finLe` = de quoi il a été fait.
+  scenarioTournages: defineTable({
+    projectId: v.id("projects"),
+    scenarioId: v.id("scenarios"),
+    creatorId: v.id("creators"),
+    prenom: v.string(),
+    graine: v.number(),
+    finLe: v.string(),
+    fichierId: v.id("_storage"),
+    nomFichier: v.string(),
+    messages: v.number(),
+    lien: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_creator_scenario", ["creatorId", "scenarioId"])
+    .index("by_scenario", ["scenarioId"]),
+
   // IMAGES DES CONVERSATIONS (convex/instaConvImages.ts) — photo/vidéo envoyée,
   // reel, story partagée… : le fichier est dans le storage, la conversation ne
   // porte que l'id de cette ligne (jamais d'URL). `checkedAt` fait tourner le

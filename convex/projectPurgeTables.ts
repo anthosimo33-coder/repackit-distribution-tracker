@@ -80,6 +80,7 @@ export const TABLES_PURGEES = [
   "instaConversations",
   "instaConvImages",
   "scenarios",
+  "scenarioTournages",
   "marketGroups",
   "offerChanges",
   "notificationWindows",

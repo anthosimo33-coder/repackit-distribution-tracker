@@ -160,12 +160,13 @@ export default function AssignmentDetailScreen({
 
                 {/* CONVERSATION à importer à l'écran — option de la campagne,
                     AVANT le script : on récupère la conv (1), puis on filme (2).
-                    Générée depuis le scénario de la mission, à son prénom. */}
+                    Le fichier figé du mode tournage et son lien BLUSH. */}
                 {data.scriptConversation && (
                   <MissionScenarioCard
                     className="order-5"
                     mission={{ projectId, assignmentId }}
                     fiche={data.scriptConversation.fiche}
+                    tournage={data.scriptConversation.tournage}
                   />
                 )}
 

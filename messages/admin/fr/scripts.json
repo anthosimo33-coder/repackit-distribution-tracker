@@ -292,7 +292,8 @@
     "creer": "Créer",
     "cree": "Scénario créé",
     "perf": "{posts, plural, one {# post} other {# posts}} · {vues} vues",
-    "perfAucune": "pas encore de post"
+    "perfAucune": "pas encore de post",
+    "tournage": "Mode tournage"
   },
   "ScenarioPage": {
     "introuvable": "Scénario introuvable.",
@@ -382,5 +383,32 @@
     "enTest": "Jugé à partir de {seuil} posts ({posts} pour l'instant), contre les autres scénarios du projet.",
     "ligne": "{posts, plural, one {# post} other {# posts}} · {vues} vues",
     "campagneSupprimee": "Campagne supprimée"
+  },
+  "TournagePage": {
+    "titre": "Mode tournage",
+    "retour": "Scénarios",
+    "sousTitre": "Pour chaque créatrice et chaque histoire : un fichier à son prénom à importer dans BLUSH, puis le lien de tournage à coller ici. Sa mission lui donne ce fichier et ce lien, et rien tant que le lien n'est pas collé.",
+    "etape1": "« Préparer » fabrique ses fichiers : un par histoire, à son prénom. Ils ne changent plus ensuite.",
+    "etape2": "Dans BLUSH (compte admin) : importe chaque fichier, ouvre son rapport et laisse-le s'écrire en entier, puis askblush.com/admin › Tournage › Créer le lien.",
+    "etape3": "Copie le lien et colle-le en face du fichier, puis Enregistrer.",
+    "accesRefuse": "Réservé aux personnes qui gèrent les scripts et les campagnes.",
+    "rien": "Aucune créatrice ou aucune histoire en service pour l'instant.",
+    "progression": "{liens} / {total} liens collés",
+    "preparer": "Préparer {n, plural, one {son fichier} other {ses # fichiers}}",
+    "prepares": "{n, plural, =0 {Rien de nouveau à préparer} one {# fichier préparé} other {# fichiers préparés}} pour {nom}.",
+    "toutTelecharger": "Tout télécharger (.zip)",
+    "aPreparer": "Préparer",
+    "fichier": "Fichier",
+    "messages": "{n} messages",
+    "lienPlaceholder": "Colle ici le lien de tournage BLUSH",
+    "lienLabel": "Lien de tournage {code} pour {prenom}",
+    "enregistrer": "Enregistrer",
+    "lienEnregistre": "Lien enregistré : la créatrice le voit sur ses missions.",
+    "lienRetire": "Lien retiré : ses missions ne proposent plus cette conv.",
+    "pret": "Prêt",
+    "echec": "Ça n'a pas marché. Réessaie.",
+    "echecTelechargement": "Le fichier n'a pas pu être téléchargé. Réessaie.",
+    "preparerUn": "Préparer le fichier {code} pour {prenom}",
+    "nomZip": "Tournage {prenom}.zip"
   }
 }

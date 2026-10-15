@@ -62,6 +62,7 @@ import {
   pricingPayCurrency,
 } from "./creatorPayCurrency";
 import { faceUrlsByCreator, purgeCompteAvatar } from "./compteAvatar";
+import { supprimerTournages } from "./scenarioTournage";
 import type { PlateformeKey } from "./platforms";
 
 /**
@@ -1186,6 +1187,16 @@ export const deleteCreator = permissionMutation("creators.delete")({
       await ctx.db.delete(c._id);
       await ctx.storage.delete(c.storageId);
     }
+
+    // 4ter. Mode tournage : ses fichiers figés (row ET blob). Les liens BLUSH,
+    //       eux, s'arrêtent dans BLUSH.
+    await supprimerTournages(
+      ctx,
+      await ctx.db
+        .query("scenarioTournages")
+        .withIndex("by_creator_scenario", (q) => q.eq("creatorId", id))
+        .collect(),
+    );
 
     // 5. Révoquer l'accès : supprimer le membership creator de CE projet. Le
     //    compte user partagé n'est supprimé que s'il devient totalement orphelin.

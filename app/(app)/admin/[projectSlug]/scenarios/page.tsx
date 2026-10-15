@@ -5,14 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
-import { FileUpIcon, Loader2Icon, MessageCircleHeartIcon, PlusIcon } from "lucide-react";
+import { ClapperboardIcon, FileUpIcon, Loader2Icon, MessageCircleHeartIcon, PlusIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { usePermissions } from "@/components/project/use-permissions";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConvexError } from "@/lib/use-convex-error";
+import { cn } from "@/lib/utils";
 import { codeValide, lireBible, type ErreurBible } from "@/convex/scenarioBible";
 import modele from "@/convex/scenarioModele.json";
 import { BibleErreurs } from "@/components/scenarios/BibleErreurs";
@@ -98,6 +99,15 @@ export default function ScenariosPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            href={projectPath("/scenarios/tournage")}
+            prefetch={false}
+            className={cn(buttonVariants({ variant: "outline" }))}
+            data-testid="scenarios-tournage"
+          >
+            <ClapperboardIcon className="mr-2 size-4" />
+            {tr("tournage")}
+          </Link>
           <Button variant="outline" onClick={() => fichier.current?.click()}>
             <FileUpIcon className="mr-2 size-4" />
             {tr("importer")}

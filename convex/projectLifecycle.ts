@@ -474,6 +474,11 @@ const ETAPES: Record<TablePurgee, Etape> = {
   scenarios: etape((ctx, pid, n) =>
     ctx.db.query("scenarios").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  // Fichiers figés du mode tournage : la ligne ET son fichier.
+  scenarioTournages: etape(
+    (ctx, pid, n) => ctx.db.query("scenarioTournages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+    { avant: (ctx, t) => deleteStorageBestEffort(ctx, t.fichierId) },
+  ),
   instaConvImages: etape(
     (ctx, pid, n) => ctx.db.query("instaConvImages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
     { avant: (ctx, img) => deleteStorageBestEffort(ctx, img.storageId) },
