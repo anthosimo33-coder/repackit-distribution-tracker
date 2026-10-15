@@ -10,6 +10,7 @@ import { useViewAs } from "@/components/portal/ViewAsContext";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { blobTexte, enregistrer } from "@/components/scenarios/telechargement";
+import { cn } from "@/lib/utils";
 
 type Pret = { nomFichier: string; texte: string };
 
@@ -130,10 +131,10 @@ export function MissionScenarioCard({
               href={tournage.lien}
               target="_blank"
               rel="noopener noreferrer"
-              className={buttonVariants({
-                variant: "outline",
-                className: "h-11 w-full text-base sm:h-9 sm:w-auto sm:text-sm",
-              })}
+              className={cn(
+                buttonVariants(),
+                "h-11 w-full bg-slate-900 text-base text-white hover:bg-slate-800 sm:h-9 sm:w-auto sm:text-sm",
+              )}
               data-testid="mission-scenario-tournage"
             >
               <ExternalLinkIcon className="mr-2 size-4" />

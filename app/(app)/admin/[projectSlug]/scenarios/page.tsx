@@ -26,6 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConvexError } from "@/lib/use-convex-error";
+import { cn } from "@/lib/utils";
 import { codeValide, lireBible, type ErreurBible } from "@/convex/scenarioBible";
 import modele from "@/convex/scenarioModele.json";
 import { BibleErreurs } from "@/components/scenarios/BibleErreurs";
@@ -101,7 +102,7 @@ export default function ScenariosPage() {
           <Link
             href={projectPath("/scenarios/tournage")}
             prefetch={false}
-            className={buttonVariants({ variant: "outline" })}
+            className={cn(buttonVariants({ variant: "outline" }))}
             data-testid="scenarios-tournage"
           >
             <ClapperboardIcon className="mr-2 size-4" />

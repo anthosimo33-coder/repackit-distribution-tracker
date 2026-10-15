@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useConvexError } from "@/lib/use-convex-error";
 import { enregistrer } from "@/components/scenarios/telechargement";
+import { cn } from "@/lib/utils";
 
 type Donnees = NonNullable<ReturnType<typeof useTournages>>;
 type Createatrice = Donnees["createatrices"][number];
@@ -274,7 +275,7 @@ function LigneTournage({
           <button
             type="button"
             onClick={telecharger}
-            className={buttonVariants({ variant: "outline", size: "sm", className: "shrink-0" })}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
             title={tr("messages", { n: t.messages })}
           >
             <DownloadIcon className="mr-1.5 size-3.5" />
