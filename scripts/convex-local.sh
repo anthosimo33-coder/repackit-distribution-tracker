@@ -52,6 +52,11 @@ BIN="$BIN_DIR/convex-local-backend"
 PORT="${CONVEX_LOCAL_PORT:-3210}"
 SITE_PORT="${CONVEX_LOCAL_SITE_PORT:-3211}"
 BACKEND_URL="http://127.0.0.1:${PORT}"
+# FAUSSE API TOURNAGE de BLUSH (e2e/helpers/faux-blush.ts, démarrée par
+# e2e/global-setup) : le déploiement local l'appelle à la place de askblush.com,
+# donc les e2e ne paient jamais une lecture. Port dérivé : deux backends locaux
+# (worktrees) n'ont pas la même.
+BLUSH_PORT="${BLUSH_TOURNAGE_FAUX_PORT:-$((PORT + 90))}"
 
 ENV_FILE="$STATE_DIR/env.selfhosted"       # CONVEX_SELF_HOSTED_* (pour le CLI)
 DEPLOY_VARS="$STATE_DIR/deployment.env"    # variables POSÉES sur le déploiement
@@ -126,7 +131,7 @@ write_deployment_vars() {
   node -e '
     const { generateKeyPairSync } = require("crypto");
     const fs = require("fs");
-    const [out, siteUrl, e2eSecret] = process.argv.slice(1);
+    const [out, siteUrl, e2eSecret, blushUrl] = process.argv.slice(1);
     const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const pkcs8 = privateKey.export({ type: "pkcs8", format: "pem" })
       .toString().trimEnd().replace(/\n/g, " ");
@@ -144,9 +149,12 @@ write_deployment_vars() {
       // ne trouve rien, le bloc de chiffres nest pas rendu, et les tests
       // valident une page amputee (trou qui a laisse passer un 500 en prod).
       `SHOWCASE_PROJECT_SLUG="e2e-test"`,
+      // API tournage de BLUSH : la FAUSSE (cf BLUSH_PORT), jamais la vraie.
+      `BLUSH_TOURNAGE_URL="${blushUrl}"`,
+      `BLUSH_TOURNAGE_CLE="e2e-cle-tournage"`,
       "",
     ].join("\n"));
-  ' "$DEPLOY_VARS" "http://localhost:3000" "$E2E_SECRET_VALUE"
+  ' "$DEPLOY_VARS" "http://localhost:3000" "$E2E_SECRET_VALUE" "http://127.0.0.1:${BLUSH_PORT}"
   chmod 600 "$DEPLOY_VARS"
 }
 
@@ -225,6 +233,7 @@ reset() {
 print_env() {
   echo "export NEXT_PUBLIC_CONVEX_URL=$BACKEND_URL"
   echo "export E2E_SECRET=$E2E_SECRET_VALUE"
+  echo "export BLUSH_TOURNAGE_FAUX_PORT=$BLUSH_PORT"
 }
 
 print_env_hint() {

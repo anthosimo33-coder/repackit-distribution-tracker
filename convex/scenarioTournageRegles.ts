@@ -37,3 +37,68 @@ export function lireLienTournage(texte: string): { ok: true; lien: string | null
     return { ok: false };
   }
 }
+
+// ─── API BLUSH (convex/scenarioTournageBlush) ────────────────────────────────
+
+/** La `ref` envoyée à BLUSH : même ref = même lien, sans nouvelle lecture. Une nouvelle version = un nouveau lien. */
+export function refBlush(tournageId: string, version: number): string {
+  return `jarvia-${tournageId}-v${version}`;
+}
+
+/** Le nom du lien dans BLUSH › Tournage : « Kelly · A1 · Le mdr de 5h52 ». */
+export function nomBlush(prenom: string, code: string, titre: string): string {
+  return `${prenom} · ${code} · ${titre}`.slice(0, 120);
+}
+
+/** Le message d'un refus de BLUSH, tel que l'équipe le lit sur l'écran. */
+function refusBlush(status: number, corps: unknown, prenom: string): string {
+  const detail =
+    typeof corps === "object" && corps !== null && "erreur" in corps ? String((corps as { erreur: unknown }).erreur) : "";
+  const suite = detail ? ` (BLUSH : ${detail.slice(0, 160)})` : "";
+  if (status === 401 || status === 403) return `Clé BLUSH refusée : vérifie BLUSH_TOURNAGE_CLE${suite}.`;
+  if (status === 404) return `Lien inconnu de BLUSH${suite}.`;
+  if (status === 422) return `Le prénom « ${prenom} » n'apparaît pas dans le fichier${suite}.`;
+  if (status === 429) return `Limite de lectures BLUSH du jour atteinte : réessaie demain${suite}.`;
+  return `BLUSH a répondu ${status}${suite}.`;
+}
+
+/** Un 5xx ou une coupure : on réessaie plus tard, ce n'est pas un échec de la demande. */
+const transitoire = (status: number) => status >= 500 || status === 0;
+
+export type ReponseCreation =
+  | { ok: true; id: string }
+  | { ok: false; transitoire: boolean; erreur: string };
+
+/** POST /api/admin/tournage → `{ id, nouvelle, statut: "en_lecture" }`. */
+export function lireReponseCreation(status: number, corps: unknown, prenom: string): ReponseCreation {
+  if (status >= 200 && status < 300) {
+    const id = typeof corps === "object" && corps !== null && "id" in corps ? (corps as { id: unknown }).id : null;
+    if (typeof id === "string" || typeof id === "number") return { ok: true, id: String(id) };
+    return { ok: false, transitoire: false, erreur: "BLUSH n'a pas renvoyé d'id de lien." };
+  }
+  return { ok: false, transitoire: transitoire(status), erreur: refusBlush(status, corps, prenom) };
+}
+
+export type ReponseSuivi =
+  | { statut: "en_lecture" }
+  | { statut: "pret"; lien: string }
+  | { statut: "echec"; erreur: string }
+  | { statut: "transitoire"; erreur: string };
+
+/** GET /api/admin/tournage/<id> → `{ statut, lien?, erreur? }`. Un lien prêt doit être https. */
+export function lireReponseSuivi(status: number, corps: unknown, prenom: string): ReponseSuivi {
+  if (status < 200 || status >= 300) {
+    return transitoire(status)
+      ? { statut: "transitoire", erreur: refusBlush(status, corps, prenom) }
+      : { statut: "echec", erreur: refusBlush(status, corps, prenom) };
+  }
+  const o = (typeof corps === "object" && corps !== null ? corps : {}) as Record<string, unknown>;
+  if (o.statut === "pret") {
+    const lu = typeof o.lien === "string" ? lireLienTournage(o.lien) : ({ ok: false } as const);
+    return lu.ok && lu.lien ? { statut: "pret", lien: lu.lien } : { statut: "echec", erreur: "BLUSH a dit « prêt » sans lien https." };
+  }
+  if (o.statut === "echec") {
+    return { statut: "echec", erreur: `La lecture BLUSH a échoué${typeof o.erreur === "string" ? ` : ${o.erreur.slice(0, 160)}` : "."}` };
+  }
+  return { statut: "en_lecture" };
+}

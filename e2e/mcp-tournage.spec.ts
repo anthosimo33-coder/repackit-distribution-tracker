@@ -123,7 +123,8 @@ test.describe("MCP — mode tournage", () => {
     expect(prep.erreur, prep.texte).toBe(false);
     expect(JSON.parse(prep.texte).fait).toContain(`1 fichier de tournage préparé (${code})`);
     const [a, m, j] = veille(parisDayKey(Date.now())).split("-");
-    expect(await paire()).toMatchObject({ etat: "lien à coller", missionsQuiAttendent: 1 });
+    // L'API BLUSH (la fausse, en e2e) a reçu la demande : le lien est en création.
+    expect(await paire()).toMatchObject({ etat: "lien en création", missionsQuiAttendent: 1 });
     expect((await paire()).fichier).toContain(`finit le ${a}-${m}-${j}`);
     expect(await tournageMission()).toBeNull();
     // Repréparer : rien de nouveau, le fichier reste.
@@ -140,7 +141,7 @@ test.describe("MCP — mode tournage", () => {
     });
     expect(rate.erreur).toBe(true);
     expect(rate.texte).toContain("Rien n'a été collé");
-    expect((await paire()).etat).toBe("lien à coller");
+    expect((await paire()).etat).toBe("lien en création");
 
     // ── Le vrai lien : la mission le reçoit.
     const ok = await appel("liens_tournage", { liens: [{ createatrice: nom, histoire: code, lien }] });
@@ -156,7 +157,7 @@ test.describe("MCP — mode tournage", () => {
     // Défaire le lien, puis la préparation.
     expect((await defaire("liens_tournage")).erreur).toBe(false);
     expect(await tournageMission()).toBeNull();
-    expect((await paire()).etat).toBe("lien à coller");
+    expect((await paire()).etat).toBe("lien en création");
     expect((await defaire("preparer_tournages")).erreur).toBe(false);
     expect(await paire()).toMatchObject({ etat: "à préparer", missionsQuiAttendent: 1 });
   });

@@ -45,6 +45,7 @@ import {
   tournageDe,
   type FichierPrepare,
 } from "./scenarioTournage";
+import { apiBlush, demanderLiensBlush } from "./scenarioTournageBlush";
 import { firstNameOf, lireLienTournage } from "./scenarioTournageRegles";
 
 /** Missions pas encore tournées : celles qui attendent leur conv et leur lien. */
@@ -115,7 +116,7 @@ export const lireTournagesMcp = mcpPermissionQuery("scripts.manage")({
       .collect();
     const servies = new Set(tournages.map((t) => t.scenarioId as string));
     const scenarios = (await scenariosDe(ctx)).filter((s) => s.statut !== "archive" || servies.has(s._id));
-    return Promise.all(
+    const lignes = await Promise.all(
       createatrices.map(async (c) => {
         const attente = new Map<string, number>();
         for (const m of await ctx.db
@@ -126,7 +127,15 @@ export const lireTournagesMcp = mcpPermissionQuery("scripts.manage")({
         }
         const histoires = scenarios.map((s) => {
           const t = tournages.find((x) => x.creatorId === c._id && x.scenarioId === s._id);
-          const etat = !t ? "à préparer" : t.lien ? "prêt" : "lien à coller";
+          const etat = !t
+            ? "à préparer"
+            : t.lien
+              ? "prêt"
+              : t.blush?.statut === "demande" || t.blush?.statut === "en_lecture"
+                ? "lien en création"
+                : t.blush?.statut === "echec"
+                  ? "échec"
+                  : "lien à coller";
           const n = attente.get(s._id) ?? 0;
           return {
             histoire: nomHistoire(s),
@@ -134,6 +143,7 @@ export const lireTournagesMcp = mcpPermissionQuery("scripts.manage")({
             etat,
             ...(t?.lien ? { lien: t.lien } : {}),
             ...(t ? { fichier: `${t.messages} messages, finit le ${t.finLe}` } : {}),
+            ...(etat === "échec" && t?.blush?.erreur ? { erreur: t.blush.erreur } : {}),
             ...(etat !== "prêt" && n > 0 ? { missionsQuiAttendent: n } : {}),
           };
         });
@@ -145,6 +155,7 @@ export const lireTournagesMcp = mcpPermissionQuery("scripts.manage")({
         };
       }),
     );
+    return { automatiques: apiBlush() !== null, createatrices: lignes };
   },
 });
 
@@ -164,9 +175,11 @@ export async function appelerTournagesLecture(
       {
         projet,
         ecran: lienEcranTournage(projet),
-        createatrices: liste,
+        liensAutomatiques: liste.automatiques,
+        createatrices: liste.createatrices,
         lecture: [
-          "Une paire créatrice × histoire : 1) `preparer_tournages` fabrique le fichier (à son prénom, figé) ; 2) l'équipe le télécharge depuis l'écran (« ecran »), l'importe dans BLUSH (compte admin), laisse le rapport s'écrire, puis askblush.com/admin › Tournage › Créer le lien ; 3) `liens_tournage` colle le lien.",
+          "liensAutomatiques = true : `preparer_tournages` fabrique le fichier ET demande le lien à BLUSH (~3 min, une lecture payée ≈ 1 € par fichier) ; l'état passe de « lien en création » à « prêt » tout seul. « échec » donne la raison : `preparer_tournages` sur la même créatrice redemande les liens manquants.",
+          "liensAutomatiques = false : l'équipe télécharge le fichier depuis l'écran (« ecran »), l'importe dans BLUSH, crée le lien (askblush.com/admin › Tournage), puis `liens_tournage` le colle.",
           "Tant qu'une paire n'est pas « prêt », ses missions n'affichent ni fichier ni bouton : importer sans lien serait une vraie lecture payée.",
         ],
       },
@@ -183,7 +196,7 @@ export const OUTILS_ECRITURE_TOURNAGE: readonly McpTool[] = [
     name: "preparer_tournages",
     title: "Préparer des fichiers de tournage",
     description:
-      "MODIFIE les scripts : fabrique les fichiers du MODE TOURNAGE BLUSH d'une créatrice — un .txt par histoire en service (ou seulement `histoires`), à son prénom, FIGÉ (jamais refait, même si l'histoire change ensuite : c'est lui que BLUSH aura lu). Les paires déjà préparées ne bougent pas. Ensuite, l'équipe télécharge les fichiers depuis l'écran « Mode tournage » (lien dans la réponse), les importe dans BLUSH et crée les liens — puis `liens_tournage`. Se défait tant qu'aucun lien n'a été collé.",
+      "MODIFIE les scripts : fabrique les fichiers du MODE TOURNAGE BLUSH d'une créatrice — un .txt par histoire en service (ou seulement `histoires`), à son prénom, FIGÉ (jamais refait, même si l'histoire change ensuite : c'est lui que BLUSH aura lu). Les paires déjà préparées ne bougent pas. Quand l'API BLUSH est branchée (`tournages` : liensAutomatiques), il DEMANDE AUSSI à BLUSH le lien de chaque fichier de la créatrice qui n'en a pas (nouveaux ou anciens, échecs compris) : ~3 min, UNE LECTURE PAYÉE ≈ 1 € PAR LIEN — dis-le avant. Sinon, l'équipe importe les fichiers dans BLUSH et colle les liens (`liens_tournage`). Les fichiers se défont tant qu'aucun lien n'est posé.",
     inputSchema: {
       type: "object",
       properties: {
@@ -272,17 +285,36 @@ export const ecrirePreparationTournages = mcpWriteMutation("scripts.manage", "sc
       ids.push(id);
       codes.push((await ctx.db.get(f.scenarioId))?.code ?? "?");
     }
-    if (ids.length === 0) return { summary: `${c.name} : rien de nouveau à préparer (déjà fait).`, inchange: true };
-    const summary = `${c.name} : ${ids.length} fichier${ids.length > 1 ? "s" : ""} de tournage préparé${ids.length > 1 ? "s" : ""} (${codes.join(", ")})`;
+    // L'API BLUSH (si branchée) : un lien pour chaque fichier d'elle qui n'en a pas.
+    const siens = (
+      await ctx.db
+        .query("scenarioTournages")
+        .withIndex("by_creator_scenario", (q) => q.eq("creatorId", c._id))
+        .collect()
+    ).filter((t) => t.projectId === ctx.projectId);
+    const anciens = siens.filter((t) => !ids.includes(t._id));
+    const photos = await photographier(ctx, "scenarioTournages", anciens.map((t) => t._id));
+    const demandes = await demanderLiensBlush(ctx, siens);
+    if (ids.length === 0 && demandes === 0) {
+      return { summary: `${c.name} : rien de nouveau à préparer (déjà fait).`, inchange: true, demandes, automatiques: apiBlush() !== null };
+    }
+    const parts = [
+      ...(ids.length > 0
+        ? [`${ids.length} fichier${ids.length > 1 ? "s" : ""} de tournage préparé${ids.length > 1 ? "s" : ""} (${codes.join(", ")})`]
+        : []),
+      ...(demandes > 0 ? [`${demandes} lien${demandes > 1 ? "s" : ""} demandé${demandes > 1 ? "s" : ""} à BLUSH`] : []),
+    ];
+    const summary = `${c.name} : ${parts.join(" ; ")}`;
     await journaliser(ctx, {
       tool: "preparer_tournages",
       summary,
       section: "tournage",
       path: "scenarios/tournage",
-      annulation: { type: "tournagesPrepares", ids },
-      etats: await etatsCrees(ctx, "scenarioTournages", ids),
+      // Les fichiers se défont ; une lecture BLUSH lancée, non (elle est payée).
+      ...(ids.length > 0 ? { annulation: { type: "tournagesPrepares" as const, ids } } : {}),
+      etats: [...(await etatsCrees(ctx, "scenarioTournages", ids)), ...(await etatsApres(ctx, photos))],
     });
-    return { summary, inchange: false };
+    return { summary, inchange: false, demandes, automatiques: apiBlush() !== null };
   },
 });
 
@@ -339,7 +371,7 @@ export const ecrireLiensTournage = mcpWriteMutation("scripts.manage", "scripts")
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
-  preparer_tournages: "`defaire` (tant qu'aucun lien n'a été collé sur ces fichiers), ou l'écran Scénarios › Mode tournage.",
+  preparer_tournages: "`defaire` retire les fichiers (tant qu'aucun lien n'est posé) et arrête leurs liens en création ; une lecture BLUSH lancée reste payée.",
   liens_tournage: "`defaire` (tant que personne n'a changé ces liens), ou l'écran Scénarios › Mode tournage.",
 };
 
@@ -365,11 +397,6 @@ export async function appelerEcritureTournage(
         ...(h ? { histoires: h as string[] } : {}),
       }),
     );
-    if (plan.aPreparer.length === 0) {
-      return resultatEcriture(projet, `${plan.nom} : rien de nouveau à préparer (déjà fait).`, "Rien à défaire.", {
-        ecran: lienEcranTournage(projet),
-      });
-    }
     // Les fichiers se fabriquent ICI (une action range dans le storage) ; un
     // refus à l'écriture efface ce qui a été rangé.
     const fichiers: FichierPrepare[] = [];
@@ -383,7 +410,9 @@ export async function appelerEcritureTournage(
       );
       return resultatEcriture(projet, r.summary, r.inchange ? "Rien à défaire." : OU_DEFAIRE[name], {
         ecran: lienEcranTournage(projet),
-        ensuite: `Télécharge les fichiers de ${plan.prenom} depuis l'écran (« Tout télécharger »), importe-les dans BLUSH, crée un lien par fichier (askblush.com/admin › Tournage), puis donne-les à \`liens_tournage\`.`,
+        ensuite: r.automatiques
+          ? `Les liens arrivent seuls (~3 min) : vérifie avec \`tournages\` (« lien en création » → « prêt »).`
+          : `Télécharge les fichiers de ${plan.prenom} depuis l'écran (« Tout télécharger »), importe-les dans BLUSH, crée un lien par fichier (askblush.com/admin › Tournage), puis donne-les à \`liens_tournage\`.`,
       });
     } catch (e) {
       for (const f of fichiers) await ctx.storage.delete(f.fichierId).catch(() => undefined);

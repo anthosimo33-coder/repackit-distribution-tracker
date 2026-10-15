@@ -39,6 +39,7 @@ import { genererConversation } from "./scenarioEngine";
 import { firstNameOf, lireLienTournage, veille } from "./scenarioTournageRegles";
 import { graineMission } from "./scriptConversation";
 import { deleteStorageBestEffort } from "./storageCleanup";
+import { apiBlush, arreterLiensBlush, demanderLiensBlush } from "./scenarioTournageBlush";
 import { parisDayKey } from "./viewsDaily";
 
 /** Les créatrices à qui l'on prépare des tournages : celles qui reçoivent des missions. */
@@ -58,8 +59,9 @@ export async function tournageDe(
     .first();
 }
 
-/** Supprime des tournages ET leurs fichiers (créatrice ou histoire supprimée). */
+/** Supprime des tournages ET leurs fichiers (créatrice ou histoire supprimée) ; leurs liens BLUSH créés par l'API s'arrêtent. */
 export async function supprimerTournages(ctx: MutationCtx, rows: Doc<"scenarioTournages">[]): Promise<void> {
+  await arreterLiensBlush(ctx, rows);
   for (const t of rows) {
     await ctx.db.delete(t._id);
     await deleteStorageBestEffort(ctx, t.fichierId);
@@ -191,6 +193,8 @@ export const tournagesDuProjet = permissionQuery("scripts.manage")({
       scope,
     ).sort((a, b) => a.name.localeCompare(b.name, "fr"));
     return {
+      // L'API BLUSH crée les liens elle-même quand le déploiement a sa clé.
+      apiBlush: apiBlush() !== null,
       scenarios,
       createatrices: await Promise.all(
         createatrices.map(async (c) => ({
@@ -204,6 +208,7 @@ export const tournagesDuProjet = permissionQuery("scripts.manage")({
                 _id: t._id,
                 scenarioId: t.scenarioId,
                 lien: t.lien ?? null,
+                blush: t.blush ? { statut: t.blush.statut, erreur: t.blush.erreur ?? null } : null,
                 nomFichier: t.nomFichier,
                 messages: t.messages,
                 finLe: t.finLe,
@@ -255,7 +260,13 @@ export const fichierPrepareValidator = v.object({
 
 export const enregistrerTournage = internalMutation({
   args: { projectId: v.id("projects"), creatorId: v.id("creators"), fichier: fichierPrepareValidator },
-  handler: async (ctx, args) => (await rangerTournage(ctx, args.projectId, args.creatorId, args.fichier)) !== null,
+  handler: async (ctx, args) => {
+    const id = await rangerTournage(ctx, args.projectId, args.creatorId, args.fichier);
+    if (!id) return false;
+    // L'API BLUSH (si la clé est posée) crée le lien : ~3 min, une lecture payée.
+    await demanderLiensBlush(ctx, [(await ctx.db.get(id))!]);
+    return true;
+  },
 });
 
 /**
@@ -288,6 +299,26 @@ export const preparerTournages = authedAction({
       if (range) prepares += 1;
     }
     return { prepares };
+  },
+});
+
+/**
+ * « Créer les liens BLUSH » : demande à l'API le lien des fichiers d'une
+ * créatrice qui n'en ont pas (ou seulement `scenarioIds` — « Réessayer »).
+ * Chaque demande = une lecture payée (~1 €). Sans clé : rien.
+ */
+export const demanderLiensTournage = permissionMutation("scripts.manage")({
+  args: { creatorId: v.id("creators"), scenarioIds: v.optional(v.array(v.id("scenarios"))) },
+  handler: async (ctx, args) => {
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
+    const voulues = args.scenarioIds ? new Set<string>(args.scenarioIds) : null;
+    const rows = (
+      await ctx.db
+        .query("scenarioTournages")
+        .withIndex("by_creator_scenario", (q) => q.eq("creatorId", args.creatorId))
+        .collect()
+    ).filter((t) => t.projectId === ctx.projectId && (!voulues || voulues.has(t.scenarioId)));
+    return { demandes: await demanderLiensBlush(ctx, rows) };
   },
 });
 

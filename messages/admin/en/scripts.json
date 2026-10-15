@@ -409,6 +409,13 @@
     "echec": "That didn't work. Try again.",
     "echecTelechargement": "The file could not be downloaded. Try again.",
     "preparerUn": "Prepare file {code} for {prenom}",
-    "nomZip": "Filming {prenom}.zip"
+    "nomZip": "Filming {prenom}.zip",
+    "etapeAuto1": "“Prepare” makes her files (one per story, in her name, frozen) and asks BLUSH for each link: about 3 minutes, one paid reading (≈ €1) per file.",
+    "etapeAuto2": "Links are set automatically, and her mission shows them right away. If something fails, the reason shows with “Retry”; you can also paste a link by hand.",
+    "creerLiens": "Create BLUSH links ({n})",
+    "liensDemandes": "{n, plural, =0 {No link to request} one {# link requested from BLUSH (≈ 3 min)} other {# links requested from BLUSH (≈ 3 min)}}",
+    "enCreation": "Link being created in BLUSH…",
+    "echecLien": "Failed: {erreur}",
+    "reessayer": "Retry"
   }
 }

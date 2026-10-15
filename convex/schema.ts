@@ -1990,6 +1990,19 @@ export default defineSchema({
     nomFichier: v.string(),
     messages: v.number(),
     lien: v.optional(v.string()),
+    // API BLUSH (convex/scenarioTournageBlush) : la demande de lien en cours ou
+    // finie. `ref` = ce que Jarvia envoie (même ref = même lien, sans relire) ;
+    // `version` monte à chaque nouvelle demande (réessai, lien remplacé).
+    blush: v.optional(
+      v.object({
+        ref: v.string(),
+        version: v.number(),
+        id: v.optional(v.string()),
+        statut: v.union(v.literal("demande"), v.literal("en_lecture"), v.literal("pret"), v.literal("echec")),
+        erreur: v.optional(v.string()),
+        demandeLe: v.number(),
+      }),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
