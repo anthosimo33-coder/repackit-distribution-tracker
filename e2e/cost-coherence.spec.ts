@@ -226,10 +226,12 @@ test.describe("Coût d'une vidéo — le même sur tous les écrans", () => {
 
       // Présence : le palier est bien débloqué, et Analytics le compte…
       const a1 = await analytics();
+      // …dans le bonus qui nourrit le coût PROMO complet (RPM promo, coût
+      // d'acquisition) — lu sur `bonusTotal`, jamais nul : `promoBonus` passe à
+      // null dès qu'UNE vidéo promo du projet a un coût inconnu, ce que la base
+      // e2e partagée finit par contenir (écart lu 0 − 0 en CI)…
+      expect(a1.bonusTotal - a0.bonusTotal).toBeCloseTo(187.5, 2);
       expect(a1.total - a0.total).toBeCloseTo(187.5, 2);
-      // …dans le coût PROMO complet aussi (numérateur du RPM promo et du coût
-      // d'acquisition) : un palier ne se gagne que sur des vues promo…
-      expect((a1.promoBonus ?? 0) - (a0.promoBonus ?? 0)).toBeCloseTo(187.5, 2);
       // …la Rentabilité aussi…
       expect((await rentab()) - r0).toBeCloseTo(187.5, 2);
       // …et l'onglet Pays, sur le marché de son compte. Il en était EXCLU : la
@@ -322,8 +324,9 @@ test.describe("Coût d'une vidéo — le même sur tous les écrans", () => {
 
       expect((await rentab()) - r0).toBeCloseTo(212.4, 2);
       const a1 = await analytics();
+      // `bonusTotal` et non `promoBonus` (cf le test précédent).
+      expect(a1.bonusTotal - a0.bonusTotal).toBeCloseTo(212.4, 2);
       expect(a1.total - a0.total).toBeCloseTo(212.4, 2);
-      expect((a1.promoBonus ?? 0) - (a0.promoBonus ?? 0)).toBeCloseTo(212.4, 2);
       const p1 = await chypre();
       expect((p1?.promoCost ?? 0) - (p0?.promoCost ?? 0)).toBeCloseTo(212.4, 2);
       // La vidéo est hors période : ni vue ni vidéo de plus, seulement la prime.
