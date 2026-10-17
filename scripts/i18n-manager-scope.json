@@ -370,6 +370,7 @@
     "convex/soloDays.ts",
     "convex/talentRetainer.ts",
     "convex/unitEconomics.ts",
+    "convex/videoBonusCarry.ts",
     "convex/viewCounters.ts",
     "convex/viewsDaily.ts",
     "convex/warmup.ts",

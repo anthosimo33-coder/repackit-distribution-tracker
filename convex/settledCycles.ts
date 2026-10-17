@@ -32,6 +32,7 @@
  */
 
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
+import { videoBonusIsSettled, videoBonusLedger, type CarryRow } from "./videoBonusCarry";
 
 /** Ce qu'on lit d'une row `payments` — rien d'autre n'entre dans la décision. */
 export type SettledCycleRow = {
@@ -91,45 +92,41 @@ export function settledViewsResolver(
 }
 
 /**
- * Résolveur `(vidéo, instant de publication) → BONUS PAR VIDÉO payé` (null =
- * cycle de la vidéo pas encore payé, donc calcul live).
+ * Résolveur `(vidéo, instant de publication, fin de sa fenêtre de paie) → BONUS
+ * PAR VIDÉO payé` (null = cycle de la vidéo pas encore payé, donc calcul live).
  *
- * ⚠️ DIFFÉRENT de `settledViewsResolver` sur deux points, tous deux voulus :
+ * ⚠️ DIFFÉRENT de `settledViewsResolver` sur trois points, tous voulus :
  *   - on rend le MONTANT, pas l'assiette. Le bonus par vidéo n'a aucun budget de
  *     groupe à re-répartir entre mois et cycle : il appartient à sa seule vidéo,
  *     qui n'appartient qu'à UN cycle et UN mois. Reprendre le montant est exact —
  *     et c'est la seule façon qu'une grille modifiée APRÈS le paiement ne réécrive
  *     pas un coût déjà versé ;
- *   - cycle payé SANS ligne `video_bonus` pour la vidéo ⇒ 0, pas `null`. Ici
- *     l'absence est une information : le gel écrit une ligne pour toute vidéo qui
- *     touchait un bonus, donc « pas de ligne » veut dire « rien touché ». Les
- *     cycles payés avant que la grille existe rendent ainsi 0, ce qui est la règle
- *     (la grille ne vaut que pour les cycles non payés).
+ *   - `paid` = Σ de TOUTES ses lignes `video_bonus` gelées, son cycle ET les
+ *     compléments reportés sur les suivants (cf convex/videoBonusCarry). Cycle
+ *     payé sans ligne pour la vidéo ⇒ 0, pas `null` : le gel écrit une ligne pour
+ *     toute vidéo qui touchait un bonus, donc « pas de ligne » veut dire « rien
+ *     touché » ;
+ *   - `open` dit si un complément peut encore venir (la vidéo n'est pas réglée
+ *     pour de bon). Le moteur compte alors ce qu'elle vaut aujourd'hui, au plus
+ *     haut des deux : ce qui sera versé, une seule fois, sur SA vidéo.
  */
 export function settledVideoBonusResolver(
   firstPostAt: number | undefined,
-  rows: readonly (SettledCycleRow & {
-    lineItems: readonly { assignmentId?: string; kind: string; amount: number }[];
-  })[],
-): (assignmentId: string, publishedAt: number) => number | null {
+  rows: readonly CarryRow[],
+): (
+  assignmentId: string,
+  publishedAt: number,
+  payBaseCutoffAt: number | null,
+) => { paid: number; open: boolean } | null {
   if (firstPostAt === undefined) return () => null;
-  const paidPeriods = new Set<string>();
-  /** (clé de cycle payé, assignation) → bonus payé. */
-  const paid = new Map<string, number>();
-  for (const r of rows) {
-    if (r.status !== "paid") continue;
-    paidPeriods.add(r.period);
-    for (const li of r.lineItems) {
-      if (li.kind !== "video_bonus" || li.assignmentId === undefined) continue;
-      const k = `${r.period}|${li.assignmentId}`;
-      paid.set(k, (paid.get(k) ?? 0) + Math.max(0, li.amount));
-    }
-  }
-  if (paidPeriods.size === 0) return () => null;
-  return (assignmentId: string, publishedAt: number) => {
-    const k = cycleIndexOf(firstPostAt, publishedAt);
-    const period = cyclePeriodKey(cycleWindow(firstPostAt, k).cycleStart);
-    if (!paidPeriods.has(period)) return null;
-    return Math.round((paid.get(`${period}|${assignmentId}`) ?? 0) * 100) / 100;
+  const ledger = videoBonusLedger(firstPostAt, rows);
+  if (!ledger.anyPaid) return () => null;
+  return (assignmentId, publishedAt, payBaseCutoffAt) => {
+    const home = cycleIndexOf(firstPostAt, publishedAt);
+    if (ledger.paidAtOfCycle(home) === null) return null;
+    return {
+      paid: ledger.paidOf(assignmentId),
+      open: !videoBonusIsSettled(ledger, home, payBaseCutoffAt),
+    };
   };
 }

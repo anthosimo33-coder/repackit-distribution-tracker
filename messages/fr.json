@@ -591,7 +591,8 @@
         "tierBonus": "Bonus palier {views} vues",
         "challenge": "Prime de défi — {name}",
         "challengeWin": "Prime de défi — {name}",
-        "videoBonus": "Bonus vidéo — {views} vues"
+        "videoBonus": "Bonus vidéo — {views} vues",
+        "videoBonusCarried": "Bonus vidéo reporté — {views} vues"
       },
       "tiersTitle": "🏆 Paliers de récompense",
       "cumulViews": "{views} vues cumulées",
@@ -605,7 +606,8 @@
         "locked": "Le fixe du mois se débloque à {target} vues cumulées sur tes vidéos du mois.",
         "unlocked": "Seuil atteint — le fixe du mois est acquis."
       },
-      "seeGrid": "Voir ma grille"
+      "seeGrid": "Voir ma grille",
+      "videoBonusCarriedHint": "Vidéo d'un cycle déjà payé : ce palier a été atteint après le paiement, il est réglé sur ce cycle."
     },
     "videos": {
       "trackingActive": "Suivi actif",

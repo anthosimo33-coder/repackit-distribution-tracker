@@ -7,7 +7,10 @@ import { settledVideoBonusResolver, settledViewsResolver } from "./settledCycles
 /** Les deux résolveurs que le moteur attend (cf `computeLivePricingBreakdown`). */
 export type SettledResolvers = {
   settledViewsOf: (a: Doc<"assignments">) => number | null;
-  settledVideoBonusOf: (a: Doc<"assignments">) => number | null;
+  settledVideoBonusOf: (
+    a: Doc<"assignments">,
+    payBaseCutoffAt: number | null,
+  ) => { paid: number; open: boolean } | null;
 };
 
 /**
@@ -44,7 +47,9 @@ export async function loadSettledResolvers(
   return {
     // Vidéo d'un cycle déjà réglé ⇒ l'assiette qu'on a payée.
     settledViewsOf: (a) => views(a._id, assignmentPublishedAt(a)),
-    // … et le bonus par vidéo qu'on lui a versé (0 si aucun).
-    settledVideoBonusOf: (a) => videoBonus(a._id, assignmentPublishedAt(a)),
+    // … et le bonus par vidéo qu'on lui a versé (0 si aucun), ouvert ou non à
+    // un complément au cycle suivant (cf convex/videoBonusCarry).
+    settledVideoBonusOf: (a, payBaseCutoffAt) =>
+      videoBonus(a._id, assignmentPublishedAt(a), payBaseCutoffAt),
   };
 }

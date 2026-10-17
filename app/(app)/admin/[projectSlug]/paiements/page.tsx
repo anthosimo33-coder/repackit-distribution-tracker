@@ -179,6 +179,13 @@ function PaiementsPageContenu() {
     (s, p) => s + (p.pricingBreakdown?.unmeasuredPayablePosts ?? 0),
     0,
   );
+  // Vidéos dont le bonus par vidéo peut encore monter : payer gèle celui du jour,
+  // la suite sera reportée au cycle suivant (cf convex/videoBonusCarry). Même
+  // parti que ci-dessus : on le dit, on ne bloque pas.
+  const selectedStillOpen = selectedRows.reduce(
+    (s, p) => s + (p.pricingBreakdown?.videoBonusStillOpen ?? 0),
+    0,
+  );
   const selectedCreators = new Set(selectedRows.map((p) => p.creatorId)).size;
   const allSelected =
     payableRows.length > 0 && selectedRows.length === payableRows.length;
@@ -568,6 +575,14 @@ function PaiementsPageContenu() {
                 c&apos;est un signalement, pas un blocage.
               </p>
             )}
+            {selectedStillOpen > 0 && (
+              <p
+                className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sky-900"
+                data-testid="video-bonus-open-warning"
+              >
+                <VideoBonusOpenSentence count={selectedStillOpen} />
+              </p>
+            )}
             <p className="text-xs text-slate-500">
               Les cycles déjà payés ne sont pas retouchés. Un cycle qui échoue
               n&apos;interrompt pas les autres et reste sélectionné.
@@ -912,6 +927,7 @@ function CycleRow({
   const [open, setOpen] = useState(false);
   const avances = p.advances.reduce((s, a) => s + a.amount, 0);
   const nonMesurees = p.pricingBreakdown?.unmeasuredPayablePosts ?? 0;
+  const bonusOuverts = p.pricingBreakdown?.videoBonusStillOpen ?? 0;
 
   async function onMarkPaid() {
     setBusy(true);
@@ -1011,9 +1027,39 @@ function CycleRow({
           </Button>
         </div>
       </div>
+      {/* AVANT « Marquer payé », pas dans le détail replié : c'est à ce geste
+          que la phrase sert. Texte seulement, le bouton reste actif. */}
+      {bonusOuverts > 0 && (
+        <p
+          className="px-3 pb-2.5 pl-12 text-[11px] leading-relaxed text-sky-800"
+          data-testid={`video-bonus-open-${p.key}`}
+        >
+          <VideoBonusOpenSentence count={bonusOuverts} />
+        </p>
+      )}
       {open && <CycleDetail p={p} currency={currency} />}
     </div>
   );
+}
+
+/**
+ * « N vidéos de ce cycle ont moins de 30 jours ; leur bonus se règlera au cycle
+ * suivant. » — les vidéos dont le bonus par vidéo peut encore monter
+ * (`videoBonusStillOpen`). Payer maintenant ne leur fait rien perdre : ce
+ * qu'elles franchiront ensuite est reporté sur le premier cycle non payé.
+ */
+function VideoBonusOpenSentence({ count }: { count: number }) {
+  return (
+    <>
+      {count} vidéo{count > 1 ? "s" : ""} de ce cycle {count > 1 ? "ont" : "a"}{" "}
+      moins de 30 jours ; leur bonus se règlera au cycle suivant.
+    </>
+  );
+}
+
+/** Σ au centime d'une liste de bonus par vidéo. */
+function sommeBonus(l: { montant: number }[]): number {
+  return Math.round(l.reduce((s, b) => s + b.montant, 0) * 100) / 100;
 }
 
 /** UN CYCLE RÉGLÉ : montant versé, date, et l'annulation (une fois). */
@@ -1064,6 +1110,12 @@ function CycleDetail({
   p: Payment;
   currency?: string | null;
 }) {
+  // Le bonus des vidéos DU cycle, et à part celui REPORTÉ de vidéos d'un cycle
+  // déjà payé (palier franchi après ce paiement, cf convex/videoBonusCarry) :
+  // sans la distinction, « 2 vidéos » ne se retrouverait pas parmi celles du
+  // cycle.
+  const bonusPropres = p.pricingBreakdown.videoBonuses.filter((b) => !b.carriedOver);
+  const bonusReportes = p.pricingBreakdown.videoBonuses.filter((b) => b.carriedOver);
   return (
     <div className="space-y-2 border-t border-slate-100 bg-slate-50/60 px-3 py-2.5 pl-12">
       {p.pricingBreakdown.total > 0 && (
@@ -1085,10 +1137,17 @@ function CycleDetail({
               currency={currency}
             />
           )}
-          {p.pricingBreakdown.videoBonusTotal > 0 && (
+          {bonusPropres.length > 0 && (
             <BreakdownLine
-              label={`Bonus par vidéo (${p.pricingBreakdown.videoBonuses.length} vidéo${p.pricingBreakdown.videoBonuses.length > 1 ? "s" : ""})`}
-              amount={p.pricingBreakdown.videoBonusTotal}
+              label={`Bonus par vidéo (${bonusPropres.length} vidéo${bonusPropres.length > 1 ? "s" : ""})`}
+              amount={sommeBonus(bonusPropres)}
+              currency={currency}
+            />
+          )}
+          {bonusReportes.length > 0 && (
+            <BreakdownLine
+              label={`Bonus vidéo reporté d'un cycle payé (${bonusReportes.length} vidéo${bonusReportes.length > 1 ? "s" : ""})`}
+              amount={sommeBonus(bonusReportes)}
               currency={currency}
             />
           )}

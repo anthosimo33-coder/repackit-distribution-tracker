@@ -2516,6 +2516,15 @@ export function jarviaServer(
         const arrondi = (n: number) => Math.round(n * 100) / 100;
         const parDevise = (l: { currency: string | null; amount: number }[]) =>
           l.map((t) => ({ devise: t.currency, montant: arrondi(t.amount) }));
+        const bonusReporte = (c: (typeof rows)[number]) => {
+          const reportes = (c.pricingBreakdown?.videoBonuses ?? []).filter((b) => b.carriedOver);
+          return reportes.length > 0
+            ? {
+                dontBonusReporte: arrondi(reportes.reduce((t, b) => t + b.montant, 0)),
+                videosAuBonusReporte: reportes.length,
+              }
+            : {};
+        };
         const cycle = (c: (typeof rows)[number]) => ({
           du: jour(c.cycleStart),
           // cycleEnd est EXCLUSIF (début du cycle suivant) : dernier jour = veille.
@@ -2533,9 +2542,15 @@ export function jarviaServer(
             paliers: c.pricingBreakdown?.bonusTierCashTotal ?? null,
             primesDeDefi: c.pricingBreakdown?.challengeTotal ?? null,
             bonusParVideo: c.pricingBreakdown?.videoBonusTotal ?? null,
+            // Dont les COMPLÉMENTS reportés de vidéos d'un cycle déjà payé (cf
+            // convex/videoBonusCarry) — déjà comptés dans `bonusParVideo`.
+            ...bonusReporte(c),
           },
           ...((c.pricingBreakdown?.unmeasuredPayablePosts ?? 0) > 0
             ? { postsPayablesSansMesure: c.pricingBreakdown!.unmeasuredPayablePosts }
+            : {}),
+          ...((c.pricingBreakdown?.videoBonusStillOpen ?? 0) > 0
+            ? { videosAuBonusEncoreOuvert: c.pricingBreakdown!.videoBonusStillOpen }
             : {}),
           ...(c.rushCount !== null ? { rushesDeposes: c.rushCount } : {}),
         });
@@ -2573,6 +2588,7 @@ export function jarviaServer(
           lecture: [
             "Un cycle = 30 jours glissants propres à chaque créatrice. « valeur » = ce que vaut le cycle ; « resteAVerser » = valeur − acomptes déjà versés (jamais négatif). « aVerser » = ce que « tout payer » verserait (hors créatrices supprimées).",
             "Un cycle en cours peut encore monter : une vidéo est rémunérée jusqu'à J+30 après publication. « postsPayablesSansMesure » = posts qui compteront mais dont les vues ne sont pas encore relevées.",
+            "Bonus par vidéo : payer un cycle gèle le bonus de ses vidéos tel qu'il est ce jour-là. Un palier franchi APRÈS ce paiement n'est pas perdu : l'écart est reporté sur le premier cycle non payé qui suit (« dontBonusReporte », une ligne par vidéo). « videosAuBonusEncoreOuvert » = vidéos d'un cycle à payer dont le bonus peut encore monter — leur suite se réglera au cycle suivant.",
             "Chaque montant est dans la devise de SA créatrice (« devise » du cycle) : une créatrice n'est payée que dans une devise, mais un projet peut en mêler plusieurs. Les totaux (« aVerser », « totalSurLHistorique ») sont donc donnés PAR DEVISE, jamais additionnés.",
           ],
         });

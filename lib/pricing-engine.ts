@@ -619,3 +619,19 @@ export function videoBonusAmount(
 ): number {
   return evaluateVideoBonus(views, grid).amount;
 }
+
+/**
+ * Ce qu'une vidéo est encore DUE au titre de son bonus : ce qu'elle vaut
+ * aujourd'hui moins ce qui lui a déjà été versé (lignes `video_bonus` gelées),
+ * jamais négatif — un montant payé ne se reprend pas, même si la grille baisse
+ * ou si des vues sont retirées. C'est le COMPLÉMENT qu'un cycle suivant porte
+ * quand le cycle de la vidéo a été payé avant qu'elle franchisse son palier
+ * (cf convex/videoBonusCarry). Sans rien de versé, c'est le bonus entier.
+ */
+export function videoBonusComplement(
+  grid: VideoBonusGrid | null | undefined,
+  views: number,
+  alreadyPaid: number,
+): number {
+  return Math.max(0, round2(videoBonusAmount(grid, views) - Math.max(0, alreadyPaid)));
+}

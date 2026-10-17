@@ -14,6 +14,13 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { periodOf } from "./payments";
 import { cycleIndexOf, cyclePeriodKey, cycleWindow } from "./payCycle";
+import {
+  videoBonusCarrier,
+  videoBonusIsSettled,
+  videoBonusCostOf,
+  videoBonusLedger,
+  type CarryRow,
+} from "./videoBonusCarry";
 import { isRemunerated, type RemunerationFlags } from "./remunerate";
 import { isBonusTierPost, isPromoPost } from "./viewCounters";
 import {
@@ -445,6 +452,22 @@ export function videoBonusAmount(
   return evaluateVideoBonus(views, grid).amount;
 }
 
+/**
+ * Ce qu'une vidéo est encore DUE au titre de son bonus : ce qu'elle vaut
+ * aujourd'hui moins ce qui lui a déjà été versé (lignes `video_bonus` gelées),
+ * jamais négatif — un montant payé ne se reprend pas, même si la grille baisse
+ * ou si des vues sont retirées. C'est le COMPLÉMENT qu'un cycle suivant porte
+ * quand le cycle de la vidéo a été payé avant qu'elle franchisse son palier
+ * (cf convex/videoBonusCarry). Sans rien de versé, c'est le bonus entier.
+ */
+export function videoBonusComplement(
+  grid: VideoBonusGrid | null | undefined,
+  views: number,
+  alreadyPaid: number,
+): number {
+  return Math.max(0, round2(videoBonusAmount(grid, views) - Math.max(0, alreadyPaid)));
+}
+
 // ─── Vues + période d'un assignment ──────────────────────────────────────────
 
 /** Date de publication d'un assignment = la PLUS PRÉCOCE de ses cibles (toutes
@@ -541,6 +564,14 @@ export interface AssignmentViews {
   payBaseFrozen: boolean;
   /** Σ des vues RÉMUNÉRÉES acquises hors fenêtre (mesurées − retenues). */
   viewsOutsideWindow: number;
+  /**
+   * Premier instant où l'assiette de la vidéo NE PEUT PLUS bouger : la plus
+   * tardive des bornes (J+31 ou spark ad, cf payCutoffAt) de ses posts
+   * RÉMUNÉRÉS. `null` = aucun post rémunéré. Une DATE, pas un état : c'est elle
+   * qu'on compare à l'instant d'un paiement pour savoir si le bonus de la vidéo
+   * était encore ouvert quand on l'a gelé (cf convex/videoBonusCarry).
+   */
+  payBaseCutoffAt: number | null;
 }
 
 /**
@@ -603,6 +634,7 @@ export async function assignmentViewsAndMetrics(
   const pubs: (RemunerationFlags & { measured: number; retained: number })[] = [];
   /** Un item par post, pour l'AFFICHAGE du plafond (cf aggregatePayWindow). */
   const windows: { retained: RetainedViews; isPaid: boolean }[] = [];
+  let payBaseCutoffAt: number | null = null;
   let hasMetrics = false;
   let unmeasuredPayable = 0;
   const seen = new Set<string>();
@@ -659,6 +691,7 @@ export async function assignmentViewsAndMetrics(
     }
     pubs.push({ ...flags, measured, retained: retained.views });
     windows.push({ retained, isPaid: isRemunerated(flags) });
+    payBaseCutoffAt = laterCutoff(payBaseCutoffAt, pub, flags);
     // Un snapshot a été relevé (Apify/YouTube/manuel) ⇒ suivi actif.
     if (pub.latestSnapshotAt !== undefined) hasMetrics = true;
   }
@@ -694,8 +727,45 @@ export async function assignmentViewsAndMetrics(
     payWindowClosed: payWindow.closed,
     payBaseFrozen: payBaseIsFrozen(windows),
     viewsOutsideWindow: payWindow.viewsOutsideWindow,
+    payBaseCutoffAt,
   };
   cache?.views.set(a._id as string, out);
+  return out;
+}
+
+/** La borne d'assiette la plus tardive, ce post compris s'il est rémunéré. */
+function laterCutoff(
+  acc: number | null,
+  pub: Pick<Doc<"publications">, "datePubli" | "sparkAdLaunchedAt">,
+  flags: RemunerationFlags,
+): number | null {
+  if (!isRemunerated(flags)) return acc;
+  const cutoff = payCutoffAt(pub.datePubli, pub.sparkAdLaunchedAt ?? null);
+  return acc === null ? cutoff : Math.max(acc, cutoff);
+}
+
+/**
+ * `payBaseCutoffAt` d'une vidéo SANS relever ses vues — la seule lecture de ses
+ * publications (préchargées si le cache les porte). Sert au tri des vidéos des
+ * cycles payés : la plupart sont réglées pour de bon, et leur épargner la
+ * lecture des relevés (une par post à fenêtre close) est tout l'intérêt.
+ */
+async function payBaseCutoffOf(
+  ctx: QueryCtx | MutationCtx,
+  a: Doc<"assignments">,
+  cache?: AssignmentViewsCache,
+): Promise<number | null> {
+  const known = cache?.views.get(a._id as string);
+  if (known) return known.payBaseCutoffAt;
+  let out: number | null = null;
+  const seen = new Set<string>();
+  for (const pid of [...(a.targets ?? []).map((t) => t.publicationId), a.publicationId]) {
+    if (pid === undefined || seen.has(pid)) continue;
+    seen.add(pid);
+    const pub = cache?.pubs?.get(pid as string) ?? (await ctx.db.get(pid));
+    if (!pub) continue;
+    out = laterCutoff(out, pub, { isWarmup: pub.isWarmup === true, remunere: pub.remunere });
+  }
   return out;
 }
 
@@ -1239,8 +1309,26 @@ export interface PricingBreakdown extends MonthlyPayout {
    * l'assiette jugée (vues rémunérées ET promo, retenues). Gelé au paiement en
    * une ligne `video_bonus` par vidéo : le détail survit au gel, à la différence
    * de `bonusTierCashUnlocks`.
+   *
+   * `carriedOver` — COMPLÉMENT d'une vidéo d'un cycle DÉJÀ PAYÉ : son palier a
+   * été franchi après ce paiement, ce cycle-ci (le premier non payé qui suit le
+   * sien) en porte l'écart, `montant` = ce qui reste dû, jamais le bonus entier
+   * (cf convex/videoBonusCarry). Absent sur les vidéos du cycle lui-même.
    */
-  videoBonuses: { assignmentId: string; views: number; montant: number }[];
+  videoBonuses: {
+    assignmentId: string;
+    views: number;
+    montant: number;
+    carriedOver?: true;
+  }[];
+  /**
+   * Vidéos DE CETTE PÉRIODE dont le bonus par vidéo peut encore monter : grille
+   * au barème, palier suivant à franchir, et fenêtre de paie J+30 pas close.
+   * Payer maintenant gèle leur bonus d'aujourd'hui ; ce qu'elles gagneront
+   * ensuite sera reporté au cycle suivant. SIGNALÉ à « Marquer payé », jamais
+   * bloquant — même parti que `unmeasuredPayablePosts`. 0 sur un breakdown gelé.
+   */
+  videoBonusStillOpen: number;
   /**
    * Vidéos RÉMUNÉRÉES de la période dont aucune vue n'a pu être mesurée.
    *
@@ -1547,10 +1635,18 @@ function scalePayout(p: MonthlyPayout, f: number): MonthlyPayout {
 // Exportée pour les tests (lib/pay-currency.test.ts) : pure, aucun ctx.
 export function assembleBreakdown(input: {
   items: PayoutItem[];
-  videoBonuses: PricingBreakdown["videoBonuses"];
+  /**
+   * `snapshotCurrency` : devise figée du barème d'un COMPLÉMENT reporté — sa
+   * vidéo n'est pas dans `items` (elle appartient à un cycle payé), sa devise
+   * ne peut donc pas s'y lire. Jamais renvoyée.
+   */
+  videoBonuses: (PricingBreakdown["videoBonuses"][number] & {
+    snapshotCurrency?: string;
+  })[];
   cashUnlocks: Doc<"bonusUnlocks">[];
   challengeWins: PricingBreakdown["challengeWins"];
   unmeasuredPayablePosts: number;
+  videoBonusStillOpen?: number;
   projectPayCurrency: string | null;
   toReference?: PayFxProject;
 }): Omit<PricingBreakdown, "allSettled"> {
@@ -1562,6 +1658,11 @@ export function assembleBreakdown(input: {
     ]),
   );
   const curOfUnlock = (u: Doc<"bonusUnlocks">) => resolvePayCurrency(u.currency, pay);
+  // Un complément reporté n'a pas sa vidéo dans `items` : sa devise vient du
+  // barème figé qu'il apporte avec lui. Elle entre dans le contrôle « une devise
+  // par cycle » comme n'importe quel autre montant.
+  const curOfBonus = (b: (typeof input.videoBonuses)[number]) =>
+    curOfItem.get(b.assignmentId) ?? resolvePayCurrency(b.snapshotCurrency, pay);
   const wins = input.challengeWins.map((w) => ({
     ...w,
     currency: resolvePayCurrency(w.currency, pay),
@@ -1570,6 +1671,7 @@ export function assembleBreakdown(input: {
     ...curOfItem.values(),
     ...input.cashUnlocks.map(curOfUnlock),
     ...wins.map((w) => w.currency),
+    ...input.videoBonuses.filter((b) => b.carriedOver).map(curOfBonus),
   ]);
 
   const convert = input.toReference !== undefined;
@@ -1619,10 +1721,15 @@ export function assembleBreakdown(input: {
     base = merged;
   }
 
-  const videoBonuses = input.videoBonuses.map((b) => ({
-    ...b,
-    montant: scaled(b.montant, curOfItem.get(b.assignmentId) ?? null),
-  }));
+  const videoBonuses: PricingBreakdown["videoBonuses"] = input.videoBonuses.map((b) => {
+    const out: PricingBreakdown["videoBonuses"][number] = {
+      assignmentId: b.assignmentId,
+      views: b.views,
+      montant: scaled(b.montant, curOfBonus(b)),
+    };
+    if (b.carriedOver) out.carriedOver = true;
+    return out;
+  });
   const videoBonusTotal = round2(videoBonuses.reduce((s, b) => s + b.montant, 0));
   const bonusTierCashTotal = round2(
     input.cashUnlocks.reduce(
@@ -1654,6 +1761,7 @@ export function assembleBreakdown(input: {
     challengeWins,
     videoBonusTotal,
     videoBonuses,
+    videoBonusStillOpen: input.videoBonusStillOpen ?? 0,
     unmeasuredPayablePosts: input.unmeasuredPayablePosts,
     engage,
     // ⚠️ La prime S'AJOUTE, elle ne remplace rien : `base.total` (fixe + CPM)
@@ -1887,6 +1995,21 @@ export function engageOf(items: PayoutItem[], base: MonthlyPayout): {
   return { total: sansSeuil.total, ...facturees(sansSeuil) };
 }
 
+/**
+ * Le bonus par vidéo de cette vidéo peut-il ENCORE monter ? Grille au barème,
+ * un palier au-dessus de ses vues, et sa fenêtre de paie pas close. Cf
+ * `PricingBreakdown.videoBonusStillOpen`.
+ */
+function videoBonusCanStillRise(
+  grid: VideoBonusGrid | null,
+  bonusTierViews: number,
+  payBaseCutoffAt: number | null,
+  now: number,
+): boolean {
+  if (!grid || payBaseCutoffAt === null || payBaseCutoffAt <= now) return false;
+  return evaluateVideoBonus(bonusTierViews, grid).nextTier !== null;
+}
+
 export async function computeLivePricingBreakdown(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
@@ -1917,13 +2040,23 @@ export async function computeLivePricingBreakdown(
    */
   settledViewsOf?: (a: Doc<"assignments">) => number | null,
   /**
-   * BONUS PAR VIDÉO DÉJÀ PAYÉ, pris dans la row gelée — `null` = cycle pas encore
-   * payé (calcul live). Même raison que `settledViewsOf` : une vidéo réglée ne
-   * doit plus ajouter de bonus au mois de sa publication. Ici on reprend le
-   * MONTANT (0 si le cycle payé n'en portait pas) : un bonus par vidéo n'a pas de
-   * budget de groupe à re-répartir, il appartient à sa seule vidéo.
+   * BONUS PAR VIDÉO DÉJÀ PAYÉ, pris dans les rows gelées — `null` = cycle de la
+   * vidéo pas encore payé (calcul live). Même raison que `settledViewsOf` : une
+   * vidéo réglée ne doit plus ajouter de bonus au mois de sa publication. Ici on
+   * reprend le MONTANT (`paid`, Σ de ses lignes `video_bonus`, 0 si aucune) : un
+   * bonus par vidéo n'a pas de budget de groupe à re-répartir, il appartient à
+   * sa seule vidéo.
+   *
+   * `open` — son bonus peut encore donner lieu à un COMPLÉMENT au cycle suivant
+   * (cf convex/videoBonusCarry) : le coût de la vidéo est alors ce qu'elle vaut
+   * aujourd'hui, `max(payé, live)` — ce qui sera versé, compté UNE fois, sur SA
+   * vidéo et dans le mois de SA publication, jamais une seconde fois ailleurs.
+   * `payBaseCutoffAt` : la fin de la fenêtre de paie de la vidéo, qui en décide.
    */
-  settledVideoBonusOf?: (a: Doc<"assignments">) => number | null,
+  settledVideoBonusOf?: (
+    a: Doc<"assignments">,
+    payBaseCutoffAt: number | null,
+  ) => { paid: number; open: boolean } | null,
   /**
    * ÉCRANS D'ANALYSE SEULEMENT — le projet (sa devise de paie et ses taux) vers
    * lequel ramener chaque montant. Absent ⇒ aucune conversion, et c'est le seul
@@ -1958,6 +2091,7 @@ export async function computeLivePricingBreakdown(
   let unmeasuredPayablePosts = 0;
   /** Combien de vidéos retenues ont vu leur assiette figée par un règlement. */
   let settledCount = 0;
+  let videoBonusStillOpen = 0;
   const grids = await loadVideoBonusGrids(
     ctx,
     projectId,
@@ -1971,6 +2105,7 @@ export async function computeLivePricingBreakdown(
       bonusTierViews,
       hasPayablePost,
       payBaseFrozen,
+      payBaseCutoffAt,
       unmeasuredPayablePosts: nonMesures,
     } = await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
@@ -1990,7 +2125,11 @@ export async function computeLivePricingBreakdown(
     // sans ligne CPM chiffrée — toutes hors fenêtre depuis des semaines, donc
     // parfaitement immobiles — suffisaient à tenir juillet ET août ouverts pour
     // toujours.
-    if (settledViews !== null || payBaseFrozen) settledCount += 1;
+    const settledBonus = settledVideoBonusOf?.(a, payBaseCutoffAt) ?? null;
+    // Un bonus encore OUVERT (complément possible) sur une vidéo dont les vues
+    // bougent encore : la période n'est pas figée, même réglée au fixe et au CPM.
+    const bonusEncoreOuvert = settledBonus?.open === true && !payBaseFrozen;
+    if ((settledViews !== null || payBaseFrozen) && !bonusEncoreOuvert) settledCount += 1;
     items.push({
       assignmentId: a._id,
       snapshot: a.pricingSnapshot!,
@@ -2001,11 +2140,23 @@ export async function computeLivePricingBreakdown(
           }
         : {}),
     });
-    const montant =
-      settledVideoBonusOf?.(a) ??
-      videoBonusAmount(grids.get(a.pricingSnapshot!.pricingId) ?? null, bonusTierViews);
+    const live = videoBonusAmount(
+      grids.get(a.pricingSnapshot!.pricingId) ?? null,
+      bonusTierViews,
+    );
+    const montant = videoBonusCostOf(live, settledBonus);
     if (montant > 0) {
       videoBonuses.push({ assignmentId: a._id, views: bonusTierViews, montant });
+    }
+    if (
+      videoBonusCanStillRise(
+        grids.get(a.pricingSnapshot!.pricingId) ?? null,
+        bonusTierViews,
+        payBaseCutoffAt,
+        Date.now(),
+      )
+    ) {
+      videoBonusStillOpen += 1;
     }
   }
   const allUnlocks =
@@ -2037,6 +2188,7 @@ export async function computeLivePricingBreakdown(
       cashUnlocks,
       challengeWins,
       unmeasuredPayablePosts,
+      videoBonusStillOpen,
       projectPayCurrency: await projectPayCurrencyOf(ctx, projectId, sources),
       toReference,
     }),
@@ -2071,6 +2223,19 @@ export async function computeCyclePricingBreakdown(
    * CreatorPayrollSources). Absent = on relit, comme avant.
    */
   sources?: CreatorPayrollSources,
+  /**
+   * Les rows `payments` de la créatrice (TOUTES, payées ou non) — ce qui permet
+   * de porter les COMPLÉMENTS de bonus par vidéo (cf convex/videoBonusCarry) :
+   *  - une vidéo d'un cycle PAYÉ dont le bonus a monté depuis voit l'écart
+   *    porté ici, si ce cycle est le premier non payé qui suit le sien ;
+   *  - une vidéo DE ce cycle ne touche que ce qui ne lui a pas déjà été versé
+   *    ailleurs (0 dans le cas normal, le gel ne s'écrit qu'au paiement).
+   * Absent = aucun report, comportement d'avant à l'identique. La paie
+   * (`cyclePaymentsForCreator`, `markCyclePaid`) le passe TOUJOURS.
+   */
+  paymentRows?: readonly (CarryRow & {
+    lineItems: readonly { assignmentId?: string; kind: string; amount: number }[];
+  })[],
 ): Promise<PricingBreakdown> {
   const allAssignments =
     sources?.assignments ??
@@ -2103,14 +2268,19 @@ export async function computeCyclePricingBreakdown(
     assignments,
     sources?.videoBonusGrids,
   );
-  const videoBonuses: PricingBreakdown["videoBonuses"] = [];
+  const videoBonuses: Parameters<typeof assembleBreakdown>[0]["videoBonuses"] = [];
+  const ledger =
+    paymentRows === undefined ? null : videoBonusLedger(firstPostAt, paymentRows);
+  const now = Date.now();
+  let videoBonusStillOpen = 0;
   for (const a of assignments) {
     const {
       payableViews,
       bonusTierViews,
       hasPayablePost,
+      payBaseCutoffAt,
       unmeasuredPayablePosts: nonMesures,
-    } = await assignmentViewsAndMetrics(ctx, a, Date.now(), viewsCache);
+    } = await assignmentViewsAndMetrics(ctx, a, now, viewsCache);
     // Vidéo ENTIÈREMENT warmup → exclue (ni fixe compté, ni CPM). Partiellement
     // warmup → CPM sur les seules vues payables ; compte une fois pour le fixe.
     if (!hasPayablePost) continue;
@@ -2126,13 +2296,69 @@ export async function computeCyclePricingBreakdown(
         : {}),
     });
     // BONUS PAR VIDÉO — même assiette que les paliers (promo rémunérée), grille
-    // du barème lue en direct. La vidéo le porte dans le cycle de SA publication.
-    const montant = videoBonusAmount(
-      grids.get(a.pricingSnapshot!.pricingId) ?? null,
-      bonusTierViews,
-    );
+    // du barème lue en direct. La vidéo le porte dans le cycle de SA publication,
+    // moins ce qui lui aurait déjà été versé ailleurs (0 sauf cycle annulé après
+    // le paiement d'un complément : on ne paie pas deux fois les mêmes 40 €).
+    const grid = grids.get(a.pricingSnapshot!.pricingId) ?? null;
+    const montant = videoBonusComplement(grid, bonusTierViews, ledger?.paidOf(a._id) ?? 0);
     if (montant > 0) {
       videoBonuses.push({ assignmentId: a._id, views: bonusTierViews, montant });
+    }
+    if (videoBonusCanStillRise(grid, bonusTierViews, payBaseCutoffAt, now)) {
+      videoBonusStillOpen += 1;
+    }
+  }
+  // ─── COMPLÉMENTS REPORTÉS — vidéos de cycles déjà payés ───────────────────
+  // Une vidéo dont le cycle est payé n'y revient jamais (la row est gelée) : ce
+  // qu'elle a gagné de bonus APRÈS ce paiement est porté par le premier cycle
+  // non payé qui suit le sien. On ne relève ses vues que si c'est CE cycle, et
+  // si sa fenêtre de paie n'a pas été soldée par un paiement plus tardif.
+  if (ledger !== null && ledger.anyPaid) {
+    const legacyAilleurs = new Set(
+      paymentRows!.flatMap((r) =>
+        r.lineItems.flatMap((li) =>
+          (li.kind === "base" || li.kind === "bonus") && li.assignmentId !== undefined
+            ? [li.assignmentId]
+            : [],
+        ),
+      ),
+    );
+    const candidates = allAssignments.filter(
+      (a) =>
+        a.projectId === projectId &&
+        a.pricingSnapshot !== undefined &&
+        (a.status === "published" || a.status === "paid") &&
+        !legacyAilleurs.has(a._id) &&
+        videoBonusCarrier(ledger, cycleIndexOf(firstPostAt, assignmentPublishedAt(a))) ===
+          cycleIndex,
+    );
+    const carriedGrids = await loadVideoBonusGrids(ctx, projectId, candidates, grids);
+    for (const a of candidates) {
+      const grid = carriedGrids.get(a.pricingSnapshot!.pricingId) ?? null;
+      if (!grid) continue;
+      const home = cycleIndexOf(firstPostAt, assignmentPublishedAt(a));
+      if (videoBonusIsSettled(ledger, home, await payBaseCutoffOf(ctx, a, viewsCache))) {
+        continue;
+      }
+      const { bonusTierViews, hasPayablePost } = await assignmentViewsAndMetrics(
+        ctx,
+        a,
+        now,
+        viewsCache,
+      );
+      if (!hasPayablePost) continue;
+      const montant = videoBonusComplement(grid, bonusTierViews, ledger.paidOf(a._id));
+      if (montant > 0) {
+        videoBonuses.push({
+          assignmentId: a._id,
+          views: bonusTierViews,
+          montant,
+          carriedOver: true,
+          ...(a.pricingSnapshot!.currency !== undefined
+            ? { snapshotCurrency: a.pricingSnapshot!.currency }
+            : {}),
+        });
+      }
     }
   }
   const allUnlocks =
@@ -2168,6 +2394,7 @@ export async function computeCyclePricingBreakdown(
     cashUnlocks,
     challengeWins,
     unmeasuredPayablePosts,
+    videoBonusStillOpen,
     projectPayCurrency: await projectPayCurrencyOf(ctx, projectId, sources),
   });
 }

@@ -147,28 +147,55 @@ describe("settledVideoBonusResolver", () => {
     ...ROWS.slice(2),
   ];
 
+  // Les rows de ROWS n'ont pas de `paidAt` (forme d'avant ce champ) : payées
+  // « à une date inconnue », elles ne rouvrent rien — `open: false`.
+  const FENETRE_AOUT = PUBLIEE_EN_AOUT + 31 * JOUR;
+
   it("cycle payé : rend le MONTANT versé à la vidéo", () => {
     const bonus = settledVideoBonusResolver(ANCRE, AVEC_BONUS);
-    expect(bonus(AOUT_VIDEO, PUBLIEE_EN_AOUT)).toBe(30);
+    expect(bonus(AOUT_VIDEO, PUBLIEE_EN_AOUT, FENETRE_AOUT)).toEqual({ paid: 30, open: false });
   });
 
   it("cycle payé SANS ligne de bonus pour la vidéo : 0, pas null (elle n'a rien touché)", () => {
     const bonus = settledVideoBonusResolver(ANCRE, AVEC_BONUS);
-    expect(bonus(JUILLET_VIDEO, PUBLIEE_EN_JUILLET)).toBe(0);
+    expect(bonus(JUILLET_VIDEO, PUBLIEE_EN_JUILLET, PUBLIEE_EN_JUILLET + 31 * JOUR)).toEqual({
+      paid: 0,
+      open: false,
+    });
   });
 
   it("cycle pas encore payé : null, le calcul reste live", () => {
     const bonus = settledVideoBonusResolver(ANCRE, AVEC_BONUS);
-    expect(bonus(AOUT_VIDEO, ANCRE + 62 * JOUR)).toBeNull();
+    expect(bonus(AOUT_VIDEO, ANCRE + 62 * JOUR, ANCRE + 93 * JOUR)).toBeNull();
   });
 
   it("aucune ancre ou aucune row payée : null partout", () => {
-    expect(settledVideoBonusResolver(undefined, AVEC_BONUS)(AOUT_VIDEO, PUBLIEE_EN_AOUT)).toBeNull();
+    expect(
+      settledVideoBonusResolver(undefined, AVEC_BONUS)(AOUT_VIDEO, PUBLIEE_EN_AOUT, FENETRE_AOUT),
+    ).toBeNull();
     expect(
       settledVideoBonusResolver(ANCRE, AVEC_BONUS.filter((r) => r.status !== "paid"))(
         AOUT_VIDEO,
         PUBLIEE_EN_AOUT,
+        FENETRE_AOUT,
       ),
     ).toBeNull();
+  });
+
+  it("le payé SOMME le cycle de la vidéo ET les compléments reportés sur les suivants", () => {
+    const avecReport = AVEC_BONUS.map((r) =>
+      r.period === "2026-09-01"
+        ? {
+            period: "2026-09-01",
+            status: "paid" as const,
+            lineItems: [
+              { assignmentId: AOUT_VIDEO, kind: "video_bonus", detail: { views: 251_003 }, amount: 50 },
+            ],
+          }
+        : r,
+    );
+    expect(
+      settledVideoBonusResolver(ANCRE, avecReport)(AOUT_VIDEO, PUBLIEE_EN_AOUT, FENETRE_AOUT),
+    ).toEqual({ paid: 80, open: false });
   });
 });

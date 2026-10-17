@@ -591,7 +591,8 @@
         "tierBonus": "{views}-view tier bonus",
         "challenge": "Challenge prize — {name}",
         "challengeWin": "Challenge prize — {name}",
-        "videoBonus": "Video bonus — {views} views"
+        "videoBonus": "Video bonus — {views} views",
+        "videoBonusCarried": "Carried-over video bonus — {views} views"
       },
       "tiersTitle": "🏆 Reward tiers",
       "cumulViews": "{views} total views",
@@ -605,7 +606,8 @@
         "locked": "This month's flat fee unlocks at {target} cumulative views on your videos this month.",
         "unlocked": "Threshold reached — this month's flat fee is secured."
       },
-      "seeGrid": "See my pay grid"
+      "seeGrid": "See my pay grid",
+      "videoBonusCarriedHint": "Video from an already-paid cycle: this tier was reached after payment, so it is paid in this cycle."
     },
     "videos": {
       "trackingActive": "Tracking active",
