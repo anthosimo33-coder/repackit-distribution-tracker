@@ -52,6 +52,10 @@ const paymentLineItem = v.object({
       /** kind « challenge » : nom du défi gagné, figé au paiement. Le
        *  libellé se recompose autour dans la langue de la lectrice. */
       challengeName: v.optional(v.string()),
+      /** kind « video_bonus » : COMPLÉMENT reporté — le bonus d'une vidéo d'un
+       *  cycle déjà payé, franchi après ce paiement (cf convex/videoBonusCarry).
+       *  Absent = bonus de la vidéo dans son propre cycle. */
+      carriedOver: v.optional(v.boolean()),
     }),
   ),
   amount: v.number(),

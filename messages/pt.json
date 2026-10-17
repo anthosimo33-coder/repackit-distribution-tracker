@@ -591,7 +591,8 @@
         "tierBonus": "Bônus do nível {views} visualizações",
         "challenge": "Prêmio do desafio — {name}",
         "challengeWin": "Prêmio do desafio — {name}",
-        "videoBonus": "Bônus por vídeo — {views} visualizações"
+        "videoBonus": "Bônus por vídeo — {views} visualizações",
+        "videoBonusCarried": "Bônus por vídeo transferido — {views} visualizações"
       },
       "tiersTitle": "🏆 Níveis de recompensa",
       "cumulViews": "{views} visualizações acumuladas",
@@ -605,7 +606,8 @@
         "locked": "O fixo do mês é liberado com {target} visualizações acumuladas nos seus vídeos do mês.",
         "unlocked": "Meta atingida: o fixo do mês está garantido."
       },
-      "seeGrid": "Ver minha tabela"
+      "seeGrid": "Ver minha tabela",
+      "videoBonusCarriedHint": "Vídeo de um ciclo já pago: este nível foi atingido depois do pagamento, por isso é pago neste ciclo."
     },
     "videos": {
       "trackingActive": "Acompanhamento ativo",

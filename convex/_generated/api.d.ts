@@ -279,6 +279,7 @@ import type * as tiktokMedia from "../tiktokMedia.js";
 import type * as tiktokPublicPage from "../tiktokPublicPage.js";
 import type * as trackerData from "../trackerData.js";
 import type * as unitEconomics from "../unitEconomics.js";
+import type * as videoBonusCarry from "../videoBonusCarry.js";
 import type * as videoSubmission from "../videoSubmission.js";
 import type * as viewCounters from "../viewCounters.js";
 import type * as viewsDaily from "../viewsDaily.js";
@@ -577,6 +578,7 @@ declare const fullApi: ApiFromModules<{
   tiktokPublicPage: typeof tiktokPublicPage;
   trackerData: typeof trackerData;
   unitEconomics: typeof unitEconomics;
+  videoBonusCarry: typeof videoBonusCarry;
   videoSubmission: typeof videoSubmission;
   viewCounters: typeof viewCounters;
   viewsDaily: typeof viewsDaily;

@@ -75,6 +75,7 @@ type LineItem = {
     views?: number;
     cycleIndex?: number;
     challengeName?: string;
+    carriedOver?: boolean;
   };
   amount: number;
   // base/bonus = LEGACY ; fixed/cpm + bonus_tier = pricing GELÉ au paiement ;
@@ -479,8 +480,14 @@ function videoBonusLineItems(breakdown: PricingBreakdown): LineItem[] {
     .filter((b) => b.montant > 0)
     .map((b) => ({
       assignmentId: b.assignmentId as Id<"assignments">,
-      label: `Bonus vidéo — ${b.views} vues`,
-      detail: { views: b.views },
+      // REPORTÉ = complément d'une vidéo d'un cycle déjà payé (cf
+      // convex/videoBonusCarry). Même kind, même assignmentId : la somme des
+      // lignes d'une vidéo dit toujours ce qu'elle a touché, tous cycles
+      // confondus — c'est cette somme que le report suivant déduit.
+      label: b.carriedOver
+        ? `Bonus vidéo reporté — ${b.views} vues`
+        : `Bonus vidéo — ${b.views} vues`,
+      detail: b.carriedOver ? { views: b.views, carriedOver: true } : { views: b.views },
       amount: b.montant,
       kind: "video_bonus" as const,
     }));
@@ -532,13 +539,17 @@ function frozenBreakdownOf(
   const challengeTotal = sumKind("challenge");
   const videoBonusTotal = sumKind("video_bonus");
   // Une ligne par vidéo au gel : le détail se reconstitue à l'identique.
-  const videoBonuses = p.lineItems
+  const videoBonuses: PricingBreakdown["videoBonuses"] = p.lineItems
     .filter((li) => li.kind === "video_bonus")
-    .map((li) => ({
-      assignmentId: (li.assignmentId as string | undefined) ?? "",
-      views: li.detail?.views ?? 0,
-      montant: li.amount,
-    }));
+    .map((li) => {
+      const out: PricingBreakdown["videoBonuses"][number] = {
+        assignmentId: (li.assignmentId as string | undefined) ?? "",
+        views: li.detail?.views ?? 0,
+        montant: li.amount,
+      };
+      if (li.detail?.carriedOver === true) out.carriedOver = true;
+      return out;
+    });
   // Gelé, mais PAS PERDU : chaque prime a sa propre ligne, on reconstitue donc
   // le détail à l'identique — contrairement aux paliers, dont la ligne agrégée
   // ne se décompose plus. `winId` n'est pas dans la ligne gelée (il n'y sert à
@@ -567,6 +578,8 @@ function frozenBreakdownOf(
     // et un cycle déjà payé ne se rediscute pas. 0 = « rien à signaler ICI »,
     // pas « tout était mesuré » — l'avertissement n'a de sens qu'AVANT de payer.
     unmeasuredPayablePosts: 0,
+    // Même raison : « leur bonus se règlera au cycle suivant » se dit avant.
+    videoBonusStillOpen: 0,
     // GELÉ : un cycle payé n'a plus d'engagement, il a un montant. L'engagé y
     // vaut donc le dû — c'est le seul état où les deux ne peuvent pas diverger.
     engage: {
@@ -928,6 +941,9 @@ export async function cyclePaymentsForCreator(
       legacyIds,
       viewsCache,
       payrollSources,
+      // Les compléments de bonus par vidéo des cycles déjà payés (cf
+      // convex/videoBonusCarry) : le cycle qui les porte se lit ici.
+      rows,
     );
     // ⚠️ AUCUN forfait de talent ici. Le forfait est au MOIS CALENDAIRE
     // (arbitrage B3) et vit dans `convex/talentPay.ts` — le second chemin de
@@ -1521,6 +1537,7 @@ export const markCyclePaid = permissionMutation("payments.manage")({
     }
     // Matérialise les paliers franchis AVANT le gel (Guard A intra-cycle).
     await syncBonusUnlocks(ctx, ctx.projectId, creatorId);
+    // MÊMES rows que l'écran : le complément affiché est celui qu'on gèle.
     const breakdown = await computeCyclePricingBreakdown(
       ctx,
       ctx.projectId,
@@ -1528,6 +1545,9 @@ export const markCyclePaid = permissionMutation("payments.manage")({
       anchor,
       cycleIndex,
       new Set(),
+      undefined,
+      undefined,
+      rows,
     );
     // lineItems LEGACY (modèle RepackIt) appartenant à CE cycle (via le cycle de
     // publi de leur assignment) : CAPTURÉES dans la row gelée + RETIRÉES de leur

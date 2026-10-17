@@ -358,13 +358,24 @@ function PricingBreakdown({
       {b.videoBonuses.map((vb, i) => (
         <div key={`${vb.assignmentId}:${i}`}>
           <Row
-            label={t("paiements.line.videoBonus", { views: fmtViews(vb.views, loc) })}
+            label={t(
+              vb.carriedOver ? "paiements.line.videoBonusCarried" : "paiements.line.videoBonus",
+              { views: fmtViews(vb.views, loc) },
+            )}
             amount={vb.montant}
             currency={currency}
           />
           <BonusVideoRef
             video={videos.find((v) => v.assignmentId === vb.assignmentId)}
           />
+          {/* REPORTÉ : une vidéo d'un cycle déjà payé, dont le palier est tombé
+              après ce paiement. Sans la phrase, elle se demanderait pourquoi une
+              vidéo du mois dernier apparaît sur ce cycle. */}
+          {vb.carriedOver && (
+            <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+              {t("paiements.videoBonusCarriedHint")}
+            </p>
+          )}
         </div>
       ))}
       {b.videoBonuses.length > 0 && <SeeGridLink />}
@@ -437,7 +448,7 @@ function useLineLabel() {
         return t("challenge", { name: d.challengeName });
       }
       if (li.kind === "video_bonus" && d.views !== undefined) {
-        return t("videoBonus", { views: d.views });
+        return t(d.carriedOver ? "videoBonusCarried" : "videoBonus", { views: d.views });
       }
     }
     if (li.kind === "bonus_tier") return t("bonusTier");
