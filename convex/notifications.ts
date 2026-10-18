@@ -144,7 +144,6 @@ export async function deliver(
 // ─── Contexte projet partagé par TOUTES les actions de notification ──────────
 
 export type NotifyContext = {
-  projectName: string;
   projectSlug: string;
   enabledEvents: string[];
   cfg: NotifyConfig;
@@ -187,7 +186,7 @@ export async function resolveNotifyContext(
     projectId,
   });
   if (p === null) return null;
-  const cfg = notifyConfig(p.notify);
+  const cfg = notifyConfig(p.notify, p.name);
   if (cfg === null) {
     warnDisabled(wanted.join("/"));
     return null;
@@ -195,7 +194,6 @@ export async function resolveNotifyContext(
   const enabled = p.notify?.enabledEvents;
   if (!wanted.some((e) => isEventEnabled(enabled, e))) return null;
   return {
-    projectName: p.name,
     projectSlug: p.slug,
     enabledEvents: enabled ?? [],
     cfg,
@@ -1242,7 +1240,6 @@ export async function collectDigestCore(ctx: QueryCtx, projectId: Id<"projects">
     }
 
     return {
-      projectName: project.name,
       projectSlug: project.slug,
       sections: {
         overdueMissions,
@@ -1424,13 +1421,12 @@ export const runDailyDigest = internalAction({
       const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
         projectId,
       });
-      const cfg = notifyConfig(p?.notify);
+      const cfg = p === null ? null : notifyConfig(p.notify, p.name);
       if (cfg === null) {
         warnDisabled("digest quotidien");
         continue;
       }
       const text = buildDigestMessage({
-        projectName: data.projectName,
         sections: data.sections,
         appBaseUrl: cfg.appBaseUrl,
         projectSlug: data.projectSlug,
@@ -1502,7 +1498,7 @@ export const sendTestNotification = adminAction({
       projectId: ctx.projectId,
     });
     if (p === null) return { ok: false, error: "Projet introuvable." };
-    const cfg = notifyConfig(p.notify);
+    const cfg = notifyConfig(p.notify, p.name);
     if (cfg === null) {
       return {
         ok: false,

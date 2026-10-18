@@ -40,6 +40,12 @@ export type NotifyConfig = {
   chatId: string;
   /** Base URL PUBLIQUE de l'app Next (liens profonds), sans slash final. */
   appBaseUrl: string;
+  /**
+   * Nom du projet, posé en tête de CHAQUE message par `sendNotification`.
+   * Plusieurs projets peuvent partager un groupe (BLUSH et Snytch, 18/10) : sans
+   * lui, « Nouvelle vidéo à valider » ne dit pas pour quel projet.
+   */
+  projectName: string;
 };
 
 /**
@@ -61,6 +67,7 @@ export const NOTIFY_ENV_HINT =
  */
 export function notifyConfig(
   notify: { chatId?: string; tokenEnvVar?: string } | undefined | null,
+  projectName: string,
 ): NotifyConfig | null {
   if (!notify) return null;
   const chatId = notify.chatId?.trim();
@@ -69,7 +76,12 @@ export function notifyConfig(
   const token = process.env[tokenEnvVar];
   const appBaseUrl = process.env.APP_BASE_URL;
   if (!token || !appBaseUrl) return null;
-  return { token, chatId, appBaseUrl: appBaseUrl.replace(/\/+$/, "") };
+  return {
+    token,
+    chatId,
+    appBaseUrl: appBaseUrl.replace(/\/+$/, ""),
+    projectName,
+  };
 }
 
 /**
@@ -85,6 +97,16 @@ export function escapeTelegram(input: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/**
+ * « [BLUSH] 🎬 Nouvelle vidéo à valider » : le projet en tête de la 1re ligne,
+ * celle que montre l'aperçu de notification du téléphone. Appliqué ICI, au
+ * transport, plutôt que dans chaque constructeur de convex/notificationMessage :
+ * un message ajouté plus tard ne peut pas l'oublier.
+ */
+export function withProjectTag(projectName: string, text: string): string {
+  return `<b>[${escapeTelegram(projectName)}]</b> ${text}`;
 }
 
 /** Tronque au plafond de l'API en le signalant, plutôt que de perdre l'envoi. */
@@ -118,7 +140,7 @@ export async function sendNotification(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: cfg.chatId,
-          text: clampToTelegramLimit(text),
+          text: clampToTelegramLimit(withProjectTag(cfg.projectName, text)),
           parse_mode: "HTML",
           // Les messages portent un lien vers Jarvia (authentifié) : l'aperçu
           // serait vide ou afficherait l'écran de login. On le désactive.
