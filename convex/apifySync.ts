@@ -41,8 +41,8 @@ import {
   planFacebookBudget,
 } from "./facebookApify";
 import { plateformeValidator, type Plateforme } from "./platforms";
-import { foreignOwnerReason, judgeAndLearnOwner } from "./instagramOwnerGuard";
-import { ownerIsPubHandle, type InstagramOwner } from "./instagramOwner";
+import { foreignOwnerReason, judgeAndLearnOwner } from "./postOwnerGuard";
+import { ownerIsPubHandle, type PostOwner } from "./postOwner";
 
 /**
  * S — Tracking AUTO des vues TikTok/Instagram via Apify. CALQUÉ sur le tracking
@@ -136,6 +136,16 @@ export interface ApifySyncSummary {
 }
 
 /**
+ * Ce que rend l'écriture d'un relevé. `sibling` : le post est à un AUTRE compte
+ * de la créatrice (cf `judgePostOwner`) — ses vues sont écrites, mais les
+ * abonnés et la photo servis avec lui sont ceux de cet autre compte.
+ */
+export type SnapshotWrite = {
+  action: "inserted" | "updated" | "skipped" | "foreign_owner";
+  sibling?: true;
+};
+
+/**
  * Upsert IDEMPOTENT du snapshot Apify du JOUR pour une publication. Si un
  * snapshot de MÊME `source` (tiktok/instagram) existe déjà aujourd'hui (même jour
  * UTC) pour cette publication, on le MET À JOUR au lieu d'en créer un second →
@@ -155,11 +165,14 @@ export interface ApifySyncSummary {
  * fin de passage — une synchro par créatrice au lieu d'une par post (cf
  * convex/bonusSync.ts). Absent = synchro immédiate, comme avant.
  *
- * PROPRIÉTAIRE (Instagram) : `ownerUsername`/`ownerId` rendus par Apify sont
- * jugés AVANT toute écriture (cf convex/instagramOwner.ts). Un reel PROUVÉ à un
+ * AUTEUR (Instagram, TikTok) : `ownerUsername`/`ownerId` rendus par la source
+ * (item Apify Instagram, page publique TikTok ou `authorMeta` chez Apify) sont
+ * jugés AVANT toute écriture (cf convex/postOwner.ts). Un post PROUVÉ à un
  * autre compte n'écrit rien : la publication est marquée `foreignOwner`, et
  * inscrite en échec avec son motif (« lien d'un autre compte (@x) ») — ce qui
  * dit à l'écran pourquoi elle n'a pas de chiffre. Résultat `foreign_owner`.
+ * Un post d'un AUTRE compte de la créatrice est écrit, et rendu `sibling` :
+ * ses vues sont à elle, le profil de son auteur n'est pas celui du compte.
  *
  * Partagé par recordApifySnapshot (cron) et e2eRecordApifySnapshot (test).
  */
@@ -178,13 +191,13 @@ async function upsertApifySnapshot(
     ownerUsername?: string | null;
     ownerId?: string | null;
   },
-): Promise<{ action: "inserted" | "updated" | "skipped" | "foreign_owner" }> {
+): Promise<SnapshotWrite> {
   const pub = await ctx.db.get(args.publicationId);
   if (!pub) return { action: "skipped" };
   // Invariant metricSnapshots : capturedAt jamais antérieur à la publication.
   if (args.capturedAt < pub.datePubli) return { action: "skipped" };
 
-  const owner: InstagramOwner | undefined =
+  const owner: PostOwner | undefined =
     args.ownerUsername !== undefined || args.ownerId !== undefined
       ? { ownerUsername: args.ownerUsername ?? null, ownerId: args.ownerId ?? null }
       : undefined;
@@ -198,6 +211,7 @@ async function upsertApifySnapshot(
     });
     return { action: "foreign_owner" };
   }
+  const sibling = verdict.kind === "own" && verdict.account === "sibling";
 
   const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
   const dayEnd = dayStart + DAY_MS;
@@ -233,7 +247,7 @@ async function upsertApifySnapshot(
   //
   // Le drapeau « lien d'un autre compte » tombe AVEC eux : on n'arrive ici que
   // si le verdict ne l'a pas maintenu, c'est-à-dire si le post est prouvé à
-  // elle (cf `judgeInstagramOwner`, `flaggedOwner`).
+  // elle (cf `judgePostOwner`, `flaggedOwner`).
   const pubPatch: {
     lastApifySyncAt: number;
     postTitle?: string;
@@ -266,7 +280,7 @@ async function upsertApifySnapshot(
       await syncBonusForPublication(ctx, args.publicationId);
     }
     await ctx.db.patch(args.publicationId, pubPatch);
-    return { action: "updated" };
+    return sibling ? { action: "updated", sibling } : { action: "updated" };
   }
 
   await ctx.db.insert("metricSnapshots", {
@@ -286,7 +300,7 @@ async function upsertApifySnapshot(
     await syncBonusForPublication(ctx, args.publicationId);
   }
   await ctx.db.patch(args.publicationId, pubPatch);
-  return { action: "inserted" };
+  return sibling ? { action: "inserted", sibling } : { action: "inserted" };
 }
 
 /**
@@ -371,15 +385,14 @@ export const recordApifySnapshot = internalMutation({
     source: apifySourceValidator,
     /** Paliers synchronisés en fin de passage par l'appelant (cf bonusSync). */
     differerBonus: v.optional(v.boolean()),
-    /** Propriétaire rendu par Apify (Instagram) — cf convex/instagramOwner.ts. */
+    /** Auteur rendu par la source (Instagram, TikTok) — cf convex/postOwner.ts. */
     ownerUsername: v.optional(v.union(v.string(), v.null())),
     ownerId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ action: "inserted" | "updated" | "skipped" | "foreign_owner" }> =>
-    upsertApifySnapshot(ctx, args),
+  ): Promise<SnapshotWrite> => upsertApifySnapshot(ctx, args),
 });
 
 /**
@@ -739,10 +752,13 @@ export const runDailySync = internalAction({
           summary.synced += interne.releves.length + secours.releves.length;
           summary.runs += secours.runs;
           summary.deferred += interne.nonTentes.length;
-          summary.failed += interne.refused + secours.failed;
+          // Vidéo d'un autre compte : inscrite en échec par la mutation, rien d'écrit.
+          const etrangers = interne.foreign + secours.foreign;
+          summary.failed += interne.refused + secours.failed + etrangers;
           console.info(
             `[apify-sync] TikTok — ${targets.length} post(s) : ${interne.releves.length} par la page, ` +
               `${secours.releves.length} par Apify (${secours.runs} run(s)), ${interne.refused} refusé(s), ` +
+              (etrangers > 0 ? `${etrangers} lien(s) d'un autre compte non relevé(s), ` : "") +
               `${secours.failed} perdu(s), ${interne.nonTentes.length} reporté(s) au relevé de nuit` +
               (interne.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${interne.breaker.trippedReason}` : "") +
               ".",
@@ -1040,13 +1056,12 @@ export const e2eRecordApifySnapshot = e2eMutation({
     source: apifySourceValidator,
     /** Paliers synchronisés en fin de passage par l'appelant (cf bonusSync). */
     differerBonus: v.optional(v.boolean()),
-    /** Propriétaire rendu par Apify (Instagram) — cf convex/instagramOwner.ts. */
+    /** Auteur rendu par la source (Instagram, TikTok) — cf convex/postOwner.ts. */
     ownerUsername: v.optional(v.union(v.string(), v.null())),
     ownerId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ action: "inserted" | "updated" | "skipped" | "foreign_owner" }> =>
-    upsertApifySnapshot(ctx, args),
+  ): Promise<SnapshotWrite> => upsertApifySnapshot(ctx, args),
 });

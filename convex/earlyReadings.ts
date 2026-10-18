@@ -15,8 +15,8 @@ import {
   type ApifyPostStat,
 } from "./apifyApi";
 import { fetchTikTokPublicStats } from "./tiktokPublicPage";
-import { judgeAndLearnOwner } from "./instagramOwnerGuard";
-import { ownerIsPubHandle } from "./instagramOwner";
+import { judgeAndLearnOwner } from "./postOwnerGuard";
+import { ownerIsPubHandle } from "./postOwner";
 import {
   BREAKER_CLOSED,
   nextBreaker,
@@ -56,10 +56,10 @@ import {
  * contrediraient), ni `vuesLatest`. Un relevé raté n'est pas un incident ici,
  * c'est un point de courbe manquant.
  *
- * UNE EXCEPTION, voulue : le drapeau `foreignOwner` (reel Instagram d'un autre
- * compte, cf convex/instagramOwner.ts). Ce n'est pas l'état d'un relevé mais un
- * fait sur le LIEN, et les deux relevés le tirent du même verdict, sur la même
- * réponse Apify — ils ne peuvent pas se contredire. Le poser ici, c'est le
+ * UNE EXCEPTION, voulue : le drapeau `foreignOwner` (post Instagram ou TikTok
+ * d'un autre compte, cf convex/postOwner.ts). Ce n'est pas l'état d'un relevé
+ * mais un fait sur le LIEN, et les deux relevés le tirent du même verdict, sur
+ * le même auteur rendu — ils ne peuvent pas se contredire. Le poser ici, c'est le
  * montrer à l'admin deux heures après le collage au lieu de 23 h 30 : le
  * 18/10/2026, c'est le relevé rapide qui a affiché 371 878 vues d'un reel de
  * @princiaconfort sur le Dashboard de @quentin.snytch.
@@ -154,8 +154,9 @@ const readingValidator = v.object({
   shares: v.optional(v.number()),
   source: v.union(v.literal("tiktok"), v.literal("instagram")),
   /**
-   * Propriétaire rendu par Apify (Instagram). Jugé à l'écriture, JAMAIS stocké
-   * dans `earlyReadings` : c'est un fait sur le lien, pas sur la mesure.
+   * Auteur rendu par la source (Instagram : Apify ; TikTok : page publique).
+   * Jugé à l'écriture, JAMAIS stocké dans `earlyReadings` : c'est un fait sur
+   * le lien, pas sur la mesure.
    */
   owner: v.optional(
     v.object({
@@ -211,22 +212,21 @@ async function writeEarlyPass(
     attempts: Infer<typeof attemptValidator>[];
   },
 ): Promise<{ written: number; foreign: number }> {
-  // PROPRIÉTAIRE d'abord (Instagram) : un reel prouvé à un autre compte n'est
-  // pas écrit, et sa publication est marquée — même verdict que le relevé de
-  // nuit (cf convex/instagramOwnerGuard.ts). Les posts qui confirment leur
+  // AUTEUR d'abord (Instagram, TikTok) : un post prouvé à un autre compte
+  // n'est pas écrit, et sa publication est marquée — même verdict que le
+  // relevé de nuit (cf convex/postOwnerGuard.ts). Les posts qui confirment leur
   // compte passent en premier : leur id est appris avant que leurs voisins du
   // même compte soient jugés.
   const foreign = new Set<string>();
-  const instagram: { r: Infer<typeof readingValidator>; pub: Doc<"publications"> }[] = [];
+  const jugees: { r: Infer<typeof readingValidator>; pub: Doc<"publications"> }[] = [];
   for (const r of readings) {
-    if (r.source !== "instagram") continue;
     const pub = await ctx.db.get(r.publicationId);
-    if (pub) instagram.push({ r, pub });
+    if (pub) jugees.push({ r, pub });
   }
-  const confirms = (x: (typeof instagram)[number]) =>
+  const confirms = (x: (typeof jugees)[number]) =>
     Number(ownerIsPubHandle(x.r.owner?.ownerUsername ?? null, x.pub.compte));
-  instagram.sort((a, b) => confirms(b) - confirms(a));
-  for (const { r, pub } of instagram) {
+  jugees.sort((a, b) => confirms(b) - confirms(a));
+  for (const { r, pub } of jugees) {
     // Le compte est relu à chaque verdict (cf judgeAndLearnOwner) : l'id
     // appris par un voisin du même passage compte déjà.
     const verdict = await judgeAndLearnOwner(ctx, pub, r.owner);
@@ -414,6 +414,8 @@ async function collectTikTok(targets: readonly EarlyTarget[]): Promise<{
           shares: count(r.stats.shares),
         },
         "tiktok",
+        // L'auteur RÉEL de la vidéo : TikTok ignore le @ de l'URL.
+        { ownerUsername: r.stats.authorHandle, ownerId: r.stats.authorId },
       ),
     );
   }

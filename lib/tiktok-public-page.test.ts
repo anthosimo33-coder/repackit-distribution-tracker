@@ -62,9 +62,53 @@ describe("parseTikTokPublicPage — le post est servi", () => {
       title:
         "Heureusement que le site Snytch.co existe pour les filles comme nous.",
       authorHandle: "marine.bn07",
+      // Fixture d'août, antérieure à la lecture de `author.id` : absent → null.
+      authorId: null,
       // La page ne porte ni `authorStats` ni photo : pas de profil inventé.
       author: null,
     });
+  });
+
+  it("rend l'AUTEUR de la vidéo : son @ et son id numérique (en chaîne)", () => {
+    // Relevé le 18/10/2026 : `/@zzqq_nobody_x/video/7697209634930642209` sert
+    // cette page — TikTok ignore le @ de l'URL, seul ce champ dit à qui est
+    // la vidéo (cf convex/postOwner.ts).
+    const html = page({
+      itemInfo: {
+        itemStruct: {
+          id: "7697209634930642209",
+          desc: "",
+          author: { id: "7690714507761468438", uniqueId: "sarah_snytch" },
+          stats: { playCount: 774, diggCount: 12, commentCount: 0, collectCount: "1", shareCount: 0 },
+        },
+      },
+      statusCode: 0,
+      statusMsg: "",
+    });
+    const r = parseTikTokPublicPage(html, "7697209634930642209");
+    expect(r.kind).toBe("stats");
+    if (r.kind !== "stats") return;
+    expect(r.stats.authorHandle).toBe("sarah_snytch");
+    expect(r.stats.authorId).toBe("7690714507761468438");
+  });
+
+  it("un id d'auteur NUMÉRIQUE est rejeté : 19 chiffres dépassent la précision JS", () => {
+    const html = page({
+      itemInfo: {
+        itemStruct: {
+          id: "7697209634930642209",
+          author: { id: 7690714507761468438, uniqueId: "sarah_snytch" },
+          stats: { playCount: 774 },
+        },
+      },
+      statusCode: 0,
+      statusMsg: "",
+    });
+    const r = parseTikTokPublicPage(html, "7697209634930642209");
+    if (r.kind !== "stats") throw new Error(r.kind);
+    // Arrondi par JSON.parse, ce serait l'id d'un AUTRE compte.
+    expect(r.stats.authorId).toBeNull();
+    expect(r.stats.authorHandle).toBe("sarah_snytch");
   });
 
   it("lit les compteurs du COMPTE et sa photo, servis sur la même page", () => {

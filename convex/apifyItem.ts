@@ -133,6 +133,31 @@ function parseAvatarUrl(author: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * AUTEUR d'un item vidéo TikTok (`authorMeta.name` / `authorMeta.id`) — à qui
+ * est le post, que le @ écrit dans l'URL soit le bon ou non (TikTok sert une
+ * vidéo par son id et ignore ce @, cf convex/postOwner.ts).
+ *
+ * L'id n'est retenu qu'en CHAÎNE : un id de compte TikTok (19 chiffres)
+ * dépasse la précision d'un nombre JS — reçu en nombre, ce serait déjà un
+ * autre id, qui ferait passer le compte pour étranger à lui-même.
+ */
+export function parseTikTokOwner(item: unknown): {
+  ownerUsername: string | null;
+  ownerId: string | null;
+} {
+  const author = asRecord(asRecord(item).authorMeta);
+  const name = author.name;
+  const id = author.id;
+  return {
+    ownerUsername:
+      typeof name === "string" && name.trim() !== ""
+        ? name.trim().replace(/^@/, "")
+        : null,
+    ownerId: typeof id === "string" && id.trim() !== "" ? id.trim() : null,
+  };
+}
+
 /** Ce profil porte-t-il au moins un compteur exploitable ? */
 export function hasAnyCount(p: AuthorProfile): boolean {
   return (

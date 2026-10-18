@@ -462,6 +462,31 @@ describe("parseTikTokViews — les champs que le relevé jetait", () => {
     expect(stats["7674970651362381088"].author).toBeNull();
   });
 
+  it("remonte l'AUTEUR de la vidéo (authorMeta.name + authorMeta.id)", () => {
+    // TikTok sert une vidéo par son id et ignore le @ de l'URL : l'auteur est
+    // la seule preuve de à qui est le post (cf convex/postOwner.ts). La
+    // fixture réelle ci-dessus (input `postURLs`) n'a PAS d'`id` : l'id est
+    // lu quand il est servi (input profil, cf radarParsing), jamais supposé.
+    const { stats } = parseTikTokViews(
+      [{ ...item, authorMeta: { ...item.authorMeta, id: "7673976005312971798" } }],
+      ["7674970651362381088"],
+    );
+    expect(stats["7674970651362381088"].ownerUsername).toBe("thekellychapters_");
+    expect(stats["7674970651362381088"].ownerId).toBe("7673976005312971798");
+    const sansId = parseTikTokViews([item], ["7674970651362381088"]).stats;
+    expect(sansId["7674970651362381088"].ownerUsername).toBe("thekellychapters_");
+    expect(sansId["7674970651362381088"].ownerId).toBeNull();
+  });
+
+  it("un id d'auteur NUMÉRIQUE est rejeté : arrondi, ce serait un autre compte", () => {
+    const { stats } = parseTikTokViews(
+      [{ ...item, authorMeta: { name: "@thekellychapters_", id: 7673976005312971798 } }],
+      ["7674970651362381088"],
+    );
+    expect(stats["7674970651362381088"].ownerId).toBeNull();
+    expect(stats["7674970651362381088"].ownerUsername).toBe("thekellychapters_");
+  });
+
   it("Instagram ne rapporte NI saves NI profil (limite de plateforme)", () => {
     const { stats } = parseInstagramViews(
       [

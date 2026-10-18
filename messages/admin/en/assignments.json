@@ -175,7 +175,7 @@
     "publieEtPaye": "Published and paid ✓",
     "publie": "Published ✓",
     "lienDUnAutreCompte": "Link from another account (@{handle})",
-    "lienDUnAutreCompteAide": "Instagram attributes this reel to @{handle}: no views are read until the link is fixed."
+    "lienDUnAutreCompteAide": "{platform} attributes this post to @{handle}: no views are read until the link is fixed."
   },
   "CorrectUrlButton": {
     "corrigerLeLien": "Fix the link",
