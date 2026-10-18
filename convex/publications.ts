@@ -1017,7 +1017,17 @@ export async function retrackPublication(
   // Même raison pour les relevés rapides : ils décrivent l'ancienne vidéo.
   await deleteEarlyReadings(ctx, pub._id);
 
-  await ctx.db.patch(pub._id, { postUrl: url });
+  // Ce qui décrivait l'ANCIEN lien tombe avec lui : le drapeau « lien d'un
+  // autre compte » (c'est précisément le geste qui le répare) et les marqueurs
+  // d'échec — sans quoi le lien corrigé s'afficherait « Non mesuré — lien d'un
+  // autre compte » jusqu'à son premier relevé.
+  await ctx.db.patch(pub._id, {
+    postUrl: url,
+    foreignOwner: undefined,
+    lastCollectFailureAt: undefined,
+    collectFailureStreak: undefined,
+    lastCollectFailureReason: undefined,
+  });
   // Remet les champs dénormalisés en cohérence : plus aucun snapshot ⇒ tous les
   // « latest » sont effacés (le helper le fait déjà, on ne le redouble pas ici).
   await recomputeLatestMetrics(ctx, pub._id);

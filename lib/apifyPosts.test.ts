@@ -138,6 +138,8 @@ describe("parseTikTokViews", () => {
       // TikTok sans collectCount dans la fixture → non collecté, pas zéro.
       saves: null,
       author: null,
+      ownerUsername: null,
+      ownerId: null,
     });
     expect(stats["42"]).toEqual({
       views: 120,
@@ -146,6 +148,8 @@ describe("parseTikTokViews", () => {
       title: null,
       saves: null,
       author: null,
+      ownerUsername: null,
+      ownerId: null,
     });
     expect(unavailable).toEqual([]);
   });
@@ -229,6 +233,8 @@ describe("parseInstagramViews", () => {
       // Instagram : pas de saves sur la plateforme, `null` est DÉFINITIF.
       saves: null,
       author: null,
+      ownerUsername: null,
+      ownerId: null,
     });
     expect(stats["Creel002"]).toEqual({
       views: 3_300,
@@ -237,8 +243,57 @@ describe("parseInstagramViews", () => {
       title: null,
       saves: null,
       author: null,
+      ownerUsername: null,
+      ownerId: null,
     });
     expect(unavailable).toEqual([]);
+  });
+
+  it("remonte le PROPRIÉTAIRE du reel (ownerUsername + ownerId)", () => {
+    // Item recopié du run Apify du 18/10/2026 sur le lien collé par Quentin
+    // (@quentin.snytch) : le reel appartient à @princiaconfort. L'URL
+    // /reel/<code>/ ne porte pas le handle — seul cet item le dit.
+    const items = [
+      {
+        shortCode: "Del5lejNGaI",
+        url: "https://www.instagram.com/p/Del5lejNGaI/",
+        type: "Video",
+        videoPlayCount: 371_878,
+        likesCount: 21_400,
+        commentsCount: 312,
+        ownerUsername: "princiaconfort",
+        ownerFullName: "Princia",
+        ownerId: "78077867125",
+      },
+    ];
+    const { stats } = parseInstagramViews(items, ["Del5lejNGaI"]);
+    expect(stats["Del5lejNGaI"].views).toBe(371_878);
+    expect(stats["Del5lejNGaI"].ownerUsername).toBe("princiaconfort");
+    expect(stats["Del5lejNGaI"].ownerId).toBe("78077867125");
+  });
+
+  it("propriétaire ABSENT ou illisible → null, et le post reste relevé", () => {
+    const items = [
+      { shortCode: "DnoOwner01", videoPlayCount: 1_204 },
+      // Formes vues ou plausibles d'un actor qui change : vide, nombre.
+      { shortCode: "DemptyOwnr", videoPlayCount: 87, ownerUsername: "", ownerId: "" },
+      { shortCode: "DnumericId", videoPlayCount: 5, ownerUsername: "juliettesnytch", ownerId: 27166444252 },
+    ];
+    const { stats, unavailable } = parseInstagramViews(items, [
+      "DnoOwner01",
+      "DemptyOwnr",
+      "DnumericId",
+    ]);
+    expect(unavailable).toEqual([]);
+    expect(stats["DnoOwner01"].views).toBe(1_204);
+    expect(stats["DnoOwner01"].ownerUsername).toBeNull();
+    expect(stats["DnoOwner01"].ownerId).toBeNull();
+    expect(stats["DemptyOwnr"].views).toBe(87);
+    expect(stats["DemptyOwnr"].ownerUsername).toBeNull();
+    expect(stats["DemptyOwnr"].ownerId).toBeNull();
+    // Un id numérique est le même compte qu'un id en chaîne.
+    expect(stats["DnumericId"].ownerUsername).toBe("juliettesnytch");
+    expect(stats["DnumericId"].ownerId).toBe("27166444252");
   });
 
   it("fallback sur url si shortCode absent", () => {

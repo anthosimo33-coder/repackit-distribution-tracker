@@ -186,6 +186,8 @@ export async function computeDecisionDashboard(
       type: string;
       snapshotAt: number | null;
       snapshotSource: ReadingSource | null;
+      /** @ du vrai propriétaire si le reel est à un autre compte (cf foreignOwner). */
+      foreignOwner: string | null;
     };
     const signalOf = async (p: Doc<"publications">): Promise<Post48h> => {
       const ref = refs.get(p._id as string);
@@ -229,6 +231,32 @@ export async function computeDecisionDashboard(
       );
       // Sans aucun relevé : les valeurs d'avant (0, « en attente » à l'écran).
       const vues = retenu?.vues ?? p.vuesLatest ?? 0;
+      // LIEN D'UN AUTRE COMPTE : les relevés éventuellement présents ont été
+      // écrits avant que le compte soit confirmé, et décrivent le reel de
+      // quelqu'un d'autre. Ils ne comptent ni dans la somme du compte, ni pour
+      // une porte ouverte ; la ligne affiche « — » et dit pourquoi.
+      const foreignOwner = p.foreignOwner?.username ?? null;
+      if (foreignOwner !== null) {
+        return {
+          publicationId: p._id as string,
+          compte: p.compte,
+          plateforme: p.plateforme,
+          creatorId: (ref?.creatorId as string) ?? null,
+          creatorName: ref?.creatorName ?? null,
+          postedAt: p.datePubli,
+          vues: 0,
+          likes: 0,
+          saves: null,
+          delta24h: null,
+          followersDelta: followersByHandle.get(p.compte) ?? null,
+          hookBrickId,
+          label: postLabel(p),
+          type: typeOf(p),
+          snapshotAt: null,
+          snapshotSource: null,
+          foreignOwner,
+        };
+      }
       return {
         publicationId: p._id as string,
         compte: p.compte,
@@ -255,6 +283,9 @@ export async function computeDecisionDashboard(
         // relevé il s'agit : 23 h 30, ou l'heure du relevé rapide.
         snapshotAt: retenu?.at ?? null,
         snapshotSource: retenu?.source ?? null,
+        // Le 18/10/2026, c'est sur ce tableau que 371 878 vues d'un reel de
+        // @princiaconfort se sont affichées comme celles de @quentin.snytch.
+        foreignOwner: null,
       };
     };
 

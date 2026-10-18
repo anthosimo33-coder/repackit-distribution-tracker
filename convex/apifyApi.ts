@@ -128,6 +128,9 @@ export interface ApifyPostStat {
    * (« kellyleydie ») ne coïncide pas avec celui saisi en base (« @kelly.leydie »).
    */
   author: AuthorProfile | null;
+  /** Propriétaire du post (Instagram) ; `null` si absent — cf lib/apifyPosts. */
+  ownerUsername: string | null;
+  ownerId: string | null;
 }
 
 interface ParsedApifyViews {
@@ -143,6 +146,24 @@ function cleanCaption(value: unknown): string | null {
   const t = value.trim();
   if (t === "") return null;
   return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
+}
+
+/** Réplique de lib/apifyPosts.parseOwner — cf tests Vitest là-bas. */
+function parseOwner(item: object): {
+  ownerUsername: string | null;
+  ownerId: string | null;
+} {
+  const u = (item as { ownerUsername?: unknown }).ownerUsername;
+  const id = (item as { ownerId?: unknown }).ownerId;
+  return {
+    ownerUsername: typeof u === "string" && u.trim() !== "" ? u.trim() : null,
+    ownerId:
+      typeof id === "string" && id.trim() !== ""
+        ? id.trim()
+        : typeof id === "number" && Number.isFinite(id)
+          ? String(id)
+          : null,
+  };
 }
 
 /** Réplique de lib/apifyPosts.parseTikTokViews — cf tests Vitest là-bas. */
@@ -181,6 +202,8 @@ function parseTikTokViews(
       // remontée : sans ce second terme, un item qui porterait l'avatar sans
       // aucun compteur ferait perdre la photo en silence.
       author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
+      ownerUsername: null,
+      ownerId: null,
     };
   }
   const present = new Set(Object.keys(stats));
@@ -211,7 +234,15 @@ function parseInstagramViews(
     const title = cleanCaption((item as { caption?: unknown }).caption);
     // Instagram n'expose AUCUNE métrique de saves — `null` est définitif ici,
     // pas un défaut de collecte à rattraper plus tard.
-    stats[key] = { views, likes, comments, title, saves: null, author: null };
+    stats[key] = {
+      views,
+      likes,
+      comments,
+      title,
+      saves: null,
+      author: null,
+      ...parseOwner(item),
+    };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };

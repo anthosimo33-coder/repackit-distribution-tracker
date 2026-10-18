@@ -893,6 +893,9 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
   // serait faux, et c'est précisément ce qui le distingue du relevé de nuit.
   const rapideAt = p.snapshotSource === "rapide" ? p.snapshotAt : null;
   const heure = rapideAt !== null ? shortParisTime(rapideAt, loc) : null;
+  // Lu dans le cache du tableau (convex/dashboardCache.ts) : une entrée écrite
+  // avant ce champ ne le porte pas — absent n'est pas « lien d'un autre compte ».
+  const foreignOwner = typeof p.foreignOwner === "string" ? p.foreignOwner : null;
   const vuesLabel = sourceDay
     ? tr("vuesAu", { sourceDay: sourceDay })
     : heure !== null
@@ -917,8 +920,22 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
         <div className="truncate text-xs text-slate-400">
           {p.compte} · {tAge("label", relativeAge(p.postedAt, now))}
         </div>
+        {foreignOwner !== null && (
+          <div
+            className="truncate text-xs font-medium text-rose-600"
+            title={tr("lienDUnAutreCompteAide", { handle: foreignOwner })}
+            data-testid={`post48h-foreign-owner-${p.publicationId}`}
+          >
+            {tr("lienDUnAutreCompte", { handle: foreignOwner })}
+          </div>
+        )}
       </div>
-      <Metric value={formatNumber(p.vues, loc)} label={vuesLabel} title={vuesTitle} />
+      {/* Reel d'un autre compte : aucune vue n'est relevée, un chiffre mentirait. */}
+      <Metric
+        value={foreignOwner !== null ? "—" : formatNumber(p.vues, loc)}
+        label={vuesLabel}
+        title={vuesTitle}
+      />
       {/* LA colonne du tableau : un post qui monte vs un post qui s'éteint. */}
       <div className="w-20 shrink-0 text-right">
         {p.delta24h !== null ? (

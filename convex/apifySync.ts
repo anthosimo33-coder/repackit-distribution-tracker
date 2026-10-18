@@ -41,6 +41,8 @@ import {
   planFacebookBudget,
 } from "./facebookApify";
 import { plateformeValidator, type Plateforme } from "./platforms";
+import { foreignOwnerReason, judgeAndLearnOwner } from "./instagramOwnerGuard";
+import { ownerIsPubHandle, type InstagramOwner } from "./instagramOwner";
 
 /**
  * S — Tracking AUTO des vues TikTok/Instagram via Apify. CALQUÉ sur le tracking
@@ -153,6 +155,12 @@ export interface ApifySyncSummary {
  * fin de passage — une synchro par créatrice au lieu d'une par post (cf
  * convex/bonusSync.ts). Absent = synchro immédiate, comme avant.
  *
+ * PROPRIÉTAIRE (Instagram) : `ownerUsername`/`ownerId` rendus par Apify sont
+ * jugés AVANT toute écriture (cf convex/instagramOwner.ts). Un reel PROUVÉ à un
+ * autre compte n'écrit rien : la publication est marquée `foreignOwner`, et
+ * inscrite en échec avec son motif (« lien d'un autre compte (@x) ») — ce qui
+ * dit à l'écran pourquoi elle n'a pas de chiffre. Résultat `foreign_owner`.
+ *
  * Partagé par recordApifySnapshot (cron) et e2eRecordApifySnapshot (test).
  */
 async function upsertApifySnapshot(
@@ -167,12 +175,29 @@ async function upsertApifySnapshot(
     capturedAt: number;
     source: ApifySource;
     differerBonus?: boolean;
+    ownerUsername?: string | null;
+    ownerId?: string | null;
   },
-): Promise<{ action: "inserted" | "updated" | "skipped" }> {
+): Promise<{ action: "inserted" | "updated" | "skipped" | "foreign_owner" }> {
   const pub = await ctx.db.get(args.publicationId);
   if (!pub) return { action: "skipped" };
   // Invariant metricSnapshots : capturedAt jamais antérieur à la publication.
   if (args.capturedAt < pub.datePubli) return { action: "skipped" };
+
+  const owner: InstagramOwner | undefined =
+    args.ownerUsername !== undefined || args.ownerId !== undefined
+      ? { ownerUsername: args.ownerUsername ?? null, ownerId: args.ownerId ?? null }
+      : undefined;
+  const verdict = await judgeAndLearnOwner(ctx, pub, owner);
+  if (verdict.kind === "foreign") {
+    await ctx.db.patch(pub._id, {
+      foreignOwner: { username: verdict.ownerUsername, at: args.capturedAt },
+      lastCollectFailureAt: args.capturedAt,
+      collectFailureStreak: (pub.collectFailureStreak ?? 0) + 1,
+      lastCollectFailureReason: foreignOwnerReason(verdict.ownerUsername),
+    });
+    return { action: "foreign_owner" };
+  }
 
   const dayStart = Math.floor(args.capturedAt / DAY_MS) * DAY_MS;
   const dayEnd = dayStart + DAY_MS;
@@ -205,17 +230,23 @@ async function upsertApifySnapshot(
   // La RÉUSSITE EFFACE L'ÉCHEC — les trois marqueurs sont remis à `undefined`,
   // pas laissés à leur ancienne valeur. Un compteur d'échecs consécutifs qui ne
   // se remet pas à zéro finirait par accuser une publication qui va très bien.
+  //
+  // Le drapeau « lien d'un autre compte » tombe AVEC eux : on n'arrive ici que
+  // si le verdict ne l'a pas maintenu, c'est-à-dire si le post est prouvé à
+  // elle (cf `judgeInstagramOwner`, `flaggedOwner`).
   const pubPatch: {
     lastApifySyncAt: number;
     postTitle?: string;
     lastCollectFailureAt: undefined;
     collectFailureStreak: undefined;
     lastCollectFailureReason: undefined;
+    foreignOwner: undefined;
   } = {
     lastApifySyncAt: args.capturedAt,
     lastCollectFailureAt: undefined,
     collectFailureStreak: undefined,
     lastCollectFailureReason: undefined,
+    foreignOwner: undefined,
   };
   if (typeof args.title === "string" && args.title.length > 0) {
     pubPatch.postTitle = args.title;
@@ -340,11 +371,14 @@ export const recordApifySnapshot = internalMutation({
     source: apifySourceValidator,
     /** Paliers synchronisés en fin de passage par l'appelant (cf bonusSync). */
     differerBonus: v.optional(v.boolean()),
+    /** Propriétaire rendu par Apify (Instagram) — cf convex/instagramOwner.ts. */
+    ownerUsername: v.optional(v.union(v.string(), v.null())),
+    ownerId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ action: "inserted" | "updated" | "skipped" }> =>
+  ): Promise<{ action: "inserted" | "updated" | "skipped" | "foreign_owner" }> =>
     upsertApifySnapshot(ctx, args),
 });
 
@@ -755,7 +789,14 @@ export const runDailySync = internalAction({
             r.errors.length > 0
               ? apifyFailureReason(r.errors[0])
               : "Apify n'a pas rendu le post (aucun repli sur cette plateforme)";
-          for (const t of lot) {
+          // Même ordre que la nuit : les posts qui confirment leur compte
+          // d'abord (cf `syncInstagramLot`, convex/nightlyViewsSync.ts).
+          const ordered = [...lot].sort(
+            (a, b) =>
+              Number(ownerIsPubHandle(r.stats[b.key]?.ownerUsername ?? null, b.compte)) -
+              Number(ownerIsPubHandle(r.stats[a.key]?.ownerUsername ?? null, a.compte)),
+          );
+          for (const t of ordered) {
             const stat = r.stats[t.key];
             if (stat === undefined) {
               await ctx.runMutation(internal.apifySync.recordCollectFailure, {
@@ -776,8 +817,12 @@ export const runDailySync = internalAction({
               capturedAt: now,
               source,
               differerBonus: true,
+              ownerUsername: stat.ownerUsername,
+              ownerId: stat.ownerId,
             });
-            if (w.action !== "skipped") summary.synced += 1;
+            // Reel d'un autre compte : inscrit en échec par la mutation, rien d'écrit.
+            if (w.action === "foreign_owner") summary.failed += 1;
+            else if (w.action !== "skipped") summary.synced += 1;
           }
         }
         summary.unavailable += unavailable;
@@ -995,10 +1040,13 @@ export const e2eRecordApifySnapshot = e2eMutation({
     source: apifySourceValidator,
     /** Paliers synchronisés en fin de passage par l'appelant (cf bonusSync). */
     differerBonus: v.optional(v.boolean()),
+    /** Propriétaire rendu par Apify (Instagram) — cf convex/instagramOwner.ts. */
+    ownerUsername: v.optional(v.union(v.string(), v.null())),
+    ownerId: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ action: "inserted" | "updated" | "skipped" }> =>
+  ): Promise<{ action: "inserted" | "updated" | "skipped" | "foreign_owner" }> =>
     upsertApifySnapshot(ctx, args),
 });

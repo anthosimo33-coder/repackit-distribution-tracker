@@ -124,6 +124,22 @@ export interface ApifyPostStat {
    * (« @kelly.leydie ») — un appariement par chaîne serait faux.
    */
   author: AuthorProfile | null;
+  /**
+   * PROPRIÉTAIRE du post (`ownerUsername` / `ownerId`, Instagram uniquement) ;
+   * `null` si l'actor ne le rend pas.
+   *
+   * L'URL d'un reel (`/reel/<code>/`) ne porte PAS le handle : au collage,
+   * rien ne distingue le reel de la créatrice de celui de quelqu'un d'autre.
+   * Le 18/10/2026, Quentin a collé un reel de @princiaconfort, relevé à
+   * 371 878 vues comme le sien. Seul l'item Apify sait à qui est le post —
+   * c'est `convex/instagramOwner.ts` qui en tire un verdict.
+   *
+   * `ownerId` est l'identifiant NUMÉRIQUE du compte : il survit à un
+   * changement de @, contrairement à `ownerUsername`. TikTok porte le handle
+   * dans l'URL : les deux champs y restent `null`.
+   */
+  ownerUsername: string | null;
+  ownerId: string | null;
 }
 
 export interface ParsedApifyViews {
@@ -142,6 +158,28 @@ export function cleanCaption(value: unknown): string | null {
   const t = value.trim();
   if (t === "") return null;
   return t.length > TITLE_MAX ? t.slice(0, TITLE_MAX) : t;
+}
+
+/**
+ * Lit le propriétaire d'un item Instagram. Chaîne vide ou type inattendu →
+ * `null` (« non fourni »), jamais une chaîne vide qui passerait pour un handle.
+ * Un `ownerId` numérique est ramené en chaîne : c'est le même compte.
+ */
+export function parseOwner(item: object): {
+  ownerUsername: string | null;
+  ownerId: string | null;
+} {
+  const u = (item as { ownerUsername?: unknown }).ownerUsername;
+  const id = (item as { ownerId?: unknown }).ownerId;
+  return {
+    ownerUsername: typeof u === "string" && u.trim() !== "" ? u.trim() : null,
+    ownerId:
+      typeof id === "string" && id.trim() !== ""
+        ? id.trim()
+        : typeof id === "number" && Number.isFinite(id)
+          ? String(id)
+          : null,
+  };
 }
 
 /**
@@ -186,6 +224,8 @@ export function parseTikTokViews(
       // Une photo de profil n'est pas un compteur, mais elle vaut à elle
       // seule d'être remontée (cf. la réplique dans convex/apifyApi.ts).
       author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
+      ownerUsername: null,
+      ownerId: null,
     };
   }
   const present = new Set(Object.keys(stats));
@@ -198,7 +238,8 @@ export function parseTikTokViews(
  *   [{ shortCode: "Cxyz", videoPlayCount, videoViewCount, likesCount, commentsCount, caption, type: "Video", url, ... }, ...]
  * Clé = `shortCode` (fallback : shortcode extrait de `url`). Vues =
  * `videoPlayCount` puis fallback `videoViewCount`, likes = `likesCount`,
- * commentaires = `commentsCount`, titre = `caption`. ⚠️ Un post IMAGE n'a aucune
+ * commentaires = `commentsCount`, titre = `caption`, propriétaire =
+ * `ownerUsername` / `ownerId` (cf `parseOwner`). ⚠️ Un post IMAGE n'a aucune
  * vue → ignoré (pas de snapshot), reporté
  * en `unavailable`.
  */
@@ -225,7 +266,15 @@ export function parseInstagramViews(
     const title = cleanCaption((item as { caption?: unknown }).caption);
     // Instagram n'expose AUCUNE métrique de saves — `null` est définitif ici,
     // pas un défaut de collecte à rattraper plus tard.
-    stats[key] = { views, likes, comments, title, saves: null, author: null };
+    stats[key] = {
+      views,
+      likes,
+      comments,
+      title,
+      saves: null,
+      author: null,
+      ...parseOwner(item),
+    };
   }
   const present = new Set(Object.keys(stats));
   return { stats, unavailable: requestedKeys.filter((k) => !present.has(k)) };
