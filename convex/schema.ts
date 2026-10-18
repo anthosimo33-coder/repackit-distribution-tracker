@@ -825,6 +825,22 @@ export default defineSchema({
      * permet à l'écran de dire pourquoi, au lieu d'afficher « 0 vue ».
      */
     lastCollectFailureReason: v.optional(v.string()),
+    // ─── LIEN D'UN AUTRE COMPTE — le reel collé n'est pas à elle ─────────────
+    // Posé quand Apify rend, pour ce lien Instagram, un propriétaire PROUVÉ
+    // étranger au compte (cf convex/instagramOwner.ts) : le relevé n'écrit
+    // alors RIEN — ni snapshot, ni relevé rapide —, donc ni paie, ni paliers, ni
+    // analytics, ni alerte de hit. C'est ce drapeau que l'admin voit, et qu'il
+    // lève en corrigeant le lien (`retrackPublication` l'efface). Cas réel du
+    // 18/10/2026 : un reel de @princiaconfort collé par @quentin.snytch.
+    // Absent = aucun propriétaire étranger constaté.
+    foreignOwner: v.optional(
+      v.object({
+        /** @ du vrai propriétaire, normalisé (minuscules, sans @). */
+        username: v.string(),
+        /** Instant du relevé qui l'a constaté. */
+        at: v.number(),
+      }),
+    ),
     // ─── QUADRANT « Vues × Intent » — classement DÉRIVÉ, recalculé la nuit ────
     // Même nature que les champs `*Latest` ci-dessus : une valeur dénormalisée
     // qu'aucune saisie ne produit, écrite par un job et relue telle quelle par
@@ -1008,6 +1024,8 @@ export default defineSchema({
       v.literal("refused"),
       v.literal("unreadable"),
       v.literal("missing"),
+      // Lu, mais reel d'un autre compte : rien d'écrit (cf foreignOwner).
+      v.literal("foreign_owner"),
     ),
   })
     .index("by_publication", ["publicationId"])
@@ -1046,6 +1064,8 @@ export default defineSchema({
       runs: v.number(),
       deferred: v.number(),
       error: v.optional(v.string()),
+      /** Relevés lus mais non écrits : reel d'un autre compte. */
+      foreign: v.optional(v.number()),
     }),
   }).index("by_startedAt", ["startedAt"]),
 
@@ -1183,6 +1203,13 @@ export default defineSchema({
     creatorId: v.optional(v.id("creators")),
     // URL publique du compte, saisie à la déclaration (plateforme/handle/URL).
     url: v.optional(v.string()),
+    // IDENTITÉ INSTAGRAM CONFIRMÉE — ids numériques (`ownerId` Apify) appris
+    // sur un post de ce compte dont le propriétaire était le @ du compte
+    // lui-même. L'id survit à un changement de @ ; c'est lui qui permet de
+    // PROUVER qu'un reel collé est à quelqu'un d'autre (cf
+    // convex/instagramOwner.ts). Absent = compte jamais confirmé : aucun reel
+    // n'y est refusé. Appris par le relevé, jamais saisi.
+    instagramOwnerIds: v.optional(v.array(v.string())),
     // Protocole de warmup défini par l'admin + checks quotidiens du créateur.
     // Complète status/warmupStartedAt (décompte) : keywords UNIQUES par compte
     // (imposé serveur), instructions markdown, targetDays (surcharge la durée

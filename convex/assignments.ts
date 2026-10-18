@@ -4323,6 +4323,37 @@ export const correctPublishedUrl = permissionMutation("review.manage")({
   },
 });
 
+/**
+ * Les liens publiés d'une mission que le relevé a PROUVÉS à un autre compte
+ * (« lien d'un autre compte (@x) », cf convex/instagramOwner.ts) — affichés
+ * dans le panneau à côté de « Corriger le lien », le geste qui les répare.
+ *
+ * Demandé à l'ouverture du panneau : la liste des missions ne porte pas les
+ * publications (cf listAssignmentsPilotage), et les lire pour chaque ligne
+ * coûterait la bande passante que #357/#358 ont rendue. Même garde et même
+ * repli que `listTargetAccountOptions` : hors périmètre ou introuvable → `[]`.
+ */
+export const getPublishedLinkFlags = permissionQuery("assignments.manage")({
+  args: { id: v.id("assignments") },
+  handler: async (
+    ctx,
+    { id },
+  ): Promise<{ platform: Plateforme; foreignOwner: string }[]> => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) return [];
+    const scope = await creatorScopeFor(ctx, ctx.userId, ctx.projectId);
+    if (filterByCreatorScope([a], (x) => x.creatorId, scope).length === 0) return [];
+    const out: { platform: Plateforme; foreignOwner: string }[] = [];
+    for (const t of a.targets ?? []) {
+      if (!t.publicationId) continue;
+      const pub = await ctx.db.get(t.publicationId);
+      if (!pub || pub.projectId !== ctx.projectId || !pub.foreignOwner) continue;
+      out.push({ platform: t.platform, foreignOwner: pub.foreignOwner.username });
+    }
+    return out;
+  },
+});
+
 /** Notif in-app : nb de mes assignments « à publier » (vidéo validée). */
 export const countMyToPublish = creatorQuery({
   args: {},

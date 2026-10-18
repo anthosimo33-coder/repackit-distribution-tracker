@@ -122,6 +122,8 @@ import type * as inspirations from "../inspirations.js";
 import type * as instaConvImages from "../instaConvImages.js";
 import type * as instaConvModel from "../instaConvModel.js";
 import type * as instaConversations from "../instaConversations.js";
+import type * as instagramOwner from "../instagramOwner.js";
+import type * as instagramOwnerGuard from "../instagramOwnerGuard.js";
 import type * as internalAccounts from "../internalAccounts.js";
 import type * as leaderboardCache from "../leaderboardCache.js";
 import type * as likesNegativeMigration from "../likesNegativeMigration.js";
@@ -421,6 +423,8 @@ declare const fullApi: ApiFromModules<{
   instaConvImages: typeof instaConvImages;
   instaConvModel: typeof instaConvModel;
   instaConversations: typeof instaConversations;
+  instagramOwner: typeof instagramOwner;
+  instagramOwnerGuard: typeof instagramOwnerGuard;
   internalAccounts: typeof internalAccounts;
   leaderboardCache: typeof leaderboardCache;
   likesNegativeMigration: typeof likesNegativeMigration;

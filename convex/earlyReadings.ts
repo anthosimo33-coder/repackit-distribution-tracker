@@ -8,13 +8,15 @@ import {
 import { e2eMutation } from "./functions";
 import { internal } from "./_generated/api";
 import { v, type Infer } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   apifyFailureReason,
   fetchApifyViewsForPlatform,
   type ApifyPostStat,
 } from "./apifyApi";
 import { fetchTikTokPublicStats } from "./tiktokPublicPage";
+import { judgeAndLearnOwner } from "./instagramOwnerGuard";
+import { ownerIsPubHandle } from "./instagramOwner";
 import {
   BREAKER_CLOSED,
   nextBreaker,
@@ -53,6 +55,14 @@ import {
  * d'échec (le relevé nocturne les tient, et deux sources qui les écrivent se
  * contrediraient), ni `vuesLatest`. Un relevé raté n'est pas un incident ici,
  * c'est un point de courbe manquant.
+ *
+ * UNE EXCEPTION, voulue : le drapeau `foreignOwner` (reel Instagram d'un autre
+ * compte, cf convex/instagramOwner.ts). Ce n'est pas l'état d'un relevé mais un
+ * fait sur le LIEN, et les deux relevés le tirent du même verdict, sur la même
+ * réponse Apify — ils ne peuvent pas se contredire. Le poser ici, c'est le
+ * montrer à l'admin deux heures après le collage au lieu de 23 h 30 : le
+ * 18/10/2026, c'est le relevé rapide qui a affiché 371 878 vues d'un reel de
+ * @princiaconfort sur le Dashboard de @quentin.snytch.
  */
 
 const DAY_MS = 86_400_000;
@@ -143,6 +153,16 @@ const readingValidator = v.object({
   saves: v.optional(v.number()),
   shares: v.optional(v.number()),
   source: v.union(v.literal("tiktok"), v.literal("instagram")),
+  /**
+   * Propriétaire rendu par Apify (Instagram). Jugé à l'écriture, JAMAIS stocké
+   * dans `earlyReadings` : c'est un fait sur le lien, pas sur la mesure.
+   */
+  owner: v.optional(
+    v.object({
+      ownerUsername: v.union(v.string(), v.null()),
+      ownerId: v.union(v.string(), v.null()),
+    }),
+  ),
 });
 
 const outcomeValidator = v.union(
@@ -150,6 +170,7 @@ const outcomeValidator = v.union(
   v.literal("refused"),
   v.literal("unreadable"),
   v.literal("missing"),
+  v.literal("foreign_owner"),
 );
 
 const attemptValidator = v.object({
@@ -161,11 +182,13 @@ const attemptValidator = v.object({
 /**
  * Écrit le résultat d'un passage : les relevés, et la tentative de CHAQUE
  * publication visée, réussie ou non. Même transaction : une tentative sans son
- * relevé repousserait le post de 2 h pour rien. Rend le nombre de relevés écrits.
+ * relevé repousserait le post de 2 h pour rien. Rend le nombre de relevés
+ * écrits, et celui des relevés refusés (reel d'un autre compte).
  */
 export const recordEarlyPass = internalMutation({
   args: { readings: v.array(readingValidator), attempts: v.array(attemptValidator) },
-  handler: async (ctx, args): Promise<number> => writeEarlyPass(ctx, args),
+  handler: async (ctx, args): Promise<{ written: number; foreign: number }> =>
+    writeEarlyPass(ctx, args),
 });
 
 /**
@@ -175,7 +198,7 @@ export const recordEarlyPass = internalMutation({
  */
 export const e2eRecordEarlyPass = e2eMutation({
   args: { readings: v.array(readingValidator), attempts: v.array(attemptValidator) },
-  handler: async (ctx, args): Promise<number> => writeEarlyPass(ctx, args),
+  handler: async (ctx, args): Promise<number> => (await writeEarlyPass(ctx, args)).written,
 });
 
 async function writeEarlyPass(
@@ -187,19 +210,52 @@ async function writeEarlyPass(
     readings: Infer<typeof readingValidator>[];
     attempts: Infer<typeof attemptValidator>[];
   },
-): Promise<number> {
+): Promise<{ written: number; foreign: number }> {
+  // PROPRIÉTAIRE d'abord (Instagram) : un reel prouvé à un autre compte n'est
+  // pas écrit, et sa publication est marquée — même verdict que le relevé de
+  // nuit (cf convex/instagramOwnerGuard.ts). Les posts qui confirment leur
+  // compte passent en premier : leur id est appris avant que leurs voisins du
+  // même compte soient jugés.
+  const foreign = new Set<string>();
+  const instagram: { r: Infer<typeof readingValidator>; pub: Doc<"publications"> }[] = [];
+  for (const r of readings) {
+    if (r.source !== "instagram") continue;
+    const pub = await ctx.db.get(r.publicationId);
+    if (pub) instagram.push({ r, pub });
+  }
+  const confirms = (x: (typeof instagram)[number]) =>
+    Number(ownerIsPubHandle(x.r.owner?.ownerUsername ?? null, x.pub.compte));
+  instagram.sort((a, b) => confirms(b) - confirms(a));
+  for (const { r, pub } of instagram) {
+    // Le compte est relu à chaque verdict (cf judgeAndLearnOwner) : l'id
+    // appris par un voisin du même passage compte déjà.
+    const verdict = await judgeAndLearnOwner(ctx, pub, r.owner);
+    if (verdict.kind === "foreign") {
+      foreign.add(r.publicationId);
+      if (pub.foreignOwner?.username !== verdict.ownerUsername) {
+        await ctx.db.patch(pub._id, {
+          foreignOwner: { username: verdict.ownerUsername, at: r.capturedAt },
+        });
+      }
+    } else if (verdict.kind === "own" && pub.foreignOwner !== undefined) {
+      await ctx.db.patch(pub._id, { foreignOwner: undefined });
+    }
+  }
+
   for (const a of attempts) {
     const pub = await ctx.db.get(a.publicationId);
     if (!pub) continue;
+    const outcome = foreign.has(a.publicationId) ? "foreign_owner" : a.outcome;
     const existing = await ctx.db
       .query("earlyReadingAttempts")
       .withIndex("by_publication", (q) => q.eq("publicationId", a.publicationId))
       .first();
-    if (existing) await ctx.db.patch(existing._id, { at: a.at, outcome: a.outcome });
-    else await ctx.db.insert("earlyReadingAttempts", { ...a, projectId: pub.projectId });
+    if (existing) await ctx.db.patch(existing._id, { at: a.at, outcome });
+    else await ctx.db.insert("earlyReadingAttempts", { ...a, outcome, projectId: pub.projectId });
   }
   let written = 0;
-  for (const r of readings) {
+  for (const r of readings.map(stored)) {
+    if (foreign.has(r.publicationId)) continue;
     const pub = await ctx.db.get(r.publicationId);
     if (!pub) continue;
     // Même invariant que metricSnapshots : pas de relevé avant la mise en ligne.
@@ -216,7 +272,14 @@ async function writeEarlyPass(
     await ctx.db.insert("earlyReadings", { ...r, projectId: pub.projectId });
     written += 1;
   }
-  return written;
+  return { written, foreign: foreign.size };
+}
+
+/** Le relevé tel qu'il est STOCKÉ : le propriétaire n'entre pas dans `earlyReadings`. */
+function stored(r: Infer<typeof readingValidator>): Omit<Infer<typeof readingValidator>, "owner"> {
+  const copy = { ...r };
+  delete copy.owner;
+  return copy;
 }
 
 const runValidator = v.object({
@@ -243,6 +306,7 @@ const runValidator = v.object({
     runs: v.number(),
     deferred: v.number(),
     error: v.optional(v.string()),
+    foreign: v.optional(v.number()),
   }),
 });
 
@@ -278,8 +342,12 @@ function attemptsFor(t: EarlyTarget, at: number, outcome: Attempt["outcome"]): A
 function readingsFor(
   t: EarlyTarget,
   capturedAt: number,
-  counts: Omit<Reading, "publicationId" | "capturedAt" | "postedAt" | "postedAtSource" | "source">,
+  counts: Omit<
+    Reading,
+    "publicationId" | "capturedAt" | "postedAt" | "postedAtSource" | "source" | "owner"
+  >,
   source: Reading["source"],
+  owner?: Reading["owner"],
 ): Reading[] {
   return t.publications.map((p) => ({
     publicationId: p.publicationId as Id<"publications">,
@@ -288,6 +356,7 @@ function readingsFor(
     postedAtSource: t.postedAtSource,
     ...counts,
     source,
+    ...(owner !== undefined ? { owner } : {}),
   }));
 }
 
@@ -413,6 +482,7 @@ async function collectInstagram(targets: readonly EarlyTarget[]): Promise<{
           saves: count(s.saves),
         },
         "instagram",
+        { ownerUsername: s.ownerUsername, ownerId: s.ownerId },
       ),
     );
   }
@@ -491,9 +561,9 @@ export const runEarlyReadings = internalAction({
 
     const readings = [...tiktok.readings, ...instagram.readings];
     const attempts = [...tiktok.attempts, ...instagram.attempts];
-    const written =
+    const { written, foreign } =
       attempts.length === 0
-        ? 0
+        ? { written: 0, foreign: 0 }
         : await ctx.runMutation(internal.earlyReadings.recordEarlyPass, { readings, attempts });
 
     const breakerTripped = tiktok.breaker.trippedReason ?? undefined;
@@ -526,13 +596,15 @@ export const runEarlyReadings = internalAction({
           runs: instagram.runs,
           deferred: plan.deferred.instagram,
           error: instagram.error,
+          ...(foreign > 0 ? { foreign } : {}),
         },
       },
     });
     console.info(
       `[early-readings] ${candidates.length} candidate(s) — TikTok ${tiktok.read}/${plan.tiktok.length}` +
         `${suspended ? " (suspendu)" : ""}, ${tiktok.pages} page(s) ; Instagram ${instagram.read}/` +
-        `${plan.instagram.length}, ${instagram.runs} run(s) ; ${written} relevé(s) écrit(s) ; ` +
+        `${plan.instagram.length}, ${instagram.runs} run(s) ; ${written} relevé(s) écrit(s)` +
+        `${foreign > 0 ? ` (${foreign} lien(s) d'un autre compte refusé(s))` : ""} ; ` +
         `reportés ${plan.deferred.tiktok}+${plan.deferred.instagram} ; ${Date.now() - startedAt} ms.`,
     );
     return null;

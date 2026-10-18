@@ -57,7 +57,9 @@
     "vues": "views",
     "likes": "likes",
     "vuesA": "views · {heure}",
-    "releveRapideLeA": "Quick reading on {sourceDay} at {heure} — every 2 h during the post's first 36 hours."
+    "releveRapideLeA": "Quick reading on {sourceDay} at {heure} — every 2 h during the post's first 36 hours.",
+    "lienDUnAutreCompte": "Link from another account (@{handle})",
+    "lienDUnAutreCompteAide": "Instagram attributes this reel to @{handle}, not to this account: its views are not read. Fix the link from the assignment."
   },
   "ConversionSection": {
     "chacuneAfficheLesMemesChiffres": "Each one shows the SAME figures, and the total doesn't show it — it sums refs, not lines.",

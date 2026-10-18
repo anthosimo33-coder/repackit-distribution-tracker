@@ -1194,6 +1194,15 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
   const managed = row.managedByAdmin === true;
   const isPublished = row.status === "published" || row.status === "paid";
   const publishedTargets = row.targets.filter((t) => t.publishedUrl);
+  // « Lien d'un autre compte » : posé par le relevé quand Apify attribue le
+  // reel à quelqu'un d'autre. Demandé seulement pour un post publié — c'est le
+  // seul cas où le panneau montre « Corriger le lien ».
+  const linkFlags = useProjectQuery(
+    api.assignments.getPublishedLinkFlags,
+    isPublished ? { id: row._id } : "skip",
+  );
+  const foreignOwnerOf = (platform: Plateforme): string | null =>
+    linkFlags?.find((f) => f.platform === platform)?.foreignOwner ?? null;
 
   if (isPublished) {
     return (
@@ -1221,6 +1230,12 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
               platform={t.platform}
               currentUrl={t.publishedUrl ?? ""}
             />
+            {foreignOwnerOf(t.platform) !== null && (
+              <ForeignOwnerNote
+                platform={t.platform}
+                handle={foreignOwnerOf(t.platform) as string}
+              />
+            )}
           </div>
         ))}
         <PublishedByLine publishedBy={row.publishedBy} at={row.postedAt} />
@@ -1242,6 +1257,26 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
       notReady={row.status !== "to_publish"}
       buttonTestId={`detail-${managed ? "managed" : "creator-backup"}-publish-${row._id}`}
     />
+  );
+}
+
+/**
+ * « Lien d'un autre compte (@x) » — le reel collé n'est pas à elle : le relevé
+ * n'en écrit aucune vue (cf convex/instagramOwner.ts). Posé sous le lien, à
+ * côté de « Corriger le lien », le seul geste qui le répare.
+ */
+function ForeignOwnerNote({ platform, handle }: { platform: Plateforme; handle: string }) {
+  const tr = useTranslations("admin.assignments.PublicationSection");
+  return (
+    <p
+      className="w-full text-xs font-medium text-rose-600"
+      data-testid={`detail-foreign-owner-${platform}`}
+    >
+      {tr("lienDUnAutreCompte", { handle })}
+      <span className="block font-normal text-rose-500">
+        {tr("lienDUnAutreCompteAide", { handle })}
+      </span>
+    </p>
   );
 }
 

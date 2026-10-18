@@ -41,6 +41,7 @@ import {
   type FacebookPostStat,
 } from "./facebookApify";
 import { parisHour } from "./calendarStatus";
+import { ownerIsPubHandle } from "./instagramOwner";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
 import { deliver, resolveNotifyContext } from "./notifications";
@@ -766,7 +767,17 @@ async function syncInstagramLot(
     }
   }
 
-  for (const t of lot.targets) {
+  // Les posts qui CONFIRMENT leur compte (propriétaire = le @) d'abord : leur
+  // id est appris avant que leurs voisins du même compte soient jugés — c'est
+  // ce qui permet de refuser un reel étranger dès la première nuit (les lots
+  // regroupent les posts par compte, cf `planLots`).
+  const ordered = [...lot.targets].sort(
+    (a, b) =>
+      Number(ownerIsPubHandle(stats[b.key]?.ownerUsername ?? null, b.compte)) -
+      Number(ownerIsPubHandle(stats[a.key]?.ownerUsername ?? null, a.compte)),
+  );
+  let etrangers = 0;
+  for (const t of ordered) {
     const stat = stats[t.key];
     if (stat === undefined) {
       await ctx.runMutation(internal.apifySync.recordCollectFailure, {
@@ -786,12 +797,18 @@ async function syncInstagramLot(
       capturedAt,
       source: lot.source,
       differerBonus: true,
+      ownerUsername: stat.ownerUsername,
+      ownerId: stat.ownerId,
     });
-    if (r.action !== "skipped") releves.add(t.publicationId as string);
+    // Un reel d'un autre compte n'est PAS relevé : rien n'a été écrit.
+    if (r.action === "foreign_owner") etrangers += 1;
+    else if (r.action !== "skipped") releves.add(t.publicationId as string);
   }
   console.info(
     `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} Instagram — ` +
-      `${releves.size}/${lot.targets.length} relevée(s), ${Date.now() - debut} ms.`,
+      `${releves.size}/${lot.targets.length} relevée(s)` +
+      (etrangers > 0 ? `, ${etrangers} lien(s) d'un autre compte non relevé(s)` : "") +
+      `, ${Date.now() - debut} ms.`,
   );
   return releves;
 }
