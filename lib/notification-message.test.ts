@@ -475,7 +475,6 @@ describe("buildDigestMessage", () => {
   it("RIEN à signaler → null, donc AUCUN message envoyé", () => {
     expect(
       buildDigestMessage({
-        projectName: "Snytch",
         sections: EMPTY,
         appBaseUrl: BASE,
         projectSlug: SLUG,
@@ -485,7 +484,6 @@ describe("buildDigestMessage", () => {
 
   it("les renouvellements relançables ont leur ligne — l'arbitrage les déplace, ne les supprime pas", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         ...EMPTY,
         retryableRenewalFailures: [
@@ -503,7 +501,6 @@ describe("buildDigestMessage", () => {
 
   it("recrues à trancher : la proposition nommée, le suspendu dit pourquoi — et seule, la section suffit", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         ...EMPTY,
         recruesATrancher: [
@@ -524,7 +521,6 @@ describe("buildDigestMessage", () => {
 
   it("une seule section suffit à produire un message", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: { ...EMPTY, retryableRenewalFailures: [{ memberName: "x" }] },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -536,7 +532,6 @@ describe("buildDigestMessage", () => {
 
   it("talents arrêtés : le nombre de mois dus, JAMAIS le montant", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         ...EMPTY,
         talentSoldeDu: [
@@ -562,7 +557,6 @@ describe("buildDigestMessage", () => {
     // n'est vérifiée que du côté où elle produit quelque chose.
     expect(
       buildDigestMessage({
-        projectName: "Snytch",
         sections: { ...EMPTY, talentSoldeDu: [] },
         appBaseUrl: BASE,
         projectSlug: SLUG,
@@ -572,7 +566,6 @@ describe("buildDigestMessage", () => {
 
   it("chauffe sans talent : nomme le compte, son clippeur et le temps restant", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         ...EMPTY,
         chauffeSansTalent: [
@@ -594,7 +587,6 @@ describe("buildDigestMessage", () => {
 
   it("cette section seule suffit à produire un message", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         ...EMPTY,
         chauffeSansTalent: [
@@ -610,7 +602,6 @@ describe("buildDigestMessage", () => {
 
   it("n'affiche QUE les sections non vides", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: { ...EMPTY, payCycles: [{ creatorName: "Kelly" }] },
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -623,7 +614,6 @@ describe("buildDigestMessage", () => {
 
   it("trois sections pleines, pluriels accordés", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         overdueMissions: [
           { creatorName: "Kelly", missionLabel: "Campagne Été", daysLate: 2 },
@@ -730,7 +720,6 @@ function everyMessage(): string[] {
       projectSlug: SLUG,
     }),
     buildDigestMessage({
-      projectName: "Snytch",
       sections,
       appBaseUrl: BASE,
       projectSlug: SLUG,
@@ -865,7 +854,6 @@ describe("aucune donnée confidentielle ne sort dans un message", () => {
 
   it("les cycles de paiement listent des NOMS, jamais un montant", () => {
     const msg = buildDigestMessage({
-      projectName: "Snytch",
       sections: {
         ...EMPTY,
         payCycles: [{ creatorName: "Kelly" }, { creatorName: "Léa" }],
@@ -1032,7 +1020,6 @@ describe("digest — warmups terminés en attente de validation", () => {
   };
   const build = (sections: DigestSections) =>
     buildDigestMessage({
-      projectName: "Snytch",
       sections,
       appBaseUrl: "https://app.test",
       projectSlug: "snytch",

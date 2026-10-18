@@ -442,7 +442,7 @@ export const notifierPropositions = internalAction({
     if (attente.length === 0) return { ok: false, reason: "nothing-to-say" };
     const url = `${nctx.cfg.appBaseUrl}/admin/${nctx.projectSlug}/dashboard`;
     const texte = [
-      `🤖 <b>Claude a préparé ${attente.length} proposition${attente.length > 1 ? "s" : ""}</b> — ${escapeTelegram(nctx.projectName)}`,
+      `🤖 <b>Claude a préparé ${attente.length} proposition${attente.length > 1 ? "s" : ""}</b>`,
       "",
       ...attente.slice(0, 10).map((l) => `• ${escapeTelegram(l.resume)}`),
       ...(attente.length > 10 ? [`… et ${attente.length - 10} autre(s)`] : []),

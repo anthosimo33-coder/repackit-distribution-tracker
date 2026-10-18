@@ -666,12 +666,11 @@ export interface DigestSections {
 }
 
 export function buildDigestMessage(params: {
-  projectName: string;
   sections: DigestSections;
   appBaseUrl: string;
   projectSlug: string;
 }): string | null {
-  const { projectName, sections, appBaseUrl, projectSlug } = params;
+  const { sections, appBaseUrl, projectSlug } = params;
   const {
     overdueMissions,
     payCycles,
@@ -698,7 +697,8 @@ export function buildDigestMessage(params: {
   }
 
   const blocks: string[] = [
-    `📋 <b>Digest quotidien — ${escapeTelegram(projectName)}</b>`,
+    // Le nom du projet est posé par le transport (notifyApi.withProjectTag).
+    "📋 <b>Digest quotidien</b>",
   ];
 
   if (overdueMissions.length > 0) {
