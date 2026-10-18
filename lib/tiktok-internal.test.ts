@@ -18,7 +18,12 @@ import {
  * Pages calquées sur la prod : structure relevée le 2026-08-31 (@marine.bn07)
  * et le 2026-09-14 (@ang_creates, `authorStats` + photo signée).
  */
-function pageServie(id: string, playCount: number, handle = "marine.bn07"): string {
+function pageServie(
+  id: string,
+  playCount: number,
+  handle = "marine.bn07",
+  authorId?: string,
+): string {
   return (
     '<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">' +
     JSON.stringify({
@@ -31,6 +36,7 @@ function pageServie(id: string, playCount: number, handle = "marine.bn07"): stri
               id,
               desc: "Heureusement que le site Snytch.co existe pour les filles comme nous.",
               author: {
+                ...(authorId !== undefined ? { id: authorId } : {}),
                 uniqueId: handle,
                 avatarLarger: `https://p16-common-sign.tiktokcdn-eu.com/avt/${handle}.jpeg?x-expires=1789639200`,
               },
@@ -76,6 +82,30 @@ function fakeCtx() {
   const echecs = () => calls.filter((c) => "reason" in c.args);
   const profils = () => calls.filter((c) => "followers" in c.args);
   return { ctx, snapshots, echecs, profils };
+}
+
+/**
+ * ctx dont l'écriture du relevé rend le VERDICT de la mutation (cf
+ * convex/postOwner.ts) : `foreign_owner` pour un post prouvé à un autre compte,
+ * `sibling` pour un post d'un autre compte de la créatrice. Le verdict lui-même
+ * est testé dans lib/post-owner.test.ts ; ici, ce que l'action EN FAIT.
+ */
+function fakeCtxVerdicts(verdicts: Record<string, { action: string; sibling?: true }>) {
+  const calls: { args: Record<string, unknown> }[] = [];
+  const ctx = {
+    runMutation: vi.fn(async (_ref: unknown, args: Record<string, unknown>) => {
+      calls.push({ args });
+      if ("vues" in args) {
+        return verdicts[args.publicationId as string] ?? { action: "inserted" };
+      }
+      return { action: "written" };
+    }),
+  } as unknown as ActionCtx;
+  return {
+    ctx,
+    snapshots: () => calls.filter((c) => "vues" in c.args),
+    profils: () => calls.filter((c) => "followers" in c.args),
+  };
 }
 
 /** Ids TikTok réels (19 chiffres), handles tels qu'en base (@, point, suffixe). */
@@ -288,6 +318,124 @@ describe("collectTikTokInternally", () => {
   });
 });
 
+describe("collectTikTokInternally — l'auteur de la vidéo", () => {
+  // Ids et auteurs relevés sur la prod le 18/10/2026 (page publique).
+  const KELLY_LEYDIE = "7656852187148796931";
+  const KELLY_CHAPTERS = "7673976005312971798";
+
+  it("passe l'auteur de la PAGE à l'écriture — le @ de l'URL n'est qu'un libellé", async () => {
+    const { ctx, snapshots } = fakeCtxVerdicts({});
+    const { impl } = fetchParId({
+      "7697209634930642209": () =>
+        new Response(pageServie("7697209634930642209", 774, "sarah_snytch", "7690714507761468438")),
+    });
+    await collectTikTokInternally(
+      ctx,
+      // En base @sarah_olv8 (l'ancien nom) ; l'URL dirait n'importe quoi.
+      [{ ...cible("7697209634930642209", "@sarah_olv8") }],
+      42,
+      BREAKER_CLOSED,
+      { fetchImpl: impl, ...sansPause },
+    );
+    expect(snapshots()[0].args).toMatchObject({
+      ownerUsername: "sarah_snytch",
+      ownerId: "7690714507761468438",
+    });
+  });
+
+  it("vidéo PROUVÉE à un autre compte : ni relevée, ni profil, ni photo", async () => {
+    const { ctx, snapshots, profils } = fakeCtxVerdicts({
+      pub_7676941579743005984: { action: "foreign_owner" },
+    });
+    const { impl } = fetchParId({
+      "7676941579743005984": () =>
+        new Response(pageServie("7676941579743005984", 1_317, "sarahkl02", "7600000000000000002")),
+    });
+    const r = await collectTikTokInternally(
+      ctx,
+      [cible("7676941579743005984", "@marine.bn07")],
+      42,
+      BREAKER_CLOSED,
+      { fetchImpl: impl, ...sansPause },
+    );
+    // La mutation a été appelée (c'est elle qui juge et marque)…
+    expect(snapshots()).toHaveLength(1);
+    // …mais l'action ne compte pas la vidéo comme relevée : ni paliers en fin
+    // de passage, ni abonnés de @sarahkl02 sur @marine.bn07, ni sa photo.
+    expect(r.releves).toEqual([]);
+    expect(r.foreign).toBe(1);
+    expect(profils()).toHaveLength(0);
+    expect(r.avatars).toEqual([]);
+  });
+
+  it("CAS KELLY : vidéo de son autre compte → relevée, mais son profil n'est PAS écrit sur ce compte", async () => {
+    const { ctx, profils } = fakeCtxVerdicts({
+      pub_7684707415018818848: { action: "inserted", sibling: true },
+    });
+    const { impl } = fetchParId({
+      // Le 17/10/2026, cette vidéo de @kellyleydie (1 691 abonnés) a écrit
+      // 1 691 abonnés sur @thekellychapters_, qui en avait 373.
+      "7684707415018818848": () =>
+        new Response(pageServie("7684707415018818848", 3_524, "kellyleydie", KELLY_LEYDIE)),
+    });
+    const r = await collectTikTokInternally(
+      ctx,
+      [cible("7684707415018818848", "@thekellychapters_")],
+      42,
+      BREAKER_CLOSED,
+      { fetchImpl: impl, ...sansPause },
+    );
+    expect(r.releves).toEqual(["pub_7684707415018818848"]);
+    expect(profils()).toHaveLength(0);
+    expect(r.avatars).toEqual([]);
+  });
+
+  it("le profil du compte vient d'une vidéo À LUI, même quand une vidéo sœur passe avant", async () => {
+    const { ctx, profils } = fakeCtxVerdicts({
+      pub_7684707415018818848: { action: "inserted", sibling: true },
+    });
+    const { impl } = fetchParId({
+      "7684707415018818848": () =>
+        new Response(pageServie("7684707415018818848", 3_524, "kellyleydie", KELLY_LEYDIE)),
+      "7695499014271257889": () =>
+        new Response(pageServie("7695499014271257889", 518, "thekellychapters_", KELLY_CHAPTERS)),
+    });
+    await collectTikTokInternally(
+      ctx,
+      [cible("7684707415018818848", "@thekellychapters_"), cible("7695499014271257889", "@thekellychapters_")],
+      42,
+      BREAKER_CLOSED,
+      { fetchImpl: impl, ...sansPause },
+    );
+    expect(profils()).toHaveLength(1);
+    expect(profils()[0].args.publicationId).toBe("pub_7695499014271257889");
+  });
+
+  it("les vidéos qui CONFIRMENT le compte sont écrites avant celles d'un autre auteur", async () => {
+    const { ctx, snapshots } = fakeCtxVerdicts({});
+    const { impl } = fetchParId({
+      "7676941579743005984": () =>
+        new Response(pageServie("7676941579743005984", 1_317, "sarahkl02", "7600000000000000002")),
+      "7675779059342642465": () =>
+        new Response(pageServie("7675779059342642465", 39_000, "marine.bn07", "7600000000000000001")),
+    });
+    await collectTikTokInternally(
+      ctx,
+      // La vidéo étrangère est LUE en premier…
+      [cible("7676941579743005984", "@marine.bn07"), cible("7675779059342642465", "@marine.bn07")],
+      42,
+      BREAKER_CLOSED,
+      { fetchImpl: impl, ...sansPause },
+    );
+    // …mais écrite en dernier : l'identité de @marine.bn07 est apprise d'abord,
+    // et la vidéo de @sarahkl02 est jugée contre elle dès ce passage.
+    expect(snapshots().map((c) => c.args.publicationId)).toEqual([
+      "pub_7675779059342642465",
+      "pub_7676941579743005984",
+    ]);
+  });
+});
+
 describe("rescueWithApify — le secours payant, borné", () => {
   const aSecourir = (id: string, reason = "HTTP 429"): RescueTarget => ({ ...cible(id), reason });
 
@@ -345,6 +493,35 @@ describe("rescueWithApify — le secours payant, borné", () => {
     expect(echecs()[2].args.reason).toBe(
       "HTTP 429 ; secours Apify reporté (budget de la nuit épuisé)",
     );
+  });
+
+  it("passe l'auteur authorMeta, confirme d'abord, et ne compte pas un post étranger comme relevé", async () => {
+    const { ctx, snapshots } = fakeCtxVerdicts({
+      pub_7676941579743005984: { action: "foreign_owner" },
+    });
+    const impl = (async () =>
+      new Response(
+        JSON.stringify([
+          { id: "7676941579743005984", playCount: 1_317, authorMeta: { name: "sarahkl02", id: "7600000000000000002" } },
+          { id: "7675779059342642465", playCount: 39_000, authorMeta: { name: "marine.bn07", id: "7600000000000000001" } },
+        ]),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const r = await rescueWithApify(
+      ctx,
+      [aSecourir("7676941579743005984"), aSecourir("7675779059342642465")],
+      42,
+      "apify_api_xxx",
+      100,
+      impl,
+    );
+    expect(snapshots().map((c) => [c.args.publicationId, c.args.ownerUsername, c.args.ownerId])).toEqual([
+      ["pub_7675779059342642465", "marine.bn07", "7600000000000000001"],
+      ["pub_7676941579743005984", "sarahkl02", "7600000000000000002"],
+    ]);
+    expect(r.releves).toEqual(["pub_7675779059342642465"]);
+    expect(r.foreign).toBe(1);
+    expect(r.failed).toBe(0);
   });
 
   it("sans jeton Apify : aucun appel, chaque post est inscrit avec la raison", async () => {

@@ -25,7 +25,7 @@ const DAY = 86_400_000;
  * vues, affichées sur le Dashboard comme les siennes ; le relevé de nuit les
  * aurait portées en paie.
  *
- * L'unitaire (lib/instagram-owner.test.ts) tient la règle ; cette spec tient le
+ * L'unitaire (lib/post-owner.test.ts) tient la règle ; cette spec tient le
  * CÂBLAGE, là où vivent les défauts :
  *  1. compte jamais confirmé → le reel étranger est relevé (rien n'est prouvé) ;
  *  2. le post de la créatrice (propriétaire = son @) confirme le compte —
@@ -113,7 +113,7 @@ test.describe("Relevé Instagram — lien d'un autre compte", () => {
       plateformes: ["Instagram"],
       compte: handle,
       datePubli: ts - 30 * HOUR,
-      notes: "[E2E_TEST] instagram-owner-guard",
+      notes: "[E2E_TEST] post-owner-guard",
     });
     const A = ids[0] as Id<"publications">;
     await admin.mutation(api.publications.updateMetrics, {
@@ -249,5 +249,225 @@ test.describe("Relevé Instagram — lien d'un autre compte", () => {
     // Le bon reel (à elle) se relève normalement.
     expect((await nightly(B, 8_210, self)).action).toBe("inserted");
     expect((await pubOf(B)).vuesLatest).toBe(8_210);
+  });
+});
+
+/**
+ * VIDÉO TIKTOK D'UN AUTRE COMPTE — même trou, même garde.
+ *
+ * L'URL TikTok porte un @ (`/@handle/video/<id>`), mais TikTok ne le lit pas :
+ * il sert la vidéo par son id (vérifié le 18/10/2026). Cas réel : la vidéo
+ * 7676941579743005984 de @sarahkl02 déclarée aussi par Marine sur @marine.bn07
+ * (22/08). Seul l'auteur rendu par la page (`author.uniqueId`, `author.id`)
+ * dit à qui est la vidéo.
+ *
+ * Ce que cette spec tient, au-delà de la spec Instagram : la source `tiktok`
+ * passe par la même garde, à la nuit ET au relevé rapide ; l'identité apprise
+ * est celle du compte TikTok ; une vidéo d'un AUTRE compte TikTok de la
+ * créatrice est relevée mais rendue `sibling` (son profil n'est pas celui du
+ * compte) ; l'admin lit « TikTok attribue ce post à @x ».
+ */
+test.describe("Relevé TikTok — vidéo d'un autre compte", () => {
+  test("refusée une fois le compte confirmé, compte sœur accepté, signalée à l'admin", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const creatorName = `[E2E_TEST] Marine TikTok ${ts}`;
+    const C = await createCreatorSession(convexUrl, {
+      name: creatorName,
+      email: `e2e-tt-owner-guard-${ts}@repackit.test`,
+      password: "tt-owner-guard-12345",
+    });
+    const handle = `@marine.bn07${ts}`;
+    const self = { ownerUsername: `marine.bn07${ts}`, ownerId: `7600${ts}1` };
+    const soeur = { ownerUsername: `marine.alt${ts}`, ownerId: `7600${ts}2` };
+    const sarahkl02 = { ownerUsername: "sarahkl02", ownerId: "7600000000000000002" };
+    const tTikTok = await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle,
+    });
+    // Son AUTRE compte TikTok, déclaré à son nom.
+    await availableTarget({
+      e2eClient: admin,
+      creatorId: C.creatorId,
+      platform: "TikTok",
+      handle: `@marine.alt${ts}`,
+    });
+
+    const campaignId = await admin.mutation(api.scripts.createCampaign, {
+      name: `[E2E_TEST] TtOwnerGuard ${ts}`,
+    });
+    const addBrick = (kind: "hook" | "flux" | "cta", label: string, content: string) =>
+      admin.mutation(api.scripts.createBrick, { campaignId, kind, label, content });
+    await addBrick("hook", "H", `hook ${ts}`);
+    await addBrick("flux", "F", "flux contenu");
+    await addBrick("cta", "C", "cta contenu");
+    const { pricingId } = await admin.mutation(api.pricing.createPricing, {
+      name: `[E2E_TEST] PricingTtOwnerGuard ${ts}`,
+      montantFixe: 100,
+      nbVideosCible: 10,
+      tauxCPM: 2,
+    });
+    await admin.mutation(api.scripts.assignScriptCampaign, {
+      campaignId,
+      creatorId: C.creatorId,
+      targets: [tTikTok],
+      videosPerCreator: 1,
+      dueDate: ts + 7 * DAY,
+      pricingId,
+      postDates: [minuitParis()],
+    });
+    const row = (await admin.query(api.assignments.listAssignments, {})).find(
+      (a) => a.creatorId === C.creatorId,
+    );
+    if (!row) throw new Error("assignation de test introuvable");
+    // Le @ de l'URL est le SIEN : c'est un libellé, TikTok sert la vidéo de
+    // @sarahkl02 quel que soit le @ écrit devant l'id.
+    const lienFaux = `https://www.tiktok.com/${handle}/video/7676941${String(ts).slice(-12)}`;
+    const confirmed = await admin.mutation(api.assignments.confirmPublicationAsAdmin, {
+      id: row._id,
+      urls: [{ platform: "TikTok", url: lienFaux }],
+    });
+    const B = confirmed.publicationIds[0];
+    expect(B).toBeTruthy();
+
+    const icpId = (await admin.mutation(api.icps.createIcp, {
+      nom: `[E2E_TEST] TtOwnerGuard ${ts}`,
+    })) as Id<"icps">;
+    const publier = async (videoId: string, heures: number) => {
+      const { ids } = await admin.mutation(api.publications.createPublication, {
+        carouselId: await admin.query(api.publications.getNextCarouselId, {}),
+        hookId: null,
+        hookText: `[E2E] TtOwnerGuard ${ts}`,
+        mecanique: "Erreur",
+        niveau: "Broad-A",
+        mediaType: "short",
+        script: "script",
+        angleTonal: "Psycho",
+        langue: "FR",
+        icpId,
+        plateformes: ["TikTok"],
+        compte: handle,
+        datePubli: ts - heures * HOUR,
+        notes: "[E2E_TEST] post-owner-guard tiktok",
+      });
+      const id = ids[0] as Id<"publications">;
+      await admin.mutation(api.publications.updateMetrics, {
+        id,
+        postUrl: `https://www.tiktok.com/${handle}/video/${videoId}`,
+      });
+      return id;
+    };
+    // A : sa vidéo. S : une vidéo de son AUTRE compte, rattachée à celui-ci
+    // (cas Kelly, @kellyleydie ↔ @thekellychapters_).
+    const A = await publier(`7685${String(ts).slice(-12)}1`, 30);
+    const S = await publier(`7685${String(ts).slice(-12)}2`, 20);
+
+    const pubOf = async (id: Id<"publications">) =>
+      (await admin.query(api.publications.listPublications, {})).find((p) => p._id === id)!;
+    const datePubliB = (await pubOf(B)).datePubli;
+    type Owner = { ownerUsername: string | null; ownerId: string | null };
+    const early = (
+      readings: { publicationId: Id<"publications">; vues: number; owner: Owner; postedAt: number }[],
+      capturedAt: number,
+    ) =>
+      admin.mutation(api.earlyReadings.e2eRecordEarlyPass, {
+        secret: E2E_SECRET,
+        readings: readings.map((r) => ({
+          publicationId: r.publicationId,
+          capturedAt,
+          postedAt: r.postedAt,
+          postedAtSource: "datePubli" as const,
+          vues: r.vues,
+          source: "tiktok" as const,
+          owner: r.owner,
+        })),
+        attempts: readings.map((r) => ({
+          publicationId: r.publicationId,
+          at: capturedAt,
+          outcome: "read" as const,
+        })),
+      });
+    const nightly = (publicationId: Id<"publications">, vues: number, owner: Owner) =>
+      admin.mutation(api.apifySync.e2eRecordApifySnapshot, {
+        secret: E2E_SECRET,
+        publicationId,
+        vues,
+        likes: 120,
+        capturedAt: Date.now(),
+        source: "tiktok",
+        ...owner,
+      });
+
+    // ── 1. Compte JAMAIS confirmé : rien n'est prouvé, la vidéo est relevée ─
+    expect(await early([{ publicationId: B, vues: 1_317, owner: sarahkl02, postedAt: datePubliB }], Date.now())).toBe(1);
+
+    // ── 2. Sa vidéo confirme le compte TikTok ───────────────────────────────
+    expect((await nightly(A, 4_210, self)).action).toBe("inserted");
+
+    // ── 3. La vidéo de @sarahkl02 n'écrit plus RIEN ─────────────────────────
+    expect((await nightly(B, 1_323, sarahkl02)).action).toBe("foreign_owner");
+    expect(
+      await admin.query(api.metricSnapshots.listSnapshotsByPublication, { publicationId: B }),
+    ).toHaveLength(0);
+    const marquee = await pubOf(B);
+    expect(marquee.vuesLatest ?? null).toBeNull();
+    expect(marquee.foreignOwner?.username).toBe("sarahkl02");
+    expect(marquee.lastCollectFailureReason).toBe("lien d'un autre compte (@sarahkl02)");
+    // Relevé rapide : refusé aussi, et le post de la créatrice du même passage
+    // est écrit (présence : le passage n'a pas tout jeté).
+    expect(
+      await early(
+        [
+          { publicationId: B, vues: 1_330, owner: sarahkl02, postedAt: datePubliB },
+          { publicationId: A, vues: 4_390, owner: self, postedAt: ts - 30 * HOUR },
+        ],
+        Date.now() + 11 * 60_000,
+      ),
+    ).toBe(1);
+
+    // ── 4. Son AUTRE compte : relevé, mais rendu « sibling » ────────────────
+    // (le relevé n'écrit alors pas le profil de @marine.alt sur ce compte).
+    const ws = await nightly(S, 2_050, soeur);
+    expect(ws).toEqual({ action: "inserted", sibling: true });
+    expect((await pubOf(S)).vuesLatest).toBe(2_050);
+    expect((await pubOf(S)).foreignOwner).toBeUndefined();
+    // Et sa vidéo à lui n'est pas « sibling » (absence, sur une écriture réussie).
+    expect(await nightly(A, 4_500, self)).toEqual({ action: "updated" });
+
+    // ── 5a. Dashboard « Posts des dernières 48 h » ──────────────────────────
+    await admin.mutation(api.dashboardDecisions.e2eRefreshDecisionsCache, {
+      secret: E2E_SECRET,
+      projectId: await admin.getProjectId(),
+    });
+    const d = await admin.query(api.dashboardDecisions.decisionDashboard, {});
+    expect(d.posts48h.find((p) => p.publicationId === B)?.foreignOwner).toBe("sarahkl02");
+    expect(d.posts48h.find((p) => p.publicationId === A)?.foreignOwner).toBeNull();
+
+    await page.goto(adminPath("/dashboard"));
+    await expect(page.getByRole("heading", { name: "Posts des dernières 48 h" })).toBeVisible();
+    const flag = page.getByTestId(`post48h-foreign-owner-${B}`);
+    await expect(flag).toHaveText("Lien d'un autre compte (@sarahkl02)");
+    // La plateforme est NOMMÉE : ce n'est pas Instagram qui l'attribue.
+    await expect(flag).toHaveAttribute("title", /^TikTok attribue ce post à @sarahkl02/);
+    await expect(page.getByTestId(`post48h-foreign-owner-${A}`)).toHaveCount(0);
+
+    // ── 5b. Panneau de la mission ───────────────────────────────────────────
+    await page.goto(adminPath("/assignments"));
+    await expect(page.getByText(/\d+ \/ \d+ livrable/)).toBeVisible();
+    await page.locator("button").filter({ hasText: "Tous créateurs" }).click();
+    await page.locator('[role="option"]').filter({ hasText: creatorName }).click();
+    await page.keyboard.press("Escape");
+    await page
+      .getByTitle(new RegExp(creatorName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+      .click();
+    const sheet = page.getByTestId("assignment-detail-sheet");
+    await expect(sheet.getByTestId("detail-publication-published")).toBeVisible();
+    const note = sheet.getByTestId("detail-foreign-owner-TikTok");
+    await expect(note).toContainText("Lien d'un autre compte (@sarahkl02)");
+    await expect(note).toContainText("TikTok attribue ce post à @sarahkl02");
   });
 });

@@ -41,7 +41,7 @@ import {
   type FacebookPostStat,
 } from "./facebookApify";
 import { parisHour } from "./calendarStatus";
-import { ownerIsPubHandle } from "./instagramOwner";
+import { ownerIsPubHandle } from "./postOwner";
 import { unmatchableUrlReason } from "./postUrlShape";
 import { isTikTokShortlink } from "./postUrlDate";
 import { deliver, resolveNotifyContext } from "./notifications";
@@ -635,12 +635,16 @@ async function syncTikTokLot(
     apiToken,
     budgetIn,
   );
+  // Une vidéo d'un autre compte n'est PAS relevée : rien n'a été écrit.
   const releves = new Set([...interne.releves, ...secours.releves]);
+  const etrangers = interne.foreign + secours.foreign;
   console.info(
     `[nightly-views] lot ${label.lotIndex + 1}/${label.lotTotal} TikTok — ` +
       `${releves.size}/${targets.length} relevée(s) : ${interne.releves.length} par la page ` +
       `(${interne.pages} page(s)), ${secours.releves.length} par Apify (${secours.runs} run(s)), ` +
-      `${interne.refused} refusée(s) par TikTok, ${secours.failed} perdue(s). ` +
+      `${interne.refused} refusée(s) par TikTok, ${secours.failed} perdue(s)` +
+      (etrangers > 0 ? `, ${etrangers} lien(s) d'un autre compte non relevé(s)` : "") +
+      `. ` +
       `Budget de secours restant ${secours.budgetRestant}, ${Date.now() - debut} ms.`,
   );
   return {

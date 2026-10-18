@@ -1261,8 +1261,8 @@ function PublicationSection({ row }: { row: AssignmentRow }) {
 }
 
 /**
- * « Lien d'un autre compte (@x) » — le reel collé n'est pas à elle : le relevé
- * n'en écrit aucune vue (cf convex/instagramOwner.ts). Posé sous le lien, à
+ * « Lien d'un autre compte (@x) » — le post collé n'est pas à elle : le relevé
+ * n'en écrit aucune vue (cf convex/postOwner.ts). Posé sous le lien, à
  * côté de « Corriger le lien », le seul geste qui le répare.
  */
 function ForeignOwnerNote({ platform, handle }: { platform: Plateforme; handle: string }) {
@@ -1274,7 +1274,7 @@ function ForeignOwnerNote({ platform, handle }: { platform: Plateforme; handle: 
     >
       {tr("lienDUnAutreCompte", { handle })}
       <span className="block font-normal text-rose-500">
-        {tr("lienDUnAutreCompteAide", { handle })}
+        {tr("lienDUnAutreCompteAide", { handle, platform })}
       </span>
     </p>
   );

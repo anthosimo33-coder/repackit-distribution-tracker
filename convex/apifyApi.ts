@@ -24,6 +24,7 @@
 import {
   parseSaves,
   parseAuthorProfile,
+  parseTikTokOwner,
   parseInstagramProfile,
   hasAnyCount,
   type AuthorProfile,
@@ -128,7 +129,7 @@ export interface ApifyPostStat {
    * (« kellyleydie ») ne coïncide pas avec celui saisi en base (« @kelly.leydie »).
    */
   author: AuthorProfile | null;
-  /** Propriétaire du post (Instagram) ; `null` si absent — cf lib/apifyPosts. */
+  /** Auteur du post (Instagram, TikTok) ; `null` si absent — cf lib/apifyPosts. */
   ownerUsername: string | null;
   ownerId: string | null;
 }
@@ -202,8 +203,7 @@ function parseTikTokViews(
       // remontée : sans ce second terme, un item qui porterait l'avatar sans
       // aucun compteur ferait perdre la photo en silence.
       author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
-      ownerUsername: null,
-      ownerId: null,
+      ...parseTikTokOwner(item),
     };
   }
   const present = new Set(Object.keys(stats));

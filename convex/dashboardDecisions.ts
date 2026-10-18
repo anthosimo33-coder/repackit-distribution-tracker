@@ -186,7 +186,7 @@ export async function computeDecisionDashboard(
       type: string;
       snapshotAt: number | null;
       snapshotSource: ReadingSource | null;
-      /** @ du vrai propriétaire si le reel est à un autre compte (cf foreignOwner). */
+      /** @ du vrai propriétaire si le post est à un autre compte (cf foreignOwner). */
       foreignOwner: string | null;
     };
     const signalOf = async (p: Doc<"publications">): Promise<Post48h> => {
@@ -232,7 +232,7 @@ export async function computeDecisionDashboard(
       // Sans aucun relevé : les valeurs d'avant (0, « en attente » à l'écran).
       const vues = retenu?.vues ?? p.vuesLatest ?? 0;
       // LIEN D'UN AUTRE COMPTE : les relevés éventuellement présents ont été
-      // écrits avant que le compte soit confirmé, et décrivent le reel de
+      // écrits avant que le compte soit confirmé, et décrivent le post de
       // quelqu'un d'autre. Ils ne comptent ni dans la somme du compte, ni pour
       // une porte ouverte ; la ligne affiche « — » et dit pourquoi.
       const foreignOwner = p.foreignOwner?.username ?? null;

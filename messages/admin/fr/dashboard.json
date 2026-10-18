@@ -59,7 +59,7 @@
     "vuesA": "vues · {heure}",
     "releveRapideLeA": "Relevé rapide le {sourceDay} à {heure} — toutes les 2 h pendant les 36 premières heures du post.",
     "lienDUnAutreCompte": "Lien d'un autre compte (@{handle})",
-    "lienDUnAutreCompteAide": "Instagram attribue ce reel à @{handle}, pas à ce compte : ses vues ne sont pas relevées. Corrigez le lien depuis la mission."
+    "lienDUnAutreCompteAide": "{platform} attribue ce post à @{handle}, pas à ce compte : ses vues ne sont pas relevées. Corrigez le lien depuis la mission."
   },
   "ConversionSection": {
     "chacuneAfficheLesMemesChiffres": "Chacune affiche les MÊMES chiffres, et le total ne le montre pas — il somme les refs, pas les lignes.",

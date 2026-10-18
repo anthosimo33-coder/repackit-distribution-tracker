@@ -923,14 +923,14 @@ function PostRow({ post: p, now }: { post: Post48h; now: number }) {
         {foreignOwner !== null && (
           <div
             className="truncate text-xs font-medium text-rose-600"
-            title={tr("lienDUnAutreCompteAide", { handle: foreignOwner })}
+            title={tr("lienDUnAutreCompteAide", { handle: foreignOwner, platform: p.plateforme })}
             data-testid={`post48h-foreign-owner-${p.publicationId}`}
           >
             {tr("lienDUnAutreCompte", { handle: foreignOwner })}
           </div>
         )}
       </div>
-      {/* Reel d'un autre compte : aucune vue n'est relevée, un chiffre mentirait. */}
+      {/* Post d'un autre compte : aucune vue n'est relevée, un chiffre mentirait. */}
       <Metric
         value={foreignOwner !== null ? "—" : formatNumber(p.vues, loc)}
         label={vuesLabel}

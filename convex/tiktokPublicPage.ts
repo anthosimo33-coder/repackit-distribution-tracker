@@ -21,7 +21,7 @@
  *   <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" …>{ __DEFAULT_SCOPE__: {
  *       "webapp.video-detail": {
  *          statusCode: 0, statusMsg: "",
- *          itemInfo: { itemStruct: { id, desc, author:{uniqueId},
+ *          itemInfo: { itemStruct: { id, desc, author:{uniqueId, id},
  *                      stats: { playCount, diggCount, commentCount,
  *                               collectCount, shareCount } } } } } }</script>
  *
@@ -47,8 +47,19 @@ export type TikTokPublicStats = {
   shares: number | null;
   /** Légende (`desc`), null si vide — même convention que le relevé Apify. */
   title: string | null;
-  /** `author.uniqueId`, pour contrôler qu'on lit bien le bon post. */
+  /**
+   * `author.uniqueId` — l'auteur RÉEL de la vidéo. TikTok sert la vidéo par son
+   * id et ignore le @ écrit dans l'URL (`/@n_importe_qui/video/<id>` sert la
+   * même page) : c'est ce champ, pas l'URL, qui dit à qui est le post (cf
+   * convex/postOwner.ts).
+   */
   authorHandle: string | null;
+  /**
+   * `author.id` — id NUMÉRIQUE du compte auteur, en chaîne. Survit à un
+   * changement de @ : c'est l'identité apprise sur le compte
+   * (`comptes.tiktokOwnerIds`).
+   */
+  authorId: string | null;
   /**
    * Compteurs du COMPTE (`authorStats`) et photo (`author.avatarLarger`),
    * servis sur la même page — même forme que le profil lu chez Apify, pour que
@@ -191,6 +202,10 @@ export function parseTikTokPublicPage(
     typeof author.uniqueId === "string" && author.uniqueId.length > 0
       ? author.uniqueId
       : null;
+  const authorId =
+    typeof author.id === "string" && author.id.trim() !== ""
+      ? author.id.trim()
+      : null;
   const profil: AuthorProfile = {
     handle,
     followers: toCount(authorStats.followerCount),
@@ -210,6 +225,7 @@ export function parseTikTokPublicPage(
       shares: toCount(stats.shareCount),
       title: desc.length > 0 ? desc : null,
       authorHandle: handle,
+      authorId,
       author:
         hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
     },

@@ -16,6 +16,7 @@
 import {
   parseSaves,
   parseAuthorProfile,
+  parseTikTokOwner,
   hasAnyCount,
   type AuthorProfile,
 } from "../convex/apifyItem";
@@ -125,18 +126,19 @@ export interface ApifyPostStat {
    */
   author: AuthorProfile | null;
   /**
-   * PROPRIÉTAIRE du post (`ownerUsername` / `ownerId`, Instagram uniquement) ;
-   * `null` si l'actor ne le rend pas.
+   * AUTEUR du post — Instagram : `ownerUsername` / `ownerId` ; TikTok :
+   * `authorMeta.name` / `authorMeta.id` (cf `parseTikTokOwner`). `null` si
+   * l'actor ne le rend pas.
    *
-   * L'URL d'un reel (`/reel/<code>/`) ne porte PAS le handle : au collage,
-   * rien ne distingue le reel de la créatrice de celui de quelqu'un d'autre.
-   * Le 18/10/2026, Quentin a collé un reel de @princiaconfort, relevé à
-   * 371 878 vues comme le sien. Seul l'item Apify sait à qui est le post —
-   * c'est `convex/instagramOwner.ts` qui en tire un verdict.
+   * L'URL d'un reel (`/reel/<code>/`) ne porte PAS le handle, et le @ d'une
+   * URL TikTok n'est pas lu par TikTok (il sert la vidéo par son id) : au
+   * collage, rien ne distingue le post de la créatrice de celui de quelqu'un
+   * d'autre. Le 18/10/2026, Quentin a collé un reel de @princiaconfort, relevé
+   * à 371 878 vues comme le sien. Seule la source sait à qui est le post —
+   * c'est `convex/postOwner.ts` qui en tire un verdict.
    *
    * `ownerId` est l'identifiant NUMÉRIQUE du compte : il survit à un
-   * changement de @, contrairement à `ownerUsername`. TikTok porte le handle
-   * dans l'URL : les deux champs y restent `null`.
+   * changement de @, contrairement à `ownerUsername`.
    */
   ownerUsername: string | null;
   ownerId: string | null;
@@ -224,8 +226,7 @@ export function parseTikTokViews(
       // Une photo de profil n'est pas un compteur, mais elle vaut à elle
       // seule d'être remontée (cf. la réplique dans convex/apifyApi.ts).
       author: hasAnyCount(profil) || profil.avatarUrl !== null ? profil : null,
-      ownerUsername: null,
-      ownerId: null,
+      ...parseTikTokOwner(item),
     };
   }
   const present = new Set(Object.keys(stats));

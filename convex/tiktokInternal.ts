@@ -4,7 +4,9 @@ import { internal } from "./_generated/api";
 import {
   fetchTikTokPublicStats,
   refusalLabel,
+  type TikTokPublicStats,
 } from "./tiktokPublicPage";
+import { ownerIsPubHandle } from "./postOwner";
 import {
   apifyFailureReason,
   fetchApifyViewsForPlatform,
@@ -43,6 +45,14 @@ import {
  * `10231 cross_border_violation`, supprimé) n'est PAS un signe de blocage — la
  * page a été servie, avec son motif. Il ne part pas chez Apify non plus : ces
  * posts étaient justement ceux qu'Apify ne rendait pas.
+ *
+ * ── L'auteur de la vidéo ─────────────────────────────────────────────────────
+ * TikTok sert une vidéo par son id et ignore le @ écrit dans l'URL : une vidéo
+ * d'un autre compte collée par une créatrice se relève comme la sienne. Chaque
+ * relevé passe donc l'auteur rendu (page : `author`, Apify : `authorMeta`) à
+ * l'écriture, qui refuse le post PROUVÉ à un autre compte (cf
+ * convex/postOwner.ts) — et le profil servi avec un post n'est écrit sur le
+ * compte que si le post est à CE compte.
  */
 
 /** Pages illisibles consécutives qui coupent le relevé maison pour la nuit. */
@@ -122,6 +132,8 @@ export type InternalOutcome = {
   releves: string[];
   /** Posts refusés par TikTok (échec persisté, définitif). */
   refused: number;
+  /** Posts PROUVÉS à un autre compte : rien d'écrit, publication marquée. */
+  foreign: number;
   /** Posts à confier au secours — AUCUN échec n'est encore écrit pour eux. */
   aSecourir: RescueTarget[];
   /**
@@ -168,6 +180,7 @@ export async function collectTikTokInternally(
   const out: InternalOutcome = {
     releves: [],
     refused: 0,
+    foreign: 0,
     aSecourir: [],
     nonTentes: [],
     pages: 0,
@@ -178,6 +191,64 @@ export async function collectTikTokInternally(
   // mêmes sur toutes ses vidéos. La clé porte le projet (deux projets peuvent
   // suivre le même @).
   const profilsEcrits = new Set<string>();
+  const differes: { t: InternalTarget; stats: TikTokPublicStats }[] = [];
+
+  // Écriture d'un post lu, refusée par la mutation s'il est prouvé à un autre
+  // compte (cf convex/postOwner.ts).
+  const ecrire = async (t: InternalTarget, stats: TikTokPublicStats): Promise<void> => {
+    const res = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
+      publicationId: t.publicationId,
+      vues: stats.views,
+      likes: stats.likes,
+      comments: stats.comments,
+      saves: stats.saves,
+      title: stats.title ?? undefined,
+      capturedAt,
+      // `source: "tiktok"` : c'est un relevé TikTok, la série reste homogène.
+      // La provenance (page ou Apify) n'a aucune conséquence à la lecture.
+      source: "tiktok" as const,
+      // Paliers synchronisés par l'appelant en fin de passage (cf bonusSync).
+      differerBonus: true,
+      ownerUsername: stats.authorHandle,
+      ownerId: stats.authorId,
+    });
+    // Vidéo d'un autre compte : rien n'est écrit, la mutation a marqué la
+    // publication et inscrit le motif.
+    if (res.action === "foreign_owner") {
+      out.foreign += 1;
+      return;
+    }
+    // `skipped` = snapshot refusé par l'invariant (capture antérieure à la
+    // publication) : ni un relevé, ni un échec de collecte.
+    if (res.action === "skipped") return;
+    out.releves.push(t.publicationId as string);
+
+    // Vidéo d'un AUTRE compte de la créatrice : ses vues sont à elle, mais les
+    // abonnés et la photo servis avec elle sont ceux de l'autre compte. Le
+    // 17/10/2026, une vidéo de @kellyleydie rattachée à @thekellychapters_ a
+    // écrit 1 691 abonnés sur un compte qui en avait 373.
+    if (res.sibling === true) return;
+    const author = stats.author;
+    const cleCompte = `${t.projectId}|${t.compte}`;
+    if (author !== null && !profilsEcrits.has(cleCompte)) {
+      profilsEcrits.add(cleCompte);
+      await ctx.runMutation(internal.apifySync.recordAccountProfile, {
+        publicationId: t.publicationId,
+        capturedAt,
+        followers: author.followers,
+        following: author.following,
+        totalLikes: author.totalLikes,
+        source: "tiktok" as const,
+      });
+      if (author.avatarUrl) {
+        out.avatars.push({
+          projectId: t.projectId,
+          handle: t.compte,
+          sourceUrl: author.avatarUrl,
+        });
+      }
+    }
+  };
 
   for (const t of targets) {
     if (out.breaker.trippedReason !== null) {
@@ -214,51 +285,25 @@ export async function collectTikTokInternally(
       continue;
     }
 
-    const res = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
-      publicationId: t.publicationId,
-      vues: r.stats.views,
-      likes: r.stats.likes,
-      comments: r.stats.comments,
-      saves: r.stats.saves,
-      title: r.stats.title ?? undefined,
-      capturedAt,
-      // `source: "tiktok"` : c'est un relevé TikTok, la série reste homogène.
-      // La provenance (page ou Apify) n'a aucune conséquence à la lecture.
-      source: "tiktok" as const,
-      // Paliers synchronisés par l'appelant en fin de passage (cf bonusSync).
-      differerBonus: true,
-    });
-    // `skipped` = snapshot refusé par l'invariant (capture antérieure à la
-    // publication) : ni un relevé, ni un échec de collecte.
-    if (res.action === "skipped") continue;
-    out.releves.push(t.publicationId as string);
-
-    const author = r.stats.author;
-    const cleCompte = `${t.projectId}|${t.compte}`;
-    if (author !== null && !profilsEcrits.has(cleCompte)) {
-      profilsEcrits.add(cleCompte);
-      await ctx.runMutation(internal.apifySync.recordAccountProfile, {
-        publicationId: t.publicationId,
-        capturedAt,
-        followers: author.followers,
-        following: author.following,
-        totalLikes: author.totalLikes,
-        source: "tiktok" as const,
-      });
-      if (author.avatarUrl) {
-        out.avatars.push({
-          projectId: t.projectId,
-          handle: t.compte,
-          sourceUrl: author.avatarUrl,
-        });
-      }
+    // Auteur ≠ @ du compte (renommage, autre compte de la créatrice, lien
+    // étranger) : écrit EN DERNIER. Les vidéos qui confirment le compte passent
+    // d'abord et y apprennent son identité — c'est ce qui permet de refuser un
+    // lien étranger dès le premier passage (les lots regroupent les posts par
+    // compte, cf `planLots`).
+    if (r.stats.authorHandle !== null && !ownerIsPubHandle(r.stats.authorHandle, t.compte)) {
+      differes.push({ t, stats: r.stats });
+      continue;
     }
+    await ecrire(t, r.stats);
   }
+  for (const d of differes) await ecrire(d.t, d.stats);
   return out;
 }
 
 export type RescueOutcome = {
   releves: string[];
+  /** Posts PROUVÉS à un autre compte : rien d'écrit, publication marquée. */
+  foreign: number;
   /** Posts perdus (échec persisté avec son motif). */
   failed: number;
   /** Runs Apify lancés — l'unité de coût. */
@@ -282,6 +327,7 @@ export async function rescueWithApify(
 ): Promise<RescueOutcome> {
   const out: RescueOutcome = {
     releves: [],
+    foreign: 0,
     failed: 0,
     runs: 0,
     budgetRestant: budget,
@@ -311,7 +357,13 @@ export async function rescueWithApify(
     }
   }
 
-  for (const t of tentes) {
+  // Même ordre que la page : les vidéos qui confirment leur compte d'abord.
+  const ordered = [...tentes].sort(
+    (a, b) =>
+      Number(ownerIsPubHandle(stats[b.key]?.ownerUsername ?? null, b.compte)) -
+      Number(ownerIsPubHandle(stats[a.key]?.ownerUsername ?? null, a.compte)),
+  );
+  for (const t of ordered) {
     const stat = stats[t.key];
     if (stat !== undefined) {
       const res = await ctx.runMutation(internal.apifySync.recordApifySnapshot, {
@@ -324,8 +376,11 @@ export async function rescueWithApify(
         capturedAt,
         source: "tiktok" as const,
         differerBonus: true,
+        ownerUsername: stat.ownerUsername,
+        ownerId: stat.ownerId,
       });
-      if (res.action !== "skipped") out.releves.push(t.publicationId as string);
+      if (res.action === "foreign_owner") out.foreign += 1;
+      else if (res.action !== "skipped") out.releves.push(t.publicationId as string);
       continue;
     }
     out.failed += 1;

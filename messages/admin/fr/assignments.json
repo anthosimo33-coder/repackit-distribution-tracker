@@ -175,7 +175,7 @@
     "publieEtPaye": "Publié et payé ✓",
     "publie": "Publié ✓",
     "lienDUnAutreCompte": "Lien d'un autre compte (@{handle})",
-    "lienDUnAutreCompteAide": "Instagram attribue ce reel à @{handle} : aucune vue n'est relevée tant que le lien n'est pas corrigé."
+    "lienDUnAutreCompteAide": "{platform} attribue ce post à @{handle} : aucune vue n'est relevée tant que le lien n'est pas corrigé."
   },
   "CorrectUrlButton": {
     "corrigerLeLien": "Corriger le lien",

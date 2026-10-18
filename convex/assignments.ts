@@ -4325,7 +4325,7 @@ export const correctPublishedUrl = permissionMutation("review.manage")({
 
 /**
  * Les liens publiés d'une mission que le relevé a PROUVÉS à un autre compte
- * (« lien d'un autre compte (@x) », cf convex/instagramOwner.ts) — affichés
+ * (« lien d'un autre compte (@x) », cf convex/postOwner.ts) — affichés
  * dans le panneau à côté de « Corriger le lien », le geste qui les répare.
  *
  * Demandé à l'ouverture du panneau : la liste des missions ne porte pas les
