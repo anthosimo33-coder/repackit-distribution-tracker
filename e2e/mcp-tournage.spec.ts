@@ -148,7 +148,7 @@ test.describe("MCP — mode tournage", () => {
     expect(ok.erreur, ok.texte).toBe(false);
     expect(await paire()).toMatchObject({ etat: "prêt", lien });
     expect((await paire()).missionsQuiAttendent).toBeUndefined();
-    expect(await tournageMission()).toEqual({ lien, prenom: "Kelly" });
+    expect(await tournageMission()).toEqual({ lien: `${lien}?prenom=Kelly`, prenom: "Kelly" });
 
     // ── Défaire la préparation est refusé tant qu'un lien est collé.
     const refuse = await defaire("preparer_tournages");
