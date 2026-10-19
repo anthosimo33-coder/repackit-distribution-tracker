@@ -95,7 +95,7 @@ test.describe("Scénarios — liens de tournage par l'API BLUSH", () => {
     await blush.pret(d!.ref);
     const lien = `https://askblush.test/tournage/${d!.ref}`;
     await expect.poll(async () => (await paire(scenarioId)).lien, { timeout: 45_000 }).toBe(lien);
-    expect(await tournageMission()).toEqual({ lien, prenom: "Kelly" });
+    expect(await tournageMission()).toEqual({ lien: `${lien}?prenom=Kelly`, prenom: "Kelly" });
     // Redemander : rien ne repart (le lien est là, pas de 2e lecture).
     expect(await admin.mutation(api.scenarioTournage.demanderLiensTournage, { creatorId: kelly.creatorId })).toEqual({ demandes: 0 });
 

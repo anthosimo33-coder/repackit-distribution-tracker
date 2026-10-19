@@ -4,6 +4,7 @@ import {
   lireLienTournage,
   lireReponseCreation,
   lireReponseSuivi,
+  lienDeLaMission,
   nomBlush,
   refBlush,
   veille,
@@ -20,6 +21,27 @@ describe("veille", () => {
   it("ignore les changements d'heure (jours de Paris, pas des heures)", () => {
     expect(veille("2026-10-26")).toBe("2026-10-25");
     expect(veille("2026-03-30")).toBe("2026-03-29");
+  });
+});
+
+describe("lienDeLaMission", () => {
+  it("ajoute le prénom de la créatrice au lien BLUSH (partagé entre créatrices)", () => {
+    expect(lienDeLaMission("https://askblush.com/tournage/k3J9x", "Inès")).toBe(
+      "https://askblush.com/tournage/k3J9x?prenom=In%C3%A8s",
+    );
+  });
+
+  it("encode accents et espaces ; remplace un prénom déjà là sans toucher au reste", () => {
+    const u = new URL(lienDeLaMission("https://askblush.com/tournage/k3J9x?prenom=L%C3%A9a&x=1", " Anne Élise "));
+    expect(u.pathname).toBe("/tournage/k3J9x");
+    expect(u.searchParams.get("prenom")).toBe("Anne Élise");
+    expect(u.searchParams.get("x")).toBe("1");
+    expect(u.searchParams.getAll("prenom")).toHaveLength(1);
+  });
+
+  it("prénom vide ou lien illisible : le lien tel quel", () => {
+    expect(lienDeLaMission("https://askblush.com/tournage/k3J9x", "  ")).toBe("https://askblush.com/tournage/k3J9x");
+    expect(lienDeLaMission("pas un lien", "Inès")).toBe("pas un lien");
   });
 });
 
