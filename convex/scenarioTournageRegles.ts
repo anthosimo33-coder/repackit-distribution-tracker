@@ -38,6 +38,25 @@ export function lireLienTournage(texte: string): { ok: true; lien: string | null
   }
 }
 
+/**
+ * Le lien que la MISSION donne à la créatrice : celui de BLUSH, avec son prénom
+ * (`?prenom=`). Un lien BLUSH peut servir à plusieurs créatrices (une lecture par
+ * histoire, collée sur chacune) et sa conv porte le prénom de celle dont le
+ * fichier a été lu : sans `?prenom=`, BLUSH ne sait pas qui filme (« Prête à
+ * filmer, Léa ? », « Qui es-tu ? »). Prénom vide ou lien illisible : tel quel.
+ */
+export function lienDeLaMission(lien: string, prenom: string): string {
+  const p = prenom.trim();
+  if (!p) return lien;
+  try {
+    const url = new URL(lien);
+    url.searchParams.set("prenom", p);
+    return url.toString();
+  } catch {
+    return lien;
+  }
+}
+
 // ─── API BLUSH (convex/scenarioTournageBlush) ────────────────────────────────
 
 /** La `ref` envoyée à BLUSH : même ref = même lien, sans nouvelle lecture. Une nouvelle version = un nouveau lien. */

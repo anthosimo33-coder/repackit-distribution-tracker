@@ -132,7 +132,8 @@ test.describe("Scénarios — mode tournage", () => {
     await expect(ligne.getByLabel("Prêt")).toBeVisible({ timeout: 15_000 });
 
     // ── Sa mission : CE fichier, octet pour octet, et CE lien — les deux missions de la paire.
-    expect(await vue(juliette, a!._id)).toMatchObject({ tournage: { lien, prenom: "Juliette" } });
+    // Le lien de SA mission porte son prénom : un lien BLUSH se partage entre créatrices.
+    expect(await vue(juliette, a!._id)).toMatchObject({ tournage: { lien: `${lien}?prenom=Juliette`, prenom: "Juliette" } });
     const convA = await recuperer(juliette, a!._id);
     expect(convA).toEqual({ nomFichier: "WhatsApp Chat - Juliette, Yanis.txt", texte: fige });
     expect((await recuperer(juliette, b!._id)).texte).toBe(fige);
@@ -155,7 +156,7 @@ test.describe("Scénarios — mode tournage", () => {
     await page.goto(`/admin/voir/${E2E_PROJECT_SLUG}/${juliette.creatorId}/assignments/${a!._id}`);
     const fiche = page.getByTestId("mission-scenario");
     await expect(fiche).toBeVisible({ timeout: 20_000 });
-    await expect(fiche.getByTestId("mission-scenario-tournage")).toHaveAttribute("href", lien);
+    await expect(fiche.getByTestId("mission-scenario-tournage")).toHaveAttribute("href", `${lien}?prenom=Juliette`);
     await expect(fiche).toContainText("à « Qui es-tu ? », choisis Juliette");
     await fiche.getByTestId("mission-scenario-preparer").click();
     await expect(fiche.getByTestId("mission-scenario-txt")).toBeVisible({ timeout: 30_000 });

@@ -37,6 +37,7 @@ import { briqueRemplie, ficheCreatrice, valeursDuScenario, type FicheCreatrice }
 import { remplirVariables, type ValeursFiche } from "./scenarioFiche";
 import { scenarioDeMission } from "./scenarioMission";
 import { tournageDe } from "./scenarioTournage";
+import { lienDeLaMission } from "./scenarioTournageRegles";
 import {
   CREATOR_ASSIGNMENT_FIELDS,
   pickCreatorAssignment,
@@ -3027,7 +3028,8 @@ async function scriptNotifOf(
 /**
  * CONVERSATION de la vidéo (option de la campagne, cf convex/scriptConversation) :
  * la mission a-t-elle une histoire, et son MODE TOURNAGE est-il prêt
- * (convex/scenarioTournage) — le lien BLUSH et le prénom du fichier figé ?
+ * (convex/scenarioTournage) — le lien BLUSH (avec son prénom : lienDeLaMission)
+ * et le prénom du fichier figé ?
  * `tournage: null` = pas encore prêt : rien à télécharger ni à importer. Rien
  * du scénario lui-même (code, bible, thème) ne sort.
  */
@@ -3046,7 +3048,7 @@ async function scriptConversationOf(
   return {
     genere: true,
     fiche: await ficheCreatrice(ctx, s._id),
-    tournage: t?.lien ? { lien: t.lien, prenom: t.prenom } : null,
+    tournage: t?.lien ? { lien: lienDeLaMission(t.lien, t.prenom), prenom: t.prenom } : null,
   };
 }
 
