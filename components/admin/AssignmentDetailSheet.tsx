@@ -89,6 +89,7 @@ import {
   type AssignmentStatus,
 } from "@/lib/assignment-status";
 import { AdminPublishForm } from "@/components/admin/AdminPublishForm";
+import { AddPublishedTargetDialog } from "@/components/admin/AddPublishedTargetDialog";
 import { AssignmentAttachments } from "@/components/admin/AssignmentAttachments";
 import { ReplayScriptLauncher } from "@/components/admin/ReplayScriptLauncher";
 import { EditBrickTextDialog } from "@/components/admin/EditBrickTextDialog";
@@ -487,13 +488,14 @@ export function AssignmentDetailSheet({
                     })}
                   </div>
                 )}
-                {/* Une plateforme de plus (compte oublié à l'assignation) — tant
-                    que la vidéo n'est pas sortie. */}
+                {/* Une plateforme de plus (compte oublié à l'assignation) —
+                    avant la sortie, ou après avec le lien de son post. */}
                 {accountOptions?.add.allowed && (
                   <AddTargetMenu
                     assignmentId={row._id}
                     options={accountOptions.add.options}
                     assignmentManaged={row.managedByAdmin === true}
+                    published={accountOptions.add.published}
                   />
                 )}
               </div>
@@ -822,22 +824,33 @@ type AddTargetOption = AccountOptions["add"]["options"][number];
  * compte Snapchat disponible qu'on n'avait pas coché à l'assignation. Même
  * principe que le sélecteur : les comptes refusés restent listés, grisés, avec
  * leur raison ; le serveur (addAssignmentTarget) refait tous les contrôles.
+ *
+ * Vidéo déjà SORTIE (`published`) : elle l'a aussi postée sur ce compte. Le
+ * choix ouvre la saisie du lien de ce post (AddPublishedTargetDialog) au lieu
+ * d'ajouter une consigne.
  */
 function AddTargetMenu({
   assignmentId,
   options,
   assignmentManaged,
+  published,
 }: {
   assignmentId: Id<"assignments">;
   options: AddTargetOption[];
   assignmentManaged: boolean;
+  published: boolean;
 }) {
   const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AddTargetMenu");
   const addTarget = useProjectMutation(api.assignments.addAssignmentTarget);
   const [saving, setSaving] = useState(false);
+  const [publishedPick, setPublishedPick] = useState<AddTargetOption | null>(null);
 
   async function pick(o: AddTargetOption) {
+    if (published) {
+      setPublishedPick(o);
+      return;
+    }
     setSaving(true);
     try {
       await addTarget({ id: assignmentId, accountId: o._id });
@@ -865,54 +878,65 @@ function AddTargetMenu({
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            size="xs"
-            className="-ml-1.5 h-6 gap-1 px-1.5 text-xs text-slate-500 hover:text-slate-900"
-            disabled={saving}
-            data-testid="assignment-detail-add-target"
-          >
-            {saving ? (
-              <Loader2Icon className="size-3 animate-spin" />
-            ) : (
-              <PlusIcon className="size-3" />
-            )}
-            {tr("ajouterUnCompte")}
-          </Button>
-        }
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="xs"
+              className="-ml-1.5 h-6 gap-1 px-1.5 text-xs text-slate-500 hover:text-slate-900"
+              disabled={saving}
+              data-testid={
+                published
+                  ? "assignment-detail-add-published-target"
+                  : "assignment-detail-add-target"
+              }
+            >
+              {saving ? (
+                <Loader2Icon className="size-3 animate-spin" />
+              ) : (
+                <PlusIcon className="size-3" />
+              )}
+              {published ? tr("ajouterUnComptePublie") : tr("ajouterUnCompte")}
+            </Button>
+          }
+        />
+        <DropdownMenuContent className="w-auto min-w-64 max-w-[min(28rem,calc(100vw-2rem))]">
+          {options.length === 0 ? (
+            <p className="px-2 py-1.5 text-xs text-slate-400">
+              {tr("aucunCompteSurUneAutrePlateforme")}
+            </p>
+          ) : (
+            options.map((o) => {
+              const flag = countryFlag(o.country);
+              const raison = refusalLabel(o);
+              return (
+                <DropdownMenuItem
+                  key={o._id}
+                  disabled={raison !== null}
+                  onClick={() => void pick(o)}
+                >
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
+                    <span className="text-xs text-slate-400">{o.platform}</span>
+                    {flag && <span aria-hidden>{flag}</span>}
+                    <span className="font-mono break-all">{o.handle}</span>
+                    {raison && (
+                      <span className="text-xs text-slate-400">{raison}</span>
+                    )}
+                  </span>
+                </DropdownMenuItem>
+              );
+            })
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <AddPublishedTargetDialog
+        assignmentId={assignmentId}
+        account={publishedPick}
+        onClose={() => setPublishedPick(null)}
       />
-      <DropdownMenuContent className="w-auto min-w-64 max-w-[min(28rem,calc(100vw-2rem))]">
-        {options.length === 0 ? (
-          <p className="px-2 py-1.5 text-xs text-slate-400">
-            {tr("aucunCompteSurUneAutrePlateforme")}
-          </p>
-        ) : (
-          options.map((o) => {
-            const flag = countryFlag(o.country);
-            const raison = refusalLabel(o);
-            return (
-              <DropdownMenuItem
-                key={o._id}
-                disabled={raison !== null}
-                onClick={() => void pick(o)}
-              >
-                <span className="flex min-w-0 flex-wrap items-center gap-x-1.5">
-                  <span className="text-xs text-slate-400">{o.platform}</span>
-                  {flag && <span aria-hidden>{flag}</span>}
-                  <span className="font-mono break-all">{o.handle}</span>
-                  {raison && (
-                    <span className="text-xs text-slate-400">{raison}</span>
-                  )}
-                </span>
-              </DropdownMenuItem>
-            );
-          })
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    </>
   );
 }
 

@@ -50,6 +50,7 @@ import {
   periodOf,
 } from "./payments";
 import {
+  assignmentPublishedAt,
   assignmentViewsAndMetrics,
   buildPricingSnapshotFor,
   syncBonusUnlocks,
@@ -57,9 +58,11 @@ import {
 import { markRushPublishedForAssignment } from "./rushes";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import {
+  canAddPublishedTarget,
   canAddTarget,
   comboTakenOnPlatform,
   isTargetAccountLocked,
+  resolvePublishedTargetDate,
   targetAccountRefusal,
   targetAddRefusal,
 } from "./targetAccountSwap";
@@ -735,13 +738,17 @@ export const listTargetAccountOptions = permissionQuery("assignments.manage")({
 
     // ── AJOUT d'une cible : les comptes des plateformes pas encore visées ──
     // Mêmes lectures que `addAssignmentTarget` : format (compatibilité) et
-    // assignations au même combo (unicité par plateforme).
-    const allowed = canAddTarget(a.status);
+    // assignations au même combo (unicité par plateforme). Vidéo sortie
+    // (`published`) : le compte s'ajoute AVEC le lien de son post
+    // (`addPublishedTarget`) — mêmes refus par compte.
+    const published = canAddPublishedTarget(a.status);
+    const allowed = canAddTarget(a.status) || published;
     const taken = new Set(targets.map((t) => t.platform));
     const format = a.formatId ? await ctx.db.get(a.formatId) : null;
     const sameCombo = await sameComboForAdd(ctx, a);
     const add = {
       allowed,
+      published,
       options: !allowed
         ? []
         : comptes
@@ -924,65 +931,79 @@ export const addAssignmentTarget = permissionMutation("assignments.manage")({
         "Cette assignation est publiée ou abandonnée : on ne peut plus lui ajouter de compte.",
       );
     }
-    const compte = await ctx.db.get(accountId);
-    if (
-      !compte ||
-      compte.projectId !== ctx.projectId ||
-      compte.creatorId !== a.creatorId
-    ) {
-      throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
-    }
-    const platform = compte.plateforme;
-    const targets = a.targets ?? [];
-    if (targets.some((t) => t.platform === platform)) {
-      throw err(
-        ERR.TARGET_PLATFORM_DUPLICATE,
-        `Une seule cible par plateforme (${platform} en double).`,
-        { platform },
-      );
-    }
-    await validateTargets(ctx, ctx.projectId, a.creatorId, [
-      { platform, accountId },
-    ]);
-    const format = a.formatId ? await ctx.db.get(a.formatId) : null;
-    const refusal = targetAddRefusal({
-      available: true, // déjà garanti par validateTargets
-      accountManaged: compte.managedByAdmin === true,
-      assignmentManaged: a.managedByAdmin === true,
-      formatAllowed: formatAllowsPlatform(format, platform),
-      comboTaken: comboTakenOnPlatform(await sameComboForAdd(ctx, a), {
-        excludeId: a._id,
-        platform,
-      }),
-    });
-    if (refusal === "managedMismatch") {
-      throw err(
-        ERR.TARGET_ACCOUNT_MANAGED_MISMATCH,
-        "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
-      );
-    }
-    if (refusal === "formatIncompatible" && format) {
-      throw err(
-        ERR.FORMAT_PLATFORM_MISMATCH,
-        `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
-        { name: format.name, type: format.type, platform },
-      );
-    }
-    if (refusal === "comboUsed") {
-      const creator = await ctx.db.get(a.creatorId);
-      const name = creator?.name ?? "ce créateur";
-      throw err(
-        ERR.COMBO_ALREADY_USED,
-        `Ce combo est déjà utilisé pour ${name} sur ${platform}.`,
-        { name, conflict: platform },
-      );
-    }
+    const { platform } = await assertTargetAddable(ctx, a, accountId);
     await ctx.db.patch(id, {
-      targets: [...targets, { platform, accountId }],
+      targets: [...(a.targets ?? []), { platform, accountId }],
     });
     return { platform };
   },
 });
+
+/**
+ * Le compte peut-il devenir une cible de plus de `a` ? Les gardes 2 à 6 de
+ * `addAssignmentTarget`, partagées avec `addPublishedTarget` : avant ou après
+ * la sortie, un compte ajouté passe les mêmes refus. Rend sa plateforme et le
+ * format de l'assignation (déjà lu).
+ */
+async function assertTargetAddable(
+  ctx: ProjectMutationCtx,
+  a: Doc<"assignments">,
+  accountId: Id<"comptes">,
+): Promise<{ platform: Plateforme; format: Doc<"formats"> | null }> {
+  const compte = await ctx.db.get(accountId);
+  if (
+    !compte ||
+    compte.projectId !== ctx.projectId ||
+    compte.creatorId !== a.creatorId
+  ) {
+    throw err(ERR.TARGET_ACCOUNT_NOT_FOUND_FOR_CREATOR, "Compte cible introuvable pour ce créateur.");
+  }
+  const platform = compte.plateforme;
+  if ((a.targets ?? []).some((t) => t.platform === platform)) {
+    throw err(
+      ERR.TARGET_PLATFORM_DUPLICATE,
+      `Une seule cible par plateforme (${platform} en double).`,
+      { platform },
+    );
+  }
+  await validateTargets(ctx, ctx.projectId, a.creatorId, [
+    { platform, accountId },
+  ]);
+  const format = a.formatId ? await ctx.db.get(a.formatId) : null;
+  const refusal = targetAddRefusal({
+    available: true, // déjà garanti par validateTargets
+    accountManaged: compte.managedByAdmin === true,
+    assignmentManaged: a.managedByAdmin === true,
+    formatAllowed: formatAllowsPlatform(format, platform),
+    comboTaken: comboTakenOnPlatform(await sameComboForAdd(ctx, a), {
+      excludeId: a._id,
+      platform,
+    }),
+  });
+  if (refusal === "managedMismatch") {
+    throw err(
+      ERR.TARGET_ACCOUNT_MANAGED_MISMATCH,
+      "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
+    );
+  }
+  if (refusal === "formatIncompatible" && format) {
+    throw err(
+      ERR.FORMAT_PLATFORM_MISMATCH,
+      `Le format « ${format.name} » (${format.type}) ne peut pas être publié sur ${platform}.`,
+      { name: format.name, type: format.type, platform },
+    );
+  }
+  if (refusal === "comboUsed") {
+    const creator = await ctx.db.get(a.creatorId);
+    const name = creator?.name ?? "ce créateur";
+    throw err(
+      ERR.COMBO_ALREADY_USED,
+      `Ce combo est déjà utilisé pour ${name} sur ${platform}.`,
+      { name, conflict: platform },
+    );
+  }
+  return { platform, format };
+}
 
 // ─── Vidéos modèles (liens à reproduire) — gérées par l'admin, vues créateur ──
 // Liens vers des vidéos existantes que le créateur doit reproduire avec son
@@ -3762,6 +3783,59 @@ function assertPostUrlShape(url: string, platform: Plateforme): string {
   return trimmed;
 }
 
+/**
+ * Publie UNE cible : matérialise sa publication (suivi des vues) et, au modèle
+ * LEGACY (sans barème), accrue sa base PAR POST. Rend la cible publiée.
+ *
+ * Partagé par la sortie de la vidéo (`confirmPublicationCore`, toutes les
+ * cibles d'un coup) et par l'ajout d'une cible après la sortie
+ * (`addPublishedTarget`) : une cible ajoutée après coup est publiée exactement
+ * comme si elle avait été cochée. Type de retour ANNOTÉ (TS7022).
+ */
+async function publishTarget(
+  ctx: MutationCtx & { projectId: Id<"projects"> },
+  a: Doc<"assignments">,
+  t: { platform: Plateforme; accountId?: Id<"comptes"> },
+  url: string,
+  at: { effectiveDate: number; now: number; dateLabel: string },
+  format: Doc<"formats"> | null,
+): Promise<NonNullable<Doc<"assignments">["targets"]>[number]> {
+  const publicationId = await materializeTargetPublication(
+    ctx,
+    a,
+    ctx.projectId,
+    t,
+    url,
+    at.effectiveDate,
+  );
+  // Modèle PRICING (pricingSnapshot présent) : AUCUNE lineItem base écrite
+  // ici — la paie (fixe/CPM/bonus) est calculée à la lecture, en temps réel
+  // sur les vues, et GELÉE au paiement (Guard A/B/C, 0 double paiement).
+  // Modèle LEGACY (pas de snapshot) : base PAR POST inchangée.
+  if (a.pricingSnapshot === undefined) {
+    const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
+    const label = isScript
+      ? `Vidéo — ${t.platform} — ${at.dateLabel}`
+      : `${format?.name ?? "Format"} — ${t.platform} — ${at.dateLabel}`;
+    await accrueBaseLineItem(ctx, {
+      projectId: ctx.projectId,
+      creatorId: a.creatorId,
+      assignmentId: a._id,
+      label,
+      amount: a.rateSnapshot.basePerPost,
+      now: at.now,
+      platform: t.platform,
+    });
+  }
+  return {
+    platform: t.platform,
+    accountId: t.accountId,
+    publishedUrl: url,
+    publishedAt: at.effectiveDate,
+    publicationId: publicationId ?? undefined,
+  };
+}
+
 async function confirmPublicationCore(
   ctx: MutationCtx & { projectId: Id<"projects"> },
   a: Doc<"assignments">,
@@ -3863,7 +3937,6 @@ async function confirmPublicationCore(
   // heure de Paris, c'est 22:00-24:00 UTC — sans l'épingle, la ligne annonce LA
   // VEILLE. Fenêtre réelle : l'admin colle des liens le soir.
   const dateLabel = formatDayMonthFr(effectiveDate);
-  const isScript = a.scriptCombo !== undefined && a.formatId === undefined;
 
   // Quota de posts par jour des comptes de CLIPPEUR. Posé ICI et pas avec la
   // garde warmup ci-dessus parce qu'il lui faut `effectiveDate` : le quota se
@@ -3880,41 +3953,16 @@ async function confirmPublicationCore(
       if (t.publicationId) publicationIds.push(t.publicationId);
       continue;
     }
-    const url = urlByPlatform.get(t.platform)!;
-    const publicationId = await materializeTargetPublication(
+    const published = await publishTarget(
       ctx,
       a,
-      ctx.projectId,
       t,
-      url,
-      effectiveDate,
+      urlByPlatform.get(t.platform)!,
+      { effectiveDate, now, dateLabel },
+      format,
     );
-    // Modèle PRICING (pricingSnapshot présent) : AUCUNE lineItem base écrite
-    // ici — la paie (fixe/CPM/bonus) est calculée à la lecture, en temps réel
-    // sur les vues, et GELÉE au paiement (Guard A/B/C, 0 double paiement).
-    // Modèle LEGACY (pas de snapshot) : base PAR POST inchangée.
-    if (a.pricingSnapshot === undefined) {
-      const label = isScript
-        ? `Vidéo — ${t.platform} — ${dateLabel}`
-        : `${format?.name ?? "Format"} — ${t.platform} — ${dateLabel}`;
-      await accrueBaseLineItem(ctx, {
-        projectId: ctx.projectId,
-        creatorId: a.creatorId,
-        assignmentId: a._id,
-        label,
-        amount: a.rateSnapshot.basePerPost,
-        now,
-        platform: t.platform,
-      });
-    }
-    if (publicationId) publicationIds.push(publicationId);
-    newTargets.push({
-      platform: t.platform,
-      accountId: t.accountId,
-      publishedUrl: url,
-      publishedAt: effectiveDate,
-      publicationId: publicationId ?? undefined,
-    });
+    if (published.publicationId) publicationIds.push(published.publicationId);
+    newTargets.push(published);
   }
 
   // Modèle PRICING : pas de lineItem écrite, mais on GARANTIT une row de
@@ -4221,6 +4269,119 @@ export async function confirmPublicationAsAdminCore(
     fromAnyStatus: true,
   });
 }
+
+/**
+ * AJOUTE une cible DÉJÀ PUBLIÉE — un compte ET le lien de son post — à une
+ * vidéo SORTIE. Kelly (19/10) : mission TikTok seule, elle a aussi posté la
+ * vidéo sur son Instagram. `addAssignmentTarget` refuse après la sortie (la
+ * publication exige tous les liens d'un coup) ; ici le lien arrive AVEC le
+ * compte, donc la cible naît publiée.
+ *
+ * Gardes, dans cet ordre :
+ *  1. la vidéo est sortie et pas payée (`canAddPublishedTarget`) ;
+ *  2. les refus de l'ajout avant la sortie (`assertTargetAddable`) : compte à
+ *     elle, plateforme pas déjà visée, disponibilité, mode géré, format,
+ *     script déjà pris sur cette plateforme ;
+ *  3. le lien a la forme d'un post de cette plateforme (`assertPostUrlShape`) ;
+ *  4. la date n'est ni future ni d'un jour antérieur à la sortie
+ *     (`resolvePublishedTargetDate`) : la vidéo reste dans son cycle ;
+ *  5. le cycle de paie de la vidéo n'est pas payé — même verrou que
+ *     `correctPublishedUrl` : des vues de plus sur un montant versé ;
+ *  6. quota journalier des comptes de clippeur, comme à la publication.
+ *
+ * La cible est publiée par `publishTarget`, comme à la sortie (publication →
+ * suivi des vues et CPM ; base par post au modèle legacy ; paliers). Rien
+ * d'autre ne bouge : statut, `publishedBy`, ancre de paie, notification (la
+ * vidéo est déjà annoncée).
+ */
+export const addPublishedTarget = permissionMutation("review.manage")({
+  args: {
+    id: v.id("assignments"),
+    accountId: v.id("comptes"),
+    url: v.string(),
+    /** Date de publication RÉELLE du post. Absente = maintenant. */
+    publishedAt: v.optional(v.number()),
+  },
+  handler: async (
+    ctx,
+    { id, accountId, url, publishedAt },
+  ): Promise<{ platform: Plateforme; publicationId: Id<"publications"> | null }> => {
+    const a = await ctx.db.get(id);
+    if (!a || a.projectId !== ctx.projectId) {
+      throw err(ERR.ASSIGNMENT_NOT_FOUND, "Assignment introuvable.");
+    }
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+    if (!canAddPublishedTarget(a.status)) {
+      throw err(
+        ERR.PUBLISHED_TARGET_ADD_LOCKED,
+        "Seule une vidéo publiée, et pas encore payée, prend un compte avec le lien de son post. Avant la sortie, ajoute le compte seul : son lien sera demandé à la publication.",
+      );
+    }
+    const { platform, format } = await assertTargetAddable(ctx, a, accountId);
+    const clean = assertPostUrlShape(url, platform);
+
+    const now = Date.now();
+    const releasedAt = assignmentPublishedAt(a);
+    const date = resolvePublishedTargetDate(publishedAt ?? now, {
+      releasedAt,
+      now,
+    });
+    if ("refusal" in date) {
+      if (date.refusal === "future") {
+        throw err(ERR.PUBLISHED_AT_IN_FUTURE, "La date de publication ne peut pas être dans le futur.");
+      }
+      throw err(
+        ERR.PUBLISHED_AT_BEFORE_RELEASE,
+        `La date de ce post (${formatDayMonthFr(publishedAt ?? now)}) précède la sortie de la vidéo (${formatDayMonthFr(releasedAt)}) : la vidéo changerait de cycle de paie.`,
+        { at: publishedAt ?? now, releaseAt: releasedAt },
+      );
+    }
+
+    // Verrou de paie : le cycle se lit sur une publication de la vidéo (il
+    // dépend de la vidéo, pas de la plateforme). Sans publication (format
+    // custom), pas de vues, donc rien de figé.
+    const existing = (a.targets ?? []).find((t) => t.publicationId);
+    const pub = existing?.publicationId
+      ? await ctx.db.get(existing.publicationId)
+      : null;
+    if (pub) {
+      const payCtx = await publicationPayContext(ctx, pub);
+      if (payCtx.locked) {
+        throw err(
+          ERR.PAY_CYCLE_LOCKED,
+          lockedMessage("le nombre de posts de la vidéo", payCtx),
+          lockedParams("refusal.locked.addedPost", payCtx),
+        );
+      }
+    }
+
+    const target = { platform, accountId };
+    await assertClipperDailyQuota(ctx, [target], date.at);
+    const published = await publishTarget(
+      ctx,
+      a,
+      target,
+      clean,
+      { effectiveDate: date.at, now, dateLabel: formatDayMonthFr(date.at) },
+      format,
+    );
+    await ctx.db.patch(id, { targets: [...(a.targets ?? []), published] });
+
+    // Modèle PRICING : mêmes suites que la sortie (confirmPublicationCore) —
+    // une row de paiement pour la période, et les paliers recalculés avec ce
+    // post de plus.
+    if (a.pricingSnapshot !== undefined) {
+      await getOrCreatePayment(ctx, {
+        projectId: ctx.projectId,
+        creatorId: a.creatorId,
+        period: periodOf(now),
+        now,
+      });
+      await syncBonusUnlocks(ctx, ctx.projectId, a.creatorId);
+    }
+    return { platform, publicationId: published.publicationId ?? null };
+  },
+});
 
 /**
  * CORRIGER LE LIEN DE SUIVI d'une cible DÉJÀ publiée — « elle s'est trompée de

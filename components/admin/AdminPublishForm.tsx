@@ -31,14 +31,14 @@ export type AdminPublishTarget = {
 };
 
 /** Jour local au format yyyy-mm-dd (valeur/max de l'input date). */
-function todayLocal(): string {
+export function todayLocal(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /** Statut de cohérence URL↔compte sous un champ — jamais silencieux. */
-function AccountCheckLine({
+export function AccountCheckLine({
   url,
   platform,
   expected,

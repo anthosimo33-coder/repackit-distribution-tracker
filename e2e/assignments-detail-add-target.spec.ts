@@ -211,9 +211,11 @@ test.describe("Admin — panneau de détail : ajouter un compte sur une autre pl
       urls: [urls.TikTok, urls.Instagram, urls.Facebook],
     });
 
-    // ── Publié → plus d'ajout ───────────────────────────────────────────────
+    // ── Publié → plus d'ajout SANS lien ─────────────────────────────────────
+    // (l'ajout AVEC le lien du post : assignments-detail-add-published-target)
     await expect(add(tSnap.accountId)).rejects.toThrow(/ERR_TARGET_ADD_LOCKED/);
     await expect(sheet.getByTestId("detail-publication-published")).toBeVisible();
     await expect(addTrigger).toHaveCount(0);
+    await expect(sheet.getByTestId("assignment-detail-add-published-target")).toBeVisible();
   });
 });

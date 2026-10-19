@@ -15,6 +15,7 @@
  * ici ») : rien n'en dépend encore, on peut le changer autant que nécessaire.
  */
 
+import { parisDayIndex } from "./calendarStatus";
 import { COMBO_FREEING_STATUSES } from "./comboFreeing";
 
 /**
@@ -67,6 +68,47 @@ export function targetAccountRefusal(input: {
  */
 export function canAddTarget(status: string): boolean {
   return !PUBLISHED_STATUSES.has(status) && status !== "cancelled";
+}
+
+/**
+ * Peut-on ajouter une cible DÉJÀ PUBLIÉE — un compte ET le lien de son post —
+ * à une vidéo SORTIE ? Le complément de `canAddTarget` : la créatrice a aussi
+ * posté la vidéo sur un compte qu'on n'avait pas coché (Kelly, TikTok coché,
+ * reel posté sur Instagram). La cible n'est pas une consigne mais un fait : elle
+ * arrive avec son lien et sa publication, comme si elle avait été cochée.
+ *
+ * `paid` exclu : le montant de la vidéo est versé, une publication de plus
+ * ajouterait des vues à un montant gelé.
+ */
+export function canAddPublishedTarget(status: string): boolean {
+  return status === "published" || status === "validated";
+}
+
+/**
+ * Date de publication d'une cible ajoutée APRÈS la sortie. Deux bornes :
+ *  - `future` : une date à venir n'a pas pu être publiée ;
+ *  - `beforeRelease` : un JOUR antérieur à la sortie de la vidéo. La date d'une
+ *    vidéo EST la plus ancienne de ses cibles (`assignmentPublishedAt`) : elle
+ *    la place dans son cycle de paie. Une cible plus ancienne déplacerait la
+ *    vidéo dans un autre cycle, peut-être déjà payé.
+ *
+ * Le JOUR de la sortie, une heure antérieure est recalée sur la sortie au lieu
+ * d'être refusée : l'admin choisit un jour (l'écran envoie midi), pas une
+ * heure — un TikTok sorti à 18 h et un reel posté le même jour ne sont pas une
+ * erreur de saisie. Jour de Paris, comme l'écran.
+ */
+export type PublishedTargetDateRefusal = "future" | "beforeRelease";
+
+export function resolvePublishedTargetDate(
+  at: number,
+  bounds: { releasedAt: number; now: number },
+): { at: number } | { refusal: PublishedTargetDateRefusal } {
+  if (at > bounds.now) return { refusal: "future" };
+  if (at >= bounds.releasedAt) return { at };
+  if (parisDayIndex(at) === parisDayIndex(bounds.releasedAt)) {
+    return { at: bounds.releasedAt };
+  }
+  return { refusal: "beforeRelease" };
 }
 
 /**
