@@ -35,7 +35,11 @@ import {
 } from "./decisionThresholds";
 import { listCreatorActivityCore, listCreatorsCore } from "./creators";
 import { creatorPublicationStats } from "./publicationLateness";
-import { getProjectProfitabilityCore } from "./profitability";
+import {
+  assembleProfitability,
+  profitabilityBase,
+  profitabilityCreatorsPart,
+} from "./profitability";
 import { computeRpm, profitabilityReport } from "./profitabilityMath";
 import {
   computeDailyBilledViews,
@@ -346,13 +350,22 @@ export const lirePonctualite = mcpPermissionQuery("content.analytics")({
 });
 
 /**
- * Carte Rentabilité (écran Paiements) — même lecture, même bloc. `periode` :
- * revenu de ces jours + plafond et posts rémunérés de chaque vidéo facturée.
+ * Carte Rentabilité (écran Paiements) — même calcul, même bloc, mais en
+ * plusieurs queries : en une seule, il dépassait la limite d'exécution d'une
+ * query sur Snytch (cf convex/profitability « POURQUOI TROIS MORCEAUX »).
+ * D'abord la base (revenu, créatrices qui coûtent) ; `periode` : revenu de ces
+ * jours.
  */
-export const lireRentabilite = mcpPermissionQuery("business.read")({
+export const lireRentabiliteBase = mcpPermissionQuery("business.read")({
   args: { periode: v.optional(v.object({ du: v.string(), au: v.string() })) },
-  handler: async (ctx, { periode }) =>
-    getProjectProfitabilityCore(ctx, periode ? { periode } : undefined),
+  handler: async (ctx, { periode }) => profitabilityBase(ctx, periode),
+});
+
+/** Puis le coût d'un LOT de créatrices ; `avecVideos` : plafond et posts rémunérés de chaque vidéo facturée. */
+export const lireRentabiliteCreatrices = mcpPermissionQuery("business.read")({
+  args: { creatorIds: v.array(v.id("creators")), avecVideos: v.boolean() },
+  handler: async (ctx, { creatorIds, avecVideos }) =>
+    profitabilityCreatorsPart(ctx, creatorIds, avecVideos),
 });
 
 /**
@@ -1430,6 +1443,39 @@ export function jarviaServer(
   }
 
   /**
+   * Le calcul de la carte Rentabilité, découpé : la base, puis les créatrices
+   * par lots, une query chacun, puis l'assemblage (pur) — cf convex/profitability
+   * « POURQUOI TROIS MORCEAUX ». Les lots partent de front : ce sont des
+   * lectures, et l'appel attend le plus lent, pas leur somme.
+   */
+  async function lireRentabilite(
+    ids: { userId: Id<"users">; projectId: Id<"projects"> },
+    periode?: { du: string; au: string },
+  ) {
+    const base = await lire(() =>
+      ctx.runQuery(internal.mcpTools.lireRentabiliteBase, { ...ids, periode }),
+    );
+    if (!base.configured) return base;
+    const LOT_CREATRICES = 4;
+    const lots: Id<"creators">[][] = [];
+    for (let i = 0; i < base.creatorIds.length; i += LOT_CREATRICES) {
+      lots.push(base.creatorIds.slice(i, i + LOT_CREATRICES));
+    }
+    const parts = await Promise.all(
+      lots.map((creatorIds) =>
+        lire(() =>
+          ctx.runQuery(internal.mcpTools.lireRentabiliteCreatrices, {
+            ...ids,
+            creatorIds,
+            avecVideos: periode !== undefined,
+          }),
+        ),
+      ),
+    );
+    return assembleProfitability(base, parts);
+  }
+
+  /**
    * `rentabilite` sur une période LIBRE : revenu encaissé ces jours-là ÷ vues
    * FACTURÉES gagnées ces jours-là.
    *
@@ -1458,9 +1504,7 @@ export function jarviaServer(
     const [ya, ma, da] = au.split("-").map(Number);
     const fin = parisMidnightUtc(ya, ma, da + 1); // exclu
 
-    const data = await lire(() =>
-      ctx.runQuery(internal.mcpTools.lireRentabilite, { ...ids, periode: { du, au } }),
-    );
+    const data = await lireRentabilite(ids, { du, au });
     if (!data.configured || !("periode" in data) || data.periode === undefined) {
       return json({
         projet: projet.slug,
@@ -1747,7 +1791,7 @@ export function jarviaServer(
         if (mois !== null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(mois)) {
           throw new ToolError("« mois » doit être au format AAAA-MM (ex. 2026-09).");
         }
-        const data = await lire(() => ctx.runQuery(internal.mcpTools.lireRentabilite, ids));
+        const data = await lireRentabilite(ids);
         if (!data.configured) {
           return json({
             projet: projet.slug,

@@ -86,15 +86,17 @@ async function creatorCostByMonth(
    * mois de sa publication : aucune clé ne se répète.
    */
   billedByAssignment: Map<string, number>;
+  /** Ses assignations du projet, déjà lues — de quoi rattacher ses vidéos à leurs posts. */
+  projectAssignments: Doc<"assignments">[];
 }> {
-  const assignments = (
+  const ofProject = (
     await ctx.db
       .query("assignments")
       .withIndex("by_creator", (q) => q.eq("creatorId", creatorId))
       .collect()
-  ).filter(
+  ).filter((a) => a.projectId === projectId);
+  const assignments = ofProject.filter(
     (a) =>
-      a.projectId === projectId &&
       a.pricingSnapshot !== undefined &&
       (a.status === "published" || a.status === "paid"),
   );
@@ -205,7 +207,7 @@ async function creatorCostByMonth(
       });
     }
   }
-  return { months: out, billedByAssignment };
+  return { months: out, billedByAssignment, projectAssignments: ofProject };
 }
 
 /**
@@ -220,58 +222,101 @@ export const getProjectProfitability = permissionQuery("business.read")({
   handler: (ctx) => getProjectProfitabilityCore(ctx),
 });
 
-/**
- * Cœur de `getProjectProfitability` — partagé avec l'outil MCP `rentabilite` (convex/mcpTools) : même revenu, même moteur de paie, même découpage en mois.
- */
-export async function getProjectProfitabilityCore(
-  ctx: ProjectQueryCtx,
-  /**
-   * Période LIBRE (jours de Paris inclus, outil MCP `rentabilite`) : ajoute au
-   * résultat le revenu encaissé ces jours-là et, pour chaque vidéo facturée, son
-   * plafond et ses posts rémunérés — de quoi dater ses vues facturées (cf
-   * convex/viewsDaily `computeDailyBilledViews`). Absente : réponse inchangée,
-   * c'est celle de la carte.
-   */
-  opts?: { periode?: { du: string; au: string } },
-) {
-  const project = await ctx.db.get(ctx.projectId);
-  // Rentabilité = Whop-gated : sans mapping, on court-circuite AVANT tout calcul
-  // coûteux (le coût créateurs itère créateurs × mois). L'UI masque la carte.
-  if (project?.whop === undefined) {
-    return {
-      configured: false as const,
-      currency: null as string | null,
-      mixedCurrency: false,
-      mixedCurrencyPresent: false,
-      currenciesPresent: [] as string[],
-      payCurrency: (project?.payCurrency ?? null) as string | null,
-      fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
-      currentPeriod: monthKeyParis(Date.now()),
-      total: {
-        revenueNet: 0,
-        creatorCost: 0,
-        paidViews: 0,
-        unpaidViews: 0,
-      },
-      months: [] as Array<{
-        period: string;
-        revenueNet: number;
-        mixedCurrency: boolean;
-        creatorCost: number;
-        paidViews: number;
-        unpaidViews: number;
-        settled: boolean;
-      }>,
-    };
-  }
+/** Période LIBRE (jours de Paris inclus) — outil MCP `rentabilite` avec du/au. */
+type PeriodeLibre = { du: string; au: string };
 
+/** Réponse d'un projet sans Whop : l'UI masque la carte, l'outil le dit. */
+function nonConfiguree(project: Doc<"projects"> | null) {
+  return {
+    configured: false as const,
+    currency: null as string | null,
+    mixedCurrency: false,
+    mixedCurrencyPresent: false,
+    currenciesPresent: [] as string[],
+    payCurrency: (project?.payCurrency ?? null) as string | null,
+    fxRateToRevenue: (project?.fxRateToRevenue ?? null) as number | null,
+    currentPeriod: monthKeyParis(Date.now()),
+    total: {
+      revenueNet: 0,
+      creatorCost: 0,
+      paidViews: 0,
+      unpaidViews: 0,
+    },
+    months: [] as Array<{
+      period: string;
+      revenueNet: number;
+      mixedCurrency: boolean;
+      creatorCost: number;
+      paidViews: number;
+      unpaidViews: number;
+      settled: boolean;
+    }>,
+  };
+}
+
+/**
+ * ─── POURQUOI TROIS MORCEAUX ────────────────────────────────────────────────
+ * Le calcul tenait en UNE query : revenu, puis le moteur de paie de chaque
+ * créatrice, puis l'assemblage. Sur Snytch il a franchi la limite d'exécution
+ * d'une query (1 s) : le 2026-10-19, `rentabilite` sur une période échouait à
+ * chaque appel (« Function execution timed out »), et le détail mensuel passait
+ * à 990 ms. Le moteur de paie, créatrice par créatrice, en est l'essentiel.
+ *
+ * D'où : `profitabilityBase` (tout ce qui ne parcourt pas les créatrices),
+ * `profitabilityCreatorsPart` (le coût d'un LOT de créatrices) et
+ * `assembleProfitability` (pur, sans lecture). La carte enchaîne les trois dans
+ * sa query ; l'outil MCP, qui tourne dans une action, appelle la base puis un
+ * lot de créatrices par query, et assemble. Même code, même résultat — seul
+ * le découpage en transactions diffère.
+ */
+
+/** Ce que la rentabilité lit SANS parcourir les créatrices. Sérialisable : il traverse `runQuery`. */
+export type ProfitabilityBase = {
+  configured: true;
+  payCurrency: string | null;
+  fxRateToRevenue: number | null;
+  currentPeriod: string;
+  revenueByMonth: { period: string; revenueNet: number; mixedCurrency: boolean }[];
+  totalRevenue: Pick<
+    ReturnType<typeof summarizeWhopRevenue>,
+    "net" | "currency" | "mixedCurrency" | "conversions" | "mixedCurrencyPresent" | "currenciesPresent"
+  >;
+  /** Créatrices qui COÛTENT (vidéos, paliers), dans l'ordre de première rencontre. */
+  creatorIds: Id<"creators">[];
+  /** Vues SUIVIES brutes par mois de publication (Paris), et leur total. */
+  trackedViewsByMonth: { period: string; views: number }[];
+  trackedViewsTotal: number;
+  periode?: {
+    du: string;
+    au: string;
+    revenueNet: number;
+    revenueByDay: { jour: string; revenueNet: number }[];
+  };
+};
+
+/** Le coût d'un lot de créatrices — la part lourde, découpable en plusieurs queries. */
+export type ProfitabilityCreatorsPart = {
+  /** Une entrée par créatrice du lot, dans l'ordre du lot. */
+  creators: {
+    months: { period: string; cost: number; billedViews: number; settled: boolean }[];
+  }[];
+  /** Vidéos facturées du lot, avec leurs posts rémunérés (période libre seulement). */
+  videos: VideoFacturable[];
+};
+
+async function loadBase(
+  ctx: ProjectQueryCtx,
+  project: Doc<"projects">,
+  projectPubs: Awaited<ReturnType<typeof loadProjectPublications>>,
+  periodeLibre: PeriodeLibre | undefined,
+): Promise<ProfitabilityBase> {
   // ─── Revenu Whop net par mois (paidAt) — CONSTANT vis-à-vis du toggle ──────
   // A4 — abonnements internes exclus via le point de passage unique. Ce site
   // ne filtrait pas : la MARGE affichée intégrait le revenu du compte de test.
   const { payments: whopRows } = await collectProjectWhopPayments(
     ctx,
     ctx.projectId,
-    project?.slug ?? "",
+    project.slug ?? "",
   );
   const revByMonth = new Map<string, Doc<"whopPayments">[]>();
   for (const r of whopRows) {
@@ -280,23 +325,21 @@ export async function getProjectProfitabilityCore(
     if (arr) arr.push(r);
     else revByMonth.set(m, [r]);
   }
-  const revenueNetByMonth = new Map<string, number>();
   // Le drapeau A5 est conservé PAR MOIS : la marge et le RPM sont recalculés
   // mois par mois côté client, un mois bi-devise doit donc pouvoir s'abstenir
   // seul, sans effacer les mois voisins qui sont parfaitement calculables.
-  const mixedByMonth = new Map<string, boolean>();
   // Même taux que l'écran Paiements : sans lui, un mois bi-devise sortait un
   // revenu nul, donc une marge égale à l'opposé du coût créateurs.
   const fx = projectFx(project);
+  const revenueByMonth: ProfitabilityBase["revenueByMonth"] = [];
   for (const [m, list] of revByMonth) {
     const s = summarizeWhopRevenue(list, fx);
-    revenueNetByMonth.set(m, s.net);
-    mixedByMonth.set(m, s.mixedCurrency);
+    revenueByMonth.push({ period: m, revenueNet: s.net, mixedCurrency: s.mixedCurrency });
   }
   const totalRevenue = summarizeWhopRevenue(whopRows, fx);
 
-  // ─── Coût créateurs par mois (MÊME moteur que les Paiements) ───────────────
-  // Les créatrices se lisent dans ce qui COÛTE (vidéos, paliers), pas
+  // ─── Les créatrices qui coûtent ────────────────────────────────────────────
+  // Elles se lisent dans ce qui COÛTE (vidéos, paliers), pas
   // dans la table des fiches : une créatrice payée puis supprimée n'a plus de
   // fiche, mais l'argent versé est parti. Parcourir `creators` faisait fondre
   // son coût de la marge et ses vues du RPM au moment de la suppression — alors
@@ -304,11 +347,10 @@ export async function getProjectProfitabilityCore(
   // lui paiera pas a déjà été sorti de la paie à la suppression (remunere=false,
   // cf unpayPostsOfDeletedCreator) : le moteur le rend donc à zéro, sans filtre ici.
   const creatorIds = new Set<Id<"creators">>();
-  const projectAssignments = await ctx.db
+  for (const a of await ctx.db
     .query("assignments")
     .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-    .collect();
-  for (const a of projectAssignments) {
+    .collect()) {
     creatorIds.add(a.creatorId);
   }
   for (const u of await ctx.db
@@ -317,55 +359,7 @@ export async function getProjectProfitabilityCore(
     .collect()) {
     creatorIds.add(u.creatorId);
   }
-  const costByMonth = new Map<string, number>();
-  const billedByMonth = new Map<string, number>();
-  // Un mois n'est FIGÉ que si TOUTES les créatrices qui y coûtent le sont : il
-  // suffit d'une vidéo encore vivante (cycle ouvert ET fenêtre ouverte) pour
-  // que le mois bouge encore.
-  // Un ET, donc, jamais un OU — annoncer « réglé » sur un mois qui va encore
-  // grossir serait pire que de ne rien annoncer.
-  const settledByMonth = new Map<string, boolean>();
-  // Les publications du projet, lues UNE fois pour toutes les créatrices et
-  // tous leurs mois (cf AssignmentViewsCache).
-  const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
-  const viewsCache = newViewsCache(projectPubs);
-  const billedByAssignment = new Map<string, number>();
-  for (const c of creatorIds) {
-    const cm = await creatorCostByMonth(ctx, ctx.projectId, c, viewsCache, project);
-    for (const [a, billed] of cm.billedByAssignment) {
-      billedByAssignment.set(a, billed);
-    }
-    for (const [m, { cost, billedViews, settled }] of cm.months) {
-      costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
-      billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
-      settledByMonth.set(m, (settledByMonth.get(m) ?? true) && settled);
-    }
-  }
-  const totalCost = round2(
-    [...costByMonth.values()].reduce((s, a) => s + a, 0),
-  );
 
-  // ─── Vues ventilées RÉMUNÉRÉES / non rémunérées — DÉNOMINATEUR du RPM ─────
-  // La coupure est le fait FINANCIER (viewsSplitOf → isRemunerated), pas le fait
-  // éditorial. Ce site testait `p.isWarmup === true` en dur, ce que l'en-tête de
-  // convex/viewCounters interdit précisément.
-  //
-  // Le défaut jouait dans les DEUX sens, mesuré sur la prod du 2026-09-02 :
-  //   - un post retiré de la paie à la main (remunere=false) restait au
-  //     dénominateur — 277 857 vues en août, 23 % du mois ;
-  //   - un post warmup explicitement PAYÉ (cas Kelly, remunere=true) en était
-  //     absent — 694 000 vues sur juillet à lui seul.
-  // Le RPM n'était donc ni sur- ni sous-estimé de façon systématique : il était
-  // calculé sur un ensemble qui n'était celui d'aucune des deux questions.
-  // Les MÊMES publications que celles du moteur, déjà lues plus haut.
-  const pubs = [...projectPubs.values()];
-  const pubsByMonth = new Map<string, typeof pubs>();
-  for (const p of pubs) {
-    const m = monthKeyParis(p.datePubli);
-    const arr = pubsByMonth.get(m);
-    if (arr) arr.push(p);
-    else pubsByMonth.set(m, [p]);
-  }
   // ── Vues TOTALES : les vues SUIVIES, brutes ───────────────────────────────
   // `vuesLatest`, sans plafond J+30. Le plafond répond à « qu'est-ce que j'ai
   // payé », et c'est la part FACTURÉE qui répond à cette question — elle vient
@@ -374,81 +368,18 @@ export async function getProjectProfitabilityCore(
   // coûtait une requête `metricSnapshots` par publication hors fenêtre : 179 le
   // 2026-09-06, 509 (toutes) sous trente jours. La tuile annonce « toutes les
   // vues suivies » : c'est désormais ce qu'elle montre.
-  const allViewsOf = (list: typeof pubs) =>
-    list.reduce((s, p) => s + (p.vuesLatest ?? 0), 0);
-
-  // ─── PAYÉES = vues FACTURÉES, plafond 150 $/vidéo compris ────────────────
-  // Elles viennent de `billedByMonth`, c'est-à-dire du MÊME appel au moteur que
-  // le coût. Au-delà du seuil où une vidéo atteint le plafond, chaque vue
-  // supplémentaire est GRATUITE : la compter au dénominateur fait baisser le
-  // RPM sans qu'un centime ait été dépensé. Mesuré en prod le 03/09/2026 :
-  // 2 vidéos sur 128 portaient 248 489 vues gratuites en août (20 % du mois),
-  // et l'une d'elles a fait tomber le RPM de 1,88 € à 1,69 € en 24 h pour 0 $.
-  //
-  // `viewsSplitOf` (coupure isRemunerated) n'est donc plus la source du
-  // dénominateur ; il reste celle des vues TOTALES, dont on déduit les non
-  // rémunérées. Le `max(0, …)` est une ceinture : les vues facturées sont
-  // bornées par les vues payables, elles-mêmes bornées par les vues retenues du
-  // même mois — la soustraction ne peut pas passer sous zéro sans un décalage
-  // de mois entre un assignment et ses posts (aucun en prod le 03/09).
-  const viewsByMonth = new Map<
-    string,
-    { paidViews: number; unpaidViews: number }
-  >();
-  for (const [m, list] of pubsByMonth) {
-    const paid = billedByMonth.get(m) ?? 0;
-    viewsByMonth.set(m, {
-      paidViews: paid,
-      unpaidViews: Math.max(0, allViewsOf(list) - paid),
-    });
+  const trackedByMonth = new Map<string, number>();
+  let trackedViewsTotal = 0;
+  for (const p of projectPubs.values()) {
+    const m = monthKeyParis(p.datePubli);
+    trackedByMonth.set(m, (trackedByMonth.get(m) ?? 0) + (p.vuesLatest ?? 0));
+    trackedViewsTotal += p.vuesLatest ?? 0;
   }
-  // Un mois peut porter des vues FACTURÉES sans aucune publication rangée sous
-  // lui (bonus attribué à une période persistée en UTC) : sans cette boucle, sa
-  // ligne afficherait un coût et zéro vue.
-  for (const [m, paid] of billedByMonth) {
-    if (!viewsByMonth.has(m)) {
-      viewsByMonth.set(m, { paidViews: paid, unpaidViews: 0 });
-    }
-  }
-  // Totaux recalculés sur TOUT le lot, jamais sommés depuis les mois.
-  const totPaid = [...billedByMonth.values()].reduce((s, v) => s + v, 0);
-  const totUnpaid = Math.max(0, allViewsOf(pubs) - totPaid);
 
-  // ─── Assemblage (mois présents dans revenu, coût OU vues), plus récent d'abord ─
-  const allPeriods = new Set<string>([
-    ...revenueNetByMonth.keys(),
-    ...costByMonth.keys(),
-    ...viewsByMonth.keys(),
-  ]);
-  const months = [...allPeriods]
-    .sort((a, b) => (a < b ? 1 : -1))
-    .map((period) => ({
-      period,
-      revenueNet: revenueNetByMonth.get(period) ?? 0,
-      mixedCurrency: mixedByMonth.get(period) ?? false,
-      creatorCost: costByMonth.get(period) ?? 0,
-      paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
-      unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
-      // Coût et vues FACTURÉES définitivement arrêtés (cycles réglés ou
-      // fenêtres closes). Un mois sans aucune vidéo retenue n'est pas figé :
-      // `settledByMonth` ne porte que les mois qui coûtent quelque chose.
-      settled: settledByMonth.get(period) === true,
-    }));
-
-  // ─── Période LIBRE (outil MCP `rentabilite` avec du/au) ─────────────────────
-  // Le revenu des jours demandés, et de quoi DATER les vues facturées de chaque
-  // vidéo. Aucune lecture de plus : tout sort de ce qui précède.
-  let periode:
-    | {
-        du: string;
-        au: string;
-        revenueNet: number;
-        revenueByDay: { jour: string; revenueNet: number }[];
-        videos: VideoFacturable[];
-      }
-    | undefined;
-  if (opts?.periode !== undefined) {
-    const { du, au } = opts.periode;
+  // ─── Période LIBRE : le revenu des jours demandés ─────────────────────────
+  let periode: ProfitabilityBase["periode"];
+  if (periodeLibre !== undefined) {
+    const { du, au } = periodeLibre;
     const lignesDuJour = new Map<string, Doc<"whopPayments">[]>();
     for (const r of whopRows) {
       const j = parisDayKey(r.paidAt);
@@ -471,24 +402,212 @@ export async function getProjectProfitabilityCore(
       [...lignesDuJour.values()].flat(),
       totalRevenue,
     );
-    // Même moteur, même plafond : cf `videosFacturables`.
-    const videos = videosFacturables(
-      billedByAssignment,
-      new Map(projectAssignments.map((a) => [a._id as string, a])),
-      projectPubs,
-    );
-    periode = { du, au, revenueNet, revenueByDay, videos };
+    periode = { du, au, revenueNet, revenueByDay };
   }
 
   return {
-    configured: project?.whop !== undefined,
+    configured: true,
+    payCurrency: project.payCurrency ?? null,
+    fxRateToRevenue: project.fxRateToRevenue ?? null,
+    currentPeriod: monthKeyParis(Date.now()),
+    revenueByMonth,
+    totalRevenue: {
+      net: totalRevenue.net,
+      currency: totalRevenue.currency,
+      mixedCurrency: totalRevenue.mixedCurrency,
+      conversions: totalRevenue.conversions,
+      mixedCurrencyPresent: totalRevenue.mixedCurrencyPresent,
+      currenciesPresent: totalRevenue.currenciesPresent,
+    },
+    creatorIds: [...creatorIds],
+    trackedViewsByMonth: [...trackedByMonth.entries()].map(([period, views]) => ({
+      period,
+      views,
+    })),
+    trackedViewsTotal,
+    ...(periode !== undefined ? { periode } : {}),
+  };
+}
+
+async function loadCreatorsPart(
+  ctx: ProjectQueryCtx,
+  project: Doc<"projects">,
+  creatorIds: readonly Id<"creators">[],
+  projectPubs: Awaited<ReturnType<typeof loadProjectPublications>>,
+  withVideos: boolean,
+): Promise<ProfitabilityCreatorsPart> {
+  // Les publications du projet, lues UNE fois pour toutes les créatrices du lot
+  // et tous leurs mois (cf AssignmentViewsCache).
+  const viewsCache = newViewsCache(projectPubs);
+  const creators: ProfitabilityCreatorsPart["creators"] = [];
+  const videos: VideoFacturable[] = [];
+  for (const c of creatorIds) {
+    const cm = await creatorCostByMonth(ctx, ctx.projectId, c, viewsCache, project);
+    creators.push({
+      months: [...cm.months.entries()].map(([period, m]) => ({ period, ...m })),
+    });
+    if (withVideos) {
+      // Même moteur, même plafond : cf `videosFacturables`.
+      videos.push(
+        ...videosFacturables(
+          cm.billedByAssignment,
+          new Map(cm.projectAssignments.map((a) => [a._id as string, a])),
+          projectPubs,
+        ),
+      );
+    }
+  }
+  return { creators, videos };
+}
+
+/** La base, ou `configured: false` sans Whop — avant tout calcul coûteux. */
+export async function profitabilityBase(ctx: ProjectQueryCtx, periode?: PeriodeLibre) {
+  const project = await ctx.db.get(ctx.projectId);
+  if (project === null || project.whop === undefined) return nonConfiguree(project);
+  const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+  return loadBase(ctx, project, projectPubs, periode);
+}
+
+/** Le coût d'un lot de créatrices (cf `ProfitabilityCreatorsPart`). */
+export async function profitabilityCreatorsPart(
+  ctx: ProjectQueryCtx,
+  creatorIds: readonly Id<"creators">[],
+  withVideos: boolean,
+): Promise<ProfitabilityCreatorsPart> {
+  const project = await ctx.db.get(ctx.projectId);
+  if (project === null) return { creators: [], videos: [] };
+  const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+  return loadCreatorsPart(ctx, project, creatorIds, projectPubs, withVideos);
+}
+
+/**
+ * L'assemblage — PUR. Les lots se recollent dans l'ordre de `base.creatorIds` :
+ * c'est l'ordre de l'ancienne boucle unique, donc les mêmes sommes, arrondies
+ * dans le même ordre.
+ */
+export function assembleProfitability(
+  base: ProfitabilityBase,
+  parts: readonly ProfitabilityCreatorsPart[],
+) {
+  const costByMonth = new Map<string, number>();
+  const billedByMonth = new Map<string, number>();
+  // Un mois n'est FIGÉ que si TOUTES les créatrices qui y coûtent le sont : il
+  // suffit d'une vidéo encore vivante (cycle ouvert ET fenêtre ouverte) pour
+  // que le mois bouge encore.
+  // Un ET, donc, jamais un OU — annoncer « réglé » sur un mois qui va encore
+  // grossir serait pire que de ne rien annoncer.
+  const settledByMonth = new Map<string, boolean>();
+  for (const part of parts) {
+    for (const c of part.creators) {
+      for (const { period: m, cost, billedViews, settled } of c.months) {
+        costByMonth.set(m, round2((costByMonth.get(m) ?? 0) + cost));
+        billedByMonth.set(m, (billedByMonth.get(m) ?? 0) + billedViews);
+        settledByMonth.set(m, (settledByMonth.get(m) ?? true) && settled);
+      }
+    }
+  }
+  const totalCost = round2(
+    [...costByMonth.values()].reduce((s, a) => s + a, 0),
+  );
+
+  // ─── Vues ventilées RÉMUNÉRÉES / non rémunérées — DÉNOMINATEUR du RPM ─────
+  // La coupure est le fait FINANCIER (viewsSplitOf → isRemunerated), pas le fait
+  // éditorial. Ce site testait `p.isWarmup === true` en dur, ce que l'en-tête de
+  // convex/viewCounters interdit précisément.
+  //
+  // Le défaut jouait dans les DEUX sens, mesuré sur la prod du 2026-09-02 :
+  //   - un post retiré de la paie à la main (remunere=false) restait au
+  //     dénominateur — 277 857 vues en août, 23 % du mois ;
+  //   - un post warmup explicitement PAYÉ (cas Kelly, remunere=true) en était
+  //     absent — 694 000 vues sur juillet à lui seul.
+  // Le RPM n'était donc ni sur- ni sous-estimé de façon systématique : il était
+  // calculé sur un ensemble qui n'était celui d'aucune des deux questions.
+  //
+  // ─── PAYÉES = vues FACTURÉES, plafond 150 $/vidéo compris ────────────────
+  // Elles viennent de `billedByMonth`, c'est-à-dire du MÊME appel au moteur que
+  // le coût. Au-delà du seuil où une vidéo atteint le plafond, chaque vue
+  // supplémentaire est GRATUITE : la compter au dénominateur fait baisser le
+  // RPM sans qu'un centime ait été dépensé. Mesuré en prod le 03/09/2026 :
+  // 2 vidéos sur 128 portaient 248 489 vues gratuites en août (20 % du mois),
+  // et l'une d'elles a fait tomber le RPM de 1,88 € à 1,69 € en 24 h pour 0 $.
+  //
+  // `viewsSplitOf` (coupure isRemunerated) n'est donc plus la source du
+  // dénominateur ; il reste celle des vues TOTALES, dont on déduit les non
+  // rémunérées. Le `max(0, …)` est une ceinture : les vues facturées sont
+  // bornées par les vues payables, elles-mêmes bornées par les vues retenues du
+  // même mois — la soustraction ne peut pas passer sous zéro sans un décalage
+  // de mois entre un assignment et ses posts (aucun en prod le 03/09).
+  const viewsByMonth = new Map<
+    string,
+    { paidViews: number; unpaidViews: number }
+  >();
+  for (const { period: m, views } of base.trackedViewsByMonth) {
+    const paid = billedByMonth.get(m) ?? 0;
+    viewsByMonth.set(m, {
+      paidViews: paid,
+      unpaidViews: Math.max(0, views - paid),
+    });
+  }
+  // Un mois peut porter des vues FACTURÉES sans aucune publication rangée sous
+  // lui (bonus attribué à une période persistée en UTC) : sans cette boucle, sa
+  // ligne afficherait un coût et zéro vue.
+  for (const [m, paid] of billedByMonth) {
+    if (!viewsByMonth.has(m)) {
+      viewsByMonth.set(m, { paidViews: paid, unpaidViews: 0 });
+    }
+  }
+  // Totaux recalculés sur TOUT le lot, jamais sommés depuis les mois.
+  const totPaid = [...billedByMonth.values()].reduce((s, v) => s + v, 0);
+  const totUnpaid = Math.max(0, base.trackedViewsTotal - totPaid);
+
+  // ─── Assemblage (mois présents dans revenu, coût OU vues), plus récent d'abord ─
+  const revenueByMonth = new Map(base.revenueByMonth.map((r) => [r.period, r]));
+  const allPeriods = new Set<string>([
+    ...revenueByMonth.keys(),
+    ...costByMonth.keys(),
+    ...viewsByMonth.keys(),
+  ]);
+  const months = [...allPeriods]
+    .sort((a, b) => (a < b ? 1 : -1))
+    .map((period) => ({
+      period,
+      revenueNet: revenueByMonth.get(period)?.revenueNet ?? 0,
+      mixedCurrency: revenueByMonth.get(period)?.mixedCurrency ?? false,
+      creatorCost: costByMonth.get(period) ?? 0,
+      paidViews: viewsByMonth.get(period)?.paidViews ?? 0,
+      unpaidViews: viewsByMonth.get(period)?.unpaidViews ?? 0,
+      // Coût et vues FACTURÉES définitivement arrêtés (cycles réglés ou
+      // fenêtres closes). Un mois sans aucune vidéo retenue n'est pas figé :
+      // `settledByMonth` ne porte que les mois qui coûtent quelque chose.
+      settled: settledByMonth.get(period) === true,
+    }));
+
+  // ─── Période LIBRE (outil MCP `rentabilite` avec du/au) ─────────────────────
+  // Le revenu des jours demandés, et de quoi DATER les vues facturées de chaque
+  // vidéo (cf convex/viewsDaily `computeDailyBilledViews`).
+  const periode:
+    | {
+        du: string;
+        au: string;
+        revenueNet: number;
+        revenueByDay: { jour: string; revenueNet: number }[];
+        videos: VideoFacturable[];
+      }
+    | undefined =
+    base.periode === undefined
+      ? undefined
+      : { ...base.periode, videos: parts.flatMap((p) => p.videos) };
+
+  const totalRevenue = base.totalRevenue;
+  return {
+    configured: true as const,
     // Devise du REVENU (Whop) ; la paie créatrices a la sienne (payCurrency).
     currency: totalRevenue.currency,
-    payCurrency: project?.payCurrency ?? null,
+    payCurrency: base.payCurrency,
     // Taux paie→revenu pour la marge (revenu € − coût $ converti). null → marge
     // non calculée (jamais soustraire deux devises sans conversion).
-    fxRateToRevenue: project?.fxRateToRevenue ?? null,
-    currentPeriod: monthKeyParis(Date.now()),
+    fxRateToRevenue: base.fxRateToRevenue,
+    currentPeriod: base.currentPeriod,
     // A5 — le drapeau était calculé puis jeté : la carte affichait un revenu
     // zéroïsé (donc une marge très négative) comme s'il s'agissait d'un vrai
     // montant. Un chiffre faux est pire qu'un chiffre absent.
@@ -505,4 +624,36 @@ export async function getProjectProfitabilityCore(
     months,
     ...(periode !== undefined ? { periode } : {}),
   };
+}
+
+/**
+ * Cœur de `getProjectProfitability` — la carte, en UNE query : base, toutes les
+ * créatrices d'un seul lot, assemblage. L'outil MCP `rentabilite` fait les mêmes
+ * trois pas, en plusieurs queries (cf « POURQUOI TROIS MORCEAUX »).
+ */
+export async function getProjectProfitabilityCore(
+  ctx: ProjectQueryCtx,
+  /**
+   * Période LIBRE (jours de Paris inclus) : ajoute au résultat le revenu
+   * encaissé ces jours-là et, pour chaque vidéo facturée, son plafond et ses
+   * posts rémunérés — de quoi dater ses vues facturées (cf convex/viewsDaily
+   * `computeDailyBilledViews`). Absente : réponse inchangée, c'est celle de la
+   * carte.
+   */
+  opts?: { periode?: PeriodeLibre },
+) {
+  const project = await ctx.db.get(ctx.projectId);
+  // Rentabilité = Whop-gated : sans mapping, on court-circuite AVANT tout calcul
+  // coûteux (le coût créateurs itère créateurs × mois). L'UI masque la carte.
+  if (project === null || project.whop === undefined) return nonConfiguree(project);
+  const projectPubs = await loadProjectPublications(ctx, ctx.projectId);
+  const base = await loadBase(ctx, project, projectPubs, opts?.periode);
+  const part = await loadCreatorsPart(
+    ctx,
+    project,
+    base.creatorIds,
+    projectPubs,
+    opts?.periode !== undefined,
+  );
+  return assembleProfitability(base, [part]);
 }

@@ -765,6 +765,19 @@ const FUNNEL_COLUMNS = `
     uniqIf(person_id, event = 'checkout_started') AS checkout_started,
     uniqIf(person_id, event = 'subscription_completed') AS subscription_completed`;
 
+/**
+ * Restreint le balayage aux SEULS events que comptent les colonnes du funnel.
+ * Sans elle, `overview`, `funnelGlobal` et `funnelSequential` lisaient TOUS
+ * les events des 90 jours (autocapture, rageclicks, exceptions…) pour n'en
+ * compter que cinq : le 2026-10-19 (≈ 3,1 M d'events), PostHog les coupait
+ * toutes les trois en HTTP 504 « max execution time », au cron comme au
+ * recalcul sur période (trafic de `marches`). `event` est dans la clé de tri
+ * de la table : le filtre élague à la lecture. Résultat inchangé : chaque
+ * `uniqIf` / `countIf` de ces requêtes porte déjà sur l'un de ces events.
+ */
+const FUNNEL_EVENTS = `
+  AND event IN ('$pageview', 'signup_completed', 'paywall_viewed', 'checkout_started', 'subscription_completed')`;
+
 /** Expression de segment robuste au vide/null (→ libellé explicite). */
 function segExpr(prop: string): string {
   return `coalesce(nullIf(toString(${prop}), ''), '(inconnu)')`;
@@ -937,7 +950,7 @@ SELECT toStartOfDay(timestamp, 'Europe/Paris') AS d,
        uniqIf(person_id, event = 'subscription_completed'
               AND ifNull(toString(properties.is_renewal), '') != 'true') AS subs
 FROM events
-WHERE ${WINDOW}${notCounted}
+WHERE ${WINDOW}${FUNNEL_EVENTS}${notCounted}
 GROUP BY d
 ORDER BY d
 LIMIT 10000`,
@@ -973,7 +986,7 @@ LIMIT 10000`,
   funnelGlobal: `
 SELECT 'global' AS seg,${FUNNEL_COLUMNS}
 FROM events
-WHERE ${WINDOW}${notCounted}`,
+WHERE ${WINDOW}${FUNNEL_EVENTS}${notCounted}`,
 
   /**
    * Funnel SÉQUENTIEL (chemin de monétisation) — sous-ensemble STRICT : l'étape k
@@ -998,7 +1011,7 @@ FROM (
     countIf(event = 'checkout_started') > 0 AS b_checkout,
     countIf(event = 'subscription_completed') > 0 AS b_sub
   FROM events
-  WHERE ${WINDOW}${notCounted}
+  WHERE ${WINDOW}${FUNNEL_EVENTS}${notCounted}
   GROUP BY person_id
 )`,
 
