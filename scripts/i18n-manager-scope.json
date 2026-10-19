@@ -67,6 +67,7 @@
     "components/SparkAdBadge.tsx",
     "components/admin/AbandonMissionDialog.tsx",
     "components/admin/ActionDashboard.tsx",
+    "components/admin/AddPublishedTargetDialog.tsx",
     "components/admin/AdminPublishForm.tsx",
     "components/admin/ApifySyncButton.tsx",
     "components/admin/AssetUploader.tsx",

@@ -1538,6 +1538,8 @@
     "ERR_TARGET_ACCOUNT_LOCKED_PUBLISHED": "Le post {platform} est déjà publié : son compte ne peut plus changer (le suivi des vues et la paie en dépendent).",
     "ERR_TARGET_ACCOUNT_MANAGED_MISMATCH": "Un compte géré par l'équipe ne remplace pas un compte de la créatrice, ni l'inverse : cela changerait qui publie. Crée une nouvelle assignation.",
     "ERR_TARGET_ADD_LOCKED": "Cette assignation est publiée ou abandonnée : on ne peut plus lui ajouter de compte.",
+    "ERR_PUBLISHED_TARGET_ADD_LOCKED": "Seule une vidéo publiée, et pas encore payée, prend un compte avec le lien de son post. Avant la sortie, ajoute le compte seul : son lien sera demandé à la publication.",
+    "ERR_PUBLISHED_AT_BEFORE_RELEASE": "La date de ce post ({date}) précède la sortie de la vidéo ({releaseDate}) : la vidéo changerait de cycle de paie.",
     "ERR_TARGET_VIEWS_INVALID": "Objectif de vues invalide : un entier strictement positif.",
     "ERR_TEMPLATE_NAME_REQUIRED": "Le nom du modèle est requis.",
     "ERR_TEMPLATE_NEEDS_TIER": "Un modèle sans palier n'a rien à recopier.",
@@ -1651,6 +1653,7 @@
     },
     "locked": {
       "trackingLink": "le lien de suivi",
+      "addedPost": "le nombre de posts de la vidéo",
       "warmupSetting": "le réglage warmup",
       "remuneration": "la rémunération",
       "sparkAd": "la date de pub"

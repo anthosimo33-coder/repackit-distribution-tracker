@@ -156,7 +156,19 @@
     "compteDeLaCreatrice": "compte de la créatrice",
     "formatIncompatible": "format non publiable sur cette plateforme",
     "scriptDejaPrisSur": "script déjà utilisé sur {platform}",
-    "aucunCompteSurUneAutrePlateforme": "Aucun compte sur une autre plateforme pour cette créatrice."
+    "aucunCompteSurUneAutrePlateforme": "Aucun compte sur une autre plateforme pour cette créatrice.",
+    "ajouterUnComptePublie": "Ajouter un compte où elle a aussi posté"
+  },
+  "AddPublishedTargetDialog": {
+    "titre": "Post {platform} déjà publié",
+    "description": "La vidéo est déjà sortie et elle l'a aussi postée sur ce compte. Colle le lien de ce post : ses vues seront relevées et comptées dans la paie de la vidéo, comme ses autres plateformes.",
+    "colleLeLien": "Colle le lien du post.",
+    "dateDePublication": "Date de publication du post",
+    "aideDate": "Par défaut aujourd'hui. Pas avant le jour de sortie de la vidéo.",
+    "annuler": "Annuler",
+    "ajouter": "Ajouter le post",
+    "postAjoute": "Post {platform} ajouté : {handle} — ses vues seront relevées.",
+    "echecDeLAjout": "Échec de l’ajout du post."
   },
   "CalendarStatusPill": {
     "nonPlanifie": "Non planifié"

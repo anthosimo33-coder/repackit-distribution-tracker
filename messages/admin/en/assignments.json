@@ -156,7 +156,19 @@
     "compteDeLaCreatrice": "the creator’s own account",
     "formatIncompatible": "format can't be published on this platform",
     "scriptDejaPrisSur": "script already used on {platform}",
-    "aucunCompteSurUneAutrePlateforme": "No account on another platform for this creator."
+    "aucunCompteSurUneAutrePlateforme": "No account on another platform for this creator.",
+    "ajouterUnComptePublie": "Add an account she also posted on"
+  },
+  "AddPublishedTargetDialog": {
+    "titre": "{platform} post already published",
+    "description": "The video is already out and she also posted it on this account. Paste this post's link: its views will be tracked and counted in the video's pay, like its other platforms.",
+    "colleLeLien": "Paste the post link.",
+    "dateDePublication": "Post publication date",
+    "aideDate": "Today by default. Not before the video's release day.",
+    "annuler": "Cancel",
+    "ajouter": "Add the post",
+    "postAjoute": "{platform} post added: {handle} — its views will be tracked.",
+    "echecDeLAjout": "Failed to add the post."
   },
   "CalendarStatusPill": {
     "nonPlanifie": "Not scheduled"

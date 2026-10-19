@@ -1538,6 +1538,8 @@
     "ERR_TARGET_ACCOUNT_LOCKED_PUBLISHED": "El post de {platform} ya está publicado: su cuenta ya no puede cambiar (el seguimiento de vistas y el pago dependen de ella).",
     "ERR_TARGET_ACCOUNT_MANAGED_MISMATCH": "Una cuenta gestionada por el equipo no sustituye una cuenta del creador, ni al revés: cambiaría quién publica. Crea una nueva misión.",
     "ERR_TARGET_ADD_LOCKED": "Esta misión está publicada o abandonada: ya no se le puede añadir ninguna cuenta.",
+    "ERR_PUBLISHED_TARGET_ADD_LOCKED": "Solo un vídeo publicado y aún no pagado admite una cuenta con el enlace de su post. Antes de la publicación, añade la cuenta sola: su enlace se pedirá al publicar.",
+    "ERR_PUBLISHED_AT_BEFORE_RELEASE": "La fecha de este post ({date}) es anterior a la publicación del vídeo ({releaseDate}): el vídeo cambiaría de ciclo de pago.",
     "ERR_TARGET_VIEWS_INVALID": "Objetivo de vistas no válido: un número entero estrictamente positivo.",
     "ERR_TEMPLATE_NAME_REQUIRED": "El nombre de la plantilla es obligatorio.",
     "ERR_TEMPLATE_NEEDS_TIER": "Una plantilla sin niveles no tiene nada que copiar.",
@@ -1651,6 +1653,7 @@
     },
     "locked": {
       "trackingLink": "el enlace de seguimiento",
+      "addedPost": "el número de posts del vídeo",
       "warmupSetting": "el ajuste de calentamiento",
       "remuneration": "la remuneración",
       "sparkAd": "la fecha del anuncio"

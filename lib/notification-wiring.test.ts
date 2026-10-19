@@ -123,7 +123,17 @@ describe("publication — la notification est la DERNIÈRE chose du cœur", () =
     expect(pos("internal.notifications.notifyPublication")).toBeGreaterThan(
       pos("targets: newTargets"),
     );
-    expect(pos("targets: newTargets")).toBeGreaterThan(pos("publishedUrl: url"));
+    // Chaque cible est publiée par `publishTarget` (partagé avec l'ajout d'une
+    // cible après la sortie), qui rend la cible AVEC son lien : la cible publiée
+    // entre dans `newTargets` avant le patch.
+    expect(pos("targets: newTargets")).toBeGreaterThan(
+      pos("newTargets.push(published)"),
+    );
+    const debut = SRC.indexOf("async function publishTarget(");
+    expect(debut).toBeGreaterThan(-1);
+    expect(SRC.slice(debut, SRC.indexOf("\n}\n", debut))).toContain(
+      "publishedUrl: url",
+    );
   });
 
   it("AUCUN throw ne subsiste après la planification", () => {

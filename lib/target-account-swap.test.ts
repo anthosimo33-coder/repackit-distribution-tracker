@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  canAddPublishedTarget,
   canAddTarget,
   comboTakenOnPlatform,
   isTargetAccountLocked,
   targetAccountRefusal,
+  resolvePublishedTargetDate,
   targetAddRefusal,
 } from "../convex/targetAccountSwap";
 
@@ -89,6 +91,62 @@ describe("canAddTarget — une plateforme s'ajoute tant que la vidéo n'est pas 
       expect(canAddTarget(status)).toBe(false);
     },
   );
+});
+
+describe("canAddPublishedTarget — un compte + son lien s'ajoutent à une vidéo SORTIE", () => {
+  it.each(["published", "validated"])("AUTORISÉ en %s", (status) => {
+    expect(canAddPublishedTarget(status)).toBe(true);
+  });
+
+  it.each(["todo", "in_progress", "video_submitted", "video_rejected", "to_publish", "cancelled"])(
+    "REFUSÉ en %s (pas sortie : on ajoute le compte sans lien, il sera exigé à la publication)",
+    (status) => {
+      expect(canAddPublishedTarget(status)).toBe(false);
+    },
+  );
+
+  it("REFUSÉ en paid : le montant de la vidéo est versé", () => {
+    expect(canAddPublishedTarget("paid")).toBe(false);
+  });
+
+  it("aucun statut n'ouvre les DEUX ajouts à la fois", () => {
+    for (const s of ["todo", "to_publish", "published", "paid", "validated", "cancelled"]) {
+      expect(canAddTarget(s) && canAddPublishedTarget(s)).toBe(false);
+    }
+  });
+});
+
+describe("resolvePublishedTargetDate — la cible ajoutée ne déplace pas la vidéo", () => {
+  // TikTok sorti le 19/10 à 18 h (Paris, = 16 h UTC), saisie le 20/10 à 10 h.
+  const releasedAt = Date.UTC(2026, 9, 19, 16, 0);
+  const now = Date.UTC(2026, 9, 20, 8, 0);
+  const bounds = { releasedAt, now };
+
+  it("garde toute date entre la sortie et maintenant", () => {
+    expect(resolvePublishedTargetDate(releasedAt, bounds)).toEqual({ at: releasedAt });
+    expect(resolvePublishedTargetDate(now, bounds)).toEqual({ at: now });
+    const lendemain = Date.UTC(2026, 9, 20, 6, 0);
+    expect(resolvePublishedTargetDate(lendemain, bounds)).toEqual({ at: lendemain });
+  });
+
+  it("le JOUR de la sortie, une heure antérieure (midi envoyé par l'écran) est recalée sur la sortie", () => {
+    const midiParis = Date.UTC(2026, 9, 19, 10, 0);
+    expect(resolvePublishedTargetDate(midiParis, bounds)).toEqual({ at: releasedAt });
+    // 00 h 30 à Paris le 19 = 22 h 30 UTC le 18 : même jour de Paris.
+    const minuitEtDemi = Date.UTC(2026, 9, 18, 22, 30);
+    expect(resolvePublishedTargetDate(minuitEtDemi, bounds)).toEqual({ at: releasedAt });
+  });
+
+  it("refuse le futur", () => {
+    expect(resolvePublishedTargetDate(now + 1, bounds)).toEqual({ refusal: "future" });
+  });
+
+  it("refuse un jour antérieur à la sortie — la vidéo changerait de cycle de paie", () => {
+    // 23 h 30 à Paris le 18 = 21 h 30 UTC le 18 : la veille, à Paris.
+    expect(resolvePublishedTargetDate(Date.UTC(2026, 9, 18, 21, 30), bounds)).toEqual({
+      refusal: "beforeRelease",
+    });
+  });
 });
 
 describe("comboTakenOnPlatform — unicité du script par plateforme", () => {
