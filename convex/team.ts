@@ -41,6 +41,7 @@ import {
   hasRole,
   isPortalRole,
   kindForRole,
+  memberAdditionProblem,
   memberRemovalProblem,
   portalRoleOf,
   resolveCreatorKind,
@@ -48,8 +49,10 @@ import {
   rolesOf,
   teamRoleOf,
   withTeamRole,
+  type MemberAdditionProblem,
   type MemberRemovalProblem,
 } from "./roles";
+import { issuePasswordResetLink } from "./passwordReset";
 import {
   SCOPE_ALL_TRACE,
   creatorIdOfScopeTrace,
@@ -554,6 +557,156 @@ export const removeMember = superadminMutation({
       ctx.userId,
     );
     return { email: user?.email ?? null, traced: traced.length };
+  },
+});
+
+const ADDITION_PROBLEM_FR: Record<MemberAdditionProblem, string> = {
+  superadmin:
+    "Ce compte est superadmin : il a déjà accès à tout, sur tous les projets. Lui " +
+    "poser un rôle ici afficherait un pouvoir plus petit que le sien.",
+  already_team:
+    "Il fait déjà partie de l'équipe de ce projet. Son rôle se change depuis sa " +
+    "ligne (passer administrateur, rétrograder).",
+  has_portal:
+    "Il a un espace créateur sur ce projet. Ajoute-lui le rôle manager depuis sa " +
+    "ligne : il garde son espace (le cumul administrateur + espace créateur n'est " +
+    "pas ouvert).",
+};
+
+/** Même forme que l'invitation d'une créatrice (convex/creators.ts). */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+/**
+ * AJOUTE UN MEMBRE À L'ÉQUIPE DU PROJET — par e-mail, administrateur ou manager.
+ *
+ * ── DEUX CAS, UN GESTE ───────────────────────────────────────────────────────
+ *   - le compte EXISTE (membre d'un autre projet, retiré d'ici, …) : on pose sa
+ *     ligne sur ce projet, rien d'autre. Il le trouve à sa prochaine page ;
+ *   - il N'EXISTE PAS : on crée le compte, sous la forme exacte de
+ *     `provisionAdmin.provisionAdminAccount` (users « member » + compte mot de
+ *     passe SANS secret), et on rend un lien /reset-password (48 h) par lequel il
+ *     choisit son PREMIER mot de passe. L'inscription reste fermée : c'est le
+ *     superadmin qui ouvre la porte, nommément.
+ * ⚠️ AUCUN ENVOI. Ni e-mail, ni notification : l'écran affiche le lien, et c'est
+ * le superadmin qui le transmet — ou pas. Personne n'est prévenu d'un ajout
+ * qu'on n'a pas choisi de lui annoncer.
+ *
+ * ── CE QU'IL POSE ────────────────────────────────────────────────────────────
+ * Un manager reçoit le socle de droits par défaut (aucun de la section Argent),
+ * comme `addRole` ; un administrateur, aucun droit stocké (il passe la cascade
+ * avant qu'on les lise). Périmètre absent = toutes les créatrices ; aucun taux
+ * au CPM. Un membre revenu ne retrouve PAS ses réglages d'avant : c'est un
+ * ajout, pas un rétablissement — le journal garde ce qu'il avait.
+ *
+ * Le journal reçoit l'ajout, symétrique du retrait (`removeMember`) : « membre
+ * du projet », le rôle, les droits posés, signés du compte connecté.
+ *
+ * Refus : `memberAdditionProblem` (convex/roles.ts), plus un compte de connexion
+ * ORPHELIN qui tiendrait déjà l'e-mail (cf adminRecovery, #344) — en créer un
+ * second casserait la connexion des deux.
+ */
+export const addMember = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    email: v.string(),
+    role: v.union(v.literal("admin"), v.literal("manager")),
+  },
+  handler: async (ctx, { projectId, email: saisi, role }) => {
+    // Minuscules : c'est la forme de tous les comptes (invitation, provisionnement).
+    const email = saisi.trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) throw new ConvexError("Adresse e-mail invalide.");
+    if ((await ctx.db.get(projectId)) === null) {
+      throw new ConvexError("Projet introuvable.");
+    }
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    const existing =
+      user === null
+        ? null
+        : await ctx.db
+            .query("memberships")
+            .withIndex("by_user_project", (q) =>
+              q.eq("userId", user._id).eq("projectId", projectId),
+            )
+            .first();
+    const probleme = memberAdditionProblem({
+      isSuperadmin: user?.role === "superadmin",
+      existing,
+    });
+    if (probleme !== null) throw new ConvexError(ADDITION_PROBLEM_FR[probleme]);
+
+    // ── Le compte de connexion ────────────────────────────────────────────────
+    const motDePasse =
+      user === null
+        ? null
+        : await ctx.db
+            .query("authAccounts")
+            .withIndex("userIdAndProvider", (q) =>
+              q.eq("userId", user._id).eq("provider", "password"),
+            )
+            .first();
+    let userId = user?._id ?? null;
+    let lien: { token: string; expiresAt: number } | null = null;
+    if (motDePasse === null) {
+      const tenu = await ctx.db
+        .query("authAccounts")
+        .withIndex("providerAndAccountId", (q) =>
+          q.eq("provider", "password").eq("providerAccountId", email),
+        )
+        .first();
+      if (tenu !== null) {
+        throw new ConvexError(
+          "Un compte de connexion existe déjà pour cet e-mail sans être rattaché à " +
+            "ce profil (compte orphelin). Il faut d'abord le diagnostiquer " +
+            "(adminRecovery:diagnoseAccountByEmail) : en créer un second casserait " +
+            "la connexion des deux.",
+        );
+      }
+      userId ??= await ctx.db.insert("users", { email, role: "member" });
+      await ctx.db.insert("authAccounts", {
+        userId,
+        provider: "password",
+        providerAccountId: email,
+      });
+      // Son PREMIER mot de passe passe par la page de réinitialisation : même
+      // jeton à usage unique, même page, aucun mot de passe vu par personne.
+      lien = await issuePasswordResetLink(ctx, userId, projectId);
+    }
+    if (userId === null) throw new ConvexError("Compte introuvable."); // inatteignable : posé ci-dessus
+
+    // ── Sa ligne sur ce projet ────────────────────────────────────────────────
+    // Règle d'`addRole` : des droits déjà stockés restent, sinon le socle.
+    const avant = existing?.permissions ?? [];
+    const droits =
+      role === "manager" && avant.length === 0 ? defaultManagerPermissions() : avant;
+    if (existing !== null) {
+      // Une ligne SANS rôle reconnu existait : on la complète. En créer une
+      // seconde rendrait `by_user_project.first()` arbitraire.
+      await ctx.db.patch(existing._id, { roles: [role], role: undefined, permissions: droits });
+    } else if (role === "manager") {
+      await ctx.db.insert("memberships", {
+        userId,
+        projectId,
+        roles: ["manager"],
+        permissions: droits,
+      });
+    } else {
+      await ctx.db.insert("memberships", { userId, projectId, roles: ["admin"] });
+    }
+
+    const traced = await traceDiff(
+      ctx,
+      projectId,
+      userId,
+      existing === null ? [] : [MEMBERSHIP_TRACE, ...avant],
+      [MEMBERSHIP_TRACE, roleTrace(role), ...droits],
+      "écran",
+      ctx.userId,
+    );
+    return { email, role, accountCreated: user === null, link: lien, traced: traced.length };
   },
 });
 

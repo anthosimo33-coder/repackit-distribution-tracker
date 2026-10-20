@@ -25,6 +25,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { CopyableLink } from "@/components/creators/CopyableLink";
 import { toast } from "sonner";
 import { useProject } from "@/components/project/ProjectProvider";
 import { ManagerPayReport } from "@/components/admin/ManagerPayReport";
@@ -115,11 +123,14 @@ export function TeamPermissions() {
 
   return (
     <div className="space-y-6">
+      <AjoutMembre nbDefauts={nbDefauts} />
+
       {managers.length === 0 && (
         <Card>
           <CardContent className="py-8 text-center text-sm text-slate-500">
-            Aucun manager sur ce projet. Choisis un membre ci-dessous et passe-le
-            manager pour lui ouvrir des droits.
+            Aucun manager sur ce projet. Ajoute quelqu&apos;un ci-dessus, ou
+            choisis un membre ci-dessous et passe-le manager pour lui ouvrir des
+            droits.
           </CardContent>
         </Card>
       )}
@@ -148,6 +159,155 @@ export function TeamPermissions() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/**
+ * AJOUTER UN MEMBRE D'ÉQUIPE — un e-mail, un rôle, et c'est tout.
+ *
+ * Compte existant : il trouve le projet à sa prochaine page. Pas de compte : le
+ * serveur le crée et rend un lien (48 h) pour choisir son mot de passe, que
+ * l'écran AFFICHE et que le superadmin transmet lui-même. Rien ne part tout
+ * seul — ni e-mail, ni notification (cf `team.addMember`).
+ *
+ * « Administrateur » passe par une confirmation qui dit ce que le rôle ouvre :
+ * c'est le même pouvoir que « Passer administrateur », et il ne se relit plus
+ * dans l'interface une fois posé (aucune case).
+ */
+function AjoutMembre({ nbDefauts }: { nbDefauts: number }) {
+  const { project } = useProject();
+  const ajouter = useProjectMutation(api.team.addMember);
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"manager" | "admin">("manager");
+  const [busy, setBusy] = useState(false);
+  const [confirmAdmin, setConfirmAdmin] = useState(false);
+  const [lien, setLien] = useState<{ email: string; token: string } | null>(null);
+  const saisie = email.trim();
+
+  async function go() {
+    setBusy(true);
+    try {
+      const res = await ajouter({ email: saisie, role });
+      setEmail("");
+      setRole("manager");
+      if (res.link !== null) {
+        setLien({ email: res.email, token: res.link.token });
+      } else {
+        toast.success(
+          `${res.email} est ${res.role === "admin" ? "administrateur" : "manager"} de ${project.name}`,
+        );
+      }
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec de l'ajout"));
+    } finally {
+      setBusy(false);
+      setConfirmAdmin(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 py-5">
+        <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Ajouter un membre d&apos;équipe
+        </div>
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (saisie === "" || busy) return;
+            if (role === "admin") setConfirmAdmin(true);
+            else void go();
+          }}
+        >
+          <div className="min-w-0 flex-1 basis-56 space-y-1.5">
+            <Label htmlFor="ajout-membre-email" className="text-xs text-slate-600">
+              E-mail
+            </Label>
+            <Input
+              id="ajout-membre-email"
+              type="email"
+              autoComplete="off"
+              placeholder="prenom.nom@exemple.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div role="radiogroup" aria-label="Rôle" className="flex gap-1">
+            {(["manager", "admin"] as const).map((r) => (
+              <Button
+                key={r}
+                type="button"
+                size="sm"
+                role="radio"
+                aria-checked={role === r}
+                variant={role === r ? "default" : "outline"}
+                onClick={() => setRole(r)}
+              >
+                {r === "admin" ? "Administrateur" : "Manager"}
+              </Button>
+            ))}
+          </div>
+          <Button type="submit" size="sm" disabled={busy || saisie === ""}>
+            {busy && <Loader2Icon className="size-3.5 animate-spin" />}
+            Ajouter
+          </Button>
+        </form>
+        <p className="text-xs leading-relaxed text-slate-500">
+          {role === "manager"
+            ? `Un manager démarre avec les ${nbDefauts} droits par défaut (aucun de la section Argent), sur toutes les créatrices. `
+            : "Un administrateur peut tout faire sur ce projet. "}
+          S&apos;il a déjà un compte, il trouve le projet à sa prochaine
+          connexion. Sinon, un compte est créé et tu reçois un lien pour qu&apos;il
+          choisisse son mot de passe — rien ne lui est envoyé automatiquement.
+        </p>
+      </CardContent>
+
+      <AlertDialog open={confirmAdmin} onOpenChange={setConfirmAdmin}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Ajouter {saisie} comme administrateur ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Il pourra <strong>tout</strong>{" "}faire sur {project.name} —
+              paiements, barèmes, revenus, réglages, suppressions. Aucune case
+              ne le limite : un administrateur passe avant l&apos;endroit où les
+              droits se lisent.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <Button size="sm" disabled={busy} onClick={() => void go()}>
+              {busy && <Loader2Icon className="size-3.5 animate-spin" />}
+              Ajouter comme administrateur
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={lien !== null} onOpenChange={(o) => !o && setLien(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compte créé pour {lien?.email}</DialogTitle>
+            <DialogDescription>
+              Il fait partie de l&apos;équipe de {project.name}. Envoie-lui ce lien
+              pour qu&apos;il choisisse son mot de passe : il est valable 48 h et ne
+              sert qu&apos;une fois. Rien ne lui a été envoyé. Passé ce délai, il
+              pourra utiliser « Mot de passe oublié ? » sur la page de connexion.
+            </DialogDescription>
+          </DialogHeader>
+          {lien && (
+            <CopyableLink
+              token={lien.token}
+              // i18n-exempt: segment de route, pas du texte
+              segment="reset-password"
+              ariaLabel="Lien pour choisir son mot de passe"
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }
 

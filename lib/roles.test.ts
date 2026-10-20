@@ -16,6 +16,7 @@ import {
   isPortalRole,
   isTeamRole,
   kindForRole,
+  memberAdditionProblem,
   memberRemovalProblem,
   promotionToAdminDecision,
   resolveCreatorKind,
@@ -519,5 +520,43 @@ describe("memberRemovalProblem — qui ne se retire pas du projet", () => {
     );
     // Un admin n'est pas payé par ce mécanisme : ses taux d'avant ne le retiennent pas.
     expect(memberRemovalProblem({ ...base, membership: admin, paidCreators: 2 })).toBeNull();
+  });
+});
+
+describe("memberAdditionProblem — qui ne s'ajoute pas à l'équipe", () => {
+  it("ajoute quelqu'un qui n'a aucune ligne ici", () => {
+    expect(memberAdditionProblem({ isSuperadmin: false, existing: null })).toBeNull();
+  });
+
+  it("complète une ligne sans aucun rôle reconnu (plutôt qu'en créer une seconde)", () => {
+    expect(memberAdditionProblem({ isSuperadmin: false, existing: { roles: [] } })).toBeNull();
+    expect(
+      memberAdditionProblem({ isSuperadmin: false, existing: { roles: ["superadmin"] } }),
+    ).toBeNull();
+  });
+
+  it("REFUSE un superadmin, même sans ligne ici", () => {
+    expect(memberAdditionProblem({ isSuperadmin: true, existing: null })).toBe("superadmin");
+  });
+
+  it("REFUSE qui est déjà dans l'équipe — forme neuve comme forme d'avant", () => {
+    expect(memberAdditionProblem({ isSuperadmin: false, existing: { roles: ["admin"] } })).toBe(
+      "already_team",
+    );
+    expect(memberAdditionProblem({ isSuperadmin: false, existing: { role: "manager" } })).toBe(
+      "already_team",
+    );
+    // Une créatrice-manager est DÉJÀ de l'équipe : c'est ce qui prime.
+    expect(
+      memberAdditionProblem({ isSuperadmin: false, existing: { roles: ["manager", "creator"] } }),
+    ).toBe("already_team");
+  });
+
+  it("REFUSE qui a un espace créateur ici : le cumul se pose depuis sa ligne", () => {
+    for (const p of PORTAL_ROLES) {
+      expect(memberAdditionProblem({ isSuperadmin: false, existing: { roles: [p] } }), p).toBe(
+        "has_portal",
+      );
+    }
   });
 });

@@ -105,25 +105,36 @@ export const generatePasswordResetLink = permissionMutation("creators.manage")({
       throw err(ERR.ACCOUNT_HAS_NO_PASSWORD, "Ce compte n'a pas de mot de passe (connexion externe) — reset impossible.");
     }
 
-    // Un seul lien actif : on supprime les anciens tokens de ce user.
-    const previous = await ctx.db
-      .query("passwordResetTokens")
-      .withIndex("by_user", (q) => q.eq("userId", creator.userId!))
-      .collect();
-    for (const t of previous) await ctx.db.delete(t._id);
-
-    const now = Date.now();
-    const expiresAt = now + RESET_TTL_MS;
-    const token = newResetToken();
-    await ctx.db.insert("passwordResetTokens", {
-      token,
-      userId: creator.userId,
-      projectId: ctx.projectId,
-      expiresAt,
-    });
-    return { token, expiresAt };
+    return await issuePasswordResetLink(ctx, creator.userId, ctx.projectId);
   },
 });
+
+/**
+ * Pose le lien admin (48 h) d'un compte, en REMPLAÇANT tout lien actif du même
+ * user : un seul lien valide à la fois. `projectId` ne sert qu'à l'habillage de
+ * la page /reset-password (nom du projet). Aucun envoi : l'appelant rend le
+ * token à l'écran, qui compose l'URL et la fait transmettre à la main.
+ *
+ * Partagé par le lien d'une créatrice (ci-dessus) et par l'ajout d'un membre
+ * d'équipe sans compte (`team.addMember`), qui s'en sert pour son PREMIER mot
+ * de passe — même page, même jeton à usage unique.
+ */
+export async function issuePasswordResetLink(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  projectId: Id<"projects">,
+): Promise<{ token: string; expiresAt: number }> {
+  const previous = await ctx.db
+    .query("passwordResetTokens")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const t of previous) await ctx.db.delete(t._id);
+
+  const expiresAt = Date.now() + RESET_TTL_MS;
+  const token = newResetToken();
+  await ctx.db.insert("passwordResetTokens", { token, userId, projectId, expiresAt });
+  return { token, expiresAt };
+}
 
 /** Token long opaque (2× UUID v4, tirets retirés) — 244 bits d'entropie. */
 function newResetToken(): string {

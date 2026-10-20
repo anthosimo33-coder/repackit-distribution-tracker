@@ -412,3 +412,29 @@ export function memberRemovalProblem(input: {
   if (roles.has("manager") && input.paidCreators > 0) return "paid_by_cpm";
   return null;
 }
+
+/** Pourquoi un compte ne s'ajoute pas à l'équipe (cf `memberAdditionProblem`). */
+export type MemberAdditionProblem = "superadmin" | "already_team" | "has_portal";
+
+/**
+ * AJOUTER QUELQU'UN À L'ÉQUIPE D'UN PROJET — ce qui l'interdit.
+ *
+ * Même forme que `memberRemovalProblem` : un CODE, la phrase vit dans l'écran.
+ *   - "superadmin"   : il a déjà tout, partout ; une ligne de plus afficherait
+ *     un pouvoir plus petit que le sien ;
+ *   - "already_team" : il est déjà admin ou manager ici — changer son rôle est
+ *     le geste de sa ligne (échange, droits), pas un second ajout ;
+ *   - "has_portal"   : il a un espace créateur ici. Le cumul se pose depuis sa
+ *     ligne (`addRole`), qui garde son espace — et refuse admin + portail.
+ * `existing` = son membership sur CE projet, `null` s'il n'en a pas. Une ligne
+ * sans aucun rôle reconnu ne bloque rien : on lui pose le rôle demandé.
+ */
+export function memberAdditionProblem(input: {
+  isSuperadmin: boolean;
+  existing: RoleBearer | null;
+}): MemberAdditionProblem | null {
+  if (input.isSuperadmin) return "superadmin";
+  if (teamRoleOf(input.existing) !== null) return "already_team";
+  if (portalRoleOf(input.existing) !== null) return "has_portal";
+  return null;
+}
