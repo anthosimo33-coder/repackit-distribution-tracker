@@ -49,7 +49,7 @@ Décisions actées :
 | 12 | `content.analytics` | Contenu | **Performance des contenus** | Lire le Tracker, les KPI du Dashboard, les verdicts par script, les courbes de vues et le taux de publication à l'heure. | ✓ | 14 | 🟢 Faible — vues et engagement, jamais d'euros. |
 | 13 | `content.share` | Contenu | **Partager des dashboards** | Créer des liens publics vers une partie du Tracker, pour une marque ou une créatrice, et les révoquer. | ✗ | 4 | 🟠 Moyen — le lien sort les chiffres de l'app vers quelqu'un sans compte ; aucun montant n'y figure jamais, et un lien se révoque. |
 | 14 | `radar.use` | Contenu | **Radar** | Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers. | ✓ | 11 | 🟠 Moyen — chaque synchro est **facturée à l'usage** (Apify). |
-| 15 | `conversations.use` | Contenu | **Conversations Instagram** | Créer, modifier et exporter des captures de conversations Instagram reproduites, à l'écran ou par Claude. | ✗ | 5 | 🟢 Faible — brouillons de captures inventées, sans donnée de créatrice ni montant. |
+| 15 | `conversations.use` | Contenu | **Conversations Instagram** | Créer, modifier et exporter des captures de conversations reproduites (DM Instagram, chat BLUSH), à l'écran ou par Claude. | ✗ | 5 | 🟢 Faible — brouillons de captures inventées, sans donnée de créatrice ni montant. |
 | 16 | `creators.pay_terms` | Argent | **Conditions de rémunération** | Voir et modifier le tarif négocié, le forfait mensuel, la grille de bonus et les coordonnées de paiement d'une créatrice. | ✗ | 2 | 🔴 **Élevé** — RIB/PayPal en clair, et un tarif modifié change ce qui sera versé. |
 | 17 | `pricing.manage` | Argent | **Pricings** | Créer et modifier les grilles de rémunération : fixe, CPM, paliers de bonus. | ✗ | 11 | 🔴 **Élevé** — c'est la définition de ce que coûte chaque vidéo. |
 | 18 | `payments.manage` | Argent | **Paiements** | Voir les cycles et les totaux dus, calculer les bonus de vues, marquer un paiement comme payé. | ✗ | 9 | 🔴 **Élevé** — montants dus, coordonnées bancaires à l'export, marquage « payé » irréversible en pratique. |
@@ -554,7 +554,7 @@ Le bloc ouvre la création de liens publics (`/s/<token>`). Ce que le lien montr
 
 ### `conversations.use` — 8 fonctions
 
-Bibliothèque du générateur de captures (`/conversations`). Les outils MCP du même nom (`conversations`, `lire_conversation`, `images_tiktok` en lecture ; `creer_conversation`, `modifier_conversation`, `supprimer_conversation` derrière l'interrupteur « Conversations ») passent par le même bloc et les mêmes cœurs (`convex/instaConversations.ts`). Les images des conversations (photo, reel, story partagée…) vivent dans le storage du projet, une ligne `instaConvImages` chacune (`convex/instaConvImages.ts`).
+Bibliothèque du générateur de captures (`/conversations`) : DM Instagram iOS, ou chat de l'app BLUSH (`interface: "blush"`, octobre 2026 — même table, même forme, rendu `components/admin/insta-conv/BlushScreen.tsx`). Les outils MCP du même nom (`conversations`, `lire_conversation`, `images_tiktok` en lecture ; `creer_conversation`, `modifier_conversation`, `supprimer_conversation` derrière l'interrupteur « Conversations ») passent par le même bloc et les mêmes cœurs (`convex/instaConversations.ts`). Les images des conversations (photo, reel, story partagée…) vivent dans le storage du projet, une ligne `instaConvImages` chacune (`convex/instaConvImages.ts`).
 
 | Fonction | T | Fichier | Ce qu'elle fait | |
 |---|---|---|---|---|

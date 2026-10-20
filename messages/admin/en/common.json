@@ -982,7 +982,7 @@
       "radar": "Radar",
       "inspirations": "Inspirations",
       "messages": "Creators",
-      "conversations": "Instagram conversations",
+      "conversations": "Conversations (Instagram, BLUSH chat)",
       "pricing": "Pay grids",
       "scenarios": "Scenarios",
       "tournage": "Filming mode"
@@ -1020,7 +1020,7 @@
       },
       "conversations": {
         "titre": "Conversations",
-        "objet": "Instagram conversations",
+        "objet": "Instagram and BLUSH conversations",
         "aria": "Conversation edits for {name}"
       },
       "baremes": {

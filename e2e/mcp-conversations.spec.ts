@@ -202,4 +202,77 @@ test.describe("MCP — conversations Instagram", () => {
     expect(lu.messages[1]).toMatchObject({ type: "story_partagee", compte: "chloe.difrancesco", image: `img:${image.id}` });
     expect(lu.messages[0]).toMatchObject({ type: "reel", compte: "plein_astuces_", certifie: true });
   });
+
+  /**
+   * CHAT BLUSH PAR CLAUDE — `interface: "blush"` : Claude écrit le chat de l'app
+   * BLUSH (elle se confie, BLUSH répond en bulles courtes et lui écrit la
+   * réplique), l'écran le dessine, `lire_conversation` le rend sous la même
+   * forme, et une slide peut finir sur « BLUSH écrit » avec son texte incrusté.
+   */
+  test("chat BLUSH : créé par Claude, dessiné par l'écran, relu, modifié", async ({ page }) => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    const { appel } = await cle(page, `E2E chat BLUSH ${ts}`);
+    const titre = `Chat BLUSH e2e ${ts}`;
+    const cree = await appel("creer_conversation", {
+      titre,
+      interface: "blush",
+      contact_nom: "Nathan",
+      verdict: "🤔",
+      niveau: 3,
+      bulles: 2,
+      heure: "02:31",
+      messages: [
+        { type: "date", texte: "Aujourd’hui 02:05" },
+        { cote: "envoye", texte: "il vient de m’écrire « tkt »" },
+        { type: "citation", texte: "tkt", legende: "Nathan · 02:14" },
+        { cote: "recu", texte: "c’est pas un message, c’est un accusé de réception" },
+        { cote: "envoye", texte: "je lui réponds quoi ??", coupure: true, incrustation: "t'étais un 2/10 quand tu m'as répondu « tkt »" },
+        { type: "meilleure_reponse", lignes: ["tkt aussi 🙂", "bonne nuit Nathan"], pourquoi: "Courte et posée." },
+      ],
+    });
+    expect(cree.erreur, cree.texte).toBe(false);
+    await page.goto((JSON.parse(cree.texte).lien as string).replace(/^https?:\/\/[^/]+/, ""));
+    const apercu = page.getByRole("img", { name: "Aperçu de la capture" });
+    await expect(apercu.getByText("askblush.com", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Nathan", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Nathan · 02:14", { exact: true })).toBeVisible();
+    // La slide 1 (ouverte d'abord) finit sur sa coupure : son texte incrusté, pas encore la réplique.
+    await expect(apercu.getByText("t'étais un 2/10 quand tu m'as répondu « tkt »", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("bonne nuit Nathan", { exact: true })).toHaveCount(0);
+    await page.getByRole("listitem", { name: "Slide 2" }).click();
+    await expect(apercu.getByText("bonne nuit Nathan", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Ta meilleure réponse", { exact: true })).toBeVisible();
+
+    // La liste dit l'interface ; la lecture rend la même forme, prête à renvoyer.
+    const liste = JSON.parse((await appel("conversations", {})).texte).conversations as { titre: string; interface: string }[];
+    expect(liste.find((c) => c.titre === titre)?.interface).toBe("blush");
+    const lu = JSON.parse((await appel("lire_conversation", { conversation: titre })).texte) as {
+      interface: string;
+      verdict: string;
+      niveau: number;
+      bulles: number;
+      messages: Array<Record<string, unknown>>;
+    };
+    expect(lu).toMatchObject({ interface: "blush", verdict: "🤔", niveau: 3, bulles: 2 });
+    expect(lu.messages[2]).toMatchObject({ type: "citation", texte: "tkt", de: "autre", legende: "Nathan · 02:14" });
+    expect(lu.messages[5]).toMatchObject({ type: "meilleure_reponse", lignes: ["tkt aussi 🙂", "bonne nuit Nathan"] });
+
+    // Modifier : la réplique remplacée par « BLUSH écrit » — l'écran suit en direct.
+    const messages = lu.messages.slice(0, 5).map((m) => {
+      const copie = { ...m };
+      delete copie.n;
+      return copie;
+    });
+    const modif = await appel("modifier_conversation", { conversation: titre, messages: [...messages, { type: "ecrit" }] });
+    expect(modif.erreur, modif.texte).toBe(false);
+    await expect(apercu.getByText("bonne nuit Nathan", { exact: true })).toHaveCount(0);
+    await expect(apercu.getByText("Ta meilleure réponse", { exact: true })).toHaveCount(0);
+
+    // Un élément d'Instagram dans le chat BLUSH est refusé en clair.
+    const refus = await appel("modifier_conversation", { conversation: titre, messages: [{ type: "reel", cote: "recu", compte: "x" }] });
+    expect(refus.erreur).toBe(true);
+    expect(refus.texte).toContain("dans le chat BLUSH");
+  });
 });
+

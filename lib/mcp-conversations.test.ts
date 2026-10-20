@@ -6,7 +6,7 @@ import {
   lienImagePublic,
   octetsDataUrl,
 } from "../convex/mcpConversationsArgs";
-import { conversationDeData, defaultConversation, imagesDeConversation, parseConversation } from "../convex/instaConvModel";
+import { conversationDeData, defaultBlushConversation, defaultConversation, imagesDeConversation, incrustationDe, parseConversation } from "../convex/instaConvModel";
 import { extractTikTokMedia, extractTikTokProfile, isTikTokCdnUrl, isTikTokPostUrl, isTikTokProfileUrl } from "../convex/tiktokMedia";
 
 describe("ce que Claude écrit → la conversation", () => {
@@ -172,6 +172,103 @@ describe("ce que Claude écrit → la conversation", () => {
     if ("refus" in r) throw new Error(r.refus);
     const sansId = (xs: typeof c.items) => xs.map((x) => ({ ...x, id: "" }));
     expect(sansId(r.conversation.items)).toEqual(sansId(c.items));
+  });
+});
+
+describe("chat BLUSH (interface « blush »)", () => {
+  const base = () => ({ ...defaultBlushConversation(), items: [] });
+  const sansId = (xs: ReturnType<typeof defaultBlushConversation>["items"]) => xs.map((x) => ({ ...x, id: "" }));
+
+  it("elle à droite, BLUSH à gauche en plusieurs bulles, « BLUSH écrit », la meilleure réponse, une citation, un vocal, une capture : relus à l'identique", () => {
+    const r = appliquerChampsMcp(base(), {
+      interface: "blush",
+      contact_nom: "Théo",
+      verdict: "🔥",
+      niveau: 3,
+      bulles: 12,
+      idees: ["il m’aime encore ?", "  "],
+      messages: [
+        { type: "date", texte: "Aujourd’hui 21:40", incrustation: "t'étais un 10/10 quand…" },
+        { cote: "envoye", texte: "au début il me répondait en 10 min même au taf" },
+        { cote: "recu", texte: "10 min au taf c’est de l’amour 😭" },
+        { cote: "recu", texte: "et là ?", heure: "21:41", coupure: true, incrustation: "t'étais un 10/10 quand tu me répondais en 10 min" },
+        { type: "photo", cote: "envoye", image: "img:abc12345xyz" },
+        { type: "citation", texte: "mdr", legende: "Théo · 02:14" },
+        { type: "citation", texte: "t’es où ?", de: "moi" },
+        { type: "vocal", cote: "recu", duree: 14 },
+        { type: "meilleure_reponse", lignes: ["tu me manques un peu", "il revient quand ?"], pourquoi: "Léger, sans reproche." },
+        { type: "ecrit" },
+      ],
+    });
+    if ("refus" in r) throw new Error(r.refus);
+    const c = r.conversation;
+    expect(c.interface).toBe("blush");
+    expect(c.blush).toEqual({ verdict: "🔥", niveau: 3, bulles: 12, idees: ["il m’aime encore ?"] });
+    const [date, elle, b1, b2, capture, cite, citeMoi, vocal, meilleure, ecrit] = c.items as Array<Record<string, unknown>>;
+    expect(date).toMatchObject({ kind: "date", text: "Aujourd’hui 21:40", overlay: "t'étais un 10/10 quand…" });
+    expect(elle).toMatchObject({ side: "out", text: "au début il me répondait en 10 min même au taf" });
+    expect(b1).toMatchObject({ side: "in" });
+    expect(b2).toMatchObject({ side: "in", time: "21:41", cut: true, overlay: "t'étais un 10/10 quand tu me répondais en 10 min" });
+    expect(capture).toMatchObject({ side: "out", media: { type: "photo", image: "abc12345xyz" } });
+    expect(cite).toMatchObject({ side: "in", text: "mdr", cited: { side: "in", caption: "Théo · 02:14" } });
+    expect(citeMoi).toMatchObject({ side: "in", cited: { side: "out" } });
+    expect(vocal).toMatchObject({ side: "in", media: { type: "voice", seconds: 14 } });
+    expect(meilleure).toMatchObject({ side: "in", suggestion: { lines: ["tu me manques un peu", "il revient quand ?"], why: "Léger, sans reproche." } });
+    expect(ecrit).toMatchObject({ side: "in", typing: true });
+
+    // Ce que Claude lit se réécrit sans perte, et le stockage le relit pareil.
+    const lu = conversationPourMcp(c);
+    expect(lu).toMatchObject({ interface: "blush", contact: { nom: "Théo" }, verdict: "🔥", niveau: 3, bulles: 12 });
+    expect(lu.messages[5]).toEqual({ type: "citation", texte: "mdr", de: "autre", legende: "Théo · 02:14" });
+    expect(lu.messages[9]).toEqual({ type: "ecrit" });
+    const back = appliquerChampsMcp(c, { messages: lu.messages });
+    if ("refus" in back) throw new Error(back.refus);
+    expect(sansId(back.conversation.items)).toEqual(sansId(c.items));
+    expect(parseConversation(JSON.parse(JSON.stringify(c)))).toEqual(c);
+    expect(imagesDeConversation(c)).toEqual(["abc12345xyz"]);
+    expect(incrustationDe(c.items.slice(0, 4))).toBe("t'étais un 10/10 quand tu me répondais en 10 min");
+  });
+
+  it("refuse ce que le chat BLUSH n'a pas, et les bulles de BLUSH dans un DM Instagram", () => {
+    const blush = (messages: unknown[]) => appliquerChampsMcp(base(), { messages });
+    expect(blush([{ type: "reel", cote: "recu", compte: "x" }])).toMatchObject({ refus: expect.stringContaining("dans le chat BLUSH") });
+    expect(blush([{ cote: "recu", texte: "ok", reaction: "😂" }])).toMatchObject({ refus: expect.stringContaining("« reaction » n'existe pas") });
+    expect(blush([{ type: "meilleure_reponse", lignes: [] }])).toMatchObject({ refus: expect.stringContaining("« lignes »") });
+    expect(blush([{ type: "meilleure_reponse", lignes: ["a", "b", "c", "d", "e"] }])).toMatchObject({ refus: expect.stringContaining("4 messages au plus") });
+    expect(blush([{ type: "citation", texte: "x", de: "lui" }])).toMatchObject({ refus: expect.stringContaining("« de »") });
+    expect(blush([{ type: "ecrit", cote: "envoye" }])).toMatchObject({ refus: expect.stringContaining("bulle de BLUSH") });
+    expect(blush([{ texte: "sans côté" }])).toMatchObject({ refus: expect.stringContaining("« cote »") });
+    expect(blush([{ cote: "recu", texte: "x", incrustation: "y".repeat(200) }])).toMatchObject({ refus: expect.stringContaining("« incrustation »") });
+    expect(appliquerChampsMcp(defaultConversation(), { messages: [{ type: "ecrit" }] })).toMatchObject({ refus: expect.stringContaining("que dans le chat BLUSH") });
+    expect(appliquerChampsMcp(base(), { verdict: "😍" })).toMatchObject({ refus: expect.stringContaining("« verdict »") });
+    expect(appliquerChampsMcp(base(), { niveau: 5 })).toMatchObject({ refus: expect.stringContaining("« niveau »") });
+    expect(appliquerChampsMcp(base(), { idees: ["a", "b", "c", "d", "e"] })).toMatchObject({ refus: expect.stringContaining("4 au plus") });
+    expect(appliquerChampsMcp(base(), { interface: "whatsapp" })).toEqual({ refus: "« interface » : instagram ou blush." });
+  });
+
+  it("passer d'un écran à l'autre garde les réglages ; un DM Instagram stocké avant BLUSH se relit sans eux", () => {
+    const vers = appliquerChampsMcp(defaultConversation(), { interface: "blush" });
+    if ("refus" in vers) throw new Error(vers.refus);
+    expect(vers.conversation.interface).toBe("blush");
+    expect(vers.conversation.blush).toEqual({ verdict: "🧊", niveau: 2, bulles: 37, idees: [] });
+    const retour = appliquerChampsMcp(vers.conversation, { interface: "instagram" });
+    if ("refus" in retour) throw new Error(retour.refus);
+    expect(retour.conversation.interface).toBeUndefined();
+    expect(retour.conversation.blush).toBeDefined();
+    expect(conversationPourMcp(retour.conversation)).toMatchObject({ interface: "instagram", theme: "sombre" });
+    // Une conversation d'avant (ni interface ni réglages) se relit telle quelle.
+    const avant = defaultConversation();
+    expect(conversationDeData(JSON.stringify(avant))).toEqual(avant);
+    // Des réglages abîmés retombent sur des valeurs sûres.
+    const abime = parseConversation({ ...defaultBlushConversation(), blush: { verdict: "x", niveau: 12, bulles: -3, idees: "non" } });
+    expect(abime?.blush).toEqual({ verdict: "🧊", niveau: 4, bulles: 0, idees: [] });
+  });
+
+  it("l'incrustation existe aussi sur un DM Instagram", () => {
+    const r = elementsDeMcp([{ cote: "recu", texte: "jdormais", incrustation: "il était un 2/10" }]);
+    expect("items" in r && r.items[0]).toMatchObject({ overlay: "il était un 2/10" });
+    const c = { ...defaultConversation(), items: "items" in r ? r.items : [] };
+    expect(conversationPourMcp(c).messages[0]).toMatchObject({ incrustation: "il était un 2/10" });
   });
 });
 

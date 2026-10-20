@@ -13,7 +13,6 @@ import { useConvexError } from "@/lib/use-convex-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,8 +24,10 @@ import {
   autoCuts,
   conversationDeData,
   slideEnds,
+  defaultBlushConversation,
   defaultConversation,
   imagesDeConversation,
+  REGLAGES_BLUSH_DEFAUT,
   newItemId,
   PARAM_EXPORT,
   type Conversation,
@@ -37,8 +38,13 @@ import {
   type Side,
   type ThemeId,
 } from "@/lib/insta-conv";
+import { visibleHeight as blushVisibleHeight } from "@/lib/blush-conv";
 import { InstaScreen, type InstaScreenHandle } from "./InstaScreen";
 import type { ConvImages } from "./InstaMedia";
+import { BlushScreen } from "./BlushScreen";
+import { BlushMessageOptions, BlushReglagesFields } from "./BlushEditeur";
+import { cssPolicesEmbarquees } from "./blush-polices";
+import { Choice, Field, ImagePick, type Tr } from "./champs";
 
 const PREVIEW_SCALE = 0.75;
 const THUMB_SCALE = 0.17;
@@ -110,10 +116,21 @@ async function attendreImages(node: HTMLElement): Promise<void> {
   );
 }
 
-/** Rastérise un écran (414×896 pt) en PNG ×2 — polices système seulement, rien à embarquer. */
+/**
+ * Rastérise un écran (414×896 pt) en PNG ×2. Instagram : polices système
+ * seulement, rien à embarquer. BLUSH : Nunito et Figtree, embarquées en data URL
+ * (l'image SVG que rastérise modern-screenshot ne charge aucun fichier).
+ */
 const versPng = async (node: HTMLElement) => {
   await attendreImages(node);
-  return domToPng(node, { width: SCREEN.width, height: SCREEN.height, scale: SCREEN.exportScale, font: false });
+  const blush = node.dataset.ecran === "blush";
+  if (blush) await document.fonts.ready;
+  return domToPng(node, {
+    width: SCREEN.width,
+    height: SCREEN.height,
+    scale: SCREEN.exportScale,
+    font: blush ? { cssText: await cssPolicesEmbarquees() } : false,
+  });
 };
 
 
@@ -204,12 +221,13 @@ export function ConvStudio() {
 
   const ouvrir = (id: string | null) => router.replace(id ? `${pathname}?c=${id}` : pathname);
 
-  async function nouvelle() {
+  async function nouvelle(blush = false) {
     const pris = new Set((liste ?? []).map((c) => c.titre));
+    const titreDe = (n: number) => (blush ? tr("titreParDefautBlush", { n }) : tr("titreParDefaut", { n }));
     let n = (liste?.length ?? 0) + 1;
-    while (pris.has(tr("titreParDefaut", { n }))) n++;
+    while (pris.has(titreDe(n))) n++;
     try {
-      const id = await create({ titre: tr("titreParDefaut", { n }), data: JSON.stringify(defaultConversation()) });
+      const id = await create({ titre: titreDe(n), data: JSON.stringify(blush ? defaultBlushConversation() : defaultConversation()) });
       ouvrir(id);
     } catch (e) {
       setError(errorText(e, tr("echecEnregistrement")));
@@ -247,10 +265,16 @@ export function ConvStudio() {
         <CardContent className="space-y-4 py-12 text-center">
           <p className="text-sm font-medium text-slate-900">{tr("aucuneConversation")}</p>
           <p className="mx-auto max-w-xl text-sm text-slate-500">{tr("avecClaude")}</p>
-          <Button type="button" onClick={nouvelle}>
-            <PlusIcon className="size-4" />
-            {tr("nouvelle")}
-          </Button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button type="button" onClick={() => nouvelle()}>
+              <PlusIcon className="size-4" />
+              {tr("nouvelle")}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => nouvelle(true)}>
+              <PlusIcon className="size-4" />
+              {tr("nouvelleBlush")}
+            </Button>
+          </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
         </CardContent>
       </Card>
@@ -268,8 +292,12 @@ export function ConvStudio() {
     items.splice(index + delta, 0, it);
     patch({ items });
   };
-  const addMessage = (side: Side) =>
-    patch({ items: [...conv.items, { id: newItemId(), kind: "message", side, text: "" }] });
+  const blush = conv.interface === "blush";
+  const Ecran = blush ? BlushScreen : InstaScreen;
+  const addMessage = (side: Side, extra: Partial<ConvMessage> = {}) =>
+    patch({ items: [...conv.items, { id: newItemId(), kind: "message", side, text: "", ...extra }] });
+  const setInterface = (v: "instagram" | "blush") =>
+    patch(v === "blush" ? { interface: "blush", blush: conv.blush ?? { ...REGLAGES_BLUSH_DEFAUT, idees: [] } } : { interface: undefined });
 
   // Série : chaque slide montre le fil jusqu'à sa coupure, la plus récente en bas.
   const ends = slideEnds(conv.items);
@@ -300,7 +328,7 @@ export function ConvStudio() {
       s.top = Math.min(s.top, r.top - haut);
       s.bottom = Math.max(s.bottom, r.bottom - haut + parseFloat(getComputedStyle(el).marginBottom || "0"));
     });
-    setCoupures(new Set(autoCuts(spans, VISIBLE_HEIGHT)));
+    setCoupures(new Set(autoCuts(spans, blush ? blushVisibleHeight(!!conv.blush?.idees.some((q) => q.trim())) : VISIBLE_HEIGHT)));
     setSlide(0);
   };
 
@@ -408,9 +436,13 @@ export function ConvStudio() {
                   {c.titre}
                 </button>
               ))}
-              <Button type="button" variant="outline" size="sm" onClick={nouvelle}>
+              <Button type="button" variant="outline" size="sm" onClick={() => nouvelle()}>
                 <PlusIcon className="size-4" />
                 {tr("nouvelle")}
+              </Button>
+              <Button type="button" variant="outline" size="sm" onClick={() => nouvelle(true)}>
+                <PlusIcon className="size-4" />
+                {tr("nouvelleBlush")}
               </Button>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -453,20 +485,31 @@ export function ConvStudio() {
             <CardTitle>{tr("ecran")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Field label={tr("theme")}>
+            <Field label={tr("interface")}>
               <Choice
-                value={conv.themeId}
-                options={THEME_IDS.map((id) => [id, tr(`themes.${id}`)] as const)}
-                onChange={(themeId: ThemeId) => patch({ themeId })}
+                value={blush ? "blush" : "instagram"}
+                options={(["instagram", "blush"] as const).map((v) => [v, tr(`interfaces.${v}`)] as const)}
+                onChange={setInterface}
               />
             </Field>
-            <Field label={tr("langue")}>
-              <Choice
-                value={conv.locale}
-                options={(["fr", "en"] as const).map((l) => [l, tr(`langues.${l}`)] as const)}
-                onChange={(locale: ConvLocale) => patch({ locale })}
-              />
-            </Field>
+            {!blush && (
+              <>
+                <Field label={tr("theme")}>
+                  <Choice
+                    value={conv.themeId}
+                    options={THEME_IDS.map((id) => [id, tr(`themes.${id}`)] as const)}
+                    onChange={(themeId: ThemeId) => patch({ themeId })}
+                  />
+                </Field>
+                <Field label={tr("langue")}>
+                  <Choice
+                    value={conv.locale}
+                    options={(["fr", "en"] as const).map((l) => [l, tr(`langues.${l}`)] as const)}
+                    onChange={(locale: ConvLocale) => patch({ locale })}
+                  />
+                </Field>
+              </>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={tr("heure")} htmlFor="conv-time">
                 <Input
@@ -501,13 +544,15 @@ export function ConvStudio() {
                 />
                 {tr("economie")}
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700" title={tr("debutDuFilAide")}>
-                <Switch
-                  checked={!!conv.threadStart}
-                  onCheckedChange={(on) => patch({ threadStart: on || undefined })}
-                />
-                {tr("debutDuFil")}
-              </label>
+              {!blush && (
+                <label className="flex items-center gap-2 text-sm text-slate-700" title={tr("debutDuFilAide")}>
+                  <Switch
+                    checked={!!conv.threadStart}
+                    onCheckedChange={(on) => patch({ threadStart: on || undefined })}
+                  />
+                  {tr("debutDuFil")}
+                </label>
+              )}
               <Field label={tr("reseau")}>
                 <Choice
                   value={String(conv.status.signal)}
@@ -533,9 +578,13 @@ export function ConvStudio() {
 
         <Card>
           <CardHeader>
-            <CardTitle>{tr("contact")}</CardTitle>
+            <CardTitle>{blush ? tr("blush.entete") : tr("contact")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {blush ? (
+              <BlushReglagesFields conversation={conv} tr={tr} onChange={patch} />
+            ) : (
+            <>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={tr("nom")} htmlFor="conv-name">
                 <Input
@@ -580,6 +629,8 @@ export function ConvStudio() {
                 )}
               </div>
             </Field>
+            </>
+            )}
           </CardContent>
         </Card>
 
@@ -615,8 +666,8 @@ export function ConvStudio() {
                     <Choice
                       value={it.side}
                       options={[
-                        ["in", tr("recu")],
-                        ["out", tr("envoye")],
+                        ["in", blush ? tr("blush.cotes.blush") : tr("recu")],
+                        ["out", blush ? tr("blush.cotes.elle") : tr("envoye")],
                       ]}
                       onChange={(side: Side) => patchItem(it.id, { side })}
                     />
@@ -669,7 +720,9 @@ export function ConvStudio() {
                     </Button>
                   </div>
                 </div>
-                {it.kind === "message" ? (
+                {it.kind === "message" && blush ? (
+                  <BlushMessageOptions item={it} tr={tr} onUpload={deposerImage} onChange={(p) => patchItem(it.id, p)} />
+                ) : it.kind === "message" ? (
                   <>
                     {/* Un média (vocal, photo, reel…) n'a pas de texte. */}
                     {!it.media && (
@@ -721,6 +774,15 @@ export function ConvStudio() {
                   />
                 )}
               </div>
+              {/* Le texte incrusté de la slide que termine cet élément (coupure, ou le dernier). */}
+              {(it.cut || i === conv.items.length - 1) && (
+                <Incruste
+                  n={ends.indexOf(i) + 1}
+                  value={it.overlay ?? ""}
+                  tr={tr}
+                  onChange={(overlay) => patchItem(it.id, { overlay: overlay || undefined })}
+                />
+              )}
               {it.cut && i < conv.items.length - 1 && (
                 <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-400">
                   <span className="h-px flex-1 bg-slate-200" />
@@ -732,17 +794,22 @@ export function ConvStudio() {
             ))}
             <div className="flex flex-wrap gap-2 pt-1">
               <Button type="button" variant="outline" size="sm" onClick={() => addMessage("in")}>
-                {tr("ajouterRecu")}
+                {blush ? tr("blush.ajouterBlush") : tr("ajouterRecu")}
               </Button>
               <Button type="button" variant="outline" size="sm" onClick={() => addMessage("out")}>
-                {tr("ajouterEnvoye")}
+                {blush ? tr("blush.ajouterElle") : tr("ajouterEnvoye")}
               </Button>
+              {blush && (
+                <Button type="button" variant="outline" size="sm" onClick={() => addMessage("in", { typing: true })}>
+                  {tr("blush.ajouterEcrit")}
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  patch({ items: [...conv.items, { id: newItemId(), kind: "date", text: tr("dateParDefaut") }] })
+                  patch({ items: [...conv.items, { id: newItemId(), kind: "date", text: blush ? tr("blush.dateParDefaut") : tr("dateParDefaut") }] })
                 }
               >
                 {tr("ajouterSeparateur")}
@@ -761,7 +828,7 @@ export function ConvStudio() {
             role="img"
           >
             <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: "top left" }}>
-              <InstaScreen conversation={apercu} images={images} />
+              <Ecran conversation={apercu} images={images} />
             </div>
           </div>
           {serie && (
@@ -783,7 +850,7 @@ export function ConvStudio() {
                     style={{ width: SCREEN.width * THUMB_SCALE, height: SCREEN.height * THUMB_SCALE }}
                   >
                     <div style={{ transform: `scale(${THUMB_SCALE})`, transformOrigin: "top left" }} aria-hidden>
-                      <InstaScreen conversation={slideConv(k)} images={images} />
+                      <Ecran conversation={slideConv(k)} images={images} />
                     </div>
                     <span className="absolute right-0.5 bottom-0.5 rounded bg-black/60 px-1 text-[10px] font-medium text-white">
                       {k + 1}
@@ -807,12 +874,12 @@ export function ConvStudio() {
           {exportAuto && <AutoExport pret={idsImages.length === 0 || resolues !== undefined} lancer={exporterAuto} />}
           {/* Fil complet, hors écran, à l'échelle 1 : sert à mesurer pour la découpe automatique. */}
           <div aria-hidden style={{ position: "fixed", left: -10_000, top: 0, visibility: "hidden", pointerEvents: "none" }}>
-            <InstaScreen ref={measureRef} conversation={{ ...conv, scroll: 0 }} images={images} />
+            <Ecran ref={measureRef} conversation={{ ...conv, scroll: 0 }} images={images} />
           </div>
           {/* Ce que téléchargent « Exporter » et le lien de Claude : pleine taille, visibles mais hors champ. */}
           <div aria-hidden style={{ position: "fixed", left: -20_000, top: 0, pointerEvents: "none" }}>
             {(serie ? ends.map((_, k) => slideConv(k)) : [conv]).map((c, k) => (
-              <InstaScreen
+              <Ecran
                 key={k}
                 ref={(h) => {
                   exportRefs.current[k] = h;
@@ -828,7 +895,21 @@ export function ConvStudio() {
   );
 }
 
-type Tr = ReturnType<typeof useTranslations<"admin.ops.ConvStudio">>;
+/** Le texte incrusté d'une slide (style TikTok), sous l'élément qui la termine. */
+function Incruste({ n, value, tr, onChange }: { n: number; value: string; tr: Tr; onChange: (v: string) => void }) {
+  return (
+    <label className="flex items-center gap-2 rounded-md border border-dashed border-slate-200 px-2.5 py-1.5 text-xs text-slate-500">
+      <span className="shrink-0 font-medium">{tr("incrustation", { n })}</span>
+      <Input
+        className="h-8 flex-1 text-sm"
+        maxLength={160}
+        placeholder={tr("incrustationExemple")}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
 
 /**
  * Export lancé par le lien de Claude, UNE fois, quand les images citées sont
@@ -1064,106 +1145,5 @@ function MessageOptions({
         </div>
       </div>
     </details>
-  );
-}
-
-/** Dépôt d'une image : bouton (le champ fichier est caché), remplacer, retirer. */
-function ImagePick({
-  label,
-  value,
-  tr,
-  onUpload,
-  onChange,
-}: {
-  label: string;
-  value: string | undefined;
-  tr: Tr;
-  onUpload: (file: File) => Promise<string | null>;
-  onChange: (id: string | undefined) => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="flex items-center gap-2 text-sm text-slate-700">
-      <span>{label}</span>
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => ref.current?.click()}>
-        <ImageUpIcon className="size-4" />
-        {busy ? tr("imageEnCours") : value ? tr("changerImage") : tr("choisirImage")}
-      </Button>
-      {value && (
-        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(undefined)}>
-          {tr("retirerImage")}
-        </Button>
-      )}
-      <input
-        ref={ref}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        className="hidden"
-        aria-label={label}
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          e.target.value = "";
-          if (!file) return;
-          setBusy(true);
-          try {
-            const id = await onUpload(file);
-            if (id) onChange(id);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      />
-    </div>
-  );
-}
-
-function Field({
-  label,
-  htmlFor,
-  hint,
-  children,
-}: {
-  label: string;
-  htmlFor?: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={htmlFor}>{label}</Label>
-      {children}
-      {hint && <p className="text-xs text-slate-500">{hint}</p>}
-    </div>
-  );
-}
-
-/** Choix exclusif en boutons — plus lisible qu'un menu pour 2 à 5 options. */
-function Choice<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T;
-  options: ReadonlyArray<readonly [T, string]>;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div className="inline-flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
-      {options.map(([v, label]) => (
-        <button
-          key={v}
-          type="button"
-          aria-pressed={v === value}
-          onClick={() => onChange(v)}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-sm transition-colors",
-            v === value ? "bg-white font-medium text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900",
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
   );
 }

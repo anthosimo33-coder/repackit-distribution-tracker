@@ -17,8 +17,8 @@
     "videoRecupereeBrutes": "{count} {count, plural, one {vidéo} other {vidéos}} · {totalFetched} {totalFetched, plural, one {récupérée} other {récupérées}} brutes"
   },
   "ConvStudio": {
-    "titre": "Conversations Instagram",
-    "sousTitre": "Reproduis une capture de DM Instagram : écris les messages, exporte un PNG plein écran (828×1792).",
+    "titre": "Conversations",
+    "sousTitre": "Reproduis une capture de DM Instagram ou du chat BLUSH : écris les messages, exporte un PNG plein écran (828×1792).",
     "accesRefuse": "Accès refusé",
     "reserveAdmins": "Il faut le droit « Conversations Instagram » (Rôles et droits) pour ouvrir cet outil.",
     "ecran": "Écran",
@@ -123,7 +123,58 @@
     "legende": "Légende",
     "miniatureStory": "Miniature de la story",
     "debutDuFil": "Début du fil (fiche du contact)",
-    "debutDuFilAide": "Affiche la fiche du contact (grande photo, nom, « Voir le profil ») au-dessus du premier message, comme au début d'un vrai fil."
+    "debutDuFilAide": "Affiche la fiche du contact (grande photo, nom, « Voir le profil ») au-dessus du premier message, comme au début d'un vrai fil.",
+    "nouvelleBlush": "Nouveau chat BLUSH",
+    "titreParDefautBlush": "Chat BLUSH {n}",
+    "interface": "Interface",
+    "interfaces": {
+      "instagram": "DM Instagram",
+      "blush": "Chat BLUSH (askblush.com)"
+    },
+    "incrustation": "Texte incrusté · slide {n}",
+    "incrustationExemple": "ex. t'étais un 10/10 quand…",
+    "blush": {
+      "entete": "En-tête et saisie",
+      "nom": "Son prénom",
+      "nomAide": "En haut à droite, sous son initiale (la personne dont elle parle).",
+      "bulles": "Bulles",
+      "bullesAide": "Le compteur à côté du compte (rose à 1 ou 2, gris à 0).",
+      "verdict": "Verdict (badge sur son initiale)",
+      "verdicts": {
+        "presque": "à deux doigts",
+        "partant": "partant",
+        "hesite": "hésite",
+        "eloigne": "s'éloigne"
+      },
+      "niveau": "Niveau (anneau vert)",
+      "niveauAide": "De « On se parle » (1/4) à « On est ensemble » (4/4).",
+      "idees": "Idées de questions",
+      "ideesAide": "Une par ligne, au-dessus du champ (4 au plus) ; rangées pendant que BLUSH écrit.",
+      "cotes": {
+        "blush": "BLUSH",
+        "elle": "Elle"
+      },
+      "ajouterBlush": "+ Message de BLUSH",
+      "ajouterElle": "+ Son message",
+      "ajouterEcrit": "+ BLUSH écrit",
+      "dateParDefaut": "Aujourd’hui 21:40",
+      "natures": {
+        "texte": "Texte",
+        "vocal": "Vocal",
+        "capture": "Capture",
+        "meilleure": "Ta meilleure réponse",
+        "citation": "Citation",
+        "ecrit": "BLUSH écrit"
+      },
+      "capture": "Capture envoyée",
+      "lignesReponse": "Messages à lui envoyer (un par ligne)",
+      "pourquoi": "Pourquoi (sous les messages)",
+      "citationAutre": "Écrit par l'autre",
+      "citationElle": "Écrit par elle",
+      "legendeCitation": "Légende (ex. Théo · 02:14)",
+      "ecritAide": "Ses trois perles, à la fin d'une slide : BLUSH est en train de répondre.",
+      "heureGroupe": "Heure sous le groupe"
+    }
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Ouvrir sur TikTok",

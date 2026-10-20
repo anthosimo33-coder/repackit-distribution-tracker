@@ -1,9 +1,11 @@
 /**
- * GÉNÉRATEUR DE CONVERSATIONS INSTAGRAM — le MODÈLE (données seules, sans DOM).
+ * GÉNÉRATEUR DE CONVERSATIONS — le MODÈLE (données seules, sans DOM).
  *
- * Vit dans `convex/` (règle A6) : l'écran (via `lib/insta-conv.ts`), la table
- * `instaConversations` et le serveur MCP lisent et écrivent la MÊME forme. Le
- * rendu (cotes, thèmes, groupes) reste dans `lib/insta-conv.ts`.
+ * Deux écrans dessinent la même forme : un DM Instagram iOS (défaut) et le chat
+ * de l'app BLUSH (askblush.com, `interface: "blush"`), où une personne se confie
+ * à BLUSH. Vit dans `convex/` (règle A6) : l'écran (via `lib/insta-conv.ts` et
+ * `lib/blush-conv.ts`), la table `instaConversations` et le serveur MCP lisent
+ * et écrivent la MÊME forme. Le rendu (cotes, thèmes, groupes) reste dans `lib/`.
  */
 
 export type Side = "in" | "out";
@@ -27,8 +29,20 @@ export type ConvMessage = {
   media?: ConvMedia;
   /** L'écran montre l'APPUI LONG sur ce message (réactions et menu) — un seul par écran. */
   longPress?: boolean;
-  /** Heure du message, affichée en tête du menu d'appui long (à défaut : l'heure de la barre d'état). */
+  /**
+   * Heure du message : en tête du menu d'appui long (Instagram), sous son groupe
+   * de bulles (BLUSH). À défaut : celle d'avant (séparateur, groupe précédent),
+   * ou l'heure de la barre d'état.
+   */
   time?: string;
+  /** Texte incrusté en haut de la capture (style TikTok) : celui de l'élément qui TERMINE la slide. */
+  overlay?: string;
+  /** Chat BLUSH : « BLUSH écrit » — sa bulle aux trois perles, à la place d'un message (côté BLUSH). */
+  typing?: boolean;
+  /** Chat BLUSH : la carte « Ta meilleure réponse » (les messages à lui envoyer, une bulle chacun, et pourquoi). */
+  suggestion?: { lines: string[]; why?: string };
+  /** Chat BLUSH : un vrai message de leur conv, cité par BLUSH dans sa bulle (`side` : qui l'avait écrit ; `caption` dessous). */
+  cited?: { side: Side; caption?: string };
 };
 
 export type ConvReply = { side: Side; text: string; kind?: "photo" | "video" | "voice"; seconds?: number };
@@ -56,7 +70,7 @@ export type ConvMediaType = ConvMedia["type"];
 export const CARD_MEDIA: readonly ConvMediaType[] = ["reel", "post", "storyShare"];
 export const MAX_CAPTION = 300;
 
-export type ConvDate = { id: string; kind: "date"; text: string; cut?: boolean };
+export type ConvDate = { id: string; kind: "date"; text: string; cut?: boolean; overlay?: string };
 
 export type ConvItem = ConvMessage | ConvDate;
 
@@ -65,7 +79,36 @@ export type ConvLocale = "fr" | "en";
 export const THEME_IDS = ["dark", "hearts", "ocean"] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 
+/** L'écran dessiné : un DM Instagram iOS, ou le chat de l'app BLUSH. */
+export const INTERFACES = ["instagram", "blush"] as const;
+export type ConvInterface = (typeof INTERFACES)[number];
+
+/** Les quatre verdicts de BLUSH, en badge sur l'initiale de l'autre (🤏 à deux doigts · 🔥 partant · 🤔 hésite · 🧊 s'éloigne). */
+export const VERDICTS_BLUSH = ["🤏", "🔥", "🤔", "🧊"] as const;
+export type VerdictBlush = (typeof VERDICTS_BLUSH)[number];
+
+/** L'en-tête et la barre de saisie du chat BLUSH. */
+export type ReglagesBlush = {
+  /** Le badge sur l'initiale de l'autre (en haut à droite). */
+  verdict: VerdictBlush;
+  /** L'anneau vert autour de son initiale : 1 à 4 quarts (de « On se parle » à « On est ensemble »). */
+  niveau: number;
+  /** Le compteur de bulles, à côté du bouton du compte (rose sous 3, gris à 0). */
+  bulles: number;
+  /** Les questions toutes prêtes au-dessus du champ (rien pendant que BLUSH écrit). */
+  idees: string[];
+};
+
+export const MAX_IDEES = 4;
+export const MAX_LIGNES_REPONSE = 4;
+export const MAX_POURQUOI = 300;
+export const MAX_INCRUSTATION = 160;
+
 export type Conversation = {
+  /** Absent : Instagram (les conversations d'avant le chat BLUSH n'ont pas ce champ). */
+  interface?: "blush";
+  /** Chat BLUSH : l'en-tête et la barre de saisie (gardés si l'on repasse à Instagram). */
+  blush?: ReglagesBlush;
   themeId: ThemeId;
   locale: ConvLocale;
   /** `avatar` : photo en data URL (posée à l'écran), id d'une image du projet (posée par Claude), ou rien. */
@@ -81,6 +124,11 @@ export type Conversation = {
   threadStart?: boolean;
   items: ConvItem[];
 };
+
+/** Le texte incrusté d'une capture (ou d'une slide) : celui de l'élément qui la termine. */
+export function incrustationDe(items: readonly ConvItem[]): string | null {
+  return items[items.length - 1]?.overlay?.trim() || null;
+}
 
 /**
  * Paramètre du lien « télécharger » que rend le MCP (`…/conversations?c=<id>&exporter=1`) :
@@ -128,8 +176,54 @@ export function defaultConversation(): Conversation {
   };
 }
 
+export const REGLAGES_BLUSH_DEFAUT: ReglagesBlush = { verdict: "🧊", niveau: 2, bulles: 37, idees: [] };
+
+/** L'exemple d'un chat BLUSH : elle raconte, BLUSH répond en bulles courtes, puis se remet à écrire. */
+export function defaultBlushConversation(): Conversation {
+  const m = (side: Side, text: string, extra: Partial<ConvMessage> = {}): ConvMessage => ({
+    id: newItemId(),
+    kind: "message",
+    side,
+    text,
+    ...extra,
+  });
+  return {
+    interface: "blush",
+    blush: { ...REGLAGES_BLUSH_DEFAUT, idees: [] },
+    themeId: "dark",
+    locale: "fr",
+    contact: { name: "Théo", username: "", avatar: null }, // i18n-exempt: donnée de la capture, pas de l'interface
+    status: { time: "21:47", battery: 54, lowPower: false, signal: 3 },
+    scroll: 0,
+    items: [
+      // Le jour en gras, l'heure à côté : comme les séparateurs de l'app.
+      { id: newItemId(), kind: "date", text: "Aujourd’hui 21:40" }, // i18n-exempt: donnée de la capture, pas de l'interface
+      m("out", "au début il me répondait en 10 min même au taf"), // i18n-exempt: donnée de la capture, pas de l'interface
+      m("in", "10 min au taf, c’est de l’amour avec une pause café 😭"), // i18n-exempt: donnée de la capture, pas de l'interface
+      m("in", "et maintenant ?", { time: "21:41" }), // i18n-exempt: donnée de la capture, pas de l'interface
+      m("out", "6h pour un « mdr »", { time: "21:46" }), // i18n-exempt: donnée de la capture, pas de l'interface
+      m("in", "", { typing: true }),
+    ],
+  };
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+const texteCourt = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+/** Les réglages du chat BLUSH, relus sans faire confiance au stockage (repli : ceux par défaut). */
+export function nettoyerReglagesBlush(raw: unknown): ReglagesBlush {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Partial<Record<keyof ReglagesBlush, unknown>>;
+  const verdict = (VERDICTS_BLUSH as readonly unknown[]).includes(r.verdict) ? (r.verdict as VerdictBlush) : REGLAGES_BLUSH_DEFAUT.verdict;
+  const idees = Array.isArray(r.idees) ? r.idees.map((q) => texteCourt(q, 60)).filter(Boolean).slice(0, MAX_IDEES) : [];
+  return {
+    verdict,
+    niveau: clamp(Math.round(Number(r.niveau) || REGLAGES_BLUSH_DEFAUT.niveau), 1, 4),
+    bulles: clamp(Math.round(Number(r.bulles ?? REGLAGES_BLUSH_DEFAUT.bulles) || 0), 0, 9999),
+    idees,
+  };
 }
 
 /** Un identifiant d'image (table `instaConvImages`) plausible, ou rien. */
@@ -165,6 +259,21 @@ function nettoyerMessage(it: ConvMessage): ConvMessage {
   if (it.cut === true) m.cut = true;
   if (it.longPress === true) m.longPress = true;
   if (typeof it.time === "string" && it.time.trim()) m.time = it.time.trim().slice(0, 8);
+  const overlay = texteCourt(it.overlay, MAX_INCRUSTATION);
+  if (overlay) m.overlay = overlay;
+  // Chat BLUSH : écrire, la meilleure réponse et une citation sont des bulles de BLUSH.
+  if (it.typing === true && it.side === "in") m.typing = true;
+  const sug = it.suggestion;
+  if (sug && typeof sug === "object" && Array.isArray(sug.lines)) {
+    const lines = sug.lines.map((l) => texteCourt(l, MAX_TEXT)).filter(Boolean).slice(0, MAX_LIGNES_REPONSE);
+    const why = texteCourt(sug.why, MAX_POURQUOI);
+    if (lines.length) m.suggestion = { lines, ...(why ? { why } : {}) };
+  }
+  const cited = it.cited;
+  if (cited && typeof cited === "object" && (cited.side === "in" || cited.side === "out")) {
+    const caption = texteCourt(cited.caption, 60);
+    m.cited = { side: cited.side, ...(caption ? { caption } : {}) };
+  }
   const r = it.reply;
   if (r && (r.side === "in" || r.side === "out")) {
     const kind = r.kind === "photo" || r.kind === "video" || r.kind === "voice" ? r.kind : undefined;
@@ -216,8 +325,14 @@ export function parseConversation(raw: unknown): Conversation | null {
         (it.kind === "date" || (it.kind === "message" && (it.side === "in" || it.side === "out"))),
     )
     .slice(0, MAX_ITEMS)
-    .map((it) => (it.kind === "message" ? nettoyerMessage(it) : { id: it.id, kind: "date" as const, text: it.text, ...(it.cut === true ? { cut: true } : {}) }));
+    .map((it): ConvItem => {
+      if (it.kind === "message") return nettoyerMessage(it);
+      const overlay = texteCourt(it.overlay, MAX_INCRUSTATION);
+      return { id: it.id, kind: "date", text: it.text, ...(it.cut === true ? { cut: true } : {}), ...(overlay ? { overlay } : {}) };
+    });
   return {
+    ...(c.interface === "blush" ? { interface: "blush" as const } : {}),
+    ...(c.blush !== undefined || c.interface === "blush" ? { blush: nettoyerReglagesBlush(c.blush) } : {}),
     themeId: c.themeId,
     locale: c.locale,
     contact: {

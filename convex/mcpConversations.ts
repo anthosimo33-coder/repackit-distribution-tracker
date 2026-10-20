@@ -1,7 +1,9 @@
 /**
- * CONVERSATIONS INSTAGRAM PAR CLAUDE — Claude est le « cerveau » du générateur :
- * il LIT une capture (envoyée dans la discussion, ou les images d'un TikTok via
- * `images_tiktok`) et ÉCRIT la conversation ; l'app la DESSINE et l'exporte.
+ * CONVERSATIONS PAR CLAUDE — Claude est le « cerveau » du générateur : il LIT
+ * une capture (envoyée dans la discussion, ou les images d'un TikTok via
+ * `images_tiktok`) ou invente une histoire, et ÉCRIT la conversation ; l'app la
+ * DESSINE et l'exporte. Deux écrans (`interface`) : un DM Instagram iOS, ou le
+ * chat de l'app BLUSH (askblush.com), où une personne se confie à BLUSH.
  * Aucun appel à un modèle payant côté serveur.
  *
  *  - lecture (droit `conversations.use`) : `conversations`, `lire_conversation`,
@@ -38,7 +40,20 @@ import {
   type DomaineEcriture,
 } from "./mcpWriteCommon";
 import { base64 } from "./mcpVideo";
-import { conversationDeData, defaultConversation, MAX_ITEMS, MAX_TITRE, PARAM_EXPORT, THEME_IDS, type Conversation } from "./instaConvModel";
+import {
+  conversationDeData,
+  defaultBlushConversation,
+  defaultConversation,
+  MAX_IDEES,
+  MAX_INCRUSTATION,
+  MAX_ITEMS,
+  MAX_LIGNES_REPONSE,
+  MAX_TITRE,
+  PARAM_EXPORT,
+  THEME_IDS,
+  VERDICTS_BLUSH,
+  type Conversation,
+} from "./instaConvModel";
 import {
   appliquerChampsMcp,
   conversationPourMcp,
@@ -87,17 +102,36 @@ const OUVRIR =
 const ARG_MESSAGES = {
   type: "array",
   description:
-    `Le fil, de haut en bas (${MAX_ITEMS} éléments au plus). Chaque bulle est UN message : quelqu'un qui écrit trois lignes envoie trois messages. Recopie le texte d'une capture EXACTEMENT (fautes, abréviations, apostrophes ’ ou ', emojis).`,
+    `Le fil, de haut en bas (${MAX_ITEMS} éléments au plus). Chaque bulle est UN message : quelqu'un qui écrit trois lignes envoie trois messages. Recopie le texte d'une capture EXACTEMENT (fautes, abréviations, apostrophes ’ ou ', emojis). Chat BLUSH : BLUSH répond en PLUSIEURS bulles courtes (une idée par bulle, jamais un pavé).`,
   items: {
     type: "object",
     properties: {
       type: {
         type: "string",
-        enum: ["message", "date", "vocal", "photo_ephemere", "video_ephemere", "photo", "video", "reel", "publication", "story_partagee"],
+        enum: [
+          "message",
+          "date",
+          "vocal",
+          "photo_ephemere",
+          "video_ephemere",
+          "photo",
+          "video",
+          "reel",
+          "publication",
+          "story_partagee",
+          "ecrit",
+          "meilleure_reponse",
+          "citation",
+        ],
         description:
-          "message (défaut) ; date = séparateur centré, au format d'Instagram : l'heure seule pour aujourd'hui (« 21:43 »), « YESTERDAY AT 19:21 », « MON 10:48 », « 27 JUL AT 06:29 » ; vocal = message vocal (« duree ») ; photo_ephemere / video_ephemere = pastille « ▶ Photo » / « ▶ Video » d'un média éphémère déjà vu ; photo / video = photo ou vidéo envoyée dans la conversation (« image ») ; reel / publication = reel ou post partagé (« image », « compte », « legende ») ; story_partagee = « Sent @compte's story » (« image », « compte »). Aucun de ces médias n'a de texte.",
+          "message (défaut) ; date = séparateur centré — Instagram : l'heure seule pour aujourd'hui (« 21:43 »), « YESTERDAY AT 19:21 », « MON 10:48 », « 27 JUL AT 06:29 » ; BLUSH : le jour puis l'heure (« Aujourd’hui 21:40 », « Hier 23:12 », « Lundi 18:05 », « dim. 19 oct. 17:00 ») ; vocal = message vocal (« duree » ; BLUSH : sa réponse dite en vocal, ou le vocal qu'elle envoie) ; photo = photo envoyée (« image » ; BLUSH : une capture qu'elle envoie à BLUSH, côté envoye). Instagram seulement : photo_ephemere / video_ephemere = pastille « ▶ Photo » / « ▶ Video » d'un média éphémère déjà vu ; video = vidéo envoyée ; reel / publication = reel ou post partagé (« image », « compte », « legende ») ; story_partagee = « Sent @compte's story » (« image », « compte »). BLUSH seulement (bulles de BLUSH, sans « cote ») : ecrit = « BLUSH écrit » (sa bulle aux trois perles) — il ne se voit qu'en DERNIER élément d'une slide (suspense) : la slide suivante montre la réponse à sa place ; meilleure_reponse = la carte « Ta meilleure réponse » (« lignes » : les messages à lui envoyer, « pourquoi ») ; citation = un vrai message de leur conv que BLUSH cite (« texte », « de », « legende »). Aucun média n'a de texte.",
       },
-      cote: { type: "string", enum: ["recu", "envoye"], description: "recu = bulle à gauche (l'autre personne) ; envoye = à droite (le propriétaire du téléphone). Obligatoire sauf pour une date." },
+      cote: {
+        type: "string",
+        enum: ["recu", "envoye"],
+        description:
+          "Instagram : recu = bulle à gauche (l'autre personne) ; envoye = à droite (le propriétaire du téléphone). BLUSH : recu = BLUSH (bulles blanches à gauche) ; envoye = la personne qui se confie (bulles bleues à droite). Obligatoire sauf pour une date et les bulles propres à BLUSH (ecrit, meilleure_reponse, citation).",
+      },
       texte: { type: "string", description: "Le texte de la bulle, ou du séparateur (inutile pour vocal et éphémères)." },
       modifie: { type: "boolean", description: "Label « Modifié » au-dessus de la bulle." },
       reaction: {
@@ -126,18 +160,39 @@ const ARG_MESSAGES = {
       compte: { type: "string", description: "Reel, publication, story partagée : le compte qui a publié (sans @). Avec un lien TikTok, celui de l'auteur par défaut." },
       photo_compte: { type: "string", description: "Photo de ce compte (mêmes formes que « image » ; un lien de post TikTok donne la photo de son AUTEUR) ; avec une image TikTok, celle de l'auteur par défaut." },
       certifie: { type: "boolean", description: "Badge certifié à côté du compte." },
-      legende: { type: "string", description: "Reel, publication : légende sous l'image (2 lignes, coupée par « … »)." },
+      legende: { type: "string", description: "Reel, publication : légende sous l'image (2 lignes, coupée par « … »). BLUSH, citation : la légende sous le message cité (ex. « Théo · 02:14 »)." },
       appui_long: { type: "boolean", description: "L'écran montre l'APPUI LONG sur ce message : fil flouté, barre de réactions, menu (Répondre, Transférer…). Un seul par conversation." },
-      heure: { type: "string", description: "Heure du message, affichée en tête du menu d'appui long (ex. « 14:35 »)." },
+      heure: {
+        type: "string",
+        description:
+          "Heure du message (ex. « 14:35 ») — Instagram : en tête du menu d'appui long ; BLUSH : sous son groupe de bulles (sans heure, celle d'avant : séparateur ou groupe précédent).",
+      },
+      incrustation: {
+        type: "string",
+        description: `Texte incrusté en haut de la capture, style TikTok (encadré blanc, texte noir, centré), ${MAX_INCRUSTATION} caractères au plus : celui de l'élément qui TERMINE la slide (« coupure », ou le dernier). Ex. « t'étais un 10/10 quand tu me répondais en 10 min même au taf ». La capture sort prête à poster.`,
+      },
+      lignes: {
+        type: "array",
+        items: { type: "string" },
+        description: `BLUSH, meilleure_reponse : les messages à lui envoyer, un par bulle bleue (${MAX_LIGNES_REPONSE} au plus) — courts, dans le ton de celle qui écrit.`,
+      },
+      pourquoi: { type: "string", description: "BLUSH, meilleure_reponse : une phrase sous les messages, pourquoi cette réponse marche." },
+      de: { type: "string", enum: ["autre", "moi"], description: "BLUSH, citation : qui avait écrit le message cité — autre (défaut, bulle grise : la personne dont elle parle) ou moi (bulle bleue : elle)." },
     },
     additionalProperties: false,
   },
 } as const;
 
 const ARGS_APPARENCE = {
-  theme: { type: "string", enum: THEME_IDS.map((t) => THEME_MCP[t]), description: "sombre = le thème par défaut d'Instagram (mesuré) ; coeurs, ocean = thèmes inventés." },
+  interface: {
+    type: "string",
+    enum: ["instagram", "blush"],
+    description:
+      "L'écran dessiné. instagram (défaut) = DM Instagram iOS. blush = le chat de l'app BLUSH (askblush.com) : une personne se confie à BLUSH (à droite, en bleu), BLUSH répond (à gauche, bulles blanches, son logo à côté), et peut lui écrire la réplique (meilleure_reponse). En haut : BLUSH, « askblush.com », et à droite l'autre comme un contact (« contact_nom », « verdict », « niveau »).",
+  },
+  theme: { type: "string", enum: THEME_IDS.map((t) => THEME_MCP[t]), description: "Instagram : sombre = le thème par défaut d'Instagram (mesuré) ; coeurs, ocean = thèmes inventés." },
   langue: { type: "string", enum: ["fr", "en"], description: "Langue de l'interface dessinée (« Message... », « Modifié »/« Edited »)." },
-  contact_nom: { type: "string", description: "Nom affiché en haut de l'écran." },
+  contact_nom: { type: "string", description: "Nom affiché en haut de l'écran (BLUSH : le prénom de la personne dont elle parle, en haut à droite sous son initiale)." },
   contact_pseudo: { type: "string", description: "Nom d'utilisateur sous le nom (sans @)." },
   photo_contact: {
     type: "string",
@@ -154,6 +209,14 @@ const ARGS_APPARENCE = {
   economie_energie: { type: "boolean", description: "Batterie jaune (mode économie d'énergie)." },
   reseau: { type: "integer", minimum: 0, maximum: 4, description: "Barres de réseau allumées." },
   defilement: { type: "integer", minimum: -200, maximum: 1200, description: "Décalage en points : 0 = le dernier message juste au-dessus de la saisie ; plus grand = on voit des messages plus anciens." },
+  verdict: { type: "string", enum: [...VERDICTS_BLUSH], description: "BLUSH : le badge sur l'initiale de l'autre — 🤏 à deux doigts, 🔥 partant, 🤔 hésite, 🧊 s'éloigne." },
+  niveau: { type: "integer", minimum: 1, maximum: 4, description: "BLUSH : l'anneau vert autour de son initiale, de 1 (« On se parle ») à 4 (« On est ensemble »)." },
+  bulles: { type: "integer", minimum: 0, maximum: 9999, description: "BLUSH : le compteur de bulles à côté du compte (rose à 1 ou 2, gris à 0)." },
+  idees: {
+    type: "array",
+    items: { type: "string" },
+    description: `BLUSH : les questions toutes prêtes au-dessus du champ (${MAX_IDEES} au plus, ex. « il m’aime encore ? ») ; [] les retire. Rangées quand le fil finit sur « ecrit ».`,
+  },
 } as const;
 
 // ─── Lecture ────────────────────────────────────────────────────────────────
@@ -161,16 +224,16 @@ const ARGS_APPARENCE = {
 export const OUTILS_CONVERSATIONS_LECTURE: readonly McpTool[] = [
   {
     name: "conversations",
-    title: "Conversations Instagram",
+    title: "Conversations (Instagram, BLUSH)",
     description:
-      "Les brouillons de captures de conversations Instagram du projet (générateur de l'app) : titre, nombre de messages, dernière modification et lien pour l'ouvrir et exporter le PNG.",
+      "Les brouillons de captures de conversations du projet (générateur de l'app) — DM Instagram ou chat BLUSH : titre, interface, nombre de messages, dernière modification et lien pour l'ouvrir et exporter le PNG.",
     inputSchema: { type: "object", properties: { projet: ARG_PROJET }, additionalProperties: false },
   },
   {
     name: "lire_conversation",
-    title: "Lire une conversation Instagram",
+    title: "Lire une conversation",
     description:
-      "Le contenu d'UN brouillon (désigné par son titre) : messages numérotés, contact, barre d'état, thème. À lire avant `modifier_conversation`, qui remplace la liste ENTIÈRE des messages quand on la lui donne.",
+      "Le contenu d'UN brouillon (désigné par son titre) : interface, messages numérotés, contact, barre d'état, thème (Instagram) ou verdict, niveau, bulles, idées (BLUSH). À lire avant `modifier_conversation`, qui remplace la liste ENTIÈRE des messages quand on la lui donne.",
     inputSchema: {
       type: "object",
       properties: { projet: ARG_PROJET, conversation: { type: "string", description: "Titre de la conversation (outil `conversations`)." } },
@@ -197,12 +260,16 @@ export const NOMS_CONVERSATIONS_LECTURE = new Set(OUTILS_CONVERSATIONS_LECTURE.m
 export const lireConversations = mcpPermissionQuery("conversations.use")({
   args: {},
   handler: async (ctx) =>
-    (await conversationsDuProjet(ctx)).map((c) => ({
-      id: c._id,
-      titre: c.titre,
-      messages: conversationDeData(c.data).items.filter((it) => it.kind === "message").length,
-      modifieeLe: c.updatedAt,
-    })),
+    (await conversationsDuProjet(ctx)).map((c) => {
+      const conv = conversationDeData(c.data);
+      return {
+        id: c._id,
+        titre: c.titre,
+        interface: conv.interface === "blush" ? ("blush" as const) : ("instagram" as const),
+        messages: conv.items.filter((it) => it.kind === "message").length,
+        modifieeLe: c.updatedAt,
+      };
+    }),
 });
 
 export const lireConversation = mcpPermissionQuery("conversations.use")({
@@ -300,7 +367,13 @@ export async function appelerConversationsLecture(
       JSON.stringify(
         {
           projet,
-          conversations: liste.map((c) => ({ titre: c.titre, messages: c.messages, modifieeLe: new Date(c.modifieeLe).toISOString().slice(0, 16), ...liens(projet, c.id) })),
+          conversations: liste.map((c) => ({
+            titre: c.titre,
+            interface: c.interface,
+            messages: c.messages,
+            modifieeLe: new Date(c.modifieeLe).toISOString().slice(0, 16),
+            ...liens(projet, c.id),
+          })),
           lecture: liste.length === 0 ? ["Aucune conversation : `creer_conversation` en crée une."] : [OUVRIR],
         },
         null,
@@ -339,9 +412,9 @@ export async function appelerConversationsLecture(
 const OUTILS_ECRITURE: readonly McpTool[] = [
   {
     name: "creer_conversation",
-    title: "Créer une conversation Instagram",
+    title: "Créer une conversation (Instagram ou BLUSH)",
     description:
-      "Crée un brouillon de capture de conversation Instagram (DM iOS) que l'app dessine à l'identique ; la réponse donne « telecharger » (l'ouvrir télécharge les captures : PNG, ou ZIP par slide) et « lien » (l'écran, pour retoucher). Pour reproduire une capture : recopie chaque bulle exactement (debut_du_fil: false si la capture est prise au milieu du fil). Pour inventer : écris comme de vrais messages (courts, minuscules si le ton s'y prête, une bulle par phrase), COMMENCE par un séparateur de date (un vrai fil en a toujours un au-dessus du premier message), et choisis une heure et une batterie à toi plutôt que celles de l'exemple. Photo du contact : « photo_contact ». Donne à la personne le lien « telecharger » de la réponse.",
+      "Crée un brouillon de capture que l'app dessine à l'identique — un DM Instagram iOS (défaut), ou le chat de l'app BLUSH (interface « blush » : une personne se confie à BLUSH, qui lui répond et lui écrit la réplique) ; la réponse donne « telecharger » (l'ouvrir télécharge les captures : PNG 828×1792, ou ZIP par slide) et « lien » (l'écran, pour retoucher). Pour reproduire une capture : recopie chaque bulle exactement (debut_du_fil: false si la capture est prise au milieu du fil). Pour inventer : écris comme de vrais messages (courts, minuscules si le ton s'y prête, une bulle par phrase), COMMENCE par un séparateur de date (un vrai fil en a toujours un au-dessus du premier message), et choisis une heure et une batterie à toi plutôt que celles de l'exemple. Chat BLUSH : BLUSH parle avec répartie — taquin, une vanne pour tout, sérieux quand il faut —, en bulles courtes, jamais un pavé ; il ne nomme aucune IA. Carrousel (trend « t'étais un X/10 quand… ») : une « coupure » à la fin de chaque slide et son « incrustation » sur le même élément. Photo du contact (Instagram) : « photo_contact ». Donne à la personne le lien « telecharger » de la réponse.",
     inputSchema: {
       type: "object",
       properties: {
@@ -357,7 +430,7 @@ const OUTILS_ECRITURE: readonly McpTool[] = [
   },
   {
     name: "modifier_conversation",
-    title: "Modifier une conversation Instagram",
+    title: "Modifier une conversation",
     description:
       "Modifie un brouillon (désigné par son titre) : seuls les champs donnés changent. « messages » REMPLACE la liste entière — lis-la d'abord (`lire_conversation`), puis renvoie-la complète avec tes changements (« remplace le message 3… », « ajoute deux réponses… »).",
     inputSchema: {
@@ -376,7 +449,7 @@ const OUTILS_ECRITURE: readonly McpTool[] = [
   },
   {
     name: "supprimer_conversation",
-    title: "Supprimer une conversation Instagram",
+    title: "Supprimer une conversation",
     description: "Supprime un brouillon (désigné par son titre). Défaisable : `defaire` le recrée.",
     inputSchema: {
       type: "object",
@@ -401,6 +474,11 @@ const CHAMPS = [
   "defilement",
   "photo_contact",
   "debut_du_fil",
+  "interface",
+  "verdict",
+  "niveau",
+  "bulles",
+  "idees",
 ] as const;
 
 function champsDe(args: Record<string, unknown>): ChampsMcp {
@@ -603,7 +681,9 @@ async function resoudreImages(ctx: ProjectMutationCtx, c: Conversation, fichiers
 export const ecrireCreation = mcpWriteMutation("conversations.use", "conversations")({
   args: { titre: v.string(), champs: v.string(), fichiers: v.optional(v.array(fichierValidator)) },
   handler: async (ctx, a) => {
-    const r = appliquerChampsMcp({ ...defaultConversation(), items: [] }, JSON.parse(a.champs) as ChampsMcp);
+    const champs = JSON.parse(a.champs) as ChampsMcp;
+    const base = champs.interface === "blush" ? defaultBlushConversation() : defaultConversation();
+    const r = appliquerChampsMcp({ ...base, items: [] }, champs);
     if ("refus" in r) throw err(ERR.INSTA_CONV_INVALID, r.refus);
     await resoudreImages(ctx, r.conversation, a.fichiers ?? []);
     const data = JSON.stringify(r.conversation);
@@ -727,7 +807,7 @@ async function appelerEcriture(
   throw new ToolError(`Outil inconnu : ${name}.`);
 }
 
-/** Le domaine « conversations » : interrupteur « Conversations Instagram ». */
+/** Le domaine « conversations » : interrupteur « Conversations » (Instagram et BLUSH). */
 export const DOMAINE_CONVERSATIONS: DomaineEcriture = {
   scope: "conversations",
   outils: OUTILS_ECRITURE,

@@ -9,6 +9,7 @@ import {
   SCREEN_STRINGS,
   THEMES,
   formatDuration,
+  incrustationDe,
   outGradientCss,
   planConversation,
   voiceBars,
@@ -24,6 +25,7 @@ import {
 import { ComposerIcons, HeaderIcons, HeartsLayer, StatusIcons } from "./InstaIcons";
 import { LONG_PRESS, LongPressMenu, ReactionBar } from "./InstaLongPress";
 import { ImagesContext, MediaBubble, SharedCard, SideButtons, StoryShareCard, StoryThumb, useRenderEngine, type ConvImages } from "./InstaMedia";
+import { Incrustation } from "./Incrustation";
 
 /**
  * L'ÉCRAN — une capture de DM Instagram iOS redessinée en HTML, à 414×896 pt.
@@ -63,6 +65,7 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
     const emoji = ENGINE_TUNING[useRenderEngine()];
 
     const pressed = conversation.items.find((it): it is ConvMessage => it.kind === "message" && !!it.longPress);
+    const incrustation = incrustationDe(conversation.items);
 
     useLayoutEffect(() => {
       const root = rootRef.current;
@@ -209,6 +212,8 @@ export const InstaScreen = forwardRef<InstaScreenHandle, { conversation: Convers
         ) : (
           fil
         )}
+        {/* Texte incrusté (style TikTok) : sous l'en-tête. */}
+        {incrustation && <Incrustation text={incrustation} top={METRICS.headerBottom + 36} />}
       </div>
       </ImagesContext.Provider>
     );

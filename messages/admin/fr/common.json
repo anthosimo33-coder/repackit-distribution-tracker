@@ -982,7 +982,7 @@
       "radar": "Radar",
       "inspirations": "Inspirations",
       "messages": "Créatrices",
-      "conversations": "Conversations Instagram",
+      "conversations": "Conversations (Instagram, chat BLUSH)",
       "pricing": "Barèmes",
       "scenarios": "Scénarios",
       "tournage": "Mode tournage"
@@ -1020,7 +1020,7 @@
       },
       "conversations": {
         "titre": "Conversations",
-        "objet": "les conversations Instagram",
+        "objet": "les conversations Instagram et BLUSH",
         "aria": "Modifications des conversations pour {name}"
       },
       "baremes": {

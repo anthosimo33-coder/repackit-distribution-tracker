@@ -17,8 +17,8 @@
     "videoRecupereeBrutes": "{count} {count, plural, one {video} other {videos}} · {totalFetched} raw {totalFetched, plural, one {result} other {results}} fetched"
   },
   "ConvStudio": {
-    "titre": "Instagram conversations",
-    "sousTitre": "Recreate an Instagram DM screenshot: write the messages, export a full-screen PNG (828×1792).",
+    "titre": "Conversations",
+    "sousTitre": "Recreate an Instagram DM or a BLUSH chat screenshot: write the messages, export a full-screen PNG (828×1792).",
     "accesRefuse": "Access denied",
     "reserveAdmins": "You need the \"Instagram conversations\" permission (Roles and permissions) to open this tool.",
     "ecran": "Screen",
@@ -123,7 +123,58 @@
     "legende": "Caption",
     "miniatureStory": "Story thumbnail",
     "debutDuFil": "Start of thread (profile card)",
-    "debutDuFilAide": "Shows the contact's profile card (large photo, name, “View profile”) above the first message, like the start of a real thread."
+    "debutDuFilAide": "Shows the contact's profile card (large photo, name, “View profile”) above the first message, like the start of a real thread.",
+    "nouvelleBlush": "New BLUSH chat",
+    "titreParDefautBlush": "BLUSH chat {n}",
+    "interface": "Interface",
+    "interfaces": {
+      "instagram": "Instagram DM",
+      "blush": "BLUSH chat (askblush.com)"
+    },
+    "incrustation": "Overlay text · slide {n}",
+    "incrustationExemple": "e.g. you were a 10/10 when…",
+    "blush": {
+      "entete": "Header and input bar",
+      "nom": "Their first name",
+      "nomAide": "Top right, under their initial (the person she talks about).",
+      "bulles": "Bubbles",
+      "bullesAide": "The counter next to the account (pink at 1 or 2, grey at 0).",
+      "verdict": "Verdict (badge on their initial)",
+      "verdicts": {
+        "presque": "almost there",
+        "partant": "keen",
+        "hesite": "unsure",
+        "eloigne": "drifting away"
+      },
+      "niveau": "Level (green ring)",
+      "niveauAide": "From “We talk” (1/4) to “We're together” (4/4).",
+      "idees": "Question ideas",
+      "ideesAide": "One per line, above the input (4 at most); hidden while BLUSH is typing.",
+      "cotes": {
+        "blush": "BLUSH",
+        "elle": "Her"
+      },
+      "ajouterBlush": "+ BLUSH message",
+      "ajouterElle": "+ Her message",
+      "ajouterEcrit": "+ BLUSH typing",
+      "dateParDefaut": "Aujourd’hui 21:40",
+      "natures": {
+        "texte": "Text",
+        "vocal": "Voice",
+        "capture": "Screenshot",
+        "meilleure": "Best reply",
+        "citation": "Quote",
+        "ecrit": "BLUSH typing"
+      },
+      "capture": "Screenshot sent",
+      "lignesReponse": "Messages to send him (one per line)",
+      "pourquoi": "Why (under the messages)",
+      "citationAutre": "Written by the other person",
+      "citationElle": "Written by her",
+      "legendeCitation": "Caption (e.g. Théo · 02:14)",
+      "ecritAide": "Its three pearls, at the end of a slide: BLUSH is replying.",
+      "heureGroupe": "Time under the group"
+    }
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

@@ -21,7 +21,7 @@ test.describe("Conversations Instagram", () => {
   test("l'admin crée une conversation, l'écrit, la retrouve après rechargement et exporte un PNG 828×1792", async ({ page }) => {
     await page.goto(adminPath("/dashboard"));
     await page.getByRole("navigation").getByRole("link", { name: "Conversations", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "Conversations Instagram" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Conversations", exact: true })).toBeVisible();
 
     // « Nouvelle conversation » existe que la bibliothèque soit vide ou non (une
     // base locale réutilisée garde les brouillons d'un run précédent) : titre unique.
@@ -298,5 +298,82 @@ test.describe("Conversations Instagram", () => {
         return { haut: Math.round((c.top - e.top) / k), bas: Math.round((c.bottom - e.top) / k) };
       });
     expect(decoupe).toEqual({ haut: 104, bas: 808 });
+  });
+});
+
+/**
+ * CHAT BLUSH — la deuxième interface : le chat de l'app BLUSH (askblush.com),
+ * pour les carrousels où une fille se confie à BLUSH. Ce que le test tient :
+ * l'écran dessine l'en-tête de l'app, la carte « Ta meilleure réponse », « BLUSH
+ * écrit » et le texte incrusté ; l'export est un vrai PNG 828×1792 dont les
+ * polices de l'app (Nunito, Figtree) ont été chargées pour être embarquées ; une
+ * coupure fait un ZIP d'une capture par slide.
+ */
+test.describe("Conversations — chat BLUSH", () => {
+  test("créer un chat BLUSH, l'écrire, l'exporter en PNG (polices de l'app) et en série", async ({ page }) => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    await page.goto(adminPath("/conversations"));
+    await page.getByRole("button", { name: "Nouveau chat BLUSH" }).first().click();
+    await expect(page).toHaveURL(/\/conversations\?c=/);
+    const convId = new URL(page.url()).searchParams.get("c") as Id<"instaConversations">;
+    await page.getByLabel("Titre").fill(`Chat BLUSH e2e ${ts}`);
+    await page.getByLabel("Titre").press("Enter");
+
+    const apercu = page.getByRole("img", { name: "Aperçu de la capture" });
+    // L'en-tête et la saisie de l'app ; l'exemple finit sur « BLUSH écrit » (pas d'idées de questions).
+    await expect(apercu.getByText("askblush.com", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Écris à BLUSH", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Théo", { exact: true })).toBeVisible();
+
+    // Elle, puis BLUSH qui lui écrit la réplique.
+    await page.getByRole("button", { name: "+ Son message" }).click();
+    await page.getByTestId("conv-item").last().getByRole("textbox", { name: "Texte du message" }).fill("je lui réponds quoi ??");
+    await page.getByRole("button", { name: "+ Message de BLUSH" }).click();
+    const blush = page.getByTestId("conv-item").last();
+    await blush.getByRole("button", { name: "Ta meilleure réponse" }).click();
+    await blush.getByRole("textbox", { name: "Messages à lui envoyer (un par ligne)" }).fill("tkt aussi 🙂\nbonne nuit Théo");
+    await blush.getByRole("textbox", { name: "Pourquoi (sous les messages)" }).fill("Tu lui rends ce qu'il te donne.");
+    await expect(apercu.getByText("Ta meilleure réponse", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("bonne nuit Théo", { exact: true })).toBeVisible();
+    await expect(apercu.getByText("Recommandée", { exact: true })).toBeVisible();
+
+    // Le texte incrusté de la (seule) slide, style TikTok.
+    await page.getByRole("textbox", { name: "Texte incrusté · slide 1" }).fill("t'étais un 10/10 quand tu répondais en 10 min");
+    await expect(apercu.getByText("t'étais un 10/10 quand tu répondais en 10 min", { exact: true })).toBeVisible();
+
+    // Enregistré en base, sous l'interface BLUSH.
+    const enBase = async () => JSON.parse((await admin.query(api.instaConversations.getInstaConversation, { id: convId }))!.data);
+    await expect.poll(async () => (await enBase()).items.at(-1)?.overlay).toBe("t'étais un 10/10 quand tu répondais en 10 min");
+    expect((await enBase()).interface).toBe("blush");
+
+    // L'export charge les polices de l'app (pour les embarquer), et sort à la taille d'un iPhone.
+    const polices: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/fonts/blush/")) polices.push(r.url());
+    });
+    const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Exporter en PNG" }).click()]);
+    expect(download.suggestedFilename()).toBe(`chat-blush-e2e-${ts}.png`);
+    const png = readFileSync(await download.path());
+    expect({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) }).toEqual({ width: 828, height: 1792 });
+    expect(polices.some((u) => u.endsWith("nunito-latin.woff2")), polices.join(", ")).toBe(true);
+    // Le papier de l'app sous la barre d'état, la bulle rose de BLUSH au centre de l'en-tête.
+    const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    const pixel = (x: number, y: number) => Array.from(data.subarray((y * info.width + x) * 3, (y * info.width + x) * 3 + 3));
+    expect(pixel(4, 4)).toEqual([0xf4, 0xf2, 0xed]);
+    // Le bas de la bulle, sous les perles : 44 (barre d'état) + 6 + 56 pt du haut, au milieu.
+    const [r, g] = pixel(410, 212);
+    expect(r - g, `logo ${pixel(410, 212)}`).toBeGreaterThan(80);
+
+    // Une coupure : deux slides, un ZIP de deux captures.
+    await page.getByTestId("conv-item").nth(2).getByRole("button", { name: "Fin de slide après ce message" }).click();
+    await expect(page.getByText("2 slides", { exact: true })).toBeVisible();
+    const [zip] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Exporter la série/ }).click()]);
+    const fichiers = unzipSync(readFileSync(await zip.path()));
+    expect(Object.keys(fichiers).sort()).toEqual([`chat-blush-e2e-${ts}-01.png`, `chat-blush-e2e-${ts}-02.png`]);
+    for (const f of Object.values(fichiers)) {
+      const b = Buffer.from(f);
+      expect({ width: b.readUInt32BE(16), height: b.readUInt32BE(20) }).toEqual({ width: 828, height: 1792 });
+    }
   });
 });
