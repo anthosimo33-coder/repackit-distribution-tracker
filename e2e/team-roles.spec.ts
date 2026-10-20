@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../convex/_generated/api";
-import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
+import { createE2eClient, E2E_EMAIL, E2E_SECRET } from "./helpers/authed-client";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -501,5 +501,267 @@ test.describe("Rôle d'équipe — l'échange administrateur ⇄ manager", () =>
     // Assertion de PRÉSENCE en regard : c'est bien la base qui le dit, pas la
     // valeur de retour d'une mutation qui n'aurait rien fait.
     expect((await membre(email)).effective).toEqual([]);
+  });
+});
+
+/**
+ * RETIRER QUELQU'UN DU PROJET — sa ligne de CE projet, et rien d'autre.
+ *
+ * ⚠️ LA PREUVE N'EST PAS « la ligne a disparu » : une mutation qui viderait TOUS
+ * ses memberships passerait cette assertion-là. Chaque retrait est donc suivi de
+ * sa contrepartie de PRÉSENCE — l'autre projet lui répond toujours, et c'est là
+ * qu'il atterrit désormais.
+ */
+test.describe("Retirer du projet — le geste et ce qu'il laisse", () => {
+  test("un admin part de CE projet, garde l'autre, et le journal le dit", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const projectId = await admin.getProjectId();
+    const { projectId: autreProjet } = await admin.mutation(
+      api.projects.e2eEnsureProjectBySlug,
+      { secret: E2E_SECRET, slug: "e2e-retrait-autre-projet", name: "Retrait — autre projet" },
+    );
+    const { email, client } = await compteReel("retrait-projet", ts);
+    // Un autre administrateur reste : ce n'est pas le cas « dernier admin ».
+    const collegue = await compteReel("retrait-collegue", ts);
+    await poser(collegue.email, "admin");
+
+    // L'ORDRE COMPTE : son membership sur l'autre projet d'abord, celui-ci en
+    // DERNIER — c'est donc ici qu'il atterrit avant le retrait, et l'atterrissage
+    // d'après ne peut venir que du repli sur la ligne qui reste.
+    await admin.mutation(api.permissionProbe.e2eSetMembershipRole, {
+      secret: E2E_SECRET,
+      email,
+      projectId: autreProjet,
+      role: "admin",
+    });
+    await admin.mutation(api.permissionProbe.e2eDropMembership, {
+      secret: E2E_SECRET,
+      email,
+      projectId,
+    });
+    // Admin aux droits DORMANTS (restés de son passage manager), forme de prod.
+    await poser(email, "admin", { permissions: ["creators.read", "assignments.manage"] });
+    expect((await client.query(api.creators.getMyPortal, {})).slug).toBe("e2e-test");
+    expect(
+      await client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).toEqual({ ok: true, permission: "payments.manage" });
+
+    // ── LE GESTE ─────────────────────────────────────────────────────────────
+    const ligne = await membre(email);
+    const res = await admin.mutation(api.team.removeMember, {
+      membershipId: ligne.membershipId,
+    });
+    expect(res.email).toBe(email);
+
+    // Parti de CE projet : plus de ligne, plus d'accès.
+    expect((await admin.query(api.team.listMembers, {})).some((r) => r.email === email)).toBe(
+      false,
+    );
+    expect(
+      await admin.mutation(api.permissionProbe.e2eReadMembership, {
+        secret: E2E_SECRET,
+        email,
+        projectId,
+      }),
+    ).toBeNull();
+    await expect(
+      client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).rejects.toThrow();
+
+    // PRÉSENCE en regard : l'autre projet est intact, et lui répond.
+    expect(
+      (
+        await admin.mutation(api.permissionProbe.e2eReadMembership, {
+          secret: E2E_SECRET,
+          email,
+          projectId: autreProjet,
+        })
+      )?.effectifs,
+    ).toEqual(["admin"]);
+    expect(
+      await client.query(api.permissionProbe.probePaymentsManage, { projectId: autreProjet }),
+    ).toEqual({ ok: true, permission: "payments.manage" });
+    // Pas de « projet courant » mort : l'atterrissage retombe sur la ligne qui reste.
+    expect((await client.query(api.creators.getMyPortal, {})).slug).toBe(
+      "e2e-retrait-autre-projet",
+    );
+
+    // ── LE JOURNAL : tout ce qu'il avait, en retrait, signé du superadmin ────
+    const journal = await admin.query(api.team.listChanges, { userId: ligne.userId });
+    const retraits = journal
+      .filter((l) => !l.granted && l.at >= ts)
+      .map((l) => l.permission)
+      .sort();
+    expect(retraits).toEqual(
+      ["assignments.manage", "creators.read", "membre du projet", "role:admin"].sort(),
+    );
+    expect(journal.filter((l) => l.at >= ts && !l.granted).every((l) => l.actor === E2E_EMAIL)).toBe(true);
+  });
+
+  test("ce qui ne se retire pas d'ici : soi-même, un superadmin, un espace créateur", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+
+    // (d) SOI-MÊME — le compte e2e est membre du projet e2e.
+    const moi = (await admin.query(api.team.listMembers, {})).find(
+      (r) => r.email === E2E_EMAIL,
+    );
+    expect(moi, "le compte e2e doit être membre du projet e2e").toBeTruthy();
+    await expect(
+      admin.mutation(api.team.removeMember, { membershipId: moi!.membershipId }),
+    ).rejects.toThrow(/toi-même/);
+    expect((await admin.query(api.team.listMembers, {})).some((r) => r.email === E2E_EMAIL)).toBe(true);
+
+    // (b) UN SUPERADMIN — son accès ne vient pas du projet.
+    const sa = await compteReel("retrait-superadmin", ts);
+    await poser(sa.email, "admin");
+    await admin.mutation(api.permissionProbe.e2eSetGlobalRole, {
+      secret: E2E_SECRET,
+      email: sa.email,
+      role: "superadmin",
+    });
+    try {
+      await expect(
+        admin.mutation(api.team.removeMember, {
+          membershipId: (await membre(sa.email)).membershipId,
+        }),
+      ).rejects.toThrow(/superadmin/);
+      expect((await membre(sa.email)).roles).toEqual(["admin"]);
+    } finally {
+      await admin.mutation(api.permissionProbe.e2eSetGlobalRole, {
+        secret: E2E_SECRET,
+        email: sa.email,
+        role: "member",
+      });
+    }
+
+    // (a) UN ESPACE CRÉATEUR, même porté avec le rôle manager.
+    const cm = await compteReel("retrait-creatrice-manager", ts);
+    await poser(cm.email, "creator", { extraRoles: ["manager"], permissions: ["creators.read"] });
+    await expect(
+      admin.mutation(api.team.removeMember, {
+        membershipId: (await membre(cm.email)).membershipId,
+      }),
+    ).rejects.toThrow(/Archive sa fiche/);
+    expect((await membre(cm.email)).roles).toEqual(["manager", "creator"]);
+  });
+
+  test("le dernier administrateur reste — jusqu'à ce qu'un autre arrive", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    // Projet DÉDIÉ : le projet e2e partagé porte les admins des autres tests,
+    // « dernier » n'y voudrait rien dire.
+    const slug = `e2e-retrait-dernier-${ts}`;
+    const { projectId: pid } = await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+      secret: E2E_SECRET,
+      slug,
+      name: "Retrait — dernier admin",
+    });
+    try {
+      const seul = await compteReel("retrait-dernier", ts);
+      await admin.mutation(api.permissionProbe.e2eSetMembershipRole, {
+        secret: E2E_SECRET,
+        email: seul.email,
+        projectId: pid,
+        role: "admin",
+      });
+      const ligneDe = async (email: string) =>
+        (await admin.query(api.team.listMembers, { projectId: pid })).find(
+          (r) => r.email === email,
+        )!;
+      // Un SUPERADMIN admin du projet ne compte pas : son accès ne vient pas de
+      // là. Compte jetable — y rattacher le compte e2e déplacerait son
+      // atterrissage pendant que d'autres specs tournent.
+      const sa = await compteReel("retrait-dernier-sa", ts);
+      await admin.mutation(api.permissionProbe.e2eSetMembershipRole, {
+        secret: E2E_SECRET,
+        email: sa.email,
+        projectId: pid,
+        role: "admin",
+      });
+      await admin.mutation(api.permissionProbe.e2eSetGlobalRole, {
+        secret: E2E_SECRET,
+        email: sa.email,
+        role: "superadmin",
+      });
+      try {
+        await expect(
+          admin.mutation(api.team.removeMember, {
+            projectId: pid,
+            membershipId: (await ligneDe(seul.email)).membershipId,
+          }),
+        ).rejects.toThrow(/dernier administrateur/);
+      } finally {
+        // Redevenu simple membre, il serait un admin RÉEL du projet : sa ligne
+        // part aussi, sinon c'est lui — et pas le second — qui débloquerait le
+        // retrait ci-dessous.
+        await admin.mutation(api.permissionProbe.e2eSetGlobalRole, {
+          secret: E2E_SECRET,
+          email: sa.email,
+          role: "member",
+        });
+        await admin.mutation(api.permissionProbe.e2eDropMembership, {
+          secret: E2E_SECRET,
+          email: sa.email,
+          projectId: pid,
+        });
+      }
+      expect((await ligneDe(seul.email)).roles).toEqual(["admin"]);
+      // Toujours seul : le refus tient sans le superadmin aussi.
+      await expect(
+        admin.mutation(api.team.removeMember, {
+          projectId: pid,
+          membershipId: (await ligneDe(seul.email)).membershipId,
+        }),
+      ).rejects.toThrow(/dernier administrateur/);
+
+      // Un second administrateur RÉEL arrive : le même geste passe.
+      const second = await compteReel("retrait-second", ts);
+      await admin.mutation(api.permissionProbe.e2eSetMembershipRole, {
+        secret: E2E_SECRET,
+        email: second.email,
+        projectId: pid,
+        role: "admin",
+      });
+      await admin.mutation(api.team.removeMember, {
+        projectId: pid,
+        membershipId: (await ligneDe(seul.email)).membershipId,
+      });
+      const restants = (await admin.query(api.team.listMembers, { projectId: pid })).map(
+        (r) => r.email,
+      );
+      expect(restants).not.toContain(seul.email);
+      expect(restants).toContain(second.email);
+    } finally {
+      await admin.mutation(api.projects.e2eDeleteProject, { secret: E2E_SECRET, slug });
+    }
+  });
+
+  test("un manager payé au CPM reste tant que ses taux courent, part une fois arrêtés", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { email } = await compteReel("retrait-cpm", ts);
+    await poser(email, "manager", { permissions: ["creators.read"] });
+    const { creatorId: kelly } = await admin.mutation(api.creators.inviteCreator, {
+      name: `[E2E_TEST] Kelly Moreau ${ts}`,
+      email: `e2e-retrait-cpm-kelly-${ts}@repackit.test`,
+    });
+    const id = (await membre(email)).membershipId;
+    await admin.mutation(api.team.setManagerCpms, {
+      membershipId: id,
+      entries: [{ creatorId: kelly, cpm: 0.35 }],
+    });
+    await expect(admin.mutation(api.team.removeMember, { membershipId: id })).rejects.toThrow(
+      /payé au CPM/,
+    );
+    expect((await membre(email)).roles).toEqual(["manager"]);
+
+    // Ses taux arrêtés (le geste de sa carte) : l'historique reste, plus rien ne court.
+    await admin.mutation(api.team.setManagerCpms, { membershipId: id, entries: [] });
+    await admin.mutation(api.team.removeMember, { membershipId: id });
+    expect((await admin.query(api.team.listMembers, {})).some((r) => r.email === email)).toBe(
+      false,
+    );
   });
 });

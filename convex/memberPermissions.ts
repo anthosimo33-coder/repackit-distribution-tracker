@@ -251,6 +251,18 @@ export const describeMember = internalQuery({
  */
 export const ROLE_ADMIN_TRACE = "role:admin";
 
+/** Même étiquette pour n'importe quel rôle (`role:manager`…) — le retrait du projet les écrit tous. */
+export function roleTrace(role: string): string {
+  return `role:${role}`;
+}
+
+/**
+ * Étiquette de journal du RETRAIT DU PROJET (`team.removeMember`). Écrite à
+ * chaque retrait, même d'un membre sans rôle ni droit : le geste doit se relire
+ * quel que soit ce que la ligne portait.
+ */
+export const MEMBERSHIP_TRACE = "membre du projet";
+
 /**
  * PASSE UN MANAGER EN ADMINISTRATEUR DU PROJET, EN LIGNE DE COMMANDE.
  *
