@@ -7,15 +7,23 @@
 import {
   CARD_MEDIA,
   MAX_CAPTION,
+  MAX_IDEES,
+  MAX_INCRUSTATION,
   MAX_ITEMS,
+  MAX_LIGNES_REPONSE,
+  MAX_POURQUOI,
   MAX_TEXT,
+  REGLAGES_BLUSH_DEFAUT,
+  VERDICTS_BLUSH,
   idImage,
   newItemId,
   nettoyerCompte,
   type Conversation,
+  type ConvInterface,
   type ConvItem,
   type ConvMessage,
   type ThemeId,
+  type VerdictBlush,
 } from "./instaConvModel";
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -27,7 +35,21 @@ const THEME_DE_MCP: Record<string, ThemeId> = { sombre: "dark", coeurs: "hearts"
 
 /** Un élément tel que Claude l'écrit et le lit. */
 export type ElementMcp = {
-  type: "message" | "date" | "vocal" | "photo_ephemere" | "video_ephemere" | "photo" | "video" | "reel" | "publication" | "story_partagee";
+  type:
+    | "message"
+    | "date"
+    | "vocal"
+    | "photo_ephemere"
+    | "video_ephemere"
+    | "photo"
+    | "video"
+    | "reel"
+    | "publication"
+    | "story_partagee"
+    // Chat BLUSH seulement.
+    | "ecrit"
+    | "meilleure_reponse"
+    | "citation";
   cote?: "recu" | "envoye";
   texte?: string;
   modifie?: boolean;
@@ -51,8 +73,15 @@ export type ElementMcp = {
   legende?: string;
   /** L'écran montre l'appui long sur ce message (un seul). */
   appui_long?: boolean;
-  /** Heure du message (menu d'appui long). */
+  /** Heure du message (menu d'appui long ; BLUSH : sous son groupe). */
   heure?: string;
+  /** Texte incrusté en haut de la slide que termine cet élément (style TikTok). */
+  incrustation?: string;
+  /** BLUSH, meilleure_reponse : les messages à lui envoyer (une bulle chacun), et pourquoi. */
+  lignes?: string[];
+  pourquoi?: string;
+  /** BLUSH, citation : qui avait écrit le message cité (« autre » : la personne dont on parle ; « moi » : celle qui tient le téléphone). */
+  de?: "autre" | "moi";
 };
 
 const MEDIA_DE_MCP = {
@@ -76,6 +105,11 @@ const MEDIA_MCP = {
   storyShare: "story_partagee",
 } as const;
 const TYPES_MCP = ["message", "date", ...Object.keys(MEDIA_DE_MCP)].join(", ");
+/** Le chat BLUSH : ses éléments (pas de reel ni d'éphémère), et ceux qu'il est le seul à avoir. */
+const TYPES_BLUSH = ["message", "date", "vocal", "photo", "ecrit", "meilleure_reponse", "citation"];
+const SEULEMENT_BLUSH = ["ecrit", "meilleure_reponse", "citation"];
+/** Les champs d'un élément Instagram que le chat BLUSH n'a pas (refusés en clair plutôt qu'ignorés). */
+const CHAMPS_INSTAGRAM = ["modifie", "reaction", "reponse", "story", "appui_long", "compte", "photo_compte", "certifie"];
 
 /** Préfixe d'une image du projet telle que Claude la lit (et la renvoie pour la garder). */
 export const PREFIXE_IMAGE = "img:";
@@ -148,10 +182,17 @@ export type ChampsMcp = {
   photo_contact?: unknown;
   /** Le fil commence ici : fiche du contact au-dessus du premier message. */
   debut_du_fil?: unknown;
+  /** L'écran : « instagram » (DM iOS) ou « blush » (le chat de l'app BLUSH). */
+  interface?: unknown;
+  /** Chat BLUSH : le badge du verdict, l'anneau du niveau (1 à 4), le compteur de bulles, les idées de questions. */
+  verdict?: unknown;
+  niveau?: unknown;
+  bulles?: unknown;
+  idees?: unknown;
 };
 
 /** Messages écrits par Claude → éléments de la conversation (ids neufs), ou le refus à lui rendre. */
-export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: string } {
+export function elementsDeMcp(raw: unknown, iface: ConvInterface = "instagram"): { items: ConvItem[] } | { refus: string } {
   if (!Array.isArray(raw)) return { refus: "« messages » : une liste." };
   if (raw.length > MAX_ITEMS) return { refus: `« messages » : ${MAX_ITEMS} éléments au plus.` };
   const items: ConvItem[] = [];
@@ -160,6 +201,13 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
     const o = (r ?? {}) as Record<string, unknown>;
     const n = i + 1;
     const type = typeof o.type === "string" ? o.type : "message";
+    if (iface === "blush") {
+      const r = elementBlush(o, type, n);
+      if ("refus" in r) return r;
+      items.push(r.item);
+      continue;
+    }
+    if (SEULEMENT_BLUSH.includes(type)) return { refus: `Élément ${n} : « type » ${type} n'existe que dans le chat BLUSH (interface « blush »).` };
     const media = type in MEDIA_DE_MCP ? MEDIA_DE_MCP[type as keyof typeof MEDIA_DE_MCP] : null;
     if (type !== "message" && type !== "date" && !media) {
       return { refus: `Élément ${n} : « type » vaut ${TYPES_MCP}.` };
@@ -168,8 +216,10 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
     if (!texte && !media) return { refus: `Élément ${n} : « texte » vide.` };
     if (texte.length > MAX_TEXT) return { refus: `Élément ${n} : ${MAX_TEXT} caractères au plus.` };
     const coupure = o.coupure === true ? { cut: true } : {};
+    const incr = incrustationDe(o.incrustation, n);
+    if ("refus" in incr) return incr;
     if (type === "date") {
-      items.push({ id: newItemId(), kind: "date", text: texte, ...coupure });
+      items.push({ id: newItemId(), kind: "date", text: texte, ...coupure, ...incr.champ });
       continue;
     }
     if (o.cote !== "recu" && o.cote !== "envoye") {
@@ -231,9 +281,70 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
       message.longPress = true;
     }
     if (typeof o.heure === "string" && o.heure.trim()) message.time = o.heure.trim().slice(0, 8);
+    Object.assign(message, incr.champ);
     items.push(message);
   }
   return { items };
+}
+
+/** « incrustation » : un texte court, ou rien. */
+function incrustationDe(v: unknown, n: number): { champ: { overlay?: string } } | { refus: string } {
+  if (v === undefined || v === null || v === "") return { champ: {} };
+  if (typeof v !== "string") return { refus: `Élément ${n} : « incrustation » = le texte à incruster en haut de la slide.` };
+  const t = v.trim();
+  if (t.length > MAX_INCRUSTATION) return { refus: `Élément ${n} : « incrustation » : ${MAX_INCRUSTATION} caractères au plus.` };
+  return { champ: t ? { overlay: t } : {} };
+}
+
+/**
+ * Un élément du chat BLUSH : « recu » = BLUSH (à gauche, bulles blanches),
+ * « envoye » = la personne qui se confie (à droite, bulles bleues). « ecrit »,
+ * « meilleure_reponse » et « citation » sont des bulles de BLUSH.
+ */
+function elementBlush(o: Record<string, unknown>, type: string, n: number): { item: ConvItem } | { refus: string } {
+  if (!TYPES_BLUSH.includes(type)) return { refus: `Élément ${n} : dans le chat BLUSH, « type » vaut ${TYPES_BLUSH.join(", ")}.` };
+  const instagram = CHAMPS_INSTAGRAM.find((k) => o[k] !== undefined);
+  if (instagram) return { refus: `Élément ${n} : « ${instagram} » n'existe pas dans le chat BLUSH (Instagram seulement).` };
+  const texte = typeof o.texte === "string" ? o.texte.trim() : "";
+  if (texte.length > MAX_TEXT) return { refus: `Élément ${n} : ${MAX_TEXT} caractères au plus.` };
+  const incr = incrustationDe(o.incrustation, n);
+  if ("refus" in incr) return incr;
+  const commun = { ...(o.coupure === true ? { cut: true } : {}), ...incr.champ };
+  if (type === "date") {
+    if (!texte) return { refus: `Élément ${n} : « texte » vide (ex. « Aujourd’hui 21:40 »).` };
+    return { item: { id: newItemId(), kind: "date", text: texte, ...commun } };
+  }
+  const deBlush = SEULEMENT_BLUSH.includes(type);
+  if (deBlush && o.cote !== undefined && o.cote !== "recu") return { refus: `Élément ${n} : « ${type} » est une bulle de BLUSH (cote « recu », ou rien).` };
+  if (!deBlush && o.cote !== "recu" && o.cote !== "envoye") {
+    return { refus: `Élément ${n} : « cote » vaut « recu » (BLUSH, à gauche) ou « envoye » (elle, à droite).` };
+  }
+  const m: ConvMessage = { id: newItemId(), kind: "message", side: deBlush || o.cote === "recu" ? "in" : "out", text: "" };
+  if (typeof o.heure === "string" && o.heure.trim()) m.time = o.heure.trim().slice(0, 8);
+  if (type === "ecrit") m.typing = true;
+  else if (type === "meilleure_reponse") {
+    const lignes = Array.isArray(o.lignes) ? o.lignes.map((l) => (typeof l === "string" ? l.trim() : "")).filter(Boolean) : [];
+    if (!lignes.length) return { refus: `Élément ${n} : « lignes » = les messages à lui envoyer (${MAX_LIGNES_REPONSE} au plus), une bulle chacun.` };
+    if (lignes.length > MAX_LIGNES_REPONSE) return { refus: `Élément ${n} : « lignes » : ${MAX_LIGNES_REPONSE} messages au plus.` };
+    if (lignes.some((l) => l.length > MAX_TEXT)) return { refus: `Élément ${n} : ${MAX_TEXT} caractères au plus par ligne.` };
+    const pourquoi = typeof o.pourquoi === "string" ? o.pourquoi.trim().slice(0, MAX_POURQUOI) : "";
+    m.suggestion = { lines: lignes, ...(pourquoi ? { why: pourquoi } : {}) };
+  } else if (type === "citation") {
+    if (!texte) return { refus: `Élément ${n} : « texte » = le message cité, recopié tel quel.` };
+    if (o.de !== undefined && o.de !== "autre" && o.de !== "moi") return { refus: `Élément ${n} : « de » vaut « autre » (la personne dont on parle) ou « moi » (celle qui tient le téléphone).` };
+    const legende = typeof o.legende === "string" ? o.legende.trim().slice(0, 60) : "";
+    m.text = texte;
+    m.cited = { side: o.de === "moi" ? "out" : "in", ...(legende ? { caption: legende } : {}) };
+  } else if (type === "vocal") m.media = { type: "voice", seconds: clamp(Math.round(Number(o.duree) || 7), 1, 600) };
+  else if (type === "photo") {
+    const image = o.image === undefined ? undefined : refImage(o.image);
+    if (image === null) return { refus: `Élément ${n} : « image » = ${FORMES_IMAGE}.` };
+    m.media = { type: "photo", ...(image ? { image } : {}) };
+  } else {
+    if (!texte) return { refus: `Élément ${n} : « texte » vide.` };
+    m.text = texte;
+  }
+  return { item: { ...m, ...commun } };
 }
 
 /**
@@ -243,10 +354,40 @@ export function elementsDeMcp(raw: unknown): { items: ConvItem[] } | { refus: st
  */
 export function appliquerChampsMcp(base: Conversation, champs: ChampsMcp): { conversation: Conversation } | { refus: string } {
   const c: Conversation = JSON.parse(JSON.stringify(base));
+  if (champs.interface !== undefined) {
+    if (champs.interface !== "instagram" && champs.interface !== "blush") return { refus: "« interface » : instagram ou blush." };
+    if (champs.interface === "blush") {
+      c.interface = "blush";
+      c.blush ??= { ...REGLAGES_BLUSH_DEFAUT, idees: [] };
+    } else delete c.interface;
+  }
+  const iface: ConvInterface = c.interface === "blush" ? "blush" : "instagram";
   if (champs.messages !== undefined) {
-    const r = elementsDeMcp(champs.messages);
+    const r = elementsDeMcp(champs.messages, iface);
     if ("refus" in r) return r;
     c.items = r.items;
+  }
+  if (champs.verdict !== undefined || champs.niveau !== undefined || champs.bulles !== undefined || champs.idees !== undefined) {
+    const b = { ...(c.blush ?? REGLAGES_BLUSH_DEFAUT) };
+    if (champs.verdict !== undefined) {
+      if (!(VERDICTS_BLUSH as readonly unknown[]).includes(champs.verdict)) return { refus: `« verdict » : ${VERDICTS_BLUSH.join(" ")} (à deux doigts, partant, hésite, s'éloigne).` };
+      b.verdict = champs.verdict as VerdictBlush;
+    }
+    if (champs.niveau !== undefined) {
+      if (typeof champs.niveau !== "number" || champs.niveau < 1 || champs.niveau > 4) return { refus: "« niveau » : 1 à 4 (l'anneau vert, de « On se parle » à « On est ensemble »)." };
+      b.niveau = Math.round(champs.niveau);
+    }
+    if (champs.bulles !== undefined) {
+      if (typeof champs.bulles !== "number" || champs.bulles < 0) return { refus: "« bulles » : le solde du compteur (0 ou plus)." };
+      b.bulles = clamp(Math.round(champs.bulles), 0, 9999);
+    }
+    if (champs.idees !== undefined) {
+      if (!Array.isArray(champs.idees) || champs.idees.some((q) => typeof q !== "string")) return { refus: "« idees » : une liste de questions courtes ([] les retire)." };
+      const idees = (champs.idees as string[]).map((q) => q.trim().slice(0, 60)).filter(Boolean);
+      if (idees.length > MAX_IDEES) return { refus: `« idees » : ${MAX_IDEES} au plus.` };
+      b.idees = idees;
+    }
+    c.blush = b;
   }
   if (champs.theme !== undefined) {
     const t = typeof champs.theme === "string" ? THEME_DE_MCP[champs.theme] : undefined;
@@ -279,9 +420,39 @@ export function appliquerChampsMcp(base: Conversation, champs: ChampsMcp): { con
   return { conversation: c };
 }
 
+/** Un élément du chat BLUSH tel que Claude le lit. */
+function elementBlushPourMcp(it: ConvItem): ElementMcp {
+  const commun = { ...(it.overlay ? { incrustation: it.overlay } : {}), ...(it.cut ? { coupure: true } : {}) };
+  if (it.kind === "date") return { type: "date", texte: it.text, ...commun };
+  const heure = it.time ? { heure: it.time } : {};
+  if (it.typing) return { type: "ecrit", ...heure, ...commun };
+  if (it.suggestion) return { type: "meilleure_reponse", lignes: it.suggestion.lines, ...(it.suggestion.why ? { pourquoi: it.suggestion.why } : {}), ...heure, ...commun };
+  if (it.cited) return { type: "citation", texte: it.text, de: it.cited.side === "out" ? "moi" : "autre", ...(it.cited.caption ? { legende: it.cited.caption } : {}), ...heure, ...commun };
+  const cote = it.side === "out" ? ("envoye" as const) : ("recu" as const);
+  const md = it.media;
+  if (md?.type === "voice") return { type: "vocal", cote, duree: md.seconds, ...heure, ...commun };
+  if (md?.type === "photo" || md?.type === "video") return { type: "photo", cote, ...(md.image ? { image: PREFIXE_IMAGE + md.image } : {}), ...heure, ...commun };
+  return { type: "message", cote, texte: it.text, ...heure, ...commun };
+}
+
 /** La conversation telle que Claude la lit : sans id, sans la photo (seulement si elle existe). */
 export function conversationPourMcp(c: Conversation) {
+  if (c.interface === "blush") {
+    const b = c.blush ?? REGLAGES_BLUSH_DEFAUT;
+    return {
+      interface: "blush" as const,
+      contact: { nom: c.contact.name },
+      verdict: b.verdict,
+      niveau: b.niveau,
+      bulles: b.bulles,
+      idees: b.idees,
+      barreEtat: { heure: c.status.time, batterie: c.status.battery, economieEnergie: c.status.lowPower, reseau: c.status.signal },
+      defilement: c.scroll,
+      messages: c.items.map(elementBlushPourMcp),
+    };
+  }
   return {
+    interface: "instagram" as const,
     theme: THEME_MCP[c.themeId],
     langue: c.locale,
     contact: {
@@ -293,7 +464,7 @@ export function conversationPourMcp(c: Conversation) {
     barreEtat: { heure: c.status.time, batterie: c.status.battery, economieEnergie: c.status.lowPower, reseau: c.status.signal },
     defilement: c.scroll,
     messages: c.items.map((it): ElementMcp => {
-      if (it.kind === "date") return { type: "date", texte: it.text, ...(it.cut ? { coupure: true } : {}) };
+      if (it.kind === "date") return { type: "date", texte: it.text, ...(it.overlay ? { incrustation: it.overlay } : {}), ...(it.cut ? { coupure: true } : {}) };
       const r = it.reply;
       const md = it.media;
       return {
@@ -328,6 +499,7 @@ export function conversationPourMcp(c: Conversation) {
           : {}),
         ...(it.longPress ? { appui_long: true } : {}),
         ...(it.time ? { heure: it.time } : {}),
+        ...(it.overlay ? { incrustation: it.overlay } : {}),
         ...(it.cut ? { coupure: true } : {}),
       };
     }),

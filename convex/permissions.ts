@@ -205,7 +205,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     section: "Contenu",
     label: "Conversations Instagram",
     description:
-      "Créer, modifier et exporter des captures de conversations Instagram reproduites, à l'écran ou par Claude.",
+      "Créer, modifier et exporter des captures de conversations reproduites (DM Instagram, chat BLUSH), à l'écran ou par Claude.",
     defaultForManager: false,
     routes: ["/conversations"],
   },

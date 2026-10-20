@@ -15,7 +15,8 @@ const ConvStudio = dynamic(
 );
 
 /**
- * CONVERSATIONS INSTAGRAM — reproduit une capture de DM pour les carrousels.
+ * CONVERSATIONS — reproduit une capture de DM Instagram, ou du chat de l'app
+ * BLUSH (askblush.com), pour les carrousels.
  * Bloc `conversations.use` (décoché pour un manager) : les fonctions de la
  * bibliothèque le vérifient côté serveur ; ce gate évite seulement un écran
  * qui échouerait.

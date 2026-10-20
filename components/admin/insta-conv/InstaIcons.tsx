@@ -10,13 +10,19 @@ import type { ConvTheme } from "@/lib/insta-conv";
 
 const WHITE = "#F8F9F9";
 
-/** Barre d'état : 4 barres de réseau, Wi-Fi, batterie avec pourcentage. */
-export function StatusIcons({ battery, lowPower, signal }: { battery: number; lowPower: boolean; signal: number }) {
+/**
+ * Barre d'état : 4 barres de réseau, Wi-Fi, batterie avec pourcentage. `light` :
+ * sur un fond clair (le chat BLUSH, dans Safari), les glyphes passent au noir et
+ * le pourcentage en blanc, comme iOS en mode clair.
+ */
+export function StatusIcons({ battery, lowPower, signal, light = false }: { battery: number; lowPower: boolean; signal: number; light?: boolean }) {
   const bars = [4.5, 6.5, 9, 11.5];
   const level = Math.max(0, Math.min(100, Math.round(battery)));
   const bodyX = 370.5;
   const bodyW = 24;
-  const fillColor = lowPower ? "#FFD600" : level <= 20 ? "#FF3B30" : "#FFFFFF";
+  const glyph = light ? "#000000" : "#FFFFFF";
+  const fillColor = lowPower ? "#FFD600" : level <= 20 ? "#FF3B30" : glyph;
+  const empty = light ? "rgba(0,0,0,0.42)" : "#858789";
   return (
     <>
       <svg
@@ -34,11 +40,11 @@ export function StatusIcons({ battery, lowPower, signal }: { battery: number; lo
             width={3.5}
             height={h}
             rx={1}
-            fill={i < signal ? "#FFFFFF" : "#3C4043"}
+            fill={i < signal ? glyph : light ? "rgba(0,0,0,0.2)" : "#3C4043"}
           />
         ))}
         {/* Wi-Fi : trois éventails concentriques centrés sur (357.75, 30.4). */}
-        <g fill="#FFFFFF">
+        <g fill={glyph}>
           <path d="M357.75 30.4 L353.9 26.5 A5.5 5.5 0 0 1 361.6 26.5 Z" />
           <path d="M351.6 24.3 A8.6 8.6 0 0 1 363.9 24.3 L362.2 26 A6.2 6.2 0 0 0 353.3 26 Z" />
           <path d="M349.3 22 A11.9 11.9 0 0 1 366.2 22 L364.5 23.7 A9.5 9.5 0 0 0 351 23.7 Z" />
@@ -50,10 +56,10 @@ export function StatusIcons({ battery, lowPower, signal }: { battery: number; lo
         </defs>
         {/* i18n-exempt: référence SVG */}
         <g clipPath="url(#ic-battery-body)">
-          <rect x={bodyX} y={18} width={bodyW} height={13.5} fill="#858789" />
+          <rect x={bodyX} y={18} width={bodyW} height={13.5} fill={empty} />
           <rect x={bodyX} y={18} width={(bodyW * level) / 100} height={13.5} fill={fillColor} />
         </g>
-        <rect x={395.5} y={22.5} width={1.6} height={4.5} rx={0.8} fill={level === 100 ? fillColor : "#858789"} />
+        <rect x={395.5} y={22.5} width={1.6} height={4.5} rx={0.8} fill={level === 100 ? fillColor : empty} />
       </svg>
       <div
         style={{
@@ -68,7 +74,7 @@ export function StatusIcons({ battery, lowPower, signal }: { battery: number; lo
           fontSize: 11.5,
           fontWeight: 700,
           letterSpacing: -0.2,
-          color: "#000000",
+          color: light && !lowPower ? "#FFFFFF" : "#000000",
           lineHeight: "13.5px",
         }}
       >
