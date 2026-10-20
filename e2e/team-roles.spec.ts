@@ -765,3 +765,122 @@ test.describe("Retirer du projet — le geste et ce qu'il laisse", () => {
     );
   });
 });
+
+/**
+ * AJOUTER UN MEMBRE D'ÉQUIPE — par e-mail, compte existant ou non.
+ *
+ * ⚠️ LA PREUVE N'EST PAS « la ligne apparaît dans listMembers » : un compte créé
+ * sans compte de connexion utilisable y apparaîtrait aussi, et la personne ne
+ * pourrait jamais entrer. Le premier test va donc jusqu'au bout — lien, mot de
+ * passe choisi, connexion, et une garde qui lui répond.
+ */
+test.describe("Ajouter un membre d'équipe — le geste et ses refus", () => {
+  test("un compte NEUF : créé, lien de premier mot de passe, puis il entre — borné", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const projectId = await admin.getProjectId();
+    // Saisie de prod : majuscules et espaces autour, comme un copier-coller.
+    const email = `e2e-ajout-ines.petrovic-${ts}@repackit.test`;
+    const res = await admin.mutation(api.team.addMember, {
+      email: `  E2E-Ajout-Ines.Petrovic-${ts}@Repackit.test `,
+      role: "manager",
+    });
+    expect(res.email).toBe(email);
+    expect(res.accountCreated).toBe(true);
+    expect(res.link?.token).toBeTruthy();
+
+    // Sa ligne : manager, socle par défaut (12, sans Argent).
+    const ligne = await membre(email);
+    expect(ligne.roles).toEqual(["manager"]);
+    expect(ligne.effective).toHaveLength(12);
+    expect(ligne.effective).not.toContain("payments.manage");
+
+    // ── Il choisit son mot de passe par le lien, puis se connecte ───────────
+    const anonyme = new ConvexHttpClient(convexUrl!);
+    await anonyme.action(api.passwordReset.resetPasswordWithToken, {
+      token: res.link!.token,
+      newPassword: `premier-${ts}`,
+    });
+    const client = new ConvexHttpClient(convexUrl!);
+    const session = await client.action(api.auth.signIn, {
+      provider: "password",
+      params: { email, password: `premier-${ts}`, flow: "signIn" },
+    });
+    client.setAuth(session.tokens!.token);
+    expect(
+      await client.query(api.permissionProbe.probeCreatorsRead, { projectId }),
+    ).toEqual({ ok: true, permission: "creators.read" });
+    await expect(
+      client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).rejects.toThrow();
+    expect((await client.query(api.creators.getMyPortal, {})).slug).toBe("e2e-test");
+    // Le lien ne sert qu'une fois.
+    await expect(
+      anonyme.action(api.passwordReset.resetPasswordWithToken, {
+        token: res.link!.token,
+        newPassword: `second-${ts}`,
+      }),
+    ).rejects.toThrow();
+
+    // Le journal dit l'ajout, signé.
+    const journal = await admin.query(api.team.listChanges, { userId: ligne.userId });
+    const ajouts = journal.filter((l) => l.granted && l.at >= ts);
+    expect(ajouts.map((l) => l.permission)).toEqual(
+      expect.arrayContaining(["membre du projet", "role:manager", "creators.read"]),
+    );
+    expect(ajouts).toHaveLength(14);
+    expect(ajouts.every((l) => l.actor === E2E_EMAIL)).toBe(true);
+  });
+
+  test("un compte EXISTANT (retiré d'ici) revient : aucun compte ni lien de plus", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const projectId = await admin.getProjectId();
+    const { email, client } = await compteReel("ajout-revenant", ts);
+    await poser(email, "admin");
+    await poser((await compteReel("ajout-collegue", ts)).email, "admin");
+    await admin.mutation(api.team.removeMember, {
+      membershipId: (await membre(email)).membershipId,
+    });
+    await expect(
+      client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).rejects.toThrow();
+
+    const res = await admin.mutation(api.team.addMember, { email, role: "admin" });
+    expect(res.accountCreated).toBe(false);
+    expect(res.link).toBeNull();
+    expect((await membre(email)).roles).toEqual(["admin"]);
+    // Sa session d'avant suffit : même compte, même mot de passe.
+    expect(
+      await client.query(api.permissionProbe.probePaymentsManage, { projectId }),
+    ).toEqual({ ok: true, permission: "payments.manage" });
+  });
+
+  test("ce qui ne s'ajoute pas : superadmin, déjà de l'équipe, espace créateur, e-mail illisible", async () => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+
+    await expect(
+      admin.mutation(api.team.addMember, { email: E2E_EMAIL, role: "manager" }),
+    ).rejects.toThrow(/superadmin/);
+
+    const deja = await compteReel("ajout-deja", ts);
+    await poser(deja.email, "manager", { permissions: ["creators.read"] });
+    await expect(
+      admin.mutation(api.team.addMember, { email: deja.email, role: "admin" }),
+    ).rejects.toThrow(/déjà partie de l'équipe/);
+    // Rien n'a bougé : ni rôle, ni droits.
+    expect((await membre(deja.email)).roles).toEqual(["manager"]);
+    expect((await membre(deja.email)).effective).toEqual(["creators.read"]);
+
+    const creatrice = await compteReel("ajout-creatrice", ts);
+    await expect(
+      admin.mutation(api.team.addMember, { email: creatrice.email, role: "manager" }),
+    ).rejects.toThrow(/espace créateur/);
+    expect((await membre(creatrice.email)).roles).toEqual(["creator"]);
+
+    await expect(
+      admin.mutation(api.team.addMember, { email: "camille.bertrand", role: "manager" }),
+    ).rejects.toThrow(/invalide/);
+  });
+});
