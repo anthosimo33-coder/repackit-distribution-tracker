@@ -132,7 +132,8 @@
       "blush": "BLUSH chat (askblush.com)"
     },
     "incrustation": "Overlay text · slide {n}",
-    "incrustationExemple": "e.g. you were a 10/10 when…",
+    "ajouterIncrustation": "+ Overlay text (slide {n})",
+    "incrustationExemple": "Text laid over the top of the screenshot",
     "blush": {
       "entete": "Header and input bar",
       "nom": "Their first name",

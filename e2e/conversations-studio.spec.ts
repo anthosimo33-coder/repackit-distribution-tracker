@@ -339,7 +339,11 @@ test.describe("Conversations — chat BLUSH", () => {
     await expect(apercu.getByText("bonne nuit Théo", { exact: true })).toBeVisible();
     await expect(apercu.getByText("Recommandée", { exact: true })).toBeVisible();
 
-    // Le texte incrusté de la (seule) slide, style TikTok.
+    // Par défaut, la capture sort nue : ni texte incrusté, ni champ pour en écrire un.
+    await expect(page.getByRole("textbox", { name: "Texte incrusté · slide 1" })).toHaveCount(0);
+    await expect(apercu.locator("[data-incrustation]")).toHaveCount(0);
+    // Il reste possible, à la demande : le texte incrusté de la (seule) slide, style TikTok.
+    await page.getByRole("button", { name: "+ Texte incrusté (slide 1)" }).click();
     await page.getByRole("textbox", { name: "Texte incrusté · slide 1" }).fill("t'étais un 10/10 quand tu répondais en 10 min");
     await expect(apercu.getByText("t'étais un 10/10 quand tu répondais en 10 min", { exact: true })).toBeVisible();
 

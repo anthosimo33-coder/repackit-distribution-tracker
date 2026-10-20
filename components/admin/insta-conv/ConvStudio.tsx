@@ -796,7 +796,7 @@ export function ConvStudio() {
                   />
                 )}
               </div>
-              {/* Le texte incrusté de la slide que termine cet élément (coupure, ou le dernier). */}
+              {/* Le texte incrusté de la slide que termine cet élément (coupure, ou le dernier) : replié, les captures sortent nues par défaut. */}
               {(it.cut || i === conv.items.length - 1) && (
                 <Incruste
                   n={ends.indexOf(i) + 1}
@@ -917,14 +917,31 @@ export function ConvStudio() {
   );
 }
 
-/** Le texte incrusté d'une slide (style TikTok), sous l'élément qui la termine. */
+/**
+ * Le texte incrusté d'une slide (style TikTok), sous l'élément qui la termine.
+ * REPLIÉ par défaut : les captures sortent nues, le texte de la trend se pose
+ * sur TikTok. Le champ ne s'ouvre qu'à la demande, ou quand la slide en a déjà un.
+ */
 function Incruste({ n, value, tr, onChange }: { n: number; value: string; tr: Tr; onChange: (v: string) => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  if (!value && !ouvert) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOuvert(true)}
+        className="text-xs text-slate-400 transition-colors hover:text-slate-700"
+      >
+        {tr("ajouterIncrustation", { n })}
+      </button>
+    );
+  }
   return (
     <label className="flex items-center gap-2 rounded-md border border-dashed border-slate-200 px-2.5 py-1.5 text-xs text-slate-500">
       <span className="shrink-0 font-medium">{tr("incrustation", { n })}</span>
       <Input
         className="h-8 flex-1 text-sm"
         maxLength={160}
+        autoFocus={!value}
         placeholder={tr("incrustationExemple")}
         value={value}
         onChange={(e) => onChange(e.target.value)}
