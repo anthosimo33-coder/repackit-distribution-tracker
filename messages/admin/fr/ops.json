@@ -132,7 +132,8 @@
       "blush": "Chat BLUSH (askblush.com)"
     },
     "incrustation": "Texte incrusté · slide {n}",
-    "incrustationExemple": "ex. t'étais un 10/10 quand…",
+    "ajouterIncrustation": "+ Texte incrusté (slide {n})",
+    "incrustationExemple": "Texte posé en haut de la capture",
     "blush": {
       "entete": "En-tête et saisie",
       "nom": "Son prénom",

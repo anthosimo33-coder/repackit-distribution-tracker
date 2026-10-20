@@ -169,7 +169,7 @@ const ARG_MESSAGES = {
       },
       incrustation: {
         type: "string",
-        description: `Texte incrusté en haut de la capture, style TikTok (encadré blanc, texte noir, centré), ${MAX_INCRUSTATION} caractères au plus : celui de l'élément qui TERMINE la slide (« coupure », ou le dernier). Ex. « t'étais un 10/10 quand tu me répondais en 10 min même au taf ». La capture sort prête à poster.`,
+        description: `FACULTATIF, seulement si la personne le demande en toutes lettres : par défaut les captures sortent NUES, le texte de la trend se pose ensuite sur TikTok. Texte incrusté en haut de la capture, style TikTok (encadré blanc, texte noir, centré), ${MAX_INCRUSTATION} caractères au plus : celui de l'élément qui TERMINE la slide (« coupure », ou le dernier).`,
       },
       lignes: {
         type: "array",
@@ -414,7 +414,7 @@ const OUTILS_ECRITURE: readonly McpTool[] = [
     name: "creer_conversation",
     title: "Créer une conversation (Instagram ou BLUSH)",
     description:
-      "Crée un brouillon de capture que l'app dessine à l'identique — un DM Instagram iOS (défaut), ou le chat de l'app BLUSH (interface « blush » : une personne se confie à BLUSH, qui lui répond et lui écrit la réplique) ; la réponse donne « telecharger » (l'ouvrir télécharge les captures : PNG 828×1792, ou ZIP par slide) et « lien » (l'écran, pour retoucher). Pour reproduire une capture : recopie chaque bulle exactement (debut_du_fil: false si la capture est prise au milieu du fil). Pour inventer : écris comme de vrais messages (courts, minuscules si le ton s'y prête, une bulle par phrase), COMMENCE par un séparateur de date (un vrai fil en a toujours un au-dessus du premier message), et choisis une heure et une batterie à toi plutôt que celles de l'exemple. Chat BLUSH : BLUSH parle avec répartie — taquin, une vanne pour tout, sérieux quand il faut —, en bulles courtes, jamais un pavé ; il ne nomme aucune IA. Carrousel (trend « t'étais un X/10 quand… ») : une « coupure » à la fin de chaque slide et son « incrustation » sur le même élément. Photo du contact (Instagram) : « photo_contact ». Donne à la personne le lien « telecharger » de la réponse.",
+      "Crée un brouillon de capture que l'app dessine à l'identique — un DM Instagram iOS (défaut), ou le chat de l'app BLUSH (interface « blush » : une personne se confie à BLUSH, qui lui répond et lui écrit la réplique) ; la réponse donne « telecharger » (l'ouvrir télécharge les captures : PNG 828×1792, ou ZIP par slide) et « lien » (l'écran, pour retoucher). Pour reproduire une capture : recopie chaque bulle exactement (debut_du_fil: false si la capture est prise au milieu du fil). Pour inventer : écris comme de vrais messages (courts, minuscules si le ton s'y prête, une bulle par phrase), COMMENCE par un séparateur de date (un vrai fil en a toujours un au-dessus du premier message), et choisis une heure et une batterie à toi plutôt que celles de l'exemple. Chat BLUSH : BLUSH parle avec répartie — taquin, une vanne pour tout, sérieux quand il faut —, en bulles courtes, jamais un pavé ; il ne nomme aucune IA. Carrousel : une « coupure » à la fin de chaque slide, et AUCUNE « incrustation » sauf demande explicite (le texte de la trend se pose sur TikTok, pas dans la capture). Photo du contact (Instagram) : « photo_contact ». Donne à la personne le lien « telecharger » de la réponse.",
     inputSchema: {
       type: "object",
       properties: {
