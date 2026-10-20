@@ -35,12 +35,12 @@ import {
 } from "./decisionThresholds";
 import { listCreatorActivityCore, listCreatorsCore } from "./creators";
 import { creatorPublicationStats } from "./publicationLateness";
+import { profitabilityBase, profitabilityCreatorsPart } from "./profitability";
 import {
   assembleProfitability,
-  profitabilityBase,
-  profitabilityCreatorsPart,
-} from "./profitability";
-import { computeRpm, profitabilityReport } from "./profitabilityMath";
+  computeRpm,
+  profitabilityReport,
+} from "./profitabilityMath";
 import {
   computeDailyBilledViews,
   parisDayKey,

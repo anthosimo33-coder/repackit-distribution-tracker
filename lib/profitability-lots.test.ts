@@ -1,16 +1,23 @@
 import { describe, it, expect } from "vitest";
 import {
   assembleProfitability,
+  assembleRevenueAndCosts,
+  lotSlice,
   type ProfitabilityBase,
+  type ProfitabilityCosts,
   type ProfitabilityCreatorsPart,
-} from "../convex/profitability";
+  type ProfitabilityRevenue,
+} from "../convex/profitabilityMath";
 import type { Id } from "../convex/_generated/dataModel";
 
 /**
  * L'outil MCP `rentabilite` assemble la carte à partir de LOTS de créatrices
  * (une query par lot : en une seule, le calcul dépassait la limite d'exécution
- * d'une query sur Snytch, 2026-10-19). La carte, elle, passe un seul lot. Les
- * deux doivent rendre EXACTEMENT la même réponse, quel que soit le découpage.
+ * d'une query sur Snytch, 2026-10-19). Toutes doivent rendre EXACTEMENT la même
+ * réponse que la boucle unique, quel que soit le découpage.
+ *
+ * La carte, elle, lit le revenu et le coût en LOTS contigus (`lotSlice`), une
+ * query chacun — même exigence.
  *
  * Forme de la prod Snytch : coûts à décimales (les arrondis se cumulent), un
  * mois en cours non figé, un mois figé chez l'une et pas chez l'autre, des vues
@@ -96,5 +103,58 @@ describe("rentabilité assemblée par lots de créatrices", () => {
     expect(unSeulLot.periode?.videos.map((v) => v.plafond)).toEqual(
       [1000, 2000, 3000, 4000, 5000, 6000],
     );
+  });
+});
+
+describe("carte : revenu + lots de coût contigus", () => {
+  const unSeulLot = assembleProfitability(base, enLots(createatrices.length));
+  const { trackedViewsByMonth, trackedViewsTotal } = base;
+  /** Ce que rend `getProfitabilityRevenue` : la base sans ce qui vient des lots. */
+  const revenu: ProfitabilityRevenue = {
+    payCurrency: base.payCurrency,
+    fxRateToRevenue: base.fxRateToRevenue,
+    currentPeriod: base.currentPeriod,
+    revenueByMonth: base.revenueByMonth,
+    totalRevenue: base.totalRevenue,
+    periode: base.periode,
+  };
+
+  /** Ce que rendent les `lots` queries `getProfitabilityCosts` de la carte. */
+  function lotsDeLaCarte(lots: number): ProfitabilityCosts[] {
+    return Array.from({ length: lots }, (_, k) => {
+      const ids = lotSlice(base.creatorIds, k, lots);
+      const debut = base.creatorIds.indexOf(ids[0]!);
+      return {
+        creatorIds: ids,
+        trackedViewsByMonth,
+        trackedViewsTotal,
+        part: {
+          creators: createatrices.slice(debut, debut + ids.length),
+          videos: videos.slice(debut, debut + ids.length).flat(),
+        },
+      };
+    });
+  }
+
+  it.each([1, 2, 3, 6])("%i lot(s) rendent la réponse de la boucle unique", (lots) => {
+    expect(assembleRevenueAndCosts(revenu, lotsDeLaCarte(lots))).toEqual(unSeulLot);
+  });
+
+  it("les lots recouvrent la liste, sans trou ni doublon, dans l'ordre", () => {
+    const liste = Array.from({ length: 34 }, (_, i) => i);
+    for (const lots of [1, 2, 3, 5, 34, 40]) {
+      const tranches = Array.from({ length: lots }, (_, k) => lotSlice(liste, k, lots));
+      expect(tranches.flat()).toEqual(liste);
+      // Équilibrés à une créatrice près.
+      const tailles = tranches.map((t) => t.length);
+      expect(Math.max(...tailles) - Math.min(...tailles)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("refuse un lot hors bornes plutôt que de rendre une tranche vide", () => {
+    expect(() => lotSlice([1, 2], 2, 2)).toThrow();
+    expect(() => lotSlice([1, 2], -1, 2)).toThrow();
+    expect(() => lotSlice([1, 2], 0, 0)).toThrow();
+    expect(() => lotSlice([1, 2], 0.5, 2)).toThrow();
   });
 });
