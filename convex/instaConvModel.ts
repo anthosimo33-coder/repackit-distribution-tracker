@@ -104,7 +104,35 @@ export const MAX_LIGNES_REPONSE = 4;
 export const MAX_POURQUOI = 300;
 export const MAX_INCRUSTATION = 160;
 
+/**
+ * Version de la FORME du JSON que ce code écrit (2 : le chat BLUSH, oct. 2026 ;
+ * absente = 1, avant elle). Un écran chargé AVANT une mise à jour relit un
+ * brouillon sans connaître ses nouveaux champs et le réenregistre aussitôt,
+ * amputé : vu le 20/10, un chat BLUSH réécrit deux fois en DM Instagram par un
+ * onglet resté ouvert. Le serveur refuse donc d'enregistrer, depuis l'écran, une
+ * forme plus ancienne que celle qu'il garde (`formeRefusee`). À monter d'un cran
+ * avec chaque champ qu'un ancien écran perdrait.
+ */
+export const VERSION_FORME = 2;
+
+/** La version de forme d'un `data` stocké ou envoyé (absente ou illisible : 1). */
+export function versionDeData(data: string): number {
+  try {
+    const v = (JSON.parse(data) as { version?: unknown } | null)?.version;
+    return typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.floor(v) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+/** Vrai si écrire `nouveau` par-dessus `stocke` ferait perdre une forme plus récente (un écran périmé). */
+export function formeRefusee(stocke: string, nouveau: string): boolean {
+  return versionDeData(nouveau) < versionDeData(stocke);
+}
+
 export type Conversation = {
+  /** La forme écrite par le code qui a enregistré (voir `VERSION_FORME`). */
+  version?: number;
   /** Absent : Instagram (les conversations d'avant le chat BLUSH n'ont pas ce champ). */
   interface?: "blush";
   /** Chat BLUSH : l'en-tête et la barre de saisie (gardés si l'on repasse à Instagram). */
@@ -156,6 +184,7 @@ export function defaultConversation(): Conversation {
     ...extra,
   });
   return {
+    version: VERSION_FORME,
     themeId: "dark",
     locale: "fr",
     contact: { name: "Lucas", username: "lucas.mrtn", avatar: null },
@@ -188,6 +217,7 @@ export function defaultBlushConversation(): Conversation {
     ...extra,
   });
   return {
+    version: VERSION_FORME,
     interface: "blush",
     blush: { ...REGLAGES_BLUSH_DEFAUT, idees: [] },
     themeId: "dark",
@@ -331,6 +361,8 @@ export function parseConversation(raw: unknown): Conversation | null {
       return { id: it.id, kind: "date", text: it.text, ...(it.cut === true ? { cut: true } : {}), ...(overlay ? { overlay } : {}) };
     });
   return {
+    // Relue par ce code, elle a sa forme : c'est elle qui repartira à l'enregistrement.
+    version: VERSION_FORME,
     ...(c.interface === "blush" ? { interface: "blush" as const } : {}),
     ...(c.blush !== undefined || c.interface === "blush" ? { blush: nettoyerReglagesBlush(c.blush) } : {}),
     themeId: c.themeId,

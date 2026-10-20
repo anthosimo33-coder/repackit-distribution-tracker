@@ -6,7 +6,17 @@ import {
   lienImagePublic,
   octetsDataUrl,
 } from "../convex/mcpConversationsArgs";
-import { conversationDeData, defaultBlushConversation, defaultConversation, imagesDeConversation, incrustationDe, parseConversation } from "../convex/instaConvModel";
+import {
+  conversationDeData,
+  defaultBlushConversation,
+  defaultConversation,
+  formeRefusee,
+  imagesDeConversation,
+  incrustationDe,
+  parseConversation,
+  VERSION_FORME,
+  versionDeData,
+} from "../convex/instaConvModel";
 import { extractTikTokMedia, extractTikTokProfile, isTikTokCdnUrl, isTikTokPostUrl, isTikTokProfileUrl } from "../convex/tiktokMedia";
 
 describe("ce que Claude écrit → la conversation", () => {
@@ -269,6 +279,53 @@ describe("chat BLUSH (interface « blush »)", () => {
     expect("items" in r && r.items[0]).toMatchObject({ overlay: "il était un 2/10" });
     const c = { ...defaultConversation(), items: "items" in r ? r.items : [] };
     expect(conversationPourMcp(c).messages[0]).toMatchObject({ incrustation: "il était un 2/10" });
+  });
+});
+
+describe("écran périmé (version de forme)", () => {
+  /** Ce qu'enregistrait l'écran d'avant le chat BLUSH : il ne gardait que les champs qu'il connaissait. */
+  const ancienEcran = (data: string): string => {
+    const c = JSON.parse(data) as Record<string, unknown> & { items: Array<Record<string, unknown>> };
+    const garder = ["id", "kind", "side", "text", "edited", "reaction", "cut", "reply", "story", "media", "longPress", "time"];
+    return JSON.stringify({
+      themeId: c.themeId,
+      locale: c.locale,
+      contact: c.contact,
+      status: c.status,
+      scroll: c.scroll,
+      items: c.items.map((it) => Object.fromEntries(Object.entries(it).filter(([k]) => garder.includes(k)))),
+    });
+  };
+
+  it("le code d'aujourd'hui écrit sa forme : exemples, relecture d'un brouillon d'avant", () => {
+    expect(VERSION_FORME).toBe(2);
+    expect(defaultConversation().version).toBe(VERSION_FORME);
+    expect(defaultBlushConversation().version).toBe(VERSION_FORME);
+    const avant = ancienEcran(JSON.stringify(defaultConversation()));
+    expect(versionDeData(avant)).toBe(1);
+    expect(conversationDeData(avant).version).toBe(VERSION_FORME);
+    expect(versionDeData("{cassé")).toBe(1);
+    expect(versionDeData(JSON.stringify({ version: "3" }))).toBe(1);
+  });
+
+  it("un écran d'avant ne peut plus écraser un chat BLUSH (vu le 20/10) ; le code d'aujourd'hui, si", () => {
+    const stocke = JSON.stringify(defaultBlushConversation());
+    // L'ancien écran relit le chat, perd interface, réglages, « BLUSH écrit »… et le renvoie.
+    const ampute = ancienEcran(stocke);
+    expect(conversationDeData(ampute).interface).toBeUndefined();
+    expect(formeRefusee(stocke, ampute)).toBe(true);
+    // L'écran à jour, lui, renvoie ce qu'il a relu ; et repasser à Instagram garde les réglages.
+    expect(formeRefusee(stocke, JSON.stringify(conversationDeData(stocke)))).toBe(false);
+    const insta = appliquerChampsMcp(conversationDeData(stocke), { interface: "instagram" });
+    if ("refus" in insta) throw new Error(insta.refus);
+    expect(formeRefusee(stocke, JSON.stringify(insta.conversation))).toBe(false);
+  });
+
+  it("aucune régression : un brouillon d'avant reste modifiable par un écran d'avant ; une forme plus récente que ce code est protégée aussi", () => {
+    const avant = ancienEcran(JSON.stringify(defaultConversation()));
+    expect(formeRefusee(avant, ancienEcran(avant))).toBe(false);
+    const futur = JSON.stringify({ ...defaultConversation(), version: VERSION_FORME + 1 });
+    expect(formeRefusee(futur, JSON.stringify(conversationDeData(futur)))).toBe(true);
   });
 });
 

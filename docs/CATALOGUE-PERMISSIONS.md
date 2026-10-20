@@ -561,7 +561,7 @@ Bibliothèque du générateur de captures (`/conversations`) : DM Instagram iOS,
 | `listInstaConversations` | Q | instaConversations | Titres et dates des brouillons du projet |  |
 | `getInstaConversation` | Q | instaConversations | Contenu d'un brouillon |  |
 | `createInstaConversation` | M | instaConversations | Crée un brouillon |  |
-| `saveInstaConversation` | M | instaConversations | Enregistre le contenu ou le titre |  |
+| `saveInstaConversation` | M | instaConversations | Enregistre le contenu ou le titre (refuse un écran chargé avant une mise à jour : `VERSION_FORME`) |  |
 | `deleteInstaConversation` | M | instaConversations | Supprime un brouillon |  |
 | `getInstaConvImages` | Q | instaConvImages | URL et dimensions des images citées par un brouillon (celles du projet seulement) |  |
 | `generateInstaConvUploadUrl` | M | instaConvImages | Adresse d'envoi d'une image vers le storage |  |

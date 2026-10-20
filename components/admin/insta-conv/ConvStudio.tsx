@@ -10,6 +10,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
 import { useConvexError } from "@/lib/use-convex-error";
+import { convexErrorCode } from "@/lib/convex-error";
+import { ERR } from "@/convex/errorCodes";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,8 @@ import {
   REGLAGES_BLUSH_DEFAUT,
   newItemId,
   PARAM_EXPORT,
+  VERSION_FORME,
+  versionDeData,
   type Conversation,
   type ConvItem,
   type ConvMedia,
@@ -169,6 +173,8 @@ export function ConvStudio() {
   const [base, setBase] = useState<{ id: string; data: string; titre: string } | null>(null);
   const [seen, setSeen] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Le serveur a refusé un enregistrement : cet écran date d'avant une mise à jour.
+  const [refusPerime, setRefusPerime] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -203,8 +209,12 @@ export function ConvStudio() {
   }
 
   const data = conv ? JSON.stringify(conv) : null;
+  // Périmé : le serveur l'a dit, ou le brouillon porte une forme plus récente que
+  // ce code. L'écran n'enregistre plus rien (il effacerait des champs qu'il ignore)
+  // et demande de recharger la page.
+  const perime = refusPerime || (base !== null && versionDeData(base.data) > VERSION_FORME);
   useEffect(() => {
-    if (!base || data === null || data === base.data) return;
+    if (perime || !base || data === null || data === base.data) return;
     const id = base.id as Id<"instaConversations">;
     const t = window.setTimeout(() => {
       setSaving(true);
@@ -213,11 +223,14 @@ export function ConvStudio() {
           setBase((b) => (b && b.id === id ? { ...b, data } : b));
           setError(null);
         })
-        .catch((e) => setError(errorText(e, tr("echecEnregistrement"))))
+        .catch((e) => {
+          if (convexErrorCode(e) === ERR.INSTA_CONV_STALE_SCREEN) setRefusPerime(true);
+          else setError(errorText(e, tr("echecEnregistrement")));
+        })
         .finally(() => setSaving(false));
     }, SAVE_DELAY_MS);
     return () => window.clearTimeout(t);
-  }, [data, base, save, errorText, tr]);
+  }, [perime, data, base, save, errorText, tr]);
 
   const ouvrir = (id: string | null) => router.replace(id ? `${pathname}?c=${id}` : pathname);
 
@@ -474,9 +487,18 @@ export function ConvStudio() {
                 </Button>
               )}
             </div>
-            <p className="text-xs text-slate-500" aria-live="polite">
-              {error ? <span className="text-red-600">{error}</span> : saving ? tr("enregistrement") : tr("enregistre")}
-            </p>
+            {perime ? (
+              <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <span className="min-w-0 flex-1">{tr("ecranPerime")}</span>
+                <Button type="button" size="sm" onClick={() => window.location.reload()}>
+                  {tr("recharger")}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500" aria-live="polite">
+                {error ? <span className="text-red-600">{error}</span> : saving ? tr("enregistrement") : tr("enregistre")}
+              </p>
+            )}
             <p className="text-xs text-slate-500">{tr("avecClaude")}</p>
           </CardContent>
         </Card>
