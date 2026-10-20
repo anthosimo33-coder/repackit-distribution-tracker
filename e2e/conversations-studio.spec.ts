@@ -5,6 +5,7 @@ import { test, expect, adminPath } from "./fixtures/auth-fixture";
 import { createE2eClient, E2E_SECRET } from "./helpers/authed-client";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { convexErrorCode } from "../lib/convex-error";
 
 const admin = createE2eClient(process.env.NEXT_PUBLIC_CONVEX_URL ?? "");
 const DAY = 86_400_000;
@@ -376,4 +377,53 @@ test.describe("Conversations — chat BLUSH", () => {
       expect({ width: b.readUInt32BE(16), height: b.readUInt32BE(20) }).toEqual({ width: 828, height: 1792 });
     }
   });
+
+  /**
+   * ÉCRAN PÉRIMÉ — vu le 20/10 juste après la mise en ligne du chat BLUSH : un
+   * onglet chargé avant elle relisait le chat sans en connaître les champs, et le
+   * réenregistrait aussitôt en DM Instagram. Le serveur refuse désormais une forme
+   * plus ancienne que celle qu'il garde ; et un écran qui se découvre périmé
+   * n'enregistre plus rien et demande de recharger la page.
+   */
+  test("un écran d'avant une mise à jour ne peut plus effacer un chat BLUSH ; l'écran périmé s'arrête et propose de recharger", async ({ page }) => {
+    const ts = Date.now();
+    await page.goto(adminPath("/conversations"));
+    await page.getByRole("button", { name: "Nouveau chat BLUSH" }).first().click();
+    await expect(page).toHaveURL(/\/conversations\?c=/);
+    const convId = new URL(page.url()).searchParams.get("c") as Id<"instaConversations">;
+    await page.getByLabel("Titre").fill(`Périmé e2e ${ts}`);
+    await page.getByLabel("Titre").press("Enter");
+    const enBase = async () => JSON.parse((await admin.query(api.instaConversations.getInstaConversation, { id: convId }))!.data);
+    await expect.poll(async () => (await enBase()).version).toBe(2);
+    const stocke = await enBase();
+    expect(stocke.interface).toBe("blush");
+
+    // Ce qu'envoyait l'écran d'avant : le chat relu sans ses champs (ni version, ni interface, ni « BLUSH écrit »).
+    const ampute = {
+      themeId: stocke.themeId,
+      locale: stocke.locale,
+      contact: stocke.contact,
+      status: stocke.status,
+      scroll: stocke.scroll,
+      items: stocke.items.map((it: Record<string, unknown>) => ({ id: it.id, kind: it.kind, side: it.side, text: it.text, ...(it.time ? { time: it.time } : {}) })),
+    };
+    const refus = await admin.mutation(api.instaConversations.saveInstaConversation, { id: convId, data: JSON.stringify(ampute) }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(convexErrorCode(refus)).toBe("ERR_INSTA_CONV_STALE_SCREEN");
+    expect((await enBase()).interface).toBe("blush");
+
+    // Une forme plus récente que le code de cet écran (une mise à jour pendant qu'il est ouvert) :
+    // il ne l'écrase pas, il le dit et propose de recharger.
+    await admin.mutation(api.instaConversations.saveInstaConversation, { id: convId, data: JSON.stringify({ ...stocke, version: 99 }) });
+    await expect(page.getByRole("alert").filter({ hasText: "Cet écran date d'avant la dernière mise à jour de Jarvia" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Recharger la page" })).toBeVisible();
+    await page.getByRole("button", { name: "+ Son message" }).click();
+    await page.getByTestId("conv-item").last().getByRole("textbox", { name: "Texte du message" }).fill("tapé sur un écran périmé");
+    await page.waitForTimeout(1_500);
+    expect((await enBase()).version).toBe(99);
+    expect(JSON.stringify(await enBase())).not.toContain("tapé sur un écran périmé");
+  });
 });
+

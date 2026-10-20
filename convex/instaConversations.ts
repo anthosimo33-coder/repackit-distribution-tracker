@@ -9,7 +9,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { permissionMutation, permissionQuery, type ProjectMutationCtx, type ProjectQueryCtx } from "./functions";
 import { ERR, err } from "./errorCodes";
-import { MAX_TITRE, parseConversation } from "./instaConvModel";
+import { formeRefusee, MAX_TITRE, parseConversation } from "./instaConvModel";
 
 /**
  * Une conversation pèse quelques Ko, la photo du contact ~30 Ko. Plafond bas : le
@@ -137,9 +137,21 @@ export const createInstaConversation = permissionMutation("conversations.use")({
   handler: async (ctx, a) => createConversationCore(ctx, a),
 });
 
+/**
+ * L'enregistrement de l'ÉCRAN. Un onglet chargé avant une mise à jour ne connaît
+ * pas les champs récents : il enverrait le brouillon amputé (voir `VERSION_FORME`).
+ * Il est refusé, avec de quoi dire « recharge la page » — même à un ancien écran,
+ * qui affiche le message du serveur quand il ne connaît pas le code. Le MCP et
+ * Défaire passent par les cœurs : ils tournent toujours avec le code du serveur.
+ */
 export const saveInstaConversation = permissionMutation("conversations.use")({
   args: { id: v.id("instaConversations"), titre: v.optional(v.string()), data: v.optional(v.string()) },
-  handler: async (ctx, { id, ...a }) => updateConversationCore(ctx, id, a),
+  handler: async (ctx, { id, ...a }) => {
+    if (a.data !== undefined && formeRefusee((await conversationDuProjet(ctx, id)).data, a.data)) {
+      throw err(ERR.INSTA_CONV_STALE_SCREEN, "Cet écran date d'avant la dernière mise à jour de Jarvia : recharge la page, sinon il effacerait une partie du brouillon.");
+    }
+    return updateConversationCore(ctx, id, a);
+  },
 });
 
 export const deleteInstaConversation = permissionMutation("conversations.use")({

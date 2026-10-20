@@ -397,6 +397,8 @@ export const ERR = {
   /** Titre déjà pris dans le projet (paramètre `titre`) : il sert à désigner la conversation. */
   INSTA_CONV_TITLE_TAKEN: "ERR_INSTA_CONV_TITLE_TAKEN",
   INSTA_CONV_NOT_FOUND: "ERR_INSTA_CONV_NOT_FOUND",
+  /** L'écran a été chargé avant une mise à jour : il enverrait une forme plus ancienne que celle stockée (voir VERSION_FORME). */
+  INSTA_CONV_STALE_SCREEN: "ERR_INSTA_CONV_STALE_SCREEN",
   /** Image d'une conversation : ni JPEG, ni PNG, ni WebP, trop lourde, ou d'un autre projet. */
   INSTA_CONV_IMAGE_REJECTED: "ERR_INSTA_CONV_IMAGE_REJECTED",
   /** Changer le barème de vidéos : jours absents, mal formés, ou fin avant le début. */

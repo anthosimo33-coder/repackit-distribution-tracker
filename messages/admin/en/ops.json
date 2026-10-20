@@ -174,7 +174,9 @@
       "legendeCitation": "Caption (e.g. Théo · 02:14)",
       "ecritAide": "Its three pearls, at the end of a slide: BLUSH is replying.",
       "heureGroupe": "Time under the group"
-    }
+    },
+    "ecranPerime": "This screen was loaded before Jarvia's latest update: it no longer saves anything, so it can't wipe part of the draft. Reload the page.",
+    "recharger": "Reload the page"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Open on TikTok",

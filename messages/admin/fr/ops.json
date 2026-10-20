@@ -174,7 +174,9 @@
       "legendeCitation": "Légende (ex. Théo · 02:14)",
       "ecritAide": "Ses trois perles, à la fin d'une slide : BLUSH est en train de répondre.",
       "heureGroupe": "Heure sous le groupe"
-    }
+    },
+    "ecranPerime": "Cet écran date d'avant la dernière mise à jour de Jarvia : il n'enregistre plus rien, pour ne pas effacer une partie du brouillon. Recharge la page.",
+    "recharger": "Recharger la page"
   },
   "EmbedDialog": {
     "ouvrirSurTiktok": "Ouvrir sur TikTok",
