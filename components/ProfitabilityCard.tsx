@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { useProjectQuery } from "@/components/project/use-project-convex";
+import { useProjectQuerySafe } from "@/components/project/use-project-convex";
 import { api } from "@/convex/_generated/api";
 import { MixedCurrencyNotice } from "@/components/MixedCurrencyNotice";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,9 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney } from "@/lib/format-rate";
 import { formatNumber } from "@/lib/format";
-import { profitabilityReport } from "@/lib/profitability";
+import { assembleRevenueAndCosts, profitabilityReport } from "@/lib/profitability";
 import { cn } from "@/lib/utils";
-import { InfoIcon, LockIcon, TrendingUpIcon } from "lucide-react";
+import { AlertTriangleIcon, InfoIcon, LockIcon, TrendingUpIcon } from "lucide-react";
 
 /**
  * "2026-07" → "juil. 2026" (fr-FR). La clé vient du serveur, déjà découpée en mois
@@ -72,16 +72,46 @@ function Metric({
  * (calcul dérivé côté client via lib/profitability). Rendue uniquement si le
  * projet a un mapping Whop. Cumul (cf query : mois calendaires, même moteur de
  * paie que les Paiements).
+ *
+ * TROIS queries, recollées ici — le revenu, et le coût en deux lots de
+ * créatrices : en une seule, le calcul dépassait la limite d'exécution d'une
+ * query sur Snytch (cf convex/profitability « POURQUOI TROIS MORCEAUX »). Et un
+ * échec reste DANS la carte : il emportait la page Paiements entière, alors que
+ * tout le reste de la page se calculait très bien.
  */
 export function ProfitabilityCard() {
-  const data = useProjectQuery(api.profitability.getProjectProfitability, {});
+  const revenueQ = useProjectQuerySafe(api.profitability.getProfitabilityRevenue, {});
+  // Deux lots : chacun relit les publications et les assignations du projet
+  // (~0,1 s fixe), un troisième ne gagnait presque plus rien (mesuré sur la
+  // prod Snytch du 2026-10-20).
+  const lot1Q = useProjectQuerySafe(api.profitability.getProfitabilityCosts, { lot: 0, lots: 2 });
+  const lot2Q = useProjectQuerySafe(api.profitability.getProfitabilityCosts, { lot: 1, lots: 2 });
   // Défaut = vues RÉMUNÉRÉES seules → le VRAI RPM business. « Non rémunéré » n'est
   // pas « warmup » : un post retiré de la paie à la main en fait partie, et un post
   // warmup explicitement payé n'en fait PAS partie (cf lib/profitability ViewsSplit).
   const [includeUnpaid, setIncludeUnpaid] = useState(false);
 
-  if (data === undefined) return <Skeleton className="h-56 w-full" />;
-  if (!data.configured) return null;
+  const erreur = revenueQ.error ?? lot1Q.error ?? lot2Q.error;
+  if (erreur !== null) {
+    return (
+      <Card>
+        <CardContent className="flex items-start gap-2 p-5 text-sm text-amber-900">
+          <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <div className="font-medium">Rentabilité indisponible pour le moment</div>
+            <div className="text-xs text-amber-800">{erreur}</div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (revenueQ.status !== "ok" || lot1Q.status !== "ok" || lot2Q.status !== "ok") {
+    return <Skeleton className="h-56 w-full" />;
+  }
+  if (revenueQ.data === null || lot1Q.data === null || lot2Q.data === null) {
+    return null;
+  }
+  const data = assembleRevenueAndCosts(revenueQ.data, [lot1Q.data, lot2Q.data]);
 
   // Deux devises : revenu Whop (data.currency, €) et paie créatrices (data.payCurrency,
   // $). Le taux effectif relie les deux pour la marge (null → marge non calculée).

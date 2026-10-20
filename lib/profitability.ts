@@ -4,6 +4,7 @@
  * ce fichier ne fait que ré-exporter. Tests : lib/profitability.test.ts.
  */
 export {
+  assembleRevenueAndCosts,
   computeMargin,
   computeRpm,
   computeProfitability,
