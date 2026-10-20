@@ -217,3 +217,25 @@ export const e2eDropMembership = e2eMutation({
     return { removed: memberships.length };
   },
 });
+
+/**
+ * Pose le rôle GLOBAL d'un compte (`users.role`). Sert au refus « superadmin »
+ * de `team.removeMember` : le seul superadmin du harnais est le compte e2e qui
+ * appelle, et le refus « soi-même » l'arrête avant. La spec remet "member" en
+ * sortie — un superadmin oublié dans la base ouvrirait tout à ce compte.
+ */
+export const e2eSetGlobalRole = e2eMutation({
+  args: {
+    email: v.string(),
+    role: v.union(v.literal("superadmin"), v.literal("member")),
+  },
+  handler: async (ctx, { email, role }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("email", (q) => q.eq("email", email))
+      .first();
+    if (user === null) throw new ConvexError(`Compte introuvable : ${email}`);
+    await ctx.db.patch(user._id, { role });
+    return { userId: user._id };
+  },
+});

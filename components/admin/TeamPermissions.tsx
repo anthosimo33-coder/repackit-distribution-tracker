@@ -49,6 +49,7 @@ import {
   Loader2Icon,
   PencilIcon,
   ShieldCheckIcon,
+  UserXIcon,
 } from "lucide-react";
 
 /**
@@ -343,6 +344,139 @@ function Retrogradation({
   );
 }
 
+/** Le geste « Retirer du projet » le concerne-t-il ? (cf `RetraitDuProjet`) */
+function peutPartir(membre: Membre): boolean {
+  return !membre.isSuperadmin && !membre.roles.some((r) => ROLES_DE_PORTAIL.includes(r));
+}
+
+/**
+ * Pourquoi ce membre ne se retire pas, quand l'écran le sait d'avance — `null`
+ * sinon. Reflet d'AFFICHAGE de `memberRemovalProblem` (convex/roles.ts) : le
+ * serveur reste juge, ceci évite seulement un bouton qui lève au clic.
+ */
+function retraitBloque(membre: Membre, dernierAdmin: boolean): string | null {
+  if (membre.roles.includes("admin") && dernierAdmin) {
+    return "C'est le dernier administrateur de ce projet : après lui, seul le superadmin pourrait encore tout y faire. Nomme d'abord un autre administrateur.";
+  }
+  const paye = [...currentCpmEntries(membre.managerCpms).values()].some((e) => e.cpm > 0);
+  if (membre.roles.includes("manager") && paye) {
+    return "Il est encore payé au CPM sur ce projet, et son relevé ne se lit que tant qu'il en est membre. Arrête d'abord ses taux (et règle ce qui reste dû), puis retire-le.";
+  }
+  return null;
+}
+
+/**
+ * RETIRER DU PROJET — sa ligne sur CE projet, et rien d'autre.
+ *
+ * ⚠️ IL FAUT RECOPIER L'E-MAIL, comme pour la promotion. Le geste ferme tout son
+ * accès d'un coup, et AUCUN écran ne sait faire revenir un membre d'équipe : il
+ * n'existe que le provisionnement en ligne de commande. Ce qui rend le geste
+ * délibéré, c'est la saisie, pas la couleur du bouton.
+ *
+ * Proposé seulement à qui peut partir : ni à un superadmin (son accès ne vient
+ * pas du projet), ni à qui porte un espace créateur (on archive sa fiche, depuis
+ * l'écran Créateurs). Les refus connus d'avance — dernier administrateur,
+ * manager encore payé au CPM — sont DITS dans la fenêtre, à la place du champ.
+ */
+function RetraitDuProjet({
+  membre,
+  bloque,
+}: {
+  membre: Membre;
+  bloque: string | null;
+}) {
+  const { project } = useProject();
+  const retirer = useProjectMutation(api.team.removeMember);
+  const [ouvert, setOuvert] = useState(false);
+  const [saisie, setSaisie] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function go() {
+    setBusy(true);
+    try {
+      await retirer({ membershipId: membre.membershipId });
+      toast.success(`${membre.email} n'est plus membre de ${project.name}`);
+      setOuvert(false);
+      setSaisie("");
+    } catch (e) {
+      toast.error(convexErrorMessage(e, "Échec du retrait du projet"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-red-600 hover:bg-red-50 hover:text-red-700"
+        // Le libellé visible, ET la personne : une page en porte un par membre.
+        aria-label={`Retirer du projet : ${membre.email}`}
+        onClick={() => setOuvert(true)}
+      >
+        <UserXIcon className="size-3.5" />
+        Retirer du projet
+      </Button>
+      <AlertDialog
+        open={ouvert}
+        onOpenChange={(o) => {
+          setOuvert(o);
+          if (!o) setSaisie("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Retirer {membre.email} de {project.name} ?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Sa ligne sur ce projet disparaît : rôle, droits cochés, périmètre.
+              Il perd l&apos;accès à {project.name} dès la prochaine page
+              chargée ; ses accès aux <strong>autres projets</strong>{" "}ne
+              changent pas. Le retrait est inscrit au journal des droits. Aucun
+              écran ne sait encore faire revenir un membre d&apos;équipe.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {bloque !== null ? (
+            <div className="flex gap-2 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
+              <div>{bloque}</div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor={`confirm-retrait-${membre.membershipId}`} className="text-xs text-slate-600">
+                Recopie son e-mail pour confirmer
+              </Label>
+              <Input
+                id={`confirm-retrait-${membre.membershipId}`}
+                value={saisie}
+                autoComplete="off"
+                placeholder={membre.email}
+                onChange={(e) => setSaisie(e.target.value)}
+              />
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{bloque !== null ? "Fermer" : "Annuler"}</AlertDialogCancel>
+            {bloque === null && (
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={busy || saisie.trim() !== membre.email}
+                onClick={() => void go()}
+              >
+                {busy && <Loader2Icon className="size-3.5 animate-spin" />}
+                Retirer du projet
+              </Button>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
 /** Un membre sans le rôle manager : ses rôles, et le geste qui le concerne. */
 function LigneAutreMembre({
   membre,
@@ -394,6 +528,12 @@ function LigneAutreMembre({
           {busy && <Loader2Icon className="size-3.5 animate-spin" />}
           Ajouter le rôle manager
         </Button>
+      )}
+      {peutPartir(membre) && (
+        <RetraitDuProjet
+          membre={membre}
+          bloque={retraitBloque(membre, dernierAdmin)}
+        />
       )}
     </div>
   );
@@ -498,6 +638,9 @@ function CarteManager({
             </div>
           </div>
           <PromotionAdmin membre={membre} />
+          {peutPartir(membre) && (
+            <RetraitDuProjet membre={membre} bloque={retraitBloque(membre, false)} />
+          )}
           {choix.length > 0 && (
             <Button
               size="sm"

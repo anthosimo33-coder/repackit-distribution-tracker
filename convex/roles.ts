@@ -370,3 +370,45 @@ export function promotionToAdminDecision(
   if (roles.has("manager")) return "promote";
   return "refuse";
 }
+
+/** Pourquoi un membre ne se retire pas du projet (cf `memberRemovalProblem`). */
+export type MemberRemovalProblem =
+  | "self"
+  | "superadmin"
+  | "portal"
+  | "last_admin"
+  | "paid_by_cpm";
+
+/**
+ * RETIRER QUELQU'UN DU PROJET — ce qui l'interdit, en un seul endroit.
+ *
+ * Rend un CODE, pas une phrase : le module est lu par les portails, et la phrase
+ * appartient à l'écran qui la montre (convex/team.ts). L'ordre des refus est
+ * celui dans lequel on veut les lire — le plus fondamental d'abord :
+ *   - "self"        : on ne se retire pas soi-même d'un clic ;
+ *   - "superadmin"  : son accès ne vient pas du projet, retirer la ligne ne lui
+ *     enlèverait rien et l'écran le croirait parti ;
+ *   - "portal"      : un espace créateur se retire en ARCHIVANT la fiche (même
+ *     doctrine que `team.removeRole`) — sinon la fiche, son historique et sa paie
+ *     resteraient sans personne pour y entrer ;
+ *   - "last_admin"  : `otherAdmins` compte les administrateurs RÉELS restants,
+ *     superadmins exclus (leur accès ne vient pas du projet) ;
+ *   - "paid_by_cpm" : un manager encore payé au CPM (`paidCreators` = taux en
+ *     vigueur > 0) — son relevé ne se lit que tant qu'il est membre. On arrête
+ *     d'abord ses taux, geste journalisé de sa carte.
+ */
+export function memberRemovalProblem(input: {
+  membership: RoleBearer;
+  isSelf: boolean;
+  isSuperadmin: boolean;
+  otherAdmins: number;
+  paidCreators: number;
+}): MemberRemovalProblem | null {
+  if (input.isSelf) return "self";
+  if (input.isSuperadmin) return "superadmin";
+  if (portalRoleOf(input.membership) !== null) return "portal";
+  const roles = rolesOf(input.membership);
+  if (roles.has("admin") && input.otherAdmins <= 0) return "last_admin";
+  if (roles.has("manager") && input.paidCreators > 0) return "paid_by_cpm";
+  return null;
+}

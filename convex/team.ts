@@ -29,18 +29,26 @@ import {
 } from "./permissions";
 import { PERMISSION_COVERAGE } from "./permissionCoverage";
 import { formatDateFr } from "./dateFr";
-import { ROLE_ADMIN_TRACE, traceDiff } from "./memberPermissions";
+import {
+  MEMBERSHIP_TRACE,
+  ROLE_ADMIN_TRACE,
+  roleTrace,
+  traceDiff,
+} from "./memberPermissions";
 import {
   KIND_LABELS,
   MEMBERSHIP_ROLES,
   hasRole,
   isPortalRole,
   kindForRole,
+  memberRemovalProblem,
+  portalRoleOf,
   resolveCreatorKind,
   roleSetProblem,
   rolesOf,
   teamRoleOf,
   withTeamRole,
+  type MemberRemovalProblem,
 } from "./roles";
 import {
   SCOPE_ALL_TRACE,
@@ -51,6 +59,7 @@ import {
   MANAGER_CPM_MAX,
   cpmTrace,
   applyCpmEdits,
+  currentCpmEntries,
   currentCpms,
   type CpmEdit,
   managerCpmProblem,
@@ -179,6 +188,8 @@ async function membershipOf(
     role?: string;
     roles?: string[];
     permissions?: string[];
+    creatorScope?: Id<"creators">[];
+    managerCpms?: { creatorId: Id<"creators">; cpm: number; from?: number }[];
   } | null;
   if (!m || m.projectId !== projectId) {
     throw new ConvexError("Membre introuvable dans ce projet.");
@@ -306,7 +317,7 @@ export const addRole = superadminMutation({
  *
  * Refuse de vider l'ensemble : un membership sans aucun rôle n'ouvre rien et ne
  * se distingue pas d'un membre qu'on aurait oublié de configurer. Retirer
- * quelqu'un du projet est un autre geste, qui n'existe pas encore ici.
+ * quelqu'un du projet est un autre geste : `removeMember`.
  *
  * Refuse aussi de retirer un rôle de PORTAIL : la fiche `creators` continuerait
  * d'exister, avec son historique et sa paie, pendant que la personne serait
@@ -437,6 +448,112 @@ export const setTeamRole = superadminMutation({
       ctx.userId,
     );
     return { roles: apres, permissions: droitsApres, traced: traced.length };
+  },
+});
+
+const REMOVAL_PROBLEM_FR: Record<Exclude<MemberRemovalProblem, "portal">, string> = {
+  self:
+    "Tu ne peux pas te retirer toi-même d'un projet depuis cet écran : c'est le " +
+    "geste qui t'en fermerait la porte.",
+  superadmin:
+    "Ce compte est superadmin : son accès ne vient pas de ce projet. Retirer sa " +
+    "ligne ne lui enlèverait rien, et l'écran le croirait parti.",
+  last_admin:
+    "C'est le dernier administrateur de ce projet : après lui, seul le superadmin " +
+    "pourrait encore tout y faire. Nomme d'abord un autre administrateur.",
+  paid_by_cpm:
+    "Il est encore payé au CPM sur ce projet, et son relevé ne se lit que tant " +
+    "qu'il en est membre. Arrête d'abord ses taux dans sa carte (et règle ce qui " +
+    "reste dû), puis retire-le.",
+};
+
+/**
+ * RETIRE UN MEMBRE D'ÉQUIPE DU PROJET — sa ligne `memberships`, et rien d'autre.
+ *
+ * ── CE QUI DISPARAÎT, CE QUI RESTE ───────────────────────────────────────────
+ * La ligne de CE projet seulement : rôles, droits, périmètre et taux au CPM y
+ * vivent tous, et partent avec elle. Ses accès aux AUTRES projets sont d'autres
+ * lignes, que rien ici ne lit. Aucune table ne pointe vers un membership ; ce
+ * qui nomme la PERSONNE (versements `managerPayouts`, journaux) reste tel quel.
+ * Il n'y a pas non plus de « projet courant » stocké : l'atterrissage
+ * (`creators.getMyPortal`) prend son membership d'équipe le plus récent PARMI
+ * CEUX QUI RESTENT, et une page déjà ouverte sur ce projet affiche « accès
+ * refusé » avec le lien vers l'accueil — jamais un écran mort.
+ *
+ * ── LE JOURNAL ───────────────────────────────────────────────────────────────
+ * Tout ce que la ligne portait s'écrit en RETRAIT, signé du compte connecté :
+ * chaque rôle, chaque droit stocké, le périmètre, les taux en vigueur, et une
+ * ligne « membre du projet » qui dit le geste même quand il n'y avait rien
+ * d'autre. De quoi relire qui a retiré qui, et ce qu'il avait.
+ *
+ * Les refus sont ceux de `memberRemovalProblem` (convex/roles.ts).
+ */
+export const removeMember = superadminMutation({
+  args: {
+    projectId: v.id("projects"),
+    membershipId: v.id("memberships"),
+  },
+  handler: async (ctx, { projectId, membershipId }) => {
+    const m = await membershipOf(ctx, membershipId, projectId);
+    const roles = rolesOf(m);
+    const user = await ctx.db.get(m.userId);
+
+    // Les administrateurs RÉELS qui resteraient — lus seulement quand il en est
+    // un, sinon la question ne se pose pas.
+    let otherAdmins = 0;
+    if (roles.has("admin")) {
+      const lignes = await ctx.db
+        .query("memberships")
+        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .collect();
+      for (const l of lignes) {
+        if (l._id === membershipId || !hasRole(l, "admin")) continue;
+        if ((await ctx.db.get(l.userId))?.role !== "superadmin") otherAdmins += 1;
+      }
+    }
+    const paidCreators = [...currentCpmEntries(m.managerCpms ?? []).values()].filter(
+      (e) => e.cpm > 0,
+    ).length;
+
+    const probleme = memberRemovalProblem({
+      membership: m,
+      isSelf: m.userId === ctx.userId,
+      isSuperadmin: user?.role === "superadmin",
+      otherAdmins,
+      paidCreators,
+    });
+    if (probleme === "portal") {
+      const espace = KIND_LABELS[kindForRole(portalRoleOf(m))!].singular;
+      throw new ConvexError(
+        `Il a aussi un espace « ${espace} » sur ce projet : la fiche resterait, avec son ` +
+          "historique et sa paie, sans personne pour y entrer. Archive sa fiche depuis " +
+          "l'écran Créateurs (et retire-lui ici le rôle manager s'il le porte).",
+      );
+    }
+    if (probleme !== null) throw new ConvexError(REMOVAL_PROBLEM_FR[probleme]);
+
+    await ctx.db.delete(membershipId);
+    const traced = await traceDiff(
+      ctx,
+      projectId,
+      m.userId,
+      [
+        MEMBERSHIP_TRACE,
+        ...[...roles].map(roleTrace),
+        ...(m.permissions ?? []),
+        // Le périmètre ne veut dire quelque chose que pour un manager (ou s'il a
+        // été posé quand il l'était) : « toutes les créatrices » sur un admin
+        // serait une ligne sans objet.
+        ...(roles.has("manager") || m.creatorScope !== undefined
+          ? scopeTrace(m.creatorScope)
+          : []),
+        ...cpmTrace(m.managerCpms),
+      ],
+      [],
+      "écran",
+      ctx.userId,
+    );
+    return { email: user?.email ?? null, traced: traced.length };
   },
 });
 

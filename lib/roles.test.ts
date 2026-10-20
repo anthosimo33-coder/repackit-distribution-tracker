@@ -16,6 +16,7 @@ import {
   isPortalRole,
   isTeamRole,
   kindForRole,
+  memberRemovalProblem,
   promotionToAdminDecision,
   resolveCreatorKind,
   roleForKind,
@@ -450,5 +451,73 @@ describe("roleSetProblem — ce que le serveur refuse", () => {
   it("REFUSE un ensemble vide, ou qui ne contient rien de connu", () => {
     expect(roleSetProblem([])).toBeTruthy();
     expect(roleSetProblem(["superadmin", "*"])).toBeTruthy();
+  });
+});
+
+describe("memberRemovalProblem — qui ne se retire pas du projet", () => {
+  // La forme de la prod : un admin d'équipe porte `roles` ET des droits restés
+  // stockés de son passage manager ; l'ancien scalaire `role` existe encore sur
+  // des lignes d'avant la bascule.
+  const base = {
+    isSelf: false,
+    isSuperadmin: false,
+    otherAdmins: 1,
+    paidCreators: 0,
+  };
+  const admin = { roles: ["admin"] };
+  const manager = { roles: ["manager"] };
+
+  it("laisse partir un admin quand un autre administrateur reste", () => {
+    expect(memberRemovalProblem({ ...base, membership: admin })).toBeNull();
+  });
+
+  it("laisse partir un manager qui n'est payé sur aucune créatrice", () => {
+    expect(
+      memberRemovalProblem({ ...base, membership: manager, otherAdmins: 0 }),
+    ).toBeNull();
+  });
+
+  it("REFUSE de se retirer soi-même, avant toute autre raison", () => {
+    // Un superadmin qui se vise est d'abord quelqu'un qui se vise.
+    expect(
+      memberRemovalProblem({ ...base, membership: admin, isSelf: true, isSuperadmin: true }),
+    ).toBe("self");
+  });
+
+  it("REFUSE un superadmin : son accès ne vient pas du projet", () => {
+    expect(
+      memberRemovalProblem({ ...base, membership: admin, isSuperadmin: true }),
+    ).toBe("superadmin");
+  });
+
+  it("REFUSE tout membre qui porte un espace créateur, même manager", () => {
+    for (const p of PORTAL_ROLES) {
+      expect(memberRemovalProblem({ ...base, membership: { roles: [p] } }), p).toBe("portal");
+      expect(
+        memberRemovalProblem({ ...base, membership: { roles: ["manager", p] } }),
+        `manager+${p}`,
+      ).toBe("portal");
+    }
+    // Ligne d'avant la bascule : le scalaire seul doit suffire à refuser.
+    expect(memberRemovalProblem({ ...base, membership: { role: "creator" } })).toBe("portal");
+  });
+
+  it("REFUSE le dernier administrateur — et lui seulement", () => {
+    expect(memberRemovalProblem({ ...base, membership: admin, otherAdmins: 0 })).toBe(
+      "last_admin",
+    );
+    expect(
+      memberRemovalProblem({ ...base, membership: { role: "admin" }, otherAdmins: 0 }),
+    ).toBe("last_admin");
+    // En regard : un MANAGER n'est jamais « le dernier admin ».
+    expect(memberRemovalProblem({ ...base, membership: manager, otherAdmins: 0 })).toBeNull();
+  });
+
+  it("REFUSE un manager encore payé au CPM, pas un admin aux taux dormants", () => {
+    expect(memberRemovalProblem({ ...base, membership: manager, paidCreators: 2 })).toBe(
+      "paid_by_cpm",
+    );
+    // Un admin n'est pas payé par ce mécanisme : ses taux d'avant ne le retiennent pas.
+    expect(memberRemovalProblem({ ...base, membership: admin, paidCreators: 2 })).toBeNull();
   });
 });
