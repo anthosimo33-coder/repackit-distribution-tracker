@@ -1070,6 +1070,9 @@ async function abRevenueCore(
   const personArms = new Map(
     armsPayload.rows.map((r) => [r.distinctId, r.variant] as const),
   );
+  // Une table tronquée laisse des abonnements sans bras SANS erreur : on le
+  // porte jusqu'à l'écran (cf AB_LOOKUP_LIMIT).
+  let lookupTruncated = armsPayload.truncated === true;
   // Garde anti-flipper EXPLICITE (test positif). Sans elle, la seule
   // matérialisation de la garde était l'ABSENCE de la ligne ci-dessus : elle
   // ne mordait donc que sur le repli, et `abVariant ?? repli` la
@@ -1090,6 +1093,7 @@ async function abRevenueCore(
     try {
       const payload = JSON.parse(flippersRow.json) as AbFlippersPayload;
       flipperDistinctIds = new Set(payload.distinctIds);
+      if (payload.truncated === true) lookupTruncated = true;
       if (Array.isArray(payload.resolved)) {
         flipperArms = new Map(payload.resolved.map((r) => [r.distinctId, r.variant] as const));
       }
@@ -1134,6 +1138,7 @@ async function abRevenueCore(
     internalCfg,
     fx,
     nowMs: Date.now(),
+    lookupTruncated,
   });
 }
 

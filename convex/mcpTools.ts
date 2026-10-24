@@ -2017,6 +2017,7 @@ export function jarviaServer(
                     montantEnLitige: b.atRiskAmount,
                   })),
                   sansBras: ab.unattached,
+                  ...(ab.lookupTruncated ? { tableDeRattachementTronquee: true } : {}),
                   divergencesWhopPosthog: ab.divergences.length,
                   exclusCarChangementDeBras: {
                     abonnements: ab.excludedFlippers,
@@ -3404,6 +3405,11 @@ export function jarviaServer(
         if (incoherences.length > 0) {
           avertissements.push(`Achats par bras incohérents avec le tableau des bras : ${incoherences.join(" · ")}.`);
         }
+        if (abRev.lookupTruncated) {
+          avertissements.push(
+            "Revenu par bras : une table de rattachement PostHog (distinct_id → bras) a atteint sa borne et a été TRONQUÉE. Des abonnements peuvent être « non rattachés » ou échapper au contrôle de divergence par simple troncature : « abonnementsNonRattaches » est alors une borne haute, pas une mesure.",
+          );
+        }
         if (abRev.mixedCurrency) {
           avertissements.push(
             `Revenu par bras : encaissé dans plusieurs devises NON convertibles (${abRev.currencies.join(", ")} — une devise sans taux du projet) : « netParAssigne », « enLitige » et « netEcarte » valent null par abstention, les compteurs restent justes.`,
@@ -3528,6 +3534,7 @@ export function jarviaServer(
                     dontEtiquetteWhopDeLAutreBras: abRev.reattributedAgainstMetadata ?? 0,
                     rattachementsDivergents: abRev.divergences.length,
                     abonnementsNonRattaches: abRev.unattached,
+                    tableDeRattachementTronquee: abRev.lookupTruncated ?? false,
                     devise: deviseAB,
                   },
                   rupture: `Le ${AB_BREAK_LABEL} : avant, le bras était tiré deux fois (navigateur puis serveur) et divergeait ; les données d'avant ne se comparent pas à celles d'après.`,

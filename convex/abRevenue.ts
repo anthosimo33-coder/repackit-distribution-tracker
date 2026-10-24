@@ -122,6 +122,13 @@ export interface AbRevenue {
    * par assigné, cf convex/abProjection.
    */
   netCurves: PlanNetCurve[];
+  /**
+   * Vrai si une table de rattachement PostHog (`abPersonArms`, `abFlippers`) a
+   * atteint sa borne : des abonnements peuvent alors rester « non rattachés »
+   * ou échapper au contrôle de divergence par simple troncature. L'écran DOIT
+   * le dire — 10 000 lignes tronquées en silence jusqu'au 24/10/2026.
+   */
+  lookupTruncated: boolean;
   /** Devise de tous les montants ; null si aucune encaissée ou non convertibles. */
   currency: string | null;
   /** Devises ENCAISSÉES, avant conversion — ce que l'écran nomme. */
@@ -144,6 +151,7 @@ export const EMPTY_AB_REVENUE: AbRevenue = {
   reattributedFlippersNet: 0,
   reattributedAgainstMetadata: 0,
   netCurves: [],
+  lookupTruncated: false,
   currency: null,
   currencies: [],
   mixedCurrency: false,
@@ -173,6 +181,8 @@ export function abRevenueOf(input: {
   fx: WhopFx | null;
   /** Instant de lecture : seuls les abonnements ayant vécu leur jour k entrent au point k. */
   nowMs: number;
+  /** Une table de rattachement lue du cache a atteint sa borne (cf AbRevenue.lookupTruncated). */
+  lookupTruncated?: boolean;
 }): AbRevenue {
   const { lookup, startMs, acquisition, internalCfg } = input;
   // Référentiel de change : celui du résumé de Revenus, sur le même lot — tous
@@ -291,6 +301,7 @@ export function abRevenueOf(input: {
       internalCfg,
       ref,
     }),
+    lookupTruncated: input.lookupTruncated === true,
     currency: mixed ? null : ref.currency,
     currencies: ref.currencies,
     mixedCurrency: mixed,

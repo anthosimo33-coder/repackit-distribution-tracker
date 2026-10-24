@@ -287,3 +287,27 @@ describe("abRevenueOf — personnes ayant changé de bras (règle du 24/10/2026)
     ]);
   });
 });
+
+describe("abRevenueOf — table de rattachement tronquée", () => {
+  const avec = (lookupTruncated?: boolean) =>
+    abRevenueOf({
+      payments: PAIEMENTS,
+      memberships: ABONNEMENTS,
+      lookup: LOOKUP,
+      startMs: DEBUT_TEST,
+      acquisition: null,
+      internalCfg: { handles: [], whopMembershipIds: [] },
+      fx: SNYTCH_FX,
+      nowMs: J + DAY,
+      lookupTruncated,
+    });
+
+  it("porte la troncature jusqu'à la réponse : « non rattachés » devient une borne haute", () => {
+    expect(avec(true).lookupTruncated).toBe(true);
+  });
+
+  it("PRÉSENCE du cas sain : sans signal (ou cache d'avant le correctif), rien n'est annoncé", () => {
+    expect(avec(false).lookupTruncated).toBe(false);
+    expect(avec(undefined).lookupTruncated).toBe(false);
+  });
+});
