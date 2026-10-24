@@ -86,8 +86,8 @@ const OFFER_SEGMENT_LIMIT = 60;
  * requêtes, le monter reviendrait à en changer six pour une. La borne reste
  * basse devant le plafond du document Convex (~1 Mo) : 60 lignes de funnel
  * pèsent quelques kilo-octets, là où une série (jour × pays) sur 90 jours en
- * ferait 4 500 et taperait dans le plafond — le plus gros cache actuel,
- * `abPersonArms`, pèse déjà 780 Ko.
+ * ferait 4 500 et taperait dans le plafond — `abPersonArms` y a buté : 788 Ko
+ * pour 10 000 lignes TRONQUÉES le 24/10/2026 (cf `AB_LOOKUP_LIMIT`).
  */
 const COUNTRY_LIMIT = 60;
 /**
@@ -240,6 +240,16 @@ export const AB_FAMILY_MIN_PERSONS = 10;
  * un troisième bras, et une ligne tronquée emporterait ses personnes.
  */
 const AB_CLASS_LIMIT = 200;
+
+/**
+ * Borne des deux tables de RATTACHEMENT du revenu (`abPersonArms`,
+ * `abFlippers`). Une ligne de plus que la borne ne se voit pas : la requête
+ * s'arrête à la borne, le reste disparaît sans erreur. Le 24/10/2026,
+ * `abPersonArms` rendait exactement 10 000 lignes pour ~26 000 distinct_id
+ * stables — 31 abonnements du test sans metadata y cherchaient leur personne
+ * en vain. Atteindre la borne est donc SIGNALÉ (`truncated`), jamais subi.
+ */
+export const AB_LOOKUP_LIMIT = 10000;
 
 /** Checkout ouvert DEPUIS le début du test, sur un plan émis. */
 const AB_CHECKOUT_PLAN = `event = 'checkout_started' AND timestamp >= ab_start AND isNotNull(properties.plan)`;
@@ -452,6 +462,8 @@ export interface AbFlippersPayload {
    * (cache antérieur au 24/10/2026) = règle d'avant, tous écartés.
    */
   resolved?: { distinctId: string; variant: string }[];
+  /** Vrai si la requête a atteint `AB_LOOKUP_LIMIT` (des personnes manquent). */
+  truncated?: boolean;
 }
 
 /**
@@ -635,10 +647,20 @@ export function normalizeAbArms(payload: AbArmsPayload): AbArmsPayload {
  * sert aux abonnements qui n'en portent pas, et sert surtout à DÉTECTER une
  * divergence entre les deux sources (un rattachement silencieusement faux est
  * pire qu'un rattachement absent).
- * Volume borné : une ligne par personne assignée, quelques dizaines.
+ *
+ * Volume : seuls les distinct_id qui ont ouvert un checkout ou porté un
+ * abonnement depuis le début du test — les seuls qu'un membership Whop peut
+ * porter (487 abonnements sur 487 couverts au 24/10/2026, ~1 500 lignes au lieu
+ * de ~26 000 distinct_id stables).
  */
 export interface AbPersonArmsPayload {
   rows: { distinctId: string; variant: string }[];
+  /**
+   * Vrai si la requête a atteint `AB_LOOKUP_LIMIT` : des lignes manquent, des
+   * abonnements peuvent rester sans bras ou échapper au contrôle de
+   * divergence. Absent d'un cache antérieur au correctif.
+   */
+  truncated?: boolean;
 }
 
 export interface CohortsPayload {
@@ -1616,32 +1638,36 @@ LIMIT ${AB_CLASS_LIMIT}`,
 
   /**
    * `distinct_id → bras` pour le REPLI de rattachement (cf AbPersonArmsPayload).
-   * Même fenêtre et mêmes exclusions que `abArms` : internes et sessions à bras
-   * forcé écartés, ancrage sur la 1re émission de la propriété — PLUS les
-   * personnes à bras instable (même critère que `stable` dans abArms, appliqué au
-   * niveau PERSONNE : une même personne peut avoir plusieurs distinct_id, chacun
-   * stable de son côté). Sans ça, le revenu d'une personne écartée du tableau
-   * serait quand même rattaché à un bras — l'argent dirait ce que les colonnes
-   * refusent de dire.
+   * Mêmes exclusions que `abArms` (internes, sessions à bras forcé) PLUS les
+   * personnes à bras instable : leur revenu suit la règle flipper (`abFlippers`),
+   * jamais cette table.
+   *
+   * ⚠️ DEUX CORRECTIONS du 24/10/2026, mesurées sur la prod :
+   *  1. Elle listait TOUS les distinct_id des personnes stables (~26 000) et
+   *     s'arrêtait à 10 000 sans le dire : 31 abonnements sans metadata ne
+   *     trouvaient plus leur personne. Elle ne garde plus que les distinct_id
+   *     qui ont ouvert un checkout ou porté un abonnement depuis le début du
+   *     test — ceux que l'app pose sur le membership Whop (487 sur 487).
+   *  2. Le bras se lisait PAR distinct_id : un distinct_id sans event armé (la
+   *     copie serveur de `subscription_completed`) n'avait pas de bras. Il est
+   *     désormais celui de la PERSONNE, posé sur tous ses distinct_id retenus.
    */
   abPersonArms: `
 WITH ${AB_EXPERIMENT_CTE}
-SELECT distinct_id, bras AS variant FROM (
-  SELECT distinct_id,
-    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras
+SELECT did AS distinct_id, bras AS variant FROM (
+  SELECT person_id,
+    argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+    ${AB_N_ARMS} AS n_bras,
+    groupUniqArrayIf(toString(distinct_id),
+      event IN ('checkout_started', 'subscription_completed') AND timestamp >= ab_start) AS dids
   FROM events
-  WHERE timestamp >= ab_start${notCounted}
-    AND NOT (person_id IN (
-      SELECT person_id FROM events
-      WHERE ${AB_ARMED}
-        AND ${WINDOW}
-      GROUP BY person_id
-      HAVING uniq(toString(properties.experiment_variant)) > 1
-    ))
-  GROUP BY distinct_id
+  WHERE ${DEFAULT_WINDOW}${notCounted}
+  GROUP BY person_id
+  HAVING n_bras = 1 AND length(dids) > 0
 )
+ARRAY JOIN dids AS did
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
-LIMIT 10000`,
+LIMIT ${AB_LOOKUP_LIMIT}`,
 
   /**
    * `distinct_id` des personnes à bras INSTABLE — la garde anti-flipper rendue
@@ -1674,7 +1700,7 @@ SELECT dids, ck_arms, pv_arms FROM (
   GROUP BY person_id
   HAVING n_bras > 1
 )
-LIMIT 10000`,
+LIMIT ${AB_LOOKUP_LIMIT}`,
 
   /** Sources → inscrits / abonnés (une personne compte une fois par source). */
   sources: `
@@ -2404,13 +2430,26 @@ export function shapeAbPurchases(rows: unknown[][]): AbPurchasesPayload {
 
 /** Une ligne par personne flipper → liste de garde + bras rattachés (cf abFlippers). */
 export function shapeAbFlippers(rows: unknown[][]): AbFlippersPayload {
-  return flipperLookupOf(
-    rows.map((r) => ({
-      distinctIds: cellStrArr(r, 0),
-      checkoutArms: cellStrArr(r, 1),
-      paywallArms: cellStrArr(r, 2),
-    })),
-  );
+  return {
+    ...flipperLookupOf(
+      rows.map((r) => ({
+        distinctIds: cellStrArr(r, 0),
+        checkoutArms: cellStrArr(r, 1),
+        paywallArms: cellStrArr(r, 2),
+      })),
+    ),
+    truncated: rows.length >= AB_LOOKUP_LIMIT,
+  };
+}
+
+/** `distinct_id → bras` (repli du revenu) ; la borne atteinte est SIGNALÉE. */
+export function shapeAbPersonArms(rows: unknown[][]): AbPersonArmsPayload {
+  return {
+    rows: rows
+      .map((r) => ({ distinctId: cellStr(r, 0), variant: cellStr(r, 1) }))
+      .filter((r) => r.distinctId !== "" && r.variant !== ""),
+    truncated: rows.length >= AB_LOOKUP_LIMIT,
+  };
 }
 
 export function shapeFreePlan(rows: unknown[][]): FreePlanPayload {
@@ -2789,12 +2828,7 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.abPersonArms,
-          (rows): AbPersonArmsPayload => ({
-            rows: rows.map((r) => ({
-              distinctId: cellStr(r, 0),
-              variant: cellStr(r, 1),
-            })),
-          }),
+          shapeAbPersonArms,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.abFlippers,

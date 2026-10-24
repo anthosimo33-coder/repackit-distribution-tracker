@@ -989,6 +989,12 @@ export function OffresTab({
                   signalé plutôt que tranché en silence.
                 </HubNotice>
               ) : null}
+              {abRev?.lookupTruncated ? (
+                <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
+                  <strong>Table de rattachement tronquée.</strong>
+                  {" La correspondance PostHog distinct_id → bras a atteint sa borne : des abonnements peuvent rester sans bras, ou échapper au contrôle de divergence, par simple troncature. Le nombre d'abonnements non rattachés ci-dessous est alors un maximum, pas une mesure."}
+                </HubNotice>
+              ) : null}
               {abRev && abRev.unattached > 0 ? (
                 <p className="text-xs text-slate-500">
                   {formatNumber(abRev.unattached)} abonnement(s) de la fenêtre du test
