@@ -1081,16 +1081,24 @@ async function abRevenueCore(
     )
     .first();
   let flipperDistinctIds = new Set<string>();
+  // Bras que la RÈGLE FLIPPER donne aux personnes à bras instable qu'elle sait
+  // rattacher (cf abAttribution.attributeFlipper) — la même décision que les
+  // colonnes PostHog, au niveau personne. Absent d'un cache d'avant le
+  // 24/10/2026 : `undefined`, donc tous les flippers restent écartés.
+  let flipperArms: Map<string, string> | undefined;
   if (flippersRow && flippersRow.json !== "") {
     try {
-      flipperDistinctIds = new Set(
-        (JSON.parse(flippersRow.json) as AbFlippersPayload).distinctIds,
-      );
+      const payload = JSON.parse(flippersRow.json) as AbFlippersPayload;
+      flipperDistinctIds = new Set(payload.distinctIds);
+      if (Array.isArray(payload.resolved)) {
+        flipperArms = new Map(payload.resolved.map((r) => [r.distinctId, r.variant] as const));
+      }
     } catch {
       flipperDistinctIds = new Set();
+      flipperArms = undefined;
     }
   }
-  const armLookup: ArmLookup = { personArms, flipperDistinctIds };
+  const armLookup: ArmLookup = { personArms, flipperDistinctIds, flipperArms };
   // Début du test = celui du CACHE POSTHOG (1re émission d'experiment_variant),
   // la même borne que le tableau par bras. Le déduire du 1er membership portant
   // un abVariant datait le test de sa 1re VENTE : tout abonnement conclu entre
@@ -1125,6 +1133,7 @@ async function abRevenueCore(
     acquisition,
     internalCfg,
     fx,
+    nowMs: Date.now(),
   });
 }
 

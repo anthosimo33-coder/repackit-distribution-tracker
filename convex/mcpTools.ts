@@ -193,6 +193,7 @@ import {
 import { hogWindowClause } from "./hogWindow";
 import { armComparability, attributedOffers, excludedViewers } from "./abOffers";
 import { armPurchases, purchaseCoherenceIssues } from "./abPurchases";
+import { armProjections, PROJECTION_HEADLINE_DAYS, PROJECTION_MIN_SUBSCRIPTIONS } from "./abProjection";
 import { EXPECTED_PAYWALL_IDS } from "./analyticsContract";
 import {
   buildSegmentRows,
@@ -1166,7 +1167,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "offres",
     title: "Offres & tests (Analytics)",
     description:
-      "L'onglet Offres & tests de l'Analytics, au-delà du revenu (voir « revenus » pour l'économie par offre, les litiges et le journal), par les mêmes calculs : les types de paywall (bloquant / appoint : exposés, checkouts, payés, complétion, cibles par client) ; le test A/B par bras (assignés, ont vu le paywall, checkouts, nouveaux clients, complétion, cibles par client, net par assigné), son verdict (seuil par bras, recrues manquantes), ses contrôles et les personnes écartées ; les offres servies par bras (plan présélectionné, période, conversion, revenu du 1er cycle pour 1 000 vues) et ce que les clients ont réellement acheté ; la conversion par emplacement de paywall ; le plan gratuit ; le coût des scans. Recalculé sur la période comme à l'écran (défaut : 30 derniers jours complets, jusqu'à hier).",
+      "L'onglet Offres & tests de l'Analytics, au-delà du revenu (voir « revenus » pour l'économie par offre, les litiges et le journal), par les mêmes calculs : les types de paywall (bloquant / appoint : exposés, checkouts, payés, complétion, cibles par client) ; le test A/B par bras (assignés, ont vu le paywall, checkouts, nouveaux clients, complétion, cibles par client, net par assigné encaissé à date, revenu PROJETÉ par assigné à J28 et J42 avec le nombre d'abonnements derrière chaque point), son verdict (seuil par bras, recrues manquantes), ses contrôles, les personnes qui ont changé de bras (rattachées à l'offre ouverte au checkout ou au paywall vu, ou écartées) et la courbe de net cumulé par abonnement de chaque offre ; les offres servies par bras (plan présélectionné, période, conversion, revenu du 1er cycle pour 1 000 vues) et ce que les clients ont réellement acheté ; la conversion par emplacement de paywall ; le plan gratuit ; le coût des scans. Recalculé sur la période comme à l'écran (défaut : 30 derniers jours complets, jusqu'à hier).",
     inputSchema: {
       type: "object",
       properties: {
@@ -3356,6 +3357,18 @@ export function jarviaServer(
         // Devise du revenu par bras : chaque paiement y est ramené au taux du projet
         // (même référentiel que `revenus`) — jamais une somme de dinars et d'euros.
         const deviseAB = abRev.currency;
+        // Revenu PROJETÉ par assigné : conversion du bras × courbe de net cumulé
+        // par abonnement de son offre (même calcul que l'onglet). Les plans d'une
+        // famille se lisent dans les achats du test ENTIER (cache), pas de la période.
+        const familles = a.abArms.planFamilies ?? [];
+        const projections = armProjections({
+          arms: abArmRows(a.abArms.rows),
+          purchases: produit.abPurchases.rows,
+          planFamilies: familles,
+          curves: abRev.netCurves ?? [],
+        });
+        const projectionParBras = new Map(projections.map((p) => [p.variant, p] as const));
+        const rattachement = a.abArms.flipperAttribution;
 
         const offres = attributedOffers(a.abOffers.rows, revenu.plans);
         const comparabilite = armComparability(a.abOffers.rows, revenu.plans);
@@ -3453,8 +3466,55 @@ export function jarviaServer(
                             },
                           }
                         : {}),
+                      ...(r.reattributedFlippers ? { dontPersonnesRattacheesParLaRegle: r.reattributedFlippers } : {}),
+                      revenuProjeteParAssigne: Object.fromEntries(
+                        PROJECTION_HEADLINE_DAYS.map((d) => {
+                          const pt = projectionParBras.get(r.variant)?.points.find((x) => x.day === d);
+                          return [
+                            `J${d}`,
+                            {
+                              valeur: pt?.perAssigned ?? null,
+                              netParAbonnement: pt?.netPerSubscription ?? null,
+                              abonnements: pt?.n ?? 0,
+                              devise: deviseAB,
+                            },
+                          ];
+                        }),
+                      ),
                     };
                   }),
+                  courbesDeLOffre: projections.map((p) => ({
+                    bras: bras(p.variant),
+                    familles: p.families,
+                    plansWhop: p.planIds,
+                    conversionPct: p.conversion === null ? null : Math.round(p.conversion * 10000) / 100,
+                    points: p.points.map((pt) => ({
+                      jour: pt.day,
+                      netParAbonnement: pt.netPerSubscription,
+                      abonnements: pt.n,
+                      revenuProjeteParAssigne: pt.perAssigned,
+                    })),
+                    devise: deviseAB,
+                  })),
+                  ...(rattachement
+                    ? {
+                        changementsDeBras: {
+                          rattacheesParLeCheckout: rattachement.viaCheckout,
+                          rattacheesParLePaywall: rattachement.viaPaywall,
+                          dontNouveauxClientsRattaches: rattachement.buyersReattributed,
+                          ecarteesDeuxOffresOuvertes: rattachement.excludedBothFamilies,
+                          ecarteesDeuxPaywallsSansCheckout: rattachement.excludedBothPaywalls,
+                          ecarteesSansPreuve: rattachement.excludedNoEvidence,
+                          dontNouveauxClientsEcartes: rattachement.buyersExcluded,
+                          familleDePlanVersBras: familles.map((f) => ({
+                            famille: f.family,
+                            bras: bras(f.variant),
+                            personnesStables: f.persons,
+                            surTotal: f.total,
+                          })),
+                        },
+                      }
+                    : {}),
                   ecartees: {
                     personnes: resume.excluded,
                     surUnSeulAppareil: resume.excludedSameDevice,
@@ -3463,6 +3523,9 @@ export function jarviaServer(
                   revenu: {
                     abonnementsEcartes: abRev.excludedFlippers,
                     netEcarte: abRev.excludedFlippersNet,
+                    abonnementsRattachesParLaRegle: abRev.reattributedFlippers ?? 0,
+                    netRattacheParLaRegle: abRev.reattributedFlippersNet ?? 0,
+                    dontEtiquetteWhopDeLAutreBras: abRev.reattributedAgainstMetadata ?? 0,
                     rattachementsDivergents: abRev.divergences.length,
                     abonnementsNonRattaches: abRev.unattached,
                     devise: deviseAB,
@@ -3540,6 +3603,8 @@ export function jarviaServer(
           lecture: [
             "Mesures PostHog (types de paywall, test A/B, offres servies, achats, paywalls, plan gratuit, scans) recalculées sur la période comme à l'écran ; sur une période, le revenu par bras est celui des abonnements ACQUIS dans la période (encaissé à ce jour).",
             "Complétion = nouveaux clients ÷ checkouts ouverts. Cibles / client = cibles ajoutées APRÈS paiement ÷ nouveaux clients. Net par assigné = net sécurisé du bras ÷ assignés (intention de traiter), les deux sur la même population (la période, ou tout le test).",
+            `Net par assigné = encaissé À DATE : il favorise une offre ponctuelle (payée d'un coup) pendant les premières semaines. « revenuProjeteParAssigne » compare les bras à la même échéance : conversion du bras × net cumulé moyen par abonnement de son offre à J28 / J42 (jour 0 = 1er encaissement), sur TOUS les abonnements Whop de l'offre ayant vécu ce jour ; null sous ${PROJECTION_MIN_SUBSCRIPTIONS} abonnements (« abonnements » = n derrière chaque point). L'offre d'un bras = les familles de plan qu'il vend (table apprise des personnes au bras stable).`,
+            "Une personne qui a changé de bras (deux experiment_variant) est rattachée à la famille du plan qu'elle a ouvert au checkout, à défaut au bras unique de ses paywalls vus ; elle n'est écartée que si elle a ouvert les deux offres, vu les deux paywalls sans checkout, ou rien vu. Même règle, au niveau personne, pour le revenu.",
             `Un test n'est concluant qu'à ${AB_THRESHOLD} assignés par bras. Un bras vend un MENU : « offresServies » = plan présélectionné, « achatsReels » = ce que les clients ont acheté (prix Whop).`,
             "Offres de rythmes différents (semaine / mois) ne se comparent pas sur le revenu du premier cycle ; « brasComparables » faux = le test mélange prix et rythme.",
           ],

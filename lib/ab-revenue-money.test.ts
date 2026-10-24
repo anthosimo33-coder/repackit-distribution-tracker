@@ -43,6 +43,7 @@ function paiement(
     feeAmount: 0,
     netAmount: net,
     refundedAmount: 0,
+    paidAt: J,
     ...extra,
   };
 }
@@ -108,6 +109,7 @@ const revenu = (
     acquisition: opts.acquisition ?? null,
     internalCfg: { handles: [], whopMembershipIds: [] },
     fx: opts.fx === undefined ? SNYTCH_FX : opts.fx,
+    nowMs: J + DAY,
   });
 
 const bras = (r: ReturnType<typeof revenu>, v: string) => r.rows.find((x) => x.variant === v);
@@ -161,6 +163,7 @@ describe("abRevenueOf — devises", () => {
         net: 17.88,
         memberships: 1,
         viaFallback: 0,
+        viaFlipperRule: 0,
         atRiskMemberships: 0,
         atRiskAmount: 0,
       },
@@ -202,5 +205,85 @@ describe("abRevenueOf — devises", () => {
     expect(r.conversions).toEqual([]);
     expect(bras(r, "soft")).toMatchObject({ net: 9.99, memberships: 3 });
     expect(bras(r, "hard")).toMatchObject({ net: 0, atRiskMemberships: 0, atRiskAmount: 0 });
+  });
+});
+
+describe("abRevenueOf — personnes ayant changé de bras (règle du 24/10/2026)", () => {
+  // Personne ph_flip : étiquetée soft sur son abonnement Whop, mais la règle
+  // (offre ouverte au checkout) la rattache à hard. Personne ph_indecis : deux
+  // offres ouvertes, reste écartée.
+  const paiements = [
+    ...PAIEMENTS,
+    paiement("mem_indecis", "eur", 9.99),
+  ];
+  const abonnements = [
+    ...ABONNEMENTS,
+    abonnement("mem_indecis", J, { abVariant: "hard", distinctId: "ph_indecis" }),
+  ];
+  const avecRegle = (flipperArms: Map<string, string> | undefined) =>
+    abRevenueOf({
+      payments: paiements,
+      memberships: abonnements,
+      lookup: {
+        personArms: new Map([["ph_soft", "soft"]]),
+        flipperDistinctIds: new Set(["ph_flip", "ph_indecis"]),
+        flipperArms,
+      },
+      startMs: DEBUT_TEST,
+      acquisition: null,
+      internalCfg: { handles: [], whopMembershipIds: [] },
+      fx: SNYTCH_FX,
+      nowMs: J + DAY,
+    });
+
+  it("rattache l'argent du flipper au bras de la RÈGLE, pas à celui de sa metadata", () => {
+    const r = avecRegle(new Map([["ph_flip", "hard"]]));
+    // 1 049 RSD × 0,00852 = 8,94 € passent dans hard ; soft garde ses 45,07 €.
+    expect(bras(r, "soft")).toMatchObject({ net: 45.07, memberships: 3, viaFlipperRule: 0 });
+    expect(bras(r, "hard")).toMatchObject({ net: 26.14, memberships: 4, viaFlipperRule: 1 });
+    expect(r.reattributedFlippers).toBe(1);
+    expect(r.reattributedFlippersNet).toBe(8.94);
+    expect(r.reattributedAgainstMetadata).toBe(1);
+    // L'indécidable reste écarté, et compté.
+    expect(r.excludedFlippers).toBe(1);
+    expect(r.excludedFlippersNet).toBe(9.99);
+  });
+
+  it("cache d'avant la règle (sans flipperArms) : les deux flippers restent écartés", () => {
+    const r = avecRegle(undefined);
+    expect(r.reattributedFlippers).toBe(0);
+    expect(r.excludedFlippers).toBe(2);
+    expect(bras(r, "hard")).toMatchObject({ net: 17.2, memberships: 3 });
+  });
+
+  it("rend la courbe de net cumulé de chaque plan, sur TOUS les abonnements (hors fenêtre du test)", () => {
+    const pay = [
+      { ...paiement("mem_ancien", "eur", 9.27), paidAt: DEBUT_TEST - DAY },
+      { ...paiement("mem_ancien", "eur", 9.27), paidAt: DEBUT_TEST + 6 * DAY + 60_000 },
+    ];
+    const r = abRevenueOf({
+      payments: pay,
+      memberships: [abonnement("mem_ancien", DEBUT_TEST - DAY, { planId: "plan_8Eo6l4YYhkeI5" })],
+      lookup: LOOKUP,
+      startMs: DEBUT_TEST,
+      acquisition: { from: J - DAY, to: J },
+      internalCfg: { handles: [], whopMembershipIds: [] },
+      fx: SNYTCH_FX,
+      nowMs: J,
+    });
+    // L'abonnement précède le test ET la période : hors des lignes de bras…
+    expect(r.rows).toEqual([]);
+    // …mais dans la courbe de son offre.
+    expect(r.netCurves).toEqual([
+      {
+        planId: "plan_8Eo6l4YYhkeI5",
+        points: [
+          { day: 7, n: 1, net: 18.54 },
+          { day: 14, n: 1, net: 18.54 },
+          { day: 28, n: 1, net: 18.54 },
+          { day: 42, n: 0, net: 0 },
+        ],
+      },
+    ]);
   });
 });
