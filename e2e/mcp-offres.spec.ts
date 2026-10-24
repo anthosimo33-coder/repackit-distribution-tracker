@@ -129,6 +129,41 @@ test.describe("Outil MCP offres", () => {
           createdAt: ts - a.jours * DAY,
         });
       }
+      // Dix hebdos ANCIENS (45 jours, avant le test, sans bras) : ils ne
+      // comptent dans aucune ligne de bras, mais ils ont vécu leur jour 42 —
+      // c'est la courbe de l'OFFRE hebdo, celle du revenu projeté.
+      const anciens = Array.from({ length: 10 }, (_, i) => `mem_e2e_off_${ts}_anc${i}`);
+      for (const id of anciens) {
+        await admin.mutation(api.whopSync.e2eSeedWhopMembership, {
+          secret: E2E_SECRET,
+          projectId,
+          whopMembershipId: id,
+          planId: `plan_w_${ts}`,
+          createdAt: ts - 45 * DAY,
+        });
+      }
+      await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
+        secret: E2E_SECRET,
+        projectId,
+        // 1er paiement puis renouvellement À J7 (quelques minutes après) : 8,62 € nets à J28.
+        payments: anciens.flatMap((id, i) =>
+          [ts - 45 * DAY + i * MIN, ts - 38 * DAY + i * MIN + 5 * MIN].map((paidAt, k) => ({
+            whopId: `pay_e2e_off_${ts}_anc${i}_${k}`,
+            status: "paid" as const,
+            rawStatus: "paid",
+            currency: "eur",
+            grossAmount: 4.99,
+            feeAmount: 0.68,
+            netAmount: 4.31,
+            refundedAmount: 0,
+            paidAt,
+            planId: `plan_w_${ts}`,
+            membershipId: id,
+            billingCountry: "FR",
+            billingReason: k === 0 ? "subscription_create" : "subscription_cycle",
+          })),
+        ),
+      });
       await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
         secret: E2E_SECRET,
         projectId,
@@ -161,6 +196,20 @@ test.describe("Outil MCP offres", () => {
           cache("abArms", {
             rows: [bras("soft", 612, 301, 88, 23, 4, 31, 57, 7, 2), bras("hard", 598, 287, 97, 31, 2, 88, 140, 6, 0)],
             startMs: debutTest,
+            // Règle flipper : 13 rattachées, 15 écartées (= les colonnes « écartées »).
+            flipperAttribution: {
+              viaCheckout: 9,
+              viaPaywall: 4,
+              buyersReattributed: 3,
+              excludedBothFamilies: 1,
+              excludedBothPaywalls: 2,
+              excludedNoEvidence: 12,
+              buyersExcluded: 0,
+            },
+            planFamilies: [
+              { family: "trio", variant: "hard", persons: 97, total: 98 },
+              { family: "target", variant: "soft", persons: 88, total: 88 },
+            ],
           }),
           cache("abVariants", {
             rows: [
@@ -177,9 +226,9 @@ test.describe("Outil MCP offres", () => {
           }),
           cache("abPurchases", {
             rows: [
-              { variant: "soft", plan: "snytch_monthly", whopPlanId: `plan_m_${ts}`, clients: 12, armClients: 23, armMultiPlan: 0 },
-              { variant: "soft", plan: "snytch_weekly", whopPlanId: `plan_w_${ts}`, clients: 11, armClients: 23, armMultiPlan: 0 },
-              { variant: "hard", plan: "snytch_weekly", whopPlanId: `plan_w_${ts}`, clients: 31, armClients: 31, armMultiPlan: 0 },
+              { variant: "soft", plan: "snytch_target_monthly", whopPlanId: `plan_m_${ts}`, clients: 12, armClients: 23, armMultiPlan: 0 },
+              { variant: "soft", plan: "snytch_trio_weekly", whopPlanId: `plan_w_${ts}`, clients: 11, armClients: 23, armMultiPlan: 0 },
+              { variant: "hard", plan: "snytch_trio_weekly", whopPlanId: `plan_w_${ts}`, clients: 31, armClients: 31, armMultiPlan: 0 },
             ],
           }),
           cache("paywallById", {
@@ -290,6 +339,31 @@ test.describe("Outil MCP offres", () => {
       expect(ab.bras[0].netParAssigne).toEqual({ valeur: netPerAssigned(35.25, 612), devise: "eur" });
       expect(ab.bras[0].netParAssigne.valeur).toBe(0.06);
       expect(ab.bras[1].netParAssigne).toEqual({ valeur: 0.02, devise: "eur" });
+      // Revenu PROJETÉ : conversion du bras × net cumulé par abonnement de SON
+      // offre (famille trio → hard). Les dix anciens hebdos ont vécu leurs jours
+      // 28 et 42 : 8,62 € nets chacun. Le mensuel de soft (famille target) n'a
+      // qu'un abonnement de 29 jours ou plus : rien n'est projeté, le n sort.
+      const projete = Math.round((31 / 598) * 8.62 * 10000) / 10000;
+      expect(ab.bras[1].revenuProjeteParAssigne).toEqual({
+        J28: { valeur: projete, netParAbonnement: 8.62, abonnements: 10, devise: "eur" },
+        J42: { valeur: projete, netParAbonnement: 8.62, abonnements: 10, devise: "eur" },
+      });
+      expect(ab.bras[0].revenuProjeteParAssigne).toEqual({
+        J28: { valeur: null, netParAbonnement: null, abonnements: 1, devise: "eur" },
+        J42: { valeur: null, netParAbonnement: null, abonnements: 0, devise: "eur" },
+      });
+      expect(ab.courbesDeLOffre.map((c: { bras: string; familles: string[]; plansWhop: string[] }) => [c.bras, c.familles, c.plansWhop])).toEqual([
+        ["A — 1 cible", ["target"], [`plan_m_${ts}`]],
+        ["B — 3 cibles", ["trio"], [`plan_w_${ts}`]],
+      ]);
+      expect(ab.changementsDeBras).toMatchObject({
+        rattacheesParLeCheckout: 9,
+        rattacheesParLePaywall: 4,
+        dontNouveauxClientsRattaches: 3,
+        ecarteesDeuxOffresOuvertes: 1,
+        ecarteesDeuxPaywallsSansCheckout: 2,
+        ecarteesSansPreuve: 12,
+      });
 
       // Les bras ne servent plus la même chose : mensuel contre hebdo.
       expect(tout.offresServies.brasComparables).toBe(false);

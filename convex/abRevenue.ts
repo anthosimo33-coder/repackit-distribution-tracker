@@ -19,6 +19,7 @@
  * (abonnements, litiges, exclusions) restent justes.
  */
 import { armDivergence, resolveArm, type ArmLookup } from "./abAttribution";
+import { planNetCurves, type PlanNetCurve } from "./abProjection";
 import {
   isInternalWhopMembership,
   type InternalAccountsConfig,
@@ -35,12 +36,15 @@ import {
 
 export interface AbRevenuePaymentLike extends WhopPaymentLike {
   membershipId?: string;
+  /** Date d'encaissement (ms) — la courbe de net cumulé (abProjection) en a besoin. */
+  paidAt: number;
 }
 
 /** Ce qu'un abonnement Whop apporte au rattachement (cf `whopMemberships`). */
 export interface AbRevenueMembershipLike {
   whopMembershipId: string;
   createdAt: number;
+  planId?: string;
   abVariant?: string;
   abForced?: boolean;
   distinctId?: string;
@@ -57,6 +61,12 @@ export interface AbRevenueArmRow {
   memberships: number;
   /** Dont rattachés par REPLI (distinctId), faute de metadata. */
   viaFallback: number;
+  /**
+   * Dont rattachés par la RÈGLE FLIPPER (personne à bras instable rattachée à
+   * l'offre qu'elle a ouverte, cf abAttribution.attributeFlipper). Optionnel :
+   * absent d'une réponse antérieure au 24/10/2026.
+   */
+  viaFlipperRule?: number;
   /**
    * Abonnements dont TOUT l'argent est en litige : ils expliquent un net à
    * 0,00 € qui, sans ça, se lirait comme une absence de conversion.
@@ -94,6 +104,24 @@ export interface AbRevenue {
   excludedFlippers: number;
   /** Net correspondant, retiré des colonnes de bras ; `null` si non additionnable. */
   excludedFlippersNet: number | null;
+  /**
+   * Abonnements de personnes à bras instable RATTACHÉS par la règle flipper —
+   * déjà dans les lignes de bras (`viaFlipperRule`). Compteur visible : avant le
+   * 24/10/2026 ils étaient tous écartés.
+   */
+  reattributedFlippers: number;
+  reattributedFlippersNet: number | null;
+  /**
+   * Dont la metadata Whop nommait l'AUTRE bras : la règle (l'offre réellement
+   * ouverte) l'emporte sur l'étiquette du moment du paiement.
+   */
+  reattributedAgainstMetadata: number;
+  /**
+   * Courbe de net cumulé par PLAN Whop, tous abonnements du projet (pas
+   * seulement ceux du test ni de la période) : la matière du revenu PROJETÉ
+   * par assigné, cf convex/abProjection.
+   */
+  netCurves: PlanNetCurve[];
   /** Devise de tous les montants ; null si aucune encaissée ou non convertibles. */
   currency: string | null;
   /** Devises ENCAISSÉES, avant conversion — ce que l'écran nomme. */
@@ -112,6 +140,10 @@ export const EMPTY_AB_REVENUE: AbRevenue = {
   unattached: 0,
   excludedFlippers: 0,
   excludedFlippersNet: 0,
+  reattributedFlippers: 0,
+  reattributedFlippersNet: 0,
+  reattributedAgainstMetadata: 0,
+  netCurves: [],
   currency: null,
   currencies: [],
   mixedCurrency: false,
@@ -139,6 +171,8 @@ export function abRevenueOf(input: {
   internalCfg: InternalAccountsConfig;
   /** Taux du projet (`projectFx`). */
   fx: WhopFx | null;
+  /** Instant de lecture : seuls les abonnements ayant vécu leur jour k entrent au point k. */
+  nowMs: number;
 }): AbRevenue {
   const { lookup, startMs, acquisition, internalCfg } = input;
   // Référentiel de change : celui du résumé de Revenus, sur le même lot — tous
@@ -176,6 +210,9 @@ export function abRevenueOf(input: {
   let unattached = 0;
   let excludedFlippers = 0;
   let excludedFlippersNet: number | null = 0;
+  let reattributedFlippers = 0;
+  let reattributedFlippersNet: number | null = 0;
+  let reattributedAgainstMetadata = 0;
   for (const m of input.memberships) {
     if (isInternalWhopMembership(m.whopMembershipId, internalCfg)) continue;
     if (startMs === null || m.createdAt < startMs) continue; // hors fenêtre du test
@@ -216,12 +253,19 @@ export function abRevenueOf(input: {
       net: 0,
       memberships: 0,
       viaFallback: 0,
+      viaFlipperRule: 0,
       atRiskMemberships: 0,
       atRiskAmount: 0,
     };
     a.net = add(a.net, money.net);
     a.memberships += 1;
-    if (!m.abVariant) a.viaFallback += 1;
+    if (resolved.via === "flipperRule") {
+      a.viaFlipperRule = (a.viaFlipperRule ?? 0) + 1;
+      reattributedFlippers += 1;
+      reattributedFlippersNet = add(reattributedFlippersNet, money.net);
+      const meta = m.abVariant?.trim();
+      if (meta && meta !== variant) reattributedAgainstMetadata += 1;
+    } else if (!m.abVariant) a.viaFallback += 1;
     if (money.hasAtRisk) {
       a.atRiskMemberships += 1;
       a.atRiskAmount = add(a.atRiskAmount, money.atRisk);
@@ -235,6 +279,18 @@ export function abRevenueOf(input: {
     unattached,
     excludedFlippers,
     excludedFlippersNet,
+    reattributedFlippers,
+    reattributedFlippersNet,
+    reattributedAgainstMetadata,
+    // Tous les abonnements du projet, hors fenêtre du test et hors période :
+    // la courbe est celle de l'OFFRE, pas de la cohorte regardée.
+    netCurves: planNetCurves({
+      payments: input.payments,
+      memberships: input.memberships,
+      nowMs: input.nowMs,
+      internalCfg,
+      ref,
+    }),
     currency: mixed ? null : ref.currency,
     currencies: ref.currencies,
     mixedCurrency: mixed,

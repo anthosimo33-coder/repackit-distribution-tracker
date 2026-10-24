@@ -39,6 +39,12 @@ import {
 } from "@/lib/ab-offers";
 import { armPurchases, purchaseCoherenceIssues } from "@/lib/ab-purchases";
 import {
+  armProjections,
+  PROJECTION_HEADLINE_DAYS,
+  PROJECTION_MIN_SUBSCRIPTIONS,
+  type ArmProjection,
+} from "@/lib/ab-projection";
+import {
   EXPECTED_ARM_PRICING,
   EXPECTED_PAYWALL_IDS,
 } from "@/convex/analyticsContract";
@@ -48,6 +54,7 @@ import {
   disputeDeadlineLabel,
   dash,
   pct,
+  pctFromFraction,
   HubNoticeStack,
   paywallScopeItem,
   posthogOutageItem,
@@ -57,6 +64,9 @@ import { EXPLAIN } from "./explanations";
 import { AlertTriangleIcon, ReceiptTextIcon } from "lucide-react";
 import type { WindowedAnalyticsState } from "./useWindowedAnalytics";
 import type { AttributionData, ProductAnalyticsData, RevenueData } from "./types";
+
+type FlipperReport = NonNullable<ProductAnalyticsData["abArms"]["flipperAttribution"]>;
+type PlanFamilies = NonNullable<ProductAnalyticsData["abArms"]["planFamilies"]>;
 
 /**
  * Onglet OFFRES & TESTS (B3) — les TYPES de paywall émis aujourd'hui (gate/upsell,
@@ -97,6 +107,157 @@ function offerWindowLabel(firstMs: number | null, lastMs: number | null): string
 function usd(n: number | null, decimals = 2): string {
   // currency-hardcode-exempt: cost_usd est en dollars par nature (coût HikerAPI), aucune devise à sourcer
   return n === null ? "—" : `${n.toFixed(decimals)} $`;
+}
+
+/**
+ * Une cellule « Projeté Jk / assigné ». Le n sort TOUJOURS à côté de la valeur :
+ * une moyenne de douze abonnements ne se lit pas comme une de trois cents. Sous
+ * le seuil, un tiret qui dit au survol pourquoi rien n'est projeté.
+ */
+function ProjectionCell({
+  projection,
+  day,
+  currency,
+}: {
+  projection: ArmProjection | undefined;
+  day: number;
+  currency: string | undefined;
+}) {
+  const pt = projection?.points.find((p) => p.day === day);
+  if (!projection || !pt) return <span className="text-slate-300">—</span>;
+  if (pt.perAssigned === null) {
+    const why =
+      projection.families.length === 0
+        ? "Offre du bras inconnue : aucune famille de plan ne lui appartient dans la table apprise des personnes au bras stable."
+        : pt.n >= PROJECTION_MIN_SUBSCRIPTIONS
+          ? "Net non additionnable : une devise encaissée n'a pas de taux du projet."
+          : `Non projeté : ${pt.n} abonnement(s) de l'offre ont vécu leur jour ${day}, il en faut ${PROJECTION_MIN_SUBSCRIPTIONS}.`;
+    return (
+      <span className="cursor-help text-slate-300" title={why}>
+        {"— "}
+        <span className="text-[10px]">{`n=${formatNumber(pt.n)}`}</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className="cursor-help"
+      title={`Conversion du bras ${pctFromFraction(projection.conversion)} × ${formatMoney(pt.netPerSubscription ?? 0, currency)} nets par abonnement de l'offre (${projection.families.join(", ")}) à J${day}, sur ${formatNumber(pt.n)} abonnement(s) ayant vécu leur jour ${day}.`}
+    >
+      {formatMoney(pt.perAssigned, currency)}
+      <span className="ml-1 text-[10px] text-slate-400">{`n=${formatNumber(pt.n)}`}</span>
+    </span>
+  );
+}
+
+/**
+ * Ce que la projection lit : la courbe de chaque offre, avec ses n, et le
+ * rapport des deux bras aux échéances où les deux sont projetés.
+ */
+function ProjectionNote({
+  projections,
+  currency,
+  labelOf,
+}: {
+  projections: readonly ArmProjection[];
+  currency: string | undefined;
+  labelOf: (variant: string) => string;
+}) {
+  if (projections.length === 0) return null;
+  const ratios: { d: number; ratio: number }[] = [];
+  if (projections.length === 2) {
+    for (const d of PROJECTION_HEADLINE_DAYS) {
+      const [a, b] = projections.map(
+        (p) => p.points.find((x) => x.day === d)?.perAssigned ?? null,
+      );
+      if (a !== null && b !== null && a > 0) ratios.push({ d, ratio: b / a });
+    }
+  }
+  return (
+    <div className="space-y-1 text-xs text-slate-500">
+      <p>
+        <strong>Projeté Jk / assigné</strong>
+        {" = conversion du bras (nouveaux clients ÷ assignés) × net cumulé moyen "}
+        <strong>par abonnement</strong>
+        {` de son offre à J28 et J42, jour 0 = premier encaissement. « Net / assigné » compte l'encaissé À DATE : une offre ponctuelle encaisse tout le jour de l'achat, un hebdo semaine après semaine, si bien que l'encaissé favorise le one-shot pendant les premières semaines. La courbe vient de TOUS les abonnements Whop de l'offre (tous bras, toutes expériences) qui ont vécu leur jour k ; rien n'est projeté sous ${PROJECTION_MIN_SUBSCRIPTIONS} abonnements.`}
+      </p>
+      {projections.map((p) => (
+        <p key={p.variant}>
+          <strong>{labelOf(p.variant)}</strong>
+          {p.families.length > 0 ? ` (offre ${p.families.join(", ")}) : ` : " (offre inconnue) : "}
+          {p.points
+            .map(
+              (pt) =>
+                `J${pt.day} ${pt.netPerSubscription === null ? "—" : formatMoney(pt.netPerSubscription, currency)} (n = ${formatNumber(pt.n)})`,
+            )
+            .join(" · ")}
+        </p>
+      ))}
+      {ratios.length > 0 ? (
+        <p>
+          {`Rapport ${labelOf(projections[1].variant)} ÷ ${labelOf(projections[0].variant)} : ${ratios
+            .map((r) => `${formatNumber(Math.round(r.ratio * 100) / 100)} à J${r.d}`)
+            .join(" · ")}.`}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Bilan de la règle flipper : qui a été rattaché, par quelle preuve, et qui
+ * reste écarté — chaque personne dans une case, rien de retranché en silence.
+ */
+function FlipperNote({
+  report,
+  excluded,
+  excludedSameDevice,
+  excludedMultiDevice,
+  planFamilies,
+}: {
+  report: FlipperReport;
+  excluded: number;
+  excludedSameDevice: number;
+  excludedMultiDevice: number;
+  planFamilies: PlanFamilies;
+}) {
+  const reattributed = report.viaCheckout + report.viaPaywall;
+  if (reattributed === 0 && excluded === 0) return null;
+  // Phrases composées en chaînes : un espace après une balise ou une
+  // expression JSX peut être mangé au rendu (vu ici même, « 44nouveau(x) »).
+  const n = formatNumber;
+  return (
+    <p className="text-xs text-slate-500">
+      <strong>{`${n(reattributed + excluded)} personne(s) ont changé de bras`}</strong>
+      {" "}
+      {"en cours de route (deux valeurs d'"}
+      <code>experiment_variant</code>
+      {"). "}
+      {reattributed > 0 ? (
+        <>
+          <strong>{`${n(reattributed)} sont rattachées`}</strong>
+          {` à l'offre qu'elles ont réellement ouverte : ${n(report.viaCheckout)} par la famille du plan ouvert au checkout, ${n(report.viaPaywall)} par le seul bras de leurs paywalls vus — dont ${n(report.buyersReattributed)} nouveau(x) client(s), comptés dans les colonnes et dans le revenu. L'étiquette du bras seule ne suffit pas : des personnes étiquetées d'un bras ont ouvert, et payé, l'offre de l'autre. `}
+        </>
+      ) : null}
+      {excluded > 0 ? (
+        <>
+          <strong>{`${n(excluded)} restent écartées`}</strong>
+          {` de toutes les colonnes : ${n(report.excludedBothFamilies)} ont ouvert les deux offres, ${n(report.excludedBothPaywalls)} ont vu les deux paywalls sans checkout, ${n(report.excludedNoEvidence)} n'ont vu ni paywall ni checkout${report.buyersExcluded > 0 ? ` (dont ${n(report.buyersExcluded)} client(s))` : ""}. `}
+          {excludedSameDevice > 0
+            ? `Dont ${n(excludedSameDevice)} sur un SEUL appareil : l'app re-tire le bras d'une personne déjà assignée, seul sous-total actionnable côté produit ; les ${n(excludedMultiDevice)} autres sont des fusions d'identités attendues. `
+            : null}
+        </>
+      ) : null}
+      {planFamilies.length > 0
+        ? `Famille de plan → bras, apprise des personnes au bras stable : ${planFamilies
+            .map(
+              (f) =>
+                `${f.family} → ${AB_ARM_LABELS[f.variant] ?? f.variant} (${n(f.persons)} / ${n(f.total)})`,
+            )
+            .join(", ")}.`
+        : null}
+    </p>
+  );
 }
 
 export function OffresTab({
@@ -271,6 +432,31 @@ export function OffresTab({
       ),
     [purchases, analyticsW.abArms.rows],
   );
+
+  // ─── Revenu PROJETÉ par assigné (J28 / J42) ───────────────────────────────
+  // « Net / assigné » compte l'encaissé À DATE : une offre ponctuelle encaisse
+  // tout le jour de l'achat, un hebdo semaine après semaine — pendant ~4
+  // semaines, l'encaissé favorise le one-shot. La projection compare les bras à
+  // la MÊME échéance : conversion du bras × net cumulé par abonnement de son
+  // offre (courbe Whop, abonnements assez âgés). L'offre d'un bras se lit dans
+  // la table famille → bras apprise des personnes stables ; les plans d'une
+  // famille, dans les achats du test ENTIER (cache), pas de la période.
+  const planFamilies = useMemo(
+    () => analyticsW.abArms.planFamilies ?? [],
+    [analyticsW.abArms.planFamilies],
+  );
+  const projections = useMemo(
+    () =>
+      armProjections({
+        arms,
+        purchases: analytics.abPurchases.rows,
+        planFamilies,
+        curves: abRev?.netCurves ?? [],
+      }),
+    [arms, analytics.abPurchases.rows, planFamilies, abRev?.netCurves],
+  );
+  const projectionByArm = new Map(projections.map((p) => [p.variant, p] as const));
+  const flipperReport = analyticsW.abArms.flipperAttribution;
 
   // La carte ne se pilote plus par la présence d'`experiment_id` mais par les
   // BRAS réellement assignés : une propriété émise par un seul compte de test ne
@@ -562,6 +748,11 @@ export function OffresTab({
                     <TableHead className="text-right">Complétion</TableHead>
                     <TableHead className="text-right">Cibles / client</TableHead>
                     <TableHead className="text-right">Net / assigné</TableHead>
+                    {PROJECTION_HEADLINE_DAYS.map((d) => (
+                      <TableHead key={d} className="text-right">
+                        Projeté J{d} / assigné
+                      </TableHead>
+                    ))}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -641,6 +832,19 @@ export function OffresTab({
                           );
                         })()}
                       </TableCell>
+                      {/* Revenu PROJETÉ : conversion × courbe de l'offre à Jk. Le
+                          tiret dit pourquoi au survol (offre inconnue, ou trop
+                          peu d'abonnements assez âgés) — jamais un chiffre tiré
+                          de trois abonnements. */}
+                      {PROJECTION_HEADLINE_DAYS.map((d) => (
+                        <TableCell key={d} className="text-right text-xs tabular-nums">
+                          <ProjectionCell
+                            projection={projectionByArm.get(a.variant)}
+                            day={d}
+                            currency={abCurrency}
+                          />
+                        </TableCell>
+                      ))}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -676,31 +880,44 @@ export function OffresTab({
                 <strong>Les données d&apos;avant ne sont pas comparables à celles
                 d&apos;après.</strong>
               </HubNotice>
-              {abExcluded > 0 ? (
+              {/* Personnes à DEUX experiment_variant (« flippers »). Avant le
+                  24/10/2026 toutes étaient écartées — or ce sont surtout des
+                  acheteurs (18 % des nouveaux clients du test pass), et le
+                  retrait pesait plus d'un côté que de l'autre. Elles sont
+                  désormais rattachées à l'offre qu'elles ont réellement
+                  ouverte ; seules les indécidables restent écartées. */}
+              {flipperReport ? (
+                <FlipperNote
+                  report={flipperReport}
+                  excluded={abExcluded}
+                  excludedSameDevice={abExcludedSameDevice}
+                  excludedMultiDevice={abExcludedMultiDevice}
+                  planFamilies={planFamilies}
+                />
+              ) : abExcluded > 0 ? (
                 <p className="text-xs text-slate-500">
                   <strong>
                     {formatNumber(abExcluded)} personne(s) écartée(s) du tableau
                   </strong>{" "}
-                  : deux valeurs d&apos;<code>experiment_variant</code> sur la même
-                  personne, donc on ignore quel bras elle a réellement subi. Retirées
-                  de TOUTES les colonnes, revenu compris.{" "}
-                  <strong>Ce retrait n&apos;est pas neutre</strong> : ces personnes ont
-                  vu un paywall et certaines ont converti — on retire de vraies
-                  conversions pour ne pas les attribuer au mauvais bras. Détection par
-                  la double valeur, jamais par une liste figée (elle grossit) ni par
-                  une fenêtre de date (elle jetterait aussi les cohortes saines).{" "}
-                  {abExcludedSameDevice > 0 ? (
-                    <>
-                      <strong>
-                        Dont {formatNumber(abExcludedSameDevice)} sur un SEUL appareil
-                      </strong>{" "}
-                      : celles-là ne s&apos;expliquent pas par une fusion
-                      d&apos;identités (deux navigateurs, deux tirages) — c&apos;est
-                      l&apos;app qui re-tire le bras d&apos;une personne déjà assignée.
-                      C&apos;est le seul sous-total actionnable côté produit ; les{" "}
-                      {formatNumber(abExcludedMultiDevice)} autres sont attendues.
-                    </>
-                  ) : null}
+                  {" : deux valeurs d'"}
+                  <code>experiment_variant</code>
+                  {" sur la même personne. Retirées de TOUTES les colonnes, revenu compris, en attendant le prochain calcul du cache, qui les rattachera à l'offre qu'elles ont ouverte."}
+                </p>
+              ) : null}
+              {abRev && (abRev.reattributedFlippers ?? 0) > 0 ? (
+                <p className="text-xs text-slate-500">
+                  <strong>
+                    {`${formatNumber(abRev.reattributedFlippers)} abonnement(s) de personnes ayant changé de bras rattaché(s) au revenu`}
+                  </strong>
+                  {` (${
+                    abRev.reattributedFlippersNet === null
+                      ? "montant non additionnable"
+                      : formatMoney(abRev.reattributedFlippersNet, abCurrency)
+                  }) par la même règle que les colonnes, au niveau de la personne : son argent suit le bras où elle est comptée${
+                    (abRev.reattributedAgainstMetadata ?? 0) > 0
+                      ? `, y compris ${formatNumber(abRev.reattributedAgainstMetadata)} dont l'abonnement Whop portait l'étiquette de l'autre bras`
+                      : ""
+                  }.`}
                 </p>
               ) : null}
               {abRev && abRev.excludedFlippers > 0 ? (
@@ -713,10 +930,8 @@ export function OffresTab({
                   {abRev.excludedFlippersNet === null
                     ? "montant non additionnable"
                     : formatMoney(abRev.excludedFlippersNet, abCurrency)}
-                  ) : leur
-                  personne a changé de bras. Le tableau les retirait déjà de ses
-                  colonnes, mais leur argent y entrait encore par la metadata Whop —
-                  numérateur et dénominateur ne portaient pas sur la même population.
+                  )
+                  {" : leur personne a changé de bras sans qu'on sache quelle offre elle a subie, et le tableau la retire de ses colonnes — numérateur et dénominateur portent sur la même population."}
                 </p>
               ) : null}
               <p className="text-xs text-slate-500">
@@ -744,13 +959,20 @@ export function OffresTab({
                 le tirage au sort qui rend les deux bras comparables, diviser par les
                 seuls visiteurs du paywall rendrait la comparaison biaisée. Rattachement
                 par <code>metadata.abVariant</code> du membership Whop, repli par{" "}
-                <code>distinctId</code> vers la personne PostHog. Un bras sans aucun
+                <code>distinctId</code>
+                {" vers la personne PostHog ; une personne qui a changé de bras suit la règle ci-dessus, pas l'étiquette posée sur son abonnement. "}
+                Un bras sans aucun
                 abonnement rattaché reste au tiret : <strong>0,00 € et « aucun
                 abonnement » ne veulent pas dire la même chose.</strong>{" "}
                 Sur une <strong>période</strong> : les abonnements ACQUIS dans la
                 période (leur argent encaissé à ce jour), divisés par les assignés
                 de la période — la même population des deux côtés.
               </p>
+              <ProjectionNote
+                projections={projections}
+                currency={abCurrency}
+                labelOf={(v) => AB_ARM_LABELS[v] ?? v}
+              />
               {abRev && abRev.divergences.length > 0 ? (
                 <HubNotice className="border-red-200 bg-red-50/70 text-red-900">
                   <strong>

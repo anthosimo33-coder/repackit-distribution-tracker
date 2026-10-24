@@ -31,6 +31,15 @@ import {
   notForcedExperimentClause,
   notInternalClause,
 } from "./internalAccounts";
+import {
+  attributeArmClasses,
+  attributePurchaseClasses,
+  EMPTY_FLIPPER_REPORT,
+  flipperLookupOf,
+  parsePlanFamilies,
+  type AbPlanFamily,
+  type FlipperAttributionReport,
+} from "./abAttribution";
 
 /**
  * Ingestion des AGRÉGATS PostHog par projet (hub Analytics). Un cron horaire
@@ -191,6 +200,66 @@ const AB_EXPERIMENT_CTE = `(SELECT argMax(toString(properties.experiment_id), ti
 /** Vrai si l'event porte un bras DE L'EXPÉRIENCE COURANTE. */
 const AB_ARMED = `isNotNull(properties.experiment_variant) AND toString(properties.experiment_id) = ab_exp`;
 
+/**
+ * ATTRIBUTION DES FLIPPERS (personnes à deux `experiment_variant`) — les
+ * requêtes ne TRANCHENT pas, elles rendent les PREUVES ; la règle est dans
+ * convex/abAttribution.ts (`attributeFlipper`), testée seule.
+ *
+ * Pourquoi ne plus les écarter : sur `paywall_pass_2026_10`, 44 des 248
+ * nouveaux clients étaient des flippers (18 %, contre 1,4 % des non-acheteurs),
+ * 25 d'entre eux changeant de bras APRÈS avoir payé, et l'exclusion retirait
+ * 31 acheteurs pass contre 13 hard — la conversion du pass sortait
+ * sous-estimée (RR 1,17 au lieu de ~1,13 attribuée, mesuré le 24/10/2026).
+ */
+
+/**
+ * FAMILLE d'un plan, côté HogQL : l'avant-dernier segment du slug.
+ * `checkout_started` émet `pass_7d`, `subscription_completed` émet
+ * `snytch_pass_7d` — le même plan, la même famille `pass`.
+ * ⚠️ DOIT rester identique à `planFamilyOf` (convex/abAttribution.ts).
+ */
+function planFamilySql(prop: string): string {
+  return `splitByChar('_', toString(${prop}))[-2]`;
+}
+
+/**
+ * Une famille de plan n'appartient à un bras que si ce bras fait au moins 90 %
+ * des personnes STABLES qui l'ont ouverte au checkout, sur au moins 10
+ * personnes. Mesuré au 24/10 : `pass` 336/336 au bras pass, `trio` 797/804 au
+ * bras hard (les 7 autres : le bras pass servait l'hebdo en dollars du 07 au
+ * 13/10). Une famille vendue par les deux bras n'apprend rien sur le bras de
+ * qui l'ouvre : ses flippers retombent sur la règle du paywall.
+ */
+export const AB_FAMILY_MIN_SHARE = 0.9;
+export const AB_FAMILY_MIN_PERSONS = 10;
+
+/**
+ * Borne des requêtes A/B rendues PAR CLASSE de personnes (stables d'un bras, ou
+ * flippers d'une même dernière étiquette et de mêmes preuves). Deux bras
+ * donnent au plus 2 + 2 × 4 × 4 = 34 classes ; la borne laisse de quoi passer
+ * un troisième bras, et une ligne tronquée emporterait ses personnes.
+ */
+const AB_CLASS_LIMIT = 200;
+
+/** Checkout ouvert DEPUIS le début du test, sur un plan émis. */
+const AB_CHECKOUT_PLAN = `event = 'checkout_started' AND timestamp >= ab_start AND isNotNull(properties.plan)`;
+
+/** Nombre de bras portés par la personne sur l'expérience courante (1 = stable). */
+const AB_N_ARMS = `uniqIf(toString(properties.experiment_variant), ${AB_ARMED})`;
+
+/**
+ * Preuve 1 — BRAS des familles de plan ouvertes au checkout, traduites par la
+ * table apprise `ab_fam_map` (cf `abFamilyCte`). Une famille absente de la
+ * table (vendue par les deux bras, trop peu ouverte, slug sans famille) tombe :
+ * elle ne prouve rien.
+ */
+const AB_CHECKOUT_ARMS = `arraySort(arrayDistinct(arrayFilter(a -> a != '',
+      arrayMap(f -> splitByChar('=', arrayFirst(x -> startsWith(x, concat(f, '=')), ab_fam_map))[2],
+        groupUniqArrayIf(${planFamilySql("properties.plan")}, ${AB_CHECKOUT_PLAN})))))`;
+
+/** Preuve 2 — bras portés par ses `paywall_viewed` (l'étiquette au moment de la vue). */
+const AB_PAYWALL_ARMS = `arraySort(groupUniqArrayIf(toString(properties.experiment_variant), event = 'paywall_viewed' AND ${AB_ARMED}))`;
+
 
 
 /** Clés d'agrégat stockées dans posthogCache (une row par (projet, key)). */
@@ -341,6 +410,12 @@ export interface AbArmsPayload {
      * défaut applicatif — un total agrégé ne permet pas de le distinguer.
      */
     excludedFlippersSameDevice: number;
+    /**
+     * Flippers RATTACHÉS à ce bras par la règle (cf abAttribution.attributeFlipper),
+     * déjà comptés dans toutes les colonnes ci-dessus. Optionnel : absent d'un
+     * cache écrit avant le 24/10/2026, où tout flipper était écarté.
+     */
+    reattributedFlippers?: number;
   }[];
   /**
    * Début de la fenêtre = 1re émission de l'`experiment_id` COURANT (ms). Ce
@@ -349,6 +424,18 @@ export interface AbArmsPayload {
    * cohorte dans les colonnes de celle-ci.
    */
   startMs: number | null;
+  /**
+   * Bilan de la règle flipper : combien de personnes à bras instable ont été
+   * rattachées (par le checkout, par le paywall) ou écartées, et pourquoi.
+   * Absent d'un cache antérieur au 24/10/2026.
+   */
+  flipperAttribution?: FlipperAttributionReport;
+  /**
+   * Table « famille de plan → bras » apprise des personnes STABLES — celle qui
+   * a servi à rattacher les flippers par leur checkout, et qui dit aussi quelle
+   * OFFRE vend chaque bras (courbe de revenu projeté, cf convex/abProjection).
+   */
+  planFamilies?: AbPlanFamily[];
 }
 
 /**
@@ -357,7 +444,14 @@ export interface AbArmsPayload {
  * Liste plate : le test est une APPARTENANCE, pas une jointure.
  */
 export interface AbFlippersPayload {
+  /** TOUS les distinct_id des personnes à bras instable (test positif). */
   distinctIds: string[];
+  /**
+   * Ceux que la règle flipper rattache à un bras, avec ce bras. Un distinct_id
+   * de `distinctIds` absent d'ici est écarté du revenu. Absent tout entier
+   * (cache antérieur au 24/10/2026) = règle d'avant, tous écartés.
+   */
+  resolved?: { distinctId: string; variant: string }[];
 }
 
 /**
@@ -514,7 +608,24 @@ export function normalizeAbArms(payload: AbArmsPayload): AbArmsPayload {
       excludedFlippers: num(r.excludedFlippers),
       excludedFlippersMultiDevice: num(r.excludedFlippersMultiDevice),
       excludedFlippersSameDevice: num(r.excludedFlippersSameDevice),
+      reattributedFlippers: num(r.reattributedFlippers),
     })),
+    flipperAttribution: payload.flipperAttribution
+      ? {
+          viaCheckout: num(payload.flipperAttribution.viaCheckout),
+          viaPaywall: num(payload.flipperAttribution.viaPaywall),
+          buyersReattributed: num(payload.flipperAttribution.buyersReattributed),
+          excludedBothFamilies: num(payload.flipperAttribution.excludedBothFamilies),
+          excludedBothPaywalls: num(payload.flipperAttribution.excludedBothPaywalls),
+          excludedNoEvidence: num(payload.flipperAttribution.excludedNoEvidence),
+          buyersExcluded: num(payload.flipperAttribution.buyersExcluded),
+        }
+      : undefined,
+    planFamilies: Array.isArray(payload.planFamilies)
+      ? payload.planFamilies.filter(
+          (f) => typeof f?.family === "string" && typeof f?.variant === "string",
+        )
+      : undefined,
   };
 }
 
@@ -916,6 +1027,31 @@ export function buildQueries(
   // le template et le SQL deviendrait du TypeScript invalide (déjà vu deux fois
   // sur ce fichier, dont une dans un simple commentaire SQL).
   const AB_TARGET_TS = dedupedTimestamps("target_added", ` AND ${AB_MEASURE}`);
+  /**
+   * TABLE « FAMILLE DE PLAN → BRAS », apprise à chaque requête des personnes à
+   * bras STABLE ayant ouvert un checkout depuis le début du test. Une entrée =
+   * `famille=bras=personnes_du_bras=personnes_total`. Jugée sur TOUT le test,
+   * jamais sur la période : ce qu'un bras vend est un fait du test, pas de la
+   * semaine regardée (même règle que la stabilité du bras).
+   */
+  const AB_FAMILY_CTE = `(SELECT groupArray(concat(fam, '=', arm, '=', toString(n_arm), '=', toString(n_tot))) FROM (
+        SELECT fam, argMax(bras, n) AS arm, max(n) AS n_arm, sum(n) AS n_tot FROM (
+          SELECT fam, bras, count() AS n FROM (
+            SELECT person_id,
+              argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
+              groupUniqArrayIf(${planFamilySql("properties.plan")}, ${AB_CHECKOUT_PLAN}) AS fams
+            FROM events
+            WHERE ${DEFAULT_WINDOW}${notCounted}
+            GROUP BY person_id
+            HAVING ${AB_N_ARMS} = 1
+          )
+          ARRAY JOIN fams AS fam
+          WHERE fam != ''
+          GROUP BY fam, bras
+        )
+        GROUP BY fam
+        HAVING n_tot >= ${AB_FAMILY_MIN_PERSONS} AND n_arm >= ${AB_FAMILY_MIN_SHARE} * n_tot
+     )) AS ab_fam_map`;
 
   return {
   /**
@@ -1290,48 +1426,59 @@ LIMIT ${SEGMENT_LIMIT}`,
    *      conversion du bras (cas réel : un abonné du 29/07 « converti » le 05/08).
    *   3. Les cibles doivent être celles des CLIENTS après paiement, pas celles de
    *      tout le bras : mélanger les deux donnait 14 cibles pour 1 client.
-   *   4. Une personne dont le bras a CHANGÉ en cours de route est écartée de tous
-   *      les compteurs (`stable`) et comptée à part (`excluded_flippers`). Le
-   *      bras était tiré DEUX fois — client sur le distinct_id anonyme, serveur à
-   *      la création du compte (cf `experiment_source` : anonymous / account) — et
-   *      les deux tirages divergeaient : 15 personnes sur 28 avant le correctif
-   *      serveur du 08/08 10:24 UTC, 0 sur 47 après. Une personne exposée au
-   *      paywall d'un bras et comptée dans l'autre casse la randomisation, seule
-   *      chose qui rend les deux colonnes comparables. Critère de DÉTECTION, pas
-   *      liste ni fenêtre de date : la liste grossit (18 → 21 en 24 h) et une
-   *      fenêtre jetterait aussi la cohorte saine.
+   *   4. Une personne dont le bras a CHANGÉ en cours de route (deux valeurs
+   *      d'`experiment_variant`, critère de DÉTECTION — jamais une liste, qui
+   *      grossit, ni une fenêtre de date, qui jetterait la cohorte saine) n'est
+   *      plus écartée d'office : la requête rend ses PREUVES (`ck_key` : bras des
+   *      familles de plan ouvertes au checkout ; `pv_key` : bras de ses
+   *      paywalls vus) et `shapeAbArms` la rattache par la règle de
+   *      convex/abAttribution (`attributeFlipper`), ou l'écarte si rien n'est
+   *      univoque. Les écartées restent comptées à part, sous leur DERNIÈRE
+   *      étiquette. Le bras était tiré DEUX fois (navigateur puis serveur, cf
+   *      `experiment_source`) ; le correctif du 08/08 a réduit ces bascules sans
+   *      les éteindre.
+   * Sortie PAR CLASSE de personnes (stables d'un bras, ou flippers de mêmes
+   * preuves) : les classes partitionnent les personnes, leurs compteurs
+   * s'additionnent dans `shapeAbArms`. Pour une personne stable les preuves sont
+   * vidées — elles ne servent à rien et multiplieraient les lignes.
    * L'inner scanne 90 j (il faut le 1er abonnement historique) et chaque compteur
    * est borné à la fenêtre du test par `timestamp >= ab_start`.
    */
   abArms: `
-WITH ${AB_EXPERIMENT_CTE}
-SELECT bras AS variant, uniqIf(person_id, stable) AS exposed,
-  uniqIf(person_id, stable AND n_paywalls > 0) AS paywall_viewers,
-  uniqIf(person_id, stable AND n_checkouts > 0) AS checkouts,
-  uniqIf(person_id, stable AND n_subs > 0 AND ${AB_ACQUIRED}) AS paid,
+WITH ${AB_EXPERIMENT_CTE},
+     ${AB_FAMILY_CTE}
+SELECT bras AS variant, stable,
+  if(stable, [], ck_arms) AS ck_key,
+  if(stable, [], pv_arms) AS pv_key,
+  count() AS exposed,
+  countIf(n_paywalls > 0) AS paywall_viewers,
+  countIf(n_checkouts > 0) AS checkouts,
+  countIf(n_subs > 0 AND ${AB_ACQUIRED}) AS paid,
   -- t_first_sub < ab_start reste HORS fenêtre, volontairement : être un
   -- renouvellement est un fait historique, pas une activité de la période. La
   -- période, elle, filtre déjà n_subs via AB_MEASURE.
-  uniqIf(person_id, stable AND n_subs > 0 AND t_first_sub < ab_start) AS renewals,
-  uniqIf(person_id, stable AND n_subs > 0 AND ${AB_ACQUIRED} AND n_checkouts = 0) AS paid_without_checkout,
-  sum(if(stable AND n_subs > 0 AND ${AB_ACQUIRED}, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
-  sum(if(stable, length(target_ts), 0)) AS arm_targets,
-  -- Écartées faute de bras stable. Rangées sous leur DERNIER bras (argMaxIf) :
-  -- c'est celui que la carte leur aurait attribué, donc la ligne qu'elles
-  -- auraient faussée. Ventilées par NOMBRE D'APPAREILS : un bras qui diverge
-  -- entre deux $device_id est une fusion d'identités PostHog (attendue) ; sur un
-  -- SEUL appareil, c'est l'app qui re-tire le bras — le seul signal actionnable.
-  uniqIf(person_id, NOT stable) AS excluded_flippers,
-  uniqIf(person_id, NOT stable AND n_devices > 1) AS excluded_flippers_multi_device,
-  uniqIf(person_id, NOT stable AND n_devices <= 1) AS excluded_flippers_same_device,
-  min(started) AS started
+  countIf(n_subs > 0 AND t_first_sub < ab_start) AS renewals,
+  countIf(n_subs > 0 AND ${AB_ACQUIRED} AND n_checkouts = 0) AS paid_without_checkout,
+  sum(if(n_subs > 0 AND ${AB_ACQUIRED}, arrayCount(x -> x >= t_first_sub, target_ts), 0)) AS client_targets,
+  sum(length(target_ts)) AS arm_targets,
+  -- Ventilation par NOMBRE D'APPAREILS, lue sur les seules écartées : un bras
+  -- qui diverge entre deux $device_id est une fusion d'identités PostHog
+  -- (attendue) ; sur un SEUL appareil, c'est l'app qui re-tire le bras — le
+  -- seul signal actionnable.
+  countIf(n_devices > 1) AS multi_device,
+  min(started) AS started,
+  any(fam_map) AS fam_map
 FROM (
   SELECT person_id,
+    -- Dernière étiquette : le bras d'une personne stable, la ligne sous laquelle
+    -- une flipper écartée est rangée.
     argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
     -- Un seul bras vu sur L'EXPÉRIENCE COURANTE = tirage tenu. Sans la borne
     -- par experiment_id, un passage v1 → v2 (bras re-tirés) comptait comme
     -- une bascule : ~24 des 52 exclusions mesurées le 22/08 étaient cet artefact.
-    uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
+    ${AB_N_ARMS} = 1 AS stable,
+    ${AB_CHECKOUT_ARMS} AS ck_arms,
+    ${AB_PAYWALL_ARMS} AS pv_arms,
     uniq(toString(properties.$device_id)) AS n_devices,
     countIf(event = 'paywall_viewed' AND ${AB_MEASURE}) AS n_paywalls,
     countIf(event = 'checkout_started' AND ${AB_MEASURE}) AS n_checkouts,
@@ -1343,16 +1490,17 @@ FROM (
     -- Cibles DÉDUPLIQUÉES : la double émission client+serveur doublait
     -- client_targets et arm_targets (1,85 cible/client affiché pour 0,93 réel).
     ${AB_TARGET_TS} AS target_ts,
-    ab_start AS started
+    ab_start AS started,
+    ab_fam_map AS fam_map
   FROM events
   WHERE ${DEFAULT_WINDOW}${notCounted}
   GROUP BY person_id
   HAVING countIf(${AB_ARMED_IN}) > 0
 )
 WHERE isNotNull(bras) AND bras != '' AND bras != 'NULL'
-GROUP BY variant
+GROUP BY variant, stable, ck_key, pv_key
 ORDER BY exposed DESC
-LIMIT ${SEGMENT_LIMIT}`,
+LIMIT ${AB_CLASS_LIMIT}`,
 
   /**
    * TEST A/B par (BRAS × OFFRE SERVIE) — cf AbOffersPayload.
@@ -1410,9 +1558,11 @@ LIMIT ${OFFER_SEGMENT_LIMIT}`,
    * TEST A/B par (BRAS × PLAN ACHETÉ) — cf AbPurchasesPayload.
    *
    * Ne compte que les NOUVEAUX clients (1er abonnement après le début du test),
-   * même définition que la colonne « Clients » de la carte des bras, et le MÊME
-   * filtre de bras stable : sans lui, les deux tableaux compteraient deux
-   * populations et leur écart passerait pour un défaut de mesure.
+   * même définition que la colonne « Clients » de la carte des bras, et la MÊME
+   * attribution des flippers (mêmes preuves, même règle dans
+   * `shapeAbPurchases`) : sans elle, les deux tableaux compteraient deux
+   * populations et leur écart passerait pour un défaut de mesure. Sortie par
+   * (CLASSE × plan), comme `abArms`.
    *
    * `groupUniqArrayIf` + `arrayJoin` : une personne qui a acheté deux plans sort
    * sur DEUX lignes. C'est voulu — le mélange de plans est l'information — mais
@@ -1420,23 +1570,27 @@ LIMIT ${OFFER_SEGMENT_LIMIT}`,
    * `arm_clients` et `arm_multi_plan` rendus à côté.
    */
   abPurchases: `
-WITH ${AB_EXPERIMENT_CTE}
-SELECT bras AS variant,
+WITH ${AB_EXPERIMENT_CTE},
+     ${AB_FAMILY_CTE}
+SELECT bras AS variant, stable, ck_key, pv_key,
   splitByChar('|', arrayJoin(paires))[1] AS plan_achete,
   splitByChar('|', arrayJoin(paires))[2] AS whop_plan_id,
   uniq(person_id) AS clients,
-  any(arm_clients) AS arm_clients,
-  any(arm_multi) AS arm_multi
+  any(class_clients) AS class_clients,
+  any(class_multi) AS class_multi
 FROM (
-  SELECT person_id, bras, paires,
-    -- Totaux du bras, calculés AVANT l'éclatement par plan : après arrayJoin,
-    -- une personne à deux plans serait comptée deux fois.
-    count() OVER (PARTITION BY bras) AS arm_clients,
-    countIf(length(plans) > 1) OVER (PARTITION BY bras) AS arm_multi
+  SELECT person_id, bras, stable, ck_key, pv_key, paires,
+    -- Totaux de la CLASSE, calculés AVANT l'éclatement par plan : après
+    -- arrayJoin, une personne à deux plans serait comptée deux fois.
+    count() OVER (PARTITION BY bras, stable, ck_key, pv_key) AS class_clients,
+    countIf(length(plans) > 1) OVER (PARTITION BY bras, stable, ck_key, pv_key) AS class_multi
   FROM (
     SELECT person_id,
       argMaxIf(toString(properties.experiment_variant), timestamp, ${AB_ARMED}) AS bras,
-      uniqIf(toString(properties.experiment_variant), ${AB_ARMED}) = 1 AS stable,
+      ${AB_N_ARMS} = 1 AS stable,
+      -- Preuves vidées pour une personne stable : même découpage que abArms.
+      if(stable, [], ${AB_CHECKOUT_ARMS}) AS ck_key,
+      if(stable, [], ${AB_PAYWALL_ARMS}) AS pv_key,
       -- Le slug et l'identifiant Whop sont appariés DANS LA MÊME valeur : deux
       -- groupUniqArray séparés rendent des tableaux dédupliqués dont les index
       -- ne correspondent plus. Vérifié sur la prod, ça donnait le plan_id de
@@ -1452,12 +1606,12 @@ FROM (
     GROUP BY person_id
     HAVING countIf(${AB_ARMED_IN}) > 0
   )
-  WHERE stable AND n_subs > 0 AND ${AB_ACQUIRED}
+  WHERE n_subs > 0 AND ${AB_ACQUIRED}
     AND isNotNull(bras) AND bras != '' AND bras != 'NULL'
 )
-GROUP BY variant, plan_achete, whop_plan_id
+GROUP BY variant, stable, ck_key, pv_key, plan_achete, whop_plan_id
 ORDER BY variant, clients DESC
-LIMIT ${OFFER_SEGMENT_LIMIT}`,
+LIMIT ${AB_CLASS_LIMIT}`,
 
 
   /**
@@ -1499,21 +1653,27 @@ LIMIT 10000`,
    * Une absence est de surcroît AMBIGUË — flipper écarté, jamais assigné, ou
    * payload tronqué ? Ici la présence dans la liste est un fait, pas une déduction.
    *
-   * Volume borné (prod 22/08 : 130 distinct_id pour 28 personnes) — une liste
-   * plate suffit, et le `LIMIT` explicite évite la troncature silencieuse à 100.
+   * Une ligne par PERSONNE flipper (prod 24/10 : 282 personnes, 1 452
+   * distinct_id), avec ses preuves : `shapeAbFlippers` lui applique la règle de
+   * convex/abAttribution — la même que les colonnes — et rend, à côté de la
+   * liste de garde, le bras de celles qu'elle sait rattacher. Le revenu suit
+   * ainsi la personne, pas l'étiquette posée sur l'abonnement. Le `LIMIT`
+   * explicite évite la troncature silencieuse à 100.
    */
   abFlippers: `
-WITH ${AB_EXPERIMENT_CTE}
-SELECT distinct_id FROM events
-WHERE ${WINDOW}${notCounted}
-  AND person_id IN (
-    SELECT person_id FROM events
-    WHERE ${AB_ARMED}
-      AND ${WINDOW}
-    GROUP BY person_id
-    HAVING uniq(toString(properties.experiment_variant)) > 1
-  )
-GROUP BY distinct_id
+WITH ${AB_EXPERIMENT_CTE},
+     ${AB_FAMILY_CTE}
+SELECT dids, ck_arms, pv_arms FROM (
+  SELECT person_id,
+    groupUniqArray(toString(distinct_id)) AS dids,
+    ${AB_N_ARMS} AS n_bras,
+    ${AB_CHECKOUT_ARMS} AS ck_arms,
+    ${AB_PAYWALL_ARMS} AS pv_arms
+  FROM events
+  WHERE ${DEFAULT_WINDOW}${notCounted}
+  GROUP BY person_id
+  HAVING n_bras > 1
+)
 LIMIT 10000`,
 
   /** Sources → inscrits / abonnés (une personne compte une fois par source). */
@@ -2172,23 +2332,35 @@ function shapeCountryDaily(rows: unknown[][]): CountryDailyPayload {
  * charge que le cron, sinon le même onglet afficherait deux formes selon qu'une
  * période est choisie ou non.
  */
+/**
+ * `abArms` rend des CLASSES de personnes ; la règle flipper
+ * (abAttribution.attributeArmClasses) les replie en une ligne par bras. La forme
+ * du cache ne change donc pas pour ses lecteurs (onglet, MCP, e2e).
+ */
 export function shapeAbArms(rows: unknown[][]): AbArmsPayload {
-  return {
-    rows: rows.map((r) => ({
-      variant: cellStr(r, 0),
-      exposed: cellNum(r, 1),
-      paywallViewers: cellNum(r, 2),
-      checkouts: cellNum(r, 3),
-      paid: cellNum(r, 4),
-      renewals: cellNum(r, 5),
-      paidWithoutCheckout: cellNum(r, 6),
-      clientTargets: cellNum(r, 7),
-      armTargets: cellNum(r, 8),
-      excludedFlippers: cellNum(r, 9),
-      excludedFlippersMultiDevice: cellNum(r, 10),
-      excludedFlippersSameDevice: cellNum(r, 11),
+  const { rows: arms, report } = attributeArmClasses(
+    rows.map((r) => ({
+      label: cellStr(r, 0),
+      // HogQL rend le booléen en 0/1 (cf shapeAbOffers).
+      stable: cellNum(r, 1) === 1,
+      checkoutArms: cellStrArr(r, 2),
+      paywallArms: cellStrArr(r, 3),
+      exposed: cellNum(r, 4),
+      paywallViewers: cellNum(r, 5),
+      checkouts: cellNum(r, 6),
+      paid: cellNum(r, 7),
+      renewals: cellNum(r, 8),
+      paidWithoutCheckout: cellNum(r, 9),
+      clientTargets: cellNum(r, 10),
+      armTargets: cellNum(r, 11),
+      multiDevice: cellNum(r, 12),
     })),
-    startMs: rows.length > 0 ? cellTimeMs(rows[0], 12) : null,
+  );
+  return {
+    rows: arms,
+    startMs: rows.length > 0 ? cellTimeMs(rows[0], 13) : null,
+    flipperAttribution: rows.length > 0 ? report : { ...EMPTY_FLIPPER_REPORT },
+    planFamilies: rows.length > 0 ? parsePlanFamilies(cellStrArr(rows[0], 14)) : [],
   };
 }
 
@@ -2211,17 +2383,34 @@ export function shapeAbOffers(rows: unknown[][]): AbOffersPayload {
   };
 }
 
+/** Même repli par la règle flipper que `shapeAbArms`, sur (classe × plan). */
 export function shapeAbPurchases(rows: unknown[][]): AbPurchasesPayload {
   return {
-    rows: rows.map((r) => ({
-      variant: cellStr(r, 0),
-      plan: cellStr(r, 1),
-      whopPlanId: cellStr(r, 2),
-      clients: cellNum(r, 3),
-      armClients: cellNum(r, 4),
-      armMultiPlan: cellNum(r, 5),
-    })),
+    rows: attributePurchaseClasses(
+      rows.map((r) => ({
+        label: cellStr(r, 0),
+        stable: cellNum(r, 1) === 1,
+        checkoutArms: cellStrArr(r, 2),
+        paywallArms: cellStrArr(r, 3),
+        plan: cellStr(r, 4),
+        whopPlanId: cellStr(r, 5),
+        clients: cellNum(r, 6),
+        classClients: cellNum(r, 7),
+        classMultiPlan: cellNum(r, 8),
+      })),
+    ),
   };
+}
+
+/** Une ligne par personne flipper → liste de garde + bras rattachés (cf abFlippers). */
+export function shapeAbFlippers(rows: unknown[][]): AbFlippersPayload {
+  return flipperLookupOf(
+    rows.map((r) => ({
+      distinctIds: cellStrArr(r, 0),
+      checkoutArms: cellStrArr(r, 1),
+      paywallArms: cellStrArr(r, 2),
+    })),
+  );
 }
 
 export function shapeFreePlan(rows: unknown[][]): FreePlanPayload {
@@ -2612,9 +2801,7 @@ export const runHourlySync = internalAction({
           apiKey,
           target,
           QUERIES.abFlippers,
-          (rows): AbFlippersPayload => ({
-            distinctIds: rows.map((r) => cellStr(r, 0)).filter((d) => d !== ""),
-          }),
+          shapeAbFlippers,
         ),
         await collect(
           POSTHOG_CACHE_KEYS.sources,
