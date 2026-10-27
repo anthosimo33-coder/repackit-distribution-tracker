@@ -36,6 +36,7 @@ import type * as billingCountries from "../billingCountries.js";
 import type * as bonusSync from "../bonusSync.js";
 import type * as bootstrap from "../bootstrap.js";
 import type * as calendarStatus from "../calendarStatus.js";
+import type * as cancelReasons from "../cancelReasons.js";
 import type * as challengePortal from "../challengePortal.js";
 import type * as challengeScore from "../challengeScore.js";
 import type * as challengeSync from "../challengeSync.js";
@@ -338,6 +339,7 @@ declare const fullApi: ApiFromModules<{
   bonusSync: typeof bonusSync;
   bootstrap: typeof bootstrap;
   calendarStatus: typeof calendarStatus;
+  cancelReasons: typeof cancelReasons;
   challengePortal: typeof challengePortal;
   challengeScore: typeof challengeScore;
   challengeSync: typeof challengeSync;

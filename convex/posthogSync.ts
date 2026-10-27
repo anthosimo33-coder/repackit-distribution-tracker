@@ -31,6 +31,11 @@ import {
   notForcedExperimentClause,
   notInternalClause,
 } from "./internalAccounts";
+import type {
+  CancelFlowPayload,
+  CancelOutcome,
+  CancelServerPayload,
+} from "./cancelReasons";
 import {
   attributeArmClasses,
   attributePurchaseClasses,
@@ -146,6 +151,13 @@ const COUNTRY_SEGMENT = `coalesce(
  * supprimerait des faits réels.
  */
 const SERVER_COPY = `toString(properties.server_side) = 'true'`;
+
+/**
+ * Un `cancel_reason_selected` qui porte une VRAIE réponse. `skipped` = la
+ * personne a passé la question (reason vide) ; `'null'` couvre le JSON null.
+ */
+const CANCEL_REASON_GIVEN = `ifNull(toString(properties.skipped), '') != 'true'
+        AND ifNull(toString(properties.reason), '') NOT IN ('', 'null')`;
 
 /**
  * Compte les occurrences d'un event en neutralisant la double émission.
@@ -314,6 +326,9 @@ export const POSTHOG_CACHE_KEYS = {
   freePlan: "freePlan",
   // ─── Réconciliation clients PostHog ↔ Whop par membership_id ──────────────
   subsByMembership: "subsByMembership",
+  // ─── Rétention — questionnaire de résiliation de l'app (cf convex/cancelReasons)
+  cancelFlow: "cancelFlow",
+  cancelServer: "cancelServer",
 } as const;
 
 // ─── Formes des agrégats cachés ──────────────────────────────────────────────
@@ -2120,6 +2135,90 @@ FROM (
 )`,
 
   /**
+   * QUESTIONNAIRE DE RÉSILIATION — une personne par passage, rangée au jour de
+   * son DERNIER passage (`flow_day`), puis regroupée par attributs : la somme
+   * des `persons` sur n'importe quelle période compte donc des personnes
+   * DISTINCTES (cf convex/cancelReasons).
+   *
+   * - `reason` = dernier motif DONNÉ. Une question passée après coup ne l'efface
+   *   pas : `argMaxIf` est restreint aux réponses réelles. `(skipped)` seulement
+   *   si la personne n'a jamais répondu ; '' si elle n'a pas atteint la question
+   *   (flow démarré, aucun `cancel_reason_selected`). `skipped` et `reason`
+   *   passent par `ifNull` : `toString` d'une propriété absente rend NULL, et
+   *   `NULL != 'true'` est NULL, donc faux.
+   * - `outcome` = le DERNIER dénouement : une personne retenue par une pause
+   *   puis revenue annuler est une résiliation.
+   * - `pause_months` vient de `subscription_paused.months` (la pause posée),
+   *   pas de `pause_duration` de l'offre cliquée.
+   *
+   * count() agrège la sous-requête GROUP BY person_id (forme freePlan, admise
+   * par le garde-fou #156). LIMIT explicite : la cardinalité croît d'un jour à
+   * l'autre, et PostHog tronque à 100 lignes en silence.
+   */
+  cancelFlow: `
+SELECT flow_day, reason, outcome, sel_pause, sel_swap, accepted, pause_months, count() AS persons
+FROM (
+  SELECT person_id,
+    formatDateTime(toStartOfDay(maxIf(timestamp, event IN ('cancel_flow_started', 'cancel_reason_selected')), 'Europe/Paris'), '%Y-%m-%d') AS flow_day,
+    multiIf(
+      countIf(event = 'cancel_reason_selected') = 0, '',
+      countIf(event = 'cancel_reason_selected' AND ${CANCEL_REASON_GIVEN}) = 0, '(skipped)',
+      argMaxIf(toString(properties.reason), timestamp, event = 'cancel_reason_selected' AND ${CANCEL_REASON_GIVEN})
+    ) AS reason,
+    multiIf(
+      countIf(event IN ('cancel_completed', 'cancel_retained')) = 0, 'abandoned',
+      argMaxIf(event, timestamp, event IN ('cancel_completed', 'cancel_retained')) = 'cancel_retained', 'retained',
+      'canceled'
+    ) AS outcome,
+    countIf(event = 'cancel_offer_selected' AND ifNull(toString(properties.offer_type), '') = 'pause') > 0 AS sel_pause,
+    countIf(event = 'cancel_offer_selected' AND ifNull(toString(properties.offer_type), '') = 'swap') > 0 AS sel_swap,
+    if(countIf(event = 'cancel_offer_accepted') = 0, '',
+       argMaxIf(ifNull(toString(properties.offer_type), ''), timestamp, event = 'cancel_offer_accepted')) AS accepted,
+    if(countIf(event = 'subscription_paused') = 0, 0,
+       toInt(argMaxIf(toString(properties.months), timestamp, event = 'subscription_paused'))) AS pause_months
+  FROM events
+  WHERE ${WINDOW}${notCounted}
+    AND event IN ('cancel_flow_started', 'cancel_reason_selected', 'cancel_offer_selected', 'cancel_offer_accepted', 'cancel_completed', 'cancel_retained', 'subscription_paused')
+  GROUP BY person_id
+  HAVING countIf(event IN ('cancel_flow_started', 'cancel_reason_selected')) > 0
+)
+GROUP BY flow_day, reason, outcome, sel_pause, sel_swap, accepted, pause_months
+ORDER BY flow_day
+LIMIT 10000`,
+
+  /**
+   * RÉSILIATIONS VUES PAR LE SERVEUR (`subscription_cancelled`, sans motif) et
+   * leur passage, ou non, par le questionnaire. Une personne par ligne au jour
+   * de sa DERNIÈRE résiliation serveur, regroupée comme `cancelFlow`.
+   *
+   * `in_flow` est une jointure par PERSONNE PostHog : quand l'identité n'est pas
+   * reliée entre l'app et le serveur, la personne compte « sans questionnaire »
+   * à tort. Le complément est donc une borne HAUTE — l'écran le dit.
+   *
+   * `paused_before` : une résiliation serveur postérieure à une pause. Mesuré le
+   * 27/10 : 14 des 15 pauses en ont une, souvent ~7 jours après — la pause
+   * pourrait remonter du serveur comme une résiliation. Exposé tel quel, à
+   * élucider côté app avant de compter une pause comme un client sauvé.
+   */
+  cancelServer: `
+SELECT server_day, in_flow, paused_before, count() AS persons
+FROM (
+  SELECT person_id,
+    formatDateTime(toStartOfDay(maxIf(timestamp, event = 'subscription_cancelled'), 'Europe/Paris'), '%Y-%m-%d') AS server_day,
+    countIf(event IN ('cancel_flow_started', 'cancel_reason_selected')) > 0 AS in_flow,
+    countIf(event = 'subscription_paused') > 0
+      AND maxIf(timestamp, event = 'subscription_cancelled') > minIf(timestamp, event = 'subscription_paused') AS paused_before
+  FROM events
+  WHERE ${WINDOW}${notCounted}
+    AND event IN ('subscription_cancelled', 'cancel_flow_started', 'cancel_reason_selected', 'subscription_paused')
+  GROUP BY person_id
+  HAVING countIf(event = 'subscription_cancelled') > 0
+)
+GROUP BY server_day, in_flow, paused_before
+ORDER BY server_day
+LIMIT 10000`,
+
+  /**
    * Compteur A4 : personnes INTERNES (marqueur positif) vs total, sur la fenêtre.
    * SEULE requête sans exclusion — c'est elle qui dénombre les exclus.
    */
@@ -2458,6 +2557,52 @@ export function shapeFreePlan(rows: unknown[][]): FreePlanPayload {
     signups: cellNum(r, 0),
     used: cellNum(r, 1),
     convertedPaid: cellNum(r, 2),
+  };
+}
+
+/** HogQL rend le booléen en 0/1 (parfois en `true`/`false`) : les deux formes. */
+function cellBool(row: unknown[], i: number): boolean {
+  return row[i] === true || cellNum(row, i) === 1;
+}
+
+const CANCEL_OUTCOMES: readonly CancelOutcome[] = ["canceled", "retained", "abandoned"];
+
+/** Lignes (jour, motif, issue, pause cliquée, cible cliquée, acceptée, mois, personnes). */
+export function shapeCancelFlow(rows: unknown[][]): CancelFlowPayload {
+  return {
+    rows: rows
+      .map((r) => {
+        const outcome = cellStr(r, 2);
+        return {
+          day: cellStr(r, 0),
+          reason: cellStr(r, 1),
+          // Une issue inconnue (contrat changé côté app) reste une personne
+          // passée par le parcours : rangée en abandon plutôt que perdue.
+          outcome: (CANCEL_OUTCOMES as readonly string[]).includes(outcome)
+            ? (outcome as CancelOutcome)
+            : "abandoned",
+          selectedPause: cellBool(r, 3),
+          selectedSwap: cellBool(r, 4),
+          accepted: cellStr(r, 5),
+          pauseMonths: cellNum(r, 6),
+          persons: cellNum(r, 7),
+        };
+      })
+      .filter((r) => r.day !== ""),
+  };
+}
+
+/** Lignes (jour, passé par le questionnaire, pause avant, personnes). */
+export function shapeCancelServer(rows: unknown[][]): CancelServerPayload {
+  return {
+    rows: rows
+      .map((r) => ({
+        day: cellStr(r, 0),
+        inFlow: cellBool(r, 1),
+        pausedBefore: cellBool(r, 2),
+        persons: cellNum(r, 3),
+      }))
+      .filter((r) => r.day !== ""),
   };
 }
 
@@ -2986,6 +3131,20 @@ export const runHourlySync = internalAction({
           shapeFreePlan,
         ),
         await collect(
+          POSTHOG_CACHE_KEYS.cancelFlow,
+          apiKey,
+          target,
+          QUERIES.cancelFlow,
+          shapeCancelFlow,
+        ),
+        await collect(
+          POSTHOG_CACHE_KEYS.cancelServer,
+          apiKey,
+          target,
+          QUERIES.cancelServer,
+          shapeCancelServer,
+        ),
+        await collect(
           POSTHOG_CACHE_KEYS.firstSearchAfterPay,
           apiKey,
           target,
@@ -3136,6 +3295,10 @@ export interface ProductAnalytics {
   freePlan: FreePlanPayload;
   /** Première recherche après paiement (la demande la plus importante). */
   firstSearchAfterPay: FirstSearchAfterPayPayload;
+  /** Questionnaire de résiliation (motifs, contre-offres) — cf convex/cancelReasons. */
+  cancelFlow: CancelFlowPayload;
+  /** Résiliations vues par le serveur, passées ou non par le questionnaire. */
+  cancelServer: CancelServerPayload;
 }
 
 const EMPTY_FUNNEL: FunnelPayload = { segments: [] };
@@ -3212,6 +3375,8 @@ export async function getProductAnalyticsCore(
         p90DelaySec: null,
         cancelJoinable: 0,
       },
+      cancelFlow: { rows: [] },
+      cancelServer: { rows: [] },
     };
     if (!empty.configured) return empty;
 
@@ -3290,7 +3455,50 @@ export async function getProductAnalyticsCore(
         POSTHOG_CACHE_KEYS.firstSearchAfterPay,
         empty.firstSearchAfterPay,
       ),
+      cancelFlow: read(POSTHOG_CACHE_KEYS.cancelFlow, empty.cancelFlow),
+      cancelServer: read(POSTHOG_CACHE_KEYS.cancelServer, empty.cancelServer),
     };
+}
+
+/**
+ * Les deux agrégats du questionnaire de résiliation, SEULS — pour l'outil MCP
+ * `retention`, qui n'a pas à lire tout le cache (`getProductAnalyticsCore` en
+ * collecte chaque ligne, ~1 Mo) pour deux clés. Mêmes lignes, même lecture que
+ * l'écran.
+ */
+export async function getCancelReasonsCore(ctx: ProjectQueryCtx): Promise<{
+  configured: boolean;
+  computedAt: number | null;
+  error: string | null;
+  flow: CancelFlowPayload;
+  server: CancelServerPayload;
+}> {
+  const project = await ctx.db.get(ctx.projectId);
+  const out = {
+    configured: project?.posthog !== undefined,
+    computedAt: null as number | null,
+    error: null as string | null,
+    flow: { rows: [] } as CancelFlowPayload,
+    server: { rows: [] } as CancelServerPayload,
+  };
+  if (!out.configured) return out;
+  const one = (key: string) =>
+    ctx.db
+      .query("posthogCache")
+      .withIndex("by_project_key", (q) =>
+        q.eq("projectId", ctx.projectId).eq("key", key),
+      )
+      .first();
+  const [flow, server] = await Promise.all([
+    one(POSTHOG_CACHE_KEYS.cancelFlow),
+    one(POSTHOG_CACHE_KEYS.cancelServer),
+  ]);
+  if (flow) out.flow = safeParse<CancelFlowPayload>(flow.json, out.flow);
+  if (server) out.server = safeParse<CancelServerPayload>(server.json, out.server);
+  const present = [flow, server].filter((r) => r !== null);
+  out.computedAt = present.length > 0 ? Math.min(...present.map((r) => r.computedAt)) : null;
+  out.error = present.find((r) => r.error !== undefined)?.error ?? null;
+  return out;
 }
 
 /**

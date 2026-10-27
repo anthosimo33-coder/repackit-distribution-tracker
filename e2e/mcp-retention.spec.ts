@@ -340,4 +340,183 @@ test.describe("Outil MCP retention", () => {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }
   });
+
+  /**
+   * MOTIFS DE RÉSILIATION — le questionnaire de l'app (PostHog), carte de
+   * l'onglet ET bloc `motifsDeResiliation` de l'outil, sur le même cache.
+   *
+   * Agrégats à la forme que la synchro range (relevé prod du 27/10, réduit) :
+   * personnes par (jour, motif, issue, offres). Un lot VIEUX de 45 jours (7
+   * « trop cher », 20 résiliations serveur sans questionnaire) : dans l'outil
+   * sans période, HORS de la carte, dont la période par défaut est les 30
+   * derniers jours de données.
+   */
+  test("motifs de résiliation : la carte et l'outil lisent le même questionnaire", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const slug = `e2e-mcp-retention-motifs-${ts}`;
+    const nom = `E2E MCP Retention Motifs ${ts}`;
+    const { projectId } = (await admin.mutation(api.projects.e2eEnsureProjectBySlug, {
+      secret: E2E_SECRET,
+      slug,
+      name: nom,
+    })) as { projectId: Id<"projects"> };
+
+    try {
+      await admin.mutation(api.whopSync.e2eSetProjectWhop, {
+        secret: E2E_SECRET,
+        projectId,
+        whop: { companyId: `biz_e2e_retmot_${ts}`, apiKeyEnvVar: "WHOP_API_KEY_E2E_ABSENTE" },
+      });
+      // Un client acquis dans la période : sans lui l'onglet s'arrête sur
+      // « aucun client acquis » avant d'atteindre la carte.
+      const membershipId = `mem_e2e_retmot_${ts}`;
+      await admin.mutation(api.whopSync.e2eUpsertWhopPayments, {
+        secret: E2E_SECRET,
+        projectId,
+        payments: [
+          {
+            whopId: `pay_e2e_retmot_${ts}`,
+            status: "paid" as const,
+            rawStatus: "paid",
+            currency: "eur",
+            grossAmount: 4.99,
+            feeAmount: 0.47,
+            netAmount: 4.52,
+            refundedAmount: 0,
+            paidAt: ts - 5 * DAY,
+            planId: "plan_hebdo",
+            membershipId,
+            billingReason: "subscription_create",
+          },
+        ],
+      });
+      await admin.mutation(api.whopSync.e2eSeedWhopMembership, {
+        secret: E2E_SECRET,
+        projectId,
+        whopMembershipId: membershipId,
+        planId: "plan_hebdo",
+        accessEndsAt: ts + 2 * DAY,
+        valid: true,
+      });
+
+      const j = (n: number) => jourParis(ts - n * DAY);
+      // (jour, motif, issue, pause cliquée, cible cliquée, acceptée, mois, personnes)
+      const flux = (day: string, reason: string, outcome: string, persons: number, o: Partial<{ selectedPause: boolean; selectedSwap: boolean; accepted: string; pauseMonths: number }> = {}) => ({
+        day,
+        reason,
+        outcome,
+        selectedPause: o.selectedPause ?? false,
+        selectedSwap: o.selectedSwap ?? false,
+        accepted: o.accepted ?? "",
+        pauseMonths: o.pauseMonths ?? 0,
+        persons,
+      });
+      const cache = (key: string, valeur: unknown) => ({ key, json: JSON.stringify(valeur), computedAt: ts - 20 * MINUTE });
+      await admin.mutation(api.posthogSync.e2eSeedPosthogCache, {
+        secret: E2E_SECRET,
+        projectId,
+        entries: [
+          // 41 jours de trafic : la période par défaut (30 derniers jours de
+          // données) exclut le lot de J-45.
+          cache("overview", {
+            daily: Array.from({ length: 41 }, (_, i) => ({ ts: ts - (40 - i) * DAY, visitors: 50, signups: 10, checkouts: 3, subs: 1 })),
+          }),
+          cache("cancelFlow", {
+            rows: [
+              flux(j(45), "too_expensive", "canceled", 7),
+              flux(j(3), "too_expensive", "canceled", 4),
+              flux(j(3), "got_my_answer", "canceled", 3),
+              flux(j(3), "got_my_answer", "retained", 1, { selectedPause: true, accepted: "pause", pauseMonths: 1 }),
+              flux(j(2), "(skipped)", "canceled", 5),
+              flux(j(2), "target_inactive", "retained", 1, { selectedSwap: true, accepted: "swap" }),
+              flux(j(1), "", "abandoned", 1),
+            ],
+          }),
+          cache("cancelServer", {
+            rows: [
+              { day: j(45), inFlow: false, pausedBefore: false, persons: 20 },
+              { day: j(3), inFlow: true, pausedBefore: false, persons: 7 },
+              { day: j(2), inFlow: false, pausedBefore: false, persons: 6 },
+              { day: j(1), inFlow: true, pausedBefore: true, persons: 1 },
+            ],
+          }),
+        ],
+      });
+
+      await page.goto(adminPath("/comptes"));
+      await page.getByRole("button", { name: "Connecter Claude" }).click();
+      await page.getByLabel("Nom de la clé").fill(`E2E retention motifs ${ts}`);
+      await page.getByRole("button", { name: "Créer une clé" }).click();
+      const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+      const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!
+        .match(/jarvia (\S+\/mcp) /)![1];
+
+      type Motifs = {
+        disponible: boolean;
+        periode: unknown;
+        personnesPasseesParLeQuestionnaire: number;
+        personnesAvecMotif: number;
+        motifs: { code: string; libelle: string; personnes: number; pctDesReponses: number | null; ontResilie: number; retenues: number }[];
+        questionPassee: number;
+        partiesAvantLaQuestion: number;
+        issues: Record<string, number>;
+        contreOffres: Record<string, unknown>;
+        resiliationsServeur: Record<string, number | null>;
+      };
+      const motifsDe = async (args: Record<string, unknown>) =>
+        ((await outil(url, token, args)) as unknown as { motifsDeResiliation: Motifs }).motifsDeResiliation;
+
+      // ── Outil, toute la profondeur : le lot de J-45 est compté ──────────────
+      const tout = await motifsDe({ projet: slug });
+      expect(tout).toMatchObject({
+        disponible: true,
+        personnesPasseesParLeQuestionnaire: 22,
+        personnesAvecMotif: 16,
+        questionPassee: 5,
+        partiesAvantLaQuestion: 1,
+        issues: { ontResilie: 19, retenuesParUneContreOffre: 2, partiesEnCours: 1 },
+        contreOffres: {
+          pause: { cliquee: 1, acceptee: 1, dureesPosees: [{ mois: 1, personnes: 1 }] },
+          changerDeCible: { cliquee: 1, acceptee: 1 },
+        },
+        resiliationsServeur: {
+          total: 34,
+          passeesParLeQuestionnaire: 8,
+          sansQuestionnaireAuPlus: 26,
+          pctSansQuestionnaireAuPlus: 76.5,
+          apresUnePauseAcceptee: 1,
+        },
+      });
+      expect(tout.motifs.map((m) => [m.code, m.libelle, m.personnes])).toEqual([
+        ["too_expensive", "C'est trop cher", 11],
+        ["got_my_answer", "J'ai eu ma réponse", 4],
+        ["target_inactive", "La personne ne bouge plus", 1],
+      ]);
+
+      // ── Outil, période du/au : bornée au jour du questionnaire ──────────────
+      const borne = await motifsDe({ projet: slug, du: j(3), au: j(1) });
+      expect(borne.periode).toMatchObject({ du: j(3), au: j(1) });
+      expect(borne.personnesPasseesParLeQuestionnaire).toBe(15);
+      expect(borne.motifs.find((m) => m.code === "too_expensive")).toMatchObject({ personnes: 4, pctDesReponses: 44.4 });
+      expect(borne.resiliationsServeur).toMatchObject({ total: 14, sansQuestionnaireAuPlus: 6 });
+
+      // ── L'écran : même calcul, période par défaut (30 derniers jours) ───────
+      await page.goto(`/admin/${slug}/analytics`);
+      await page.getByRole("tab", { name: /rétention/i }).click();
+      await expect(page.getByText("Motifs de résiliation")).toBeVisible();
+      // Présence : les lignes de la période, au chiffre de l'outil borné.
+      await expect(page.getByRole("row", { name: "Motif too_expensive" })).toContainText("C'est trop cher");
+      await expect(page.getByRole("row", { name: "Motif too_expensive" }).getByRole("cell").nth(1)).toHaveText("4");
+      await expect(page.getByRole("row", { name: "Motif got_my_answer" }).getByRole("cell").nth(1)).toHaveText("4");
+      await expect(page.getByRole("row", { name: "Motif (skipped)" })).toContainText("Question passée");
+      await expect(page.getByText("≤ 6")).toBeVisible();
+      await expect(page.getByText(/1 résiliation\(s\) enregistrée\(s\) par le serveur suivent une pause acceptée/)).toBeVisible();
+      // Absence : le lot de J-45 (7 « trop cher », 20 serveur) n'est pas là.
+      await expect(page.getByText("≤ 26")).toHaveCount(0);
+      await expect(page.getByRole("row", { name: "Motif too_expensive" }).getByRole("cell").nth(1)).not.toHaveText("11");
+    } finally {
+      await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
+    }
+  });
 });
