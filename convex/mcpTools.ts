@@ -185,7 +185,12 @@ import {
   type CalendarStatus,
 } from "./calendarStatus";
 import { listMarketGroupsCore } from "./marketGroups";
-import { getProductAnalyticsCore, type ProductAnalytics } from "./posthogSync";
+import {
+  getCancelReasonsCore,
+  getProductAnalyticsCore,
+  type ProductAnalytics,
+} from "./posthogSync";
+import { REASON_NONE, REASON_SKIPPED, summarizeCancelReasons } from "./cancelReasons";
 import {
   computeWindowedAnalytics,
   type WindowedParcours,
@@ -420,6 +425,12 @@ export const lireFiabilite = mcpPermissionQuery("business.read")({
 export const lireRetention = mcpPermissionQuery("business.read")({
   args: { from: v.optional(v.string()), to: v.optional(v.string()) },
   handler: async (ctx, args) => getChurnCore(ctx, args),
+});
+
+/** Carte « Motifs de résiliation » de l'onglet Rétention — mêmes lignes du cache PostHog. */
+export const lireMotifsResiliation = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => getCancelReasonsCore(ctx),
 });
 
 /** Onglet Pays : rentabilité par marché sur une période — même calcul, même bloc. */
@@ -1007,7 +1018,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "retention",
     title: "Rétention (Analytics)",
     description:
-      "Rétention des clients, comme l'onglet Rétention de l'Analytics (même calcul) : résiliations (annulé, accès encore valide) et expirations (accès perdu, le vrai churn) sur 90 jours, taux de résiliation, délai paiement → résiliation, clients qui perdront l'accès dans 7 jours ; échéances et taux de renouvellement (résolu / borne basse, concluant ou non), revenu nouveau vs renouvellement, revenu par client à ce jour et projeté, contre le coût d'acquisition ; cohortes par semaine, renouvellement par offre, causes d'échec. Cohorte d'acquisition au choix (du/au) ; sans, toute la profondeur.",
+      "Rétention des clients, comme l'onglet Rétention de l'Analytics (même calcul) : résiliations (annulé, accès encore valide) et expirations (accès perdu, le vrai churn) sur 90 jours, taux de résiliation, délai paiement → résiliation, clients qui perdront l'accès dans 7 jours ; échéances et taux de renouvellement (résolu / borne basse, concluant ou non), revenu nouveau vs renouvellement, revenu par client à ce jour et projeté, contre le coût d'acquisition ; cohortes par semaine, renouvellement par offre, causes d'échec ; et les MOTIFS DE RÉSILIATION déclarés dans le questionnaire de l'app (PostHog, carte « Motifs de résiliation ») : motifs, contre-offres pause et changement de cible, part des résiliations qui n'y passent pas. Cohorte d'acquisition au choix (du/au) ; sans, toute la profondeur. Pour les motifs, du/au borne le jour du questionnaire, pas la cohorte.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1321,6 +1332,91 @@ const montantAffiche = (d: DisplayAmount | null) =>
       };
 
 const json = (valeur: unknown) => textResult(JSON.stringify(valeur, null, 1));
+
+/** Libellés du questionnaire de résiliation, mot pour mot ceux de l'app (comme l'écran). */
+const LIBELLES_MOTIF_RESILIATION: Record<string, string> = {
+  got_my_answer: "J'ai eu ma réponse",
+  too_expensive: "C'est trop cher",
+  not_enough: "Je n'ai pas vu assez de choses",
+  target_inactive: "La personne ne bouge plus",
+  other: "Autre chose",
+};
+
+/**
+ * Bloc `motifsDeResiliation` de l'outil `retention` : la carte « Motifs de
+ * résiliation » de l'onglet, même calcul (convex/cancelReasons), même période —
+ * le jour du questionnaire, pas la cohorte d'acquisition.
+ */
+function motifsDeResiliation(
+  lu: Awaited<ReturnType<typeof getCancelReasonsCore>>,
+  periode: { from: string; to: string } | null,
+) {
+  if (!lu.configured) {
+    return {
+      disponible: false,
+      raison: "PostHog n'est pas configuré sur ce projet : le questionnaire de résiliation de l'app n'est lu nulle part.",
+    };
+  }
+  if (lu.flow.rows.length === 0 && lu.server.rows.length === 0) {
+    return {
+      disponible: false,
+      raison: lu.error
+        ? `Dernière lecture PostHog en échec : ${lu.error}`
+        : "En attente de la première synchro PostHog (cron horaire).",
+    };
+  }
+  const s = summarizeCancelReasons(lu.flow, lu.server, periode);
+  const part = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : null);
+  const personnesDe = (code: string) => s.reasons.find((r) => r.reason === code)?.persons ?? 0;
+  return {
+    disponible: true,
+    periode: periode
+      ? { du: periode.from, au: periode.to, porteSur: "le jour du passage par le questionnaire" }
+      : "toute la profondeur du cache PostHog (90 jours)",
+    personnesPasseesParLeQuestionnaire: s.persons,
+    personnesAvecMotif: s.answered,
+    motifs: s.reasons
+      .filter((r) => r.reason !== REASON_SKIPPED && r.reason !== REASON_NONE)
+      .map((r) => ({
+        code: r.reason,
+        libelle: LIBELLES_MOTIF_RESILIATION[r.reason] ?? r.reason,
+        personnes: r.persons,
+        pctDesReponses: part(r.persons, s.answered),
+        ontResilie: r.canceled,
+        retenues: r.retained,
+        partiesEnCours: r.abandoned,
+      })),
+    questionPassee: personnesDe(REASON_SKIPPED),
+    partiesAvantLaQuestion: personnesDe(REASON_NONE),
+    issues: {
+      ontResilie: s.outcomes.canceled,
+      retenuesParUneContreOffre: s.outcomes.retained,
+      partiesEnCours: s.outcomes.abandoned,
+    },
+    contreOffres: {
+      pause: {
+        cliquee: s.offers.selectedPause,
+        acceptee: s.offers.acceptedPause,
+        dureesPosees: s.offers.pauseMonths.map((p) => ({ mois: p.months, personnes: p.persons })),
+      },
+      changerDeCible: { cliquee: s.offers.selectedSwap, acceptee: s.offers.acceptedSwap },
+    },
+    resiliationsServeur: {
+      total: s.server.canceled,
+      passeesParLeQuestionnaire: s.server.inFlow,
+      sansQuestionnaireAuPlus: s.server.withoutFlow,
+      pctSansQuestionnaireAuPlus: part(s.server.withoutFlow, s.server.canceled),
+      apresUnePauseAcceptee: s.server.pausedBefore,
+    },
+    ...(lu.error ? { avertissementSynchro: `Dernière lecture PostHog en échec, chiffres de la synchro précédente : ${lu.error}` } : {}),
+    lecture: [
+      "Source : events PostHog de l'app (Whop ne connaît ni le motif ni la pause). Une personne compte une fois, avec le DERNIER motif donné (passer la question ensuite ne l'efface pas) et le DERNIER dénouement (retenue par une pause puis revenue annuler = a résilié).",
+      "« Autre chose » n'a aucun détail : l'app n'envoie pas de texte libre.",
+      "« sansQuestionnaireAuPlus » est une borne HAUTE : résiliation faite directement sur Whop, échec de paiement que Whop annule, ou personne que PostHog n'a pas reliée entre l'app et le serveur.",
+      "« apresUnePauseAcceptee » : mesuré le 27/10, presque toutes les pauses sont suivies d'une résiliation côté serveur (~7 jours après). Tant que l'app n'a pas dit si la pause remonte comme une résiliation, ne présente pas une pause comme un client sauvé.",
+    ],
+  };
+}
 
 /**
  * Le serveur MCP d'UNE personne authentifiée, par UNE connexion (clé ou
@@ -2369,6 +2465,10 @@ export function jarviaServer(
                 })),
               }
             : {}),
+          motifsDeResiliation: motifsDeResiliation(
+            await lire(() => ctx.runQuery(internal.mcpTools.lireMotifsResiliation, ids)),
+            cohorte,
+          ),
           lecture: [
             "Cohorte = les clients ACQUIS sur la période, suivis depuis : une seule population (comme l'onglet). Sans du/au : toute la profondeur.",
             "« clients » compte ici des ABONNEMENTS Whop (une personne peut en avoir plusieurs) — pas les personnes d'economie_unitaire. Ne jamais comparer les deux sans le dire.",

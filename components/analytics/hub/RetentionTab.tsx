@@ -16,8 +16,15 @@ import { formatMoney } from "@/lib/format-rate";
 import { toDisplayAmount, conversionNote } from "@/lib/currency-display";
 import { computeChurn } from "@/lib/churn";
 import { acquisitionCostPerClient } from "@/lib/retention-cost";
-import { formatDayShort } from "@/lib/analytics-window";
+import { clampWindow, formatDayShort, formatWindow } from "@/lib/analytics-window";
 import type { AnalyticsWindow, DataRange } from "@/lib/analytics-window";
+import {
+  REASON_NONE,
+  REASON_SKIPPED,
+  summarizeCancelReasons,
+  type CancelFlowPayload,
+  type CancelServerPayload,
+} from "@/convex/cancelReasons";
 import {
   HubCardHeader,
   HubNotice,
@@ -77,13 +84,234 @@ function frDateTime(ms: number | null): string {
   });
 }
 
+/** Libellés du questionnaire, mot pour mot ceux que l'app montre (app Snytch, fr). */
+const CANCEL_REASON_LABELS: Record<string, string> = {
+  got_my_answer: "J'ai eu ma réponse",
+  too_expensive: "C'est trop cher",
+  not_enough: "Je n'ai pas vu assez de choses",
+  target_inactive: "La personne ne bouge plus",
+  other: "Autre chose",
+  [REASON_SKIPPED]: "Question passée",
+  [REASON_NONE]: "Parti avant la question",
+};
+
+/** Part d'un total, « — » quand le total est nul (jamais « 0 % » sur rien). */
+function share(n: number, total: number): string {
+  return total > 0 ? pctFromFraction(n / total) : "—";
+}
+
+/**
+ * MOTIFS DE RÉSILIATION — le questionnaire de l'app, ses contre-offres, et la
+ * part des résiliations qui n'y passent pas. Calcul dans convex/cancelReasons,
+ * partagé avec l'outil MCP `retention`.
+ *
+ * La période porte sur le JOUR DU QUESTIONNAIRE, pas sur la cohorte
+ * d'acquisition qui borne le reste de l'onglet : la carte le dit en tête.
+ */
+function CancelReasonsCard({
+  data,
+  window,
+  dataRange,
+}: {
+  /** null = PostHog non configuré sur le projet. */
+  data: { flow: CancelFlowPayload; server: CancelServerPayload } | null;
+  window: AnalyticsWindow | null;
+  dataRange: DataRange | null;
+}) {
+  const s = useMemo(
+    () => (data ? summarizeCancelReasons(data.flow, data.server, window) : null),
+    [data, window],
+  );
+  // Ce que la période couvre VRAIMENT : PostHog n'est relu que sur 90 jours.
+  const span = window ? (clampWindow(window, dataRange) ?? window) : dataRange
+    ? { from: dataRange.first, to: dataRange.last }
+    : null;
+  const header = (
+    <HubCardHeader
+      title="Motifs de résiliation"
+      subtitle={`Le questionnaire que l'app pose avant d'annuler, et ses contre-offres. Source PostHog (Whop ne connaît ni le motif ni la pause). Période : jour du questionnaire${span ? `, ${formatWindow(span)}` : ""} — pas la cohorte d'acquisition du reste de l'onglet.`}
+    />
+  );
+  if (data === null || s === null) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          {header}
+          <p className="text-xs text-slate-500">
+            PostHog n&apos;est pas configuré sur ce projet : le questionnaire de
+            résiliation n&apos;est lu nulle part ailleurs.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  if (data.flow.rows.length === 0 && data.server.rows.length === 0) {
+    return (
+      <Card>
+        <CardContent className="space-y-3 p-4">
+          {header}
+          <p className="text-xs text-slate-500">
+            En attente de la première synchro PostHog (cron horaire ou
+            Actualiser).
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+  const pauseDetail = s.offers.pauseMonths
+    .map((p) => `${p.months} mois : ${formatNumber(p.persons)}`)
+    .join(" · ");
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        {header}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <KpiTile
+            label="Passées par le questionnaire"
+            value={dash(s.persons)}
+            delta={null}
+            hint={`${formatNumber(s.answered)} ont donné un motif`}
+          />
+          <KpiTile
+            label="Retenues par une contre-offre"
+            value={dash(s.outcomes.retained)}
+            delta={null}
+            hint={`${share(s.outcomes.retained, s.persons)} des personnes du parcours`}
+          />
+          <KpiTile
+            label="Pauses acceptées"
+            value={dash(s.offers.acceptedPause)}
+            delta={null}
+            hint={pauseDetail || "aucune pause posée"}
+          />
+          <KpiTile
+            label="Résiliations sans questionnaire"
+            value={s.server.canceled === 0 ? "—" : `≤ ${formatNumber(s.server.withoutFlow)}`}
+            delta={null}
+            hint={`sur ${formatNumber(s.server.canceled)} vues par le serveur (${share(s.server.withoutFlow, s.server.canceled)}, borne haute)`}
+          />
+        </div>
+        {s.persons === 0 ? (
+          <p className="text-xs text-slate-400">
+            — personne n&apos;est passé par le questionnaire sur la période.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Motif</TableHead>
+                  <TableHead className="text-right">Personnes</TableHead>
+                  <TableHead className="text-right">Part des réponses</TableHead>
+                  <TableHead className="text-right">Ont résilié</TableHead>
+                  <TableHead className="text-right">Retenues</TableHead>
+                  <TableHead className="text-right">Parties en cours</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {s.reasons.map((r) => {
+                  const answer = r.reason !== REASON_SKIPPED && r.reason !== REASON_NONE;
+                  return (
+                    <TableRow key={r.reason || "(none)"} aria-label={`Motif ${r.reason || "(none)"}`}>
+                      <TableCell className={answer ? "text-xs" : "text-xs italic text-slate-500"}>
+                        {CANCEL_REASON_LABELS[r.reason] ?? r.reason}
+                      </TableCell>
+                      <TableCell className="text-right text-xs font-semibold tabular-nums">
+                        {formatNumber(r.persons)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {answer ? share(r.persons, s.answered) : "—"}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {formatNumber(r.canceled)}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums">
+                        {r.retained > 0 ? (
+                          <span className="font-medium text-emerald-700">
+                            {formatNumber(r.retained)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">0</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-xs tabular-nums text-slate-500">
+                        {formatNumber(r.abandoned)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Contre-offre</TableHead>
+              <TableHead className="text-right">Cliquée</TableHead>
+              <TableHead className="text-right">Acceptée</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell className="text-xs">Mettre en pause</TableCell>
+              <TableCell className="text-right text-xs tabular-nums">
+                {formatNumber(s.offers.selectedPause)}
+              </TableCell>
+              <TableCell className="text-right text-xs font-semibold tabular-nums">
+                {formatNumber(s.offers.acceptedPause)}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="text-xs">Changer de cible</TableCell>
+              <TableCell className="text-right text-xs tabular-nums">
+                {formatNumber(s.offers.selectedSwap)}
+              </TableCell>
+              <TableCell className="text-right text-xs font-semibold tabular-nums">
+                {formatNumber(s.offers.acceptedSwap)}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+        {s.server.pausedBefore > 0 ? (
+          <HubNotice className="border-amber-200 bg-amber-50/70 text-amber-900">
+            <strong>
+              {formatNumber(s.server.pausedBefore)} résiliation(s) enregistrée(s)
+              par le serveur suivent une pause acceptée.
+            </strong>{" "}
+            Mesuré le 27/10 : presque toutes les pauses en ont une, souvent
+            environ 7 jours après. Tant que l&apos;app n&apos;a pas dit si une pause
+            remonte du serveur comme une résiliation, une pause acceptée n&apos;est
+            pas un client sauvé.
+          </HubNotice>
+        ) : null}
+        <p className="text-xs text-slate-400">
+          Une personne compte une fois, avec le dernier motif qu&apos;elle a donné
+          (passer la question ensuite ne l&apos;efface pas) et le dernier
+          dénouement (retenue par une pause puis revenue annuler = résiliation).
+          « Autre chose » n&apos;a pas de détail : l&apos;app n&apos;envoie aucun texte
+          libre. « Sans questionnaire » : résiliation faite directement sur Whop,
+          échec de paiement que Whop annule — ou personne que PostHog n&apos;a pas
+          reliée entre l&apos;app et le serveur, d&apos;où la borne haute.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function RetentionTab({
   churn,
   attribution,
   clientWindow,
   dataRange,
   now,
+  cancelReasons,
 }: {
+  /**
+   * Questionnaire de résiliation (PostHog). null = PostHog non configuré ;
+   * `undefined` tant que l'agrégat produit n'est pas chargé.
+   */
+  cancelReasons?: { flow: CancelFlowPayload; server: CancelServerPayload } | null;
   churn: ChurnData;
   /**
    * NON fenêtrée. Tout ce que cet onglet compare porte sur toute la profondeur ;
@@ -993,6 +1221,15 @@ export function RetentionTab({
           </CardContent>
         </Card>
       </div>
+
+      {/* Motifs de résiliation — POURQUOI, à côté du QUAND ci-dessous */}
+      {cancelReasons !== undefined ? (
+        <CancelReasonsCard
+          data={cancelReasons}
+          window={clientWindow}
+          dataRange={dataRange}
+        />
+      ) : null}
 
       {/* Résiliations en détail — le délai distingue le bug du produit */}
       <Card>

@@ -443,6 +443,11 @@ function AnalyticsPageContenu() {
                   clientWindow={window}
                   dataRange={dataRange}
                   now={now}
+                  cancelReasons={
+                    analytics.configured
+                      ? { flow: analytics.cancelFlow, server: analytics.cancelServer }
+                      : null
+                  }
                 />
               )}
             </TabsContent>
