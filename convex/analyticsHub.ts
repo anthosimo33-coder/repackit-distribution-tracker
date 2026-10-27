@@ -937,7 +937,7 @@ export interface PlanEconomics {
   members: number;
   /** Net cumulé, devise du revenu. null si non additionnable (A5). */
   netTotal: number | null;
-  /** LTV RÉALISÉE = net cumulé / membres (pas de projection : sans signal de
+  /** LTV RÉALISÉE = net cumulé / membres encaissés (pas de projection : sans signal de
    *  churn, une LTV prédictive serait inventée). Devise du revenu. */
   ltv: number | null;
   /** B3 — Net moyen par paiement, devise du revenu. null si aucun paiement encaissé. */

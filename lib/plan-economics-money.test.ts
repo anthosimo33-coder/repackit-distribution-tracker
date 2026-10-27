@@ -53,7 +53,8 @@ function paiement(
 }
 
 //  plan_eur : 9,31 € en sept + 9,31 € en oct (un abonnement), plus un
-//             abonnement dont le seul paiement a échoué (compté, net nul).
+//             abonnement dont le seul paiement a échoué (jamais encaissé :
+//             pas un abonné).
 //  plan_rsd : 535,26 RSD en sept + 535,26 RSD en oct (= 2 × 4,56 €), plus un
 //             paiement de 0,50 RSD (0,004 € → 0,00 € une fois converti) : le
 //             mois est ACTIF quand même, il a encaissé.
@@ -97,11 +98,11 @@ describe("membershipEconomicsOf — devises", () => {
       netPerMemberMonth: 9.56,
       netPerPayment: 9.56,
     });
-    // Déjà en euros : inchangé. L'abonnement en échec compte (2 abonnés), sans mois actif.
+    // Déjà en euros : inchangé. L'abonnement en échec n'a rien encaissé : 1 abonné.
     expect(plans.get("plan_eur")).toEqual({
-      members: 2,
+      members: 1,
       netTotal: 18.62,
-      ltv: 9.31,
+      ltv: 18.62,
       netPerMemberMonth: 9.31,
       netPerPayment: 9.31,
     });
@@ -109,8 +110,8 @@ describe("membershipEconomicsOf — devises", () => {
 
   it("LTV et revenu mensuel du projet : des euros, pas une somme de devises", () => {
     const e = eco();
-    // 18,62 + 9,12 + 9,56 = 37,30 € sur 5 abonnements — et non 1 100,76 ÷ 5.
-    expect(e.ltv).toBe(7.46);
+    // 18,62 + 9,12 + 9,56 = 37,30 € sur 4 abonnements encaissés — et non 1 100,76 ÷ 4.
+    expect(e.ltv).toBe(9.33);
     // 37,30 € sur 6 mois-abonnés (2 + 2 + 1 + 1).
     expect(e.monthlyArpu).toBe(6.22);
   });
@@ -145,10 +146,61 @@ describe("membershipEconomicsOf — devise sans taux (A5)", () => {
   it("les compteurs restent justes", () => {
     const { plans } = eco(PAIEMENTS, SANS_RSD);
     expect([...plans.entries()].map(([id, p]) => [id, p.members])).toEqual([
-      ["plan_eur", 2],
+      ["plan_eur", 1],
       ["plan_rsd", 2],
       ["plan_usd", 1],
     ]);
+  });
+});
+
+describe("membershipEconomicsOf — dénominateur : les abonnements ENCAISSÉS", () => {
+  // Bug du 27/10/2026 sur Snytch : toute membership portant un paiement, même
+  // échoué, comptait comme abonné. « Snytch Pro 3 Cibles — Mensuel » (29,99 €)
+  // affichait 69 abonnés et 26,55 € de LTV pour 51 abonnements encaissés et
+  // 35,92 € ; l'hebdo 9,99 €, 782 et 11,88 € pour 513 et 18,11 €. Même règle
+  // que `revenueToDatePerClient` (convex/whopRevenue) : au dénominateur, seuls
+  // les abonnements dont l'argent compte au numérateur.
+  const LOT: PlanEconomicsPaymentLike[] = [
+    paiement("mem_paye", "plan_mois", SEPT, "eur", 28.63),
+    paiement("mem_paye", "plan_mois", OCT, "eur", 28.63),
+    // Carte refusée au checkout : la membership existe chez Whop (drafted).
+    paiement("mem_refuse", "plan_mois", OCT, "eur", 29.99, { status: "failed" }),
+    paiement("mem_refuse", "plan_mois", OCT, "eur", 29.99, { status: "failed" }),
+    paiement("mem_attente", "plan_mois", OCT, "eur", 29.99, { status: "pending" }),
+    paiement("mem_rembourse", "plan_mois", OCT, "eur", 28.63, {
+      status: "refunded",
+      refundedAmount: 28.63,
+    }),
+    // Échoué au renouvellement : l'abonné reste, il a encaissé une fois.
+    paiement("mem_un_mois", "plan_mois", SEPT, "eur", 28.63),
+    paiement("mem_un_mois", "plan_mois", OCT, "eur", 29.99, { status: "failed" }),
+    // Offre dont aucune tentative n'a abouti : la ligne reste, sans abonné.
+    paiement("mem_jamais", "plan_mort", OCT, "eur", 2.99, { status: "failed" }),
+  ];
+
+  it("une offre ne compte que ses abonnements encaissés, et la LTV les divise seuls", () => {
+    const { plans } = eco(LOT);
+    // 3 × 28,63 € sur 2 abonnements encaissés — et non sur 5 memberships.
+    expect(plans.get("plan_mois")).toEqual({
+      members: 2,
+      netTotal: 85.89,
+      ltv: 42.95,
+      netPerMemberMonth: 28.63,
+      netPerPayment: 28.63,
+    });
+    expect(plans.get("plan_mort")).toEqual({
+      members: 0,
+      netTotal: 0,
+      ltv: null,
+      netPerMemberMonth: null,
+      netPerPayment: null,
+    });
+  });
+
+  it("la LTV du projet divise par les mêmes abonnements encaissés", () => {
+    const e = eco(LOT);
+    expect(e.ltv).toBe(42.95);
+    expect(e.monthlyArpu).toBe(28.63);
   });
 });
 
@@ -164,16 +216,16 @@ describe("membershipEconomicsOf — une seule devise (non-régression)", () => {
     paiement(undefined, "plan_mois", OCT, "eur", 18.37),
   ];
 
-  it("3 abonnés, 18,37 € de net → LTV 6,12 ; le paiement sans abonnement compte au net/paiement", () => {
+  it("1 abonné encaissé (le remboursé et le litige n'en sont pas), 18,37 € → LTV 18,37 ; le paiement sans abonnement compte au net/paiement", () => {
     const e = membershipEconomicsOf(MOIS, summarizeWhopRevenue(MOIS, SNYTCH_FX));
     expect(e.plans.get("plan_mois")).toEqual({
-      members: 3,
+      members: 1,
       netTotal: 18.37,
-      ltv: 6.12,
+      ltv: 18.37,
       netPerMemberMonth: 18.37,
       netPerPayment: 18.37,
     });
-    expect(e.ltv).toBe(6.12);
+    expect(e.ltv).toBe(18.37);
     expect(e.monthlyArpu).toBe(18.37);
   });
 });

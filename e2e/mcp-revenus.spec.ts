@@ -201,9 +201,10 @@ test.describe("Outil MCP revenus", () => {
       expect(r.offres.map((o) => [o.clients, o.netTotal, o.ltvRealisee])).toEqual(
         ecran.plans.map((p) => [p.members, p.netTotal, p.ltv]),
       );
-      // Mensuel : 3 clients (B, C remboursé, D en litige), 18,37 de net → 6,12.
+      // Mensuel : 1 client encaissé (B ; C remboursé et D en litige n'ont rien
+      // encaissé au net), 18,37 de net → 18,37.
       expect(r.offres).toContainEqual(
-        expect.objectContaining({ prix: 19.99, clients: 3, netTotal: 18.37, ltvRealisee: 6.12 }),
+        expect.objectContaining({ prix: 19.99, clients: 1, netTotal: 18.37, ltvRealisee: 18.37 }),
       );
       expect(r.remboursements).toEqual({ montant: 18.37, nombre: 1 });
       expect(r.litigesEnCours.montantARisque).toBe(18.37);

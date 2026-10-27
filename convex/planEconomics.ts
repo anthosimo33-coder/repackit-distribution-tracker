@@ -19,6 +19,13 @@
  * tout montant passe à `null`, les compteurs (abonnés) restent justes. Un mois
  * est actif, un paiement est compté, sur le net BRUT : 0,50 RSD converti
  * s'arrondit à 0,00 € mais a bien été encaissé.
+ *
+ * ⚠️ DÉNOMINATEUR. Un abonné est un abonnement qui a ENCAISSÉ au moins une
+ * fois (même règle que `revenueToDatePerClient`, convex/whopRevenue). Toute
+ * membership portant un paiement comptait, même s'il n'avait fait qu'échouer :
+ * le 27/10/2026 sur Snytch, le mensuel 29,99 € affichait 69 abonnés et 26,55 €
+ * de LTV pour 51 abonnements encaissés et 35,92 €. Remboursés et litiges, hors
+ * du net, sortent aussi du dénominateur.
  */
 import { monthKeyParis } from "./dateFr";
 import {
@@ -40,11 +47,11 @@ export const NO_PLAN_ID = "(sans plan)";
 
 /** Montants dans la devise du revenu (`ref.currency`), `null` si non additionnables. */
 export interface PlanMoney {
-  /** Abonnements rattachés à l'offre (celle du premier paiement lu). */
+  /** Abonnements ENCAISSÉS rattachés à l'offre (celle du premier paiement lu). */
   members: number;
   /** Net cumulé de ces abonnements. */
   netTotal: number | null;
-  /** LTV RÉALISÉE = net cumulé / abonnements. */
+  /** LTV RÉALISÉE = net cumulé / abonnements encaissés. */
   ltv: number | null;
   /** Net par mois-abonné actif (mois où l'abonnement a encaissé). */
   netPerMemberMonth: number | null;
@@ -105,7 +112,9 @@ export function membershipEconomicsOf(
       netTotal: 0,
       memberMonths: 0,
     };
-    cur.members += 1;
+    // Un mois actif = un encaissement : sans lui, l'abonnement n'a jamais payé.
+    // L'offre reste listée (ligne « historique »), sans abonné.
+    if (m.months.size > 0) cur.members += 1;
     cur.netTotal += m.net;
     cur.memberMonths += m.months.size;
     byPlan.set(m.planId, cur);
@@ -125,7 +134,7 @@ export function membershipEconomicsOf(
   }
 
   const totalNet = [...perMembership.values()].reduce((s, m) => s + m.net, 0);
-  const totalMembers = perMembership.size;
+  const totalMembers = [...perMembership.values()].filter((m) => m.months.size > 0).length;
   const totalMemberMonths = [...perMembership.values()].reduce(
     (s, m) => s + m.months.size,
     0,
