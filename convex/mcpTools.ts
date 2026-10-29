@@ -29,6 +29,7 @@ import {
   DEAD_HOOK_MIN_RUNS,
   OPEN_DOOR_MIN_LIKE_RATE,
   OPEN_DOOR_MIN_VIEWS,
+  RECRUIT_EARLY_STOP_MAX_VIEWS,
   RECRUIT_KEEP_MIN_VIEWS,
   RECRUIT_TRIAL_VIDEOS,
   savesAvailability,
@@ -4007,7 +4008,7 @@ export function jarviaServer(
               }),
           lecture: [
             "Le Dashboard de l'app : les quatre cartes d'action, « À décider » (une ligne par DÉCISION, jamais une tâche), les posts des 48 dernières heures par créatrice. La conversion par créatrice (« Ce que ça a rapporté ») est dans l'outil « acquisition ».",
-            `Recrue à trancher = créatrice ni en pause, ni partie, ni déjà tranchée, jugée sur ses ${RECRUIT_TRIAL_VIDEOS} premières vidéos promo (une mission publiée sur TikTok et Instagram = une vidéo) : « garder » dès qu'UNE publication TikTok ou Instagram atteint ${RECRUIT_KEEP_MIN_VIEWS} vues (jamais la somme des deux) ; « arrêter » 7 jours après la ${RECRUIT_TRIAL_VIDEOS}e vidéo si aucune n'y est arrivée ; « suspendu » si une publication du test n'a jamais été relevée (elle pourrait être celle qui passe le seuil).`,
+            `Recrue à trancher = créatrice ni en pause, ni partie, ni déjà tranchée, jugée sur ses ${RECRUIT_TRIAL_VIDEOS} premières vidéos promo (une mission publiée sur TikTok et Instagram = une vidéo) : « garder » dès qu'UNE publication TikTok ou Instagram atteint ${RECRUIT_KEEP_MIN_VIEWS} vues (jamais la somme des deux) ; « arrêter » si aucune n'y est arrivée, dès 3 jours après la ${RECRUIT_TRIAL_VIDEOS}e vidéo quand toutes les publications du test sont sous ${RECRUIT_EARLY_STOP_MAX_VIEWS} vues et que tout est relevé, sinon 7 jours après ; « suspendu » si une publication du test n'a jamais été relevée (elle pourrait être celle qui passe le seuil).`,
             `Porte ouverte = post de moins de 48 h à ${OPEN_DOOR_MIN_VIEWS} vues ou plus, like rate ≥ ${OPEN_DOOR_MIN_LIKE_RATE * 100} %, au moins un enregistrement et des abonnés gagnés. Alarme compte = ${ACCOUNT_ALARM_RUN_LENGTH} posts consécutifs sous les seuils. Hook mort = au moins ${DEAD_HOOK_MIN_RUNS} runs publiés, aucun au-dessus de ${DEAD_HOOK_MAX_VIEWS} vues.`,
             "Décisions recalculées toutes les 30 min (cache de l'écran). Vues, likes et saves d'un post viennent de son relevé LE PLUS RÉCENT, pris entier : « nuit » (23 h 30) ou « rapide » (toutes les 2 h pendant les 36 premières heures), daté par « releveLe ». Un compteur que ce relevé ne fournit pas (likes masqués sur Instagram) vaut null, jamais la valeur d'un autre relevé.",
             "Posts des 48 h : par défaut les 5 posts DÉJÀ RELEVÉS les plus vus par créatrice ; « sansReleve » = posts sans aucun relevé (trop récents, ou plateforme non relevée), « autresPosts » = relevés non listés. « posts » et « vues » comptent tout. Détail complet : tous_les_posts.",

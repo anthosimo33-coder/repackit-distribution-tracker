@@ -72,11 +72,32 @@ export const RECRUIT_TRIAL_VIDEOS = 10;
 export const RECRUIT_KEEP_MIN_VIEWS = 10_000;
 
 /**
- * Délai après la 10e vidéo avant de proposer « arrêter » : à J+7, une vidéo a
- * en médiane 86 % de ses vues finales (mesure du 15/09/2026). Plus tôt, on
- * condamnerait une vidéo qui monte encore.
+ * Délai après la 10e vidéo avant de pouvoir proposer « arrêter » : 3 jours, et
+ * seulement si le garde-fou ci-dessous le permet. Base (export de prod du
+ * 29/10/2026, 718 posts promo Snytch avec un relevé à J+30) : le dernier relevé
+ * CONNU à H+72 classe les posts comme à J+30 (Spearman 0,97, 0,96 à l'intérieur
+ * d'un même compte) ; une publication TikTok sous 2 000 vues à H+72 finit à
+ * 10 000 dans 3 cas sur 319, une Instagram dans 0 sur 250.
  */
-export const RECRUIT_MATURITY_MS = 7 * 24 * HOUR_MS;
+export const RECRUIT_MATURITY_MS = 3 * 24 * HOUR_MS;
+
+/**
+ * Délai d'avant, gardé pour ce que le relevé à H+72 ne tranche pas : une
+ * publication du test à 2 000 vues ou plus (TikTok entre 5 000 et 10 000 à H+72 :
+ * 55 % finissent à 10 000), ou une publication pas encore relevée. Le relevé
+ * connu à J+7 porte 92 % du J+30 sur TikTok, 98 % sur Instagram (même mesure ;
+ * l'ancien « 86 % à J+7 » datait du 15/09/2026).
+ */
+export const RECRUIT_FULL_MATURITY_MS = 7 * 24 * HOUR_MS;
+
+/**
+ * Garde-fou de l'arrêt précoce : entre J+3 et J+7, « arrêter » n'est proposé
+ * que si AUCUNE publication du test, TikTok ou Instagram, n'atteint ce nombre
+ * de vues. Instagram y entre aussi, malgré son plafond à deux jours : sous 2 000
+ * à H+72, 0 sur 250 finissent à 10 000, mais au-dessus rien n'est mesuré, et
+ * Cintia (11/09/2026) est passée de 8 380 vues à H+91 à 10 033 à J+12 — gardée.
+ */
+export const RECRUIT_EARLY_STOP_MAX_VIEWS = 2_000;
 
 /**
  * Plateformes qui comptent pour le test — « que ce soit IG ou TikTok ». Les
