@@ -9,6 +9,7 @@
     "home.apps.platforms",
     "home.mock.notifSender",
     "layout.metadata.title",
+    "nav.item.playbook",
     "nav.item.radar",
     "nav.section.veille",
     "phase.inline.demo",

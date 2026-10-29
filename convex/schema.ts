@@ -2011,6 +2011,58 @@ export default defineSchema({
     .index("by_project", ["projectId"])
     .index("by_project_code", ["projectId", "code"]),
 
+  // PLAYBOOK (convex/playbook.ts, règles dans convex/playbookFiche.ts) — une
+  // fiche par FORMAT qui a gagné : recette, preuves, contre-preuve, règles, à
+  // tester, et un statut (hypothèse → en test → prouvé → en usure → retiré).
+  // `posts` = les publications qui prouvent, relues EN DIRECT à l'affichage
+  // (vues du dernier relevé) : on ne recopie jamais un chiffre qui vieillit.
+  playbookFiches: defineTable({
+    projectId: v.id("projects"),
+    titre: v.string(),
+    statut: v.union(
+      v.literal("prouve"),
+      v.literal("en_test"),
+      v.literal("hypothese"),
+      v.literal("en_usure"),
+      v.literal("retire"),
+    ),
+    recette: v.string(),
+    preuves: v.string(),
+    contrePreuve: v.string(),
+    regles: v.string(),
+    aTester: v.string(),
+    posts: v.array(v.id("publications")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_project", ["projectId"]),
+
+  // JOURNAL du playbook — une ligne par geste sur une fiche (création,
+  // modification, post ajouté ou retiré). `avant` / `apres` = les valeurs des
+  // `champs` modifiés (JSON) : de quoi défaire, et dire ce qui a bougé
+  // (« En test → Prouvé »).
+  // `motif` = le pourquoi, écrit par la personne (« A/B tour 2 lu à J+7 »).
+  playbookRevisions: defineTable({
+    projectId: v.id("projects"),
+    ficheId: v.id("playbookFiches"),
+    nature: v.union(
+      v.literal("creation"),
+      v.literal("modification"),
+      v.literal("postAjoute"),
+      v.literal("postRetire"),
+    ),
+    champs: v.array(v.string()),
+    avant: v.optional(v.string()),
+    apres: v.optional(v.string()),
+    motif: v.optional(v.string()),
+    /** Le post ajouté ou retiré : sa publication et son lien à ce moment-là. */
+    post: v.optional(v.object({ publicationId: v.id("publications"), url: v.string() })),
+    par: v.id("users"),
+    le: v.number(),
+  })
+    .index("by_fiche", ["ficheId", "le"])
+    .index("by_project", ["projectId"]),
+
   // MODE TOURNAGE BLUSH (convex/scenarioTournage.ts) — pour une créatrice et une
   // histoire : le fichier FIGÉ que l'équipe a importé dans BLUSH (storage) et le
   // lien de tournage que BLUSH a créé pour lui. BLUSH rejoue le rapport de CET

@@ -87,7 +87,7 @@ export const PROMPTS: readonly McpPrompt[] = [
   {
     name: "labo_hooks",
     title: "Labo de hooks",
-    description: "Lit les verdicts d'une campagne et les tendances, écrit de nouveaux hooks, propose graduations et coupes.",
+    description: "Lit le playbook, les verdicts d'une campagne et les tendances, écrit de nouveaux hooks, propose graduations et coupes.",
     arguments: [
       ARG_PROJET,
       { name: "campagne", description: "Nom de la campagne.", required: true },
@@ -316,13 +316,14 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
       return message(p.description, [
         `Labo de hooks pour la campagne « ${campagne} ».`,
         projetDe(args),
-        `1. \`scripts\` (campagne: « ${campagne} ») : les hooks à pousser, à couper, en test, et les signaux forts.`,
-        `2. \`meilleurs_posts\` (campagne: « ${campagne} », 30 derniers jours) et \`veille\` (vue: tendances, pays: ${pays}) : ce qui accroche en ce moment.`,
-        `3. Écris ${nombre} nouveaux hooks : une phrase chacun, dite face caméra, dans le ton des meilleurs, sans chiffre ni promesse inventés. Pour chacun, la raison en une ligne : le hook gagnant ou la tendance qu'il décline.`,
-        "4. Propose aussi : les hooks à couper (verdict « à couper ») et, si cette campagne est un labo, ceux à graduer (« à pousser », jugés sur assez de posts).",
+        "1. `playbook` : les fiches prouvées et en test, puis celles qui touchent cette campagne (avec « fiche »). Leurs règles (ce qu'on ne touche pas) et leurs contre-preuves s'imposent aux hooks que tu écris.",
+        `2. \`scripts\` (campagne: « ${campagne} ») : les hooks à pousser, à couper, en test, et les signaux forts.`,
+        `3. \`meilleurs_posts\` (campagne: « ${campagne} », 30 derniers jours) et \`veille\` (vue: tendances, pays: ${pays}) : ce qui accroche en ce moment.`,
+        `4. Écris ${nombre} nouveaux hooks : une phrase chacun, dite face caméra, dans le ton des meilleurs, sans chiffre ni promesse inventés. Pour chacun, la raison en une ligne : la fiche du playbook, le hook gagnant ou la tendance qu'il décline.`,
+        "5. Propose aussi : les hooks à couper (verdict « à couper ») et, si cette campagne est un labo, ceux à graduer (« à pousser », jugés sur assez de posts).",
         scripts
-          ? "5. Attends mon accord, puis : `ajouter_hooks` (ils sont créés DÉSACTIVÉS — dis-le), `activer_briques` pour couper, `graduer_hook` pour graduer. Rends ce que chaque réponse dit avoir fait."
-          : "5. Cette connexion ne peut pas modifier les scripts : rends les hooks prêts à coller dans l'écran de la campagne, ou dépose-les avec `proposer` (ou allume « Scripts » dans Jarvia › Connecter Claude).",
+          ? "6. Attends mon accord, puis : `ajouter_hooks` (ils sont créés DÉSACTIVÉS — dis-le), `activer_briques` pour couper, `graduer_hook` pour graduer. Rends ce que chaque réponse dit avoir fait."
+          : "6. Cette connexion ne peut pas modifier les scripts : rends les hooks prêts à coller dans l'écran de la campagne, ou dépose-les avec `proposer` (ou allume « Scripts » dans Jarvia › Connecter Claude).",
         REGLES,
       ]);
     }

@@ -9,6 +9,7 @@ import {
   BarChart3Icon,
   BellIcon,
   BookmarkIcon,
+  BookOpenCheckIcon,
   ImagesIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -263,6 +264,13 @@ export function Sidebar({
       icon: MessageCircleHeartIcon,
       label: t("item.scenarios"),
       ...item(projectPath("/scenarios")),
+    },
+    // Playbook : les fiches des formats qui ont gagné (bloc `scripts.manage`,
+    // route déclarée au catalogue).
+    {
+      icon: BookOpenCheckIcon,
+      label: t("item.playbook"),
+      ...item(projectPath("/playbook")),
     },
     {
       icon: BookmarkIcon,
