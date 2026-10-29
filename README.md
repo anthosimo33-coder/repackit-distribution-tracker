@@ -39,9 +39,19 @@ public/         # Assets statiques
 
 ## Déploiement Vercel + Convex (TD-006)
 
-Le build Vercel pousse le backend Convex **avant** le build Next, atomiquement :
-`vercel.json` (commité) définit `buildCommand: "npx convex deploy --cmd 'pnpm build'"`.
-Plus jamais de mismatch code Vercel / schéma Convex.
+Le build Vercel pousse le backend Convex dans le même build que le front :
+`vercel.json` (commité) appelle `npx convex deploy --cmd 'pnpm build && …'`.
+`convex deploy` lance d'abord `--cmd` (le `next build`), puis pousse Convex,
+et seulement si `--cmd` a réussi.
+
+Garde de tête (`scripts/convex-head-guard.mjs`) : deux merges rapprochés
+lancent deux builds Production en parallèle, et le dernier à pousser Convex
+gagne, même s'il porte le commit le plus ancien (vu le 2026-10-29). Le garde
+tourne avant le build, puis en dernière commande du `--cmd`, juste avant le
+push. Un build de production dont le commit n'est plus la tête de `main` échoue
+sans pousser ; le build de la tête s'en charge. Une tête illisible
+(`git ls-remote` anonyme : le dépôt doit rester public) fait aussi échouer le
+build.
 
 Configuration une seule fois :
 
