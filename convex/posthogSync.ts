@@ -729,7 +729,7 @@ export interface CheckoutReliabilityPayload {
   }[];
 }
 
-/** Motifs d'échec de paiement (payment_failed groupé par `cause`). */
+/** Motifs d'échec de paiement au checkout (groupés par `decline_reason`). */
 export interface CheckoutCausesPayload {
   rows: { cause: string; n: number }[];
 }
@@ -969,6 +969,26 @@ export const INSTRUMENTATION_PROP_PROBES: {
 const INSTRUMENTATION_PROP_COLUMNS = INSTRUMENTATION_PROP_PROBES.map(
   (p, i) => `    countIf(${p.cond}) AS p_${i}`,
 ).join(",\n");
+
+/**
+ * Échec d'un paiement AU CHECKOUT (prédicat HogQL) — partagé par la fiabilité
+ * du checkout et ses motifs, pour qu'ils parlent des mêmes personnes.
+ *
+ * `payment_failed` (client) est MORT depuis le 28/07/2026 01:09, et ce n'était
+ * qu'un timeout de confirmation (`reason = no_confirmation_60s`), pas un refus.
+ * Le relais est `subscription_payment_failed`, émis par le BACKEND Snytch ~5 s
+ * après le webhook Whop `payment.failed`, depuis le 28/07 14:21. Tant que le hub
+ * lisait l'ancien nom, « échec resté sans suite » valait 0.
+ *
+ * L'event vivant porte UNE ligne par tentative, renouvellements compris :
+ * `billing_reason` garde le 1er paiement (`subscription_create`, `one_time` =
+ * le pass) et écarte le cycle (`subscription_cycle`). Recoupé sur 27/09→26/10 :
+ * 139 personnes nouvelles refusées au 1er paiement, le chiffre de Whop.
+ *
+ * L'union garde l'ancien nom : les deux ne se chevauchent pas, et une période
+ * libre d'avant le 28/07 ne retombe pas à 0.
+ */
+const CHECKOUT_PAYMENT_FAILED = `(event = 'payment_failed' OR (event = 'subscription_payment_failed' AND toString(properties.billing_reason) IN ('subscription_create', 'one_time')))`;
 
 /**
  * Jeu de requêtes HogQL construit PAR PROJET. `notCounted` (clauses d'exclusion
@@ -1839,7 +1859,7 @@ FROM (
     if(paid_c = 0 AND freed_c > 0, 1, 0) AS diverted,
     -- Ventilation des NON payeurs, mutuellement exclusive (total = non payeurs) :
     -- échec de paiement resté sans suite, puis disparition sans aucune tentative.
-    -- payment_failed n'est donc PLUS ajouté depuis un autre agrégat (double compte).
+    -- L'échec n'est donc PLUS ajouté depuis un autre agrégat (double compte).
     if(paid_c = 0 AND freed_c = 0 AND failed_c > 0, 1, 0) AS failed_payment,
     if(paid_c = 0 AND freed_c = 0 AND failed_c = 0, 1, 0) AS disappeared,
     if(paid_c > 0, pay_delay_c, 0) AS pay_delay
@@ -1851,11 +1871,11 @@ FROM (
         'natif') AS device,
       countIf(event = 'subscription_completed') AS paid_c,
       countIf(event = 'free_tier_started') AS freed_c,
-      countIf(event = 'payment_failed') AS failed_c,
+      countIf(${CHECKOUT_PAYMENT_FAILED}) AS failed_c,
       dateDiff('second', minIf(timestamp, event = 'checkout_started'), minIf(timestamp, event = 'subscription_completed')) AS pay_delay_c
     FROM events
     WHERE ${WINDOW}${notCounted}
-      AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started', 'payment_failed')
+      AND event IN ('checkout_started', 'subscription_completed', 'free_tier_started', 'payment_failed', 'subscription_payment_failed')
     GROUP BY person_id
     HAVING countIf(event = 'checkout_started') > 0
   )
@@ -1864,17 +1884,19 @@ GROUP BY device
 ORDER BY checkouts DESC`,
 
   /**
-   * Motifs d'échec de paiement (payment_failed groupé par `cause`). `n` = nombre
-   * de PERSONNES (uniq), PAS d'events : une personne qui retente échoue plusieurs
-   * fois (20 personnes pour 29 events) — la carte « Où se perdent les checkouts »
-   * compte des gens, pas des tentatives.
+   * Motifs d'échec de paiement au checkout (CHECKOUT_PAYMENT_FAILED groupé par
+   * motif) : `decline_reason` sur l'event vivant (insufficient_funds,
+   * card_declined, 3ds_abandoned…), `reason` sur l'ancien (no_confirmation_60s).
+   * `cause` n'a été émise sur aucun des deux. `n` = nombre de PERSONNES (uniq),
+   * PAS d'events : une personne qui retente échoue plusieurs fois — la carte
+   * « Où se perdent les checkouts » compte des gens, pas des tentatives.
    */
   checkoutCauses: `
-SELECT coalesce(nullIf(toString(properties.cause), ''), '(sans cause)') AS cause,
+SELECT coalesce(nullIf(toString(properties.decline_reason), ''), nullIf(toString(properties.reason), ''), '(sans cause)') AS cause,
        uniq(person_id) AS n
 FROM events
 WHERE ${WINDOW}${notCounted}
-  AND event = 'payment_failed'
+  AND ${CHECKOUT_PAYMENT_FAILED}
 GROUP BY cause
 ORDER BY n DESC
 LIMIT ${SEGMENT_LIMIT}`,
