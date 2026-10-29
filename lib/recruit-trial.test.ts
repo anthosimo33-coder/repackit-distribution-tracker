@@ -9,6 +9,8 @@ import {
   type TrialVideo,
 } from "../convex/recruitTrial";
 import {
+  RECRUIT_EARLY_STOP_MAX_VIEWS,
+  RECRUIT_FULL_MATURITY_MS,
   RECRUIT_KEEP_MIN_VIEWS,
   RECRUIT_MATURITY_MS,
 } from "../convex/decisionThresholds";
@@ -87,7 +89,8 @@ describe("judgeRecruitTrial — garder", () => {
       pub({ postedAt: T0 + 4 * D, vues: 6_412 }),
       pub({ plateforme: "Instagram", postedAt: T0 + 4 * D + 60_000, vues: 4_903 }),
     ];
-    const j = judgeRecruitTrial(vs, tenthOf(vs) + RECRUIT_MATURITY_MS);
+    // À J+7 : la publication TikTok à 6 412 retient l'arrêt précoce, pas l'arrêt.
+    const j = judgeRecruitTrial(vs, tenthOf(vs) + RECRUIT_FULL_MATURITY_MS);
     expect(j?.proposed).toBe("stop");
     expect(j?.best?.vues).toBe(6_412);
   });
@@ -109,7 +112,7 @@ describe("judgeRecruitTrial — garder", () => {
 });
 
 describe("judgeRecruitTrial — arrêter", () => {
-  it("rien avant J+7 de la 10e vidéo, « arrêter » à J+7 pile", () => {
+  it("rien avant J+3 de la 10e vidéo ; « arrêter » à J+3 pile quand tout TikTok est sous 2 000 et tout est relevé", () => {
     const vs = videos(10);
     const tenth = tenthOf(vs);
     expect(judgeRecruitTrial(vs, tenth + RECRUIT_MATURITY_MS - 1)).toBeNull();
@@ -126,15 +129,57 @@ describe("judgeRecruitTrial — arrêter", () => {
     expect(judgeRecruitTrial(vs, NOW)?.proposed).toBe("stop");
   });
 
-  it("une publication jamais relevée SUSPEND l'arrêt (verdict « incomplete »), jamais lue comme zéro", () => {
+  it("une publication jamais relevée fait ATTENDRE J+7, puis SUSPEND l'arrêt (« incomplete ») — jamais lue comme zéro", () => {
     const vs = videos(10);
+    // Panne Apify sur Instagram (crédit épuisé la nuit du 26/10/2026).
     vs[7].publications[1] = pub({ plateforme: "Instagram", vues: null });
-    const now = tenthOf(vs) + RECRUIT_MATURITY_MS;
-    const j = judgeRecruitTrial(vs, now);
+    const tenth = tenthOf(vs);
+    expect(judgeRecruitTrial(vs, tenth + RECRUIT_MATURITY_MS)).toBeNull();
+    expect(judgeRecruitTrial(vs, tenth + RECRUIT_FULL_MATURITY_MS - 1)).toBeNull();
+    const j = judgeRecruitTrial(vs, tenth + RECRUIT_FULL_MATURITY_MS);
     expect(j?.proposed).toBe("incomplete");
     expect(j?.unmeasured).toBe(1);
     vs[7].publications[1].vues = 1_174;
-    expect(judgeRecruitTrial(vs, now)?.proposed).toBe("stop");
+    expect(judgeRecruitTrial(vs, tenth + RECRUIT_MATURITY_MS)?.proposed).toBe("stop");
+  });
+});
+
+describe("calibrage (export de prod du 29/10/2026)", () => {
+  it("arrêt possible à J+3, garde-fou à 2 000 vues, J+7 sinon", () => {
+    // Relevé connu à H+72 → J+30 : Spearman 0,97 ; sous 2 000 à H+72 : 3/319 TikTok et 0/250 Instagram finissent à 10 000.
+    expect(RECRUIT_MATURITY_MS).toBe(3 * D);
+    expect(RECRUIT_EARLY_STOP_MAX_VIEWS).toBe(2_000);
+    expect(RECRUIT_FULL_MATURITY_MS).toBe(7 * D);
+  });
+});
+
+describe("judgeRecruitTrial — garde-fou de l'arrêt précoce (J+3 → J+7)", () => {
+  it("une publication à 2 000 pile retient l'arrêt jusqu'à J+7 ; à 1 999, elle ne retient rien", () => {
+    const avec = (vues: number) => {
+      const vs = videos(10);
+      vs[8].publications[0] = pub({ postedAt: T0 + 8 * D + 2 * H, vues });
+      return vs;
+    };
+    const tenth = tenthOf(avec(0));
+    expect(judgeRecruitTrial(avec(RECRUIT_EARLY_STOP_MAX_VIEWS), tenth + RECRUIT_MATURITY_MS)).toBeNull();
+    expect(judgeRecruitTrial(avec(RECRUIT_EARLY_STOP_MAX_VIEWS), tenth + RECRUIT_FULL_MATURITY_MS - 1)).toBeNull();
+    expect(judgeRecruitTrial(avec(RECRUIT_EARLY_STOP_MAX_VIEWS), tenth + RECRUIT_FULL_MATURITY_MS)?.proposed).toBe("stop");
+    expect(judgeRecruitTrial(avec(RECRUIT_EARLY_STOP_MAX_VIEWS - 1), tenth + RECRUIT_MATURITY_MS)?.proposed).toBe("stop");
+  });
+
+  it("une publication TikTok d'une vidéo ANCIENNE du test retient aussi (5 870 vues sur la 2e vidéo)", () => {
+    const vs = videos(10);
+    vs[1].publications[0] = pub({ postedAt: T0 + D + 37 * 60_000, vues: 5_870 });
+    expect(judgeRecruitTrial(vs, tenthOf(vs) + RECRUIT_MATURITY_MS)).toBeNull();
+  });
+
+  it("Instagram retient aussi : cas Cintia, 8 380 vues à H+91 et 10 000 passés à J+12 (TikTok sous 2 000, tout relevé)", () => {
+    const vs = videos(10);
+    vs[8].publications[1] = pub({ plateforme: "Instagram", compte: "@Cintia_secretacc", postedAt: T0 + 8 * D + H, vues: 8_380 });
+    const tenth = tenthOf(vs);
+    expect(judgeRecruitTrial(vs, tenth + RECRUIT_MATURITY_MS)).toBeNull();
+    // À J+7, la règle d'avant s'applique telle quelle.
+    expect(judgeRecruitTrial(vs, tenth + RECRUIT_FULL_MATURITY_MS)?.proposed).toBe("stop");
   });
 });
 

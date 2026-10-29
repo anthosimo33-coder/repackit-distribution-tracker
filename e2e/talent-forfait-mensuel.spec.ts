@@ -130,10 +130,15 @@ test.describe("Forfait mensuel — les deux arbitrages", () => {
     const ts = Date.now() + 1;
     const creatorId = await talentActif(ts, "arret");
 
-    // Activée il y a ~4 mois, arrêtée il y a ~3 mois. Sans la borne de sortie,
-    // `monthsDue` irait jusqu'au mois courant et le total grossirait tout seul.
-    const start = Date.now() - 120 * JOUR;
-    const end = Date.now() - 90 * JOUR;
+    // Activée au milieu du mois M−4, arrêtée au milieu du mois M−3. Sans la borne
+    // de sortie, `monthsDue` irait jusqu'au mois courant et le total grossirait
+    // tout seul. Les bornes sont prises en MOIS, pas en jours : « il y a 120 et
+    // 90 jours » tombait dans le même mois quand la spec tournait le 29/10/2026
+    // (1er et 31 juillet), et l'assertion « au moins 2 mois » cassait. Le 15 à
+    // midi UTC est dans le même mois à Paris.
+    const maintenant = new Date();
+    const start = Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 4, 15, 12);
+    const end = Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 3, 15, 12);
     await admin.mutation(api.creators.e2eSetPayAnchor, {
       secret: E2E_SECRET,
       creatorId,

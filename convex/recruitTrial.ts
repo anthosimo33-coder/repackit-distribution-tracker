@@ -12,11 +12,14 @@
  *    elle reste UNE vidéo à deux publications.
  *  - « Garder » dès qu'UNE publication du test atteint 10 000 vues, TikTok ou
  *    Instagram — jamais la somme des deux plateformes d'une même vidéo.
- *  - « Arrêter » 7 jours après la 10e vidéo si aucune n'y est arrivée.
+ *  - « Arrêter » si aucune n'y est arrivée : dès 3 jours après la 10e vidéo
+ *    quand toutes les publications du test sont sous 2 000 vues et que tout
+ *    est relevé ; sinon 7 jours après, comme avant le 29/10/2026 (seuils
+ *    et leur base : convex/decisionThresholds.ts).
  *  - Une publication jamais relevée n'est pas un zéro : tant qu'il en reste une
- *    dans le test, « arrêter » est SUSPENDU (verdict « mesure incomplète ») —
- *    elle pourrait être celle qui passe 10 000 (Quentin, 04/10/2026 : 216 vues
- *    sur TikTok, 15 347 sur Instagram).
+ *    dans le test, « arrêter » attend J+7, puis est SUSPENDU (verdict « mesure
+ *    incomplète ») — elle pourrait être celle qui passe 10 000 (Quentin,
+ *    04/10/2026 : 216 vues sur TikTok, 15 347 sur Instagram).
  *
  * Jarvia PROPOSE ; la décision est un clic humain, enregistrée sur la fiche
  * (`creators.trialDecision`). Une créatrice déjà tranchée, en pause ou partie
@@ -27,6 +30,8 @@ import {
   RECRUIT_TRIAL_VIDEOS,
   RECRUIT_KEEP_MIN_VIEWS,
   RECRUIT_MATURITY_MS,
+  RECRUIT_FULL_MATURITY_MS,
+  RECRUIT_EARLY_STOP_MAX_VIEWS,
   RECRUIT_TRIAL_PLATFORMS,
 } from "./decisionThresholds";
 import { isPromoPost } from "./viewCounters";
@@ -74,7 +79,8 @@ function videoPostedAt(v: TrialVideo): number {
 
 /**
  * Verdict du test d'UNE créatrice, ou `null` s'il n'y a rien à trancher encore
- * (moins de 10 vidéos sans publication à 10 000, ou 10e vidéo trop récente).
+ * (moins de 10 vidéos sans publication à 10 000, 10e vidéo trop récente, ou
+ * arrêt précoce retenu par le garde-fou).
  */
 export function judgeRecruitTrial(
   videos: TrialVideo[],
@@ -111,7 +117,15 @@ export function judgeRecruitTrial(
     return { proposed: "keep", ...base };
   }
   if (tenthPostedAt === null) return null;
-  if (now - tenthPostedAt < RECRUIT_MATURITY_MS) return null;
+  const age = now - tenthPostedAt;
+  if (age < RECRUIT_MATURITY_MS) return null;
+  if (age < RECRUIT_FULL_MATURITY_MS) {
+    // Entre J+3 et J+7, seulement l'arrêt que le relevé à H+72 rend sûr : tout
+    // est relevé, et aucune publication n'a encore de quoi monter.
+    if (unmeasured > 0) return null;
+    const quiMonte = pubs.some((p) => (p.vues ?? 0) >= RECRUIT_EARLY_STOP_MAX_VIEWS);
+    return quiMonte ? null : { proposed: "stop", ...base };
+  }
   return { proposed: unmeasured > 0 ? "incomplete" : "stop", ...base };
 }
 

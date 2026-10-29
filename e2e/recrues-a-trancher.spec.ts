@@ -273,6 +273,22 @@ test.describe("Recrues à trancher", () => {
       expect(q.decisionDeFinDeTest).toMatchObject({ decision: "garder" });
       const s = fiches.createatrices.find((c: { nom: string }) => c.nom === sarah.name);
       expect(s.decisionDeFinDeTest).toBeNull();
+
+      // ── Arrêt précoce : 10e vidéo il y a 4 jours (entre J+3 et J+7) ─────────
+      //  - « Naia » : tout est relevé et sous 2 000 → ARRÊTER sans attendre J+7 ;
+      //  - « Lais » : même test, mais un TikTok à 2 140 → ABSENTE jusqu'à J+7.
+      const sous2000: [number, number][] = [[611, 98], [1_204, 143], [887, 77], [402, 61], [1_533, 210], [719, 88], [1_096, 131], [455, 59], [1_872, 244], [938, 102]];
+      const naia = await creatrice("Naia", sous2000, 13);
+      const lais = await creatrice("Lais", sous2000.map(([t, i], k) => [k === 6 ? 2_140 : t, i]), 13);
+      await admin.mutation(api.dashboardDecisions.e2eRefreshDecisionsCache, { secret: E2E_SECRET, projectId });
+      const tot = await admin.query(api.dashboardDecisions.decisionDashboard, { projectId });
+      expect(tot.recruits.find((r) => r.creatorId === naia.creatorId)).toMatchObject({
+        proposed: "stop",
+        videos: 10,
+        unmeasured: 0,
+        best: { vues: 1_872, plateforme: "TikTok" },
+      });
+      expect(tot.recruits.some((r) => r.creatorId === lais.creatorId)).toBe(false);
     } finally {
       await admin.mutation(api.projectLifecycle.deleteProject, { projectId, confirmation: nom });
     }
