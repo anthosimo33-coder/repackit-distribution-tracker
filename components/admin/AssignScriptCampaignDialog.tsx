@@ -600,6 +600,11 @@ export function AssignScriptCampaignDialog({
   const selectedModelVideos = (videoInspirations ?? [])
     .filter((i) => selectedVideoIds.has(i._id))
     .map((i) => (i.titre ? { url: i.url, title: i.titre } : { url: i.url }));
+  // Vidéos exemples de la CAMPAGNE : le serveur les joint d'office à chaque
+  // vidéo (cf assignScriptCampaignCore). Montrées ici pour qu'on ne les
+  // re-coche pas — une inspiration déjà posée sur la campagne apparaît cochée.
+  const campaignVideos = campaign?.modelVideos ?? [];
+  const campaignVideoUrls = new Set(campaignVideos.map((mv) => mv.url));
 
   /** Validations partagées avec le mode single, avant d'ouvrir le récap. */
   function bulkPreflightError(): string | null {
@@ -1519,6 +1524,23 @@ export function AssignScriptCampaignDialog({
                   </span>
                 )}
               </div>
+              {campaignVideos.length > 0 && (
+                <div
+                  className="space-y-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2"
+                  data-testid="assign-campaign-model-videos"
+                >
+                  <p className="text-xs text-slate-600">
+                    {tr("videosDeLaCampagne", { count: campaignVideos.length })}
+                  </p>
+                  <ul className="space-y-0.5">
+                    {campaignVideos.map((mv) => (
+                      <li key={mv.id} className="truncate text-xs text-slate-500">
+                        {mv.title ?? mv.url}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {videoInspirations === undefined ? (
                 <Skeleton className="h-16 w-full" />
               ) : videoInspirations.length === 0 ? (
@@ -1527,36 +1549,39 @@ export function AssignScriptCampaignDialog({
                 </p>
               ) : (
                 <ul className="max-h-44 space-y-0.5 overflow-y-auto rounded-md border border-slate-200 p-1">
-                  {videoInspirations.map((insp) => (
-                    <li key={insp._id}>
-                      <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
-                        <Checkbox
-                          checked={selectedVideoIds.has(insp._id)}
-                          onCheckedChange={() => toggleVideo(insp._id)}
-                          disabled={submitting}
-                          aria-label={tr("video", { value: insp.titre ?? insp.url })}
-                        />
-                        {insp.thumbnailUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={insp.thumbnailUrl}
-                            alt=""
-                            className="size-9 shrink-0 rounded object-cover"
+                  {videoInspirations.map((insp) => {
+                    const inCampaign = campaignVideoUrls.has(insp.url);
+                    return (
+                      <li key={insp._id}>
+                        <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
+                          <Checkbox
+                            checked={inCampaign || selectedVideoIds.has(insp._id)}
+                            onCheckedChange={() => toggleVideo(insp._id)}
+                            disabled={submitting || inCampaign}
+                            aria-label={tr("video", { value: insp.titre ?? insp.url })}
                           />
-                        ) : (
-                          <div className="grid size-9 shrink-0 place-items-center rounded bg-slate-100">
-                            <VideoIcon className="size-4 text-slate-400" />
-                          </div>
-                        )}
-                        <span className="min-w-0 flex-1 truncate text-slate-800">
-                          {insp.titre ?? insp.url}
-                        </span>
-                        <span className="shrink-0 text-xs text-slate-400">
-                          {insp.plateforme}
-                        </span>
-                      </label>
-                    </li>
-                  ))}
+                          {insp.thumbnailUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={insp.thumbnailUrl}
+                              alt=""
+                              className="size-9 shrink-0 rounded object-cover"
+                            />
+                          ) : (
+                            <div className="grid size-9 shrink-0 place-items-center rounded bg-slate-100">
+                              <VideoIcon className="size-4 text-slate-400" />
+                            </div>
+                          )}
+                          <span className="min-w-0 flex-1 truncate text-slate-800">
+                            {insp.titre ?? insp.url}
+                          </span>
+                          <span className="shrink-0 text-xs text-slate-400">
+                            {inCampaign ? tr("deLaCampagne") : insp.plateforme}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               <p className="text-xs text-slate-500">

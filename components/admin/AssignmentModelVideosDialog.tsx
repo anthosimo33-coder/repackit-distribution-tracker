@@ -39,9 +39,7 @@ type VideoInspiration = FunctionReturnType<
 
 /**
  * Gère les VIDÉOS MODÈLES (liens à reproduire) d'un assignment, à chaud APRÈS
- * l'assignation : liste (plateforme dérivée de l'URL + titre + note + lien +
- * suppression) et formulaire d'ajout (URL requise, titre/note optionnels). Ce
- * sont des LIENS, pas des fichiers.
+ * l'assignation. Ce sont des LIENS, pas des fichiers.
  */
 export function AssignmentModelVideosDialog({
   open,
@@ -57,12 +55,60 @@ export function AssignmentModelVideosDialog({
   /** Sans `addedAt` : la liste ne le sert pas, la modale ne l'affiche pas. */
   modelVideos: Omit<ModelVideo, "addedAt">[];
 }) {
-  const showError = useConvexError();
   const tr = useTranslations("admin.assignments.AssignmentModelVideosDialog");
   const add = useProjectMutation(api.assignments.addModelVideoToAssignment);
   const remove = useProjectMutation(
     api.assignments.removeModelVideoFromAssignment,
   );
+  return (
+    <ModelVideosDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      heading={tr("videosModeles", { creatorName: creatorName })}
+      description={tr("desLiensVersDesVideos")}
+      emptyText={tr("aucuneVideoModelePourL")}
+      modelVideos={modelVideos}
+      addVideo={(input) => add({ id: assignmentId, ...input })}
+      removeVideo={(videoId) => remove({ id: assignmentId, videoId })}
+    />
+  );
+}
+
+/**
+ * La modale des VIDÉOS MODÈLES, quel que soit leur porteur — une mission
+ * (ci-dessus) ou une campagne de scripts (components/scripts/CampaignModelVideos) :
+ * liste (plateforme dérivée de l'URL + titre + note + lien + suppression),
+ * formulaire d'ajout (URL requise, titre/note optionnels) et choix depuis les
+ * inspirations vidéo. Le porteur fournit l'écriture ; `children` s'affiche sous
+ * la liste (le rattrapage d'une campagne).
+ */
+export function ModelVideosDialog({
+  open,
+  onOpenChange,
+  heading,
+  description,
+  emptyText,
+  modelVideos,
+  addVideo,
+  removeVideo,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  heading: string;
+  description: string;
+  emptyText: string;
+  modelVideos: Omit<ModelVideo, "addedAt">[];
+  addVideo: (input: {
+    url: string;
+    title?: string;
+    note?: string;
+  }) => Promise<{ duplicate: boolean }>;
+  removeVideo: (videoId: string) => Promise<unknown>;
+  children?: React.ReactNode;
+}) {
+  const showError = useConvexError();
+  const tr = useTranslations("admin.assignments.AssignmentModelVideosDialog");
   // Inspirations VIDÉO du projet (scopées projet côté serveur) — 2e voie d'ajout.
   const inspirations = useProjectQuery(
     api.inspirations.listInspirations,
@@ -86,8 +132,7 @@ export function AssignmentModelVideosDialog({
     }
     setBusy(true);
     try {
-      const res = await add({
-        id: assignmentId,
+      const res = await addVideo({
         url,
         title: title.trim() || undefined,
         note: note.trim() || undefined,
@@ -108,8 +153,7 @@ export function AssignmentModelVideosDialog({
   async function onAddFromInspiration(insp: VideoInspiration) {
     setBusy(true);
     try {
-      const res = await add({
-        id: assignmentId,
+      const res = await addVideo({
         url: insp.url,
         title: insp.titre || undefined,
       });
@@ -125,7 +169,7 @@ export function AssignmentModelVideosDialog({
 
   async function onRemove(videoId: string) {
     try {
-      await remove({ id: assignmentId, videoId });
+      await removeVideo(videoId);
       toast.success(tr("videoModeleRetiree"));
     } catch (e) {
       toast.error(showError(e));
@@ -140,19 +184,15 @@ export function AssignmentModelVideosDialog({
             `field-sizing-content` — gonfle la piste de la grille au-delà de la
             carte (débordement horizontal, texte tronqué, bouton hors cadre). */}
         <DialogHeader className="min-w-0">
-          <DialogTitle className="break-words">
-            {tr("videosModeles", { creatorName: creatorName })}
-          </DialogTitle>
-          <DialogDescription>
-            {tr("desLiensVersDesVideos")}
-          </DialogDescription>
+          <DialogTitle className="break-words">{heading}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <div className="min-w-0 space-y-4">
           {/* Liste */}
           {modelVideos.length === 0 ? (
             <p className="rounded-lg border border-dashed border-slate-200 py-6 text-center text-sm text-slate-400">
-              {tr("aucuneVideoModelePourL")}
+              {emptyText}
             </p>
           ) : (
             <ul className="space-y-2">
@@ -199,6 +239,8 @@ export function AssignmentModelVideosDialog({
               })}
             </ul>
           )}
+
+          {children}
 
           {/* Ajout */}
           <div className="space-y-2.5 border-t border-slate-200 pt-4">

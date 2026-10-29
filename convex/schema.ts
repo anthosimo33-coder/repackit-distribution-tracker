@@ -3674,6 +3674,23 @@ export default defineSchema({
     // en rotation équilibrée hors combo (convex/scriptNotif). Absent = non :
     // les campagnes existantes sont inchangées, 0 migration.
     notifEnabled: v.optional(v.boolean()),
+    // VIDÉOS EXEMPLES de la campagne — même forme que assignments.modelVideos.
+    // Posées UNE fois ici, RECOPIÉES sur chaque mission que la campagne crée
+    // (assignScriptCampaignCore), comme le matériel d'un défi : la créatrice
+    // les lit dans son brief (« Vidéos à reproduire »). Recopiées, pas lues en
+    // direct : en retirer une ici ne réécrit aucun brief déjà assigné. Absent =
+    // aucune, 0 migration.
+    modelVideos: v.optional(
+      v.array(
+        v.object({
+          id: v.string(),
+          url: v.string(),
+          title: v.optional(v.string()),
+          note: v.optional(v.string()),
+          addedAt: v.number(),
+        }),
+      ),
+    ),
     // LEGACY (13/10/2026, plus lus) — la conversation se réglait sur la
     // campagne ; le thème se choisit désormais à l'assignation (argument
     // `conversationTheme`, cf convex/scriptConversation). Gardés : des
