@@ -134,9 +134,9 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     section: "Production",
     label: "Scripts et campagnes",
     description:
-      "Créer et modifier campagnes, briques et formats ; éditer un script sur une mission ; graduer un hook ; écrire et tester les scénarios.",
+      "Créer et modifier campagnes, briques et formats ; éditer un script sur une mission ; graduer un hook ; écrire et tester les scénarios ; tenir le playbook.",
     defaultForManager: true,
-    routes: ["/scripts", "/scenarios"],
+    routes: ["/scripts", "/scenarios", "/playbook"],
   },
   {
     id: "challenges.run",

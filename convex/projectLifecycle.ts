@@ -474,6 +474,12 @@ const ETAPES: Record<TablePurgee, Etape> = {
   scenarios: etape((ctx, pid, n) =>
     ctx.db.query("scenarios").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  playbookRevisions: etape((ctx, pid, n) =>
+    ctx.db.query("playbookRevisions").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
+  playbookFiches: etape((ctx, pid, n) =>
+    ctx.db.query("playbookFiches").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   // Fichiers figés du mode tournage : la ligne ET son fichier.
   scenarioTournages: etape(
     (ctx, pid, n) => ctx.db.query("scenarioTournages").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),

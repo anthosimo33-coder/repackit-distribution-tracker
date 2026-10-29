@@ -101,6 +101,7 @@ import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
 import { appelerScenariosLecture, conversationDeMissionMcp, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
 import { appelerTournagesLecture, NOMS_TOURNAGE_LECTURE, OUTILS_TOURNAGE_LECTURE } from "./mcpTournage";
+import { appelerPlaybook, NOMS_PLAYBOOK_LECTURE, OUTILS_PLAYBOOK_LECTURE } from "./mcpPlaybook";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -1754,6 +1755,7 @@ export function jarviaServer(
       ...OUTILS_CONVERSATIONS_LECTURE,
       ...OUTILS_SCENARIOS_LECTURE,
       ...OUTILS_TOURNAGE_LECTURE,
+      ...OUTILS_PLAYBOOK_LECTURE,
       ...domaines.flatMap((d) => d.outils),
       ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
     ],
@@ -1784,6 +1786,9 @@ export function jarviaServer(
       }
       if (NOMS_TOURNAGE_LECTURE.has(name)) {
         return appelerTournagesLecture(ctx, args, ids, projet.slug, lire);
+      }
+      if (NOMS_PLAYBOOK_LECTURE.has(name)) {
+        return appelerPlaybook(ctx, args, ids, projet.slug, lire);
       }
       if (NOMS_PROPOSITIONS.has(name)) {
         return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);
