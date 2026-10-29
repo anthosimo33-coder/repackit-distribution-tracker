@@ -475,6 +475,14 @@
     "ouvrir": "Open the post",
     "retirer": "Remove the post from the entry"
   },
+  "PlaybookADocumenter": {
+    "titre": "To document · {n}",
+    "aide": "Posts from the last 30 days with {seuil} views or more that no entry cites yet (one video once, warm-up excluded). Paste the link into its format’s entry, or ask Claude to document it.",
+    "sansCampagne": "No campaign",
+    "vues": "{n} views",
+    "ouvrir": "Open the post",
+    "autres": "And {n} more, with fewer views."
+  },
   "PlaybookJournal": {
     "titre": "Log",
     "aucun": "Nothing yet.",
@@ -484,7 +492,8 @@
     "statut": "Status: {avant} → {apres}",
     "modification": "Edited: {champs}",
     "motif": "“{motif}”",
-    "par": "by {nom}"
+    "par": "by {nom}",
+    "via": "written by Claude ({nom})"
   },
   "playbookStatut": {
     "prouve": "Proven",

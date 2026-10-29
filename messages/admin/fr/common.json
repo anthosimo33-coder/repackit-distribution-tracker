@@ -968,7 +968,8 @@
       "supprimer_scenario": "Scénario supprimé",
       "modifier_briques": "Briques modifiées",
       "preparer_tournages": "Fichiers de tournage préparés",
-      "liens_tournage": "Liens de tournage collés"
+      "liens_tournage": "Liens de tournage collés",
+      "documenter_format": "Fiche du playbook écrite"
     },
     "section": {
       "treasury": "Trésorerie",
@@ -985,7 +986,8 @@
       "conversations": "Conversations (Instagram, chat BLUSH)",
       "pricing": "Barèmes",
       "scenarios": "Scénarios",
-      "tournage": "Mode tournage"
+      "tournage": "Mode tournage",
+      "playbook": "Playbook"
     },
     "domaine": {
       "compta": {
@@ -1000,7 +1002,7 @@
       },
       "scripts": {
         "titre": "Scripts",
-        "objet": "les scripts et les scénarios",
+        "objet": "les scripts, les scénarios et le playbook",
         "aria": "Modifications des scripts pour {name}"
       },
       "publications": {
@@ -1076,6 +1078,7 @@
     "statutEcartee": "Écartée",
     "voirLesAutres": "{count, plural, one {Voir l’autre proposition} other {Voir les # autres propositions}}",
     "voirMoins": "Replier",
-    "apercuMessage": "Le message qui partira par email :"
+    "apercuMessage": "Le message qui partira par email :",
+    "apercuFiche": "Ce qui sera écrit dans la fiche du playbook :"
   }
 }

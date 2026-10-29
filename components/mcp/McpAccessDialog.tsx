@@ -450,7 +450,8 @@ type OutilEcriture =
   | "supprimer_scenario"
   | "modifier_briques"
   | "preparer_tournages"
-  | "liens_tournage";
+  | "liens_tournage"
+  | "documenter_format";
 
 /**
  * « Peut modifier : Compta · Missions · Scripts · Publications » — un

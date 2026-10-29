@@ -8,8 +8,9 @@
  * depuis quand et pourquoi. Les posts de preuve sont relus EN DIRECT (vues du
  * dernier relevé) : une fiche ne recopie jamais un chiffre qui vieillit.
  *
- * Les CŒURS (`…Core`) serviront aussi l'écriture par Claude (outil MCP à venir) ;
- * la lecture MCP (`playbook`) passe par `lireFichesCore` / `lireFicheCore`.
+ * Les CŒURS (`…Core`) servent aussi Claude : la lecture MCP (`playbook`) passe
+ * par `lireFichesCore` / `lireFicheCore` / `aDocumenterCore`, l'écriture
+ * (`documenter_format`, convex/mcpPlaybook) par les mêmes cœurs que l'écran.
  */
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -17,11 +18,13 @@ import type { QueryCtx } from "./_generated/server";
 import { permissionMutation, permissionQuery, type ProjectMutationCtx } from "./functions";
 import { ERR, err } from "./errorCodes";
 import {
+  A_DOCUMENTER_FENETRE_MS,
   CHAMPS_TEXTE,
   MAX_POSTS,
   MAX_TEXTE,
   MAX_TITRE,
   STATUT_INITIAL,
+  aDocumenter,
   clePost,
   dateDeCle,
   dedoublonnerPosts,
@@ -101,6 +104,35 @@ export type PostDeFiche = {
   saves: number | null;
 };
 
+type PublicationLue = Pick<
+  Doc<"publications">,
+  "_id" | "postUrl" | "plateforme" | "compte" | "datePubli" | "scriptCombo" | "vuesLatest" | "likesLatest" | "savesLatest"
+>;
+
+/** Une publication telle qu'une fiche la montre, le nom de sa campagne lu une fois par campagne. */
+async function postDe(
+  ctx: { db: QueryCtx["db"] },
+  p: PublicationLue,
+  campagnes: Map<string, string | null>,
+): Promise<PostDeFiche> {
+  const campaignId = p.scriptCombo?.campaignId;
+  if (campaignId && !campagnes.has(campaignId)) {
+    campagnes.set(campaignId, (await ctx.db.get(campaignId))?.name ?? null);
+  }
+  return {
+    publicationId: p._id,
+    cle: p.postUrl ? clePost(p.postUrl) : null,
+    url: p.postUrl ?? null,
+    plateforme: p.plateforme,
+    compte: p.compte,
+    datePubli: p.datePubli,
+    campagne: campaignId ? (campagnes.get(campaignId) ?? null) : null,
+    vues: p.vuesLatest ?? null,
+    likes: p.likesLatest ?? null,
+    saves: p.savesLatest ?? null,
+  };
+}
+
 async function postsDe(ctx: { db: QueryCtx["db"] }, ids: Id<"publications">[]): Promise<PostDeFiche[]> {
   const campagnes = new Map<string, string | null>();
   const out: PostDeFiche[] = [];
@@ -108,22 +140,7 @@ async function postsDe(ctx: { db: QueryCtx["db"] }, ids: Id<"publications">[]): 
     const p = await ctx.db.get(id);
     // Une publication supprimée depuis disparaît de la fiche à l'affichage ; son lien reste au journal.
     if (!p) continue;
-    const campaignId = p.scriptCombo?.campaignId;
-    if (campaignId && !campagnes.has(campaignId)) {
-      campagnes.set(campaignId, (await ctx.db.get(campaignId))?.name ?? null);
-    }
-    out.push({
-      publicationId: p._id,
-      cle: p.postUrl ? clePost(p.postUrl) : null,
-      url: p.postUrl ?? null,
-      plateforme: p.plateforme,
-      compte: p.compte,
-      datePubli: p.datePubli,
-      campagne: campaignId ? (campagnes.get(campaignId) ?? null) : null,
-      vues: p.vuesLatest ?? null,
-      likes: p.likesLatest ?? null,
-      saves: p.savesLatest ?? null,
-    });
+    out.push(await postDe(ctx, p, campagnes));
   }
   return dedoublonnerPosts(out);
 }
@@ -156,6 +173,38 @@ export async function lireFichesCore(ctx: LectureCtx) {
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/**
+ * La FILE « à documenter » : les posts des 30 derniers jours qui sortent du lot
+ * (règle pure `aDocumenter`) et qu'aucune fiche du projet ne cite encore.
+ */
+export async function aDocumenterCore(ctx: LectureCtx, maintenant: number) {
+  const dansFiches = new Set<string>();
+  for (const f of await ctx.db
+    .query("playbookFiches")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect()) {
+    for (const id of f.posts) {
+      const url = (await ctx.db.get(id))?.postUrl;
+      const cle = url ? clePost(url) : null;
+      if (cle) dansFiches.add(cle);
+    }
+  }
+  const publications = await ctx.db
+    .query("publications")
+    .withIndex("by_project_datePubli", (q) =>
+      q.eq("projectId", ctx.projectId).gte("datePubli", maintenant - A_DOCUMENTER_FENETRE_MS),
+    )
+    .collect();
+  const { posts, total } = aDocumenter(
+    publications.map((p) => ({ p, cle: p.postUrl ? clePost(p.postUrl) : null, vues: p.vuesLatest ?? null, isWarmup: p.isWarmup })),
+    dansFiches,
+  );
+  const campagnes = new Map<string, string | null>();
+  const out: PostDeFiche[] = [];
+  for (const x of posts) out.push(await postDe(ctx, x.p, campagnes));
+  return { posts: out, total };
+}
+
 export type LigneJournal = {
   _id: Id<"playbookRevisions">;
   nature: Doc<"playbookRevisions">["nature"];
@@ -165,6 +214,7 @@ export type LigneJournal = {
   motif: string | null;
   postUrl: string | null;
   par: string | null;
+  via: string | null;
   le: number;
 };
 
@@ -189,6 +239,7 @@ export async function lireFicheCore(ctx: LectureCtx, id: Id<"playbookFiches">, j
       motif: r.motif ?? null,
       postUrl: r.post?.url ?? null,
       par: noms.get(r.par) ?? null,
+      via: r.via ?? null,
       le: r.le,
     });
   }
@@ -222,6 +273,11 @@ export const getFiche = permissionQuery("scripts.manage")({
   },
 });
 
+export const listADocumenter = permissionQuery("scripts.manage")({
+  args: {},
+  handler: (ctx) => aDocumenterCore(ctx, Date.now()),
+});
+
 // ─── Écriture ────────────────────────────────────────────────────────────────
 
 async function journaliser(
@@ -230,6 +286,7 @@ async function journaliser(
   ligne: Pick<Doc<"playbookRevisions">, "nature" | "champs"> &
     Partial<Pick<Doc<"playbookRevisions">, "avant" | "apres" | "motif" | "post">>,
 ): Promise<void> {
+  const via = (ctx as ProjectMutationCtx & { via?: { name: string } }).via?.name;
   await ctx.db.insert("playbookRevisions", {
     projectId: ctx.projectId,
     ficheId,
@@ -240,6 +297,8 @@ async function journaliser(
     ...(ligne.motif !== undefined ? { motif: ligne.motif } : {}),
     ...(ligne.post !== undefined ? { post: ligne.post } : {}),
     par: ctx.userId,
+    // Une écriture de Claude porte sa connexion (contexte d'écriture MCP) : le journal dit qui a tenu le stylo.
+    ...(via ? { via } : {}),
     le: Date.now(),
   });
 }
@@ -376,16 +435,44 @@ export const ajouterPostFiche = permissionMutation("scripts.manage")({
   handler: (ctx, { id, ...args }) => ajouterPostCore(ctx, id, args),
 });
 
+/**
+ * Remet une fiche dans un état gardé au journal de Claude (`defaire`) : son
+ * contenu par `modifierFicheCore`, ses posts tels quels. Chaque geste laisse sa
+ * ligne au journal de la fiche, avec le motif.
+ */
+export async function remettreFicheCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"playbookFiches">,
+  etat: ContenuFiche & { posts: Id<"publications">[] },
+  motif: string,
+): Promise<void> {
+  const { posts, ...contenu } = etat;
+  await modifierFicheCore(ctx, id, { ...contenu, motif });
+  const f = await ficheDuProjet(ctx, id);
+  const retires = f.posts.filter((p) => !posts.includes(p));
+  const remis = posts.filter((p) => !f.posts.includes(p));
+  if (retires.length === 0 && remis.length === 0) return;
+  await ctx.db.patch(f._id, { posts, updatedAt: Date.now() });
+  for (const [nature, ids] of [["postRetire", retires], ["postAjoute", remis]] as const) {
+    for (const publicationId of ids) {
+      const url = (await ctx.db.get(publicationId))?.postUrl ?? "";
+      await journaliser(ctx, f._id, { nature, champs: ["posts"], post: { publicationId, url }, motif });
+    }
+  }
+}
+
 export async function retirerPostCore(
   ctx: ProjectMutationCtx,
   id: Id<"playbookFiches">,
   publicationId: Id<"publications">,
+  motif?: string,
 ): Promise<void> {
   const f = await ficheDuProjet(ctx, id);
   if (!f.posts.includes(publicationId)) return;
   await ctx.db.patch(f._id, { posts: f.posts.filter((p) => p !== publicationId), updatedAt: Date.now() });
   const url = (await ctx.db.get(publicationId))?.postUrl ?? "";
-  await journaliser(ctx, f._id, { nature: "postRetire", champs: ["posts"], post: { publicationId, url } });
+  const m = motifValide(motif);
+  await journaliser(ctx, f._id, { nature: "postRetire", champs: ["posts"], post: { publicationId, url }, ...(m ? { motif: m } : {}) });
 }
 
 export const retirerPostFiche = permissionMutation("scripts.manage")({

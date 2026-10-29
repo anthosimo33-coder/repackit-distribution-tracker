@@ -156,3 +156,33 @@ export function dedoublonnerPosts<T extends { cle: string | null; vues: number |
   }
   return [...parCle.values(), ...sansCle].sort((a, b) => (b.vues ?? -1) - (a.vues ?? -1));
 }
+
+/* ── À documenter ─────────────────────────────────────────────────────────── */
+
+/**
+ * Un post « sort du lot » à partir de ce nombre de vues : le seuil qui fait
+ * garder une recrue (convex/decisionThresholds), et celui que le relevé à H+72
+ * prédit pour J+30 (mesure du 29/10/2026).
+ */
+export const A_DOCUMENTER_MIN_VUES = 10_000;
+/** Seuls les posts publiés dans cette fenêtre attendent une fiche : au-delà, le format a déjà été lu ou oublié. */
+export const A_DOCUMENTER_FENETRE_MS = 30 * JOUR;
+/** Combien la file en montre (le total est donné à côté). */
+export const A_DOCUMENTER_MAX = 15;
+
+/**
+ * Les posts qui sortent du lot et qu'aucune fiche ne cite : une vidéo une seule
+ * fois (deux comptes = un post, le mieux vu), la chauffe exclue, les plus vus
+ * d'abord. `dansFiches` = les clés des posts déjà dans une fiche du projet.
+ */
+export function aDocumenter<T extends { cle: string | null; vues: number | null; isWarmup?: boolean }>(
+  publications: readonly T[],
+  dansFiches: ReadonlySet<string>,
+): { posts: T[]; total: number } {
+  const candidats = publications.filter(
+    (p) => p.cle !== null && p.isWarmup !== true && (p.vues ?? 0) >= A_DOCUMENTER_MIN_VUES,
+  );
+  // Dédoublonner AVANT d'écarter : si l'un des deux comptes est cité, la vidéo l'est.
+  const posts = dedoublonnerPosts(candidats).filter((p) => !dansFiches.has(p.cle!));
+  return { posts: posts.slice(0, A_DOCUMENTER_MAX), total: posts.length };
+}

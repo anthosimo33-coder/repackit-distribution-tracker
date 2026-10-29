@@ -51,6 +51,7 @@ export function JournalFiche({ lignes }: { lignes: LigneJournal[] }) {
                 <p className="text-xs text-slate-400">
                   {formatDate(l.le, loc)}
                   {l.par ? ` · ${tr("par", { nom: l.par })}` : ""}
+                  {l.via ? ` · ${tr("via", { nom: l.via })}` : ""}
                 </p>
               </li>
             ))}

@@ -2058,6 +2058,8 @@ export default defineSchema({
     /** Le post ajouté ou retiré : sa publication et son lien à ce moment-là. */
     post: v.optional(v.object({ publicationId: v.id("publications"), url: v.string() })),
     par: v.id("users"),
+    /** Écrit par Claude (`documenter_format`, `defaire`) : le nom de la connexion. Absent = à l'écran. */
+    via: v.optional(v.string()),
     le: v.number(),
   })
     .index("by_fiche", ["ficheId", "le"])

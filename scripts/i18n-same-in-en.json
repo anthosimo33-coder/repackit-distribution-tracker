@@ -56,6 +56,7 @@
     "admin.common.McpAccessDialog.domaine.scripts.titre",
     "admin.common.McpAccessDialog.section.inspirations",
     "admin.common.McpAccessDialog.section.planning",
+    "admin.common.McpAccessDialog.section.playbook",
     "admin.common.McpAccessDialog.section.radar",
     "admin.common.McpAccessDialog.section.tracker",
     "admin.common.PayCurrencyWarning.paycurrency",
