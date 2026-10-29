@@ -19,6 +19,8 @@ import {
   normalizeOverlayText,
   validateProjectFolderIds,
   buildModelVideoItemsServer,
+  appendModelVideoServer,
+  mergeModelVideosServer,
   representativePostedAt,
 } from "./assignments";
 import { COMBO_FREEING_STATUSES } from "./comboFreeing";
@@ -1130,6 +1132,47 @@ export async function deleteCampaignCore(ctx: ProjectMutationCtx, id: Id<"script
   return { deleted: bricks.length };
 }
 
+// ─── Vidéos exemples de la campagne ──────────────────────────────────────────
+// Liens « à reproduire » posés une fois sur la campagne, recopiés sur chaque
+// mission qu'elle crée (cf assignScriptCampaignCore). Même règle qu'à l'unité
+// sur une mission (appendModelVideoServer) : URL http(s), doublon = no-op,
+// plafond partagé.
+
+export const addCampaignModelVideo = permissionMutation("scripts.manage")({
+  args: {
+    campaignId: v.id("scriptCampaigns"),
+    url: v.string(),
+    title: v.optional(v.string()),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    const { next, id, duplicate } = appendModelVideoServer(
+      campaign.modelVideos ?? [],
+      args,
+    );
+    if (!duplicate) {
+      await ctx.db.patch(campaign._id, { modelVideos: next, updatedAt: Date.now() });
+    }
+    return { id, duplicate };
+  },
+});
+
+/** Retire une vidéo exemple de la campagne. Les missions déjà assignées la gardent. */
+export const removeCampaignModelVideo = permissionMutation("scripts.manage")({
+  args: { campaignId: v.id("scriptCampaigns"), videoId: v.string() },
+  handler: async (ctx, args) => {
+    const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
+    const next = (campaign.modelVideos ?? []).filter((mv) => mv.id !== args.videoId);
+    // Plus aucune vidéo = absence du champ, comme une campagne qui n'en a jamais eu.
+    await ctx.db.patch(campaign._id, {
+      modelVideos: next.length > 0 ? next : undefined,
+      updatedAt: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
 /**
  * Consigne STOCKÉE pour une saisie quelconque : bords rognés, `undefined` pour
  * une saisie vide, blanche, nulle ou absente. « Pas de consigne » est une
@@ -1685,9 +1728,18 @@ export async function assignScriptCampaignCore(
     args.assetFolderIds && args.assetFolderIds.length > 0
       ? await validateProjectFolderIds(ctx, args.assetFolderIds, ctx.projectId)
       : [];
+  // Les vidéos exemples de la CAMPAGNE d'abord, puis celles choisies à
+  // l'assignation : un seul lot, donc un seul dédoublonnage par URL — une
+  // inspiration déjà posée sur la campagne n'est jointe qu'une fois. Ce cœur
+  // sert aussi le MCP (assigner_scripts, rejouer_script, expériences) : toutes
+  // les missions de la campagne les reçoivent, quel que soit le chemin.
+  const modelVideoInputs = [
+    ...(campaign.modelVideos ?? []).map(({ url, title, note }) => ({ url, title, note })),
+    ...(args.modelVideos ?? []),
+  ];
   const linkedModelVideos =
-    args.modelVideos && args.modelVideos.length > 0
-      ? buildModelVideoItemsServer(args.modelVideos)
+    modelVideoInputs.length > 0
+      ? buildModelVideoItemsServer(modelVideoInputs)
       : [];
   const shortages: { name: string; requested: number; assigned: number }[] =
     [];
@@ -2309,18 +2361,37 @@ export const editScriptBrickText = permissionMutation("scripts.manage")({
   },
 });
 
-// ─── Rattrapage : notif pour les vidéos déjà assignées sans notif ─────────────
+// ─── Rattrapages : vidéos déjà assignées de la campagne ──────────────────────
 
 /**
- * Vidéos de la campagne qui peuvent RECEVOIR une notif après coup :
- *  - sans notif (assignées avant que la campagne ait les siennes) ;
- *  - PAS ENCORE PUBLIÉES — une vidéo en ligne a été tournée sans notif : lui en
- *    attribuer une ferait compter ses vues pour une notif qu'on n'y voit pas ;
- *  - ni refusées ni abandonnées (jamais publiées, rien à tourner) ;
+ * Vidéo de la campagne qu'un RATTRAPAGE peut encore toucher :
+ *  - PAS ENCORE PUBLIÉE — une vidéo en ligne a été tournée sans ce qu'on lui
+ *    ajouterait (une notif compterait des vues pour une notif qu'on n'y voit
+ *    pas ; une vidéo exemple arriverait après le tournage) ;
+ *  - ni refusée ni abandonnée (jamais publiée, rien à tourner) ;
  *  - dans le PÉRIMÈTRE de l'appelant (une manageuse ne rattrape que ses
  *    créatrices).
- * Triées par date de post prévue, sinon d'échéance : la rotation sert les
- * vidéos dans l'ordre où elles seront tournées.
+ * Le critère propre à chaque rattrapage (sans notif, vidéo exemple manquante)
+ * s'ajoute par-dessus.
+ */
+function isBackfillable(
+  a: Doc<"assignments">,
+  campaignId: Id<"scriptCampaigns">,
+  scope: Awaited<ReturnType<typeof creatorScopeFor>>,
+): boolean {
+  return (
+    a.scriptCombo?.campaignId === campaignId &&
+    !COMBO_FREEING_STATUSES.has(a.status) &&
+    representativePostedAt(a) === null &&
+    isInCreatorScope(scope, a.creatorId)
+  );
+}
+
+/**
+ * Vidéos de la campagne qui peuvent RECEVOIR une notif après coup : sans notif
+ * (assignées avant que la campagne ait les siennes), et rattrapables (cf
+ * isBackfillable). Triées par date de post prévue, sinon d'échéance : la
+ * rotation sert les vidéos dans l'ordre où elles seront tournées.
  */
 async function notifBackfillTargets(
   ctx: QueryCtx,
@@ -2335,15 +2406,84 @@ async function notifBackfillTargets(
   const targets = all
     .filter(
       (a) =>
-        a.scriptCombo?.campaignId === input.campaignId &&
-        a.scriptCombo.notifBrickId === undefined &&
-        !COMBO_FREEING_STATUSES.has(a.status) &&
-        representativePostedAt(a) === null &&
-        isInCreatorScope(scope, a.creatorId),
+        isBackfillable(a, input.campaignId, scope) &&
+        a.scriptCombo?.notifBrickId === undefined,
     )
     .sort((x, y) => (x.postDate ?? x.dueDate) - (y.postDate ?? y.dueDate));
   return { targets, all };
 }
+
+/**
+ * Vidéos de la campagne, rattrapables (cf isBackfillable), auxquelles il MANQUE
+ * au moins une des vidéos exemples de la campagne (comparées par URL) :
+ * assignées avant qu'elle en ait, ou avant qu'on en ajoute une.
+ */
+async function modelVideosBackfillTargets(
+  ctx: QueryCtx,
+  input: { campaign: Doc<"scriptCampaigns">; userId: Id<"users"> },
+): Promise<Doc<"assignments">[]> {
+  const extra = input.campaign.modelVideos ?? [];
+  if (extra.length === 0) return [];
+  const projectId = input.campaign.projectId;
+  const all = await projectAssignmentsForCooldown(ctx, projectId);
+  const scope = await creatorScopeFor(ctx, input.userId, projectId);
+  return all.filter((a) => {
+    if (!isBackfillable(a, input.campaign._id, scope)) return false;
+    const urls = new Set((a.modelVideos ?? []).map((mv) => mv.url));
+    return extra.some((mv) => !urls.has(mv.url));
+  });
+}
+
+/** Combien de vidéos déjà assignées le rattrapage des vidéos exemples toucherait. */
+export const modelVideosBackfillCount = permissionQuery("scripts.manage")({
+  args: { campaignId: v.id("scriptCampaigns") },
+  handler: async (ctx, { campaignId }): Promise<number> => {
+    const campaign = await requireCampaign(ctx, campaignId, ctx.projectId);
+    const targets = await modelVideosBackfillTargets(ctx, {
+      campaign,
+      userId: ctx.userId,
+    });
+    return targets.length;
+  },
+});
+
+/**
+ * Joint les vidéos exemples de la campagne aux vidéos déjà assignées qui ne les
+ * ont pas toutes (cf modelVideosBackfillTargets) : seules les URL manquantes
+ * sont ajoutées, celles jointes à la main restent. Ne touche ni au script, ni
+ * aux dates, ni à la paie. Idempotent — une vidéo complète n'est plus une cible.
+ * `full` : vidéos laissées telles quelles parce que le plafond de vidéos modèles
+ * serait dépassé (jamais tronqué en silence).
+ */
+export const backfillCampaignModelVideos = permissionMutation("scripts.manage")({
+  args: { campaignId: v.id("scriptCampaigns") },
+  handler: async (
+    ctx,
+    { campaignId },
+  ): Promise<{ updated: number; full: number }> => {
+    const campaign = await requireCampaign(ctx, campaignId, ctx.projectId);
+    const targets = await modelVideosBackfillTargets(ctx, {
+      campaign,
+      userId: ctx.userId,
+    });
+    let updated = 0;
+    let full = 0;
+    for (const a of targets) {
+      const merged = mergeModelVideosServer(
+        a.modelVideos ?? [],
+        campaign.modelVideos ?? [],
+      );
+      if (merged === null) {
+        full++;
+        continue;
+      }
+      if (merged.added === 0) continue;
+      await ctx.db.patch(a._id, { modelVideos: merged.next });
+      updated++;
+    }
+    return { updated, full };
+  },
+});
 
 /** Une vidéo proposée au rattrapage, telle que l'admin la reconnaît. */
 export interface NotifBackfillCandidate {

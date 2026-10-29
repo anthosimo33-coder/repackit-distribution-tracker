@@ -89,7 +89,18 @@
     "notifRattrapageToutDecocher": "Uncheck all",
     "notifRattrapageSansDate": "no post date",
     "notifRattrapageInclure": "Include this video",
-    "enDurBandeau": "{count, plural, one {# brick writes} other {# bricks write}} a length or a relationship in plain text: the drawn conversation may contradict it. Replace it with a variable."
+    "enDurBandeau": "{count, plural, one {# brick writes} other {# bricks write}} a length or a relationship in plain text: the drawn conversation may contradict it. Replace it with a variable.",
+    "videosExemples": "Example videos",
+    "videosExemplesAjouter": "Attach",
+    "videosExemplesGerer": "Manage",
+    "videosExemplesHint": "Attached to every video assigned from this campaign: the creator sees them in their brief, no need to add them mission by mission.",
+    "videosExemplesTitre": "Example videos — {name}",
+    "videosExemplesDescription": "Links to existing videos to recreate. Every new video assigned from this campaign gets them; the creator sees them in their brief as “videos to recreate”. Removing one here doesn't remove it from videos already assigned.",
+    "videosExemplesVide": "No example video yet.",
+    "videosExemplesRattrapage": "Also attach to {count, plural, one {the already assigned video} other {the # already assigned videos}}",
+    "videosExemplesRattrapageExplication": "Videos of this campaign already assigned, not yet published, missing at least one of these example videos. Only the missing ones are added; script, date and pay are unchanged.",
+    "videosExemplesRattrapageFait": "{count, plural, =0 {No video updated} one {# video updated} other {# videos updated}}",
+    "videosExemplesRattrapagePlein": "{count, plural, one {# video left as is: it would exceed} other {# videos left as is: they would exceed}} the model video limit."
   },
   "BrickRow": {
     "consigne": "💡 note",

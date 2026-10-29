@@ -89,7 +89,18 @@
     "notifRattrapageToutDecocher": "Tout décocher",
     "notifRattrapageSansDate": "sans date de post",
     "notifRattrapageInclure": "Inclure cette vidéo",
-    "enDurBandeau": "{count, plural, one {# brique écrit} other {# briques écrivent}} une durée ou une relation en dur : la conversation tirée peut les contredire. Remplace-les par une variable."
+    "enDurBandeau": "{count, plural, one {# brique écrit} other {# briques écrivent}} une durée ou une relation en dur : la conversation tirée peut les contredire. Remplace-les par une variable.",
+    "videosExemples": "Vidéos exemples",
+    "videosExemplesAjouter": "Joindre",
+    "videosExemplesGerer": "Gérer",
+    "videosExemplesHint": "Jointes à chaque vidéo assignée de cette campagne : la créatrice les voit dans son brief, sans les ajouter mission par mission.",
+    "videosExemplesTitre": "Vidéos exemples — {name}",
+    "videosExemplesDescription": "Des liens vers des vidéos existantes à reproduire. Chaque nouvelle vidéo assignée de cette campagne les reçoit ; la créatrice les voit dans son brief comme « vidéos à reproduire ». En retirer une ici ne la retire pas des vidéos déjà assignées.",
+    "videosExemplesVide": "Aucune vidéo exemple pour l'instant.",
+    "videosExemplesRattrapage": "Joindre aussi {count, plural, one {à la vidéo déjà assignée} other {aux # vidéos déjà assignées}}",
+    "videosExemplesRattrapageExplication": "Vidéos de cette campagne déjà assignées, pas encore publiées, à qui il manque au moins une de ces vidéos exemples. Seules les manquantes sont ajoutées ; le script, la date et la paie restent identiques.",
+    "videosExemplesRattrapageFait": "{count, plural, =0 {Aucune vidéo mise à jour} one {# vidéo mise à jour} other {# vidéos mises à jour}}",
+    "videosExemplesRattrapagePlein": "{count, plural, one {# vidéo laissée telle quelle : elle dépasserait} other {# vidéos laissées telles quelles : elles dépasseraient}} le plafond de vidéos modèles."
   },
   "BrickRow": {
     "consigne": "💡 consigne",

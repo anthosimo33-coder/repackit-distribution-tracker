@@ -69,6 +69,7 @@ import { drawableNotifs, isNotifEnabled } from "@/convex/scriptNotif";
 import { enDur, VARIABLES, variablesDe, variablesInconnues } from "@/convex/scenarioFiche";
 import { ScriptNotifCard } from "@/components/scripts/ScriptNotifCard";
 import { NotifBackfill } from "@/components/scripts/NotifBackfill";
+import { CampaignModelVideos } from "@/components/scripts/CampaignModelVideos";
 import {
   BRICK_MODE_OPTIONS,
   resolveBrickMode,
@@ -372,6 +373,11 @@ export default function ScriptCampaignDetailPage() {
             onDisabled={() => {
               if (kind === "notif") void switchKind("hook");
             }}
+          />
+          <CampaignModelVideos
+            campaignId={campaign._id}
+            campaignName={campaign.name}
+            modelVideos={campaign.modelVideos ?? []}
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">

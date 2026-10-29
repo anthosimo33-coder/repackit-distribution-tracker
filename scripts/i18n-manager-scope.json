@@ -271,6 +271,7 @@
     "components/scenarios/ScenarioTesteur.tsx",
     "components/scenarios/StatutScenario.tsx",
     "components/scenarios/VerdictScenario.tsx",
+    "components/scripts/CampaignModelVideos.tsx",
     "components/scripts/ComboCooldownSettingsButton.tsx",
     "components/scripts/ComboCooldownSettingsCard.tsx",
     "components/scripts/NotifBackfill.tsx",

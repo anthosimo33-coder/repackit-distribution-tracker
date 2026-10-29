@@ -1014,6 +1014,15 @@ async function assertTargetAddable(
 
 const MAX_MODEL_VIDEOS = 20;
 
+/** Une vidéo modèle stockée — assignments.modelVideos ET scriptCampaigns.modelVideos. */
+type ModelVideoItem = {
+  id: string;
+  url: string;
+  title?: string;
+  note?: string;
+  addedAt: number;
+};
+
 /** Réplique de lib/model-videos.normalizeModelVideoUrl (règle A6). */
 function normalizeModelVideoUrlServer(raw: string): string | null {
   const url = raw.trim();
@@ -1033,22 +1042,10 @@ function normalizeModelVideoUrlServer(raw: string): string | null {
  */
 export function buildModelVideoItemsServer(
   inputs: { url: string; title?: string; note?: string }[],
-): {
-  id: string;
-  url: string;
-  title?: string;
-  note?: string;
-  addedAt: number;
-}[] {
+): ModelVideoItem[] {
   const now = Date.now();
   const seen = new Set<string>();
-  const items: {
-    id: string;
-    url: string;
-    title?: string;
-    note?: string;
-    addedAt: number;
-  }[] = [];
+  const items: ModelVideoItem[] = [];
   for (const input of inputs) {
     const url = normalizeModelVideoUrlServer(input.url);
     if (!url) {
@@ -1075,6 +1072,59 @@ export function buildModelVideoItemsServer(
   return items;
 }
 
+/**
+ * Ajoute UNE vidéo modèle à une liste existante : URL normalisée, doublon d'URL
+ * = no-op idempotent (l'entrée existante est renvoyée), plafond
+ * MAX_MODEL_VIDEOS. Partagé par la mission (addModelVideoToAssignment) et la
+ * campagne (scripts.addCampaignModelVideo) : les deux listes ont la même forme,
+ * elles refusent et dédoublonnent pareil. Throw ConvexError sur URL invalide ou
+ * dépassement.
+ */
+export function appendModelVideoServer(
+  existing: ModelVideoItem[],
+  input: { url: string; title?: string; note?: string },
+): { next: ModelVideoItem[]; id: string; duplicate: boolean } {
+  const url = normalizeModelVideoUrlServer(input.url);
+  if (!url) {
+    throw err(ERR.MODEL_VIDEO_URL_INVALID, "L'URL de la vidéo modèle est invalide (lien http(s) attendu).");
+  }
+  // Dédoublonnage par URL (les 2 voies UI — URL libre + inspiration — peuvent
+  // viser le même lien) : no-op idempotent, on renvoie l'entrée existante.
+  const dup = existing.find((mv) => mv.url === url);
+  if (dup) return { next: existing, id: dup.id, duplicate: true };
+  if (existing.length >= MAX_MODEL_VIDEOS) {
+    throw err(ERR.MODEL_VIDEOS_TOO_MANY, `Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`, { p1: MAX_MODEL_VIDEOS });
+  }
+  const title = input.title?.trim();
+  const note = input.note?.trim();
+  const item: ModelVideoItem = {
+    id: crypto.randomUUID(),
+    url,
+    ...(title ? { title } : {}),
+    ...(note ? { note } : {}),
+    addedAt: Date.now(),
+  };
+  return { next: [...existing, item], id: item.id, duplicate: false };
+}
+
+/**
+ * Complète une liste de vidéos modèles avec celles d'une autre (rattrapage des
+ * vidéos exemples d'une campagne sur ses missions déjà assignées) : seules les
+ * URL absentes sont ajoutées, dans l'ordre, AVEC LEUR id d'origine. Ne dépasse
+ * jamais MAX_MODEL_VIDEOS : `null` si la liste complétée le dépasserait — la
+ * mission est alors laissée telle quelle plutôt que tronquée en silence.
+ * `added` = 0 → rien à écrire.
+ */
+export function mergeModelVideosServer(
+  existing: ModelVideoItem[],
+  extra: ModelVideoItem[],
+): { next: ModelVideoItem[]; added: number } | null {
+  const urls = new Set(existing.map((mv) => mv.url));
+  const missing = extra.filter((mv) => !urls.has(mv.url));
+  if (existing.length + missing.length > MAX_MODEL_VIDEOS) return null;
+  return { next: [...existing, ...missing], added: missing.length };
+}
+
 /** Récupère un assignment du projet courant ou rejette (isolation projet). */
 async function requireProjectAssignment(
   ctx: MutationCtx,
@@ -1099,29 +1149,9 @@ export const addModelVideoToAssignment = permissionMutation("assignments.manage"
   handler: async (ctx, args) => {
     const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
     await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    const url = normalizeModelVideoUrlServer(args.url);
-    if (!url) {
-      throw err(ERR.MODEL_VIDEO_URL_INVALID, "L'URL de la vidéo modèle est invalide (lien http(s) attendu).");
-    }
-    const existing = a.modelVideos ?? [];
-    // Dédoublonnage par URL (les 2 voies UI — URL libre + inspiration — peuvent
-    // viser le même lien) : no-op idempotent, on renvoie l'entrée existante.
-    const dup = existing.find((mv) => mv.url === url);
-    if (dup) return { id: dup.id, duplicate: true };
-    if (existing.length >= MAX_MODEL_VIDEOS) {
-      throw err(ERR.MODEL_VIDEOS_TOO_MANY, `Trop de vidéos modèles (max ${MAX_MODEL_VIDEOS}).`, { p1: MAX_MODEL_VIDEOS });
-    }
-    const title = args.title?.trim();
-    const note = args.note?.trim();
-    const item = {
-      id: crypto.randomUUID(),
-      url,
-      ...(title ? { title } : {}),
-      ...(note ? { note } : {}),
-      addedAt: Date.now(),
-    };
-    await ctx.db.patch(args.id, { modelVideos: [...existing, item] });
-    return { id: item.id, duplicate: false };
+    const { next, id, duplicate } = appendModelVideoServer(a.modelVideos ?? [], args);
+    if (!duplicate) await ctx.db.patch(args.id, { modelVideos: next });
+    return { id, duplicate };
   },
 });
 

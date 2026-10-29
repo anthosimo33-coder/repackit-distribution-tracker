@@ -566,7 +566,9 @@
     "conversationAucune": "None",
     "conversationScenarios": "{count, plural, one {# scenario} other {# scenarios}}",
     "conversationAide": "Each video gets a different conversation from this theme, with the creator's first name: she downloads the .txt from her mission and imports it into BLUSH.",
-    "conversationAideAucune": "Videos go out without a WhatsApp conversation."
+    "conversationAideAucune": "Videos go out without a WhatsApp conversation.",
+    "videosDeLaCampagne": "{count, plural, one {The campaign's example video is} other {The campaign's # example videos are}} attached automatically:",
+    "deLaCampagne": "campaign"
   },
   "AssignmentPlanningCalendar": {
     "videosAPlacer": "Videos to place",
