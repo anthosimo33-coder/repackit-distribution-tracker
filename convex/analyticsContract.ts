@@ -127,7 +127,21 @@ export const CONTRACT_EVENTS: ContractEvent[] = [
   },
   { name: "checkout_started", category: "monetization", props: ["is_webview", "webview_source", "plan_name", "method", "variant"] },
   { name: "checkout_handoff", category: "monetization", props: ["is_webview", "webview_source", "reason"] },
-  { name: "payment_failed", category: "monetization", props: ["cause", "reason", "is_webview"] },
+  {
+    name: "payment_failed",
+    category: "monetization",
+    props: ["cause", "reason", "is_webview"],
+    note: "mort depuis le 28/07 : timeout client (no_confirmation_60s), pas un refus — relayé par subscription_payment_failed",
+  },
+  {
+    name: "subscription_payment_failed",
+    category: "monetization",
+    // Émis par le BACKEND ~5 s après le webhook Whop `payment.failed`, depuis le
+    // 28/07 14:21. Une ligne par TENTATIVE, renouvellements compris :
+    // `billing_reason` sépare le 1er paiement (subscription_create, one_time) du
+    // cycle (subscription_cycle) — cf CHECKOUT_PAYMENT_FAILED (posthogSync).
+    props: ["billing_reason", "decline_reason", "attempt_number", "card_brand", "membership_id"],
+  },
   { name: "confirmation_pending", category: "monetization", props: ["duration_ms"] },
   {
     name: "subscription_completed",

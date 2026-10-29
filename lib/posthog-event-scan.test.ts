@@ -9,7 +9,7 @@ import { buildQueries } from "../convex/posthogSync";
  * `event = '…'` de la requête doit figurer dans sa liste `event IN (…)`.
  */
 
-const FILTREES = ["overview", "funnelGlobal", "funnelSequential"] as const;
+const FILTREES = ["overview", "funnelGlobal", "funnelSequential", "checkoutReliability"] as const;
 
 const jeux: [string, Record<string, string>][] = [
   ["cron (90 jours)", buildQueries("", "") as Record<string, string>],
