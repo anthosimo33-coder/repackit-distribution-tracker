@@ -29,6 +29,8 @@ import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import type { PermissionId } from "./permissions";
 import { resolveNotifyContext, deliver, type Outcome } from "./notifications";
 import { escapeTelegram } from "./notifyApi";
+import { LIBELLE_STATUT } from "./mcpPlaybook";
+import { estStatutFiche } from "./playbookFiche";
 
 const EN_ATTENTE_MAX = 50;
 const VALIDITE_MS = 7 * 86_400_000;
@@ -259,11 +261,35 @@ async function aLeDroit(
  * Le texte exact d'un message proposé (`envoyer_message_createatrice`) : la
  * personne qui applique doit lire ce qui partira par email, pas un résumé.
  */
-function apercuMessage(p: Doc<"mcpPropositions">): { objet: string; message: string } | null {
-  if (p.outil !== "envoyer_message_createatrice") return null;
+/** Les champs d'une fiche du playbook, dans l'ordre de l'écran, tels que l'aperçu les titre. */
+const CHAMPS_FICHE_APERCU = [
+  ["recette", "Recette"],
+  ["preuves", "Preuves"],
+  ["contre_preuve", "Contre-preuve"],
+  ["regles", "Règles"],
+  ["a_tester", "À tester"],
+] as const;
+
+/**
+ * Ce que la personne lit AVANT d'appliquer : le texte exact d'un message à une
+ * créatrice, ou ce qui sera écrit dans une fiche du playbook (`documenter_format`).
+ */
+function apercuMessage(p: Doc<"mcpPropositions">): { genre: "message" | "fiche"; objet: string; message: string } | null {
+  if (p.outil !== "envoyer_message_createatrice" && p.outil !== "documenter_format") return null;
   try {
     const a = JSON.parse(p.argumentsJson) as Record<string, unknown>;
-    return typeof a.objet === "string" && typeof a.message === "string" ? { objet: a.objet, message: a.message } : null;
+    if (p.outil === "envoyer_message_createatrice") {
+      return typeof a.objet === "string" && typeof a.message === "string" ? { genre: "message", objet: a.objet, message: a.message } : null;
+    }
+    const texte = (k: string) => (typeof a[k] === "string" ? (a[k] as string).trim() : "");
+    const liste = (k: string) => (Array.isArray(a[k]) ? (a[k] as unknown[]).filter((x) => typeof x === "string") : []);
+    const objet =
+      (texte("fiche") ? `Fiche « ${texte("fiche")} »${texte("titre") ? ` → « ${texte("titre")} »` : ""}` : `Nouvelle fiche « ${texte("titre")} »`) +
+      (estStatutFiche(a.statut) ? ` · ${LIBELLE_STATUT[a.statut]}` : "");
+    const parties = CHAMPS_FICHE_APERCU.filter(([k]) => texte(k)).map(([k, titre]) => `${titre} :\n${texte(k)}`);
+    if (liste("posts").length > 0) parties.push(`Posts ajoutés :\n${liste("posts").join("\n")}`);
+    if (liste("retirer_posts").length > 0) parties.push(`Posts retirés :\n${liste("retirer_posts").join("\n")}`);
+    return { genre: "fiche", objet, message: parties.join("\n\n") };
   } catch {
     return null;
   }

@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatutFiche } from "@/components/playbook/StatutFiche";
+import { ADocumenter } from "@/components/playbook/ADocumenter";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatDate, formatNumber } from "@/lib/format";
 import { useIntlLocale } from "@/lib/use-intl-locale";
@@ -80,6 +81,8 @@ export default function PlaybookPage() {
           {tr("nouvelle")}
         </Button>
       </header>
+
+      <ADocumenter />
 
       {fiches === undefined ? (
         <Skeleton className="h-48 w-full" />

@@ -141,3 +141,22 @@ describe("adaptation aux domaines que la connexion peut modifier", () => {
     expect(p.obtenir("inconnu", {})).toBeNull();
   });
 });
+
+describe("documenter_playbook", () => {
+  it("écrit avec `documenter_format` quand « Scripts » est ouvert, propose sinon — jamais l'inverse", () => {
+    const avec = texte(promptsJarvia(["scripts"], "2026-10-29").obtenir("documenter_playbook", { projet: "snytch" }));
+    expect(avec).toMatch(/^1\. `playbook`/m);
+    expect(avec).toContain("`aDocumenter`");
+    expect(avec).toContain("`documenter_format`");
+    expect(avec).not.toContain("`proposer`");
+    const sans = texte(promptsJarvia(["missions"], "2026-10-29").obtenir("documenter_playbook", {}));
+    expect(sans).toContain("`proposer` (outil documenter_format");
+    expect(sans).not.toContain("Après mon accord, fiche par fiche");
+  });
+
+  it("la routine range aussi les posts à documenter, par proposition", () => {
+    const t = texte(promptsJarvia([], "2026-10-29").obtenir("preparer_propositions", {}));
+    expect(t).toContain("un post « à documenter » (`playbook`)");
+    expect(t).toContain("documenter_format");
+  });
+});

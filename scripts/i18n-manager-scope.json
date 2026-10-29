@@ -243,6 +243,7 @@
     "components/nouveau/steps/StepPublication.tsx",
     "components/nouveau/steps/StepRecap.tsx",
     "components/nouveau/useNouveauState.ts",
+    "components/playbook/ADocumenter.tsx",
     "components/playbook/JournalFiche.tsx",
     "components/playbook/PostsFiche.tsx",
     "components/playbook/StatutFiche.tsx",

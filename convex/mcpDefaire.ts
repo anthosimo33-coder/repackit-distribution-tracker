@@ -56,6 +56,8 @@ import {
   type StatutScenario,
 } from "./scenarios";
 import { empreinteBible } from "./mcpScenarios";
+import { etatDeFiche, lireEtatDeFiche } from "./mcpPlaybook";
+import { remettreFicheCore, supprimerFicheCore } from "./playbook";
 import { supprimerTournages } from "./scenarioTournage";
 import { addRadarAccountCore, removeRadarAccountCore, updateRadarAccountNoteCore } from "./radar";
 import { deleteInspirationCore } from "./inspirations";
@@ -170,6 +172,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "supprimer_scenario",
   "preparer_tournages",
   "liens_tournage",
+  "documenter_format",
 ]);
 
 /** Pourquoi une modification ne se défait pas par Claude. */
@@ -700,6 +703,22 @@ async function annuler(
     case "conversationSupprimee": {
       await restoreConversationCore(ctx, { titre: a.titre, data: a.data });
       return "Conversation recréée (nouveau lien : outil `conversations`).";
+    }
+    case "ficheCreee": {
+      const f = await ctx.db.get(a.ficheId);
+      if (!f) throw refus("Cette fiche a déjà été supprimée.");
+      if (etatDeFiche(f) !== a.apres) {
+        throw refus("Elle a été retouchée depuis : rien n'a été supprimé (Playbook › la fiche › Supprimer, si c'est voulu).");
+      }
+      await supprimerFicheCore(ctx, f._id);
+      return `Fiche « ${f.titre} » supprimée.`;
+    }
+    case "ficheModifiee": {
+      const f = await ctx.db.get(a.ficheId);
+      if (!f) throw refus("Cette fiche a été supprimée depuis.");
+      if (etatDeFiche(f) !== a.apres) throw refus("Elle a été retouchée depuis : rien n'a été écrasé.");
+      await remettreFicheCore(ctx, f._id, lireEtatDeFiche(a.avant), "Défait : modification de Claude annulée.");
+      return `Fiche « ${f.titre} » remise comme avant.`;
     }
     case "tournagesPrepares": {
       const rows = (await Promise.all(a.ids.map((id) => ctx.db.get(id)))).filter((t) => t !== null);

@@ -127,6 +127,12 @@ export const PROMPTS: readonly McpPrompt[] = [
     ],
   },
   {
+    name: "documenter_playbook",
+    title: "Tenir le playbook à jour",
+    description: "Range les posts qui sortent du lot dans la fiche de leur format — ou ouvre une fiche « en test » — et met à jour statuts et preuves, chaque chiffre daté.",
+    arguments: [ARG_PROJET],
+  },
+  {
     name: "coach_semaine",
     title: "Le coach de la semaine",
     description: "Un retour personnel à chaque créatrice — sa semaine en chiffres, une réussite, un point à travailler, ce qui l'attend — écrit dans sa langue, relu, puis envoyé.",
@@ -223,7 +229,7 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         projetDe(args),
         "1. `propositions` : ce qui attend déjà et ce qui a été écarté — ne repropose ni l'un ni l'autre (un écart est une décision).",
         "2. État : `dashboard`, `planning` (jours: 7), `validation`, `ponctualite` (7 derniers jours), et les verdicts `scripts` des campagnes actives.",
-        "3. Candidats, dans cet ordre : un post manqué → replanifier_mission OU relancer (jamais les deux) ; une vidéo à valider pour demain → `regarder_video`, puis valider_video, ou refuser_video avec un motif concret, SEULEMENT si les images le justifient clairement ; une créatrice active sans mission dans les 7 jours → assigner_scripts ; un hook « à couper » → activer_briques (actif: false).",
+        "3. Candidats, dans cet ordre : un post manqué → replanifier_mission OU relancer (jamais les deux) ; une vidéo à valider pour demain → `regarder_video`, puis valider_video, ou refuser_video avec un motif concret, SEULEMENT si les images le justifient clairement ; une créatrice active sans mission dans les 7 jours → assigner_scripts ; un hook « à couper » → activer_briques (actif: false) ; un post « à documenter » (`playbook`) dont le format est clair → documenter_format (le post dans la fiche de son format, ou une fiche « en test »).",
         "4. Désigne tout comme les outils de lecture te l'ont montré (créatrice + jour prévu, lien, libellé). Une proposition mal désignée sera refusée à l'application : mieux vaut en faire moins, mais justes.",
         "5. Termine par un compte rendu court : ce que tu as proposé, ce que tu as laissé de côté et pourquoi.",
         "Règles : n'invente aucun chiffre — chaque nombre vient d'un outil. Les jours sont des jours de Paris.",
@@ -390,6 +396,21 @@ export function promptsJarvia(ecrit: readonly string[], aujourdhui: string): Pro
         missions
           ? "4. Simule chaque rejeu (`rejouer_script` avec `simuler: true`), attends mon accord, rappelle que chaque créatrice reçoit un email, puis rejoue et rends ce qui a été créé."
           : "4. Cette connexion ne peut pas assigner : termine par le tableau, prêt à saisir avec « Rejouer ce script » (ou allume « Missions » dans Jarvia › Connecter Claude).",
+        REGLES,
+      ]);
+    }
+
+    if (name === "documenter_playbook") {
+      return message(p.description, [
+        "Mets le playbook à jour.",
+        projetDe(args),
+        "1. `playbook` : les fiches, et la file `aDocumenter` (les posts des 30 derniers jours qui sortent du lot sans être dans une fiche). Puis `playbook` avec « fiche » pour chaque fiche que tu vas toucher : un champ écrit REMPLACE le champ entier.",
+        "2. Pour chaque post à documenter, retrouve son format : `meilleurs_posts` (30 derniers jours) pour sa campagne et son hook, `scripts` (campagne) pour les verdicts, `experiences` pour un A/B. Juge un post sur son relevé connu à H+48 (Instagram) ou H+72 (TikTok), jamais interpolé ; une même vidéo sur deux comptes = un post ; n'additionne jamais TikTok et Instagram.",
+        "3. Range : format déjà en fiche → ajoute le post (« posts ») et réécris « preuves » avec le nouveau chiffre ; format sans fiche → nouvelle fiche « en test ». Un post seul ne prouve pas un format : « prouvé » demande des signaux répétés (au moins 3 posts du format qui sortent du lot, sur plus d'un compte si possible) ou un A/B gagné ; un hit qui perd son A/B va en « contre-preuve ». Une fiche dont les derniers posts passent sous la médiane → « en usure », chiffre à l'appui.",
+        "4. Montre-moi chaque changement : fiche → champs réécrits, statut avant → après, posts ajoutés ou retirés, motif. Chaque chiffre de « preuves » porte sa date (« au 29/10 », « à H+72 »).",
+        scripts
+          ? "5. Après mon accord, fiche par fiche, `documenter_format` (le « motif » entre au journal de la fiche). Rends ce que chaque réponse dit avoir fait."
+          : "5. Cette connexion ne peut pas modifier le playbook : dépose chaque fiche avec `proposer` (outil documenter_format, mêmes arguments) pour que l'équipe l'applique d'un clic, ou allume « Scripts » dans Jarvia › Connecter Claude.",
         REGLES,
       ]);
     }

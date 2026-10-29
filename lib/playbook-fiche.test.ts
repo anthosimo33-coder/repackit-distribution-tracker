@@ -7,6 +7,9 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  aDocumenter,
+  A_DOCUMENTER_MAX,
+  A_DOCUMENTER_MIN_VUES,
   clePost,
   dateDeCle,
   dedoublonnerPosts,
@@ -142,5 +145,43 @@ describe("dedoublonnerPosts", () => {
       { id: "y", cle: "tiktok:1", vues: 1_454 },
     ]);
     expect(out.map((p) => p.id)).toEqual(["y", "x"]);
+  });
+});
+
+describe("à documenter", () => {
+  const p = (cle: string | null, vues: number | null, isWarmup?: boolean) => ({ cle, vues, ...(isWarmup !== undefined ? { isWarmup } : {}) });
+
+  it("garde les posts à 10 000 vues ou plus, les plus vus d'abord, une vidéo une fois", () => {
+    const r = aDocumenter(
+      [p("tiktok:1", 14_000), p("tiktok:1", 6_000), p("tiktok:2", 25_000), p("tiktok:3", A_DOCUMENTER_MIN_VUES), p("tiktok:4", 9_999)],
+      new Set(),
+    );
+    expect(r.posts.map((x) => [x.cle, x.vues])).toEqual([
+      ["tiktok:2", 25_000],
+      ["tiktok:1", 14_000],
+      ["tiktok:3", 10_000],
+    ]);
+    expect(r.total).toBe(3);
+  });
+
+  it("écarte ce qu'une fiche cite — même si elle cite l'AUTRE compte de la vidéo", () => {
+    // La fiche cite la clé : peu importe quelle publication de la vidéo elle porte.
+    const r = aDocumenter([p("tiktok:1", 14_000), p("tiktok:1", 6_000), p("tiktok:2", 25_000)], new Set(["tiktok:1"]));
+    expect(r.posts.map((x) => x.cle)).toEqual(["tiktok:2"]);
+  });
+
+  it("écarte la chauffe, les posts sans lien lisible et les non relevés", () => {
+    const r = aDocumenter([p("tiktok:1", 50_000, true), p(null, 80_000), p("tiktok:2", null), p("instagram:abc", 12_000, false)], new Set());
+    expect(r.posts.map((x) => x.cle)).toEqual(["instagram:abc"]);
+  });
+
+  it(`n'en montre que ${A_DOCUMENTER_MAX}, mais compte tout`, () => {
+    const r = aDocumenter(
+      Array.from({ length: A_DOCUMENTER_MAX + 4 }, (_, i) => p(`tiktok:${i}`, 10_000 + i)),
+      new Set(),
+    );
+    expect(r.posts).toHaveLength(A_DOCUMENTER_MAX);
+    expect(r.posts[0].vues).toBe(10_000 + A_DOCUMENTER_MAX + 3);
+    expect(r.total).toBe(A_DOCUMENTER_MAX + 4);
   });
 });

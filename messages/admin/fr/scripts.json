@@ -475,6 +475,14 @@
     "ouvrir": "Ouvrir le post",
     "retirer": "Retirer le post de la fiche"
   },
+  "PlaybookADocumenter": {
+    "titre": "À documenter · {n}",
+    "aide": "Posts des 30 derniers jours à {seuil} vues ou plus qu’aucune fiche ne cite encore (une vidéo une fois, chauffe exclue). Colle le lien dans la fiche de son format, ou demande à Claude de la documenter.",
+    "sansCampagne": "Sans campagne",
+    "vues": "{n} vues",
+    "ouvrir": "Ouvrir le post",
+    "autres": "Et {n} autres, moins vus."
+  },
   "PlaybookJournal": {
     "titre": "Journal",
     "aucun": "Rien pour l’instant.",
@@ -484,7 +492,8 @@
     "statut": "Statut : {avant} → {apres}",
     "modification": "Modifié : {champs}",
     "motif": "« {motif} »",
-    "par": "par {nom}"
+    "par": "par {nom}",
+    "via": "écrit par Claude ({nom})"
   },
   "playbookStatut": {
     "prouve": "Prouvé",

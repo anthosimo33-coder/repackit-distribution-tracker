@@ -968,7 +968,8 @@
       "supprimer_scenario": "Scenario deleted",
       "modifier_briques": "Bricks edited",
       "preparer_tournages": "Filming files prepared",
-      "liens_tournage": "Filming links pasted"
+      "liens_tournage": "Filming links pasted",
+      "documenter_format": "Playbook entry written"
     },
     "section": {
       "treasury": "Cash",
@@ -985,7 +986,8 @@
       "conversations": "Conversations (Instagram, BLUSH chat)",
       "pricing": "Pay grids",
       "scenarios": "Scenarios",
-      "tournage": "Filming mode"
+      "tournage": "Filming mode",
+      "playbook": "Playbook"
     },
     "domaine": {
       "compta": {
@@ -1000,7 +1002,7 @@
       },
       "scripts": {
         "titre": "Scripts",
-        "objet": "scripts and scenarios",
+        "objet": "scripts, scenarios and the playbook",
         "aria": "Script edits for {name}"
       },
       "publications": {
@@ -1076,6 +1078,7 @@
     "statutEcartee": "Dismissed",
     "voirLesAutres": "{count, plural, one {See the other suggestion} other {See the # other suggestions}}",
     "voirMoins": "Collapse",
-    "apercuMessage": "The message that will be emailed:"
+    "apercuMessage": "The message that will be emailed:",
+    "apercuFiche": "What will be written in the playbook entry:"
   }
 }

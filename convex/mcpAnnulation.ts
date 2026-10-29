@@ -148,6 +148,15 @@ export const annulationValidator = v.union(
       v.object({ id: v.id("scenarioTournages"), avant: v.union(v.string(), v.null()), apres: v.union(v.string(), v.null()) }),
     ),
   }),
+  // ── Playbook ──────────────────────────────────────────────────────────────
+  /**
+   * documenter_format (fiche créée) : la fiche telle qu'écrite, contenu et posts
+   * en JSON à clés triées (cf `etatDeFiche`). Défaire la supprime si elle n'a
+   * pas bougé depuis.
+   */
+  v.object({ type: v.literal("ficheCreee"), ficheId: v.id("playbookFiches"), apres: v.string() }),
+  /** documenter_format (fiche existante) : la fiche avant et après, même forme. */
+  v.object({ type: v.literal("ficheModifiee"), ficheId: v.id("playbookFiches"), avant: v.string(), apres: v.string() }),
   // ── Publications ──────────────────────────────────────────────────────────
   /** marquer_warmup : `null` = « non qualifié » (champ absent), pas « promo ». */
   v.object({
