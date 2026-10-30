@@ -118,7 +118,8 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
       "Confier des Assignments, fixer dates et créneaux, joindre consignes, exemples et Assets. Montre le tarif unitaire de la vidéo.",
     defaultForManager: true,
     // « Vidéos supprimées » : réservé à qui peut supprimer une mission — le même bloc.
-    routes: ["/assignments", "/videos-supprimees"],
+    // « Pilote » : proposer et assigner la semaine, le geste « Assigner » en lot.
+    routes: ["/assignments", "/videos-supprimees", "/pilote"],
   },
   {
     id: "review.manage",

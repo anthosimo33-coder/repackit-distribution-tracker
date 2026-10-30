@@ -10,6 +10,7 @@ import {
   BellIcon,
   BookmarkIcon,
   BookOpenCheckIcon,
+  CalendarRangeIcon,
   ImagesIcon,
   ChevronsLeftIcon,
   ChevronsRightIcon,
@@ -182,6 +183,13 @@ export function Sidebar({
       icon: ClipboardListIcon,
       label: t("item.assignments"),
       ...item(projectPath("/assignments")),
+    },
+    // Pilote : la semaine de chaque créatrice proposée depuis ses gagnants
+    // (bloc `assignments.manage`, route déclarée au catalogue).
+    {
+      icon: CalendarRangeIcon,
+      label: t("item.pilote"),
+      ...item(projectPath("/pilote")),
     },
     // Vidéos des missions supprimées, gardées 30 jours (télécharger,
     // rattacher). Même bloc que la suppression : assignments.manage.

@@ -138,6 +138,7 @@ export const OUTILS_DEFAIRE: readonly McpTool[] = [
 export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "assigner_scripts",
   "rejouer_script",
+  "piloter_missions",
   "lancer_experience",
   "replanifier_mission",
   "consigne_mission",

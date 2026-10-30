@@ -449,7 +449,7 @@ const DAY_MS = 86_400_000;
  * négligeable devant la lecture intégrale des assignments du projet que le
  * cooldown fait déjà juste à côté.
  */
-async function comboCooldownDaysFor(
+export async function comboCooldownDaysFor(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">,
 ): Promise<number> {

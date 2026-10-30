@@ -82,6 +82,8 @@ import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { plateformeValidator, type Plateforme } from "./platforms";
 import { formatPostWindow } from "./postWindow";
 import { comboAvecTexte, ecrireCombo, texteDuCombo } from "./assignmentScriptText";
+import { PILOTE } from "./pilotePlan";
+import type { FunctionReturnType } from "convex/server";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -297,6 +299,40 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
       additionalProperties: false,
     },
     annotations: ECRIT,
+  },
+  {
+    name: "piloter_missions",
+    title: "Piloter les missions de la semaine",
+    description: `MODIFIE les missions : propose puis assigne les prochains jours d'une ou plusieurs créatrices, comme l'écran Pilote. Chaque jour un PARLÉ à midi et un MUET (réaction + démo) le soir — un parlé et deux muets à 3 par jour. Chaque créneau rejoue à l'identique un GAGNANT (ses vidéos à ≥ ×1,5 sa médiane à 72 h d'abord, puis celles des autres créatrices à ≥ 10 000 vues, dans les campagnes qu'elle tourne), ou prend un nouveau script de la campagne (part d'exploration). Un script ne revient pas chez elle avant 7 jours ; un créneau déjà pris par une mission existante n'est pas touché ; seules les campagnes classées parlé ou muet (écran Pilote) entrent dans le plan. Simule d'abord (« simuler »), montre le plan, puis rappelle sans « simuler » — « retirer » écarte des créneaux. ENVOIE UN email par créatrice pour toute sa semaine (sauf comptes gérés par l'équipe) : dis-le avant.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrices: {
+          type: "array",
+          description: "Les créatrices, par leur nom (outil `createatrices`). 10 au plus.",
+          items: { type: "string" },
+          minItems: 1,
+          maxItems: 10,
+        },
+        du: { type: "string", description: "Premier jour planifié, AAAA-MM-JJ (Paris). Défaut : demain." },
+        jours: { type: "number", description: `Nombre de jours planifiés, 1 à ${PILOTE.horizonMax}. Défaut : 7.` },
+        cadence: { type: "number", description: `Vidéos par jour et par créatrice, 1 à ${PILOTE.cadenceMax}. Défaut : ${PILOTE.cadenceDefaut}.` },
+        exploration: {
+          type: "number",
+          description: `Part des créneaux qui prennent un NOUVEAU script, de 0 à 1. Défaut : ${PILOTE.explorationDefaut}.`,
+        },
+        retirer: {
+          type: "array",
+          description: "Créneaux à laisser vides, « Créatrice AAAA-MM-JJ midi|après-midi|soir », comme la simulation les montre.",
+          items: { type: "string" },
+        },
+        simuler: { type: "boolean", description: "true = n'écrit rien : montre le plan." },
+      },
+      required: ["createatrices"],
+      additionalProperties: false,
+    },
+    annotations: AJOUTE,
   },
 ];
 
@@ -1064,6 +1100,8 @@ const OU_DEFAIRE: Record<string, string> = {
   reecrire_mission: "`defaire` remet le script d'avant (tant que la mission n'a pas changé depuis).",
   changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
   relancer: "Une relance ne se reprend pas : l'email est parti.",
+  piloter_missions:
+    "`defaire` supprime les missions pas encore commencées, créatrice par créatrice ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
 };
 
 /** Un jour AAAA-MM-JJ réel, et pas passé : on ne planifie pas dans le passé. */
@@ -1085,6 +1123,132 @@ export function designationDepuis(args: Record<string, unknown>): Designation {
   else throw new ToolError("« jour » : le jour PRÉVU de la mission, AAAA-MM-JJ (comme dans `planning`), ou « sans date ».");
   const opt = (cle: string) => (texteArg(args, cle) === "" ? {} : { [cle]: texteArg(args, cle) });
   return { createatrice, jour, ...opt("compte"), ...opt("campagne"), ...opt("script") };
+}
+
+const VIDE: Record<string, string> = {
+  aucunGagnant: "aucun gagnant libre, ni nouveau script à tirer dans cet étage",
+  aucuneCampagne: "aucune campagne de cet étage classée dans ses campagnes",
+  retire: "retiré",
+  aCourt: "la campagne n'a plus de script libre ce jour-là",
+};
+
+type PlanMcp = FunctionReturnType<typeof internal.pilote.proposerMcp>;
+
+/** Le plan d'une créatrice, lisible par Claude (et par la personne à qui il le montre). */
+function planLisible(cr: PlanMcp["createatrices"][number]) {
+  return {
+    createatrice: cr.nom,
+    comptes: cr.comptes.map((c) => `${c.handle} (${c.plateforme})`),
+    bareme: cr.bareme,
+    ...(cr.bloquee ? { bloquee: cr.bloquee === "sansCompte" ? "aucun compte disponible" : "aucun barème de paie" } : {}),
+    ...(cr.nonClassees.length > 0
+      ? { campagnesNonClassees: `${cr.nonClassees.map((c) => c.nom).join(", ")} : hors du pilote tant qu'elles ne sont pas classées parlé ou muet (écran Pilote).` }
+      : {}),
+    ...(cr.dejaPrevus.length > 0 ? { dejaPrevus: cr.dejaPrevus.map((d) => `${jourTexte(d.jour)} : ${d.missions} mission(s)`) } : {}),
+    creneaux: cr.creneaux.map((c) => ({
+      creneau: `${c.jour} ${c.plage === "apresmidi" ? "après-midi" : c.plage}`,
+      etage: c.etage === "tofu" ? "parlé" : "muet",
+      ...(c.source === null
+        ? { vide: VIDE[c.vide ?? "aucunGagnant"] }
+        : c.source.kind === "rejeu"
+          ? {
+              rejeu:
+                `${c.source.propre ? "son post" : `post de ${c.source.createatrice}`} du ${jourTexte(c.source.jour)} — ` +
+                `${c.source.vues} vues ${c.source.plateforme}` +
+                (c.source.ratio !== null ? `, ×${c.source.ratio.toFixed(1)} la médiane de sa créatrice` : "") +
+                ` (${c.source.campagne})`,
+              lien: c.source.lien,
+              script: c.source.texte,
+            }
+          : {
+              nouveau: `${c.source.campagne}${c.exploration ? " (exploration)" : " (aucun gagnant libre)"}`,
+              script: c.source.apercu?.texte ?? null,
+            }),
+    })),
+  };
+}
+
+async function piloter(
+  ctx: ActionCtx,
+  args: Record<string, unknown>,
+  cible: CibleEcriture,
+  projet: string,
+  aujourdhui: string,
+): Promise<ToolResult> {
+  const createatrices = textesArg(args, "createatrices");
+  if (createatrices.length === 0) throw new ToolError("« createatrices » : au moins une créatrice.");
+  if (createatrices.length > 10) throw new ToolError("« createatrices » : 10 au plus par appel.");
+  const duBrut = texteArg(args, "du");
+  const du = duBrut === "" ? shiftDay(aujourdhui, 1) : jourValide(duBrut, "du", aujourdhui);
+  const nombre = (cle: string, defaut: number, min: number, max: number) => {
+    const x = args[cle];
+    if (x === undefined) return defaut;
+    if (typeof x !== "number" || !Number.isFinite(x) || x < min || x > max) {
+      throw new ToolError(`« ${cle} » : un nombre de ${min} à ${max}.`);
+    }
+    return x;
+  };
+  const plan = await ecrire(() =>
+    ctx.runQuery(internal.pilote.proposerMcp, {
+      userId: cible.userId,
+      projectId: cible.projectId,
+      createatrices,
+      du,
+      jours: Math.round(nombre("jours", 7, 1, PILOTE.horizonMax)),
+      cadence: Math.round(nombre("cadence", PILOTE.cadenceDefaut, 1, PILOTE.cadenceMax)),
+      exploration: nombre("exploration", PILOTE.explorationDefaut, 0, 1),
+      retirer: textesArg(args, "retirer"),
+    }),
+  );
+  if (args.simuler === true) {
+    return resultatEcriture(projet, "Simulation : rien n'a été écrit.", "Rien à défaire.", {
+      plan: plan.createatrices.map(planLisible),
+      suite: "Pour assigner : rappelle piloter_missions sans « simuler », avec les mêmes arguments (et « retirer » pour écarter des créneaux).",
+    });
+  }
+  const parCreatrice: Record<string, unknown>[] = [];
+  const faits: string[] = [];
+  for (const cr of plan.createatrices) {
+    const lignes = cr.creneaux.flatMap((c) =>
+      c.source === null
+        ? []
+        : [
+            {
+              jour: c.jour,
+              plage: c.plage,
+              source:
+                c.source.kind === "rejeu"
+                  ? { kind: "rejeu" as const, assignmentId: c.source.assignmentId }
+                  : { kind: "nouveau" as const, campaignId: c.source.campaignId, exclusions: [] },
+            },
+          ],
+    );
+    if (lignes.length === 0) {
+      parCreatrice.push({ createatrice: cr.nom, creees: 0, raison: "aucun créneau à remplir" });
+      continue;
+    }
+    try {
+      const r = await ecrire(() =>
+        ctx.runMutation(internal.pilote.assignerMcp, { ...cible, creatorId: cr.creatorId, lignes }),
+      );
+      if (r.creees > 0) faits.push(r.summary);
+      parCreatrice.push({
+        createatrice: cr.nom,
+        creees: r.creees,
+        emailEnvoye: r.emailEnvoye,
+        ...(r.manques.length > 0
+          ? { aCourtDeScripts: r.manques.map((m) => `${m.campagne} : ${m.creees}/${m.demandees}`) }
+          : {}),
+      });
+    } catch (e) {
+      // Comme l'écran en masse : un refus n'arrête pas les autres créatrices.
+      if (!(e instanceof ToolError)) throw e;
+      parCreatrice.push({ createatrice: cr.nom, creees: 0, refus: e.message });
+    }
+  }
+  return resultatEcriture(projet, faits.length > 0 ? faits : "Aucune mission créée.", OU_DEFAIRE.piloter_missions, {
+    parCreatrice,
+  });
 }
 
 async function appelerEcritureMissions(
@@ -1204,6 +1368,8 @@ async function appelerEcritureMissions(
     }
     return resultatEcriture(projet, faits.length > 0 ? faits : "Aucune vidéo créée.", OU_DEFAIRE[name], { parCreatrice });
   }
+
+  if (name === "piloter_missions") return await piloter(ctx, args, cible, projet, aujourdhui);
 
   const d = designationDepuis(args);
   let r: { summary: string };

@@ -26,6 +26,8 @@
     "admin.assignments.AssignmentsPageInner.brief",
     "admin.assignments.AssignmentsPageInner.mission",
     "admin.assignments.AssignmentsPageInner.post",
+    "admin.assignments.PilotePage.enExploration",
+    "admin.assignments.PilotePage.promo",
     "admin.challenges.ChallengeDetailPage.deadline",
     "admin.challenges.ChallengeDetailPage.score",
     "admin.challenges.ChallengeMaterialCard.script",

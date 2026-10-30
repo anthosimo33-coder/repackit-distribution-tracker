@@ -37,7 +37,7 @@ const part = v.object({
 
 export const annulationValidator = v.union(
   // ── Missions ──────────────────────────────────────────────────────────────
-  /** assigner_scripts, rejouer_script : les missions créées. */
+  /** assigner_scripts, rejouer_script, piloter_missions : les missions créées. */
   v.object({ type: v.literal("missionsCreees"), assignmentIds: v.array(v.id("assignments")) }),
   /** lancer_experience : l'expérience et ses missions. */
   v.object({
