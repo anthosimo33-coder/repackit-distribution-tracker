@@ -416,6 +416,7 @@ type OutilEcriture =
   | "classer_type_whop"
   | "assigner_scripts"
   | "rejouer_script"
+  | "piloter_missions"
   | "replanifier_mission"
   | "consigne_mission"
   | "annuler_mission"

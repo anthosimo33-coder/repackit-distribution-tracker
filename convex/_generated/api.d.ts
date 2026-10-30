@@ -201,6 +201,8 @@ import type * as permissionCoverage from "../permissionCoverage.js";
 import type * as permissionProbe from "../permissionProbe.js";
 import type * as permissions from "../permissions.js";
 import type * as personnes from "../personnes.js";
+import type * as pilote from "../pilote.js";
+import type * as pilotePlan from "../pilotePlan.js";
 import type * as planEconomics from "../planEconomics.js";
 import type * as platforms from "../platforms.js";
 import type * as playbook from "../playbook.js";
@@ -507,6 +509,8 @@ declare const fullApi: ApiFromModules<{
   permissionProbe: typeof permissionProbe;
   permissions: typeof permissions;
   personnes: typeof personnes;
+  pilote: typeof pilote;
+  pilotePlan: typeof pilotePlan;
   planEconomics: typeof planEconomics;
   platforms: typeof platforms;
   playbook: typeof playbook;

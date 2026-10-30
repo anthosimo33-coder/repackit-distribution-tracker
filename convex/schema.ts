@@ -3669,6 +3669,10 @@ export default defineSchema({
       v.union(v.literal("warmup"), v.literal("promo")),
     ),
     defaultRemunerated: v.optional(v.boolean()),
+    // ÉTAGE DU TUNNEL pour le pilote des missions (convex/pilotePlan) :
+    // « tofu » = parlé (haut du tunnel, midi), « bofu » = réaction + démo muette
+    // (bas du tunnel, soir). Absent = campagne hors du pilote, 0 migration.
+    funnelStage: v.optional(v.union(v.literal("tofu"), v.literal("bofu"))),
     // NOTIF — la campagne a-t-elle une brique « notif » (texte de la notif
     // affichée à l'écran) ? true = chaque vidéo assignée en porte une, tirée
     // en rotation équilibrée hors combo (convex/scriptNotif). Absent = non :

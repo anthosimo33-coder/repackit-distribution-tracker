@@ -936,6 +936,7 @@
       "classer_type_whop": "File a Whop line type",
       "assigner_scripts": "Assign scripts",
       "rejouer_script": "Replay a script",
+      "piloter_missions": "Pilot the week’s assignments",
       "replanifier_mission": "Reschedule an assignment",
       "consigne_mission": "Assignment instructions",
       "annuler_mission": "Drop an assignment",
