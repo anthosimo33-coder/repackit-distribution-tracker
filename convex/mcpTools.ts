@@ -417,6 +417,26 @@ export const lireAttribution = mcpPermissionQuery("business.read")({
   handler: async (ctx) => getAttributionCore(ctx),
 });
 
+/**
+ * Le contexte DEVISES de l'onglet Offres & tests (devise de paie + taux vers le
+ * revenu) : les deux champs que l'écran prend sur l'attribution, lus ici sur le
+ * projet — les mêmes valeurs que `getAttributionCore` renvoie. `offres` lisait
+ * l'attribution ENTIÈRE (le moteur de paie de chaque vidéo) pour ces deux
+ * scalaires ; elle a passé la seconde de lecture d'une query en production le
+ * 2026-11-02 (1,00 à 1,04 s, 6 705 documents) et l'outil tombait en « Erreur
+ * interne » sur toute période.
+ */
+export const lireDevisesProjet = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => {
+    const project = await ctx.db.get(ctx.projectId);
+    return {
+      payCurrency: project?.payCurrency ?? null,
+      fxRateToRevenue: project?.fxRateToRevenue ?? null,
+    };
+  },
+});
+
 /** Onglet Fiabilité (et garde-fou clients de l'éco unitaire) — même lecture, même bloc. */
 export const lireFiabilite = mcpPermissionQuery("business.read")({
   args: {},
@@ -3440,7 +3460,9 @@ export function jarviaServer(
         // Les sept agrégats que la période change — les mêmes que l'onglet.
         const a = periode.recalcul ? { ...produit, ...periode.recalcul.offres } : produit;
         const revenu = await lire(() => ctx.runQuery(internal.mcpTools.lireRevenus, ids));
-        const attribution = await lire(() => ctx.runQuery(internal.mcpTools.lireAttribution, ids));
+        // Le contexte devises seul (cf lireDevisesProjet) : l'attribution entière
+        // dépasse la seconde d'une query et faisait tomber l'outil.
+        const devises = await lire(() => ctx.runQuery(internal.mcpTools.lireDevisesProjet, ids));
         const f = periode.fenetre;
         const bras = (v: string) => AB_ARM_LABELS[v] ?? v;
 
@@ -3481,8 +3503,8 @@ export function jarviaServer(
         const comparabilite = armComparability(a.abOffers.rows, revenu.plans);
         const achats = armPurchases(a.abPurchases.rows, revenu.plans, {
           revenueCurrency: revenu.currency ?? null,
-          payCurrency: attribution.payCurrency ?? null,
-          fxRateToRevenue: attribution.fxRateToRevenue ?? null,
+          payCurrency: devises.payCurrency,
+          fxRateToRevenue: devises.fxRateToRevenue,
           otherRates: revenu.fxRates ?? null,
         });
         const incoherences = purchaseCoherenceIssues(
