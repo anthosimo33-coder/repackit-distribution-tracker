@@ -80,6 +80,13 @@
     "subtitle": "Exercice {year} · montants en {currency}, datés au jour de l'encaissement ou du versement (heure de Paris).",
     "subtitleNoCurrency": "Exercice {year} · montants datés au jour de l'encaissement ou du versement (heure de Paris).",
     "yearOption": "Exercice {year}",
+    "period": {
+      "label": "Période affichée",
+      "year": "Toute l'année",
+      "prev": "Mois précédent",
+      "next": "Mois suivant",
+      "inProgress": "{month} (en cours)"
+    },
     "sync": "Synchroniser Whop",
     "syncStarted": "Lecture du grand livre lancée : les chiffres se mettent à jour d'eux-mêmes.",
     "syncNotConfigured": "Whop n'est pas relié à ce projet.",
@@ -127,7 +134,12 @@
       "transfersYear": "{amount} virés sur l'exercice",
       "lastTransfer": "dernier virement le {date} ({amount})",
       "noTransfer": "aucun virement pour l'instant",
-      "balanceUnconverted": "Solde dans des devises sans taux : {list}"
+      "balanceUnconverted": "Solde dans des devises sans taux : {list}",
+      "resultMonth": "Résultat {month}",
+      "resultInfoMonth": "Net Whop − paiements créatrices versés dans le mois − coût des scans − autres charges du mois.",
+      "resultPrevious": "{month} : {amount}",
+      "inProgress": "Mois en cours : les chiffres bougent encore.",
+      "transfersMonth": "{amount} virés en {month}"
     },
     "threshold": {
       "title": "CA brut cumulé {year}",
@@ -153,7 +165,20 @@
       "noRate": "aucun encaissement sur 30 jours",
       "footnote": "Projection linéaire au rythme des 30 derniers jours complets, si rien ne change : un repère, pas une prévision.",
       "notEur": "Les seuils de 37 500 € et 41 250 € sont en euros : ils ne s'affichent que si la devise de référence du projet est l'euro.",
-      "cumulOnly": "CA brut cumulé de l'exercice"
+      "cumulOnly": "CA brut cumulé de l'exercice",
+      "monthTitle": "CA brut {month}",
+      "monthInfoLabel": "Ce que compte ce montant",
+      "monthInfo": "Paiements encaissés sur Whop pendant le mois (heure de Paris), avant remboursements, litiges et frais. Le détail par type est dans le tableau mensuel, ligne du mois.",
+      "monthChange": "{change} par rapport à {month} ({amount})",
+      "monthNoPrevious": "Pas de mois précédent à comparer",
+      "monthInProgress": "Mois en cours",
+      "monthNet": "Net après Whop",
+      "monthRefunds": "Remboursements",
+      "monthDisputes": "Litiges",
+      "monthFees": "Frais Whop",
+      "monthShare": "{pct} du CA brut",
+      "monthCumul": "Cumul de l'exercice à fin {month} : {amount} · {pct} du premier seuil ({threshold})",
+      "monthCumulNoThreshold": "Cumul de l'exercice à fin {month} : {amount}"
     },
     "table": {
       "title": "Mois par mois",

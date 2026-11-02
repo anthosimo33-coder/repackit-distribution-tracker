@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { Card, CardContent } from "@/components/ui/card";
 import { InfoTip } from "@/components/InfoTip";
 import { VAT_THRESHOLDS_EUR } from "@/convex/comptaMath";
+import { buildComptaRecap } from "@/lib/compta-recap";
 import { cn } from "@/lib/utils";
 import { useComptaFormat } from "./compta-format";
 import type { ComptaOverview } from "./ComptaPage";
@@ -186,6 +187,78 @@ export function ComptaThresholdCard({ data }: { data: ComptaOverview }) {
           />
         </div>
         {isCurrentYear && <p className="text-xs text-slate-400">{t("footnote")}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * CA BRUT D'UN MOIS — la carte qui remplace la jauge quand l'écran regarde un
+ * seul mois : l'encaissé du mois, ce que Whop en a retenu, la comparaison au
+ * mois d'avant, et où en était le cumul de l'exercice à la fin du mois.
+ */
+export function ComptaMonthRevenueCard({ data, month }: { data: ComptaOverview; month: string }) {
+  const t = useTranslations("admin.money.Compta.threshold");
+  const f = useComptaFormat();
+  const cur = data.currency;
+  const recap = buildComptaRecap(data.rows, month, month);
+  const r = data.rows.find((x) => x.month === month);
+  if (!r) return null;
+  const { gross } = r.ledger;
+  const share = (n: number) => (gross > 0 ? t("monthShare", { pct: f.pct(Math.abs(n) / gross) }) : "—");
+  const cumul = data.rows.filter((x) => x.month <= month).reduce((s, x) => s + x.ledger.gross, 0);
+  const change = recap.grossChange;
+  const changeLabel =
+    // i18n-exempt: signe d'une variation (+ / −), pas un texte d'interface
+    change === null ? null : `${change > 0 ? "+" : change < 0 ? "−" : ""}${f.pct(Math.abs(change) / 100)}`;
+
+  return (
+    <Card className="py-0 lg:col-span-2" data-testid="compta-month-revenue">
+      <CardContent className="flex h-full flex-col gap-5 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+              {t("monthTitle", { month: f.month(month) })}
+              <InfoTip label={t("monthInfoLabel")}>{t("monthInfo")}</InfoTip>
+            </div>
+            <div className="text-4xl font-semibold tracking-tight text-slate-900 tabular-nums">
+              {f.money(gross, cur)}
+            </div>
+            <div className="text-xs text-slate-500 tabular-nums">
+              {recap.previous && changeLabel !== null
+                ? t("monthChange", {
+                    change: changeLabel,
+                    month: f.month(recap.previous.from),
+                    amount: f.money(recap.previous.gross, cur),
+                  })
+                : t("monthNoPrevious")}
+            </div>
+          </div>
+          {r.inProgress && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+              <span className="size-1.5 rounded-full bg-amber-500" />
+              {t("monthInProgress")}
+            </span>
+          )}
+        </div>
+
+        <div className="grid gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 sm:grid-cols-4">
+          <Stat label={t("monthNet")} value={f.signed(r.ledger.net, cur)} hint={share(r.ledger.net)} />
+          <Stat label={t("monthRefunds")} value={f.signed(r.ledger.refunds, cur)} hint={share(r.ledger.refunds)} />
+          <Stat label={t("monthDisputes")} value={f.signed(r.ledger.disputes, cur)} hint={share(r.ledger.disputes)} />
+          <Stat label={t("monthFees")} value={f.signed(r.ledger.fees, cur)} hint={share(r.ledger.fees)} />
+        </div>
+
+        <p className="mt-auto text-xs text-slate-500 tabular-nums">
+          {data.thresholds === null
+            ? t("monthCumulNoThreshold", { month: f.month(month), amount: f.money(cumul, cur) })
+            : t("monthCumul", {
+                month: f.month(month),
+                amount: f.money(cumul, cur),
+                pct: f.pct(cumul / VAT_THRESHOLDS_EUR.base),
+                threshold: f.whole(VAT_THRESHOLDS_EUR.base, cur),
+              })}
+        </p>
       </CardContent>
     </Card>
   );
