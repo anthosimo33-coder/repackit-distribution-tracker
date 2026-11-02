@@ -780,6 +780,24 @@ export function creatorsControl(
   return { paid, sent, gap, significant: Math.abs(gap) > tolerance };
 }
 
+/**
+ * Les frais d'ALERTE de litige (`dispute_alert_fee`) d'un mois : combien, et ce
+ * qu'ils ont coûté (positif, converti). Déjà comptés dans « Frais Whop » ; le
+ * récap d'une période les sort à part parce qu'ils montent avec les litiges.
+ * Une case sans taux est comptée mais pas chiffrée (jamais 1:1).
+ */
+export function disputeAlertFees(cells: readonly LedgerDayCell[], fx: ComptaFx): { count: number; amount: number } {
+  let count = 0;
+  let amount = 0;
+  for (const c of cells) {
+    if (c.lineType !== "dispute_alert_fee") continue;
+    count += c.count;
+    const conv = convert(c.amount, c.currency, fx);
+    if (conv !== null) amount -= conv;
+  }
+  return { count, amount: round2(amount) };
+}
+
 // ─── Trésorerie ──────────────────────────────────────────────────────────────
 
 /** Au-delà, un solde relevé est signalé « à relever » : il a pu bouger. */

@@ -176,6 +176,8 @@
     "admin.money.Compta.detail.foreignItem",
     "admin.money.Compta.detail.scansTotal",
     "admin.money.Compta.detail.transferParts",
+    "admin.money.Compta.recap.legendScans",
+    "admin.money.Compta.recap.pointLabel",
     "admin.money.Compta.treasury.whop",
     "admin.money.ManagerPayReport.cpm",
     "admin.money.ManagerPayReport.date",

@@ -34,6 +34,8 @@ import {
   grossByDay,
   isBuiltinLineType,
   isChargeCategory,
+  disputeAlertFees,
+  type ChargeCategory,
   isComptaBucket,
   isFailedWithdrawal,
   isScanPaidLow,
@@ -414,10 +416,14 @@ export async function comptaOverviewCore(ctx: ProjectQueryCtx, { year }: { year:
     let other = 0;
     let otherUnconverted = false;
     let plannedCount = 0;
+    const byCategory = new Map<string, number>();
     for (const c of monthCharges.filter((c) => c.category !== "scans")) {
       const conv = convert(c.amount, c.currency, fx);
       if (conv === null) otherUnconverted = true;
-      else other += conv;
+      else {
+        other += conv;
+        byCategory.set(c.category, (byCategory.get(c.category) ?? 0) + conv);
+      }
       if (c.planned) plannedCount += 1;
     }
     other = round2(other);
@@ -445,6 +451,12 @@ export async function comptaOverviewCore(ctx: ProjectQueryCtx, { year }: { year:
       scanPaidLow: isScanPaidLow(sc.source === "paid" ? scans : null, sc.estimate),
       scanFrozen: doc?.scan?.frozen ?? false,
       other,
+      // Le détail des autres charges par catégorie (récap d'une période).
+      otherByCategory: [...byCategory.entries()]
+        .filter((e): e is [ChargeCategory, number] => isChargeCategory(e[0]))
+        .map(([category, amount]) => ({ category, amount: round2(amount) }))
+        .sort((a, b) => b.amount - a.amount),
+      alertFees: disputeAlertFees(doc?.days ?? [], fx),
       plannedCount,
       result,
       incomplete,
