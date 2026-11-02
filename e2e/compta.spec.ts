@@ -8,6 +8,7 @@ import { createFormatWithRate } from "./helpers/formats";
 import { api } from "../convex/_generated/api";
 import { formatMoney, formatMoneyWhole } from "../convex/moneyFormat";
 import { regrouperPaiements } from "../convex/paymentsView";
+import { parisDayKey } from "../convex/comptaMath";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
 
@@ -949,6 +950,51 @@ test.describe("Compta", () => {
       await admin.mutation(api.compta.deleteComptaAccount, { accountId: walletId });
       expect((await treso()).accounts.map((a) => a.name)).toEqual(["Antho Banque"]);
       void projectId;
+    } finally {
+      await restore();
+    }
+  });
+
+  test("trésorerie : un virement posté après le relevé du même jour s'ajoute, un relevé re-saisi le contient", async () => {
+    test.setTimeout(120_000);
+    const ts = Date.now();
+    const { projectId, restore } = await setup(ts);
+    try {
+      // Le 02/11 en prod : relevé saisi à 11:21, virement Whop vers ce compte à 12:17.
+      const today = parisDayKey(Date.now());
+      const { accountId } = await admin.mutation(api.compta.saveAccountReading, {
+        newAccount: { name: "Antho Banque", currency: "eur" },
+        destinations: ["Antho Banque"],
+        day: today,
+        amount: 1191,
+      });
+      // Des instants distincts : relevé < virement < relevé re-saisi.
+      const gap = () => new Promise((r) => setTimeout(r, 50));
+      await gap();
+      await admin.mutation(api.compta.e2eSeedLedgerLines, {
+        secret: E2E_SECRET,
+        projectId,
+        lines: [
+          {
+            whopId: `line_e2e_${ts}_meme_jour`,
+            lineType: "withdrawal",
+            amount: -3497.77,
+            currency: "eur",
+            postedAt: Date.now(),
+            sourceId: `wdrl_meme_jour_${ts}`,
+            destination: "Antho Banque",
+            sourceStatus: "in_transit",
+          },
+        ],
+      });
+      const banque = async () => (await admin.query(api.compta.getComptaTreasury, {})).accounts.find((a) => a._id === accountId)!;
+      expect(await banque()).toMatchObject({ arrived: 3497.77, spent: 0, estimated: 4688.77 });
+
+      // Le virement arrivé, on relève de nouveau le même jour : le relevé remplacé
+      // le contient — il ne s'ajoute pas une deuxième fois.
+      await gap();
+      await admin.mutation(api.compta.saveAccountReading, { accountId, destinations: ["Antho Banque"], day: today, amount: 4688.77 });
+      expect(await banque()).toMatchObject({ arrived: 0, estimated: 4688.77 });
     } finally {
       await restore();
     }
