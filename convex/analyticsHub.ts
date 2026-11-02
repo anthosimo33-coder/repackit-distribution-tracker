@@ -30,7 +30,7 @@ import { intervalToDays } from "./churn";
 // TOUT mois calendaire de ce module est en Europe/Paris, comme ses jours
 // (`parisDay`) et comme Whop. `periodOf` (UTC) n'y a plus aucun appelant : il ne
 // sert qu'aux clés PERSISTÉES de la paie legacy (cf convex/payments.ts).
-import { monthKeyParis, parisMonthEndMs } from "./dateFr";
+import { dayKeyParis, monthKeyParis, parisMonthEndMs } from "./dateFr";
 import {
   summarizeWhopRevenue,
   whopNetContribution,
@@ -112,9 +112,7 @@ import { billingCountriesOf, type BillingCountries } from "./billingCountries";
 
 /** Jour « métier » Europe/Paris d'un timestamp (ms) → "YYYY-MM-DD". */
 function parisDay(ms: number): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Paris",
-  }).format(new Date(ms));
+  return dayKeyParis(ms);
 }
 
 /**

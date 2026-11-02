@@ -64,6 +64,16 @@ export function formatDayMonthFr(ts: number, locale: string = "fr-FR"): string {
 }
 
 /**
+ * Formateur épinglé Paris, construit UNE fois (même règle que
+ * convex/calendarStatus et convex/viewsDaily). Le construire à chaque appel
+ * coûte des dizaines de µs, s'en servir une : `parisMonthEndMs` appelle
+ * `monthKeyParis` cinquante fois par mois cherché, pour chaque (créatrice, mois)
+ * du moteur de paie. Le 2026-11-02, c'était 68 % du calcul de l'attribution, qui
+ * passait la seconde d'une query Convex en production.
+ */
+const PARIS_YMD = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" });
+
+/**
  * Clé de MOIS CALENDAIRE "YYYY-MM" en Europe/Paris.
  *
  * ⚠️ À NE PAS confondre avec `periodOf` (convex/payments.ts), qui découpe en
@@ -89,9 +99,12 @@ export function formatDayMonthFr(ts: number, locale: string = "fr-FR"): string {
  * ne garde que l'année et le mois : un seul mécanisme de fuseau à auditer.
  */
 export function monthKeyParis(ts: number): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" })
-    .format(new Date(ts))
-    .slice(0, 7);
+  return PARIS_YMD.format(new Date(ts)).slice(0, 7);
+}
+
+/** Jour calendaire "YYYY-MM-DD" en Europe/Paris — le jour du hub Analytics. */
+export function dayKeyParis(ts: number): string {
+  return PARIS_YMD.format(new Date(ts));
 }
 
 /**
