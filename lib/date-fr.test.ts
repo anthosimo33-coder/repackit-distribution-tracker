@@ -6,7 +6,7 @@
 process.env.TZ = "UTC";
 
 import { describe, expect, it } from "vitest";
-import { formatDateFr, formatDayMonthFr, monthKeyParis,
+import { dayKeyParis, formatDateFr, formatDayMonthFr, monthKeyParis,
   parisMonthEndMs,
 } from "../convex/dateFr";
 import { periodOf } from "../convex/payments";
@@ -190,3 +190,61 @@ describe("parisMonthEndMs", () => {
     );
   });
 });
+
+describe("dayKeyParis — jour calendaire Europe/Paris", () => {
+  it("rend le jour PARISIEN aux deux bascules d'heure", () => {
+    expect(dayKeyParis(Date.parse("2026-08-14T21:59:00Z"))).toBe("2026-08-14");
+    expect(dayKeyParis(Date.parse("2026-08-14T22:00:00Z"))).toBe("2026-08-15");
+    expect(dayKeyParis(Date.parse("2026-11-01T22:59:00Z"))).toBe("2026-11-01");
+    expect(dayKeyParis(Date.parse("2026-11-01T23:00:00Z"))).toBe("2026-11-02");
+  });
+});
+
+/**
+ * BUDGET CPU des queries du hub. Une query Convex a UNE seconde de calcul : le
+ * 2026-11-02, `getAttributionCore` en prenait 1,00 à 1,04 s en production et
+ * faisait tomber `offres`, `economie_unitaire`, `retention`, `acquisition` et
+ * l'agrégat Acquisition de l'écran. Profil sur l'export prod : 68 % du temps dans
+ * `monthKeyParis` et 10 % dans le jour Paris du hub — chacun construisait un
+ * `Intl.DateTimeFormat` NEUF à chaque appel, et `parisMonthEndMs` l'appelle
+ * cinquante fois par dichotomie, pour chaque (créatrice, mois). Construire le
+ * formateur coûte des dizaines de µs ; s'en servir, une.
+ */
+describe("formateur Paris construit une seule fois", () => {
+  it("ni le jour, ni le mois, ni la fin de mois n'en construisent à l'appel", async () => {
+    const debut = Date.parse("2026-01-01T00:00:00Z");
+    const n = await formateursConstruits(() => {
+      for (let i = 0; i < 500; i++) {
+        dayKeyParis(debut + i * 3_600_000);
+        monthKeyParis(debut + i * 86_400_000);
+      }
+      for (const mois of ["2026-03", "2026-10", "2026-12"]) parisMonthEndMs(mois);
+    });
+    expect(n).toBe(0);
+  });
+});
+
+/**
+ * Compte les `Intl.DateTimeFormat` construits pendant `f` — sans rien changer à
+ * ce qu'ils rendent (un `Proxy` transparent, retiré ensuite).
+ */
+async function formateursConstruits(f: () => unknown): Promise<number> {
+  const original = Intl.DateTimeFormat;
+  let n = 0;
+  Intl.DateTimeFormat = new Proxy(original, {
+    construct(cible, args) {
+      n += 1;
+      return Reflect.construct(cible, args);
+    },
+    apply(cible, ceci, args) {
+      n += 1;
+      return Reflect.apply(cible, ceci, args);
+    },
+  });
+  try {
+    await f();
+  } finally {
+    Intl.DateTimeFormat = original;
+  }
+  return n;
+}
