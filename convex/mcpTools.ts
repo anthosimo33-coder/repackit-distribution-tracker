@@ -93,7 +93,7 @@ import { acquisitionCostPerClient } from "./retentionCost";
 import { attributionDaily, windowCosts, windowedAttribution } from "./attributionWindow";
 import { readConversionAllTimeCore } from "./conversionSync";
 import { getMarketPnlCore } from "./marketPnl";
-import { comptaMonthCore, comptaOverviewCore, comptaTreasuryCore } from "./compta";
+import { comptaMonthCore, comptaOverviewCore, comptaPartnersCore, comptaTreasuryCore } from "./compta";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
@@ -501,6 +501,12 @@ export const lireCompta = mcpPermissionQuery("business.read")({
 export const lireComptaTresorerie = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => comptaTreasuryCore(ctx),
+});
+
+/** Onglet Compta : les associés, leurs parts et ce que chacun s'est versé — même calcul. */
+export const lireComptaAssocies = mcpPermissionQuery("business.read")({
+  args: {},
+  handler: async (ctx) => comptaPartnersCore(ctx),
 });
 
 /** Onglet Compta : le détail d'un mois (grand livre, virements ventilés, charges) — même calcul. */
@@ -1263,7 +1269,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "compta",
     title: "Compta (exercice et mois)",
     description:
-      "L'onglet Compta, par les mêmes calculs. L'exercice : par mois de Paris, le grand livre Whop (CA brut encaissé, remboursements, litiges, frais Whop, net Whop), les charges — créatrices au jour du VERSEMENT (converties), scans (paiements RÉELS au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd), autres charges (saisies, ou comptées depuis la ventilation d'un virement) —, le RÉSULTAT (net Whop − créatrices − scans − autres charges) et les virements Whop → banque reçus ; le CA brut cumulé face aux seuils de 37 500 € et 41 250 € avec la projection ; le solde restant sur Whop ; la TRÉSORERIE d'aujourd'hui (disponible pour dépenser = Whop + comptes bancaires relevés − argent mis de côté pour les impôts − ce qui est dû aux créatrices, le « À verser » de Paiements ; un compte = son dernier relevé + les virements arrivés depuis − leurs parts ventilées comme dépensées, avec l'âge de chaque relevé) ; l'argent À RÉCUPÉRER (sorti de Whop, jamais arrivé) ; les contrôles (scans réels très sous l'estimation, écart entre la paie marquée versée et l'argent sorti de Whop pour les créatrices) ; les types de lignes non classés. Avec `mois` : le détail de ce mois — lignes du grand livre par type, chaque virement et sa VENTILATION (parts, usage, motif, charge comptée), les charges, les versements aux créatrices, les scans et le rapprochement du solde Whop.",
+      "L'onglet Compta, par les mêmes calculs. L'exercice : par mois de Paris, le grand livre Whop (CA brut encaissé, remboursements, litiges, frais Whop, net Whop), les charges — créatrices au jour du VERSEMENT (converties), scans (paiements RÉELS au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd), autres charges (saisies, ou comptées depuis la ventilation d'un virement) —, le RÉSULTAT (net Whop − créatrices − scans − autres charges) et les virements Whop → banque reçus ; le CA brut cumulé face aux seuils de 37 500 € et 41 250 € avec la projection ; le solde restant sur Whop ; la TRÉSORERIE d'aujourd'hui (disponible pour dépenser = Whop + comptes bancaires relevés − argent mis de côté pour les impôts − ce qui est dû aux créatrices, le « À verser » de Paiements ; un compte = son dernier relevé + les virements arrivés depuis − leurs parts ventilées comme dépensées, avec l'âge de chaque relevé) ; les ASSOCIÉS (leurs parts, ce que chacun s'est versé en parts « rémunération », ce qu'il manque à chacun pour revenir aux parts, les rémunérations à attribuer) ; l'argent À RÉCUPÉRER (sorti de Whop, jamais arrivé) ; les contrôles (scans réels très sous l'estimation, écart entre la paie marquée versée et l'argent sorti de Whop pour les créatrices) ; les types de lignes non classés. Avec `mois` : le détail de ce mois — lignes du grand livre par type, chaque virement et sa VENTILATION (parts, usage, motif, charge comptée), les charges, les versements aux créatrices, les scans et le rapprochement du solde Whop.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4426,6 +4432,9 @@ export function jarviaServer(
             throw new ToolError("« mois » doit être au format AAAA-MM (ex. 2026-09).");
           }
           const d = await lire(() => ctx.runQuery(internal.mcpTools.lireComptaMois, { ...ids, month: moisDemande }));
+          const nomsAssocies = new Map(
+            (await lire(() => ctx.runQuery(internal.mcpTools.lireComptaAssocies, ids))).partners.map((p) => [p.id, p.name]),
+          );
           return json({
             projet: projet.slug,
             mois: d.month,
@@ -4461,6 +4470,7 @@ export function jarviaServer(
                       usage: USAGES[p.usage] ?? p.usage,
                       motif: p.note,
                       compteeEnCharge: p.countedAs === null ? null : (CATEGORIES[p.countedAs] ?? p.countedAs),
+                      ...(p.usage === "pay" ? { associe: (p.partnerId && nomsAssocies.get(p.partnerId)) ?? null } : {}),
                     })),
                     sansMotif: Math.round((x.amount - x.parts.reduce((s, p) => s + p.amount, 0)) * 100) / 100,
                   }),
@@ -4532,6 +4542,7 @@ export function jarviaServer(
         }
         const o = await lire(() => ctx.runQuery(internal.mcpTools.lireCompta, { ...ids, year: annee }));
         const treso = await lire(() => ctx.runQuery(internal.mcpTools.lireComptaTresorerie, ids));
+        const assoc = await lire(() => ctx.runQuery(internal.mcpTools.lireComptaAssocies, ids));
         if (!o.configured) {
           return json({
             projet: projet.slug,
@@ -4650,6 +4661,45 @@ export function jarviaServer(
             misDeCoteDetail: { partsMiseDeCote: treso.setAside.provisioned, dejaPaye: treso.setAside.used },
             aRecuperer: treso.toRecover,
           },
+          associes:
+            assoc.partners.length === 0 && assoc.payments.length === 0
+              ? null
+              : {
+                  parts: assoc.partners.map((p) => ({ nom: p.name, partPct: p.share })),
+                  totalVerse: assoc.view.total,
+                  niveau: assoc.view.level,
+                  pourRevenirAuxParts: assoc.view.catchUp,
+                  parAssocie: assoc.view.rows.map((r) => ({
+                    nom: r.name,
+                    partPct: r.share,
+                    verse: r.paid,
+                    partReellePct: r.actualShare === null ? null : Math.round(r.actualShare * 10) / 10,
+                    duASaPart: r.due,
+                    ilManque: r.missing,
+                    fixeLeNiveau: r.leader,
+                  })),
+                  versements: assoc.payments
+                    .filter((x) => x.partnerId !== null)
+                    .map((x) => ({
+                      jour: x.day,
+                      associe: assoc.partners.find((p) => p.id === x.partnerId)?.name ?? null,
+                      montant: x.amount,
+                      devise: x.currency,
+                      contreValeur: x.converted,
+                      motif: x.note,
+                    })),
+                  aAttribuer: assoc.payments
+                    .filter((x) => x.partnerId === null)
+                    .map((x) => ({
+                      jour: x.day,
+                      montant: x.amount,
+                      devise: x.currency,
+                      motif: x.note,
+                      virement: { montant: x.transfer.amount, vers: x.transfer.destination },
+                      associeSuggere: assoc.partners.find((p) => p.id === x.suggested)?.name ?? null,
+                    })),
+                  ...(assoc.view.unconverted > 0 ? { sansTaux: assoc.view.unconverted } : {}),
+                },
           ...(avertissements.length > 0 ? { avertissements } : {}),
           lecture: [
             "Résultat = net Whop − créatrices − scans − autres charges, par mois de Paris. Trésorerie : recette au jour de l'encaissement Whop, charge au jour du paiement (créatrices : quand le cycle est marqué payé).",
@@ -4657,6 +4707,7 @@ export function jarviaServer(
             "Scans : paiements réels au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd (dollars convertis).",
             "Trésorerie (aujourd'hui) : disponiblePourDepenser = surWhop + comptes relevés − misDeCote − duAuxCreatrices. Jarvia ne lit aucune banque : un compte vaut son dernier solde RELEVÉ à la main + les virements Whop arrivés depuis − leurs parts ventilées « rémunération », « paiement créatrices » ou « charges de l'activité » (dontDejaDepense) ; « autre », « mise de côté » et le reste sans motif y restent, et toute autre dépense ne se voit qu'au relevé suivant, donc un relevé ancien est à vérifier. Un compte jamais relevé n'est pas compté. misDeCote = parts « Mise de côté » des virements − ce qui en est marqué payé. duAuxCreatrices = le « À verser » de Paiements (cycles en cours compris, ils peuvent encore monter), converti au taux du projet. aRecuperer est hors total.",
             "Seuils 37 500 € / 41 250 € : franchise en base de TVA (prestations de services) — repère à confirmer avec le comptable. Projection linéaire au rythme des 30 derniers jours, pas une prévision.",
+            "Associés (toutes années) : verse = les parts « rémunération » des virements attribuées à l'associé. niveau = le plus grand « versé ÷ part » (celui qui fixe le niveau est le plus en avance sur sa part) ; duASaPart = part × niveau ; ilManque = duASaPart − versé ; pourRevenirAuxParts = la somme des manques — personne ne rend rien, on complète les autres. Une rémunération sans associé (aAttribuer) n'entre pas dans le calcul : ventiler_virement avec `associe` sur la part.",
             "contreValeur = montant converti dans la devise de référence au taux du projet ; null = aucun taux pour cette devise (jamais additionné 1:1).",
           ],
         });

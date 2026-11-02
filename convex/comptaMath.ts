@@ -637,6 +637,8 @@ export type TransferPart = {
   usage: TransferUsage;
   note?: string;
   countedAs?: ChargeCategory;
+  /** Part « Rémunération » : l'associé qui l'a reçue. */
+  partnerId?: string;
 };
 
 export const MAX_TRANSFER_PARTS = 20;
@@ -648,9 +650,9 @@ export const MAX_TRANSFER_PARTS = 20;
  * qu'elle a payé : c'est le libellé de la charge créée.
  */
 export function transferPartsError(
-  parts: readonly { id: string; amount: number; usage: string; note?: string; countedAs?: string }[],
+  parts: readonly { id: string; amount: number; usage: string; note?: string; countedAs?: string; partnerId?: string }[],
   total: number,
-): "count" | "id" | "amount" | "sum" | "usage" | "counted" | "note" | null {
+): "count" | "id" | "amount" | "sum" | "usage" | "counted" | "note" | "partner" | null {
   if (parts.length > MAX_TRANSFER_PARTS) return "count";
   const ids = new Set<string>();
   let sum = 0;
@@ -664,6 +666,8 @@ export function transferPartsError(
       if (p.usage !== "business" || !isChargeCategory(p.countedAs)) return "counted";
       if ((p.note ?? "").trim() === "") return "note";
     }
+    // Seule une rémunération va à un associé.
+    if (p.partnerId !== undefined && (p.usage !== "pay" || p.partnerId.trim() === "")) return "partner";
     sum += p.amount;
   }
   if (sum > total + 0.005) return "sum";
@@ -678,7 +682,7 @@ export function transferPartsOf(
   line: {
     usage?: string;
     note?: string;
-    parts?: readonly { id: string; amount: number; usage: string; note?: string; countedAs?: string }[];
+    parts?: readonly { id: string; amount: number; usage: string; note?: string; countedAs?: string; partnerId?: string }[];
   },
   total: number,
 ): TransferPart[] {
@@ -691,6 +695,7 @@ export function transferPartsOf(
         usage: p.usage as TransferUsage,
         ...(p.note ? { note: p.note } : {}),
         ...(p.countedAs && isChargeCategory(p.countedAs) ? { countedAs: p.countedAs } : {}),
+        ...(p.partnerId ? { partnerId: p.partnerId } : {}),
       }));
   }
   if (line.usage && isTransferUsage(line.usage)) {
@@ -964,4 +969,136 @@ export function scanCostUsd(s: ScanMonth | null | undefined): number | null {
   if (!s) return null;
   if (s.runs > 0 && s.withCost === 0) return null;
   return round2(s.lightUsd + s.fullUsd + s.otherUsd);
+}
+
+// ─── Associés ────────────────────────────────────────────────────────────────
+
+/**
+ * Un ASSOCIÉ et sa part, en % (40 = 40 %). Ce qu'il s'est versé = les parts
+ * « Rémunération » des virements attribuées à lui (`partnerId` sur la part).
+ */
+export type Partner = { id: string; name: string; share: number };
+
+export const MAX_PARTNERS = 10;
+
+/**
+ * Raison du refus d'une liste d'associés, ou `null`. Des noms distincts (sans
+ * casse), des parts positives qui font 100 % ; une liste vide est permise (pas
+ * d'associés déclarés).
+ */
+export function partnersError(
+  partners: readonly { id: string; name: string; share: number }[],
+): "count" | "id" | "name" | "share" | "total" | null {
+  if (partners.length > MAX_PARTNERS) return "count";
+  const ids = new Set<string>();
+  const names = new Set<string>();
+  let total = 0;
+  for (const p of partners) {
+    if (p.id.trim() === "" || p.id.length > 40 || ids.has(p.id)) return "id";
+    ids.add(p.id);
+    const name = p.name.trim().toLocaleLowerCase("fr");
+    if (name === "" || p.name.length > 60 || names.has(name)) return "name";
+    names.add(name);
+    if (!Number.isFinite(p.share) || p.share <= 0 || p.share > 100) return "share";
+    total += p.share;
+  }
+  if (partners.length > 0 && Math.abs(total - 100) > 0.005) return "total";
+  return null;
+}
+
+/**
+ * Ce que chaque associé s'est versé, face à sa part. Le NIVEAU est fixé par
+ * celui qui est le plus en avance sur sa part (versé ÷ part) : à ce niveau,
+ * chacun devrait avoir « part × niveau » ; ce qui lui manque, c'est l'écart.
+ * Personne ne rend rien : on complète les autres (rattrapage = somme des
+ * manques). Une rémunération sans associé connu (jamais attribuée, ou associé
+ * retiré) est « à attribuer » et n'entre pas dans le calcul ; une sans taux est
+ * comptée à part (`unconverted`), jamais additionnée 1:1.
+ */
+export function partnersView(
+  partners: readonly Partner[],
+  payments: readonly { partnerId: string | null; converted: number | null }[],
+) {
+  const paid = new Map(partners.map((p) => [p.id, 0]));
+  let unassignedCount = 0;
+  let unassignedAmount = 0;
+  let unconverted = 0;
+  for (const x of payments) {
+    if (x.converted === null) unconverted += 1;
+    else if (x.partnerId !== null && paid.has(x.partnerId)) paid.set(x.partnerId, paid.get(x.partnerId)! + x.converted);
+    else {
+      unassignedCount += 1;
+      unassignedAmount += x.converted;
+    }
+  }
+  const total = round2(partners.reduce((s, p) => s + paid.get(p.id)!, 0));
+  const level = partners.reduce((m, p) => Math.max(m, paid.get(p.id)! / (p.share / 100)), 0);
+  const rows = partners.map((p) => {
+    const mine = round2(paid.get(p.id)!);
+    const due = round2((p.share / 100) * level);
+    const atLevel = Math.abs(mine / (p.share / 100) - level) < 0.005;
+    return {
+      id: p.id,
+      name: p.name,
+      share: p.share,
+      paid: mine,
+      /** Sa part de ce qui a été versé aux associés, en % ; `null` si rien n'a été versé. */
+      actualShare: total > 0 ? (mine / total) * 100 : null,
+      due,
+      missing: round2(Math.max(0, due - mine)),
+      leader: mine > 0 && atLevel,
+    };
+  });
+  return {
+    rows,
+    total,
+    level: round2(level),
+    catchUp: round2(rows.reduce((s, r) => s + r.missing, 0)),
+    unassigned: { count: unassignedCount, amount: round2(unassignedAmount) },
+    unconverted,
+  };
+}
+
+/**
+ * RÉPARTIR UN VERSEMENT entre associés : on monte d'abord celui qui est le plus
+ * en retard sur sa part, jusqu'à rejoindre le suivant, et ainsi de suite (le
+ * rattrapage) ; au-delà, le reste se partage selon les parts. Au centime : la
+ * différence d'arrondi va à la plus grosse part, la somme est le montant.
+ */
+export function splitPayout(
+  rows: readonly { id: string; share: number; paid: number }[],
+  amount: number,
+): { id: string; amount: number }[] {
+  if (!(amount > 0) || rows.length === 0) return rows.map((r) => ({ id: r.id, amount: 0 }));
+  const byRatio = rows
+    .map((r) => ({ w: r.share / 100, paid: r.paid, ratio: r.paid / (r.share / 100) }))
+    .sort((a, b) => a.ratio - b.ratio);
+  let weight = 0;
+  let paid = 0;
+  let level = 0;
+  for (let k = 0; k < byRatio.length; k++) {
+    weight += byRatio[k].w;
+    paid += byRatio[k].paid;
+    level = (amount + paid) / weight;
+    if (k === byRatio.length - 1 || level <= byRatio[k + 1].ratio) break;
+  }
+  const out = rows.map((r) => ({ id: r.id, amount: round2(Math.max(0, (r.share / 100) * level - r.paid)) }));
+  const diff = round2(amount - out.reduce((s, x) => s + x.amount, 0));
+  if (diff !== 0) {
+    const i = out.reduce((best, x, j) => (x.amount > out[best].amount ? j : best), 0);
+    out[i] = { ...out[i], amount: round2(out[i].amount + diff) };
+  }
+  return out;
+}
+
+/** L'associé que nomme le motif d'une rémunération — seulement si un seul nom y figure (mot entier, sans accents ni casse). */
+export function suggestPartner(note: string | null | undefined, partners: readonly Partner[]): string | null {
+  if (!note) return null;
+  const fold = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const words = new Set(fold(note).split(/[^a-z0-9]+/).filter(Boolean));
+  const hits = partners.filter((p) => {
+    const parts = fold(p.name).split(/[^a-z0-9]+/).filter(Boolean);
+    return parts.length > 0 && parts.every((w) => words.has(w));
+  });
+  return hits.length === 1 ? hits[0].id : null;
 }

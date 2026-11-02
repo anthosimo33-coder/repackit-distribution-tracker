@@ -24,6 +24,10 @@ import {
   transferPartsError,
   transferPartsOf,
   type LedgerDayCell,
+  partnersError,
+  partnersView,
+  splitPayout,
+  suggestPartner,
 } from "../convex/comptaMath";
 import { fetchWhopLedger, normalizeLedgerLine } from "../convex/whopLedgerApi";
 
@@ -633,3 +637,95 @@ describe("trésorerie : Whop + comptes relevés − mis de côté − dû aux cr
     });
   });
 });
+
+describe("associés : ce que chacun s'est versé, face à sa part", () => {
+  const SNYTCH = [
+    { id: "antho", name: "Antho", share: 40 },
+    { id: "kevin", name: "Kevin", share: 40 },
+    { id: "jerem", name: "Jérem", share: 20 },
+  ];
+  // Les parts « rémunération » de Snytch au 02/11/2026, attribuées d'après leur motif.
+  const VERSEMENTS = [
+    { partnerId: "kevin", converted: 100 }, // 15/09 Avance sur la paie de Kevin
+    { partnerId: "kevin", converted: 100 }, // 15/09 Rémunération Kevin, 2 × 50 €
+    { partnerId: "antho", converted: 797.77 }, // 08/10 Rémunération Antho, octobre
+    { partnerId: "kevin", converted: 600 }, // 08/10 Rémunération Kevin, octobre
+    { partnerId: "kevin", converted: 100 }, // 20/10 Rémunération Kevin
+  ];
+
+  it("parts valides : noms distincts, parts positives, 100 % au total ; aucune n'est permis", () => {
+    expect(partnersError(SNYTCH)).toBeNull();
+    expect(partnersError([])).toBeNull();
+    expect(partnersError([{ id: "a", name: "Antho", share: 40 }, { id: "b", name: "Kevin", share: 40 }])).toBe("total");
+    expect(partnersError([{ id: "a", name: "Antho", share: 50 }, { id: "b", name: " antho ", share: 50 }])).toBe("name");
+    expect(partnersError([{ id: "a", name: "Antho", share: 0 }, { id: "b", name: "Kevin", share: 100 }])).toBe("share");
+    expect(partnersError([{ id: "a", name: "", share: 100 }])).toBe("name");
+    expect(partnersError([{ id: "a", name: "A", share: 50 }, { id: "a", name: "B", share: 50 }])).toBe("id");
+  });
+
+  it("Snytch le 02/11 : Kevin fixe le niveau, il manque 102,23 € à Antho et 450 € à Jérem", () => {
+    const v = partnersView(SNYTCH, VERSEMENTS);
+    expect(v.total).toBe(1697.77);
+    expect(v.level).toBe(2250);
+    expect(v.catchUp).toBe(552.23);
+    expect(v.rows.map((r) => [r.id, r.paid, r.due, r.missing, r.leader])).toEqual([
+      ["antho", 797.77, 900, 102.23, false],
+      ["kevin", 900, 900, 0, true],
+      ["jerem", 0, 450, 450, false],
+    ]);
+    expect(v.rows.map((r) => Math.round(r.actualShare ?? -1))).toEqual([47, 53, 0]);
+    expect(v.unassigned).toEqual({ count: 0, amount: 0 });
+  });
+
+  it("une rémunération sans associé (ou d'un associé retiré) est « à attribuer », pas comptée ; sans taux, signalée", () => {
+    const v = partnersView(SNYTCH, [
+      ...VERSEMENTS,
+      { partnerId: null, converted: 50 },
+      { partnerId: "parti", converted: 25 },
+      { partnerId: "antho", converted: null },
+    ]);
+    expect(v.total).toBe(1697.77);
+    expect(v.unassigned).toEqual({ count: 2, amount: 75 });
+    expect(v.unconverted).toBe(1);
+    // Rien de versé : personne ne fixe le niveau, rien ne manque.
+    const vide = partnersView(SNYTCH, []);
+    expect(vide).toMatchObject({ total: 0, level: 0, catchUp: 0 });
+    expect(vide.rows.every((r) => r.missing === 0 && !r.leader && r.actualShare === null)).toBe(true);
+  });
+
+  it("répartir un versement : le rattrapage d'abord, puis le reste à 40/40/20", () => {
+    const rows = partnersView(SNYTCH, VERSEMENTS).rows;
+    // 2 000 € : Antho 102,23 + 579,11, Kevin 579,11, Jérem 450 + 289,55 → 40/40/20 pile.
+    expect(splitPayout(rows, 2000)).toEqual([
+      { id: "antho", amount: 681.34 },
+      { id: "kevin", amount: 579.11 },
+      { id: "jerem", amount: 739.55 },
+    ]);
+    // Exactement le rattrapage : Kevin ne reçoit rien.
+    expect(splitPayout(rows, 552.23)).toEqual([
+      { id: "antho", amount: 102.23 },
+      { id: "kevin", amount: 0 },
+      { id: "jerem", amount: 450 },
+    ]);
+    // Moins que le rattrapage : le plus en retard sur sa part d'abord (Jérem, à 0).
+    expect(splitPayout(rows, 300)).toEqual([
+      { id: "antho", amount: 0 },
+      { id: "kevin", amount: 0 },
+      { id: "jerem", amount: 300 },
+    ]);
+    // Les centimes tombent juste : la somme est le montant.
+    const s = splitPayout(rows, 1000.01);
+    expect(Math.round(s.reduce((t, x) => t + x.amount, 0) * 100) / 100).toBe(1000.01);
+    expect(splitPayout(rows, 0).every((x) => x.amount === 0)).toBe(true);
+  });
+
+  it("l'associé d'une rémunération se devine au motif, seulement si un seul nom y figure", () => {
+    expect(suggestPartner("Rémunération Antho, octobre", SNYTCH)).toBe("antho");
+    expect(suggestPartner("Avance sur la paie de Kevin", SNYTCH)).toBe("kevin");
+    expect(suggestPartner("Paie jerem", SNYTCH)).toBe("jerem");
+    expect(suggestPartner("Antho et Kevin", SNYTCH)).toBeNull();
+    expect(suggestPartner("Kevinou", SNYTCH)).toBeNull();
+    expect(suggestPartner(null, SNYTCH)).toBeNull();
+  });
+});
+

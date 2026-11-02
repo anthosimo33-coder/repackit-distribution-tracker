@@ -42,6 +42,7 @@ import { ComptaMonthlyTable } from "./ComptaMonthlyTable";
 import { ComptaTransfersCard } from "./ComptaTransfersCard";
 import { ComptaChargesCard } from "./ComptaChargesCard";
 import { ComptaTreasuryCard } from "./ComptaTreasuryCard";
+import { ComptaPartnersCard } from "./ComptaPartnersCard";
 import { ComptaMethod } from "./ComptaMethod";
 import { ComptaClassifyDialog, type ClassifyTarget } from "./ComptaClassifyDialog";
 import { ComptaExportDialog } from "./ComptaExportDialog";
@@ -231,6 +232,8 @@ export function ComptaPage() {
       </div>
 
       {data.configured && <ComptaTreasuryCard />}
+
+      {data.configured && <ComptaPartnersCard />}
 
       <ComptaMonthlyTable
         key={`table:${selected ?? "year"}`}

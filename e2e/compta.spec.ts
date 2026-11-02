@@ -629,6 +629,125 @@ test.describe("Compta", () => {
     }
   });
 
+  test("associés : parts, rémunérations attribuées, ce qu'il manque, répartir un versement", async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { restore } = await setup(ts);
+    try {
+      const list = await admin.query(api.compta.listComptaTransfers, { month: "2025-09" });
+      const w = list.transfers.find((x) => x.sourceId === `wdrl_e2e_${ts}`)!;
+      expect(await admin.query(api.compta.getComptaPartners, {})).toMatchObject({ partners: [], payments: [] });
+
+      // Refus : 80 % au total ; deux fois le même nom.
+      await expect(
+        admin.mutation(api.compta.saveComptaPartners, { partners: [{ name: "Antho", share: 40 }, { name: "Kevin", share: 40 }] }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTNERS_INVALID/);
+      await expect(
+        admin.mutation(api.compta.saveComptaPartners, { partners: [{ name: "Antho", share: 50 }, { name: " antho", share: 50 }] }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTNERS_INVALID/);
+      const { partners } = await admin.mutation(api.compta.saveComptaPartners, {
+        partners: [
+          { name: "Antho", share: 40 },
+          { name: "Kevin", share: 40 },
+          { name: "Jérem", share: 20 },
+        ],
+      });
+      const id = (name: string) => partners.find((p) => p.name === name)!.id;
+
+      // Refus : un associé inconnu ; un associé sur une part qui n'est pas une rémunération.
+      await expect(
+        admin.mutation(api.compta.ventilateTransfer, { lineId: w._id, parts: [{ id: "x", amount: 10, usage: "pay", partnerId: "inconnu" }] }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTNER_UNKNOWN/);
+      await expect(
+        admin.mutation(api.compta.ventilateTransfer, {
+          lineId: w._id,
+          parts: [{ id: "x", amount: 10, usage: "creators", partnerId: id("Kevin") }],
+        }),
+      ).rejects.toThrow(/ERR_COMPTA_PARTS_INVALID/);
+
+      // À la forme de la prod du 02/11/2026 : Antho 797,77, Kevin 900, une paie de Jérem sans associé.
+      await admin.mutation(api.compta.ventilateTransfer, {
+        lineId: w._id,
+        parts: [
+          { id: "a", amount: 797.77, usage: "pay", note: "Rémunération Antho, octobre", partnerId: id("Antho") },
+          { id: "k1", amount: 100, usage: "pay", note: "Avance sur la paie de Kevin", partnerId: id("Kevin") },
+          { id: "k2", amount: 800, usage: "pay", note: "Rémunération Kevin, octobre", partnerId: id("Kevin") },
+          { id: "j", amount: 100, usage: "pay", note: "Paie Jérem" },
+        ],
+      });
+      const p1 = await admin.query(api.compta.getComptaPartners, {});
+      expect(p1.view).toMatchObject({ total: 1697.77, level: 2250, catchUp: 552.23, unassigned: { count: 1, amount: 100 } });
+      expect(p1.payments.find((x) => x.partId === "j")).toMatchObject({ partnerId: null, suggested: id("Jérem") });
+
+      // L'écran : ce qu'il manque à chacun, la paie à attribuer.
+      await page.goto(adminPath("/compta"));
+      const card = page.getByTestId("compta-partners");
+      await expect(card.getByTestId("compta-partners-total")).toContainText(/1\s?697,77\s*€/, { timeout: 20_000 });
+      await expect(card.getByTestId("compta-partner-Antho")).toContainText(/Il manque 102,23\s*€/);
+      await expect(card.getByTestId("compta-partner-Kevin")).toContainText("À jour");
+      await expect(card.getByTestId("compta-partner-Jérem")).toContainText(/Il manque 450,00\s*€/);
+      const toAssign = card.getByTestId("compta-partners-to-assign");
+      await expect(toAssign).toContainText("Paie Jérem");
+      await toAssign.getByRole("button", { name: "Tout attribuer selon les motifs" }).click();
+      await expect(toAssign).toHaveCount(0);
+      // Jérem a 100 € : il lui manque 350 €, 452,23 € en tout pour revenir aux parts.
+      await expect(card.getByTestId("compta-partner-Jérem")).toContainText(/Il manque 350,00\s*€/);
+      const catchUp = card.getByTestId("compta-partners-catchup");
+      await expect(catchUp).toContainText("Pour revenir à 40 / 40 / 20");
+      await expect(catchUp).toContainText(/452,23\s*€/);
+
+      // Le détail de Kevin, et les versements par mois.
+      await card.getByTestId("compta-partner-Kevin").getByRole("button").click();
+      await expect(card.getByTestId("compta-partner-Kevin")).toContainText("Avance sur la paie de Kevin");
+      await expect(card.getByTestId("compta-partners-by-month")).toContainText("Septembre");
+
+      // Répartir 2 000 € : le rattrapage d'abord, puis 40 / 40 / 20.
+      await card.getByLabel("Montant à verser").fill("2000");
+      await expect(card.getByTestId("compta-split-Antho")).toHaveText(/721,34\s*€/);
+      await expect(card.getByTestId("compta-split-Kevin")).toHaveText(/619,11\s*€/);
+      await expect(card.getByTestId("compta-split-Jérem")).toHaveText(/659,55\s*€/);
+      await card.screenshot({ path: testInfo.outputPath("compta-associes.png") });
+
+      // Modifier les parts : 110 % refusé avant l'envoi.
+      await card.getByRole("button", { name: "Modifier les parts" }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Part de Jérem").fill("30");
+      await expect(dialog.getByTestId("compta-partners-form-total")).toContainText("il faut 100 %");
+      await expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+      await dialog.getByLabel("Part de Jérem").fill("20");
+      await expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeEnabled();
+      await dialog.getByRole("button", { name: "Annuler" }).click();
+
+      // La ventilation dit à qui va chaque rémunération.
+      await page.getByRole("combobox", { name: /Exercice/ }).click();
+      await page.getByRole("option", { name: "Exercice 2025" }).click();
+      await page
+        .getByTestId("compta-transfers")
+        .getByTestId(`compta-transfer-wdrl_e2e_${ts}`)
+        .getByRole("button", { name: "Ventiler ou annoter" })
+        .click();
+      await expect(page.getByTestId("compta-part-0").getByRole("combobox", { name: "Pour" })).toContainText("Antho");
+      await expect(page.getByTestId("compta-part-3").getByRole("combobox", { name: "Pour" })).toContainText("Jérem");
+      await page.getByRole("button", { name: "Annuler" }).click();
+
+      // Jérem retiré : sa paie repasse « à attribuer », le calcul se fait sans lui.
+      await admin.mutation(api.compta.saveComptaPartners, {
+        partners: [
+          { id: id("Antho"), name: "Antho", share: 50 },
+          { id: id("Kevin"), name: "Kevin", share: 50 },
+        ],
+      });
+      const p2 = await admin.query(api.compta.getComptaPartners, {});
+      expect(p2.view.unassigned).toEqual({ count: 1, amount: 100 });
+      expect(p2.view.rows.map((r) => [r.name, r.missing])).toEqual([
+        ["Antho", 102.23],
+        ["Kevin", 0],
+      ]);
+    } finally {
+      await restore();
+    }
+  });
+
   test("écran : classer un type inconnu, annoter un virement, exporter le mois", async ({ page }) => {
     test.setTimeout(180_000);
     const ts = Date.now();

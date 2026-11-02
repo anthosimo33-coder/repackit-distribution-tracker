@@ -60,7 +60,7 @@ type Detail = {
     devise: string;
     vers: string | null;
     echoue?: boolean;
-    parts?: { montant: number; usage: string; motif: string | null; compteeEnCharge: string | null }[];
+    parts?: { montant: number; usage: string; motif: string | null; compteeEnCharge: string | null; associe?: string | null }[];
     sansMotif?: number;
   }[];
   scans: { source: string | null; total: number | null; paiements: { libelle: string; depuisUnVirement: boolean }[] };
@@ -254,7 +254,8 @@ test.describe("Outil MCP compta", () => {
       const v2000 = d.virements.find((x) => x.montant === 2000)!;
       expect(v2000).toMatchObject({ jour: "2025-09-25", devise: "eur", vers: "SEPA ••4821", sansMotif: 50 });
       expect(v2000.parts).toEqual([
-        { montant: 1500, usage: "rémunération", motif: "Ma paie de septembre", compteeEnCharge: null },
+        // Une rémunération dit à quel associé elle est allée (aucun déclaré ici).
+        { montant: 1500, usage: "rémunération", motif: "Ma paie de septembre", compteeEnCharge: null, associe: null },
         { montant: 250, usage: "paiement créatrices", motif: "Reversé à Kevin pour les créatrices", compteeEnCharge: null },
         { montant: 200, usage: "charges de l'activité", motif: "API HIKER", compteeEnCharge: "scans" },
       ]);
