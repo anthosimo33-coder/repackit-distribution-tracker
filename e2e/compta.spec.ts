@@ -6,7 +6,7 @@ import { createCreatorSession } from "./helpers/creator-client";
 import { availableTarget } from "./helpers/targets";
 import { createFormatWithRate } from "./helpers/formats";
 import { api } from "../convex/_generated/api";
-import { formatMoney } from "../convex/moneyFormat";
+import { formatMoney, formatMoneyWhole } from "../convex/moneyFormat";
 import { regrouperPaiements } from "../convex/paymentsView";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
@@ -509,6 +509,63 @@ test.describe("Compta", () => {
       expect(ctl.paid).toBe(paid);
       expect(ctl.sent).toBe(870);
       expect(ctl.gap).toBe(Math.round((870 - paid) * 100) / 100);
+    } finally {
+      await restore();
+    }
+  });
+
+  test("récap PNG : une période en image, points pré-remplis et modifiables, téléchargement", async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { restore } = await setup(ts);
+    try {
+      const o = await admin.query(api.compta.getComptaOverview, { year: 2025 });
+      const sept = o.rows.find((r) => r.month === "2025-09")!;
+      const aout = o.rows.find((r) => r.month === "2025-08")!;
+      // Les montants entiers de l'image, espaces souples dans le motif.
+      const whole = (n: number) => new RegExp((n < 0 ? "−" : "") + formatMoneyWhole(Math.abs(n), "eur").replace(/\s/g, "\\s?"));
+
+      await page.goto(adminPath("/compta"));
+      await page.getByRole("combobox", { name: /Exercice/ }).click();
+      await page.getByRole("option", { name: "Exercice 2025" }).click();
+      await page.getByRole("button", { name: "Récap PNG" }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("heading", { name: "Récap à partager" })).toBeVisible();
+
+      // Le dernier mois clos de l'exercice : septembre 2025, comparé à août.
+      const sheet = page.getByTestId("compta-recap-sheet");
+      await expect(sheet).toContainText("Septembre 2025", { timeout: 20_000 });
+      await expect(sheet).toContainText(whole(sept.ledger.gross));
+      await expect(sheet).toContainText(whole(sept.ledger.net));
+      await expect(sheet).toContainText(whole(sept.result));
+      await expect(sheet).toContainText("Trésorerie au");
+      const point1 = dialog.getByLabel("Point 1", { exact: true });
+      await expect(point1).toHaveValue(new RegExp(`Le résultat (baisse|monte) par rapport à août 2025`));
+      expect(aout).toBeDefined();
+
+      // Un point réécrit à la main passe dans l'image, gras compris.
+      await point1.fill("**Priorité : accélérer l'acquisition** pour faire grossir les revenus.");
+      await expect(sheet.locator("b", { hasText: "Priorité : accélérer l'acquisition" })).toHaveCount(1);
+      await expect(sheet).toContainText("pour faire grossir les revenus.");
+
+      // Téléchargement : un vrai PNG, deux fois la largeur de la feuille.
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page.getByTestId("compta-recap-download").click(),
+      ]);
+      expect(download.suggestedFilename()).toMatch(/^compta-.+-2025-09\.png$/);
+      const out = testInfo.outputPath("recap-2025-09.png");
+      await download.saveAs(out);
+      const png = readFileSync(out);
+      expect(png.subarray(1, 4).toString("ascii")).toBe("PNG");
+      expect(png.readUInt32BE(16)).toBe(2400);
+
+      // Une période de deux mois : titre et sommes changent, les points repartent.
+      await dialog.getByRole("combobox", { name: "Du" }).click();
+      await page.getByRole("option", { name: "août 2025" }).click();
+      await expect(sheet).toContainText("Août – septembre 2025");
+      await expect(sheet).toContainText(whole(Math.round((sept.ledger.gross + aout.ledger.gross) * 100) / 100));
+      await expect(sheet).not.toContainText("pour faire grossir les revenus");
     } finally {
       await restore();
     }

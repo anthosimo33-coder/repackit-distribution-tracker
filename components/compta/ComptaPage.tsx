@@ -9,6 +9,7 @@ import {
   CheckCircle2Icon,
   DownloadIcon,
   HourglassIcon,
+  ImageIcon,
   Loader2Icon,
   RefreshCwIcon,
   WalletIcon,
@@ -41,6 +42,7 @@ import { ComptaTreasuryCard } from "./ComptaTreasuryCard";
 import { ComptaMethod } from "./ComptaMethod";
 import { ComptaClassifyDialog, type ClassifyTarget } from "./ComptaClassifyDialog";
 import { ComptaExportDialog } from "./ComptaExportDialog";
+import { ComptaRecapDialog } from "./ComptaRecapDialog";
 
 export type ComptaOverview = FunctionReturnType<typeof api.compta.getComptaOverview>;
 
@@ -59,6 +61,7 @@ export function ComptaPage() {
   const [syncing, setSyncing] = useState(false);
   const [now] = useState(() => Date.now());
   const [exportMonth, setExportMonth] = useState<string | null>(null);
+  const [recapOpen, setRecapOpen] = useState(false);
   const [classify, setClassify] = useState<ClassifyTarget | null>(null);
   // « Voir le virement » depuis l'argent à récupérer : le bloc Virements se
   // rouvre sur le mois du retrait (le compteur force la réouverture).
@@ -100,6 +103,9 @@ export function ComptaPage() {
   const defaultMonth = months.length > 0 ? months[months.length - 1] : data.currentMonth;
   // Les virements s'ouvrent sur le dernier mois qui en a : un mois en cours
   // sans virement afficherait un bloc vide à chaque visite.
+  // Le récap s'ouvre sur le dernier mois CLOS : le mois en cours n'est pas fini.
+  const lastClosedMonth =
+    [...data.rows].reverse().find((r) => !r.inProgress)?.month ?? defaultMonth;
   const lastTransferMonth =
     [...data.rows].reverse().find((r) => r.ledger.transfersReceived !== 0)?.month ?? defaultMonth;
 
@@ -142,6 +148,10 @@ export function ComptaPage() {
               {t("sync")}
             </Button>
           )}
+          <Button variant="outline" onClick={() => setRecapOpen(true)} disabled={months.length === 0}>
+            <ImageIcon className="size-4" />
+            {t("recap.open")}
+          </Button>
           <Button onClick={() => setExportMonth(defaultMonth)} disabled={months.length === 0}>
             <DownloadIcon className="size-4" />
             {t("export")}
@@ -226,6 +236,10 @@ export function ComptaPage() {
       />
 
       <ComptaMethod data={data} onClassify={setClassify} />
+
+      {months.length > 0 && (
+        <ComptaRecapDialog open={recapOpen} onOpenChange={setRecapOpen} data={data} defaultMonth={lastClosedMonth} />
+      )}
 
       <ComptaClassifyDialog
         data={data}
