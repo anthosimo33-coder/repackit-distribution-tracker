@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { FunctionReturnType } from "convex/server";
 import { toast } from "sonner";
@@ -14,12 +15,14 @@ import {
   PlusIcon,
   RefreshCwIcon,
   Trash2Icon,
+  UsersIcon,
   WalletIcon,
   XIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useProjectMutation, useProjectQuery } from "@/components/project/use-project-convex";
+import { useProjectPath } from "@/components/project/ProjectProvider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -54,12 +57,15 @@ const pct = (part: number, whole: number) => `${Math.max(0, Math.min(100, (part 
 
 /**
  * TRÉSORERIE — ce qui est disponible aujourd'hui : Whop (calculé depuis le grand
- * livre) + les comptes dont on RELÈVE le solde − l'argent mis de côté. Jarvia ne
- * lit aucune banque : un relevé vieillit, et le bloc le dit.
+ * livre) + les comptes dont on RELÈVE le solde − l'argent mis de côté − ce qui
+ * est dû aux créatrices. Jarvia ne lit aucune banque : un relevé vieillit, et le
+ * bloc le dit ; les parts ventilées comme dépensées en sont déjà retirées.
  */
 export function ComptaTreasuryCard() {
   const t = useTranslations("admin.money.Compta.treasury");
   const f = useComptaFormat();
+  const router = useRouter();
+  const projectPath = useProjectPath();
   const data = useProjectQuery(api.compta.getComptaTreasury, {});
   const [reading, setReading] = useState<{ accountId: string } | null>(null);
   const [provision, setProvision] = useState(false);
@@ -76,12 +82,17 @@ export function ComptaTreasuryCard() {
   const whop = data.whop.total ?? 0;
   const accountsSum = data.accounts.reduce((s, a) => s + (a.counted ? (a.estimated ?? 0) : 0), 0);
   const setAside = data.setAside.remaining ?? 0;
+  const due = data.creatorsDue.converted ?? 0;
   // La barre ne mesure que de l'argent PRÉSENT : un solde négatif (Whop débiteur,
-  // découvert) n'y a pas de place, et sans rien de positif elle disparaît.
+  // découvert) n'y a pas de place, et sans rien de positif elle disparaît. Le
+  // réservé (mis de côté, puis dû aux créatrices) se prend sur les comptes
+  // d'abord, sur Whop ensuite.
   const onWhop = Math.max(whop, 0);
   const onAccounts = Math.max(accountsSum, 0);
   const barTotal = onWhop + onAccounts;
   const asideBar = Math.min(setAside, barTotal);
+  const dueBar = Math.min(Math.max(due, 0), barTotal - asideBar);
+  const reservedBar = asideBar + dueBar;
 
   return (
     <Card className="gap-0 py-0" data-testid="compta-treasury">
@@ -106,16 +117,20 @@ export function ComptaTreasuryCard() {
             <div className="mt-1 text-xs text-slate-500">
               {data.inCash === null
                 ? t("noRate")
-                : t("inCash", { cash: f.money(data.inCash, cur), aside: f.money(setAside, cur) })}
+                : t("inCash", { cash: f.money(data.inCash, cur), aside: f.money(setAside, cur), due: f.money(due, cur) })}
             </div>
           </div>
           {barTotal > 0 && (
             <div className="flex h-2.5 overflow-hidden rounded-full bg-slate-100" aria-hidden>
-              <div className="h-full bg-primary" style={{ width: pct(Math.max(onWhop - Math.max(asideBar - onAccounts, 0), 0), barTotal) }} />
-              <div className="h-full border-l-2 border-white bg-violet-300" style={{ width: pct(Math.max(onAccounts - asideBar, 0), barTotal) }} />
+              <div className="h-full bg-primary" style={{ width: pct(Math.max(onWhop - Math.max(reservedBar - onAccounts, 0), 0), barTotal) }} />
+              <div className="h-full border-l-2 border-white bg-violet-300" style={{ width: pct(Math.max(onAccounts - reservedBar, 0), barTotal) }} />
               <div
                 className="h-full border-l-2 border-white bg-sky-300 bg-[repeating-linear-gradient(135deg,transparent_0_4px,rgba(255,255,255,.55)_4px_7px)]"
                 style={{ width: pct(asideBar, barTotal) }}
+              />
+              <div
+                className="h-full border-l-2 border-white bg-amber-300 bg-[repeating-linear-gradient(135deg,transparent_0_4px,rgba(255,255,255,.55)_4px_7px)]"
+                style={{ width: pct(dueBar, barTotal) }}
               />
             </div>
           )}
@@ -123,6 +138,7 @@ export function ComptaTreasuryCard() {
             <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-primary" />{t("legendWhop")}</li>
             <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-violet-300" />{t("legendAccounts")}</li>
             <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-sky-300" />{t("legendAside")}</li>
+            <li className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-300" />{t("legendDue")}</li>
           </ul>
           {data.staleCount > 0 && (
             <p className="flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800" data-testid="compta-treasury-stale">
@@ -201,6 +217,29 @@ export function ComptaTreasuryCard() {
               </Button>
             }
             testId="compta-treasury-aside"
+          />
+
+          <Row
+            icon={<UsersIcon className="size-4 text-amber-500" />}
+            title={t("due")}
+            amount={data.creatorsDue.converted === null ? "—" : f.signed(-data.creatorsDue.converted, cur)}
+            meta={
+              <span className="text-slate-500">
+                {data.creatorsDue.converted === null
+                  ? t("noRate")
+                  : data.creatorsDue.byCurrency.length === 0
+                    ? t("dueNone")
+                    : t("dueMeta", {
+                        list: data.creatorsDue.byCurrency.map((d) => f.money(d.amount, d.currency)).join(" + "),
+                      })}
+              </span>
+            }
+            action={
+              <Button size="sm" variant="outline" onClick={() => router.push(projectPath("/paiements"))}>
+                {t("dueLink")}
+              </Button>
+            }
+            testId="compta-treasury-creators-due"
           />
         </div>
       </div>
@@ -307,7 +346,8 @@ function AccountRow({ a, cur, f, onRead }: { a: Account; cur: string | null; f: 
       <p className="mt-1 text-[11px] tabular-nums text-slate-500">
         {t("readingPlus", {
           reading: f.money(a.reading.amount, a.currency),
-          since: a.since === null ? "—" : f.money(a.since, cur),
+          arrived: a.arrived === null ? "—" : f.money(a.arrived, cur),
+          spent: a.spent === null ? "—" : f.money(a.spent, cur),
         })}
         {a.destinations.length > 0 ? (
           <span className="text-slate-400"> · {t("receives", { list: a.destinations.join(", ") })}</span>

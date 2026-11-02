@@ -786,10 +786,32 @@ export function creatorsControl(
 export const TREASURY_STALE_DAYS = 14;
 
 /**
+ * Les usages d'une part qui disent que l'argent a QUITTÉ le compte d'arrivée :
+ * la paie des associés, les créatrices, les charges de l'activité. « Mise de
+ * côté » y reste (elle est retirée à part, du disponible) ; « Autre » et le
+ * reste sans motif y restent aussi — rien ne dit qu'ils en sont sortis.
+ */
+export const SPENT_USAGES: readonly TransferUsage[] = ["pay", "creators", "business"];
+
+/** Σ des parts DÉPENSÉES d'un virement (cf SPENT_USAGES), converties ; `null` si l'une n'a pas de taux. */
+export function spentOfParts(parts: readonly { usage: TransferUsage; converted: number | null }[]): number | null {
+  let sum = 0;
+  for (const p of parts) {
+    if (!SPENT_USAGES.includes(p.usage)) continue;
+    if (p.converted === null) return null;
+    sum += p.converted;
+  }
+  return round2(sum);
+}
+
+/**
  * Virements Whop arrivés sur un compte APRÈS son dernier relevé : ceux vers ses
  * destinations, datés d'un jour postérieur au relevé, réussis, moins leurs parts
- * « à récupérer » (sorties de Whop, jamais arrivées). `null` si l'un n'a pas de
- * taux : jamais additionné 1:1.
+ * « à récupérer » (sorties de Whop, jamais arrivées). `spent` = leurs parts
+ * DÉPENSÉES (cf SPENT_USAGES) : la ventilation dit déjà qu'elles sont reparties,
+ * le compte ne les a plus. Un virement arrivé avant le relevé est déjà dans le
+ * solde relevé, dépenses comprises. `null` si l'un n'a pas de taux : jamais
+ * additionné 1:1.
  */
 export function transfersSinceReading(
   transfers: readonly {
@@ -798,34 +820,38 @@ export function transfersSinceReading(
     failed: boolean;
     converted: number | null;
     recoverConverted: number | null;
+    spentConverted: number | null;
   }[],
   destinations: readonly string[],
   readingDay: string,
-): number | null {
+): { arrived: number; spent: number } | null {
   const ids = new Set(destinations);
-  let sum = 0;
+  let arrived = 0;
+  let spent = 0;
   for (const t of transfers) {
     if (t.failed || t.destination === null || !ids.has(t.destination) || t.day <= readingDay) continue;
-    if (t.converted === null || t.recoverConverted === null) return null;
-    sum += t.converted - t.recoverConverted;
+    if (t.converted === null || t.recoverConverted === null || t.spentConverted === null) return null;
+    arrived += t.converted - t.recoverConverted;
+    spent += t.spentConverted;
   }
-  return round2(sum);
+  return { arrived: round2(arrived), spent: round2(spent) };
 }
 
 export type TreasuryAccountInput = {
   id: string;
   /** Dernier relevé, contre-valeur en devise de référence (`null` sans taux). */
   reading: { day: string; converted: number | null } | null;
-  /** Virements arrivés depuis le relevé (cf transfersSinceReading). */
-  since: number | null;
+  /** Virements arrivés depuis le relevé, et ce qui en est déjà reparti (cf transfersSinceReading). */
+  since: { arrived: number; spent: number } | null;
 };
 
 /**
  * La TRÉSORERIE d'aujourd'hui : en caisse = Whop + comptes RELEVÉS (relevé +
- * virements arrivés depuis) ; mis de côté = parts « Mise de côté » − ce qui en a
- * été payé (jamais négatif) ; disponible = en caisse − mis de côté. Un compte
- * jamais relevé n'est pas compté (on ne sait pas ce qu'il contient). `null`
- * dès qu'un terme compté n'est pas chiffré.
+ * virements arrivés depuis − leurs parts dépensées) ; mis de côté = parts « Mise
+ * de côté » − ce qui en a été payé (jamais négatif) ; dû aux créatrices = le
+ * « À verser » de Paiements, converti ; disponible = en caisse − mis de côté −
+ * dû aux créatrices. Un compte jamais relevé n'est pas compté (on ne sait pas
+ * ce qu'il contient). `null` dès qu'un terme compté n'est pas chiffré.
  */
 export function treasuryView(input: {
   today: string;
@@ -833,10 +859,12 @@ export function treasuryView(input: {
   accounts: readonly TreasuryAccountInput[];
   provisioned: number | null;
   used: number;
+  creatorsDue: number | null;
 }): {
   accounts: { id: string; counted: boolean; estimated: number | null; ageDays: number | null; stale: boolean }[];
   inCash: number | null;
   setAside: number | null;
+  creatorsDue: number | null;
   available: number | null;
   staleCount: number;
   unreadCount: number;
@@ -845,7 +873,9 @@ export function treasuryView(input: {
     if (a.reading === null) return { id: a.id, counted: false, estimated: null, ageDays: null, stale: false };
     const ageDays = Math.max(0, daysInclusive(a.reading.day, input.today) - 1);
     const estimated =
-      a.reading.converted === null || a.since === null ? null : round2(a.reading.converted + a.since);
+      a.reading.converted === null || a.since === null
+        ? null
+        : round2(a.reading.converted + a.since.arrived - a.since.spent);
     return { id: a.id, counted: true, estimated, ageDays, stale: ageDays > TREASURY_STALE_DAYS };
   });
   const counted = accounts.filter((a) => a.counted);
@@ -858,10 +888,36 @@ export function treasuryView(input: {
     accounts,
     inCash,
     setAside,
-    available: inCash === null || setAside === null ? null : round2(inCash - setAside),
+    creatorsDue: input.creatorsDue,
+    available:
+      inCash === null || setAside === null || input.creatorsDue === null
+        ? null
+        : round2(inCash - setAside - input.creatorsDue),
     staleCount: counted.filter((a) => a.stale).length,
     unreadCount: accounts.length - counted.length,
   };
+}
+
+/**
+ * Ce qui est dû aux créatrices (le « À verser » de Paiements, PAR DEVISE de
+ * paie) converti dans la devise de la compta, chaque devise à SON taux. Une
+ * entrée sans devise est dans celle de paie du projet. `null` dès qu'une devise
+ * n'a pas de taux : jamais additionné 1:1.
+ */
+export function convertedCreatorsDue(
+  due: readonly { currency: string | null; amount: number }[],
+  projectPayCurrency: string | null,
+  fx: ComptaFx,
+): number | null {
+  let total = 0;
+  for (const d of due) {
+    if (d.amount === 0) continue;
+    const currency = d.currency ?? projectPayCurrency;
+    const conv = currency === null ? null : convert(d.amount, currency, fx);
+    if (conv === null) return null;
+    total += conv;
+  }
+  return round2(total);
 }
 
 // ─── Scans (PostHog cost_usd) ────────────────────────────────────────────────

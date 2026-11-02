@@ -7,6 +7,7 @@ import { availableTarget } from "./helpers/targets";
 import { createFormatWithRate } from "./helpers/formats";
 import { api } from "../convex/_generated/api";
 import { formatMoney } from "../convex/moneyFormat";
+import { regrouperPaiements } from "../convex/paymentsView";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
 
@@ -431,6 +432,7 @@ test.describe("Compta", () => {
       const year = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date()).slice(0, 4));
       const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date()).slice(0, 7);
       const before = (await admin.query(api.compta.getComptaOverview, { year })).rows.find((r) => r.month === month);
+      const tresoAvant = await admin.query(api.compta.getComptaTreasury, {});
       const c = await createCreatorSession(url!, {
         name: `[E2E_TEST] Kelly Moreau ${ts}`,
         email: `e2e-compta-${ts}@repackit.test`,
@@ -463,11 +465,19 @@ test.describe("Compta", () => {
         id: a._id,
         urls: [{ platform: "TikTok", url: `https://www.tiktok.com/@kelly.moreau_${ts}/video/72${ts}` }],
       });
-      // Engagé mais pas versé : la compta n'en sait rien.
+      // Engagé mais pas versé : le résultat n'en sait rien…
       const engage = (await admin.query(api.compta.getComptaOverview, { year })).rows.find((r) => r.month === month);
       expect(engage?.creators ?? 0).toBe(before?.creators ?? 0);
+      // … mais la trésorerie le retire du disponible : 1 074,57 $ × 0,86 = 924,13 € dus.
+      const tresoDu = await admin.query(api.compta.getComptaTreasury, {});
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      expect(r2(tresoDu.creatorsDue.converted! - tresoAvant.creatorsDue.converted!)).toBe(924.13);
+      expect(tresoDu.inCash).toBe(tresoAvant.inCash);
+      expect(r2(tresoAvant.available! - tresoDu.available!)).toBe(924.13);
 
       await admin.mutation(api.payments.markCyclePaid, { creatorId: c.creatorId, cycleIndex: 0 });
+      // Payé : plus dû.
+      expect((await admin.query(api.compta.getComptaTreasury, {})).creatorsDue.converted).toBe(tresoAvant.creatorsDue.converted);
       const apres = (await admin.query(api.compta.getComptaOverview, { year })).rows.find((r) => r.month === month)!;
       // 1 074,57 $ × 0,86 = 924,13 €
       expect(Math.round(((apres.creators ?? 0) - (before?.creators ?? 0)) * 100) / 100).toBe(924.13);
@@ -716,7 +726,11 @@ test.describe("Compta", () => {
       // Aucun compte : seul Whop compte, et il vaut le solde de l'onglet.
       const solde = (await row(2025, "2025-09")).o.balance.converted!;
       expect(vide.whop.total).toBe(solde);
-      expect(vide).toMatchObject({ accounts: [], inCash: solde, available: solde, staleCount: 0, unreadCount: 0 });
+      // Le dû aux créatrices est le « À verser » de l'écran Paiements, le même regroupement.
+      const ecran = regrouperPaiements(await admin.query(api.payments.listPayments, {}), Date.now());
+      expect(vide.creatorsDue.byCurrency).toEqual(ecran.aVerser.filter((d) => d.amount !== 0));
+      const du = vide.creatorsDue.converted!;
+      expect(vide).toMatchObject({ accounts: [], inCash: solde, available: Math.round((solde - du) * 100) / 100, staleCount: 0, unreadCount: 0 });
       // Les destinations des virements RÉUSSIS — jamais celle du retrait échoué.
       expect(vide.destinations.map((d) => [d.name, d.count])).toEqual([
         ["Antho Wallet", 1],
@@ -754,10 +768,14 @@ test.describe("Compta", () => {
       });
       const t1 = await treso();
       const banque = t1.accounts.find((a) => a._id === accountId)!;
+      // 2 000 € arrivés le 25/09, dont 1 418,63 € de paie déjà repartis ; les
+      // 581,37 € mis de côté restent sur le compte.
       expect(banque).toMatchObject({
         reading: { day: "2025-09-20", amount: 1337.49, converted: 1337.49 },
-        since: 2000,
-        estimated: 3337.49,
+        arrived: 2000,
+        spent: 1418.63,
+        since: 581.37,
+        estimated: 1918.86,
         counted: true,
         stale: true,
       });
@@ -765,8 +783,8 @@ test.describe("Compta", () => {
       expect(t1.accounts.find((a) => a._id === walletId)).toMatchObject({ since: 0, estimated: 10.75, counted: true });
       expect(t1.setAside).toMatchObject({ provisioned: 581.37, used: 0, remaining: 581.37 });
       expect(t1.toRecover).toBe(26.87);
-      const caisse = Math.round((solde + 3337.49 + 10.75) * 100) / 100;
-      expect(t1).toMatchObject({ inCash: caisse, available: Math.round((caisse - 581.37) * 100) / 100, staleCount: 2 });
+      const caisse = Math.round((solde + 1918.86 + 10.75) * 100) / 100;
+      expect(t1).toMatchObject({ inCash: caisse, available: Math.round((caisse - 581.37 - du) * 100) / 100, staleCount: 2 });
 
       // Refus : une destination n'arrive que sur un compte ; nom déjà pris ; jour futur.
       await expect(
@@ -833,15 +851,19 @@ test.describe("Compta", () => {
         lineId: w._id,
         parts: [{ id: "i", amount: 581.37, usage: "provision", note: "Impôts, 25 % du virement" }],
       });
-      const whop = (await admin.query(api.compta.getComptaTreasury, {})).whop.total!;
+      const t0 = await admin.query(api.compta.getComptaTreasury, {});
+      const whop = t0.whop.total!;
+      const du = t0.creatorsDue.converted!;
       const eur = (n: number) => new RegExp(formatMoney(n, "eur").replace(/\s/g, "\\s?"));
 
       await page.goto(adminPath("/compta"));
       const carte = page.getByTestId("compta-treasury");
-      // Aucun compte : Whop − mis de côté.
-      await expect(page.getByTestId("compta-treasury-available")).toHaveText(eur(Math.round((whop - 581.37) * 100) / 100), {
+      // Aucun compte : Whop − mis de côté − dû aux créatrices.
+      await expect(page.getByTestId("compta-treasury-available")).toHaveText(eur(Math.round((whop - 581.37 - du) * 100) / 100), {
         timeout: 20_000,
       });
+      await expect(page.getByTestId("compta-treasury-creators-due")).toContainText("Dû aux créatrices");
+      await expect(page.getByTestId("compta-treasury-creators-due")).toContainText(du === 0 ? "rien à verser" : eur(du));
       await expect(carte).toContainText("Aucun compte : seul Whop est compté");
       await expect(page.getByTestId("compta-treasury-stale")).toHaveCount(0);
 
@@ -858,9 +880,10 @@ test.describe("Compta", () => {
       const compte = page.getByTestId("compta-account-Antho Banque");
       await expect(compte).toContainText(eur(3337.49));
       await expect(compte).toContainText("relevé le 20/09");
+      await expect(compte).toContainText(/déjà dépensés\s0,00\s*€/);
       await expect(page.getByTestId("compta-treasury-stale")).toContainText("Un solde relevé il y a plus de 14 jours");
       await expect(page.getByTestId("compta-treasury-available")).toHaveText(
-        eur(Math.round((whop + 3337.49 - 581.37) * 100) / 100),
+        eur(Math.round((whop + 3337.49 - 581.37 - du) * 100) / 100),
       );
 
       // Marquer payé une partie du mis de côté.
@@ -871,7 +894,7 @@ test.describe("Compta", () => {
       await page.getByTestId("compta-provision-save").click();
       await expect(page.getByTestId("compta-treasury-aside")).toContainText(/−\s?381,37\s*€/);
       await expect(page.getByTestId("compta-treasury-available")).toHaveText(
-        eur(Math.round((whop + 3337.49 - 381.37) * 100) / 100),
+        eur(Math.round((whop + 3337.49 - 381.37 - du) * 100) / 100),
       );
     } finally {
       await restore();

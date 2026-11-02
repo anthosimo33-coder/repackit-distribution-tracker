@@ -477,7 +477,7 @@ export const lireCompta = mcpPermissionQuery("business.read")({
   handler: async (ctx, args) => comptaOverviewCore(ctx, args),
 });
 
-/** Onglet Compta : la trésorerie d'aujourd'hui (Whop + comptes relevés − mis de côté) — même calcul. */
+/** Onglet Compta : la trésorerie d'aujourd'hui (Whop + comptes relevés − mis de côté − dû aux créatrices) — même calcul. */
 export const lireComptaTresorerie = mcpPermissionQuery("business.read")({
   args: {},
   handler: async (ctx) => comptaTreasuryCore(ctx),
@@ -1243,7 +1243,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "compta",
     title: "Compta (exercice et mois)",
     description:
-      "L'onglet Compta, par les mêmes calculs. L'exercice : par mois de Paris, le grand livre Whop (CA brut encaissé, remboursements, litiges, frais Whop, net Whop), les charges — créatrices au jour du VERSEMENT (converties), scans (paiements RÉELS au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd), autres charges (saisies, ou comptées depuis la ventilation d'un virement) —, le RÉSULTAT (net Whop − créatrices − scans − autres charges) et les virements Whop → banque reçus ; le CA brut cumulé face aux seuils de 37 500 € et 41 250 € avec la projection ; le solde restant sur Whop ; la TRÉSORERIE d'aujourd'hui (disponible pour dépenser = Whop + comptes bancaires relevés − argent mis de côté pour les impôts, avec l'âge de chaque relevé) ; l'argent À RÉCUPÉRER (sorti de Whop, jamais arrivé) ; les contrôles (scans réels très sous l'estimation, écart entre la paie marquée versée et l'argent sorti de Whop pour les créatrices) ; les types de lignes non classés. Avec `mois` : le détail de ce mois — lignes du grand livre par type, chaque virement et sa VENTILATION (parts, usage, motif, charge comptée), les charges, les versements aux créatrices, les scans et le rapprochement du solde Whop.",
+      "L'onglet Compta, par les mêmes calculs. L'exercice : par mois de Paris, le grand livre Whop (CA brut encaissé, remboursements, litiges, frais Whop, net Whop), les charges — créatrices au jour du VERSEMENT (converties), scans (paiements RÉELS au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd), autres charges (saisies, ou comptées depuis la ventilation d'un virement) —, le RÉSULTAT (net Whop − créatrices − scans − autres charges) et les virements Whop → banque reçus ; le CA brut cumulé face aux seuils de 37 500 € et 41 250 € avec la projection ; le solde restant sur Whop ; la TRÉSORERIE d'aujourd'hui (disponible pour dépenser = Whop + comptes bancaires relevés − argent mis de côté pour les impôts − ce qui est dû aux créatrices, le « À verser » de Paiements ; un compte = son dernier relevé + les virements arrivés depuis − leurs parts ventilées comme dépensées, avec l'âge de chaque relevé) ; l'argent À RÉCUPÉRER (sorti de Whop, jamais arrivé) ; les contrôles (scans réels très sous l'estimation, écart entre la paie marquée versée et l'argent sorti de Whop pour les créatrices) ; les types de lignes non classés. Avec `mois` : le détail de ce mois — lignes du grand livre par type, chaque virement et sa VENTILATION (parts, usage, motif, charge comptée), les charges, les versements aux créatrices, les scans et le rapprochement du solde Whop.",
     inputSchema: {
       type: "object",
       properties: {
@@ -4526,7 +4526,7 @@ export function jarviaServer(
         if (o.toRecover.length > 0) avertissements.push(`${o.toRecover.length} somme(s) à récupérer (voir aRecuperer).`);
         for (const a of treso.accounts) {
           if (!a.counted) avertissements.push(`Compte « ${a.name} » jamais relevé : il n'est pas compté dans la trésorerie.`);
-          else if (a.stale) avertissements.push(`Compte « ${a.name} » relevé il y a ${a.ageDays} jours : son solde a pu bouger depuis (les dépenses ne se voient qu'au prochain relevé).`);
+          else if (a.stale) avertissements.push(`Compte « ${a.name} » relevé il y a ${a.ageDays} jours : son solde a pu bouger depuis (seules les parts ventilées comme dépensées en sont retirées ; le reste ne se voit qu'au prochain relevé).`);
         }
         return json({
           projet: projet.slug,
@@ -4608,6 +4608,10 @@ export function jarviaServer(
             disponiblePourDepenser: treso.available,
             enCaisse: treso.inCash,
             misDeCote: treso.setAside.remaining,
+            duAuxCreatrices: {
+              total: treso.creatorsDue.converted,
+              parDevise: treso.creatorsDue.byCurrency.map((d) => ({ devise: d.currency, montant: d.amount })),
+            },
             surWhop: treso.whop.total,
             comptes: treso.accounts.map((a) => ({
               nom: a.name,
@@ -4616,7 +4620,8 @@ export function jarviaServer(
               dernierReleve: a.reading === null ? null : { jour: a.reading.day, montant: a.reading.amount },
               releveIlYaJours: a.ageDays,
               aRelever: a.stale,
-              virementsWhopArrivesDepuis: a.since,
+              virementsWhopArrivesDepuis: a.arrived,
+              dontDejaDepense: a.spent,
               soldeEstime: a.estimated,
               recoitLesVirementsWhopVers: a.destinations,
             })),
@@ -4628,7 +4633,7 @@ export function jarviaServer(
             "Résultat = net Whop − créatrices − scans − autres charges, par mois de Paris. Trésorerie : recette au jour de l'encaissement Whop, charge au jour du paiement (créatrices : quand le cycle est marqué payé).",
             "Les virements Whop → banque ne sont pas des charges : seule une part de virement « comptée en charge » entre au résultat (dans scans ou autresCharges). « mois » donne le détail d'un mois, ventilation comprise.",
             "Scans : paiements réels au fournisseur s'il y en a ce mois, sinon l'estimation cost_usd (dollars convertis).",
-            "Trésorerie (aujourd'hui) : disponiblePourDepenser = surWhop + comptes relevés − misDeCote. Jarvia ne lit aucune banque : un compte vaut son dernier solde RELEVÉ à la main + les virements Whop arrivés depuis ; les dépenses ne se voient qu'au relevé suivant, donc un relevé ancien est à vérifier. Un compte jamais relevé n'est pas compté. misDeCote = parts « Mise de côté » des virements − ce qui en est marqué payé. aRecuperer est hors total.",
+            "Trésorerie (aujourd'hui) : disponiblePourDepenser = surWhop + comptes relevés − misDeCote − duAuxCreatrices. Jarvia ne lit aucune banque : un compte vaut son dernier solde RELEVÉ à la main + les virements Whop arrivés depuis − leurs parts ventilées « rémunération », « paiement créatrices » ou « charges de l'activité » (dontDejaDepense) ; « autre », « mise de côté » et le reste sans motif y restent, et toute autre dépense ne se voit qu'au relevé suivant, donc un relevé ancien est à vérifier. Un compte jamais relevé n'est pas compté. misDeCote = parts « Mise de côté » des virements − ce qui en est marqué payé. duAuxCreatrices = le « À verser » de Paiements (cycles en cours compris, ils peuvent encore monter), converti au taux du projet. aRecuperer est hors total.",
             "Seuils 37 500 € / 41 250 € : franchise en base de TVA (prestations de services) — repère à confirmer avec le comptable. Projection linéaire au rythme des 30 derniers jours, pas une prévision.",
             "contreValeur = montant converti dans la devise de référence au taux du projet ; null = aucun taux pour cette devise (jamais additionné 1:1).",
           ],
