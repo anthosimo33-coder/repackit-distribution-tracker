@@ -1329,6 +1329,7 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
     list.some((p) => p.converted === null) ? null : round2(list.reduce((s, p) => s + (p.converted ?? 0), 0));
   const flows = transfers.map((x) => ({
     day: x.day,
+    postedAt: x.postedAt,
     destination: x.destination,
     failed: x.failed,
     converted: x.converted,
@@ -1355,7 +1356,7 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
         doc: a,
         history,
         reading: last === null ? null : { day: last.day, amount: last.amount, converted: conv === null ? null : round2(conv) },
-        since: last === null ? null : transfersSinceReading(flows, a.destinations, last.day),
+        since: last === null ? null : transfersSinceReading(flows, a.destinations, last),
       };
     }),
   );
@@ -1525,7 +1526,10 @@ export async function saveAccountReadingCore(
     .query("comptaAccountReadings")
     .withIndex("by_account_day", (q) => q.eq("accountId", accountId).eq("day", a.day))
     .first();
-  if (existing) await ctx.db.patch(existing._id, { amount: round2(a.amount), createdBy: ctx.userId });
+  // Re-saisi le même jour, le relevé prend l'heure de la nouvelle saisie : un
+  // virement du jour posté entre les deux est dans le nouveau solde (cf
+  // transfersSinceReading) — il ne doit pas s'y ajouter une deuxième fois.
+  if (existing) await ctx.db.patch(existing._id, { amount: round2(a.amount), createdAt: Date.now(), createdBy: ctx.userId });
   else {
     await ctx.db.insert("comptaAccountReadings", {
       projectId: ctx.projectId,

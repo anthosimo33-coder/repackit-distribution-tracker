@@ -824,16 +824,22 @@ export function spentOfParts(parts: readonly { usage: TransferUsage; converted: 
 
 /**
  * Virements Whop arrivés sur un compte APRÈS son dernier relevé : ceux vers ses
- * destinations, datés d'un jour postérieur au relevé, réussis, moins leurs parts
- * « à récupérer » (sorties de Whop, jamais arrivées). `spent` = leurs parts
+ * destinations, postés après le relevé, réussis, moins leurs parts « à
+ * récupérer » (sorties de Whop, jamais arrivées). `spent` = leurs parts
  * DÉPENSÉES (cf SPENT_USAGES) : la ventilation dit déjà qu'elles sont reparties,
  * le compte ne les a plus. Un virement arrivé avant le relevé est déjà dans le
  * solde relevé, dépenses comprises. `null` si l'un n'a pas de taux : jamais
  * additionné 1:1.
+ *
+ * « Après » : un jour postérieur au relevé, ou le MÊME jour mais posté après la
+ * saisie du relevé — le 02/11, un relevé saisi à 11:21 puis un virement posté à
+ * 12:17 : comparés au jour, les 3 497,77 € n'étaient plus comptés nulle part
+ * (sortis de Whop, « déjà dans » un solde lu avant qu'ils partent).
  */
 export function transfersSinceReading(
   transfers: readonly {
     day: string;
+    postedAt: number;
     destination: string | null;
     failed: boolean;
     converted: number | null;
@@ -841,13 +847,14 @@ export function transfersSinceReading(
     spentConverted: number | null;
   }[],
   destinations: readonly string[],
-  readingDay: string,
+  reading: { day: string; createdAt: number },
 ): { arrived: number; spent: number } | null {
   const ids = new Set(destinations);
   let arrived = 0;
   let spent = 0;
   for (const t of transfers) {
-    if (t.failed || t.destination === null || !ids.has(t.destination) || t.day <= readingDay) continue;
+    if (t.failed || t.destination === null || !ids.has(t.destination)) continue;
+    if (t.day < reading.day || (t.day === reading.day && t.postedAt <= reading.createdAt)) continue;
     if (t.converted === null || t.recoverConverted === null || t.spentConverted === null) return null;
     arrived += t.converted - t.recoverConverted;
     spent += t.spentConverted;

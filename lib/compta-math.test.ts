@@ -459,30 +459,33 @@ describe("argent à récupérer", () => {
 });
 
 describe("trésorerie : Whop + comptes relevés − mis de côté − dû aux créatrices", () => {
+  // Un virement posté vers midi de son jour ; un relevé saisi en fin de journée.
+  const midi = (day: string) => Date.parse(`${day}T10:00:00Z`);
+  const releve = (day: string) => ({ day, createdAt: Date.parse(`${day}T19:00:00Z`) });
   // Les virements de Snytch, à la forme de la prod (destinations Whop réelles).
   const virements = [
-    { day: "2026-09-15", destination: "Antho Banque", failed: false, converted: 2325.49, recoverConverted: 0, spentConverted: 0 },
-    { day: "2026-09-02", destination: "usdc jeremie", failed: false, converted: 493.23, recoverConverted: 493.23, spentConverted: 0 },
-    { day: "2026-09-30", destination: "Antho Banque", failed: false, converted: 412.6, recoverConverted: 0, spentConverted: 0 },
-    { day: "2026-10-01", destination: "Antho Banque", failed: true, converted: 304.47, recoverConverted: 0, spentConverted: 0 },
-    { day: "2026-10-01", destination: "SOL compte 7 Antho", failed: false, converted: 329.49, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-09-15", postedAt: midi("2026-09-15"), destination: "Antho Banque", failed: false, converted: 2325.49, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-09-02", postedAt: midi("2026-09-02"), destination: "usdc jeremie", failed: false, converted: 493.23, recoverConverted: 493.23, spentConverted: 0 },
+    { day: "2026-09-30", postedAt: midi("2026-09-30"), destination: "Antho Banque", failed: false, converted: 412.6, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-10-01", postedAt: midi("2026-10-01"), destination: "Antho Banque", failed: true, converted: 304.47, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-10-01", postedAt: midi("2026-10-01"), destination: "SOL compte 7 Antho", failed: false, converted: 329.49, recoverConverted: 0, spentConverted: 0 },
   ];
 
   it("un compte reçoit les virements arrivés APRÈS son relevé, ni échoués ni d'ailleurs", () => {
     // Relevé le 15/09 : le virement du 15/09 est déjà dedans, celui du 30/09 non.
-    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-15")).toEqual({ arrived: 412.6, spent: 0 });
-    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-30")).toEqual({ arrived: 0, spent: 0 });
-    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-14")).toEqual({ arrived: 2738.09, spent: 0 });
+    expect(transfersSinceReading(virements, ["Antho Banque"], releve("2026-09-15"))).toEqual({ arrived: 412.6, spent: 0 });
+    expect(transfersSinceReading(virements, ["Antho Banque"], releve("2026-09-30"))).toEqual({ arrived: 0, spent: 0 });
+    expect(transfersSinceReading(virements, ["Antho Banque"], releve("2026-09-14"))).toEqual({ arrived: 2738.09, spent: 0 });
   });
 
   it("une part « à récupérer » n'est jamais arrivée : elle ne s'ajoute pas", () => {
-    expect(transfersSinceReading(virements, ["usdc jeremie"], "2026-09-01")).toEqual({ arrived: 0, spent: 0 });
+    expect(transfersSinceReading(virements, ["usdc jeremie"], releve("2026-09-01"))).toEqual({ arrived: 0, spent: 0 });
   });
 
   it("un virement sans taux rend la somme non chiffrée", () => {
-    const sansTaux = { day: "2026-09-20", destination: "Antho Wallet", failed: false, recoverConverted: 0 };
-    expect(transfersSinceReading([{ ...sansTaux, converted: null, spentConverted: 0 }], ["Antho Wallet"], "2026-09-01")).toBeNull();
-    expect(transfersSinceReading([{ ...sansTaux, converted: 10, spentConverted: null }], ["Antho Wallet"], "2026-09-01")).toBeNull();
+    const sansTaux = { day: "2026-09-20", postedAt: midi("2026-09-20"), destination: "Antho Wallet", failed: false, recoverConverted: 0 };
+    expect(transfersSinceReading([{ ...sansTaux, converted: null, spentConverted: 0 }], ["Antho Wallet"], releve("2026-09-01"))).toBeNull();
+    expect(transfersSinceReading([{ ...sansTaux, converted: 10, spentConverted: null }], ["Antho Wallet"], releve("2026-09-01"))).toBeNull();
   });
 
   it("dépensé = paie, créatrices, charges ; « mise de côté », « autre » et « à récupérer » restent", () => {
@@ -504,18 +507,48 @@ describe("trésorerie : Whop + comptes relevés − mis de côté − dû aux cr
     expect(spentOfParts([{ usage: "other", converted: null }])).toBe(0);
   });
 
+  it("02/11 : un virement posté APRÈS le relevé du même jour est arrivé depuis (3 497,77 € ne disparaissent plus)", () => {
+    // Prod du 02/11/2026 : Antho Banque relevé à 1 191 € à 11:21, puis Whop
+    // vire 3 497,77 € vers Antho Banque à 12:17 (sans ventilation).
+    const virements = [
+      { day: "2026-11-02", postedAt: 1793618231000, destination: "Antho Banque", failed: false, converted: 3497.77, recoverConverted: 0, spentConverted: 0 },
+    ];
+    const releve02 = { day: "2026-11-02", createdAt: 1793614861218 };
+    const since = transfersSinceReading(virements, ["Antho Banque"], releve02)!;
+    expect(since).toEqual({ arrived: 3497.77, spent: 0 });
+    // Saisi APRÈS le virement, le relevé le contient déjà : rien n'arrive depuis.
+    expect(transfersSinceReading(virements, ["Antho Banque"], { ...releve02, createdAt: 1793618231000 + 60_000 })).toEqual({
+      arrived: 0,
+      spent: 0,
+    });
+    const v = treasuryView({
+      today: "2026-11-02",
+      whop: 4764.21,
+      accounts: [
+        { id: "antho", reading: { day: "2026-11-02", converted: 1191 }, since },
+        { id: "revolut", reading: { day: "2026-11-02", converted: 491.54 }, since: { arrived: 0, spent: 0 } },
+      ],
+      provisioned: 581.37,
+      used: 0,
+      creatorsDue: 3237.63,
+    });
+    expect(v.accounts[0].estimated).toBe(4688.77);
+    // Et non 2 627,75 : le virement sorti de Whop n'était compté nulle part.
+    expect(v.available).toBe(6125.52);
+  });
+
   it("Antho Banque en octobre : les virements ventilés comme dépensés ne gonflent plus le solde", () => {
     // Relevé du 08/10 (1 145,25 €) ; les virements du 07/10 et du 08/10 sont dedans.
     const octobre = [
-      { day: "2026-10-07", destination: "Antho Banque", failed: false, converted: 747.76, recoverConverted: 0, spentConverted: 747.76 },
-      { day: "2026-10-08", destination: "Antho Banque", failed: false, converted: 1397.77, recoverConverted: 0, spentConverted: 1397.77 },
+      { day: "2026-10-07", postedAt: midi("2026-10-07"), destination: "Antho Banque", failed: false, converted: 747.76, recoverConverted: 0, spentConverted: 747.76 },
+      { day: "2026-10-08", postedAt: midi("2026-10-08"), destination: "Antho Banque", failed: false, converted: 1397.77, recoverConverted: 0, spentConverted: 1397.77 },
       // 12/10 : Veljko, Bruna, Tainara, Claude (charges) + Elena (créatrices) ; 38,57 sans motif.
-      { day: "2026-10-12", destination: "Antho Banque", failed: false, converted: 377.77, recoverConverted: 0, spentConverted: 339.2 },
+      { day: "2026-10-12", postedAt: midi("2026-10-12"), destination: "Antho Banque", failed: false, converted: 377.77, recoverConverted: 0, spentConverted: 339.2 },
       // 20/10 : Quentin, Mewen, Convex, Cloudflare, Gump, Kevin ; 7,44 sans motif.
-      { day: "2026-10-20", destination: "Antho Banque", failed: false, converted: 653.44, recoverConverted: 0, spentConverted: 646 },
-      { day: "2026-10-24", destination: "Antho Banque", failed: false, converted: 527.77, recoverConverted: 0, spentConverted: 527.77 },
+      { day: "2026-10-20", postedAt: midi("2026-10-20"), destination: "Antho Banque", failed: false, converted: 653.44, recoverConverted: 0, spentConverted: 646 },
+      { day: "2026-10-24", postedAt: midi("2026-10-24"), destination: "Antho Banque", failed: false, converted: 527.77, recoverConverted: 0, spentConverted: 527.77 },
     ];
-    const since = transfersSinceReading(octobre, ["Antho Banque"], "2026-10-08")!;
+    const since = transfersSinceReading(octobre, ["Antho Banque"], releve("2026-10-08"))!;
     expect(since).toEqual({ arrived: 1558.98, spent: 1512.97 });
     const v = treasuryView({
       today: "2026-11-02",
