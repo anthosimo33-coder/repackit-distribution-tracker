@@ -3408,6 +3408,8 @@ export default defineSchema({
           usage: v.string(),
           note: v.optional(v.string()),
           countedAs: v.optional(v.string()),
+          /** Part « Rémunération » : l'associé qui l'a reçue (`comptaState.partners[].id`). */
+          partnerId: v.optional(v.string()),
         }),
       ),
     ),
@@ -3492,6 +3494,12 @@ export default defineSchema({
         by: v.id("users"),
       }),
     ),
+    /**
+     * ASSOCIÉS et leurs parts (en %, 100 au total) : ce qu'il manque à chacun
+     * par rapport à sa part se calcule sur les parts « Rémunération » des
+     * virements qui leur sont attribuées (cf comptaMath.partnersView).
+     */
+    partners: v.optional(v.array(v.object({ id: v.string(), name: v.string(), share: v.number() }))),
   }).index("by_project", ["projectId"]),
 
   /**

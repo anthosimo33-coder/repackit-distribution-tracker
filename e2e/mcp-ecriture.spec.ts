@@ -181,6 +181,73 @@ test.describe("MCP en écriture — Compta", () => {
       expect(k.erreur, k.texte).toBe(false);
       expect((await admin.query(api.compta.getComptaOverview, { projectId, year: 2025 })).unclassified).toEqual([]);
 
+      // ── ventiler_virement + associés : une rémunération dit à qui elle va ──
+      const sansAssocies = await appel(url, token, "ventiler_virement", {
+        projet: slug,
+        jour: "2025-09-15",
+        montant: 2325.49,
+        parts: [{ montant: 100, usage: "rémunération", associe: "Kevin" }],
+      });
+      expect(sansAssocies.texte).toContain("Aucun associé déclaré");
+      await admin.mutation(api.compta.saveComptaPartners, {
+        projectId,
+        partners: [
+          { name: "Antho", share: 40 },
+          { name: "Kevin", share: 40 },
+          { name: "Jérem", share: 20 },
+        ],
+      });
+      const pasUnePaie = await appel(url, token, "ventiler_virement", {
+        projet: slug,
+        jour: "2025-09-15",
+        montant: 2325.49,
+        parts: [{ montant: 100, usage: "paiement créatrices", associe: "Kevin" }],
+      });
+      expect(pasUnePaie.texte).toContain("« associe » ne va que sur une part « rémunération »");
+      const inconnuAssocie = await appel(url, token, "ventiler_virement", {
+        projet: slug,
+        jour: "2025-09-15",
+        montant: 2325.49,
+        parts: [{ montant: 100, usage: "rémunération", associe: "Paul" }],
+      });
+      expect(inconnuAssocie.texte).toContain("Associé inconnu « Paul ». Associés : Antho, Kevin, Jérem.");
+      const paie = await appel(url, token, "ventiler_virement", {
+        projet: slug,
+        jour: "2025-09-15",
+        montant: 2325.49,
+        parts: [
+          { montant: 800, usage: "rémunération", motif: "Rémunération Antho", associe: "antho" },
+          { montant: 100, usage: "rémunération", motif: "Avance sur la paie de Kevin", associe: "KEVIN" },
+          { montant: 50, usage: "rémunération", motif: "Sans associé" },
+        ],
+      });
+      expect(paie.erreur, paie.texte).toBe(false);
+      const lu = JSON.parse((await appel(url, token, "compta", { projet: slug, annee: 2025 })).texte) as {
+        associes: {
+          totalVerse: number;
+          niveau: number;
+          pourRevenirAuxParts: number;
+          parAssocie: { nom: string; verse: number; ilManque: number; fixeLeNiveau: boolean }[];
+          aAttribuer: { montant: number; motif: string | null }[];
+        };
+      };
+      // Antho fixe le niveau (800 = 40 % de 2 000) : il manque 700 € à Kevin et 400 € à Jérem.
+      expect(lu.associes).toMatchObject({ totalVerse: 900, niveau: 2000, pourRevenirAuxParts: 1100 });
+      expect(lu.associes.parAssocie.map((x) => [x.nom, x.verse, x.ilManque, x.fixeLeNiveau])).toEqual([
+        ["Antho", 800, 0, true],
+        ["Kevin", 100, 700, false],
+        ["Jérem", 0, 400, false],
+      ]);
+      expect(lu.associes.aAttribuer).toEqual([expect.objectContaining({ montant: 50, motif: "Sans associé" })]);
+      const mois = JSON.parse((await appel(url, token, "compta", { projet: slug, mois: "2025-09" })).texte) as {
+        virements: { montant: number; parts?: { montant: number; associe?: string | null }[] }[];
+      };
+      expect(mois.virements.find((x) => x.montant === 2325.49)!.parts!.map((x) => [x.montant, x.associe])).toEqual([
+        [800, "Antho"],
+        [100, "Kevin"],
+        [50, null],
+      ]);
+
       // ── Le journal, dans l'écran ─────────────────────────────────────────────
       const journal = page.getByTestId("mcp-journal");
       await expect(journal).toContainText("Ventiler un virement");
@@ -188,7 +255,8 @@ test.describe("MCP en écriture — Compta", () => {
       await expect(journal).toContainText("Relever un solde");
       await expect(journal).toContainText("Ranger un type Whop");
       await expect(journal).toContainText(nomCle);
-      await expect(journal.getByRole("link", { name: /Virements · septembre 2025/ })).toHaveAttribute("href", `/admin/${slug}/compta`);
+      // Deux ventilations de septembre au journal : chacune renvoie à la Compta.
+      await expect(journal.getByRole("link", { name: /Virements · septembre 2025/ }).first()).toHaveAttribute("href", `/admin/${slug}/compta`);
 
       // ── Retour en lecture seule : plus aucun outil d'écriture ───────────────
       await interrupteur.click();

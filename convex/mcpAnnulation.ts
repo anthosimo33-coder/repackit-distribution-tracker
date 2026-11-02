@@ -33,6 +33,7 @@ const part = v.object({
   usage: v.string(),
   note: v.optional(v.string()),
   countedAs: v.optional(v.string()),
+  partnerId: v.optional(v.string()),
 });
 
 export const annulationValidator = v.union(

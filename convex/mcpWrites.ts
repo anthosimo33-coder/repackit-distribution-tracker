@@ -66,7 +66,7 @@ export const OUTILS_ECRITURE_COMPTA: readonly McpTool[] = [
   {
     name: "ventiler_virement",
     title: "Ventiler un virement Whop → banque",
-    description: `MODIFIE la Compta : dit à quoi a servi un virement Whop → banque, en une ou plusieurs PARTS (montant, usage, motif). Le virement se désigne par son jour et son montant (et sa destination si deux virements du même montant tombent le même jour). Usages : ${USAGES_TEXTE}. Une part « charges de l'activité » peut être COMPTÉE EN CHARGE sous une catégorie (${CATEGORIES_TEXTE}) : elle entre alors au résultat du mois ; une part « scans » remplace l'estimation des scans du mois. Les parts ne dépassent jamais le virement (le reste reste « sans motif »). Remplace la ventilation existante ; une liste vide l'efface.`,
+    description: `MODIFIE la Compta : dit à quoi a servi un virement Whop → banque, en une ou plusieurs PARTS (montant, usage, motif). Le virement se désigne par son jour et son montant (et sa destination si deux virements du même montant tombent le même jour). Usages : ${USAGES_TEXTE}. Une part « charges de l'activité » peut être COMPTÉE EN CHARGE sous une catégorie (${CATEGORIES_TEXTE}) : elle entre alors au résultat du mois ; une part « scans » remplace l'estimation des scans du mois. Une part « rémunération » dit à quel ASSOCIÉ elle est allée (« associe » : son nom, tel que l'outil compta le rend dans associes.parts) : c'est ce qui compte dans ce que chacun s'est versé. Les parts ne dépassent jamais le virement (le reste reste « sans motif »). Remplace la ventilation existante (associés compris : les redonner) ; une liste vide l'efface.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -87,6 +87,10 @@ export const OUTILS_ECRITURE_COMPTA: readonly McpTool[] = [
               compter_en_charge: {
                 type: "string",
                 description: `Seulement pour « charges de l'activité » : la catégorie sous laquelle la compter (${CATEGORIES_TEXTE}). Absent = non comptée.`,
+              },
+              associe: {
+                type: "string",
+                description: "Seulement pour « rémunération » : l'associé qui l'a reçue, par son nom (ex. « Kevin »). Absent = à attribuer.",
               },
             },
             required: ["montant", "usage"],
@@ -208,10 +212,31 @@ export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
     montant: v.number(),
     vers: v.optional(v.string()),
     parts: v.array(
-      v.object({ amount: v.number(), usage: v.string(), note: v.optional(v.string()), countedAs: v.optional(v.string()) }),
+      v.object({
+        amount: v.number(),
+        usage: v.string(),
+        note: v.optional(v.string()),
+        countedAs: v.optional(v.string()),
+        partner: v.optional(v.string()),
+      }),
     ),
   },
   handler: async (ctx, a) => {
+    // L'associé d'une rémunération se désigne par son nom.
+    const associes =
+      (await ctx.db.query("comptaState").withIndex("by_project", (q) => q.eq("projectId", ctx.projectId)).first())?.partners ?? [];
+    const partnerIdOf = (nom: string) => {
+      const p = associes.find((x) => plierTexte(x.name) === plierTexte(nom));
+      if (!p) {
+        throw err(
+          ERR.COMPTA_PARTNER_UNKNOWN,
+          associes.length === 0
+            ? `Aucun associé déclaré : « ${nom} » ne peut pas recevoir la part (Compta › Associés › « Modifier les parts »).`
+            : `Associé inconnu « ${nom} ». Associés : ${associes.map((x) => x.name).join(", ")}.`,
+        );
+      }
+      return p.id;
+    };
     const lignes = await ctx.db
       .query("whopLedgerLines")
       .withIndex("by_project_type_posted", (q) => q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"))
@@ -258,6 +283,7 @@ export const ecrireVentilation = mcpWriteMutation("business.read", "compta")({
         usage: p.usage,
         ...(p.note ? { note: p.note } : {}),
         ...(p.countedAs ? { countedAs: p.countedAs } : {}),
+        ...(p.partner ? { partnerId: partnerIdOf(p.partner) } : {}),
       })),
     });
     const comptees = round2(a.parts.filter((p) => p.countedAs).reduce((s, p) => s + p.amount, 0));
@@ -513,7 +539,15 @@ async function appelerEcritureCompta(
       const countedAs = compte === undefined || compte === null || compte === "" ? undefined : categorieDepuis(compte);
       if (countedAs === null) throw new ToolError(`Part ${i + 1} : catégorie inconnue « ${String(compte)} ». Catégories : ${CATEGORIES_TEXTE}.`);
       const note = typeof o.motif === "string" && o.motif.trim() !== "" ? o.motif.trim() : undefined;
-      return { amount: montant(o.montant, `parts[${i + 1}].montant`), usage, ...(note ? { note } : {}), ...(countedAs ? { countedAs } : {}) };
+      const partner = typeof o.associe === "string" && o.associe.trim() !== "" ? o.associe.trim() : undefined;
+      if (partner !== undefined && usage !== "pay") throw new ToolError(`Part ${i + 1} : « associe » ne va que sur une part « rémunération ».`);
+      return {
+        amount: montant(o.montant, `parts[${i + 1}].montant`),
+        usage,
+        ...(note ? { note } : {}),
+        ...(countedAs ? { countedAs } : {}),
+        ...(partner ? { partner } : {}),
+      };
     });
     r = await ecrire(() =>
       ctx.runMutation(internal.mcpWrites.ecrireVentilation, {

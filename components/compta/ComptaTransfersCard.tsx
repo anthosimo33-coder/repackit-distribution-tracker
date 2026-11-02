@@ -64,6 +64,7 @@ import {
 import { convexErrorMessage } from "@/lib/convex-error";
 import { cn } from "@/lib/utils";
 import { useComptaFormat, type ComptaFormat } from "./compta-format";
+import { partnerColor } from "./ComptaPartnersCard";
 
 type TransfersData = FunctionReturnType<typeof api.compta.listComptaTransfers>;
 type Transfer = TransfersData["transfers"][number];
@@ -425,6 +426,8 @@ type Draft = {
   note: string;
   counted: boolean;
   category: ChargeCategory;
+  /** Rémunération : l'associé qui l'a reçue. */
+  partnerId: string | null;
 };
 
 const newId = () => `p_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -446,6 +449,7 @@ function VentilationForm({
   const f = useComptaFormat();
   const ventilate = useProjectMutation(api.compta.ventilateTransfer);
   const chargesData = useProjectQuery(api.compta.listComptaCharges, { month });
+  const partners = useProjectQuery(api.compta.getComptaPartners, {})?.partners ?? [];
   const [busy, setBusy] = useState(false);
   const [parts, setParts] = useState<Draft[]>(() =>
     transfer.parts.length > 0
@@ -456,8 +460,19 @@ function VentilationForm({
           note: p.note ?? "",
           counted: p.countedAs !== null,
           category: (p.countedAs as ChargeCategory | null) ?? "ads",
+          partnerId: p.partnerId,
         }))
-      : [{ id: newId(), amount: transfer.amount.toFixed(2).replace(".", ","), usage: "", note: "", counted: false, category: "ads" }],
+      : [
+          {
+            id: newId(),
+            amount: transfer.amount.toFixed(2).replace(".", ","),
+            usage: "",
+            note: "",
+            counted: false,
+            category: "ads",
+            partnerId: null,
+          },
+        ],
   );
   const cur = chargesData?.currency ?? null;
   const rate = chargesData?.rates[transfer.currency] ?? null;
@@ -523,6 +538,7 @@ function VentilationForm({
               usage: p.usage,
               ...(p.note.trim() ? { note: p.note.trim() } : {}),
               ...(p.usage === "business" && p.counted ? { countedAs: p.category } : {}),
+              ...(p.usage === "pay" && p.partnerId !== null ? { partnerId: p.partnerId } : {}),
             })),
       });
       toast.success(t("saved"));
@@ -612,6 +628,35 @@ function VentilationForm({
                   <XIcon className="size-3.5 text-slate-400" />
                 </Button>
               </div>
+              {p.usage === "pay" && (
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2 pl-1 text-xs">
+                  <span className="font-medium text-slate-800">{t("partner")}</span>
+                  {partners.length > 0 ? (
+                    <>
+                      <Select
+                        value={p.partnerId}
+                        onValueChange={(v) => v !== null && update(i, { partnerId: v })}
+                        items={Object.fromEntries(partners.map((x) => [x.id, x.name]))}
+                      >
+                        <SelectTrigger className="w-40" size="sm" aria-label={t("partner")}>
+                          <SelectValue placeholder={t("partnerPlaceholder")} />
+                        </SelectTrigger>
+                        <SelectContent align="start" alignItemWithTrigger={false}>
+                          {partners.map((x, k) => (
+                            <SelectItem key={x.id} value={x.id}>
+                              <span className="size-2 rounded-[2px]" style={{ background: partnerColor(k) }} />
+                              {x.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {p.partnerId === null && <span className="text-slate-500">{t("partnerHint")}</span>}
+                    </>
+                  ) : (
+                    <span className="text-slate-500">{t("partnerNone")}</span>
+                  )}
+                </div>
+              )}
               {p.usage === "recover" && (
                 <p className="mt-1.5 border-t border-orange-100 pt-1.5 pl-1 text-[11px] text-orange-700">
                   {t("recoverHint")}
@@ -689,6 +734,7 @@ function VentilationForm({
                 note: "",
                 counted: false,
                 category: "ads",
+                partnerId: null,
               },
             ])
           }

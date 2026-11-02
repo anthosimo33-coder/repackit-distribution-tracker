@@ -170,6 +170,7 @@
     "components/compta/ComptaMethod.tsx",
     "components/compta/ComptaMonthlyTable.tsx",
     "components/compta/ComptaPage.tsx",
+    "components/compta/ComptaPartnersCard.tsx",
     "components/compta/ComptaRecapDialog.tsx",
     "components/compta/ComptaThresholdCard.tsx",
     "components/compta/ComptaTransfersCard.tsx",

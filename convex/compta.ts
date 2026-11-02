@@ -57,6 +57,10 @@ import {
   TREASURY_STALE_DAYS,
   transferPartsError,
   transferPartsOf,
+  partnersError,
+  partnersView,
+  suggestPartner,
+  type Partner,
   type ComptaBucket,
   type ComptaFx,
   type LedgerDayCell,
@@ -799,6 +803,7 @@ function transferOut(l: Doc<"whopLedgerLines">, reversals: Map<string, number>, 
         usage: p.usage,
         note: p.note ?? null,
         countedAs: p.countedAs ?? null,
+        partnerId: p.partnerId ?? null,
         converted: pc === null ? null : round2(pc),
       };
     }),
@@ -1037,6 +1042,7 @@ const ventilateTransferArgs = {
       usage: v.string(),
       note: v.optional(v.string()),
       countedAs: v.optional(v.string()),
+      partnerId: v.optional(v.string()),
     }),
   ),
 };
@@ -1068,12 +1074,17 @@ export async function ventilateTransferCore(
     usage: p.usage,
     ...(p.note?.trim() ? { note: p.note.trim() } : {}),
     ...(p.countedAs ? { countedAs: p.countedAs } : {}),
+    ...(p.partnerId ? { partnerId: p.partnerId } : {}),
   }));
   const total = round2(-line.amount);
   const reason = transferPartsError(clean, total);
   if (reason === "usage") throw err(ERR.COMPTA_USAGE_INVALID, "Usage de virement inconnu.");
   if (reason !== null) {
     throw err(ERR.COMPTA_PARTS_INVALID, "Ventilation invalide.", { reason });
+  }
+  const partnerIds = new Set(((await readState(ctx, ctx.projectId))?.partners ?? []).map((p) => p.id));
+  if (clean.some((p) => p.partnerId !== undefined && !partnerIds.has(p.partnerId))) {
+    throw err(ERR.COMPTA_PARTNER_UNKNOWN, "Cet associé n'existe pas.");
   }
   const now = Date.now();
   await ctx.db.patch(lineId, {
@@ -1454,6 +1465,140 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
 export const getComptaTreasury = permissionQuery("business.read")({
   args: {},
   handler: (ctx) => comptaTreasuryCore(ctx),
+});
+
+// ─── Associés ───────────────────────────────────────────────────────────────
+
+/**
+ * ASSOCIÉS — leurs parts, et ce que chacun s'est versé : les parts
+ * « Rémunération » des virements RÉUSSIS, toutes années, au jour du virement.
+ * Une rémunération sans associé connu est « à attribuer », avec l'associé que
+ * nomme son motif quand il n'y en a qu'un (cf comptaMath.suggestPartner).
+ */
+export async function comptaPartnersCore(ctx: ProjectQueryCtx) {
+  const months = await allMonths(ctx, ctx.projectId);
+  const { state, fx } = await loadContext(ctx, ctx.projectId, months);
+  const partners: Partner[] = state?.partners ?? [];
+  const known = new Set(partners.map((p) => p.id));
+  const reversals = await reversalsBySource(ctx, ctx.projectId);
+  const transfers = (
+    await ctx.db
+      .query("whopLedgerLines")
+      .withIndex("by_project_type_posted", (q) => q.eq("projectId", ctx.projectId).eq("lineType", "withdrawal"))
+      .collect()
+  ).map((l) => transferOut(l, reversals, fx));
+  const payments = transfers
+    .filter((x) => !x.failed)
+    .flatMap((x) =>
+      x.parts
+        .filter((p) => p.usage === "pay")
+        .map((p) => {
+          const partnerId = p.partnerId !== null && known.has(p.partnerId) ? p.partnerId : null;
+          return {
+            lineId: x._id,
+            partId: p.id,
+            day: x.day,
+            amount: p.amount,
+            currency: x.currency,
+            converted: p.converted,
+            note: p.note,
+            partnerId,
+            suggested: partnerId === null ? suggestPartner(p.note, partners) : null,
+            transfer: { amount: x.amount, currency: x.currency, destination: x.destination },
+          };
+        }),
+    )
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  return {
+    currency: fx.target,
+    partners,
+    view: partnersView(partners, payments),
+    payments,
+  };
+}
+
+export const getComptaPartners = permissionQuery("business.read")({
+  args: {},
+  handler: (ctx) => comptaPartnersCore(ctx),
+});
+
+/**
+ * Enregistre les associés et leurs parts. Un associé gardé garde son `id` (ses
+ * rémunérations restent à lui) ; un associé retiré laisse ses rémunérations
+ * « à attribuer ». Liste vide = plus d'associés déclarés.
+ */
+const saveComptaPartnersArgs = {
+  partners: v.array(v.object({ id: v.optional(v.string()), name: v.string(), share: v.number() })),
+};
+
+export async function saveComptaPartnersCore(
+  ctx: ProjectMutationCtx,
+  { partners }: ObjectType<typeof saveComptaPartnersArgs>,
+) {
+  const clean = partners.map((p) => ({
+    id: p.id?.trim() || `pt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+    name: p.name.trim(),
+    share: Math.round(p.share * 100) / 100,
+  }));
+  const reason = partnersError(clean);
+  if (reason !== null) throw err(ERR.COMPTA_PARTNERS_INVALID, "Parts des associés invalides.", { reason });
+  const state = await stateForWrite(ctx, ctx.projectId);
+  await ctx.db.patch(state._id, { partners: clean });
+  return { partners: clean };
+}
+
+export const saveComptaPartners = permissionMutation("business.read")({
+  args: saveComptaPartnersArgs,
+  handler: (ctx, args) => saveComptaPartnersCore(ctx, args),
+});
+
+/**
+ * Attribue une part « Rémunération » à un associé (ou la remet « à attribuer »,
+ * `partnerId: null`), sans toucher au reste de la ventilation. Une annotation
+ * d'avant les parts (une seule part, id « legacy ») devient une vraie part.
+ */
+const assignPayPartArgs = {
+  lineId: v.id("whopLedgerLines"),
+  partId: v.string(),
+  partnerId: v.union(v.string(), v.null()),
+};
+
+export async function assignPayPartCore(
+  ctx: ProjectMutationCtx,
+  { lineId, partId, partnerId }: ObjectType<typeof assignPayPartArgs>,
+) {
+  const line = await ctx.db.get(lineId);
+  if (!line || line.projectId !== ctx.projectId || line.lineType !== "withdrawal") {
+    throw err(ERR.COMPTA_TRANSFER_NOT_FOUND, "Ce virement est introuvable.");
+  }
+  if (partnerId !== null) {
+    const partners = (await readState(ctx, ctx.projectId))?.partners ?? [];
+    if (!partners.some((p) => p.id === partnerId)) throw err(ERR.COMPTA_PARTNER_UNKNOWN, "Cet associé n'existe pas.");
+  }
+  const parts = transferPartsOf(line, round2(-line.amount));
+  const i = parts.findIndex((p) => p.id === partId);
+  if (i < 0 || parts[i].usage !== "pay") {
+    throw err(ERR.COMPTA_PARTS_INVALID, "Cette part n'est pas une rémunération.", { reason: "partner" });
+  }
+  const next = parts.map((p, j) => {
+    if (j !== i) return p;
+    const part = { ...p, id: p.id === "legacy" ? `p_${Date.now().toString(36)}` : p.id };
+    delete part.partnerId;
+    return partnerId === null ? part : { ...part, partnerId };
+  });
+  await ctx.db.patch(lineId, {
+    parts: next,
+    usage: undefined,
+    note: undefined,
+    annotatedAt: Date.now(),
+    annotatedBy: ctx.userId,
+  });
+  return { ok: true as const };
+}
+
+export const assignPayPart = permissionMutation("business.read")({
+  args: assignPayPartArgs,
+  handler: (ctx, args) => assignPayPartCore(ctx, args),
 });
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
