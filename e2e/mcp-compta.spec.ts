@@ -37,6 +37,7 @@ type Exercice = {
     disponiblePourDepenser: number | null;
     enCaisse: number | null;
     misDeCote: number | null;
+    duAuxCreatrices: { total: number | null; parDevise: { devise: string | null; montant: number }[] };
     surWhop: number | null;
     comptes: {
       nom: string;
@@ -44,6 +45,7 @@ type Exercice = {
       dernierReleve: { jour: string; montant: number } | null;
       aRelever: boolean;
       virementsWhopArrivesDepuis: number | null;
+      dontDejaDepense: number | null;
       soldeEstime: number | null;
     }[];
     aRecuperer: number | null;
@@ -215,15 +217,25 @@ test.describe("Outil MCP compta", () => {
         enCaisse: treso.inCash,
         surWhop: treso.whop.total,
         misDeCote: 0,
+        duAuxCreatrices: {
+          total: treso.creatorsDue.converted,
+          parDevise: treso.creatorsDue.byCurrency.map((d) => ({ devise: d.currency, montant: d.amount })),
+        },
         aRecuperer: 26.87,
       });
+      // Disponible = en caisse − mis de côté − dû aux créatrices.
+      expect(r.tresorerie.disponiblePourDepenser).toBe(
+        Math.round((treso.inCash! - 0 - treso.creatorsDue.converted!) * 100) / 100,
+      );
       expect(r.tresorerie.comptes).toEqual([
         expect.objectContaining({
           nom: "Antho Banque",
           compte: true,
           dernierReleve: { jour: "2025-09-20", montant: 1337.49 },
           virementsWhopArrivesDepuis: 2000,
-          soldeEstime: 3337.49,
+          // Paie 1 500 + créatrices 250 + Hiker 200 : repartis, plus sur le compte.
+          dontDejaDepense: 1950,
+          soldeEstime: 1387.49,
           aRelever: true,
         }),
       ]);

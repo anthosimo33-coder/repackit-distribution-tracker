@@ -19,6 +19,8 @@ import {
   thresholdView,
   transfersSinceReading,
   treasuryView,
+  spentOfParts,
+  convertedCreatorsDue,
   transferPartsError,
   transferPartsOf,
   type LedgerDayCell,
@@ -456,77 +458,145 @@ describe("argent à récupérer", () => {
   });
 });
 
-describe("trésorerie : Whop + comptes relevés − mis de côté", () => {
+describe("trésorerie : Whop + comptes relevés − mis de côté − dû aux créatrices", () => {
   // Les virements de Snytch, à la forme de la prod (destinations Whop réelles).
   const virements = [
-    { day: "2026-09-15", destination: "Antho Banque", failed: false, converted: 2325.49, recoverConverted: 0 },
-    { day: "2026-09-02", destination: "usdc jeremie", failed: false, converted: 493.23, recoverConverted: 493.23 },
-    { day: "2026-09-30", destination: "Antho Banque", failed: false, converted: 412.6, recoverConverted: 0 },
-    { day: "2026-10-01", destination: "Antho Banque", failed: true, converted: 304.47, recoverConverted: 0 },
-    { day: "2026-10-01", destination: "SOL compte 7 Antho", failed: false, converted: 329.49, recoverConverted: 0 },
+    { day: "2026-09-15", destination: "Antho Banque", failed: false, converted: 2325.49, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-09-02", destination: "usdc jeremie", failed: false, converted: 493.23, recoverConverted: 493.23, spentConverted: 0 },
+    { day: "2026-09-30", destination: "Antho Banque", failed: false, converted: 412.6, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-10-01", destination: "Antho Banque", failed: true, converted: 304.47, recoverConverted: 0, spentConverted: 0 },
+    { day: "2026-10-01", destination: "SOL compte 7 Antho", failed: false, converted: 329.49, recoverConverted: 0, spentConverted: 0 },
   ];
 
   it("un compte reçoit les virements arrivés APRÈS son relevé, ni échoués ni d'ailleurs", () => {
     // Relevé le 15/09 : le virement du 15/09 est déjà dedans, celui du 30/09 non.
-    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-15")).toBe(412.6);
-    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-30")).toBe(0);
-    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-14")).toBe(2738.09);
+    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-15")).toEqual({ arrived: 412.6, spent: 0 });
+    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-30")).toEqual({ arrived: 0, spent: 0 });
+    expect(transfersSinceReading(virements, ["Antho Banque"], "2026-09-14")).toEqual({ arrived: 2738.09, spent: 0 });
   });
 
   it("une part « à récupérer » n'est jamais arrivée : elle ne s'ajoute pas", () => {
-    expect(transfersSinceReading(virements, ["usdc jeremie"], "2026-09-01")).toBe(0);
+    expect(transfersSinceReading(virements, ["usdc jeremie"], "2026-09-01")).toEqual({ arrived: 0, spent: 0 });
   });
 
   it("un virement sans taux rend la somme non chiffrée", () => {
-    expect(
-      transfersSinceReading(
-        [{ day: "2026-09-20", destination: "Antho Wallet", failed: false, converted: null, recoverConverted: 0 }],
-        ["Antho Wallet"],
-        "2026-09-01",
-      ),
-    ).toBeNull();
+    const sansTaux = { day: "2026-09-20", destination: "Antho Wallet", failed: false, recoverConverted: 0 };
+    expect(transfersSinceReading([{ ...sansTaux, converted: null, spentConverted: 0 }], ["Antho Wallet"], "2026-09-01")).toBeNull();
+    expect(transfersSinceReading([{ ...sansTaux, converted: 10, spentConverted: null }], ["Antho Wallet"], "2026-09-01")).toBeNull();
   });
 
-  it("disponible = Whop + comptes relevés − mis de côté ; un compte jamais relevé n'est pas compté", () => {
+  it("dépensé = paie, créatrices, charges ; « mise de côté », « autre » et « à récupérer » restent", () => {
+    // Le virement du 15/09 (2 325,49 €) tel que ventilé en prod.
+    const parts = [
+      { usage: "business" as const, converted: 240 },
+      { usage: "business" as const, converted: 200 },
+      { usage: "business" as const, converted: 150 },
+      { usage: "pay" as const, converted: 100 },
+      { usage: "business" as const, converted: 42 },
+      { usage: "creators" as const, converted: 256 },
+      { usage: "provision" as const, converted: 581.37 },
+      { usage: "pay" as const, converted: 100 },
+      { usage: "other" as const, converted: 656.12 },
+    ];
+    expect(spentOfParts(parts)).toBe(1088);
+    expect(spentOfParts([{ usage: "recover", converted: 493.23 }])).toBe(0);
+    expect(spentOfParts([{ usage: "creators", converted: null }, { usage: "other", converted: 1 }])).toBeNull();
+    expect(spentOfParts([{ usage: "other", converted: null }])).toBe(0);
+  });
+
+  it("Antho Banque en octobre : les virements ventilés comme dépensés ne gonflent plus le solde", () => {
+    // Relevé du 08/10 (1 145,25 €) ; les virements du 07/10 et du 08/10 sont dedans.
+    const octobre = [
+      { day: "2026-10-07", destination: "Antho Banque", failed: false, converted: 747.76, recoverConverted: 0, spentConverted: 747.76 },
+      { day: "2026-10-08", destination: "Antho Banque", failed: false, converted: 1397.77, recoverConverted: 0, spentConverted: 1397.77 },
+      // 12/10 : Veljko, Bruna, Tainara, Claude (charges) + Elena (créatrices) ; 38,57 sans motif.
+      { day: "2026-10-12", destination: "Antho Banque", failed: false, converted: 377.77, recoverConverted: 0, spentConverted: 339.2 },
+      // 20/10 : Quentin, Mewen, Convex, Cloudflare, Gump, Kevin ; 7,44 sans motif.
+      { day: "2026-10-20", destination: "Antho Banque", failed: false, converted: 653.44, recoverConverted: 0, spentConverted: 646 },
+      { day: "2026-10-24", destination: "Antho Banque", failed: false, converted: 527.77, recoverConverted: 0, spentConverted: 527.77 },
+    ];
+    const since = transfersSinceReading(octobre, ["Antho Banque"], "2026-10-08")!;
+    expect(since).toEqual({ arrived: 1558.98, spent: 1512.97 });
+    const v = treasuryView({
+      today: "2026-11-02",
+      whop: 8252.67,
+      accounts: [{ id: "antho", reading: { day: "2026-10-08", converted: 1145.25 }, since }],
+      provisioned: 581.37,
+      used: 0,
+      creatorsDue: 3220.96,
+    });
+    // 1 145,25 + 38,57 + 7,44 — et non 2 704,23 (relevé + tout ce qui est arrivé).
+    expect(v.accounts[0]).toMatchObject({ estimated: 1191.26, ageDays: 25, stale: true });
+    expect(v).toMatchObject({ inCash: 9443.93, setAside: 581.37, creatorsDue: 3220.96, available: 5641.6 });
+  });
+
+  it("disponible = Whop + comptes relevés − mis de côté − dû ; un compte jamais relevé n'est pas compté", () => {
     const v = treasuryView({
       today: "2026-10-02",
       whop: 4744.44,
       accounts: [
-        { id: "antho", reading: { day: "2026-09-15", converted: 1337.49 }, since: 412.6 },
+        { id: "antho", reading: { day: "2026-09-15", converted: 1337.49 }, since: { arrived: 412.6, spent: 0 } },
         { id: "sol", reading: null, since: null },
       ],
       provisioned: 581.37,
       used: 0,
+      creatorsDue: 958,
     });
     expect(v.accounts).toEqual([
       { id: "antho", counted: true, estimated: 1750.09, ageDays: 17, stale: true },
       { id: "sol", counted: false, estimated: null, ageDays: null, stale: false },
     ]);
-    expect(v).toMatchObject({ inCash: 6494.53, setAside: 581.37, available: 5913.16, staleCount: 1, unreadCount: 1 });
+    expect(v).toMatchObject({ inCash: 6494.53, setAside: 581.37, available: 4955.16, staleCount: 1, unreadCount: 1 });
   });
 
   it("à 14 jours un relevé est encore frais, à 15 il est à relever", () => {
     const age = (day: string) =>
-      treasuryView({ today: "2026-10-02", whop: 0, accounts: [{ id: "a", reading: { day, converted: 1 }, since: 0 }], provisioned: 0, used: 0 }).accounts[0];
+      treasuryView({
+        today: "2026-10-02",
+        whop: 0,
+        accounts: [{ id: "a", reading: { day, converted: 1 }, since: { arrived: 0, spent: 0 } }],
+        provisioned: 0,
+        used: 0,
+        creatorsDue: 0,
+      }).accounts[0];
     expect(age("2026-09-18")).toMatchObject({ ageDays: 14, stale: false });
     expect(age("2026-09-17")).toMatchObject({ ageDays: 15, stale: true });
   });
 
   it("le mis de côté baisse de ce qui est payé, sans jamais devenir négatif", () => {
-    const base = { today: "2026-10-02", whop: 1000, accounts: [] };
+    const base = { today: "2026-10-02", whop: 1000, accounts: [], creatorsDue: 0 };
     expect(treasuryView({ ...base, provisioned: 581.37, used: 400 })).toMatchObject({ setAside: 181.37, available: 818.63 });
     expect(treasuryView({ ...base, provisioned: 581.37, used: 700 })).toMatchObject({ setAside: 0, available: 1000 });
+  });
+
+  it("le dû aux créatrices : chaque devise à son taux, sans devise = celle de paie du projet", () => {
+    // Le « À verser » de Paiements le 02/11 : 3 177,96 € + 50 $ (× 0,86).
+    expect(convertedCreatorsDue([{ currency: "eur", amount: 3177.96 }, { currency: "usd", amount: 50 }], "usd", FX)).toBe(3220.96);
+    expect(convertedCreatorsDue([{ currency: null, amount: 100 }], "usd", FX)).toBe(86);
+    expect(convertedCreatorsDue([], "usd", FX)).toBe(0);
+    // Une devise sans taux : jamais additionnée 1:1.
+    expect(convertedCreatorsDue([{ currency: "brl", amount: 100 }], "usd", FX)).toBeNull();
+    expect(convertedCreatorsDue([{ currency: null, amount: 100 }], null, FX)).toBeNull();
+    // Rien à verser dans une devise sans taux : rien à convertir.
+    expect(convertedCreatorsDue([{ currency: "brl", amount: 0 }], "usd", FX)).toBe(0);
   });
 
   it("un terme non chiffré ne s'additionne pas 1:1", () => {
     const v = treasuryView({
       today: "2026-10-02",
       whop: 4744.44,
-      accounts: [{ id: "wallet", reading: { day: "2026-10-01", converted: null }, since: 0 }],
+      accounts: [{ id: "wallet", reading: { day: "2026-10-01", converted: null }, since: { arrived: 0, spent: 0 } }],
       provisioned: 0,
       used: 0,
+      creatorsDue: 0,
     });
     expect(v).toMatchObject({ inCash: null, available: null });
-    expect(treasuryView({ today: "2026-10-02", whop: null, accounts: [], provisioned: 0, used: 0 }).available).toBeNull();
+    expect(treasuryView({ today: "2026-10-02", whop: null, accounts: [], provisioned: 0, used: 0, creatorsDue: 0 }).available).toBeNull();
+    // Dû non chiffré : le disponible ne l'est pas non plus, la caisse si.
+    expect(treasuryView({ today: "2026-10-02", whop: 1000, accounts: [], provisioned: 0, used: 0, creatorsDue: null })).toMatchObject({
+      inCash: 1000,
+      creatorsDue: null,
+      available: null,
+    });
   });
 });

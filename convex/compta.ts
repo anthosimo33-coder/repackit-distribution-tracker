@@ -19,6 +19,8 @@ import { fetchWhopLedger, type NormalizedLedgerLine } from "./whopLedgerApi";
 import { cellNum, cellStr, runHogQL } from "./posthogApi";
 import { projectFx } from "./whopRevenue";
 import { resolvePayCurrency, sumByCurrency } from "./payCurrency";
+import { collectProjectPaymentRows } from "./payments";
+import { regrouperPaiements } from "./paymentsView";
 import { monthKeyParis, parisMonthEndMs } from "./dateFr";
 import { err, ERR } from "./errorCodes";
 import {
@@ -48,6 +50,8 @@ import {
   totalsByType,
   transfersSinceReading,
   treasuryView,
+  convertedCreatorsDue,
+  spentOfParts,
   TREASURY_STALE_DAYS,
   transferPartsError,
   transferPartsOf,
@@ -1282,9 +1286,10 @@ export const stopChargeSeries = permissionMutation("business.read")({
 
 /**
  * La TRÉSORERIE d'aujourd'hui : le solde Whop (calculé depuis le grand livre),
- * chaque compte RELEVÉ (dernier relevé + virements Whop arrivés depuis), l'argent
- * mis de côté (parts « Mise de côté » − ce qui en a été payé) et à récupérer.
- * Un compte jamais relevé est montré, pas compté.
+ * chaque compte RELEVÉ (dernier relevé + virements Whop arrivés depuis − leurs
+ * parts dépensées), l'argent mis de côté (parts « Mise de côté » − ce qui en a
+ * été payé), ce qui est dû aux créatrices (le « À verser » de Paiements) et à
+ * récupérer. Un compte jamais relevé est montré, pas compté.
  */
 export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
   const months = await allMonths(ctx, ctx.projectId);
@@ -1316,6 +1321,7 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
     failed: x.failed,
     converted: x.converted,
     recoverConverted: sumConv(x.parts.filter((p) => p.usage === "recover")),
+    spentConverted: spentOfParts(x.parts),
   }));
 
   const accountDocs = (
@@ -1350,6 +1356,12 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
   ).sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : b.createdAt - a.createdAt));
   const used = round2(uses.reduce((s, u) => s + (convert(u.amount, u.currency, fx) ?? 0), 0));
   const provisioned = sumConv(partsOf("provision"));
+  // Le « À verser » de l'écran Paiements, LE même regroupement (cf
+  // convex/paymentsView) : ce qui est déjà dû n'est pas à dépenser.
+  const payRows = await collectProjectPaymentRows(ctx, ctx.projectId);
+  const dueByCurrency = regrouperPaiements(payRows, Date.now()).aVerser;
+  const payCurrency = (await ctx.db.get(ctx.projectId))?.payCurrency ?? null;
+  const creatorsDue = convertedCreatorsDue(dueByCurrency, payCurrency, fx);
   const view = treasuryView({
     today,
     whop: whopTotal,
@@ -1360,6 +1372,7 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
     })),
     provisioned,
     used,
+    creatorsDue,
   });
 
   // Les destinations Whop vues sur les virements réussis, et le compte où elles arrivent.
@@ -1394,7 +1407,9 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
       currency: a.doc.currency,
       destinations: a.doc.destinations,
       reading: a.reading,
-      since: a.since,
+      since: a.since === null ? null : round2(a.since.arrived - a.since.spent),
+      arrived: a.since?.arrived ?? null,
+      spent: a.since?.spent ?? null,
       estimated: view.accounts[i].estimated,
       ageDays: view.accounts[i].ageDays,
       stale: view.accounts[i].stale,
@@ -1408,6 +1423,10 @@ export async function comptaTreasuryCore(ctx: ProjectQueryCtx) {
       uses: uses.map((u) => ({ _id: u._id, day: u.day, amount: u.amount, currency: u.currency, note: u.note ?? null })),
     },
     toRecover: sumConv(partsOf("recover")),
+    creatorsDue: {
+      converted: view.creatorsDue,
+      byCurrency: dueByCurrency.filter((d) => d.amount !== 0),
+    },
     inCash: view.inCash,
     available: view.available,
     staleCount: view.staleCount,
