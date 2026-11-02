@@ -80,6 +80,13 @@
     "subtitle": "Fiscal year {year} · amounts in {currency}, dated on the day the money came in or went out (Paris time).",
     "subtitleNoCurrency": "Fiscal year {year} · amounts dated on the day the money came in or went out (Paris time).",
     "yearOption": "Fiscal year {year}",
+    "period": {
+      "label": "Period shown",
+      "year": "Whole year",
+      "prev": "Previous month",
+      "next": "Next month",
+      "inProgress": "{month} (in progress)"
+    },
     "sync": "Sync Whop",
     "syncStarted": "Reading the ledger: figures will refresh on their own.",
     "syncNotConfigured": "Whop isn't connected to this project.",
@@ -127,7 +134,12 @@
       "transfersYear": "{amount} withdrawn this fiscal year",
       "lastTransfer": "last withdrawal on {date} ({amount})",
       "noTransfer": "no withdrawal yet",
-      "balanceUnconverted": "Balance held in currencies without a rate: {list}"
+      "balanceUnconverted": "Balance held in currencies without a rate: {list}",
+      "resultMonth": "{month} result",
+      "resultInfoMonth": "Whop net − creator payments sent during the month − scan cost − other charges of the month.",
+      "resultPrevious": "{month}: {amount}",
+      "inProgress": "Month in progress: figures will still change.",
+      "transfersMonth": "{amount} paid out in {month}"
     },
     "threshold": {
       "title": "{year} gross revenue to date",
@@ -153,7 +165,20 @@
       "noRate": "no payments in 30 days",
       "footnote": "Linear projection at the pace of the last 30 full days, if nothing changes: a landmark, not a forecast.",
       "notEur": "The €37,500 and €41,250 thresholds are in euros: they only show when the project's reference currency is the euro.",
-      "cumulOnly": "Gross revenue to date for the fiscal year"
+      "cumulOnly": "Gross revenue to date for the fiscal year",
+      "monthTitle": "{month} gross revenue",
+      "monthInfoLabel": "What this amount counts",
+      "monthInfo": "Payments collected on Whop during the month (Paris time), before refunds, disputes and fees. The breakdown by type is in the monthly table, on the month's row.",
+      "monthChange": "{change} vs {month} ({amount})",
+      "monthNoPrevious": "No previous month to compare",
+      "monthInProgress": "Month in progress",
+      "monthNet": "Net after Whop",
+      "monthRefunds": "Refunds",
+      "monthDisputes": "Disputes",
+      "monthFees": "Whop fees",
+      "monthShare": "{pct} of gross revenue",
+      "monthCumul": "Year to date at the end of {month}: {amount} · {pct} of the first threshold ({threshold})",
+      "monthCumulNoThreshold": "Year to date at the end of {month}: {amount}"
     },
     "table": {
       "title": "Month by month",

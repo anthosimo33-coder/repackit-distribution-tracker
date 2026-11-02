@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
   DownloadIcon,
   HourglassIcon,
   ImageIcon,
@@ -31,10 +33,11 @@ import {
 } from "@/components/ui/select";
 import { InfoTip } from "@/components/InfoTip";
 import { convexErrorMessage } from "@/lib/convex-error";
+import { buildComptaRecap } from "@/lib/compta-recap";
 import { cn } from "@/lib/utils";
 import { parisDayKey } from "@/convex/comptaMath";
 import { useComptaFormat } from "./compta-format";
-import { ComptaThresholdCard } from "./ComptaThresholdCard";
+import { ComptaMonthRevenueCard, ComptaThresholdCard } from "./ComptaThresholdCard";
 import { ComptaMonthlyTable } from "./ComptaMonthlyTable";
 import { ComptaTransfersCard } from "./ComptaTransfersCard";
 import { ComptaChargesCard } from "./ComptaChargesCard";
@@ -56,6 +59,9 @@ export function ComptaPage() {
   const t = useTranslations("admin.money.Compta");
   const f = useComptaFormat();
   const [year, setYear] = useState(() => Number(parisDayKey(Date.now()).slice(0, 4)));
+  // Le mois regardé (`null` = toute l'année) : les cartes du haut, le tableau,
+  // les virements et les charges s'ouvrent dessus.
+  const [period, setPeriod] = useState<string | null>(null);
   const overviewQ = useProjectQuerySafe(api.compta.getComptaOverview, { year });
   const requestSync = useProjectMutation(api.compta.requestComptaSync);
   const [syncing, setSyncing] = useState(false);
@@ -108,6 +114,9 @@ export function ComptaPage() {
     [...data.rows].reverse().find((r) => !r.inProgress)?.month ?? defaultMonth;
   const lastTransferMonth =
     [...data.rows].reverse().find((r) => r.ledger.transfersReceived !== 0)?.month ?? defaultMonth;
+  // Un mois choisi qui n'est pas dans l'exercice affiché (changement d'année
+  // en cours de chargement) : retour à l'année entière.
+  const selected = period !== null && months.includes(period) ? period : null;
 
   return (
     <div className="space-y-6">
@@ -124,7 +133,11 @@ export function ComptaPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Select
             value={String(year)}
-            onValueChange={(v) => v !== null && setYear(Number(v))}
+            onValueChange={(v) => {
+              if (v === null) return;
+              setYear(Number(v));
+              setPeriod(null);
+            }}
             items={Object.fromEntries(data.years.map((y) => [String(y), t("yearOption", { year: y })]))}
           >
             <SelectTrigger className="w-40" aria-label={t("yearOption", { year })}>
@@ -138,6 +151,7 @@ export function ComptaPage() {
               ))}
             </SelectContent>
           </Select>
+          {months.length > 0 && <PeriodPicker rows={data.rows} value={selected} onChange={setPeriod} />}
           {data.configured && (
             <Button variant="outline" onClick={onSync} disabled={syncing}>
               {syncing ? (
@@ -152,7 +166,7 @@ export function ComptaPage() {
             <ImageIcon className="size-4" />
             {t("recap.open")}
           </Button>
-          <Button onClick={() => setExportMonth(defaultMonth)} disabled={months.length === 0}>
+          <Button onClick={() => setExportMonth(selected ?? defaultMonth)} disabled={months.length === 0}>
             <DownloadIcon className="size-4" />
             {t("export")}
           </Button>
@@ -209,28 +223,34 @@ export function ComptaPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <ComptaThresholdCard data={data} />
+        {selected ? <ComptaMonthRevenueCard data={data} month={selected} /> : <ComptaThresholdCard data={data} />}
         <div className="grid gap-4">
-          <ResultCard data={data} />
-          <BalanceCard data={data} />
+          <ResultCard data={data} month={selected} />
+          <BalanceCard data={data} month={selected} />
         </div>
       </div>
 
       {data.configured && <ComptaTreasuryCard />}
 
-      <ComptaMonthlyTable data={data} onExport={(m) => setExportMonth(m)} />
+      <ComptaMonthlyTable
+        key={`table:${selected ?? "year"}`}
+        data={data}
+        focusMonth={selected}
+        onExport={(m) => setExportMonth(m)}
+      />
 
       <div ref={transfersRef} className="scroll-mt-4">
         <ComptaTransfersCard
-          key={transfersFocus ? `${transfersFocus.month}:${transfersFocus.n}` : "default"}
+          key={transfersFocus ? `${transfersFocus.month}:${transfersFocus.n}` : (selected ?? "default")}
           months={months}
-          defaultMonth={transfersFocus?.month ?? lastTransferMonth}
+          defaultMonth={transfersFocus?.month ?? selected ?? lastTransferMonth}
         />
       </div>
 
       <ComptaChargesCard
+        key={`charges:${selected ?? "year"}`}
         months={months}
-        defaultMonth={defaultMonth}
+        defaultMonth={selected ?? defaultMonth}
         currentMonth={data.currentMonth}
         neverSynced={data.sync.lastSyncAt === null}
       />
@@ -238,7 +258,12 @@ export function ComptaPage() {
       <ComptaMethod data={data} onClassify={setClassify} />
 
       {months.length > 0 && (
-        <ComptaRecapDialog open={recapOpen} onOpenChange={setRecapOpen} data={data} defaultMonth={lastClosedMonth} />
+        <ComptaRecapDialog
+          open={recapOpen}
+          onOpenChange={setRecapOpen}
+          data={data}
+          defaultMonth={selected ?? lastClosedMonth}
+        />
       )}
 
       <ComptaClassifyDialog
@@ -353,45 +378,126 @@ function SyncStatus({ data, now }: { data: ComptaOverview; now: number }) {
   );
 }
 
-function ResultCard({ data }: { data: ComptaOverview }) {
+/**
+ * LA PÉRIODE REGARDÉE — toute l'année ou un mois de l'exercice, et des flèches
+ * pour passer d'un mois à l'autre. Depuis l'année entière, « ‹ » ouvre le
+ * dernier mois.
+ */
+function PeriodPicker({
+  rows,
+  value,
+  onChange,
+}: {
+  rows: ComptaOverview["rows"];
+  value: string | null;
+  onChange: (month: string | null) => void;
+}) {
+  const t = useTranslations("admin.money.Compta.period");
+  const f = useComptaFormat();
+  const keys = rows.map((r) => r.month);
+  const i = value === null ? keys.length : keys.indexOf(value);
+  const prev = i > 0 ? keys[i - 1] : null;
+  const next = value !== null && i < keys.length - 1 ? keys[i + 1] : null;
+  const label = (r: ComptaOverview["rows"][number]) => {
+    const name = f.month(r.month);
+    const cap = name.charAt(0).toUpperCase() + name.slice(1);
+    return r.inProgress ? t("inProgress", { month: cap }) : cap;
+  };
+  const newestFirst = [...rows].reverse();
+  return (
+    <div className="flex items-center gap-1" data-testid="compta-period">
+      <Button variant="outline" size="icon" onClick={() => prev && onChange(prev)} disabled={!prev} aria-label={t("prev")}>
+        <ChevronLeftIcon className="size-4" />
+      </Button>
+      <Select
+        value={value ?? "year"}
+        onValueChange={(v) => v !== null && onChange(v === "year" ? null : v)}
+        items={{ year: t("year"), ...Object.fromEntries(rows.map((r) => [r.month, label(r)])) }}
+      >
+        <SelectTrigger className="w-48" aria-label={t("label")}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="start" alignItemWithTrigger={false}>
+          <SelectItem value="year">{t("year")}</SelectItem>
+          {newestFirst.map((r) => (
+            <SelectItem key={r.month} value={r.month}>
+              {label(r)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button variant="outline" size="icon" onClick={() => next && onChange(next)} disabled={!next} aria-label={t("next")}>
+        <ChevronRightIcon className="size-4" />
+      </Button>
+    </div>
+  );
+}
+
+/** Résultat de l'exercice, ou du mois regardé (comparé au mois d'avant). */
+function ResultCard({ data, month }: { data: ComptaOverview; month: string | null }) {
   const t = useTranslations("admin.money.Compta.kpi");
   const f = useComptaFormat();
-  const { totals, currency } = data;
-  const charges = totals.creators + totals.scans + totals.other;
+  const { currency } = data;
+  const recap = month ? buildComptaRecap(data.rows, month, month) : null;
+  const v = recap
+    ? {
+        title: t("resultMonth", { month: f.month(month!) }),
+        info: t("resultInfoMonth"),
+        net: recap.net,
+        creators: recap.creators,
+        scans: recap.scans,
+        other: recap.other,
+        result: recap.result,
+        incomplete: recap.incomplete,
+      }
+    : { title: t("result", { year: data.year }), info: t("resultInfo"), ...data.totals };
+  const charges = v.creators + v.scans + v.other;
   return (
     <Card className="py-0">
       <CardContent className="space-y-2 p-5">
         <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-          {t("result", { year: data.year })}
-          <InfoTip label={t("resultInfoLabel")}>{t("resultInfo")}</InfoTip>
+          {v.title}
+          <InfoTip label={t("resultInfoLabel")}>{v.info}</InfoTip>
         </div>
         <div
           className={cn(
             "text-3xl font-semibold tracking-tight tabular-nums",
-            totals.result >= 0 ? "text-emerald-700" : "text-red-600",
+            v.result >= 0 ? "text-emerald-700" : "text-red-600",
           )}
           data-testid="compta-result-total"
         >
-          {f.signed(totals.result, currency)}
+          {f.signed(v.result, currency)}
         </div>
         <div className="text-xs text-slate-500 tabular-nums">
-          {t("resultDetail", { net: f.money(totals.net, currency), charges: f.money(charges, currency) })}
+          {t("resultDetail", { net: f.signed(v.net, currency), charges: f.money(charges, currency) })}
+          {recap?.previous && (
+            <>
+              {" · "}
+              {t("resultPrevious", { month: f.month(recap.previous.from), amount: f.signed(recap.previous.result, currency) })}
+            </>
+          )}
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-2 text-xs text-slate-500 tabular-nums">
           <span>
             {t("creators")}{" "}
-            <span className="font-medium text-slate-700">{f.money(totals.creators, currency)}</span>
+            <span className="font-medium text-slate-700">{f.money(v.creators, currency)}</span>
           </span>
           <span>
             {t("scans")}{" "}
-            <span className="font-medium text-slate-700">{f.money(totals.scans, currency)}</span>
+            <span className="font-medium text-slate-700">{f.money(v.scans, currency)}</span>
           </span>
           <span>
             {t("other")}{" "}
-            <span className="font-medium text-slate-700">{f.money(totals.other, currency)}</span>
+            <span className="font-medium text-slate-700">{f.money(v.other, currency)}</span>
           </span>
         </div>
-        {totals.incomplete && (
+        {recap?.inProgress && (
+          <p className="flex items-start gap-1.5 text-xs text-slate-500">
+            <HourglassIcon className="mt-px size-3.5 shrink-0" />
+            {t("inProgress")}
+          </p>
+        )}
+        {v.incomplete && (
           <p className="flex items-start gap-1.5 text-xs text-amber-700">
             <AlertTriangleIcon className="mt-px size-3.5 shrink-0" />
             {t("incomplete")}
@@ -402,10 +508,12 @@ function ResultCard({ data }: { data: ComptaOverview }) {
   );
 }
 
-function BalanceCard({ data }: { data: ComptaOverview }) {
+/** Solde Whop d'aujourd'hui ; les virements de l'exercice, ou du mois regardé. */
+function BalanceCard({ data, month }: { data: ComptaOverview; month: string | null }) {
   const t = useTranslations("admin.money.Compta.kpi");
   const f = useComptaFormat();
   const { balance, currency } = data;
+  const monthRow = month ? data.rows.find((r) => r.month === month) : undefined;
   const unconverted = balance.byCurrency.filter((b) => b.converted === null);
   return (
     <Card className="py-0">
@@ -418,7 +526,9 @@ function BalanceCard({ data }: { data: ComptaOverview }) {
           {balance.converted === null ? "—" : f.signed(balance.converted, currency)}
         </div>
         <div className="text-xs text-slate-500 tabular-nums">
-          {t("transfersYear", { amount: f.money(data.totals.transfersReceived, currency) })}
+          {monthRow
+            ? t("transfersMonth", { amount: f.money(monthRow.ledger.transfersReceived, currency), month: f.month(monthRow.month) })
+            : t("transfersYear", { amount: f.money(data.totals.transfersReceived, currency) })}
           {" · "}
           {balance.lastTransfer
             ? t("lastTransfer", {

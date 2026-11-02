@@ -571,6 +571,63 @@ test.describe("Compta", () => {
     }
   });
 
+  test("mois par mois : les cartes du haut, le tableau et les flèches suivent le mois choisi", async ({ page }, testInfo) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const { restore } = await setup(ts);
+    try {
+      const o = await admin.query(api.compta.getComptaOverview, { year: 2025 });
+      const sept = o.rows.find((r) => r.month === "2025-09")!;
+      const aout = o.rows.find((r) => r.month === "2025-08")!;
+      expect(o.rows.map((r) => r.month)).toEqual(["2025-08", "2025-09"]);
+      // Les montants de l'écran : signe moins typographique, espaces souples.
+      const eur = (n: number) =>
+        new RegExp((n < 0 ? "−" : "") + formatMoney(Math.abs(n), "eur").replace(/\s/g, "\\s?"));
+
+      await page.goto(adminPath("/compta"));
+      await page.getByRole("combobox", { name: /Exercice/ }).click();
+      await page.getByRole("option", { name: "Exercice 2025" }).click();
+      const period = page.getByRole("combobox", { name: "Période affichée" });
+      await expect(period).toContainText("Toute l'année", { timeout: 20_000 });
+      await expect(page.getByTestId("compta-threshold-card")).toBeVisible();
+      await expect(page.getByTestId("compta-result-total")).toHaveText(eur(o.totals.result));
+
+      // « ‹ » depuis l'année entière : le dernier mois, comparé au mois d'avant.
+      await page.getByRole("button", { name: "Mois précédent" }).click();
+      await expect(period).toContainText("Septembre 2025");
+      const revenue = page.getByTestId("compta-month-revenue");
+      await expect(revenue).toContainText("CA brut septembre 2025");
+      await expect(revenue).toContainText(eur(sept.ledger.gross));
+      await expect(revenue).toContainText(/par rapport à août 2025/);
+      await expect(page.getByTestId("compta-threshold-card")).toHaveCount(0);
+      await expect(page.getByText("Résultat septembre 2025")).toBeVisible();
+      await expect(page.getByTestId("compta-result-total")).toHaveText(eur(sept.result));
+      await expect(page.getByText(new RegExp(`août 2025 : ${eur(aout.result).source}`))).toBeVisible();
+      await expect(page.getByTestId("compta-detail-2025-09")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Mois suivant" })).toBeDisabled();
+      await page.screenshot({ path: testInfo.outputPath("compta-septembre.png"), fullPage: true });
+
+      // Encore « ‹ » : août, premier mois — rien avant, la flèche s'éteint.
+      await page.getByRole("button", { name: "Mois précédent" }).click();
+      await expect(period).toContainText("Août 2025");
+      await expect(page.getByTestId("compta-result-total")).toHaveText(eur(aout.result));
+      await expect(revenue).toContainText("Pas de mois précédent à comparer");
+      await expect(page.getByTestId("compta-detail-2025-08")).toBeVisible();
+      await expect(page.getByTestId("compta-detail-2025-09")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Mois précédent" })).toBeDisabled();
+
+      // « › » revient à septembre ; le menu ramène l'année entière.
+      await page.getByRole("button", { name: "Mois suivant" }).click();
+      await expect(page.getByTestId("compta-result-total")).toHaveText(eur(sept.result));
+      await period.click();
+      await page.getByRole("option", { name: "Toute l'année" }).click();
+      await expect(page.getByTestId("compta-threshold-card")).toBeVisible();
+      await expect(page.getByTestId("compta-result-total")).toHaveText(eur(o.totals.result));
+    } finally {
+      await restore();
+    }
+  });
+
   test("écran : classer un type inconnu, annoter un virement, exporter le mois", async ({ page }) => {
     test.setTimeout(180_000);
     const ts = Date.now();

@@ -88,14 +88,17 @@ function Amount({
 
 export function ComptaMonthlyTable({
   data,
+  focusMonth = null,
   onExport,
 }: {
   data: ComptaOverview;
+  /** Le mois regardé en haut de l'écran : sa ligne s'ouvre sur son détail. */
+  focusMonth?: string | null;
   onExport: (month: string) => void;
 }) {
   const t = useTranslations("admin.money.Compta.table");
   const f = useComptaFormat();
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focusMonth);
   const cur = data.currency;
   const first = data.rows[0]?.month ?? null;
   const yearStart = `${data.year}-01`;
