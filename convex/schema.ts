@@ -3858,6 +3858,13 @@ export default defineSchema({
     size: v.number(),
     createdAt: v.number(),
     /**
+     * Durée d'une VIDÉO, en secondes, lue dans l'en-tête du fichier (MP4/MOV :
+     * `moov › mvhd`, cf convex/videoDuration.ts) la première fois que l'outil MCP
+     * `assets` la montre, puis gardée : le fichier ne change jamais. Absent =
+     * pas encore lue, ou illisible (WebM, en-tête atypique) — jamais 0.
+     */
+    durationSec: v.optional(v.number()),
+    /**
      * Horodatage du post-traitement, posé par la route d'ingestion ET par le
      * script de migration. Marqueur PERSISTÉ, et pas une détection : le
      * pipeline corrigé n'écrit AUCUNE métadonnée (c'est tout l'intérêt d'avoir

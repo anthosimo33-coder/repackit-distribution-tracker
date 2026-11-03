@@ -2,8 +2,10 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectQueryCtx,
 } from "./functions";
-import { ConvexError, v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
+import { v } from "convex/values";
 import { purgeAssetBlobs } from "./storageCleanup";
 import { ERR, err } from "./errorCodes";
 
@@ -34,23 +36,26 @@ function maxBytesForAssetType(contentType: string): number | null {
 /** Dossiers d'assets du projet + nombre d'images. */
 export const listAssetFolders = permissionQuery("library.manage")({
   args: {},
-  handler: async (ctx) => {
-    const folders = await ctx.db
-      .query("assetFolders")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    const assets = await ctx.db
-      .query("assets")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect();
-    return folders
-      .sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }))
-      .map((f) => ({
-        ...f,
-        assetCount: assets.filter((a) => a.folderId === f._id).length,
-      }));
-  },
+  handler: (ctx) => listAssetFoldersCore(ctx),
 });
+
+/** Cœur — l'écran Assets et l'outil MCP `assets`. */
+export async function listAssetFoldersCore(ctx: ProjectQueryCtx) {
+  const folders = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  const assets = await ctx.db
+    .query("assets")
+    .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+    .collect();
+  return folders
+    .sort((a, b) => a.name.localeCompare(b.name, "fr", { sensitivity: "base" }))
+    .map((f) => ({
+      ...f,
+      assetCount: assets.filter((a) => a.folderId === f._id).length,
+    }));
+}
 
 export const createAssetFolder = permissionMutation("library.manage")({
   args: { name: v.string(), postprocessImages: v.optional(v.boolean()) },
@@ -167,20 +172,23 @@ export const deleteAssetFolder = permissionMutation("library.manage")({
 /** Images d'un dossier (du projet) + URL signée de téléchargement. */
 export const listAssets = permissionQuery("library.manage")({
   args: { folderId: v.id("assetFolders") },
-  handler: async (ctx, { folderId }) => {
-    const folder = await ctx.db.get(folderId);
-    if (!folder || folder.projectId !== ctx.projectId) return [];
-    const assets = await ctx.db
-      .query("assets")
-      .withIndex("by_folder", (q) => q.eq("folderId", folderId))
-      .collect();
-    return await Promise.all(
-      assets
-        .sort((a, b) => a.createdAt - b.createdAt)
-        .map(async (a) => ({ ...a, url: await ctx.storage.getUrl(a.storageId) })),
-    );
-  },
+  handler: (ctx, { folderId }) => listAssetsCore(ctx, folderId),
 });
+
+/** Cœur — le dossier de l'écran Assets et l'outil MCP `assets`. */
+export async function listAssetsCore(ctx: ProjectQueryCtx, folderId: Id<"assetFolders">) {
+  const folder = await ctx.db.get(folderId);
+  if (!folder || folder.projectId !== ctx.projectId) return [];
+  const assets = await ctx.db
+    .query("assets")
+    .withIndex("by_folder", (q) => q.eq("folderId", folderId))
+    .collect();
+  return await Promise.all(
+    assets
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(async (a) => ({ ...a, url: await ctx.storage.getUrl(a.storageId) })),
+  );
+}
 
 /**
  * Enregistre un fichier uploadé (storageId obtenu via generateUploadUrl). VALIDE

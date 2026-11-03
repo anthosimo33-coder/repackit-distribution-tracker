@@ -1,8 +1,8 @@
 [
   "analyticsHub.ts::getChurnCore::...stats",
   "analyticsHub.ts::getViewCountersCore::...VIEW_COUNTER_USAGE",
-  "assets.ts::listAssetFolders::...f",
-  "assets.ts::listAssets::...a",
+  "assets.ts::listAssetFoldersCore::...f",
+  "assets.ts::listAssetsCore::...a",
   "comptes.ts::listComptesCore::...c",
   "creators.ts::getCreatorDeletionImpact::...impact",
   "folders.ts::listFolders::...f",
