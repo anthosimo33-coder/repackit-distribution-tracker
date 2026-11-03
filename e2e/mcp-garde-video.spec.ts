@@ -205,6 +205,58 @@ test.describe("Garde-fous vidéo et journal", () => {
     expect((await missionDu(J3)).scriptCombo?.hookBrickId).toBe(avant.scriptCombo?.hookBrickId);
   });
 
+  test("reecrire_mission vers une autre campagne : les vidéos exemples suivent la campagne ; défait à l'identique", async ({ page }) => {
+    test.setTimeout(180_000);
+    const ts = Date.now();
+    const nom = `Noa Campagne ${ts}`;
+    const c = await createCreatorSession(convexUrl, { name: `[E2E_TEST] ${nom}`, email: `e2e-reecrire-camp-${ts}@repackit.test`, password: "reecrire-12345" });
+    await availableTarget({ e2eClient: admin, creatorId: c.creatorId, platform: "TikTok", handle: `@noa${ts}` });
+    const url = (x: number) => `https://www.tiktok.com/@e2e/video/${x}${ts}`;
+    // Deux campagnes, chacune ses briques et ses vidéos exemples ; une vidéo est
+    // dans les deux (elle reste sur la mission, une seule fois).
+    const campagne = async (nomCampagne: string, videos: [string, string][]) => {
+      const id = (await admin.mutation(api.scripts.createCampaign, { name: `[E2E_TEST] ${nomCampagne}` })) as Id<"scriptCampaigns">;
+      for (const [kind, label, content] of [
+        ["hook", "Hook", `Hook ${nomCampagne}`],
+        ["flux", "Flux", `Flux ${nomCampagne}`],
+        ["cta", "CTA", `CTA ${nomCampagne}`],
+      ] as const) {
+        await admin.mutation(api.scripts.createBrick, { campaignId: id, kind, label, content });
+      }
+      for (const [title, u] of videos) await admin.mutation(api.scripts.addCampaignModelVideo, { campaignId: id, url: u, title });
+      return id;
+    };
+    const depart = `Démo ${ts}`;
+    const arrivee = `Collage ${ts}`;
+    await campagne(depart, [["Démo muette", url(1)], ["Partagée", url(2)]]);
+    await campagne(arrivee, [["Partagée", url(2)], ["Vidéo gagnante", url(3)]]);
+    const bareme = `Barème campagne ${ts}`;
+    await admin.mutation(api.pricing.createPricing, { name: `[E2E_TEST] ${bareme}`, montantFixe: 50, nbVideosCible: 5, tauxCPM: 1.1 });
+    const { appel, journal } = await cleMissions(page, `E2E campagne ${ts}`);
+    const J3 = jourParis(3);
+    expect((await appel("assigner_scripts", { campagne: depart, createatrices: [nom], jours: [J3], bareme })).erreur).toBe(false);
+    const missionDu = async (jour: string) =>
+      (await admin.query(api.assignments.listAssignments, {})).find((a) => a.creatorId === c.creatorId && jourDe(a.postDate) === jour)!;
+    const urls = async () => ((await missionDu(J3)).modelVideos ?? []).map((mv) => mv.url);
+    expect(await urls()).toEqual([url(1), url(2)]);
+    // Jointe à la main : elle n'est à aucune campagne, elle reste.
+    await admin.mutation(api.assignments.addModelVideoToAssignment, { id: (await missionDu(J3))._id, url: url(4), title: "À la main" });
+    const avant = await missionDu(J3);
+
+    const r = await appel("reecrire_mission", { createatrice: nom, jour: J3, campagne_briques: arrivee, hook: "Hook", flux: "Flux", legende: "CTA" });
+    expect(r.erreur, r.texte).toBe(false);
+    expect(r.texte).toContain("vidéos exemples : 1 retirée, 1 ajoutée");
+    // La démo de l'ancienne campagne part, la partagée et celle jointe à la main
+    // restent à leur place, celle de la nouvelle campagne s'ajoute.
+    expect(await urls()).toEqual([url(2), url(4), url(3)]);
+
+    const j = await journal("reecrire_mission");
+    expect(j.etat).toBe("se défait");
+    const d = await appel("defaire", { rang: j.rang, outil: "reecrire_mission" });
+    expect(d.erreur, d.texte).toBe(false);
+    expect(await missionDu(J3)).toEqual(avant);
+  });
+
   test("supprimer une mission qui a une vidéo : l'écran prévient, la vidéo reste 30 jours en archive", async ({ page }) => {
     test.setTimeout(120_000);
     const ts = Date.now();

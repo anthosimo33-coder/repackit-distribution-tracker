@@ -292,6 +292,7 @@ import type * as unitEconomics from "../unitEconomics.js";
 import type * as videoBonusCarry from "../videoBonusCarry.js";
 import type * as videoDuration from "../videoDuration.js";
 import type * as videoSubmission from "../videoSubmission.js";
+import type * as videosExemplesCampagne from "../videosExemplesCampagne.js";
 import type * as viewCounters from "../viewCounters.js";
 import type * as viewsDaily from "../viewsDaily.js";
 import type * as viewsPulse from "../viewsPulse.js";
@@ -602,6 +603,7 @@ declare const fullApi: ApiFromModules<{
   videoBonusCarry: typeof videoBonusCarry;
   videoDuration: typeof videoDuration;
   videoSubmission: typeof videoSubmission;
+  videosExemplesCampagne: typeof videosExemplesCampagne;
   viewCounters: typeof viewCounters;
   viewsDaily: typeof viewsDaily;
   viewsPulse: typeof viewsPulse;

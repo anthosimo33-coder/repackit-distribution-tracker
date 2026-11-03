@@ -77,9 +77,16 @@ export const annulationValidator = v.union(
   /**
    * reecrire_mission : le script de la mission (combinaison, texte figé, notif,
    * consigne), avant et après, en JSON (cf `scriptDeMission`). Défaire remet
-   * l'avant si la mission montre encore exactement l'après.
+   * l'avant si la mission montre encore exactement l'après. `videos` : ses
+   * vidéos exemples, quand le changement de campagne les a remplacées (JSON).
    */
-  v.object({ type: v.literal("combo"), assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() }),
+  v.object({
+    type: v.literal("combo"),
+    assignmentId: v.id("assignments"),
+    avant: v.string(),
+    apres: v.string(),
+    videos: v.optional(v.object({ avant: v.string(), apres: v.string() })),
+  }),
   /**
    * lier_assets : les dossiers d'Assets de chaque mission touchée, avant et
    * après, dans l'ordre des liens. Défaire remet l'avant si TOUTES montrent
