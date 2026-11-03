@@ -1174,7 +1174,7 @@ export const removeModelVideoFromAssignment = permissionMutation("assignments.ma
  * créateur) → les liens existants restent valides avant la migration.
  * Réplique de lib/asset-folders.resolveLinkedFolderIds (règle A6 ; tests Vitest).
  */
-function effectiveAssetFolderIds(a: Doc<"assignments">): Id<"assetFolders">[] {
+export function effectiveAssetFolderIds(a: Doc<"assignments">): Id<"assetFolders">[] {
   if (a.assetFolderIds !== undefined) return a.assetFolderIds;
   return a.assetFolderId ? [a.assetFolderId] : [];
 }
@@ -1216,21 +1216,24 @@ export const setAssetFolders = permissionMutation("assignments.manage")({
     id: v.id("assignments"),
     folderIds: v.array(v.id("assetFolders")),
   },
-  handler: async (ctx, args) => {
-    const a = await requireProjectAssignment(ctx, args.id, ctx.projectId);
-    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
-    const valid = await validateProjectFolderIds(
-      ctx,
-      args.folderIds,
-      ctx.projectId,
-    );
-    await ctx.db.patch(args.id, {
-      assetFolderIds: valid,
-      assetFolderId: undefined, // la source unique devient assetFolderIds
-    });
-    return { ok: true, count: valid.length };
-  },
+  handler: (ctx, args) => setAssetFoldersCore(ctx, args.id, args.folderIds),
 });
+
+/** Cœur — le bouton « Lier un dossier » de l'écran, l'outil MCP `lier_assets` et son `defaire`. */
+export async function setAssetFoldersCore(
+  ctx: ProjectMutationCtx,
+  id: Id<"assignments">,
+  folderIds: Id<"assetFolders">[],
+) {
+  const a = await requireProjectAssignment(ctx, id, ctx.projectId);
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, a.creatorId);
+  const valid = await validateProjectFolderIds(ctx, folderIds, ctx.projectId);
+  await ctx.db.patch(id, {
+    assetFolderIds: valid,
+    assetFolderId: undefined, // la source unique devient assetFolderIds
+  });
+  return { ok: true, count: valid.length };
+}
 
 /**
  * MIGRATION single→array : convertit assetFolderId (legacy) en assetFolderIds:

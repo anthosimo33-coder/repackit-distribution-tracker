@@ -16,7 +16,7 @@
  * prévu, et au besoin le compte, la campagne ou un morceau du script.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { exigerFichePour, valeursDuScenario } from "./scenarioScript";
 import { remplirVariables } from "./scenarioFiche";
 import type { ActionCtx } from "./_generated/server";
@@ -35,6 +35,7 @@ import {
   AJOUTE,
   ARG_PROJET,
   briqueDe,
+  codeDe,
   designerOuRefuser,
   ecrire,
   ECRIT,
@@ -44,6 +45,7 @@ import {
   journaliser,
   photographier,
   RefusEcriture,
+  refusDe,
   resultatEcriture,
   scriptDeMission,
   texteArg,
@@ -65,7 +67,9 @@ import {
   nudgeAssignmentCore,
   setAssignmentTargetAccountCore,
   DELETABLE_STATUSES,
+  effectiveAssetFolderIds,
   pricingResolver,
+  setAssetFoldersCore,
   setAssignmentInstructionsCore,
   setAssignmentOverlayTextCore,
   setAssignmentDueDateCore,
@@ -133,6 +137,17 @@ const ARGS_ASSIGNATION = {
     type: "boolean",
     description: "true = n'écrit rien : montre les scripts qui seraient tirés (une seule créatrice), comme l'aperçu de l'écran.",
   },
+} as const;
+
+/** `lier_assets` : liens par appel, au plus. */
+export const MAX_LIENS_ASSETS = 50;
+
+const ARGS_LIEN_ASSETS = {
+  dossier: {
+    type: "string",
+    description: "Nom du dossier d'Assets (outil `assets`) : exact, ou un morceau qui n'en désigne qu'un. \"\" = retirer tous les dossiers de la mission.",
+  },
+  retirer: { type: "boolean", description: "true = retire CE dossier de la mission ; ses autres dossiers restent." },
 } as const;
 
 const EMAIL =
@@ -301,6 +316,33 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     annotations: ECRIT,
   },
   {
+    name: "lier_assets",
+    title: "Lier des dossiers d'Assets à des missions",
+    description: `MODIFIE les missions : lie un dossier d'Assets (outil \`assets\`) à une mission, ou retire le lien, comme « Lier un dossier » de la page Assignments — la créatrice télécharge les fichiers du dossier depuis sa mission. Aucun email. Un lien (createatrice, jour, dossier), ou « liens » pour en faire jusqu'à ${MAX_LIENS_ASSETS} d'un coup : TOUT OU RIEN, si une ligne est refusée rien n'est écrit et la réponse dit laquelle et pourquoi. La mission se désigne comme dans \`planning\` (créatrice + jour prévu, et compte, campagne ou morceau de script pour départager) ; le dossier par son nom exact, ou un morceau qui n'en désigne qu'un. Le dossier S'AJOUTE à ceux que la mission a déjà ; « retirer » ne retire que lui ; dossier "" retire tous les dossiers de la mission. Refusé sur une mission déjà publiée. Journalisé ; \`defaire\` remet les dossiers d'avant.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        ...ARGS_DESIGNATION,
+        ...ARGS_LIEN_ASSETS,
+        liens: {
+          type: "array",
+          description: `Plusieurs liens en un appel (${MAX_LIENS_ASSETS} au plus), à la place de createatrice/jour/dossier. Une même mission peut revenir : les lignes s'appliquent dans l'ordre (dossier "" puis un dossier = le remplacer).`,
+          items: {
+            type: "object",
+            properties: { ...ARGS_DESIGNATION, ...ARGS_LIEN_ASSETS },
+            required: ["createatrice", "jour", "dossier"],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: MAX_LIENS_ASSETS,
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
+  {
     name: "piloter_missions",
     title: "Piloter les missions de la semaine",
     description: `MODIFIE les missions : propose puis assigne les prochains jours d'une ou plusieurs créatrices, comme l'écran Pilote. Chaque jour un PARLÉ à midi et un MUET (réaction + démo) le soir — un parlé et deux muets à 3 par jour. Chaque créneau rejoue à l'identique un GAGNANT (ses vidéos à ≥ ×1,5 sa médiane à 72 h d'abord, puis celles des autres créatrices à ≥ 10 000 vues, dans les campagnes qu'elle tourne), ou prend un nouveau script de la campagne (part d'exploration). Un script ne revient pas chez elle avant 7 jours ; un créneau déjà pris par une mission existante n'est pas touché ; seules les campagnes classées parlé ou muet (écran Pilote) entrent dans le plan. Simule d'abord (« simuler »), montre le plan, puis rappelle sans « simuler » — « retirer » écarte des créneaux. ENVOIE UN email par créatrice pour toute sa semaine (sauf comptes gérés par l'équipe) : dis-le avant.`,
@@ -338,7 +380,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
 
 // ─── Désigner une mission ───────────────────────────────────────────────────
 
-const STATUTS: Record<string, string> = {
+export const STATUTS: Record<string, string> = {
   todo: "à faire",
   in_progress: "en cours",
   video_submitted: "vidéo envoyée",
@@ -350,6 +392,10 @@ const STATUTS: Record<string, string> = {
   rejected: "à refaire",
   validated: "validée",
 };
+
+/** « dossier « Kelly 2006 » », « dossiers « A », « B » » — les dossiers d'Assets liés à une mission. */
+export const libelleDossiers = (noms: readonly string[]) =>
+  `${noms.length > 1 ? "dossiers" : "dossier"} ${noms.map((n) => `« ${n} »`).join(", ")}`;
 
 export const designationValidator = {
   createatrice: v.string(),
@@ -403,7 +449,15 @@ export async function trouverMission(
 
   const comptes = new Map<string, Doc<"comptes"> | null>();
   const campagnes = new Map<string, string | null>();
+  const dossiers = new Map<string, string | null>();
   const decrire = async (a: Doc<"assignments">) => {
+    // Les dossiers d'Assets déjà liés : qu'on voie d'un coup d'œil ce qui est relié.
+    const nomsDossiers: string[] = [];
+    for (const id of effectiveAssetFolderIds(a)) {
+      if (!dossiers.has(id)) dossiers.set(id, (await ctx.db.get(id))?.name ?? null);
+      const nom = dossiers.get(id);
+      if (nom) nomsDossiers.push(nom);
+    }
     const cs: { handle: string; plateforme: string }[] = [];
     for (const t of a.targets ?? []) {
       if (!t.accountId) continue;
@@ -431,7 +485,7 @@ export async function trouverMission(
       jour === null ? "sans date" : jourTexte(jour),
       campagne ?? "sans campagne",
     ].join(" · ");
-    return { a, comptes: cs, campagne, jour, libelle, texte };
+    return { a, comptes: cs, campagne, jour, libelle, texte, dossiers: nomsDossiers };
   };
   const decrites = await Promise.all(lignes.map(decrire));
 
@@ -446,7 +500,11 @@ export async function trouverMission(
   const eligibles = correspond.filter((m) => refus(m.a) === null);
   const extrait = (m: (typeof decrites)[number]) => {
     const texte = m.texte.replace(/\s+/g, " ").trim();
-    return `${m.libelle} · ${STATUTS[m.a.status] ?? m.a.status}${texte ? ` · « ${texte.slice(0, 50)}${texte.length > 50 ? "…" : ""} »` : ""}`;
+    return (
+      `${m.libelle} · ${STATUTS[m.a.status] ?? m.a.status}` +
+      (m.dossiers.length > 0 ? ` · ${libelleDossiers(m.dossiers)}` : "") +
+      (texte ? ` · « ${texte.slice(0, 50)}${texte.length > 50 ? "…" : ""} »` : "")
+    );
   };
   if (eligibles.length === 1) {
     const m = eligibles[0];
@@ -1086,6 +1144,110 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
   },
 });
 
+// ─── Lier des dossiers d'Assets ─────────────────────────────────────────────
+
+const memesDossiers = (x: readonly string[], y: readonly string[]) => x.length === y.length && x.every((id, i) => id === y[i]);
+
+/**
+ * `lier_assets` — chaque ligne passe par le cœur du bouton « Lier un dossier »
+ * (`setAssetFoldersCore`), dans UNE transaction : une ligne refusée lève, et
+ * Convex n'écrit alors aucune des autres. Les lignes s'appliquent dans l'ordre,
+ * une même mission peut revenir (dossier "" puis un dossier = le remplacer).
+ */
+export const ecrireLiensAssets = mcpWriteMutation("assignments.manage", "missions")({
+  args: {
+    lignes: v.array(v.object({ ...designationValidator, dossier: v.string(), retirer: v.optional(v.boolean()) })),
+  },
+  handler: async (ctx, { lignes }) => {
+    if (lignes.length === 0 || lignes.length > MAX_LIENS_ASSETS) {
+      throw err(ERR.MCP_DESIGNATION, `De 1 à ${MAX_LIENS_ASSETS} liens par appel (ici ${lignes.length}).`);
+    }
+    const dossiers = await ctx.db
+      .query("assetFolders")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    const nomDe = (id: string) => dossiers.find((f) => f._id === id)?.name ?? "dossier supprimé";
+    // Chaque mission touchée : ses dossiers d'avant (la 1re fois qu'une ligne la vise), photographiée avant d'écrire.
+    const touchees = new Map<Id<"assignments">, { avant: Id<"assetFolders">[]; libelle: string }>();
+    const photos: Awaited<ReturnType<typeof photographier>> = [];
+    const faits: string[] = [];
+    for (const [i, l] of lignes.entries()) {
+      try {
+        const m = await trouverMission(ctx, l, pasPubliee);
+        // Relue : une ligne précédente a pu la changer.
+        const courant = effectiveAssetFolderIds((await ctx.db.get(m.a._id))!);
+        if (!touchees.has(m.a._id)) {
+          touchees.set(m.a._id, { avant: courant, libelle: m.libelle });
+          photos.push(...(await photographier(ctx, "assignments", [m.a._id])));
+        }
+        let suivant: Id<"assetFolders">[];
+        let fait: string;
+        if (l.dossier.trim() === "") {
+          if (l.retirer) {
+            throw err(ERR.MCP_DESIGNATION, "« retirer » vise UN dossier : donne son nom (ou dossier \"\" sans « retirer » pour les retirer tous).");
+          }
+          suivant = [];
+          fait = courant.length === 0 ? "aucun dossier lié, rien à retirer" : `${libelleDossiers(courant.map(nomDe))} retiré${courant.length > 1 ? "s" : ""}`;
+        } else {
+          const f = designerOuRefuser(dossiers, (x) => x.name, l.dossier, "dossiers d'Assets");
+          if (l.retirer) {
+            suivant = courant.filter((id) => id !== f._id);
+            fait = suivant.length === courant.length ? `« ${f.name} » n'était pas lié` : `« ${f.name} » retiré`;
+          } else {
+            suivant = courant.includes(f._id) ? courant : [...courant, f._id];
+            fait = suivant.length === courant.length ? `« ${f.name} » déjà lié` : `« ${f.name} » lié`;
+          }
+          // Ses AUTRES dossiers, qui restent : jamais un remplacement silencieux.
+          const autres = suivant.filter((id) => id !== f._id);
+          if (autres.length > 0) fait += ` — ${l.retirer ? "reste" : "avec"} ${autres.map((id) => `« ${nomDe(id)} »`).join(", ")}`;
+        }
+        if (!memesDossiers(suivant, courant)) await setAssetFoldersCore(ctx, m.a._id, suivant);
+        faits.push(`${m.libelle} : ${fait}`);
+      } catch (e) {
+        const message = refusDe(e);
+        if (message === null) throw e;
+        const ligne = lignes.length > 1 ? `Ligne ${i + 1} (${l.createatrice}, ${l.jour === null ? "sans date" : jourTexte(l.jour)}) : ` : "";
+        throw new ConvexError({
+          code: codeDe(e) ?? ERR.MCP_DESIGNATION,
+          message: `${ligne}${message}${lignes.length > 1 ? " Rien n'a été écrit." : ""}`,
+        });
+      }
+    }
+
+    const changees: { assignmentId: Id<"assignments">; avant: Id<"assetFolders">[]; apres: Id<"assetFolders">[]; libelle: string }[] = [];
+    for (const [assignmentId, t] of touchees) {
+      const apres = effectiveAssetFolderIds((await ctx.db.get(assignmentId))!);
+      if (!memesDossiers(t.avant, apres)) changees.push({ assignmentId, avant: t.avant, apres, libelle: t.libelle });
+    }
+    if (changees.length === 0) return { summary: "Rien à changer.", faits, inchange: true };
+    const changement = (c: (typeof changees)[number]) =>
+      `${c.libelle} : ` +
+      [
+        ...c.apres.filter((id) => !c.avant.includes(id)).map((id) => `+ « ${nomDe(id)} »`),
+        ...c.avant.filter((id) => !c.apres.includes(id)).map((id) => `− « ${nomDe(id)} »`),
+      ].join(", ");
+    const MONTRES = 8;
+    const summary =
+      changees.length === 1
+        ? `Assets — ${changement(changees[0])}`
+        : `Assets — ${changees.length} missions : ${changees.slice(0, MONTRES).map(changement).join(" ; ")}` +
+          (changees.length > MONTRES ? ` ; et ${changees.length - MONTRES} autres` : "");
+    const changeesIds = new Set<string>(changees.map((c) => c.assignmentId));
+    await journaliser(ctx, {
+      tool: "lier_assets",
+      summary,
+      section: "planning",
+      path: "assignments",
+      annulation: {
+        type: "assets",
+        lignes: changees.map(({ assignmentId, avant, apres }) => ({ assignmentId, avant, apres })),
+      },
+      etats: await etatsApres(ctx, photos.filter((p) => changeesIds.has(p.id))),
+    });
+    return { summary, faits, inchange: false };
+  },
+});
+
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
@@ -1102,6 +1264,7 @@ const OU_DEFAIRE: Record<string, string> = {
   relancer: "Une relance ne se reprend pas : l'email est parti.",
   piloter_missions:
     "`defaire` supprime les missions pas encore commencées, créatrice par créatrice ; sinon Assignments › la mission › « Abandonner ». L'email à la créatrice est parti.",
+  lier_assets: "`defaire` remet les dossiers d'avant (tant qu'ils n'ont pas changé depuis), ou Assignments › la mission › « Lier un dossier ».",
 };
 
 /** Un jour AAAA-MM-JJ réel, et pas passé : on ne planifie pas dans le passé. */
@@ -1131,6 +1294,37 @@ const VIDE: Record<string, string> = {
   retire: "retiré",
   aCourt: "la campagne n'a plus de script libre ce jour-là",
 };
+
+/** `lier_assets` : un lien (arguments à plat) ou « liens », lus ligne par ligne. */
+async function lierAssets(
+  ctx: ActionCtx,
+  args: Record<string, unknown>,
+  cible: CibleEcriture,
+  projet: string,
+): Promise<ToolResult> {
+  const aPlat = ["createatrice", "jour", "compte", "campagne", "script", "dossier", "retirer"].filter((k) => args[k] !== undefined);
+  if (args.liens !== undefined && aPlat.length > 0) {
+    throw new ToolError(`Soit un lien (createatrice, jour, dossier), soit « liens » — pas les deux (reçu aussi : ${aPlat.join(", ")}).`);
+  }
+  const brutes: unknown[] = args.liens === undefined ? [args] : Array.isArray(args.liens) ? args.liens : [];
+  if (brutes.length === 0) throw new ToolError("« liens » : une liste de liens { createatrice, jour, dossier }.");
+  if (brutes.length > MAX_LIENS_ASSETS) throw new ToolError(`${brutes.length} liens d'un coup : ${MAX_LIENS_ASSETS} au plus par appel.`);
+  const lignes = brutes.map((b, i) => {
+    const prefixe = brutes.length > 1 ? `Ligne ${i + 1} : ` : "";
+    const x = (typeof b === "object" && b !== null ? b : {}) as Record<string, unknown>;
+    if (typeof x.dossier !== "string") {
+      throw new ToolError(`${prefixe}« dossier » — le nom du dossier d'Assets (outil \`assets\`), ou "" pour retirer les dossiers de la mission.`);
+    }
+    try {
+      return { ...designationDepuis(x), dossier: x.dossier.trim(), ...(x.retirer === true ? { retirer: true } : {}) };
+    } catch (e) {
+      if (e instanceof ToolError) throw new ToolError(`${prefixe}${e.message}`);
+      throw e;
+    }
+  });
+  const r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireLiensAssets, { ...cible, lignes }));
+  return resultatEcriture(projet, r.faits, r.inchange ? "Rien n'a changé : rien à défaire." : OU_DEFAIRE.lier_assets);
+}
 
 type PlanMcp = FunctionReturnType<typeof internal.pilote.proposerMcp>;
 
@@ -1370,6 +1564,7 @@ async function appelerEcritureMissions(
   }
 
   if (name === "piloter_missions") return await piloter(ctx, args, cible, projet, aujourdhui);
+  if (name === "lier_assets") return await lierAssets(ctx, args, cible, projet);
 
   const d = designationDepuis(args);
   let r: { summary: string };

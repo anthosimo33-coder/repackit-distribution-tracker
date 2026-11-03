@@ -103,6 +103,7 @@ import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERS
 import { appelerScenariosLecture, conversationDeMissionMcp, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
 import { appelerTournagesLecture, NOMS_TOURNAGE_LECTURE, OUTILS_TOURNAGE_LECTURE } from "./mcpTournage";
 import { appelerPlaybook, NOMS_PLAYBOOK_LECTURE, OUTILS_PLAYBOOK_LECTURE } from "./mcpPlaybook";
+import { appelerAssets, NOMS_ASSETS_LECTURE, OUTILS_ASSETS_LECTURE } from "./mcpAssets";
 import { designationDepuis, designationValidator, trouverMission } from "./mcpWritesMissions";
 import { ditEntre, instantsDeLaVideo, instantTexte, langueTranscription, lireVignettes, transcription } from "./mcpVideo";
 import {
@@ -1098,7 +1099,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "planning",
     title: "Planning des publications",
     description:
-      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format, et la conversation WhatsApp tirée avec le script (son scénario). Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
+      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format, et la conversation WhatsApp tirée avec le script (son scénario), et les dossiers d'Assets déjà liés (outil `assets`). Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1460,7 +1461,7 @@ export function jarviaServer(
   const domaines = DOMAINES_ECRITURE.filter((d) => acces.writeScopes.includes(d.scope));
   const LIBELLE_DOMAINE: Record<string, string> = {
     compta: "la Compta",
-    missions: "les missions (assigner, replanifier, changer de compte, relancer, abandonner — l'assignation et la relance envoient un email à la créatrice)",
+    missions: "les missions (assigner, replanifier, changer de compte, relancer, abandonner, lier des dossiers d'Assets — l'assignation et la relance envoient un email à la créatrice)",
     scripts: "les scripts (créer une campagne, ajouter, modifier et activer des briques et des notifs, graduer un hook) les scénarios de conversation WhatsApp (créer, modifier, archiver, supprimer une bible) et le mode tournage BLUSH (préparer les fichiers, coller les liens), le playbook (documenter un format qui sort du lot)",
     publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
@@ -1783,6 +1784,7 @@ export function jarviaServer(
       ...OUTILS_SCENARIOS_LECTURE,
       ...OUTILS_TOURNAGE_LECTURE,
       ...OUTILS_PLAYBOOK_LECTURE,
+      ...OUTILS_ASSETS_LECTURE,
       ...domaines.flatMap((d) => d.outils),
       ...(domaines.length > 0 ? OUTILS_DEFAIRE : []),
     ],
@@ -1816,6 +1818,9 @@ export function jarviaServer(
       }
       if (NOMS_PLAYBOOK_LECTURE.has(name)) {
         return appelerPlaybook(ctx, args, ids, projet.slug, lire);
+      }
+      if (NOMS_ASSETS_LECTURE.has(name)) {
+        return appelerAssets(ctx, args, ids, projet.slug, lire);
       }
       if (NOMS_PROPOSITIONS.has(name)) {
         return appelerPropositions(ctx, name, args, { ...ids, via: { kind: acces.kind, name: acces.name } }, projet.slug);
@@ -2814,6 +2819,8 @@ export function jarviaServer(
             statut: libelles[statut],
             quoi: r.scriptCampaignName ?? r.formatName,
             ...(r.scenarioId ? { conversation: nomsScenarios.get(r.scenarioId) ?? "scénario supprimé" } : {}),
+            // Les dossiers d'Assets déjà liés (`lier_assets`) : absents = aucun.
+            ...(r.assetFolderNames.length > 0 ? { dossiersAssets: r.assetFolderNames } : {}),
             ...(r.postedAt != null ? { publieLe: jour(r.postedAt) } : {}),
           };
         };

@@ -80,6 +80,21 @@ export const annulationValidator = v.union(
    * l'avant si la mission montre encore exactement l'après.
    */
   v.object({ type: v.literal("combo"), assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() }),
+  /**
+   * lier_assets : les dossiers d'Assets de chaque mission touchée, avant et
+   * après, dans l'ordre des liens. Défaire remet l'avant si TOUTES montrent
+   * encore l'après.
+   */
+  v.object({
+    type: v.literal("assets"),
+    lignes: v.array(
+      v.object({
+        assignmentId: v.id("assignments"),
+        avant: v.array(v.id("assetFolders")),
+        apres: v.array(v.id("assetFolders")),
+      }),
+    ),
+  }),
   // ── Barèmes ───────────────────────────────────────────────────────────────
   /**
    * changer_bareme : le `pricingSnapshot` de chaque vidéo, avant et après, en

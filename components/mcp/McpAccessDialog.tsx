@@ -421,6 +421,7 @@ type OutilEcriture =
   | "consigne_mission"
   | "annuler_mission"
   | "reecrire_mission"
+  | "lier_assets"
   | "ajouter_hooks"
   | "activer_briques"
   | "graduer_hook"

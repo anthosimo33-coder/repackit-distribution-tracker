@@ -941,6 +941,7 @@
       "consigne_mission": "Assignment instructions",
       "annuler_mission": "Drop an assignment",
       "reecrire_mission": "Rewrite an assignment's script",
+      "lier_assets": "Link Assets folders",
       "ajouter_hooks": "Add hooks",
       "activer_briques": "Enable / disable blocks",
       "graduer_hook": "Graduate a hook",

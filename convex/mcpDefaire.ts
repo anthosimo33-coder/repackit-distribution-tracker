@@ -40,7 +40,9 @@ import { annulationValidator, type Annulation } from "./mcpAnnulation";
 import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import {
   deleteAssignmentCore,
+  effectiveAssetFolderIds,
   restoreAssignmentCore,
+  setAssetFoldersCore,
   setAssignmentTargetAccountCore,
   setAssignmentInstructionsCore,
   setAssignmentOverlayTextCore,
@@ -145,6 +147,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "changer_compte_cible",
   "annuler_mission",
   "reecrire_mission",
+  "lier_assets",
   "changer_bareme",
   "regler_taux",
   "creer_campagne",
@@ -378,6 +381,20 @@ async function annuler(
         await supprimerTexteDuCombo(ctx, a.assignmentId);
       }
       return "Script d'avant remis (combinaison, texte, notif, consigne).";
+    }
+    case "assets": {
+      const missions = await Promise.all(a.lignes.map((l) => ctx.db.get(l.assignmentId)));
+      const memes = (x: readonly string[], y: readonly string[]) => x.length === y.length && x.every((id, i) => id === y[i]);
+      const bougees = a.lignes.filter((l, i) => missions[i] === null || !memes(effectiveAssetFolderIds(missions[i]!), l.apres));
+      if (bougees.length > 0) {
+        throw refus(`${bougees.length} mission(s) supprimée(s) ou dont les dossiers d'Assets ont changé depuis : rien n'a été écrasé.`);
+      }
+      const ids = [...new Set(a.lignes.flatMap((l) => l.avant))];
+      const disparus = (await Promise.all(ids.map((id) => ctx.db.get(id)))).filter((f) => f === null).length;
+      if (disparus > 0) throw refus(`${disparus} dossier(s) lié(s) avant ont été supprimés depuis dans Assets : rien n'a été remis.`);
+      // Le cœur du bouton « Lier un dossier », mission par mission.
+      for (const l of a.lignes) await setAssetFoldersCore(ctx, l.assignmentId, l.avant);
+      return `Dossiers d'Assets d'avant remis sur ${a.lignes.length} mission(s).`;
     }
     case "bareme": {
       const r = await restaurerBaremesCore(
