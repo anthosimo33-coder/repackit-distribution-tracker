@@ -667,6 +667,11 @@
       "modelVideos": "Videos to recreate",
       "assets": "Assets to use",
       "download": "Download",
+      "downloadPreparing": "Preparing…",
+      "downloadProgress": "Preparing… {pct}%",
+      "downloadSave": "Save",
+      "downloadReady": "Ready: tap “Save” to add it to your photos.",
+      "downloadFailed": "Download failed. Tap again to open the file.",
       "pay": "Pay",
       "progressRo": "Progress"
     },

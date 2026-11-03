@@ -667,6 +667,11 @@
       "modelVideos": "Vídeos para reproduzir",
       "assets": "Recursos para usar",
       "download": "Baixar",
+      "downloadPreparing": "Preparando…",
+      "downloadProgress": "Preparando… {pct}%",
+      "downloadSave": "Salvar",
+      "downloadReady": "Pronto: toque em “Salvar” para colocar nas suas fotos.",
+      "downloadFailed": "Não foi possível baixar. Toque de novo para abrir o arquivo.",
       "pay": "Remuneração",
       "progressRo": "Andamento"
     },
