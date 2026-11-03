@@ -1099,7 +1099,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "planning",
     title: "Planning des publications",
     description:
-      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format, et la conversation WhatsApp tirée avec le script (son scénario), et les dossiers d'Assets déjà liés (outil `assets`). Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
+      "Le calendrier des publications, comme l'écran Assignments (même statut, même taux) : ce qui doit sortir AUJOURD'HUI et n'est pas encore publié, les posts MANQUÉS (jour passé, rien de publié), ceux publiés hors date, ce qui est prévu dans les prochains jours, et la ponctualité (à l'heure ÷ posts passés). Chaque post : créatrice, compte, plateforme, pays, jour prévu, campagne ou format, et la conversation WhatsApp tirée avec le script (son scénario), les dossiers d'Assets déjà liés (outil `assets`) et les vidéos à reproduire (`videos_exemples_mission`). Statut jugé dans le fuseau de la créatrice. Filtre par créatrice.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2821,6 +2821,10 @@ export function jarviaServer(
             ...(r.scenarioId ? { conversation: nomsScenarios.get(r.scenarioId) ?? "scénario supprimé" } : {}),
             // Les dossiers d'Assets déjà liés (`lier_assets`) : absents = aucun.
             ...(r.assetFolderNames.length > 0 ? { dossiersAssets: r.assetFolderNames } : {}),
+            // Les vidéos à reproduire (`videos_exemples_mission`) : absentes = aucune.
+            ...(r.modelVideos && r.modelVideos.length > 0
+              ? { videosAReproduire: r.modelVideos.map((mv) => (mv.title ? `${mv.title} (${mv.url})` : mv.url)) }
+              : {}),
             ...(r.postedAt != null ? { publieLe: jour(r.postedAt) } : {}),
           };
         };

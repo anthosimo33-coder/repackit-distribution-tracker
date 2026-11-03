@@ -148,6 +148,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "annuler_mission",
   "reecrire_mission",
   "lier_assets",
+  "videos_exemples_mission",
   "changer_bareme",
   "regler_taux",
   "creer_campagne",
@@ -403,6 +404,18 @@ async function annuler(
       // Le cœur du bouton « Lier un dossier », mission par mission.
       for (const l of a.lignes) await setAssetFoldersCore(ctx, l.assignmentId, l.avant);
       return `Dossiers d'Assets d'avant remis sur ${a.lignes.length} mission(s).`;
+    }
+    case "videosExemples": {
+      const missions = await Promise.all(a.lignes.map((l) => ctx.db.get(l.assignmentId)));
+      const bougees = a.lignes.filter((l, i) => missions[i] === null || jsonCanonique(missions[i]!.modelVideos ?? null) !== l.apres);
+      if (bougees.length > 0) {
+        throw refus(`${bougees.length} mission(s) supprimée(s) ou dont les vidéos à reproduire ont changé depuis : rien n'a été écrasé.`);
+      }
+      for (const l of a.lignes) {
+        const avant = JSON.parse(l.avant) as Doc<"assignments">["modelVideos"] | null;
+        await ctx.db.patch(l.assignmentId, { modelVideos: avant ?? undefined });
+      }
+      return `Vidéos à reproduire d'avant remises sur ${a.lignes.length} mission(s).`;
     }
     case "bareme": {
       const r = await restaurerBaremesCore(

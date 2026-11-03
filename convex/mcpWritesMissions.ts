@@ -68,8 +68,9 @@ import {
   nudgeAssignmentCore,
   setAssignmentTargetAccountCore,
   DELETABLE_STATUSES,
+  appendModelVideoServer,
   effectiveAssetFolderIds,
-  MAX_MODEL_VIDEOS,
+  mergeModelVideosServer,
   pricingResolver,
   setAssetFoldersCore,
   setAssignmentInstructionsCore,
@@ -88,7 +89,6 @@ import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { plateformeValidator, type Plateforme } from "./platforms";
 import { formatPostWindow } from "./postWindow";
 import { comboAvecTexte, ecrireCombo, texteDuCombo } from "./assignmentScriptText";
-import { videosApresChangementDeCampagne } from "./videosExemplesCampagne";
 import { PILOTE } from "./pilotePlan";
 import type { FunctionReturnType } from "convex/server";
 
@@ -151,6 +151,21 @@ const ARGS_LIEN_ASSETS = {
     description: "Nom du dossier d'Assets (outil `assets`) : exact, ou un morceau qui n'en désigne qu'un. \"\" = retirer tous les dossiers de la mission.",
   },
   retirer: { type: "boolean", description: "true = retire CE dossier de la mission ; ses autres dossiers restent." },
+} as const;
+
+/** `videos_exemples_mission` : missions par appel, au plus. */
+export const MAX_LIGNES_VIDEOS = 50;
+
+const ARGS_VIDEOS_EXEMPLES = {
+  retirer: {
+    type: "string",
+    description: "La vidéo à retirer : son lien ou son titre (ou un morceau qui n'en désigne qu'une). « toutes » = toutes les vidéos à reproduire de la mission ; « hors campagne » = toutes sauf les vidéos exemples de la campagne de la mission.",
+  },
+  ajouter: {
+    type: "string",
+    description: "Le lien http(s) de la vidéo à ajouter (une vidéo du Tracker ou des Inspirations). Une Inspiration du projet garde son titre.",
+  },
+  titre: { type: "string", description: "Avec « ajouter » : le titre que la créatrice voit sous la vidéo (facultatif)." },
 } as const;
 
 const EMAIL =
@@ -300,7 +315,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     name: "reecrire_mission",
     title: "Réécrire le script d'une mission",
     description:
-      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis, et les vidéos exemples suivent : celles de l'ancienne campagne partent, celles de la nouvelle s'ajoutent, celles jointes à la main restent). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
+      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis, et les « vidéos à reproduire » de la mission deviennent celles de la nouvelle campagne : les autres — ancien format, vidéo rejouée — sont RETIRÉES, sauf « garder_videos_exemples »). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -312,6 +327,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
         legende: { type: "string", description: "La légende (cta) : libellé ou morceau de texte." },
         notif: { type: "string", description: "La notif : libellé ou morceau de texte, ou « aucune » pour la retirer." },
         consigne: { type: "string", description: "Consigne de tournage de la mission (texte vide = l'effacer)." },
+        garder_videos_exemples: { type: "boolean", description: "Avec « campagne_briques » : true = garde aussi les vidéos à reproduire d'avant (par défaut, seules celles de la nouvelle campagne restent)." },
       },
       required: ["createatrice", "jour"],
       additionalProperties: false,
@@ -339,6 +355,33 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
           },
           minItems: 1,
           maxItems: MAX_LIENS_ASSETS,
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
+  {
+    name: "videos_exemples_mission",
+    title: "Vidéos à reproduire d'une mission",
+    description: `LIT ou MODIFIE les « vidéos à reproduire » d'une mission (Assignments › bouton clap) : les liens que la créatrice voit dans sa mission pour refaire la vidéo. Sans « retirer » ni « ajouter » : les lit. « retirer » en retire une (lien ou titre), « toutes », ou « hors campagne » (garde seulement les vidéos exemples de la campagne de la mission) ; « ajouter » en ajoute une par son lien. Aucun email. Une mission (createatrice, jour…), ou « missions » pour en traiter jusqu'à ${MAX_LIGNES_VIDEOS} d'un coup : TOUT OU RIEN, si une ligne est refusée rien n'est écrit et la réponse dit laquelle et pourquoi. La mission se désigne comme dans \`planning\` (créatrice + jour prévu, et compte, campagne ou morceau de script pour départager) ; les lignes s'appliquent dans l'ordre, une même mission peut revenir. Retirer ou ajouter est refusé sur une mission déjà publiée. Journalisé ; \`defaire\` remet les vidéos d'avant.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        ...ARGS_DESIGNATION,
+        ...ARGS_VIDEOS_EXEMPLES,
+        missions: {
+          type: "array",
+          description: `Plusieurs missions en un appel (${MAX_LIGNES_VIDEOS} au plus), à la place de createatrice/jour/retirer/ajouter.`,
+          items: {
+            type: "object",
+            properties: { ...ARGS_DESIGNATION, ...ARGS_VIDEOS_EXEMPLES },
+            required: ["createatrice", "jour"],
+            additionalProperties: false,
+          },
+          minItems: 1,
+          maxItems: MAX_LIGNES_VIDEOS,
         },
       },
       additionalProperties: false,
@@ -1031,6 +1074,7 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
     legende: v.optional(v.string()),
     notif: v.optional(v.string()),
     consigne: v.optional(v.string()),
+    garderVideos: v.optional(v.boolean()),
   },
   handler: async (ctx, a) => {
     if ([a.hook, a.flux, a.legende, a.notif, a.consigne].every((x) => x === undefined)) {
@@ -1121,20 +1165,25 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       );
     }
     if (a.consigne !== undefined) await setAssignmentInstructionsCore(ctx, m.a._id, a.consigne);
-    // Les vidéos exemples sont recopiées de la campagne à l'assignation : elles
-    // suivent le script dans sa nouvelle campagne (cf videosExemplesCampagne).
-    const videosAvant = m.a.modelVideos ?? null;
-    const videos = cible && autreCampagne
-      ? videosApresChangementDeCampagne(
-          m.a.modelVideos ?? [],
-          (await ctx.db.get(avant.campaignId))?.modelVideos ?? [],
-          cible.modelVideos ?? [],
-          MAX_MODEL_VIDEOS,
-        )
-      : null;
-    if (videos && (videos.retirees > 0 || videos.ajoutees > 0)) {
-      await ctx.db.patch(m.a._id, { modelVideos: videos.next });
+    // Vidéos à reproduire : la mission prend celles de sa NOUVELLE campagne,
+    // comme à l'assignation. Les autres montrent l'ancien format (copiées de
+    // l'ancienne campagne, ou la vidéo rejouée par `rejouer_script`) : la
+    // créatrice risquerait de refaire celle-là. Retirées, sauf
+    // « garder_videos_exemples ». Celles déjà là gardent leur id.
+    const videosAvant = m.a.modelVideos ?? [];
+    let videosApres = videosAvant;
+    let videosPlafond = false;
+    if (cible && autreCampagne) {
+      const deLaCampagne = new Set((cible.modelVideos ?? []).map((mv) => mv.url));
+      const base = a.garderVideos === true ? videosAvant : videosAvant.filter((mv) => deLaCampagne.has(mv.url));
+      const complete = mergeModelVideosServer(base, cible.modelVideos ?? []);
+      videosPlafond = complete === null;
+      videosApres = complete?.next ?? base;
     }
+    const videosRetirees = videosAvant.filter((mv) => !videosApres.some((x) => x.url === mv.url));
+    const videosAjoutees = videosApres.filter((mv) => !videosAvant.some((x) => x.url === mv.url));
+    const videosChangent = videosRetirees.length > 0 || videosAjoutees.length > 0;
+    if (videosChangent) await ctx.db.patch(m.a._id, { modelVideos: videosApres.length > 0 ? videosApres : undefined });
 
     const apres = (await ctx.db.get(m.a._id))!;
     const scriptApres = await scriptDeMission(ctx, apres);
@@ -1147,10 +1196,12 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       ...(texteChange || autreCampagne ? [`script « ${extrait((await texteDuCombo(ctx, apres)) ?? "")} »`] : []),
       ...(a.notif !== undefined ? [notif ? `notif « ${notif.notifText} »` : "notif retirée"] : []),
       ...(a.consigne !== undefined ? [a.consigne.trim() === "" ? "consigne effacée" : `consigne « ${extrait(a.consigne)} »`] : []),
-      ...(videos && (videos.retirees > 0 || videos.ajoutees > 0)
-        ? [`vidéos exemples : ${videos.retirees} retirée${videos.retirees > 1 ? "s" : ""}, ${videos.ajoutees} ajoutée${videos.ajoutees > 1 ? "s" : ""}`]
+      ...(videosRetirees.length > 0 ? [`vidéos à reproduire retirées : ${videosRetirees.map(nomVideo).join(", ")}`] : []),
+      ...(videosAjoutees.length > 0 ? [`vidéos à reproduire de la campagne ajoutées : ${videosAjoutees.map(nomVideo).join(", ")}`] : []),
+      ...(autreCampagne && a.garderVideos === true && videosAvant.length > 0
+        ? [`vidéos à reproduire d'avant gardées : ${videosAvant.map(nomVideo).join(", ")}`]
         : []),
-      ...(videos?.plafond ? [`vidéos exemples de la campagne non jointes (${MAX_MODEL_VIDEOS} au plus par mission)`] : []),
+      ...(videosPlafond ? ["vidéos à reproduire de la campagne NON ajoutées : la mission en aurait plus de 20"] : []),
     ];
     const summary = `${m.libelle} : ${faits.join(", ")}`;
     await journaliser(ctx, {
@@ -1163,8 +1214,8 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
         assignmentId: m.a._id,
         avant: scriptAvant,
         apres: scriptApres,
-        ...(videos && (videos.retirees > 0 || videos.ajoutees > 0)
-          ? { videos: { avant: jsonCanonique(videosAvant), apres: jsonCanonique(videos.next) } }
+        ...(videosChangent
+          ? { videos: { avant: jsonCanonique(m.a.modelVideos ?? null), apres: jsonCanonique(videosApres.length > 0 ? videosApres : null) } }
           : {}),
       },
       etats: await etatsApres(ctx, photos),
@@ -1277,6 +1328,158 @@ export const ecrireLiensAssets = mcpWriteMutation("assignments.manage", "mission
   },
 });
 
+// ─── Vidéos à reproduire d'une mission ──────────────────────────────────────
+
+type VideoExemple = NonNullable<Doc<"assignments">["modelVideos"]>[number];
+
+/** Une vidéo à reproduire telle que la personne la reconnaît : titre, puis lien. */
+export const nomVideo = (mv: Pick<VideoExemple, "url" | "title">) => (mv.title ? `« ${mv.title} » (${mv.url})` : mv.url);
+
+const TOUTES = new Set(["toutes", "tout", "tous", "toutes les videos"]);
+const HORS_CAMPAGNE = new Set(["hors campagne", "hors de la campagne"]);
+
+/**
+ * `videos_exemples_mission` — lire, retirer ou ajouter les vidéos à reproduire
+ * (`assignments.modelVideos`, le bouton clap de l'écran Assignments). Toutes
+ * les lignes dans UNE transaction : une ligne refusée lève, et Convex n'écrit
+ * alors aucune des autres. Les lignes s'appliquent dans l'ordre. Ajouter passe
+ * par le cœur du bouton (`appendModelVideoServer` : lien http(s), doublon
+ * ignoré, 20 au plus). Une ligne sans « retirer » ni « ajouter » lit seulement,
+ * même sur une mission publiée.
+ */
+export const ecrireVideosExemples = mcpWriteMutation("assignments.manage", "missions")({
+  args: {
+    lignes: v.array(
+      v.object({
+        ...designationValidator,
+        retirer: v.optional(v.string()),
+        ajouter: v.optional(v.string()),
+        titre: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, { lignes }) => {
+    if (lignes.length === 0 || lignes.length > MAX_LIGNES_VIDEOS) {
+      throw err(ERR.MCP_DESIGNATION, `De 1 à ${MAX_LIGNES_VIDEOS} missions par appel (ici ${lignes.length}).`);
+    }
+    const inspirations = lignes.some((l) => l.ajouter !== undefined)
+      ? await ctx.db
+          .query("inspirations")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      : [];
+    // Chaque mission touchée : ses vidéos d'avant (la 1re fois qu'une ligne la vise), photographiée avant d'écrire.
+    const touchees = new Map<Id<"assignments">, { avant: VideoExemple[] | null; libelle: string }>();
+    const photos: Awaited<ReturnType<typeof photographier>> = [];
+    const faits: string[] = [];
+    for (const [i, l] of lignes.entries()) {
+      try {
+        if (l.retirer !== undefined && l.ajouter !== undefined) {
+          throw err(ERR.MCP_DESIGNATION, "« retirer » OU « ajouter » par ligne : pour remplacer, une ligne qui retire puis une qui ajoute.");
+        }
+        const ecrit = l.retirer !== undefined || l.ajouter !== undefined;
+        const m = await trouverMission(ctx, l, ecrit ? pasPubliee : () => null);
+        // Relue : une ligne précédente a pu la changer.
+        const brut = (await ctx.db.get(m.a._id))!.modelVideos;
+        const courant = brut ?? [];
+        if (!ecrit) {
+          faits.push(`${m.libelle} : ${courant.length === 0 ? "aucune vidéo à reproduire" : `vidéos à reproduire : ${courant.map(nomVideo).join(", ")}`}`);
+          continue;
+        }
+        if (!touchees.has(m.a._id)) {
+          touchees.set(m.a._id, { avant: brut ?? null, libelle: m.libelle });
+          photos.push(...(await photographier(ctx, "assignments", [m.a._id])));
+        }
+        let suivant: VideoExemple[];
+        let fait: string;
+        // Les autres vidéos, qui restent : jamais un remplacement silencieux.
+        let autres: VideoExemple[];
+        if (l.retirer !== undefined) {
+          if (TOUTES.has(plierTexte(l.retirer))) {
+            suivant = [];
+            autres = [];
+            fait = courant.length === 0 ? "aucune vidéo à reproduire, rien à retirer" : `retirée${courant.length > 1 ? "s" : ""} : ${courant.map(nomVideo).join(", ")}`;
+          } else if (HORS_CAMPAGNE.has(plierTexte(l.retirer))) {
+            // Ne garde que les vidéos exemples de SA campagne (celles que
+            // l'assignation y a copiées) : le reste montre un autre format.
+            const campagne = m.a.scriptCombo ? await ctx.db.get(m.a.scriptCombo.campaignId) : null;
+            if (!campagne) throw err(ERR.MCP_DESIGNATION, `${m.libelle} : pas de campagne de scripts, « hors campagne » ne s'y applique pas.`);
+            const deLaCampagne = new Set((campagne.modelVideos ?? []).map((mv) => mv.url));
+            suivant = courant.filter((x) => deLaCampagne.has(x.url));
+            autres = suivant;
+            const parties = courant.filter((x) => !deLaCampagne.has(x.url));
+            fait = parties.length === 0 ? "rien hors campagne, rien à retirer" : `retirée${parties.length > 1 ? "s" : ""} : ${parties.map(nomVideo).join(", ")}`;
+          } else {
+            const mv = designerOuRefuser(courant, (x) => `${x.title ?? ""} ${x.url}`.trim(), l.retirer, "vidéos à reproduire de la mission");
+            suivant = courant.filter((x) => x.id !== mv.id);
+            autres = suivant;
+            fait = `retirée : ${nomVideo(mv)}`;
+          }
+        } else {
+          const lien = l.ajouter!.trim();
+          const titre = l.titre?.trim() || inspirations.find((x) => x.url.trim() === lien)?.titre?.trim();
+          const r = appendModelVideoServer(courant, { url: lien, ...(titre ? { title: titre } : {}) });
+          suivant = r.next;
+          const mv = r.next.find((x) => x.id === r.id)!;
+          autres = courant.filter((x) => x.id !== r.id);
+          fait = r.duplicate ? `déjà là : ${nomVideo(mv)}` : `ajoutée : ${nomVideo(mv)}`;
+        }
+        if (autres.length > 0) fait += ` — ${l.retirer !== undefined ? "restent" : "avec"} ${autres.map(nomVideo).join(", ")}`;
+        if (jsonCanonique(suivant) !== jsonCanonique(courant)) {
+          await ctx.db.patch(m.a._id, { modelVideos: suivant.length > 0 ? suivant : undefined });
+        }
+        faits.push(`${m.libelle} : ${fait}`);
+      } catch (e) {
+        const message = refusDe(e);
+        if (message === null) throw e;
+        const ligne = lignes.length > 1 ? `Ligne ${i + 1} (${l.createatrice}, ${l.jour === null ? "sans date" : jourTexte(l.jour)}) : ` : "";
+        throw new ConvexError({
+          code: codeDe(e) ?? ERR.MCP_DESIGNATION,
+          message: `${ligne}${message}${lignes.length > 1 ? " Rien n'a été écrit." : ""}`,
+        });
+      }
+    }
+
+    const changees: { assignmentId: Id<"assignments">; avant: string; apres: string; libelle: string; retirees: VideoExemple[]; ajoutees: VideoExemple[] }[] = [];
+    for (const [assignmentId, t] of touchees) {
+      const apres = (await ctx.db.get(assignmentId))!.modelVideos ?? null;
+      if (jsonCanonique(apres) === jsonCanonique(t.avant)) continue;
+      const av = t.avant ?? [];
+      const ap = apres ?? [];
+      changees.push({
+        assignmentId,
+        avant: jsonCanonique(t.avant),
+        apres: jsonCanonique(apres),
+        libelle: t.libelle,
+        retirees: av.filter((x) => !ap.some((y) => y.id === x.id)),
+        ajoutees: ap.filter((x) => !av.some((y) => y.id === x.id)),
+      });
+    }
+    if (changees.length === 0) return { summary: "Rien à changer.", faits, inchange: true };
+    const changement = (c: (typeof changees)[number]) =>
+      `${c.libelle} : ` + [...c.ajoutees.map((x) => `+ ${nomVideo(x)}`), ...c.retirees.map((x) => `− ${nomVideo(x)}`)].join(", ");
+    const MONTRES = 8;
+    const summary =
+      changees.length === 1
+        ? `Vidéos à reproduire — ${changement(changees[0])}`
+        : `Vidéos à reproduire — ${changees.length} missions : ${changees.slice(0, MONTRES).map(changement).join(" ; ")}` +
+          (changees.length > MONTRES ? ` ; et ${changees.length - MONTRES} autres` : "");
+    const changeesIds = new Set<string>(changees.map((c) => c.assignmentId));
+    await journaliser(ctx, {
+      tool: "videos_exemples_mission",
+      summary,
+      section: "planning",
+      path: "assignments",
+      annulation: {
+        type: "videosExemples",
+        lignes: changees.map(({ assignmentId, avant, apres }) => ({ assignmentId, avant, apres })),
+      },
+      etats: await etatsApres(ctx, photos.filter((p) => changeesIds.has(p.id))),
+    });
+    return { summary, faits, inchange: false };
+  },
+});
+
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
@@ -1288,7 +1491,9 @@ const OU_DEFAIRE: Record<string, string> = {
   consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
   annuler_mission:
     "`defaire` la remet dans son statut d'avant (tant qu'elle n'a pas été supprimée). Une vidéo envoyée est conservée. L'email « mission annulée », s'il est parti, ne se reprend pas.",
-  reecrire_mission: "`defaire` remet le script d'avant, et ses vidéos exemples si la campagne a changé (tant que la mission n'a pas changé depuis).",
+  reecrire_mission: "`defaire` remet le script d'avant, et ses vidéos à reproduire d'avant si le changement de campagne les a changées (tant que la mission n'a pas changé depuis).",
+  videos_exemples_mission:
+    "`defaire` remet les vidéos à reproduire d'avant (tant qu'elles n'ont pas changé depuis), ou Assignments › la mission › bouton clap.",
   changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
   relancer: "Une relance ne se reprend pas : l'email est parti.",
   piloter_missions:
@@ -1353,6 +1558,47 @@ async function lierAssets(
   });
   const r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireLiensAssets, { ...cible, lignes }));
   return resultatEcriture(projet, r.faits, r.inchange ? "Rien n'a changé : rien à défaire." : OU_DEFAIRE.lier_assets);
+}
+
+/** `videos_exemples_mission` : une mission (arguments à plat) ou « missions », lues ligne par ligne. */
+async function videosExemples(
+  ctx: ActionCtx,
+  args: Record<string, unknown>,
+  cible: CibleEcriture,
+  projet: string,
+): Promise<ToolResult> {
+  const aPlat = ["createatrice", "jour", "compte", "campagne", "script", "retirer", "ajouter", "titre"].filter((k) => args[k] !== undefined);
+  if (args.missions !== undefined && aPlat.length > 0) {
+    throw new ToolError(`Soit une mission (createatrice, jour…), soit « missions » — pas les deux (reçu aussi : ${aPlat.join(", ")}).`);
+  }
+  const brutes: unknown[] = args.missions === undefined ? [args] : Array.isArray(args.missions) ? args.missions : [];
+  if (brutes.length === 0) throw new ToolError("« missions » : une liste de missions { createatrice, jour, et retirer ou ajouter }.");
+  if (brutes.length > MAX_LIGNES_VIDEOS) throw new ToolError(`${brutes.length} missions d'un coup : ${MAX_LIGNES_VIDEOS} au plus par appel.`);
+  const lignes = brutes.map((b, i) => {
+    const prefixe = brutes.length > 1 ? `Ligne ${i + 1} : ` : "";
+    const x = (typeof b === "object" && b !== null ? b : {}) as Record<string, unknown>;
+    for (const cle of ["retirer", "ajouter", "titre"]) {
+      if (x[cle] !== undefined && (typeof x[cle] !== "string" || (x[cle] as string).trim() === "")) {
+        throw new ToolError(
+          `${prefixe}« ${cle} » : ${cle === "retirer" ? "le lien ou le titre de la vidéo, ou « toutes »" : cle === "ajouter" ? "le lien http(s) de la vidéo" : "un titre non vide"}.`,
+        );
+      }
+    }
+    if (x.titre !== undefined && x.ajouter === undefined) throw new ToolError(`${prefixe}« titre » va avec « ajouter ».`);
+    try {
+      return {
+        ...designationDepuis(x),
+        ...(x.retirer !== undefined ? { retirer: (x.retirer as string).trim() } : {}),
+        ...(x.ajouter !== undefined ? { ajouter: (x.ajouter as string).trim() } : {}),
+        ...(x.titre !== undefined ? { titre: (x.titre as string).trim() } : {}),
+      };
+    } catch (e) {
+      if (e instanceof ToolError) throw new ToolError(`${prefixe}${e.message}`);
+      throw e;
+    }
+  });
+  const r = await ecrire(() => ctx.runMutation(internal.mcpWritesMissions.ecrireVideosExemples, { ...cible, lignes }));
+  return resultatEcriture(projet, r.faits, r.inchange ? "Rien n'a changé : rien à défaire." : OU_DEFAIRE.videos_exemples_mission);
 }
 
 type PlanMcp = FunctionReturnType<typeof internal.pilote.proposerMcp>;
@@ -1594,6 +1840,7 @@ async function appelerEcritureMissions(
 
   if (name === "piloter_missions") return await piloter(ctx, args, cible, projet, aujourdhui);
   if (name === "lier_assets") return await lierAssets(ctx, args, cible, projet);
+  if (name === "videos_exemples_mission") return await videosExemples(ctx, args, cible, projet);
 
   const d = designationDepuis(args);
   let r: { summary: string };
@@ -1658,6 +1905,7 @@ async function appelerEcritureMissions(
         ...opt("legende", "legende"),
         ...opt("notif", "notif"),
         ...opt("consigne", "consigne"),
+        ...(args.garder_videos_exemples === true ? { garderVideos: true } : {}),
       }),
     );
   } else {

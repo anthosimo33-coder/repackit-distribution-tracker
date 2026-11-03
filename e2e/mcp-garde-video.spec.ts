@@ -205,7 +205,7 @@ test.describe("Garde-fous vidéo et journal", () => {
     expect((await missionDu(J3)).scriptCombo?.hookBrickId).toBe(avant.scriptCombo?.hookBrickId);
   });
 
-  test("reecrire_mission vers une autre campagne : les vidéos exemples suivent la campagne ; défait à l'identique", async ({ page }) => {
+  test("reecrire_mission vers une autre campagne : la mission prend les vidéos à reproduire de la nouvelle campagne, les autres partent ; défait à l'identique", async ({ page }) => {
     test.setTimeout(180_000);
     const ts = Date.now();
     const nom = `Noa Campagne ${ts}`;
@@ -239,22 +239,35 @@ test.describe("Garde-fous vidéo et journal", () => {
       (await admin.query(api.assignments.listAssignments, {})).find((a) => a.creatorId === c.creatorId && jourDe(a.postDate) === jour)!;
     const urls = async () => ((await missionDu(J3)).modelVideos ?? []).map((mv) => mv.url);
     expect(await urls()).toEqual([url(1), url(2)]);
-    // Jointe à la main : elle n'est à aucune campagne, elle reste.
-    await admin.mutation(api.assignments.addModelVideoToAssignment, { id: (await missionDu(J3))._id, url: url(4), title: "À la main" });
+    // Jointe hors campagne — comme la vidéo qu'attache `rejouer_script` : elle
+    // montre un autre format, elle part aussi.
+    await admin.mutation(api.assignments.addModelVideoToAssignment, { id: (await missionDu(J3))._id, url: url(4), title: "Vidéo rejouée" });
     const avant = await missionDu(J3);
+    const idPartagee = avant.modelVideos!.find((mv) => mv.url === url(2))!.id;
 
     const r = await appel("reecrire_mission", { createatrice: nom, jour: J3, campagne_briques: arrivee, hook: "Hook", flux: "Flux", legende: "CTA" });
     expect(r.erreur, r.texte).toBe(false);
-    expect(r.texte).toContain("vidéos exemples : 1 retirée, 1 ajoutée");
-    // La démo de l'ancienne campagne part, la partagée et celle jointe à la main
-    // restent à leur place, celle de la nouvelle campagne s'ajoute.
-    expect(await urls()).toEqual([url(2), url(4), url(3)]);
+    expect(r.texte).toContain("vidéos à reproduire retirées : « Démo muette »");
+    expect(r.texte).toContain("« Vidéo rejouée »");
+    expect(r.texte).toContain(`vidéos à reproduire de la campagne ajoutées : « Vidéo gagnante » (${url(3)})`);
+    // Seules celles de la nouvelle campagne : la partagée garde sa place et son id.
+    expect(await urls()).toEqual([url(2), url(3)]);
+    expect((await missionDu(J3)).modelVideos![0].id).toBe(idPartagee);
 
     const j = await journal("reecrire_mission");
     expect(j.etat).toBe("se défait");
     const d = await appel("defaire", { rang: j.rang, outil: "reecrire_mission" });
     expect(d.erreur, d.texte).toBe(false);
+    expect(d.texte).toContain("avec ses vidéos exemples");
     expect(await missionDu(J3)).toEqual(avant);
+
+    // « garder_videos_exemples » : celles d'avant restent, celles de la campagne s'ajoutent.
+    const g = await appel("reecrire_mission", {
+      createatrice: nom, jour: J3, campagne_briques: arrivee, hook: "Hook", flux: "Flux", legende: "CTA", garder_videos_exemples: true,
+    });
+    expect(g.erreur, g.texte).toBe(false);
+    expect(g.texte).toContain("vidéos à reproduire d'avant gardées");
+    expect(await urls()).toEqual([url(1), url(2), url(4), url(3)]);
   });
 
   test("supprimer une mission qui a une vidéo : l'écran prévient, la vidéo reste 30 jours en archive", async ({ page }) => {
