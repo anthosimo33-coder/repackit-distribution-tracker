@@ -667,6 +667,11 @@
       "modelVideos": "Vidéos à reproduire",
       "assets": "Assets à utiliser",
       "download": "Télécharger",
+      "downloadPreparing": "Préparation…",
+      "downloadProgress": "Préparation… {pct} %",
+      "downloadSave": "Enregistrer",
+      "downloadReady": "C’est prêt : touche « Enregistrer » pour le ranger dans tes photos.",
+      "downloadFailed": "Téléchargement impossible. Touche à nouveau pour ouvrir le fichier.",
       "pay": "Rémunération",
       "progressRo": "Avancement"
     },

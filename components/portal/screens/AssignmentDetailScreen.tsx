@@ -17,8 +17,8 @@ import {
   CalendarIcon,
   ClipboardListIcon,
   ClockIcon,
-  DownloadIcon,
 } from "lucide-react";
+import { AssetDownloadButton } from "@/components/portal/AssetDownloadButton";
 import { ModelVideoEmbed } from "@/components/portal/ModelVideoEmbed";
 import { FormatBriefPreview } from "@/components/formats/FormatBriefPreview";
 import { EarningsCalculator } from "@/components/portal/EarningsCalculator";
@@ -276,14 +276,11 @@ export default function AssignmentDetailScreen({
                                     ))}
                                 </div>
                                 {asset.url && (
-                                  <a
-                                    href={asset.url}
-                                    download={asset.fileName}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-slate-200 px-2 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                                  >
-                                    <DownloadIcon className="size-3.5" />{ta("download")}</a>
+                                  <AssetDownloadButton
+                                    url={asset.url}
+                                    fileName={asset.fileName}
+                                    contentType={asset.contentType}
+                                  />
                                 )}
                               </div>
                             ))}
