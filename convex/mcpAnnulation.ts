@@ -102,6 +102,15 @@ export const annulationValidator = v.union(
       }),
     ),
   }),
+  /**
+   * videos_exemples_mission : les vidéos à reproduire de chaque mission
+   * touchée, avant et après (JSON, null = aucune). Défaire remet l'avant si
+   * TOUTES montrent encore l'après.
+   */
+  v.object({
+    type: v.literal("videosExemples"),
+    lignes: v.array(v.object({ assignmentId: v.id("assignments"), avant: v.string(), apres: v.string() })),
+  }),
   // ── Barèmes ───────────────────────────────────────────────────────────────
   /**
    * changer_bareme : le `pricingSnapshot` de chaque vidéo, avant et après, en

@@ -422,6 +422,7 @@ type OutilEcriture =
   | "annuler_mission"
   | "reecrire_mission"
   | "lier_assets"
+  | "videos_exemples_mission"
   | "ajouter_hooks"
   | "activer_briques"
   | "graduer_hook"

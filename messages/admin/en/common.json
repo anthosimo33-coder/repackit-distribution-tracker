@@ -942,6 +942,7 @@
       "annuler_mission": "Drop an assignment",
       "reecrire_mission": "Rewrite an assignment's script",
       "lier_assets": "Link Assets folders",
+      "videos_exemples_mission": "A mission's videos to reproduce",
       "ajouter_hooks": "Add hooks",
       "activer_briques": "Enable / disable blocks",
       "graduer_hook": "Graduate a hook",
