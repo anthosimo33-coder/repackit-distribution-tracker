@@ -1012,7 +1012,7 @@ async function assertTargetAddable(
 // (l'hébergement d'assets est un autre chantier). La plateforme est dérivée de
 // l'URL CÔTÉ UI (lib/inspiration-url) — non stockée ici.
 
-const MAX_MODEL_VIDEOS = 20;
+export const MAX_MODEL_VIDEOS = 20;
 
 /** Une vidéo modèle stockée — assignments.modelVideos ET scriptCampaigns.modelVideos. */
 type ModelVideoItem = {

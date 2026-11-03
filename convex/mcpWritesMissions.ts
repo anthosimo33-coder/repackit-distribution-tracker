@@ -43,6 +43,7 @@ import {
   etatsApres,
   etatsCrees,
   journaliser,
+  jsonCanonique,
   photographier,
   RefusEcriture,
   refusDe,
@@ -68,6 +69,7 @@ import {
   setAssignmentTargetAccountCore,
   DELETABLE_STATUSES,
   effectiveAssetFolderIds,
+  MAX_MODEL_VIDEOS,
   pricingResolver,
   setAssetFoldersCore,
   setAssignmentInstructionsCore,
@@ -86,6 +88,7 @@ import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
 import { plateformeValidator, type Plateforme } from "./platforms";
 import { formatPostWindow } from "./postWindow";
 import { comboAvecTexte, ecrireCombo, texteDuCombo } from "./assignmentScriptText";
+import { videosApresChangementDeCampagne } from "./videosExemplesCampagne";
 import { PILOTE } from "./pilotePlan";
 import type { FunctionReturnType } from "convex/server";
 
@@ -297,7 +300,7 @@ export const OUTILS_ECRITURE_MISSIONS: readonly McpTool[] = [
     name: "reecrire_mission",
     title: "Réécrire le script d'une mission",
     description:
-      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
+      "MODIFIE les missions : remplace le script d'une mission PAS ENCORE TOURNÉE (à faire ou en cours, aucune vidéo envoyée, pas publiée) — hook, flux, légende, notif et/ou consigne —, sans email. Les briques se désignent par libellé ou morceau de texte, dans la campagne de la mission, ou dans « campagne_briques » (alors hook, flux et légende sont requis, et les vidéos exemples suivent : celles de l'ancienne campagne partent, celles de la nouvelle s'ajoutent, celles jointes à la main restent). Une brique désactivée est acceptée et reste hors du tirage. Le texte est monté depuis les briques, comme à l'assignation. Journalisé ; `defaire` remet le script d'avant. Désignation comme dans `planning`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1118,6 +1121,20 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       );
     }
     if (a.consigne !== undefined) await setAssignmentInstructionsCore(ctx, m.a._id, a.consigne);
+    // Les vidéos exemples sont recopiées de la campagne à l'assignation : elles
+    // suivent le script dans sa nouvelle campagne (cf videosExemplesCampagne).
+    const videosAvant = m.a.modelVideos ?? null;
+    const videos = cible && autreCampagne
+      ? videosApresChangementDeCampagne(
+          m.a.modelVideos ?? [],
+          (await ctx.db.get(avant.campaignId))?.modelVideos ?? [],
+          cible.modelVideos ?? [],
+          MAX_MODEL_VIDEOS,
+        )
+      : null;
+    if (videos && (videos.retirees > 0 || videos.ajoutees > 0)) {
+      await ctx.db.patch(m.a._id, { modelVideos: videos.next });
+    }
 
     const apres = (await ctx.db.get(m.a._id))!;
     const scriptApres = await scriptDeMission(ctx, apres);
@@ -1130,6 +1147,10 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       ...(texteChange || autreCampagne ? [`script « ${extrait((await texteDuCombo(ctx, apres)) ?? "")} »`] : []),
       ...(a.notif !== undefined ? [notif ? `notif « ${notif.notifText} »` : "notif retirée"] : []),
       ...(a.consigne !== undefined ? [a.consigne.trim() === "" ? "consigne effacée" : `consigne « ${extrait(a.consigne)} »`] : []),
+      ...(videos && (videos.retirees > 0 || videos.ajoutees > 0)
+        ? [`vidéos exemples : ${videos.retirees} retirée${videos.retirees > 1 ? "s" : ""}, ${videos.ajoutees} ajoutée${videos.ajoutees > 1 ? "s" : ""}`]
+        : []),
+      ...(videos?.plafond ? [`vidéos exemples de la campagne non jointes (${MAX_MODEL_VIDEOS} au plus par mission)`] : []),
     ];
     const summary = `${m.libelle} : ${faits.join(", ")}`;
     await journaliser(ctx, {
@@ -1137,7 +1158,15 @@ export const ecrireReecriture = mcpWriteMutation("assignments.manage", "missions
       summary,
       section: "planning",
       path: "assignments",
-      annulation: { type: "combo", assignmentId: m.a._id, avant: scriptAvant, apres: scriptApres },
+      annulation: {
+        type: "combo",
+        assignmentId: m.a._id,
+        avant: scriptAvant,
+        apres: scriptApres,
+        ...(videos && (videos.retirees > 0 || videos.ajoutees > 0)
+          ? { videos: { avant: jsonCanonique(videosAvant), apres: jsonCanonique(videos.next) } }
+          : {}),
+      },
       etats: await etatsApres(ctx, photos),
     });
     return { summary };
@@ -1259,7 +1288,7 @@ const OU_DEFAIRE: Record<string, string> = {
   consigne_mission: "`defaire`, ou Assignments › la mission › consigne.",
   annuler_mission:
     "`defaire` la remet dans son statut d'avant (tant qu'elle n'a pas été supprimée). Une vidéo envoyée est conservée. L'email « mission annulée », s'il est parti, ne se reprend pas.",
-  reecrire_mission: "`defaire` remet le script d'avant (tant que la mission n'a pas changé depuis).",
+  reecrire_mission: "`defaire` remet le script d'avant, et ses vidéos exemples si la campagne a changé (tant que la mission n'a pas changé depuis).",
   changer_compte_cible: "`defaire`, ou Assignments › la mission › Compte.",
   relancer: "Une relance ne se reprend pas : l'email est parti.",
   piloter_missions:

@@ -380,7 +380,15 @@ async function annuler(
         await ctx.db.patch(a.assignmentId, { scriptCombo: undefined, ...champs });
         await supprimerTexteDuCombo(ctx, a.assignmentId);
       }
-      return "Script d'avant remis (combinaison, texte, notif, consigne).";
+      if (!a.videos) return "Script d'avant remis (combinaison, texte, notif, consigne).";
+      // Vidéos exemples remplacées par le changement de campagne : remises
+      // seulement si personne n'y a touché depuis — le script, lui, revient.
+      if (jsonCanonique(m.modelVideos ?? null) !== a.videos.apres) {
+        return "Script d'avant remis (combinaison, texte, notif, consigne). Vidéos exemples laissées telles quelles : elles ont changé depuis.";
+      }
+      const videosAvant = JSON.parse(a.videos.avant) as Doc<"assignments">["modelVideos"] | null;
+      await ctx.db.patch(a.assignmentId, { modelVideos: videosAvant ?? undefined });
+      return "Script d'avant remis (combinaison, texte, notif, consigne), avec ses vidéos exemples.";
     }
     case "assets": {
       const missions = await Promise.all(a.lignes.map((l) => ctx.db.get(l.assignmentId)));
