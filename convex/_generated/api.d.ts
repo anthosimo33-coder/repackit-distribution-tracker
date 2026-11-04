@@ -216,6 +216,7 @@ import type * as postUrlShape from "../postUrlShape.js";
 import type * as postWindow from "../postWindow.js";
 import type * as posthogApi from "../posthogApi.js";
 import type * as posthogSync from "../posthogSync.js";
+import type * as postsDeplacement from "../postsDeplacement.js";
 import type * as pricing from "../pricing.js";
 import type * as pricingReassign from "../pricingReassign.js";
 import type * as pricingReassignPlan from "../pricingReassignPlan.js";
@@ -526,6 +527,7 @@ declare const fullApi: ApiFromModules<{
   postWindow: typeof postWindow;
   posthogApi: typeof posthogApi;
   posthogSync: typeof posthogSync;
+  postsDeplacement: typeof postsDeplacement;
   pricing: typeof pricing;
   pricingReassign: typeof pricingReassign;
   pricingReassignPlan: typeof pricingReassignPlan;

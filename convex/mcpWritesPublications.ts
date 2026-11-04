@@ -8,6 +8,9 @@
  *  - `marquer_warmup` : la bascule chauffe ↔ promo d'un post du Tracker, droit
  *    `tracker.manage`. La réponse dit l'état FINAL (chauffe, rémunérée), parce
  *    qu'une rémunération réglée à la main ne suit pas la bascule ;
+ *  - `deplacer_posts` : ranger des posts DÉJÀ PUBLIÉS sur un autre compte de la
+ *    même créatrice (compte renommé), droit `accounts.manage` — celui du
+ *    renommage d'un compte, qui réécrit lui aussi le handle des posts ;
  *  - `valider_video`, `refuser_video` : la file Validation, droit `review.manage`
  *    — après que Claude a REGARDÉ la vidéo (`regarder_video`). Chacun envoie
  *    l'email de l'écran à la créatrice.
@@ -16,7 +19,7 @@
 import { v } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { mcpWriteMutation } from "./functions";
+import { mcpWriteMutation, requireCreatorInScope } from "./functions";
 import { ERR, err } from "./errorCodes";
 import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
 import type { Id } from "./_generated/dataModel";
@@ -36,7 +39,7 @@ import {
   type CibleEcriture,
   type DomaineEcriture,
 } from "./mcpWriteCommon";
-import { jourTexte, plierTexte } from "./mcpWriteArgs";
+import { cleDeLienPost, designer, jourTexte, plierTexte } from "./mcpWriteArgs";
 import { designationDepuis, designationValidator, publicationParLien, trouverMission } from "./mcpWritesMissions";
 import { confirmPublicationAsAdminCore, reviewVideoApproveCore, reviewVideoRejectCore } from "./assignments";
 import { setPublicationWarmupCore } from "./publications";
@@ -46,6 +49,7 @@ import { isRemunerated } from "./remunerate";
 import { parisDayStart } from "./managerCpm";
 import { parisDayKey } from "./comptaMath";
 import type { Plateforme } from "./platforms";
+import { deplacerPostsCore, MAX_POSTS_PAR_APPEL, missionsDesPosts, paires, refusDeplacement } from "./postsDeplacement";
 
 // ─── Déclaration des outils ─────────────────────────────────────────────────
 
@@ -98,6 +102,34 @@ export const OUTILS_ECRITURE_PUBLICATIONS: readonly McpTool[] = [
         warmup: { type: "boolean", description: "true = chauffe, false = promo." },
       },
       required: ["lien", "warmup"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
+  {
+    name: "deplacer_posts",
+    title: "Déplacer des posts publiés vers un autre compte",
+    description:
+      "MODIFIE les publications : range des posts DÉJÀ PUBLIÉS sur un autre compte de la même créatrice, sur la même plateforme — le cas d'un compte renommé, dont l'ancien @ archivé garde les posts sortis (`changer_compte_cible` ne bouge plus un post publié). Le relevé des vues, la fiche Comptes et le pays du post suivent le nouveau compte ; la paie ne bouge pas. Tous les posts du compte de départ, ou seulement ceux de `liens` ; 50 au plus par appel, tout ou rien. Aucun email.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        compte: { type: "string", description: "Handle du compte qui porte les posts aujourd'hui (outil `comptes`, même archivé)." },
+        nouveau_compte: { type: "string", description: "Handle du compte où les ranger : même créatrice, même plateforme, pas archivé." },
+        plateforme: {
+          type: "string",
+          enum: ["TikTok", "Instagram", "YouTube", "Facebook", "Snapchat"],
+          description: "Pour départager un @ présent sur plusieurs plateformes.",
+        },
+        liens: {
+          type: "array",
+          description: "Liens des posts à déplacer. Absent = tous les posts du compte.",
+          items: { type: "string" },
+          maxItems: MAX_POSTS_PAR_APPEL,
+        },
+      },
+      required: ["compte", "nouveau_compte"],
       additionalProperties: false,
     },
     annotations: ECRIT,
@@ -277,12 +309,105 @@ export const ecrireWarmup = mcpWriteMutation("tracker.manage", "publications")({
   },
 });
 
+export const ecrireDeplacementPosts = mcpWriteMutation("accounts.manage", "publications")({
+  args: { compte: v.string(), nouveauCompte: v.string(), plateforme: v.optional(v.string()), liens: v.array(v.string()) },
+  handler: async (ctx, a) => {
+    const comptes = (
+      await ctx.db
+        .query("comptes")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect()
+    ).filter((c) => a.plateforme === undefined || plierTexte(c.plateforme) === plierTexte(a.plateforme));
+    const surLa = a.plateforme === undefined ? "" : ` sur ${a.plateforme}`;
+    const candidats = (demande: string) => {
+      const r = designer(comptes, (c) => c.handle, demande);
+      if (r.ok) return [r.item];
+      if (r.candidats.length === 0) throw err(ERR.MCP_DESIGNATION, `Compte « ${demande} » introuvable${surLa} (outil \`comptes\`).`);
+      return r.candidats;
+    };
+    const sources = candidats(a.compte);
+    const dests = candidats(a.nouveauCompte);
+    // Un @ sur TikTok ET Instagram : la paire (même plateforme, même créatrice) lève le doute.
+    const p = paires(sources, dests);
+    if (p.length === 0) {
+      throw err(
+        ERR.MCP_DESIGNATION,
+        sources.length === 1 && dests.length === 1
+          ? (refusDeplacement(sources[0], dests[0]) ?? "Déplacement impossible.")
+          : `Aucun compte « ${a.nouveauCompte} » de la même créatrice, sur la même plateforme que « ${a.compte} »${surLa}.`,
+      );
+    }
+    if (p.length > 1) {
+      throw err(
+        ERR.MCP_DESIGNATION,
+        `Plusieurs déplacements possibles : ${p.map(([s, d]) => `${s.handle} → ${d.handle} (${s.plateforme})`).join(", ")}. Précise « plateforme » ou le @ exact.`,
+      );
+    }
+    const [source, dest] = p[0];
+    const refus = refusDeplacement(source, dest);
+    if (refus !== null) throw err(ERR.MCP_DESIGNATION, refus);
+    const creatorId = source.creatorId!;
+    await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creatorId);
+
+    // Les posts du compte : même clé que le renommage d'un compte, (handle, plateforme).
+    const posts = (
+      await ctx.db
+        .query("publications")
+        .withIndex("by_project_plateforme", (q) => q.eq("projectId", ctx.projectId).eq("plateforme", source.plateforme))
+        .collect()
+    )
+      .filter((x) => x.compte === source.handle)
+      .sort((x, y) => x.datePubli - y.datePubli);
+    let choisis = posts;
+    if (a.liens.length > 0) {
+      choisis = [];
+      for (const lien of a.liens) {
+        const cle = cleDeLienPost(lien);
+        if (cle === null) throw err(ERR.MCP_DESIGNATION, `« ${lien} » n'est pas un lien.`);
+        const post = posts.find((x) => x.postUrl && cleDeLienPost(x.postUrl) === cle);
+        if (!post) throw err(ERR.MCP_DESIGNATION, `Aucun post de ${source.handle} (${source.plateforme}) n'a le lien « ${lien} ».`);
+        if (!choisis.includes(post)) choisis.push(post);
+      }
+    }
+    if (choisis.length === 0) throw err(ERR.MCP_DESIGNATION, `${source.handle} (${source.plateforme}) ne porte aucun post.`);
+    const lot = choisis.slice(0, MAX_POSTS_PAR_APPEL);
+    const reste = choisis.length - lot.length;
+
+    const missions = await missionsDesPosts(ctx, creatorId, lot);
+    const photos = [
+      ...(await photographier(ctx, "publications", lot.map((x) => x._id))),
+      ...(await photographier(ctx, "assignments", missions.map((m) => m._id))),
+    ];
+    await deplacerPostsCore(ctx, lot, missions, source._id, dest);
+    const createatrice = (await ctx.db.get(creatorId))?.name ?? "?";
+    const summary =
+      `${createatrice} · ${source.handle} → ${dest.handle} (${source.plateforme}) : ${lot.length} post(s) déplacé(s)` +
+      (reste > 0 ? ` ; il en reste ${reste} sur ${source.handle}` : "");
+    await journaliser(ctx, {
+      tool: "deplacer_posts",
+      summary,
+      section: "tracker",
+      path: "comptes",
+      annulation: {
+        type: "postsDeplaces",
+        avant: source._id,
+        apres: dest._id,
+        publicationIds: lot.map((x) => x._id),
+        assignmentIds: missions.map((m) => m._id),
+      },
+      etats: await etatsApres(ctx, photos),
+    });
+    return { summary, reste };
+  },
+});
+
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
   confirmer_publication:
     "Une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
   marquer_warmup: "Rappelle marquer_warmup avec l'état inverse, ou Tracker › le post › Warmup.",
+  deplacer_posts: "`defaire`, ou rappelle deplacer_posts dans l'autre sens.",
   valider_video: "Une validation ne se reprend pas : la créatrice a reçu l'email et peut publier.",
   refuser_video: "Un refus ne se reprend pas : la créatrice a reçu le motif et renverra une vidéo, à valider à son retour.",
 };
@@ -365,6 +490,25 @@ async function appelerEcriturePublications(
         : {}),
     });
   }
+  if (name === "deplacer_posts") {
+    const compte = texteArg(args, "compte");
+    if (compte === "") throw new ToolError("« compte » : le @ qui porte les posts aujourd'hui (outil `comptes`).");
+    const nouveauCompte = texteArg(args, "nouveau_compte");
+    if (nouveauCompte === "") throw new ToolError("« nouveau_compte » : le @ du compte où ranger les posts.");
+    const plateforme = texteArg(args, "plateforme");
+    const liens = textesArg(args, "liens");
+    if (liens.length > MAX_POSTS_PAR_APPEL) throw new ToolError(`« liens » : ${MAX_POSTS_PAR_APPEL} posts au plus par appel.`);
+    const r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesPublications.ecrireDeplacementPosts, {
+        ...cible,
+        compte,
+        nouveauCompte,
+        ...(plateforme !== "" ? { plateforme } : {}),
+        liens,
+      }),
+    );
+    return resultatEcriture(projet, r.summary, OU_DEFAIRE[name], r.reste > 0 ? { suite: "Rappelle deplacer_posts pour les suivants." } : {});
+  }
   throw new ToolError(`Outil inconnu : ${name}.`);
 }
 
@@ -377,6 +521,7 @@ export const DOMAINE_PUBLICATIONS: DomaineEcriture = {
     refuser_video: "review.manage",
     confirmer_publication: "review.manage",
     marquer_warmup: "tracker.manage",
+    deplacer_posts: "accounts.manage",
   },
   appeler: appelerEcriturePublications,
 };

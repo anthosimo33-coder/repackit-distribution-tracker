@@ -1463,7 +1463,7 @@ export function jarviaServer(
     compta: "la Compta",
     missions: "les missions (assigner, replanifier, changer de compte, relancer, abandonner, lier des dossiers d'Assets — l'assignation et la relance envoient un email à la créatrice)",
     scripts: "les scripts (créer une campagne, ajouter, modifier et activer des briques et des notifs, graduer un hook) les scénarios de conversation WhatsApp (créer, modifier, archiver, supprimer une bible) et le mode tournage BLUSH (préparer les fichiers, coller les liens), le playbook (documenter un format qui sort du lot)",
-    publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe)",
+    publications: "les publications (valider ou refuser une vidéo soumise — email à la créatrice —, lien collé en secours, chauffe, posts publiés rangés sur un autre compte de la créatrice)",
     veille: "la veille et la bibliothèque (comptes suivis — suivre lance un relevé Apify payant —, inspirations)",
     messages: "les messages aux créatrices (le coach : chaque message part par EMAIL, un tous les 3 jours au plus)",
     conversations: "les conversations Instagram et BLUSH (créer, modifier, supprimer un brouillon de capture ; l'image s'exporte depuis l'écran de l'app)",
