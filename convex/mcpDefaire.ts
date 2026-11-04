@@ -58,6 +58,7 @@ import {
   type StatutScenario,
 } from "./scenarios";
 import { empreinteBible } from "./mcpScenarios";
+import { deplacerPostsCore } from "./postsDeplacement";
 import { etatDeFiche, lireEtatDeFiche } from "./mcpPlaybook";
 import { remettreFicheCore, supprimerFicheCore } from "./playbook";
 import { supprimerTournages } from "./scenarioTournage";
@@ -157,6 +158,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "activer_briques",
   "modifier_briques",
   "marquer_warmup",
+  "deplacer_posts",
   "suivre_compte",
   "ne_plus_suivre",
   "noter_compte_suivi",
@@ -585,6 +587,25 @@ async function annuler(
       // l'absence d'origine (même rémunération : seule `=== true` compte).
       if (a.avant === null) await ctx.db.patch(pub._id, { isWarmup: undefined });
       return a.avant === true ? "Remis en chauffe." : a.avant === false ? "Remis en promo." : "Remis comme avant : non qualifié.";
+    }
+    case "postsDeplaces": {
+      const [depart, arrivee] = await Promise.all([ctx.db.get(a.avant), ctx.db.get(a.apres)]);
+      if (!depart) throw refus("Le compte de départ a été supprimé depuis : rien n'a été remis.");
+      if (!arrivee) throw refus("Le compte d'arrivée a été supprimé depuis : rien n'a été remis.");
+      const posts = await Promise.all(a.publicationIds.map((id) => ctx.db.get(id)));
+      const missions = await Promise.all(a.assignmentIds.map((id) => ctx.db.get(id)));
+      // Encore là où le déplacement les a mis. Les missions, elles, ne sont
+      // réécrites que si leur cible vise encore le compte d'arrivée (cœur).
+      const bouges = posts.filter((x) => x === null || x.compte !== arrivee.handle).length;
+      if (bouges > 0) throw refus(`${bouges} post(s) supprimé(s) ou changé(s) de compte depuis : rien n'a été écrasé.`);
+      await deplacerPostsCore(
+        ctx,
+        posts.filter((x): x is Doc<"publications"> => x !== null),
+        missions.filter((m): m is Doc<"assignments"> => m !== null),
+        a.apres,
+        depart,
+      );
+      return `${posts.length} post(s) remis sur ${depart.handle}.`;
     }
     case "ventilation": {
       const ligne = await ctx.db.get(a.lineId);

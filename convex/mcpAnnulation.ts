@@ -197,6 +197,19 @@ export const annulationValidator = v.union(
     avant: v.union(v.boolean(), v.null()),
     apres: v.boolean(),
   }),
+  /**
+   * deplacer_posts : les posts passés du compte `avant` au compte `apres`, et
+   * les missions qui les portent. Défaire les remet si TOUS les posts portent
+   * encore le handle du compte d'arrivée ; une cible n'est remise que si elle
+   * vise encore ce compte.
+   */
+  v.object({
+    type: v.literal("postsDeplaces"),
+    avant: v.id("comptes"),
+    apres: v.id("comptes"),
+    publicationIds: v.array(v.id("publications")),
+    assignmentIds: v.array(v.id("assignments")),
+  }),
   // ── Veille & bibliothèque ─────────────────────────────────────────────────
   /**
    * suivre_compte : le compte suivi (ses vidéos relevées partent avec). Le

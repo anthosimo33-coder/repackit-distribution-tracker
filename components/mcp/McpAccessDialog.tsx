@@ -428,6 +428,7 @@ type OutilEcriture =
   | "graduer_hook"
   | "confirmer_publication"
   | "marquer_warmup"
+  | "deplacer_posts"
   | "valider_video"
   | "refuser_video"
   | "defaire"
