@@ -829,6 +829,8 @@
         "publishTitle": "Publier « {name} »",
         "publishHint": "Validée, à publier le {date}.",
         "publishHintNoDate": "Validée : tu peux la publier.",
+        "publishHintNoReview": "À tourner et publier le {date}.",
+        "publishHintNoReviewNoDate": "À tourner puis publier — pas de validation pour toi.",
         "produceTitle": "Tourner « {name} »",
         "produceHint": "À envoyer avant le {date}",
         "waitingTitle": "{count, plural, one {Ta vidéo est en validation} other {Tes # vidéos sont en validation}}",

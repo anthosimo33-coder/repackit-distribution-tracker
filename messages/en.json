@@ -829,6 +829,8 @@
         "publishTitle": "Post “{name}”",
         "publishHint": "Approved, post it on {date}.",
         "publishHintNoDate": "Approved: you can post it.",
+        "publishHintNoReview": "Shoot it and post it on {date}.",
+        "publishHintNoReviewNoDate": "Shoot it, then post it — no review for you.",
         "produceTitle": "Shoot “{name}”",
         "produceHint": "Send it before {date}",
         "waitingTitle": "{count, plural, one {Your video is being reviewed} other {Your # videos are being reviewed}}",

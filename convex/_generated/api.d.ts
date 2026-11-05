@@ -71,6 +71,7 @@ import type * as creatorPricing from "../creatorPricing.js";
 import type * as creatorScope from "../creatorScope.js";
 import type * as creatorTerms from "../creatorTerms.js";
 import type * as creatorTimezone from "../creatorTimezone.js";
+import type * as creatorVideoStatus from "../creatorVideoStatus.js";
 import type * as creatorVideos from "../creatorVideos.js";
 import type * as creators from "../creators.js";
 import type * as crons from "../crons.js";
@@ -383,6 +384,7 @@ declare const fullApi: ApiFromModules<{
   creatorScope: typeof creatorScope;
   creatorTerms: typeof creatorTerms;
   creatorTimezone: typeof creatorTimezone;
+  creatorVideoStatus: typeof creatorVideoStatus;
   creatorVideos: typeof creatorVideos;
   creators: typeof creators;
   crons: typeof crons;

@@ -5,6 +5,8 @@ import {
   skipsVideoReview,
 } from "../convex/videoReviewSkip";
 import { dayOffset, lateDays } from "../convex/calendarStatus";
+import { creatorVideoStatus } from "../convex/creatorVideoStatus";
+import type { Doc, Id } from "../convex/_generated/dataModel";
 import {
   buildPublicationMessage,
   publicationLine,
@@ -139,5 +141,27 @@ describe("message de publication — sans validation, hors date", () => {
     };
     expect(msg(c)).toContain("Hors date : lien TikTok du 12/08, prévu le 13/08 (1 jour d'avance)");
     expect(publicationLine(c)).toContain("⚠️ lien TikTok du 12/08, prévu le 13/08 (1 jour d'avance)");
+  });
+});
+
+describe("« Mes vidéos » (Gains) — à publier sans validation n'est PAS une vidéo validée", () => {
+  const P = "projet" as Id<"projects">;
+  const mission = (over: Partial<Doc<"assignments">>) =>
+    ({ projectId: P, status: "to_publish", targets: [], ...over }) as unknown as Doc<"assignments">;
+
+  it("vidéo validée → listée « à publier »", () => {
+    expect(creatorVideoStatus(mission({}), P)).toBe("to_publish");
+  });
+  it("à publier SANS validation → absente : c'est une mission, pas encore une vidéo", () => {
+    expect(creatorVideoStatus(mission({ reviewSkippedFrom: "todo" }), P)).toBeNull();
+    expect(creatorVideoStatus(mission({ reviewSkippedFrom: "video_submitted" }), P)).toBeNull();
+  });
+  it("une fois publiée, elle entre dans la liste comme les autres", () => {
+    const publiee = mission({
+      status: "published",
+      reviewSkippedFrom: "todo",
+      targets: [{ platform: "TikTok", publicationId: "pub" as Id<"publications"> }],
+    });
+    expect(creatorVideoStatus(publiee, P)).toBe("published");
   });
 });
