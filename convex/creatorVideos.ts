@@ -13,6 +13,7 @@ import type { QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { Plateforme } from "./platforms";
 import { resolvePayCurrency } from "./payCurrency";
+import { creatorVideoStatus, type CreatorVideoStatus } from "./creatorVideoStatus";
 
 /**
  * SNYTCH — suivi créatrice de TOUT le cycle de vie de ses vidéos depuis la
@@ -43,17 +44,9 @@ import { resolvePayCurrency } from "./payCurrency";
  *  pending = vidéo publiée mais aucune métrique encore relevée (en cours de calcul). */
 export type VideoTrackingStatus = "active" | "pending";
 
-/**
- * Statut de cycle de vie exposé à la créatrice (sous-ensemble « vidéo soumise et
- * au-delà » de la machine à états assignment). A6 : défini ici (convex/ ne peut
- * importer lib/) ; les mêmes littéraux servent aux filtres UI (lib/creator-video-filters).
- */
-export type CreatorVideoStatus =
-  | "video_submitted"
-  | "video_rejected"
-  | "to_publish"
-  | "published"
-  | "paid";
+// Statut de cycle de vie exposé à la créatrice : défini avec son classement,
+// dans un module pur (testable sans runtime Convex).
+export type { CreatorVideoStatus } from "./creatorVideoStatus";
 
 export type CreatorVideo = {
   id: Id<"assignments">;
@@ -104,37 +97,6 @@ export type CreatorVideo = {
   /** Type de format (short/carousel…) ; null pour un script. */
   formatType: string | null;
 };
-
-/** Une publication est matérialisée (cible OU legacy) → la vidéo est réellement en ligne. */
-function hasMaterializedPublication(a: Doc<"assignments">): boolean {
-  return (
-    (a.targets ?? []).some((t) => t.publicationId !== undefined) ||
-    a.publicationId !== undefined
-  );
-}
-
-/**
- * Classe un assignment dans le cycle de vie « vidéos » de la créatrice, ou null
- * s'il n'y appartient pas (mauvais projet, todo/in_progress, statut legacy, ou
- * published/paid sans publication matérialisée — comportement conservé de #100).
- */
-function creatorVideoStatus(
-  a: Doc<"assignments">,
-  projectId: Id<"projects">,
-): CreatorVideoStatus | null {
-  if (a.projectId !== projectId) return null;
-  switch (a.status) {
-    case "video_submitted":
-    case "video_rejected":
-    case "to_publish":
-      return a.status;
-    case "published":
-    case "paid":
-      return hasMaterializedPublication(a) ? a.status : null;
-    default:
-      return null; // todo, in_progress, legacy (submitted/validated/rejected)
-  }
-}
 
 /** Plateformes de la vidéo (cibles matérialisées ; fallback legacy submittedPlatform). */
 function videoPlatforms(a: Doc<"assignments">): Plateforme[] {

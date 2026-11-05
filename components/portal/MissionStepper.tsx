@@ -13,12 +13,25 @@ import { useTranslations } from "next-intl";
  * Une vidéo REFUSÉE ramène à « Tourner » : c'est ce qu'elle doit refaire. Une
  * mission annulée n'a pas de parcours — le composant ne rend rien.
  *
+ * SANS VALIDATION (créatrice de confiance, cf convex/videoReviewSkip) : deux
+ * étapes, Tourner → Publier. La mission est « à publier » dès sa création ; la
+ * lire comme les autres cocherait « Tourner » et « Validation » alors que
+ * personne n'a rien vu — et qu'elle n'a peut-être encore rien tourné.
+ *
  * Purement descriptif : les gestes restent dans `AssignmentActions`.
  */
 type StepKey = "shoot" | "review" | "publish";
 const STEPS: StepKey[] = ["shoot", "review", "publish"];
+const STEPS_SANS_VALIDATION: StepKey[] = ["shoot", "publish"];
 
-function currentStep(status: string): { index: number; done: boolean } | null {
+function currentStep(
+  status: string,
+  noReview: boolean,
+): { index: number; done: boolean } | null {
+  if (noReview) {
+    if (status === "published" || status === "paid") return { index: 1, done: true };
+    return status === "to_publish" ? { index: 0, done: false } : null;
+  }
   switch (status) {
     case "todo":
     case "in_progress":
@@ -39,22 +52,30 @@ function currentStep(status: string): { index: number; done: boolean } | null {
   }
 }
 
-export function MissionStepper({ status }: { status: string }) {
+export function MissionStepper({
+  status,
+  noReview = false,
+}: {
+  status: string;
+  /** Mission publiée sans validation (`reviewSkippedFrom` posé). */
+  noReview?: boolean;
+}) {
   const t = useTranslations("portal.mission.step");
-  const cur = currentStep(status);
+  const cur = currentStep(status, noReview);
   if (!cur) return null;
+  const steps = noReview ? STEPS_SANS_VALIDATION : STEPS;
 
   return (
     <ol
       data-testid="mission-stepper"
-      data-step={cur.done ? "done" : STEPS[cur.index]}
+      data-step={cur.done ? "done" : steps[cur.index]}
       className="flex items-center gap-2"
     >
-      {STEPS.map((key, i) => {
+      {steps.map((key, i) => {
         const state = cur.done || i < cur.index ? "done" : i === cur.index ? "now" : "todo";
-        const label = cur.done && i === STEPS.length - 1 ? t("done") : t(key);
+        const label = cur.done && i === steps.length - 1 ? t("done") : t(key);
         return (
-          <li key={key} className={cn("flex items-center gap-2", i < STEPS.length - 1 && "flex-1")}>
+          <li key={key} className={cn("flex items-center gap-2", i < steps.length - 1 && "flex-1")}>
             <span
               aria-current={state === "now" ? "step" : undefined}
               className={cn(
@@ -76,7 +97,7 @@ export function MissionStepper({ status }: { status: string }) {
               </span>
               <span className="whitespace-nowrap">{label}</span>
             </span>
-            {i < STEPS.length - 1 && (
+            {i < steps.length - 1 && (
               <span
                 aria-hidden
                 className={cn(

@@ -416,9 +416,15 @@ function NextActionCard({
     case "publish":
       icon = SendIcon;
       title = t("home.kind.publishTitle", { name: action.row.formatName });
-      hint = action.row.postDate != null
-        ? t("home.kind.publishHint", { date: plannedDay(action.row.postDate) })
-        : t("home.kind.publishHintNoDate");
+      // Sans validation (cf convex/videoReviewSkip) : rien n'a été validé, il
+      // reste à tourner ET à publier — « Validée » serait faux.
+      hint = action.row.reviewSkippedFrom !== undefined
+        ? action.row.postDate != null
+          ? t("home.kind.publishHintNoReview", { date: plannedDay(action.row.postDate) })
+          : t("home.kind.publishHintNoReviewNoDate")
+        : action.row.postDate != null
+          ? t("home.kind.publishHint", { date: plannedDay(action.row.postDate) })
+          : t("home.kind.publishHintNoDate");
       cta = t("home.cta.publish");
       break;
     case "produce":

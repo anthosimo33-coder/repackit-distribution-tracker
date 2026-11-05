@@ -301,7 +301,7 @@ export default function AssignmentDetailScreen({
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-5">
-                    <MissionStepper status={a.status} />
+                    <MissionStepper status={a.status} noReview={a.reviewSkippedFrom !== undefined} />
                     <AssignmentActions
                       assignment={a}
                       targets={data.targets}

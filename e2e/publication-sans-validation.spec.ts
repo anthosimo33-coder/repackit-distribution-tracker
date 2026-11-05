@@ -245,6 +245,9 @@ test.describe("Publier sans validation — créatrice de confiance", () => {
     await expect(page.getByTestId("publish-no-review")).toContainText("Pas de validation pour toi");
     await expect(page.getByRole("button", { name: /je commence/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /soumettre ma vidéo/i })).toHaveCount(0);
+    // Le fil de la mission : Tourner → Publier, sans étape « Validation » cochée.
+    await expect(page.getByTestId("mission-stepper")).toHaveAttribute("data-step", "shoot");
+    await expect(page.getByTestId("mission-stepper")).not.toContainText("Validation");
 
     await page.locator("#url-TikTok").fill(`https://www.tiktok.com/${handle}/video/${ts}`);
     await page.getByRole("button", { name: /confirmer la publication/i }).click();

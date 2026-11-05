@@ -829,6 +829,8 @@
         "publishTitle": "Publicar “{name}”",
         "publishHint": "Validada, para publicar em {date}.",
         "publishHintNoDate": "Validada: você já pode publicar.",
+        "publishHintNoReview": "Grave e publique em {date}.",
+        "publishHintNoReviewNoDate": "Grave e depois publique — sem validação para você.",
         "produceTitle": "Gravar “{name}”",
         "produceHint": "Enviar até {date}",
         "waitingTitle": "{count, plural, one {Seu vídeo está em validação} other {Seus # vídeos estão em validação}}",
