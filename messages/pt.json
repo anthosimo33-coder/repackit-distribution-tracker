@@ -503,7 +503,8 @@
         "inProgress": "Em produção: o criador ainda precisa enviar o vídeo.",
         "submitted": "Vídeo enviado: aguardando validação do admin.",
         "resubmit": "O criador precisa reenviar um vídeo.",
-        "toPublish": "Vídeo validado: o criador precisa publicar e depois colar as URLs."
+        "toPublish": "Vídeo validado: o criador precisa publicar e depois colar as URLs.",
+        "toPublishNoReview": "Publica sem validação: o criador precisa publicar no dia previsto e depois colar as URLs."
       },
       "redoTitle": "Vídeo para refazer",
       "publishedPaid": "Publicado e pago ✓",
@@ -512,6 +513,7 @@
       "uploadHint": "{count, plural, one {Envie seu MP4 (não publicado). O admin valida antes de você publicar na sua conta.} other {Envie seu MP4 (não publicado). O admin valida antes de você publicar nas suas contas.}}",
       "dropHere": "Arraste seu vídeo para cá",
       "validatedPublish": "{count, plural, one {Seu vídeo foi validado: publique na sua conta e cole a URL abaixo.} other {Seu vídeo foi validado: publique em cada plataforma e cole as URLs abaixo.}}",
+      "noReviewPublish": "{count, plural, one {Sem validação para você: grave seu vídeo, publique na sua conta no dia previsto e cole a URL abaixo.} other {Sem validação para você: grave seu vídeo, publique em cada plataforma no dia previsto e cole as URLs abaixo.}}",
       "publishOn": "Publique no {platform}",
       "wrongLink": "Este link não é um link do {platform}.",
       "managedBadge2": "Gerenciado pela equipe",
@@ -1645,7 +1647,8 @@
     "ERR_INSTA_CONV_STALE_SCREEN": "Esta tela foi carregada antes da última atualização do Jarvia: recarregue a página, senão ela apagaria parte do rascunho.",
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagem recusada: JPEG, PNG ou WebP de no máximo 8 MB.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Intervalo de dias inválido: dias AAAA-MM-DD, o primeiro antes do último.",
-    "ERR_PRICING_REASSIGN_STALE": "A lista mudou desde a pré-visualização: {found} vídeo(s) para passar para esta tabela em vez de {expected}. Nada foi alterado: revise a pré-visualização."
+    "ERR_PRICING_REASSIGN_STALE": "A lista mudou desde a pré-visualização: {found} vídeo(s) para passar para esta tabela em vez de {expected}. Nada foi alterado: revise a pré-visualização.",
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} não é uma criadora parceira: publicar sem validação é só para elas."
   },
   "calendar": {
     "weekday": {

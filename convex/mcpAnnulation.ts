@@ -210,6 +210,17 @@ export const annulationValidator = v.union(
     publicationIds: v.array(v.id("publications")),
     assignmentIds: v.array(v.id("assignments")),
   }),
+  /**
+   * publier_sans_validation : la confiance de la fiche avant et après. Défaire
+   * repose `avant` par le même cœur — qui aligne les missions — si la fiche
+   * porte encore `apres`.
+   */
+  v.object({
+    type: v.literal("confianceVideo"),
+    creatorId: v.id("creators"),
+    avant: v.boolean(),
+    apres: v.boolean(),
+  }),
   // ── Veille & bibliothèque ─────────────────────────────────────────────────
   /**
    * suivre_compte : le compte suivi (ses vidéos relevées partent avec). Le

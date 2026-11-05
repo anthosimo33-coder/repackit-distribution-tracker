@@ -429,6 +429,7 @@ type OutilEcriture =
   | "confirmer_publication"
   | "marquer_warmup"
   | "deplacer_posts"
+  | "publier_sans_validation"
   | "valider_video"
   | "refuser_video"
   | "defaire"

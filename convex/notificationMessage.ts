@@ -267,6 +267,24 @@ export interface PublicationContext {
    * « la créatrice a publié ».
    */
   isClip?: boolean;
+  /**
+   * true = publiée SANS VALIDATION (créatrice de confiance, cf
+   * convex/videoReviewSkip) : personne n'a vu la vidéo avant sa mise en ligne.
+   */
+  reviewSkipped?: boolean;
+  /**
+   * Jour lu dans le lien ≠ jour prévu. Calculé seulement sans validation :
+   * c'est alors le dernier contrôle qui reste. null/absent = le bon jour, ou
+   * pas de date lisible dans le lien.
+   */
+  linkDayGap?: { days: number; linkDay: number; postDate: number; platform: string } | null;
+}
+
+/** « lien du 06/11, prévu le 05/11 (1 jour de retard) ». */
+function linkDayGapText(gap: NonNullable<PublicationContext["linkDayGap"]>): string {
+  const n = Math.abs(gap.days);
+  const sens = gap.days > 0 ? "de retard" : "d'avance";
+  return `lien ${gap.platform} du ${formatDayMonthFr(gap.linkDay)}, prévu le ${formatDayMonthFr(gap.postDate)} (${n} jour${n > 1 ? "s" : ""} ${sens})`;
 }
 
 /** « TikTok · @handle » par cible publiée (le lien est rendu à part, cliquable). */
@@ -280,7 +298,9 @@ function describePublicationTargets(ctx: PublicationContext): string {
 /** Ligne compacte d'une publication, pour le message groupé. */
 export function publicationLine(ctx: PublicationContext): string {
   const suffix = ctx.byAdmin ? " (saisi par l'admin)" : "";
-  return `${ctx.creatorName}${clipTag(ctx)} — ${describeMission(ctx)} → ${describePublicationTargets(ctx)}${suffix}`;
+  const sansValidation = ctx.reviewSkipped ? " (sans validation)" : "";
+  const date = ctx.linkDayGap ? ` ⚠️ ${linkDayGapText(ctx.linkDayGap)}` : "";
+  return `${ctx.creatorName}${clipTag(ctx)} — ${describeMission(ctx)} → ${describePublicationTargets(ctx)}${suffix}${sansValidation}${date}`;
 }
 
 /**
@@ -306,6 +326,12 @@ export function buildPublicationMessage(params: {
         ctx.isClip ? "le clippeur" : "la créatrice"
       }.`,
     );
+  }
+  if (ctx.reviewSkipped) {
+    lignes.push("👁 Publiée sans validation : personne n'a vu la vidéo avant sa mise en ligne.");
+  }
+  if (ctx.linkDayGap) {
+    lignes.push(`⚠️ Hors date : ${escapeTelegram(linkDayGapText(ctx.linkDayGap))}.`);
   }
   const liens = ctx.targets
     .filter((t): t is typeof t & { url: string } => Boolean(t.url))

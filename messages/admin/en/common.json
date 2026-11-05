@@ -949,6 +949,7 @@
       "confirmer_publication": "Paste a post link",
       "marquer_warmup": "Warm-up / promo",
       "deplacer_posts": "Move published posts to another account",
+      "publier_sans_validation": "Publish without review (trusted creator)",
       "valider_video": "Approve a video",
       "refuser_video": "Reject a video",
       "defaire": "Undo a change",

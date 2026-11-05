@@ -24,6 +24,10 @@ export const CREATOR_ASSIGNMENT_FIELDS = [
   "_creationTime",
   "status",
   "managedByAdmin",
+  // Publie sans validation : la mission est « à publier » sans que sa vidéo ait
+  // été validée — l'écran le lui DIT au lieu d'annoncer « ta vidéo est validée ».
+  // Son propre circuit, rien d'interne (cf convex/videoReviewSkip).
+  "reviewSkippedFrom",
   "dueDate",
   "postDate",
   // Plage horaire : la consigne « entre 21 h et 23 h » n'a de valeur que si la

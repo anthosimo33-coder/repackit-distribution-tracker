@@ -67,6 +67,7 @@ import { deleteInspirationCore } from "./inspirations";
 import { deleteConversationCore, restoreConversationCore, updateConversationCore } from "./instaConversations";
 import type { Plateforme } from "./platforms";
 import { setPublicationWarmupCore } from "./publications";
+import { setSkipVideoReviewCore } from "./creators";
 import {
   addComptaChargeCore,
   deleteAccountReadingCore,
@@ -159,6 +160,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "modifier_briques",
   "marquer_warmup",
   "deplacer_posts",
+  "publier_sans_validation",
   "suivre_compte",
   "ne_plus_suivre",
   "noter_compte_suivi",
@@ -587,6 +589,14 @@ async function annuler(
       // l'absence d'origine (même rémunération : seule `=== true` compte).
       if (a.avant === null) await ctx.db.patch(pub._id, { isWarmup: undefined });
       return a.avant === true ? "Remis en chauffe." : a.avant === false ? "Remis en promo." : "Remis comme avant : non qualifié.";
+    }
+    case "confianceVideo": {
+      const c = await ctx.db.get(a.creatorId);
+      if (!c) throw refus("Cette créatrice n'existe plus.");
+      if ((c.skipVideoReview === true) !== a.apres) throw refus("La fiche a été rebasculée depuis : rien n'a été écrasé.");
+      const { moved } = await setSkipVideoReviewCore(ctx, c._id, a.avant);
+      const missions = moved > 0 ? ` (${moved} mission(s) remise(s) en place)` : "";
+      return a.avant ? `Remise sans validation${missions}.` : `Repasse par la Validation${missions}.`;
     }
     case "postsDeplaces": {
       const [depart, arrivee] = await Promise.all([ctx.db.get(a.avant), ctx.db.get(a.apres)]);

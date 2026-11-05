@@ -503,7 +503,8 @@
         "inProgress": "In production — the creator still has to submit their video.",
         "submitted": "Video sent — waiting for the admin to approve it.",
         "resubmit": "The creator has to submit a new video.",
-        "toPublish": "Video approved — the creator has to publish it, then paste the URLs."
+        "toPublish": "Video approved — the creator has to publish it, then paste the URLs.",
+        "toPublishNoReview": "Publishes without review — the creator has to publish on the planned day, then paste the URLs."
       },
       "redoTitle": "Video to redo",
       "publishedPaid": "Published and paid ✓",
@@ -512,6 +513,7 @@
       "uploadHint": "{count, plural, one {Send your MP4 (unpublished). The admin approves it before you publish it on your account.} other {Send your MP4 (unpublished). The admin approves it before you publish it on your accounts.}}",
       "dropHere": "Drop your video here",
       "validatedPublish": "{count, plural, one {Your video is approved — publish it on your account, then paste the URL below.} other {Your video is approved — publish it on each platform, then paste the URLs below.}}",
+      "noReviewPublish": "{count, plural, one {No review for you: shoot your video, publish it on your account on the planned day, then paste the URL below.} other {No review for you: shoot your video, publish it on each platform on the planned day, then paste the URLs below.}}",
       "publishOn": "Publish on {platform}",
       "wrongLink": "This isn't a {platform} link.",
       "managedBadge2": "Managed by the team",
@@ -1645,7 +1647,8 @@
     "ERR_INSTA_CONV_STALE_SCREEN": "This screen was loaded before Jarvia's latest update: reload the page, or it would wipe part of the draft.",
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Image rejected: JPEG, PNG or WebP, 8 MB at most.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Invalid day range: use YYYY-MM-DD days, the first one before the last.",
-    "ERR_PRICING_REASSIGN_STALE": "The list changed since the preview: {found} video(s) to move to this pay grid instead of {expected}. Nothing was changed: check the preview again."
+    "ERR_PRICING_REASSIGN_STALE": "The list changed since the preview: {found} video(s) to move to this pay grid instead of {expected}. Nothing was changed: check the preview again.",
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} isn't a partner creator: publishing without review is for them only."
   },
   "calendar": {
     "weekday": {

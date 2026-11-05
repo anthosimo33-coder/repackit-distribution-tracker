@@ -357,5 +357,13 @@
     "talent": "Talent",
     "clipper": "Clippeur"
   },
-  "anciennete": "{n, plural, =0 {aujourd’hui} =1 {hier} other {il y a # j}}"
+  "anciennete": "{n, plural, =0 {aujourd’hui} =1 {hier} other {il y a # j}}",
+  "VideoReviewSkipCard": {
+    "titre": "Publier sans validation",
+    "description": "Créatrice de confiance : ses vidéos ne passent plus par la Validation. Ses missions sont directement « à publier » ; elle publie le jour prévu et colle ses liens. Les contrôles du lien (son compte, la bonne plateforme) restent. Le retirer remet ses missions encore à publier là où elles étaient.",
+    "libelle": "Ses vidéos sont publiées sans validation",
+    "activee": "{count, plural, =0 {Activé.} one {Activé — # mission passée à publier.} other {Activé — # missions passées à publier.}}",
+    "desactivee": "{count, plural, =0 {Désactivé.} one {Désactivé — # mission remise dans son état d'avant.} other {Désactivé — # missions remises dans leur état d'avant.}}",
+    "echec": "Réglage non enregistré"
+  }
 }

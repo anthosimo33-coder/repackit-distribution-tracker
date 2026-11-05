@@ -14,18 +14,25 @@
  *  - `valider_video`, `refuser_video` : la file Validation, droit `review.manage`
  *    — après que Claude a REGARDÉ la vidéo (`regarder_video`). Chacun envoie
  *    l'email de l'écran à la créatrice.
+ *  - `publier_sans_validation` : la confiance d'une créatrice — ses vidéos ne
+ *    passent plus par la Validation (cf convex/videoReviewSkip), droit
+ *    `review.manage`, celui de l'interrupteur de sa fiche.
  */
 
 import { v } from "convex/values";
 import type { ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { mcpWriteMutation, requireCreatorInScope } from "./functions";
+import { creatorScopeFor, mcpWriteMutation, requireCreatorInScope } from "./functions";
+import { filterByCreatorScope } from "./creatorScope";
+import { resolveCreatorKind } from "./roles";
+import { setSkipVideoReviewCore } from "./creators";
 import { ERR, err } from "./errorCodes";
 import { ToolError, type McpTool, type ToolResult } from "./mcpProtocol";
 import type { Id } from "./_generated/dataModel";
 import {
   AJOUTE,
   ARG_PROJET,
+  designerOuRefuser,
   ecrire,
   ECRIT,
   etatsApres,
@@ -175,6 +182,23 @@ export const OUTILS_REVUE_VIDEO: readonly McpTool[] = [
     },
     annotations: AJOUTE,
   },
+  {
+    name: "publier_sans_validation",
+    title: "Publier sans validation (créatrice de confiance)",
+    description:
+      "MODIFIE les publications : une créatrice de confiance ne fait plus valider ses vidéos — ses missions passent directement « à publier », elle publie le jour prévu et colle ses liens (contrôles du lien inchangés : son compte, la bonne plateforme). « active: false » remet chaque mission encore à publier là où elle était (une vidéo soumise retourne dans `validation`). Personne ne voit plus la vidéo avant sa mise en ligne : dis-le avant, et attends mon accord. Partenaires seulement.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        createatrice: { type: "string", description: "Nom de la créatrice, comme dans `createatrices`." },
+        active: { type: "boolean", description: "true = publie sans validation ; false = repasse par la Validation." },
+      },
+      required: ["createatrice", "active"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
 ];
 
 // ─── Écritures ──────────────────────────────────────────────────────────────
@@ -204,6 +228,59 @@ export const ecrireRefusVideo = mcpWriteMutation("review.manage", "publications"
     const summary = `${m.libelle} : vidéo refusée — « ${court} »`;
     await journaliser(ctx, { tool: "refuser_video", summary, section: "validation", path: "validation", etats: await etatsApres(ctx, photos) });
     return { summary };
+  },
+});
+
+export const ecrireConfianceVideo = mcpWriteMutation("review.manage", "publications")({
+  args: { createatrice: v.string(), active: v.boolean() },
+  handler: async (ctx, a) => {
+    const creatrices = filterByCreatorScope(
+      await ctx.db
+        .query("creators")
+        .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+        .collect(),
+      (c) => c._id,
+      await creatorScopeFor(ctx, ctx.userId, ctx.projectId),
+    ).filter((c) => resolveCreatorKind(c.kind) === "partner");
+    const c = designerOuRefuser(creatrices, (x) => x.name, a.createatrice, "créatrices");
+    const avant = c.skipVideoReview === true;
+    // Les missions qui vont bouger, photographiées AVANT : le journal garde de
+    // quoi reconstruire chacune (cf journaliser).
+    const bougeront = (
+      await ctx.db
+        .query("assignments")
+        .withIndex("by_creator", (q) => q.eq("creatorId", c._id))
+        .collect()
+    ).filter((m) =>
+      a.active
+        ? !m.managedByAdmin && ["todo", "in_progress", "video_submitted", "video_rejected"].includes(m.status)
+        : m.status === "to_publish" && m.reviewSkippedFrom !== undefined,
+    );
+    const photos = [
+      ...(await photographier(ctx, "creators", [c._id])),
+      ...(await photographier(ctx, "assignments", bougeront.map((m) => m._id))),
+    ];
+    const { moved } = await setSkipVideoReviewCore(ctx, c._id, a.active);
+    const inchange = avant === a.active && moved === 0;
+    const summary =
+      `${c.name} : ${a.active ? "publie sans validation" : "repasse par la Validation"}` +
+      (moved > 0
+        ? a.active
+          ? ` — ${moved} mission(s) passée(s) à publier`
+          : ` — ${moved} mission(s) remise(s) dans leur état d'avant`
+        : "") +
+      (inchange ? " (déjà dans cet état)" : "");
+    if (!inchange) {
+      await journaliser(ctx, {
+        tool: "publier_sans_validation",
+        summary,
+        section: "validation",
+        path: `createurs/${c._id}`,
+        annulation: { type: "confianceVideo", creatorId: c._id, avant, apres: a.active },
+        etats: await etatsApres(ctx, photos),
+      });
+    }
+    return { summary, inchange };
   },
 });
 
@@ -408,6 +485,7 @@ const OU_DEFAIRE: Record<string, string> = {
     "Une publication confirmée ne se dé-publie pas : un mauvais lien se corrige dans Assignments › la mission › « Corriger le lien ».",
   marquer_warmup: "Rappelle marquer_warmup avec l'état inverse, ou Tracker › le post › Warmup.",
   deplacer_posts: "`defaire`, ou rappelle deplacer_posts dans l'autre sens.",
+  publier_sans_validation: "`defaire`, ou rappelle publier_sans_validation avec l'état inverse, ou la fiche de la créatrice › Publier sans validation.",
   valider_video: "Une validation ne se reprend pas : la créatrice a reçu l'email et peut publier.",
   refuser_video: "Un refus ne se reprend pas : la créatrice a reçu le motif et renverra une vidéo, à valider à son retour.",
 };
@@ -476,6 +554,19 @@ async function appelerEcriturePublications(
     );
     return resultatEcriture(projet, r.summary, OU_DEFAIRE[name]);
   }
+  if (name === "publier_sans_validation") {
+    const createatrice = texteArg(args, "createatrice");
+    if (createatrice === "") throw new ToolError("« createatrice » : son nom, comme dans l'outil `createatrices`.");
+    if (typeof args.active !== "boolean") throw new ToolError("« active » : true = sans validation, false = avec.");
+    const r = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesPublications.ecrireConfianceVideo, {
+        ...cible,
+        createatrice,
+        active: args.active as boolean,
+      }),
+    );
+    return resultatEcriture(projet, r.summary, OU_DEFAIRE[name], r.inchange ? { inchange: true } : {});
+  }
   if (name === "marquer_warmup") {
     const lien = texteArg(args, "lien");
     if (lien === "") throw new ToolError("« lien » : le lien du post.");
@@ -522,6 +613,7 @@ export const DOMAINE_PUBLICATIONS: DomaineEcriture = {
     confirmer_publication: "review.manage",
     marquer_warmup: "tracker.manage",
     deplacer_posts: "accounts.manage",
+    publier_sans_validation: "review.manage",
   },
   appeler: appelerEcriturePublications,
 };

@@ -357,5 +357,13 @@
     "talent": "Talent",
     "clipper": "Clipper"
   },
-  "anciennete": "{n, plural, =0 {today} =1 {yesterday} other {#d ago}}"
+  "anciennete": "{n, plural, =0 {today} =1 {yesterday} other {#d ago}}",
+  "VideoReviewSkipCard": {
+    "titre": "Publish without review",
+    "description": "Trusted creator: videos skip the review queue. Missions go straight to “to publish”; the creator publishes on the planned day and pastes the links. Link checks (own account, right platform) still apply. Turning it off puts missions still to publish back where they were.",
+    "libelle": "Videos are published without review",
+    "activee": "{count, plural, =0 {Turned on.} one {Turned on — # mission moved to “to publish”.} other {Turned on — # missions moved to “to publish”.}}",
+    "desactivee": "{count, plural, =0 {Turned off.} one {Turned off — # mission put back where it was.} other {Turned off — # missions put back where they were.}}",
+    "echec": "Setting not saved"
+  }
 }

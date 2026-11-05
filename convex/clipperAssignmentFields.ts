@@ -102,6 +102,8 @@ export const NON_CLIPPER_ASSIGNMENT_FIELDS = [
   // Sans objet dans le flux clip (cf en-tête).
   "formatId",
   "managedByAdmin",
+  // Publier sans validation est réservé aux partenaires (cf convex/videoReviewSkip).
+  "reviewSkippedFrom",
   "rateSnapshot",
   "pricingSnapshot",
   // ⚠️ LIRE AVANT D'EN DÉDUIRE QUOI QUE CE SOIT. `clipRateSnapshot` est la

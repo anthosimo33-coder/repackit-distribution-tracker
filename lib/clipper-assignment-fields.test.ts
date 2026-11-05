@@ -123,6 +123,8 @@ describe("clipperAssignmentFields — allowlist anti-fuite clippeur", () => {
     const onlyClipper = CLIPPER_ASSIGNMENT_FIELDS.filter((f) => !creator.has(f));
     expect(onlyCreator).toEqual([
       "managedByAdmin",
+      // Publier sans validation : flux partenaire seulement.
+      "reviewSkippedFrom",
       "formatId",
       "rateSnapshot",
       "pricingSnapshot",

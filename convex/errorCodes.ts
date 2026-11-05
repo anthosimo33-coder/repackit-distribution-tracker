@@ -415,6 +415,8 @@ export const ERR = {
   PRICING_REASSIGN_DAY_INVALID: "ERR_PRICING_REASSIGN_DAY_INVALID",
   /** Changer le barème : la liste a bougé depuis l'aperçu (paramètres `found`, `expected`). */
   PRICING_REASSIGN_STALE: "ERR_PRICING_REASSIGN_STALE",
+  /** Publier sans validation : réservé aux créatrices partenaires (paramètre `name`). */
+  VIDEO_REVIEW_SKIP_PARTNER_ONLY: "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];
