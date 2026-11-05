@@ -6,6 +6,7 @@ import {
   e2eMutation,
   permissionMutation,
   permissionQuery,
+  type ProjectMutationCtx,
   type ProjectQueryCtx,
   publicQuery,
   requireCreatorObservable,
@@ -51,6 +52,7 @@ import {
 } from "./creatorActivity";
 import { creatorZone } from "./creatorTimezone";
 import { creatorActivationPatch } from "./creatorActivation";
+import { appliquerConfianceVideo } from "./videoReviewSkip";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
@@ -207,6 +209,9 @@ export async function listCreatorsCore(
         c.trialDecision === undefined
           ? null
           : { decision: c.trialDecision.decision, decidedAt: c.trialDecision.decidedAt },
+      // Publie sans validation (cf convex/videoReviewSkip) — un réglage de
+      // circuit, lu par l'outil MCP `createatrices`.
+      skipVideoReview: c.skipVideoReview === true,
       createdAt: c.createdAt,
       invitation,
       locale: localeOrDefault(await resolveCreatorLocale(ctx, c)),
@@ -404,6 +409,9 @@ export const getCreator = permissionQuery("creators.read")({
       createdAt: creator.createdAt,
       // `adminNotes` reste ici : ce sont des notes d'équipe, pas de l'argent.
       adminNotes: creator.adminNotes,
+      // Publie sans validation (cf convex/videoReviewSkip). Un réglage de
+      // circuit, pas de l'argent.
+      skipVideoReview: creator.skipVideoReview === true,
       invitation: inv ? { token: inv.token, expiresAt: inv.expiresAt } : null,
     };
   },
@@ -602,6 +610,40 @@ export const recordTrialDecision = permissionMutation("creators.manage")({
     await invalidateDashboardCache(ctx, ctx.projectId, "decisions");
   },
 });
+
+/**
+ * PUBLIER SANS VALIDATION — pose ou retire la confiance, et aligne les missions
+ * en cours (cf convex/videoReviewSkip). Gardée par `review.manage` : ne peut
+ * renoncer à la Validation que qui a le droit de valider. Partenaires seulement.
+ * Partagée par l'interrupteur de la fiche et l'outil MCP `publier_sans_validation`.
+ */
+export const setSkipVideoReview = permissionMutation("review.manage")({
+  args: { creatorId: v.id("creators"), enabled: v.boolean() },
+  handler: (ctx, { creatorId, enabled }) =>
+    setSkipVideoReviewCore(ctx, creatorId, enabled),
+});
+
+export async function setSkipVideoReviewCore(
+  ctx: ProjectMutationCtx,
+  creatorId: Id<"creators">,
+  enabled: boolean,
+): Promise<{ moved: number }> {
+  const creator = await ctx.db.get(creatorId);
+  if (!creator || creator.projectId !== ctx.projectId) {
+    throw err(ERR.CREATOR_NOT_FOUND, "Créateur introuvable.");
+  }
+  await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, creator._id);
+  // Retirer reste toujours possible (une fiche passée clippeuse depuis doit
+  // pouvoir rendre ses missions) ; seule la POSE est réservée aux partenaires.
+  if (enabled && resolveCreatorKind(creator.kind) !== "partner") {
+    throw err(
+      ERR.VIDEO_REVIEW_SKIP_PARTNER_ONLY,
+      `${creator.name} n'est pas une créatrice partenaire : la publication sans validation ne s'adresse qu'à elles.`,
+      { name: creator.name },
+    );
+  }
+  return appliquerConfianceVideo(ctx, creator, enabled);
+}
 
 /**
  * Édition de la fiche — IDENTITÉ ET SUIVI, jamais la rémunération.

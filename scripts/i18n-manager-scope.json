@@ -207,6 +207,7 @@
     "components/creators/DeleteCreatorDialog.tsx",
     "components/creators/InviteCreatorDialog.tsx",
     "components/creators/TimezonePicker.tsx",
+    "components/creators/VideoReviewSkipCard.tsx",
     "components/filters/FilterMultiSelect.tsx",
     "components/filters/FilterSelect.tsx",
     "components/guides/GuideModuleEditDialog.tsx",

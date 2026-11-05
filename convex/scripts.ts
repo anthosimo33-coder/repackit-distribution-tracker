@@ -30,6 +30,7 @@ import { isValidPostWindow } from "./postWindow";
 import { buildPricingSnapshotFor } from "./pricing";
 import { canTransition } from "./rushStatus";
 import { resolveCreatorKind } from "./roles";
+import { initialMissionState } from "./videoReviewSkip";
 import {
   describeIneligibleBrick,
   describeNoEligibleCombo,
@@ -1982,9 +1983,9 @@ export async function assignScriptCampaignCore(
       ...(args.replayVerbatim ? { replayVerbatim: true } : {}),
       targets,
       dueDate: args.dueDate,
-      status: managed ? "to_publish" : "todo",
-      // Dénormalisation (undefined si non géré → 0 bruit sur les rows normales).
-      managedByAdmin: managed ? true : undefined,
+      // Compte géré, ou créatrice de confiance → direct « à publier »
+      // (cf convex/videoReviewSkip). Rien de posé sur une mission normale.
+      ...initialMissionState(managed, creator),
       rateSnapshot,
       pricingSnapshot,
       overlayText,

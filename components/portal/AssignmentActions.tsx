@@ -45,6 +45,8 @@ import type { Plateforme } from "@/convex/platforms";
  *   → « Soumettre ma vidéo » (upload MP4 modal) → video_submitted (en revue)
  *   → [refus] video_rejected (feedback) → re-upload → video_submitted
  *   → [validée] to_publish → publie sur CHAQUE plateforme + colle les URLs → published.
+ * Créatrice de confiance : la mission NAÎT en to_publish (`reviewSkippedFrom`),
+ * elle colle directement ses liens (cf convex/videoReviewSkip).
  * Le PAIEMENT se déclenche à `published` (confirmPublication), 1 base PAR POST.
  */
 
@@ -165,6 +167,11 @@ export function AssignmentActions({
   }
 
   const s = assignment.status;
+  // Publie SANS VALIDATION (créatrice de confiance, cf convex/videoReviewSkip) :
+  // la mission est « à publier » sans que personne ait validé de vidéo. Même
+  // formulaire de liens ; seul le bandeau change — « ta vidéo est validée »
+  // serait faux.
+  const noReview = assignment.reviewSkippedFrom !== undefined;
   // Compte GÉRÉ par l'équipe : la créatrice ne soumet ni ne publie rien (l'admin
   // le fait). Rendu en LECTURE seule + marqueur, quel que soit readOnly.
   const managed = assignment.managedByAdmin === true;
@@ -349,7 +356,11 @@ export function AssignmentActions({
         {s === "to_publish" && (
           <ReadOnlyState
             tone="emerald"
-            label={t("assignment.ro.toPublish")}
+            label={
+              noReview
+                ? t("assignment.ro.toPublishNoReview")
+                : t("assignment.ro.toPublish")
+            }
           />
         )}
         {(s === "published" || s === "paid") && (
@@ -464,9 +475,14 @@ export function AssignmentActions({
     );
     return (
       <form onSubmit={handleConfirm} className="space-y-4">
-        <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+        <div
+          data-testid={noReview ? "publish-no-review" : undefined}
+          className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
+        >
           <CheckCircle2Icon className="size-4 shrink-0" />
-          {t("assignment.validatedPublish", { count: targets.length })}
+          {noReview
+            ? t("assignment.noReviewPublish", { count: targets.length })
+            : t("assignment.validatedPublish", { count: targets.length })}
         </div>
         {targets.map((target) => {
           const val = urls[target.platform] ?? "";

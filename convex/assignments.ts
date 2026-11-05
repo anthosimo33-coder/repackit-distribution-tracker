@@ -98,6 +98,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { missionLabelFor } from "./missionLabel";
 import { resolveCreatorPricing } from "./creatorPricing";
+import { initialMissionState } from "./videoReviewSkip";
 import { PLATEFORMES, plateformeValidator, type Plateforme } from "./platforms";
 import {
   remettreTexteDe,
@@ -480,9 +481,9 @@ export const assignFormat = permissionMutation("assignments.manage")({
         formatId: args.formatId,
         targets,
         dueDate: args.dueDate,
-        status: managed ? "to_publish" : "todo",
-        // Dénormalisation D1 (undefined si non géré → 0 bruit sur les rows normales).
-        managedByAdmin: managed ? true : undefined,
+        // Compte géré, ou créatrice de confiance → direct « à publier »
+        // (cf convex/videoReviewSkip). Rien de posé sur une mission normale.
+        ...initialMissionState(managed, creator),
         rateSnapshot,
         pricingSnapshot,
         overlayText,

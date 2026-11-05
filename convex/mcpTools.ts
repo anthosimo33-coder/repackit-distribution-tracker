@@ -324,6 +324,8 @@ export const lireCreatrices = mcpPermissionQuery("creators.read")({
         dernierPost: jour(a?.lastPostAt),
         premierPostPaye: jour(c.firstPostAt),
         refLien: c.refSlug ?? null,
+        // Créatrice de confiance : ses vidéos ne passent plus par la Validation.
+        publieSansValidation: c.skipVideoReview,
         decisionDeFinDeTest:
           c.trialDecision === null
             ? null
@@ -866,7 +868,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "createatrices",
     title: "Créatrices du projet",
     description:
-      "Créatrices du projet, comme l'écran Créateurs : statut (invited, onboarding, active, paused, churned), type (partner, talent, clipper), langue, fuseau, comptes actifs, publications, dernier post, décision de fin de test (garder / arrêter, cliquée depuis la carte « Recrues à trancher » du Dashboard). Par défaut, seules les créatrices en activité (ni en pause ni parties).",
+      "Créatrices du projet, comme l'écran Créateurs : statut (invited, onboarding, active, paused, churned), type (partner, talent, clipper), langue, fuseau, comptes actifs, publications, dernier post, décision de fin de test (garder / arrêter, cliquée depuis la carte « Recrues à trancher » du Dashboard), publie sans validation (créatrice de confiance : ses vidéos ne passent plus par la Validation — réglé par `publier_sans_validation`). Par défaut, seules les créatrices en activité (ni en pause ni parties).",
     inputSchema: {
       type: "object",
       properties: {

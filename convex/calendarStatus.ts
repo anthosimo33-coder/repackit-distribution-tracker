@@ -322,11 +322,28 @@ export function lateDays(input: {
   /** Fuseau de la créatrice (cf. calendarStatus). */
   timeZone?: string | null;
 }): number | null {
+  const offset = dayOffset(input);
+  return offset !== null && offset > 0 ? offset : null;
+}
+
+/**
+ * Écart SIGNÉ, en jours, entre le jour réel d'une publication (dans le fuseau
+ * de la créatrice) et son jour prévu (étiquette de Paris) : 0 = le bon jour,
+ * > 0 = en retard, < 0 = en avance. `null` si l'un des deux manque.
+ *
+ * C'est `lateDays` sans le pli de l'avance : l'alerte « publiée sans
+ * validation » doit dire aussi « sortie 2 jours trop tôt » (cf
+ * convex/videoReviewSkip).
+ */
+export function dayOffset(input: {
+  postDate: number | null | undefined;
+  postedAt: number | null | undefined;
+  timeZone?: string | null;
+}): number | null {
   const { postDate, postedAt, timeZone } = input;
   if (postDate == null || postedAt == null) return null;
   const planned = jourLocal(postDate, FUSEAU_EQUIPE);
   const actual = jourLocal(postedAt, timeZone);
-  if (actual <= planned) return null;
   // Différence en JOURS RÉELS : l'index année*10000+mois*100+jour n'est pas
   // soustrayable (du 31/01 au 01/02 il vaut 71). On repasse par des dates —
   // construites depuis les ÉTIQUETTES de jour, donc comparables même quand les
@@ -335,6 +352,16 @@ export function lateDays(input: {
     (utcMidnightOfDayIndex(actual) - utcMidnightOfDayIndex(planned)) /
       86_400_000,
   );
+}
+
+/**
+ * Le jour LOCAL d'un instant (fuseau donné, Paris si inconnu), sous forme de
+ * minuit UTC de ce jour : `formatDayMonthFr` le rend sans le décaler. Sert à
+ * AFFICHER le jour que `dayOffset` a comparé — le rendre à Paris annoncerait
+ * le 6 un post publié le 5 au soir à New York.
+ */
+export function localDayLabelMs(ms: number, timeZone?: string | null): number {
+  return utcMidnightOfDayIndex(jourLocal(ms, timeZone));
 }
 
 /** Minuit UTC du jour porté par un index `jourLocal` (mois 1-based). */

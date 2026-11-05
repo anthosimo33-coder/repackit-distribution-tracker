@@ -77,6 +77,7 @@ import { EMPTY_ACTIVITY } from "@/convex/creatorActivity";
 import { CopyableLink } from "./CopyableLink";
 import { CreatorComptesSection } from "./CreatorComptesSection";
 import { DeleteCreatorDialog } from "./DeleteCreatorDialog";
+import { VideoReviewSkipCard } from "./VideoReviewSkipCard";
 import {
   LOCALES,
   LOCALE_LABELS,
@@ -133,6 +134,7 @@ export function CreatorDetailView({
   const peutObserver = canObserveCreatorSpace(droits);
   const peutLireBaremesGrille = droits.has("pricing.manage");
   const peutSupprimer = droits.has("creators.delete");
+  const peutGererValidation = droits.has("review.manage");
   // Population de la fiche — décide du tarif affiché (et de rien d'autre ici).
   const kind = resolveCreatorKind(creator.kind);
   const router = useRouter();
@@ -701,6 +703,14 @@ export function CreatorDetailView({
               </div>
             </CardContent>
           </Card>
+          {/* Publier sans validation : flux partenaire, et réservé à qui peut
+              valider (le serveur garde `review.manage` de toute façon). */}
+          {kind === "partner" && peutGererValidation && (
+            <VideoReviewSkipCard
+              creatorId={creator._id}
+              enabled={creator.skipVideoReview}
+            />
+          )}
           {/*
             BLOCS PARTENAIRE. Les @ à créer et la grille de paliers relèvent du flux
             partenaire : un talent ne crée aucun compte, un clippeur est payé au clip.

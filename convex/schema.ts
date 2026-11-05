@@ -1675,6 +1675,14 @@ export default defineSchema({
         decidedBy: v.id("users"),
       }),
     ),
+    /**
+     * CRÉATRICE DE CONFIANCE — ses vidéos ne passent plus par la Validation :
+     * ses missions sont créées (ou basculées) DIRECTEMENT en `to_publish`, elle
+     * publie le jour prévu et colle ses liens. Les gardes du lien (post de SON
+     * compte, bonne plateforme, compte publiable) restent entières. Partenaires
+     * seulement. Absente = validation comme avant. Cf convex/videoReviewSkip.ts.
+     */
+    skipVideoReview: v.optional(v.boolean()),
     createdAt: v.number(),
   })
     .index("by_project", ["projectId"])
@@ -2589,6 +2597,22 @@ export default defineSchema({
     // la créatrice ne le voit qu'en LECTURE (script + post + perfs). Optional →
     // 0 migration (absent/false = mission créatrice classique).
     managedByAdmin: v.optional(v.boolean()),
+    // ─── PASSÉE « À PUBLIER » SANS VALIDATION (créatrice de confiance) ────────
+    // Posé quand la mission entre en `to_publish` parce que sa créatrice porte
+    // `creators.skipVideoReview` — à la création, ou à la bascule de la fiche.
+    // La VALEUR est le statut d'où elle venait : retirer la confiance remet
+    // chaque mission encore « à publier » exactement là où elle était (une
+    // vidéo soumise retourne dans la file Validation). Conservé après la
+    // publication : c'est la trace « personne n'a vu cette vidéo avant sa mise
+    // en ligne ». Absent = mission passée par la Validation (ou compte géré).
+    reviewSkippedFrom: v.optional(
+      v.union(
+        v.literal("todo"),
+        v.literal("in_progress"),
+        v.literal("video_submitted"),
+        v.literal("video_rejected"),
+      ),
+    ),
     // Machine à états WORKFLOW MP4 (chantier vidéo-avant-publication) :
     //   todo → in_progress → video_submitted → [reject] video_rejected →
     //   (re-upload) video_submitted → [approve] to_publish → published → paid.

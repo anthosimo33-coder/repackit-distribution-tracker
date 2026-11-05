@@ -52,6 +52,7 @@ import { effectiveStatus } from "./comptes";
 import { hasRole, resolveCreatorKind } from "./roles";
 import { lateDays, parisHour, representativePostedAt } from "./calendarStatus";
 import { creatorZoneOnly } from "./creatorTimezone";
+import { linkDayGap } from "./videoReviewSkip";
 import { eveningUnpublishedReports } from "./publicationLateness";
 import { talentPayRecap } from "./talentPay";
 import { computeDecisionDashboard, type DecisionDashboard } from "./dashboardDecisions";
@@ -628,6 +629,9 @@ export const getAssignmentEventContext = internalQuery({
     );
     const actor = actorUserId ? await ctx.db.get(actorUserId) : null;
     const actorName = actor?.name?.trim() ? actor.name.trim() : null;
+    // Publiée SANS VALIDATION (cf convex/videoReviewSkip) : le message le dit,
+    // et vérifie le jour lu dans le lien — le seul contrôle qui reste.
+    const reviewSkipped = a.reviewSkippedFrom !== undefined;
     return {
       projectId: a.projectId,
       creatorName: creator?.name ?? a.creatorNameSnapshot ?? "—",
@@ -637,6 +641,10 @@ export const getAssignmentEventContext = internalQuery({
       actorName,
       /** Traçabilité posée par confirmPublicationCore (creator vs admin secours). */
       publishedBy: a.publishedBy ?? null,
+      reviewSkipped,
+      linkDayGap: reviewSkipped
+        ? linkDayGap(a, await creatorZoneOnly(ctx, a.creatorId), Date.now())
+        : null,
       /**
        * CLIP ou post de partenaire. `publishedBy: "creator"` est CORRECT pour un
        * clip (le clippeur EST le creatorId, arbitrage D1) — c'est justement pour
@@ -681,6 +689,8 @@ export const notifyPublication = internalAction({
       targets: data.targets,
       byAdmin: data.publishedBy === "admin",
       isClip: data.isClip,
+      reviewSkipped: data.reviewSkipped,
+      linkDayGap: data.linkDayGap,
     };
     const { lead } = await ctx.runMutation(
       internal.notifications.openOrAppendWindow,

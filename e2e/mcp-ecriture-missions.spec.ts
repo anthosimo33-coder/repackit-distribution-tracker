@@ -40,7 +40,7 @@ const jourDe = (ts: number | undefined) =>
 
 const MISSIONS = ["assigner_scripts", "rejouer_script", "replanifier_mission", "consigne_mission", "annuler_mission"];
 const SCRIPTS = ["ajouter_hooks", "activer_briques", "graduer_hook"];
-const PUBLICATIONS = ["valider_video", "refuser_video", "confirmer_publication", "marquer_warmup", "deplacer_posts"];
+const PUBLICATIONS = ["valider_video", "refuser_video", "confirmer_publication", "marquer_warmup", "deplacer_posts", "publier_sans_validation"];
 
 /**
  * MCP EN ÉCRITURE — missions, scripts, publications. Chaque domaine ne s'ouvre

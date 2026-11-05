@@ -35,6 +35,7 @@ import {
   type WinnerRule,
 } from "./challengeScore";
 import { resolveCreatorKind } from "./roles";
+import { initialMissionState } from "./videoReviewSkip";
 import { ERR, err } from "./errorCodes";
 import type { Plateforme } from "./platforms";
 
@@ -925,8 +926,9 @@ export async function createChallengeAssignment(
     // n'est plus un flag qui le permet, c'est l'absence de clé.
     targets: input.targets,
     dueDate: input.dueDate ?? challenge.deadline,
-    status: managed ? "to_publish" : "todo",
-    managedByAdmin: managed ? true : undefined,
+    // Compte géré, ou créatrice de confiance → direct « à publier »
+    // (cf convex/videoReviewSkip).
+    ...initialMissionState(managed, participant),
     // `rateSnapshot` est un placeholder neutre : Guard C (pricingSnapshot
     // présent) garantit qu'il n'est jamais lu pour la paie. Même convention que
     // `assignScriptCampaign`.

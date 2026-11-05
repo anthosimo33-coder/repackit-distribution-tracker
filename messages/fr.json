@@ -503,7 +503,8 @@
         "inProgress": "En production — le créateur doit soumettre sa vidéo.",
         "submitted": "Vidéo envoyée — en attente de validation par l'admin.",
         "resubmit": "Le créateur doit re-soumettre une vidéo.",
-        "toPublish": "Vidéo validée — le créateur doit publier puis coller les URLs."
+        "toPublish": "Vidéo validée — le créateur doit publier puis coller les URLs.",
+        "toPublishNoReview": "Publie sans validation — le créateur doit publier le jour prévu puis coller les URLs."
       },
       "redoTitle": "Vidéo à refaire",
       "publishedPaid": "Publié et payé ✓",
@@ -512,6 +513,7 @@
       "uploadHint": "{count, plural, one {Envoie ton MP4 (non publié). L'admin la valide avant que tu la publies sur ton compte.} other {Envoie ton MP4 (non publié). L'admin la valide avant que tu la publies sur tes comptes.}}",
       "dropHere": "Glisse ta vidéo ici",
       "validatedPublish": "{count, plural, one {Ta vidéo est validée — publie-la sur ton compte, puis colle l'URL ci-dessous.} other {Ta vidéo est validée — publie-la sur chaque plateforme, puis colle les URLs ci-dessous.}}",
+      "noReviewPublish": "{count, plural, one {Pas de validation pour toi : tourne ta vidéo, publie-la le jour prévu sur ton compte, puis colle l'URL ci-dessous.} other {Pas de validation pour toi : tourne ta vidéo, publie-la le jour prévu sur chaque plateforme, puis colle les URLs ci-dessous.}}",
       "publishOn": "Publie sur {platform}",
       "wrongLink": "Ce lien n'est pas un lien {platform}.",
       "managedBadge2": "Géré par l'équipe",
@@ -1645,7 +1647,8 @@
     "ERR_INSTA_CONV_STALE_SCREEN": "Cet écran date d'avant la dernière mise à jour de Jarvia : recharge la page, sinon il effacerait une partie du brouillon.",
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Image refusée : JPEG, PNG ou WebP de 8 Mo au plus.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Plage de jours invalide : des jours AAAA-MM-JJ, le premier avant le dernier.",
-    "ERR_PRICING_REASSIGN_STALE": "La liste a changé depuis l'aperçu : {found} vidéo(s) à passer sur ce barème au lieu de {expected}. Rien n'a été modifié : relis l'aperçu."
+    "ERR_PRICING_REASSIGN_STALE": "La liste a changé depuis l'aperçu : {found} vidéo(s) à passer sur ce barème au lieu de {expected}. Rien n'a été modifié : relis l'aperçu.",
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} n'est pas une créatrice partenaire : la publication sans validation ne s'adresse qu'à elles."
   },
   "calendar": {
     "weekday": {
