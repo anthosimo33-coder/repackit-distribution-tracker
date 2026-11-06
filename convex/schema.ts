@@ -4135,7 +4135,15 @@ export default defineSchema({
     nextCheckAt: v.optional(v.number()),
     // Admise dans la courbe à cette date : une vidéo n'y entre qu'UNE fois.
     curveStartedAt: v.optional(v.number()),
-    competitor: v.optional(v.string()), // concurrent reconnu (« The Ick »)
+    competitor: v.optional(v.string()), // ANCIEN champ (phase 1) : concurrent reconnu au motif
+    // App poussée (réseaux, convex/radarNetworks) et les projets dont elle est
+    // concurrente : « Concurrent » se lit par projet, au moment de l'affichage.
+    appId: v.optional(v.id("radarApps")),
+    appName: v.optional(v.string()),
+    appRivalOf: v.optional(v.array(v.string())),
+    // Vidéo d'un compte suivi : son compte, et ses vues ÷ la médiane du compte.
+    trackedAccountId: v.optional(v.id("radarTracked")),
+    multiplier: v.optional(v.number()),
     foundBy: v.array(v.string()), // recherches qui l'ont remontée (« cette app·fr »)
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
@@ -4164,6 +4172,7 @@ export default defineSchema({
     postes: v.array(v.object({ key: v.string(), qty: v.number(), on: v.boolean() })),
     cutOrder: v.array(v.string()),
     alert80: v.boolean(),
+    budgetVersion: v.optional(v.number()), // cf radarSignalsMath.BUDGET_VERSION
     alertProjectId: v.optional(v.id("projects")), // canal Telegram de l'alerte
     alertedMonth: v.optional(v.string()), // « 2026-11 » : alerte 80 % déjà partie
     discoveryCursor: v.number(), // prochaine recherche de la rotation
@@ -4173,9 +4182,68 @@ export default defineSchema({
     creditsSeenAt: v.optional(v.number()),
     lastDiscoveryAt: v.optional(v.number()),
     lastCurveAt: v.optional(v.number()),
+    lastAccountsAt: v.optional(v.number()),
+    lastNetworkAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  // Une app dont on suit le réseau de comptes : concurrente (rivalOf) ou non.
+  // Règles de rattachement (strong/weak/context) : convex/radarNetworkMath.
+  radarApps: defineTable({
+    slug: v.string(),
+    name: v.string(),
+    rivalOf: v.array(v.string()), // slugs de projets
+    strong: v.array(v.string()),
+    weak: v.array(v.string()),
+    context: v.array(v.string()),
+    searches: v.array(v.string()), // mots-clés, « #hashtag »
+    status: v.union(v.literal("active"), v.literal("paused")),
+    source: v.union(v.literal("seed"), v.literal("manual")),
+    networkSearchedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_status", ["status"]),
+
+  // Un compte TikTok qui pousse une app, relevé à son rythme (nextReadAt).
+  radarTracked: defineTable({
+    platform: v.literal("tiktok"),
+    handle: v.string(),
+    appId: v.id("radarApps"),
+    status: v.union(v.literal("active"), v.literal("paused")),
+    matchedBy: v.union(v.literal("caption"), v.literal("manual")),
+    fans: v.number(),
+    medianViews: v.optional(v.number()),
+    videosSeen: v.number(),
+    lastPostAt: v.optional(v.number()),
+    readAt: v.optional(v.number()),
+    nextReadAt: v.number(),
+    readErrors: v.number(),
+    // Agrégats tenus à chaque relevé : l'écran lit les comptes, jamais leurs vidéos.
+    posts7d: v.optional(v.number()),
+    best7d: v.optional(
+      v.object({ videoId: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() }),
+    ),
+    addedAt: v.number(),
+  })
+    .index("by_handle", ["platform", "handle"])
+    .index("by_app", ["appId"])
+    .index("by_due", ["status", "nextReadAt"]),
+
+  // Toutes les vidéos relevées d'un compte suivi (sa médiane en vient) ; celles
+  // qui sortent du lot sont aussi promues dans radarSignals.
+  radarTrackedVideos: defineTable({
+    accountId: v.id("radarTracked"),
+    appId: v.id("radarApps"),
+    videoId: v.string(),
+    publishedAt: v.number(),
+    views: v.number(),
+    snapshots: v.array(v.object({ at: v.number(), views: v.number() })),
+    lastSeenAt: v.number(),
+  })
+    .index("by_account_published", ["accountId", "publishedAt"])
+    .index("by_video", ["videoId"]),
 
   // Crédits consommés, par jour (Paris) et par poste : la dépense du mois.
   radarUsage: defineTable({

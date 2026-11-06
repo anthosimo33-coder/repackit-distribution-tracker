@@ -1650,7 +1650,11 @@
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Image rejected: JPEG, PNG or WebP, 8 MB at most.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Invalid day range: use YYYY-MM-DD days, the first one before the last.",
     "ERR_PRICING_REASSIGN_STALE": "The list changed since the preview: {found} video(s) to move to this pay grid instead of {expected}. Nothing was changed: check the preview again.",
-    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} isn't a partner creator: publishing without review is for them only."
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} isn't a partner creator: publishing without review is for them only.",
+    "ERR_RADAR_APP_INVALID": "Give the app a name and at least one pattern of 3 characters.",
+    "ERR_RADAR_APP_ALREADY_FOLLOWED": "The app “{name}” is already tracked.",
+    "ERR_RADAR_APP_NOT_FOUND": "App not found.",
+    "ERR_RADAR_TRACKED_FULL": "Already {max} tracked accounts: pause some first."
   },
   "calendar": {
     "weekday": {

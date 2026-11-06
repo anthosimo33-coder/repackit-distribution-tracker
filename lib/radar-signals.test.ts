@@ -4,7 +4,6 @@ import {
   addSnapshot,
   allowance,
   budgetState,
-  competitorOf,
   curveCandidate,
   keepSignal,
   langBucket,
@@ -146,40 +145,59 @@ describe("tri à la découverte et courbe", () => {
     expect(a.cursor).toBe(5);
     expect(nextQueries(7, 0, DISCOVERY_QUERIES)).toEqual({ queries: [], cursor: 7 });
   });
-
-  it("reconnaît The Ick à « theick » collé, pas à l'argot « the ick »", () => {
-    expect(competitorOf("I was in shock… theick.io #fyp #insta", "s.ecrettacc.vero")).toBe("The Ick");
-    expect(competitorOf("Como? #theickio #fyp", "catarinasecretaccount")).toBe("The Ick");
-    expect(competitorOf("If you get the ick over every little thing", "healwithjaclyn")).toBeUndefined();
-  });
 });
 
 describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 20,30 $ par défaut : 60 recherches/jour et 100 vidéos/jour en courbe", () => {
+  it("prévoit 49,63 $ par défaut : recherche, courbe, 600 relevés de comptes/jour, réseaux", () => {
     expect(d.capUsd).toBe(60);
-    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 100 * 3 * 30) * SC_PRICE_PER_CREDIT, 6);
-    expect(plannedUsd(d)).toBeCloseTo(20.304, 3);
+    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 40 * 3 * 30 + 600 * 30 + 3_000) * SC_PRICE_PER_CREDIT, 6);
+    expect(plannedUsd(d)).toBeCloseTo(49.632, 3);
+  });
+
+  it("des réglages de la phase 1 prennent les nouveaux postes par défaut ; ceux de la phase 2 sont respectés", () => {
+    const v1 = {
+      capUsd: 60,
+      postes: [
+        { key: "search", qty: 60, on: true },
+        { key: "curve", qty: 100, on: true },
+        { key: "tiktok", qty: 200, on: false },
+        { key: "demand", qty: 1_500, on: false },
+      ],
+      cutOrder: ["search", "transcript", "curve", "insta", "ai", "tiktok"],
+      alert80: true,
+    };
+    const m = normalizeBudget(v1);
+    expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
+    expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 600, on: true });
+    expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 3_000, on: true });
+    expect(m.cutOrder).toEqual(["search", "transcript", "curve", "insta", "ai", "tiktok", "network"]);
+    const v2 = normalizeBudget({ ...v1, budgetVersion: 2, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
+    expect(v2.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 200, on: false });
+    expect(v2.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 900, on: true });
   });
 
   it("garde éteints les postes pas encore branchés, borne les quantités, complète l'ordre de coupure", () => {
     const b = normalizeBudget({
       capUsd: -4,
       postes: [
-        { key: "tiktok", qty: 200, on: true },
+        { key: "insta", qty: 200, on: true },
+        { key: "tiktok", qty: 400, on: true },
         { key: "search", qty: 1_000, on: true },
         { key: "curve", qty: 87.6, on: false },
       ],
       cutOrder: ["curve", "curve", "inconnu", "demand"],
       alert80: false,
+      budgetVersion: 2,
     });
     expect(b.capUsd).toBe(60);
-    expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(false);
+    expect(b.postes.find((p) => p.key === "insta")?.on).toBe(false);
+    expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
     expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 300, on: true });
     expect(b.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 88, on: false });
-    expect(b.cutOrder).toEqual(["curve", "search", "transcript", "insta", "ai", "tiktok"]);
+    expect(b.cutOrder).toEqual(["curve", "search", "transcript", "insta", "ai", "network", "tiktok"]);
     expect(b.alert80).toBe(false);
   });
 
@@ -188,8 +206,17 @@ describe("budget", () => {
     expect(allowance(d, s, "search", 0, 4)).toBe(15);
     expect(allowance(d, s, "search", 55, 4)).toBe(5);
     expect(allowance(d, s, "search", 60, 4)).toBe(0);
-    expect(allowance(d, s, "curve", 0, 24)).toBe(13);
-    expect(allowance(d, s, "tiktok", 0, 1)).toBe(0);
+    // 40 vidéos × 3 relevés = 120/jour → 5 par heure ; 600 relevés de comptes → 25 par heure.
+    expect(allowance(d, s, "curve", 0, 24)).toBe(5);
+    expect(allowance(d, s, "tiktok", 0, 24)).toBe(25);
+    expect(allowance(d, s, "insta", 0, 1)).toBe(0);
+  });
+
+  /** Le budget de la phase 1 : recherche (60/jour) et courbe (100/jour) seules. */
+  const p1 = (cap: number) => ({
+    ...d,
+    capUsd: cap,
+    postes: d.postes.map((p) => (p.key === "curve" ? { ...p, qty: 100 } : p.key === "tiktok" || p.key === "network" ? { ...p, on: false } : p)),
   });
 
   it("au plafond, tout s'arrête", () => {
@@ -197,12 +224,12 @@ describe("budget", () => {
     // 10 640 crédits = 20,0032 $ (10 638 ne font que 19,9994 $).
     const s = budgetState(b, [usage("curve", 10_640, "2026-11-03")]);
     expect(s.capReached).toBe(true);
-    expect(s.cut).toEqual(["search", "curve"]);
+    expect(s.cut).toEqual(["search", "curve", "tiktok", "network"]);
     expect(allowance(b, s, "curve", 0, 24)).toBe(0);
   });
 
   it("entre 80 et 100 %, coupe dans l'ordre jusqu'à ce que la projection tienne", () => {
-    const b = { ...d, capUsd: 20 };
+    const b = p1(20);
     // 8 564 crédits = 16,10 $ : 80 % dépassés ; projection 16,10 + 0,82 (courbe) + 3,38 (recherche) = 20,30 $.
     const s = budgetState(b, [usage("curve", 8_564, "2026-11-04")]);
     expect(s.over80).toBe(true);
@@ -212,19 +239,20 @@ describe("budget", () => {
     expect(allowance(b, s, "search", 0, 4)).toBe(0);
     expect(allowance(b, s, "curve", 0, 24)).toBeGreaterThan(0);
     // Ordre inversé : c'est la courbe qui saute, et la recherche continue.
-    const inv = { ...b, cutOrder: ["curve" as const, "search" as const, "transcript" as const, "insta" as const, "ai" as const, "tiktok" as const] };
+    const inv = { ...b, cutOrder: ["curve" as const, "search" as const, "transcript" as const, "insta" as const, "ai" as const, "network" as const, "tiktok" as const] };
     expect(budgetState(inv, [usage("curve", 8_564, "2026-11-04")]).cut).toEqual(["curve"]);
   });
 
   it("à 80 % sans dépassement prévu, rien n'est coupé ; un poste s'arrête à son enveloppe", () => {
     // 25 798 crédits de courbe = 48,50 $ : 80 % du plafond de 60 $, mais l'enveloppe
     // de la courbe (16,92 $) est déjà mangée ; il reste la recherche (3,38 $) → 51,88 $.
-    const s = budgetState(d, [usage("curve", 25_798, "2026-11-02")]);
+    const b = p1(60);
+    const s = budgetState(b, [usage("curve", 25_798, "2026-11-02")]);
     expect(s.over80).toBe(true);
     expect(s.cut).toEqual([]);
     expect(s.projectedUsd).toBeCloseTo(48.5 + 3.384, 2);
-    expect(allowance(d, s, "curve", 0, 24)).toBe(0);
-    expect(allowance(d, s, "search", 0, 4)).toBe(15);
+    expect(allowance(b, s, "curve", 0, 24)).toBe(0);
+    expect(allowance(b, s, "search", 0, 4)).toBe(15);
   });
 });
 
@@ -240,6 +268,7 @@ const sig = (handle: string, fans: number, views: number, ageH: number, lang: st
   publishedAt: NOW - ageH * HOUR,
   ratio: views / Math.max(fans, 100),
   competitor: extra.competitor ?? null,
+  app: extra.app ?? extra.competitor ?? null,
   status: extra.status ?? "nouveau",
 });
 
@@ -248,7 +277,7 @@ const DATA = [
   sig("reneelouisetech", 11_203, 2_391_751, 121, "en", { caption: "Your chats with ChatGPT are being watched if you don't do this!" }),
   sig("djkartierapp", 56_461, 3_030_073, 35, "en"),
   sig("thefern.app", 64, 58_679, 14, "en"),
-  sig("johan_love8", 819, 206_233, 152, "fr", { caption: "Pour vous amuser un peu à distance, testez ça ! #love8app" }),
+  sig("johan_love8", 819, 206_233, 152, "fr", { caption: "Pour vous amuser un peu à distance, testez ça ! #love8app", app: "Love8" }),
   sig("cleversonmgallego", 3_389, 415_872, 84, "pt"),
   sig("arpegesauvage", 1_801, 168_850, 21, "fr"),
   sig("mundoyoutubebrs", 3_480, 230_287, 25, "pt"),
@@ -370,6 +399,23 @@ describe("filtres de l'écran Signaux", () => {
     expect(PRESETS.filter((p) => sameFilters(p.patch(defaultFilters()), conc)).map((p) => p.id)).toEqual(["concurrents"]);
     const modif = toggle(conc, "langue", "en");
     expect(PRESETS.some((p) => sameFilters(p.patch(defaultFilters()), modif))).toBe(false);
+  });
+
+  it("le filtre App : ses valeurs viennent des données, une app à 0 se grise, l'adresse la garde", () => {
+    const fc = facets(DATA, defaultFilters(), NOW).groups.find((g) => g.key === "app")!;
+    expect(fc.options.map((o) => [o.value, o.count, o.disabled])).toEqual([
+      ["Love8", 1, false],
+      ["The Ick", 0, true],
+    ]);
+    const love = toggle(defaultFilters(), "app", "Love8");
+    expect(applyFilters(DATA, love, NOW).map((s) => s.handle)).toEqual(["johan_love8"]);
+    expect(chips(love)).toEqual([{ kind: "group", key: "app", value: "Love8" }]);
+    const back = fromSearchParams(toSearchParams(toggle(love, "app", "The Ick")));
+    expect(back.sel.app).toEqual(["Love8", "The Ick"]);
+    // Une app inconnue d'un vieux lien est gardée, et reste décochable.
+    const old = fromSearchParams(new URLSearchParams("a=Appli%20disparue"));
+    expect(old.sel.app).toEqual(["Appli disparue"]);
+    expect(facets(DATA, old, NOW).groups.find((g) => g.key === "app")!.options.find((o) => o.value === "Appli disparue")).toMatchObject({ checked: true, disabled: false });
   });
 
   it("l'adresse garde tout et seulement ce qui s'écarte du défaut", () => {

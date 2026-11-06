@@ -63,6 +63,39 @@ export async function scSearchKeyword(query: string, region: string, lang: strin
   return { ...r, value: videos };
 }
 
+/** Les dernières vidéos d'un compte (9 par crédit, vérifié le 06/11/2026). */
+export async function scProfileVideos(handle: string): Promise<ScCall<SignalInput[]>> {
+  const r = await scGet("/v3/tiktok/profile/videos", { handle, sort_by: "latest", trim: "true" });
+  if (!r.ok) return r;
+  const list = Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
+  return { ...r, value: list.map((it) => parseScVideo(it)).filter((x): x is SignalInput => x !== null) };
+}
+
+/**
+ * Une page de recherche pour le réseau d'une app : mot-clé (3 derniers mois, par
+ * pertinence, 30 vidéos) ou hashtag (environ 20). `cursor` = page suivante.
+ */
+export async function scNetworkPage(
+  kind: "keyword" | "hashtag",
+  value: string,
+  cursor: number | undefined,
+): Promise<ScCall<{ videos: SignalInput[]; cursor: number | undefined }>> {
+  const r =
+    kind === "keyword"
+      ? await scGet("/v1/tiktok/search/keyword", {
+          query: value,
+          date_posted: "last-3-months",
+          sort_by: "relevance",
+          trim: "true",
+          ...(cursor !== undefined ? { cursor: String(cursor) } : {}),
+        })
+      : await scGet("/v1/tiktok/search/hashtag", { hashtag: value, trim: "true", ...(cursor !== undefined ? { cursor: String(cursor) } : {}) });
+  if (!r.ok) return r;
+  const raw = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
+  const next = typeof r.value.cursor === "number" ? r.value.cursor : typeof r.value.cursor === "string" ? Number(r.value.cursor) : undefined;
+  return { ...r, value: { videos: raw.map((it) => parseScVideo(it)).filter((x): x is SignalInput => x !== null), cursor: Number.isFinite(next) ? next : undefined } };
+}
+
 /** Infos d'une vidéo (vues à jour, abonnés du compte) — 1 crédit. */
 export async function scVideoInfo(url: string): Promise<ScCall<SignalInput | null>> {
   const r = await scGet("/v2/tiktok/video", { url, trim: "true" });

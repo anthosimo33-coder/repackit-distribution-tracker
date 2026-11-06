@@ -417,6 +417,13 @@ export const ERR = {
   PRICING_REASSIGN_STALE: "ERR_PRICING_REASSIGN_STALE",
   /** Publier sans validation : réservé aux créatrices partenaires (paramètre `name`). */
   VIDEO_REVIEW_SKIP_PARTNER_ONLY: "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY",
+  /** Radar, ajouter une app : il faut un nom et au moins un motif de 3 caractères. */
+  RADAR_APP_INVALID: "ERR_RADAR_APP_INVALID",
+  /** Radar, ajouter une app : une app de ce nom est déjà suivie (paramètre `name`). */
+  RADAR_APP_ALREADY_FOLLOWED: "ERR_RADAR_APP_ALREADY_FOLLOWED",
+  RADAR_APP_NOT_FOUND: "ERR_RADAR_APP_NOT_FOUND",
+  /** Radar : le plafond de comptes suivis est atteint (paramètre `max`). */
+  RADAR_TRACKED_FULL: "ERR_RADAR_TRACKED_FULL",
 } as const;
 
 export type ErrCode = (typeof ERR)[keyof typeof ERR];

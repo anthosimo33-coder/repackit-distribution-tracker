@@ -98,7 +98,7 @@ import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
-import { appelerSignaux, NOMS_SIGNAUX, OUTIL_SIGNAUX } from "./mcpSignaux";
+import { appelerReseaux, appelerSignaux, NOMS_RESEAUX, NOMS_SIGNAUX, OUTIL_RESEAUX, OUTIL_SIGNAUX } from "./mcpSignaux";
 import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
 import { appelerScenariosLecture, conversationDeMissionMcp, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
@@ -1783,6 +1783,7 @@ export function jarviaServer(
       ...OUTILS_PROPOSITIONS,
       OUTIL_EXPERIENCES,
       OUTIL_SIGNAUX,
+      OUTIL_RESEAUX,
       OUTIL_BILAN,
       ...OUTILS_CONVERSATIONS_LECTURE,
       ...OUTILS_SCENARIOS_LECTURE,
@@ -1810,6 +1811,9 @@ export function jarviaServer(
       }
       if (NOMS_SIGNAUX.has(name)) {
         return appelerSignaux(ctx, args, ids, projet.slug, lire);
+      }
+      if (NOMS_RESEAUX.has(name)) {
+        return appelerReseaux(ctx, args, ids, projet.slug, lire);
       }
       if (NOMS_BILAN.has(name)) {
         return appelerBilan(ctx, args, ids, projet.slug, lire);

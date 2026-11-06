@@ -342,7 +342,8 @@
       "origine": "Origin",
       "langue": "Language",
       "taille": "Account size",
-      "statut": "Status"
+      "statut": "Status",
+      "app": "App"
     },
     "origine": {
       "concurrent": "Competitors",
@@ -436,11 +437,12 @@
     "dansLesInspirations": "In inspirations ✓",
     "ajouteeAuxInspirations": "Video added to inspirations.",
     "ajoutImpossible": "Could not add to inspirations.",
-    "ouvrirSurTiktok": "Open on TikTok"
+    "ouvrirSurTiktok": "Open on TikTok",
+    "vuesSurMediane": "Views ÷ account median"
   },
   "RadarBudget": {
     "cleAbsente": "Collection paused: the ScrapeCreators key is not set on this deployment (SCRAPECREATORS_API_KEY).",
-    "etatCollecte": "Last discovery: {decouverte}. Last curve reading: {courbe}.",
+    "etatCollecte": "Last discovery: {decouverte}. Curve: {courbe}. Accounts: {comptes}. Networks: {reseaux}.",
     "creditsRestants": "Credits left at ScrapeCreators: {n}.",
     "joursDeCollecte": "About {n} days at the planned pace.",
     "derniereErreur": "Last error: {erreur}",
@@ -465,9 +467,9 @@
         "unite": "videos/day"
       },
       "tiktok": {
-        "titre": "TikTok accounts read every day",
-        "aide": "Competitors, apps and creators you follow.",
-        "unite": "accounts"
+        "titre": "Read the followed accounts",
+        "aide": "1 credit = an account's last 9 videos. Active accounts every day, quiet ones every 3 days: 600 readings cover 1,000 accounts.",
+        "unite": "readings/day"
       },
       "insta": {
         "titre": "Instagram accounts read every day",
@@ -479,15 +481,15 @@
         "aide": "What is said in the day's best videos.",
         "unite": "videos/day"
       },
-      "demand": {
-        "titre": "On-demand searches",
-        "aide": "Find an app's network (about 6 credits), dig into a hashtag.",
-        "unite": "credits/month"
-      },
       "ai": {
         "titre": "AI video analysis",
         "aide": "Format, structure, Snytch and BLUSH adaptations. Stops at the cap.",
         "unite": "$/month"
+      },
+      "network": {
+        "titre": "Find the apps' networks",
+        "aide": "Each followed app's keywords and hashtags, every week: an account that names it joins its network.",
+        "unite": "credits/month"
       }
     },
     "pasEncoreBranche": "Not connected yet",
@@ -518,7 +520,58 @@
     "descendre": "Move down: {poste}",
     "depenseParJour": "Spend per day",
     "aucuneDepense": "Nothing spent this month.",
-    "creditsCourt": "{n} cr."
+    "creditsCourt": "{n} cr.",
+    "relevesDeComptes": "Account readings"
+  },
+  "RadarNetworks": {
+    "comptesSuivis": "{actifs} accounts read out of {max} possible · {total} in total",
+    "ajouterUneApp": "Add an app",
+    "aucuneAppTitre": "No app followed yet.",
+    "aucuneAppTexte": "The network search creates the 5 starting competitors on its first run (every 6 h), then attaches their accounts.",
+    "groupe": {
+      "rival": "Competitors of this project",
+      "otherRival": "Competitors of another project",
+      "other": "Other apps"
+    },
+    "resumeApp": "{comptes, plural, =0 {no accounts} one {# account} other {# accounts}} ({actifs} read) · {posts, plural, =0 {no videos} one {# video} other {# videos}} this week",
+    "enPause": "paused",
+    "meilleure": "@{handle} · {vues} views",
+    "pasEncoreDeVideo": "No video read this week yet",
+    "reseauCherche": "Network searched: {quand}",
+    "chercherSonReseau": "Search its network",
+    "rechercheLancee": "Network search for {app} started.",
+    "rechercheImpossible": "Search failed.",
+    "reprendre": "Resume",
+    "mettreEnPause": "Pause",
+    "ajouterUnCompte": "Add an account manually",
+    "placeholderCompte": "@account or TikTok profile link",
+    "suivre": "Follow",
+    "dejaSuivi": "This account is already followed.",
+    "compteAjoute": "Account added to {app}'s network: read within the hour.",
+    "ajoutImpossible": "Could not add it.",
+    "aucunCompte": "No account attached yet: the network search adds some on every run.",
+    "colCompte": "Account",
+    "colAbonnes": "Followers",
+    "colMediane": "Median views",
+    "colSemaine": "Videos (7 d)",
+    "colMeilleure": "Best of the week",
+    "colReleve": "Reading",
+    "ajouteALaMain": "manual",
+    "vues": "{n} views",
+    "pasEncoreReleve": "Not read yet",
+    "rienCetteSemaine": "Nothing this week",
+    "releveDe": "Reading of @{handle}",
+    "changementImpossible": "Could not change it.",
+    "actif": "active",
+    "appAjoutee": "{app} added: its network is being searched now.",
+    "ajoutAppImpossible": "Could not add the app.",
+    "nomDeLApp": "App name",
+    "motifs": "Patterns that name it",
+    "placeholderMotifs": "theick.io, theickio",
+    "aideMotifs": "Comma-separated: an account joins its network when one of its captions contains one of these patterns (spaces ignored). Avoid common words.",
+    "concurrenteDeCeProjet": "Competitor of this project",
+    "suivreLApp": "Follow the app",
+    "annuler": "Cancel"
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Fetch the latest videos from followed accounts",

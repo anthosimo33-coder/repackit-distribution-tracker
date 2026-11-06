@@ -2,17 +2,11 @@
 
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useProjectQuery } from "@/components/project/use-project-convex";
 import { useProjectPath } from "@/components/project/ProjectProvider";
-import { api } from "@/convex/_generated/api";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { RadarIcon, UsersIcon, WalletIcon, ZapIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { RadarSyncButton } from "@/components/admin/radar/RadarSyncButton";
-import { AddRadarAccountDialog } from "@/components/admin/radar/AddRadarAccountDialog";
-import { RadarAccountsList } from "@/components/admin/radar/RadarAccountsList";
-import { RadarVideoWall } from "@/components/admin/radar/RadarVideoWall";
+import { RadarNetworks } from "@/components/admin/radar/RadarNetworks";
 import { RadarSignals } from "@/components/admin/radar/RadarSignals";
 import { RadarBudget } from "@/components/admin/radar/RadarBudget";
 import { useTranslations } from "next-intl";
@@ -31,7 +25,8 @@ export default function RadarPage() {
 /**
  * RADAR — veille (ADMIN UNIQUEMENT). « Signaux » : les vidéos qui sortent du lot
  * dans toutes les apps (ScrapeCreators, convex/radarSignals) ; « Comptes suivis » :
- * les comptes favoris et leur mur (Apify, convex/radar) ; « Budget » : ce que la
+ * les apps suivies et le réseau de comptes qui les poussent (convex/radarNetworks) ;
+ * « Budget » : ce que la
  * veille coûte chaque mois. L'onglet vit dans l'adresse (`?onglet=`), comme les
  * filtres des signaux. L'accès est gardé serveur : un créateur n'atteint aucune
  * fonction Radar.
@@ -84,8 +79,8 @@ function RadarPageInner() {
           <RadarSignals />
         </TabsContent>
 
-        <TabsContent value="comptes" className="mt-6 space-y-6">
-          <ComptesSuivis />
+        <TabsContent value="comptes" className="mt-6">
+          <RadarNetworks />
         </TabsContent>
 
         <TabsContent value="budget" className="mt-6">
@@ -93,57 +88,5 @@ function RadarPageInner() {
         </TabsContent>
       </Tabs>
     </div>
-  );
-}
-
-/** Les comptes favoris suivis (relevé Apify) et leur mur de vidéos — l'ancien premier onglet. */
-function ComptesSuivis() {
-  const tr = useTranslations("admin.ops.RadarPage");
-  const data = useProjectQuery(api.radar.listRadarAccounts, {});
-  const accounts = data?.accounts;
-  const limit = data?.limit ?? 8;
-
-  if (accounts === undefined) {
-    return (
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-20 w-full" />
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-500">
-          <span className={cn("font-medium tabular-nums", accounts.length >= limit ? "text-amber-600" : "text-slate-900")}>
-            {accounts.length} / {limit}
-          </span>{" "}
-          {tr("compteSuivi", { count: accounts.length })}
-          {accounts.length >= limit && <span className="ml-2 text-xs text-amber-600">{tr("limiteConseilleeAtteinteQuotaApify")}</span>}
-        </p>
-        <div className="flex items-center gap-2">
-          <RadarSyncButton />
-          <AddRadarAccountDialog />
-        </div>
-      </div>
-
-      {accounts.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-6 py-16 text-center">
-          <RadarIcon className="size-14 text-slate-300" strokeWidth={1.5} />
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold text-slate-900">{tr("aucunCompteSuivi")}</h2>
-            <p className="text-sm text-slate-500">{tr("ajouteUnCompteTiktokPour")}</p>
-          </div>
-          <AddRadarAccountDialog />
-        </div>
-      ) : (
-        <>
-          <RadarAccountsList accounts={accounts} />
-          <RadarVideoWall accounts={accounts} />
-        </>
-      )}
-    </>
   );
 }
