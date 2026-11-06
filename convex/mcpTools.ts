@@ -1086,7 +1086,7 @@ export const OUTILS: readonly McpTool[] = [
     name: "paiements",
     title: "Paiements des créatrices",
     description:
-      "Ce qui est dû aux créatrices, comme l'écran Paiements (même regroupement) : le total à verser, le nombre de créatrices et de cycles dus, l'ancienneté du plus vieux cycle dû ; par créatrice, le reste à verser et chaque cycle (dates, valeur, acomptes, reste, détail fixe / CPM / paliers / primes de défi, posts pas encore mesurés) ; celles à zéro ; les derniers cycles réglés. Montants dans la devise de paie. Le moyen de paiement est donné par son type seulement, jamais ses coordonnées.",
+      "Ce qui est dû aux créatrices, comme l'écran Paiements (même regroupement) : le total à verser, le nombre de créatrices et de cycles dus, l'ancienneté du plus vieux cycle dû ; par créatrice, le reste à verser et chaque cycle (début et clôture à la minute, heure de Paris — un cycle court 30 × 24 h depuis l'heure du 1er post, pas jusqu'à minuit —, valeur, acomptes, reste, détail fixe / CPM / paliers / primes de défi, posts pas encore mesurés) ; celles à zéro ; les derniers cycles réglés. Montants dans la devise de paie. Le moyen de paiement est donné par son type seulement, jamais ses coordonnées.",
     inputSchema: {
       type: "object",
       properties: {
@@ -2711,9 +2711,11 @@ export function jarviaServer(
             : {};
         };
         const cycle = (c: (typeof rows)[number]) => ({
-          du: jour(c.cycleStart),
-          // cycleEnd est EXCLUSIF (début du cycle suivant) : dernier jour = veille.
-          au: jour(c.cycleEnd - 86_400_000),
+          // Des INSTANTS, pas des jours : un cycle dure 30 × 24 h depuis l'heure
+          // du 1er post. `au` = la clôture (exclue). L'ancien `au` (veille, au
+          // jour) disait fini un cycle qui courait encore jusqu'à l'après-midi.
+          du: instantParis(c.cycleStart),
+          au: instantParis(c.cycleEnd),
           statut: c.status === "paid" ? "payé" : "en cours",
           devise: c.currency,
           valeur: c.totalDue,

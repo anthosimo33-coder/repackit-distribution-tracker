@@ -4,6 +4,7 @@ import {
   cycleIndexOf,
   cycleWindow,
   cyclePeriodKey,
+  formatCycleRange,
   CYCLE_LENGTH_MS,
 } from "./pay-cycle";
 import {
@@ -145,5 +146,42 @@ describe("re-fenêtrage J+30 — INVARIANT du total (montant inchangé)", () => 
       0,
     );
     expect(round2(sumCycles)).toBe(round2(totalGlobal));
+  });
+});
+
+describe("formatCycleRange — la fin affichée est la VRAIE fin", () => {
+  // Cas réel du 06/11/2026 : 1er post de Juliette le 7 sept. à 14:38:05 UTC,
+  // cycle 1 = [7 oct. 14:38 UTC, 6 nov. 14:38 UTC). L'ancien libellé
+  // (« cycleEnd − 1 j ») disait « 7 oct. – 5 nov. » : à 11 h le 6 nov., on la
+  // croyait hors cycle alors qu'elle menait le classement jusqu'à 15:38 (Paris).
+  const FIRST_POST = Date.UTC(2026, 8, 7, 14, 38, 5);
+  const { cycleStart, cycleEnd } = cycleWindow(FIRST_POST, 1);
+  // Intl sépare l'heure de « PM » par une espace fine insécable (U+202F).
+  const plain = (s: string) => s.replace(/\s/g, " ");
+
+  it("finit le jour de cycleEnd, à son heure — pas la veille", () => {
+    expect(formatCycleRange(cycleStart, cycleEnd, "fr-FR", "Europe/Paris")).toBe(
+      "7 oct. – 6 nov. 2026, 15:38",
+    );
+    expect(
+      plain(formatCycleRange(cycleStart, cycleEnd, "en-US", "Europe/Paris")),
+    ).toBe("Oct 7 – Nov 6, 2026, 3:38 PM");
+  });
+
+  it("se lit dans le fuseau de qui regarde : une créatrice à New York lit SON heure", () => {
+    expect(
+      formatCycleRange(cycleStart, cycleEnd, "fr-FR", "America/New_York"),
+    ).toBe("7 oct. – 6 nov. 2026, 9:38");
+  });
+
+  it("le JOUR aussi est celui du fuseau : 23:30 UTC est déjà le lendemain à Paris", () => {
+    const end = Date.UTC(2026, 10, 6, 23, 30);
+    const start = end - CYCLE_LENGTH_MS;
+    expect(formatCycleRange(start, end, "fr-FR", "Europe/Paris")).toBe(
+      "8 oct. – 7 nov. 2026, 0:30",
+    );
+    expect(formatCycleRange(start, end, "fr-FR", "America/New_York")).toBe(
+      "7 oct. – 6 nov. 2026, 18:30",
+    );
   });
 });

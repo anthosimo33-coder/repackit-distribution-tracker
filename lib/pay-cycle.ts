@@ -64,23 +64,38 @@ export function cyclePeriodKey(cycleStart: number): string {
 }
 
 /**
- * Libellé d'un cycle « 5 juil – 3 août 2026 » (dernier jour INCLUS = cycleEnd −
- * 1 j). UTC pour rester déterministe (ne dépend pas du fuseau du navigateur).
+ * Libellé d'un cycle « 7 oct. – 6 nov. 2026, 15:38 » : la FIN est l'instant
+ * réel de clôture (`cycleEnd`, exclu), jour ET heure.
+ *
+ * Un cycle dure 30 × 24 h depuis l'heure du 1er post, il ne s'arrête pas à
+ * minuit. L'ancien libellé (dernier jour = cycleEnd − 1 j, en UTC) annonçait
+ * fini un cycle qui courait encore : le 06/11 à 11 h, Juliette menait le
+ * classement sous « 7 oct. – 5 nov. », cycle clos à 15:38 (Paris).
+ *
+ * Fuseau de QUI REGARDE (celui du navigateur) : l'équipe lit Paris, une
+ * créatrice à New York ou à Mexico lit son heure — une heure de Paris sans
+ * fuseau lui mentirait. `timeZone` ne sert qu'aux tests, pour être déterministes.
  */
 export function formatCycleRange(
   cycleStart: number,
   cycleEnd: number,
   locale: string = FORMAT_LOCALE_DEFAULT,
+  timeZone?: string,
 ): string {
-  const opts: Intl.DateTimeFormatOptions = {
+  const day: Intl.DateTimeFormatOptions = {
     day: "numeric",
     month: "short",
-    timeZone: "UTC",
+    timeZone,
   };
-  const start = new Date(cycleStart).toLocaleDateString(locale, opts);
-  const end = new Date(cycleEnd - DAY_MS).toLocaleDateString(locale, {
-    ...opts,
+  const start = new Date(cycleStart).toLocaleDateString(locale, day);
+  const endDay = new Date(cycleEnd).toLocaleDateString(locale, {
+    ...day,
     year: "numeric",
   });
-  return `${start} – ${end}`;
+  const endTime = new Date(cycleEnd).toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  });
+  return `${start} – ${endDay}, ${endTime}`;
 }
