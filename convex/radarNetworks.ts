@@ -51,7 +51,7 @@ import {
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
-import { RETENTION_DAYS, allowance, budgetState, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
+import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
 import {
   appRef,
   attachAccount,
@@ -268,7 +268,7 @@ export const applyAccountRead = internalMutation({
     for (const s of videos) {
       const hk = hookTemplate(s.hook);
       const extra = {
-        ...(s.caption ? { caption: s.caption.slice(0, 300) } : {}),
+        ...(s.caption ? { caption: cleanText(s.caption, 300) } : {}),
         ...(s.hook ? { hook: s.hook } : {}),
         ...(hk ? { hookKey: hk } : {}),
         ...(s.musicId ? { musicId: s.musicId } : {}),
@@ -652,7 +652,7 @@ export const listCandidates = permissionQuery("radar.use")({
 
 /** Crée une app suivie : ses motifs (cités dans une légende) font aussi ses recherches. */
 async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[]): Promise<Doc<"radarApps">> {
-  const clean = name.trim().slice(0, 60);
+  const clean = cleanText(name.trim(), 60);
   const strong = Array.from(new Set(patterns.map((p) => normalize(p.replace(/^[#@]/, "")).compact).filter((p) => p.length >= 3)));
   if (!clean || strong.length === 0) throw err(ERR.RADAR_APP_INVALID, "Un nom et au moins un motif de 3 caractères.");
   const slug = normalize(clean).compact.replace(/[^a-z0-9.]/g, "");

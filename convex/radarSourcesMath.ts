@@ -4,11 +4,12 @@
  * transcriptions TikTok. Formes relevées sur de vraies réponses ScrapeCreators
  * (lib/radar-sources.test.ts).
  */
+import { cleanText } from "./radarSignalsMath";
 
 const obj = (x: unknown): Record<string, unknown> | null =>
   x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
 const num = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
-const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim() !== "" ? x : undefined);
+const str = (x: unknown): string | undefined => (typeof x === "string" && x.trim() !== "" ? cleanText(x) : undefined);
 const arr = (x: unknown): unknown[] => (Array.isArray(x) ? x : []);
 
 const DAY = 86_400_000;
@@ -75,7 +76,7 @@ export function parseMetaAd(raw: unknown): AdInput | null {
     platform: "meta",
     adId,
     advertiser: str(sn.page_name) ?? str(a.page_name) ?? "",
-    ...(text ? { text: text.slice(0, 600) } : {}),
+    ...(text ? { text: cleanText(text, 600) } : {}),
     ...(start ? { firstShownAt: start * 1000 } : {}),
     ...(end ? { lastShownAt: end * 1000 } : {}),
     active: a.is_active === true,
@@ -118,7 +119,8 @@ export function parseIgReel(raw: unknown): IgReel | null {
   const takenAt = num(m?.taken_at);
   if (!m || !code || takenAt <= 0) return null;
   const clips = obj(m.clips_metadata);
-  const hook = str(clips?.reusable_text_attribute_string)?.replace(/\s+/g, " ").trim().slice(0, 200);
+  const rawHook = str(clips?.reusable_text_attribute_string)?.replace(/\s+/g, " ").trim();
+  const hook = rawHook ? cleanText(rawHook, 200) : undefined;
   const cover = obj(arr(obj(m.image_versions2)?.candidates)[0]);
   const duration = num(m.video_duration);
   return {
@@ -162,7 +164,7 @@ export function transcriptText(body: unknown): string | null {
       .join(" ");
   }
   text = text.replace(/\s+/g, " ").trim();
-  return text ? text.slice(0, 3_000) : null;
+  return text ? cleanText(text, 3_000) : null;
 }
 
 /** Transcrite si elle dure au plus 2 minutes (au-delà, l'IA coûte 10 crédits la minute). */

@@ -19,7 +19,7 @@ import {
   shouldPromote,
 } from "../convex/radarNetworkMath";
 import { SEED_ACCOUNTS } from "../convex/radarSeedAccounts";
-import { parseScVideo } from "../convex/radarSignalsMath";
+import { cleanText, parseScVideo } from "../convex/radarSignalsMath";
 
 const app = (slug: string) => SEED_APPS.find((a) => a.slug === slug)!;
 const DAY = 86_400_000;
@@ -230,5 +230,28 @@ describe("formats et apps repérées", () => {
     ]);
     expect(patternsOfCandidate({ kind: "domain", label: "stalkie.io" })).toEqual(["stalkie.io", "stalkie"]);
     expect(patternsOfCandidate({ kind: "mention", label: "@RIZZ APP" })).toEqual(["rizzapp"]);
+  });
+});
+
+describe("textes coupés sans moitié d'emoji (bug de prod du 07/11/2026)", () => {
+  /** Une valeur avec une moitié d'emoji seule : Convex la refuse et le passage entier tombe. */
+  const loneHalf = (x: string) => /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(x);
+
+  it("un hook de 200 caractères pile sur un emoji est coupé AVANT l'emoji", () => {
+    const hook = "a".repeat(199) + "😭 fin";
+    const v = parseScVideo({ ...VOCA_1, interaction_stickers: [{ type: 18, text_info: hook }] })!;
+    expect(loneHalf(v.hook!)).toBe(false);
+    expect(v.hook).toBe("a".repeat(199));
+    // Et la vidéo entière passe en JSON sans erreur.
+    expect(() => JSON.parse(JSON.stringify(v))).not.toThrow();
+  });
+
+  it("bio, titre du son et libellé de mention aussi ; une moitié déjà seule devient « � »", () => {
+    const bio = "b".repeat(299) + "🔥";
+    const v = parseScVideo({ ...VOCA_1, author: { ...VOCA_1.author, signature: bio }, music: { ...VOCA_1.music, title: "t".repeat(119) + "🎵" } })!;
+    expect([loneHalf(v.authorBio!), loneHalf(v.musicTitle!)]).toEqual([false, false]);
+    expect(cleanText("ok \ud83d fin")).toBe("ok \ufffd fin");
+    expect(cleanText("😭😭", 3)).toBe("😭");
+    expect(cleanText("sans coupe")).toBe("sans coupe");
   });
 });
