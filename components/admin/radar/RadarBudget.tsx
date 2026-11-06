@@ -104,6 +104,8 @@ function BudgetEditor({ data }: { data: BudgetData }) {
             {tr("etatCollecte", {
               decouverte: formatRelative(data.jobs.lastDiscoveryAt, loc),
               courbe: formatRelative(data.jobs.lastCurveAt, loc),
+              comptes: formatRelative(data.jobs.lastAccountsAt, loc),
+              reseaux: formatRelative(data.jobs.lastNetworkAt, loc),
             })}
             {data.jobs.creditsRemaining !== null && (
               <>
@@ -247,6 +249,7 @@ function BudgetEditor({ data }: { data: BudgetData }) {
           {[
             [tr("videosAuCrible"), int(posteOf("search").on ? posteOf("search").qty * 30 * DAYS_PER_MONTH : 0)],
             [tr("videosSuivies"), int(posteOf("curve").on ? posteOf("curve").qty * DAYS_PER_MONTH : 0)],
+            [tr("relevesDeComptes"), int(posteOf("tiktok").on ? posteOf("tiktok").qty * DAYS_PER_MONTH : 0)],
             [tr("creditsParMoisTotal"), tr("creditsEtPacks", { credits: int(totalCredits), packs: (totalCredits / SC_PACK_CREDITS).toLocaleString(loc, { maximumFractionDigits: 2 }) })],
           ].map(([label, value]) => (
             <div key={label} className="flex justify-between gap-3 border-t border-slate-100 pt-2 text-sm first:border-t-0 first:pt-0">

@@ -13,6 +13,7 @@ import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProto
 import { ARG_PROJET } from "./mcpWriteCommon";
 import { dayKeyParis } from "./dateFr";
 import { getRadarBudgetCore, listSignalsCore } from "./radarSignals";
+import { listAppAccountsCore, listNetworksCore } from "./radarNetworks";
 import { LANG_BUCKETS, viewsPerHour } from "./radarSignalsMath";
 import {
   STATUSES,
@@ -36,6 +37,16 @@ export const lireBudgetRadar = mcpPermissionQuery("radar.use")({
   handler: async (ctx) => getRadarBudgetCore(ctx),
 });
 
+export const lireReseaux = mcpPermissionQuery("radar.use")({
+  args: {},
+  handler: async (ctx) => listNetworksCore(ctx),
+});
+
+export const lireComptesApp = mcpPermissionQuery("radar.use")({
+  args: { appId: v.id("radarApps") },
+  handler: async (ctx, args) => listAppAccountsCore(ctx, args),
+});
+
 const PERIODES: Record<string, AgeKey> = { "24h": "1", "3j": "3", "7j": "7", "30j": "30", "90j": "90", tout: "all" };
 const TAILLES: Record<string, string> = { "moins-1k": "xs", "1k-10k": "s", "10k-50k": "m", "50k-plus": "l" };
 const TRIS: Record<string, SortKey> = { ratio: "ratio", vitesse: "vph", vues: "views", recent: "recent" };
@@ -50,7 +61,8 @@ export const OUTIL_SIGNAUX: McpTool = {
     properties: {
       projet: ARG_PROJET,
       periode: { type: "string", description: "Âge des vidéos (défaut : 7j).", enum: Object.keys(PERIODES) },
-      origine: { type: "string", description: "« concurrents » (app concurrente reconnue, ex. The Ick) ou « autres » (toutes les autres apps).", enum: ["concurrents", "autres"] },
+      origine: { type: "string", description: "« concurrents » (app concurrente DU PROJET, ex. The Ick pour Snytch, What Brandon Thinks pour BLUSH) ou « autres » (toutes les autres apps).", enum: ["concurrents", "autres"] },
+      app: { type: "string", description: "Une app suivie ou citée, par son nom (même partiel : « brandon », « ick ») — outil `reseaux` pour la liste." },
       langue: { type: "array", description: `Langues (ou) : ${LANG_BUCKETS.join(", ")} — pt = Brésil, es-am = espagnol d'Amérique, es-es = Espagne.`, items: { type: "string" } },
       taille: { type: "array", description: `Taille du compte (ou) : ${Object.keys(TAILLES).join(", ")}.`, items: { type: "string" } },
       seuil: { type: "integer", description: "Vues ÷ abonnés au moins : 0 (défaut), 10, 50 ou 200." },
@@ -102,6 +114,14 @@ export async function appelerSignaux(
   const limite = typeof args.limite === "number" ? Math.max(1, Math.min(100, Math.round(args.limite))) : 20;
   const lu = await lire(() => ctx.runQuery(internal.mcpSignaux.lireSignaux, { ...ids, since: listSince(now) }));
   const b = await lire(() => ctx.runQuery(internal.mcpSignaux.lireBudgetRadar, ids));
+  if (typeof args.app === "string" && args.app.trim()) {
+    const plie = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    const voulu = plie(args.app.trim());
+    const connues = Array.from(new Set(lu.signals.map((x) => x.app).filter((x): x is string => !!x)));
+    const trouvees = connues.filter((a) => plie(a).includes(voulu));
+    if (!trouvees.length) throw new ToolError(`App « ${args.app} » absente des signaux. Apps vues : ${connues.join(", ") || "aucune"}.`);
+    f.sel.app = trouvees;
+  }
   const res = applyFilters(lu.signals, f, now);
   const fc = facets(lu.signals, f, now);
   const compteurs = Object.fromEntries(fc.groups.map((g) => [g.key, Object.fromEntries(g.options.map((o) => [o.value, o.count]))]));
@@ -121,7 +141,9 @@ export async function appelerSignaux(
           publieLe: dayKeyParis(s.publishedAt),
           ageHeures: Math.round((now - s.publishedAt) / 3_600_000),
           langue: s.lang,
+          ...(s.app ? { app: s.app } : {}),
           ...(s.competitor ? { concurrent: s.competitor } : {}),
+          ...(s.multiplier !== null ? { foisMediane: Math.round(s.multiplier * 10) / 10 } : {}),
           statut: s.status,
           legende: s.caption,
           likes: s.likes,
@@ -146,9 +168,96 @@ export async function appelerSignaux(
         },
         lecture: [
           "foisAbonnes = vues ÷ abonnés du compte (au moins 100) : 50 veut dire 50 fois son audience.",
+          "foisMediane (comptes suivis) = vues ÷ médiane des vues du compte : 10 veut dire 10 fois ce qu'il fait d'habitude — le signal le plus juste pour un compte neuf.",
           "courbe = vues relevées à chaque passage, en heures après la publication ; une vidéo qui double entre H+6 et H+24 décolle.",
           "Les compteurs disent combien de vidéos on aurait en ajoutant chaque valeur, compte tenu des autres filtres.",
         ],
+      },
+      null,
+      1,
+    ),
+  );
+}
+
+// ─── Outil `reseaux` ────────────────────────────────────────────────────────
+
+export const OUTIL_RESEAUX: McpTool = {
+  name: "reseaux",
+  title: "Radar : les réseaux d'apps suivis",
+  description:
+    "Les apps dont le Radar suit le réseau de comptes TikTok (concurrentes du projet en tête : The Ick, CheatLove, RecentFollow pour Snytch ; What Brandon Thinks, The Cringe pour BLUSH ; et les autres), comme l'onglet Comptes suivis : comptes, publications de la semaine, meilleure vidéo (multiplicateur = vues ÷ médiane du compte). Avec « app » : les comptes de cette app, les plus en forme d'abord. Lecture seule. Les vidéos qui sortent du lot de ces comptes se lisent avec `signaux` (filtre « app »).",
+  inputSchema: {
+    type: "object",
+    properties: {
+      projet: ARG_PROJET,
+      app: { type: "string", description: "Une app, par son nom (même partiel), pour la liste de ses comptes." },
+      limite: { type: "integer", description: "Comptes listés au plus (défaut 30).", minimum: 1, maximum: 200 },
+    },
+    additionalProperties: false,
+  },
+};
+
+export const NOMS_RESEAUX = new Set([OUTIL_RESEAUX.name]);
+
+const GROUPE_LIBELLE = { rival: "concurrente du projet", otherRival: "concurrente d'un autre projet", other: "autre app" } as const;
+
+export async function appelerReseaux(
+  ctx: ActionCtx,
+  args: Record<string, unknown>,
+  ids: { userId: Id<"users">; projectId: Id<"projects"> },
+  projet: string,
+  lire: <T>(f: () => Promise<T>) => Promise<T>,
+): Promise<ToolResult> {
+  const r = await lire(() => ctx.runQuery(internal.mcpSignaux.lireReseaux, ids));
+  const jour = (t: number | null) => (t === null ? null : dayKeyParis(t));
+  if (typeof args.app !== "string" || !args.app.trim()) {
+    return textResult(
+      JSON.stringify(
+        {
+          projet,
+          comptesSuivis: r.total,
+          comptesActifs: r.active,
+          plafond: r.max,
+          apps: r.apps.map((a) => ({
+            app: a.name,
+            groupe: GROUPE_LIBELLE[a.group],
+            statut: a.status,
+            comptes: a.accounts,
+            comptesActifs: a.activeAccounts,
+            publicationsSemaine: a.posts7d,
+            meilleureSemaine: a.best ? { compte: a.best.handle, vues: a.best.views, foisMediane: Math.round(a.best.multiplier * 10) / 10, lien: a.best.url } : null,
+            reseauCherche: jour(a.networkSearchedAt),
+          })),
+        },
+        null,
+        1,
+      ),
+    );
+  }
+  const plie = (x: string) => x.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const voulu = plie(args.app.trim());
+  const app = r.apps.find((a) => plie(a.name).includes(voulu) || a.slug.includes(voulu));
+  if (!app) throw new ToolError(`App « ${args.app} » non suivie. Apps : ${r.apps.map((a) => a.name).join(", ") || "aucune"}.`);
+  const limite = typeof args.limite === "number" ? Math.max(1, Math.min(200, Math.round(args.limite))) : 30;
+  const comptes = await lire(() => ctx.runQuery(internal.mcpSignaux.lireComptesApp, { ...ids, appId: app.id }));
+  return textResult(
+    JSON.stringify(
+      {
+        projet,
+        app: app.name,
+        groupe: GROUPE_LIBELLE[app.group],
+        comptes: comptes.length,
+        liste: comptes.slice(0, limite).map((c) => ({
+          compte: c.handle,
+          statut: c.status,
+          rattache: c.matchedBy === "manual" ? "à la main" : "légende qui cite l'app",
+          abonnes: c.fans,
+          medianeVues: c.medianViews,
+          publicationsSemaine: c.posts7d,
+          derniereVideo: jour(c.lastPostAt),
+          meilleureSemaine: c.best7d ? { vues: c.best7d.views, foisMediane: Math.round(c.best7d.multiplier * 10) / 10, lien: c.best7d.url } : null,
+          lien: c.url,
+        })),
       },
       null,
       1,

@@ -82,6 +82,11 @@ crons.weekly(
 crons.interval("radar-signals-discovery", { hours: 6 }, internal.radarSignals.runDiscovery, {});
 crons.hourly("radar-signals-curve", { minuteUTC: 40 }, internal.radarSignals.runCurve, {});
 crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radarSignals.purgeOldSignals, {});
+// Réseaux d'apps (convex/radarNetworks) : recherche du réseau des apps dues toutes
+// les 6 h (une app se recherche chaque semaine), relevé des comptes suivis chaque
+// heure (chacun à son rythme : actif chaque jour, calme tous les 3 jours).
+crons.interval("radar-networks-search", { hours: 6 }, internal.radarNetworks.runNetworkSearch, {});
+crons.hourly("radar-networks-accounts", { minuteUTC: 20 }, internal.radarNetworks.runAccountReads, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

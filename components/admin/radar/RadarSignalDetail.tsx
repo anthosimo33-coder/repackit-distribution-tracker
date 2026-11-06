@@ -85,7 +85,7 @@ export function RadarSignalDetail({
               <SheetDescription>
                 {formatPublished(s.publishedAt, loc)}
                 {s.durationSec !== null && ` · ${formatDuration(s.durationSec)}`}
-                {s.competitor && ` · ${s.competitor}`}
+                {s.app && ` · ${s.app}`}
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-5 px-4 pb-6">
@@ -105,6 +105,7 @@ export function RadarSignalDetail({
                 <Stat label={tr("vuesSurAbonnes")} value={formatOutlierRatio(s.ratio, loc)} accent />
                 <Stat label={tr("vitesse")} value={tr("parHeure", { n: formatCount(viewsPerHour(s.views, s.publishedAt, now), loc) })} />
                 <Stat label={tr("abonnes")} value={formatCount(s.fans, loc)} />
+                {s.multiplier !== null && <Stat label={tr("vuesSurMediane")} value={formatOutlierRatio(s.multiplier, loc)} accent />}
               </div>
 
               <section aria-labelledby="radar-courbe" className="space-y-2">

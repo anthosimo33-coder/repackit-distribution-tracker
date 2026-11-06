@@ -28,13 +28,17 @@ export type FilterableSignal = {
   views: number;
   ratio: number;
   competitor: string | null;
+  /** L'app que la vidéo pousse (réseau suivi, ou légende qui la cite). */
+  app: string | null;
   status: SignalStatus;
 };
 
-export type GroupKey = "origine" | "langue" | "taille" | "statut";
+export type GroupKey = "origine" | "langue" | "app" | "taille" | "statut";
+/** `values` vide = valeurs tirées des données (les apps suivies changent). */
 export const GROUPS: readonly { key: GroupKey; values: readonly string[] }[] = [
   { key: "origine", values: ["concurrent", "autre"] },
   { key: "langue", values: LANG_BUCKETS },
+  { key: "app", values: [] },
   { key: "taille", values: ["xs", "s", "m", "l"] },
   { key: "statut", values: STATUSES },
 ];
@@ -57,7 +61,7 @@ export type Filters = {
 export const DEFAULT_AGE: AgeKey = "7";
 
 export function defaultFilters(): Filters {
-  return { sel: { origine: [], langue: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: "ratio" };
+  return { sel: { origine: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: "ratio" };
 }
 
 const HOUR = 3_600_000;
@@ -68,6 +72,7 @@ export const tailleOf = (fans: number) => (fans < 1_000 ? "xs" : fans < 10_000 ?
 export function valuesOf(s: FilterableSignal, key: GroupKey): string[] {
   if (key === "origine") return [s.competitor ? "concurrent" : "autre"];
   if (key === "langue") return [s.lang];
+  if (key === "app") return s.app ? [s.app] : [];
   if (key === "taille") return [tailleOf(s.fans)];
   return [s.status];
 }
@@ -105,9 +110,14 @@ export type FacetOption = { value: string; count: number; checked: boolean; disa
 
 /** Les compteurs de chaque case, compte tenu des autres groupes. */
 export function facets(signals: readonly FilterableSignal[], f: Filters, now: number) {
+  const valuesFor = (g: (typeof GROUPS)[number]) =>
+    g.values.length
+      ? g.values
+      : // Valeurs des données, plus celles cochées (une app cochée reste décochable).
+        Array.from(new Set([...signals.flatMap((s) => valuesOf(s, g.key)), ...f.sel[g.key]])).sort((a, b) => a.localeCompare(b));
   const groups = GROUPS.map((g) => ({
     key: g.key,
-    options: g.values.map((value): FacetOption => {
+    options: valuesFor(g).map((value): FacetOption => {
       const count = signals.filter((s) => matches(s, f, now, g.key) && valuesOf(s, g.key).includes(value)).length;
       const checked = f.sel[g.key].includes(value);
       return { value, count, checked, disabled: count === 0 && !checked };
@@ -205,7 +215,7 @@ export function sameFilters(a: Filters, b: Filters): boolean {
 
 // ─── Adresse de la page ──────────────────────────────────────────────────────
 
-const PARAM: Record<GroupKey, string> = { origine: "o", langue: "l", taille: "t", statut: "st" };
+const PARAM: Record<GroupKey, string> = { origine: "o", langue: "l", app: "a", taille: "t", statut: "st" };
 
 /** Les filtres dans l'adresse ; un filtre au défaut n'y figure pas. */
 export function toSearchParams(f: Filters, base?: URLSearchParams): URLSearchParams {
@@ -230,7 +240,9 @@ export function fromSearchParams(p: { get(name: string): string | null }): Filte
   for (const g of GROUPS) {
     const raw = p.get(PARAM[g.key]);
     if (raw === null) continue;
-    f.sel[g.key] = raw === "-" ? [] : raw.split(",").filter((x) => g.values.includes(x));
+    const vals = raw === "-" ? [] : raw.split(",").map((x) => x.trim()).filter(Boolean);
+    // Une app se garde telle quelle (liste ouverte) ; les autres groupes filtrent leurs valeurs connues.
+    f.sel[g.key] = g.values.length ? vals.filter((x) => g.values.includes(x)) : vals;
   }
   const age = p.get("age");
   if (age && (AGE_OPTIONS as readonly string[]).includes(age)) f.age = age as AgeKey;

@@ -1650,7 +1650,11 @@
     "ERR_INSTA_CONV_IMAGE_REJECTED": "Imagem recusada: JPEG, PNG ou WebP de no máximo 8 MB.",
     "ERR_PRICING_REASSIGN_DAY_INVALID": "Intervalo de dias inválido: dias AAAA-MM-DD, o primeiro antes do último.",
     "ERR_PRICING_REASSIGN_STALE": "A lista mudou desde a pré-visualização: {found} vídeo(s) para passar para esta tabela em vez de {expected}. Nada foi alterado: revise a pré-visualização.",
-    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} não é uma criadora parceira: publicar sem validação é só para elas."
+    "ERR_VIDEO_REVIEW_SKIP_PARTNER_ONLY": "{name} não é uma criadora parceira: publicar sem validação é só para elas.",
+    "ERR_RADAR_APP_INVALID": "Dê um nome ao app e pelo menos um padrão de 3 caracteres.",
+    "ERR_RADAR_APP_ALREADY_FOLLOWED": "O app “{name}” já é acompanhado.",
+    "ERR_RADAR_APP_NOT_FOUND": "App não encontrado.",
+    "ERR_RADAR_TRACKED_FULL": "Já são {max} contas acompanhadas: pause algumas antes."
   },
   "calendar": {
     "weekday": {

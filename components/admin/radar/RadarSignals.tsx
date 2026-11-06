@@ -65,7 +65,7 @@ function writeSavedViews(views: SavedView[]) {
 }
 
 /** Groupes de cases, dans l'ordre du panneau ; les repliés au départ. */
-const GROUP_ORDER: GroupKey[] = ["origine", "langue", "taille", "statut"];
+const GROUP_ORDER: GroupKey[] = ["origine", "langue", "app", "taille", "statut"];
 const COLLAPSED_AT_START: Partial<Record<GroupKey, boolean>> = { taille: true, statut: true };
 
 /**
@@ -142,7 +142,8 @@ export function RadarSignals() {
     if (c.kind === "age") return tr("chipPeriode", { periode: tr(k(`age.${c.value}`)) });
     if (c.kind === "seuil") return tr(k(`seuil.${c.value}`));
     if (c.kind === "statut") return tr("chipStatut", { statuts: c.values.map((s) => tr(k(`statut.${s}`))).join(", ") || tr("aucunStatut") });
-    return `${tr(k(`groupe.${c.key}`))} : ${tr(k(`${c.key}.${c.value}`))}`;
+    // Une app se nomme elle-même ; les autres valeurs se traduisent.
+    return `${tr(k(`groupe.${c.key}`))} : ${c.key === "app" ? c.value : tr(k(`${c.key}.${c.value}`))}`;
   }
 
   if (data === undefined) {
@@ -317,6 +318,8 @@ export function RadarSignals() {
             const g = fc.groups.find((x) => x.key === key)!;
             const nSel = key === "statut" ? (activeChips.some((c) => c.kind === "statut") ? f.sel.statut.length : 0) : f.sel[key].length;
             const expanded = !collapsed[key];
+            // Pas d'app suivie ni citée : le groupe App n'a rien à proposer.
+            if (g.options.length === 0) return null;
             return (
               <div key={key} className="border-b border-slate-200 last:border-b-0">
                 <button
@@ -349,7 +352,7 @@ export function RadarSignals() {
                           onChange={() => apply(toggle(f, key, o.value))}
                           className="size-4 accent-slate-900"
                         />
-                        <span className="flex-1">{tr(k(`${key}.${o.value}`))}</span>
+                        <span className="flex-1">{key === "app" ? o.value : tr(k(`${key}.${o.value}`))}</span>
                         <span className={cn("text-xs tabular-nums", o.disabled ? "text-slate-400" : "text-slate-500")}>{o.count}</span>
                       </label>
                     ))}
@@ -435,6 +438,7 @@ export function RadarSignals() {
                       <span className="absolute left-2.5 top-2.5 flex items-center gap-1.5">
                         <span className="rounded-md bg-orange-500 px-2 py-0.5 text-[13px] font-bold text-slate-950">{formatOutlierRatio(s.ratio, loc)}</span>
                         {s.competitor && <span className="rounded-md bg-white px-2 py-0.5 text-xs font-semibold text-slate-900">{s.competitor}</span>}
+                        {!s.competitor && s.app && <span className="rounded-md bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-white">{s.app}</span>}
                         {s.inCurve && <span className="rounded-md bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-white">{tr("courbeEnCours")}</span>}
                       </span>
                       <span className="relative line-clamp-4 text-[15px] font-semibold leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">

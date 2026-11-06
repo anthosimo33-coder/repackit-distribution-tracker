@@ -2,14 +2,18 @@
  * NOUVEAU RADAR — signaux : les vidéos qui sortent du lot en ce moment, dans
  * toutes les apps, à adapter pour Snytch et BLUSH.
  *
- * Deux tâches, payées au crédit ScrapeCreators et tenues par le budget du mois :
+ * Deux tâches ici, payées au crédit ScrapeCreators et tenues par le budget du
+ * mois (les réseaux d'apps et le relevé de leurs comptes : convex/radarNetworks) :
  *  - DÉCOUVERTE (toutes les 6 h) : une part de la rotation de recherches
  *    (convex/radarDiscoveryQueries) ; on garde les vidéos assez vues et assez
- *    au-dessus de leur compte, les jeunes et rapides entrent dans la courbe ;
+ *    au-dessus de leur compte, les jeunes et rapides entrent dans la courbe. Une
+ *    vidéo qui cite une app suivie y est rattachée, et son auteur rejoint le
+ *    réseau de l'app (convex/radarNetworkMath) ;
  *  - COURBE (toutes les heures) : relevé des vidéos admises à H+6, H+24, H+48.
  *
- * Données GLOBALES (la veille est la même pour tous les projets) ; seul le
- * statut posé par une équipe est par projet. Règles : convex/radarSignalsMath.
+ * Données GLOBALES (la veille est la même pour tous les projets) ; le statut posé
+ * par une équipe, et « concurrent » (une app est concurrente d'un projet donné),
+ * se lisent par projet. Règles : convex/radarSignalsMath.
  */
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
@@ -27,7 +31,9 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_QUERIES } from "./radarDiscoveryQueries";
+import { MAX_TRACKED, SEED_APPS, findApp } from "./radarNetworkMath";
 import {
+  BUDGET_VERSION,
   DISCOVERY_RUNS_PER_DAY,
   RETENTION_DAYS,
   SIGNALS_LIST_CAP,
@@ -36,7 +42,6 @@ import {
   addSnapshot,
   allowance,
   budgetState,
-  competitorOf,
   curveAdmissionsLeft,
   curveCandidate,
   foundByLabel,
@@ -47,12 +52,13 @@ import {
   plannedUsd,
   ratioOf,
   type BudgetSettings,
+  type SignalInput,
 } from "./radarSignalsMath";
 import { scKeyPresent, scSearchKeyword, scVideoInfo } from "./scrapeCreatorsApi";
 
 const DAY = 86_400_000;
 
-const signalInput = v.object({
+export const signalInput = v.object({
   videoId: v.string(),
   url: v.string(),
   authorId: v.string(),
@@ -74,12 +80,12 @@ const signalInput = v.object({
 
 const statusArg = v.union(v.literal("nouveau"), v.literal("enregistre"), v.literal("adapte"), v.literal("ignore"));
 
-async function readSettings(ctx: QueryCtx): Promise<Doc<"radarSettings"> | null> {
+export async function readSettings(ctx: QueryCtx): Promise<Doc<"radarSettings"> | null> {
   return ctx.db.query("radarSettings").withIndex("by_key", (q) => q.eq("key", "global")).first();
 }
 
 /** Le document de réglages, créé avec le budget par défaut au premier besoin. */
-async function ensureSettings(ctx: MutationCtx): Promise<Doc<"radarSettings">> {
+export async function ensureSettings(ctx: MutationCtx): Promise<Doc<"radarSettings">> {
   const got = await readSettings(ctx);
   if (got) return got;
   const d = normalizeBudget(null);
@@ -89,6 +95,7 @@ async function ensureSettings(ctx: MutationCtx): Promise<Doc<"radarSettings">> {
     postes: d.postes,
     cutOrder: d.cutOrder,
     alert80: d.alert80,
+    budgetVersion: BUDGET_VERSION,
     discoveryCursor: 0,
     curveAdmitted: 0,
     updatedAt: Date.now(),
@@ -100,12 +107,163 @@ async function monthUsage(ctx: QueryCtx, month: string) {
   return ctx.db.query("radarUsage").withIndex("by_month", (q) => q.eq("month", month)).collect();
 }
 
+// ─── Apps et réseaux : ce que partagent découverte et relevés de comptes ────
+
+/** Une app suivie, telle que le rattachement et l'écriture d'un signal la lisent. */
+export type AppRef = { id: Id<"radarApps">; name: string; rivalOf: string[] };
+
+/** Les apps actives, dans l'ordre de création (la première citée l'emporte). */
+export async function activeApps(ctx: QueryCtx) {
+  return ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect();
+}
+
+export const appRef = (a: Doc<"radarApps">): AppRef => ({ id: a._id, name: a.name, rivalOf: a.rivalOf });
+
+/** Les apps de départ, créées une fois (idempotent par slug). */
+export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
+  let created = 0;
+  for (const s of SEED_APPS) {
+    const got = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+    if (got) continue;
+    await ctx.db.insert("radarApps", {
+      slug: s.slug,
+      name: s.name,
+      rivalOf: [...s.rivalOf],
+      strong: [...s.strong],
+      weak: [...(s.weak ?? [])],
+      context: [...(s.context ?? [])],
+      searches: [...s.searches],
+      status: "active",
+      source: "seed",
+      createdAt: Date.now(),
+    });
+    created++;
+  }
+  return created;
+}
+
+/** Le nombre de comptes suivis, compté UNE fois par mutation (jusqu'à 1 000 lectures). */
+export type TrackedCounter = { n?: number };
+
+/**
+ * Ajoute un compte au réseau d'une app, s'il n'y est pas déjà et que le plafond
+ * de comptes suivis n'est pas atteint. Son premier relevé est immédiat.
+ */
+export async function attachAccount(
+  ctx: MutationCtx,
+  appId: Id<"radarApps">,
+  handle: string,
+  fans: number,
+  matchedBy: "caption" | "manual",
+  now: number,
+  counter: TrackedCounter,
+): Promise<"added" | "known" | "full"> {
+  const known = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
+  if (known) return "known";
+  counter.n ??= (await ctx.db.query("radarTracked").take(MAX_TRACKED)).length;
+  if (counter.n >= MAX_TRACKED) return "full";
+  counter.n++;
+  await ctx.db.insert("radarTracked", {
+    platform: "tiktok",
+    handle,
+    appId,
+    status: "active",
+    matchedBy,
+    fans,
+    videosSeen: 0,
+    nextReadAt: now,
+    readErrors: 0,
+    addedAt: now,
+  });
+  return "added";
+}
+
+/**
+ * Écrit un signal : met à jour une vidéo connue (vues, abonnés, relevé), ou en
+ * insère une neuve — à l'appelant de dire si elle mérite d'entrer (`insert`).
+ */
+export async function writeSignal(
+  ctx: MutationCtx,
+  // La langue arrive des arguments Convex en texte (déjà rangée par langBucket).
+  s: Omit<SignalInput, "lang"> & { lang: string },
+  now: number,
+  opts: {
+    insert: boolean;
+    foundBy?: string;
+    app?: AppRef;
+    trackedAccountId?: Id<"radarTracked">;
+    multiplier?: number;
+    curve?: { nextCheckAt?: number; curveStartedAt?: number };
+    forceSnapshot?: boolean;
+  },
+): Promise<"inserted" | "updated" | "skipped"> {
+  const existing = await ctx.db
+    .query("radarSignals")
+    .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", s.videoId))
+    .first();
+  const app = opts.app ? { appId: opts.app.id, appName: opts.app.name, appRivalOf: opts.app.rivalOf } : {};
+  const tracked = opts.trackedAccountId ? { trackedAccountId: opts.trackedAccountId } : {};
+  const mult = opts.multiplier !== undefined ? { multiplier: opts.multiplier } : {};
+  if (existing) {
+    const views = Math.max(existing.views, s.views);
+    await ctx.db.patch(existing._id, {
+      authorFans: s.authorFans,
+      caption: s.caption,
+      views,
+      likes: s.likes,
+      comments: s.comments,
+      shares: s.shares,
+      saves: s.saves,
+      ratio: ratioOf(views, s.authorFans),
+      snapshots: addSnapshot(existing.snapshots, now, s.views, opts.forceSnapshot),
+      ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
+      ...(opts.foundBy && !existing.foundBy.includes(opts.foundBy) ? { foundBy: [...existing.foundBy, opts.foundBy].slice(-10) } : {}),
+      ...app,
+      ...tracked,
+      ...mult,
+      lastSeenAt: now,
+      ...(opts.curve ?? {}),
+    });
+    return "updated";
+  }
+  if (!opts.insert) return "skipped";
+  await ctx.db.insert("radarSignals", {
+    platform: "tiktok",
+    videoId: s.videoId,
+    url: s.url,
+    authorId: s.authorId,
+    authorHandle: s.authorHandle,
+    authorFans: s.authorFans,
+    caption: s.caption,
+    lang: s.lang,
+    ...(s.region ? { region: s.region } : {}),
+    publishedAt: s.publishedAt,
+    ...(s.durationSec !== undefined ? { durationSec: s.durationSec } : {}),
+    ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
+    views: s.views,
+    likes: s.likes,
+    comments: s.comments,
+    shares: s.shares,
+    saves: s.saves,
+    ratio: ratioOf(s.views, s.authorFans),
+    snapshots: [{ at: now, views: s.views }],
+    ...app,
+    ...tracked,
+    ...mult,
+    foundBy: opts.foundBy ? [opts.foundBy] : [],
+    firstSeenAt: now,
+    lastSeenAt: now,
+    ...(opts.curve ?? {}),
+  });
+  return "inserted";
+}
+
 // ─── Lecture pour les tâches ─────────────────────────────────────────────────
-// Types de retour DÉCLARÉS : les actions de ce module appellent ces fonctions par
+// Types de retour DÉCLARÉS : les actions appellent ces fonctions par
 // `internal.radarSignals.*` ; inférés, ils bouclent et font tomber toute l'API
 // générée en `any` (erreurs dans des fichiers sans rapport).
 
-type JobState = {
+export type JobState = {
   budget: BudgetSettings;
   cursor: number;
   usage: { poste: string; credits: number; day: string }[];
@@ -113,7 +271,7 @@ type JobState = {
   month: string;
 };
 type DueCheck = { id: Id<"radarSignals">; url: string };
-type RunResult = { skipped: "no-key" } | { calls: number; credits: number; errors: number };
+export type RunResult = { skipped: "no-key" } | { calls: number; credits: number; errors: number };
 
 export const jobState = internalQuery({
   args: { now: v.number() },
@@ -132,6 +290,10 @@ export const jobState = internalQuery({
   },
 });
 
+/** Crédits déjà dépensés aujourd'hui par un poste. */
+export const todayCredits = (st: JobState, poste: string) =>
+  st.usage.filter((u) => u.day === st.day && u.poste === poste).reduce((s, u) => s + u.credits, 0);
+
 export const dueCurve = internalQuery({
   args: { now: v.number(), limit: v.number() },
   handler: async (ctx, { now, limit }): Promise<DueCheck[]> => {
@@ -147,24 +309,28 @@ export const dueCurve = internalQuery({
 // ─── Écritures des tâches ────────────────────────────────────────────────────
 
 /**
- * Range le résultat d'une recherche. Une vidéo déjà connue est mise à jour
- * (vues, abonnés, relevé) même si elle a baissé sous les seuils ; une vidéo neuve
- * n'entre que si elle les passe. Les jeunes et rapides entrent dans la courbe,
- * dans la limite des admissions du jour.
+ * Range le résultat d'une recherche. Une vidéo déjà connue est mise à jour même
+ * si elle a baissé sous les seuils ; une vidéo neuve n'entre que si elle les
+ * passe. Les jeunes et rapides entrent dans la courbe (limite d'admissions du
+ * jour). Une vidéo qui cite une app suivie y est rattachée, et son auteur entre
+ * dans le réseau de l'app.
  */
 export const upsertDiscovered = internalMutation({
   args: { videos: v.array(signalInput), foundBy: v.string(), now: v.number() },
-  handler: async (ctx, { videos, foundBy, now }): Promise<{ inserted: number; updated: number; admitted: number }> => {
+  handler: async (ctx, { videos, foundBy, now }): Promise<{ inserted: number; updated: number; admitted: number; attached: number }> => {
     const settings = await ensureSettings(ctx);
     const budget = normalizeBudget(settings);
+    const apps = await activeApps(ctx);
     const day = dayKeyParis(now);
     let admittedToday = settings.curveDay === day ? settings.curveAdmitted : 0;
     let inserted = 0;
     let updated = 0;
     let admitted = 0;
+    let attached = 0;
+    const counter: TrackedCounter = {};
     for (const s of videos) {
-      const ratio = ratioOf(s.views, s.authorFans);
-      const competitor = competitorOf(s.caption, s.authorHandle);
+      const app = findApp(s.caption, s.authorHandle, apps);
+      if (app && (await attachAccount(ctx, app._id, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
       const existing = await ctx.db
         .query("radarSignals")
         .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", s.videoId))
@@ -176,63 +342,24 @@ export const upsertDiscovered = internalMutation({
       const next = admit ? nextCheckpointAt(s.publishedAt, now) : undefined;
       const curve: { nextCheckAt?: number; curveStartedAt?: number } =
         admit && next !== undefined ? { nextCheckAt: next, curveStartedAt: now } : {};
+      const r = await writeSignal(ctx, s, now, {
+        insert: keepSignal(s) && s.publishedAt >= now - RETENTION_DAYS * DAY,
+        foundBy,
+        ...(app ? { app: appRef(app) } : {}),
+        curve,
+      });
+      if (r === "skipped") continue;
+      if (r === "inserted") inserted++;
+      else updated++;
       if (curve.curveStartedAt) {
         admittedToday++;
         admitted++;
       }
-      if (existing) {
-        await ctx.db.patch(existing._id, {
-          authorFans: s.authorFans,
-          caption: s.caption,
-          views: Math.max(existing.views, s.views),
-          likes: s.likes,
-          comments: s.comments,
-          shares: s.shares,
-          saves: s.saves,
-          ratio: ratioOf(Math.max(existing.views, s.views), s.authorFans),
-          snapshots: addSnapshot(existing.snapshots, now, s.views),
-          ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
-          ...(competitor ? { competitor } : {}),
-          foundBy: existing.foundBy.includes(foundBy) ? existing.foundBy : [...existing.foundBy, foundBy].slice(-10),
-          lastSeenAt: now,
-          ...curve,
-        });
-        updated++;
-        continue;
-      }
-      if (!keepSignal(s) || s.publishedAt < now - RETENTION_DAYS * DAY) continue;
-      await ctx.db.insert("radarSignals", {
-        platform: "tiktok",
-        videoId: s.videoId,
-        url: s.url,
-        authorId: s.authorId,
-        authorHandle: s.authorHandle,
-        authorFans: s.authorFans,
-        caption: s.caption,
-        lang: s.lang,
-        ...(s.region ? { region: s.region } : {}),
-        publishedAt: s.publishedAt,
-        ...(s.durationSec !== undefined ? { durationSec: s.durationSec } : {}),
-        ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
-        views: s.views,
-        likes: s.likes,
-        comments: s.comments,
-        shares: s.shares,
-        saves: s.saves,
-        ratio,
-        snapshots: [{ at: now, views: s.views }],
-        ...(competitor ? { competitor } : {}),
-        foundBy: [foundBy],
-        firstSeenAt: now,
-        lastSeenAt: now,
-        ...curve,
-      });
-      inserted++;
     }
     if (admitted > 0 || settings.curveDay !== day) {
       await ctx.db.patch(settings._id, { curveDay: day, curveAdmitted: admittedToday });
     }
-    return { inserted, updated, admitted };
+    return { inserted, updated, admitted, attached };
   },
 });
 
@@ -262,6 +389,13 @@ export const applyCurve = internalMutation({
   },
 });
 
+const LAST_RUN_FIELD: Record<string, "lastDiscoveryAt" | "lastCurveAt" | "lastAccountsAt" | "lastNetworkAt"> = {
+  search: "lastDiscoveryAt",
+  curve: "lastCurveAt",
+  tiktok: "lastAccountsAt",
+  network: "lastNetworkAt",
+};
+
 /** Ajoute la consommation d'un passage à la ligne (jour, poste) et l'état des tâches. */
 export const recordRun = internalMutation({
   args: {
@@ -288,11 +422,13 @@ export const recordRun = internalMutation({
         await ctx.db.insert("radarUsage", { day, month: monthKeyParis(a.now), poste: a.poste, credits: a.credits, calls: a.calls, errors: a.errors });
       }
     }
+    const field = LAST_RUN_FIELD[a.poste];
     await ctx.db.patch(settings._id, {
-      ...(a.poste === "search" ? { lastDiscoveryAt: a.now } : { lastCurveAt: a.now }),
+      ...(field ? { [field]: a.now } : {}),
       ...(a.creditsRemaining !== undefined ? { creditsRemaining: a.creditsRemaining, creditsSeenAt: a.now } : {}),
       ...(a.cursor !== undefined ? { discoveryCursor: a.cursor } : {}),
-      lastError: a.lastError,
+      // Une erreur du passage s'affiche ; un passage propre l'efface.
+      ...(a.lastError !== undefined || a.calls > 0 ? { lastError: a.lastError } : {}),
     });
   },
 });
@@ -327,7 +463,8 @@ export const purgeOldSignals = internalMutation({
 
 // ─── Tâches ──────────────────────────────────────────────────────────────────
 
-async function maybeAlert(ctx: ActionCtx, now: number): Promise<void> {
+/** Alerte Telegram à 80 % du plafond, une fois par mois. */
+export async function maybeAlert(ctx: ActionCtx, now: number): Promise<void> {
   const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
   const b = budgetState(st.budget, st.usage);
   if (!b.over80) return;
@@ -357,8 +494,7 @@ export const runDiscovery = internalAction({
     }
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage);
-    const today = st.usage.filter((u) => u.day === st.day && u.poste === "search").reduce((s, u) => s + u.credits, 0);
-    const n = allowance(st.budget, b, "search", today, DISCOVERY_RUNS_PER_DAY);
+    const n = allowance(st.budget, b, "search", todayCredits(st, "search"), DISCOVERY_RUNS_PER_DAY);
     const { queries } = nextQueries(st.cursor, n, DISCOVERY_QUERIES);
     let credits = 0;
     let calls = 0;
@@ -405,8 +541,7 @@ export const runCurve = internalAction({
     if (!scKeyPresent()) return { skipped: "no-key" };
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage);
-    const today = st.usage.filter((u) => u.day === st.day && u.poste === "curve").reduce((s, u) => s + u.credits, 0);
-    const n = allowance(st.budget, b, "curve", today, 24);
+    const n = allowance(st.budget, b, "curve", todayCredits(st, "curve"), 24);
     const due: DueCheck[] = await ctx.runQuery(internal.radarSignals.dueCurve, { now, limit: n });
     let credits = 0;
     let errors = 0;
@@ -443,8 +578,24 @@ export const runCurve = internalAction({
 
 // ─── Écran et outil MCP ──────────────────────────────────────────────────────
 
+/** Slug du projet courant : « concurrent » se lit par projet. */
+export async function projectSlugOf(ctx: ProjectQueryCtx): Promise<string> {
+  return (await ctx.db.get(ctx.projectId))?.slug ?? "";
+}
+
+/**
+ * Concurrent du projet ? Une app suivie l'est si le projet figure dans son
+ * `rivalOf`. Les signaux de la phase 1 (champ `competitor`, The Ick reconnu au
+ * motif) comptent comme concurrents de Snytch.
+ */
+export function competitorFor(r: Pick<Doc<"radarSignals">, "appName" | "appRivalOf" | "competitor">, projectSlug: string): string | null {
+  if (r.appName) return r.appRivalOf?.includes(projectSlug) ? r.appName : null;
+  return r.competitor && projectSlug === "snytch" ? r.competitor : null;
+}
+
 /** Les signaux publiés depuis `since` (les plus récents d'abord), avec le statut du projet. */
 export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: number }) {
+  const slug = await projectSlugOf(ctx);
   const rows = await ctx.db
     .query("radarSignals")
     .withIndex("by_published", (q) => q.gte("publishedAt", since))
@@ -475,8 +626,11 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       shares: r.shares,
       saves: r.saves,
       ratio: r.ratio,
+      multiplier: r.multiplier ?? null,
       snapshots: r.snapshots,
-      competitor: r.competitor ?? null,
+      app: r.appName ?? r.competitor ?? null,
+      competitor: competitorFor(r, slug),
+      tracked: r.trackedAccountId !== undefined,
       inCurve: r.nextCheckAt !== undefined,
       status: statusOf.get(r._id) ?? ("nouveau" as const),
     })),
@@ -515,6 +669,8 @@ export async function getRadarBudgetCore(ctx: ProjectQueryCtx) {
       keyPresent: scKeyPresent(),
       lastDiscoveryAt: settings?.lastDiscoveryAt ?? null,
       lastCurveAt: settings?.lastCurveAt ?? null,
+      lastAccountsAt: settings?.lastAccountsAt ?? null,
+      lastNetworkAt: settings?.lastNetworkAt ?? null,
       lastError: settings?.lastError ?? null,
       creditsRemaining: settings?.creditsRemaining ?? null,
       creditsSeenAt: settings?.creditsSeenAt ?? null,
@@ -540,13 +696,15 @@ export const saveRadarBudget = permissionMutation("project.settings")({
     alert80: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const b = normalizeBudget(args);
+    // Ce que l'écran envoie est déjà au format courant.
+    const b = normalizeBudget({ ...args, budgetVersion: BUDGET_VERSION });
     const s = await ensureSettings(ctx);
     await ctx.db.patch(s._id, {
       capUsd: b.capUsd,
       postes: b.postes,
       cutOrder: b.cutOrder,
       alert80: b.alert80,
+      budgetVersion: BUDGET_VERSION,
       alertProjectId: ctx.projectId,
       updatedAt: Date.now(),
     });
@@ -575,9 +733,14 @@ export const markSignal = permissionMutation("radar.use")({
 
 // ─── E2E ─────────────────────────────────────────────────────────────────────
 
-/** E2E — sème des signaux (cache global : effacés par `e2eClearSignals`). */
+/**
+ * E2E — sème des signaux (cache global : effacés par `e2eClearSignals`). Une
+ * légende qui cite une app de départ y est rattachée ; `rivalProject` ajoute un
+ * projet (celui de la spec) aux concurrents de cette app.
+ */
 export const e2eSeedSignals = e2eMutation({
   args: {
+    rivalProject: v.optional(v.string()),
     signals: v.array(
       v.object({
         videoId: v.string(),
@@ -588,14 +751,16 @@ export const e2eSeedSignals = e2eMutation({
         publishedAt: v.number(),
         views: v.number(),
         snapshots: v.optional(v.array(v.object({ at: v.number(), views: v.number() }))),
+        multiplier: v.optional(v.number()),
       }),
     ),
   },
-  handler: async (ctx, { signals }) => {
+  handler: async (ctx, { signals, rivalProject }) => {
     const now = Date.now();
     const ids: Id<"radarSignals">[] = [];
     for (const s of signals) {
-      const competitor = competitorOf(s.caption, s.handle);
+      const seed = findApp(s.caption, s.handle, SEED_APPS);
+      const app = seed ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] } : {};
       ids.push(
         await ctx.db.insert("radarSignals", {
           platform: "tiktok",
@@ -614,7 +779,8 @@ export const e2eSeedSignals = e2eMutation({
           saves: Math.round(s.views / 200),
           ratio: ratioOf(s.views, s.fans),
           snapshots: s.snapshots ?? [{ at: now, views: s.views }],
-          ...(competitor ? { competitor } : {}),
+          ...app,
+          ...(s.multiplier !== undefined ? { multiplier: s.multiplier } : {}),
           foundBy: ["e2e"],
           firstSeenAt: now,
           lastSeenAt: now,
@@ -644,13 +810,31 @@ export const e2eClearSignals = e2eMutation({
 
 /** E2E — remet le budget à zéro (réglages et consommation), éventuellement avec une dépense du mois. */
 export const e2eResetRadarBudget = e2eMutation({
-  args: { searchCredits: v.optional(v.number()) },
-  handler: async (ctx, { searchCredits }) => {
+  args: { searchCredits: v.optional(v.number()), v1Settings: v.optional(v.boolean()) },
+  handler: async (ctx, { searchCredits, v1Settings }) => {
     for (const s of await ctx.db.query("radarSettings").collect()) await ctx.db.delete(s._id);
     for (const u of await ctx.db.query("radarUsage").collect()) await ctx.db.delete(u._id);
+    const now = Date.now();
     if (searchCredits) {
-      const now = Date.now();
       await ctx.db.insert("radarUsage", { day: dayKeyParis(now), month: monthKeyParis(now), poste: "search", credits: searchCredits, calls: searchCredits, errors: 0 });
+    }
+    if (v1Settings) {
+      // Des réglages tels que la phase 1 les écrivait : `tiktok` en comptes et éteint.
+      await ctx.db.insert("radarSettings", {
+        key: "global",
+        capUsd: 60,
+        postes: [
+          { key: "search", qty: 60, on: true },
+          { key: "curve", qty: 100, on: true },
+          { key: "tiktok", qty: 200, on: false },
+          { key: "demand", qty: 1_500, on: false },
+        ],
+        cutOrder: ["search", "transcript", "curve", "insta", "ai", "tiktok"],
+        alert80: true,
+        discoveryCursor: 0,
+        curveAdmitted: 0,
+        updatedAt: now,
+      });
     }
     return null;
   },

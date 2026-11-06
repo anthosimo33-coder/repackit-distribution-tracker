@@ -82,22 +82,6 @@ export function nextQueries(cursor: number, count: number, all: readonly Discove
 
 export const foundByLabel = (d: DiscoveryQuery) => `${d.query}·${d.region.toLowerCase()}`;
 
-// ─── Concurrents reconnus ────────────────────────────────────────────────────
-
-/**
- * Concurrents reconnus à leur nom dans la légende ou le pseudo. « the ick » avec
- * une espace est de l'argot anglais (le dégoût amoureux) : seul « theick » collé
- * désigne l'app (vérifié le 06/11 : 0 vidéo de l'app sur 30 en tête de #theick).
- */
-export const COMPETITORS: readonly { name: string; patterns: readonly string[] }[] = [
-  { name: "The Ick", patterns: ["theick"] }, // i18n-exempt: nom propre du concurrent (donnée, pas interface)
-];
-
-export function competitorOf(caption: string, handle: string): string | undefined {
-  const hay = `${caption} ${handle}`.toLowerCase();
-  return COMPETITORS.find((c) => c.patterns.some((p) => hay.includes(p)))?.name;
-}
-
 // ─── Lecture d'une vidéo ScrapeCreators ──────────────────────────────────────
 
 export type SignalInput = {
@@ -215,7 +199,7 @@ export function addSnapshot(
 
 // ─── Budget ──────────────────────────────────────────────────────────────────
 
-export type PosteKey = "search" | "curve" | "tiktok" | "insta" | "transcript" | "demand" | "ai";
+export type PosteKey = "search" | "curve" | "tiktok" | "network" | "insta" | "transcript" | "ai";
 
 export type PosteDef = {
   key: PosteKey;
@@ -232,12 +216,23 @@ export type PosteDef = {
 export const POSTES: readonly PosteDef[] = [
   { key: "search", live: true, step: 10, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   { key: "curve", live: true, step: 20, max: 400, monthlyCredits: (n) => n * CURVE_CHECKPOINTS_H.length * DAYS_PER_MONTH },
-  { key: "tiktok", live: false, step: 20, max: 600, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  // Relevés de comptes suivis par jour (1 crédit = les 9 dernières vidéos d'un compte).
+  { key: "tiktok", live: true, step: 50, max: 1_500, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  // Recherche du réseau des apps (mots-clés, hashtags), en crédits par mois.
+  { key: "network", live: true, step: 300, max: 9_000, monthlyCredits: (n) => n },
   { key: "insta", live: false, step: 20, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   { key: "transcript", live: false, step: 5, max: 100, monthlyCredits: (n) => n * DAYS_PER_MONTH },
-  { key: "demand", live: false, step: 500, max: 6_000, monthlyCredits: (n) => n },
   { key: "ai", live: false, dollars: true, step: 2, max: 30, monthlyCredits: () => 0 },
 ];
+
+/**
+ * Version des réglages. En version 1 (phase 1), `tiktok` comptait des COMPTES et
+ * était forcé éteint (pas encore branché), `network` n'existait pas : des
+ * réglages v1 relus prennent pour ces deux postes les valeurs par défaut, au lieu
+ * de garder un « éteint » que personne n'a choisi.
+ */
+export const BUDGET_VERSION = 2;
+const NEW_IN_V2: readonly PosteKey[] = ["tiktok", "network"];
 
 export const POSTE_KEYS = POSTES.map((p) => p.key);
 export const isPosteKey = (k: string): k is PosteKey => (POSTE_KEYS as string[]).includes(k);
@@ -252,12 +247,17 @@ export type BudgetSettings = {
   alert80: boolean;
 };
 
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 100, tiktok: 200, insta: 60, transcript: 25, demand: 1_500, ai: 12 };
+// 600 relevés/jour suivent 1 000 comptes au rythme adaptatif (actifs chaque jour,
+// calmes tous les 3 jours) ; la courbe passe à 40 vidéos/jour, les relevés de
+// comptes donnant déjà celle de leurs vidéos.
+// La recherche des réseaux (3 000 crédits/mois, ~100/jour) fait le premier tour
+// des 5 apps de départ en une demi-journée, puis les revisite chaque semaine.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 40, tiktok: 600, network: 3_000, insta: 60, transcript: 25, ai: 12 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
   capUsd: 60,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
-  cutOrder: ["search", "transcript", "curve", "insta", "ai", "tiktok"],
+  cutOrder: ["search", "transcript", "curve", "insta", "ai", "network", "tiktok"],
   alert80: true,
 };
 
@@ -266,18 +266,22 @@ export const DEFAULT_BUDGET: BudgetSettings = {
  * quantité entière bornée, poste non branché toujours éteint, ordre de coupure
  * complet et sans doublon. Un réglage illisible retombe sur le défaut.
  */
-export function normalizeBudget(raw: Partial<{ capUsd: number; postes: { key: string; qty: number; on: boolean }[]; cutOrder: string[]; alert80: boolean }> | null | undefined): BudgetSettings {
+export function normalizeBudget(
+  raw: Partial<{ capUsd: number; postes: { key: string; qty: number; on: boolean }[]; cutOrder: string[]; alert80: boolean; budgetVersion: number }> | null | undefined,
+): BudgetSettings {
   const cap = raw?.capUsd;
   // Écrit « 0 < cap » : la garde i18n lit « > 0 && cap < » comme du texte JSX.
   const capUsd = typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
+  const isV2 = raw?.budgetVersion === BUDGET_VERSION;
   const postes = POSTES.map((def) => {
-    const got = raw?.postes?.find((p) => p.key === def.key);
+    const stale = !isV2 && NEW_IN_V2.includes(def.key);
+    const got = stale ? undefined : raw?.postes?.find((p) => p.key === def.key);
     const qty = typeof got?.qty === "number" && Number.isFinite(got.qty) ? Math.min(def.max, Math.max(0, Math.round(got.qty))) : DEFAULT_QTY[def.key];
     return { key: def.key, qty, on: def.live && (got ? got.on === true : true) };
   });
   const cutOrder: PosteKey[] = [];
   for (const k of [...(raw?.cutOrder ?? []), ...DEFAULT_BUDGET.cutOrder]) {
-    if (isPosteKey(k) && k !== "demand" && !cutOrder.includes(k)) cutOrder.push(k);
+    if (isPosteKey(k) && !cutOrder.includes(k)) cutOrder.push(k);
   }
   return { capUsd, postes, cutOrder, alert80: raw?.alert80 ?? DEFAULT_BUDGET.alert80 };
 }
