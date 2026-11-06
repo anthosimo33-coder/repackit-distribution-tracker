@@ -76,6 +76,13 @@ crons.weekly(
   {},
 );
 
+// NOUVEAU RADAR (signaux, ScrapeCreators) — découverte 4 fois par jour, courbe
+// H+6/H+24/H+48 toutes les heures, chacune dans la limite du budget du mois
+// (convex/radarSignalsMath). Sans SCRAPECREATORS_API_KEY, les deux ne font rien.
+crons.interval("radar-signals-discovery", { hours: 6 }, internal.radarSignals.runDiscovery, {});
+crons.hourly("radar-signals-curve", { minuteUTC: 40 }, internal.radarSignals.runCurve, {});
+crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radarSignals.purgeOldSignals, {});
+
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de
 // temps réel, pas de webhook). Idempotent (dédup par whopId) → re-synchroniser ne

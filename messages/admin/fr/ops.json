@@ -270,15 +270,255 @@
     "videosParSurperformance": "Vidéos par surperformance"
   },
   "RadarPage": {
-    "ajouteUnCompteTiktokPour": "Ajoute un compte TikTok pour suivre ses dernières vidéos.",
-    "aucunCompteSuivi": "Aucun compte suivi",
-    "compteSuivi": "{count, plural, one {compte} other {comptes}} {count, plural, one {suivi} other {suivis}}",
-    "comptesSuivis": "Comptes suivis",
-    "limiteConseilleeAtteinteQuotaApify": "Limite conseillée atteinte — quota Apify à surveiller.",
-    "outliers": "Outliers",
     "radar": "Radar",
-    "tendances": "Tendances",
-    "veilleTiktokSuisDesComptes": "Veille TikTok — suis des comptes en favori et leurs dernières vidéos."
+    "sousTitre": "Les vidéos qui sortent du lot en ce moment, dans toutes les apps, à adapter pour nos projets.",
+    "signaux": "Signaux",
+    "comptesSuivis": "Comptes suivis",
+    "budget": "Budget",
+    "compteSuivi": "{count, plural, one {compte} other {comptes}} {count, plural, one {suivi} other {suivis}}",
+    "limiteConseilleeAtteinteQuotaApify": "Limite conseillée atteinte — quota Apify à surveiller.",
+    "aucunCompteSuivi": "Aucun compte suivi",
+    "ajouteUnCompteTiktokPour": "Ajoute un compte TikTok pour suivre ses dernières vidéos."
+  },
+  "RadarSignals": {
+    "vuesEnregistrees": "Vues enregistrées",
+    "preset": {
+      "tout": "Tout",
+      "horsDomaine": "Autres apps · 7 j",
+      "concurrents": "Concurrents · 90 j",
+      "latam": "Brésil + Amérique latine"
+    },
+    "supprimerLaVue": "Supprimer la vue {nom}",
+    "maVue": "Ma vue {n}",
+    "enregistrerCetteVue": "+ Enregistrer cette vue",
+    "rechercher": "Rechercher",
+    "placeholderRecherche": "Chercher un hook, un compte, une app…",
+    "filtres": "Filtres",
+    "filtresN": "Filtres ({n})",
+    "trierPar": "Trier par",
+    "tri": {
+      "ratio": "Vues ÷ abonnés",
+      "vph": "Vues par heure",
+      "views": "Vues",
+      "recent": "Plus récentes"
+    },
+    "nVideos": "{n, plural, =0 {0 vidéo} one {# vidéo} other {# vidéos}}",
+    "contexte": "sur {total} relevées · {periode}",
+    "contexteAge": {
+      "1": "dernières 24 h",
+      "3": "3 derniers jours",
+      "7": "7 derniers jours",
+      "30": "30 derniers jours",
+      "90": "90 derniers jours",
+      "all": "toutes périodes"
+    },
+    "chipRecherche": "Recherche : « {q} »",
+    "chipPeriode": "Période : {periode}",
+    "chipStatut": "Statut : {statuts}",
+    "aucunStatut": "aucun coché",
+    "retirerLeFiltre": "Retirer le filtre {filtre}",
+    "toutEffacer": "Tout effacer",
+    "tronque": "Seules les 3 000 vidéos les plus récentes sont chargées.",
+    "logique": "ou dans un groupe · et entre groupes",
+    "singleTitre": {
+      "age": "Période (âge de la vidéo)",
+      "seuil": "Sortie du lot (vues ÷ abonnés)"
+    },
+    "age": {
+      "1": "24 h",
+      "3": "3 jours",
+      "7": "7 jours",
+      "30": "30 jours",
+      "90": "90 jours",
+      "all": "Tout"
+    },
+    "seuil": {
+      "0": "Toutes",
+      "10": "10× et plus",
+      "50": "50× et plus",
+      "200": "200× et plus"
+    },
+    "groupe": {
+      "origine": "Origine",
+      "langue": "Langue",
+      "taille": "Taille du compte",
+      "statut": "Statut"
+    },
+    "origine": {
+      "concurrent": "Concurrents",
+      "autre": "Autres apps"
+    },
+    "langue": {
+      "fr": "Français",
+      "pt": "Portugais (Brésil)",
+      "es-am": "Espagnol (Amérique)",
+      "es-es": "Espagnol (Espagne)",
+      "en": "Anglais",
+      "autre": "Autre langue"
+    },
+    "langueCourte": {
+      "fr": "FR",
+      "pt": "BR",
+      "es-am": "LATAM",
+      "es-es": "ES",
+      "en": "EN",
+      "autre": "Autre"
+    },
+    "taille": {
+      "xs": "Moins de 1 k abonnés",
+      "s": "1 k à 10 k",
+      "m": "10 k à 50 k",
+      "l": "50 k et plus"
+    },
+    "statut": {
+      "nouveau": "Nouvelles",
+      "enregistre": "Enregistrées",
+      "adapte": "Adaptées",
+      "ignore": "Ignorées"
+    },
+    "statutCourt": {
+      "nouveau": "Nouvelle",
+      "enregistre": "Enregistrée",
+      "adapte": "Adaptée",
+      "ignore": "Ignorée"
+    },
+    "effacerCeFiltre": "Effacer ce filtre",
+    "resultats": "Résultats",
+    "videoIgnoree": "Vidéo de @{handle} ignorée : elle reste dans « Statut : Ignorées ».",
+    "annuler": "Annuler",
+    "aucunSignalTitre": "Aucune vidéo relevée pour l'instant.",
+    "aucunSignalTexte": "La découverte passe toutes les 6 heures. Si rien n'arrive, regarde l'onglet Budget : la clé ScrapeCreators ou le plafond.",
+    "videVideTitre": "Aucune vidéo ne passe tous ces filtres.",
+    "videVideTexte": "Retire un filtre pour élargir :",
+    "retirerAvecCompte": "Retirer « {filtre} » ({n})",
+    "filtreNom": {
+      "q": "Recherche",
+      "age": "Période",
+      "seuil": "Sortie du lot",
+      "origine": "Origine",
+      "langue": "Langue",
+      "taille": "Taille du compte",
+      "statut": "Statut"
+    },
+    "voirLeDetail": "Voir le détail de la vidéo de @{handle}",
+    "courbeEnCours": "Courbe en cours",
+    "vues": "{n} vues",
+    "ilYA": "il y a {duree}",
+    "heures": "{n} h",
+    "jours": "{n} j",
+    "vuesParHeure": "{n} vues/h",
+    "abonnes": "{n} abonnés",
+    "voir": "Voir",
+    "enregistrer": "Enregistrer",
+    "retirerDesEnregistrees": "Retirer des enregistrées",
+    "ignorer": "Ignorer la vidéo de @{handle}"
+  },
+  "RadarSignalDetail": {
+    "videoDe": "Vidéo de @{handle}",
+    "vues": "Vues",
+    "vuesSurAbonnes": "Vues ÷ abonnés",
+    "vitesse": "Vitesse moyenne",
+    "parHeure": "{n}/h",
+    "abonnes": "Abonnés du compte",
+    "courbe": "La courbe",
+    "courbeAttendue": "Prochains relevés à H+6, H+24 et H+48 après la publication.",
+    "courbeUnReleve": "Un seul relevé : la vidéo était trop vieille ou trop lente pour la courbe.",
+    "hPlus": "H+{h}",
+    "legende": "Légende",
+    "statutTitre": "Statut",
+    "statut": {
+      "nouveau": "Nouvelle",
+      "enregistre": "Enregistrée",
+      "adapte": "Adaptée",
+      "ignore": "Ignorée"
+    },
+    "ajouterAuxInspirations": "Ajouter aux inspirations",
+    "dansLesInspirations": "Dans les inspirations ✓",
+    "ajouteeAuxInspirations": "Vidéo ajoutée aux inspirations.",
+    "ajoutImpossible": "Ajout aux inspirations impossible.",
+    "ouvrirSurTiktok": "Ouvrir sur TikTok"
+  },
+  "RadarBudget": {
+    "cleAbsente": "Collecte en pause : la clé ScrapeCreators n'est pas posée sur ce déploiement (SCRAPECREATORS_API_KEY).",
+    "etatCollecte": "Dernière découverte : {decouverte}. Dernier relevé de courbe : {courbe}.",
+    "creditsRestants": "Crédits restants chez ScrapeCreators : {n}.",
+    "joursDeCollecte": "Environ {n} jours au rythme prévu.",
+    "derniereErreur": "Dernière erreur : {erreur}",
+    "plafondMensuel": "Plafond mensuel",
+    "depenseCeMois": "dépensés ce mois-ci, sur un plafond de {plafond}",
+    "prevu": "Prévu : {prevu} par mois",
+    "projection": "projection du mois : {projection}",
+    "depassePlafond": "Le prévu dépasse le plafond de {ecart} : baisse ou coupe un poste.",
+    "margeRestante": "Il reste {marge} de marge sous le plafond.",
+    "postesCoupes": "Coupés pour tenir le plafond : {postes}.",
+    "ceQuOnAchete": "Ce qu'on achète",
+    "prixDuCredit": "{prix} les 1 000 crédits (pack de 47 $ = 25 000 crédits, sans date limite)",
+    "poste": {
+      "search": {
+        "titre": "Chercher les formats qui montent",
+        "aide": "Recherches TikTok dans 5 langues, environ 30 vidéos par recherche.",
+        "unite": "recherches/jour"
+      },
+      "curve": {
+        "titre": "Suivre la courbe des vidéos repérées",
+        "aide": "3 relevés par vidéo (H+6, H+24, H+48) : on sait à H+48 si elle va percer.",
+        "unite": "vidéos/jour"
+      },
+      "tiktok": {
+        "titre": "Comptes TikTok relevés chaque jour",
+        "aide": "Concurrents, apps et créateurs suivis.",
+        "unite": "comptes"
+      },
+      "insta": {
+        "titre": "Comptes Instagram relevés chaque jour",
+        "aide": "La recherche Instagram est trop faible : on y suivra des comptes.",
+        "unite": "comptes"
+      },
+      "transcript": {
+        "titre": "Transcriptions",
+        "aide": "Ce qui est dit dans les meilleures vidéos du jour.",
+        "unite": "vidéos/jour"
+      },
+      "demand": {
+        "titre": "Recherches à la demande",
+        "aide": "Retrouver le réseau d'une app (environ 6 crédits), creuser un hashtag.",
+        "unite": "crédits/mois"
+      },
+      "ai": {
+        "titre": "Analyse IA des vidéos",
+        "aide": "Format, structure, adaptations Snytch et BLUSH. S'arrête au plafond.",
+        "unite": "$/mois"
+      }
+    },
+    "pasEncoreBranche": "Pas encore branché",
+    "baisser": "Baisser : {poste}",
+    "augmenter": "Augmenter : {poste}",
+    "coupe": "coupé",
+    "plafondIa": "plafond IA",
+    "creditsParMois": "{n} crédits",
+    "couper": "Couper : {poste}",
+    "rallumer": "Rallumer : {poste}",
+    "enregistrement": "Enregistrement…",
+    "enregistrerLeBudget": "Enregistrer le budget",
+    "annulerLesModifications": "Annuler les modifications",
+    "reserveAuxReglages": "Le budget se règle avec le droit « Réglages du projet ».",
+    "enregistre": "Budget enregistré.",
+    "enregistrementImpossible": "Enregistrement du budget impossible.",
+    "ceQueCaDonne": "Ce que ça donne chaque mois",
+    "videosAuCrible": "Vidéos passées au crible",
+    "videosSuivies": "Vidéos suivies à H+6, H+24 et H+48",
+    "creditsParMoisTotal": "Crédits par mois",
+    "creditsEtPacks": "{credits} ({packs} pack)",
+    "quandLePlafondApproche": "Quand le plafond approche",
+    "alerte80": "Alerte Telegram à 80 % du plafond",
+    "alerteIci": "Les alertes partent sur le canal Telegram de ce projet.",
+    "alerteAilleurs": "Les alertes partent sur le canal du projet où le budget a été enregistré ; l'enregistrer ici les y ramène.",
+    "ordreDeCoupure": "À partir de 80 %, si le mois va dépasser le plafond, on coupe dans cet ordre ; au plafond, tout s'arrête jusqu'au 1er du mois suivant.",
+    "monter": "Monter : {poste}",
+    "descendre": "Descendre : {poste}",
+    "depenseParJour": "Dépense par jour",
+    "aucuneDepense": "Rien de dépensé ce mois-ci.",
+    "creditsCourt": "{n} cr."
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Récupérer les dernières vidéos des comptes suivis",

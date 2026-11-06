@@ -270,15 +270,255 @@
     "videosParSurperformance": "Videos by overperformance"
   },
   "RadarPage": {
-    "ajouteUnCompteTiktokPour": "Add a TikTok account to follow its latest videos.",
-    "aucunCompteSuivi": "No account followed",
-    "compteSuivi": "{count, plural, one {account} other {accounts}} followed",
-    "comptesSuivis": "Followed accounts",
-    "limiteConseilleeAtteinteQuotaApify": "Recommended limit reached — keep an eye on the Apify quota.",
-    "outliers": "Outliers",
     "radar": "Radar",
-    "tendances": "Trends",
-    "veilleTiktokSuisDesComptes": "TikTok watch — follow favourite accounts and their latest videos."
+    "sousTitre": "Videos breaking out right now, across every app, to adapt for our projects.",
+    "signaux": "Signals",
+    "comptesSuivis": "Followed accounts",
+    "budget": "Budget",
+    "compteSuivi": "{count, plural, one {account} other {accounts}} followed",
+    "limiteConseilleeAtteinteQuotaApify": "Recommended limit reached — watch the Apify quota.",
+    "aucunCompteSuivi": "No account followed",
+    "ajouteUnCompteTiktokPour": "Add a TikTok account to follow its latest videos."
+  },
+  "RadarSignals": {
+    "vuesEnregistrees": "Saved views",
+    "preset": {
+      "tout": "All",
+      "horsDomaine": "Other apps · 7 d",
+      "concurrents": "Competitors · 90 d",
+      "latam": "Brazil + Latin America"
+    },
+    "supprimerLaVue": "Delete the view {nom}",
+    "maVue": "My view {n}",
+    "enregistrerCetteVue": "+ Save this view",
+    "rechercher": "Search",
+    "placeholderRecherche": "Search a hook, an account, an app…",
+    "filtres": "Filters",
+    "filtresN": "Filters ({n})",
+    "trierPar": "Sort by",
+    "tri": {
+      "ratio": "Views ÷ followers",
+      "vph": "Views per hour",
+      "views": "Views",
+      "recent": "Newest"
+    },
+    "nVideos": "{n, plural, =0 {0 videos} one {# video} other {# videos}}",
+    "contexte": "out of {total} collected · {periode}",
+    "contexteAge": {
+      "1": "last 24 h",
+      "3": "last 3 days",
+      "7": "last 7 days",
+      "30": "last 30 days",
+      "90": "last 90 days",
+      "all": "all time"
+    },
+    "chipRecherche": "Search: “{q}”",
+    "chipPeriode": "Period: {periode}",
+    "chipStatut": "Status: {statuts}",
+    "aucunStatut": "none checked",
+    "retirerLeFiltre": "Remove the filter {filtre}",
+    "toutEffacer": "Clear all",
+    "tronque": "Only the 3,000 most recent videos are loaded.",
+    "logique": "or within a group · and across groups",
+    "singleTitre": {
+      "age": "Period (video age)",
+      "seuil": "Breakout (views ÷ followers)"
+    },
+    "age": {
+      "1": "24 h",
+      "3": "3 days",
+      "7": "7 days",
+      "30": "30 days",
+      "90": "90 days",
+      "all": "All"
+    },
+    "seuil": {
+      "0": "All",
+      "10": "10× and up",
+      "50": "50× and up",
+      "200": "200× and up"
+    },
+    "groupe": {
+      "origine": "Origin",
+      "langue": "Language",
+      "taille": "Account size",
+      "statut": "Status"
+    },
+    "origine": {
+      "concurrent": "Competitors",
+      "autre": "Other apps"
+    },
+    "langue": {
+      "fr": "French",
+      "pt": "Portuguese (Brazil)",
+      "es-am": "Spanish (Americas)",
+      "es-es": "Spanish (Spain)",
+      "en": "English",
+      "autre": "Other language"
+    },
+    "langueCourte": {
+      "fr": "FR",
+      "pt": "BR",
+      "es-am": "LATAM",
+      "es-es": "ES",
+      "en": "EN",
+      "autre": "Other"
+    },
+    "taille": {
+      "xs": "Under 1k followers",
+      "s": "1k to 10k",
+      "m": "10k to 50k",
+      "l": "50k and up"
+    },
+    "statut": {
+      "nouveau": "New",
+      "enregistre": "Saved",
+      "adapte": "Adapted",
+      "ignore": "Ignored"
+    },
+    "statutCourt": {
+      "nouveau": "New",
+      "enregistre": "Saved",
+      "adapte": "Adapted",
+      "ignore": "Ignored"
+    },
+    "effacerCeFiltre": "Clear this filter",
+    "resultats": "Results",
+    "videoIgnoree": "@{handle}'s video ignored: it stays under “Status: Ignored”.",
+    "annuler": "Undo",
+    "aucunSignalTitre": "No video collected yet.",
+    "aucunSignalTexte": "Discovery runs every 6 hours. If nothing arrives, check the Budget tab: the ScrapeCreators key or the cap.",
+    "videVideTitre": "No video passes all these filters.",
+    "videVideTexte": "Remove a filter to widen:",
+    "retirerAvecCompte": "Remove “{filtre}” ({n})",
+    "filtreNom": {
+      "q": "Search",
+      "age": "Period",
+      "seuil": "Breakout",
+      "origine": "Origin",
+      "langue": "Language",
+      "taille": "Account size",
+      "statut": "Status"
+    },
+    "voirLeDetail": "See the details of @{handle}'s video",
+    "courbeEnCours": "Curve running",
+    "vues": "{n} views",
+    "ilYA": "{duree} ago",
+    "heures": "{n}h",
+    "jours": "{n}d",
+    "vuesParHeure": "{n} views/h",
+    "abonnes": "{n} followers",
+    "voir": "View",
+    "enregistrer": "Save",
+    "retirerDesEnregistrees": "Remove from saved",
+    "ignorer": "Ignore @{handle}'s video"
+  },
+  "RadarSignalDetail": {
+    "videoDe": "@{handle}'s video",
+    "vues": "Views",
+    "vuesSurAbonnes": "Views ÷ followers",
+    "vitesse": "Average speed",
+    "parHeure": "{n}/h",
+    "abonnes": "Account followers",
+    "courbe": "The curve",
+    "courbeAttendue": "Next readings at H+6, H+24 and H+48 after posting.",
+    "courbeUnReleve": "A single reading: the video was too old or too slow for the curve.",
+    "hPlus": "H+{h}",
+    "legende": "Caption",
+    "statutTitre": "Status",
+    "statut": {
+      "nouveau": "New",
+      "enregistre": "Saved",
+      "adapte": "Adapted",
+      "ignore": "Ignored"
+    },
+    "ajouterAuxInspirations": "Add to inspirations",
+    "dansLesInspirations": "In inspirations ✓",
+    "ajouteeAuxInspirations": "Video added to inspirations.",
+    "ajoutImpossible": "Could not add to inspirations.",
+    "ouvrirSurTiktok": "Open on TikTok"
+  },
+  "RadarBudget": {
+    "cleAbsente": "Collection paused: the ScrapeCreators key is not set on this deployment (SCRAPECREATORS_API_KEY).",
+    "etatCollecte": "Last discovery: {decouverte}. Last curve reading: {courbe}.",
+    "creditsRestants": "Credits left at ScrapeCreators: {n}.",
+    "joursDeCollecte": "About {n} days at the planned pace.",
+    "derniereErreur": "Last error: {erreur}",
+    "plafondMensuel": "Monthly cap",
+    "depenseCeMois": "spent this month, out of a {plafond} cap",
+    "prevu": "Planned: {prevu} per month",
+    "projection": "month projection: {projection}",
+    "depassePlafond": "The plan exceeds the cap by {ecart}: lower or turn off an item.",
+    "margeRestante": "{marge} of headroom under the cap.",
+    "postesCoupes": "Turned off to stay under the cap: {postes}.",
+    "ceQuOnAchete": "What we buy",
+    "prixDuCredit": "{prix} per 1,000 credits ($47 pack = 25,000 credits, no expiry)",
+    "poste": {
+      "search": {
+        "titre": "Find rising formats",
+        "aide": "TikTok searches in 5 languages, about 30 videos per search.",
+        "unite": "searches/day"
+      },
+      "curve": {
+        "titre": "Track the curve of spotted videos",
+        "aide": "3 readings per video (H+6, H+24, H+48): by H+48 you know if it will break out.",
+        "unite": "videos/day"
+      },
+      "tiktok": {
+        "titre": "TikTok accounts read every day",
+        "aide": "Competitors, apps and creators you follow.",
+        "unite": "accounts"
+      },
+      "insta": {
+        "titre": "Instagram accounts read every day",
+        "aide": "Instagram search is too weak: accounts will be followed instead.",
+        "unite": "accounts"
+      },
+      "transcript": {
+        "titre": "Transcripts",
+        "aide": "What is said in the day's best videos.",
+        "unite": "videos/day"
+      },
+      "demand": {
+        "titre": "On-demand searches",
+        "aide": "Find an app's network (about 6 credits), dig into a hashtag.",
+        "unite": "credits/month"
+      },
+      "ai": {
+        "titre": "AI video analysis",
+        "aide": "Format, structure, Snytch and BLUSH adaptations. Stops at the cap.",
+        "unite": "$/month"
+      }
+    },
+    "pasEncoreBranche": "Not connected yet",
+    "baisser": "Lower: {poste}",
+    "augmenter": "Raise: {poste}",
+    "coupe": "off",
+    "plafondIa": "AI cap",
+    "creditsParMois": "{n} credits",
+    "couper": "Turn off: {poste}",
+    "rallumer": "Turn on: {poste}",
+    "enregistrement": "Saving…",
+    "enregistrerLeBudget": "Save the budget",
+    "annulerLesModifications": "Discard changes",
+    "reserveAuxReglages": "The budget is set with the “Project settings” permission.",
+    "enregistre": "Budget saved.",
+    "enregistrementImpossible": "Could not save the budget.",
+    "ceQueCaDonne": "What it gets you each month",
+    "videosAuCrible": "Videos screened",
+    "videosSuivies": "Videos tracked at H+6, H+24 and H+48",
+    "creditsParMoisTotal": "Credits per month",
+    "creditsEtPacks": "{credits} ({packs} pack)",
+    "quandLePlafondApproche": "When the cap gets close",
+    "alerte80": "Telegram alert at 80% of the cap",
+    "alerteIci": "Alerts go to this project's Telegram channel.",
+    "alerteAilleurs": "Alerts go to the channel of the project where the budget was saved; saving it here brings them here.",
+    "ordreDeCoupure": "From 80%, if the month will exceed the cap, items are turned off in this order; at the cap, everything stops until the 1st of next month.",
+    "monter": "Move up: {poste}",
+    "descendre": "Move down: {poste}",
+    "depenseParJour": "Spend per day",
+    "aucuneDepense": "Nothing spent this month.",
+    "creditsCourt": "{n} cr."
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Fetch the latest videos from followed accounts",
