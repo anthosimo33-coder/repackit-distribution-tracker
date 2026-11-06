@@ -88,6 +88,11 @@ crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radar
 crons.interval("radar-networks-search", { hours: 6 }, internal.radarNetworks.runNetworkSearch, {});
 crons.hourly("radar-networks-accounts", { minuteUTC: 20 }, internal.radarNetworks.runAccountReads, {});
 crons.daily("radar-networks-purge", { hourUTC: 3, minuteUTC: 55 }, internal.radarNetworks.purgeNetworks, {});
+// Pubs des apps suivies (TikTok + Meta), Reels Instagram des comptes suivis, transcriptions.
+crons.interval("radar-ads", { hours: 6 }, internal.radarSources.runAdsSearch, {});
+crons.hourly("radar-instagram", { minuteUTC: 40 }, internal.radarSources.runInstaReads, {});
+crons.interval("radar-transcripts", { hours: 2 }, internal.radarSources.runTranscripts, {});
+crons.daily("radar-ads-purge", { hourUTC: 4, minuteUTC: 5 }, internal.radarSources.purgeAds, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

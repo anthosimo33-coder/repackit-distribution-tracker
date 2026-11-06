@@ -89,16 +89,23 @@ export function RadarSignalDetail({
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-5 px-4 pb-6">
-              <div className="mx-auto w-full max-w-[300px] overflow-hidden rounded-lg border border-slate-200 bg-black">
-                <iframe
-                  key={s.videoId}
-                  src={tiktokPlayerEmbedUrl(s.videoId)}
-                  title={tr("videoDe", { handle: s.handle })}
-                  className="aspect-[9/16] w-full"
-                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                  allowFullScreen
-                />
-              </div>
+              {s.platform === "instagram" ? (
+                // Pas de lecteur Instagram intégrable sans compte : le lien suffit.
+                <a href={s.url} target="_blank" rel="noopener noreferrer" className="block min-h-11 rounded-lg border border-slate-300 px-4 py-3 text-center text-sm font-semibold hover:bg-slate-50">
+                  {tr("voirSurInstagram")}
+                </a>
+              ) : (
+                <div className="mx-auto w-full max-w-[300px] overflow-hidden rounded-lg border border-slate-200 bg-black">
+                  <iframe
+                    key={s.videoId}
+                    src={tiktokPlayerEmbedUrl(s.videoId)}
+                    title={tr("videoDe", { handle: s.handle })}
+                    className="aspect-[9/16] w-full"
+                    allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <Stat label={tr("vues")} value={formatCount(s.views, loc)} />
@@ -134,6 +141,13 @@ export function RadarSignalDetail({
                   <h3 className="text-sm font-semibold">{tr("texteALEcran")}</h3>
                   {s.hook && <p className="text-sm font-medium text-slate-900">{s.hook}</p>}
                   {s.musicTitle && <p className="text-xs text-slate-500">{tr("son", { titre: s.musicTitle })}</p>}
+                </section>
+              )}
+
+              {s.transcript && (
+                <section className="space-y-1">
+                  <h3 className="text-sm font-semibold">{tr("ceQuiEstDit")}</h3>
+                  <p className="text-sm text-slate-700" data-testid="radar-transcription">{s.transcript}</p>
                 </section>
               )}
 

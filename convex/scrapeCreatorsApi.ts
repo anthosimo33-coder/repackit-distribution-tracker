@@ -9,6 +9,7 @@
  * relevée sur ce que l'API dit avoir facturé, pas estimée.
  */
 import { parseScVideo, type SignalInput } from "./radarSignalsMath";
+import { igFollowers, parseIgReel, parseMetaAd, parseTikTokAd, transcriptText, type AdInput, type IgReel } from "./radarSourcesMath";
 
 const BASE = "https://api.scrapecreators.com";
 const TIMEOUT_MS = 60_000;
@@ -96,6 +97,44 @@ export async function scNetworkPage(
   const raw = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
   const next = typeof r.value.cursor === "number" ? r.value.cursor : typeof r.value.cursor === "string" ? Number(r.value.cursor) : undefined;
   return { ...r, value: { videos: raw.map((it) => parseScVideo(it)).filter((x): x is SignalInput => x !== null), cursor: Number.isFinite(next) ? next : undefined } };
+}
+
+/** Bibliothèque de pubs TikTok, par mot-clé (1 crédit). */
+export async function scTikTokAds(query: string, now: number): Promise<ScCall<AdInput[]>> {
+  const r = await scGet("/v1/tiktok/ad-library/search", { query });
+  if (!r.ok) return r;
+  return { ...r, value: (Array.isArray(r.value.ads) ? r.value.ads : []).map((a) => parseTikTokAd(a, now)).filter((x): x is AdInput => x !== null) };
+}
+
+/** Bibliothèque de pubs Meta, par mot-clé, actives et passées, les plus vues d'abord (1 crédit). */
+export async function scMetaAds(query: string): Promise<ScCall<AdInput[]>> {
+  const r = await scGet("/v1/facebook/adLibrary/search/ads", { query, status: "ALL", sort_by: "total_impressions" });
+  if (!r.ok) return r;
+  return { ...r, value: (Array.isArray(r.value.searchResults) ? r.value.searchResults : []).map(parseMetaAd).filter((x): x is AdInput => x !== null) };
+}
+
+/** Les derniers Reels d'un compte Instagram, avec leurs vues (1 crédit, ~12 Reels). */
+export async function scIgReels(handle: string): Promise<ScCall<IgReel[]>> {
+  const r = await scGet("/v1/instagram/user/reels", { handle });
+  if (!r.ok) return r;
+  return { ...r, value: (Array.isArray(r.value.items) ? r.value.items : []).map(parseIgReel).filter((x): x is IgReel => x !== null) };
+}
+
+/** Abonnés d'un compte Instagram (1 crédit) : lu une fois, au premier relevé. */
+export async function scIgFollowers(handle: string): Promise<ScCall<number | undefined>> {
+  const r = await scGet("/v1/instagram/profile", { handle });
+  if (!r.ok) return r;
+  return { ...r, value: igFollowers(r.value) };
+}
+
+/**
+ * Ce qui est dit dans une vidéo TikTok : sous-titres natifs, sinon l'IA jusqu'à
+ * 2 minutes (1 crédit ; 0 s'il n'y a rien à transcrire).
+ */
+export async function scTranscript(url: string): Promise<ScCall<string | null>> {
+  const r = await scGet("/v1/tiktok/video/transcript", { url, use_ai_as_fallback: "true" });
+  if (!r.ok) return r;
+  return { ...r, value: transcriptText(r.value) };
 }
 
 /** Infos d'une vidéo (vues à jour, abonnés du compte) — 1 crédit. */

@@ -86,6 +86,7 @@ function FormatCard({ f }: { f: Format }) {
         {f.rival && <span className="rounded-md bg-orange-500 px-1.5 py-0.5 font-bold text-slate-950">{tr("pousseParUnConcurrent")}</span>}
         <span className="text-slate-500">
           {tr("comptesEtApps", { comptes: f.accountCount, apps: f.apps.map((a) => a.name).join(", ") })}
+          {f.variants > 1 && ` · ${tr("variantes", { n: f.variants })}`}
         </span>
       </div>
       <p className={cn("break-words text-slate-900", f.kind === "hook" ? "text-base font-semibold" : "text-sm font-medium")}>
@@ -97,16 +98,21 @@ function FormatCard({ f }: { f: Format }) {
       </p>
       <ul className="space-y-1 border-t border-slate-100 pt-2 text-sm">
         {f.members.map((m) => (
-          <li key={m.url} className="flex min-w-0 items-center gap-2">
-            <a href={m.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 font-medium text-slate-900 hover:underline">
-              <span className="truncate">@{m.handle}</span>
-              <ExternalLinkIcon className="size-3.5 shrink-0 text-slate-500" aria-hidden />
-            </a>
-            <span className="shrink-0 text-xs text-slate-500">
-              {m.app ? `${m.app} · ` : ""}
-              {tr("vues", { n: formatCount(m.views, loc) })}
-              {m.multiplier !== null && ` · ${formatOutlierRatio(m.multiplier, loc)}`}
-            </span>
+          <li key={m.url} className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <a href={m.url} target="_blank" rel="noopener noreferrer" className="inline-flex min-w-0 items-center gap-1 font-medium text-slate-900 hover:underline">
+                <span className="truncate">@{m.handle}</span>
+                <ExternalLinkIcon className="size-3.5 shrink-0 text-slate-500" aria-hidden />
+              </a>
+              {m.platform === "instagram" && <span className="shrink-0 rounded bg-fuchsia-600 px-1 text-[11px] font-semibold text-white">{tr("ig")}</span>}
+              <span className="shrink-0 text-xs text-slate-500">
+                {m.app ? `${m.app} · ` : ""}
+                {tr("vues", { n: formatCount(m.views, loc) })}
+                {m.multiplier !== null && ` · ${formatOutlierRatio(m.multiplier, loc)}`}
+              </span>
+            </div>
+            {/* Écrit « 1 < » : la garde i18n lit « > 1 && » comme du texte JSX. */}
+            {m.hook && 1 < f.variants && <p className="truncate text-xs text-slate-500">{tr("hookCite", { hook: m.hook })}</p>}
           </li>
         ))}
       </ul>

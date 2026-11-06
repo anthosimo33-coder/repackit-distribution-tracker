@@ -85,6 +85,8 @@ export const foundByLabel = (d: DiscoveryQuery) => `${d.query}·${d.region.toLow
 // ─── Lecture d'une vidéo ScrapeCreators ──────────────────────────────────────
 
 export type SignalInput = {
+  /** Absent = TikTok. Un Reel Instagram a un videoId « ig:<code> ». */
+  platform?: "tiktok" | "instagram";
   videoId: string;
   url: string;
   authorId: string;
@@ -247,7 +249,7 @@ export function addSnapshot(
 
 // ─── Budget ──────────────────────────────────────────────────────────────────
 
-export type PosteKey = "search" | "curve" | "tiktok" | "network" | "insta" | "transcript" | "ai";
+export type PosteKey = "search" | "curve" | "tiktok" | "network" | "insta" | "transcript" | "ads" | "ai";
 
 export type PosteDef = {
   key: PosteKey;
@@ -268,8 +270,12 @@ export const POSTES: readonly PosteDef[] = [
   { key: "tiktok", live: true, step: 100, max: 5_000, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   // Recherche du réseau des apps (mots-clés, hashtags), en crédits par mois.
   { key: "network", live: true, step: 500, max: 30_000, monthlyCredits: (n) => n },
-  { key: "insta", live: false, step: 20, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
-  { key: "transcript", live: false, step: 5, max: 100, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  // Relevés Instagram par jour (1 crédit = les ~12 derniers Reels d'un compte).
+  { key: "insta", live: true, step: 50, max: 3_000, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  // Vidéos transcrites par jour (1 crédit, 0 s'il n'y a rien à transcrire).
+  { key: "transcript", live: true, step: 10, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  // Bibliothèques de pubs TikTok et Meta, en crédits par mois.
+  { key: "ads", live: true, step: 250, max: 10_000, monthlyCredits: (n) => n },
   { key: "ai", live: false, dollars: true, step: 2, max: 30, monthlyCredits: () => 0 },
 ];
 
@@ -280,14 +286,15 @@ export const POSTES: readonly PosteDef[] = [
  * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
  * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 3;
-const RESET_BEFORE_V3: readonly PosteKey[] = ["tiktok", "network", "curve"];
+export const BUDGET_VERSION = 4;
+// v4 : Instagram, transcriptions et pubs branchés (éteints tant qu'ils ne l'étaient pas).
+const RESET_BEFORE_V4: readonly PosteKey[] = ["tiktok", "network", "curve", "insta", "transcript", "ads"];
 
 export const POSTE_KEYS = POSTES.map((p) => p.key);
 export const isPosteKey = (k: string): k is PosteKey => (POSTE_KEYS as string[]).includes(k);
 export const posteDef = (k: PosteKey) => POSTES.find((p) => p.key === k)!;
 
-export const CAP_CHOICES = [100, 150, 200, 300] as const;
+export const CAP_CHOICES = [150, 200, 300, 400] as const;
 
 export type BudgetSettings = {
   capUsd: number;
@@ -302,13 +309,15 @@ export type BudgetSettings = {
 // premier tour des ~40 apps de départ dans la journée, puis revisite les
 // concurrentes tous les 3 jours et les autres chaque semaine (~2 000 crédits/mois).
 // Ce sont des PLAFONDS : sans comptes à relever ni apps à chercher, rien n'est
-// dépensé. Prévu au plus : ~156 $/mois sous un plafond de 200 $.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 100, tiktok: 2_000, network: 12_000, insta: 60, transcript: 25, ai: 12 };
+// dépensé. Instagram : 300 relevés/jour (les comptes dont la bio donne l'Instagram) ;
+// 50 transcriptions/jour ; pubs 1 500 crédits/mois (concurrentes tous les 3 jours,
+// les autres chaque semaine). Prévu au plus : ~178 $/mois sous un plafond de 300 $.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 100, tiktok: 2_000, network: 12_000, insta: 300, transcript: 50, ads: 1_500, ai: 12 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
-  capUsd: 200,
+  capUsd: 300,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
-  cutOrder: ["search", "transcript", "curve", "insta", "ai", "network", "tiktok"],
+  cutOrder: ["search", "transcript", "curve", "ads", "insta", "ai", "network", "tiktok"],
   alert80: true,
 };
 
@@ -325,7 +334,7 @@ export function normalizeBudget(
   const current = raw?.budgetVersion === BUDGET_VERSION;
   const capUsd = current && typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
   const postes = POSTES.map((def) => {
-    const stale = !current && RESET_BEFORE_V3.includes(def.key);
+    const stale = !current && RESET_BEFORE_V4.includes(def.key);
     const got = stale ? undefined : raw?.postes?.find((p) => p.key === def.key);
     const qty = typeof got?.qty === "number" && Number.isFinite(got.qty) ? Math.min(def.max, Math.max(0, Math.round(got.qty))) : DEFAULT_QTY[def.key];
     return { key: def.key, qty, on: def.live && (got ? got.on === true : true) };

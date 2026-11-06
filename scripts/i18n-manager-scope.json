@@ -117,6 +117,7 @@
     "components/admin/insta-conv/blush-polices.ts",
     "components/admin/insta-conv/champs.tsx",
     "components/admin/leaderboard/CreatorLeaderboard.tsx",
+    "components/admin/radar/RadarAds.tsx",
     "components/admin/radar/RadarBudget.tsx",
     "components/admin/radar/RadarFormats.tsx",
     "components/admin/radar/RadarNetworks.tsx",

@@ -279,7 +279,8 @@
     "limiteConseilleeAtteinteQuotaApify": "Limite conseillée atteinte — quota Apify à surveiller.",
     "aucunCompteSuivi": "Aucun compte suivi",
     "ajouteUnCompteTiktokPour": "Ajoute un compte TikTok pour suivre ses dernières vidéos.",
-    "formats": "Formats"
+    "formats": "Formats",
+    "pubs": "Pubs"
   },
   "RadarSignals": {
     "vuesEnregistrees": "Vues enregistrées",
@@ -344,7 +345,8 @@
       "langue": "Langue",
       "taille": "Taille du compte",
       "statut": "Statut",
-      "app": "App"
+      "app": "App",
+      "plateforme": "Plateforme"
     },
     "origine": {
       "concurrent": "Concurrents",
@@ -413,7 +415,11 @@
     "voir": "Voir",
     "enregistrer": "Enregistrer",
     "retirerDesEnregistrees": "Retirer des enregistrées",
-    "ignorer": "Ignorer la vidéo de @{handle}"
+    "ignorer": "Ignorer la vidéo de @{handle}",
+    "plateforme": {
+      "tiktok": "TikTok",
+      "instagram": "Instagram"
+    }
   },
   "RadarSignalDetail": {
     "videoDe": "Vidéo de @{handle}",
@@ -441,7 +447,9 @@
     "ouvrirSurTiktok": "Ouvrir sur TikTok",
     "vuesSurMediane": "Vues ÷ médiane du compte",
     "texteALEcran": "Texte à l'écran",
-    "son": "Son : {titre}"
+    "son": "Son : {titre}",
+    "ceQuiEstDit": "Ce qui est dit",
+    "voirSurInstagram": "Voir le Reel sur Instagram"
   },
   "RadarBudget": {
     "cleAbsente": "Collecte en pause : la clé ScrapeCreators n'est pas posée sur ce déploiement (SCRAPECREATORS_API_KEY).",
@@ -475,13 +483,13 @@
         "unite": "relevés/jour"
       },
       "insta": {
-        "titre": "Comptes Instagram relevés chaque jour",
-        "aide": "La recherche Instagram est trop faible : on y suivra des comptes.",
-        "unite": "comptes"
+        "titre": "Relever les comptes Instagram",
+        "aide": "Le compte Instagram que donne la bio TikTok d'un compte suivi. 1 crédit = ses ~12 derniers Reels, au même rythme que sur TikTok.",
+        "unite": "relevés/jour"
       },
       "transcript": {
-        "titre": "Transcriptions",
-        "aide": "Ce qui est dit dans les meilleures vidéos du jour.",
+        "titre": "Transcrire les meilleures vidéos",
+        "aide": "Ce qui est dit dans les vidéos qui sortent le plus du lot (2 minutes au plus). 1 crédit, rien s'il n'y a rien à transcrire.",
         "unite": "vidéos/jour"
       },
       "ai": {
@@ -492,6 +500,11 @@
       "network": {
         "titre": "Retrouver le réseau des apps",
         "aide": "Mots-clés et hashtags de chaque app suivie : tous les 3 jours pour une concurrente, chaque semaine sinon. Un compte qui la cite rejoint son réseau.",
+        "unite": "crédits/mois"
+      },
+      "ads": {
+        "titre": "Pubs des apps suivies",
+        "aide": "Bibliothèques de pubs TikTok et Meta : une pub qui tourne longtemps est un format que l'app paie pour pousser. Concurrentes tous les 3 jours, les autres chaque semaine.",
         "unite": "crédits/mois"
       }
     },
@@ -583,7 +596,9 @@
     "chezLesComptesDe": "chez les comptes de {apps}",
     "suivreCetteApp": "Suivre",
     "ignorer": "Ignorer",
-    "appSuivieDepuisReperee": "{app} suivie : {n, plural, =0 {aucun compte ajouté} one {# compte rejoint son réseau} other {# comptes rejoignent son réseau}}."
+    "appSuivieDepuisReperee": "{app} suivie : {n, plural, =0 {aucun compte ajouté} one {# compte rejoint son réseau} other {# comptes rejoignent son réseau}}.",
+    "instagram": "Instagram @{handle}",
+    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} vues"
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Récupérer les dernières vidéos des comptes suivis",
@@ -649,6 +664,31 @@
     "hookCite": "« {hook} »",
     "resume": "Jusqu'à {vues} vues · dernière publication {quand}",
     "meilleurMultiplicateur": "jusqu'à {x} la médiane du compte",
-    "vues": "{n} vues"
+    "vues": "{n} vues",
+    "variantes": "{n} variantes",
+    "ig": "IG"
+  },
+  "RadarAds": {
+    "plateforme": "Bibliothèque de pubs",
+    "plateformes": {
+      "all": "Toutes",
+      "meta": "Meta",
+      "tiktok": "TikTok"
+    },
+    "activesSeulement": "Actives seulement",
+    "concurrentsSeulement": "Concurrents de ce projet seulement",
+    "compte": "{n, plural, =0 {aucune pub} one {# pub} other {# pubs}}",
+    "aucuneTitre": "Aucune pub relevée pour l'instant.",
+    "aucuneFiltreTitre": "Aucune pub ne passe ces filtres.",
+    "aucuneTexte": "Les bibliothèques de pubs TikTok et Meta sont lues toutes les 6 h pour chaque app suivie. Une pub qui tourne depuis longtemps est un format que l'app paie pour pousser.",
+    "active": "active",
+    "arretee": "arrêtée",
+    "tourneDepuis": "{n, plural, one {# jour de diffusion} other {# jours de diffusion}}",
+    "dureeInconnue": "Durée de diffusion inconnue",
+    "depuisLe": "depuis le {date}",
+    "variantes": "{n} variantes",
+    "audience": "audience {n}",
+    "voirDansLaBibliotheque": "Voir dans la bibliothèque",
+    "laVideo": "La vidéo"
   }
 }

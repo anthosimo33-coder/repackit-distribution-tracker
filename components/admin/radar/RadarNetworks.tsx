@@ -222,6 +222,13 @@ function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appName: st
                       {r.matchedBy !== "caption" && (
                         <span className="ml-1.5 text-xs text-slate-500">{r.matchedBy === "manual" ? tr("ajouteALaMain") : tr("listeDeDepart")}</span>
                       )}
+                      {r.igHandle && (
+                        <a href={`https://www.instagram.com/${r.igHandle}/`} target="_blank" rel="noopener noreferrer" className="mt-0.5 block text-xs text-fuchsia-700 hover:underline">
+                          {r.igBest7d
+                            ? tr("instagramMeilleur", { handle: r.igHandle, x: formatOutlierRatio(r.igBest7d.multiplier, loc), vues: formatCount(r.igBest7d.views, loc) })
+                            : tr("instagram", { handle: r.igHandle })}
+                        </a>
+                      )}
                     </TableCell>
                     <TableCell className="px-3 py-2 text-right tabular-nums">{formatCount(r.fans, loc)}</TableCell>
                     <TableCell className="px-3 py-2 text-right tabular-nums">{r.medianViews === null ? "—" : formatCount(r.medianViews, loc)}</TableCell>

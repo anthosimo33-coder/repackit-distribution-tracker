@@ -151,13 +151,13 @@ describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 155,66 $ au plus par défaut sous un plafond de 200 $ : recherche, courbe 100/jour, 2 000 relevés de comptes/jour, réseaux", () => {
-    expect(d.capUsd).toBe(200);
-    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000) * SC_PRICE_PER_CREDIT, 6);
-    expect(plannedUsd(d)).toBeCloseTo(155.664, 3);
+  it("prévoit 178,22 $ au plus par défaut sous un plafond de 300 $ : recherche, courbe, comptes, réseaux, Instagram, transcriptions, pubs", () => {
+    expect(d.capUsd).toBe(300);
+    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000 + 300 * 30 + 50 * 30 + 1_500) * SC_PRICE_PER_CREDIT, 6);
+    expect(plannedUsd(d)).toBeCloseTo(178.224, 3);
   });
 
-  it("des réglages d'avant la v3 prennent les postes relevés et le plafond par défaut ; ceux de la v3 sont respectés", () => {
+  it("des réglages d'avant la v4 prennent les postes relevés, les postes branchés et le plafond par défaut ; ceux de la v4 sont respectés", () => {
     const v1 = {
       capUsd: 60,
       postes: [
@@ -171,17 +171,21 @@ describe("budget", () => {
     };
     // Les réglages réels de la prod au 06/11/2026 (v1, plafond 60 $).
     const m = normalizeBudget(v1);
-    expect(m.capUsd).toBe(200);
+    expect(m.capUsd).toBe(300);
     expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 60, on: true });
     expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
     expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 2_000, on: true });
     expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 12_000, on: true });
-    expect(m.cutOrder).toEqual(["search", "transcript", "curve", "insta", "ai", "tiktok", "network"]);
+    // Instagram, transcriptions et pubs, éteints tant qu'ils n'étaient pas branchés, s'allument.
+    expect(m.postes.find((p) => p.key === "insta")).toEqual({ key: "insta", qty: 300, on: true });
+    expect(m.postes.find((p) => p.key === "transcript")).toEqual({ key: "transcript", qty: 50, on: true });
+    expect(m.postes.find((p) => p.key === "ads")).toEqual({ key: "ads", qty: 1_500, on: true });
+    expect(m.cutOrder).toEqual(["search", "transcript", "curve", "insta", "ai", "tiktok", "ads", "network"]);
     // Une v2 (réglée après #454) passe aussi au cran au-dessus.
     const v2 = normalizeBudget({ ...v1, budgetVersion: 2, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
-    expect([v2.capUsd, v2.postes.find((p) => p.key === "network")?.qty]).toEqual([200, 12_000]);
-    // Une v3 est respectée telle quelle.
-    const v3 = normalizeBudget({ ...v1, capUsd: 150, budgetVersion: 3, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
+    expect([v2.capUsd, v2.postes.find((p) => p.key === "network")?.qty]).toEqual([300, 12_000]);
+    // Une v4 est respectée telle quelle.
+    const v3 = normalizeBudget({ ...v1, capUsd: 150, budgetVersion: 4, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
     expect(v3.capUsd).toBe(150);
     expect(v3.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 200, on: false });
     expect(v3.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 900, on: true });
@@ -191,21 +195,21 @@ describe("budget", () => {
     const b = normalizeBudget({
       capUsd: -4,
       postes: [
-        { key: "insta", qty: 200, on: true },
+        { key: "ai", qty: 6, on: true },
         { key: "tiktok", qty: 400, on: true },
         { key: "search", qty: 1_000, on: true },
         { key: "curve", qty: 87.6, on: false },
       ],
       cutOrder: ["curve", "curve", "inconnu", "demand"],
       alert80: false,
-      budgetVersion: 3,
+      budgetVersion: 4,
     });
-    expect(b.capUsd).toBe(200);
-    expect(b.postes.find((p) => p.key === "insta")?.on).toBe(false);
+    expect(b.capUsd).toBe(300);
+    expect(b.postes.find((p) => p.key === "ai")?.on).toBe(false);
     expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
     expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 300, on: true });
     expect(b.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 88, on: false });
-    expect(b.cutOrder).toEqual(["curve", "search", "transcript", "insta", "ai", "network", "tiktok"]);
+    expect(b.cutOrder).toEqual(["curve", "search", "transcript", "ads", "insta", "ai", "network", "tiktok"]);
     expect(b.alert80).toBe(false);
   });
 
@@ -217,14 +221,15 @@ describe("budget", () => {
     // 100 vidéos × 3 relevés = 300/jour → 13 par heure ; 2 000 relevés de comptes → 84 par heure.
     expect(allowance(d, s, "curve", 0, 24)).toBe(13);
     expect(allowance(d, s, "tiktok", 0, 24)).toBe(84);
-    expect(allowance(d, s, "insta", 0, 1)).toBe(0);
+    // Poste pas encore branché : rien.
+    expect(allowance(d, s, "ai", 0, 1)).toBe(0);
   });
 
   /** Le budget de la phase 1 : recherche (60/jour) et courbe (100/jour) seules. */
   const p1 = (cap: number) => ({
     ...d,
     capUsd: cap,
-    postes: d.postes.map((p) => (p.key === "curve" ? { ...p, qty: 100 } : p.key === "tiktok" || p.key === "network" ? { ...p, on: false } : p)),
+    postes: d.postes.map((p) => (p.key === "curve" ? { ...p, qty: 100 } : ["tiktok", "network", "insta", "transcript", "ads"].includes(p.key) ? { ...p, on: false } : p)),
   });
 
   it("au plafond, tout s'arrête", () => {
@@ -232,7 +237,7 @@ describe("budget", () => {
     // 10 640 crédits = 20,0032 $ (10 638 ne font que 19,9994 $).
     const s = budgetState(b, [usage("curve", 10_640, "2026-11-03")]);
     expect(s.capReached).toBe(true);
-    expect(s.cut).toEqual(["search", "curve", "tiktok", "network"]);
+    expect(s.cut).toEqual(["search", "curve", "tiktok", "network", "insta", "transcript", "ads"]);
     expect(allowance(b, s, "curve", 0, 24)).toBe(0);
   });
 
@@ -272,6 +277,7 @@ const sig = (handle: string, fans: number, views: number, ageH: number, lang: st
   fans,
   views,
   caption: extra.caption ?? `vidéo de @${handle}`,
+  platform: extra.platform ?? "tiktok",
   lang,
   publishedAt: NOW - ageH * HOUR,
   ratio: views / Math.max(fans, 100),

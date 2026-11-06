@@ -4111,7 +4111,9 @@ export default defineSchema({
   // Une vidéo gardée par la découverte (assez de vues, assez au-dessus de son
   // compte). Upsert par (plateforme, videoId) : une vidéo revue est MISE À JOUR.
   radarSignals: defineTable({
-    platform: v.literal("tiktok"),
+    // Les Reels Instagram viennent des comptes suivis dont la bio donne l'Instagram
+    // (videoId « ig:<code> », pas de courbe).
+    platform: v.union(v.literal("tiktok"), v.literal("instagram")),
     videoId: v.string(), // aweme_id
     url: v.string(),
     authorId: v.string(),
@@ -4146,6 +4148,8 @@ export default defineSchema({
     multiplier: v.optional(v.number()),
     hook: v.optional(v.string()), // texte à l'écran (réponses non allégées)
     musicTitle: v.optional(v.string()),
+    transcript: v.optional(v.string()), // ce qui est dit (3 000 caractères au plus)
+    transcribedAt: v.optional(v.number()), // posé même sans texte : on ne repaie pas
     foundBy: v.array(v.string()), // recherches qui l'ont remontée (« cette app·fr »)
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
@@ -4186,6 +4190,9 @@ export default defineSchema({
     lastCurveAt: v.optional(v.number()),
     lastAccountsAt: v.optional(v.number()),
     lastNetworkAt: v.optional(v.number()),
+    lastInstaAt: v.optional(v.number()),
+    lastTranscriptAt: v.optional(v.number()),
+    lastAdsAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
@@ -4203,6 +4210,7 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("paused")),
     source: v.union(v.literal("seed"), v.literal("manual")),
     networkSearchedAt: v.optional(v.number()),
+    adsSearchedAt: v.optional(v.number()), // bibliothèques de pubs TikTok et Meta
     trackedCount: v.optional(v.number()), // comptes de son réseau (cf radarSignals.attachAccount)
     createdAt: v.number(),
   })
@@ -4220,6 +4228,16 @@ export default defineSchema({
     matchedBy: v.union(v.literal("caption"), v.literal("manual"), v.literal("seed")),
     fans: v.number(),
     bio: v.optional(v.string()), // au dernier relevé
+    // Son Instagram, lu dans sa bio (cf radarNetworkMath.igHandleFromBio), relevé à part.
+    igHandle: v.optional(v.string()),
+    lang: v.optional(v.string()), // langue de ses vidéos TikTok, reprise pour ses Reels
+    igFans: v.optional(v.number()),
+    igMedianViews: v.optional(v.number()),
+    igReadAt: v.optional(v.number()),
+    igNextReadAt: v.optional(v.number()),
+    igReadErrors: v.optional(v.number()),
+    igPosts7d: v.optional(v.number()),
+    igBest7d: v.optional(v.object({ code: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() })),
     medianViews: v.optional(v.number()),
     videosSeen: v.number(),
     lastPostAt: v.optional(v.number()),
@@ -4235,13 +4253,15 @@ export default defineSchema({
   })
     .index("by_handle", ["platform", "handle"])
     .index("by_app", ["appId"])
-    .index("by_due", ["status", "nextReadAt"]),
+    .index("by_due", ["status", "nextReadAt"])
+    .index("by_ig_due", ["status", "igNextReadAt"]),
 
   // Toutes les vidéos relevées d'un compte suivi (sa médiane en vient) ; celles
   // qui sortent du lot sont aussi promues dans radarSignals.
   radarTrackedVideos: defineTable({
     accountId: v.id("radarTracked"),
     appId: v.id("radarApps"),
+    platform: v.optional(v.literal("instagram")), // absent = TikTok ; videoId « ig:<code> »
     videoId: v.string(),
     publishedAt: v.number(),
     views: v.number(),
@@ -4249,7 +4269,7 @@ export default defineSchema({
     lastSeenAt: v.number(),
     caption: v.optional(v.string()), // 300 caractères au plus
     hook: v.optional(v.string()), // texte à l'écran
-    hookKey: v.optional(v.string()), // cf radarNetworkMath.hookKey
+    hookKey: v.optional(v.string()), // GABARIT du hook, cf radarNetworkMath.hookTemplate
     musicId: v.optional(v.string()),
     musicTitle: v.optional(v.string()),
   })
@@ -4273,6 +4293,8 @@ export default defineSchema({
         publishedAt: v.number(),
         views: v.number(),
         multiplier: v.optional(v.number()),
+        hook: v.optional(v.string()), // sa variante du gabarit
+        platform: v.optional(v.literal("instagram")),
       }),
     ),
     accountCount: v.number(), // comptes distincts
@@ -4280,10 +4302,35 @@ export default defineSchema({
     maxViews: v.number(),
     lastPostAt: v.number(), // dernière publication d'un membre
     firstSeenAt: v.number(),
+    alertedProjects: v.optional(v.array(v.string())), // slugs déjà prévenus sur Telegram
   })
     .index("by_key", ["kind", "key"])
     .index("by_shared", ["accountCount", "lastPostAt"])
     .index("by_last", ["lastPostAt"]),
+
+  // Une pub d'une app suivie, relevée dans les bibliothèques TikTok et Meta. Une pub
+  // qui tourne longtemps est un format que l'app paie pour pousser : gagnant prouvé.
+  radarAds: defineTable({
+    platform: v.union(v.literal("tiktok"), v.literal("meta")),
+    adId: v.string(),
+    appId: v.id("radarApps"),
+    advertiser: v.string(),
+    text: v.optional(v.string()),
+    firstShownAt: v.optional(v.number()),
+    lastShownAt: v.optional(v.number()),
+    active: v.boolean(),
+    audience: v.optional(v.string()),
+    variants: v.optional(v.number()),
+    platforms: v.array(v.string()),
+    url: v.string(),
+    videoUrl: v.optional(v.string()),
+    coverUrl: v.optional(v.string()),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_ad", ["platform", "adId"])
+    .index("by_app", ["appId"])
+    .index("by_last", ["lastSeenAt"]),
 
   // Une app possible, citée par les comptes suivis ou découverts : un compte
   // mentionné (@…) ou un domaine (« stalkie.io »). Proposée à l'équipe dès que

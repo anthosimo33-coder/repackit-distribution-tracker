@@ -30,13 +30,15 @@ export type FilterableSignal = {
   competitor: string | null;
   /** L'app que la vidéo pousse (réseau suivi, ou légende qui la cite). */
   app: string | null;
+  platform: "tiktok" | "instagram";
   status: SignalStatus;
 };
 
-export type GroupKey = "origine" | "langue" | "app" | "taille" | "statut";
+export type GroupKey = "origine" | "plateforme" | "langue" | "app" | "taille" | "statut";
 /** `values` vide = valeurs tirées des données (les apps suivies changent). */
 export const GROUPS: readonly { key: GroupKey; values: readonly string[] }[] = [
   { key: "origine", values: ["concurrent", "autre"] },
+  { key: "plateforme", values: ["tiktok", "instagram"] },
   { key: "langue", values: LANG_BUCKETS },
   { key: "app", values: [] },
   { key: "taille", values: ["xs", "s", "m", "l"] },
@@ -61,7 +63,7 @@ export type Filters = {
 export const DEFAULT_AGE: AgeKey = "7";
 
 export function defaultFilters(): Filters {
-  return { sel: { origine: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: "ratio" };
+  return { sel: { origine: [], plateforme: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: "ratio" };
 }
 
 const HOUR = 3_600_000;
@@ -71,6 +73,7 @@ export const tailleOf = (fans: number) => (fans < 1_000 ? "xs" : fans < 10_000 ?
 
 export function valuesOf(s: FilterableSignal, key: GroupKey): string[] {
   if (key === "origine") return [s.competitor ? "concurrent" : "autre"];
+  if (key === "plateforme") return [s.platform];
   if (key === "langue") return [s.lang];
   if (key === "app") return s.app ? [s.app] : [];
   if (key === "taille") return [tailleOf(s.fans)];
@@ -215,7 +218,7 @@ export function sameFilters(a: Filters, b: Filters): boolean {
 
 // ─── Adresse de la page ──────────────────────────────────────────────────────
 
-const PARAM: Record<GroupKey, string> = { origine: "o", langue: "l", app: "a", taille: "t", statut: "st" };
+const PARAM: Record<GroupKey, string> = { origine: "o", plateforme: "p", langue: "l", app: "a", taille: "t", statut: "st" };
 
 /** Les filtres dans l'adresse ; un filtre au défaut n'y figure pas. */
 export function toSearchParams(f: Filters, base?: URLSearchParams): URLSearchParams {

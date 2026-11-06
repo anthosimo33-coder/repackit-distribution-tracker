@@ -279,7 +279,8 @@
     "limiteConseilleeAtteinteQuotaApify": "Recommended limit reached — watch the Apify quota.",
     "aucunCompteSuivi": "No account followed",
     "ajouteUnCompteTiktokPour": "Add a TikTok account to follow its latest videos.",
-    "formats": "Formats"
+    "formats": "Formats",
+    "pubs": "Ads"
   },
   "RadarSignals": {
     "vuesEnregistrees": "Saved views",
@@ -344,7 +345,8 @@
       "langue": "Language",
       "taille": "Account size",
       "statut": "Status",
-      "app": "App"
+      "app": "App",
+      "plateforme": "Platform"
     },
     "origine": {
       "concurrent": "Competitors",
@@ -413,7 +415,11 @@
     "voir": "View",
     "enregistrer": "Save",
     "retirerDesEnregistrees": "Remove from saved",
-    "ignorer": "Ignore @{handle}'s video"
+    "ignorer": "Ignore @{handle}'s video",
+    "plateforme": {
+      "tiktok": "TikTok",
+      "instagram": "Instagram"
+    }
   },
   "RadarSignalDetail": {
     "videoDe": "@{handle}'s video",
@@ -441,7 +447,9 @@
     "ouvrirSurTiktok": "Open on TikTok",
     "vuesSurMediane": "Views ÷ account median",
     "texteALEcran": "On-screen text",
-    "son": "Sound: {titre}"
+    "son": "Sound: {titre}",
+    "ceQuiEstDit": "What is said",
+    "voirSurInstagram": "View the Reel on Instagram"
   },
   "RadarBudget": {
     "cleAbsente": "Collection paused: the ScrapeCreators key is not set on this deployment (SCRAPECREATORS_API_KEY).",
@@ -475,13 +483,13 @@
         "unite": "readings/day"
       },
       "insta": {
-        "titre": "Instagram accounts read every day",
-        "aide": "Instagram search is too weak: accounts will be followed instead.",
-        "unite": "accounts"
+        "titre": "Read Instagram accounts",
+        "aide": "The Instagram account given in a tracked account's TikTok bio. 1 credit = its last ~12 Reels, at the same pace as on TikTok.",
+        "unite": "readings/day"
       },
       "transcript": {
-        "titre": "Transcripts",
-        "aide": "What is said in the day's best videos.",
+        "titre": "Transcribe the best videos",
+        "aide": "What is said in the videos that stand out most (2 minutes at most). 1 credit, nothing when there is nothing to transcribe.",
         "unite": "videos/day"
       },
       "ai": {
@@ -492,6 +500,11 @@
       "network": {
         "titre": "Find the apps' networks",
         "aide": "Each followed app's keywords and hashtags: every 3 days for a competitor, every week otherwise. An account that names it joins its network.",
+        "unite": "credits/month"
+      },
+      "ads": {
+        "titre": "Ads of followed apps",
+        "aide": "TikTok and Meta ad libraries: an ad that runs for a long time is a format the app pays to push. Competitors every 3 days, others every week.",
         "unite": "credits/month"
       }
     },
@@ -583,7 +596,9 @@
     "chezLesComptesDe": "on {apps} accounts",
     "suivreCetteApp": "Follow",
     "ignorer": "Ignore",
-    "appSuivieDepuisReperee": "{app} followed: {n, plural, =0 {no account added} one {# account joins its network} other {# accounts join its network}}."
+    "appSuivieDepuisReperee": "{app} followed: {n, plural, =0 {no account added} one {# account joins its network} other {# accounts join its network}}.",
+    "instagram": "Instagram @{handle}",
+    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} views"
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Fetch the latest videos from followed accounts",
@@ -649,6 +664,31 @@
     "hookCite": "“{hook}”",
     "resume": "Up to {vues} views · last posted {quand}",
     "meilleurMultiplicateur": "up to {x} the account's median",
-    "vues": "{n} views"
+    "vues": "{n} views",
+    "variantes": "{n} variants",
+    "ig": "IG"
+  },
+  "RadarAds": {
+    "plateforme": "Ad library",
+    "plateformes": {
+      "all": "All",
+      "meta": "Meta",
+      "tiktok": "TikTok"
+    },
+    "activesSeulement": "Active only",
+    "concurrentsSeulement": "This project's competitors only",
+    "compte": "{n, plural, =0 {no ads} one {# ad} other {# ads}}",
+    "aucuneTitre": "No ad found yet.",
+    "aucuneFiltreTitre": "No ad matches these filters.",
+    "aucuneTexte": "The TikTok and Meta ad libraries are read every 6 hours for each followed app. An ad that runs for a long time is a format the app pays to push.",
+    "active": "active",
+    "arretee": "stopped",
+    "tourneDepuis": "{n, plural, one {# day running} other {# days running}}",
+    "dureeInconnue": "Unknown running time",
+    "depuisLe": "since {date}",
+    "variantes": "{n} variants",
+    "audience": "audience {n}",
+    "voirDansLaBibliotheque": "View in the library",
+    "laVideo": "The video"
   }
 }
