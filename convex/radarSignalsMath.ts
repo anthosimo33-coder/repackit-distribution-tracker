@@ -116,10 +116,23 @@ export type SignalInput = {
   authorBio?: string;
 };
 
+/**
+ * Un texte sans moitié d'emoji. Couper « 😭 » au milieu (une coupe à n unités
+ * UTF-16 tombe entre ses deux moitiés) laisse une valeur que Convex refuse
+ * (« invalid json: unexpected end of hex escape ») : le passage entier tombe.
+ * Vu en prod le 07/11/2026 sur la recherche des réseaux. Les moitiés seules
+ * restantes deviennent « � ».
+ */
+export function cleanText(s: string, max?: number): string {
+  let out = max !== undefined && s.length > max ? s.slice(0, max) : s;
+  if (max !== undefined && /[\ud800-\udbff]$/.test(out)) out = out.slice(0, -1);
+  return out.replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, "\ufffd");
+}
+
 const obj = (x: unknown): Record<string, unknown> | null =>
   x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
 const num = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
-const str = (x: unknown): string | undefined => (typeof x === "string" && x !== "" ? x : undefined);
+const str = (x: unknown): string | undefined => (typeof x === "string" && x !== "" ? cleanText(x) : undefined);
 
 /**
  * Une vidéo de la réponse (`search_item_list[i]`, `aweme_list[i]` ou
@@ -163,7 +176,7 @@ export function parseScVideo(raw: unknown, fallbackLang?: string): SignalInput |
     shares: num(stats.share_count),
     saves: num(stats.collect_count),
     ...extra,
-    ...(bio ? { authorBio: bio.slice(0, 300) } : {}),
+    ...(bio ? { authorBio: cleanText(bio, 300) } : {}),
   };
 }
 
@@ -178,18 +191,19 @@ function readExtras(v: Record<string, unknown>, caption: string, authorUid: stri
     .filter((x) => x?.type === 18)
     .map((x) => str(x?.text_info)?.replace(/\s+/g, " ").trim())
     .filter((x): x is string => !!x);
-  const hook = texts.join(" · ").slice(0, 200);
+  const hook = cleanText(texts.join(" · "), 200);
   const music = obj(v.music);
   const musicId = str(music?.id_str) ?? (typeof music?.id === "string" ? music.id : undefined);
-  const musicTitle = str(music?.title)?.slice(0, 120);
+  const title = str(music?.title);
+  const musicTitle = title ? cleanText(title, 120) : undefined;
   const musicOwner = str(music?.owner_handle);
   const mentions: { id: string; label: string }[] = [];
   for (const t of Array.isArray(v.text_extra) ? v.text_extra : []) {
     const e = obj(t);
     const id = str(e?.user_id);
     if (e?.type !== 0 || !id || id === authorUid || mentions.some((m) => m.id === id)) continue;
-    const label = caption.slice(num(e.start), num(e.end)).trim();
-    if (label.startsWith("@") && label.length >= 3) mentions.push({ id, label: label.slice(0, 60) });
+    const label = cleanText(caption.slice(num(e.start), num(e.end))).trim();
+    if (label.startsWith("@") && label.length >= 3) mentions.push({ id, label: cleanText(label, 60) });
   }
   return {
     ...(hook ? { hook } : {}),
