@@ -65,13 +65,13 @@ export const lireComptesApp = mcpPermissionQuery("radar.use")({
 
 const PERIODES: Record<string, AgeKey> = { "24h": "1", "3j": "3", "7j": "7", "30j": "30", "90j": "90", tout: "all" };
 const TAILLES: Record<string, string> = { "moins-1k": "xs", "1k-10k": "s", "10k-50k": "m", "50k-plus": "l" };
-const TRIS: Record<string, SortKey> = { ratio: "ratio", vitesse: "vph", vues: "views", recent: "recent" };
+const TRIS: Record<string, SortKey> = { mediane: "mediane", ratio: "ratio", vitesse: "vph", vues: "views", recent: "recent" };
 
 export const OUTIL_SIGNAUX: McpTool = {
   name: "signaux",
   title: "Radar : les vidéos qui sortent du lot",
   description:
-    "Les vidéos TikTok qui sortent du lot en ce moment, dans TOUTES les apps (pas seulement les concurrents), comme l'écran Signaux du Radar : mêmes filtres, mêmes compteurs. Une vidéo est relevée par la découverte quand elle dépasse 10 000 vues et 10 fois les abonnés de son compte ; les plus jeunes et rapides ont une courbe (relevés à H+6, H+24, H+48). Dans un filtre, les valeurs s'additionnent (ou) ; entre filtres, elles se cumulent (et). Défaut : 7 derniers jours, sans les vidéos ignorées, trié par vues ÷ abonnés. Rend aussi le budget du mois. Ne relance rien chez ScrapeCreators. Pour en faire un script : prends le hook et la structure, transpose-les à Snytch ou BLUSH dans la langue du marché, jamais mot pour mot.",
+    "Les vidéos TikTok qui sortent du lot en ce moment, dans TOUTES les apps (pas seulement les concurrents), comme l'écran Signaux du Radar : mêmes filtres, mêmes compteurs. Une vidéo est relevée par la découverte quand elle dépasse 10 000 vues et 10 fois les abonnés de son compte ; les plus jeunes et rapides ont une courbe (relevés à H+6, H+24, H+48). Dans un filtre, les valeurs s'additionnent (ou) ; entre filtres, elles se cumulent (et). Défaut : 7 derniers jours, sans les vidéos ignorées, trié par vues ÷ médiane du compte (une vidéo à 100× fait 100 fois ce que son compte fait d'habitude), puis vues ÷ abonnés. Rend aussi le budget du mois. Ne relance rien chez ScrapeCreators. Pour en faire un script : prends le hook et la structure, transpose-les à Snytch ou BLUSH dans la langue du marché, jamais mot pour mot.",
   inputSchema: {
     type: "object",
     properties: {
@@ -85,7 +85,7 @@ export const OUTIL_SIGNAUX: McpTool = {
       seuil: { type: "integer", description: "Vues ÷ abonnés au moins : 0 (défaut), 10, 50 ou 200." },
       statut: { type: "array", description: `Statut posé par l'équipe (ou) : ${STATUSES.join(", ")}. Défaut : nouveau, enregistre, adapte.`, items: { type: "string" } },
       recherche: { type: "string", description: "Texte cherché dans la légende, le pseudo ou le concurrent." },
-      tri: { type: "string", description: "Ordre (défaut : ratio = vues ÷ abonnés).", enum: Object.keys(TRIS) },
+      tri: { type: "string", description: "Ordre (défaut : mediane = vues ÷ médiane du compte, puis vues ÷ abonnés pour les vidéos sans médiane).", enum: Object.keys(TRIS) },
       limite: { type: "integer", description: "Vidéos listées au plus (défaut 20).", minimum: 1, maximum: 100 },
     },
     additionalProperties: false,
@@ -268,8 +268,9 @@ export async function appelerReseaux(
         {
           projet,
           formats: f.length,
-          lecture: "type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
+          lecture: "quiPete = au moins 10 000 vues et 3× la médiane du compte (un son seulement s'il est original) : ceux-là d'abord, puis les plus vus, toutes apps confondues. type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
           liste: f.slice(0, 40).map((x) => ({
+            ...(x.hot ? { quiPete: true } : {}),
             type: x.kind === "hook" ? "hook" : "son",
             texte: x.label,
             ...(x.variants > 1 ? { variantes: [...new Set(x.members.map((m) => m.hook).filter(Boolean))] } : {}),

@@ -18,8 +18,9 @@ const KINDS: Kind[] = ["all", "hook", "sound"];
 
 /**
  * NOUVEAU RADAR — Formats qui circulent : le même hook (texte à l'écran) ou le
- * même son repris par au moins deux comptes suivis en 14 jours. Ceux poussés par
- * une concurrente du projet d'abord (convex/radarNetworks.listFormatsCore).
+ * même son repris par au moins deux comptes suivis en 14 jours. Par défaut, ceux
+ * qui pètent seulement, les plus vus d'abord, toutes apps confondues
+ * (convex/radarNetworks.listFormatsCore, radarNetworkMath.isHotFormat).
  */
 export function RadarFormats() {
   const tr = useTranslations("admin.ops.RadarFormats");
@@ -27,9 +28,12 @@ export function RadarFormats() {
   const formats = useProjectQuery(api.radarNetworks.listFormats, {});
   const [kind, setKind] = useState<Kind>("all");
   const [rivalOnly, setRivalOnly] = useState(false);
+  const [hotOnly, setHotOnly] = useState(true);
 
   if (formats === undefined) return <Skeleton className="h-96 w-full" />;
-  const shown = formats.filter((f) => (kind === "all" || f.kind === kind) && (!rivalOnly || f.rival));
+  const others = formats.filter((f) => (kind === "all" || f.kind === kind) && (!rivalOnly || f.rival));
+  const shown = others.filter((f) => !hotOnly || f.hot);
+  const cold = others.length - shown.length;
 
   return (
     <div className="space-y-5">
@@ -47,13 +51,20 @@ export function RadarFormats() {
             </button>
           ))}
         </div>
-        <label className="flex min-h-10 items-center gap-2 text-sm">
-          <input type="checkbox" checked={rivalOnly} onChange={() => setRivalOnly((r) => !r)} className="size-4 accent-slate-900" />
-          {tr("concurrentsSeulement")}
-        </label>
+        <div className="flex flex-wrap gap-x-5">
+          <label className="flex min-h-10 items-center gap-2 text-sm">
+            <input type="checkbox" checked={hotOnly} onChange={() => setHotOnly((h) => !h)} className="size-4 accent-slate-900" />
+            {tr("quiPetent")}
+          </label>
+          <label className="flex min-h-10 items-center gap-2 text-sm">
+            <input type="checkbox" checked={rivalOnly} onChange={() => setRivalOnly((r) => !r)} className="size-4 accent-slate-900" />
+            {tr("concurrentsSeulement")}
+          </label>
+        </div>
       </div>
-      <p className="text-sm text-slate-600" data-testid="radar-formats-compte">
-        {tr("compte", { n: shown.length })}
+      <p className="text-sm text-slate-600">
+        <span data-testid="radar-formats-compte">{tr("compte", { n: shown.length })}</span>
+        {hotOnly && 0 < cold && <span className="text-slate-500"> · {tr("cachesFroids", { n: cold })}</span>}
       </p>
 
       {shown.length === 0 ? (

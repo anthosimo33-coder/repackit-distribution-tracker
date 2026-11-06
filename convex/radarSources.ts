@@ -21,9 +21,9 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { e2eMutation, permissionQuery, type ProjectQueryCtx } from "./functions";
-import { MAX_READ_ERRORS, MEDIAN_WINDOW, citesApp, hookTemplate, medianViews, multiplierOf, nextReadAt, normalize, shouldPromote } from "./radarNetworkMath";
+import { MAX_READ_ERRORS, MEDIAN_WINDOW, hookTemplate, medianViews, multiplierOf, nextReadAt, shouldPromote } from "./radarNetworkMath";
 import { RETENTION_DAYS, addSnapshot, allowance, budgetState, ratioOf, type SignalInput } from "./radarSignalsMath";
-import { TRANSCRIPT_MAX_SEC, adRunDays, type AdInput } from "./radarSourcesMath";
+import { TRANSCRIPT_MAX_SEC, adCitesApp, adRunDays, type AdInput } from "./radarSourcesMath";
 import { appRef, maybeAlert, projectSlugOf, todayCredits, writeSignal, type JobState, type RunResult } from "./radarSignals";
 import { shareFormat } from "./radarNetworks";
 import { scIgFollowers, scIgReels, scKeyPresent, scMetaAds, scTikTokAds, scTranscript } from "./scrapeCreatorsApi";
@@ -137,8 +137,7 @@ export const runAdsSearch = internalAction({
         }
         if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
         for (const ad of r.value) {
-          const cites = citesApp(`${ad.advertiser} ${ad.text ?? ""}`, "", app) || normalize(ad.advertiser).compact.includes(app.slug);
-          if (ad.platform === "tiktok" || cites) keep.push(ad);
+          if (adCitesApp(ad, app)) keep.push(ad);
         }
       }
       if (keep.length) await ctx.runMutation(internal.radarSources.saveAds, { appId: app.id, ads: keep, now });
@@ -169,6 +168,11 @@ export async function listAdsCore(ctx: ProjectQueryCtx) {
   const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a]));
   const rows = await ctx.db.query("radarAds").withIndex("by_last").order("desc").take(600);
   return rows
+    // Les pubs gardées avant la règle de citation (homonymes) ne s'affichent plus.
+    .filter((r) => {
+      const app = apps.get(r.appId);
+      return !!app && adCitesApp(r, app);
+    })
     .map((r) => {
       const app = apps.get(r.appId);
       return {

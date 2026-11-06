@@ -299,6 +299,7 @@
     "filtresN": "Filters ({n})",
     "trierPar": "Sort by",
     "tri": {
+      "mediane": "Views ÷ median",
       "ratio": "Views ÷ followers",
       "vph": "Views per hour",
       "views": "Views",
@@ -666,7 +667,9 @@
     "meilleurMultiplicateur": "up to {x} the account's median",
     "vues": "{n} views",
     "variantes": "{n} variants",
-    "ig": "IG"
+    "ig": "IG",
+    "quiPetent": "Breaking out only",
+    "cachesFroids": "{n, plural, one {# format is not breaking out yet} other {# formats are not breaking out yet}} (under 10,000 views or 3× the median, or a trending track): uncheck to see them."
   },
   "RadarAds": {
     "plateforme": "Ad library",

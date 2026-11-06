@@ -39,6 +39,7 @@ import {
   MEDIAN_WINDOW,
   citesApp,
   formatStarting,
+  isHotFormat,
   hookTemplate,
   igHandleFromBio,
   medianViews,
@@ -576,8 +577,8 @@ export const listAppAccounts = permissionQuery("radar.use")({
 
 /**
  * Les formats qui circulent (même hook ou même son chez au moins deux comptes
- * suivis, 14 derniers jours) : ceux poussés par une concurrente du projet
- * d'abord, puis les plus repris, puis les plus vus.
+ * suivis, 14 derniers jours) : ceux qui pètent d'abord (cf isHotFormat), puis
+ * les plus vus — toutes apps confondues.
  */
 export async function listFormatsCore(ctx: ProjectQueryCtx) {
   const slug = await projectSlugOf(ctx);
@@ -590,6 +591,7 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
       const fmtApps = r.appIds.map((id) => apps.get(id)).filter((a): a is Doc<"radarApps"> => !!a);
       const best = Math.max(0, ...r.members.map((m) => m.multiplier ?? 0));
       const variants = new Set(r.members.map((m) => m.hook).filter(Boolean)).size;
+      const bestMultiplier = best > 0 ? best : null;
       return {
         id: r._id,
         kind: r.kind,
@@ -599,8 +601,9 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         accountCount: r.accountCount,
         apps: fmtApps.map((a) => ({ name: a.name, rival: a.rivalOf.includes(slug) })),
         rival: fmtApps.some((a) => a.rivalOf.includes(slug)),
+        hot: isHotFormat({ kind: r.kind, label: r.label, maxViews: r.maxViews, bestMultiplier }),
         maxViews: r.maxViews,
-        bestMultiplier: best > 0 ? best : null,
+        bestMultiplier,
         lastPostAt: r.lastPostAt,
         firstSeenAt: r.firstSeenAt,
         members: r.members.slice(0, 6).map((m) => ({
@@ -615,8 +618,9 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         })),
       };
     })
-    .sort((x, y) => Number(y.rival) - Number(x.rival) || y.accountCount - x.accountCount || y.maxViews - x.maxViews)
-    .slice(0, 100);
+    // Ceux qui pètent d'abord, les plus vus d'abord — peu importe la niche.
+    .sort((x, y) => Number(y.hot) - Number(x.hot) || y.maxViews - x.maxViews || y.accountCount - x.accountCount)
+    .slice(0, 150);
 }
 
 export const listFormats = permissionQuery("radar.use")({

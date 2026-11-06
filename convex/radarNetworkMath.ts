@@ -246,6 +246,21 @@ export function hookTemplate(hook: string | undefined): string | null {
   return w.length >= 3 ? w.slice(0, 4).join(" ") : null;
 }
 
+/**
+ * Un format QUI PÈTE : au moins 10 000 vues et 3 fois la médiane du compte chez
+ * l'un de ses membres. Un son n'en est un que s'il est ORIGINAL (une voix, un
+ * montage repris) : une musique à la mode reprise par 17 comptes de 7 apps
+ * (« Paper Moon Static », 07/11/2026) n'est pas un format.
+ */
+export const HOT_MIN_VIEWS = 10_000;
+export const HOT_MIN_MULTIPLIER = 3;
+const ORIGINAL_SOUND = /^(original sound|son original|som original|sonido original|originalton|suono originale|оригинальный звук)/i;
+
+export function isHotFormat(f: { kind: "hook" | "sound"; label: string; maxViews: number; bestMultiplier: number | null }): boolean {
+  if (f.maxViews < HOT_MIN_VIEWS || (f.bestMultiplier ?? 0) < HOT_MIN_MULTIPLIER) return false;
+  return f.kind === "hook" || ORIGINAL_SOUND.test(f.label.trim());
+}
+
 /** Un format DÉMARRE : 3 comptes l'ont publié dans les dernières 48 h. */
 export const FORMAT_ALERT_ACCOUNTS = 3;
 export const FORMAT_ALERT_WINDOW_MS = 48 * HOUR;

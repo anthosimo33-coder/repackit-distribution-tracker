@@ -284,6 +284,7 @@ const sig = (handle: string, fans: number, views: number, ageH: number, lang: st
   competitor: extra.competitor ?? null,
   app: extra.app ?? extra.competitor ?? null,
   status: extra.status ?? "nouveau",
+  multiplier: extra.multiplier ?? null,
 });
 
 /** Les vraies vidéos du test du 06/11/2026 (pseudos, abonnés, vues, âge). */
@@ -446,6 +447,23 @@ describe("filtres de l'écran Signaux", () => {
     const old = fromSearchParams(new URLSearchParams("l=fr,klingon&age=12&tri=hasard"));
     expect(old.sel.langue).toEqual(["fr"]);
     expect(old.age).toBe("7");
-    expect(old.sort).toBe("ratio");
+    // Tri inconnu : le défaut, vues ÷ médiane du compte.
+    expect(old.sort).toBe("mediane");
+  });
+});
+
+describe("tri par défaut : vues ÷ médiane du compte", () => {
+  it("les vidéos de comptes suivis d'abord, par fois-la-médiane ; les autres ensuite, par vues ÷ abonnés", () => {
+    // Réels du 07/11/2026 : 417× (Snitchy), 257× (RecentFollow) ; et deux vidéos de la découverte sans médiane.
+    const data = [
+      sig("decouverte_forte", 10, 200_000, 20, "en"),
+      sig("leoniesophie.secrets", 1_000, 606_722, 30, "autre", { multiplier: 417.3 }),
+      sig("decouverte_faible", 5_000, 60_000, 20, "en"),
+      sig("mari279785", 2_000, 655_980, 40, "es-am", { multiplier: 256.6 }),
+    ];
+    expect(defaultFilters().sort).toBe("mediane");
+    expect(applyFilters(data, defaultFilters(), NOW).map((s) => s.handle)).toEqual(["leoniesophie.secrets", "mari279785", "decouverte_forte", "decouverte_faible"]);
+    // L'ancien ordre reste un clic plus loin.
+    expect(applyFilters(data, { ...defaultFilters(), sort: "ratio" }, NOW)[0].handle).toBe("decouverte_forte");
   });
 });
