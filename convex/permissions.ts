@@ -197,7 +197,7 @@ export const PERMISSION_CATALOGUE: readonly PermissionBlock[] = [
     section: "Contenu",
     label: "Radar",
     description:
-      "Suivre des comptes TikTok, consulter les tendances, lancer une recherche d'outliers.",
+      "Voir les signaux (les vidéos qui sortent du lot dans toutes les apps) et le budget de la veille, suivre des comptes TikTok.",
     defaultForManager: true,
     routes: ["/radar"],
   },

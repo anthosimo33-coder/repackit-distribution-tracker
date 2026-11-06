@@ -63,6 +63,7 @@ export const TABLES_PURGEES = [
   "guideModules",
   "radarVideos",
   "radarAccounts",
+  "radarSignalMarks",
   "whopPayments",
   "whopMemberships",
   "whopPlans",

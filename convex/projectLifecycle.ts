@@ -415,6 +415,11 @@ const ETAPES: Record<TablePurgee, Etape> = {
   radarAccounts: etape((ctx, pid, n) =>
     ctx.db.query("radarAccounts").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),
+  // Statuts posés par l'équipe sur les signaux du nouveau Radar. Les signaux
+  // eux-mêmes sont GLOBAUX (sans projectId) : ils restent.
+  radarSignalMarks: etape((ctx, pid, n) =>
+    ctx.db.query("radarSignalMarks").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
+  ),
   whopPayments: etape((ctx, pid, n) =>
     ctx.db.query("whopPayments").withIndex("by_project", (q) => q.eq("projectId", pid)).take(n),
   ),

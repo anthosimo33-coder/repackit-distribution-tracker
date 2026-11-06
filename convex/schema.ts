@@ -4101,6 +4101,94 @@ export default defineSchema({
     ),
   }).index("by_keyword", ["keyword"]),
 
+  // ─── NOUVEAU RADAR — signaux (vidéos qui sortent du lot, toutes apps) ────────
+  // Source : ScrapeCreators (clé SCRAPECREATORS_API_KEY, jamais loguée), recherches
+  // TikTok par langue + relevés de courbe H+6/H+24/H+48. Cache GLOBAL cross-projet
+  // (la veille est la même pour Snytch et BLUSH) ; seul le STATUT posé par une
+  // équipe (enregistrée, adaptée, ignorée) est par projet. Calculs purs :
+  // convex/radarSignalsMath.ts.
+
+  // Une vidéo gardée par la découverte (assez de vues, assez au-dessus de son
+  // compte). Upsert par (plateforme, videoId) : une vidéo revue est MISE À JOUR.
+  radarSignals: defineTable({
+    platform: v.literal("tiktok"),
+    videoId: v.string(), // aweme_id
+    url: v.string(),
+    authorId: v.string(),
+    authorHandle: v.string(),
+    authorFans: v.number(), // abonnés du compte au dernier relevé
+    caption: v.string(),
+    lang: v.string(), // fr | pt | es-am | es-es | en | autre (cf langBucket)
+    region: v.optional(v.string()), // région TikTok de la vidéo
+    publishedAt: v.number(),
+    durationSec: v.optional(v.number()),
+    coverUrl: v.optional(v.string()), // signée, peut expirer → repli UI
+    views: v.number(),
+    likes: v.number(),
+    comments: v.number(),
+    shares: v.number(),
+    saves: v.number(),
+    ratio: v.number(), // vues ÷ max(abonnés, 100) au dernier relevé
+    // Relevés successifs (découverte + courbe), bornés : la courbe de la vidéo.
+    snapshots: v.array(v.object({ at: v.number(), views: v.number() })),
+    // Prochain relevé de courbe ; absent = hors courbe (pas candidate, ou finie).
+    nextCheckAt: v.optional(v.number()),
+    // Admise dans la courbe à cette date : une vidéo n'y entre qu'UNE fois.
+    curveStartedAt: v.optional(v.number()),
+    competitor: v.optional(v.string()), // concurrent reconnu (« The Ick »)
+    foundBy: v.array(v.string()), // recherches qui l'ont remontée (« cette app·fr »)
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_video", ["platform", "videoId"])
+    .index("by_published", ["publishedAt"])
+    .index("by_next_check", ["nextCheckAt"]),
+
+  // Statut posé par une équipe sur un signal. Absent = « nouvelle ».
+  radarSignalMarks: defineTable({
+    projectId: v.id("projects"),
+    signalId: v.id("radarSignals"),
+    status: v.union(v.literal("enregistre"), v.literal("adapte"), v.literal("ignore")),
+    updatedAt: v.number(),
+    updatedBy: v.id("users"),
+  })
+    .index("by_project", ["projectId"])
+    .index("by_project_signal", ["projectId", "signalId"]),
+
+  // Réglages du Radar : UN document (key « global »). Budget mensuel, postes,
+  // ordre de coupure, alerte, et l'état des tâches (curseur de rotation des
+  // recherches, admissions du jour dans la courbe, crédits restants vus).
+  radarSettings: defineTable({
+    key: v.literal("global"),
+    capUsd: v.number(),
+    postes: v.array(v.object({ key: v.string(), qty: v.number(), on: v.boolean() })),
+    cutOrder: v.array(v.string()),
+    alert80: v.boolean(),
+    alertProjectId: v.optional(v.id("projects")), // canal Telegram de l'alerte
+    alertedMonth: v.optional(v.string()), // « 2026-11 » : alerte 80 % déjà partie
+    discoveryCursor: v.number(), // prochaine recherche de la rotation
+    curveDay: v.optional(v.string()), // jour (Paris) du compteur d'admissions
+    curveAdmitted: v.number(), // vidéos admises dans la courbe ce jour-là
+    creditsRemaining: v.optional(v.number()), // solde ScrapeCreators au dernier appel
+    creditsSeenAt: v.optional(v.number()),
+    lastDiscoveryAt: v.optional(v.number()),
+    lastCurveAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // Crédits consommés, par jour (Paris) et par poste : la dépense du mois.
+  radarUsage: defineTable({
+    day: v.string(), // « 2026-11-06 »
+    month: v.string(), // « 2026-11 »
+    poste: v.string(),
+    credits: v.number(),
+    calls: v.number(),
+    errors: v.number(),
+  })
+    .index("by_month", ["month"])
+    .index("by_day_poste", ["day", "poste"]),
+
   // ─── Garde-fou ANTI-FLOOD des notifications ────────────────────────────────
   // Une fenêtre de groupage OUVERTE, par (projet, type d'événement). Table de
   // TRAVAIL, pas d'historique : un document naît au front montant et est

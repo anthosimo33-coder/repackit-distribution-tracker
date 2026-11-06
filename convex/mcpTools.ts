@@ -98,6 +98,7 @@ import { DOMAINES_ECRITURE } from "./mcpWriteDomains";
 import { appelerDefaire, NOMS_DEFAIRE, OUTILS_DEFAIRE } from "./mcpDefaire";
 import { appelerPropositions, NOMS_PROPOSITIONS, OUTILS_PROPOSITIONS } from "./mcpPropositions";
 import { appelerExperiences, NOMS_EXPERIENCES_LECTURE, OUTIL_EXPERIENCES } from "./mcpExperiences";
+import { appelerSignaux, NOMS_SIGNAUX, OUTIL_SIGNAUX } from "./mcpSignaux";
 import { appelerBilan, NOMS_BILAN, OUTIL_BILAN } from "./mcpCoach";
 import { appelerConversationsLecture, NOMS_CONVERSATIONS_LECTURE, OUTILS_CONVERSATIONS_LECTURE } from "./mcpConversations";
 import { appelerScenariosLecture, conversationDeMissionMcp, NOMS_SCENARIOS_LECTURE, OUTILS_SCENARIOS_LECTURE } from "./mcpScenarios";
@@ -1781,6 +1782,7 @@ export function jarviaServer(
       // la voie d'une connexion en lecture seule ou d'une routine sans personne.
       ...OUTILS_PROPOSITIONS,
       OUTIL_EXPERIENCES,
+      OUTIL_SIGNAUX,
       OUTIL_BILAN,
       ...OUTILS_CONVERSATIONS_LECTURE,
       ...OUTILS_SCENARIOS_LECTURE,
@@ -1805,6 +1807,9 @@ export function jarviaServer(
 
       if (NOMS_EXPERIENCES_LECTURE.has(name)) {
         return appelerExperiences(ctx, args, ids, projet.slug, lire);
+      }
+      if (NOMS_SIGNAUX.has(name)) {
+        return appelerSignaux(ctx, args, ids, projet.slug, lire);
       }
       if (NOMS_BILAN.has(name)) {
         return appelerBilan(ctx, args, ids, projet.slug, lire);
