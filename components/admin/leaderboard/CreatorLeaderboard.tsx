@@ -246,7 +246,7 @@ function PodiumSpot({
           {formatMoney(entry.totalDue, entry.currency ?? currency, loc)}
         </p>
         {/* Fenêtre de cycle — obligatoire (mitigation de la désynchro). */}
-        <p className="mt-0.5 line-clamp-1 text-center text-[11px] text-muted-foreground">
+        <p className="mt-0.5 line-clamp-3 text-center text-[11px] text-muted-foreground">
           {formatCycleRange(entry.cycleStart, entry.cycleEnd, loc)}
         </p>
         {entry.isMe && (
@@ -301,7 +301,7 @@ function ListRow({
           </p>
           {entry.isMe && <MePill />}
         </div>
-        <p className="truncate text-xs text-muted-foreground">
+        <p className="line-clamp-2 text-xs text-muted-foreground">
           {formatCycleRange(entry.cycleStart, entry.cycleEnd, loc)}
         </p>
       </div>
