@@ -31,7 +31,8 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_QUERIES } from "./radarDiscoveryQueries";
-import { MAX_TRACKED, SEED_APPS, findApp } from "./radarNetworkMath";
+import { SEED_APPS, canTrack, candidatesOf, findApp } from "./radarNetworkMath";
+import { SEED_ACCOUNTS } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
   DISCOVERY_RUNS_PER_DAY,
@@ -76,6 +77,12 @@ export const signalInput = v.object({
   comments: v.number(),
   shares: v.number(),
   saves: v.number(),
+  hook: v.optional(v.string()),
+  musicId: v.optional(v.string()),
+  musicTitle: v.optional(v.string()),
+  musicOwner: v.optional(v.string()),
+  mentions: v.optional(v.array(v.object({ id: v.string(), label: v.string() }))),
+  authorBio: v.optional(v.string()),
 });
 
 const statusArg = v.union(v.literal("nouveau"), v.literal("enregistre"), v.literal("adapte"), v.literal("ignore"));
@@ -119,54 +126,92 @@ export async function activeApps(ctx: QueryCtx) {
 
 export const appRef = (a: Doc<"radarApps">): AppRef => ({ id: a._id, name: a.name, rivalOf: a.rivalOf });
 
-/** Les apps de départ, créées une fois (idempotent par slug). */
+/**
+ * Les apps de départ et leurs comptes de départ (idempotent). Une app de départ
+ * suit le code : ses motifs, recherches et concurrences y sont recopiés ; une app
+ * ajoutée à la main n'est jamais touchée.
+ */
 export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
   let created = 0;
+  const now = Date.now();
+  const counter: TrackedCounter = {};
   for (const s of SEED_APPS) {
-    const got = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
-    if (got) continue;
-    await ctx.db.insert("radarApps", {
-      slug: s.slug,
+    const fields = {
       name: s.name,
       rivalOf: [...s.rivalOf],
       strong: [...s.strong],
       weak: [...(s.weak ?? [])],
       context: [...(s.context ?? [])],
       searches: [...s.searches],
-      status: "active",
-      source: "seed",
-      createdAt: Date.now(),
-    });
-    created++;
+    };
+    let app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
+    if (!app) {
+      const id = await ctx.db.insert("radarApps", { slug: s.slug, ...fields, status: "active", source: "seed", createdAt: now });
+      app = await ctx.db.get(id);
+      created++;
+    } else if (app.source === "seed" && JSON.stringify(Object.keys(fields).map((k) => app![k as keyof typeof fields])) !== JSON.stringify(Object.values(fields))) {
+      await ctx.db.patch(app._id, fields);
+      app = { ...app, ...fields };
+    }
+    if (!app) continue;
+    for (const handle of SEED_ACCOUNTS[s.slug] ?? []) await attachAccount(ctx, app, handle, 0, "seed", now, counter);
   }
   return created;
 }
 
-/** Le nombre de comptes suivis, compté UNE fois par mutation (jusqu'à 1 000 lectures). */
-export type TrackedCounter = { n?: number };
+/**
+ * Comptes suivis par app, lus UNE fois par mutation dans le compteur de chaque app
+ * (`radarApps.trackedCount`) : relire 3 000 comptes à chaque ajout coûterait ~1 Go
+ * de lectures par jour. Une app sans compteur (créée avant lui) est comptée une
+ * fois par son index, puis le garde.
+ */
+export type TrackedCounter = { counts?: { total: number; byApp: Map<string, number>; others: number } };
+
+async function trackedCounts(ctx: MutationCtx) {
+  const byApp = new Map<string, number>();
+  let total = 0;
+  let others = 0;
+  for (const a of await ctx.db.query("radarApps").collect()) {
+    let n = a.trackedCount;
+    if (n === undefined) {
+      n = (await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", a._id)).collect()).length;
+      await ctx.db.patch(a._id, { trackedCount: n });
+    }
+    byApp.set(a._id, n);
+    total += n;
+    if (a.rivalOf.length === 0) others += n;
+  }
+  return { total, byApp, others };
+}
 
 /**
- * Ajoute un compte au réseau d'une app, s'il n'y est pas déjà et que le plafond
- * de comptes suivis n'est pas atteint. Son premier relevé est immédiat.
+ * Ajoute un compte au réseau d'une app, s'il n'y est pas déjà et qu'il reste de
+ * la place (cf radarNetworkMath.canTrack). Son premier relevé est immédiat.
  */
 export async function attachAccount(
   ctx: MutationCtx,
-  appId: Id<"radarApps">,
+  app: Doc<"radarApps">,
   handle: string,
   fans: number,
-  matchedBy: "caption" | "manual",
+  matchedBy: "caption" | "manual" | "seed",
   now: number,
   counter: TrackedCounter,
 ): Promise<"added" | "known" | "full"> {
   const known = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", handle)).first();
   if (known) return "known";
-  counter.n ??= (await ctx.db.query("radarTracked").take(MAX_TRACKED)).length;
-  if (counter.n >= MAX_TRACKED) return "full";
-  counter.n++;
+  counter.counts ??= await trackedCounts(ctx);
+  const c = counter.counts;
+  const rival = app.rivalOf.length > 0;
+  if (!canTrack({ total: c.total, ofApp: c.byApp.get(app._id) ?? 0, others: c.others }, rival, matchedBy !== "caption")) return "full";
+  c.total++;
+  const ofApp = (c.byApp.get(app._id) ?? 0) + 1;
+  c.byApp.set(app._id, ofApp);
+  if (!rival) c.others++;
+  await ctx.db.patch(app._id, { trackedCount: ofApp });
   await ctx.db.insert("radarTracked", {
     platform: "tiktok",
     handle,
-    appId,
+    appId: app._id,
     status: "active",
     matchedBy,
     fans,
@@ -176,6 +221,47 @@ export async function attachAccount(
     addedAt: now,
   });
   return "added";
+}
+
+/**
+ * Ce qu'une vidéo cite et qui pourrait être une app (compte mentionné, domaine) :
+ * rangé dans radarAppCandidates, un auteur compté une fois. Ce qui cite déjà une
+ * app suivie n'y entre pas.
+ */
+export async function noteCandidates(
+  ctx: MutationCtx,
+  s: Pick<SignalInput, "caption" | "authorId" | "authorHandle" | "url" | "mentions" | "authorBio">,
+  now: number,
+  apps: readonly Doc<"radarApps">[],
+  fromApp?: Id<"radarApps">,
+): Promise<void> {
+  for (const c of candidatesOf(s)) {
+    if (findApp(c.label, "", apps)) continue;
+    const got = await ctx.db.query("radarAppCandidates").withIndex("by_key", (q) => q.eq("key", c.key)).first();
+    const example = { handle: s.authorHandle, url: s.url };
+    if (!got) {
+      await ctx.db.insert("radarAppCandidates", {
+        key: c.key,
+        kind: c.kind,
+        label: c.label,
+        authors: [s.authorHandle],
+        authorCount: 1,
+        fromApps: fromApp ? [fromApp] : [],
+        examples: [example],
+        status: "new",
+        firstSeenAt: now,
+        lastSeenAt: now,
+      });
+    } else if (!got.authors.includes(s.authorHandle)) {
+      await ctx.db.patch(got._id, {
+        authors: [...got.authors, s.authorHandle].slice(-50),
+        authorCount: got.authorCount + 1,
+        ...(fromApp && !got.fromApps.includes(fromApp) ? { fromApps: [...got.fromApps, fromApp] } : {}),
+        ...(got.examples.length < 5 ? { examples: [...got.examples, example] } : {}),
+        lastSeenAt: now,
+      });
+    }
+  }
 }
 
 /**
@@ -217,6 +303,8 @@ export async function writeSignal(
       ratio: ratioOf(views, s.authorFans),
       snapshots: addSnapshot(existing.snapshots, now, s.views, opts.forceSnapshot),
       ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
+      ...(s.hook ? { hook: s.hook } : {}),
+      ...(s.musicTitle ? { musicTitle: s.musicTitle } : {}),
       ...(opts.foundBy && !existing.foundBy.includes(opts.foundBy) ? { foundBy: [...existing.foundBy, opts.foundBy].slice(-10) } : {}),
       ...app,
       ...tracked,
@@ -240,6 +328,8 @@ export async function writeSignal(
     publishedAt: s.publishedAt,
     ...(s.durationSec !== undefined ? { durationSec: s.durationSec } : {}),
     ...(s.coverUrl ? { coverUrl: s.coverUrl } : {}),
+    ...(s.hook ? { hook: s.hook } : {}),
+    ...(s.musicTitle ? { musicTitle: s.musicTitle } : {}),
     views: s.views,
     likes: s.likes,
     comments: s.comments,
@@ -330,7 +420,8 @@ export const upsertDiscovered = internalMutation({
     const counter: TrackedCounter = {};
     for (const s of videos) {
       const app = findApp(s.caption, s.authorHandle, apps);
-      if (app && (await attachAccount(ctx, app._id, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
+      if (app && (await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
+      await noteCandidates(ctx, s, now, apps, app?._id);
       const existing = await ctx.db
         .query("radarSignals")
         .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", s.videoId))
@@ -615,6 +706,8 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       handle: r.authorHandle,
       fans: r.authorFans,
       caption: r.caption.slice(0, 300),
+      hook: r.hook ?? null,
+      musicTitle: r.musicTitle ?? null,
       lang: r.lang,
       region: r.region ?? null,
       publishedAt: r.publishedAt,
@@ -752,6 +845,7 @@ export const e2eSeedSignals = e2eMutation({
         views: v.number(),
         snapshots: v.optional(v.array(v.object({ at: v.number(), views: v.number() }))),
         multiplier: v.optional(v.number()),
+        hook: v.optional(v.string()),
       }),
     ),
   },
@@ -781,6 +875,7 @@ export const e2eSeedSignals = e2eMutation({
           snapshots: s.snapshots ?? [{ at: now, views: s.views }],
           ...app,
           ...(s.multiplier !== undefined ? { multiplier: s.multiplier } : {}),
+          ...(s.hook ? { hook: s.hook } : {}),
           foundBy: ["e2e"],
           firstSeenAt: now,
           lastSeenAt: now,

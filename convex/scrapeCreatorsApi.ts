@@ -48,6 +48,10 @@ async function scGet(path: string, params: Record<string, string>): Promise<ScCa
   }
 }
 
+// Les réponses NON allégées (sans `trim`) coûtent le même crédit et portent le
+// texte incrusté (le hook), le son et les mentions (vérifié le 06/11/2026 :
+// ~70 Ko par vidéo). Seul le relevé de courbe, qui ne lit que les vues, s'allège.
+
 /** Recherche TikTok par mot-clé, vidéos de la semaine les plus aimées (30 par crédit). */
 export async function scSearchKeyword(query: string, region: string, lang: string): Promise<ScCall<SignalInput[]>> {
   const r = await scGet("/v1/tiktok/search/keyword", {
@@ -55,7 +59,6 @@ export async function scSearchKeyword(query: string, region: string, lang: strin
     date_posted: "this-week",
     sort_by: "most-liked",
     region,
-    trim: "true",
   });
   if (!r.ok) return r;
   const list = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : [];
@@ -65,7 +68,7 @@ export async function scSearchKeyword(query: string, region: string, lang: strin
 
 /** Les dernières vidéos d'un compte (9 par crédit, vérifié le 06/11/2026). */
 export async function scProfileVideos(handle: string): Promise<ScCall<SignalInput[]>> {
-  const r = await scGet("/v3/tiktok/profile/videos", { handle, sort_by: "latest", trim: "true" });
+  const r = await scGet("/v3/tiktok/profile/videos", { handle, sort_by: "latest" });
   if (!r.ok) return r;
   const list = Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
   return { ...r, value: list.map((it) => parseScVideo(it)).filter((x): x is SignalInput => x !== null) };
@@ -86,10 +89,9 @@ export async function scNetworkPage(
           query: value,
           date_posted: "last-3-months",
           sort_by: "relevance",
-          trim: "true",
           ...(cursor !== undefined ? { cursor: String(cursor) } : {}),
         })
-      : await scGet("/v1/tiktok/search/hashtag", { hashtag: value, trim: "true", ...(cursor !== undefined ? { cursor: String(cursor) } : {}) });
+      : await scGet("/v1/tiktok/search/hashtag", { hashtag: value, ...(cursor !== undefined ? { cursor: String(cursor) } : {}) });
   if (!r.ok) return r;
   const raw = Array.isArray(r.value.search_item_list) ? r.value.search_item_list : Array.isArray(r.value.aweme_list) ? r.value.aweme_list : [];
   const next = typeof r.value.cursor === "number" ? r.value.cursor : typeof r.value.cursor === "string" ? Number(r.value.cursor) : undefined;
