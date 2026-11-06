@@ -248,6 +248,8 @@ import type * as radarSeedAccounts from "../radarSeedAccounts.js";
 import type * as radarSignalFilters from "../radarSignalFilters.js";
 import type * as radarSignals from "../radarSignals.js";
 import type * as radarSignalsMath from "../radarSignalsMath.js";
+import type * as radarSources from "../radarSources.js";
+import type * as radarSourcesMath from "../radarSourcesMath.js";
 import type * as recruitTrial from "../recruitTrial.js";
 import type * as reminderGrouping from "../reminderGrouping.js";
 import type * as remunerate from "../remunerate.js";
@@ -570,6 +572,8 @@ declare const fullApi: ApiFromModules<{
   radarSignalFilters: typeof radarSignalFilters;
   radarSignals: typeof radarSignals;
   radarSignalsMath: typeof radarSignalsMath;
+  radarSources: typeof radarSources;
+  radarSourcesMath: typeof radarSourcesMath;
   recruitTrial: typeof recruitTrial;
   reminderGrouping: typeof reminderGrouping;
   remunerate: typeof remunerate;

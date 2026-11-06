@@ -231,6 +231,43 @@ export function hookKey(hook: string | undefined): string | null {
   return k.split(" ").length >= 3 && k.length >= 12 ? k : null;
 }
 
+/**
+ * Clé de GABARIT d'un hook : ses 4 premiers mots (un « POV » d'ouverture ôté),
+ * chiffres masqués. C'est la famille d'un hook : « Quand ton mec te dit X » et
+ * « Quand ton mec te demande Y » sont le même gabarit, comme « POV : tu découvres
+ * qui il suit » et « POV : tu découvres qui il suivait en secret ». Un format qui
+ * circule se lit par gabarit, pas au mot près.
+ */
+export function hookTemplate(hook: string | undefined): string | null {
+  const k = hookKey(hook);
+  if (!k) return null;
+  const words = k.replace(/\d+/g, "#").split(" ");
+  const w = words[0] === "pov" ? words.slice(1) : words;
+  return w.length >= 3 ? w.slice(0, 4).join(" ") : null;
+}
+
+/** Un format DÉMARRE : 3 comptes l'ont publié dans les dernières 48 h. */
+export const FORMAT_ALERT_ACCOUNTS = 3;
+export const FORMAT_ALERT_WINDOW_MS = 48 * HOUR;
+
+export function formatStarting(members: readonly { accountId: string; publishedAt: number }[], now: number): boolean {
+  const recent = new Set(members.filter((m) => now - m.publishedAt <= FORMAT_ALERT_WINDOW_MS).map((m) => m.accountId));
+  return recent.size >= FORMAT_ALERT_ACCOUNTS;
+}
+
+/**
+ * Le compte Instagram qu'une bio TikTok donne : « IG: @x », « Insta : x »,
+ * « instagram.com/x », « 📸 @x ». `null` sinon. Un compte « principal » cité
+ * (« main: @x ») n'est pas l'Instagram du compte.
+ */
+export function igHandleFromBio(bio: string | undefined): string | null {
+  if (!bio) return null;
+  const url = bio.match(/instagram\.com\/([a-z0-9._]{2,30})/i);
+  const tag = bio.match(/(?:^|[^a-z0-9])(?:ig|insta|instagram|📸)\s*[:：\-–]?\s*@?([a-z0-9._]{2,30})/i);
+  const h = (url?.[1] ?? tag?.[1])?.toLowerCase().replace(/\.+$/, "");
+  return h && /[a-z]/.test(h) && !["com", "gram", "me"].includes(h) ? h : null;
+}
+
 /** Domaines qui ne sont pas des apps (liens de bio, messageries). */
 const NOT_APP_DOMAINS = new Set(["beacons.ai", "snipfeed.co", "carrd.co", "komi.io", "linkin.bio", "hoo.be", "bento.me", "msha.ke", "lnk.bio", "solo.to", "fanfix.io", "throne.me"]);
 

@@ -65,7 +65,7 @@ function writeSavedViews(views: SavedView[]) {
 }
 
 /** Groupes de cases, dans l'ordre du panneau ; les repliés au départ. */
-const GROUP_ORDER: GroupKey[] = ["origine", "langue", "app", "taille", "statut"];
+const GROUP_ORDER: GroupKey[] = ["origine", "plateforme", "langue", "app", "taille", "statut"];
 const COLLAPSED_AT_START: Partial<Record<GroupKey, boolean>> = { taille: true, statut: true };
 
 /**
@@ -439,6 +439,7 @@ export function RadarSignals() {
                         <span className="rounded-md bg-orange-500 px-2 py-0.5 text-[13px] font-bold text-slate-950">{formatOutlierRatio(s.ratio, loc)}</span>
                         {s.competitor && <span className="rounded-md bg-white px-2 py-0.5 text-xs font-semibold text-slate-900">{s.competitor}</span>}
                         {!s.competitor && s.app && <span className="rounded-md bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-white">{s.app}</span>}
+                        {s.platform === "instagram" && <span className="rounded-md bg-fuchsia-600 px-2 py-0.5 text-xs font-semibold text-white">{tr("plateforme.instagram")}</span>}
                         {s.inCurve && <span className="rounded-md bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-white">{tr("courbeEnCours")}</span>}
                       </span>
                       <span className="relative line-clamp-4 text-[15px] font-semibold leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">

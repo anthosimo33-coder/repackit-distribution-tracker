@@ -5,14 +5,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LayersIcon, RadarIcon, UsersIcon, WalletIcon, ZapIcon } from "lucide-react";
+import { LayersIcon, MegaphoneIcon, RadarIcon, UsersIcon, WalletIcon, ZapIcon } from "lucide-react";
+import { RadarAds } from "@/components/admin/radar/RadarAds";
 import { RadarFormats } from "@/components/admin/radar/RadarFormats";
 import { RadarNetworks } from "@/components/admin/radar/RadarNetworks";
 import { RadarSignals } from "@/components/admin/radar/RadarSignals";
 import { RadarBudget } from "@/components/admin/radar/RadarBudget";
 import { useTranslations } from "next-intl";
 
-const ONGLETS = ["signaux", "formats", "comptes", "budget"] as const;
+const ONGLETS = ["signaux", "formats", "pubs", "comptes", "budget"] as const;
 type Onglet = (typeof ONGLETS)[number];
 
 export default function RadarPage() {
@@ -26,7 +27,8 @@ export default function RadarPage() {
 /**
  * RADAR — veille (ADMIN UNIQUEMENT). « Signaux » : les vidéos qui sortent du lot
  * dans toutes les apps (ScrapeCreators, convex/radarSignals) ; « Formats » : les
- * hooks et les sons repris par plusieurs comptes suivis ; « Comptes suivis » : les
+ * hooks et les sons repris par plusieurs comptes suivis ; « Pubs » : celles des apps
+ * suivies, dans les bibliothèques TikTok et Meta (convex/radarSources) ; « Comptes suivis » : les
  * apps suivies, le réseau de comptes qui les poussent et les apps repérées chez
  * eux (convex/radarNetworks) ; « Budget » : ce que la veille coûte chaque mois. L'onglet vit dans l'adresse (`?onglet=`), comme les
  * filtres des signaux. L'accès est gardé serveur : un créateur n'atteint aucune
@@ -70,6 +72,10 @@ function RadarPageInner() {
             <LayersIcon className="size-4" />
             {tr("formats")}
           </TabsTrigger>
+          <TabsTrigger value="pubs">
+            <MegaphoneIcon className="size-4" />
+            {tr("pubs")}
+          </TabsTrigger>
           <TabsTrigger value="comptes">
             <UsersIcon className="size-4" />
             {tr("comptesSuivis")}
@@ -86,6 +92,10 @@ function RadarPageInner() {
 
         <TabsContent value="formats" className="mt-6">
           <RadarFormats />
+        </TabsContent>
+
+        <TabsContent value="pubs" className="mt-6">
+          <RadarAds />
         </TabsContent>
 
         <TabsContent value="comptes" className="mt-6">

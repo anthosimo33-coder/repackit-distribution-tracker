@@ -60,6 +60,7 @@ import { scKeyPresent, scSearchKeyword, scVideoInfo } from "./scrapeCreatorsApi"
 const DAY = 86_400_000;
 
 export const signalInput = v.object({
+  platform: v.optional(v.union(v.literal("tiktok"), v.literal("instagram"))),
   videoId: v.string(),
   url: v.string(),
   authorId: v.string(),
@@ -283,9 +284,10 @@ export async function writeSignal(
     forceSnapshot?: boolean;
   },
 ): Promise<"inserted" | "updated" | "skipped"> {
+  const platform = s.platform ?? "tiktok";
   const existing = await ctx.db
     .query("radarSignals")
-    .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", s.videoId))
+    .withIndex("by_video", (q) => q.eq("platform", platform).eq("videoId", s.videoId))
     .first();
   const app = opts.app ? { appId: opts.app.id, appName: opts.app.name, appRivalOf: opts.app.rivalOf } : {};
   const tracked = opts.trackedAccountId ? { trackedAccountId: opts.trackedAccountId } : {};
@@ -316,7 +318,7 @@ export async function writeSignal(
   }
   if (!opts.insert) return "skipped";
   await ctx.db.insert("radarSignals", {
-    platform: "tiktok",
+    platform,
     videoId: s.videoId,
     url: s.url,
     authorId: s.authorId,
@@ -480,11 +482,14 @@ export const applyCurve = internalMutation({
   },
 });
 
-const LAST_RUN_FIELD: Record<string, "lastDiscoveryAt" | "lastCurveAt" | "lastAccountsAt" | "lastNetworkAt"> = {
+const LAST_RUN_FIELD: Record<string, "lastDiscoveryAt" | "lastCurveAt" | "lastAccountsAt" | "lastNetworkAt" | "lastInstaAt" | "lastTranscriptAt" | "lastAdsAt"> = {
   search: "lastDiscoveryAt",
   curve: "lastCurveAt",
   tiktok: "lastAccountsAt",
   network: "lastNetworkAt",
+  insta: "lastInstaAt",
+  transcript: "lastTranscriptAt",
+  ads: "lastAdsAt",
 };
 
 /** Ajoute la consommation d'un passage à la ligne (jour, poste) et l'état des tâches. */
@@ -708,6 +713,8 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       caption: r.caption.slice(0, 300),
       hook: r.hook ?? null,
       musicTitle: r.musicTitle ?? null,
+      transcript: r.transcript ?? null,
+      platform: r.platform,
       lang: r.lang,
       region: r.region ?? null,
       publishedAt: r.publishedAt,
@@ -846,6 +853,8 @@ export const e2eSeedSignals = e2eMutation({
         snapshots: v.optional(v.array(v.object({ at: v.number(), views: v.number() }))),
         multiplier: v.optional(v.number()),
         hook: v.optional(v.string()),
+        transcript: v.optional(v.string()),
+        platform: v.optional(v.literal("instagram")),
       }),
     ),
   },
@@ -857,9 +866,9 @@ export const e2eSeedSignals = e2eMutation({
       const app = seed ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] } : {};
       ids.push(
         await ctx.db.insert("radarSignals", {
-          platform: "tiktok",
+          platform: s.platform ?? "tiktok",
           videoId: s.videoId,
-          url: `https://www.tiktok.com/@${s.handle}/video/${s.videoId}`,
+          url: s.platform === "instagram" ? `https://www.instagram.com/reel/${s.videoId}/` : `https://www.tiktok.com/@${s.handle}/video/${s.videoId}`,
           authorId: s.handle,
           authorHandle: s.handle,
           authorFans: s.fans,
@@ -876,6 +885,7 @@ export const e2eSeedSignals = e2eMutation({
           ...app,
           ...(s.multiplier !== undefined ? { multiplier: s.multiplier } : {}),
           ...(s.hook ? { hook: s.hook } : {}),
+          ...(s.transcript ? { transcript: s.transcript, transcribedAt: now } : {}),
           foundBy: ["e2e"],
           firstSeenAt: now,
           lastSeenAt: now,

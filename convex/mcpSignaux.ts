@@ -14,6 +14,7 @@ import { ARG_PROJET } from "./mcpWriteCommon";
 import { dayKeyParis } from "./dateFr";
 import { getRadarBudgetCore, listSignalsCore } from "./radarSignals";
 import { listAppAccountsCore, listCandidatesCore, listFormatsCore, listNetworksCore } from "./radarNetworks";
+import { listAdsCore } from "./radarSources";
 import { LANG_BUCKETS, viewsPerHour } from "./radarSignalsMath";
 import {
   STATUSES,
@@ -52,6 +53,11 @@ export const lireAppsReperees = mcpPermissionQuery("radar.use")({
   handler: async (ctx) => listCandidatesCore(ctx),
 });
 
+export const lirePubs = mcpPermissionQuery("radar.use")({
+  args: {},
+  handler: async (ctx) => listAdsCore(ctx),
+});
+
 export const lireComptesApp = mcpPermissionQuery("radar.use")({
   args: { appId: v.id("radarApps") },
   handler: async (ctx, args) => listAppAccountsCore(ctx, args),
@@ -72,6 +78,7 @@ export const OUTIL_SIGNAUX: McpTool = {
       projet: ARG_PROJET,
       periode: { type: "string", description: "Âge des vidéos (défaut : 7j).", enum: Object.keys(PERIODES) },
       origine: { type: "string", description: "« concurrents » (app concurrente DU PROJET, ex. The Ick pour Snytch, What Brandon Thinks pour BLUSH) ou « autres » (toutes les autres apps).", enum: ["concurrents", "autres"] },
+      plateforme: { type: "string", description: "tiktok ou instagram (les Reels des comptes suivis dont la bio TikTok donne l'Instagram).", enum: ["tiktok", "instagram"] },
       app: { type: "string", description: "Une app suivie ou citée, par son nom (même partiel : « brandon », « ick ») — outil `reseaux` pour la liste." },
       langue: { type: "array", description: `Langues (ou) : ${LANG_BUCKETS.join(", ")} — pt = Brésil, es-am = espagnol d'Amérique, es-es = Espagne.`, items: { type: "string" } },
       taille: { type: "array", description: `Taille du compte (ou) : ${Object.keys(TAILLES).join(", ")}.`, items: { type: "string" } },
@@ -95,6 +102,7 @@ export function filtresDepuis(args: Record<string, unknown>): Filters {
     if (!(args.periode in PERIODES)) throw new ToolError(`« periode » : ${Object.keys(PERIODES).join(", ")}.`);
     f.age = PERIODES[args.periode];
   }
+  if (args.plateforme === "tiktok" || args.plateforme === "instagram") f.sel.plateforme = [args.plateforme];
   if (args.origine === "concurrents") f.sel.origine = ["concurrent"];
   else if (args.origine === "autres") f.sel.origine = ["autre"];
   f.sel.langue = liste(args.langue).filter((l) => (LANG_BUCKETS as readonly string[]).includes(l));
@@ -155,8 +163,10 @@ export async function appelerSignaux(
           ...(s.competitor ? { concurrent: s.competitor } : {}),
           ...(s.multiplier !== null ? { foisMediane: Math.round(s.multiplier * 10) / 10 } : {}),
           statut: s.status,
+          ...(s.platform === "instagram" ? { plateforme: "instagram" } : {}),
           ...(s.hook ? { texteEcran: s.hook } : {}),
           ...(s.musicTitle ? { son: s.musicTitle } : {}),
+          ...(s.transcript ? { transcription: s.transcript } : {}),
           legende: s.caption,
           likes: s.likes,
           commentaires: s.comments,
@@ -197,12 +207,12 @@ export const OUTIL_RESEAUX: McpTool = {
   name: "reseaux",
   title: "Radar : les réseaux d'apps suivis",
   description:
-    "Les apps dont le Radar suit le réseau de comptes TikTok (concurrentes du projet en tête : The Ick, Stalkie, FollowSpy, Snitchy… pour Snytch ; What Brandon Thinks, The Cringe, Rizz App, Plug AI… pour BLUSH ; et une vingtaine d'autres apps à armée de comptes), comme l'onglet Comptes suivis : comptes, publications de la semaine, meilleure vidéo (multiplicateur = vues ÷ médiane du compte). Avec « app » : les comptes de cette app, les plus en forme d'abord. vue « formats » : les hooks (texte à l'écran) et les sons repris par au moins deux comptes suivis en 14 jours, ceux poussés par une concurrente d'abord — le format à transposer. vue « apps_reperees » : les comptes mentionnés et les sites cités par plusieurs comptes, des apps qu'on ne suit pas encore. Lecture seule. Les vidéos qui sortent du lot de ces comptes se lisent avec `signaux` (filtre « app »).",
+    "Les apps dont le Radar suit le réseau de comptes TikTok (concurrentes du projet en tête : The Ick, Stalkie, FollowSpy, Snitchy… pour Snytch ; What Brandon Thinks, The Cringe, Rizz App, Plug AI… pour BLUSH ; et une vingtaine d'autres apps à armée de comptes), comme l'onglet Comptes suivis : comptes, publications de la semaine, meilleure vidéo (multiplicateur = vues ÷ médiane du compte). Avec « app » : les comptes de cette app, les plus en forme d'abord. vue « formats » : les hooks (texte à l'écran) et les sons repris par au moins deux comptes suivis en 14 jours, ceux poussés par une concurrente d'abord — le format à transposer. vue « apps_reperees » : les comptes mentionnés et les sites cités par plusieurs comptes, des apps qu'on ne suit pas encore. vue « pubs » : leurs pubs dans les bibliothèques TikTok et Meta — une pub qui tourne longtemps est un format que l'app paie pour pousser, le gagnant le plus sûr. Lecture seule. Les vidéos qui sortent du lot de ces comptes se lisent avec `signaux` (filtre « app »).",
   inputSchema: {
     type: "object",
     properties: {
       projet: ARG_PROJET,
-      vue: { type: "string", description: "apps (défaut), formats, ou apps_reperees.", enum: ["apps", "formats", "apps_reperees"] },
+      vue: { type: "string", description: "apps (défaut), formats, apps_reperees ou pubs.", enum: ["apps", "formats", "apps_reperees", "pubs"] },
       app: { type: "string", description: "Une app, par son nom (même partiel), pour la liste de ses comptes (vue apps)." },
       limite: { type: "integer", description: "Comptes listés au plus (défaut 30).", minimum: 1, maximum: 200 },
     },
@@ -223,7 +233,34 @@ export async function appelerReseaux(
 ): Promise<ToolResult> {
   const jour = (t: number | null) => (t === null ? null : dayKeyParis(t));
   const vue = args.vue ?? "apps";
-  if (vue !== "apps" && vue !== "formats" && vue !== "apps_reperees") throw new ToolError("« vue » : apps, formats ou apps_reperees.");
+  if (vue !== "apps" && vue !== "formats" && vue !== "apps_reperees" && vue !== "pubs") throw new ToolError("« vue » : apps, formats, apps_reperees ou pubs.");
+  if (vue === "pubs") {
+    const ads = await lire(() => ctx.runQuery(internal.mcpSignaux.lirePubs, ids));
+    return textResult(
+      JSON.stringify(
+        {
+          projet,
+          pubs: ads.length,
+          lecture: "Concurrentes du projet d'abord, actives d'abord, puis les plus longues à tourner. joursDeDiffusion = de la première à la dernière apparition (aujourd'hui si active).",
+          liste: ads.slice(0, 40).map((a) => ({
+            app: a.app,
+            ...(a.rival ? { concurrente: true } : {}),
+            bibliotheque: a.platform,
+            annonceur: a.advertiser,
+            active: a.active,
+            joursDeDiffusion: a.runDays,
+            depuis: jour(a.firstShownAt),
+            ...(a.text ? { texte: a.text } : {}),
+            ...(a.variants !== null ? { variantes: a.variants } : {}),
+            ...(a.audience ? { audience: a.audience } : {}),
+            lien: a.url,
+          })),
+        },
+        null,
+        1,
+      ),
+    );
+  }
   if (vue === "formats") {
     const f = await lire(() => ctx.runQuery(internal.mcpSignaux.lireFormats, ids));
     return textResult(
@@ -231,10 +268,11 @@ export async function appelerReseaux(
         {
           projet,
           formats: f.length,
-          lecture: "type hook = même texte à l'écran ; son = même son. comptes = comptes suivis distincts qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
+          lecture: "type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
           liste: f.slice(0, 40).map((x) => ({
             type: x.kind === "hook" ? "hook" : "son",
             texte: x.label,
+            ...(x.variants > 1 ? { variantes: [...new Set(x.members.map((m) => m.hook).filter(Boolean))] } : {}),
             comptes: x.accountCount,
             apps: x.apps.map((a) => a.name),
             ...(x.rival ? { pousseParUnConcurrent: true } : {}),
