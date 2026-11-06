@@ -278,7 +278,8 @@
     "compteSuivi": "{count, plural, one {account} other {accounts}} followed",
     "limiteConseilleeAtteinteQuotaApify": "Recommended limit reached — watch the Apify quota.",
     "aucunCompteSuivi": "No account followed",
-    "ajouteUnCompteTiktokPour": "Add a TikTok account to follow its latest videos."
+    "ajouteUnCompteTiktokPour": "Add a TikTok account to follow its latest videos.",
+    "formats": "Formats"
   },
   "RadarSignals": {
     "vuesEnregistrees": "Saved views",
@@ -438,7 +439,9 @@
     "ajouteeAuxInspirations": "Video added to inspirations.",
     "ajoutImpossible": "Could not add to inspirations.",
     "ouvrirSurTiktok": "Open on TikTok",
-    "vuesSurMediane": "Views ÷ account median"
+    "vuesSurMediane": "Views ÷ account median",
+    "texteALEcran": "On-screen text",
+    "son": "Sound: {titre}"
   },
   "RadarBudget": {
     "cleAbsente": "Collection paused: the ScrapeCreators key is not set on this deployment (SCRAPECREATORS_API_KEY).",
@@ -468,7 +471,7 @@
       },
       "tiktok": {
         "titre": "Read the followed accounts",
-        "aide": "1 credit = an account's last 9 videos. Active accounts every day, quiet ones every 3 days: 600 readings cover 1,000 accounts.",
+        "aide": "1 credit = an account's last 9 videos. Active accounts every day, quiet ones every 3 days, dormant ones every week: 2,000 readings cover 3,000 accounts.",
         "unite": "readings/day"
       },
       "insta": {
@@ -488,7 +491,7 @@
       },
       "network": {
         "titre": "Find the apps' networks",
-        "aide": "Each followed app's keywords and hashtags, every week: an account that names it joins its network.",
+        "aide": "Each followed app's keywords and hashtags: every 3 days for a competitor, every week otherwise. An account that names it joins its network.",
         "unite": "credits/month"
       }
     },
@@ -571,7 +574,16 @@
     "aideMotifs": "Comma-separated: an account joins its network when one of its captions contains one of these patterns (spaces ignored). Avoid common words.",
     "concurrenteDeCeProjet": "Competitor of this project",
     "suivreLApp": "Follow the app",
-    "annuler": "Cancel"
+    "annuler": "Cancel",
+    "listeDeDepart": "starting list",
+    "hookCite": "“{hook}”",
+    "appsReperees": "Apps spotted on tracked accounts",
+    "appsRepereesAide": "Accounts mentioned and websites cited by at least two accounts. Following an app adds the accounts that cited it to its network.",
+    "citeePar": "{n, plural, one {cited by # account} other {cited by # accounts}}",
+    "chezLesComptesDe": "on {apps} accounts",
+    "suivreCetteApp": "Follow",
+    "ignorer": "Ignore",
+    "appSuivieDepuisReperee": "{app} followed: {n, plural, =0 {no account added} one {# account joins its network} other {# accounts join its network}}."
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Fetch the latest videos from followed accounts",
@@ -617,5 +629,26 @@
     "likes": "Most liked",
     "published": "Most recent",
     "views": "Most viewed"
+  },
+  "RadarFormats": {
+    "type": "Format type",
+    "kind": {
+      "all": "All",
+      "hook": "Hooks",
+      "sound": "Sounds"
+    },
+    "concurrentsSeulement": "This project's competitors only",
+    "compte": "{n, plural, =0 {no formats} one {# format} other {# formats}}",
+    "aucunTitre": "No shared format yet.",
+    "aucunFiltreTitre": "No format matches these filters.",
+    "aucunTexte": "A format shows up here as soon as two tracked accounts post the same on-screen text or the same sound within 14 days. Accounts are read every hour.",
+    "memeHook": "Same hook",
+    "memeSon": "Same sound",
+    "pousseParUnConcurrent": "Pushed by a competitor",
+    "comptesEtApps": "{comptes} accounts · {apps}",
+    "hookCite": "“{hook}”",
+    "resume": "Up to {vues} views · last posted {quand}",
+    "meilleurMultiplicateur": "up to {x} the account's median",
+    "vues": "{n} views"
   }
 }

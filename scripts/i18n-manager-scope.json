@@ -118,6 +118,7 @@
     "components/admin/insta-conv/champs.tsx",
     "components/admin/leaderboard/CreatorLeaderboard.tsx",
     "components/admin/radar/RadarBudget.tsx",
+    "components/admin/radar/RadarFormats.tsx",
     "components/admin/radar/RadarNetworks.tsx",
     "components/admin/radar/RadarSignalDetail.tsx",
     "components/admin/radar/RadarSignals.tsx",

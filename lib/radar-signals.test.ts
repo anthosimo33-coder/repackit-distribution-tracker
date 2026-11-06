@@ -151,13 +151,13 @@ describe("budget", () => {
   const d = normalizeBudget(null);
   const usage = (poste: string, credits: number, day = "2026-11-06") => ({ poste, credits, day });
 
-  it("prévoit 49,63 $ par défaut : recherche, courbe, 600 relevés de comptes/jour, réseaux", () => {
-    expect(d.capUsd).toBe(60);
-    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 40 * 3 * 30 + 600 * 30 + 3_000) * SC_PRICE_PER_CREDIT, 6);
-    expect(plannedUsd(d)).toBeCloseTo(49.632, 3);
+  it("prévoit 155,66 $ au plus par défaut sous un plafond de 200 $ : recherche, courbe 100/jour, 2 000 relevés de comptes/jour, réseaux", () => {
+    expect(d.capUsd).toBe(200);
+    expect(plannedUsd(d)).toBeCloseTo((60 * 30 + 100 * 3 * 30 + 2_000 * 30 + 12_000) * SC_PRICE_PER_CREDIT, 6);
+    expect(plannedUsd(d)).toBeCloseTo(155.664, 3);
   });
 
-  it("des réglages de la phase 1 prennent les nouveaux postes par défaut ; ceux de la phase 2 sont respectés", () => {
+  it("des réglages d'avant la v3 prennent les postes relevés et le plafond par défaut ; ceux de la v3 sont respectés", () => {
     const v1 = {
       capUsd: 60,
       postes: [
@@ -169,14 +169,22 @@ describe("budget", () => {
       cutOrder: ["search", "transcript", "curve", "insta", "ai", "tiktok"],
       alert80: true,
     };
+    // Les réglages réels de la prod au 06/11/2026 (v1, plafond 60 $).
     const m = normalizeBudget(v1);
+    expect(m.capUsd).toBe(200);
+    expect(m.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 60, on: true });
     expect(m.postes.find((p) => p.key === "curve")).toEqual({ key: "curve", qty: 100, on: true });
-    expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 600, on: true });
-    expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 3_000, on: true });
+    expect(m.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 2_000, on: true });
+    expect(m.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 12_000, on: true });
     expect(m.cutOrder).toEqual(["search", "transcript", "curve", "insta", "ai", "tiktok", "network"]);
+    // Une v2 (réglée après #454) passe aussi au cran au-dessus.
     const v2 = normalizeBudget({ ...v1, budgetVersion: 2, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
-    expect(v2.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 200, on: false });
-    expect(v2.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 900, on: true });
+    expect([v2.capUsd, v2.postes.find((p) => p.key === "network")?.qty]).toEqual([200, 12_000]);
+    // Une v3 est respectée telle quelle.
+    const v3 = normalizeBudget({ ...v1, capUsd: 150, budgetVersion: 3, postes: [...v1.postes, { key: "network", qty: 900, on: true }] });
+    expect(v3.capUsd).toBe(150);
+    expect(v3.postes.find((p) => p.key === "tiktok")).toEqual({ key: "tiktok", qty: 200, on: false });
+    expect(v3.postes.find((p) => p.key === "network")).toEqual({ key: "network", qty: 900, on: true });
   });
 
   it("garde éteints les postes pas encore branchés, borne les quantités, complète l'ordre de coupure", () => {
@@ -190,9 +198,9 @@ describe("budget", () => {
       ],
       cutOrder: ["curve", "curve", "inconnu", "demand"],
       alert80: false,
-      budgetVersion: 2,
+      budgetVersion: 3,
     });
-    expect(b.capUsd).toBe(60);
+    expect(b.capUsd).toBe(200);
     expect(b.postes.find((p) => p.key === "insta")?.on).toBe(false);
     expect(b.postes.find((p) => p.key === "tiktok")?.on).toBe(true);
     expect(b.postes.find((p) => p.key === "search")).toEqual({ key: "search", qty: 300, on: true });
@@ -206,9 +214,9 @@ describe("budget", () => {
     expect(allowance(d, s, "search", 0, 4)).toBe(15);
     expect(allowance(d, s, "search", 55, 4)).toBe(5);
     expect(allowance(d, s, "search", 60, 4)).toBe(0);
-    // 40 vidéos × 3 relevés = 120/jour → 5 par heure ; 600 relevés de comptes → 25 par heure.
-    expect(allowance(d, s, "curve", 0, 24)).toBe(5);
-    expect(allowance(d, s, "tiktok", 0, 24)).toBe(25);
+    // 100 vidéos × 3 relevés = 300/jour → 13 par heure ; 2 000 relevés de comptes → 84 par heure.
+    expect(allowance(d, s, "curve", 0, 24)).toBe(13);
+    expect(allowance(d, s, "tiktok", 0, 24)).toBe(84);
     expect(allowance(d, s, "insta", 0, 1)).toBe(0);
   });
 

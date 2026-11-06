@@ -87,6 +87,7 @@ crons.daily("radar-signals-purge", { hourUTC: 3, minuteUTC: 50 }, internal.radar
 // heure (chacun à son rythme : actif chaque jour, calme tous les 3 jours).
 crons.interval("radar-networks-search", { hours: 6 }, internal.radarNetworks.runNetworkSearch, {});
 crons.hourly("radar-networks-accounts", { minuteUTC: 20 }, internal.radarNetworks.runAccountReads, {});
+crons.daily("radar-networks-purge", { hourUTC: 3, minuteUTC: 55 }, internal.radarNetworks.purgeNetworks, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

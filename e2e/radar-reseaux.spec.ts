@@ -9,10 +9,12 @@ const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
 if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL not set");
 const admin = createE2eClient(convexUrl);
 const DAY = 86_400_000;
+const HOOK = "POV : tu découvres qui il suit en secret";
 
 /**
- * Nouveau Radar — onglet Comptes suivis (réseaux d'apps), outil MCP `reseaux`,
- * filtre App des signaux.
+ * Nouveau Radar — onglets Comptes suivis (réseaux d'apps, apps repérées) et
+ * Formats (hooks et sons repris), outil MCP `reseaux`, filtre App et texte à
+ * l'écran des signaux.
  *
  * Les apps et leurs comptes sont GLOBAUX : chaque test sème les siens sous un
  * slug `e2erx<ts>…` et les efface par ce préfixe. Le backend local n'a pas de clé
@@ -41,7 +43,7 @@ function reseau(ts: number) {
           fans: 12_400,
           medianViews: 3_100,
           posts7d: 4,
-          best7d: { videoId: `${ts}1`, views: 46_500, multiplier: 15, publishedAt: Date.now() - 2 * DAY },
+          best7d: { videoId: `${ts}1`, views: 46_500, multiplier: 15, publishedAt: Date.now() - 2 * DAY, hook: HOOK },
         },
         // Compte neuf : pas encore de médiane, rien publié cette semaine.
         { handle: `rxtwo_${ts}`, appSlug: `${p}a`, fans: 800, posts7d: 0 },
@@ -59,7 +61,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
     await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, ...r.seed });
     try {
       await page.goto(adminPath("/radar?onglet=comptes"));
-      await expect(page.getByTestId("radar-reseaux-compte")).toContainText(/sur 1\s000 possibles/);
+      await expect(page.getByTestId("radar-reseaux-compte")).toContainText(/sur 3\s000 possibles/);
 
       // Chaque app dans son groupe, et dans aucun autre.
       const groupe = (nom: string) => page.getByRole("region", { name: nom });
@@ -161,7 +163,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       rivalProject: E2E_PROJECT_SLUG,
       signals: [
         // Relevée dans un compte suivi : 12,4 fois sa médiane.
-        { videoId: `${m}1`, handle: `ickfan_${ts}`, fans: 3_332, views: 61_000, lang: "en", caption: `This is actually insane theick.io ${m}`, publishedAt: now - 2 * DAY, multiplier: 12.4 },
+        { videoId: `${m}1`, handle: `ickfan_${ts}`, fans: 3_332, views: 61_000, lang: "en", caption: `This is actually insane theick.io ${m}`, publishedAt: now - 2 * DAY, multiplier: 12.4, hook: "he didn't know I could see who he follows" },
         { videoId: `${m}2`, handle: `autre_${ts}`, fans: 1_801, views: 168_850, lang: "fr", caption: `Voici toutes les applications ${m}`, publishedAt: now - DAY },
       ],
     });
@@ -190,7 +192,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
 
       // Les apps, concurrentes du projet en tête.
       const tout = await lu("reseaux", {});
-      expect(tout.plafond).toBe(1_000);
+      expect(tout.plafond).toBe(3_000);
       const noms = tout.apps.map((a: { app: string }) => a.app);
       expect(noms.indexOf(r.rival)).toBeGreaterThanOrEqual(0);
       expect(noms.indexOf(r.rival)).toBeLessThan(noms.indexOf(r.ailleurs));
@@ -222,7 +224,7 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       // `signaux` filtré par app : la vidéo qui cite The Ick, avec son multiplicateur.
       const ick = await lu("signaux", { recherche: m, app: "ick" });
       expect(ick.total).toBe(1);
-      expect(ick.videos[0]).toMatchObject({ compte: `ickfan_${ts}`, app: "The Ick", concurrent: "The Ick", foisMediane: 12.4 });
+      expect(ick.videos[0]).toMatchObject({ compte: `ickfan_${ts}`, app: "The Ick", concurrent: "The Ick", foisMediane: 12.4, texteEcran: "he didn't know I could see who he follows" });
       const tous = await lu("signaux", { recherche: m });
       expect(tous.total).toBe(2);
 
@@ -233,13 +235,143 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await page.getByRole("checkbox", { name: /^The Ick/ }).check();
       await expect(compte).toHaveText("1 vidéo");
       await expect(page).toHaveURL(/[?&]a=The(\+|%20)Ick(&|$)/);
+      // Sur la carte, le texte à l'écran prend la place de la légende.
+      const carte = page.getByTestId("radar-signal");
+      await expect(carte).toContainText("he didn't know I could see who he follows");
+      await expect(carte).not.toContainText("This is actually insane");
       // Le détail donne le multiplicateur relevé dans le compte suivi.
       await page.getByRole("button", { name: `Voir le détail de la vidéo de @ickfan_${ts}` }).click();
       const detail = page.getByRole("dialog");
       await expect(detail).toContainText("The Ick");
       await expect(detail).toContainText("Vues ÷ médiane du compte12×");
+      await expect(detail).toContainText("Texte à l'écranhe didn't know I could see who he follows");
     } finally {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
+    }
+  });
+
+  test("formats qui circulent et apps repérées : outil MCP, onglet Formats, suivre et ignorer", async ({ page }) => {
+    test.setTimeout(150_000);
+    const ts = Date.now();
+    const r = reseau(ts);
+    const p = r.prefixe;
+    const son = `son original - e2e ${ts}`;
+    const cand = `@E2E Rx ${ts} cand`;
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: r.seed.apps,
+      accounts: [...r.seed.accounts, { handle: `rxfour_${ts}`, appSlug: `${p}c`, fans: 300, medianViews: 700, posts7d: 2 }],
+      formats: [
+        // Deux comptes de la concurrente : poussé par un concurrent.
+        { kind: "hook", key: `${p}hook`, label: HOOK, members: [{ handle: r.un, videoId: `${ts}1`, views: 46_500, multiplier: 15, ageH: 30 }, { handle: r.deux, videoId: `${ts}2`, views: 9_800, ageH: 50 }] },
+        // Le même son chez deux apps qui ne sont pas concurrentes du projet : plus vu,
+        // il ne passe pourtant qu'après le format du concurrent.
+        { kind: "sound", key: `${p}son`, label: son, members: [{ handle: `rxthree_${ts}`, videoId: `${ts}3`, views: 80_000, multiplier: 8.9, ageH: 20 }, { handle: `rxfour_${ts}`, videoId: `${ts}4`, views: 3_000, ageH: 70 }] },
+      ],
+      candidates: [
+        { key: `@${p}cand`, kind: "mention", label: cand, authors: [r.un, r.deux, `rxfree_${ts}`], fromApps: [`${p}a`] },
+        { key: `${p}ignore.io`, kind: "domain", label: `${p}ignore.io`, authors: [`a_${ts}`, `b_${ts}`], fromApps: [] },
+        // Citée une seule fois : pas encore proposée.
+        { key: `${p}solo.app`, kind: "domain", label: `${p}solo.app`, authors: [`solo_${ts}`], fromApps: [] },
+      ],
+    });
+    try {
+      // ── L'outil MCP, avant que l'écran ne change quoi que ce soit ──────────
+      await page.goto(adminPath("/comptes"));
+      await page.getByRole("button", { name: "Connecter Claude" }).click();
+      await page.getByLabel("Nom de la clé").fill(`E2E formats ${ts}`);
+      await page.getByRole("button", { name: "Créer une clé" }).click();
+      const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
+      const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!.match(/jarvia (\S+\/mcp) /)![1];
+      const appel = async (args: Record<string, unknown>) => {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "reseaux", arguments: { projet: E2E_PROJECT_SLUG, ...args } } }),
+        });
+        const result = ((await res.json()) as { result: { content: { text: string }[]; isError?: boolean } }).result;
+        return { isError: result.isError === true, text: result.content[0].text };
+      };
+
+      const formats = JSON.parse((await appel({ vue: "formats" })).text) as { liste: { texte: string }[] };
+      const iHook = formats.liste.findIndex((f) => f.texte === HOOK);
+      const iSon = formats.liste.findIndex((f) => f.texte === son);
+      expect(formats.liste[iHook]).toMatchObject({ type: "hook", comptes: 2, apps: [r.rival], pousseParUnConcurrent: true, vuesMax: 46_500, foisMedianeMax: 15 });
+      expect(formats.liste[iSon]).toMatchObject({ type: "son", comptes: 2, apps: [r.ailleurs, r.autre], vuesMax: 80_000 });
+      expect(formats.liste[iSon]).not.toHaveProperty("pousseParUnConcurrent");
+      // Poussé par un concurrent du projet : en tête.
+      expect(iHook).toBeGreaterThanOrEqual(0);
+      expect(iHook).toBeLessThan(iSon);
+
+      const reperees = JSON.parse((await appel({ vue: "apps_reperees" })).text) as { liste: { app: string }[] };
+      expect(reperees.liste.find((c) => c.app === cand)).toMatchObject({ type: "compte mentionné", citeePar: 3, chezLesComptesDe: [r.rival] });
+      expect(reperees.liste.find((c) => c.app === `${p}ignore.io`)).toMatchObject({ type: "site", citeePar: 2 });
+      expect(reperees.liste.find((c) => c.app === `${p}solo.app`)).toBeUndefined();
+      const mauvaiseVue = await appel({ vue: "tout" });
+      expect(mauvaiseVue.isError).toBe(true);
+      expect(mauvaiseVue.text).toContain("« vue » doit valoir : apps, formats, apps_reperees");
+
+      // ── L'onglet Formats ───────────────────────────────────────────────────
+      await page.goto(adminPath("/radar?onglet=formats"));
+      const carte = (texte: string) => page.getByTestId("radar-format").filter({ hasText: texte });
+      const hook = carte(HOOK);
+      await expect(hook).toContainText("Même hook");
+      await expect(hook).toContainText("Poussé par un concurrent");
+      await expect(hook).toContainText(`2 comptes · ${r.rival}`);
+      await expect(hook).toContainText(`« ${HOOK} »`);
+      await expect(hook).toContainText("Jusqu'à 46,5 k vues");
+      await expect(hook).toContainText("jusqu'à 15× la médiane du compte");
+      await expect(hook.getByRole("link", { name: `@${r.un}` })).toHaveAttribute("href", `https://www.tiktok.com/@${r.un}/video/${ts}1`);
+      await expect(hook).toContainText(`${r.rival} · 46,5 k vues · 15×`);
+      const sonCarte = carte(son);
+      await expect(sonCarte).toContainText("Même son");
+      await expect(sonCarte).toContainText(`2 comptes · ${r.ailleurs}, ${r.autre}`);
+      await expect(sonCarte).not.toContainText("Poussé par un concurrent");
+      // Le concurrent avant le reste.
+      const textes = await page.getByTestId("radar-format").allTextContents();
+      expect(textes.findIndex((t) => t.includes(HOOK))).toBeLessThan(textes.findIndex((t) => t.includes(son)));
+
+      // Filtres : les sons seulement, puis les concurrents seulement → vide.
+      await page.getByRole("button", { name: "Sons", exact: true }).click();
+      await expect(hook).toHaveCount(0);
+      await expect(sonCarte).toHaveCount(1);
+      await page.getByRole("checkbox", { name: "Concurrents de ce projet seulement" }).check();
+      await expect(sonCarte).toHaveCount(0);
+      await expect(page.getByText("Aucun format ne passe ces filtres.")).toBeVisible();
+      await page.getByRole("button", { name: "Tous", exact: true }).click();
+      await expect(hook).toHaveCount(1);
+      await expect(sonCarte).toHaveCount(0);
+
+      // ── Comptes suivis : le hook de la meilleure vidéo, les apps repérées ───
+      await page.goto(adminPath("/radar?onglet=comptes"));
+      const rival = page.getByTestId("radar-app").filter({ hasText: r.rival });
+      await rival.getByRole("button", { name: new RegExp(r.rival) }).click();
+      await expect(rival.getByTestId("radar-compte").filter({ hasText: `@${r.un}` })).toContainText(`« ${HOOK} »`);
+
+      const reperee = (texte: string) => page.getByRole("region", { name: "Apps repérées chez les comptes suivis" }).getByTestId("radar-app-reperee").filter({ hasText: texte });
+      await expect(reperee(cand)).toContainText(`citée par 3 comptes · chez les comptes de ${r.rival} · @${r.un}, @${r.deux}, @rxfree_${ts}`);
+      await expect(reperee(`${p}ignore.io`)).toContainText("citée par 2 comptes");
+      await expect(reperee(`${p}solo.app`)).toHaveCount(0);
+
+      await reperee(`${p}ignore.io`).getByRole("button", { name: "Ignorer" }).click();
+      await expect(reperee(`${p}ignore.io`)).toHaveCount(0);
+
+      // Suivre : le formulaire arrive rempli ; les comptes qui la citaient rejoignent son réseau.
+      await reperee(cand).getByRole("button", { name: "Suivre" }).click();
+      const nom = `E2E Rx ${ts} cand`;
+      await expect(page.getByLabel("Nom de l'app")).toHaveValue(nom);
+      await expect(page.getByLabel("Motifs qui la citent")).toHaveValue(`e2erx${ts}cand`);
+      await page.getByRole("button", { name: "Suivre l'app" }).click();
+      // @rxone et @rxtwo sont déjà dans le réseau d'une autre app : seul @rxfree entre.
+      await expect(page.getByText(`${nom} suivie : 1 compte rejoint son réseau.`)).toBeVisible();
+      await expect(reperee(cand)).toHaveCount(0);
+      const neuve = page.getByRole("region", { name: "Concurrents de ce projet" }).getByTestId("radar-app").filter({ hasText: nom });
+      await expect(neuve).toContainText("1 compte (1 relevé)");
+      await neuve.getByRole("button", { name: new RegExp(nom) }).click();
+      await expect(neuve.getByTestId("radar-compte")).toHaveCount(1);
+      await expect(neuve.getByTestId("radar-compte")).toContainText(`@rxfree_${ts}`);
+    } finally {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
     }
   });

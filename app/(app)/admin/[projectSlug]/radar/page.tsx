@@ -5,13 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useProjectPath } from "@/components/project/ProjectProvider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RadarIcon, UsersIcon, WalletIcon, ZapIcon } from "lucide-react";
+import { LayersIcon, RadarIcon, UsersIcon, WalletIcon, ZapIcon } from "lucide-react";
+import { RadarFormats } from "@/components/admin/radar/RadarFormats";
 import { RadarNetworks } from "@/components/admin/radar/RadarNetworks";
 import { RadarSignals } from "@/components/admin/radar/RadarSignals";
 import { RadarBudget } from "@/components/admin/radar/RadarBudget";
 import { useTranslations } from "next-intl";
 
-const ONGLETS = ["signaux", "comptes", "budget"] as const;
+const ONGLETS = ["signaux", "formats", "comptes", "budget"] as const;
 type Onglet = (typeof ONGLETS)[number];
 
 export default function RadarPage() {
@@ -24,10 +25,10 @@ export default function RadarPage() {
 
 /**
  * RADAR — veille (ADMIN UNIQUEMENT). « Signaux » : les vidéos qui sortent du lot
- * dans toutes les apps (ScrapeCreators, convex/radarSignals) ; « Comptes suivis » :
- * les apps suivies et le réseau de comptes qui les poussent (convex/radarNetworks) ;
- * « Budget » : ce que la
- * veille coûte chaque mois. L'onglet vit dans l'adresse (`?onglet=`), comme les
+ * dans toutes les apps (ScrapeCreators, convex/radarSignals) ; « Formats » : les
+ * hooks et les sons repris par plusieurs comptes suivis ; « Comptes suivis » : les
+ * apps suivies, le réseau de comptes qui les poussent et les apps repérées chez
+ * eux (convex/radarNetworks) ; « Budget » : ce que la veille coûte chaque mois. L'onglet vit dans l'adresse (`?onglet=`), comme les
  * filtres des signaux. L'accès est gardé serveur : un créateur n'atteint aucune
  * fonction Radar.
  */
@@ -65,6 +66,10 @@ function RadarPageInner() {
             <ZapIcon className="size-4" />
             {tr("signaux")}
           </TabsTrigger>
+          <TabsTrigger value="formats">
+            <LayersIcon className="size-4" />
+            {tr("formats")}
+          </TabsTrigger>
           <TabsTrigger value="comptes">
             <UsersIcon className="size-4" />
             {tr("comptesSuivis")}
@@ -77,6 +82,10 @@ function RadarPageInner() {
 
         <TabsContent value="signaux" className="mt-6">
           <RadarSignals />
+        </TabsContent>
+
+        <TabsContent value="formats" className="mt-6">
+          <RadarFormats />
         </TabsContent>
 
         <TabsContent value="comptes" className="mt-6">

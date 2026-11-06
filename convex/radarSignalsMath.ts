@@ -102,6 +102,16 @@ export type SignalInput = {
   comments: number;
   shares: number;
   saves: number;
+  /** Texte incrusté à l'écran (le hook), absent des réponses `trim=true`. */
+  hook?: string;
+  /** Le son : id stable, titre, pseudo de qui l'a créé. */
+  musicId?: string;
+  musicTitle?: string;
+  musicOwner?: string;
+  /** Comptes mentionnés dans la légende (id TikTok, libellé tel qu'écrit). */
+  mentions?: { id: string; label: string }[];
+  /** Bio du compte, au moment du relevé. */
+  authorBio?: string;
 };
 
 const obj = (x: unknown): Record<string, unknown> | null =>
@@ -129,13 +139,16 @@ export function parseScVideo(raw: unknown, fallbackLang?: string): SignalInput |
   const cover = obj(video.cover) ?? obj(video.origin_cover);
   const coverList = Array.isArray(cover?.url_list) ? cover?.url_list : [];
   const region = str(v.region);
+  const caption = str(v.desc) ?? "";
+  const extra = readExtras(v, caption, str(author?.uid));
+  const bio = str(author?.signature);
   return {
     videoId,
     url: str(v.url) ?? `https://www.tiktok.com/@${handle}/video/${videoId}`,
     authorId: str(author?.uid) ?? handle,
     authorHandle: handle,
     authorFans: num(author?.follower_count),
-    caption: str(v.desc) ?? "",
+    caption,
     lang: langBucket(str(v.desc_language), region, fallbackLang),
     ...(region ? { region } : {}),
     publishedAt: createTime * 1000,
@@ -147,6 +160,41 @@ export function parseScVideo(raw: unknown, fallbackLang?: string): SignalInput |
     comments: num(stats.comment_count),
     shares: num(stats.share_count),
     saves: num(stats.collect_count),
+    ...extra,
+    ...(bio ? { authorBio: bio.slice(0, 300) } : {}),
+  };
+}
+
+/**
+ * Hook, son et mentions d'une vidéo non allégée. Le hook = les textes incrustés
+ * (autocollants de type 18) ; une mention = `text_extra` de type 0, son libellé
+ * lu dans la légende à ses positions (`@Voca AI`).
+ */
+function readExtras(v: Record<string, unknown>, caption: string, authorUid: string | undefined) {
+  const texts = (Array.isArray(v.interaction_stickers) ? v.interaction_stickers : [])
+    .map((x) => obj(x))
+    .filter((x) => x?.type === 18)
+    .map((x) => str(x?.text_info)?.replace(/\s+/g, " ").trim())
+    .filter((x): x is string => !!x);
+  const hook = texts.join(" · ").slice(0, 200);
+  const music = obj(v.music);
+  const musicId = str(music?.id_str) ?? (typeof music?.id === "string" ? music.id : undefined);
+  const musicTitle = str(music?.title)?.slice(0, 120);
+  const musicOwner = str(music?.owner_handle);
+  const mentions: { id: string; label: string }[] = [];
+  for (const t of Array.isArray(v.text_extra) ? v.text_extra : []) {
+    const e = obj(t);
+    const id = str(e?.user_id);
+    if (e?.type !== 0 || !id || id === authorUid || mentions.some((m) => m.id === id)) continue;
+    const label = caption.slice(num(e.start), num(e.end)).trim();
+    if (label.startsWith("@") && label.length >= 3) mentions.push({ id, label: label.slice(0, 60) });
+  }
+  return {
+    ...(hook ? { hook } : {}),
+    ...(musicId ? { musicId } : {}),
+    ...(musicTitle ? { musicTitle } : {}),
+    ...(musicOwner ? { musicOwner } : {}),
+    ...(mentions.length ? { mentions: mentions.slice(0, 10) } : {}),
   };
 }
 
@@ -217,9 +265,9 @@ export const POSTES: readonly PosteDef[] = [
   { key: "search", live: true, step: 10, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   { key: "curve", live: true, step: 20, max: 400, monthlyCredits: (n) => n * CURVE_CHECKPOINTS_H.length * DAYS_PER_MONTH },
   // Relevés de comptes suivis par jour (1 crédit = les 9 dernières vidéos d'un compte).
-  { key: "tiktok", live: true, step: 50, max: 1_500, monthlyCredits: (n) => n * DAYS_PER_MONTH },
+  { key: "tiktok", live: true, step: 100, max: 5_000, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   // Recherche du réseau des apps (mots-clés, hashtags), en crédits par mois.
-  { key: "network", live: true, step: 300, max: 9_000, monthlyCredits: (n) => n },
+  { key: "network", live: true, step: 500, max: 30_000, monthlyCredits: (n) => n },
   { key: "insta", live: false, step: 20, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   { key: "transcript", live: false, step: 5, max: 100, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   { key: "ai", live: false, dollars: true, step: 2, max: 30, monthlyCredits: () => 0 },
@@ -227,18 +275,19 @@ export const POSTES: readonly PosteDef[] = [
 
 /**
  * Version des réglages. En version 1 (phase 1), `tiktok` comptait des COMPTES et
- * était forcé éteint (pas encore branché), `network` n'existait pas : des
- * réglages v1 relus prennent pour ces deux postes les valeurs par défaut, au lieu
- * de garder un « éteint » que personne n'a choisi.
+ * était forcé éteint (pas encore branché), `network` n'existait pas. En version 3
+ * (06/11/2026), le fondateur veut le plus de données possible : relevés, réseaux,
+ * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
+ * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 2;
-const NEW_IN_V2: readonly PosteKey[] = ["tiktok", "network"];
+export const BUDGET_VERSION = 3;
+const RESET_BEFORE_V3: readonly PosteKey[] = ["tiktok", "network", "curve"];
 
 export const POSTE_KEYS = POSTES.map((p) => p.key);
 export const isPosteKey = (k: string): k is PosteKey => (POSTE_KEYS as string[]).includes(k);
 export const posteDef = (k: PosteKey) => POSTES.find((p) => p.key === k)!;
 
-export const CAP_CHOICES = [50, 60, 70] as const;
+export const CAP_CHOICES = [100, 150, 200, 300] as const;
 
 export type BudgetSettings = {
   capUsd: number;
@@ -247,15 +296,17 @@ export type BudgetSettings = {
   alert80: boolean;
 };
 
-// 600 relevés/jour suivent 1 000 comptes au rythme adaptatif (actifs chaque jour,
-// calmes tous les 3 jours) ; la courbe passe à 40 vidéos/jour, les relevés de
-// comptes donnant déjà celle de leurs vidéos.
-// La recherche des réseaux (3 000 crédits/mois, ~100/jour) fait le premier tour
-// des 5 apps de départ en une demi-journée, puis les revisite chaque semaine.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 40, tiktok: 600, network: 3_000, insta: 60, transcript: 25, ai: 12 };
+// 2 000 relevés/jour suivent 3 000 comptes au rythme adaptatif (actifs chaque
+// jour, calmes tous les 3 jours, dormants chaque semaine) ; la courbe suit 100
+// vidéos/jour. La recherche des réseaux (12 000 crédits/mois, ~400/jour) fait le
+// premier tour des ~40 apps de départ dans la journée, puis revisite les
+// concurrentes tous les 3 jours et les autres chaque semaine (~2 000 crédits/mois).
+// Ce sont des PLAFONDS : sans comptes à relever ni apps à chercher, rien n'est
+// dépensé. Prévu au plus : ~156 $/mois sous un plafond de 200 $.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 100, tiktok: 2_000, network: 12_000, insta: 60, transcript: 25, ai: 12 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
-  capUsd: 60,
+  capUsd: 200,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
   cutOrder: ["search", "transcript", "curve", "insta", "ai", "network", "tiktok"],
   alert80: true,
@@ -271,10 +322,10 @@ export function normalizeBudget(
 ): BudgetSettings {
   const cap = raw?.capUsd;
   // Écrit « 0 < cap » : la garde i18n lit « > 0 && cap < » comme du texte JSX.
-  const capUsd = typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
-  const isV2 = raw?.budgetVersion === BUDGET_VERSION;
+  const current = raw?.budgetVersion === BUDGET_VERSION;
+  const capUsd = current && typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
   const postes = POSTES.map((def) => {
-    const stale = !isV2 && NEW_IN_V2.includes(def.key);
+    const stale = !current && RESET_BEFORE_V3.includes(def.key);
     const got = stale ? undefined : raw?.postes?.find((p) => p.key === def.key);
     const qty = typeof got?.qty === "number" && Number.isFinite(got.qty) ? Math.min(def.max, Math.max(0, Math.round(got.qty))) : DEFAULT_QTY[def.key];
     return { key: def.key, qty, on: def.live && (got ? got.on === true : true) };

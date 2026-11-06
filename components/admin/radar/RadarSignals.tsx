@@ -442,7 +442,8 @@ export function RadarSignals() {
                         {s.inCurve && <span className="rounded-md bg-slate-900/80 px-2 py-0.5 text-xs font-semibold text-white">{tr("courbeEnCours")}</span>}
                       </span>
                       <span className="relative line-clamp-4 text-[15px] font-semibold leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">
-                        {s.caption || `@${s.handle}`}
+                        {/* Le texte à l'écran dit le format mieux que la légende, souvent faite de hashtags. */}
+                        {s.hook || s.caption || `@${s.handle}`}
                       </span>
                       {s.durationSec !== null && <span className="relative mt-2 text-xs text-stone-200">{formatDuration(s.durationSec)}</span>}
                     </button>

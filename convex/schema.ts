@@ -4144,6 +4144,8 @@ export default defineSchema({
     // Vidéo d'un compte suivi : son compte, et ses vues ÷ la médiane du compte.
     trackedAccountId: v.optional(v.id("radarTracked")),
     multiplier: v.optional(v.number()),
+    hook: v.optional(v.string()), // texte à l'écran (réponses non allégées)
+    musicTitle: v.optional(v.string()),
     foundBy: v.array(v.string()), // recherches qui l'ont remontée (« cette app·fr »)
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
@@ -4201,6 +4203,7 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("paused")),
     source: v.union(v.literal("seed"), v.literal("manual")),
     networkSearchedAt: v.optional(v.number()),
+    trackedCount: v.optional(v.number()), // comptes de son réseau (cf radarSignals.attachAccount)
     createdAt: v.number(),
   })
     .index("by_slug", ["slug"])
@@ -4212,8 +4215,11 @@ export default defineSchema({
     handle: v.string(),
     appId: v.id("radarApps"),
     status: v.union(v.literal("active"), v.literal("paused")),
-    matchedBy: v.union(v.literal("caption"), v.literal("manual")),
+    // caption : une légende cite l'app ; manual : ajouté dans l'écran ; seed :
+    // ambassadrice vérifiée du sourcing (convex/radarSeedAccounts).
+    matchedBy: v.union(v.literal("caption"), v.literal("manual"), v.literal("seed")),
     fans: v.number(),
+    bio: v.optional(v.string()), // au dernier relevé
     medianViews: v.optional(v.number()),
     videosSeen: v.number(),
     lastPostAt: v.optional(v.number()),
@@ -4223,7 +4229,7 @@ export default defineSchema({
     // Agrégats tenus à chaque relevé : l'écran lit les comptes, jamais leurs vidéos.
     posts7d: v.optional(v.number()),
     best7d: v.optional(
-      v.object({ videoId: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() }),
+      v.object({ videoId: v.string(), url: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number(), hook: v.optional(v.string()) }),
     ),
     addedAt: v.number(),
   })
@@ -4241,9 +4247,62 @@ export default defineSchema({
     views: v.number(),
     snapshots: v.array(v.object({ at: v.number(), views: v.number() })),
     lastSeenAt: v.number(),
+    caption: v.optional(v.string()), // 300 caractères au plus
+    hook: v.optional(v.string()), // texte à l'écran
+    hookKey: v.optional(v.string()), // cf radarNetworkMath.hookKey
+    musicId: v.optional(v.string()),
+    musicTitle: v.optional(v.string()),
   })
     .index("by_account_published", ["accountId", "publishedAt"])
-    .index("by_video", ["videoId"]),
+    .index("by_video", ["videoId"])
+    .index("by_hook", ["hookKey"])
+    .index("by_music", ["musicId"]),
+
+  // Un format qui circule : le même hook (texte à l'écran) ou le même son, repris
+  // par au moins deux comptes suivis. Tenu à chaque relevé ; n'existe que partagé.
+  radarFormats: defineTable({
+    kind: v.union(v.literal("hook"), v.literal("sound")),
+    key: v.string(), // hookKey, ou id du son
+    label: v.string(), // le hook tel qu'écrit, ou le titre du son
+    members: v.array(
+      v.object({
+        accountId: v.id("radarTracked"),
+        handle: v.string(),
+        appId: v.id("radarApps"),
+        videoId: v.string(),
+        publishedAt: v.number(),
+        views: v.number(),
+        multiplier: v.optional(v.number()),
+      }),
+    ),
+    accountCount: v.number(), // comptes distincts
+    appIds: v.array(v.id("radarApps")),
+    maxViews: v.number(),
+    lastPostAt: v.number(), // dernière publication d'un membre
+    firstSeenAt: v.number(),
+  })
+    .index("by_key", ["kind", "key"])
+    .index("by_shared", ["accountCount", "lastPostAt"])
+    .index("by_last", ["lastPostAt"]),
+
+  // Une app possible, citée par les comptes suivis ou découverts : un compte
+  // mentionné (@…) ou un domaine (« stalkie.io »). Proposée à l'équipe dès que
+  // deux comptes la citent ; suivie, elle devient une radarApps.
+  radarAppCandidates: defineTable({
+    key: v.string(), // « @<id TikTok> » ou le domaine
+    kind: v.union(v.literal("mention"), v.literal("domain")),
+    label: v.string(),
+    authors: v.array(v.string()), // pseudos qui la citent (50 au plus)
+    authorCount: v.number(),
+    fromApps: v.array(v.id("radarApps")), // apps des comptes suivis qui la citent
+    examples: v.array(v.object({ handle: v.string(), url: v.string() })),
+    status: v.union(v.literal("new"), v.literal("ignored"), v.literal("followed")),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+  })
+    .index("by_key", ["key"])
+    .index("by_status_count", ["status", "authorCount"])
+    .index("by_last", ["lastSeenAt"]),
 
   // Crédits consommés, par jour (Paris) et par poste : la dépense du mois.
   radarUsage: defineTable({

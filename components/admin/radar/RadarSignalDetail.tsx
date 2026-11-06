@@ -129,6 +129,14 @@ export function RadarSignalDetail({
                 </ol>
               </section>
 
+              {(s.hook || s.musicTitle) && (
+                <section className="space-y-1">
+                  <h3 className="text-sm font-semibold">{tr("texteALEcran")}</h3>
+                  {s.hook && <p className="text-sm font-medium text-slate-900">{s.hook}</p>}
+                  {s.musicTitle && <p className="text-xs text-slate-500">{tr("son", { titre: s.musicTitle })}</p>}
+                </section>
+              )}
+
               {s.caption && (
                 <section className="space-y-1">
                   <h3 className="text-sm font-semibold">{tr("legende")}</h3>

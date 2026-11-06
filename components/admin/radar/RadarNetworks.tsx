@@ -18,6 +18,7 @@ import { formatCount, formatOutlierRatio, formatRelative } from "@/components/ad
 
 type Networks = FunctionReturnType<typeof api.radarNetworks.listNetworks>;
 type AppRow = Networks["apps"][number];
+type Candidate = FunctionReturnType<typeof api.radarNetworks.listCandidates>[number];
 
 const GROUPS: AppRow["group"][] = ["rival", "otherRival", "other"];
 
@@ -25,15 +26,17 @@ const GROUPS: AppRow["group"][] = ["rival", "otherRival", "other"];
  * NOUVEAU RADAR — Comptes suivis : les apps dont on suit le réseau (concurrentes
  * du projet d'abord), leurs comptes TikTok et ce qu'ils publient. Les comptes
  * entrent seuls (une légende qui cite l'app) ou à la main ; chacun est relevé à
- * son rythme (convex/radarNetworks).
+ * son rythme (convex/radarNetworks). En tête, les apps repérées chez ces comptes :
+ * suivre l'une d'elles rattache à son réseau les comptes qui la citaient.
  */
 export function RadarNetworks() {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const k = (key: string) => key as Parameters<typeof tr>[0];
   const loc = useIntlLocale();
   const data = useProjectQuery(api.radarNetworks.listNetworks, {});
+  const candidates = useProjectQuery(api.radarNetworks.listCandidates, {});
   const [openApp, setOpenApp] = useState<Id<"radarApps"> | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<Candidate | true | false>(false);
 
   if (data === undefined) return <Skeleton className="h-96 w-full" />;
 
@@ -45,8 +48,8 @@ export function RadarNetworks() {
         </p>
         <button
           type="button"
-          onClick={() => setAdding((a) => !a)}
-          aria-expanded={adding}
+          onClick={() => setAdding((a) => (a === false ? true : false))}
+          aria-expanded={adding !== false}
           className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 text-sm font-semibold"
         >
           <PlusIcon className="size-4" aria-hidden />
@@ -54,7 +57,11 @@ export function RadarNetworks() {
         </button>
       </div>
 
-      {adding && <AddAppForm projectSlug={data.projectSlug} onDone={() => setAdding(false)} />}
+      {adding !== false && (
+        <AddAppForm key={adding === true ? "new" : adding.id} projectSlug={data.projectSlug} candidate={adding === true ? undefined : adding} onDone={() => setAdding(false)} />
+      )}
+
+      {candidates && candidates.length > 0 && <Candidates rows={candidates} onFollow={(c) => setAdding(c)} />}
 
       {data.apps.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center">
@@ -212,17 +219,22 @@ function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appName: st
                       <a href={r.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-900 hover:underline">
                         @{r.handle}
                       </a>
-                      {r.matchedBy === "manual" && <span className="ml-1.5 text-xs text-slate-500">{tr("ajouteALaMain")}</span>}
+                      {r.matchedBy !== "caption" && (
+                        <span className="ml-1.5 text-xs text-slate-500">{r.matchedBy === "manual" ? tr("ajouteALaMain") : tr("listeDeDepart")}</span>
+                      )}
                     </TableCell>
                     <TableCell className="px-3 py-2 text-right tabular-nums">{formatCount(r.fans, loc)}</TableCell>
                     <TableCell className="px-3 py-2 text-right tabular-nums">{r.medianViews === null ? "—" : formatCount(r.medianViews, loc)}</TableCell>
                     <TableCell className="px-3 py-2 text-right tabular-nums">{r.posts7d}</TableCell>
                     <TableCell className="px-3 py-2">
                       {r.best7d ? (
-                        <a href={r.best7d.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline">
-                          <span className="rounded-md bg-orange-500 px-1.5 py-0.5 text-xs font-bold text-slate-950">{formatOutlierRatio(r.best7d.multiplier, loc)}</span>
-                          {tr("vues", { n: formatCount(r.best7d.views, loc) })}
-                        </a>
+                        <>
+                          <a href={r.best7d.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 hover:underline">
+                            <span className="rounded-md bg-orange-500 px-1.5 py-0.5 text-xs font-bold text-slate-950">{formatOutlierRatio(r.best7d.multiplier, loc)}</span>
+                            {tr("vues", { n: formatCount(r.best7d.views, loc) })}
+                          </a>
+                          {r.best7d.hook && <span className="mt-0.5 block max-w-[260px] truncate text-xs text-slate-500">{tr("hookCite", { hook: r.best7d.hook })}</span>}
+                        </>
                       ) : (
                         <span className="text-slate-500">{r.readAt === null ? tr("pasEncoreReleve") : tr("rienCetteSemaine")}</span>
                       )}
@@ -259,12 +271,74 @@ function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appName: st
   );
 }
 
-function AddAppForm({ projectSlug, onDone }: { projectSlug: string; onDone: () => void }) {
+/** Nom proposé pour une app repérée : « @Voca AI » → « Voca AI », « stalkie.io » → « Stalkie ». */
+function suggestedName(c: Candidate): string {
+  if (c.kind === "mention") return c.label.replace(/^@/, "");
+  const base = c.label.replace(/\.[a-z]+$/, "");
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+function Candidates({ rows, onFollow }: { rows: Candidate[]; onFollow: (c: Candidate) => void }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  const showError = useConvexError();
+  const ignore = useProjectMutation(api.radarNetworks.ignoreCandidate);
+  return (
+    <section aria-labelledby="radar-apps-reperees" className="space-y-2 rounded-xl border border-orange-200 bg-orange-50/60 p-4">
+      <h2 id="radar-apps-reperees" className="text-base font-semibold">
+        {tr("appsReperees")}
+      </h2>
+      <p className="text-sm text-slate-600">{tr("appsRepereesAide")}</p>
+      <ul className="divide-y divide-orange-100">
+        {rows.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5" data-testid="radar-app-reperee">
+            <div className="min-w-0 flex-[1_1_260px]">
+              <p className="truncate font-semibold text-slate-900">{c.label}</p>
+              <p className="text-xs text-slate-500">
+                {tr("citeePar", { n: c.authorCount })}
+                {c.fromApps.length > 0 && ` · ${tr("chezLesComptesDe", { apps: c.fromApps.join(", ") })}`}
+                {" · "}
+                {c.examples.slice(0, 3).map((e, i) => (
+                  <span key={e.handle}>
+                    {i > 0 && ", "}
+                    <a href={e.url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                      @{e.handle}
+                    </a>
+                  </span>
+                ))}
+              </p>
+            </div>
+            <div className="flex gap-1.5">
+              <button type="button" onClick={() => onFollow(c)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white">
+                {tr("suivreCetteApp")}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await ignore({ candidateId: c.id });
+                  } catch (err) {
+                    toast.error(showError(err, tr("changementImpossible")));
+                  }
+                }}
+                className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium"
+              >
+                {tr("ignorer")}
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function AddAppForm({ projectSlug, onDone, candidate }: { projectSlug: string; onDone: () => void; candidate?: Candidate }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const showError = useConvexError();
   const addApp = useProjectMutation(api.radarNetworks.addApp);
-  const [name, setName] = useState("");
-  const [patterns, setPatterns] = useState("");
+  const follow = useProjectMutation(api.radarNetworks.followCandidate);
+  const [name, setName] = useState(candidate ? suggestedName(candidate) : "");
+  const [patterns, setPatterns] = useState(candidate ? candidate.patterns.join(", ") : "");
   const [rival, setRival] = useState(true);
 
   return (
@@ -272,9 +346,15 @@ function AddAppForm({ projectSlug, onDone }: { projectSlug: string; onDone: () =
       className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
       onSubmit={async (e) => {
         e.preventDefault();
+        const args = { name, rivalOf: rival ? [projectSlug] : [], patterns: patterns.split(/[,\n]/).map((p) => p.trim()).filter(Boolean) };
         try {
-          await addApp({ name, rivalOf: rival ? [projectSlug] : [], patterns: patterns.split(/[,\n]/).map((p) => p.trim()).filter(Boolean) });
-          toast.success(tr("appAjoutee", { app: name.trim() }));
+          if (candidate) {
+            const r = await follow({ candidateId: candidate.id, ...args });
+            toast.success(tr("appSuivieDepuisReperee", { app: name.trim(), n: r.attached }));
+          } else {
+            await addApp(args);
+            toast.success(tr("appAjoutee", { app: name.trim() }));
+          }
           onDone();
         } catch (err) {
           toast.error(showError(err, tr("ajoutAppImpossible")));

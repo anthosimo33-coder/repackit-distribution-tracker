@@ -4,33 +4,46 @@
  * comptes. Règles pures : convex/radarNetworkMath.
  *
  * Deux tâches, tenues par le budget du mois (convex/radarSignalsMath) :
- *  - RÉSEAU (toutes les 6 h) : pour chaque app jamais cherchée ou cherchée il y
- *    a plus d'une semaine, ses recherches (mots-clés, hashtags, 2 pages) ; un
- *    auteur dont la légende cite l'app rejoint son réseau ;
+ *  - RÉSEAU (toutes les 6 h) : chaque app jamais cherchée, ou cherchée il y a
+ *    plus de 3 jours (concurrente) ou d'une semaine (les autres), concurrentes
+ *    d'abord : ses recherches (mots-clés, hashtags ; 3 pages pour une
+ *    concurrente, 2 sinon) ; un auteur dont la légende cite l'app rejoint son
+ *    réseau ;
  *  - COMPTES (toutes les heures) : les comptes dus sont relevés (9 dernières
  *    vidéos, 1 crédit) ; la médiane du compte donne le multiplicateur de chaque
  *    vidéo, celles qui sortent du lot sont promues dans Signaux.
+ *
+ * Chaque relevé tient aussi deux choses :
+ *  - les FORMATS QUI CIRCULENT : le même hook (texte à l'écran) ou le même son
+ *    repris par au moins deux comptes suivis en 14 jours (radarFormats) ;
+ *  - les APPS REPÉRÉES : les comptes mentionnés et les domaines que citent les
+ *    comptes (radarAppCandidates). Suivre une app repérée rattache à son réseau
+ *    les comptes qui la citaient : la boule de neige créatrices → apps → créatrices.
  *
  * Données GLOBALES (les réseaux sont les mêmes pour tous les projets).
  */
 import { v } from "convex/values";
 import { ERR, err } from "./errorCodes";
 import { internal } from "./_generated/api";
-import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx } from "./functions";
 import { normalizeTikTokHandle } from "./radarApi";
 import {
+  FORMAT_MAX_MEMBERS,
+  FORMAT_WINDOW_MS,
   MAX_READ_ERRORS,
   MAX_TRACKED,
   MEDIAN_WINDOW,
-  NETWORK_PAGES,
-  NETWORK_REFRESH_MS,
   citesApp,
+  hookKey,
   medianViews,
   multiplierOf,
+  networkPages,
+  networkRefreshMs,
   nextReadAt,
   normalize,
+  patternsOfCandidate,
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
@@ -40,6 +53,7 @@ import {
   attachAccount,
   ensureSeedApps,
   maybeAlert,
+  noteCandidates,
   projectSlugOf,
   signalInput,
   todayCredits,
@@ -59,7 +73,7 @@ const videoUrl = (handle: string, videoId: string) => `https://www.tiktok.com/@$
 
 // ─── Lectures des tâches (types de retour DÉCLARÉS, cf radarSignals) ─────────
 
-type DueApp = { id: Id<"radarApps">; name: string; searches: string[] };
+type DueApp = { id: Id<"radarApps">; name: string; searches: string[]; rival: boolean };
 type DueAccount = { id: Id<"radarTracked">; handle: string };
 
 export const dueApps = internalQuery({
@@ -67,8 +81,9 @@ export const dueApps = internalQuery({
   handler: async (ctx, { now }): Promise<DueApp[]> => {
     const apps = await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect();
     return apps
-      .filter((a) => a.networkSearchedAt === undefined || now - a.networkSearchedAt >= NETWORK_REFRESH_MS)
-      .map((a) => ({ id: a._id, name: a.name, searches: a.searches }));
+      .filter((a) => a.networkSearchedAt === undefined || now - a.networkSearchedAt >= networkRefreshMs(a.rivalOf.length > 0))
+      .sort((x, y) => Number(y.rivalOf.length > 0) - Number(x.rivalOf.length > 0) || (x.networkSearchedAt ?? 0) - (y.networkSearchedAt ?? 0))
+      .map((a) => ({ id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0 }));
   },
 });
 
@@ -105,7 +120,7 @@ export const attachFromSearch = internalMutation({
     let signals = 0;
     for (const s of videos) {
       if (!citesApp(s.caption, s.authorHandle, app)) continue;
-      if ((await attachAccount(ctx, appId, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
+      if ((await attachAccount(ctx, app, s.authorHandle, s.authorFans, "caption", now, counter)) === "added") attached++;
       const r = await writeSignal(ctx, s, now, {
         insert: keepSignal(s) && s.publishedAt >= now - RETENTION_DAYS * DAY,
         foundBy,
@@ -124,10 +139,51 @@ export const markNetworkSearched = internalMutation({
   },
 });
 
+type Member = Doc<"radarFormats">["members"][number];
+
+/** Ce que l'écran lit d'un format : comptes distincts, apps, vues max, dernière publication. */
+function summarize(members: Member[]) {
+  const sorted = [...members].sort((a, b) => b.views - a.views).slice(0, FORMAT_MAX_MEMBERS);
+  return {
+    members: sorted,
+    accountCount: new Set(sorted.map((m) => m.accountId)).size,
+    appIds: Array.from(new Set(sorted.map((m) => m.appId))),
+    maxViews: Math.max(0, ...sorted.map((m) => m.views)),
+    lastPostAt: Math.max(0, ...sorted.map((m) => m.publishedAt)),
+  };
+}
+
 /**
- * Le relevé d'un compte : ses vidéos sont rangées (avec leur relevé), sa médiane
- * et ses agrégats recalculés, son prochain relevé fixé, et ses vidéos qui sortent
- * du lot promues dans Signaux (celles déjà promues restent à jour).
+ * Range une vidéo dans le format de son hook ou de son son. Un format n'existe
+ * qu'à partir de DEUX comptes : tant qu'il n'y en a pas, on cherche si un autre
+ * compte suivi a publié le même hook (ou le même son) dans les 14 derniers jours.
+ */
+async function shareFormat(ctx: MutationCtx, kind: "hook" | "sound", key: string, label: string, member: Member, now: number) {
+  const existing = await ctx.db.query("radarFormats").withIndex("by_key", (q) => q.eq("kind", kind).eq("key", key)).first();
+  if (existing) {
+    await ctx.db.patch(existing._id, summarize([...existing.members.filter((m) => m.videoId !== member.videoId), member]));
+    return;
+  }
+  const peers =
+    kind === "hook"
+      ? await ctx.db.query("radarTrackedVideos").withIndex("by_hook", (q) => q.eq("hookKey", key)).take(50)
+      : await ctx.db.query("radarTrackedVideos").withIndex("by_music", (q) => q.eq("musicId", key)).take(50);
+  const others = peers.filter((p) => p.accountId !== member.accountId && p.publishedAt >= now - FORMAT_WINDOW_MS);
+  if (others.length === 0) return;
+  const members: Member[] = [member];
+  for (const p of others) {
+    const a = await ctx.db.get(p.accountId);
+    if (a) members.push({ accountId: p.accountId, handle: a.handle, appId: p.appId, videoId: p.videoId, publishedAt: p.publishedAt, views: p.views });
+  }
+  await ctx.db.insert("radarFormats", { kind, key, label, ...summarize(members), firstSeenAt: now });
+}
+
+/**
+ * Le relevé d'un compte : ses vidéos sont rangées (avec leur relevé, leur hook,
+ * leur son), sa médiane et ses agrégats recalculés, son prochain relevé fixé, ses
+ * vidéos qui sortent du lot promues dans Signaux (celles déjà promues restent à
+ * jour) ; ses hooks et sons partagés tiennent les formats qui circulent, ce qu'il
+ * cite nourrit les apps repérées.
  */
 export const applyAccountRead = internalMutation({
   args: { accountId: v.id("radarTracked"), videos: v.array(signalInput), now: v.number() },
@@ -135,11 +191,25 @@ export const applyAccountRead = internalMutation({
     const acc = await ctx.db.get(accountId);
     if (!acc) return { promoted: 0 };
     const app = await ctx.db.get(acc.appId);
-    let added = 0;
+    const fresh: typeof videos = [];
     for (const s of videos) {
+      const hk = hookKey(s.hook);
+      const extra = {
+        ...(s.caption ? { caption: s.caption.slice(0, 300) } : {}),
+        ...(s.hook ? { hook: s.hook } : {}),
+        ...(hk ? { hookKey: hk } : {}),
+        ...(s.musicId ? { musicId: s.musicId } : {}),
+        ...(s.musicTitle ? { musicTitle: s.musicTitle } : {}),
+      };
       const known = await ctx.db.query("radarTrackedVideos").withIndex("by_video", (q) => q.eq("videoId", s.videoId)).first();
       if (known) {
-        await ctx.db.patch(known._id, { views: Math.max(known.views, s.views), snapshots: addSnapshot(known.snapshots, now, s.views), lastSeenAt: now });
+        await ctx.db.patch(known._id, {
+          views: Math.max(known.views, s.views),
+          snapshots: addSnapshot(known.snapshots, now, s.views),
+          lastSeenAt: now,
+          // Vidéo relevée avant qu'on lise hook et son : on les complète.
+          ...(known.caption === undefined ? extra : {}),
+        });
       } else {
         await ctx.db.insert("radarTrackedVideos", {
           accountId,
@@ -149,8 +219,9 @@ export const applyAccountRead = internalMutation({
           views: s.views,
           snapshots: [{ at: now, views: s.views }],
           lastSeenAt: now,
+          ...extra,
         });
-        added++;
+        fresh.push(s);
       }
     }
     const recent = await ctx.db
@@ -160,17 +231,21 @@ export const applyAccountRead = internalMutation({
       .take(MEDIAN_WINDOW);
     const median = medianViews(recent.map((r) => r.views));
     const fans = videos[0]?.authorFans ?? acc.fans;
+    const bio = videos.find((s) => s.authorBio)?.authorBio;
     const lastPostAt = Math.max(acc.lastPostAt ?? 0, recent[0]?.publishedAt ?? 0) || undefined;
     const week = recent.filter((r) => now - r.publishedAt <= 7 * DAY);
     let best: Doc<"radarTracked">["best7d"];
     for (const r of week) {
       const m = multiplierOf(r.views, median) ?? ratioOf(r.views, fans);
-      if (!best || m > best.multiplier) best = { videoId: r.videoId, url: videoUrl(acc.handle, r.videoId), views: r.views, multiplier: m, publishedAt: r.publishedAt };
+      if (!best || m > best.multiplier) {
+        best = { videoId: r.videoId, url: videoUrl(acc.handle, r.videoId), views: r.views, multiplier: m, publishedAt: r.publishedAt, ...(r.hook ? { hook: r.hook } : {}) };
+      }
     }
     await ctx.db.patch(accountId, {
       fans,
+      ...(bio ? { bio } : {}),
       medianViews: median,
-      videosSeen: acc.videosSeen + added,
+      videosSeen: acc.videosSeen + fresh.length,
       lastPostAt,
       readAt: now,
       nextReadAt: nextReadAt(lastPostAt, now),
@@ -178,6 +253,20 @@ export const applyAccountRead = internalMutation({
       posts7d: week.length,
       best7d: best,
     });
+
+    for (const s of videos) {
+      if (s.publishedAt < now - FORMAT_WINDOW_MS) continue;
+      const multiplier = multiplierOf(s.views, median);
+      const member: Member = { accountId, handle: acc.handle, appId: acc.appId, videoId: s.videoId, publishedAt: s.publishedAt, views: s.views, ...(multiplier !== undefined ? { multiplier } : {}) };
+      const hk = hookKey(s.hook);
+      if (hk && s.hook) await shareFormat(ctx, "hook", hk, s.hook, member, now);
+      if (s.musicId && s.musicTitle) await shareFormat(ctx, "sound", s.musicId, s.musicTitle, member, now);
+    }
+
+    const apps = await ctx.db.query("radarApps").collect();
+    for (const s of fresh) await noteCandidates(ctx, { ...s, authorBio: undefined }, now, apps, acc.appId);
+    if (bio && bio !== acc.bio && videos[0]) await noteCandidates(ctx, { ...videos[0], caption: "", mentions: undefined, authorBio: bio }, now, apps, acc.appId);
+
     let promoted = 0;
     for (const s of videos) {
       const multiplier = multiplierOf(s.views, median);
@@ -230,7 +319,7 @@ export const runNetworkSearch = internalAction({
       for (const raw of app.searches) {
         const { kind, value } = searchKind(raw);
         let cursor: number | undefined;
-        for (let page = 0; page < NETWORK_PAGES; page++) {
+        for (let page = 0; page < networkPages(app.rival); page++) {
           if (credits >= left) {
             stop = true;
             complete = false;
@@ -279,6 +368,7 @@ export const runAccountReads = internalAction({
   handler: async (ctx): Promise<RunResult> => {
     const now = Date.now();
     if (!scKeyPresent()) return { skipped: "no-key" };
+    await ctx.runMutation(internal.radarNetworks.seedApps, {});
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage);
     const n = allowance(st.budget, b, "tiktok", todayCredits(st, "tiktok"), ACCOUNT_RUNS_PER_DAY);
@@ -393,31 +483,135 @@ export const listAppAccounts = permissionQuery("radar.use")({
   handler: (ctx, args) => listAppAccountsCore(ctx, args),
 });
 
-/** Ajoute une app à suivre : ses motifs (cités dans une légende) font aussi ses recherches. */
+/**
+ * Les formats qui circulent (même hook ou même son chez au moins deux comptes
+ * suivis, 14 derniers jours) : ceux poussés par une concurrente du projet
+ * d'abord, puis les plus repris, puis les plus vus.
+ */
+export async function listFormatsCore(ctx: ProjectQueryCtx) {
+  const slug = await projectSlugOf(ctx);
+  const now = Date.now();
+  const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a]));
+  const rows = await ctx.db.query("radarFormats").withIndex("by_shared", (q) => q.gte("accountCount", 2)).order("desc").take(300);
+  return rows
+    .filter((r) => r.lastPostAt >= now - FORMAT_WINDOW_MS)
+    .map((r) => {
+      const fmtApps = r.appIds.map((id) => apps.get(id)).filter((a): a is Doc<"radarApps"> => !!a);
+      const best = Math.max(0, ...r.members.map((m) => m.multiplier ?? 0));
+      return {
+        id: r._id,
+        kind: r.kind,
+        label: r.label,
+        accountCount: r.accountCount,
+        apps: fmtApps.map((a) => ({ name: a.name, rival: a.rivalOf.includes(slug) })),
+        rival: fmtApps.some((a) => a.rivalOf.includes(slug)),
+        maxViews: r.maxViews,
+        bestMultiplier: best > 0 ? best : null,
+        lastPostAt: r.lastPostAt,
+        firstSeenAt: r.firstSeenAt,
+        members: r.members.slice(0, 6).map((m) => ({
+          handle: m.handle,
+          url: videoUrl(m.handle, m.videoId),
+          views: m.views,
+          multiplier: m.multiplier ?? null,
+          app: apps.get(m.appId)?.name ?? null,
+          publishedAt: m.publishedAt,
+        })),
+      };
+    })
+    .sort((x, y) => Number(y.rival) - Number(x.rival) || y.accountCount - x.accountCount || y.maxViews - x.maxViews)
+    .slice(0, 100);
+}
+
+export const listFormats = permissionQuery("radar.use")({
+  args: {},
+  handler: (ctx) => listFormatsCore(ctx),
+});
+
+/** Les apps repérées chez les comptes (citées par au moins deux), les plus citées d'abord. */
+export async function listCandidatesCore(ctx: ProjectQueryCtx) {
+  const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a.name]));
+  const rows = await ctx.db
+    .query("radarAppCandidates")
+    .withIndex("by_status_count", (q) => q.eq("status", "new").gte("authorCount", 2))
+    .order("desc")
+    .take(30);
+  return rows.map((c) => ({
+    id: c._id,
+    kind: c.kind,
+    label: c.label,
+    authorCount: c.authorCount,
+    fromApps: c.fromApps.map((id) => apps.get(id)).filter((n): n is string => !!n),
+    examples: c.examples,
+    patterns: patternsOfCandidate(c),
+    firstSeenAt: c.firstSeenAt,
+    lastSeenAt: c.lastSeenAt,
+  }));
+}
+
+export const listCandidates = permissionQuery("radar.use")({
+  args: {},
+  handler: (ctx) => listCandidatesCore(ctx),
+});
+
+/** Crée une app suivie : ses motifs (cités dans une légende) font aussi ses recherches. */
+async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[]): Promise<Doc<"radarApps">> {
+  const clean = name.trim().slice(0, 60);
+  const strong = Array.from(new Set(patterns.map((p) => normalize(p.replace(/^[#@]/, "")).compact).filter((p) => p.length >= 3)));
+  if (!clean || strong.length === 0) throw err(ERR.RADAR_APP_INVALID, "Un nom et au moins un motif de 3 caractères.");
+  const slug = normalize(clean).compact.replace(/[^a-z0-9.]/g, "");
+  if (await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first()) {
+    throw err(ERR.RADAR_APP_ALREADY_FOLLOWED, `L'app « ${clean} » est déjà suivie.`, { name: clean });
+  }
+  const id = await ctx.db.insert("radarApps", {
+    slug,
+    name: clean,
+    rivalOf: rivalOf.filter((r) => /^[a-z0-9-]+$/.test(r)),
+    strong,
+    weak: [],
+    context: [],
+    searches: [...strong, ...strong.map((p) => `#${p.replace(/\.[a-z]+$/, "")}`)].filter((x, i, a) => a.indexOf(x) === i),
+    status: "active",
+    source: "manual",
+    createdAt: Date.now(),
+  });
+  await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, {});
+  return (await ctx.db.get(id))!;
+}
+
 export const addApp = permissionMutation("radar.use")({
   args: { name: v.string(), rivalOf: v.array(v.string()), patterns: v.array(v.string()) },
-  handler: async (ctx, { name, rivalOf, patterns }) => {
-    const clean = name.trim().slice(0, 60);
-    const strong = Array.from(new Set(patterns.map((p) => normalize(p.replace(/^#/, "")).compact).filter((p) => p.length >= 3)));
-    if (!clean || strong.length === 0) throw err(ERR.RADAR_APP_INVALID, "Un nom et au moins un motif de 3 caractères.");
-    const slug = normalize(clean).compact.replace(/[^a-z0-9.]/g, "");
-    if (await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first()) {
-      throw err(ERR.RADAR_APP_ALREADY_FOLLOWED, `L'app « ${clean} » est déjà suivie.`, { name: clean });
+  handler: async (ctx, { name, rivalOf, patterns }) => (await createApp(ctx, name, rivalOf, patterns))._id,
+});
+
+/**
+ * Suit une app repérée : elle devient une app suivie, et les comptes qui la
+ * citaient rejoignent son réseau (dans la limite des places) — ils sont relevés
+ * dans l'heure.
+ */
+export const followCandidate = permissionMutation("radar.use")({
+  args: { candidateId: v.id("radarAppCandidates"), name: v.string(), rivalOf: v.array(v.string()), patterns: v.array(v.string()) },
+  handler: async (ctx, { candidateId, name, rivalOf, patterns }) => {
+    const c = await ctx.db.get(candidateId);
+    if (!c) throw err(ERR.RADAR_APP_NOT_FOUND, "App repérée introuvable.");
+    const app = await createApp(ctx, name, rivalOf, patterns);
+    const now = Date.now();
+    const counter: TrackedCounter = {};
+    let attached = 0;
+    for (const handle of c.authors) {
+      if ((await attachAccount(ctx, app, handle, 0, "caption", now, counter)) === "added") attached++;
     }
-    const id = await ctx.db.insert("radarApps", {
-      slug,
-      name: clean,
-      rivalOf: rivalOf.filter((r) => /^[a-z0-9-]+$/.test(r)),
-      strong,
-      weak: [],
-      context: [],
-      searches: [...strong, ...strong.map((p) => `#${p}`)],
-      status: "active",
-      source: "manual",
-      createdAt: Date.now(),
-    });
-    await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, {});
-    return id;
+    await ctx.db.patch(candidateId, { status: "followed" });
+    if (attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
+    return { appId: app._id, attached };
+  },
+});
+
+export const ignoreCandidate = permissionMutation("radar.use")({
+  args: { candidateId: v.id("radarAppCandidates") },
+  handler: async (ctx, { candidateId }) => {
+    await ctx.db.patch(candidateId, { status: "ignored" });
+    return null;
   },
 });
 
@@ -445,8 +639,9 @@ export const addTrackedAccount = permissionMutation("radar.use")({
   handler: async (ctx, { appId, handle }) => {
     const h = normalizeTikTokHandle(handle);
     if (!h) throw err(ERR.RADAR_HANDLE_INVALID, "Pseudo ou lien TikTok illisible.");
-    if (!(await ctx.db.get(appId))) throw err(ERR.RADAR_APP_NOT_FOUND, "App introuvable.");
-    const r = await attachAccount(ctx, appId, h, 0, "manual", Date.now(), {});
+    const app = await ctx.db.get(appId);
+    if (!app) throw err(ERR.RADAR_APP_NOT_FOUND, "App introuvable.");
+    const r = await attachAccount(ctx, app, h, 0, "manual", Date.now(), {});
     if (r === "full") throw err(ERR.RADAR_TRACKED_FULL, `Déjà ${MAX_TRACKED} comptes suivis : mets-en en pause d'abord.`, { max: MAX_TRACKED });
     if (r === "added") await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
     return r;
@@ -458,6 +653,25 @@ export const setTrackedStatus = permissionMutation("radar.use")({
   handler: async (ctx, { accountId, status }) => {
     await ctx.db.patch(accountId, { status, ...(status === "active" ? { nextReadAt: Date.now(), readErrors: 0 } : {}) });
     return status;
+  },
+});
+
+/**
+ * Purge : les formats sans publication depuis 30 jours, et les apps repérées une
+ * seule fois qui n'ont plus été citées depuis 30 jours.
+ */
+export const purgeNetworks = internalMutation({
+  args: {},
+  handler: async (ctx): Promise<number> => {
+    const before = Date.now() - 30 * DAY;
+    const formats = await ctx.db.query("radarFormats").withIndex("by_last", (q) => q.lt("lastPostAt", before)).take(200);
+    for (const f of formats) await ctx.db.delete(f._id);
+    const cands = (await ctx.db.query("radarAppCandidates").withIndex("by_last", (q) => q.lt("lastSeenAt", before)).take(400)).filter(
+      (c) => c.status === "new" && c.authorCount < 2,
+    );
+    for (const c of cands) await ctx.db.delete(c._id);
+    if (formats.length === 200) await ctx.scheduler.runAfter(0, internal.radarNetworks.purgeNetworks, {});
+    return formats.length + cands.length;
   },
 });
 
@@ -474,11 +688,25 @@ export const e2eSeedNetwork = e2eMutation({
         fans: v.number(),
         medianViews: v.optional(v.number()),
         posts7d: v.number(),
-        best7d: v.optional(v.object({ videoId: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number() })),
+        best7d: v.optional(v.object({ videoId: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number(), hook: v.optional(v.string()) })),
       }),
     ),
+    // Formats : chaque membre désigne un compte semé ci-dessus par son pseudo.
+    formats: v.optional(
+      v.array(
+        v.object({
+          kind: v.union(v.literal("hook"), v.literal("sound")),
+          key: v.string(),
+          label: v.string(),
+          members: v.array(v.object({ handle: v.string(), videoId: v.string(), views: v.number(), multiplier: v.optional(v.number()), ageH: v.number() })),
+        }),
+      ),
+    ),
+    candidates: v.optional(
+      v.array(v.object({ key: v.string(), kind: v.union(v.literal("mention"), v.literal("domain")), label: v.string(), authors: v.array(v.string()), fromApps: v.array(v.string()) })),
+    ),
   },
-  handler: async (ctx, { apps, accounts }) => {
+  handler: async (ctx, { apps, accounts, formats, candidates }) => {
     const now = Date.now();
     const ids = new Map<string, Id<"radarApps">>();
     for (const a of apps) {
@@ -507,15 +735,47 @@ export const e2eSeedNetwork = e2eMutation({
         addedAt: now,
       });
     }
+    for (const f of formats ?? []) {
+      const members: Member[] = [];
+      for (const m of f.members) {
+        const t = await ctx.db.query("radarTracked").withIndex("by_handle", (q) => q.eq("platform", "tiktok").eq("handle", m.handle)).first();
+        if (t) members.push({ accountId: t._id, handle: t.handle, appId: t.appId, videoId: m.videoId, publishedAt: now - m.ageH * 3_600_000, views: m.views, ...(m.multiplier !== undefined ? { multiplier: m.multiplier } : {}) });
+      }
+      await ctx.db.insert("radarFormats", { kind: f.kind, key: f.key, label: f.label, ...summarize(members), firstSeenAt: now });
+    }
+    for (const c of candidates ?? []) {
+      await ctx.db.insert("radarAppCandidates", {
+        key: c.key,
+        kind: c.kind,
+        label: c.label,
+        authors: c.authors,
+        authorCount: c.authors.length,
+        fromApps: c.fromApps.map((slug) => ids.get(slug)).filter((x): x is Id<"radarApps"> => !!x),
+        examples: c.authors.slice(0, 5).map((h) => ({ handle: h, url: `https://www.tiktok.com/@${h}` })),
+        status: "new",
+        firstSeenAt: now,
+        lastSeenAt: now,
+      });
+    }
     return { appIds: Object.fromEntries(ids) };
   },
 });
 
-/** E2E — efface les apps dont le slug commence par `prefix`, leurs comptes et leurs vidéos. */
+/**
+ * E2E — efface les apps dont le slug commence par `prefix`, leurs comptes, leurs
+ * vidéos et leurs formats, et les apps repérées dont la clé contient `prefix`.
+ */
 export const e2eClearNetwork = e2eMutation({
   args: { prefix: v.string() },
   handler: async (ctx, { prefix }) => {
     let n = 0;
+    const gone = new Set((await ctx.db.query("radarApps").collect()).filter((a) => a.slug.startsWith(prefix)).map((a) => a._id as string));
+    for (const f of await ctx.db.query("radarFormats").collect()) {
+      if (f.appIds.some((id) => gone.has(id)) || f.key.includes(prefix)) await ctx.db.delete(f._id);
+    }
+    for (const c of await ctx.db.query("radarAppCandidates").collect()) {
+      if (c.key.includes(prefix) || c.label.toLowerCase().includes(prefix)) await ctx.db.delete(c._id);
+    }
     for (const a of await ctx.db.query("radarApps").collect()) {
       if (!a.slug.startsWith(prefix)) continue;
       for (const t of await ctx.db.query("radarTracked").withIndex("by_app", (q) => q.eq("appId", a._id)).collect()) {

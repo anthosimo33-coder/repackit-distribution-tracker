@@ -278,7 +278,8 @@
     "compteSuivi": "{count, plural, one {compte} other {comptes}} {count, plural, one {suivi} other {suivis}}",
     "limiteConseilleeAtteinteQuotaApify": "Limite conseillée atteinte — quota Apify à surveiller.",
     "aucunCompteSuivi": "Aucun compte suivi",
-    "ajouteUnCompteTiktokPour": "Ajoute un compte TikTok pour suivre ses dernières vidéos."
+    "ajouteUnCompteTiktokPour": "Ajoute un compte TikTok pour suivre ses dernières vidéos.",
+    "formats": "Formats"
   },
   "RadarSignals": {
     "vuesEnregistrees": "Vues enregistrées",
@@ -438,7 +439,9 @@
     "ajouteeAuxInspirations": "Vidéo ajoutée aux inspirations.",
     "ajoutImpossible": "Ajout aux inspirations impossible.",
     "ouvrirSurTiktok": "Ouvrir sur TikTok",
-    "vuesSurMediane": "Vues ÷ médiane du compte"
+    "vuesSurMediane": "Vues ÷ médiane du compte",
+    "texteALEcran": "Texte à l'écran",
+    "son": "Son : {titre}"
   },
   "RadarBudget": {
     "cleAbsente": "Collecte en pause : la clé ScrapeCreators n'est pas posée sur ce déploiement (SCRAPECREATORS_API_KEY).",
@@ -468,7 +471,7 @@
       },
       "tiktok": {
         "titre": "Relever les comptes suivis",
-        "aide": "1 crédit = les 9 dernières vidéos d'un compte. Les actifs chaque jour, les calmes tous les 3 jours : 600 relevés suivent 1 000 comptes.",
+        "aide": "1 crédit = les 9 dernières vidéos d'un compte. Les actifs chaque jour, les calmes tous les 3 jours, les dormants chaque semaine : 2 000 relevés suivent 3 000 comptes.",
         "unite": "relevés/jour"
       },
       "insta": {
@@ -488,7 +491,7 @@
       },
       "network": {
         "titre": "Retrouver le réseau des apps",
-        "aide": "Mots-clés et hashtags de chaque app suivie, chaque semaine : un compte qui la cite rejoint son réseau.",
+        "aide": "Mots-clés et hashtags de chaque app suivie : tous les 3 jours pour une concurrente, chaque semaine sinon. Un compte qui la cite rejoint son réseau.",
         "unite": "crédits/mois"
       }
     },
@@ -571,7 +574,16 @@
     "aideMotifs": "Séparés par des virgules : un compte entre dans son réseau quand une de ses légendes contient un de ces motifs (espaces ignorés). Évite les mots courants.",
     "concurrenteDeCeProjet": "Concurrente de ce projet",
     "suivreLApp": "Suivre l'app",
-    "annuler": "Annuler"
+    "annuler": "Annuler",
+    "listeDeDepart": "liste de départ",
+    "hookCite": "« {hook} »",
+    "appsReperees": "Apps repérées chez les comptes suivis",
+    "appsRepereesAide": "Comptes mentionnés et sites cités par au moins deux comptes. Suivre une app rattache à son réseau les comptes qui la citaient.",
+    "citeePar": "{n, plural, one {citée par # compte} other {citée par # comptes}}",
+    "chezLesComptesDe": "chez les comptes de {apps}",
+    "suivreCetteApp": "Suivre",
+    "ignorer": "Ignorer",
+    "appSuivieDepuisReperee": "{app} suivie : {n, plural, =0 {aucun compte ajouté} one {# compte rejoint son réseau} other {# comptes rejoignent son réseau}}."
   },
   "RadarSyncButton": {
     "recupererLesDernieresVideosDes": "Récupérer les dernières vidéos des comptes suivis",
@@ -617,5 +629,26 @@
     "likes": "Plus likées",
     "published": "Plus récentes",
     "views": "Plus vues"
+  },
+  "RadarFormats": {
+    "type": "Type de format",
+    "kind": {
+      "all": "Tous",
+      "hook": "Hooks",
+      "sound": "Sons"
+    },
+    "concurrentsSeulement": "Concurrents de ce projet seulement",
+    "compte": "{n, plural, =0 {aucun format} one {# format} other {# formats}}",
+    "aucunTitre": "Aucun format repris pour l'instant.",
+    "aucunFiltreTitre": "Aucun format ne passe ces filtres.",
+    "aucunTexte": "Un format apparaît ici dès que deux comptes suivis publient le même texte à l'écran ou le même son en 14 jours. Les comptes sont relevés toutes les heures.",
+    "memeHook": "Même hook",
+    "memeSon": "Même son",
+    "pousseParUnConcurrent": "Poussé par un concurrent",
+    "comptesEtApps": "{comptes} comptes · {apps}",
+    "hookCite": "« {hook} »",
+    "resume": "Jusqu'à {vues} vues · dernière publication {quand}",
+    "meilleurMultiplicateur": "jusqu'à {x} la médiane du compte",
+    "vues": "{n} vues"
   }
 }

@@ -13,7 +13,7 @@ import { textResult, ToolError, type McpTool, type ToolResult } from "./mcpProto
 import { ARG_PROJET } from "./mcpWriteCommon";
 import { dayKeyParis } from "./dateFr";
 import { getRadarBudgetCore, listSignalsCore } from "./radarSignals";
-import { listAppAccountsCore, listNetworksCore } from "./radarNetworks";
+import { listAppAccountsCore, listCandidatesCore, listFormatsCore, listNetworksCore } from "./radarNetworks";
 import { LANG_BUCKETS, viewsPerHour } from "./radarSignalsMath";
 import {
   STATUSES,
@@ -40,6 +40,16 @@ export const lireBudgetRadar = mcpPermissionQuery("radar.use")({
 export const lireReseaux = mcpPermissionQuery("radar.use")({
   args: {},
   handler: async (ctx) => listNetworksCore(ctx),
+});
+
+export const lireFormats = mcpPermissionQuery("radar.use")({
+  args: {},
+  handler: async (ctx) => listFormatsCore(ctx),
+});
+
+export const lireAppsReperees = mcpPermissionQuery("radar.use")({
+  args: {},
+  handler: async (ctx) => listCandidatesCore(ctx),
 });
 
 export const lireComptesApp = mcpPermissionQuery("radar.use")({
@@ -145,6 +155,8 @@ export async function appelerSignaux(
           ...(s.competitor ? { concurrent: s.competitor } : {}),
           ...(s.multiplier !== null ? { foisMediane: Math.round(s.multiplier * 10) / 10 } : {}),
           statut: s.status,
+          ...(s.hook ? { texteEcran: s.hook } : {}),
+          ...(s.musicTitle ? { son: s.musicTitle } : {}),
           legende: s.caption,
           likes: s.likes,
           commentaires: s.comments,
@@ -185,12 +197,13 @@ export const OUTIL_RESEAUX: McpTool = {
   name: "reseaux",
   title: "Radar : les réseaux d'apps suivis",
   description:
-    "Les apps dont le Radar suit le réseau de comptes TikTok (concurrentes du projet en tête : The Ick, CheatLove, RecentFollow pour Snytch ; What Brandon Thinks, The Cringe pour BLUSH ; et les autres), comme l'onglet Comptes suivis : comptes, publications de la semaine, meilleure vidéo (multiplicateur = vues ÷ médiane du compte). Avec « app » : les comptes de cette app, les plus en forme d'abord. Lecture seule. Les vidéos qui sortent du lot de ces comptes se lisent avec `signaux` (filtre « app »).",
+    "Les apps dont le Radar suit le réseau de comptes TikTok (concurrentes du projet en tête : The Ick, Stalkie, FollowSpy, Snitchy… pour Snytch ; What Brandon Thinks, The Cringe, Rizz App, Plug AI… pour BLUSH ; et une vingtaine d'autres apps à armée de comptes), comme l'onglet Comptes suivis : comptes, publications de la semaine, meilleure vidéo (multiplicateur = vues ÷ médiane du compte). Avec « app » : les comptes de cette app, les plus en forme d'abord. vue « formats » : les hooks (texte à l'écran) et les sons repris par au moins deux comptes suivis en 14 jours, ceux poussés par une concurrente d'abord — le format à transposer. vue « apps_reperees » : les comptes mentionnés et les sites cités par plusieurs comptes, des apps qu'on ne suit pas encore. Lecture seule. Les vidéos qui sortent du lot de ces comptes se lisent avec `signaux` (filtre « app »).",
   inputSchema: {
     type: "object",
     properties: {
       projet: ARG_PROJET,
-      app: { type: "string", description: "Une app, par son nom (même partiel), pour la liste de ses comptes." },
+      vue: { type: "string", description: "apps (défaut), formats, ou apps_reperees.", enum: ["apps", "formats", "apps_reperees"] },
+      app: { type: "string", description: "Une app, par son nom (même partiel), pour la liste de ses comptes (vue apps)." },
       limite: { type: "integer", description: "Comptes listés au plus (défaut 30).", minimum: 1, maximum: 200 },
     },
     additionalProperties: false,
@@ -208,8 +221,56 @@ export async function appelerReseaux(
   projet: string,
   lire: <T>(f: () => Promise<T>) => Promise<T>,
 ): Promise<ToolResult> {
-  const r = await lire(() => ctx.runQuery(internal.mcpSignaux.lireReseaux, ids));
   const jour = (t: number | null) => (t === null ? null : dayKeyParis(t));
+  const vue = args.vue ?? "apps";
+  if (vue !== "apps" && vue !== "formats" && vue !== "apps_reperees") throw new ToolError("« vue » : apps, formats ou apps_reperees.");
+  if (vue === "formats") {
+    const f = await lire(() => ctx.runQuery(internal.mcpSignaux.lireFormats, ids));
+    return textResult(
+      JSON.stringify(
+        {
+          projet,
+          formats: f.length,
+          lecture: "type hook = même texte à l'écran ; son = même son. comptes = comptes suivis distincts qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
+          liste: f.slice(0, 40).map((x) => ({
+            type: x.kind === "hook" ? "hook" : "son",
+            texte: x.label,
+            comptes: x.accountCount,
+            apps: x.apps.map((a) => a.name),
+            ...(x.rival ? { pousseParUnConcurrent: true } : {}),
+            vuesMax: x.maxViews,
+            ...(x.bestMultiplier !== null ? { foisMedianeMax: Math.round(x.bestMultiplier * 10) / 10 } : {}),
+            dernierePublication: jour(x.lastPostAt),
+            exemples: x.members.slice(0, 4).map((m) => ({ compte: m.handle, app: m.app, vues: m.views, lien: m.url })),
+          })),
+        },
+        null,
+        1,
+      ),
+    );
+  }
+  if (vue === "apps_reperees") {
+    const c = await lire(() => ctx.runQuery(internal.mcpSignaux.lireAppsReperees, ids));
+    return textResult(
+      JSON.stringify(
+        {
+          projet,
+          lecture: "Citées par au moins deux comptes (suivis ou découverts), pas encore suivies. Les suivre se fait dans l'onglet Comptes suivis.",
+          liste: c.map((x) => ({
+            app: x.label,
+            type: x.kind === "mention" ? "compte mentionné" : "site",
+            citeePar: x.authorCount,
+            chezLesComptesDe: x.fromApps,
+            exemples: x.examples.map((e) => e.handle),
+            depuis: jour(x.firstSeenAt),
+          })),
+        },
+        null,
+        1,
+      ),
+    );
+  }
+  const r = await lire(() => ctx.runQuery(internal.mcpSignaux.lireReseaux, ids));
   if (typeof args.app !== "string" || !args.app.trim()) {
     return textResult(
       JSON.stringify(
