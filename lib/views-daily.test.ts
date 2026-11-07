@@ -16,9 +16,11 @@ import {
   ajouterDepartsDePublication,
   parisDayKey,
   parisMidnightUtc,
+  parisYesterdayKey,
   ESTIMATED_SPAN_MS,
   type SnapshotPoint,
 } from "../convex/viewsDaily";
+import { shiftDay } from "../convex/analyticsDates";
 
 /** Instant UTC lisible : utc(2026, 8, 15, 8) = 15 août 2026 08:00 UTC. */
 const utc = (y: number, m: number, d: number, h: number, min = 0): number =>
@@ -84,6 +86,39 @@ describe("parisMidnightUtc — bornes de découpe, DST comprise", () => {
 
   it("gère le débordement de mois (jour + 1 au-delà du dernier du mois)", () => {
     expect(parisMidnightUtc(2026, 8, 32)).toBe(parisMidnightUtc(2026, 9, 1));
+  });
+});
+
+// « Hier » par défaut des outils MCP (convex/mcpTools). Il valait
+// `parisDayKey(now − 24 h)` : faux une heure par changement d'heure.
+describe("parisYesterdayKey — la veille en jours de Paris, pas 24 h avant", () => {
+  it("un jour ordinaire, et juste après minuit Paris", () => {
+    expect(parisYesterdayKey(utc(2026, 11, 7, 9, 30))).toBe("2026-11-06");
+    // 23:05 UTC = 00:05 Paris le 7 : la veille est le 6, pas le 5.
+    expect(parisYesterdayKey(utc(2026, 11, 6, 23, 5))).toBe("2026-11-06");
+  });
+
+  it("le soir du passage à l'heure d'hiver (journée de 25 h), « hier » n'est pas aujourd'hui", () => {
+    // 25/10 22:30 UTC = 23:30 Paris (CET). 24 h avant = 25/10 00:30 Paris (CEST).
+    expect(parisYesterdayKey(utc(2026, 10, 25, 22, 30))).toBe("2026-10-24");
+  });
+
+  it("le lendemain du passage à l'heure d'été, « hier » n'est pas l'avant-veille", () => {
+    // 29/03 22:30 UTC = 30/03 00:30 Paris (CEST). 24 h avant = 28/03 23:30 (CET).
+    expect(parisYesterdayKey(utc(2026, 3, 29, 22, 30))).toBe("2026-03-29");
+  });
+
+  it("franchit les fins de mois et d'année", () => {
+    expect(parisYesterdayKey(utc(2026, 12, 31, 23, 30))).toBe("2026-12-31"); // 01/01/2027 00:30 Paris
+    expect(parisYesterdayKey(utc(2026, 3, 1, 9, 0))).toBe("2026-02-28");
+  });
+
+  it("vaut le jour de Paris décalé d'un jour calendaire, à chaque quart d'heure de l'année", () => {
+    const fautifs: string[] = [];
+    for (let t = utc(2026, 1, 1, 0); t < utc(2027, 1, 1, 0); t += 15 * 60_000) {
+      if (parisYesterdayKey(t) !== shiftDay(parisDayKey(t), -1)) fautifs.push(new Date(t).toISOString());
+    }
+    expect(fautifs).toEqual([]);
   });
 });
 

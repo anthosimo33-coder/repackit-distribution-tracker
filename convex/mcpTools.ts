@@ -46,6 +46,7 @@ import {
   computeDailyBilledViews,
   parisDayKey,
   parisMidnightUtc,
+  parisYesterdayKey,
 } from "./viewsDaily";
 import {
   listTrackerPostsCore,
@@ -1306,7 +1307,7 @@ function periodeDemandee(args: Record<string, unknown>): { du: string; au: strin
   const au =
     typeof args.au === "string" && args.au.trim() !== ""
       ? args.au.trim()
-      : parisDayKey(Date.now() - 86_400_000);
+      : parisYesterdayKey(Date.now());
   const du =
     typeof args.du === "string" && args.du.trim() !== ""
       ? args.du.trim()
@@ -1620,7 +1621,7 @@ export function jarviaServer(
     auArg: string | null,
   ) {
     const aujourdhui = parisDayKey(Date.now());
-    const au = auArg ?? parisDayKey(Date.now() - 86_400_000);
+    const au = auArg ?? parisYesterdayKey(Date.now());
     const du = duArg ?? shiftDay(au, -29);
     const debut = minuitParisDe(du);
     if (debut === null || minuitParisDe(au) === null) {
@@ -2015,7 +2016,7 @@ export function jarviaServer(
         const au =
           typeof args.au === "string" && args.au.trim() !== ""
             ? args.au.trim()
-            : parisDayKey(Date.now() - 86_400_000);
+            : parisYesterdayKey(Date.now());
         const du =
           typeof args.du === "string" && args.du.trim() !== ""
             ? args.du.trim()
@@ -2194,7 +2195,7 @@ export function jarviaServer(
         const au =
           typeof args.au === "string" && args.au.trim() !== ""
             ? args.au.trim()
-            : parisDayKey(Date.now() - 86_400_000);
+            : parisYesterdayKey(Date.now());
         const du =
           typeof args.du === "string" && args.du.trim() !== ""
             ? args.du.trim()
@@ -2532,7 +2533,7 @@ export function jarviaServer(
         const au =
           typeof args.au === "string" && args.au.trim() !== ""
             ? args.au.trim()
-            : parisDayKey(Date.now() - 86_400_000);
+            : parisYesterdayKey(Date.now());
         const du =
           typeof args.du === "string" && args.du.trim() !== ""
             ? args.du.trim()
@@ -4184,7 +4185,7 @@ export function jarviaServer(
         const au =
           typeof args.au === "string" && args.au.trim() !== ""
             ? args.au.trim()
-            : parisDayKey(Date.now() - 86_400_000);
+            : parisYesterdayKey(Date.now());
         const du =
           typeof args.du === "string" && args.du.trim() !== ""
             ? args.du.trim()

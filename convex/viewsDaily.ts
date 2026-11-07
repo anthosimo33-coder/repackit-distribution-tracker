@@ -170,6 +170,21 @@ export function parisMidnightUtc(
   return exact;
 }
 
+/**
+ * Jour calendaire Europe/Paris de la VEILLE de `now`, "YYYY-MM-DD".
+ *
+ * ⚠️ Jamais `parisDayKey(now - 86_400_000)` : 24 h ne font pas un jour de Paris
+ * les jours de changement d'heure. Le soir du passage à l'heure d'hiver
+ * (journée de 25 h), entre 23 h et minuit, 24 h avant tombe encore le même
+ * jour : « hier » valait aujourd'hui. Le lendemain du passage à l'heure d'été,
+ * entre 0 h et 1 h, il tombait l'avant-veille. On part donc du minuit de Paris
+ * du jour : la milliseconde d'avant est la veille, quel que soit l'offset.
+ */
+export function parisYesterdayKey(now: number): string {
+  const p = parisParts(now);
+  return parisDayKey(parisMidnightUtc(p.year, p.month, p.day) - 1);
+}
+
 /* ── Agrégation ──────────────────────────────────────────────────────────── */
 
 function addTo(map: Map<string, number>, key: string, value: number): void {
