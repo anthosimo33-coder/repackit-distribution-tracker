@@ -187,6 +187,7 @@ import {
   isSameLocalDay,
   onTimeTally,
   plannedDayKey,
+  plannedDayKeyAfter,
   type CalendarStatus,
 } from "./calendarStatus";
 import { listMarketGroupsCore } from "./marketGroups";
@@ -2850,7 +2851,7 @@ export function jarviaServer(
         );
         const manques = planifiees.filter((p) => p.statut === "missed").sort((a, b) => parJour(b, a));
         const horsDate = planifiees.filter((p) => p.statut === "late").sort((a, b) => parJour(b, a));
-        const limiteAVenir = plannedDayKey(maintenant + horizon * 86_400_000);
+        const limiteAVenir = plannedDayKeyAfter(maintenant, horizon);
         const aujourdhuiCle = plannedDayKey(maintenant);
         const aVenir = planifiees
           .filter(

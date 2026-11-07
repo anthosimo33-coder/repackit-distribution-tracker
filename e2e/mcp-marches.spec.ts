@@ -7,6 +7,8 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { deriverMarches } from "../convex/marketDerive";
 import { windowToMs } from "../convex/marketWindow";
+import { parisDayKey } from "../convex/viewsDaily";
+import { shiftDay } from "../convex/analyticsDates";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -55,9 +57,6 @@ async function outil(url: string, token: string, args: Record<string, unknown>):
   expect(result.isError ?? false, result.content[0].text).toBe(false);
   return JSON.parse(result.content[0].text) as Marches;
 }
-
-const jourParis = (ts: number) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date(ts));
 
 /**
  * Outil MCP `marches` — l'onglet Pays de l'Analytics, par la MÊME dérivation
@@ -192,8 +191,11 @@ test.describe("Outil MCP marches", () => {
         .match(/jarvia (\S+\/mcp) /)![1];
 
       // ── Par marché, les 30 derniers jours (aujourd'hui compris) ─────────────
-      const du = jourParis(maintenant - 29 * DAY);
-      const au = jourParis(maintenant);
+      // Jours de Paris décalés en JOURS, comme le serveur (`shiftDay` sur la clé
+      // de jour), jamais `maintenant − 29 × 24 h` : un changement d'heure dans
+      // l'intervalle, et la fenêtre perdait un jour autour de minuit (cf #459).
+      const au = parisDayKey(maintenant);
+      const du = shiftDay(au, -29);
       const r = await outil(url, token, { projet: slug, du, au });
       const fr = r.marches.find((m) => m.marche === "FR")!;
       expect(fr).toMatchObject({

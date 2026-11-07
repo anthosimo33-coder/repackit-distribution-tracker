@@ -41,6 +41,30 @@ describe("computeViewsPulse", () => {
     expect(computeViewsPulse([], assignmentOf, NOW)).toBeNull();
   });
 
+  // « Hier » valait `now − 24 h` : faux une heure par changement d'heure.
+  it("le soir du passage à l'heure d'hiver (journée de 25 h), hier est la veille, pas aujourd'hui", () => {
+    // Relevés des 23 et 24/10 à 23:30 Paris (CEST, 21:30 UTC).
+    const octobre = [
+      { publicationId: "pubB_tt", capturedAt: Date.UTC(2026, 9, 23, 21, 30), vues: 3_050 },
+      { publicationId: "pubB_tt", capturedAt: Date.UTC(2026, 9, 24, 21, 30), vues: 3_512 },
+    ];
+    // 25/10 22:30 UTC = 23:30 Paris (CET) ; 24 h avant = 25/10 00:30 Paris.
+    const pulse = computeViewsPulse(octobre, assignmentOf, Date.UTC(2026, 9, 25, 22, 30));
+    expect(pulse?.date).toBe("2026-10-24");
+  });
+
+  it("le lendemain du passage à l'heure d'été, hier n'est pas l'avant-veille", () => {
+    // Relevés des 27 et 28/03 (CET, 22:30 UTC) et du 29/03 (CEST, 21:30 UTC), à 23:30 Paris.
+    const mars = [
+      { publicationId: "pubB_tt", capturedAt: Date.UTC(2026, 2, 27, 22, 30), vues: 1_000 },
+      { publicationId: "pubB_tt", capturedAt: Date.UTC(2026, 2, 28, 22, 30), vues: 1_400 },
+      { publicationId: "pubB_tt", capturedAt: Date.UTC(2026, 2, 29, 21, 30), vues: 2_300 },
+    ];
+    // 29/03 22:30 UTC = 30/03 00:30 Paris ; 24 h avant = 28/03 23:30 Paris.
+    const pulse = computeViewsPulse(mars, assignmentOf, Date.UTC(2026, 2, 29, 22, 30));
+    expect(pulse?.date).toBe("2026-03-29");
+  });
+
   it("un trou de relevé est signalé comme estimé", () => {
     const trou = [
       { publicationId: "pubB_tt", capturedAt: releve(14), vues: 2_000 },

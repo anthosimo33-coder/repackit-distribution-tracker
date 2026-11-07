@@ -16,7 +16,7 @@
  */
 import {
   computeDailyViewDeltasBy,
-  parisDayKey,
+  parisYesterdayKey,
   type SnapshotPoint,
 } from "./viewsDaily";
 
@@ -34,7 +34,7 @@ export function computeViewsPulse(
   assignmentOfPublication: (publicationId: string) => string,
   now: number,
 ): ViewsPulse | null {
-  const yesterday = parisDayKey(now - 86_400_000);
+  const yesterday = parisYesterdayKey(now);
   const day = computeDailyViewDeltasBy(snaps, assignmentOfPublication).find(
     (d) => d.date === yesterday,
   );

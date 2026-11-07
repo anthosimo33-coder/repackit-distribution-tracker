@@ -12,6 +12,8 @@ import {
   CALENDAR_STATUS_LABEL,
   type CalendarStatus,
 } from "./calendar-status";
+import { plannedDayKey, plannedDayKeyAfter } from "../convex/calendarStatus";
+import { shiftDay } from "../convex/analyticsDates";
 
 /**
  * Décalage Paris↔UTC à un instant donné, en ms. Dérivé d'`Intl` plutôt que codé
@@ -526,5 +528,34 @@ describe("isOnPublicationCalendar — une mission abandonnée ne sort plus", () 
     ];
     expect(onTimeTally(posts, now).missed).toBe(2);
     expect(onTimeTally(posts.filter(isOnPublicationCalendar), now).missed).toBe(1);
+  });
+});
+
+// Borne de l'« à venir » de l'outil MCP `planning`. Elle valait
+// `plannedDayKey(now + jours × 24 h)` : un jour de trop ou de moins autour de
+// minuit Paris dès qu'un changement d'heure tombait dans l'horizon.
+describe("plannedDayKeyAfter — n jours calendaires après aujourd'hui, à Paris", () => {
+  it("un jour ordinaire : aujourd'hui + 7", () => {
+    expect(plannedDayKeyAfter(Date.UTC(2026, 10, 7, 9, 30), 7)).toBe("2026-11-14");
+  });
+
+  it("passage à l'heure d'hiver dans l'horizon : le dernier jour n'est pas perdu", () => {
+    // 20/10 22:30 UTC = 21/10 00:30 Paris (CEST). + 7 × 24 h = 27/10 23:30 Paris (CET).
+    expect(plannedDayKeyAfter(Date.UTC(2026, 9, 20, 22, 30), 7)).toBe("2026-10-28");
+  });
+
+  it("passage à l'heure d'été dans l'horizon : pas de jour en trop", () => {
+    // 25/03 22:30 UTC = 23:30 Paris (CET). + 7 × 24 h = 02/04 00:30 Paris (CEST).
+    expect(plannedDayKeyAfter(Date.UTC(2026, 2, 25, 22, 30), 7)).toBe("2026-04-01");
+  });
+
+  it("vaut le jour de Paris décalé de n jours calendaires, à chaque quart d'heure de l'année", () => {
+    const fautifs: string[] = [];
+    for (let t = Date.UTC(2026, 0, 1); t < Date.UTC(2027, 0, 1); t += 15 * 60_000) {
+      for (const n of [1, 7, 60]) {
+        if (plannedDayKeyAfter(t, n) !== shiftDay(plannedDayKey(t), n)) fautifs.push(`${new Date(t).toISOString()} +${n}`);
+      }
+    }
+    expect(fautifs).toEqual([]);
   });
 });
