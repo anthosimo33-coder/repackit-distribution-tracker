@@ -74,9 +74,11 @@ export const SEED_APPS: readonly SeedApp[] = [
   { slug: "katch", name: "Katch", rivalOf: SNYTCH, strong: ["katch.io", "katchio", "katchembaixador"], weak: ["katch"], context: STALK_CONTEXT, searches: ["katch.io", "katchio"] },
   { slug: "susly", name: "Susly", rivalOf: SNYTCH, strong: ["susly"], searches: ["susly", "susly app"] },
   // Après Snitchy : « creators.getsnitchy.app » ne doit pas devenir Snitch.
-  { slug: "snitch", name: "Snitch", rivalOf: SNYTCH, strong: ["snitchapp"], searches: ["snitch app instagram", "snitchapp"] },
+  // « Snitch app » est aussi une marque de vêtements indienne : le domaine seul.
+  { slug: "snitch", name: "Snitch", rivalOf: SNYTCH, strong: ["snitchapp.io"], searches: ["snitch app instagram", "snitchapp"] },
   { slug: "crushtracker", name: "Crush Tracker", rivalOf: SNYTCH, strong: ["crushtracker"], searches: ["crush tracker app"] },
-  { slug: "sunsay", name: "Sunsay", rivalOf: SNYTCH, strong: ["sunsay"], searches: ["sunsay app", "sunsay"] },
+  // « Sunsay » est aussi un chanteur et une marque d'énergie : seul, il lui faut un mot de contexte.
+  { slug: "sunsay", name: "Sunsay", rivalOf: SNYTCH, strong: ["sunsay.app", "sunsayapp", "@sunsay"], weak: ["sunsay"], context: STALK_CONTEXT, searches: ["sunsay app", "sunsay"] },
   { slug: "whatbrandonthinks", name: "What Brandon Thinks", rivalOf: BLUSH, strong: ["whatbrandonthinks"], searches: ["whatbrandonthinks", "what brandon thinks whatsapp", "#whatbrandonthinks"] },
   { slug: "thecringe", name: "The Cringe", rivalOf: BLUSH, strong: ["thecringeapp"], weak: ["thecringe"], context: CHAT_CONTEXT, searches: ["thecringe", "the cringe app whatsapp", "#thecringe"] },
   { slug: "rizzapp", name: "Rizz App", rivalOf: BLUSH, strong: ["rizz.app", "rizzapp"], searches: ["rizz app", "rizz.app", "#rizzapp"] },

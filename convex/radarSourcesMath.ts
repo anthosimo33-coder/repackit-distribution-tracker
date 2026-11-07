@@ -93,14 +93,17 @@ export function parseMetaAd(raw: unknown): AdInput | null {
 
 /**
  * Une pub est-elle bien celle de l'app ? La recherche Meta par nom ramène des
- * homonymes (07/11/2026 : « Snitch » = 31 pubs d'une marque de vêtements
- * indienne, « Shady » des lunettes, « Lurk » du sport) : on n'en garde que celles
- * qui CITENT l'app selon ses motifs. La bibliothèque TikTok ne rend pas le texte
- * de la pub : on lui fait confiance, sauf pour une app au nom ambigu (motif faible).
+ * homonymes (07/11/2026 : « Snitch » = une marque de vêtements indienne, « Shady »
+ * des lunettes et « Slim Shady », « Sunsay » un chanteur et une marque d'énergie) :
+ * on n'en garde que celles qui citent l'app par un motif FORT (son domaine, son
+ * nom collé). Un motif faible + un mot de contexte suffit pour une légende, pas
+ * pour une pub (« #dogsofinstagram » contient « insta »).
+ * La bibliothèque TikTok ne rend pas le texte : on lui fait confiance seulement
+ * pour une app au nom distinctif (pas de motif faible, slug de 7 lettres ou plus).
  */
-export function adCitesApp(ad: Pick<AdInput, "platform" | "advertiser" | "text">, app: AppRule): boolean {
-  if (citesApp(`${ad.advertiser} ${ad.text ?? ""}`, "", app)) return true;
-  return ad.platform === "tiktok" && !(app.weak?.length);
+export function adCitesApp(ad: Pick<AdInput, "platform" | "advertiser" | "text">, app: AppRule & { slug?: string }): boolean {
+  if (citesApp(`${ad.advertiser} ${ad.text ?? ""}`, "", { strong: app.strong })) return true;
+  return ad.platform === "tiktok" && !(app.weak?.length) && (app.slug?.length ?? 0) >= 7;
 }
 
 /** Jours de diffusion d'une pub : de sa première à sa dernière apparition (ou aujourd'hui si active). */

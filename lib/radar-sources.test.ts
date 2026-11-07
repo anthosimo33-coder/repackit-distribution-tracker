@@ -114,6 +114,17 @@ describe("pubs gardées : seulement celles qui citent l'app (homonymes du 07/11/
     expect(adCitesApp({ platform: "meta", advertiser: "Mắt Kính Shady", text: "Hội Nghị Ra Mắt Sản Phẩm Tròng Kính" }, seed("shady"))).toBe(false);
     expect(adCitesApp({ platform: "meta", advertiser: "Lurk", text: "🔥 Produtos com tecnologia e performance para seus treinos" }, seed("lurk"))).toBe(false);
   });
+  it("Meta : les homonymes encore affichés après #458 (« Snitch app » de mode, SUNSAY, Slim Shady) sont écartés", () => {
+    // Pubs réelles relevées le 07/11/2026.
+    expect(adCitesApp({ platform: "meta", advertiser: "Snitch", text: "Don't be shy! Get your favourite styles in under 24 hours only on the Snitch app. Super fast delivery" }, seed("snitch"))).toBe(false);
+    expect(adCitesApp({ platform: "meta", advertiser: "SUNSAY Energy", text: "{{product.brand}} · {{product.name}}" }, seed("sunsay"))).toBe(false);
+    expect(adCitesApp({ platform: "meta", advertiser: "Пафосный Квартирник", text: "Приглашаем вас на акустический концерт SUNSAY!" }, seed("sunsay"))).toBe(false);
+    expect(adCitesApp({ platform: "meta", advertiser: "midghamfarm", text: "Who do you think wore it the best? 9. Slim Shady #dogsofinstagram #viral" }, seed("shady"))).toBe(false);
+    // Les vraies pubs de l'app, elles, restent.
+    expect(adCitesApp({ platform: "meta", advertiser: "Snitchy", text: "Sauras-tu résoudre les affaires ? 🔍 · Snitchy : jeu d'enquête" }, seed("snitchy"))).toBe(true);
+    expect(adCitesApp({ platform: "meta", advertiser: "Girl Sherlock Mobile Detective Game", text: "She is obsessed with this game #stalker #cheating #girlsherlock #stalkie" }, seed("stalkie"))).toBe(true);
+  });
+
   it("Meta : une pub qui cite l'app est gardée", () => {
     const smooth = parseMetaAd(META_AD)!;
     expect(adCitesApp(smooth, seed("rizzapp"))).toBe(true);
@@ -123,6 +134,9 @@ describe("pubs gardées : seulement celles qui citent l'app (homonymes du 07/11/
     const ad = parseTikTokAd(TT_AD, NOW)!;
     expect(adCitesApp(ad, seed("followspy"))).toBe(true);
     expect(adCitesApp(ad, seed("shady"))).toBe(false);
+    // Nom trop court pour s'y fier sans texte (« snitch », « theick ») : écartée.
+    expect(adCitesApp({ ...ad, advertiser: "askmissd" }, seed("snitch"))).toBe(false);
+    expect(adCitesApp(ad, seed("theick"))).toBe(false);
     expect(adCitesApp({ ...ad, advertiser: "usoshady_app" }, seed("shady"))).toBe(true);
   });
 });
