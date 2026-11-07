@@ -4,6 +4,8 @@ import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { config } from "dotenv";
 import { formatMoney } from "../convex/moneyFormat";
+import { parisDayKey } from "../convex/viewsDaily";
+import { shiftDay } from "../convex/analyticsDates";
 
 config({ path: ".env.local" });
 
@@ -167,16 +169,21 @@ test.describe("Outil MCP revenus", () => {
       const sortie = await outil(url, token, { projet: slug, comparer: true });
       expect(sortie.isError, sortie.text).toBe(false);
       const r = JSON.parse(sortie.text) as Revenus;
-      const hier = jourParis(maintenant - DAY);
-      expect(r.periode).toEqual({ du: jourParis(maintenant - 30 * DAY), au: hier, jours: 30 });
+      // Bornes décalées en JOURS de Paris, comme le serveur (`shiftDay` sur la
+      // clé de jour), jamais `maintenant − n × 24 h` : un changement d'heure dans
+      // l'intervalle, et n × 24 h ne font plus n jours de Paris autour de minuit
+      // (CI du 06/11 à 23 h 55 Paris : J−30 tombait le 08/10 au lieu du 07/10).
+      const J = (n: number) => shiftDay(parisDayKey(maintenant), n);
+      const hier = J(-1);
+      expect(r.periode).toEqual({ du: J(-30), au: hier, jours: 30 });
       // 7,24 (renouvellement A) + 18,37 (nouveau B). Ni le remboursé, ni le
       // litige, ni le paiement d'aujourd'hui.
       expect(r.revenuNet).toBe(25.61);
-      expect(r.parJour.map((d) => d.jour)).not.toContain(jourParis(maintenant));
+      expect(r.parJour.map((d) => d.jour)).not.toContain(J(0));
       // Même durée (30 j), juste avant : du J−60 au J−31.
       expect(r.periodePrecedente).toMatchObject({
-        du: jourParis(maintenant - 60 * DAY),
-        au: jourParis(maintenant - 31 * DAY),
+        du: J(-60),
+        au: J(-31),
         revenuNet: 7.24,
         evolutionPct: 253.7, // (25,61 − 7,24) ÷ 7,24
       });

@@ -6,6 +6,8 @@ import { createFormatWithRate } from "./helpers/formats";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { agregatsFenetre, equationUnitaire } from "../convex/unitEconomics";
+import { parisDayKey } from "../convex/viewsDaily";
+import { shiftDay } from "../convex/analyticsDates";
 import { config } from "dotenv";
 
 config({ path: ".env.local" });
@@ -55,9 +57,6 @@ async function outil(url: string, token: string, args: Record<string, unknown>):
   expect(result.isError ?? false, result.content[0].text).toBe(false);
   return JSON.parse(result.content[0].text) as Eco;
 }
-
-const jourParis = (ts: number) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris" }).format(new Date(ts));
 
 /**
  * Outil MCP `economie_unitaire` — la Vue d'ensemble de l'onglet Analytics
@@ -185,8 +184,13 @@ test.describe("Outil MCP economie_unitaire", () => {
         .match(/jarvia (\S+\/mcp) /)![1];
 
       // ── Les 30 derniers jours, aujourd'hui compris (la vidéo est d'aujourd'hui)
-      const du = jourParis(maintenant - 29 * DAY);
-      const au = jourParis(maintenant);
+      // Jours de Paris décalés en JOURS, comme le serveur (`shiftDay` sur la clé
+      // de jour), jamais `maintenant − n × 24 h` : un changement d'heure dans
+      // l'intervalle, et n × 24 h ne font plus n jours de Paris autour de minuit
+      // (CI du 06/11 à 23 h 55 Paris : J−29 tombait le 09/10, période de 29 j).
+      const J = (n: number) => shiftDay(parisDayKey(maintenant), n);
+      const du = J(-29);
+      const au = J(0);
       const r = await outil(url, token, { projet: slug, du, au, comparer: true });
       expect(r.devises).toEqual({ revenu: "eur", paie: "usd", tauxPaieVersRevenu: 0.86 });
       expect(r.periode).toEqual({ du, au, jours: 30 });
@@ -206,8 +210,8 @@ test.describe("Outil MCP economie_unitaire", () => {
 
       // Période précédente (J−59 → J−30) : C acquis, 7,24 de net, aucune vidéo.
       expect(r.periodePrecedente).toMatchObject({
-        du: jourParis(maintenant - 59 * DAY),
-        au: jourParis(maintenant - 30 * DAY),
+        du: J(-59),
+        au: J(-30),
         revenuNet: 7.24,
         margeNette: 7.24,
         evolution: {
@@ -247,7 +251,7 @@ test.describe("Outil MCP economie_unitaire", () => {
 
       // ── Par défaut : jusqu'à hier — la vidéo d'aujourd'hui sort du coût ────
       const defaut = await outil(url, token, { projet: slug });
-      expect(defaut.periode.au).toBe(jourParis(maintenant - DAY));
+      expect(defaut.periode.au).toBe(J(-1));
       expect(defaut.coutCreateurs?.valeur).toBe(0);
       expect(defaut.margeNette).toBe(43.98);
 
