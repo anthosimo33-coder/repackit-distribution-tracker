@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { adRunDays, igFollowers, parseIgReel, parseMetaAd, parseTikTokAd, transcriptText } from "../convex/radarSourcesMath";
-import { formatStarting, hookTemplate, igHandleFromBio } from "../convex/radarNetworkMath";
+import { adCitesApp, adRunDays, igFollowers, parseIgReel, parseMetaAd, parseTikTokAd, transcriptText } from "../convex/radarSourcesMath";
+import { SEED_APPS, formatStarting, hookTemplate, igHandleFromBio, isHotFormat } from "../convex/radarNetworkMath";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 7, 1, 0);
@@ -103,5 +103,41 @@ describe("gabarits de hook et formats qui démarrent", () => {
     expect(formatStarting([m("a", 2), m("b", 20), m("c", 49)], NOW)).toBe(false);
     // Le même compte deux fois ne compte qu'une.
     expect(formatStarting([m("a", 2), m("a", 5), m("b", 20)], NOW)).toBe(false);
+  });
+});
+
+const seed = (slug: string) => SEED_APPS.find((a) => a.slug === slug)!;
+
+describe("pubs gardées : seulement celles qui citent l'app (homonymes du 07/11/2026)", () => {
+  it("Meta : la marque de vêtements « Snitch », les lunettes « Shady », le sport « Lurk » sont écartés", () => {
+    expect(adCitesApp({ platform: "meta", advertiser: "Snitch", text: "Discover SNITCH - India's leading online destination for men's fashion" }, seed("snitch"))).toBe(false);
+    expect(adCitesApp({ platform: "meta", advertiser: "Mắt Kính Shady", text: "Hội Nghị Ra Mắt Sản Phẩm Tròng Kính" }, seed("shady"))).toBe(false);
+    expect(adCitesApp({ platform: "meta", advertiser: "Lurk", text: "🔥 Produtos com tecnologia e performance para seus treinos" }, seed("lurk"))).toBe(false);
+  });
+  it("Meta : une pub qui cite l'app est gardée", () => {
+    const smooth = parseMetaAd(META_AD)!;
+    expect(adCitesApp(smooth, seed("rizzapp"))).toBe(true);
+    expect(adCitesApp({ platform: "meta", advertiser: "FollowSpy", text: "Mira a quién sigue ⬇️ followspy.ai" }, seed("followspy"))).toBe(true);
+  });
+  it("TikTok (sans texte) : gardée, sauf pour une app au nom ambigu", () => {
+    const ad = parseTikTokAd(TT_AD, NOW)!;
+    expect(adCitesApp(ad, seed("followspy"))).toBe(true);
+    expect(adCitesApp(ad, seed("shady"))).toBe(false);
+    expect(adCitesApp({ ...ad, advertiser: "usoshady_app" }, seed("shady"))).toBe(true);
+  });
+});
+
+describe("formats qui pètent", () => {
+  it("10 000 vues et 3× la médiane ; un son seulement s'il est original (relevés du 07/11/2026)", () => {
+    // Le jeu du téléphone d'une fille disparue (Snitchy + Stalkie).
+    expect(isHotFormat({ kind: "hook", label: "new obsession: a game where you stalk a missing girl's phone", maxViews: 1_377_146, bestMultiplier: 133 })).toBe(true);
+    expect(isHotFormat({ kind: "sound", label: "original sound - georgiaspamming", maxViews: 1_377_146, bestMultiplier: 133 })).toBe(true);
+    expect(isHotFormat({ kind: "sound", label: "son original - lea.ugc", maxViews: 12_000, bestMultiplier: 4 })).toBe(true);
+    // Musique à la mode reprise partout : pas un format.
+    expect(isHotFormat({ kind: "sound", label: "Paper Moon Static", maxViews: 34_137, bestMultiplier: 6 })).toBe(false);
+    // Trop peu vu, ou pas au-dessus de l'habitude du compte.
+    expect(isHotFormat({ kind: "hook", label: "Studying like im listening to juicy gossip 💅", maxViews: 2_255, bestMultiplier: 1.8 })).toBe(false);
+    expect(isHotFormat({ kind: "hook", label: "Someone said during your prayer say", maxViews: 164_630, bestMultiplier: 1.2 })).toBe(false);
+    expect(isHotFormat({ kind: "hook", label: "x y z", maxViews: 50_000, bestMultiplier: null })).toBe(false);
   });
 });

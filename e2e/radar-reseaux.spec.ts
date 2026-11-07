@@ -11,6 +11,7 @@ const admin = createE2eClient(convexUrl);
 const DAY = 86_400_000;
 const HOOK = "POV : tu découvres qui il suit en secret";
 const VARIANTE = "POV : tu découvres qui il suivait avant toi";
+const FROID = "Mes trois apps préférées du moment";
 
 /**
  * Nouveau Radar — onglets Comptes suivis (réseaux d'apps, apps repérées) et
@@ -275,8 +276,10 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
             { handle: r.deux, videoId: `${ts}2`, views: 9_800, ageH: 50, hook: VARIANTE, instagram: true },
           ],
         },
-        // Le même son chez deux apps qui ne sont pas concurrentes du projet : plus vu,
-        // il ne passe pourtant qu'après le format du concurrent.
+        // Un hook repris mais peu vu : il ne pète pas, caché par défaut.
+        { kind: "hook", key: `${p}froid`, label: FROID, members: [{ handle: r.un, videoId: `${ts}5`, views: 3_000, multiplier: 1.2, ageH: 10, hook: FROID }, { handle: `rxthree_${ts}`, videoId: `${ts}6`, views: 2_100, ageH: 12, hook: FROID }] },
+        // Le même son original chez deux apps non concurrentes : le plus vu, en tête
+        // — peu importe la niche.
         { kind: "sound", key: `${p}son`, label: son, members: [{ handle: `rxthree_${ts}`, videoId: `${ts}3`, views: 80_000, multiplier: 8.9, ageH: 20 }, { handle: `rxfour_${ts}`, videoId: `${ts}4`, views: 3_000, ageH: 70 }] },
       ],
       candidates: [
@@ -310,9 +313,13 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       expect(formats.liste[iHook]).toMatchObject({ type: "hook", comptes: 2, apps: [r.rival], pousseParUnConcurrent: true, vuesMax: 46_500, foisMedianeMax: 15, variantes: [HOOK, VARIANTE] });
       expect(formats.liste[iSon]).toMatchObject({ type: "son", comptes: 2, apps: [r.ailleurs, r.autre], vuesMax: 80_000 });
       expect(formats.liste[iSon]).not.toHaveProperty("pousseParUnConcurrent");
-      // Poussé par un concurrent du projet : en tête.
-      expect(iHook).toBeGreaterThanOrEqual(0);
-      expect(iHook).toBeLessThan(iSon);
+      // Ceux qui pètent d'abord, le plus vu d'abord — même si l'autre est poussé par un concurrent.
+      expect([formats.liste[iSon], formats.liste[iHook]].map((f) => (f as { quiPete?: boolean }).quiPete)).toEqual([true, true]);
+      expect(iSon).toBeGreaterThanOrEqual(0);
+      expect(iSon).toBeLessThan(iHook);
+      const iFroid = formats.liste.findIndex((f) => f.texte === FROID);
+      expect(formats.liste[iFroid]).not.toHaveProperty("quiPete");
+      expect(iHook).toBeLessThan(iFroid);
 
       const reperees = JSON.parse((await appel({ vue: "apps_reperees" })).text) as { liste: { app: string }[] };
       expect(reperees.liste.find((c) => c.app === cand)).toMatchObject({ type: "compte mentionné", citeePar: 3, chezLesComptesDe: [r.rival] });
@@ -342,9 +349,16 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(sonCarte).toContainText("Même son");
       await expect(sonCarte).toContainText(`2 comptes · ${r.ailleurs}, ${r.autre}`);
       await expect(sonCarte).not.toContainText("Poussé par un concurrent");
-      // Le concurrent avant le reste.
+      // Le plus vu d'abord, toutes apps confondues ; le format froid est caché.
       const textes = await page.getByTestId("radar-format").allTextContents();
-      expect(textes.findIndex((t) => t.includes(HOOK))).toBeLessThan(textes.findIndex((t) => t.includes(son)));
+      expect(textes.findIndex((t) => t.includes(son))).toBeLessThan(textes.findIndex((t) => t.includes(HOOK)));
+      const froid = carte(FROID);
+      await expect(froid).toHaveCount(0);
+      await expect(page.getByText(/1 format ne pète pas encore/)).toBeVisible();
+      await page.getByRole("checkbox", { name: "Qui pètent seulement" }).uncheck();
+      await expect(froid).toContainText(`« ${FROID} »`);
+      await page.getByRole("checkbox", { name: "Qui pètent seulement" }).check();
+      await expect(froid).toHaveCount(0);
 
       // Filtres : les sons seulement, puis les concurrents seulement → vide.
       await page.getByRole("button", { name: "Sons", exact: true }).click();
@@ -404,7 +418,9 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       secret: E2E_SECRET,
       ads: [
         // Concurrente du projet, active depuis 40 jours : en tête.
-        { appSlug: `${p}a`, ad: { platform: "meta", adId: `${p}m1`, advertiser: `${r.rival} officiel`, text: `Découvre qui il suit ${p}`, firstShownAt: now - 39 * DAY, lastShownAt: now, active: true, variants: 4, platforms: ["facebook", "instagram"], url: `https://www.facebook.com/ads/library/?id=${p}m1` } },
+        { appSlug: `${p}a`, ad: { platform: "meta", adId: `${p}m1`, advertiser: `${r.rival} officiel`, text: `Découvre qui il suit avec ${p}a`, firstShownAt: now - 39 * DAY, lastShownAt: now, active: true, variants: 4, platforms: ["facebook", "instagram"], url: `https://www.facebook.com/ads/library/?id=${p}m1` } },
+        // Un homonyme ramené par la recherche Meta (une marque de mode) : il ne cite pas l'app.
+        { appSlug: `${p}a`, ad: { platform: "meta", adId: `${p}m2`, advertiser: `Homonyme Mode ${ts}`, text: "Nouvelle collection jeans", firstShownAt: now - 90 * DAY, lastShownAt: now, active: true, platforms: ["facebook"], url: `https://www.facebook.com/ads/library/?id=${p}m2` } },
         // Une autre app, active depuis plus longtemps : elle ne passe qu'après la concurrente.
         { appSlug: `${p}c`, ad: { platform: "tiktok", adId: `${p}t1`, advertiser: `rxpub_${ts}`, firstShownAt: now - 60 * DAY, lastShownAt: now, active: true, audience: "10K-100K", platforms: ["tiktok"], url: `https://library.tiktok.com/ads/detail/?ad_id=${p}t1` } },
         // Et une pub arrêtée après 3 jours.
@@ -427,8 +443,9 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(meta).toContainText("active");
       await expect(meta).toContainText("40 jours de diffusion");
       await expect(meta).toContainText("4 variantes");
-      await expect(meta).toContainText(`Découvre qui il suit ${p}`);
+      await expect(meta).toContainText(`Découvre qui il suit avec ${p}a`);
       await expect(meta.getByRole("link", { name: "Voir dans la bibliothèque" })).toHaveAttribute("href", `https://www.facebook.com/ads/library/?id=${p}m1`);
+      await expect(pub(`Homonyme Mode ${ts}`)).toHaveCount(0);
       const tiktok = pub(`rxpub_${ts}`);
       await expect(tiktok).toContainText("active");
       await expect(tiktok).toContainText("61 jours de diffusion");

@@ -299,6 +299,7 @@
     "filtresN": "Filtres ({n})",
     "trierPar": "Trier par",
     "tri": {
+      "mediane": "Vues ÷ médiane",
       "ratio": "Vues ÷ abonnés",
       "vph": "Vues par heure",
       "views": "Vues",
@@ -666,7 +667,9 @@
     "meilleurMultiplicateur": "jusqu'à {x} la médiane du compte",
     "vues": "{n} vues",
     "variantes": "{n} variantes",
-    "ig": "IG"
+    "ig": "IG",
+    "quiPetent": "Qui pètent seulement",
+    "cachesFroids": "{n, plural, one {# format ne pète pas encore} other {# formats ne pètent pas encore}} (moins de 10 000 vues ou de 3× la médiane, ou musique à la mode) : décoche pour les voir."
   },
   "RadarAds": {
     "plateforme": "Bibliothèque de pubs",

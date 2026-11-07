@@ -5,6 +5,7 @@
  * (lib/radar-sources.test.ts).
  */
 import { cleanText } from "./radarSignalsMath";
+import { citesApp, type AppRule } from "./radarNetworkMath";
 
 const obj = (x: unknown): Record<string, unknown> | null =>
   x !== null && typeof x === "object" && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
@@ -88,6 +89,18 @@ export function parseMetaAd(raw: unknown): AdInput | null {
       ? { coverUrl: str(video?.video_preview_image_url) ?? str(image?.resized_image_url) }
       : {}),
   };
+}
+
+/**
+ * Une pub est-elle bien celle de l'app ? La recherche Meta par nom ramène des
+ * homonymes (07/11/2026 : « Snitch » = 31 pubs d'une marque de vêtements
+ * indienne, « Shady » des lunettes, « Lurk » du sport) : on n'en garde que celles
+ * qui CITENT l'app selon ses motifs. La bibliothèque TikTok ne rend pas le texte
+ * de la pub : on lui fait confiance, sauf pour une app au nom ambigu (motif faible).
+ */
+export function adCitesApp(ad: Pick<AdInput, "platform" | "advertiser" | "text">, app: AppRule): boolean {
+  if (citesApp(`${ad.advertiser} ${ad.text ?? ""}`, "", app)) return true;
+  return ad.platform === "tiktok" && !(app.weak?.length);
 }
 
 /** Jours de diffusion d'une pub : de sa première à sa dernière apparition (ou aujourd'hui si active). */

@@ -31,6 +31,8 @@ export type FilterableSignal = {
   /** L'app que la vidéo pousse (réseau suivi, ou légende qui la cite). */
   app: string | null;
   platform: "tiktok" | "instagram";
+  /** Vues ÷ médiane du compte (comptes suivis), sinon null. */
+  multiplier?: number | null;
   status: SignalStatus;
 };
 
@@ -49,7 +51,10 @@ export const AGE_OPTIONS = ["1", "3", "7", "30", "90", "all"] as const;
 export type AgeKey = (typeof AGE_OPTIONS)[number];
 export const SEUIL_OPTIONS = ["0", "10", "50", "200"] as const;
 export type SeuilKey = (typeof SEUIL_OPTIONS)[number];
-export const SORTS = ["ratio", "vph", "views", "recent"] as const;
+// « mediane » d'abord : vues ÷ médiane du compte, le signal qui fait sortir les
+// pépites des comptes suivis (07/11/2026) ; les vidéos sans médiane suivent, par
+// vues ÷ abonnés.
+export const SORTS = ["mediane", "ratio", "vph", "views", "recent"] as const;
 export type SortKey = (typeof SORTS)[number];
 
 export type Filters = {
@@ -61,9 +66,10 @@ export type Filters = {
 };
 
 export const DEFAULT_AGE: AgeKey = "7";
+export const DEFAULT_SORT: SortKey = "mediane";
 
 export function defaultFilters(): Filters {
-  return { sel: { origine: [], plateforme: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: "ratio" };
+  return { sel: { origine: [], plateforme: [], langue: [], app: [], taille: [], statut: [...DEFAULT_STATUT] }, age: DEFAULT_AGE, seuil: "0", q: "", sort: DEFAULT_SORT };
 }
 
 const HOUR = 3_600_000;
@@ -99,6 +105,7 @@ export function matches(s: FilterableSignal, f: Filters, now: number, skip: Grou
 }
 
 const SORTERS: Record<SortKey, (now: number) => (a: FilterableSignal, b: FilterableSignal) => number> = {
+  mediane: () => (a, b) => (b.multiplier ?? -1) - (a.multiplier ?? -1) || b.ratio - a.ratio,
   ratio: () => (a, b) => b.ratio - a.ratio,
   vph: (now) => (a, b) => viewsPerHour(b.views, b.publishedAt, now) - viewsPerHour(a.views, a.publishedAt, now),
   views: () => (a, b) => b.views - a.views,
@@ -227,7 +234,7 @@ export function toSearchParams(f: Filters, base?: URLSearchParams): URLSearchPar
     p.delete(PARAM[g.key]);
     if (!isDefault(f, g.key)) p.set(PARAM[g.key], f.sel[g.key].join(",") || "-");
   }
-  for (const [k, def] of [["age", DEFAULT_AGE], ["seuil", "0"], ["tri", "ratio"]] as const) {
+  for (const [k, def] of [["age", DEFAULT_AGE], ["seuil", "0"], ["tri", DEFAULT_SORT]] as const) {
     const val = k === "tri" ? f.sort : f[k];
     p.delete(k);
     if (val !== def) p.set(k, val);
