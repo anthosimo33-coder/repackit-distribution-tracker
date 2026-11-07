@@ -151,6 +151,20 @@ export function plannedDayStart(postDate: number): number {
 }
 
 /**
+ * Clé du jour situé `jours` jours CALENDAIRES après le jour de Paris de `now`,
+ * borne de l'« à venir » de l'outil MCP `planning`.
+ *
+ * Arithmétique sur l'étiquette (`plannedDayStart`, minuit UTC, sans changement
+ * d'heure), jamais `plannedDayKey(now + jours × 24 h)` : quand un changement
+ * d'heure tombe dans l'horizon, n × 24 h ne font plus n jours de Paris autour
+ * de minuit. La borne glissait alors d'un jour : un post prévu le dernier jour
+ * de l'horizon sortait de la liste, ou un jour de trop y entrait.
+ */
+export function plannedDayKeyAfter(now: number, jours: number): string {
+  return new Date(plannedDayStart(now) + jours * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
  * Libellé du jour prévu dans la langue du lecteur, SANS conversion de fuseau.
  * Les options sont celles d'`Intl.DateTimeFormat` ; `timeZone` est imposé.
  */
