@@ -927,6 +927,9 @@ export default defineSchema({
     // globalement → résolution (projectId, carouselId).
     .index("by_project", ["projectId"])
     .index("by_project_datePubli", ["projectId", "datePubli"])
+    // Publications JAMAIS relevées (`latestSnapshotAt` absent) : le digest du
+    // matin les lit seules, au lieu de tout le projet et de ses relevés.
+    .index("by_project_latestSnapshotAt", ["projectId", "latestSnapshotAt"])
     .index("by_project_carouselId", ["projectId", "carouselId"])
     .index("by_project_plateforme", ["projectId", "plateforme"])
     .index("by_project_hookId", ["projectId", "hookId"])
