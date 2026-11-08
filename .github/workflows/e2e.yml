@@ -25,7 +25,14 @@ jobs:
   # rouge laisserait passer le merge.
   test:
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    # Image FIGÉE, pas `ubuntu-latest`. Le 08/11/2026, `ubuntu-latest` est passé
+    # en 26.04 et `playwright install --with-deps chromium` (1.59.1) a refusé :
+    # « Playwright does not support chromium on ubuntu26.04-x64 » — toutes les PR
+    # bloquées sur le check requis. Monter Playwright aurait changé le navigateur
+    # sous toutes les specs e2e en même temps que l'OS ; figer l'image ne change
+    # rien de ce qui était vert le 07/11. Passer à 26.04 = un chantier à part,
+    # avec une version de Playwright qui la supporte officiellement.
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
