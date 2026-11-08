@@ -21,12 +21,12 @@ import type { Plateforme } from "./platforms";
  * ⚠️ A6 — réplique des stats de lib/scriptStats.ts (convex/ ne peut pas importer
  * lib/). Les tests de la médiane/quartiles/seuil vivent dans lib/scriptStats.test.ts.
  *
- * PERF — idiome identique à dashboard/aggregateTimeseries : collect by_project
- * (pas de full scan), filtrage des publications de la campagne EN MÉMOIRE
- * (Convex n'indexe pas les champs imbriqués), et regroupement des seuls
- * snapshots des publications concernées. À l'échelle du bulk testing (quelques
- * centaines de posts) c'est négligeable ; si le volume explose, basculer sur des
- * requêtes by_publication ciblées sur l'ensemble de pubs déjà identifié.
+ * PERF — lecture bornée à la campagne : ses publications par l'index
+ * publications.by_project_scriptCampaign, puis les relevés de ces seules
+ * publications par metricSnapshots.by_publication. L'ancienne lecture de tout
+ * le projet (by_project) a dépassé la limite de 32 000 documents par exécution
+ * sur Snytch le 2026-11-08 ; la plus grosse campagne en lit ~8 800 (cf
+ * lib/script-analytics-lecture.test.ts).
  */
 
 // ─── Réplique stats (lib/scriptStats.ts) ─────────────────────────────────────
@@ -178,34 +178,41 @@ export async function gatherCampaignViews(
       return (a.order ?? a.createdAt) - (b.order ?? b.createdAt);
     });
 
-  // Publications de CETTE campagne (filtre en mémoire sur le champ imbriqué).
+  // Publications de CETTE campagne, par index — jamais tout le projet : Snytch
+  // a dépassé la limite de 32 000 documents lus par exécution le 2026-11-08
+  // (1 925 publications + 31 490 relevés lus pour en garder une campagne).
+  // Même ordre qu'avant (_creationTime, à égalité de clé d'index).
   const pubs = await ctx.db
     .query("publications")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
+    .withIndex("by_project_scriptCampaign", (q) =>
+      q.eq("projectId", projectId).eq("scriptCombo.campaignId", campaignId),
+    )
     .collect();
   // TD-019 : surface de DÉCISION (verdicts de bulk-testing). Warmup exclu ICI,
   // à la source unique des échantillons → les médianes PAR VARIABLE et la
   // médiane de CAMPAGNE qui leur sert de référence sont filtrées d'un seul coup
   // (sinon le biais warmup est compté deux fois). Helper unique.
-  const scriptPubs = pubs.filter(
-    (p) =>
-      p.scriptCombo?.campaignId === campaignId &&
-      passesWarmupMode(p.isWarmup === true, warmupMode),
+  const scriptPubs = pubs.filter((p) =>
+    passesWarmupMode(p.isWarmup === true, warmupMode),
   );
-  const pubIds = new Set(scriptPubs.map((p) => p._id as string));
 
-  // Snapshots des SEULES publications concernées, regroupés par publication.
-  const allSnaps = await ctx.db
-    .query("metricSnapshots")
-    .withIndex("by_project", (q) => q.eq("projectId", projectId))
-    .collect();
-  const snapsByPub = new Map<string, Doc<"metricSnapshots">[]>();
-  for (const s of allSnaps) {
-    if (!pubIds.has(s.publicationId as string)) continue;
-    const arr = snapsByPub.get(s.publicationId as string);
-    if (arr) arr.push(s);
-    else snapsByPub.set(s.publicationId as string, [s]);
-  }
+  // Relevés des SEULES publications retenues, par publication. Tout leur
+  // historique (pas une plage J+X) : findMatchingSnapshot choisit sur le
+  // daysSincePublication STOCKÉ, la sélection reste donc celle d'avant.
+  const snapsByPub = new Map<string, Doc<"metricSnapshots">[]>(
+    await Promise.all(
+      scriptPubs.map(
+        async (p) =>
+          [
+            p._id as string,
+            await ctx.db
+              .query("metricSnapshots")
+              .withIndex("by_publication", (q) => q.eq("publicationId", p._id))
+              .collect(),
+          ] as const,
+      ),
+    ),
+  );
 
   const samples: ViewSample[] = [];
   for (const p of scriptPubs) {
