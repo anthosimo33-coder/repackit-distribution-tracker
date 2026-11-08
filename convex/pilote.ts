@@ -25,6 +25,7 @@ import { ERR, err } from "./errorCodes";
 import {
   assignScriptCampaignCore,
   comboCooldownDaysFor,
+  lecturesApercu,
   previewCombosCore,
   projectAssignmentsForCooldown,
 } from "./scripts";
@@ -155,11 +156,13 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
   const creatorById = new Map(creators.map((c) => [c._id as string, c]));
   const choisies = a.createatrices.filter((c) => creatorById.has(c.creatorId));
 
+  // Les missions du projet, lues UNE fois pour le plan ET pour chaque aperçu de
+  // tirage plus bas (cf lecturesApercu) : un aperçu par créatrice et par
+  // campagne qui relit tout le projet, c'est la limite des 32 000 documents
+  // passée dès une vingtaine de créatrices.
+  const lu = lecturesApercu(ctx);
   const [assignments, campaigns, pubs, bricks] = await Promise.all([
-    ctx.db
-      .query("assignments")
-      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
-      .collect(),
+    lu.missionsDuProjet(),
     ctx.db
       .query("scriptCampaigns")
       .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
@@ -283,7 +286,7 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
             videosPerCreator: slots.length,
             postDates: slots.map((s) => parisDayStart(s.jour)!),
             ...(exclues.length > 0 ? { excludedComboKeys: exclues } : {}),
-          })
+          }, lu)
         ).combos;
       } catch {
         combos = [];
