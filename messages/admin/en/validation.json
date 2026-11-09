@@ -69,7 +69,8 @@
     "refuseeLeCreateurPeutRe": "Rejected — the creator can submit again.",
     "echecDuRefusDeLa": "Couldn't reject the video",
     "hookLibre": "✍️ free hook",
-    "hookLibreAValider": "Free hook: the creator says the opening in their own words. Check the idea, not the example's wording."
+    "hookLibreAValider": "Free hook: the creator says the opening in their own words. Check the idea, not the example's wording.",
+    "envoyeeIlYa": "Sent {duree} ago"
   },
   "BonusRow": {
     "post": "{postCount} {postCount, plural, one {post} other {posts}}",
@@ -148,5 +149,31 @@
     "published": "Published",
     "rejected": "Rejected",
     "expired": "Expired"
+  },
+  "ReviewDelayCard": {
+    "titre": "Response time",
+    "explication": "From the moment the video is sent until “Approve” or “Reject”, nights and weekends included. A video sent again after a rejection counts as a new wait.",
+    "periode": "Period",
+    "septJours": "Last 7 days",
+    "septJoursAvant": "The 7 days before",
+    "trenteJours": "Last 30 days",
+    "videos": "Videos",
+    "moyenne": "Average",
+    "mediane": "Median",
+    "rapide": "Under 12h",
+    "plusLong": "Longest",
+    "pourcent": "{p}%",
+    "parPersonne": "By person (30 days)",
+    "sansNom": "No name",
+    "attenteEnCours": "Longest wait right now: {duree} ({createatrice}).",
+    "aucuneMesure": "No measurement yet: the delay is counted for every video sent since this tracking was set up, until “Approve” or “Reject”. Videos sent before have no send time.",
+    "mesureDepuis": "Measured since {date} — videos sent before have no send time."
+  },
+  "duree": {
+    "minutes": "{m} min",
+    "heures": "{h}h {m}",
+    "heuresRondes": "{h}h",
+    "jours": "{j}d {h}h",
+    "joursRonds": "{j}d"
   }
 }

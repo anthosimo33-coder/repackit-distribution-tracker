@@ -36,6 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { VideoExample } from "@/components/formats/VideoExample";
+import { ReviewDelayCard, useFormatDuree } from "@/components/admin/ReviewDelayCard";
 import { StreamPlayer } from "@/components/formats/StreamPlayer";
 import { ListPager } from "@/components/admin/ListPager";
 import { listPage } from "@/lib/list-page";
@@ -194,6 +195,15 @@ function ValidationPageInner() {
     api.assignments.listValidatedForBonus,
     droits.skipUnless("payments.manage", {}),
   );
+  // La vidéo de la file qui attend depuis le plus longtemps — seulement parmi
+  // celles dont l'entrée dans la file est connue (envoyées depuis la mesure).
+  const plusLongueAttente = (toReview ?? []).reduce<{ ms: number; createatrice: string } | null>(
+    (pire, a) =>
+      a.inReviewSince !== null && (pire === null || now - a.inReviewSince > pire.ms)
+        ? { ms: now - a.inReviewSince, createatrice: a.creatorName }
+        : pire,
+    null,
+  );
 
   return (
     <div className="space-y-8">
@@ -220,6 +230,9 @@ function ValidationPageInner() {
           )}
         </p>
       </header>
+
+      {/* ─── Temps de réponse ──────────────────────────────────────────────── */}
+      <ReviewDelayCard plusLongueAttente={plusLongueAttente} />
 
       {/* ─── Vidéos à valider ──────────────────────────────────────────────── */}
       <section className="space-y-3">
@@ -376,6 +389,7 @@ function VideoReviewCard({
   const showError = useConvexError();
   const loc = useIntlLocale();
   const tr = useTranslations("admin.validation.VideoReviewCard");
+  const duree = useFormatDuree();
   const approve = useProjectMutation(api.assignments.reviewVideoApprove);
   const reject = useProjectMutation(api.assignments.reviewVideoReject);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -491,6 +505,20 @@ function VideoReviewCard({
             <span className="text-xs text-slate-400">
               {tr("echeance", { date: formatDate(a.dueDate, loc) })}
             </span>
+            {/* Depuis quand elle attend — le temps de réponse en cours. Rien
+                pour une vidéo envoyée avant la mesure (heure inconnue). Au-delà
+                d'un jour, en ambre : la créatrice attend. */}
+            {a.inReviewSince !== null && (
+              <span
+                data-testid={`waiting-since-${a._id}`}
+                className={cn(
+                  "text-xs",
+                  now - a.inReviewSince > 86_400_000 ? "font-medium text-amber-700" : "text-slate-500",
+                )}
+              >
+                {tr("envoyeeIlYa", { duree: duree(Math.max(0, now - a.inReviewSince)) })}
+              </span>
+            )}
           </div>
         </div>
 

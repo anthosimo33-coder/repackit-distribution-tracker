@@ -112,6 +112,9 @@ export async function appliquerConfianceVideo(
       await ctx.db.patch(a._id, {
         status: a.reviewSkippedFrom,
         reviewSkippedFrom: undefined,
+        // Une vidéo soumise retourne dans la file : elle y ENTRE maintenant (le
+        // temps passé « à publier » n'attendait personne).
+        ...(a.reviewSkippedFrom === "video_submitted" ? { inReviewSince: Date.now() } : {}),
       });
     }
     moved++;

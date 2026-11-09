@@ -52,6 +52,9 @@ export async function poserVideoSoumise(
     submittedVideoStreamUid: undefined,
     submittedVideoStreamStatus: undefined,
     videoReviewFeedback: undefined,
+    // Entrée dans la file Validation : le départ du temps de réponse (un renvoi
+    // après refus est une nouvelle attente).
+    inReviewSince: Date.now(),
   });
   // TRANSCODING HEVC (hors chemin critique) : Cloudflare Stream récupère la
   // vidéo depuis l'URL signée Convex et la transcode. Sans env Cloudflare,
