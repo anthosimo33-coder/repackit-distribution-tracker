@@ -290,7 +290,7 @@ export const alertFormat = internalAction({
         "format radar",
         `🔥 Radar : un format démarre chez ${escapeTelegram(r.f.apps.join(", "))} — ${quoi}, repris par ${r.f.accounts} comptes, ` +
           `jusqu'à ${new Intl.NumberFormat("fr-FR").format(r.f.maxViews)} vues.` +
-          `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar?onglet=formats">Voir les formats</a>`,
+          `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar?onglet=explorer&amp;vue=formats">Voir les formats</a>`,
       );
     }
   },

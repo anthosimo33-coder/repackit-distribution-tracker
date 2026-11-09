@@ -8,6 +8,7 @@ import { api } from "@/convex/_generated/api";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useFormatLabel } from "@/components/admin/radar/radar-ui";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount, formatOutlierRatio, formatRelative } from "@/components/admin/radar/radar-format";
 
@@ -85,6 +86,8 @@ export function RadarFormats() {
 
 function FormatCard({ f }: { f: Format }) {
   const tr = useTranslations("admin.ops.RadarFormats");
+  // « Son original de @x » plutôt que « original sound - x ».
+  const formatLabel = useFormatLabel();
   const loc = useIntlLocale();
   const Icon = f.kind === "hook" ? TypeIcon : MusicIcon;
   return (
@@ -101,7 +104,7 @@ function FormatCard({ f }: { f: Format }) {
         </span>
       </div>
       <p className={cn("break-words text-slate-900", f.kind === "hook" ? "text-base font-semibold" : "text-sm font-medium")}>
-        {f.kind === "hook" ? tr("hookCite", { hook: f.label }) : f.label}
+        {formatLabel(f)}
       </p>
       <p className="text-xs text-slate-500">
         {tr("resume", { vues: formatCount(f.maxViews, loc), quand: formatRelative(f.lastPostAt, loc) })}

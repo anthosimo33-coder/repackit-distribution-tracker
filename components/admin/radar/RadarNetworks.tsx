@@ -18,7 +18,7 @@ import { formatCount, formatOutlierRatio, formatRelative } from "@/components/ad
 import { networkSearchPhase, type NetworkSearchOutcome, type NetworkSearchState } from "@/convex/radarNetworkSearch";
 
 type Networks = FunctionReturnType<typeof api.radarNetworks.listNetworks>;
-type AppRow = Networks["apps"][number];
+export type AppRow = Networks["apps"][number];
 type Candidate = FunctionReturnType<typeof api.radarNetworks.listCandidates>[number];
 
 const GROUPS: AppRow["group"][] = ["rival", "otherRival", "other"];
@@ -107,18 +107,18 @@ const ISSUE_KEY = {
   paused: "issue.paused",
 } as const satisfies Record<Exclude<NetworkSearchOutcome, "done">, string>;
 
-function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open: boolean; onToggle: () => void }) {
+/**
+ * Chercher le réseau d'une app tout de suite : la phase de sa recherche, et le
+ * clic qui la lance. Une recherche lancée d'ici annonce sa fin, même si on a
+ * fait défiler la page entre-temps.
+ */
+function useNetworkSearch(app: AppRow, now: number) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const loc = useIntlLocale();
   const showError = useConvexError();
   const searchNow = useProjectMutation(api.radarNetworks.searchAppNow);
-  const setStatus = useProjectMutation(api.radarNetworks.setAppStatus);
-  const paused = app.status === "paused";
   const ns = app.networkSearch;
   const phase = networkSearchPhase(ns, now);
-  const running = phase === "running";
-
-  // Une recherche lancée depuis cette carte annonce sa fin, même si on a fait défiler la page entre-temps.
   const asked = useRef<{ finishedAt: number | undefined } | null>(null);
   useEffect(() => {
     const a = asked.current;
@@ -131,6 +131,60 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
       (ns.outcome === "budget" || ns.outcome === "paused" ? toast.warning : toast.error)(tr("issueDeLApp", { app: app.name, issue }));
     }
   }, [ns, app.name, tr, loc]);
+
+  async function search() {
+    asked.current = { finishedAt: ns?.finishedAt };
+    try {
+      const r = await searchNow({ appId: app.id });
+      if (r === "running") toast.info(tr("rechercheDejaEnCours", { app: app.name }));
+    } catch (err) {
+      asked.current = null;
+      toast.error(showError(err, tr("rechercheImpossible")));
+    }
+  }
+  return { phase, running: phase === "running", search };
+}
+
+/** Le bouton « Chercher son réseau », même largeur dans ses deux états. */
+function SearchButton({ running, disabled, onClick }: { running: boolean; disabled: boolean; onClick: () => void }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || running}
+      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium disabled:opacity-50"
+    >
+      {running ? <Loader2Icon className="size-4 animate-spin" aria-hidden /> : <SearchIcon className="size-4" aria-hidden />}
+      {/* Même largeur dans les deux états : la ligne ne bouge pas quand la recherche part. */}
+      <span className="grid text-left">
+        <span className="invisible col-start-1 row-start-1" aria-hidden>
+          {tr("chercherSonReseau")}
+        </span>
+        <span className="col-start-1 row-start-1">{running ? tr("rechercheBouton") : tr("chercherSonReseau")}</span>
+      </span>
+    </button>
+  );
+}
+
+/** La recherche du réseau d'une app, pour sa fiche (Concurrents) : le bouton et où elle en est. */
+export function NetworkSearchBlock({ app, now }: { app: AppRow; now: number }) {
+  const { phase, running, search } = useNetworkSearch(app, now);
+  return (
+    <div className="flex flex-col items-start gap-1.5 sm:items-end">
+      <SearchButton running={running} disabled={app.status === "paused"} onClick={() => void search()} />
+      <SearchStatus app={app} phase={phase} />
+    </div>
+  );
+}
+
+function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open: boolean; onToggle: () => void }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  const loc = useIntlLocale();
+  const setStatus = useProjectMutation(api.radarNetworks.setAppStatus);
+  const paused = app.status === "paused";
+  const ns = app.networkSearch;
+  const { phase, running, search } = useNetworkSearch(app, now);
 
   return (
     <li
@@ -166,30 +220,7 @@ function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open:
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={async () => {
-              asked.current = { finishedAt: ns?.finishedAt };
-              try {
-                const r = await searchNow({ appId: app.id });
-                if (r === "running") toast.info(tr("rechercheDejaEnCours", { app: app.name }));
-              } catch (err) {
-                asked.current = null;
-                toast.error(showError(err, tr("rechercheImpossible")));
-              }
-            }}
-            disabled={paused || running}
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium disabled:opacity-50"
-          >
-            {running ? <Loader2Icon className="size-4 animate-spin" aria-hidden /> : <SearchIcon className="size-4" aria-hidden />}
-            {/* Même largeur dans les deux états : la ligne ne bouge pas quand la recherche part. */}
-            <span className="grid text-left">
-              <span className="invisible col-start-1 row-start-1" aria-hidden>
-                {tr("chercherSonReseau")}
-              </span>
-              <span className="col-start-1 row-start-1">{running ? tr("rechercheBouton") : tr("chercherSonReseau")}</span>
-            </span>
-          </button>
+          <SearchButton running={running} disabled={paused} onClick={() => void search()} />
           <button
             type="button"
             onClick={() => setStatus({ appId: app.id, status: paused ? "active" : "paused" })}
@@ -274,7 +305,7 @@ function SearchStatus({ app, phase }: { app: AppRow; phase: ReturnType<typeof ne
   );
 }
 
-function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appName: string }) {
+export function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appName: string }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const loc = useIntlLocale();
   const showError = useConvexError();

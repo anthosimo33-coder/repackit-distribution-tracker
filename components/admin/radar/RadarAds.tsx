@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatPublished } from "@/components/admin/radar/radar-format";
+import { groupAds, type AdGroup } from "@/convex/radarDisplay";
 
 type Ad = FunctionReturnType<typeof api.radarSources.listAds>[number];
 type PlatformFilter = "all" | Ad["platform"];
@@ -17,10 +18,10 @@ type PlatformFilter = "all" | Ad["platform"];
 const PLATFORMS: PlatformFilter[] = ["all", "meta", "tiktok"];
 
 /**
- * NOUVEAU RADAR — les pubs des apps suivies (bibliothèques TikTok et Meta). Une
- * pub qui tourne depuis longtemps est un format que l'app paie pour pousser :
- * concurrentes du projet d'abord, actives d'abord, puis les plus longues
- * (convex/radarSources.listAdsCore).
+ * RADAR — les pubs des apps suivies (bibliothèques TikTok et Meta), une ligne
+ * par CRÉA : les annonces d'une même créa (même app, annonceur et texte) sont
+ * regroupées (radarDisplay.groupAds). Une pub qui tourne depuis longtemps est un
+ * format que l'app paie pour pousser : concurrentes d'abord, actives d'abord.
  */
 export function RadarAds() {
   const tr = useTranslations("admin.ops.RadarAds");
@@ -31,7 +32,7 @@ export function RadarAds() {
   const [rivalOnly, setRivalOnly] = useState(false);
 
   if (ads === undefined) return <Skeleton className="h-96 w-full" />;
-  const shown = ads.filter((a) => (platform === "all" || a.platform === platform) && (!activeOnly || a.active) && (!rivalOnly || a.rival));
+  const shown = groupAds(ads.filter((a) => (platform === "all" || a.platform === platform) && (!activeOnly || a.active) && (!rivalOnly || a.rival)));
 
   return (
     <div className="space-y-5">
@@ -69,8 +70,8 @@ export function RadarAds() {
         </div>
       ) : (
         <ul className="grid gap-3 lg:grid-cols-2">
-          {shown.map((a) => (
-            <AdCard key={a.id} a={a} />
+          {shown.map((g) => (
+            <AdGroupCard key={g.key} g={g} />
           ))}
         </ul>
       )}
@@ -78,27 +79,35 @@ export function RadarAds() {
   );
 }
 
-function AdCard({ a }: { a: Ad }) {
+/** Une créa : son app, depuis quand elle tourne, son texte, combien d'annonces la portent. */
+export function AdGroupCard({ g }: { g: AdGroup<Ad> }) {
   const tr = useTranslations("admin.ops.RadarAds");
   const key = (k: string) => k as Parameters<typeof tr>[0];
   const loc = useIntlLocale();
+  const a = g.lead;
+  const active = g.activeCount > 0;
   return (
     <li className="min-w-0 space-y-2 rounded-xl border border-slate-200 bg-white p-4" data-testid="radar-pub">
       <div className="flex flex-wrap items-center gap-1.5 text-xs">
         <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-700">{tr(key(`plateformes.${a.platform}`))}</span>
         {a.app && <span className={cn("rounded-md px-1.5 py-0.5 font-semibold", a.rival ? "bg-orange-500 text-slate-950" : "bg-slate-900 text-white")}>{a.app}</span>}
-        <span className={cn("rounded-md px-1.5 py-0.5 font-semibold", a.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
-          {a.active ? tr("active") : tr("arretee")}
+        <span className={cn("rounded-md px-1.5 py-0.5 font-semibold", active ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500")}>
+          {active ? tr("active") : tr("arretee")}
         </span>
         <span className="truncate text-slate-500">{a.advertiser}</span>
       </div>
       <p className="text-sm font-semibold text-slate-900">
-        {a.runDays !== null ? tr("tourneDepuis", { n: a.runDays }) : tr("dureeInconnue")}
-        {a.firstShownAt !== null && <span className="font-normal text-slate-500"> · {tr("depuisLe", { date: formatPublished(a.firstShownAt, loc) })}</span>}
+        {g.runDays !== null ? tr("tourneDepuis", { n: g.runDays }) : tr("dureeInconnue")}
+        {g.firstShownAt !== null && <span className="font-normal text-slate-500"> · {tr("depuisLe", { date: formatPublished(g.firstShownAt, loc) })}</span>}
       </p>
-      {a.text && <p className="line-clamp-4 break-words text-sm text-slate-700">{a.text}</p>}
+      {g.text ? <p className="line-clamp-4 break-words text-sm text-slate-700">{g.text}</p> : <p className="text-sm italic text-slate-500">{tr("texteDeCatalogue")}</p>}
       <p className="text-xs text-slate-500">
-        {[a.variants !== null ? tr("variantes", { n: a.variants }) : null, a.audience ? tr("audience", { n: a.audience }) : null, a.platforms.length ? a.platforms.join(", ") : null]
+        {[
+          g.ads.length > 1 ? tr("annonces", { n: g.ads.length, actives: g.activeCount }) : null,
+          a.variants !== null ? tr("variantes", { n: a.variants }) : null,
+          a.audience ? tr("audience", { n: a.audience }) : null,
+          a.platforms.length ? a.platforms.join(", ") : null,
+        ]
           .filter(Boolean)
           .join(" · ")}
       </p>

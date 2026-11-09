@@ -11,7 +11,7 @@ const admin = createE2eClient(convexUrl);
 const HOUR = 3_600_000;
 
 /**
- * Nouveau Radar — écran Signaux, Budget, outil MCP `signaux`.
+ * Radar — Explorer › Vidéos (ex-écran Signaux), Budget (dans Réglages), outil MCP `signaux`.
  *
  * Les signaux sont GLOBAUX (pas de projet) : chaque test sème les siens sous un
  * marqueur unique, les isole par la recherche, et les efface à la fin. Les
@@ -47,73 +47,86 @@ function semis(ts: number) {
 }
 
 test.describe("Nouveau Radar — Signaux", () => {
-  test("filtres combinés, vide avec sortie, statuts, détail, vues enregistrées, adresse", async ({ page }) => {
+  test("Explorer : filtres combinés, vide avec sortie, passer/garder/à adapter, courbe, vues enregistrées, adresse", async ({ page }) => {
     test.setTimeout(150_000);
     const ts = Date.now();
     const { marqueur, signaux } = semis(ts);
     await admin.mutation(api.radarSignals.e2eSeedSignals, { secret: E2E_SECRET, signals: signaux, rivalProject: E2E_PROJECT_SLUG });
     try {
       const compte = page.getByTestId("radar-signaux-compte");
+      const ligne = (handle: string) => page.getByTestId("radar-signal").filter({ hasText: `@${handle}_${ts}` });
+      // Un lien qui porte des filtres (ancien écran Signaux) ouvre Explorer › Vidéos.
       await page.goto(adminPath(`/radar?q=${marqueur}`));
+      await expect(page.getByRole("link", { name: /^Explorer/ })).toHaveAttribute("aria-current", "page");
       // 7 jours par défaut : la vidéo The Ick (51 jours) n'y est pas.
       await expect(compte).toHaveText("4 vidéos");
 
-      // OU dans un groupe.
+      // OU dans un groupe : deux langues cochées dans le menu Langue.
+      await page.getByRole("button", { name: /^Langue/ }).click();
       await page.getByRole("checkbox", { name: /^Français/ }).check();
       await expect(compte).toHaveText("1 vidéo");
       await expect(page).toHaveURL(/[?&]l=fr(&|$)/);
       await page.getByRole("checkbox", { name: /^Portugais/ }).check();
       await expect(compte).toHaveText("2 vidéos");
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("button", { name: /^Langue\s*2 choisies/ })).toBeVisible();
       await expect(page.getByRole("button", { name: "Retirer le filtre Langue : Portugais (Brésil)" })).toBeVisible();
       // Aucun concurrent en français ou portugais sur 7 jours : la case ne se coche pas.
+      await page.getByRole("button", { name: /^Origine/ }).click();
       await expect(page.getByRole("checkbox", { name: /^Concurrents/ })).toBeDisabled();
+      await page.keyboard.press("Escape");
 
-      // ET avec le seuil : 93× et 123×, aucune à 200× → vide, avec la sortie chiffrée.
-      await page.getByText("200× et plus", { exact: false }).first().click();
+      // ET avec le seuil (derrière « Plus de filtres ») : 93× et 123×, aucune à 200× → vide, avec la sortie chiffrée.
+      await page.getByRole("button", { name: /^Plus de filtres/ }).click();
+      await page.getByRole("radio", { name: /^200× ses abonnés et plus/ }).check();
+      await page.keyboard.press("Escape");
       await expect(compte).toHaveText("0 vidéo");
       await expect(page.getByText("Aucune vidéo ne passe tous ces filtres.")).toBeVisible();
-      await page.getByRole("button", { name: "Retirer « Sortie du lot » (2)" }).click();
+      await page.getByRole("button", { name: "Retirer « Vues ÷ abonnés » (2)" }).click();
       await expect(compte).toHaveText("2 vidéos");
 
-      // Ignorer, puis annuler.
+      // Passer, puis annuler depuis le message.
       await page.getByRole("button", { name: "Retirer le filtre Langue : Français" }).click();
       await page.getByRole("button", { name: "Retirer le filtre Langue : Portugais (Brésil)" }).click();
       await expect(compte).toHaveText("4 vidéos");
-      await page.getByRole("button", { name: `Ignorer la vidéo de @thefern.app_${ts}` }).click();
+      await page.getByRole("button", { name: `Passer la vidéo de @thefern.app_${ts}` }).click();
       await expect(compte).toHaveText("3 vidéos");
-      await expect(page.getByRole("status")).toContainText(`@thefern.app_${ts}`);
-      await page.getByRole("button", { name: "Annuler" }).click();
+      const message = page.locator("[data-sonner-toast]").filter({ hasText: `@thefern.app_${ts}` });
+      await expect(message).toContainText("passée");
+      await message.getByRole("button", { name: "Annuler" }).click();
       await expect(compte).toHaveText("4 vidéos");
 
-      // Enregistrer : statut serveur, qui tient au rechargement.
-      const carte = page.getByTestId("radar-signal").filter({ hasText: `@arpegesauvage_${ts}` });
-      await carte.getByRole("button", { name: "Enregistrer" }).click();
-      await expect(carte.getByRole("button", { name: "Retirer des enregistrées" })).toHaveAttribute("aria-pressed", "true");
+      // Garder : statut serveur, qui tient au rechargement.
+      const arpege = ligne("arpegesauvage");
+      await arpege.getByRole("button", { name: `Garder la vidéo de @arpegesauvage_${ts}`, exact: true }).click();
+      await expect(arpege.getByRole("button", { name: `Ne plus garder la vidéo de @arpegesauvage_${ts}` })).toHaveAttribute("aria-pressed", "true");
       await page.reload();
       await expect(compte).toHaveText("4 vidéos");
-      await expect(carte.getByText("Enregistrée", { exact: true })).toBeVisible();
+      await expect(arpege.getByTestId("radar-statut")).toHaveText("Gardée");
 
-      // Le détail : la courbe (H+6 → H+21, +176 %), et le statut posé de là.
-      await page.getByRole("button", { name: `Voir le détail de la vidéo de @arpegesauvage_${ts}` }).click();
-      const courbe = page.getByTestId("radar-courbe");
-      await expect(courbe.getByRole("listitem")).toHaveCount(2);
-      await expect(courbe).toContainText("H+6");
-      await expect(courbe).toContainText("H+21");
-      await expect(courbe).toContainText("+176 %");
-      await page.getByRole("radio", { name: "Adaptée" }).click();
-      await expect(page.getByRole("radio", { name: "Adaptée" })).toHaveAttribute("aria-checked", "true");
+      // La regarder en grand : la courbe (H+6 → H+21, +176 %), puis « à adapter » au clavier.
+      await arpege.getByRole("button", { name: `Regarder la vidéo de @arpegesauvage_${ts}` }).click();
+      const viewer = page.getByTestId("radar-viewer");
+      const courbe = viewer.getByTestId("radar-courbe");
+      await expect(courbe.getByRole("img")).toHaveAttribute("aria-label", /H\+6 61,2\sk.*H\+21 168,\d\sk/);
+      await expect(courbe).toContainText("+176 % entre H+6 et H+21");
+      await viewer.press("a");
+      await expect(page.locator("[data-sonner-toast]").filter({ hasText: `@arpegesauvage_${ts}` }).filter({ hasText: "à adapter" })).toBeVisible();
       await page.keyboard.press("Escape");
-      await expect(carte.getByText("Adaptée", { exact: true })).toBeVisible();
+      await expect(viewer).toHaveCount(0);
+      await expect(arpege.getByTestId("radar-statut")).toHaveText("À adapter");
 
       // Une vue enregistrée : concurrents sur 90 jours (la recherche saute, l'adresse suit).
+      await page.getByRole("button", { name: /^Vue/ }).click();
       await page.getByRole("button", { name: "Concurrents · 90 j" }).click();
+      await page.keyboard.press("Escape");
       await expect(page).toHaveURL(/o=concurrent/);
       await expect(page).toHaveURL(/age=90/);
-      await expect(page.getByTestId("radar-signal").filter({ hasText: `@s.ecrettacc.vero_${ts}` })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Concurrents · 90 j" })).toHaveAttribute("aria-pressed", "true");
+      await expect(ligne("s.ecrettacc.vero")).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Vue\s*Concurrents · 90 j/ })).toBeVisible();
       await page.reload();
-      await expect(page.getByTestId("radar-signal").filter({ hasText: `@s.ecrettacc.vero_${ts}` })).toBeVisible();
-      await expect(page.getByTestId("radar-signal").filter({ hasText: `@arpegesauvage_${ts}` })).toHaveCount(0);
+      await expect(ligne("s.ecrettacc.vero")).toBeVisible();
+      await expect(ligne("arpegesauvage")).toHaveCount(0);
     } finally {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: marqueur });
     }
@@ -127,7 +140,8 @@ test.describe("Nouveau Radar — Signaux", () => {
       await page.goto(adminPath("/radar?onglet=budget"));
       await expect(page.getByTestId("radar-budget-depense")).toHaveText(/^4,00\s\$$/);
       // Pas de clé ScrapeCreators en e2e : la collecte se dit en pause.
-      await expect(page.getByText(/Collecte en pause/)).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: /Collecte en pause/ })).toBeVisible();
+      await expect(page.getByTestId("radar-etat")).toHaveText("Collecte en pause : pas de clé ScrapeCreators");
       // Défaut : recherche (3,38 $) + courbe 100 vidéos/jour (16,92 $) + 2 000 relevés de
       // comptes/jour (112,80 $) + réseaux (22,56 $) + Instagram 300/jour (16,92 $)
       // + transcriptions 50/jour (2,82 $) + pubs (2,82 $) = 178,22 $ prévus sur 300 $.
