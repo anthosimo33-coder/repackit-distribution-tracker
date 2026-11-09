@@ -84,6 +84,8 @@ export type TrackerPost = {
     availability: CollectAvailability;
     reason: string | null;
     failureStreak: number;
+    /** Compteur masqué sous ce seuil (Snapchat : 1 000) ; null sinon. */
+    maskedBelow?: number | null;
   };
   /** Qualification éditoriale TRI-ÉTAT (warmup / promo / jamais qualifié).
    *  Distincte d'`isWarmup` ci-dessus, qui est un booléen et confond donc
@@ -106,25 +108,43 @@ export type TrackerPost = {
  *
  * Sans `collect` (producteurs qui ne le renseignent pas), le comportement est
  * EXACTEMENT l'ancien : on affiche l'enfant.
+ *
+ * Compteur MASQUÉ (Snapchat sous 1 000) : la cellule des VUES dit « < 1 000 » —
+ * c'est tout ce qu'on sait, et c'est plus qu'un tiret. Les autres cellules
+ * (likes, commentaires, engagement) gardent le tiret : rien n'a été relevé.
  */
 function Mesure({
   post,
+  vues = false,
   children,
 }: {
   post: TrackerPost;
+  /** Cellule des vues : la seule où un compteur masqué a quelque chose à dire. */
+  vues?: boolean;
   children: React.ReactNode;
 }) {
   const tr = useTranslations("admin.common.Mesure");
+  const loc = useIntlLocale();
   const c = post.collect;
   if (c === undefined || showsMetric(c.availability)) return <>{children}</>;
-  const label = collectAvailabilityLabel(c.availability, c.reason ?? undefined, {
-    pending: tr("pending"),
-    failed: tr("failed"),
-    failedWithReason: (reason) => tr("failedWithReason", { reason }),
-  });
+  const below =
+    c.availability === "masked" && c.maskedBelow != null
+      ? formatNumber(c.maskedBelow, loc)
+      : undefined;
+  const label = collectAvailabilityLabel(
+    c.availability,
+    c.reason ?? undefined,
+    {
+      pending: tr("pending"),
+      failed: tr("failed"),
+      failedWithReason: (reason) => tr("failedWithReason", { reason }),
+      masked: (n) => tr("masked", { below: n }),
+    },
+    below,
+  );
   return (
     <span className="text-muted-foreground" title={label ?? undefined}>
-      —
+      {vues && below !== undefined ? tr("maskedCell", { below }) : "—"}
     </span>
   );
 }
@@ -267,7 +287,9 @@ export function PostsList({
                   </div>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
-                  <Mesure post={p}>{formatNumber(p.vues, loc)}</Mesure>
+                  <Mesure post={p} vues>
+                    {formatNumber(p.vues, loc)}
+                  </Mesure>
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-sm">
                   <Mesure post={p}>{formatNumber(p.likes, loc)}</Mesure>

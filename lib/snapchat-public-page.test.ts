@@ -8,6 +8,7 @@ import {
   snapchatProfileUrl,
   snapchatSpotlightId,
 } from "../convex/snapchatPublicPage";
+import { ID_KELLY, pageRsc, rscVideo } from "./__fixtures__/snapchat-rsc-page";
 
 /**
  * Pages recopiées d'une page RÉELLE relevée le 2026-09-25
@@ -149,6 +150,76 @@ describe("parseSnapchatSpotlightPage — le Spotlight demandé, jamais un autre"
     expect(parseSnapchatSpotlightPage("<html><body>captcha</body></html>", ID_DRL)).toMatchObject({
       kind: "unreadable",
     });
+  });
+});
+
+describe("parseSnapchatSpotlightPage — forme RSC (servie depuis le 02/11/2026)", () => {
+  const ATTENDU = {
+    kind: "stats",
+    stats: {
+      views: 12_467,
+      likes: 275,
+      comments: 3,
+      shares: 24,
+      uploadedAt: 1_793_458_546_876,
+      creatorHandle: "thekellychapter",
+    },
+  };
+
+  it("recolle les morceaux du flux et lit NOTRE vidéo : likes = likeCount", () => {
+    expect(parseSnapchatSpotlightPage(pageRsc({}), ID_KELLY)).toEqual(ATTENDU);
+  });
+
+  it("retrouve la vidéo par son id quand le fil passe AVANT elle", () => {
+    expect(parseSnapchatSpotlightPage(pageRsc({ filDabord: true }), ID_KELLY)).toEqual(ATTENDU);
+  });
+
+  it("lien court (id inconnu) : la vidéo que la page annonce (`videoId`)", () => {
+    expect(parseSnapchatSpotlightPage(pageRsc({ filDabord: true }), null)).toEqual(ATTENDU);
+  });
+
+  it("un id absent de la page → illisible, jamais les compteurs d'une voisine", () => {
+    const r = parseSnapchatSpotlightPage(
+      pageRsc({}),
+      "W7_EDlXWTBiXAEEniNoMPwAAYZZZZZZZZZZZZZZAAAAAQ",
+    );
+    expect(r.kind).toBe("unreadable");
+  });
+
+  it("0 vue affiché pour un Spotlight aimé : compteur MASQUÉ, pas un zéro", () => {
+    const masquee = rscVideo({ id: ID_KELLY, username: "thekellychapter", viewCount: 0, likeCount: 21 });
+    const r = parseSnapchatSpotlightPage(pageRsc({ video: masquee }), ID_KELLY);
+    expect(r.kind).toBe("hidden");
+    if (r.kind !== "hidden") return;
+    expect(r.reason).toContain("masque");
+    expect(r.reason).toContain("21 j'aime");
+    // Ce qu'on sait quand même : moins de 1 000 vues.
+    expect(r.viewsBelow).toBe(1000);
+  });
+
+  it("page servie SANS la vidéo (Spotlight retiré ou pas public) : masquée, pas illisible", () => {
+    const r = parseSnapchatSpotlightPage(pageRsc({ video: null }), ID_KELLY);
+    expect(r).toMatchObject({
+      kind: "hidden",
+      reason: expect.stringContaining("sans la vidéo"),
+    });
+    // ABSENCE : rien ne dit qu'elle a moins de 1 000 vues — pas de seuil inventé.
+    if (r.kind !== "hidden") return;
+    expect(r.viewsBelow).toBeUndefined();
+  });
+
+  it("lien court suivi jusqu'à la page RSC : l'id relu dans l'URL finale", async () => {
+    const r = await fetchSnapchatSpotlightStats(
+      "https://snapchat.com/t/1ChMjkFA",
+      null,
+      (async () =>
+        reponse(
+          pageRsc({}),
+          200,
+          `https://www.snapchat.com/@thekellychapter/spotlight/${ID_KELLY}?type=t1&locale=fr_FR`,
+        )) as unknown as typeof fetch,
+    );
+    expect(r).toEqual(ATTENDU);
   });
 });
 

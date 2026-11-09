@@ -61,6 +61,7 @@
     "admin.common.McpAccessDialog.section.playbook",
     "admin.common.McpAccessDialog.section.radar",
     "admin.common.McpAccessDialog.section.tracker",
+    "admin.common.Mesure.maskedCell",
     "admin.common.PayCurrencyWarning.paycurrency",
     "admin.common.PayCurrencyWarning.projectsSetprojectcurrencybyslug",
     "admin.common.PostsList.comm",

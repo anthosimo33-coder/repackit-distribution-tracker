@@ -30,6 +30,31 @@
  *
  * Un Spotlight supprimé rend un HTTP 404 : c'est une RÉPONSE de Snapchat, pas un
  * blocage — il ne doit pas faire sauter le coupe-circuit.
+ *
+ * ── Nouvelle forme, relevée le 2026-11-09 (en service depuis le 02/11) ──────
+ * Snapchat est passé à l'App Router de Next : plus de `__NEXT_DATA__` sur les
+ * pages Spotlight (le profil, lui, le garde). Les données sont dans le flux RSC,
+ * des morceaux de chaîne à RECOLLER avant de lire — un morceau peut couper un
+ * objet en deux :
+ *   <script>self.__next_f.push([1,"…"])</script>  (×18 environ)
+ * Le flux recollé porte le composant principal
+ *   {"username":"thekellychapter","videoId":<id>,"video":{"id":<id>,
+ *    "rawSnapId":<id>,"postingUsername":"thekellychapter",
+ *    "uploadTimestampMs":"1793553807572","viewCount":12467,"likeCount":275,
+ *    "commentCount":0,"recommendCount":23,"shareCount":24}, …}
+ * puis le fil « à suivre », dont les `"video":{…}` d'AUTRES autrices (id
+ * « 35::… », rawSnapId distinct). Compteurs en NOMBRES ; `likeCount` est le
+ * cœur (l'ancien `boostCount`). Du 02 au 09/11, chaque nuit est tombée sur
+ * « payload __NEXT_DATA__ absent » : 5 pages, coupe-circuit, plus rien.
+ *
+ * Deux réponses de Snapchat qui ne sont PAS des vues, vues sur les posts de
+ * Kelly le 09/11 :
+ * - `viewCount: 0` sur des Spotlight aimés ~20 fois : Snapchat masque les vues
+ *   sous 1 000 (cf `SNAPCHAT_VIEWS_MASKED_BELOW`). Un zéro écrit serait faux
+ *   (et payé zéro) ; on rend `hidden` avec `viewsBelow`, l'écran dit « < 1 000 ».
+ * - la page servie SANS la vidéo (composant principal sans `video`, og:title
+ *   « Snapchat ») : Spotlight retiré ou pas encore public. `hidden` aussi.
+ * Ni l'une ni l'autre n'alimente le coupe-circuit : la page a été servie.
  */
 
 import { toCount } from "./apifyItem";
@@ -61,8 +86,32 @@ export type SnapchatPageResult =
    * de Spotlight par son autrice. Un fait à AFFICHER, pas un aléa à réessayer.
    */
   | { kind: "gone"; reason: string }
+  /**
+   * Page servie normalement, mais Snapchat n'y montre pas les vues de CE
+   * Spotlight (compteur à 0, ou vidéo absente de sa propre page). Un échec
+   * motivé, pas un blocage : il ne fait pas avancer le coupe-circuit.
+   */
+  | {
+      kind: "hidden";
+      reason: string;
+      /**
+       * Compteur masqué : ce qu'on sait quand même, « moins de N vues »
+       * (`SNAPCHAT_VIEWS_MASKED_BELOW`). Absent quand la vidéo manque à sa page :
+       * là, on ne sait rien de ses vues.
+       */
+      viewsBelow?: number;
+    }
   /** Page illisible (blocage, réseau, payload absent ou cassé). */
   | { kind: "unreadable"; reason: string };
+
+/**
+ * Sous ce nombre de vues, Snapchat MASQUE le compteur d'un Spotlight : 0 sur sa
+ * page, -1 dans la liste du profil (`spotlightStoryMetadata`). Constaté le
+ * 09/11/2026 : sur les 33 posts Snapchat de la prod, le plus petit relevé est
+ * 1 036, et aucune des 224 vidéos des pages lues ne montre un compteur entre 1
+ * et 999. Un post masqué a donc moins de 1 000 vues — c'est tout ce qu'on sait.
+ */
+export const SNAPCHAT_VIEWS_MASKED_BELOW = 1000;
 
 const NEXT_DATA_RE =
   /<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/;
@@ -111,8 +160,126 @@ function pagePropsOf(html: string): Record<string, unknown> | string {
   return Object.keys(pp).length === 0 ? "pageProps absent" : pp;
 }
 
+/** Un morceau du flux RSC : `self.__next_f.push([1,"…"])`. */
+const FLIGHT_PUSH_RE = /self\.__next_f\.push\((\[[\s\S]*?\])\)<\/script>/g;
+
 /**
- * Lit les compteurs du Spotlight `snapId` dans le HTML de sa page.
+ * Le flux RSC recollé, ou null si la page n'en porte pas. Seuls les morceaux
+ * `[1, chaîne]` sont des données (`[0]` ouvre le flux, `[2,…]` le formulaire).
+ */
+function flightOf(html: string): string | null {
+  let flight = "";
+  let found = false;
+  for (const m of html.matchAll(FLIGHT_PUSH_RE)) {
+    let push: unknown;
+    try {
+      push = JSON.parse(m[1]);
+    } catch {
+      continue;
+    }
+    if (Array.isArray(push) && push[0] === 1 && typeof push[1] === "string") {
+      flight += push[1];
+      found = true;
+    }
+  }
+  return found ? flight : null;
+}
+
+/**
+ * L'objet JSON qui s'ouvre à `start` (une `{`), lu jusqu'à son accolade
+ * fermante — les accolades DANS les chaînes (légendes, URL) ne comptent pas.
+ */
+function objectAt(text: string, start: number): Record<string, unknown> | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{") depth += 1;
+    else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return asRecord(JSON.parse(text.slice(start, i + 1)));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Tous les `"video":{…}` du flux : la vidéo principale ET celles du fil. */
+function flightVideos(flight: string): Record<string, unknown>[] {
+  const videos: Record<string, unknown>[] = [];
+  for (const m of flight.matchAll(/"video":\{/g)) {
+    const v = objectAt(flight, m.index + m[0].length - 1);
+    if (v !== null) videos.push(v);
+  }
+  return videos;
+}
+
+/** Compteurs du Spotlight `snapId` dans le flux RSC (forme du 2026-11-09). */
+function parseSpotlightFlight(
+  flight: string,
+  snapId: string | null,
+): SnapchatPageResult {
+  // Lien court sans id : la vidéo que la page annonce comme la sienne.
+  const id = snapId ?? /"videoId":"([^"]+)"/.exec(flight)?.[1] ?? null;
+  if (id === null) {
+    return { kind: "unreadable", reason: "Spotlight principal introuvable dans le flux" };
+  }
+  const video = flightVideos(flight).find((v) => v.id === id || v.rawSnapId === id);
+  if (video === undefined) {
+    // Garde-fou dur : plutôt rien que les compteurs d'un autre Spotlight.
+    return flight.includes(`"videoId":${JSON.stringify(id)}`)
+      ? {
+          kind: "hidden",
+          reason: "Snapchat sert la page sans la vidéo (Spotlight retiré ou pas encore public)",
+        }
+      : { kind: "unreadable", reason: `Spotlight ${id.slice(0, 12)}… absent de sa propre page` };
+  }
+  const views = toCount(video.viewCount);
+  if (views === null) {
+    return { kind: "unreadable", reason: "viewCount absent ou illisible" };
+  }
+  const likes = toCount(video.likeCount);
+  if (views === 0) {
+    return {
+      kind: "hidden",
+      reason:
+        likes !== null && likes > 0
+          ? `Snapchat masque les vues de ce Spotlight (0 affiché pour ${likes} j'aime)`
+          : "Snapchat masque les vues de ce Spotlight (0 affiché)",
+      viewsBelow: SNAPCHAT_VIEWS_MASKED_BELOW,
+    };
+  }
+  const handle = video.postingUsername;
+  return {
+    kind: "stats",
+    stats: {
+      views,
+      likes,
+      comments: toCount(video.commentCount),
+      shares: toCount(video.shareCount),
+      uploadedAt: toCount(video.uploadTimestampMs),
+      creatorHandle: typeof handle === "string" && handle !== "" ? handle : null,
+    },
+  };
+}
+
+/**
+ * Lit les compteurs du Spotlight `snapId` dans le HTML de sa page — forme
+ * `__NEXT_DATA__` (jusqu'au 02/11/2026) ou flux RSC (depuis), selon ce que la
+ * page porte.
  *
  * `snapId` null = lien court dont la redirection n'a pas livré l'identifiant :
  * on lit alors la vidéo PRINCIPALE de la page (`pageProps.videoMetadata`), et on
@@ -123,6 +290,12 @@ export function parseSnapchatSpotlightPage(
   html: string,
   snapId: string | null,
 ): SnapchatPageResult {
+  if (!NEXT_DATA_RE.test(html)) {
+    const flight = flightOf(html);
+    return flight !== null
+      ? parseSpotlightFlight(flight, snapId)
+      : { kind: "unreadable", reason: "payload absent (ni __NEXT_DATA__ ni flux __next_f)" };
+  }
   const pp = pagePropsOf(html);
   if (typeof pp === "string") return { kind: "unreadable", reason: pp };
 

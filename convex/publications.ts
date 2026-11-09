@@ -1027,6 +1027,7 @@ export async function retrackPublication(
     lastCollectFailureAt: undefined,
     collectFailureStreak: undefined,
     lastCollectFailureReason: undefined,
+    viewsMaskedBelow: undefined,
   });
   // Remet les champs dénormalisés en cohérence : plus aucun snapshot ⇒ tous les
   // « latest » sont effacés (le helper le fait déjà, on ne le redouble pas ici).

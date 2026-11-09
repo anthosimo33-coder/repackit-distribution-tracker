@@ -826,6 +826,14 @@ export default defineSchema({
      * permet à l'écran de dire pourquoi, au lieu d'afficher « 0 vue ».
      */
     lastCollectFailureReason: v.optional(v.string()),
+    /**
+     * COMPTEUR MASQUÉ par la plateforme : on sait seulement qu'il y a MOINS de
+     * ce nombre de vues. Posé par le dernier échec quand il le sait (Snapchat
+     * masque sous 1 000, cf `SNAPCHAT_VIEWS_MASKED_BELOW`), effacé par tout
+     * autre échec et par le premier relevé réussi. L'écran dit « < 1 000 » au
+     * lieu d'un tiret ; la paie, elle, n'y voit toujours aucune mesure.
+     */
+    viewsMaskedBelow: v.optional(v.number()),
     // ─── LIEN D'UN AUTRE COMPTE — le post collé n'est pas à elle ─────────────
     // Posé quand le relevé rend, pour ce lien Instagram ou TikTok, un auteur
     // PROUVÉ étranger au compte (cf convex/postOwner.ts) : le relevé n'écrit

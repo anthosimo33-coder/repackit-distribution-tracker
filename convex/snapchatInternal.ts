@@ -43,7 +43,11 @@ export type SnapchatOutcome = {
   releves: string[];
   /** Spotlight introuvables (404) — échec persisté, définitif. */
   gone: number;
-  /** Pages illisibles — échec persisté avec le motif. */
+  /**
+   * Pages illisibles, ou servies sans les vues du Spotlight (`hidden` : compteur
+   * masqué, vidéo absente) — échec persisté avec le motif. Seules les
+   * illisibles font avancer le coupe-circuit (cf `nextBreaker`).
+   */
   failed: number;
   /** Non tentés faute de temps : ni échec, ils attendent le relevé suivant. */
   nonTentes: SnapchatTarget[];
@@ -120,6 +124,10 @@ export async function collectSnapchatInternally(
         publicationId: t.publicationId,
         at: capturedAt,
         reason: r.reason,
+        // Compteur masqué : l'écran dira « < 1 000 » au lieu d'un tiret.
+        ...(r.kind === "hidden" && r.viewsBelow !== undefined
+          ? { viewsMaskedBelow: r.viewsBelow }
+          : {}),
       });
       continue;
     }

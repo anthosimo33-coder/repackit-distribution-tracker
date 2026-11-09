@@ -30,6 +30,13 @@ export type CollectAvailability =
   | "measured"
   /** Jamais relevée et jamais en échec — publiée trop récemment, ça vient. */
   | "pending"
+  /**
+   * La plateforme MASQUE le compteur : on sait seulement « moins de N vues »
+   * (`publications.viewsMaskedBelow` ; Snapchat sous 1 000). Toujours PAS une
+   * mesure — la paie la compte comme non mesurée —, mais pas une ignorance
+   * totale non plus : l'écran dit « < 1 000 » au lieu d'un tiret.
+   */
+  | "masked"
   /** La collecte a échoué. `lastCollectFailureReason` dit pourquoi. */
   | "failed";
 
@@ -39,6 +46,8 @@ export type CollectState = {
   latestSnapshotAt?: number;
   /** `publications.collectFailureStreak` — échecs consécutifs. */
   collectFailureStreak?: number;
+  /** `publications.viewsMaskedBelow` — compteur masqué sous ce seuil. */
+  viewsMaskedBelow?: number;
 };
 
 /**
@@ -51,7 +60,8 @@ export type CollectState = {
  */
 export function collectAvailability(pub: CollectState): CollectAvailability {
   if (pub.latestSnapshotAt !== undefined) return "measured";
-  return (pub.collectFailureStreak ?? 0) > 0 ? "failed" : "pending";
+  if ((pub.collectFailureStreak ?? 0) === 0) return "pending";
+  return pub.viewsMaskedBelow !== undefined ? "masked" : "failed";
 }
 
 /**
@@ -66,6 +76,8 @@ export type CollectAvailabilityCopy = {
   pending: string;
   failed: string;
   failedWithReason: (reason: string) => string;
+  /** « Moins de 1 000 vues — Snapchat masque… » ; `below` déjà formaté. */
+  masked?: (below: string) => string;
 };
 
 /**
@@ -79,15 +91,26 @@ const COPY_FR: CollectAvailabilityCopy = {
   failed: "Non mesuré",
   // i18n-exempt: repli de référence d'un module pur ; l'écran passe sa copie traduite
   failedWithReason: (reason) => `Non mesuré — ${reason}`,
+  // i18n-exempt: repli de référence d'un module pur ; l'écran passe sa copie traduite
+  masked: (below) => `Moins de ${below} vues — la plateforme masque le compteur en dessous`,
 };
 
+/**
+ * `maskedBelow` : le seuil d'un compteur masqué, DÉJÀ formaté pour l'écran
+ * (« 1 000 »). Sans lui (ou sans phrase `masked`), un « masked » se dit comme
+ * un échec, avec son motif.
+ */
 export function collectAvailabilityLabel(
   availability: CollectAvailability,
   reason?: string,
   copy: CollectAvailabilityCopy = COPY_FR,
+  maskedBelow?: string,
 ): string | null {
   if (availability === "measured") return null;
   if (availability === "pending") return copy.pending;
+  if (availability === "masked" && maskedBelow !== undefined && copy.masked) {
+    return copy.masked(maskedBelow);
+  }
   return reason !== undefined && reason.trim() !== ""
     ? copy.failedWithReason(reason)
     : copy.failed;
