@@ -61,7 +61,8 @@ export function RadarToday({ go }: { go: RadarGo }) {
   const handled = handledToday(signals, now);
   const open = (index: number) => setViewer({ ids: queue.map((s) => s.id), index });
 
-  const hot = (formats ?? []).filter((f) => f.hot);
+  // Les formats du projet : ceux de ses concurrents d'abord, jamais ceux repris seulement chez les concurrents d'un autre projet.
+  const hot = (formats ?? []).filter((f) => f.hot && !f.elsewhere).sort((a, b) => Number(b.rival) - Number(a.rival));
   const rivals = (networks?.apps ?? [])
     .filter((a) => a.group === "rival")
     .map((a) => ({ a, w: appWeek(a.name, signals, ads ?? [], now) }))
@@ -76,7 +77,7 @@ export function RadarToday({ go }: { go: RadarGo }) {
           </h2>
           <p className="mt-1.5 text-[15px] leading-relaxed text-slate-600">
             {queue.length
-              ? tr("aRegarderAide", { total: week.length, concurrents: week.filter((s) => s.competitor).length })
+              ? tr("aRegarderAide", { projet: project.name, total: week.length })
               : tr("toutEstVuAide")}
             {handled > 0 && <span className="font-medium text-slate-900"> {tr("traiteesAujourdhui", { n: handled })}</span>}
           </p>

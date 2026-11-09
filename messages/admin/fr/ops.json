@@ -508,7 +508,9 @@
     "ignorer": "Ignorer",
     "appSuivieDepuisReperee": "{app} suivie : {n, plural, =0 {aucun compte ajouté} one {# compte rejoint son réseau} other {# comptes rejoignent son réseau}}.",
     "instagram": "Instagram @{handle}",
-    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} vues"
+    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} vues",
+    "horsSujet": "ses vidéos ne citent jamais {app}",
+    "horsSujetAide": "Ses dernières vidéos lues (9 au moins) ne citent pas {app} : il n'est plus relevé. Le réactiver le garde pour de bon."
   },
   "RecurringAccountCard": {
     "abonnes": "{count} abonnés",
@@ -662,7 +664,7 @@
   "RadarToday": {
     "aRegarder": "{n, plural, one {# vidéo} other {# vidéos}} à regarder aujourd'hui",
     "toutEstVu": "Tout est vu pour l'instant",
-    "aRegarderAide": "Les plus fortes face à leur normale, pas encore traitées, sur {total} repérées ces 7 derniers jours ({concurrents} chez tes concurrents). Le reste attend dans Explorer.",
+    "aRegarderAide": "Pour {projet} : les plus fortes pas encore traitées, jusqu'à 6 chez tes concurrents et le reste dans les autres apps, sur {total} repérées ces 7 derniers jours. Les concurrents des autres projets restent dans Explorer.",
     "toutEstVuAide": "Les prochaines arrivent avec la découverte, toutes les 6 heures.",
     "traiteesAujourdhui": "{n, plural, one {# traitée} other {# traitées}} aujourd'hui.",
     "lesRegarder": "Les regarder une par une",
@@ -670,7 +672,7 @@
     "aRegarderEnPremier": "À regarder en premier",
     "legendeScore": "« 50× » = 50 fois ce que le compte fait d'habitude ; « abonnés » quand sa normale n'est pas encore connue.",
     "formatsQuiCirculent": "Formats qui circulent",
-    "formatsAide": "Le même texte à l'écran ou le même son, repris par plusieurs comptes en 14 jours : {n, plural, =0 {aucun en ce moment} other {# en ce moment}}.",
+    "formatsAide": "Le même texte à l'écran ou le même son, repris par plusieurs comptes en 14 jours : {n, plural, =0 {aucun en ce moment} other {# en ce moment}}, ceux de tes concurrents d'abord.",
     "tousLesFormats": "Tous les formats",
     "aucunFormat": "Aucun format repris par plusieurs comptes en ce moment.",
     "concurrentsSemaine": "Tes concurrents cette semaine",

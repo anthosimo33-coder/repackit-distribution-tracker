@@ -508,7 +508,9 @@
     "ignorer": "Ignore",
     "appSuivieDepuisReperee": "{app} followed: {n, plural, =0 {no account added} one {# account joins its network} other {# accounts join its network}}.",
     "instagram": "Instagram @{handle}",
-    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} views"
+    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} views",
+    "horsSujet": "its videos never mention {app}",
+    "horsSujetAide": "Its latest videos read (at least 9) do not mention {app}: it is no longer tracked. Turning it back on keeps it for good."
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",
@@ -662,7 +664,7 @@
   "RadarToday": {
     "aRegarder": "{n, plural, one {# video} other {# videos}} to watch today",
     "toutEstVu": "All caught up for now",
-    "aRegarderAide": "The strongest against their usual, not handled yet, out of {total} found in the last 7 days ({concurrents} from your competitors). The rest waits in Explore.",
+    "aRegarderAide": "For {projet}: the strongest not handled yet, up to 6 from your competitors and the rest from other apps, out of {total} found in the last 7 days. Other projects' competitors stay in Explore.",
     "toutEstVuAide": "The next ones come with discovery, every 6 hours.",
     "traiteesAujourdhui": "{n, plural, one {# handled} other {# handled}} today.",
     "lesRegarder": "Watch them one by one",
@@ -670,7 +672,7 @@
     "aRegarderEnPremier": "Watch first",
     "legendeScore": "“50×” = 50 times what the account usually gets; “followers” when its usual is not known yet.",
     "formatsQuiCirculent": "Formats going around",
-    "formatsAide": "The same on-screen text or sound, reused by several accounts within 14 days: {n, plural, =0 {none right now} other {# right now}}.",
+    "formatsAide": "The same on-screen text or sound, reused by several accounts within 14 days: {n, plural, =0 {none right now} other {# right now}}, your competitors' first.",
     "tousLesFormats": "All formats",
     "aucunFormat": "No format reused by several accounts right now.",
     "concurrentsSemaine": "Your competitors this week",

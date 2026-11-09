@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   TODAY_LIMIT,
+  TODAY_RIVAL_SLOTS,
   appWeek,
   curveOf,
   groupAds,
@@ -21,7 +22,7 @@ const DAY = 24 * HOUR;
 // 9 novembre 2026, 15 h à Paris (14 h UTC).
 const NOW = Date.UTC(2026, 10, 9, 14, 0);
 
-type S = FilterableSignal & { id: string; markedAt: number | null };
+type S = FilterableSignal & { id: string; markedAt: number | null; elsewhere?: boolean; network?: string | null };
 const sig = (id: string, o: Partial<S> = {}): S => ({
   id,
   handle: id,
@@ -69,6 +70,33 @@ describe("à regarder aujourd'hui", () => {
     const many = Array.from({ length: 30 }, (_, i) => sig(`v${i}`, { multiplier: 100 - i }));
     expect(todayQueue(many, NOW)).toHaveLength(TODAY_LIMIT);
     expect(todayQueue(many, NOW)[0].id).toBe("v0");
+  });
+
+  it("propre au projet : 6 de ses concurrents au plus, le reste ailleurs, jamais les concurrents d'un autre projet", () => {
+    const rivals = Array.from({ length: 10 }, (_, i) => sig(`conc${i}`, { app: "FollowSpy", competitor: "FollowSpy", multiplier: 500 - i }));
+    const others = Array.from({ length: 10 }, (_, i) => sig(`autre${i}`, { app: "Praktika", multiplier: 100 - i }));
+    // The Ick dans le Radar de BLUSH : concurrente d'un autre projet, quel que soit son score.
+    const ailleurs = sig("ailleurs", { app: "The Ick", multiplier: 9_999, elsewhere: true });
+    // Ce qu'un compte suivi publie sans citer d'app (« TURN OFF THESE ROKU SETTINGS »).
+    const reseauSeul = sig("reseauSeul", { network: "Finch", multiplier: 9_000 });
+    const q = todayQueue([...rivals, ...others, ailleurs, reseauSeul], NOW);
+    expect(q).toHaveLength(TODAY_LIMIT);
+    expect(q.filter((s) => s.competitor)).toHaveLength(TODAY_RIVAL_SLOTS);
+    expect(q.map((s) => s.id)).not.toContain("ailleurs");
+    expect(q.map((s) => s.id)).not.toContain("reseauSeul");
+    // Dans l'ordre du score : les concurrents (500×…) d'abord ici.
+    expect(q.map((s) => s.id)).toEqual(["conc0", "conc1", "conc2", "conc3", "conc4", "conc5", "autre0", "autre1", "autre2", "autre3", "autre4", "autre5"]);
+  });
+
+  it("une part trop courte est complétée par l'autre", () => {
+    const rivals = Array.from({ length: 10 }, (_, i) => sig(`conc${i}`, { competitor: "FollowSpy", app: "FollowSpy", multiplier: 50 - i }));
+    const deuxAutres = [sig("a1", { multiplier: 900 }), sig("a2", { multiplier: 800 })];
+    const q = todayQueue([...rivals, ...deuxAutres], NOW);
+    expect(q).toHaveLength(TODAY_LIMIT);
+    expect(q.filter((s) => s.competitor)).toHaveLength(10);
+    const unSeulConcurrent = [sig("c", { competitor: "FollowSpy", app: "FollowSpy", multiplier: 5 }), ...Array.from({ length: 20 }, (_, i) => sig(`o${i}`, { multiplier: 100 - i }))];
+    expect(todayQueue(unSeulConcurrent, NOW).filter((s) => s.competitor)).toHaveLength(1);
+    expect(todayQueue(unSeulConcurrent, NOW)).toHaveLength(TODAY_LIMIT);
   });
 
   it("une vidéo traitée en sort, la suivante prend sa place", () => {

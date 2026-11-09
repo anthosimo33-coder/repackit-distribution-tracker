@@ -171,6 +171,33 @@ export function videoCitesApp(v: { caption: string; hook?: string | null; transc
   return citesApp([v.caption, v.hook ?? "", v.transcript ?? ""].join(" "), v.handle, rule);
 }
 
+/** Vidéos TikTok lues (avec leur texte) avant de juger qu'un compte ne cite jamais son app. */
+export const OFF_TOPIC_MIN_VIDEOS = 9;
+
+/**
+ * Un compte entré dans un réseau sur UNE légende, dont aucune des vidéos lues
+ * depuis (9 au moins) ne cite l'app : il parle d'autre chose, on arrête de le
+ * relever (décidé le 09/11/2026 ; ce jour-là 168 comptes sur 893, ~128 crédits
+ * par jour, contre une citation dans 90 % des vidéos chez les autres, en médiane).
+ * Les comptes choisis à la main ou de la liste de départ ne sont jamais jugés.
+ */
+export function isOffTopic(
+  matchedBy: "caption" | "manual" | "seed",
+  videos: readonly { caption?: string; hook?: string; platform?: string }[],
+  handle: string,
+  rule: AppRule,
+): boolean {
+  if (matchedBy !== "caption") return false;
+  const read = videos.filter((v) => !v.platform && (v.caption !== undefined || v.hook !== undefined));
+  if (read.length < OFF_TOPIC_MIN_VIDEOS) return false;
+  return !read.some((v) => videoCitesApp({ caption: v.caption ?? "", hook: v.hook, handle }, rule));
+}
+
+/** Concurrente d'autres projets, et pas de celui-ci (The Ick vue de BLUSH). */
+export function rivalElsewhere(rivalOf: readonly string[], projectSlug: string): boolean {
+  return rivalOf.length > 0 && !rivalOf.includes(projectSlug);
+}
+
 /** La première app citée (les apps sont essayées dans l'ordre donné). */
 export function findApp<T extends AppRule>(caption: string, handle: string, apps: readonly T[]): T | undefined {
   return apps.find((a) => citesApp(caption, handle, a));
