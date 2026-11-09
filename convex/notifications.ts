@@ -1172,18 +1172,22 @@ export async function collectDigestCore(ctx: QueryCtx, projectId: Id<"projects">
     // ne paie rien et n'entre dans aucune moyenne. Le digest est le seul canal
     // qui puisse la rattraper tant qu'elle est encore dans la fenêtre.
     //
-    // Un seul balayage indexé des relevés du projet (≈ 7 200 lignes sur
-    // Snytch), pas de lecture par publication.
+    // « Jamais relevée » se lit sur la publication : `latestSnapshotAt` est
+    // posé par recomputeLatestMetrics dès le premier relevé et retiré avec le
+    // dernier. C'est le repère de l'écran (`collectAvailability`), et l'index
+    // ne rend que les publications où il manque (78 sur Snytch au 08/11).
+    // Avant, on lisait TOUS les relevés du projet pour le savoir : 31 490 sur
+    // Snytch, plus ses 1 939 publications. Le digest a dépassé la limite de
+    // 32 000 documents par exécution : échecs constatés en prod les 06, 07 et
+    // 08/11, et le rejeu de l'export situe le premier au 04/11. BLUSH, qui passe
+    // après Snytch dans la boucle du cron, ne recevait plus le sien.
     const jamaisMesurees: { compte: string; joursDepuisPubli: number }[] = [];
     {
-      const releves = await ctx.db
-        .query("metricSnapshots")
-        .withIndex("by_project", (q) => q.eq("projectId", projectId))
-        .collect();
-      const mesurees = new Set<string>(releves.map((r) => r.publicationId));
       const pubs = await ctx.db
         .query("publications")
-        .withIndex("by_project", (q) => q.eq("projectId", projectId))
+        .withIndex("by_project_latestSnapshotAt", (q) =>
+          q.eq("projectId", projectId).eq("latestSnapshotAt", undefined),
+        )
         .collect();
       for (const pub of pubs) {
         if (
@@ -1191,7 +1195,7 @@ export async function collectDigestCore(ctx: QueryCtx, projectId: Id<"projects">
             {
               postUrl: pub.postUrl,
               datePubli: pub.datePubli,
-              snapshots: mesurees.has(pub._id) ? 1 : 0,
+              snapshots: pub.latestSnapshotAt === undefined ? 0 : 1,
             },
             now,
           )
