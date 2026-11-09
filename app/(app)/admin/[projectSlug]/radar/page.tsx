@@ -163,7 +163,7 @@ function RadarPageInner() {
 
       {onglet === "aujourdhui" && <RadarToday go={go} />}
       {onglet === "explorer" && <RadarExplorer vue={vue} hrefFor={(v) => href("explorer", v === "videos" ? {} : { vue: v })} />}
-      {onglet === "concurrents" && <RadarRivals selected={searchParams.get("app")} hrefFor={(slug) => href("concurrents", { app: slug })} go={go} />}
+      {onglet === "concurrents" && <RadarRivals selected={searchParams.get("app")} hrefFor={(slug) => href("concurrents", { app: slug })} overviewHref={href("concurrents")} go={go} />}
       {onglet === "reglages" && <RadarSettings backHref={href("aujourdhui")} />}
     </div>
   );

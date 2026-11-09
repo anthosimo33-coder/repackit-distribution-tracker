@@ -290,7 +290,8 @@ export const POSTES: readonly PosteDef[] = [
   { key: "transcript", live: true, step: 10, max: 300, monthlyCredits: (n) => n * DAYS_PER_MONTH },
   // Bibliothèques de pubs TikTok et Meta, en crédits par mois.
   { key: "ads", live: true, step: 250, max: 10_000, monthlyCredits: (n) => n },
-  { key: "ai", live: false, dollars: true, step: 2, max: 30, monthlyCredits: () => 0 },
+  // Claude Haiku (familles de hooks d'une langue à l'autre), en dollars par mois.
+  { key: "ai", live: true, dollars: true, step: 1, max: 30, monthlyCredits: () => 0 },
 ];
 
 /**
@@ -300,9 +301,15 @@ export const POSTES: readonly PosteDef[] = [
  * courbe et plafond passent au cran au-dessus. Des réglages plus anciens relus
  * prennent pour ces postes, et pour le plafond, les valeurs par défaut.
  */
-export const BUDGET_VERSION = 4;
+export const BUDGET_VERSION = 5;
 // v4 : Instagram, transcriptions et pubs branchés (éteints tant qu'ils ne l'étaient pas).
-const RESET_BEFORE_V4: readonly PosteKey[] = ["tiktok", "network", "curve", "insta", "transcript", "ads"];
+// v5 : l'analyse IA branchée (familles de hooks) ; le plafond et les autres postes d'une v4 sont gardés.
+const RESETS: readonly { before: number; postes: readonly PosteKey[] }[] = [
+  { before: 4, postes: ["tiktok", "network", "curve", "insta", "transcript", "ads"] },
+  { before: 5, postes: ["ai"] },
+];
+/** Le plafond se garde à partir de cette version. */
+const CAP_KEPT_FROM = 4;
 
 export const POSTE_KEYS = POSTES.map((p) => p.key);
 export const isPosteKey = (k: string): k is PosteKey => (POSTE_KEYS as string[]).includes(k);
@@ -326,12 +333,14 @@ export type BudgetSettings = {
 // dépensé. Instagram : 300 relevés/jour (les comptes dont la bio donne l'Instagram) ;
 // 50 transcriptions/jour ; pubs 1 500 crédits/mois (concurrentes tous les 3 jours,
 // les autres chaque semaine). Prévu au plus : ~178 $/mois sous un plafond de 300 $.
-const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 100, tiktok: 2_000, network: 12_000, insta: 300, transcript: 50, ads: 1_500, ai: 12 };
+// Analyse IA : ~1 $ par mois prévu (Claude Haiku, quelques centaines de hooks), 2 $ au plus.
+const DEFAULT_QTY: Record<PosteKey, number> = { search: 60, curve: 100, tiktok: 2_000, network: 12_000, insta: 300, transcript: 50, ads: 1_500, ai: 2 };
 
 export const DEFAULT_BUDGET: BudgetSettings = {
   capUsd: 300,
   postes: POSTES.map((p) => ({ key: p.key, qty: DEFAULT_QTY[p.key], on: p.live })),
-  cutOrder: ["search", "transcript", "curve", "ads", "insta", "ai", "network", "tiktok"],
+  // L'analyse IA est coupée la première : la veille marche sans elle.
+  cutOrder: ["ai", "search", "transcript", "curve", "ads", "insta", "network", "tiktok"],
   alert80: true,
 };
 
@@ -345,10 +354,10 @@ export function normalizeBudget(
 ): BudgetSettings {
   const cap = raw?.capUsd;
   // Écrit « 0 < cap » : la garde i18n lit « > 0 && cap < » comme du texte JSX.
-  const current = raw?.budgetVersion === BUDGET_VERSION;
-  const capUsd = current && typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
+  const version = raw?.budgetVersion ?? 0;
+  const capUsd = version >= CAP_KEPT_FROM && typeof cap === "number" && 0 < cap && cap <= 1_000 ? Math.round(cap * 100) / 100 : DEFAULT_BUDGET.capUsd;
   const postes = POSTES.map((def) => {
-    const stale = !current && RESET_BEFORE_V4.includes(def.key);
+    const stale = RESETS.some((r) => version < r.before && r.postes.includes(def.key));
     const got = stale ? undefined : raw?.postes?.find((p) => p.key === def.key);
     const qty = typeof got?.qty === "number" && Number.isFinite(got.qty) ? Math.min(def.max, Math.max(0, Math.round(got.qty))) : DEFAULT_QTY[def.key];
     return { key: def.key, qty, on: def.live && (got ? got.on === true : true) };
@@ -378,7 +387,8 @@ export const envelopeCredits = (s: BudgetSettings, k: PosteKey) => {
 /** Total prévu du mois, en dollars. */
 export const plannedUsd = (s: BudgetSettings) => POSTE_KEYS.reduce((sum, k) => sum + envelopeUsd(s, k), 0);
 
-export type UsageRow = { poste: string; credits: number; day?: string };
+/** `usd` : la dépense d'un poste en dollars (l'analyse IA), hors crédits. */
+export type UsageRow = { poste: string; credits: number; day?: string; usd?: number };
 
 export type BudgetState = {
   spentCredits: number;
@@ -403,12 +413,17 @@ export function budgetState(s: BudgetSettings, monthUsage: readonly UsageRow[]):
   const byPoste = {} as BudgetState["byPoste"];
   for (const k of POSTE_KEYS) byPoste[k] = { credits: 0, usd: 0, envelopeUsd: envelopeUsd(s, k) };
   let spentCredits = 0;
+  let dollars = 0;
   for (const u of monthUsage) {
     spentCredits += u.credits;
-    if (isPosteKey(u.poste)) byPoste[u.poste].credits += u.credits;
+    dollars += u.usd ?? 0;
+    if (isPosteKey(u.poste)) {
+      byPoste[u.poste].credits += u.credits;
+      byPoste[u.poste].usd += u.usd ?? 0;
+    }
   }
-  for (const k of POSTE_KEYS) byPoste[k].usd = byPoste[k].credits * SC_PRICE_PER_CREDIT;
-  const spentUsd = spentCredits * SC_PRICE_PER_CREDIT;
+  for (const k of POSTE_KEYS) byPoste[k].usd += byPoste[k].credits * SC_PRICE_PER_CREDIT;
+  const spentUsd = spentCredits * SC_PRICE_PER_CREDIT + dollars;
   const remainingOf = (k: PosteKey) => Math.max(0, byPoste[k].envelopeUsd - byPoste[k].usd);
   const capReached = spentUsd >= s.capUsd;
   const over80 = spentUsd >= s.capUsd * 0.8;
@@ -449,6 +464,18 @@ export function allowance(
   const leftMonth = Math.max(0, Math.floor(def.monthlyCredits(p.qty) - state.byPoste[k].credits));
   const leftCap = Math.max(0, Math.floor((s.capUsd - state.spentUsd) / SC_PRICE_PER_CREDIT));
   return Math.min(Math.ceil(perDay / Math.max(1, runsPerDay)), leftToday, leftMonth, leftCap);
+}
+
+/**
+ * Dollars qu'un poste payé en dollars (l'analyse IA) peut encore dépenser ce
+ * mois : le reste de son enveloppe, borné par le reste du plafond ; 0 s'il est
+ * éteint, coupé, ou le plafond atteint.
+ */
+export function allowanceUsd(s: BudgetSettings, state: BudgetState, k: PosteKey): number {
+  const def = posteDef(k);
+  const p = posteOf(s, k);
+  if (!def.live || !def.dollars || !p.on || state.capReached || state.cut.includes(k)) return 0;
+  return Math.max(0, Math.min(p.qty - state.byPoste[k].usd, s.capUsd - state.spentUsd));
 }
 
 /** Admissions dans la courbe encore possibles aujourd'hui (le poste se règle en vidéos/jour). */

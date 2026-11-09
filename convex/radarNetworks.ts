@@ -43,6 +43,9 @@ import {
   hookTemplate,
   igHandleFromBio,
   isOffTopic,
+  formatSuccess,
+  nextReadAtFor,
+  videoCitesApp,
   medianViews,
   multiplierOf,
   networkPages,
@@ -53,6 +56,7 @@ import {
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
+import { isEarlyHit } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
 import {
@@ -375,7 +379,8 @@ export const applyAccountRead = internalMutation({
       videosSeen: acc.videosSeen + fresh.length,
       lastPostAt,
       readAt: now,
-      nextReadAt: nextReadAt(lastPostAt, now),
+      // Toutes les 6 h quand un hit s'y joue (concurrente active, compte chaud), sinon à son rythme.
+      nextReadAt: nextReadAtFor({ rival: !!app && app.rivalOf.length > 0, lastPostAt, best7dMultiplier: best?.multiplier }, now),
       readErrors: 0,
       posts7d: week.length,
       best7d: best,
@@ -416,8 +421,70 @@ export const applyAccountRead = internalMutation({
         ...(multiplier !== undefined ? { multiplier } : {}),
       });
       if (r === "inserted") promoted++;
+      // En train de partir chez une concurrente, et la vidéo la cite : on prévient ses projets.
+      if (app && app.rivalOf.length > 0 && multiplier !== undefined && isEarlyHit({ publishedAt: s.publishedAt, views: s.views, multiplier }, now)) {
+        if (videoCitesApp({ caption: s.caption, hook: s.hook, handle: acc.handle }, app)) await maybeAlertEarly(ctx, s.videoId, s.platform ?? "tiktok", app.rivalOf);
+      }
     }
     return { promoted };
+  },
+});
+
+/** Prévient (une fois par projet) qu'une vidéo d'un concurrent part tôt. */
+async function maybeAlertEarly(ctx: MutationCtx, videoId: string, platform: "tiktok" | "instagram", slugs: readonly string[]): Promise<void> {
+  const sig = await ctx.db
+    .query("radarSignals")
+    .withIndex("by_video", (q) => q.eq("platform", platform).eq("videoId", videoId))
+    .first();
+  if (!sig) return;
+  const already = sig.earlyAlerted ?? [];
+  const toAlert = slugs.filter((x) => !already.includes(x));
+  if (toAlert.length === 0) return;
+  await ctx.db.patch(sig._id, { earlyAlerted: [...already, ...toAlert] });
+  await ctx.scheduler.runAfter(0, internal.radarNetworks.alertEarly, { signalId: sig._id, slugs: toAlert });
+}
+
+type EarlyAlert = { app: string; handle: string; views: number; hours: number; multiplier: number; hook: string | null };
+
+export const earlyForAlert = internalQuery({
+  args: { signalId: v.id("radarSignals"), slug: v.string() },
+  handler: async (ctx, { signalId, slug }): Promise<{ e: EarlyAlert; projectId: Id<"projects"> } | null> => {
+    const s = await ctx.db.get(signalId);
+    const project = await ctx.db.query("projects").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!s || !project || !s.appName) return null;
+    return {
+      e: {
+        app: s.appName,
+        handle: s.authorHandle,
+        views: s.views,
+        hours: Math.max(1, Math.round((Date.now() - s.publishedAt) / 3_600_000)),
+        multiplier: Math.round(s.multiplier ?? 0),
+        hook: s.hook ?? null,
+      },
+      projectId: project._id,
+    };
+  },
+});
+
+/** Le message Telegram d'une vidéo de concurrent qui part tôt. */
+export const alertEarly = internalAction({
+  args: { signalId: v.id("radarSignals"), slugs: v.array(v.string()) },
+  handler: async (ctx, { signalId, slugs }): Promise<void> => {
+    for (const slug of slugs) {
+      const r = await ctx.runQuery(internal.radarNetworks.earlyForAlert, { signalId, slug });
+      if (!r) continue;
+      const p = await ctx.runQuery(internal.notifications.getProjectNotify, { projectId: r.projectId });
+      const cfg = p ? notifyConfig(p.notify, p.name) : null;
+      if (!p || !cfg) continue;
+      await deliver(
+        cfg,
+        "hit radar",
+        `🚀 Radar : en train de partir chez ${escapeTelegram(r.e.app)} — @${escapeTelegram(r.e.handle)}, ` +
+          `${new Intl.NumberFormat("fr-FR").format(r.e.views)} vues en ${r.e.hours} h (${r.e.multiplier}× sa normale).` +
+          (r.e.hook ? ` « ${escapeTelegram(r.e.hook.slice(0, 120))} »` : "") +
+          `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar">Ouvrir le Radar</a>`,
+      );
+    }
   },
 });
 
@@ -689,14 +756,23 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
   const slug = await projectSlugOf(ctx);
   const now = Date.now();
   const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a]));
-  const rows = await ctx.db.query("radarFormats").withIndex("by_shared", (q) => q.gte("accountCount", 2)).order("desc").take(300);
+  const rows = (await ctx.db.query("radarFormats").withIndex("by_shared", (q) => q.gte("accountCount", 2)).order("desc").take(300)).filter(
+    (r) => r.lastPostAt >= now - FORMAT_WINDOW_MS,
+  );
+  // Familles d'une langue à l'autre (convex/radarFamilies) : leur étiquette.
+  const familyLabel = new Map<string, string>();
+  for (const id of new Set(rows.flatMap((r) => (r.familyId ? [r.familyId] : [])))) {
+    const f = await ctx.db.get(id);
+    if (f) familyLabel.set(id, f.label);
+  }
   return rows
-    .filter((r) => r.lastPostAt >= now - FORMAT_WINDOW_MS)
     .map((r) => {
       const fmtApps = r.appIds.map((id) => apps.get(id)).filter((a): a is Doc<"radarApps"> => !!a);
       const best = Math.max(0, ...r.members.map((m) => m.multiplier ?? 0));
       const variants = new Set(r.members.map((m) => m.hook).filter(Boolean)).size;
       const bestMultiplier = best > 0 ? best : null;
+      // Réussite : ses reprises, pas son meilleur coup (radarNetworkMath.formatSuccess).
+      const success = formatSuccess(r.members);
       return {
         id: r._id,
         kind: r.kind,
@@ -711,8 +787,14 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         hot: isHotFormat({ kind: r.kind, label: r.label, maxViews: r.maxViews, bestMultiplier }),
         maxViews: r.maxViews,
         bestMultiplier,
+        measured: success.measured,
+        wins: success.wins,
+        medianMultiplier: success.median,
+        winning: success.winning,
         lastPostAt: r.lastPostAt,
         firstSeenAt: r.firstSeenAt,
+        family: r.familyId && familyLabel.has(r.familyId) ? { id: r.familyId, label: familyLabel.get(r.familyId)! } : null,
+        lang: r.lang ?? null,
         members: r.members.slice(0, 6).map((m) => ({
           handle: m.handle,
           platform: m.platform ?? ("tiktok" as const),
@@ -725,8 +807,16 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         })),
       };
     })
-    // Ceux qui pètent d'abord, les plus vus d'abord — peu importe la niche.
-    .sort((x, y) => Number(y.hot) - Number(x.hot) || y.maxViews - x.maxViews || y.accountCount - x.accountCount)
+    // Ceux qui RÉUSSISSENT d'abord (part des reprises, puis leur médiane), puis ceux
+    // qui pètent, les plus vus d'abord — peu importe la niche.
+    .sort(
+      (x, y) =>
+        Number(y.winning) - Number(x.winning) ||
+        (y.winning ? y.wins / y.measured - x.wins / x.measured || (y.medianMultiplier ?? 0) - (x.medianMultiplier ?? 0) : 0) ||
+        Number(y.hot) - Number(x.hot) ||
+        y.maxViews - x.maxViews ||
+        y.accountCount - x.accountCount,
+    )
     .slice(0, 150);
 }
 
@@ -930,6 +1020,11 @@ export const e2eSeedNetwork = e2eMutation({
         igBest7d: v.optional(v.object({ code: v.string(), views: v.number(), multiplier: v.number() })),
         // Semé déjà mis en pause parce qu'il ne cite jamais l'app.
         offTopic: v.optional(v.boolean()),
+        lang: v.optional(v.string()),
+        // Ses vidéos relevées (radarTrackedVideos), pour « ce qui sort du lot ».
+        videos: v.optional(
+          v.array(v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), hook: v.optional(v.string()), musicTitle: v.optional(v.string()) })),
+        ),
       }),
     ),
     // Formats : chaque membre désigne un compte semé ci-dessus par son pseudo.
@@ -942,6 +1037,10 @@ export const e2eSeedNetwork = e2eMutation({
           members: v.array(
             v.object({ handle: v.string(), videoId: v.string(), views: v.number(), multiplier: v.optional(v.number()), ageH: v.number(), hook: v.optional(v.string()), instagram: v.optional(v.boolean()) }),
           ),
+          // Déjà rangé dans une famille (son étiquette) et sa langue.
+          family: v.optional(v.string()),
+          lang: v.optional(v.string()),
+          firstSeenAgeH: v.optional(v.number()),
         }),
       ),
     ),
@@ -958,9 +1057,9 @@ export const e2eSeedNetwork = e2eMutation({
         await ctx.db.insert("radarApps", { ...a, weak: [], context: [], searches: a.strong, status: "active", source: "manual", networkSearchedAt: now, createdAt: now }),
       );
     }
-    for (const t of accounts) {
+    for (const { videos, ...t } of accounts) {
       const appId = ids.get(t.appSlug)!;
-      await ctx.db.insert("radarTracked", {
+      const accountId = await ctx.db.insert("radarTracked", {
         platform: "tiktok",
         handle: t.handle,
         appId,
@@ -969,6 +1068,7 @@ export const e2eSeedNetwork = e2eMutation({
         matchedBy: "caption",
         fans: t.fans,
         ...(t.medianViews !== undefined ? { medianViews: t.medianViews } : {}),
+        ...(t.lang !== undefined ? { lang: t.lang } : {}),
         videosSeen: 9,
         posts7d: t.posts7d,
         ...(t.best7d ? { best7d: { ...t.best7d, url: videoUrl(t.handle, t.best7d.videoId) } } : {}),
@@ -982,7 +1082,22 @@ export const e2eSeedNetwork = e2eMutation({
         readErrors: 0,
         addedAt: now,
       });
+      for (const vid of videos ?? []) {
+        const publishedAt = now - vid.ageH * 3_600_000;
+        await ctx.db.insert("radarTrackedVideos", {
+          accountId,
+          appId,
+          videoId: vid.videoId,
+          publishedAt,
+          views: vid.views,
+          snapshots: [{ at: now, views: vid.views }],
+          lastSeenAt: now,
+          ...(vid.hook !== undefined ? { hook: vid.hook } : {}),
+          ...(vid.musicTitle !== undefined ? { musicTitle: vid.musicTitle } : {}),
+        });
+      }
     }
+    const families = new Map<string, Id<"radarHookFamilies">>();
     for (const f of formats ?? []) {
       const members: Member[] = [];
       for (const m of f.members) {
@@ -1001,7 +1116,21 @@ export const e2eSeedNetwork = e2eMutation({
           });
         }
       }
-      await ctx.db.insert("radarFormats", { kind: f.kind, key: f.key, label: f.label, ...summarize(members), firstSeenAt: now });
+      let familyId: Id<"radarHookFamilies"> | undefined;
+      if (f.family) {
+        familyId =
+          families.get(f.family) ?? (await ctx.db.insert("radarHookFamilies", { label: f.family, examples: [], createdAt: now, lastSeenAt: now }));
+        families.set(f.family, familyId);
+      }
+      await ctx.db.insert("radarFormats", {
+        kind: f.kind,
+        key: f.key,
+        label: f.label,
+        ...summarize(members),
+        firstSeenAt: f.firstSeenAgeH !== undefined ? now - f.firstSeenAgeH * 3_600_000 : now,
+        ...(familyId ? { familyId, familyCheckedAt: now } : {}),
+        ...(f.lang ? { lang: f.lang } : {}),
+      });
     }
     for (const c of candidates ?? []) {
       await ctx.db.insert("radarAppCandidates", {
@@ -1035,6 +1164,9 @@ export const e2eClearNetwork = e2eMutation({
     }
     for (const c of await ctx.db.query("radarAppCandidates").collect()) {
       if (c.key.includes(prefix) || c.label.toLowerCase().includes(prefix)) await ctx.db.delete(c._id);
+    }
+    for (const fam of await ctx.db.query("radarHookFamilies").collect()) {
+      if (fam.label.includes(prefix)) await ctx.db.delete(fam._id);
     }
     for (const a of await ctx.db.query("radarApps").collect()) {
       if (!a.slug.startsWith(prefix)) continue;

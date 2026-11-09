@@ -249,7 +249,8 @@
       "ratio": "× its followers",
       "vph": "Views per hour",
       "views": "Views",
-      "recent": "Most recent"
+      "recent": "Most recent",
+      "shares": "Shares"
     },
     "nVideos": "{n, plural, =0 {0 videos} one {# video} other {# videos}}",
     "contexte": "of {total} collected · {periode}",
@@ -389,8 +390,8 @@
         "unite": "videos/day"
       },
       "ai": {
-        "titre": "AI video analysis",
-        "aide": "Format, structure, Snytch and BLUSH adaptations. Stops at the cap.",
+        "titre": "Group hooks into families",
+        "aide": "Claude Haiku files each new hook under the family with the same idea, across languages. About $1 a month; cut first.",
         "unite": "$/month"
       },
       "network": {
@@ -544,8 +545,36 @@
     "vues": "{n} views",
     "variantes": "{n} variants",
     "ig": "IG",
-    "quiPetent": "Breaking out only",
-    "cachesFroids": "{n, plural, one {# format is not breaking out yet} other {# formats are not breaking out yet}} (under 10,000 views or 3× the median, or a trending track): uncheck to see them."
+    "lesquels": "Which formats",
+    "vue": {
+      "reussis": "Succeeding · {n}",
+      "petent": "Taking off · {n}",
+      "tous": "All · {n}",
+      "familles": "Families · {n}"
+    },
+    "aide": {
+      "reussis": "at least 3 measured reuses, and one in two or more gets 3× its account's usual. A format is worth its reuses, not one viral hit.",
+      "petent": "at least 10,000 views and 3× its usual on one account, whether or not it works elsewhere.",
+      "tous": "any on-screen text or sound reused by two or more followed accounts within 14 days.",
+      "familles": "the same idea taken up in at least two languages. Claude (Haiku) files each new hook under the family with the same idea; it never rewrites or posts anything."
+    },
+    "colFormat": "Format",
+    "colReussite": "Reuses that succeed",
+    "colMediane": "Median",
+    "colMeilleure": "Best",
+    "colComptes": "Accounts",
+    "reussiteAria": "{wins} of {n} reuses get 3× their account's usual",
+    "sur": "of {n}",
+    "pasAssez": "Fewer than 3 measured reuses",
+    "compteFamilles": "{n, plural, =0 {no family} one {# family} other {# families}}",
+    "aucuneFamille": "No family across several languages yet.",
+    "aucuneFamilleAide": "New hooks are filed every 6 hours. A family shows up here as soon as the same idea circulates in two languages.",
+    "familleEnLangues": "family in {n} languages",
+    "familleSous": "{n} variants in {langues} languages · at {apps}",
+    "colLangue": "Language",
+    "colVariante": "Variant",
+    "circuleDepuis": "Circulating since {le}",
+    "familleChiffres": "{comptes} accounts · best {vues} views"
   },
   "RadarAds": {
     "plateforme": "Ad library",
@@ -614,7 +643,8 @@
     "hookCite": "“{hook}”",
     "sonOriginalDe": "Original sound by @{handle}",
     "compteSuiviPour": "account followed for {app}",
-    "compteSuiviPourAide": "Its account is followed for {app}, but this video does not mention the app: it does not count as a {app} video."
+    "compteSuiviPourAide": "Its account is followed for {app}, but this video does not mention the app: it does not count as a {app} video.",
+    "sePartage": "Gets shared"
   },
   "RadarViewer": {
     "titre": "Watch one by one",
@@ -659,7 +689,8 @@
     "ajouteeAuxInspirations": "Video added to inspirations.",
     "ajoutImpossible": "Could not add to inspirations.",
     "dansLesInspirations": "In inspirations",
-    "ajouterAuxInspirations": "Add to inspirations"
+    "ajouterAuxInspirations": "Add to inspirations",
+    "partagee": "Gets shared: {pct} of views shared"
   },
   "RadarToday": {
     "aRegarder": "{n, plural, one {# video} other {# videos}} to watch today",
@@ -691,7 +722,13 @@
     "pousseParUnConcurrent": "Pushed by a competitor",
     "formatMeta": "{comptes, plural, one {# account} other {# accounts}} · {apps} · up to {vues} views",
     "variantes": "{n} variants",
-    "voirLeFormat": "See the format"
+    "voirLeFormat": "See the format",
+    "enTrainDePartir": "Taking off",
+    "enTrainDePartirAide": "Posted less than 24 h ago, already 10× their usual",
+    "vuesEnHeures": "views in {n} h",
+    "reussite": "{wins} of {n} reuses succeed",
+    "medianeReprises": "median {x}",
+    "pasAssezReprises": "Fewer than 3 measured reuses"
   },
   "RadarExplorer": {
     "ceQuOnExplore": "What to explore",
@@ -746,6 +783,97 @@
     "aucunePub": "No {app} ad in the TikTok and Meta libraries.",
     "aucunePubAide": "It relies on its accounts. A competitor's long-running ad would show here first.",
     "sesComptes": "Its accounts",
-    "comptesAide": "{n, plural, =0 {no account} one {# account} other {# accounts}}, {actifs, plural, =0 {none tracked} one {# tracked} other {# tracked}} · best performing first"
+    "comptesAide": "{n, plural, =0 {no account} one {# account} other {# accounts}}, {actifs, plural, =0 {none tracked} one {# tracked} other {# tracked}} · best performing first",
+    "vueEnsemble": "Overview"
+  },
+  "RadarInsights": {
+    "titre": "What breaks out for your competitors",
+    "sousTitre": "{n} TikTok videos from their accounts, posted 2 to 14 days ago. On average, {pct}% hit 3× their account's usual.",
+    "pasEncore": "Not computed yet: it runs every 6 hours.",
+    "aucuneVideo": "No video from their accounts posted 2 to 14 days ago.",
+    "titreRatio": "Videos {best} break out {ratio}× more often than those {worst}.",
+    "titreParts": "Videos {best} break out the most ({bestPct}%), those {worst} the least ({worstPct}%).",
+    "faconPareille": "How they're made barely matters.",
+    "enLangue": {
+      "fr": "in French",
+      "pt": "in Portuguese",
+      "es-am": "in Latin American Spanish",
+      "es-es": "in Spain Spanish",
+      "en": "in English",
+      "autre": "in other languages"
+    },
+    "parLangue": "By language",
+    "parConcurrent": "By competitor",
+    "parFacon": "By how it's made",
+    "pct": "{pct}%",
+    "tropPeu": "Fewer than 20 videos per row so far.",
+    "pasEcart": "No gap",
+    "pasAssez": "Not enough videos",
+    "detail": "{a} {pa}% · {na} — {b} {pb}% · {nb}",
+    "attr": {
+      "texte": {
+        "nom": "On-screen text",
+        "a": "with",
+        "b": "without",
+        "mieux": {
+          "a": "With text +{pts} pts",
+          "b": "Without text +{pts} pts"
+        }
+      },
+      "son": {
+        "nom": "Music or original sound",
+        "a": "music",
+        "b": "original sound",
+        "mieux": {
+          "a": "Music +{pts} pts",
+          "b": "Original sound +{pts} pts"
+        }
+      },
+      "longueur": {
+        "nom": "Hook length",
+        "a": "over 8 words",
+        "b": "8 words or fewer",
+        "mieux": {
+          "a": "Long ones +{pts} pts",
+          "b": "Short ones +{pts} pts"
+        }
+      }
+    },
+    "note": "“Breaking out”: 3× the account's usual. A language or app shows from 20 videos; a way of making videos is judged on 30 videos per side, “no gap” under 3 points. Computed {quand}."
+  },
+  "RadarAdaptations": {
+    "titre": "Your adaptations",
+    "aide": "Each “to adapt” video links to the campaign that remakes it. Our posts then tell whether the format works for us, judged like the Pilot: at 72 h, a winner at 1.5× the creator's median and 2,000 views.",
+    "aAdapter": "To adapt",
+    "aAdapterVide": "Nothing waiting.",
+    "enTournage": "Being shot",
+    "enTournageVide": "No campaign in progress.",
+    "resultats": "Results for us",
+    "resultatsVide": "No video measured yet.",
+    "echec": "Couldn't link it.",
+    "aucuneCampagne": "No active campaign in this project.",
+    "relier": "Link to a campaign",
+    "relierAria": "Link @{handle}'s video to a campaign",
+    "delier": "Unlink",
+    "delierAria": "Unlink campaign {campagne}",
+    "dApres": "Based on “{hook}”",
+    "aucuneMission": "No mission yet",
+    "missionsDuAu": "{n, plural, one {# mission} other {# missions}} from {du} to {au}",
+    "missionsLe": "{n, plural, one {# mission} other {# missions}} on {le}",
+    "missions": "{n, plural, one {# mission} other {# missions}}",
+    "publiees": "{n} posted",
+    "resultatsVers": "results around {le}",
+    "publieesLabel": "Videos posted",
+    "gagnantesLabel": "Winners",
+    "surMesurees": "{wins} of {n}",
+    "medianeLabel": "× the creator's median",
+    "vues": "{n} views",
+    "chezConcurrent": "At the competitor",
+    "verdict": {
+      "marche": "Works for us",
+      "neMarchePas": "Doesn't take for us",
+      "tropTot": "Too early to tell"
+    },
+    "suiteVers": "Next measure around {le}"
   }
 }

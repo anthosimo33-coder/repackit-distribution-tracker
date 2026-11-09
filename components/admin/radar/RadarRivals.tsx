@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { ExternalLinkIcon } from "lucide-react";
@@ -15,6 +16,7 @@ import { ACCENT_LINK, SignalCard, useFormatLabel, useNow, useSignalStatus } from
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
 import { AccountsTable, NetworkSearchBlock, type AppRow } from "@/components/admin/radar/RadarNetworks";
 import { AdGroupCard } from "@/components/admin/radar/RadarAds";
+import { RadarInsights } from "@/components/admin/radar/RadarInsights";
 import type { RadarGo } from "@/components/admin/radar/RadarToday";
 import { appWeek, groupAds, scoreOf } from "@/convex/radarDisplay";
 import { listSince } from "@/convex/radarSignalFilters";
@@ -26,21 +28,30 @@ const FORMATS_SHOWN = 6;
 const ADS_SHOWN = 6;
 
 /**
- * RADAR — CONCURRENTS : une fiche par app suivie (concurrentes du projet d'abord)
- * qui réunit tout ce que la veille sait d'elle : ses vidéos qui cartonnent, ses
- * formats, ses pubs, ses comptes, et la recherche de nouveaux comptes.
+ * RADAR — CONCURRENTS : d'abord la vue d'ensemble (ce qui sort du lot chez les
+ * concurrents du projet, par langue, app et façon de faire), puis une fiche par
+ * app suivie (concurrentes du projet d'abord) qui réunit tout ce que la veille
+ * sait d'elle : ses vidéos qui cartonnent, ses formats, ses pubs, ses comptes, et
+ * la recherche de nouveaux comptes.
  */
-export function RadarRivals({ selected, hrefFor, go }: { selected: string | null; hrefFor: (slug: string) => string; go: RadarGo }) {
+export function RadarRivals({
+  selected,
+  hrefFor,
+  overviewHref,
+  go,
+}: {
+  selected: string | null;
+  hrefFor: (slug: string) => string;
+  overviewHref: string;
+  go: RadarGo;
+}) {
   const tr = useTranslations("admin.ops.RadarRivals");
-  const loc = useIntlLocale();
   const { project } = useProject();
   const now = useNow();
   const networks = useProjectQuery(api.radarNetworks.listNetworks, {});
   const data = useProjectQuery(api.radarSignals.listSignals, { since: listSince(now) });
   const formats = useProjectQuery(api.radarNetworks.listFormats, {});
   const ads = useProjectQuery(api.radarSources.listAds, {});
-  const setStatus = useSignalStatus();
-  const formatLabel = useFormatLabel();
   const [allOthers, setAllOthers] = useState(false);
   const [viewer, setViewer] = useState<ViewerQueue | null>(null);
 
@@ -50,9 +61,10 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
   const byHits = (x: (typeof rows)[number], y: (typeof rows)[number]) => y.w.hits.length - x.w.hits.length || y.a.accounts - x.a.accounts || x.a.name.localeCompare(y.a.name);
   const rivals = rows.filter((r) => r.a.group === "rival").sort(byHits);
   const others = rows.filter((r) => r.a.group !== "rival").sort(byHits);
-  const current = rows.find((r) => r.a.slug === selected) ?? rivals[0] ?? others[0];
+  // Sans app choisie (ou une app disparue) : la vue d'ensemble.
+  const current = selected ? rows.find((r) => r.a.slug === selected) : undefined;
 
-  if (!current) {
+  if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 px-6 py-12 text-center">
         <p className="font-semibold text-slate-900">{tr("aucuneApp")}</p>
@@ -61,10 +73,11 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
     );
   }
 
-  const { a: app, w } = current;
-  const hits = w.hits;
-  const appFormats = (formats ?? []).filter((f) => f.apps.some((x) => x.name === app.name));
-  const appAds = groupAds((ads ?? []).filter((x) => x.app === app.name));
+  const slugOf = new Map(rows.map((r) => [r.a.id as string, r.a.slug]));
+  const hrefForApp = (appId: string) => {
+    const slug = slugOf.get(appId);
+    return slug ? hrefFor(slug) : null;
+  };
 
   const appLink = (r: (typeof rows)[number]) => (
     <Link
@@ -72,10 +85,10 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
       href={hrefFor(r.a.slug)}
       prefetch={false}
       scroll={false}
-      aria-current={r.a.id === app.id ? "page" : undefined}
+      aria-current={r.a.id === current?.a.id ? "page" : undefined}
       className={cn(
         "flex min-h-10 items-center justify-between gap-2 rounded-lg px-2.5 text-sm",
-        r.a.id === app.id ? "bg-slate-100 font-semibold text-slate-900" : "text-slate-700 hover:bg-slate-50",
+        r.a.id === current?.a.id ? "bg-slate-100 font-semibold text-slate-900" : "text-slate-700 hover:bg-slate-50",
         r.a.status === "paused" && "text-slate-400",
       )}
     >
@@ -87,6 +100,18 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
   return (
     <div className="flex flex-wrap items-start gap-8">
       <aside aria-label={tr("apps")} className="flex w-full flex-col gap-5 md:w-[230px] md:shrink-0">
+        <Link
+          href={overviewHref}
+          prefetch={false}
+          scroll={false}
+          aria-current={current ? undefined : "page"}
+          className={cn(
+            "flex min-h-10 items-center rounded-lg px-2.5 text-sm",
+            current ? "text-slate-700 hover:bg-slate-50" : "bg-slate-100 font-semibold text-slate-900",
+          )}
+        >
+          {tr("vueEnsemble")}
+        </Link>
         <div className="flex flex-col gap-0.5">
           <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{tr("concurrentsDe", { projet: project.name })}</h2>
           {rivals.length === 0 ? <p className="px-2.5 text-sm text-slate-500">{tr("aucunConcurrent")}</p> : rivals.map(appLink)}
@@ -105,116 +130,153 @@ export function RadarRivals({ selected, hrefFor, go }: { selected: string | null
         <p className="px-2.5 text-xs leading-relaxed text-slate-500">{tr("legendeListe")}</p>
       </aside>
 
-      <div className="flex min-w-0 flex-[999_1_560px] flex-col gap-8" data-testid="radar-fiche-app">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h2 className="text-2xl font-semibold tracking-tight">{app.name}</h2>
-              <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", app.group === "rival" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>
-                {app.group === "rival" ? tr("concurrentDe", { projet: project.name }) : app.group === "otherRival" ? tr("concurrentAilleurs") : tr("autreApp")}
-              </span>
-              {app.status === "paused" && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">{tr("enPause")}</span>}
-            </div>
-            <p className="mt-1.5 text-sm text-slate-500">{tr("recherches", { recherches: app.searches.join(", ") })}</p>
-          </div>
-          <NetworkSearchBlock app={app as AppRow} now={now} />
-        </div>
-
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
-          <Kpi label={tr("kpiCartonnent")} value={String(hits.length)} sub={tr("septJours")} testId="radar-kpi-cartonnent" />
-          {/* Sa meilleure vidéo QUI LA CITE, pas la meilleure de ses comptes (qui publient aussi autre chose). */}
-          <Kpi
-            label={tr("kpiMeilleure")}
-            value={hits[0] ? formatCount(hits[0].views, loc) : "—"}
-            sub={hits[0] ? tr("meilleureSous", { x: formatOutlierRatio(scoreOf(hits[0]).value, loc), handle: hits[0].handle }) : tr("rienCetteSemaine")}
-          />
-          <Kpi label={tr("kpiPubs")} value={String(w.activeAds)} sub={tr("tiktokEtMeta")} testId="radar-kpi-pubs" />
-          <Kpi label={tr("kpiComptes")} value={String(app.accounts)} sub={tr("comptesSous", { posts: app.posts7d })} />
-        </div>
-
-        <section aria-labelledby="radar-fiche-videos" className="space-y-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 id="radar-fiche-videos" className="text-[17px] font-semibold">
-              {tr("sesVideos")}
-            </h3>
-            {hits.length > 0 && (
-              <button type="button" onClick={() => go("explorer", { a: app.name })} className={cn("text-sm", ACCENT_LINK)}>
-                {tr("toutesDansExplorer", { n: hits.length })}
-              </button>
-            )}
-          </div>
-          {hits.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-300 px-5 py-6 text-sm text-slate-500">{tr("aucuneVideo")}</p>
-          ) : (
-            <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
-              {hits.slice(0, VIDEOS_SHOWN).map((s, i) => (
-                <SignalCard key={s.id} s={s} now={now} onOpen={() => setViewer({ ids: hits.map((x) => x.id), index: i })} onStatus={(st) => void setStatus(s, st)} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section aria-labelledby="radar-fiche-formats" className="space-y-3">
-          <h3 id="radar-fiche-formats" className="text-[17px] font-semibold">
-            {tr("sesFormats")}
-          </h3>
-          {appFormats.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-300 px-5 py-6 text-sm text-slate-500">{tr("aucunFormat")}</p>
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-              {appFormats.slice(0, FORMATS_SHOWN).map((f) => (
-                <li key={f.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3.5">
-                  <div className="min-w-0 flex-[1_1_360px]">
-                    <p className="break-words text-sm font-semibold leading-snug text-slate-900">{formatLabel(f)}</p>
-                    <p className="mt-1 text-[13px] text-slate-500">
-                      {tr(f.kind === "hook" ? "memeTexte" : "memeSon")} ·{" "}
-                      {tr("formatMeta", { comptes: f.accountCount, apps: f.apps.map((x) => x.name).join(", "), vues: formatCount(f.maxViews, loc) })}
-                    </p>
-                  </div>
-                  {f.members[0] && (
-                    <a href={f.members[0].url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700 hover:underline">
-                      {tr("laMeilleure")}
-                      <ExternalLinkIcon className="size-3.5" aria-hidden />
-                    </a>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section aria-labelledby="radar-fiche-pubs" className="space-y-3">
-          <h3 id="radar-fiche-pubs" className="text-[17px] font-semibold">
-            {tr("sesPubs")}
-          </h3>
-          {appAds.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-300 px-5 py-6 text-center">
-              <p className="text-sm font-semibold text-slate-900">{tr("aucunePub", { app: app.name })}</p>
-              <p className="mt-1 text-[13px] text-slate-500">{tr("aucunePubAide")}</p>
-            </div>
-          ) : (
-            <ul className="grid gap-3 lg:grid-cols-2">
-              {appAds.slice(0, ADS_SHOWN).map((g) => (
-                <AdGroupCard key={g.key} g={g} />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section aria-labelledby="radar-fiche-comptes" className="space-y-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 id="radar-fiche-comptes" className="text-[17px] font-semibold">
-              {tr("sesComptes")}
-            </h3>
-            <span className="text-[13px] text-slate-500">{tr("comptesAide", { n: app.accounts, actifs: app.activeAccounts })}</span>
-          </div>
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <AccountsTable appId={app.id} appName={app.name} />
-          </div>
-        </section>
+      <div className="min-w-0 flex-[999_1_560px]">
+        {current ? <AppFiche row={current} formats={formats ?? []} ads={ads ?? []} now={now} go={go} onOpen={setViewer} /> : <RadarInsights hrefForApp={hrefForApp} />}
       </div>
 
       <RadarViewer queue={viewer} signals={signals} now={now} onChange={setViewer} />
+    </div>
+  );
+}
+
+type NetworkApp = FunctionReturnType<typeof api.radarNetworks.listNetworks>["apps"][number];
+type Row = { a: NetworkApp; w: ReturnType<typeof appWeek<Signal>> };
+type Signal = FunctionReturnType<typeof api.radarSignals.listSignals>["signals"][number];
+
+/** La fiche d'une app : ses vidéos qui cartonnent, ses formats, ses pubs, ses comptes. */
+function AppFiche({
+  row,
+  formats,
+  ads,
+  now,
+  go,
+  onOpen,
+}: {
+  row: Row;
+  formats: FunctionReturnType<typeof api.radarNetworks.listFormats>;
+  ads: FunctionReturnType<typeof api.radarSources.listAds>;
+  now: number;
+  go: RadarGo;
+  onOpen: (q: ViewerQueue) => void;
+}) {
+  const tr = useTranslations("admin.ops.RadarRivals");
+  const loc = useIntlLocale();
+  const { project } = useProject();
+  const setStatus = useSignalStatus();
+  const formatLabel = useFormatLabel();
+  const { a: app, w } = row;
+  const hits = w.hits;
+  const appFormats = formats.filter((f) => f.apps.some((x) => x.name === app.name));
+  const appAds = groupAds(ads.filter((x) => x.app === app.name));
+
+  return (
+    <div className="flex min-w-0 flex-col gap-8" data-testid="radar-fiche-app">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="text-2xl font-semibold tracking-tight">{app.name}</h2>
+            <span className={cn("rounded-md px-2 py-0.5 text-xs font-semibold", app.group === "rival" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700")}>
+              {app.group === "rival" ? tr("concurrentDe", { projet: project.name }) : app.group === "otherRival" ? tr("concurrentAilleurs") : tr("autreApp")}
+            </span>
+            {app.status === "paused" && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">{tr("enPause")}</span>}
+          </div>
+          <p className="mt-1.5 text-sm text-slate-500">{tr("recherches", { recherches: app.searches.join(", ") })}</p>
+        </div>
+        <NetworkSearchBlock app={app as AppRow} now={now} />
+      </div>
+
+      <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(170px,1fr))]">
+        <Kpi label={tr("kpiCartonnent")} value={String(hits.length)} sub={tr("septJours")} testId="radar-kpi-cartonnent" />
+        {/* Sa meilleure vidéo QUI LA CITE, pas la meilleure de ses comptes (qui publient aussi autre chose). */}
+        <Kpi
+          label={tr("kpiMeilleure")}
+          value={hits[0] ? formatCount(hits[0].views, loc) : "—"}
+          sub={hits[0] ? tr("meilleureSous", { x: formatOutlierRatio(scoreOf(hits[0]).value, loc), handle: hits[0].handle }) : tr("rienCetteSemaine")}
+        />
+        <Kpi label={tr("kpiPubs")} value={String(w.activeAds)} sub={tr("tiktokEtMeta")} testId="radar-kpi-pubs" />
+        <Kpi label={tr("kpiComptes")} value={String(app.accounts)} sub={tr("comptesSous", { posts: app.posts7d })} />
+      </div>
+
+      <section aria-labelledby="radar-fiche-videos" className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="radar-fiche-videos" className="text-[17px] font-semibold">
+            {tr("sesVideos")}
+          </h3>
+          {hits.length > 0 && (
+            <button type="button" onClick={() => go("explorer", { a: app.name })} className={cn("text-sm", ACCENT_LINK)}>
+              {tr("toutesDansExplorer", { n: hits.length })}
+            </button>
+          )}
+        </div>
+        {hits.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-300 px-5 py-6 text-sm text-slate-500">{tr("aucuneVideo")}</p>
+        ) : (
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(220px,1fr))]">
+            {hits.slice(0, VIDEOS_SHOWN).map((s, i) => (
+              <SignalCard key={s.id} s={s} now={now} onOpen={() => onOpen({ ids: hits.map((x) => x.id), index: i })} onStatus={(st) => void setStatus(s, st)} />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section aria-labelledby="radar-fiche-formats" className="space-y-3">
+        <h3 id="radar-fiche-formats" className="text-[17px] font-semibold">
+          {tr("sesFormats")}
+        </h3>
+        {appFormats.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-slate-300 px-5 py-6 text-sm text-slate-500">{tr("aucunFormat")}</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+            {appFormats.slice(0, FORMATS_SHOWN).map((f) => (
+              <li key={f.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3.5">
+                <div className="min-w-0 flex-[1_1_360px]">
+                  <p className="break-words text-sm font-semibold leading-snug text-slate-900">{formatLabel(f)}</p>
+                  <p className="mt-1 text-[13px] text-slate-500">
+                    {tr(f.kind === "hook" ? "memeTexte" : "memeSon")} ·{" "}
+                    {tr("formatMeta", { comptes: f.accountCount, apps: f.apps.map((x) => x.name).join(", "), vues: formatCount(f.maxViews, loc) })}
+                  </p>
+                </div>
+                {f.members[0] && (
+                  <a href={f.members[0].url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-slate-700 hover:underline">
+                    {tr("laMeilleure")}
+                    <ExternalLinkIcon className="size-3.5" aria-hidden />
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="radar-fiche-pubs" className="space-y-3">
+        <h3 id="radar-fiche-pubs" className="text-[17px] font-semibold">
+          {tr("sesPubs")}
+        </h3>
+        {appAds.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 px-5 py-6 text-center">
+            <p className="text-sm font-semibold text-slate-900">{tr("aucunePub", { app: app.name })}</p>
+            <p className="mt-1 text-[13px] text-slate-500">{tr("aucunePubAide")}</p>
+          </div>
+        ) : (
+          <ul className="grid gap-3 lg:grid-cols-2">
+            {appAds.slice(0, ADS_SHOWN).map((g) => (
+              <AdGroupCard key={g.key} g={g} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="radar-fiche-comptes" className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="radar-fiche-comptes" className="text-[17px] font-semibold">
+            {tr("sesComptes")}
+          </h3>
+          <span className="text-[13px] text-slate-500">{tr("comptesAide", { n: app.accounts, actifs: app.activeAccounts })}</span>
+        </div>
+        <div className="overflow-hidden rounded-xl border border-slate-200">
+          <AccountsTable appId={app.id} appName={app.name} />
+        </div>
+      </section>
     </div>
   );
 }

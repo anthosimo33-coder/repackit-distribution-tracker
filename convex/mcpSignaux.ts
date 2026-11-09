@@ -66,7 +66,7 @@ export const lireComptesApp = mcpPermissionQuery("radar.use")({
 
 const PERIODES: Record<string, AgeKey> = { "24h": "1", "3j": "3", "7j": "7", "30j": "30", "90j": "90", tout: "all" };
 const TAILLES: Record<string, string> = { "moins-1k": "xs", "1k-10k": "s", "10k-50k": "m", "50k-plus": "l" };
-const TRIS: Record<string, SortKey> = { mediane: "mediane", ratio: "ratio", vitesse: "vph", vues: "views", recent: "recent" };
+const TRIS: Record<string, SortKey> = { mediane: "mediane", ratio: "ratio", vitesse: "vph", vues: "views", partages: "shares", recent: "recent" };
 
 export const OUTIL_SIGNAUX: McpTool = {
   name: "signaux",
@@ -86,7 +86,7 @@ export const OUTIL_SIGNAUX: McpTool = {
       seuil: { type: "integer", description: "Vues ÷ abonnés au moins : 0 (défaut), 10, 50 ou 200." },
       statut: { type: "array", description: `Statut posé par l'équipe (ou) : ${STATUSES.join(", ")}. Défaut : nouveau, enregistre, adapte.`, items: { type: "string" } },
       recherche: { type: "string", description: "Texte cherché dans la légende, le pseudo ou le concurrent." },
-      tri: { type: "string", description: "Ordre (défaut : mediane = vues ÷ médiane du compte, puis vues ÷ abonnés pour les vidéos sans médiane).", enum: Object.keys(TRIS) },
+      tri: { type: "string", description: "Ordre (défaut : mediane = vues ÷ médiane du compte, puis vues ÷ abonnés pour les vidéos sans médiane ; partages = partages ÷ vues, ce qui se partage).", enum: Object.keys(TRIS) },
       limite: { type: "integer", description: "Vidéos listées au plus (défaut 20).", minimum: 1, maximum: 100 },
     },
     additionalProperties: false,
@@ -270,11 +270,16 @@ export async function appelerReseaux(
         {
           projet,
           formats: f.length,
-          lecture: "quiPete = au moins 10 000 vues et 3× la médiane du compte (un son seulement s'il est original) : ceux-là d'abord, puis les plus vus, toutes apps confondues. type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
+          lecture: "reussi = au moins 3 reprises mesurées et une sur deux à 3× la normale de son compte ou plus (reussite = réussies / mesurées, medianeReprises = médiane des vues ÷ normale) : ceux-là d'abord ; un format avec une seule vidéo virale et des copies à plat n'est pas réussi. quiPete = au moins 10 000 vues et 3× la médiane du compte (un son seulement s'il est original) : ensuite, puis les plus vus, toutes apps confondues. type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte. famille = la même idée d'une langue à l'autre (rangée par Claude Haiku toutes les 6 h) : les formats qui portent la même famille sont un seul format traduit ou adapté ; langue = celle de la majorité de ses comptes.",
           liste: f.slice(0, 40).map((x) => ({
+            ...(x.winning ? { reussi: true } : {}),
             ...(x.hot ? { quiPete: true } : {}),
+            reussite: `${x.wins}/${x.measured}`,
+            ...(x.medianMultiplier !== null ? { medianeReprises: Math.round(x.medianMultiplier * 10) / 10 } : {}),
             type: x.kind === "hook" ? "hook" : "son",
             texte: x.label,
+            ...(x.family ? { famille: x.family.label } : {}),
+            ...(x.lang ? { langue: x.lang } : {}),
             ...(x.variants > 1 ? { variantes: [...new Set(x.members.map((m) => m.hook).filter(Boolean))] } : {}),
             comptes: x.accountCount,
             apps: x.apps.map((a) => a.name),

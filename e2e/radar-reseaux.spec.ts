@@ -12,6 +12,7 @@ const DAY = 86_400_000;
 const HOOK = "POV : tu découvres qui il suit en secret";
 const VARIANTE = "POV : tu découvres qui il suivait avant toi";
 const FROID = "Mes trois apps préférées du moment";
+const GAGNANT = "Quand il like encore les photos de son ex";
 
 /**
  * Nouveau Radar — onglets Comptes suivis (réseaux d'apps, apps repérées) et
@@ -331,6 +332,18 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
         // Le même son original chez deux apps non concurrentes : le plus vu, en tête
         // — peu importe la niche.
         { kind: "sound", key: `${p}son`, label: son, members: [{ handle: `rxthree_${ts}`, videoId: `${ts}3`, views: 80_000, multiplier: 8.9, ageH: 20 }, { handle: `rxfour_${ts}`, videoId: `${ts}4`, views: 3_000, ageH: 70 }] },
+        // Un format RÉUSSI : 3 reprises sur 4 à 3× la normale de leur compte ou plus (09/11).
+        {
+          kind: "hook",
+          key: `${p}gagnant`,
+          label: GAGNANT,
+          members: [
+            { handle: r.un, videoId: `${ts}7`, views: 30_000, multiplier: 6, ageH: 40, hook: GAGNANT },
+            { handle: r.deux, videoId: `${ts}8`, views: 20_000, multiplier: 5, ageH: 60, hook: GAGNANT },
+            { handle: `rxthree_${ts}`, videoId: `${ts}9`, views: 12_000, multiplier: 4, ageH: 80, hook: GAGNANT },
+            { handle: `rxfour_${ts}`, videoId: `${ts}10`, views: 1_000, multiplier: 1, ageH: 90, hook: GAGNANT },
+          ],
+        },
       ],
       candidates: [
         { key: `@${p}cand`, kind: "mention", label: cand, authors: [r.un, r.deux, `rxfree_${ts}`], fromApps: [`${p}a`] },
@@ -382,7 +395,17 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       // ── L'onglet Formats ───────────────────────────────────────────────────
       await page.goto(adminPath("/radar?onglet=formats"));
       const carte = (texte: string) => page.getByTestId("radar-format").filter({ hasText: texte });
+      // Par défaut, ceux qui RÉUSSISSENT : leurs reprises, pas leur meilleur coup.
+      await expect(page.getByRole("button", { name: /^Qui réussissent/ })).toHaveAttribute("aria-pressed", "true");
+      const gagnant = carte(GAGNANT);
+      await expect(gagnant.getByTestId("radar-format-reussite")).toHaveText("3 sur 4");
+      await expect(gagnant.getByRole("img", { name: "3 reprises sur 4 font 3× la normale de leur compte" })).toBeVisible();
+      await expect(carte(HOOK)).toHaveCount(0);
+      // Ceux qui pètent : un coup fort chez un compte, réussi ou non ailleurs.
+      await page.getByRole("button", { name: /^Qui pètent/ }).click();
       const hook = carte(HOOK);
+      await expect(hook.getByTestId("radar-format-reussite")).toHaveText("Moins de 3 reprises mesurées");
+      await hook.getByRole("button", { expanded: false }).click();
       await expect(hook).toContainText("Même hook");
       await expect(hook).toContainText("Poussé par un concurrent");
       await expect(hook).toContainText(`2 comptes · ${r.rival} · 2 variantes`);
@@ -399,15 +422,15 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(sonCarte).toContainText("Même son");
       await expect(sonCarte).toContainText(`2 comptes · ${r.ailleurs}, ${r.autre}`);
       await expect(sonCarte).not.toContainText("Poussé par un concurrent");
-      // Le plus vu d'abord, toutes apps confondues ; le format froid est caché.
+      // Le réussi d'abord, puis le plus vu, toutes apps confondues ; le format froid n'y est pas.
       const textes = await page.getByTestId("radar-format").allTextContents();
+      expect(textes.findIndex((t) => t.includes(GAGNANT))).toBeLessThan(textes.findIndex((t) => t.includes(sonAffiche)));
       expect(textes.findIndex((t) => t.includes(sonAffiche))).toBeLessThan(textes.findIndex((t) => t.includes(HOOK)));
       const froid = carte(FROID);
       await expect(froid).toHaveCount(0);
-      await expect(page.getByText(/1 format ne pète pas encore/)).toBeVisible();
-      await page.getByRole("checkbox", { name: "Qui pètent seulement" }).uncheck();
+      await page.getByRole("button", { name: /^Tous · / }).click();
       await expect(froid).toContainText(`« ${FROID} »`);
-      await page.getByRole("checkbox", { name: "Qui pètent seulement" }).check();
+      await page.getByRole("button", { name: /^Qui pètent/ }).click();
       await expect(froid).toHaveCount(0);
 
       // Filtres : les sons seulement, puis les concurrents seulement → vide.
@@ -453,6 +476,49 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(neuve.getByTestId("radar-compte")).toContainText(`@rxfree_${ts}`);
     } finally {
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
+    }
+  });
+
+  test("familles de hooks : la même idée d'une langue à l'autre, dans l'ordre où elle est apparue", async ({ page }) => {
+    const ts = Date.now();
+    const p = `e2erxf${ts}`;
+    const app = `E2E Fam ${ts}`;
+    const famille = `${p} Jeu : fouiller le téléphone d'une fille disparue`;
+    const membre = (i: number, ageJ: number, views: number, hook: string) => ({ handle: `rxfam${i}_${ts}`, videoId: `${p}v${i}`, views, multiplier: 5, ageH: ageJ * 24, hook });
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}a`, name: app, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] }],
+      accounts: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ handle: `rxfam${i}_${ts}`, appSlug: `${p}a`, fans: 1_000, medianViews: 1_000, posts7d: 2 })),
+      formats: [
+        // Rangées dans le désordre : l'écran les remet dans l'ordre d'apparition.
+        { kind: "hook", key: `${p}fr`, label: "fr", family: famille, lang: "fr", firstSeenAgeH: 3 * 24, members: [membre(5, 2, 18_000, `POV : cette fille a disparu ${ts}`), membre(6, 2, 4_300, `POV : cette fille a disparu ${ts}`)] },
+        { kind: "hook", key: `${p}en`, label: "en", family: famille, lang: "en", firstSeenAgeH: 12 * 24, members: [membre(1, 11, 1_800_000, `new obsession: a missing girl's phone ${ts}`), membre(2, 10, 50_000, `new obsession: a missing girl's phone ${ts}`)] },
+        { kind: "hook", key: `${p}es`, label: "es", family: famille, lang: "es-am", firstSeenAgeH: 8 * 24, members: [membre(3, 7, 98_000, `nueva obsesión: el teléfono de una chica desaparecida ${ts}`), membre(4, 7, 9_000, `nueva obsesión: el teléfono de una chica desaparecida ${ts}`)] },
+        // Une famille d'une seule langue : pas dans la vue.
+        { kind: "hook", key: `${p}solo`, label: "solo", family: `${p} solo`, lang: "en", members: [membre(7, 1, 20_000, `solo ${ts}`), membre(8, 1, 20_000, `solo ${ts}`)] },
+      ],
+    });
+    try {
+      await page.goto(adminPath("/radar?onglet=explorer&vue=formats"));
+      const familles = page.getByRole("button", { name: /^Familles · \d+/ });
+      await familles.click();
+      await expect(familles).toHaveAttribute("aria-pressed", "true");
+      const bloc = page.getByTestId("radar-famille").filter({ hasText: famille });
+      await expect(bloc).toContainText(`3 variantes en 3 langues · chez ${app}`);
+      const variantes = bloc.getByTestId("radar-famille-variante");
+      await expect(variantes).toHaveCount(3);
+      await expect(variantes.nth(0)).toContainText("Anglais");
+      await expect(variantes.nth(0)).toContainText(`new obsession: a missing girl's phone ${ts}`);
+      await expect(variantes.nth(0)).toContainText("1,8 M");
+      await expect(variantes.nth(1)).toContainText("Espagnol (Amérique)");
+      await expect(variantes.nth(2)).toContainText("Français");
+      await expect(page.getByTestId("radar-famille").filter({ hasText: `${p} solo` })).toHaveCount(0);
+      // Dans « Tous », le format dit qu'il a une famille dans d'autres langues.
+      await page.getByRole("button", { name: /^Tous · / }).click();
+      await expect(page.getByTestId("radar-format").filter({ hasText: `new obsession: a missing girl's phone ${ts}` })).toContainText("famille en 3 langues");
+      await expect(page.getByTestId("radar-format").filter({ hasText: `solo ${ts}` })).not.toContainText("famille en");
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
     }
   });
 

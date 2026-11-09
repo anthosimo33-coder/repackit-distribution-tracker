@@ -105,6 +105,47 @@ export function sparklinePoints(points: readonly CurvePoint[], w: number, h: num
     .join(" ");
 }
 
+// ─── Ce qui se partage ───────────────────────────────────────────────────────
+
+/**
+ * « Se partage » : au moins 2 % des vues partagées — les 10 % les plus partagées
+ * des vidéos relevées (p90 mesuré le 09/11/2026 : 2,07 %). Le partage porte la
+ * portée organique.
+ */
+export const SHARE_TOP = 0.02;
+
+export function sharesWell(s: { views: number; shares?: number }): boolean {
+  return s.views > 0 && (s.shares ?? 0) / s.views >= SHARE_TOP;
+}
+
+// ─── En train de partir ──────────────────────────────────────────────────────
+
+/**
+ * Une vidéo « en train de partir » : publiée il y a moins de 24 h et déjà à 10×
+ * la normale de son compte (avec au moins 10 000 vues). Montrée en tête
+ * d'Aujourd'hui, et signalée sur Telegram quand elle vient d'un concurrent.
+ */
+export const EARLY_WINDOW_MS = 24 * HOUR;
+export const EARLY_MULTIPLIER = 10;
+export const EARLY_MIN_VIEWS = 10_000;
+
+export function isEarlyHit(v: { publishedAt: number; views: number; multiplier?: number | null }, now: number): boolean {
+  return now - v.publishedAt <= EARLY_WINDOW_MS && v.views >= EARLY_MIN_VIEWS && (v.multiplier ?? 0) >= EARLY_MULTIPLIER;
+}
+
+
+/**
+ * Les vidéos du projet qui partent tôt (radarNetworkMath.isEarlyHit : moins de 24 h,
+ * 10× la normale, 10 000 vues), jamais traitées, sans les concurrents d'un autre
+ * projet ni ce qu'un compte publie sans citer d'app — les plus fortes d'abord.
+ */
+export function earlyHits<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null }>(signals: readonly T[], now: number, limit = 4): T[] {
+  return signals
+    .filter((s) => s.status === "nouveau" && !s.elsewhere && !s.network && isEarlyHit(s, now))
+    .sort((a, b) => (b.multiplier ?? 0) - (a.multiplier ?? 0))
+    .slice(0, limit);
+}
+
 // ─── Formats ─────────────────────────────────────────────────────────────────
 
 /** « original sound - georgiaspamming » → « georgiaspamming » ; une vraie musique → null. */

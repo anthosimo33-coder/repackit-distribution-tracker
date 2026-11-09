@@ -30,7 +30,7 @@ function semis(ts: number) {
   const hook = (n: number) => `Quand ton mec like en secret ${n} ${ts}`;
   // `cite` : la légende cite l'app (son motif). Sinon, c'est une vidéo d'un compte
   // du réseau qui parle d'autre chose (09/11 : un extrait Disney sous The Ick).
-  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`) => ({
+  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`, shares?: number) => ({
     videoId: `${m}${n}`,
     handle: `rxauj${n}_${ts}`,
     fans: 1_000 + n,
@@ -41,6 +41,7 @@ function semis(ts: number) {
     multiplier,
     hook: hook(n),
     app,
+    ...(shares !== undefined ? { shares } : {}),
     snapshots: snaps.map(([h, v]) => ({ at: now - ageH * HOUR + h * HOUR, views: v })),
   });
   return {
@@ -64,13 +65,16 @@ function semis(ts: number) {
     signals: [
       // @rxauj1 : 412 000 à H+6, 990 000 à H+24 (+140 %).
       s(1, 9_900, 30, [[6, 412_000], [24, 990_000]]),
-      s(2, 9_800, 40, [[24, 980_000]]),
+      // 6 % des vues partagées : « se partage ».
+      s(2, 9_800, 40, [[24, 980_000]], true, rival, `${p}a`, 58_800),
       s(3, 9_700, 50, [[24, 970_000]]),
       s(4, 9_600, 60, [[24, 960_000]]),
       // Un compte du réseau, une vidéo qui ne cite pas l'app : ni étiquette ni concurrent, pas dans Aujourd'hui.
       s(5, 9_500, 70, [[24, 950_000]], false),
       // Une vidéo d'un concurrent de Snytch : pas dans l'Aujourd'hui du projet e2e.
       s(6, 9_450, 70, [[24, 945_000]], true, ailleurs, `${p}b`),
+      // En train de partir : publiée il y a 5 h, déjà 50× sa normale.
+      s(7, 50, 5, [[4, 60_000]]),
     ],
     ads: [
       // La même créa, deux annonces actives : une seule ligne, une seule pub active.
@@ -103,12 +107,19 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       for (const [i, n] of [1, 2, 3, 4].entries()) await expect(cartes.nth(i)).toContainText(z.hook(n));
       await expect(carte(1).getByTestId("radar-score")).toHaveText("9900×");
       await expect(carte(1)).toContainText(`${z.rival} · concurrent`);
+      // Ce qui se partage, et ce qui part tôt, en tête.
+      await expect(carte(2).getByTestId("radar-se-partage")).toHaveText("Se partage");
+      await expect(carte(1).getByTestId("radar-se-partage")).toHaveCount(0);
+      const partir = page.getByTestId("radar-en-train-de-partir");
+      await expect(partir).toContainText(z.hook(7));
+      await expect(partir).toContainText("vues en 5 h");
+      await expect(partir).not.toContainText(z.hook(1));
       // Propre au projet : ni ce qu'un compte du réseau publie sans citer l'app, ni un concurrent d'un autre projet.
       await expect(carte(5)).toHaveCount(0);
       await expect(carte(6)).toHaveCount(0);
-      // La semaine du concurrent : 4 vidéos qui cartonnent (pas la 5e), une créa active (deux annonces).
+      // La semaine du concurrent : 5 vidéos qui cartonnent (ni celle qui ne le cite pas, ni l'autre projet), une créa active (deux annonces).
       const semaine = page.getByTestId("radar-concurrent-semaine").filter({ hasText: z.rival });
-      await expect(semaine.getByRole("cell").nth(1)).toHaveText("4");
+      await expect(semaine.getByRole("cell").nth(1)).toHaveText("5");
       await expect(semaine.getByRole("cell").nth(3)).toHaveText("1");
 
       // Passer depuis la carte, puis Annuler : elle revient à sa place.
@@ -167,10 +178,10 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       const fiche = page.getByTestId("radar-fiche-app");
       await expect(fiche.getByRole("heading", { name: z.rival })).toBeVisible();
       await expect(page.getByRole("link", { name: new RegExp(`^${z.rival}`) })).toHaveAttribute("aria-current", "page");
-      // La passée ne compte plus : 3 vidéos qui cartonnent ; une créa active.
-      await expect(page.getByTestId("radar-kpi-cartonnent")).toHaveText("3");
+      // La passée ne compte plus : 4 vidéos qui cartonnent ; une créa active.
+      await expect(page.getByTestId("radar-kpi-cartonnent")).toHaveText("4");
       await expect(page.getByTestId("radar-kpi-pubs")).toHaveText("1");
-      await expect(fiche.getByTestId("radar-signal")).toHaveCount(3);
+      await expect(fiche.getByTestId("radar-signal")).toHaveCount(4);
       const pubs = fiche.getByTestId("radar-pub");
       await expect(pubs).toHaveCount(2);
       await expect(pubs.first()).toContainText("2 annonces, 2 actives");
@@ -188,6 +199,72 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: z.m });
       await admin.mutation(api.radarSources.e2eClearAds, { secret: E2E_SECRET, prefix: z.p });
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: z.p });
+    }
+  });
+
+  test("Concurrents s'ouvre sur ce qui sort du lot : par langue, par concurrent, par façon de faire", async ({ page }) => {
+    const ts = Date.now();
+    const p = `e2erxi${ts}`;
+    const rival = `E2E Rival ins ${ts}`;
+    // Publiées il y a 3 jours ; médiane du compte 1 000 : 5 000 vues = 5× sa normale (sort du lot).
+    const vids = (pre: string, n: number, wins: number, musicTitle: string, hook?: (i: number) => string) =>
+      Array.from({ length: n }, (_, i) => ({ videoId: `${pre}${i}`, ageH: 72, views: i < wins ? 5_000 : 500, musicTitle, ...(hook ? { hook: hook(i) } : {}) }));
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}a`, name: rival, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] }],
+      accounts: [
+        // Espagnol d'Amérique, texte à l'écran court, son original : 25 sur 50 sortent du lot.
+        {
+          handle: `rxins1_${ts}`,
+          appSlug: `${p}a`,
+          fans: 5_000,
+          medianViews: 1_000,
+          posts7d: 5,
+          lang: "es-am",
+          // Trop jeune (10 h) : pas encore jugée.
+          videos: [...vids(`${p}x`, 50, 25, `original sound - rxins1_${ts}`, (i) => `Mira lo que encontré ${i}`), { videoId: `${p}jeune`, ageH: 10, views: 99_000 }],
+        },
+        // Portugais, sans texte, une musique : 3 sur 60.
+        {
+          handle: `rxins2_${ts}`,
+          appSlug: `${p}a`,
+          fans: 5_000,
+          medianViews: 1_000,
+          posts7d: 5,
+          lang: "pt",
+          // Trop vieille (20 jours) : hors de la fenêtre.
+          videos: [...vids(`${p}y`, 60, 3, "Espresso - Sabrina Carpenter"), { videoId: `${p}vieille`, ageH: 20 * 24, views: 99_000 }],
+        },
+      ],
+    });
+    await admin.mutation(api.radarInsights.e2eComputeInsights, { secret: E2E_SECRET, project: E2E_PROJECT_SLUG });
+    try {
+      await page.goto(adminPath("/radar?onglet=concurrents"));
+      await expect(page.getByRole("link", { name: "Vue d'ensemble" })).toHaveAttribute("aria-current", "page");
+      const vue = page.getByTestId("radar-vue-ensemble");
+      await expect(vue).toContainText("110 vidéos TikTok de leurs comptes, publiées il y a 2 à 14 jours. En moyenne, 25 % font 3× la normale de leur compte.");
+      await expect(page.getByTestId("radar-ensemble-titre")).toHaveText("Les vidéos en espagnol d'Amérique sortent du lot 10 fois plus souvent que celles en portugais.");
+      const langues = page.getByTestId("radar-ensemble-langues").getByTestId("radar-ensemble-ligne");
+      await expect(langues).toHaveCount(2);
+      await expect(langues.nth(0)).toContainText("Espagnol (Amérique) · 50");
+      await expect(langues.nth(0)).toContainText("50 %");
+      await expect(langues.nth(1)).toContainText("Portugais (Brésil) · 60");
+      await expect(langues.nth(1)).toContainText("5 %");
+      const facon = (nom: string) => page.getByTestId("radar-ensemble-attr").filter({ hasText: nom });
+      await expect(facon("Texte à l'écran")).toContainText("Avec texte +45 pts");
+      await expect(facon("Texte à l'écran")).toContainText("avec 50 % · 50 — sans 5 % · 60");
+      await expect(facon("Musique ou son original")).toContainText("Son original +45 pts");
+      await expect(facon("Longueur du hook")).toContainText("Pas assez de vidéos");
+      // Le concurrent mène à sa fiche.
+      const app = page.getByTestId("radar-ensemble-apps").getByTestId("radar-ensemble-ligne").filter({ hasText: rival });
+      await expect(app).toContainText(`${rival} · 110`);
+      await expect(app).toContainText("25 %");
+      await app.getByRole("link", { name: rival }).click();
+      await expect(page.getByTestId("radar-fiche-app").getByRole("heading", { name: rival })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Vue d'ensemble" })).not.toHaveAttribute("aria-current", "page");
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+      await admin.mutation(api.radarInsights.e2eComputeInsights, { secret: E2E_SECRET, project: E2E_PROJECT_SLUG });
     }
   });
 

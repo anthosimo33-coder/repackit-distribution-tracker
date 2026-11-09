@@ -236,6 +236,27 @@ export function nextReadAt(lastPostAt: number | undefined, now: number): number 
   return now + 7 * DAY;
 }
 
+/**
+ * Relevé RAPIDE (toutes les 6 h) des comptes où un hit se joue (09/11/2026 : une
+ * vidéo n'était vue qu'à H+48 en médiane, 32 sur 405 avant H+12) : ceux des
+ * concurrentes d'un projet qui ont publié ces 3 derniers jours, et les comptes
+ * « chauds » (une vidéo à 10× leur normale cette semaine). ~260 comptes en prod,
+ * +~790 relevés/jour, sous le plafond des relevés de comptes.
+ */
+export const FAST_READ_MS = 6 * HOUR;
+export const HOT_ACCOUNT_MULTIPLIER = 10;
+
+export function isFastAccount(a: { rival: boolean; lastPostAt: number | undefined; best7dMultiplier: number | undefined }, now: number): boolean {
+  if (a.lastPostAt === undefined) return false;
+  const idle = now - a.lastPostAt;
+  return (a.rival && idle <= 3 * DAY) || ((a.best7dMultiplier ?? 0) >= HOT_ACCOUNT_MULTIPLIER && idle <= 7 * DAY);
+}
+
+/** Le prochain relevé, rapide pour un compte où un hit se joue (`isFastAccount`). */
+export function nextReadAtFor(a: { rival: boolean; lastPostAt: number | undefined; best7dMultiplier: number | undefined }, now: number): number {
+  return isFastAccount(a, now) ? now + FAST_READ_MS : nextReadAt(a.lastPostAt, now);
+}
+
 /** Trois relevés d'affilée en échec (compte supprimé, privé) : le compte passe en pause. */
 export const MAX_READ_ERRORS = 3;
 
@@ -300,6 +321,25 @@ const ORIGINAL_SOUND = /^(original sound|son original|som original|sonido origin
 export function isHotFormat(f: { kind: "hook" | "sound"; label: string; maxViews: number; bestMultiplier: number | null }): boolean {
   if (f.maxViews < HOT_MIN_VIEWS || (f.bestMultiplier ?? 0) < HOT_MIN_MULTIPLIER) return false;
   return f.kind === "hook" || ORIGINAL_SOUND.test(f.label.trim());
+}
+
+/**
+ * Un format RÉUSSI se lit sur ses reprises, pas sur son meilleur coup (09/11/2026 :
+ * « new obsession », 1,8 M vues au mieux, n'avait réussi que 3 reprises sur 23 ;
+ * 8 formats sur 384 réussissaient au moins une reprise sur deux). Une reprise
+ * réussit quand elle fait 3× la normale de son compte ; un format est réussi
+ * avec au moins 3 reprises mesurées et une sur deux réussie.
+ */
+export const FORMAT_WIN_MULTIPLIER = 3;
+export const FORMAT_MIN_MEASURED = 3;
+
+export function formatSuccess(members: readonly { multiplier?: number | null }[]): { measured: number; wins: number; median: number | null; winning: boolean } {
+  const ms = members.map((m) => m.multiplier).filter((x): x is number => typeof x === "number");
+  const wins = ms.filter((x) => x >= FORMAT_WIN_MULTIPLIER).length;
+  const sorted = [...ms].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length === 0 ? null : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return { measured: ms.length, wins, median, winning: ms.length >= FORMAT_MIN_MEASURED && wins * 2 >= ms.length };
 }
 
 /** Un format DÉMARRE : 3 comptes l'ont publié dans les dernières 48 h. */

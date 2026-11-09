@@ -4,6 +4,9 @@ import {
   TODAY_RIVAL_SLOTS,
   appWeek,
   curveOf,
+  earlyHits,
+  isEarlyHit,
+  sharesWell,
   groupAds,
   handledToday,
   isTemplateText,
@@ -15,7 +18,7 @@ import {
   usualViews,
   type AdLike,
 } from "../convex/radarDisplay";
-import type { FilterableSignal } from "../convex/radarSignalFilters";
+import { applyFilters, defaultFilters, type FilterableSignal } from "../convex/radarSignalFilters";
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -225,5 +228,36 @@ describe("la semaine d'une app", () => {
     const w = appWeek("FollowSpy", signals, ads, NOW);
     expect(w.hits.map((s) => s.id)).toEqual(["a", "b"]);
     expect(w.activeAds).toBe(1);
+  });
+});
+
+describe("repérer les gagnants (09/11/2026)", () => {
+  it("se partage : 2 % des vues partagées ou plus (p90 mesuré 2,07 %)", () => {
+    expect(sharesWell({ views: 2_577_704, shares: 160_501 })).toBe(true); // @gigi.girlytea, 6,2 %
+    expect(sharesWell({ views: 717_812, shares: 2_519 })).toBe(false); // @soysarahi303, 0,35 %
+    expect(sharesWell({ views: 0, shares: 10 })).toBe(false);
+  });
+
+  it("en train de partir : moins de 24 h, 10× la normale, 10 000 vues ; jamais traitée ni d'un autre projet", () => {
+    // @rated_chats (Plug AI) : 53 677 vues à H+9.
+    expect(isEarlyHit({ publishedAt: NOW - 9 * HOUR, views: 53_677, multiplier: 12 }, NOW)).toBe(true);
+    expect(isEarlyHit({ publishedAt: NOW - 30 * HOUR, views: 53_677, multiplier: 12 }, NOW)).toBe(false);
+    expect(isEarlyHit({ publishedAt: NOW - 9 * HOUR, views: 8_000, multiplier: 40 }, NOW)).toBe(false);
+    expect(isEarlyHit({ publishedAt: NOW - 9 * HOUR, views: 53_677, multiplier: 4 }, NOW)).toBe(false);
+    const signals = [
+      sig("jeune", { publishedAt: NOW - 5 * HOUR, views: 60_000, multiplier: 30 }),
+      sig("plusJeuneMoinsFort", { publishedAt: NOW - 2 * HOUR, views: 20_000, multiplier: 12 }),
+      sig("traitee", { publishedAt: NOW - 5 * HOUR, views: 60_000, multiplier: 90, status: "ignore" }),
+      sig("ailleurs", { publishedAt: NOW - 5 * HOUR, views: 60_000, multiplier: 90, elsewhere: true }),
+      sig("vieille", { publishedAt: NOW - 3 * DAY, views: 900_000, multiplier: 200 }),
+    ];
+    expect(earlyHits(signals, NOW).map((s) => s.id)).toEqual(["jeune", "plusJeuneMoinsFort"]);
+  });
+
+  it("trier par partages : partages ÷ vues", () => {
+    const f = defaultFilters();
+    f.sort = "shares";
+    const r = applyFilters([sig("a", { views: 100_000, shares: 500 }), sig("b", { views: 10_000, shares: 900 })], f, NOW);
+    expect(r.map((s) => s.id)).toEqual(["b", "a"]);
   });
 });

@@ -211,6 +211,8 @@
     "admin.ops.RadarBudget.creditsCourt",
     "admin.ops.RadarBudget.creditsEtPacks",
     "admin.ops.RadarExplorer.formats",
+    "admin.ops.RadarAdaptations.missions",
+    "admin.ops.RadarFormats.colFormat",
     "admin.ops.RadarFormats.ig",
     "admin.ops.RadarFormats.kind.hook",
     "admin.ops.RadarNetworks.instagram",
