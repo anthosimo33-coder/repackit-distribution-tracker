@@ -57,6 +57,8 @@ function semis(ts: number) {
       accounts: [
         { handle: `rxauj1_${ts}`, appSlug: `${p}a`, fans: 1_001, medianViews: 100, posts7d: 3, best7d: { videoId: `${m}1`, views: 990_000, multiplier: 9_900, publishedAt: now - 30 * HOUR } },
         { handle: `rxauj2_${ts}`, appSlug: `${p}a`, fans: 1_002, medianViews: 100, posts7d: 2 },
+        // Mis en pause : ses vidéos lues ne citent jamais l'app.
+        { handle: `rxauj9_${ts}`, appSlug: `${p}a`, fans: 900, posts7d: 0, offTopic: true },
       ],
     },
     signals: [
@@ -173,7 +175,15 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       await expect(pubs).toHaveCount(2);
       await expect(pubs.first()).toContainText("2 annonces, 2 actives");
       await expect(pubs.nth(1)).toContainText("arrêtée");
-      await expect(fiche.getByTestId("radar-compte")).toHaveCount(2);
+      await expect(fiche.getByTestId("radar-compte")).toHaveCount(3);
+      // Le compte hors sujet dit pourquoi il n'est plus relevé ; le réactiver le garde.
+      const horsSujet = fiche.getByTestId("radar-compte").filter({ hasText: `@rxauj9_${ts}` });
+      await expect(horsSujet.getByTestId("radar-hors-sujet")).toHaveText(`ses vidéos ne citent jamais ${z.rival}`);
+      const releve = page.getByRole("switch", { name: `Relevé de @rxauj9_${ts}` });
+      await expect(releve).toHaveAttribute("aria-checked", "false");
+      await releve.click();
+      await expect(releve).toHaveAttribute("aria-checked", "true");
+      await expect(horsSujet.getByTestId("radar-hors-sujet")).toHaveCount(0);
     } finally {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: z.m });
       await admin.mutation(api.radarSources.e2eClearAds, { secret: E2E_SECRET, prefix: z.p });

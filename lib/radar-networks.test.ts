@@ -16,6 +16,8 @@ import {
   nextReadAt,
   patternsOfCandidate,
   searchKind,
+  OFF_TOPIC_MIN_VIDEOS,
+  isOffTopic,
   rivalElsewhere,
   shouldPromote,
   videoCitesApp,
@@ -142,6 +144,38 @@ describe("une vidéo n'est de l'app que si elle la cite (09/11/2026)", () => {
     expect(videoCitesApp({ caption: "#fyp", hook: "C'est cheatlove.io si vous voulez y jeter un œil", handle: "x" }, app("cheatlove"))).toBe(true);
     expect(videoCitesApp({ caption: "", transcript: "allez voir recentfollow ça m'a ouvert les yeux", handle: "x" }, app("recentfollow"))).toBe(true);
     expect(videoCitesApp({ caption: "", handle: "the.recentfollow.girl" }, app("recentfollow"))).toBe(true);
+  });
+});
+
+/** Les 10 dernières légendes de @banginout009 (réseau The Ick), relevées en prod le 09/11/2026. */
+const BANGINOUT = [
+  "One Tequila Shot, One Massage, and an Embarrassing Podcast Confession#PodcastClips #FunnyPodcast #GayPodcast #LGBTQTikTok #DatingStories #StorytimeTikTok",
+  "Dating Sounds Fun—Until Work Leaves You Too Tired to Talk#PodcastClips #FunnyPodcast #GayPodcast #LGBTQTikTok #DatingStories #StorytimeTikTok",
+  "WeHo Nights, Bad Run-Ins & Why We Love Being Single#PodcastClips #FunnyPodcast #GayPodcast #LGBTQTikTok #DatingStories #StorytimeTikTok",
+  "The Obamas, Matt Damon, and My First Glasses #DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia",
+  "The Baby-Safe Pillowcase Gift That Helps Everyone Sleep Better#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia",
+  "Mom Thought the Bulldog Was a Goblin—Then She Fell in Love#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia",
+  "He Refused to Change the Channel During His Friends Episode#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia",
+  "How Moseby’s Unforgettable Accent Was Really Created#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia",
+  "How Phil Lewis Inspired Him to Return to Acting#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia #PodcastClips",
+  "From Benson’s Influence to Getting Recognized as Mr. Moseby#DylanSprouse #ColeSprouse #PhillLewis #SuiteLifeOfZackAndCody #DisneyChannel #DisneyNostalgia",
+].map((caption) => ({ caption }));
+
+describe("compte qui ne cite jamais son app : plus relevé (09/11/2026)", () => {
+  it("@banginout009, entré par une légende, 10 vidéos sans The Ick : hors sujet", () => {
+    expect(isOffTopic("caption", BANGINOUT, "banginout009", app("theick"))).toBe(true);
+  });
+
+  it("une seule vidéo qui cite l'app suffit à le garder ; trop peu de vidéos lues, on attend", () => {
+    expect(isOffTopic("caption", [...BANGINOUT.slice(0, 9), { caption: "bon j'ai testé theick.io ce soir" }], "banginout009", app("theick"))).toBe(false);
+    expect(isOffTopic("caption", BANGINOUT.slice(0, OFF_TOPIC_MIN_VIDEOS - 1), "banginout009", app("theick"))).toBe(false);
+    // Les Reels Instagram (sans légende lue) ne comptent pas ; les vidéos sans texte lu non plus.
+    expect(isOffTopic("caption", [...BANGINOUT.slice(0, 8), { hook: "x", platform: "instagram" }, {}], "banginout009", app("theick"))).toBe(false);
+  });
+
+  it("un compte choisi à la main ou de la liste de départ n'est jamais jugé", () => {
+    expect(isOffTopic("manual", BANGINOUT, "banginout009", app("theick"))).toBe(false);
+    expect(isOffTopic("seed", BANGINOUT, "banginout009", app("theick"))).toBe(false);
   });
 });
 

@@ -361,6 +361,7 @@ export async function appelerReseaux(
         liste: comptes.slice(0, limite).map((c) => ({
           compte: c.handle,
           statut: c.status,
+          ...(c.pausedReason === "offTopic" ? { pause: "ses vidéos ne citent jamais l'app" } : {}),
           rattache: c.matchedBy === "manual" ? "à la main" : "légende qui cite l'app",
           abonnes: c.fans,
           medianeVues: c.medianViews,

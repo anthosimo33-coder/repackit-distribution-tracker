@@ -42,6 +42,7 @@ import {
   isHotFormat,
   hookTemplate,
   igHandleFromBio,
+  isOffTopic,
   medianViews,
   multiplierOf,
   networkPages,
@@ -348,6 +349,8 @@ export const applyAccountRead = internalMutation({
       .order("desc")
       .take(MEDIAN_WINDOW);
     const median = medianViews(recent.map((r) => r.views));
+    // Un compte qui ne cite jamais son app (sur ses dernières vidéos lues) n'est plus relevé.
+    const offTopic = !!app && !acc.keptByHand && isOffTopic(acc.matchedBy, recent, acc.handle, app);
     const fans = videos[0]?.authorFans ?? acc.fans;
     const bio = videos.find((s) => s.authorBio)?.authorBio;
     // Son Instagram, s'il le donne : relevé à son tour (convex/radarSources).
@@ -376,6 +379,7 @@ export const applyAccountRead = internalMutation({
       readErrors: 0,
       posts7d: week.length,
       best7d: best,
+      ...(offTopic ? { status: "paused" as const, pausedReason: "offTopic" as const } : {}),
     });
 
     for (const s of videos) {
@@ -666,6 +670,7 @@ export async function listAppAccountsCore(ctx: ProjectQueryCtx, { appId }: { app
       igHandle: t.igHandle ?? null,
       igBest7d: t.igBest7d ?? null,
       igReadAt: t.igReadAt ?? null,
+      pausedReason: t.pausedReason ?? null,
     }))
     .sort((x, y) => (y.best7d?.multiplier ?? -1) - (x.best7d?.multiplier ?? -1) || y.fans - x.fans);
 }
@@ -873,7 +878,15 @@ export const addTrackedAccount = permissionMutation("radar.use")({
 export const setTrackedStatus = permissionMutation("radar.use")({
   args: { accountId: v.id("radarTracked"), status: v.union(v.literal("active"), v.literal("paused")) },
   handler: async (ctx, { accountId, status }) => {
-    await ctx.db.patch(accountId, { status, ...(status === "active" ? { nextReadAt: Date.now(), readErrors: 0 } : {}) });
+    const acc = await ctx.db.get(accountId);
+    if (!acc) return status;
+    await ctx.db.patch(accountId, {
+      status,
+      pausedReason: undefined,
+      ...(status === "active" ? { nextReadAt: Date.now(), readErrors: 0 } : {}),
+      // Réactivé après une pause « ne cite jamais l'app » : on le garde pour de bon.
+      ...(status === "active" && acc.pausedReason === "offTopic" ? { keptByHand: true } : {}),
+    });
     return status;
   },
 });
@@ -915,6 +928,8 @@ export const e2eSeedNetwork = e2eMutation({
         best7d: v.optional(v.object({ videoId: v.string(), views: v.number(), multiplier: v.number(), publishedAt: v.number(), hook: v.optional(v.string()) })),
         igHandle: v.optional(v.string()),
         igBest7d: v.optional(v.object({ code: v.string(), views: v.number(), multiplier: v.number() })),
+        // Semé déjà mis en pause parce qu'il ne cite jamais l'app.
+        offTopic: v.optional(v.boolean()),
       }),
     ),
     // Formats : chaque membre désigne un compte semé ci-dessus par son pseudo.
@@ -949,7 +964,8 @@ export const e2eSeedNetwork = e2eMutation({
         platform: "tiktok",
         handle: t.handle,
         appId,
-        status: "active",
+        status: t.offTopic ? "paused" : "active",
+        ...(t.offTopic ? { pausedReason: "offTopic" as const } : {}),
         matchedBy: "caption",
         fans: t.fans,
         ...(t.medianViews !== undefined ? { medianViews: t.medianViews } : {}),

@@ -508,7 +508,9 @@
     "ignorer": "Ignore",
     "appSuivieDepuisReperee": "{app} followed: {n, plural, =0 {no account added} one {# account joins its network} other {# accounts join its network}}.",
     "instagram": "Instagram @{handle}",
-    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} views"
+    "instagramMeilleur": "Instagram @{handle} · {x} · {vues} views",
+    "horsSujet": "its videos never mention {app}",
+    "horsSujetAide": "Its latest videos read (at least 9) do not mention {app}: it is no longer tracked. Turning it back on keeps it for good."
   },
   "RecurringAccountCard": {
     "abonnes": "{count} followers",

@@ -4251,6 +4251,10 @@ export default defineSchema({
     // caption : une légende cite l'app ; manual : ajouté dans l'écran ; seed :
     // ambassadrice vérifiée du sourcing (convex/radarSeedAccounts).
     matchedBy: v.union(v.literal("caption"), v.literal("manual"), v.literal("seed")),
+    // Mis en pause automatiquement : ses vidéos lues ne citent jamais l'app (radarNetworkMath.isOffTopic).
+    pausedReason: v.optional(v.literal("offTopic")),
+    // Réactivé à la main après une telle pause : plus jamais remis en pause pour ce motif.
+    keptByHand: v.optional(v.boolean()),
     fans: v.number(),
     bio: v.optional(v.string()), // au dernier relevé
     // Son Instagram, lu dans sa bio (cf radarNetworkMath.igHandleFromBio), relevé à part.

@@ -418,6 +418,11 @@ export function AccountsTable({ appId, appName }: { appId: Id<"radarApps">; appN
                         </span>
                         <span className="text-xs">{active ? tr("actif") : tr("enPause")}</span>
                       </button>
+                      {!active && r.pausedReason === "offTopic" && (
+                        <span className="block max-w-[180px] text-xs text-slate-500" title={tr("horsSujetAide", { app: appName })} data-testid="radar-hors-sujet">
+                          {tr("horsSujet", { app: appName })}
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 );
