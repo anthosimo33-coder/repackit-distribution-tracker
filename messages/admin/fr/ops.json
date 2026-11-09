@@ -390,8 +390,8 @@
         "unite": "vidéos/jour"
       },
       "ai": {
-        "titre": "Analyse IA des vidéos",
-        "aide": "Format, structure, adaptations Snytch et BLUSH. S'arrête au plafond.",
+        "titre": "Ranger les hooks par famille",
+        "aide": "Claude Haiku range chaque nouveau hook dans la famille de la même idée, d'une langue à l'autre. Environ 1 $ par mois ; coupé le premier.",
         "unite": "$/mois"
       },
       "network": {
@@ -549,12 +549,14 @@
     "vue": {
       "reussis": "Qui réussissent · {n}",
       "petent": "Qui pètent · {n}",
-      "tous": "Tous · {n}"
+      "tous": "Tous · {n}",
+      "familles": "Familles · {n}"
     },
     "aide": {
       "reussis": "au moins 3 reprises mesurées, et une sur deux ou mieux fait 3× la normale de son compte. Un format vaut par ses reprises, pas par un coup viral.",
       "petent": "au moins 10 000 vues et 3× la normale chez l'un des comptes, réussi ou non ailleurs.",
-      "tous": "tout texte à l'écran ou son repris par deux comptes suivis ou plus en 14 jours."
+      "tous": "tout texte à l'écran ou son repris par deux comptes suivis ou plus en 14 jours.",
+      "familles": "la même idée reprise dans au moins deux langues. Claude (Haiku) range chaque nouveau hook dans la famille de la même idée ; il ne réécrit ni ne publie rien."
     },
     "colFormat": "Format",
     "colReussite": "Reprises qui réussissent",
@@ -563,7 +565,16 @@
     "colComptes": "Comptes",
     "reussiteAria": "{wins} reprises sur {n} font 3× la normale de leur compte",
     "sur": "sur {n}",
-    "pasAssez": "Moins de 3 reprises mesurées"
+    "pasAssez": "Moins de 3 reprises mesurées",
+    "compteFamilles": "{n, plural, =0 {aucune famille} one {# famille} other {# familles}}",
+    "aucuneFamille": "Aucune famille dans plusieurs langues pour l'instant.",
+    "aucuneFamilleAide": "Les nouveaux hooks sont rangés toutes les 6 heures. Une famille apparaît ici dès que la même idée circule dans deux langues.",
+    "familleEnLangues": "famille en {n} langues",
+    "familleSous": "{n} variantes en {langues} langues · chez {apps}",
+    "colLangue": "Langue",
+    "colVariante": "Variante",
+    "circuleDepuis": "Circule depuis le {le}",
+    "familleChiffres": "{comptes} comptes · meilleure {vues} vues"
   },
   "RadarAds": {
     "plateforme": "Bibliothèque de pubs",

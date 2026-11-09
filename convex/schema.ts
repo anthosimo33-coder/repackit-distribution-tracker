@@ -4367,10 +4367,23 @@ export default defineSchema({
     lastPostAt: v.number(), // dernière publication d'un membre
     firstSeenAt: v.number(),
     alertedProjects: v.optional(v.array(v.string())), // slugs déjà prévenus sur Telegram
+    // Sa famille d'une langue à l'autre (hooks seulement), rangée par Claude Haiku
+    // (convex/radarFamilies) ; `familyCheckedAt` : déjà rangé, on ne repaie pas.
+    familyId: v.optional(v.id("radarHookFamilies")),
+    familyCheckedAt: v.optional(v.number()),
+    lang: v.optional(v.string()), // langue de la majorité de ses comptes, au rangement
   })
     .index("by_key", ["kind", "key"])
     .index("by_shared", ["accountCount", "lastPostAt"])
     .index("by_last", ["lastPostAt"]),
+
+  // Une famille de hooks : la même idée d'une langue à l'autre (convex/radarFamiliesMath).
+  radarHookFamilies: defineTable({
+    label: v.string(), // l'idée, en français, 8 mots au plus
+    examples: v.array(v.object({ text: v.string(), lang: v.string() })),
+    createdAt: v.number(),
+    lastSeenAt: v.number(), // dernière variante rangée dedans
+  }).index("by_last", ["lastSeenAt"]),
 
   // CE QUI SORT DU LOT chez les concurrents d'un projet (slug), tenu toutes les
   // 6 h par convex/radarInsights : part des vidéos à 3× la normale de leur
@@ -4445,6 +4458,7 @@ export default defineSchema({
     credits: v.number(),
     calls: v.number(),
     errors: v.number(),
+    usd: v.optional(v.number()), // dépense en dollars (l'analyse IA), hors crédits
   })
     .index("by_month", ["month"])
     .index("by_day_poste", ["day", "poste"]),

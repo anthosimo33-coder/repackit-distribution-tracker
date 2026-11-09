@@ -756,9 +756,16 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
   const slug = await projectSlugOf(ctx);
   const now = Date.now();
   const apps = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id as string, a]));
-  const rows = await ctx.db.query("radarFormats").withIndex("by_shared", (q) => q.gte("accountCount", 2)).order("desc").take(300);
+  const rows = (await ctx.db.query("radarFormats").withIndex("by_shared", (q) => q.gte("accountCount", 2)).order("desc").take(300)).filter(
+    (r) => r.lastPostAt >= now - FORMAT_WINDOW_MS,
+  );
+  // Familles d'une langue à l'autre (convex/radarFamilies) : leur étiquette.
+  const familyLabel = new Map<string, string>();
+  for (const id of new Set(rows.flatMap((r) => (r.familyId ? [r.familyId] : [])))) {
+    const f = await ctx.db.get(id);
+    if (f) familyLabel.set(id, f.label);
+  }
   return rows
-    .filter((r) => r.lastPostAt >= now - FORMAT_WINDOW_MS)
     .map((r) => {
       const fmtApps = r.appIds.map((id) => apps.get(id)).filter((a): a is Doc<"radarApps"> => !!a);
       const best = Math.max(0, ...r.members.map((m) => m.multiplier ?? 0));
@@ -786,6 +793,8 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         winning: success.winning,
         lastPostAt: r.lastPostAt,
         firstSeenAt: r.firstSeenAt,
+        family: r.familyId && familyLabel.has(r.familyId) ? { id: r.familyId, label: familyLabel.get(r.familyId)! } : null,
+        lang: r.lang ?? null,
         members: r.members.slice(0, 6).map((m) => ({
           handle: m.handle,
           platform: m.platform ?? ("tiktok" as const),
@@ -1028,6 +1037,10 @@ export const e2eSeedNetwork = e2eMutation({
           members: v.array(
             v.object({ handle: v.string(), videoId: v.string(), views: v.number(), multiplier: v.optional(v.number()), ageH: v.number(), hook: v.optional(v.string()), instagram: v.optional(v.boolean()) }),
           ),
+          // Déjà rangé dans une famille (son étiquette) et sa langue.
+          family: v.optional(v.string()),
+          lang: v.optional(v.string()),
+          firstSeenAgeH: v.optional(v.number()),
         }),
       ),
     ),
@@ -1084,6 +1097,7 @@ export const e2eSeedNetwork = e2eMutation({
         });
       }
     }
+    const families = new Map<string, Id<"radarHookFamilies">>();
     for (const f of formats ?? []) {
       const members: Member[] = [];
       for (const m of f.members) {
@@ -1102,7 +1116,21 @@ export const e2eSeedNetwork = e2eMutation({
           });
         }
       }
-      await ctx.db.insert("radarFormats", { kind: f.kind, key: f.key, label: f.label, ...summarize(members), firstSeenAt: now });
+      let familyId: Id<"radarHookFamilies"> | undefined;
+      if (f.family) {
+        familyId =
+          families.get(f.family) ?? (await ctx.db.insert("radarHookFamilies", { label: f.family, examples: [], createdAt: now, lastSeenAt: now }));
+        families.set(f.family, familyId);
+      }
+      await ctx.db.insert("radarFormats", {
+        kind: f.kind,
+        key: f.key,
+        label: f.label,
+        ...summarize(members),
+        firstSeenAt: f.firstSeenAgeH !== undefined ? now - f.firstSeenAgeH * 3_600_000 : now,
+        ...(familyId ? { familyId, familyCheckedAt: now } : {}),
+        ...(f.lang ? { lang: f.lang } : {}),
+      });
     }
     for (const c of candidates ?? []) {
       await ctx.db.insert("radarAppCandidates", {
@@ -1136,6 +1164,9 @@ export const e2eClearNetwork = e2eMutation({
     }
     for (const c of await ctx.db.query("radarAppCandidates").collect()) {
       if (c.key.includes(prefix) || c.label.toLowerCase().includes(prefix)) await ctx.db.delete(c._id);
+    }
+    for (const fam of await ctx.db.query("radarHookFamilies").collect()) {
+      if (fam.label.includes(prefix)) await ctx.db.delete(fam._id);
     }
     for (const a of await ctx.db.query("radarApps").collect()) {
       if (!a.slug.startsWith(prefix)) continue;

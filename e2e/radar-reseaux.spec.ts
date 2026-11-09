@@ -479,6 +479,49 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
     }
   });
 
+  test("familles de hooks : la même idée d'une langue à l'autre, dans l'ordre où elle est apparue", async ({ page }) => {
+    const ts = Date.now();
+    const p = `e2erxf${ts}`;
+    const app = `E2E Fam ${ts}`;
+    const famille = `${p} Jeu : fouiller le téléphone d'une fille disparue`;
+    const membre = (i: number, ageJ: number, views: number, hook: string) => ({ handle: `rxfam${i}_${ts}`, videoId: `${p}v${i}`, views, multiplier: 5, ageH: ageJ * 24, hook });
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}a`, name: app, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] }],
+      accounts: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => ({ handle: `rxfam${i}_${ts}`, appSlug: `${p}a`, fans: 1_000, medianViews: 1_000, posts7d: 2 })),
+      formats: [
+        // Rangées dans le désordre : l'écran les remet dans l'ordre d'apparition.
+        { kind: "hook", key: `${p}fr`, label: "fr", family: famille, lang: "fr", firstSeenAgeH: 3 * 24, members: [membre(5, 2, 18_000, `POV : cette fille a disparu ${ts}`), membre(6, 2, 4_300, `POV : cette fille a disparu ${ts}`)] },
+        { kind: "hook", key: `${p}en`, label: "en", family: famille, lang: "en", firstSeenAgeH: 12 * 24, members: [membre(1, 11, 1_800_000, `new obsession: a missing girl's phone ${ts}`), membre(2, 10, 50_000, `new obsession: a missing girl's phone ${ts}`)] },
+        { kind: "hook", key: `${p}es`, label: "es", family: famille, lang: "es-am", firstSeenAgeH: 8 * 24, members: [membre(3, 7, 98_000, `nueva obsesión: el teléfono de una chica desaparecida ${ts}`), membre(4, 7, 9_000, `nueva obsesión: el teléfono de una chica desaparecida ${ts}`)] },
+        // Une famille d'une seule langue : pas dans la vue.
+        { kind: "hook", key: `${p}solo`, label: "solo", family: `${p} solo`, lang: "en", members: [membre(7, 1, 20_000, `solo ${ts}`), membre(8, 1, 20_000, `solo ${ts}`)] },
+      ],
+    });
+    try {
+      await page.goto(adminPath("/radar?onglet=explorer&vue=formats"));
+      const familles = page.getByRole("button", { name: /^Familles · \d+/ });
+      await familles.click();
+      await expect(familles).toHaveAttribute("aria-pressed", "true");
+      const bloc = page.getByTestId("radar-famille").filter({ hasText: famille });
+      await expect(bloc).toContainText(`3 variantes en 3 langues · chez ${app}`);
+      const variantes = bloc.getByTestId("radar-famille-variante");
+      await expect(variantes).toHaveCount(3);
+      await expect(variantes.nth(0)).toContainText("Anglais");
+      await expect(variantes.nth(0)).toContainText(`new obsession: a missing girl's phone ${ts}`);
+      await expect(variantes.nth(0)).toContainText("1,8 M");
+      await expect(variantes.nth(1)).toContainText("Espagnol (Amérique)");
+      await expect(variantes.nth(2)).toContainText("Français");
+      await expect(page.getByTestId("radar-famille").filter({ hasText: `${p} solo` })).toHaveCount(0);
+      // Dans « Tous », le format dit qu'il a une famille dans d'autres langues.
+      await page.getByRole("button", { name: /^Tous · / }).click();
+      await expect(page.getByTestId("radar-format").filter({ hasText: `new obsession: a missing girl's phone ${ts}` })).toContainText("famille en 3 langues");
+      await expect(page.getByTestId("radar-format").filter({ hasText: `solo ${ts}` })).not.toContainText("famille en");
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+    }
+  });
+
   test("pubs des concurrents, Reels Instagram et transcriptions : écran et outil MCP", async ({ page }) => {
     test.setTimeout(150_000);
     const ts = Date.now();

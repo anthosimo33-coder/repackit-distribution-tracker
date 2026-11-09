@@ -359,7 +359,7 @@ export async function writeSignal(
 export type JobState = {
   budget: BudgetSettings;
   cursor: number;
-  usage: { poste: string; credits: number; day: string }[];
+  usage: { poste: string; credits: number; day: string; usd?: number }[];
   day: string;
   month: string;
 };
@@ -376,7 +376,7 @@ export const jobState = internalQuery({
     return {
       budget: normalizeBudget(settings),
       cursor: settings?.discoveryCursor ?? 0,
-      usage: usage.map((u) => ({ poste: u.poste, credits: u.credits, day: u.day })),
+      usage: usage.map((u) => ({ poste: u.poste, credits: u.credits, day: u.day, ...(u.usd !== undefined ? { usd: u.usd } : {}) })),
       day,
       month,
     };
@@ -504,6 +504,8 @@ export const recordRun = internalMutation({
     creditsRemaining: v.optional(v.number()),
     lastError: v.optional(v.string()),
     cursor: v.optional(v.number()),
+    // Dépense en dollars (l'analyse IA), en plus des crédits.
+    usd: v.optional(v.number()),
   },
   handler: async (ctx, a): Promise<void> => {
     const settings = await ensureSettings(ctx);
@@ -513,10 +515,11 @@ export const recordRun = internalMutation({
         .query("radarUsage")
         .withIndex("by_day_poste", (q) => q.eq("day", day).eq("poste", a.poste))
         .first();
+      const usd = a.usd !== undefined ? { usd: (row?.usd ?? 0) + a.usd } : {};
       if (row) {
-        await ctx.db.patch(row._id, { credits: row.credits + a.credits, calls: row.calls + a.calls, errors: row.errors + a.errors });
+        await ctx.db.patch(row._id, { credits: row.credits + a.credits, calls: row.calls + a.calls, errors: row.errors + a.errors, ...usd });
       } else {
-        await ctx.db.insert("radarUsage", { day, month: monthKeyParis(a.now), poste: a.poste, credits: a.credits, calls: a.calls, errors: a.errors });
+        await ctx.db.insert("radarUsage", { day, month: monthKeyParis(a.now), poste: a.poste, credits: a.credits, calls: a.calls, errors: a.errors, ...usd });
       }
     }
     const field = LAST_RUN_FIELD[a.poste];

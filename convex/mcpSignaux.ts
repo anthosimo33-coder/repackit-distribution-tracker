@@ -270,7 +270,7 @@ export async function appelerReseaux(
         {
           projet,
           formats: f.length,
-          lecture: "reussi = au moins 3 reprises mesurées et une sur deux à 3× la normale de son compte ou plus (reussite = réussies / mesurées, medianeReprises = médiane des vues ÷ normale) : ceux-là d'abord ; un format avec une seule vidéo virale et des copies à plat n'est pas réussi. quiPete = au moins 10 000 vues et 3× la médiane du compte (un son seulement s'il est original) : ensuite, puis les plus vus, toutes apps confondues. type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte.",
+          lecture: "reussi = au moins 3 reprises mesurées et une sur deux à 3× la normale de son compte ou plus (reussite = réussies / mesurées, medianeReprises = médiane des vues ÷ normale) : ceux-là d'abord ; un format avec une seule vidéo virale et des copies à plat n'est pas réussi. quiPete = au moins 10 000 vues et 3× la médiane du compte (un son seulement s'il est original) : ensuite, puis les plus vus, toutes apps confondues. type hook = même gabarit de texte à l'écran (ses 4 premiers mots : variantes listées) ; son = même son. comptes = comptes suivis distincts (TikTok ou Instagram) qui l'ont publié en 14 jours. foisMediane = vues ÷ médiane du compte. famille = la même idée d'une langue à l'autre (rangée par Claude Haiku toutes les 6 h) : les formats qui portent la même famille sont un seul format traduit ou adapté ; langue = celle de la majorité de ses comptes.",
           liste: f.slice(0, 40).map((x) => ({
             ...(x.winning ? { reussi: true } : {}),
             ...(x.hot ? { quiPete: true } : {}),
@@ -278,6 +278,8 @@ export async function appelerReseaux(
             ...(x.medianMultiplier !== null ? { medianeReprises: Math.round(x.medianMultiplier * 10) / 10 } : {}),
             type: x.kind === "hook" ? "hook" : "son",
             texte: x.label,
+            ...(x.family ? { famille: x.family.label } : {}),
+            ...(x.lang ? { langue: x.lang } : {}),
             ...(x.variants > 1 ? { variantes: [...new Set(x.members.map((m) => m.hook).filter(Boolean))] } : {}),
             comptes: x.accountCount,
             apps: x.apps.map((a) => a.name),

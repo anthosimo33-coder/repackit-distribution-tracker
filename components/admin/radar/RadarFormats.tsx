@@ -8,20 +8,43 @@ import { api } from "@/convex/_generated/api";
 import { useProjectQuery } from "@/components/project/use-project-convex";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { AccentTag, useFormatLabel } from "@/components/admin/radar/radar-ui";
+import { AccentTag, useFormatLabel, useNow } from "@/components/admin/radar/radar-ui";
+import { formatPlannedDay } from "@/convex/calendarStatus";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount, formatOutlierRatio, formatRelative } from "@/components/admin/radar/radar-format";
 
 type Format = FunctionReturnType<typeof api.radarNetworks.listFormats>[number];
 type Kind = "all" | Format["kind"];
-type Vue = "reussis" | "petent" | "tous";
+type Vue = "reussis" | "petent" | "familles" | "tous";
+/** Une famille : la même idée reprise dans au moins deux langues (convex/radarFamilies). */
+type Family = { id: string; label: string; formats: Format[]; langs: string[] };
 
 const KINDS: Kind[] = ["all", "hook", "sound"];
-const VUES: Vue[] = ["reussis", "petent", "tous"];
+const VUES: Vue[] = ["reussis", "petent", "familles", "tous"];
 /** Au-delà, la réussite se lit en chiffres seuls : une rangée de pastilles ne se compte plus. */
 const MAX_DOTS = 10;
 /** Les colonnes de l'en-tête et des lignes : les mêmes, pour que tout s'aligne. */
 const COLS = "md:grid md:grid-cols-[minmax(0,1fr)_212px_88px_96px_80px_24px] md:gap-6";
+/** Les colonnes d'une famille : langue, variante, chronologie, comptes, meilleure. */
+const FAMILY_COLS = "md:grid md:grid-cols-[156px_minmax(0,1fr)_220px_72px_88px] md:gap-6";
+
+/** Les familles des formats montrés, dans au moins deux langues : les plus multilingues, puis les plus vues. */
+function familiesOf(formats: readonly Format[]): Family[] {
+  const byId = new Map<string, Family>();
+  for (const f of formats) {
+    if (!f.family) continue;
+    const fam = byId.get(f.family.id) ?? { id: f.family.id, label: f.family.label, formats: [], langs: [] };
+    fam.formats.push(f);
+    const lang = f.lang ?? "autre";
+    if (!fam.langs.includes(lang)) fam.langs.push(lang);
+    byId.set(f.family.id, fam);
+  }
+  const maxViews = (x: Family) => Math.max(...x.formats.map((f) => f.maxViews));
+  return [...byId.values()]
+    .filter((x) => x.langs.length >= 2)
+    .map((x) => ({ ...x, formats: [...x.formats].sort((a, b) => a.firstSeenAt - b.firstSeenAt) }))
+    .sort((x, y) => y.langs.length - x.langs.length || maxViews(y) - maxViews(x));
+}
 
 /**
  * RADAR — Formats qui circulent : le même hook (texte à l'écran) ou le même son
@@ -40,9 +63,12 @@ export function RadarFormats() {
 
   if (formats === undefined) return <Skeleton className="h-96 w-full" />;
   const base = formats.filter((f) => (kind === "all" || f.kind === kind) && (!rivalOnly || f.rival));
+  const families = familiesOf(base);
+  const langsOf = new Map(families.flatMap((x) => x.formats.map((f) => [f.id as string, x.langs.length])));
   const count: Record<Vue, number> = {
     reussis: base.filter((f) => f.winning).length,
     petent: base.filter((f) => f.hot).length,
+    familles: families.length,
     tous: base.length,
   };
   // Par défaut : ceux qui réussissent, ou ceux qui pètent tant qu'aucun ne réussit.
@@ -88,12 +114,25 @@ export function RadarFormats() {
 
       <p className="max-w-3xl text-sm leading-relaxed text-slate-600">
         <span className="font-semibold text-slate-900" data-testid="radar-formats-compte">
-          {tr("compte", { n: shown.length })}
+          {current === "familles" ? tr("compteFamilles", { n: families.length }) : tr("compte", { n: shown.length })}
         </span>{" "}
         · {tr(key(`aide.${current}`))}
       </p>
 
-      {shown.length === 0 ? (
+      {current === "familles" ? (
+        families.length === 0 ? (
+          <div className="border-t border-slate-200 py-12 text-center">
+            <p className="font-semibold text-slate-900">{tr("aucuneFamille")}</p>
+            <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">{tr("aucuneFamilleAide")}</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-14">
+            {families.map((x) => (
+              <FamilyBlock key={x.id} family={x} />
+            ))}
+          </div>
+        )
+      ) : shown.length === 0 ? (
         <div className="border-t border-slate-200 py-12 text-center">
           <p className="font-semibold text-slate-900">{formats.length === 0 ? tr("aucunTitre") : tr("aucunFiltreTitre")}</p>
           <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">{tr("aucunTexte")}</p>
@@ -110,7 +149,7 @@ export function RadarFormats() {
           </div>
           <ul>
             {shown.map((f) => (
-              <FormatRow key={f.id} f={f} />
+              <FormatRow key={f.id} f={f} langs={langsOf.get(f.id) ?? 0} />
             ))}
           </ul>
         </div>
@@ -120,7 +159,7 @@ export function RadarFormats() {
 }
 
 /** Un format en ligne : ce qu'il est, combien de ses reprises réussissent ; ses reprises en dépliant. */
-function FormatRow({ f }: { f: Format }) {
+function FormatRow({ f, langs }: { f: Format; langs: number }) {
   const tr = useTranslations("admin.ops.RadarFormats");
   // « Son original de @x » plutôt que « original sound - x ».
   const formatLabel = useFormatLabel();
@@ -141,6 +180,8 @@ function FormatRow({ f }: { f: Format }) {
             <span>
               · {tr("comptesEtApps", { comptes: f.accountCount, apps: f.apps.map((a) => a.name).join(", ") })}
               {f.variants > 1 && ` · ${tr("variantes", { n: f.variants })}`}
+              {/* Écrit « 1 < » : la garde i18n lit « > 1 && » comme du texte JSX. */}
+              {1 < langs && ` · ${tr("familleEnLangues", { n: langs })}`}
             </span>
             {f.rival && <AccentTag className="px-1.5 py-0.5 text-xs">{tr("pousseParUnConcurrent")}</AccentTag>}
           </span>
@@ -198,5 +239,69 @@ function FormatRow({ f }: { f: Format }) {
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * Une famille : la même idée d'une langue à l'autre, ses variantes dans l'ordre
+ * où elles sont apparues, et quand chacune a circulé (de sa première reprise à
+ * la dernière, sur l'axe commun à la famille).
+ */
+function FamilyBlock({ family }: { family: Family }) {
+  const tr = useTranslations("admin.ops.RadarFormats");
+  const tl = useTranslations("admin.ops.RadarUi");
+  const langKey = (k: string) => k as Parameters<typeof tl>[0];
+  const loc = useIntlLocale();
+  const now = useNow();
+  const start = Math.min(...family.formats.map((f) => f.firstSeenAt));
+  const span = Math.max(1, now - start);
+  const top = Math.max(...family.formats.map((f) => f.maxViews));
+  const day = (t: number) => formatPlannedDay(t, loc, { day: "numeric", month: "numeric" });
+  const apps = [...new Set(family.formats.flatMap((f) => f.apps.map((a) => a.name)))];
+  const id = `radar-famille-${family.id}`;
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-4" data-testid="radar-famille">
+      <div className="flex max-w-3xl flex-col gap-1">
+        <h3 id={id} className="text-[17px] font-semibold leading-snug text-slate-900">
+          {family.label}
+        </h3>
+        <p className="text-[13px] text-slate-500">{tr("familleSous", { n: family.formats.length, langues: family.langs.length, apps: apps.join(", ") })}</p>
+      </div>
+      <div>
+        <div className={cn("hidden border-b border-slate-200 pb-3 text-xs font-semibold uppercase tracking-wide text-slate-500", FAMILY_COLS)}>
+          <span>{tr("colLangue")}</span>
+          <span>{tr("colVariante")}</span>
+          <span className="flex justify-between">
+            <span>{day(start)}</span>
+            <span>{day(now)}</span>
+          </span>
+          <span className="text-right">{tr("colComptes")}</span>
+          <span className="text-right">{tr("colMeilleure")}</span>
+        </div>
+        <ul>
+          {family.formats.map((f) => (
+            <li key={f.id} className={cn("flex flex-col gap-2 border-b border-slate-100 py-4 md:items-center", FAMILY_COLS)} data-testid="radar-famille-variante">
+              <span className="text-sm font-semibold text-slate-900">{tl(langKey(`langueLongue.${f.lang ?? "autre"}`))}</span>
+              <span className="min-w-0 break-words text-sm leading-snug text-slate-700">{f.label}</span>
+              <span className="relative h-2 rounded-full bg-slate-100" title={tr("circuleDepuis", { le: day(f.firstSeenAt) })} aria-label={tr("circuleDepuis", { le: day(f.firstSeenAt) })} role="img">
+                <span
+                  className="absolute inset-y-0 rounded-full bg-primary"
+                  style={{
+                    left: `${((f.firstSeenAt - start) / span) * 100}%`,
+                    right: `${Math.max(0, ((now - Math.max(f.lastPostAt, f.firstSeenAt)) / span) * 100)}%`,
+                    minWidth: 6,
+                    opacity: 0.35 + 0.65 * (f.maxViews / Math.max(1, top)),
+                  }}
+                />
+              </span>
+              <span className="hidden text-right text-sm tabular-nums text-slate-600 md:block">{f.accountCount}</span>
+              <span className="hidden text-right text-sm font-semibold tabular-nums md:block">{formatCount(f.maxViews, loc)}</span>
+              {/* Mobile : les deux chiffres sur une ligne, avec leur libellé. */}
+              <span className="text-[13px] tabular-nums text-slate-500 md:hidden">{tr("familleChiffres", { comptes: f.accountCount, vues: formatCount(f.maxViews, loc) })}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }
