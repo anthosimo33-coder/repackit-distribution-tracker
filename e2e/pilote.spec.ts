@@ -41,7 +41,9 @@ const minuitParis = (jour: string) => {
  * campagnes (parlé, muet), le pilote propose sa semaine — le gagnant rejoué à
  * l'identique au premier midi, des nouveaux scripts ailleurs, un muet chaque
  * soir —, on retire un créneau, on assigne : les missions sont en base avec
- * leur jour, leur plage et leur lignage, et le créneau retiré reste seul libre.
+ * leur jour et leur lignage, SANS plage horaire (« midi », « soir » rangent les
+ * créneaux du plan, la créatrice publie dans la journée — règle du 09/11/2026),
+ * et le créneau retiré reste seul libre.
  */
 test.describe("Pilote des missions", () => {
   test("classer, proposer, retirer, assigner", async ({ page }) => {
@@ -161,15 +163,15 @@ test.describe("Pilote des missions", () => {
     const rejeu = futures.find((a) => a.replayedFrom === gagnant)!;
     expect(rejeu).toBeDefined();
     expect(jourDe(rejeu.postDate)).toBe(J1);
-    expect(rejeu.postWindow).toEqual({ startMin: 11 * 60, endMin: 13 * 60 });
     expect(rejeu.replayVerbatim).toBe(true);
     // Chaque vidéo a son échéance : la fin de son jour de publication.
     for (const a of futures) expect(jourDe(a.dueDate)).toBe(jourDe(a.postDate));
+    // Aucune heure de publication : un jour, pas de plage.
+    expect(futures.filter((a) => a.postWindow !== undefined)).toEqual([]);
     // Un muet chaque soir, sauf le 2e, retiré.
-    const soirs = futures.filter((a) => a.postWindow?.startMin === 21 * 60).map((a) => jourDe(a.postDate));
-    expect(soirs).toHaveLength(6);
-    expect(soirs).not.toContain(J2);
-    expect(futures.filter((a) => a.scriptCombo?.campaignId === muet)).toHaveLength(6);
+    const muets = futures.filter((a) => a.scriptCombo?.campaignId === muet).map((a) => jourDe(a.postDate));
+    expect(muets).toHaveLength(6);
+    expect(muets).not.toContain(J2);
 
     // Le plan se recalcule : seul le créneau retiré reste à remplir.
     await expect(creneaux).toHaveCount(1);
@@ -202,6 +204,9 @@ test.describe("Pilote des missions", () => {
     const deJ2 = (await admin.query(api.assignments.listAssignments, {})).filter(
       (a) => a.creatorId === juliette.creatorId && jourDe(a.postDate) === J2,
     );
-    expect(deJ2.map((a) => a.postWindow?.startMin ?? -1).sort((x, y) => x - y)).toEqual([11 * 60, 21 * 60]);
+    // Le parlé du midi et le muet comblé par Claude : deux missions, sans heure.
+    expect(deJ2).toHaveLength(2);
+    expect(deJ2.filter((a) => a.postWindow !== undefined)).toEqual([]);
+    expect(deJ2.filter((a) => a.scriptCombo?.campaignId === muet)).toHaveLength(1);
   });
 });

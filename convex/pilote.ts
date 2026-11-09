@@ -37,7 +37,6 @@ import { parisDayStart } from "./managerCpm";
 import { shiftDay } from "./analyticsDates";
 import { isStrictAccountValidationFor } from "./projects";
 import { isAccountAvailable, warmupTargetDaysOf } from "./warmup";
-import { POST_WINDOW_PRESETS, type PostWindow } from "./postWindow";
 import { isPromoPost } from "./viewCounters";
 import { designerOuRefuser, etatsCrees, journaliser } from "./mcpWriteCommon";
 import { jourTexte, plierTexte } from "./mcpWriteArgs";
@@ -79,8 +78,12 @@ const extrait = (t: string | undefined | null) => {
   return s.length > EXTRAIT ? `${s.slice(0, EXTRAIT)}…` : s;
 };
 
-const fenetreDe = (plage: PlageId): PostWindow =>
-  POST_WINDOW_PRESETS.find((p) => p.id === plage)!.window;
+/*
+ * PAS DE PLAGE HORAIRE sur les missions du pilote (règle du 09/11/2026) : la
+ * créatrice publie le jour prévu, à l'heure qu'elle veut. « midi » et « soir »
+ * ne servent qu'à ranger les créneaux du plan (parlé d'abord, muet ensuite) et
+ * à les désigner dans « retirer » — ils ne deviennent jamais un `postWindow`.
+ */
 
 // ─── Les vidéos jugées ──────────────────────────────────────────────────────
 
@@ -544,7 +547,6 @@ export async function assignerCore(
         dueDate: parisDayStart(shiftDay(dernier, 1))! - 1000,
         pricingId: c.bareme.id,
         postDates: groupe.map((l) => debutDe(l.jour)),
-        postWindows: groupe.map((l) => fenetreDe(l.plage)),
         ...(exclues.length > 0 ? { excludedComboKeys: exclues } : {}),
         ...(await qualification(campaignId)),
       },
@@ -582,7 +584,6 @@ export async function assignerCore(
         dueDate: parisDayStart(shiftDay(l.jour, 1))! - 1000,
         pricingId: c.bareme.id,
         postDates: [debutDe(l.jour)],
-        postWindows: [fenetreDe(l.plage)],
         replayedFrom: src._id,
         replayVerbatim: true,
         // Le texte à incruster fait partie de ce qui a marché.
