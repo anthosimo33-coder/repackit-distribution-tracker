@@ -71,12 +71,21 @@ test.describe("Pilote des missions", () => {
       for (let i = 0; i < 10; i++) {
         await admin.mutation(api.scripts.createBrick, { campaignId: id, kind: "hook", label: `${nomC} hook ${i}`, content: `${nomC} ${i} ${ts}` });
       }
-      await admin.mutation(api.scripts.createBrick, { campaignId: id, kind: "flux", label: "Flux", content: "Je te montre." });
+      const flux = (await admin.mutation(api.scripts.createBrick, { campaignId: id, kind: "flux", label: "Flux", content: "Je te montre." })) as Id<"scriptBricks">;
       await admin.mutation(api.scripts.createBrick, { campaignId: id, kind: "cta", label: "CTA", content: "Lien en bio." });
-      return id;
+      return { id, flux };
     };
-    const parle = await campagne("Parlé");
-    const muet = await campagne("Muet");
+    const { id: parle } = await campagne("Parlé");
+    const { id: muet, flux: fluxMuet } = await campagne("Muet");
+    // Le matériel à télécharger (comme la vidéo de fond d'un Collage) : un
+    // dossier sur la mission gagnante, un autre EXIGÉ par le flux des muets.
+    const dossierGagnant = `[E2E_TEST] Fond du gagnant ${ts}`;
+    const dossierMuet = `[E2E_TEST] Fond des muets ${ts}`;
+    const dossierMuetMcp = `[E2E_TEST] Fond MCP ${ts}`;
+    const folderGagnant = (await admin.mutation(api.assets.createAssetFolder, { name: dossierGagnant })) as Id<"assetFolders">;
+    const folderMuet = (await admin.mutation(api.assets.createAssetFolder, { name: dossierMuet })) as Id<"assetFolders">;
+    await admin.mutation(api.assets.createAssetFolder, { name: dossierMuetMcp });
+    await admin.mutation(api.scripts.updateBrick, { id: fluxMuet, assetFolderIds: [folderMuet] });
 
     // Ses vidéos passées, publiées et relevées : parlé 1 000 / 1 200 / 800 / 5 000 (×4,5), muet 3 000 ×3.
     let seq = 0;
@@ -114,6 +123,7 @@ test.describe("Pilote des missions", () => {
     await passe(parle, 11, 1200);
     await passe(parle, 10, 800);
     const gagnant = await passe(parle, 6, 5000);
+    await admin.mutation(api.assignments.setAssetFolders, { id: gagnant, folderIds: [folderGagnant] });
     await passe(muet, 9, 3000);
     await passe(muet, 8, 3000);
     await passe(muet, 7, 3000);
@@ -162,6 +172,13 @@ test.describe("Pilote des missions", () => {
     expect(futures).toHaveLength(13);
     const rejeu = futures.find((a) => a.replayedFrom === gagnant)!;
     expect(rejeu).toBeDefined();
+    // Le rejeu porte le matériel de sa source ; chaque muet, celui que son flux
+    // exige ; les autres parlés, aucun.
+    expect(rejeu.assetFolderNames).toEqual([dossierGagnant]);
+    for (const a of futures.filter((x) => x.scriptCombo?.campaignId === muet)) expect(a.assetFolderNames).toEqual([dossierMuet]);
+    for (const a of futures.filter((x) => x.scriptCombo?.campaignId === parle && x._id !== rejeu._id)) {
+      expect(a.assetFolderNames ?? []).toEqual([]);
+    }
     expect(jourDe(rejeu.postDate)).toBe(J1);
     expect(rejeu.replayVerbatim).toBe(true);
     // Chaque vidéo a son échéance : la fin de son jour de publication.
@@ -186,9 +203,18 @@ test.describe("Pilote des missions", () => {
     const token = (await page.getByTestId("mcp-cle-en-clair").textContent())!.trim();
     const url = (await page.locator("pre").filter({ hasText: "claude mcp add" }).textContent())!.match(/jarvia (\S+\/mcp) /)![1];
     await page.getByRole("button", { name: "J’ai copié la clé" }).click();
-    await page.getByRole("switch", { name: `Modifications des missions pour ${nomCle}` }).click();
-    await expect(page.getByRole("switch", { name: `Modifications des missions pour ${nomCle}` })).toBeChecked();
+    for (const domaine of ["missions", "scripts"]) {
+      await page.getByRole("switch", { name: `Modifications des ${domaine} pour ${nomCle}` }).click();
+      await expect(page.getByRole("switch", { name: `Modifications des ${domaine} pour ${nomCle}` })).toBeChecked();
+    }
 
+    // Le flux des muets change de fond par l'outil MCP : seules les PROCHAINES missions le reçoivent.
+    const fond = await appel(url, token, "modifier_briques", {
+      campagne: `[E2E_TEST] Muet ${ts}`,
+      briques: [{ brique: "Flux", role: "flux", dossier: dossierMuetMcp }],
+    });
+    expect(fond.erreur, fond.texte).toBe(false);
+    expect(fond.texte).toContain(dossierMuetMcp);
     const pilote = { createatrices: [nom], du: J1, jours: 7 };
     const sim = await appel(url, token, "piloter_missions", { ...pilote, simuler: true });
     expect(sim.erreur, sim.texte).toBe(false);
@@ -208,5 +234,7 @@ test.describe("Pilote des missions", () => {
     expect(deJ2).toHaveLength(2);
     expect(deJ2.filter((a) => a.postWindow !== undefined)).toEqual([]);
     expect(deJ2.filter((a) => a.scriptCombo?.campaignId === muet)).toHaveLength(1);
+    // Le muet assigné par Claude porte le fond posé par modifier_briques ; celui de la veille, l'ancien.
+    expect(deJ2.find((a) => a.scriptCombo?.campaignId === muet)!.assetFolderNames).toEqual([dossierMuetMcp]);
   });
 });

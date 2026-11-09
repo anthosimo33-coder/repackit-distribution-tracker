@@ -18,6 +18,7 @@ import {
   resolveManagedTargets,
   normalizeOverlayText,
   validateProjectFolderIds,
+  effectiveAssetFolderIds,
   buildModelVideoItemsServer,
   appendModelVideoServer,
   mergeModelVideosServer,
@@ -1358,6 +1359,9 @@ const updateBrickArgs = {
   libre: v.optional(v.boolean()),
   direction: v.optional(v.union(v.string(), v.null())),
   autresExemples: v.optional(v.array(v.string())),
+  // Dossiers d'Assets exigés par la brique (cf schema) : la liste ENTIÈRE, qui
+  // remplace l'ancienne ; [] les retire tous.
+  assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
 };
 
 export const updateBrick = permissionMutation("scripts.manage")({
@@ -1418,6 +1422,15 @@ export async function updateBrickCore(
         args.content ?? brick.content,
       );
     }
+  }
+  // Dossiers d'Assets exigés : chacun doit exister dans le projet (même garde
+  // que « Lier un dossier » sur une mission). Liste vide = aucun (absence).
+  if (args.assetFolderIds !== undefined) {
+    const ids =
+      args.assetFolderIds.length > 0
+        ? await validateProjectFolderIds(ctx, args.assetFolderIds, ctx.projectId)
+        : [];
+    patch.assetFolderIds = ids.length > 0 ? ids : undefined;
   }
   await ctx.db.patch(args.id, patch);
 }
@@ -1993,12 +2006,44 @@ export async function assignScriptCampaignCore(
   const scenarioOf = (i: number): Id<"scenarios"> | undefined =>
     verbatimCombo ? replaySrc?.scenarioId : conv.scenarioIds[i];
 
+  // ─── Dossiers d'Assets de CHAQUE mission ────────────────────────────────────
+  // Trois sources, dans cet ordre, sans doublon :
+  //  1. ceux choisis à l'assignation (`assetFolderIds`, déjà validés) ;
+  //  2. ceux de la mission SOURCE d'un rejeu — même script, donc même matériel
+  //     à télécharger (le fond d'un Collage : le 09/11, une mission du Pilote
+  //     rejouant un Collage n'avait pas sa vidéo de fond) ;
+  //  3. ceux qu'EXIGENT les briques tirées (scriptBricks.assetFolderIds) — un
+  //     nouveau tirage d'un flux « FOND C » reçoit la vidéo de Lorena.
+  // Un dossier supprimé depuis (source ou brique) ne se lie pas.
+  const dossiersSource = replaySrc ? effectiveAssetFolderIds(replaySrc) : [];
+  const briquesLues = new Map<string, Doc<"scriptBricks"> | null>();
+  const dossierExiste = new Map<string, boolean>();
+  const dossiersDeMission = async (
+    briques: readonly Id<"scriptBricks">[],
+  ): Promise<Id<"assetFolders">[]> => {
+    const exiges: Id<"assetFolders">[] = [];
+    for (const id of briques) {
+      if (!briquesLues.has(id)) briquesLues.set(id, await ctx.db.get(id));
+      exiges.push(...(briquesLues.get(id)?.assetFolderIds ?? []));
+    }
+    const out: Id<"assetFolders">[] = [];
+    for (const f of new Set([...linkedFolderIds, ...dossiersSource, ...exiges])) {
+      if (!dossierExiste.has(f)) {
+        const d = await ctx.db.get(f);
+        dossierExiste.set(f, d !== null && d.projectId === ctx.projectId);
+      }
+      if (dossierExiste.get(f)) out.push(f);
+    }
+    return out;
+  };
+
   let created = 0;
   let firstAssignmentId: Id<"assignments"> | null = null;
   const assignmentIds: Id<"assignments">[] = [];
   // Positionnel : la i-ème vidéo créée reçoit postDates[i] (undefined sinon).
   for (let i = 0; i < picked.length; i++) {
     const combo = picked[i];
+    const dossiers = await dossiersDeMission([combo.hookBrickId, combo.fluxBrickId, combo.ctaBrickId]);
     const postDate = args.postDates?.[i];
     // Plage horaire de CETTE vidéo. Validée ici plutôt que par le validator :
     // une plage inversée ou de durée nulle passe le typage mais n'est pas une
@@ -2052,10 +2097,8 @@ export async function assignScriptCampaignCore(
       rateSnapshot,
       pricingSnapshot,
       overlayText,
-      // Undefined si aucune pièce jointe → rows inchangées vs aujourd'hui.
-      ...(linkedFolderIds.length > 0
-        ? { assetFolderIds: linkedFolderIds }
-        : {}),
+      // Undefined si aucun dossier → rows inchangées vs aujourd'hui.
+      ...(dossiers.length > 0 ? { assetFolderIds: dossiers } : {}),
       ...(linkedModelVideos.length > 0
         ? { modelVideos: linkedModelVideos }
         : {}),
