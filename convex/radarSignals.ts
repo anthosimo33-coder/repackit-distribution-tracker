@@ -31,7 +31,7 @@ import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
 import { DISCOVERY_QUERIES } from "./radarDiscoveryQueries";
-import { SEED_APPS, canTrack, candidatesOf, findApp, videoCitesApp } from "./radarNetworkMath";
+import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, videoCitesApp } from "./radarNetworkMath";
 import { SEED_ACCOUNTS } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
@@ -741,6 +741,9 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       app: cited ? (r.appName ?? r.competitor ?? null) : null,
       network: cited ? null : (r.appName ?? null),
       competitor: cited ? competitorFor(r, slug) : null,
+      // L'app (ou le réseau) n'est concurrente que d'AUTRES projets : The Ick dans le
+      // Radar de BLUSH. Explorer la montre ; Aujourd'hui la laisse aux autres.
+      elsewhere: rivalElsewhere(r.appRivalOf ?? (r.competitor ? ["snytch"] : []), slug),
       tracked: r.trackedAccountId !== undefined,
       inCurve: r.nextCheckAt !== undefined,
       status: markOf.get(r._id)?.status ?? ("nouveau" as const),
@@ -885,7 +888,7 @@ export const e2eSeedSignals = e2eMutation({
       const seed = findApp(s.caption, s.handle, SEED_APPS);
       const semee = s.app ? semees.find((a) => a.name === s.app) : undefined;
       const app = s.app
-        ? { ...(semee ? { appId: semee._id } : {}), appName: s.app, appRivalOf: rivalProject ? [rivalProject] : [] }
+        ? { ...(semee ? { appId: semee._id } : {}), appName: s.app, appRivalOf: semee ? semee.rivalOf : rivalProject ? [rivalProject] : [] }
         : seed
           ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] }
           : {};

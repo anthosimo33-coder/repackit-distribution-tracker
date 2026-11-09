@@ -16,6 +16,7 @@ import {
   nextReadAt,
   patternsOfCandidate,
   searchKind,
+  rivalElsewhere,
   shouldPromote,
   videoCitesApp,
 } from "../convex/radarNetworkMath";
@@ -141,6 +142,15 @@ describe("une vidéo n'est de l'app que si elle la cite (09/11/2026)", () => {
     expect(videoCitesApp({ caption: "#fyp", hook: "C'est cheatlove.io si vous voulez y jeter un œil", handle: "x" }, app("cheatlove"))).toBe(true);
     expect(videoCitesApp({ caption: "", transcript: "allez voir recentfollow ça m'a ouvert les yeux", handle: "x" }, app("recentfollow"))).toBe(true);
     expect(videoCitesApp({ caption: "", handle: "the.recentfollow.girl" }, app("recentfollow"))).toBe(true);
+  });
+});
+
+describe("concurrente d'un autre projet", () => {
+  it("The Ick (Snytch) vue de BLUSH : oui ; vue de Snytch, ou une app neutre : non", () => {
+    expect(rivalElsewhere(["snytch"], "blush")).toBe(true);
+    expect(rivalElsewhere(["snytch"], "snytch")).toBe(false);
+    expect(rivalElsewhere(["snytch", "blush"], "blush")).toBe(false);
+    expect(rivalElsewhere([], "blush")).toBe(false);
   });
 });
 

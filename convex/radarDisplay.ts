@@ -33,18 +33,37 @@ export function usualViews(s: { views: number; multiplier?: number | null }): nu
 
 // ─── À regarder aujourd'hui ──────────────────────────────────────────────────
 
-/** Vidéos proposées chaque jour, au plus. */
+/** Vidéos proposées chaque jour, au plus ; dont celles des concurrents du projet, au plus. */
 export const TODAY_LIMIT = 12;
+export const TODAY_RIVAL_SLOTS = 6;
 
 /**
- * La file « à regarder » : 7 derniers jours, jamais traitées par l'équipe du
- * projet, dans l'ordre du tri par défaut (× sa normale, puis × ses abonnés).
- * Une vidéo traitée en sort ; la suivante prend sa place.
+ * La file « à regarder », PROPRE AU PROJET (décidé le 09/11/2026 : BLUSH et
+ * Snytch avaient le même fil) : 7 derniers jours, jamais traitées par l'équipe
+ * du projet, dans l'ordre du tri par défaut (× sa normale, puis × ses abonnés) ;
+ *  - au plus 6 vidéos des concurrents DU projet ;
+ *  - le reste : les autres apps et la découverte (ce qui marche partout) ;
+ *  - jamais les concurrents d'un AUTRE projet (`elsewhere`, The Ick pour BLUSH),
+ *    ni ce qu'un compte suivi publie sans citer d'app (`network` : « TURN OFF
+ *    THESE ROKU SETTINGS » d'un compte du réseau Finch) : ils restent dans Explorer.
+ * Une part trop courte est complétée par l'autre. Une vidéo traitée en sort ;
+ * la suivante prend sa place.
  */
-export function todayQueue<T extends FilterableSignal>(signals: readonly T[], now: number, limit = TODAY_LIMIT): T[] {
+export function todayQueue<T extends FilterableSignal & { elsewhere?: boolean; network?: string | null }>(
+  signals: readonly T[],
+  now: number,
+  limit = TODAY_LIMIT,
+  rivalSlots = TODAY_RIVAL_SLOTS,
+): T[] {
   const f = defaultFilters();
   f.sel.statut = ["nouveau"];
-  return applyFilters(signals, f, now).slice(0, limit);
+  const ranked = applyFilters(signals, f, now).filter((s) => !s.elsewhere && !s.network);
+  const rivals = ranked.filter((s) => s.competitor);
+  const others = ranked.filter((s) => !s.competitor);
+  const nRivals = Math.min(rivals.length, Math.max(rivalSlots, limit - others.length));
+  const picked = new Set([...rivals.slice(0, nRivals), ...others.slice(0, limit - nRivals)]);
+  // Dans l'ordre du score, pour que la carte et la liste se lisent pareil.
+  return ranked.filter((s) => picked.has(s));
 }
 
 /** Vidéos traitées (gardée, à adapter, passée) aujourd'hui, jour de Paris. */

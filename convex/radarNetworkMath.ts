@@ -171,6 +171,11 @@ export function videoCitesApp(v: { caption: string; hook?: string | null; transc
   return citesApp([v.caption, v.hook ?? "", v.transcript ?? ""].join(" "), v.handle, rule);
 }
 
+/** Concurrente d'autres projets, et pas de celui-ci (The Ick vue de BLUSH). */
+export function rivalElsewhere(rivalOf: readonly string[], projectSlug: string): boolean {
+  return rivalOf.length > 0 && !rivalOf.includes(projectSlug);
+}
+
 /** La première app citée (les apps sont essayées dans l'ordre donné). */
 export function findApp<T extends AppRule>(caption: string, handle: string, apps: readonly T[]): T | undefined {
   return apps.find((a) => citesApp(caption, handle, a));

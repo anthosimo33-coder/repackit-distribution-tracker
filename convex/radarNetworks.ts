@@ -701,6 +701,8 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         accountCount: r.accountCount,
         apps: fmtApps.map((a) => ({ name: a.name, rival: a.rivalOf.includes(slug) })),
         rival: fmtApps.some((a) => a.rivalOf.includes(slug)),
+        // Repris seulement chez des concurrentes d'AUTRES projets : Aujourd'hui le laisse à ces projets.
+        elsewhere: fmtApps.length > 0 && fmtApps.every((a) => a.rivalOf.length > 0 && !a.rivalOf.includes(slug)),
         hot: isHotFormat({ kind: r.kind, label: r.label, maxViews: r.maxViews, bestMultiplier }),
         maxViews: r.maxViews,
         bestMultiplier,
