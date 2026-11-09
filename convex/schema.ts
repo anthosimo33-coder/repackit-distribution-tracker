@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import { countryValidator } from "./countries";
 import { plateformeValidator } from "./platforms";
 import { annulationValidator } from "./mcpAnnulation";
+import { networkSearchValidator } from "./radarNetworkSearch";
 
 /**
  * P2 Multi-tenant — rollout terminé (2 phases, à cause du deploy atomique
@@ -4232,6 +4233,8 @@ export default defineSchema({
     status: v.union(v.literal("active"), v.literal("paused")),
     source: v.union(v.literal("seed"), v.literal("manual")),
     networkSearchedAt: v.optional(v.number()),
+    // La recherche du réseau en cours, ou la dernière (cf radarNetworkMath.NetworkSearchState).
+    networkSearch: v.optional(networkSearchValidator),
     adsSearchedAt: v.optional(v.number()), // bibliothèques de pubs TikTok et Meta
     trackedCount: v.optional(v.number()), // comptes de son réseau (cf radarSignals.attachAccount)
     createdAt: v.number(),

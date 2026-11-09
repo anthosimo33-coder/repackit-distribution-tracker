@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { ChevronDownIcon, ExternalLinkIcon, PlusIcon, SearchIcon } from "lucide-react";
+import { ChevronDownIcon, ExternalLinkIcon, Loader2Icon, PlusIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { FunctionReturnType } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatCount, formatOutlierRatio, formatRelative } from "@/components/admin/radar/radar-format";
+import { networkSearchPhase, type NetworkSearchOutcome, type NetworkSearchState } from "@/convex/radarNetworkSearch";
 
 type Networks = FunctionReturnType<typeof api.radarNetworks.listNetworks>;
 type AppRow = Networks["apps"][number];
@@ -37,6 +38,13 @@ export function RadarNetworks() {
   const candidates = useProjectQuery(api.radarNetworks.listCandidates, {});
   const [openApp, setOpenApp] = useState<Id<"radarApps"> | null>(null);
   const [adding, setAdding] = useState<Candidate | true | false>(false);
+  // L'horloge des recherches en cours : une recherche tombée en route cesse de
+  // « tourner » au bout de 15 min, et les « il y a X min » avancent.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   if (data === undefined) return <Skeleton className="h-96 w-full" />;
 
@@ -79,7 +87,7 @@ export function RadarNetworks() {
               </h2>
               <ul className="space-y-2">
                 {apps.map((a) => (
-                  <AppCard key={a.id} app={a} open={openApp === a.id} onToggle={() => setOpenApp(openApp === a.id ? null : a.id)} />
+                  <AppCard key={a.id} app={a} now={now} open={openApp === a.id} onToggle={() => setOpenApp(openApp === a.id ? null : a.id)} />
                 ))}
               </ul>
             </section>
@@ -90,27 +98,62 @@ export function RadarNetworks() {
   );
 }
 
-function AppCard({ app, open, onToggle }: { app: AppRow; open: boolean; onToggle: () => void }) {
+/** Clé du texte qui dit comment une recherche s'est terminée (hors « done », qui donne les comptes ajoutés). */
+const ISSUE_KEY = {
+  budget: "issue.budget",
+  "no-credits": "issue.noCredits",
+  "no-key": "issue.noKey",
+  error: "issue.error",
+  paused: "issue.paused",
+} as const satisfies Record<Exclude<NetworkSearchOutcome, "done">, string>;
+
+function AppCard({ app, now, open, onToggle }: { app: AppRow; now: number; open: boolean; onToggle: () => void }) {
   const tr = useTranslations("admin.ops.RadarNetworks");
   const loc = useIntlLocale();
   const showError = useConvexError();
   const searchNow = useProjectMutation(api.radarNetworks.searchAppNow);
   const setStatus = useProjectMutation(api.radarNetworks.setAppStatus);
   const paused = app.status === "paused";
+  const ns = app.networkSearch;
+  const phase = networkSearchPhase(ns, now);
+  const running = phase === "running";
+
+  // Une recherche lancée depuis cette carte annonce sa fin, même si on a fait défiler la page entre-temps.
+  const asked = useRef<{ finishedAt: number | undefined } | null>(null);
+  useEffect(() => {
+    const a = asked.current;
+    if (!a || !ns || ns.finishedAt === undefined || ns.finishedAt === a.finishedAt) return;
+    asked.current = null;
+    if (ns.outcome === "done" || ns.outcome === undefined) {
+      toast.success(tr("rechercheTerminee", { app: app.name, n: ns.attached }));
+    } else {
+      const issue = tr(ISSUE_KEY[ns.outcome], { quand: formatRelative(ns.finishedAt, loc) });
+      (ns.outcome === "budget" || ns.outcome === "paused" ? toast.warning : toast.error)(tr("issueDeLApp", { app: app.name, issue }));
+    }
+  }, [ns, app.name, tr, loc]);
 
   return (
-    <li className={cn("rounded-xl border bg-white", paused ? "border-slate-200 opacity-70" : "border-slate-200")} data-testid="radar-app">
+    <li
+      className={cn("overflow-hidden rounded-xl border bg-white", paused ? "border-slate-200 opacity-70" : running ? "border-orange-300" : "border-slate-200")}
+      data-testid="radar-app"
+      aria-busy={running}
+    >
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3 px-4 py-3.5">
-        <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-h-11 min-w-0 flex-[1_1_220px] items-center gap-2 text-left">
-          <ChevronDownIcon className={cn("size-4 shrink-0 text-slate-500 transition-transform", open && "rotate-180")} aria-hidden />
-          <span className="min-w-0">
-            <span className="block truncate font-semibold">{app.name}</span>
-            <span className="block text-xs text-slate-500">
-              {tr("resumeApp", { comptes: app.accounts, actifs: app.activeAccounts, posts: app.posts7d })}
-              {paused && ` · ${tr("enPause")}`}
+        <div className="min-w-0 flex-[1_1_260px]">
+          <button type="button" onClick={onToggle} aria-expanded={open} className="flex min-h-11 w-full min-w-0 items-center gap-2 text-left">
+            <ChevronDownIcon className={cn("size-4 shrink-0 text-slate-500 transition-transform", open && "rotate-180")} aria-hidden />
+            <span className="min-w-0">
+              <span className="block truncate font-semibold">{app.name}</span>
+              <span className="block text-xs text-slate-500">
+                {tr("resumeApp", { comptes: app.accounts, actifs: app.activeAccounts, posts: app.posts7d })}
+                {paused && ` · ${tr("enPause")}`}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+          <div className="pl-6">
+            <SearchStatus app={app} phase={phase} />
+          </div>
+        </div>
         <div className="min-w-0 flex-[1_1_240px] text-sm">
           {app.best ? (
             <a href={app.best.url} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full items-center gap-1.5 text-slate-900 hover:underline">
@@ -122,23 +165,30 @@ function AppCard({ app, open, onToggle }: { app: AppRow; open: boolean; onToggle
             <span className="text-slate-500">{tr("pasEncoreDeVideo")}</span>
           )}
         </div>
-        <span className="text-xs text-slate-500">{tr("reseauCherche", { quand: formatRelative(app.networkSearchedAt, loc) })}</span>
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
             onClick={async () => {
+              asked.current = { finishedAt: ns?.finishedAt };
               try {
-                await searchNow({ appId: app.id });
-                toast.success(tr("rechercheLancee", { app: app.name }));
+                const r = await searchNow({ appId: app.id });
+                if (r === "running") toast.info(tr("rechercheDejaEnCours", { app: app.name }));
               } catch (err) {
+                asked.current = null;
                 toast.error(showError(err, tr("rechercheImpossible")));
               }
             }}
-            disabled={paused}
+            disabled={paused || running}
             className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium disabled:opacity-50"
           >
-            <SearchIcon className="size-4" aria-hidden />
-            {tr("chercherSonReseau")}
+            {running ? <Loader2Icon className="size-4 animate-spin" aria-hidden /> : <SearchIcon className="size-4" aria-hidden />}
+            {/* Même largeur dans les deux états : la ligne ne bouge pas quand la recherche part. */}
+            <span className="grid text-left">
+              <span className="invisible col-start-1 row-start-1" aria-hidden>
+                {tr("chercherSonReseau")}
+              </span>
+              <span className="col-start-1 row-start-1">{running ? tr("rechercheBouton") : tr("chercherSonReseau")}</span>
+            </span>
           </button>
           <button
             type="button"
@@ -149,8 +199,78 @@ function AppCard({ app, open, onToggle }: { app: AppRow; open: boolean; onToggle
           </button>
         </div>
       </div>
+      {running && ns && (
+        <div
+          className="h-1 w-full bg-orange-100"
+          role="progressbar"
+          aria-label={tr("rechercheEnCours")}
+          aria-valuenow={ns.step}
+          aria-valuemin={0}
+          aria-valuemax={Math.max(1, ns.steps)}
+        >
+          <div
+            className={cn("h-full bg-primary transition-[width] duration-500", ns.step === 0 && "animate-pulse")}
+            style={{ width: `${Math.max(8, Math.round((ns.step / Math.max(1, ns.steps)) * 100))}%` }}
+          />
+        </div>
+      )}
       {open && <AccountsTable appId={app.id} appName={app.name} />}
     </li>
+  );
+}
+
+/**
+ * Où en est la recherche du réseau d'une app : en cours (recherche n° X sur Y,
+ * comptes déjà trouvés), sa dernière issue (comptes ajoutés, ou pourquoi elle
+ * s'est arrêtée), ou à défaut la date de la dernière recherche.
+ */
+function SearchStatus({ app, phase }: { app: AppRow; phase: ReturnType<typeof networkSearchPhase> }) {
+  const tr = useTranslations("admin.ops.RadarNetworks");
+  const loc = useIntlLocale();
+  const ns: NetworkSearchState | null = app.networkSearch;
+  const box = "block min-w-0 text-xs";
+
+  if (phase === "running" && ns) {
+    return (
+      <span role="status" className={cn(box, "flex items-center gap-1.5 font-medium text-slate-900")} data-testid="radar-recherche">
+        <Loader2Icon className="size-3.5 shrink-0 animate-spin text-orange-600" aria-hidden />
+        <span>
+          {ns.startedAt === undefined || ns.step === 0 ? tr("rechercheEnCours") : tr("rechercheEnCoursEtape", { step: ns.step, steps: ns.steps })}
+          {ns.attached > 0 && <span className="text-emerald-700"> · {tr("nouveauxComptes", { n: ns.attached })}</span>}
+        </span>
+      </span>
+    );
+  }
+  if (phase === "stale" && ns) {
+    return (
+      <span role="status" className={cn(box, "text-amber-700")} data-testid="radar-recherche">
+        {tr("rechercheBloquee", { quand: formatRelative(ns.startedAt ?? ns.requestedAt, loc) })}
+      </span>
+    );
+  }
+  if (phase === "finished" && ns && ns.finishedAt !== undefined) {
+    const quand = formatRelative(ns.finishedAt, loc);
+    if (ns.outcome === undefined || ns.outcome === "done") {
+      return (
+        <span role="status" className={cn(box, "text-slate-500")} data-testid="radar-recherche">
+          {tr("reseauCherche", { quand })}
+          {" · "}
+          <span className={ns.attached > 0 ? "font-medium text-emerald-700" : undefined}>{tr("nouveauxComptes", { n: ns.attached })}</span>
+        </span>
+      );
+    }
+    const warn = ns.outcome === "budget" || ns.outcome === "paused";
+    return (
+      <span role="status" className={cn(box, warn ? "text-amber-700" : "text-red-700")} title={ns.error} data-testid="radar-recherche">
+        {tr(ISSUE_KEY[ns.outcome], { quand })}
+        {ns.attached > 0 && ` · ${tr("nouveauxComptes", { n: ns.attached })}`}
+      </span>
+    );
+  }
+  return (
+    <span className={cn(box, "text-slate-500")} data-testid="radar-recherche">
+      {tr("reseauCherche", { quand: formatRelative(app.networkSearchedAt, loc) })}
+    </span>
   );
 }
 
