@@ -13,18 +13,22 @@ import { matchCompteByHandle } from "./creatorAvatar";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import {
-  apifyFailureReason,
-  fetchApifyViewsForPlatform,
   tiktokPostId,
   instagramShortcode,
-  type ApifyBatchError,
   type ApifyPlatform,
 } from "./apifyApi";
 import {
-  APIFY_RESCUE_BUDGET,
+  fetchFacebookViewsSc,
+  fetchInstagramViewsSc,
+  releveScKey,
+  scFailureReason,
+  type ScError,
+} from "./scrapeCreatorsViews";
+import {
+  TIKTOK_RESCUE_BUDGET,
   BREAKER_CLOSED,
   collectTikTokInternally,
-  rescueWithApify,
+  rescueWithScrapeCreators,
 } from "./tiktokInternal";
 import { recomputeLatestMetrics } from "./metricSnapshots";
 import { TRACKING_WINDOW_DAYS, planLots, selectDueOnManualSync } from "./syncScope";
@@ -37,7 +41,6 @@ import { isSnapchatShortlink, snapchatSpotlightId } from "./snapchatPublicPage";
 import {
   facebookMatchKey,
   facebookNightlyBudget,
-  fetchFacebookViews,
   planFacebookBudget,
 } from "./facebookApify";
 import { plateformeValidator, type Plateforme } from "./platforms";
@@ -55,10 +58,12 @@ import { ownerIsPubHandle, type PostOwner } from "./postOwner";
  * déclenchement manuel est gated admin (requestApifySync). Aucun token Apify ne
  * fuit côté créateur.
  *
- * TikTok est lu sur la PAGE PUBLIQUE du post depuis le 2026-09-14, Apify n'y
- * sert plus que de secours (cf convex/tiktokInternal.ts). Instagram reste chez
- * Apify. SANS APIFY_API_TOKEN : TikTok continue par la page, Instagram est
- * inscrit en échec avec son motif — jamais de crash.
+ * TikTok est lu sur la PAGE PUBLIQUE du post depuis le 2026-09-14, un secours
+ * payant borné derrière (cf convex/tiktokInternal.ts). Depuis le 2026-11-09,
+ * Instagram, Facebook et ce secours passent par ScrapeCreators (cf
+ * convex/scrapeCreatorsViews.ts) — le nom « Apify » des fonctions et tables
+ * est historique. SANS CLÉ : TikTok continue par la page, Instagram et
+ * Facebook sont inscrits en échec avec leur motif — jamais de crash.
  *
  * ⚠️ TS7022 — runDailySync appelle ctx.runQuery/runMutation(internal.*) : type
  * de retour ANNOTÉ (ApifySyncSummary) pour casser le cycle d'inférence.
@@ -68,7 +73,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Temps accordé aux pages TikTok dans la sync MANUELLE. Une action Convex vit
- * 10 minutes au plus ; 5 laissent la place au secours Apify et à Snapchat.
+ * 10 minutes au plus ; 5 laissent la place au secours payant et à Snapchat.
  * Instagram et Facebook tournent dans une action à part (cf `requestApifySync`).
  */
 const MANUAL_TIKTOK_BUDGET_MS = 5 * 60 * 1000;
@@ -638,7 +643,7 @@ export const runDailySync = internalAction({
     // mi-chemin, d'où le `finally`.
     const tentees: Id<"publications">[] = [];
     try {
-      const apiToken = process.env.APIFY_API_TOKEN;
+      const scKey = releveScKey();
       const now = Date.now();
       const cutoff = now - ACTIVE_WINDOW_DAYS * DAY_MS;
       const releve = (p: Plateforme): boolean =>
@@ -741,12 +746,12 @@ export const runDailySync = internalAction({
               candidats: interne.avatars.map((a) => ({ ...a, plateforme })),
             });
           }
-          const secours = await rescueWithApify(
+          const secours = await rescueWithScrapeCreators(
             ctx,
             interne.aSecourir,
             now,
-            apiToken,
-            APIFY_RESCUE_BUDGET,
+            scKey,
+            TIKTOK_RESCUE_BUDGET,
           );
           summary.recovered += interne.releves.length;
           summary.synced += interne.releves.length + secours.releves.length;
@@ -757,7 +762,7 @@ export const runDailySync = internalAction({
           summary.failed += interne.refused + secours.failed + etrangers;
           console.info(
             `[apify-sync] TikTok — ${targets.length} post(s) : ${interne.releves.length} par la page, ` +
-              `${secours.releves.length} par Apify (${secours.runs} run(s)), ${interne.refused} refusé(s), ` +
+              `${secours.releves.length} par ScrapeCreators (${secours.runs} crédit(s)), ${interne.refused} refusé(s), ` +
               (etrangers > 0 ? `${etrangers} lien(s) d'un autre compte non relevé(s), ` : "") +
               `${secours.failed} perdu(s), ${interne.nonTentes.length} reporté(s) au relevé de nuit` +
               (interne.breaker.trippedReason ? ` — COUPE-CIRCUIT : ${interne.breaker.trippedReason}` : "") +
@@ -766,16 +771,16 @@ export const runDailySync = internalAction({
           continue;
         }
 
-        if (!apiToken) {
+        if (!scKey) {
           console.error(
-            "[apify-sync] APIFY_API_TOKEN absent — relevé Instagram annulé. " +
-              "Posez le token : npx convex env set APIFY_API_TOKEN <token>.",
+            "[apify-sync] clé ScrapeCreators absente — relevé Instagram annulé. " +
+              "Posez SCRAPECREATORS_RELEVES_API_KEY (ou SCRAPECREATORS_API_KEY).",
           );
           for (const t of targets) {
             await ctx.runMutation(internal.apifySync.recordCollectFailure, {
               publicationId: t.publicationId,
               at: now,
-              reason: "pas de relevé Instagram (APIFY_API_TOKEN absent)",
+              reason: "pas de relevé Instagram (clé ScrapeCreators absente)",
             });
           }
           summary.ok = false;
@@ -789,22 +794,18 @@ export const runDailySync = internalAction({
         // ont laissé l'écran figé 7 min avant la première écriture.
         let runs = 0;
         let unavailable = 0;
-        const errors: ApifyBatchError[] = [];
+        const errors: ScError[] = [];
         for (const lot of planLots(targets)) {
-          const r = await fetchApifyViewsForPlatform(
-            plateforme,
-            lot.map((t) => t.url),
-            apiToken,
-          );
-          runs += r.runs;
+          const r = await fetchInstagramViewsSc(lot, scKey);
+          runs += r.calls;
           unavailable += r.unavailable.length;
           errors.push(...r.errors);
           // Instagram n'a pas de lecture publique : le post est inscrit en
           // échec avec son motif, jamais laissé à « 0 vue » sans explication.
           const motif =
             r.errors.length > 0
-              ? apifyFailureReason(r.errors[0])
-              : "Apify n'a pas rendu le post (aucun repli sur cette plateforme)";
+              ? scFailureReason(r.errors[0])
+              : "ScrapeCreators n'a pas rendu le post (privé, supprimé, ou photo sans vues)";
           // Même ordre que la nuit : les posts qui confirment leur compte
           // d'abord (cf `syncInstagramLot`, convex/nightlyViewsSync.ts).
           const ordered = [...lot].sort(
@@ -847,7 +848,7 @@ export const runDailySync = internalAction({
 
         if (errors.length > 0) {
           console.error(
-            `[apify-sync] ${plateforme} — ${errors.length} lot(s) en erreur:`,
+            `[apify-sync] ${plateforme} — ${errors.length} requête(s) en erreur:`,
             errors,
           );
         }
@@ -857,7 +858,7 @@ export const runDailySync = internalAction({
           );
         }
         console.info(
-          `[apify-sync] ${plateforme} OK — ${targets.length} post(s) dus sur ${actives.length} actif(s), ${runs} run(s) Apify.`,
+          `[apify-sync] ${plateforme} OK — ${targets.length} post(s) dus sur ${actives.length} actif(s), ${runs} crédit(s) ScrapeCreators.`,
         );
       }
 
@@ -917,7 +918,7 @@ export const runDailySync = internalAction({
         );
       }
 
-      // ── Facebook : actor Apify officiel, payé au post ────────────────────────
+      // ── Facebook : ScrapeCreators, un crédit par post ────────────────────────
       const pubsFb = releve("Facebook")
         ? await ctx.runQuery(
             internal.apifySync.listActiveApifyPublications,
@@ -950,17 +951,17 @@ export const runDailySync = internalAction({
       }
       summary.matched += ciblesFb.length;
       for (const c of ciblesFb) tentees.push(c.publicationId);
-      if (ciblesFb.length > 0 && !apiToken) {
+      if (ciblesFb.length > 0 && !scKey) {
         for (const t of ciblesFb) {
           await ctx.runMutation(internal.apifySync.recordCollectFailure, {
             publicationId: t.publicationId,
             at: now,
-            reason: "pas de relevé Facebook (APIFY_API_TOKEN absent)",
+            reason: "pas de relevé Facebook (clé ScrapeCreators absente)",
           });
         }
         summary.failed += ciblesFb.length;
-      } else if (ciblesFb.length > 0 && apiToken) {
-        const fb = await fetchFacebookViews(ciblesFb, apiToken);
+      } else if (ciblesFb.length > 0 && scKey) {
+        const fb = await fetchFacebookViewsSc(ciblesFb, scKey);
         summary.runs += fb.runs;
         summary.errors += fb.errors.length;
         for (const t of ciblesFb) {
@@ -971,8 +972,8 @@ export const runDailySync = internalAction({
               at: now,
               reason:
                 fb.errors.length > 0
-                  ? apifyFailureReason(fb.errors[0])
-                  : "Apify n'a pas rendu le post Facebook (privé, supprimé, ou profil personnel)",
+                  ? scFailureReason(fb.errors[0])
+                  : "ScrapeCreators n'a pas rendu le post Facebook (privé, supprimé, photo sans vues, ou profil personnel)",
             });
             summary.failed += 1;
             continue;
@@ -992,12 +993,12 @@ export const runDailySync = internalAction({
         }
         console.info(
           `[apify-sync] Facebook — ${ciblesFb.length} post(s) demandé(s) sur ${pubsFb.length}, ` +
-            `${Object.keys(fb.stats).length} rendu(s), ${fb.runs} run(s), ${fb.errors.length} lot(s) en erreur.`,
+            `${Object.keys(fb.stats).length} rendu(s), ${fb.runs} crédit(s), ${fb.errors.length} requête(s) en erreur.`,
         );
       }
 
       console.info(
-        `[apify-sync] Terminé — ${summary.synced} snapshot(s), ${summary.runs} run(s) Apify au total (~coût).`,
+        `[apify-sync] Terminé — ${summary.synced} snapshot(s), ${summary.runs} crédit(s) ScrapeCreators au total (~coût).`,
       );
       return summary;
     } finally {

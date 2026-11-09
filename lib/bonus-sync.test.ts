@@ -101,7 +101,7 @@ describe("câblage des relevés en masse", () => {
 
   /** Modules qui ÉCRIVENT des relevés pour le compte d'une action appelante. */
   const COLLECTEURS: Record<string, string[]> = {
-    "tiktokInternal.ts": ["collectTikTokInternally", "rescueWithApify"],
+    "tiktokInternal.ts": ["collectTikTokInternally", "rescueWithScrapeCreators"],
     "snapchatInternal.ts": ["collectSnapchatInternally"],
   };
 
