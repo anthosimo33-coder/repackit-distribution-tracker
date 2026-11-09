@@ -4264,6 +4264,8 @@ export default defineSchema({
     strong: v.array(v.string()),
     weak: v.array(v.string()),
     context: v.array(v.string()),
+    // Tournures courantes qui contiennent le nom sans le citer (radarNetworkMath.AppRule.not).
+    not: v.optional(v.array(v.string())),
     searches: v.array(v.string()), // mots-clés, « #hashtag »
     status: v.union(v.literal("active"), v.literal("paused")),
     source: v.union(v.literal("seed"), v.literal("manual")),

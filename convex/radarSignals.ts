@@ -30,8 +30,9 @@ import { e2eMutation, permissionMutation, permissionQuery, type ProjectQueryCtx 
 import { dayKeyParis, monthKeyParis } from "./dateFr";
 import { notifyConfig } from "./notifyApi";
 import { deliver } from "./notifications";
-import { DISCOVERY_QUERIES } from "./radarDiscoveryQueries";
-import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, videoCitesApp } from "./radarNetworkMath";
+import { DISCOVERY_ROTATION } from "./radarDiscoveryQueries";
+import { SEED_APPS, canTrack, candidatesOf, findApp, rivalElsewhere, videoApp, videoCitesApp } from "./radarNetworkMath";
+import { isTextOnShot } from "./radarDisplay";
 import { SEED_ACCOUNTS } from "./radarSeedAccounts";
 import {
   BUDGET_VERSION,
@@ -145,6 +146,7 @@ export async function ensureSeedApps(ctx: MutationCtx): Promise<number> {
       weak: [...(s.weak ?? [])],
       context: [...(s.context ?? [])],
       searches: [...s.searches],
+      ...(s.not ? { not: [...s.not] } : {}),
     };
     let app = await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", s.slug)).first();
     if (!app) {
@@ -429,8 +431,13 @@ export const upsertDiscovered = internalMutation({
         .query("radarSignals")
         .withIndex("by_video", (q) => q.eq("platform", "tiktok").eq("videoId", s.videoId))
         .first();
+      // La courbe ne suit que ce qui cite une app suivie, hors « texte sur plan » :
+      // du 06 au 09/11/2026, 58 des 62 vidéos suivies étaient hors niche, et
+      // aucune décision ne lisait leur courbe.
       const admit =
         (!existing || existing.curveStartedAt === undefined) &&
+        app !== undefined &&
+        !isTextOnShot(s) &&
         curveCandidate(s, now) &&
         curveAdmissionsLeft(budget, admittedToday) > 0;
       const next = admit ? nextCheckpointAt(s.publishedAt, now) : undefined;
@@ -595,7 +602,7 @@ export const runDiscovery = internalAction({
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage);
     const n = allowance(st.budget, b, "search", todayCredits(st, "search"), DISCOVERY_RUNS_PER_DAY);
-    const { queries } = nextQueries(st.cursor, n, DISCOVERY_QUERIES);
+    const { queries } = nextQueries(st.cursor, n, DISCOVERY_ROTATION);
     let credits = 0;
     let calls = 0;
     let errors = 0;
@@ -626,7 +633,7 @@ export const runDiscovery = internalAction({
       ...(creditsRemaining !== undefined ? { creditsRemaining } : {}),
       ...(lastError ? { lastError } : {}),
       // Le curseur n'avance que des recherches réellement passées.
-      cursor: nextQueries(st.cursor, done, DISCOVERY_QUERIES).cursor,
+      cursor: nextQueries(st.cursor, done, DISCOVERY_ROTATION).cursor,
     });
     await maybeAlert(ctx, now);
     return { calls: done, credits, errors };
@@ -706,17 +713,25 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
     .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
     .collect();
   const markOf = new Map<Id<"radarSignals">, Doc<"radarSignalMarks">>(marks.map((m) => [m.signalId, m]));
-  // Les règles de chaque app (une quarantaine de lignes) : une vidéo n'est rangée
-  // sous son app que si elle la cite (radarNetworkMath.videoCitesApp).
-  const rules = new Map((await ctx.db.query("radarApps").collect()).map((a) => [a._id, a]));
+  // Les règles de chaque app (une quarantaine de lignes) : une vidéo est rangée
+  // sous l'app qu'elle CITE (radarNetworkMath.videoCitesApp) — celle de son
+  // réseau d'abord, sinon une autre app suivie (une vidéo FollowOtter d'un
+  // compte rangé sous FollowSpy, 09/11/2026). L'app et ses concurrences sont
+  // lues en direct : une app déclassée ou un compte changé de réseau valent
+  // aussi pour les vidéos déjà relevées.
+  const apps = await ctx.db.query("radarApps").collect();
+  const rules = new Map(apps.map((a) => [a._id, a]));
+  const active = apps.filter((a) => a.status === "active");
   return {
     truncated: rows.length === SIGNALS_LIST_CAP,
     signals: rows.map((r) => {
-      const rule = r.appId ? rules.get(r.appId) : undefined;
-      // Une vidéo de compte suivi qui ne cite pas l'app de son réseau n'est pas
-      // « de » cette app : ni étiquette, ni concurrent ; l'écran dit seulement
-      // pour quelle app son compte est suivi (`network`).
-      const cited = !rule || videoCitesApp({ caption: r.caption, hook: r.hook, transcript: r.transcript, handle: r.authorHandle }, rule);
+      const own = r.appId ? rules.get(r.appId) : undefined;
+      const text = { caption: r.caption, hook: r.hook, transcript: r.transcript, handle: r.authorHandle };
+      // Une vidéo de compte suivi qui ne cite aucune app suivie n'est « de »
+      // personne : ni étiquette, ni concurrent ; l'écran dit seulement pour
+      // quelle app son compte est suivi (`network`).
+      const shown = own ? (videoCitesApp(text, own) ? own : videoApp(text, active)) : undefined;
+      const cited = !own || shown !== undefined;
       return {
       id: r._id,
       videoId: r.videoId,
@@ -741,12 +756,12 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       ratio: r.ratio,
       multiplier: r.multiplier ?? null,
       snapshots: r.snapshots,
-      app: cited ? (r.appName ?? r.competitor ?? null) : null,
-      network: cited ? null : (r.appName ?? null),
-      competitor: cited ? competitorFor(r, slug) : null,
+      app: shown ? shown.name : cited ? (r.appName ?? r.competitor ?? null) : null,
+      network: cited ? null : (own?.name ?? r.appName ?? null),
+      competitor: shown ? (shown.rivalOf.includes(slug) ? shown.name : null) : cited ? competitorFor(r, slug) : null,
       // L'app (ou le réseau) n'est concurrente que d'AUTRES projets : The Ick dans le
       // Radar de BLUSH. Explorer la montre ; Aujourd'hui la laisse aux autres.
-      elsewhere: rivalElsewhere(r.appRivalOf ?? (r.competitor ? ["snytch"] : []), slug),
+      elsewhere: rivalElsewhere((shown ?? own)?.rivalOf ?? r.appRivalOf ?? (r.competitor ? ["snytch"] : []), slug),
       tracked: r.trackedAccountId !== undefined,
       inCurve: r.nextCheckAt !== undefined,
       status: markOf.get(r._id)?.status ?? ("nouveau" as const),
@@ -880,6 +895,8 @@ export const e2eSeedSignals = e2eMutation({
         app: v.optional(v.string()),
         // Partages (« se partage » au-delà de 2 % des vues) ; sinon vues ÷ 300.
         shares: v.optional(v.number()),
+        // Durée : 12 secondes ou moins = « texte sur plan », hors d'Aujourd'hui.
+        durationSec: v.optional(v.number()),
       }),
     ),
   },
@@ -917,6 +934,7 @@ export const e2eSeedSignals = e2eMutation({
           snapshots: s.snapshots ?? [{ at: now, views: s.views }],
           ...app,
           ...(s.multiplier !== undefined ? { multiplier: s.multiplier } : {}),
+          ...(s.durationSec !== undefined ? { durationSec: s.durationSec } : {}),
           ...(s.hook ? { hook: s.hook } : {}),
           ...(s.transcript ? { transcript: s.transcript, transcribedAt: now } : {}),
           foundBy: ["e2e"],

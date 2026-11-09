@@ -21,7 +21,8 @@ import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { e2eMutation, permissionQuery, type ProjectQueryCtx } from "./functions";
-import { MAX_READ_ERRORS, MEDIAN_WINDOW, hookTemplate, medianViews, multiplierOf, nextReadAt, shouldPromote } from "./radarNetworkMath";
+import { MAX_READ_ERRORS, MEDIAN_WINDOW, hookTemplate, medianViews, multiplierOf, nextReadAt, shouldPromote, videoApp, videoCitesApp } from "./radarNetworkMath";
+import { isTextOnShot } from "./radarDisplay";
 import { RETENTION_DAYS, addSnapshot, allowance, budgetState, ratioOf, type SignalInput } from "./radarSignalsMath";
 import { TRANSCRIPT_MAX_SEC, adCitesApp, adRunDays, type AdInput } from "./radarSourcesMath";
 import { appRef, maybeAlert, projectSlugOf, todayCredits, writeSignal, type JobState, type RunResult } from "./radarSignals";
@@ -395,17 +396,37 @@ export const runInstaReads = internalAction({
 
 type DueTranscript = { id: Id<"radarSignals">; url: string };
 
-/** Les signaux TikTok de la semaine pas encore transcrits, les plus vus d'abord. */
+/**
+ * Les signaux TikTok de la semaine pas encore transcrits : ceux qui citent une
+ * concurrente d'abord, puis une autre app suivie, puis la découverte ; les plus
+ * vus d'abord dans chaque rang. Jamais une vidéo d'un compte suivi qui ne cite
+ * aucune app (elle n'est montrée nulle part), ni un « texte sur plan » de 12
+ * secondes ou moins (personne n'y parle). Du 06 au 09/11/2026, triées par vues
+ * seules, 37 transcriptions utiles sur 173 et 18 % des vidéos de concurrents
+ * couvertes.
+ */
 export const dueTranscripts = internalQuery({
   args: { now: v.number(), limit: v.number() },
   handler: async (ctx, { now, limit }): Promise<DueTranscript[]> => {
     if (limit <= 0) return [];
     const rows = await ctx.db.query("radarSignals").withIndex("by_published", (q) => q.gte("publishedAt", now - 7 * DAY)).order("desc").take(800);
-    return rows
-      .filter((r) => r.platform === "tiktok" && r.transcribedAt === undefined && (r.durationSec === undefined || r.durationSec <= TRANSCRIPT_MAX_SEC))
-      .sort((a, b) => b.views - a.views)
+    const apps = await ctx.db.query("radarApps").collect();
+    const byId = new Map(apps.map((a) => [a._id, a]));
+    const active = apps.filter((a) => a.status === "active");
+    const ranked: { r: Doc<"radarSignals">; rank: number }[] = [];
+    for (const r of rows) {
+      if (r.platform !== "tiktok" || r.transcribedAt !== undefined || isTextOnShot(r)) continue;
+      if (r.durationSec !== undefined && r.durationSec > TRANSCRIPT_MAX_SEC) continue;
+      const own = r.appId ? byId.get(r.appId) : undefined;
+      const text = { caption: r.caption, hook: r.hook, handle: r.authorHandle };
+      const cited = own ? (videoCitesApp(text, own) ? own : videoApp(text, active)) : undefined;
+      if (own && !cited) continue;
+      ranked.push({ r, rank: cited ? (cited.rivalOf.length > 0 ? 0 : 1) : 2 });
+    }
+    return ranked
+      .sort((a, b) => a.rank - b.rank || b.r.views - a.r.views)
       .slice(0, limit)
-      .map((r) => ({ id: r._id, url: r.url }));
+      .map(({ r }) => ({ id: r._id, url: r.url }));
   },
 });
 

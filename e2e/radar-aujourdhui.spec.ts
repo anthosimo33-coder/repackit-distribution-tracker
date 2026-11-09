@@ -30,7 +30,7 @@ function semis(ts: number) {
   const hook = (n: number) => `Quand ton mec like en secret ${n} ${ts}`;
   // `cite` : la légende cite l'app (son motif). Sinon, c'est une vidéo d'un compte
   // du réseau qui parle d'autre chose (09/11 : un extrait Disney sous The Ick).
-  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`, shares?: number) => ({
+  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`, shares?: number, durationSec?: number) => ({
     videoId: `${m}${n}`,
     handle: `rxauj${n}_${ts}`,
     fans: 1_000 + n,
@@ -42,6 +42,7 @@ function semis(ts: number) {
     hook: hook(n),
     app,
     ...(shares !== undefined ? { shares } : {}),
+    ...(durationSec !== undefined ? { durationSec } : {}),
     snapshots: snaps.map(([h, v]) => ({ at: now - ageH * HOUR + h * HOUR, views: v })),
   });
   return {
@@ -54,12 +55,23 @@ function semis(ts: number) {
       apps: [
         { slug: `${p}a`, name: rival, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] },
         { slug: `${p}b`, name: ailleurs, rivalOf: ["snytch"], strong: [`${p}b`] },
+        // Une autre app suivie, concurrente de personne.
+        { slug: `${p}c`, name: `E2E Autre auj ${ts}`, rivalOf: [], strong: [`${p}c`] },
       ],
       accounts: [
         { handle: `rxauj1_${ts}`, appSlug: `${p}a`, fans: 1_001, medianViews: 100, posts7d: 3, best7d: { videoId: `${m}1`, views: 990_000, multiplier: 9_900, publishedAt: now - 30 * HOUR } },
         { handle: `rxauj2_${ts}`, appSlug: `${p}a`, fans: 1_002, medianViews: 100, posts7d: 2 },
         // Mis en pause : ses vidéos lues ne citent jamais l'app.
         { handle: `rxauj9_${ts}`, appSlug: `${p}a`, fans: 900, posts7d: 0, offTopic: true },
+        // Mis en pause À TORT : ses 9 vidéos citent une autre app suivie (FollowOtter sous FollowSpy, 09/11).
+        {
+          handle: `rxauj10_${ts}`,
+          appSlug: `${p}a`,
+          fans: 900,
+          posts7d: 9,
+          offTopic: true,
+          videos: Array.from({ length: 9 }, (_, i) => ({ videoId: `${p}w${i}`, ageH: 24 + i, views: 1_000, caption: `i found everything on ${p}c ${i}` })),
+        },
       ],
     },
     signals: [
@@ -75,6 +87,10 @@ function semis(ts: number) {
       s(6, 9_450, 70, [[24, 945_000]], true, ailleurs, `${p}b`),
       // En train de partir : publiée il y a 5 h, déjà 50× sa normale.
       s(7, 50, 5, [[4, 60_000]]),
+      // « Texte sur plan » : 9 secondes, le plus haut score de tous — hors d'Aujourd'hui, et hors « en train de partir ».
+      s(8, 9_950, 6, [[5, 995_000]], true, rival, `${p}a`, undefined, 9),
+      // Un compte du réseau du concurrent, une vidéo qui cite une AUTRE app suivie : rangée sous celle-là.
+      s(9, 9_400, 70, [[24, 940_000]], true, rival, `${p}c`),
     ],
     ads: [
       // La même créa, deux annonces actives : une seule ligne, une seule pub active.
@@ -95,6 +111,8 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
     await admin.mutation(api.radarNetworks.e2eSeedNetwork, { secret: E2E_SECRET, ...z.network });
     await admin.mutation(api.radarSignals.e2eSeedSignals, { secret: E2E_SECRET, rivalProject: E2E_PROJECT_SLUG, signals: z.signals });
     await admin.mutation(api.radarSources.e2eSeedAds, { secret: E2E_SECRET, ads: z.ads });
+    // La tâche qui rejuge les comptes en pause (toutes les 6 h en vrai).
+    await admin.mutation(api.radarNetworks.e2eRejudgePaused, { secret: E2E_SECRET });
     try {
       const carte = (n: number) => page.getByTestId("radar-signal").filter({ hasText: z.hook(n) });
       const message = (n: number) => page.locator("[data-sonner-toast]").filter({ hasText: `@rxauj${n}_${ts}` });
@@ -114,12 +132,17 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       await expect(partir).toContainText(z.hook(7));
       await expect(partir).toContainText("vues en 5 h");
       await expect(partir).not.toContainText(z.hook(1));
+      // Un « texte sur plan » de 9 secondes, même au plus haut score, n'y est pas ; ni dans la file.
+      await expect(partir).not.toContainText(z.hook(8));
+      await expect(carte(8)).toHaveCount(0);
       // Propre au projet : ni ce qu'un compte du réseau publie sans citer l'app, ni un concurrent d'un autre projet.
       await expect(carte(5)).toHaveCount(0);
       await expect(carte(6)).toHaveCount(0);
-      // La semaine du concurrent : 5 vidéos qui cartonnent (ni celle qui ne le cite pas, ni l'autre projet), une créa active (deux annonces).
+      // La semaine du concurrent : 6 vidéos qui cartonnent, le « texte sur plan » compris (ni celle qui ne le
+      // cite pas, ni celle qui cite une autre app, ni l'autre projet) ; sa meilleure n'est pas le texte sur plan.
       const semaine = page.getByTestId("radar-concurrent-semaine").filter({ hasText: z.rival });
-      await expect(semaine.getByRole("cell").nth(1)).toHaveText("5");
+      await expect(semaine.getByRole("cell").nth(1)).toHaveText("6");
+      await expect(semaine.getByRole("cell").nth(2)).toContainText(`@rxauj1_${ts}`);
       await expect(semaine.getByRole("cell").nth(3)).toHaveText("1");
 
       // Passer depuis la carte, puis Annuler : elle revient à sa place.
@@ -172,16 +195,21 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       const ligne = (n: number) => page.getByTestId("radar-signal").filter({ hasText: `@rxauj${n}_${ts}` });
       await expect(ligne(5).getByTestId("radar-reseau-seul")).toHaveText(`compte suivi pour ${z.rival}`);
       await expect(ligne(6)).toContainText(z.ailleurs);
+      // Le « texte sur plan » reste dans Explorer ; la vidéo qui cite une autre app suivie est rangée sous elle.
+      await expect(ligne(8)).toHaveCount(1);
+      await expect(ligne(9)).toContainText(`E2E Autre auj ${ts}`);
+      await expect(ligne(9).getByTestId("radar-reseau-seul")).toHaveCount(0);
 
       // ── La fiche du concurrent ──────────────────────────────────────────────
       await page.goto(adminPath(`/radar?onglet=concurrents&app=${z.p}a`));
       const fiche = page.getByTestId("radar-fiche-app");
       await expect(fiche.getByRole("heading", { name: z.rival })).toBeVisible();
       await expect(page.getByRole("link", { name: new RegExp(`^${z.rival}`) })).toHaveAttribute("aria-current", "page");
-      // La passée ne compte plus : 4 vidéos qui cartonnent ; une créa active.
-      await expect(page.getByTestId("radar-kpi-cartonnent")).toHaveText("4");
+      // La passée ne compte plus : 5 vidéos qui cartonnent ; une créa active. Le « texte sur plan » vient en dernier.
+      await expect(page.getByTestId("radar-kpi-cartonnent")).toHaveText("5");
       await expect(page.getByTestId("radar-kpi-pubs")).toHaveText("1");
-      await expect(fiche.getByTestId("radar-signal")).toHaveCount(4);
+      await expect(fiche.getByTestId("radar-signal")).toHaveCount(5);
+      await expect(fiche.getByTestId("radar-signal").last()).toContainText(z.hook(8));
       const pubs = fiche.getByTestId("radar-pub");
       await expect(pubs).toHaveCount(2);
       await expect(pubs.first()).toContainText("2 annonces, 2 actives");
@@ -195,6 +223,15 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       await releve.click();
       await expect(releve).toHaveAttribute("aria-checked", "true");
       await expect(horsSujet.getByTestId("radar-hors-sujet")).toHaveCount(0);
+
+      // Le compte qui citait une autre app suivie a changé de réseau et repris, sans qu'on y touche.
+      await expect(fiche.getByTestId("radar-compte").filter({ hasText: `@rxauj10_${ts}` })).toHaveCount(0);
+      await page.goto(adminPath(`/radar?onglet=concurrents&app=${z.p}c`));
+      await expect(page.getByTestId("radar-fiche-app").getByRole("heading", { name: `E2E Autre auj ${ts}` })).toBeVisible();
+      const deplace = page.getByTestId("radar-compte").filter({ hasText: `@rxauj10_${ts}` });
+      await expect(deplace).toHaveCount(1);
+      await expect(deplace.getByTestId("radar-hors-sujet")).toHaveCount(0);
+      await expect(page.getByRole("switch", { name: `Relevé de @rxauj10_${ts}` })).toHaveAttribute("aria-checked", "true");
     } finally {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: z.m });
       await admin.mutation(api.radarSources.e2eClearAds, { secret: E2E_SECRET, prefix: z.p });
