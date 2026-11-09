@@ -7,6 +7,7 @@ import {
   type SnapchatTarget,
 } from "../convex/snapchatInternal";
 import { BREAKER_CLOSED, BREAKER_THRESHOLD } from "../convex/tiktokInternal";
+import { ID_KELLY, pageRsc, rscVideo } from "./__fixtures__/snapchat-rsc-page";
 
 /** Page Spotlight de la forme relevée le 2026-09-25 (compteurs en chaînes). */
 function pageSpotlight(id: string, views: string, username = "kelly.snytch"): string {
@@ -155,6 +156,44 @@ describe("collectSnapchatInternally", () => {
     // Aucun post n'est laissé sans motif : les 4 non demandés disent pourquoi.
     expect(echecs()).toHaveLength(9);
     expect(String(echecs()[8].args.reason)).toContain("suspendu");
+  });
+
+  it("forme RSC (depuis le 02/11/2026) : le snapshot est écrit, likes = likeCount", async () => {
+    const { ctx, snapshots, echecs } = fakeCtx();
+    const { impl } = fetchParId({ [ID_KELLY]: () => new Response(pageRsc({})) });
+    const r = await collectSnapchatInternally(
+      ctx,
+      [cible(ID_KELLY, "@thekellychapter")],
+      42,
+      BREAKER_CLOSED,
+      { fetchImpl: impl, ...sansPause },
+    );
+    expect(r.releves).toHaveLength(1);
+    expect(snapshots()[0].args).toMatchObject({ vues: 12_467, likes: 275, comments: 3, saves: null });
+    expect(echecs()).toHaveLength(0);
+  });
+
+  it("vues MASQUÉES : échec motivé, sans zéro écrit ni coupe-circuit — toute la série est lue", async () => {
+    const { ctx, snapshots, echecs } = fakeCtx();
+    const ids = Array.from({ length: 9 }, (_, i) => sid(200 + i));
+    const pages: Record<string, () => Response> = {};
+    for (const id of ids) {
+      const v = rscVideo({ id, username: "thekellychapter", viewCount: 0, likeCount: 20 });
+      pages[id] = () => new Response(pageRsc({ videoId: id, video: v }));
+    }
+    const { impl, vus } = fetchParId(pages);
+
+    const r = await collectSnapchatInternally(ctx, ids.map((id) => cible(id)), 42, BREAKER_CLOSED, {
+      fetchImpl: impl,
+      ...sansPause,
+    });
+
+    expect(vus).toHaveLength(9);
+    expect(r.breaker).toEqual(BREAKER_CLOSED);
+    expect(r.failed).toBe(9);
+    expect(snapshots()).toHaveLength(0);
+    expect(echecs()).toHaveLength(9);
+    expect(String(echecs()[0].args.reason)).toContain("masque");
   });
 
   it("DURÉE dépassée : le reste est NON TENTÉ, ni échec ni snapshot", async () => {
