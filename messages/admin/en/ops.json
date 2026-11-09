@@ -249,7 +249,8 @@
       "ratio": "× its followers",
       "vph": "Views per hour",
       "views": "Views",
-      "recent": "Most recent"
+      "recent": "Most recent",
+      "shares": "Shares"
     },
     "nVideos": "{n, plural, =0 {0 videos} one {# video} other {# videos}}",
     "contexte": "of {total} collected · {periode}",
@@ -544,8 +545,25 @@
     "vues": "{n} views",
     "variantes": "{n} variants",
     "ig": "IG",
-    "quiPetent": "Breaking out only",
-    "cachesFroids": "{n, plural, one {# format is not breaking out yet} other {# formats are not breaking out yet}} (under 10,000 views or 3× the median, or a trending track): uncheck to see them."
+    "lesquels": "Which formats",
+    "vue": {
+      "reussis": "Succeeding · {n}",
+      "petent": "Taking off · {n}",
+      "tous": "All · {n}"
+    },
+    "aide": {
+      "reussis": "at least 3 measured reuses, and one in two or more gets 3× its account's usual. A format is worth its reuses, not one viral hit.",
+      "petent": "at least 10,000 views and 3× its usual on one account, whether or not it works elsewhere.",
+      "tous": "any on-screen text or sound reused by two or more followed accounts within 14 days."
+    },
+    "colFormat": "Format",
+    "colReussite": "Reuses that succeed",
+    "colMediane": "Median",
+    "colMeilleure": "Best",
+    "colComptes": "Accounts",
+    "reussiteAria": "{wins} of {n} reuses get 3× their account's usual",
+    "sur": "of {n}",
+    "pasAssez": "Fewer than 3 measured reuses"
   },
   "RadarAds": {
     "plateforme": "Ad library",
@@ -614,7 +632,8 @@
     "hookCite": "“{hook}”",
     "sonOriginalDe": "Original sound by @{handle}",
     "compteSuiviPour": "account followed for {app}",
-    "compteSuiviPourAide": "Its account is followed for {app}, but this video does not mention the app: it does not count as a {app} video."
+    "compteSuiviPourAide": "Its account is followed for {app}, but this video does not mention the app: it does not count as a {app} video.",
+    "sePartage": "Gets shared"
   },
   "RadarViewer": {
     "titre": "Watch one by one",
@@ -659,7 +678,8 @@
     "ajouteeAuxInspirations": "Video added to inspirations.",
     "ajoutImpossible": "Could not add to inspirations.",
     "dansLesInspirations": "In inspirations",
-    "ajouterAuxInspirations": "Add to inspirations"
+    "ajouterAuxInspirations": "Add to inspirations",
+    "partagee": "Gets shared: {pct} of views shared"
   },
   "RadarToday": {
     "aRegarder": "{n, plural, one {# video} other {# videos}} to watch today",
@@ -691,7 +711,13 @@
     "pousseParUnConcurrent": "Pushed by a competitor",
     "formatMeta": "{comptes, plural, one {# account} other {# accounts}} · {apps} · up to {vues} views",
     "variantes": "{n} variants",
-    "voirLeFormat": "See the format"
+    "voirLeFormat": "See the format",
+    "enTrainDePartir": "Taking off",
+    "enTrainDePartirAide": "Posted less than 24 h ago, already 10× their usual",
+    "vuesEnHeures": "views in {n} h",
+    "reussite": "{wins} of {n} reuses succeed",
+    "medianeReprises": "median {x}",
+    "pasAssezReprises": "Fewer than 3 measured reuses"
   },
   "RadarExplorer": {
     "ceQuOnExplore": "What to explore",

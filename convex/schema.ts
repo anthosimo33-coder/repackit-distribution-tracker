@@ -4199,6 +4199,8 @@ export default defineSchema({
     musicTitle: v.optional(v.string()),
     transcript: v.optional(v.string()), // ce qui est dit (3 000 caractères au plus)
     transcribedAt: v.optional(v.number()), // posé même sans texte : on ne repaie pas
+    // Projets déjà prévenus sur Telegram qu'elle part tôt (radarNetworkMath.isEarlyHit).
+    earlyAlerted: v.optional(v.array(v.string())),
     foundBy: v.array(v.string()), // recherches qui l'ont remontée (« cette app·fr »)
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),

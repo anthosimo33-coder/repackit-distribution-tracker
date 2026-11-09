@@ -30,7 +30,7 @@ function semis(ts: number) {
   const hook = (n: number) => `Quand ton mec like en secret ${n} ${ts}`;
   // `cite` : la légende cite l'app (son motif). Sinon, c'est une vidéo d'un compte
   // du réseau qui parle d'autre chose (09/11 : un extrait Disney sous The Ick).
-  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`) => ({
+  const s = (n: number, multiplier: number, ageH: number, snaps: [number, number][], cite = true, app = rival, motif = `${p}a`, shares?: number) => ({
     videoId: `${m}${n}`,
     handle: `rxauj${n}_${ts}`,
     fans: 1_000 + n,
@@ -41,6 +41,7 @@ function semis(ts: number) {
     multiplier,
     hook: hook(n),
     app,
+    ...(shares !== undefined ? { shares } : {}),
     snapshots: snaps.map(([h, v]) => ({ at: now - ageH * HOUR + h * HOUR, views: v })),
   });
   return {
@@ -64,13 +65,16 @@ function semis(ts: number) {
     signals: [
       // @rxauj1 : 412 000 à H+6, 990 000 à H+24 (+140 %).
       s(1, 9_900, 30, [[6, 412_000], [24, 990_000]]),
-      s(2, 9_800, 40, [[24, 980_000]]),
+      // 6 % des vues partagées : « se partage ».
+      s(2, 9_800, 40, [[24, 980_000]], true, rival, `${p}a`, 58_800),
       s(3, 9_700, 50, [[24, 970_000]]),
       s(4, 9_600, 60, [[24, 960_000]]),
       // Un compte du réseau, une vidéo qui ne cite pas l'app : ni étiquette ni concurrent, pas dans Aujourd'hui.
       s(5, 9_500, 70, [[24, 950_000]], false),
       // Une vidéo d'un concurrent de Snytch : pas dans l'Aujourd'hui du projet e2e.
       s(6, 9_450, 70, [[24, 945_000]], true, ailleurs, `${p}b`),
+      // En train de partir : publiée il y a 5 h, déjà 50× sa normale.
+      s(7, 50, 5, [[4, 60_000]]),
     ],
     ads: [
       // La même créa, deux annonces actives : une seule ligne, une seule pub active.
@@ -103,12 +107,19 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       for (const [i, n] of [1, 2, 3, 4].entries()) await expect(cartes.nth(i)).toContainText(z.hook(n));
       await expect(carte(1).getByTestId("radar-score")).toHaveText("9900×");
       await expect(carte(1)).toContainText(`${z.rival} · concurrent`);
+      // Ce qui se partage, et ce qui part tôt, en tête.
+      await expect(carte(2).getByTestId("radar-se-partage")).toHaveText("Se partage");
+      await expect(carte(1).getByTestId("radar-se-partage")).toHaveCount(0);
+      const partir = page.getByTestId("radar-en-train-de-partir");
+      await expect(partir).toContainText(z.hook(7));
+      await expect(partir).toContainText("vues en 5 h");
+      await expect(partir).not.toContainText(z.hook(1));
       // Propre au projet : ni ce qu'un compte du réseau publie sans citer l'app, ni un concurrent d'un autre projet.
       await expect(carte(5)).toHaveCount(0);
       await expect(carte(6)).toHaveCount(0);
-      // La semaine du concurrent : 4 vidéos qui cartonnent (pas la 5e), une créa active (deux annonces).
+      // La semaine du concurrent : 5 vidéos qui cartonnent (ni celle qui ne le cite pas, ni l'autre projet), une créa active (deux annonces).
       const semaine = page.getByTestId("radar-concurrent-semaine").filter({ hasText: z.rival });
-      await expect(semaine.getByRole("cell").nth(1)).toHaveText("4");
+      await expect(semaine.getByRole("cell").nth(1)).toHaveText("5");
       await expect(semaine.getByRole("cell").nth(3)).toHaveText("1");
 
       // Passer depuis la carte, puis Annuler : elle revient à sa place.
@@ -167,10 +178,10 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
       const fiche = page.getByTestId("radar-fiche-app");
       await expect(fiche.getByRole("heading", { name: z.rival })).toBeVisible();
       await expect(page.getByRole("link", { name: new RegExp(`^${z.rival}`) })).toHaveAttribute("aria-current", "page");
-      // La passée ne compte plus : 3 vidéos qui cartonnent ; une créa active.
-      await expect(page.getByTestId("radar-kpi-cartonnent")).toHaveText("3");
+      // La passée ne compte plus : 4 vidéos qui cartonnent ; une créa active.
+      await expect(page.getByTestId("radar-kpi-cartonnent")).toHaveText("4");
       await expect(page.getByTestId("radar-kpi-pubs")).toHaveText("1");
-      await expect(fiche.getByTestId("radar-signal")).toHaveCount(3);
+      await expect(fiche.getByTestId("radar-signal")).toHaveCount(4);
       const pubs = fiche.getByTestId("radar-pub");
       await expect(pubs).toHaveCount(2);
       await expect(pubs.first()).toContainText("2 annonces, 2 actives");

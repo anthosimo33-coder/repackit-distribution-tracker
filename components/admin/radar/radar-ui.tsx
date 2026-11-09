@@ -13,7 +13,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
 import { inkOn } from "@/lib/accent-ink";
-import { curveOf, originalSoundOf, scoreOf, sparklinePoints } from "@/convex/radarDisplay";
+import { curveOf, originalSoundOf, scoreOf, sharesWell, sparklinePoints } from "@/convex/radarDisplay";
 import type { SignalStatus } from "@/convex/radarSignalFilters";
 
 export type RadarSignal = FunctionReturnType<typeof api.radarSignals.listSignals>["signals"][number];
@@ -238,6 +238,11 @@ export function SignalCard({
             )}
             <span className="rounded-md bg-black/50 px-2 py-0.5 text-xs font-semibold text-white">{tr(`langue.${s.lang}` as Parameters<typeof tr>[0])}</span>
             {s.platform === "instagram" && <span className="rounded-md bg-fuchsia-600 px-2 py-0.5 text-xs font-semibold text-white">{tr("instagram")}</span>}
+            {sharesWell(s) && (
+              <span className="rounded-md bg-white px-2 py-0.5 text-xs font-semibold text-slate-900" data-testid="radar-se-partage">
+                {tr("sePartage")}
+              </span>
+            )}
           </span>
           <span className="relative line-clamp-5 text-[15px] font-semibold leading-snug [text-shadow:0_1px_2px_rgba(0,0,0,.6)]">{signalTitle(s)}</span>
         </SignalThumb>

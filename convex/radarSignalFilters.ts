@@ -33,6 +33,8 @@ export type FilterableSignal = {
   platform: "tiktok" | "instagram";
   /** Vues ÷ médiane du compte (comptes suivis), sinon null. */
   multiplier?: number | null;
+  /** Partages (tri « partages » : partages ÷ vues). */
+  shares?: number;
   status: SignalStatus;
 };
 
@@ -54,7 +56,7 @@ export type SeuilKey = (typeof SEUIL_OPTIONS)[number];
 // « mediane » d'abord : vues ÷ médiane du compte, le signal qui fait sortir les
 // pépites des comptes suivis (07/11/2026) ; les vidéos sans médiane suivent, par
 // vues ÷ abonnés.
-export const SORTS = ["mediane", "ratio", "vph", "views", "recent"] as const;
+export const SORTS = ["mediane", "ratio", "vph", "views", "shares", "recent"] as const;
 export type SortKey = (typeof SORTS)[number];
 
 export type Filters = {
@@ -109,6 +111,8 @@ const SORTERS: Record<SortKey, (now: number) => (a: FilterableSignal, b: Filtera
   ratio: () => (a, b) => b.ratio - a.ratio,
   vph: (now) => (a, b) => viewsPerHour(b.views, b.publishedAt, now) - viewsPerHour(a.views, a.publishedAt, now),
   views: () => (a, b) => b.views - a.views,
+  // Partages ÷ vues : ce qui se partage porte la portée organique (09/11/2026).
+  shares: () => (a, b) => (b.shares ?? 0) / Math.max(1, b.views) - (a.shares ?? 0) / Math.max(1, a.views),
   recent: () => (a, b) => b.publishedAt - a.publishedAt,
 };
 

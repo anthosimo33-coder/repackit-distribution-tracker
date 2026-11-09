@@ -249,7 +249,8 @@
       "ratio": "× ses abonnés",
       "vph": "Vues par heure",
       "views": "Vues",
-      "recent": "Plus récentes"
+      "recent": "Plus récentes",
+      "shares": "Partages"
     },
     "nVideos": "{n, plural, =0 {0 vidéo} one {# vidéo} other {# vidéos}}",
     "contexte": "sur {total} relevées · {periode}",
@@ -544,8 +545,25 @@
     "vues": "{n} vues",
     "variantes": "{n} variantes",
     "ig": "IG",
-    "quiPetent": "Qui pètent seulement",
-    "cachesFroids": "{n, plural, one {# format ne pète pas encore} other {# formats ne pètent pas encore}} (moins de 10 000 vues ou de 3× la médiane, ou musique à la mode) : décoche pour les voir."
+    "lesquels": "Quels formats",
+    "vue": {
+      "reussis": "Qui réussissent · {n}",
+      "petent": "Qui pètent · {n}",
+      "tous": "Tous · {n}"
+    },
+    "aide": {
+      "reussis": "au moins 3 reprises mesurées, et une sur deux ou mieux fait 3× la normale de son compte. Un format vaut par ses reprises, pas par un coup viral.",
+      "petent": "au moins 10 000 vues et 3× la normale chez l'un des comptes, réussi ou non ailleurs.",
+      "tous": "tout texte à l'écran ou son repris par deux comptes suivis ou plus en 14 jours."
+    },
+    "colFormat": "Format",
+    "colReussite": "Reprises qui réussissent",
+    "colMediane": "Médiane",
+    "colMeilleure": "Meilleure",
+    "colComptes": "Comptes",
+    "reussiteAria": "{wins} reprises sur {n} font 3× la normale de leur compte",
+    "sur": "sur {n}",
+    "pasAssez": "Moins de 3 reprises mesurées"
   },
   "RadarAds": {
     "plateforme": "Bibliothèque de pubs",
@@ -614,7 +632,8 @@
     "hookCite": "« {hook} »",
     "sonOriginalDe": "Son original de @{handle}",
     "compteSuiviPour": "compte suivi pour {app}",
-    "compteSuiviPourAide": "Son compte est suivi pour {app}, mais cette vidéo ne cite pas l'app : elle n'est pas comptée comme une vidéo de {app}."
+    "compteSuiviPourAide": "Son compte est suivi pour {app}, mais cette vidéo ne cite pas l'app : elle n'est pas comptée comme une vidéo de {app}.",
+    "sePartage": "Se partage"
   },
   "RadarViewer": {
     "titre": "Regarder une par une",
@@ -659,7 +678,8 @@
     "ajouteeAuxInspirations": "Vidéo ajoutée aux inspirations.",
     "ajoutImpossible": "Ajout aux inspirations impossible.",
     "dansLesInspirations": "Dans les inspirations",
-    "ajouterAuxInspirations": "Ajouter aux inspirations"
+    "ajouterAuxInspirations": "Ajouter aux inspirations",
+    "partagee": "Se partage : {pct} des vues partagées"
   },
   "RadarToday": {
     "aRegarder": "{n, plural, one {# vidéo} other {# vidéos}} à regarder aujourd'hui",
@@ -691,7 +711,13 @@
     "pousseParUnConcurrent": "Poussé par un concurrent",
     "formatMeta": "{comptes, plural, one {# compte} other {# comptes}} · {apps} · jusqu'à {vues} vues",
     "variantes": "{n} variantes",
-    "voirLeFormat": "Voir le format"
+    "voirLeFormat": "Voir le format",
+    "enTrainDePartir": "En train de partir",
+    "enTrainDePartirAide": "Publiées il y a moins de 24 h, déjà 10× leur normale",
+    "vuesEnHeures": "vues en {n} h",
+    "reussite": "{wins} reprises sur {n} réussissent",
+    "medianeReprises": "médiane {x}",
+    "pasAssezReprises": "Moins de 3 reprises mesurées"
   },
   "RadarExplorer": {
     "ceQuOnExplore": "Ce qu'on explore",

@@ -16,8 +16,12 @@ import {
   nextReadAt,
   patternsOfCandidate,
   searchKind,
+  FAST_READ_MS,
   OFF_TOPIC_MIN_VIDEOS,
+  formatSuccess,
+  isFastAccount,
   isOffTopic,
+  nextReadAtFor,
   rivalElsewhere,
   shouldPromote,
   videoCitesApp,
@@ -176,6 +180,32 @@ describe("compte qui ne cite jamais son app : plus relevé (09/11/2026)", () => 
   it("un compte choisi à la main ou de la liste de départ n'est jamais jugé", () => {
     expect(isOffTopic("manual", BANGINOUT, "banginout009", app("theick"))).toBe(false);
     expect(isOffTopic("seed", BANGINOUT, "banginout009", app("theick"))).toBe(false);
+  });
+});
+
+describe("un format réussi se lit sur ses reprises (09/11/2026)", () => {
+  it("« new obsession » : 1,8 M au mieux, mais 3 reprises réussies sur 23 → pas réussi", () => {
+    const reprises = [257.3, 12, 4.1, ...Array.from({ length: 20 }, () => 1)].map((multiplier) => ({ multiplier }));
+    expect(formatSuccess(reprises)).toMatchObject({ measured: 23, wins: 3, median: 1, winning: false });
+  });
+
+  it("RAMPAGE - SLOWED (Umax) : 3 sur 4 → réussi ; moins de 3 reprises mesurées → on ne juge pas", () => {
+    expect(formatSuccess([{ multiplier: 14 }, { multiplier: 11.9 }, { multiplier: 10.7 }, { multiplier: 1.2 }])).toMatchObject({ measured: 4, wins: 3, winning: true });
+    expect(formatSuccess([{ multiplier: 286 }, { multiplier: 1.4 }]).winning).toBe(false);
+    // Une reprise non mesurée (compte sans médiane) ne compte ni pour ni contre.
+    expect(formatSuccess([{ multiplier: 5 }, { multiplier: 4 }, {}, { multiplier: 1 }])).toMatchObject({ measured: 3, wins: 2, winning: true });
+  });
+});
+
+describe("relevé rapide des comptes où un hit se joue (09/11/2026)", () => {
+  it("concurrente qui a publié ces 3 jours, ou compte chaud (10× cette semaine) : toutes les 6 h", () => {
+    expect(isFastAccount({ rival: true, lastPostAt: NOW - 2 * DAY, best7dMultiplier: 1 }, NOW)).toBe(true);
+    expect(isFastAccount({ rival: true, lastPostAt: NOW - 5 * DAY, best7dMultiplier: 1 }, NOW)).toBe(false);
+    expect(isFastAccount({ rival: false, lastPostAt: NOW - 5 * DAY, best7dMultiplier: 12 }, NOW)).toBe(true);
+    expect(isFastAccount({ rival: false, lastPostAt: NOW - DAY, best7dMultiplier: 4 }, NOW)).toBe(false);
+    expect(isFastAccount({ rival: true, lastPostAt: undefined, best7dMultiplier: undefined }, NOW)).toBe(false);
+    expect(nextReadAtFor({ rival: true, lastPostAt: NOW - DAY, best7dMultiplier: undefined }, NOW)).toBe(NOW + FAST_READ_MS);
+    expect(nextReadAtFor({ rival: false, lastPostAt: NOW - DAY, best7dMultiplier: undefined }, NOW)).toBe(NOW + DAY);
   });
 });
 

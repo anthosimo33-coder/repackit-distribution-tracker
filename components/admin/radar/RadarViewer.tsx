@@ -16,7 +16,10 @@ import { tiktokPlayerEmbedUrl } from "@/lib/embed";
 import { useConvexError } from "@/lib/use-convex-error";
 import { formatCount, formatDuration } from "@/components/admin/radar/radar-format";
 import { ACCENT_LINK, ScoreBadge, SignalThumb, signalTitle, useAge, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
-import { curveOf, lastGrowth, scoreOf, usualViews } from "@/convex/radarDisplay";
+import { curveOf, lastGrowth, scoreOf, sharesWell, usualViews } from "@/convex/radarDisplay";
+
+/** 0,062 → « 6,2 % ». */
+const formatPct = (x: number, loc: string) => new Intl.NumberFormat(loc, { style: "percent", maximumFractionDigits: 1 }).format(x);
 import type { SignalStatus } from "@/convex/radarSignalFilters";
 
 /** Une file de vidéos à regarder : figée à l'ouverture (une vidéo traitée garde sa place). */
@@ -245,6 +248,11 @@ function Details({ s, now }: { s: RadarSignal; now: number }) {
           <span className="text-sm text-slate-700">{basis === "normale" ? tr("saNormale") : tr("sesAbonnes")}</span>
           <span className="mt-2 text-xl font-semibold">{tr("vues", { n: formatCount(s.views, loc) })}</span>
           <span className="text-[13px] text-slate-500">{tr("enHeures", { n: hours })}</span>
+          {sharesWell(s) && (
+            <span className="mt-2 text-[13px] font-semibold text-slate-900" data-testid="radar-se-partage">
+              {tr("partagee", { pct: formatPct(s.shares / Math.max(1, s.views), loc) })}
+            </span>
+          )}
         </div>
         <div className="flex min-w-0 flex-[1_1_300px] flex-col gap-2" data-testid="radar-courbe">
           <CurveChart points={curve} />

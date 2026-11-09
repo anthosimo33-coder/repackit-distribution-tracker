@@ -43,6 +43,9 @@ import {
   hookTemplate,
   igHandleFromBio,
   isOffTopic,
+  formatSuccess,
+  nextReadAtFor,
+  videoCitesApp,
   medianViews,
   multiplierOf,
   networkPages,
@@ -53,6 +56,7 @@ import {
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
+import { isEarlyHit } from "./radarDisplay";
 import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
 import {
@@ -375,7 +379,8 @@ export const applyAccountRead = internalMutation({
       videosSeen: acc.videosSeen + fresh.length,
       lastPostAt,
       readAt: now,
-      nextReadAt: nextReadAt(lastPostAt, now),
+      // Toutes les 6 h quand un hit s'y joue (concurrente active, compte chaud), sinon à son rythme.
+      nextReadAt: nextReadAtFor({ rival: !!app && app.rivalOf.length > 0, lastPostAt, best7dMultiplier: best?.multiplier }, now),
       readErrors: 0,
       posts7d: week.length,
       best7d: best,
@@ -416,8 +421,70 @@ export const applyAccountRead = internalMutation({
         ...(multiplier !== undefined ? { multiplier } : {}),
       });
       if (r === "inserted") promoted++;
+      // En train de partir chez une concurrente, et la vidéo la cite : on prévient ses projets.
+      if (app && app.rivalOf.length > 0 && multiplier !== undefined && isEarlyHit({ publishedAt: s.publishedAt, views: s.views, multiplier }, now)) {
+        if (videoCitesApp({ caption: s.caption, hook: s.hook, handle: acc.handle }, app)) await maybeAlertEarly(ctx, s.videoId, s.platform ?? "tiktok", app.rivalOf);
+      }
     }
     return { promoted };
+  },
+});
+
+/** Prévient (une fois par projet) qu'une vidéo d'un concurrent part tôt. */
+async function maybeAlertEarly(ctx: MutationCtx, videoId: string, platform: "tiktok" | "instagram", slugs: readonly string[]): Promise<void> {
+  const sig = await ctx.db
+    .query("radarSignals")
+    .withIndex("by_video", (q) => q.eq("platform", platform).eq("videoId", videoId))
+    .first();
+  if (!sig) return;
+  const already = sig.earlyAlerted ?? [];
+  const toAlert = slugs.filter((x) => !already.includes(x));
+  if (toAlert.length === 0) return;
+  await ctx.db.patch(sig._id, { earlyAlerted: [...already, ...toAlert] });
+  await ctx.scheduler.runAfter(0, internal.radarNetworks.alertEarly, { signalId: sig._id, slugs: toAlert });
+}
+
+type EarlyAlert = { app: string; handle: string; views: number; hours: number; multiplier: number; hook: string | null };
+
+export const earlyForAlert = internalQuery({
+  args: { signalId: v.id("radarSignals"), slug: v.string() },
+  handler: async (ctx, { signalId, slug }): Promise<{ e: EarlyAlert; projectId: Id<"projects"> } | null> => {
+    const s = await ctx.db.get(signalId);
+    const project = await ctx.db.query("projects").withIndex("by_slug", (q) => q.eq("slug", slug)).first();
+    if (!s || !project || !s.appName) return null;
+    return {
+      e: {
+        app: s.appName,
+        handle: s.authorHandle,
+        views: s.views,
+        hours: Math.max(1, Math.round((Date.now() - s.publishedAt) / 3_600_000)),
+        multiplier: Math.round(s.multiplier ?? 0),
+        hook: s.hook ?? null,
+      },
+      projectId: project._id,
+    };
+  },
+});
+
+/** Le message Telegram d'une vidéo de concurrent qui part tôt. */
+export const alertEarly = internalAction({
+  args: { signalId: v.id("radarSignals"), slugs: v.array(v.string()) },
+  handler: async (ctx, { signalId, slugs }): Promise<void> => {
+    for (const slug of slugs) {
+      const r = await ctx.runQuery(internal.radarNetworks.earlyForAlert, { signalId, slug });
+      if (!r) continue;
+      const p = await ctx.runQuery(internal.notifications.getProjectNotify, { projectId: r.projectId });
+      const cfg = p ? notifyConfig(p.notify, p.name) : null;
+      if (!p || !cfg) continue;
+      await deliver(
+        cfg,
+        "hit radar",
+        `🚀 Radar : en train de partir chez ${escapeTelegram(r.e.app)} — @${escapeTelegram(r.e.handle)}, ` +
+          `${new Intl.NumberFormat("fr-FR").format(r.e.views)} vues en ${r.e.hours} h (${r.e.multiplier}× sa normale).` +
+          (r.e.hook ? ` « ${escapeTelegram(r.e.hook.slice(0, 120))} »` : "") +
+          `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar">Ouvrir le Radar</a>`,
+      );
+    }
   },
 });
 
@@ -697,6 +764,8 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
       const best = Math.max(0, ...r.members.map((m) => m.multiplier ?? 0));
       const variants = new Set(r.members.map((m) => m.hook).filter(Boolean)).size;
       const bestMultiplier = best > 0 ? best : null;
+      // Réussite : ses reprises, pas son meilleur coup (radarNetworkMath.formatSuccess).
+      const success = formatSuccess(r.members);
       return {
         id: r._id,
         kind: r.kind,
@@ -711,6 +780,10 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         hot: isHotFormat({ kind: r.kind, label: r.label, maxViews: r.maxViews, bestMultiplier }),
         maxViews: r.maxViews,
         bestMultiplier,
+        measured: success.measured,
+        wins: success.wins,
+        medianMultiplier: success.median,
+        winning: success.winning,
         lastPostAt: r.lastPostAt,
         firstSeenAt: r.firstSeenAt,
         members: r.members.slice(0, 6).map((m) => ({
@@ -725,8 +798,16 @@ export async function listFormatsCore(ctx: ProjectQueryCtx) {
         })),
       };
     })
-    // Ceux qui pètent d'abord, les plus vus d'abord — peu importe la niche.
-    .sort((x, y) => Number(y.hot) - Number(x.hot) || y.maxViews - x.maxViews || y.accountCount - x.accountCount)
+    // Ceux qui RÉUSSISSENT d'abord (part des reprises, puis leur médiane), puis ceux
+    // qui pètent, les plus vus d'abord — peu importe la niche.
+    .sort(
+      (x, y) =>
+        Number(y.winning) - Number(x.winning) ||
+        (y.winning ? y.wins / y.measured - x.wins / x.measured || (y.medianMultiplier ?? 0) - (x.medianMultiplier ?? 0) : 0) ||
+        Number(y.hot) - Number(x.hot) ||
+        y.maxViews - x.maxViews ||
+        y.accountCount - x.accountCount,
+    )
     .slice(0, 150);
 }
 

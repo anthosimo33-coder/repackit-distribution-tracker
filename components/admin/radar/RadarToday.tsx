@@ -10,10 +10,10 @@ import { useProject } from "@/components/project/ProjectProvider";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useIntlLocale } from "@/lib/use-intl-locale";
-import { formatCount } from "@/components/admin/radar/radar-format";
-import { ACCENT_LINK, AccentTag, ScoreBadge, SignalCard, useFormatLabel, useNow, useSignalStatus } from "@/components/admin/radar/radar-ui";
+import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
+import { ACCENT_LINK, AccentTag, ScoreBadge, SignalCard, SignalThumb, signalTitle, useFormatLabel, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
-import { appWeek, handledToday, todayQueue } from "@/convex/radarDisplay";
+import { appWeek, earlyHits, handledToday, todayQueue } from "@/convex/radarDisplay";
 import { applyFilters, defaultFilters, listSince } from "@/convex/radarSignalFilters";
 
 type Format = FunctionReturnType<typeof api.radarNetworks.listFormats>[number];
@@ -57,6 +57,7 @@ export function RadarToday({ go }: { go: RadarGo }) {
 
   const signals = data.signals;
   const queue = todayQueue(signals, now);
+  const early = earlyHits(signals, now);
   const week = applyFilters(signals, defaultFilters(), now);
   const handled = handledToday(signals, now);
   const open = (index: number) => setViewer({ ids: queue.map((s) => s.id), index });
@@ -69,7 +70,26 @@ export function RadarToday({ go }: { go: RadarGo }) {
     .sort((x, y) => y.w.hits.length - x.w.hits.length || y.a.accounts - x.a.accounts);
 
   return (
-    <div className="space-y-9">
+    <div className="space-y-12">
+      {early.length > 0 && (
+        <section aria-labelledby="radar-partir" className="space-y-4" data-testid="radar-en-train-de-partir">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+            <div className="flex items-center gap-3">
+              <span className="size-2.5 rounded-full bg-primary" aria-hidden />
+              <h2 id="radar-partir" className="text-lg font-semibold">
+                {tr("enTrainDePartir")}
+              </h2>
+            </div>
+            <p className="text-sm text-slate-500">{tr("enTrainDePartirAide")}</p>
+          </div>
+          <ul className="border-t border-slate-200">
+            {early.map((s, i) => (
+              <EarlyRow key={s.id} s={s} now={now} onOpen={() => setViewer({ ids: early.map((x) => x.id), index: i })} />
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-slate-200 bg-slate-50 px-6 py-5" aria-labelledby="radar-aujourdhui-titre">
         <div className="min-w-0 flex-[1_1_480px]">
           <h2 id="radar-aujourdhui-titre" className="text-xl font-semibold tracking-tight text-slate-900" data-testid="radar-a-regarder">
@@ -201,6 +221,40 @@ export function RadarToday({ go }: { go: RadarGo }) {
   );
 }
 
+/** Une vidéo qui part tôt : ce qu'elle dit, et le chiffre qui compte — ses vues à son âge. */
+function EarlyRow({ s, now, onOpen }: { s: RadarSignal; now: number; onOpen: () => void }) {
+  const tr = useTranslations("admin.ops.RadarToday");
+  const tu = useTranslations("admin.ops.RadarUi");
+  const loc = useIntlLocale();
+  const hours = Math.max(1, Math.round((now - s.publishedAt) / 3_600_000));
+  return (
+    <li className="border-b border-slate-100">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={tu("regarderDe", { handle: s.handle })}
+        className="grid w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-4 py-4 text-left sm:grid-cols-[48px_minmax(0,1fr)_180px_96px] sm:gap-6"
+      >
+        <SignalThumb s={s} className="h-[84px] w-12 rounded-md" />
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="line-clamp-2 text-[15px] font-semibold leading-snug">{signalTitle(s)}</span>
+          <span className="truncate text-[13px] text-slate-500">
+            @{s.handle}
+            {s.app && ` · ${s.competitor ? tu("appConcurrent", { app: s.app }) : s.app}`}
+          </span>
+        </span>
+        <span className="hidden flex-col items-end gap-0.5 sm:flex">
+          <span className="text-xl font-semibold tabular-nums">{formatCount(s.views, loc)}</span>
+          <span className="text-[13px] text-slate-500">{tr("vuesEnHeures", { n: hours })}</span>
+        </span>
+        <span className="justify-self-end">
+          <ScoreBadge s={s} />
+        </span>
+      </button>
+    </li>
+  );
+}
+
 /** Un format qui circule, en tuile : son nom, qui l'a repris, jusqu'où il est monté. */
 export function FormatTile({ f, label, onSee }: { f: Format; label: string; onSee: () => void }) {
   const tr = useTranslations("admin.ops.RadarToday");
@@ -216,6 +270,15 @@ export function FormatTile({ f, label, onSee }: { f: Format; label: string; onSe
         {f.rival && <AccentTag className="px-2 py-0.5">{tr("pousseParUnConcurrent")}</AccentTag>}
       </div>
       <p className="line-clamp-3 break-words text-[15px] font-semibold leading-snug text-slate-900">{label}</p>
+      {/* Le chiffre qui compte : combien de ses reprises réussissent, pas son meilleur coup. */}
+      {f.measured >= 3 ? (
+        <p className="text-sm font-semibold text-slate-900" data-testid="radar-format-reussite">
+          {tr("reussite", { wins: f.wins, n: f.measured })}
+          {f.medianMultiplier !== null && <span className="font-normal text-slate-500"> · {tr("medianeReprises", { x: formatOutlierRatio(f.medianMultiplier, loc) })}</span>}
+        </p>
+      ) : (
+        <p className="text-sm text-slate-500">{tr("pasAssezReprises")}</p>
+      )}
       <p className="text-[13px] leading-relaxed text-slate-500">
         {tr("formatMeta", { comptes: f.accountCount, apps: f.apps.map((a) => a.name).join(", "), vues: formatCount(f.maxViews, loc) })}
         {f.variants > 1 && ` · ${tr("variantes", { n: f.variants })}`}

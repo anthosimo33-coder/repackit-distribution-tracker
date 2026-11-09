@@ -875,6 +875,8 @@ export const e2eSeedSignals = e2eMutation({
         // L'app poussée, nommée directement (une app semée par e2eSeedNetwork) ;
         // sinon reconnue dans la légende parmi les apps de départ.
         app: v.optional(v.string()),
+        // Partages (« se partage » au-delà de 2 % des vues) ; sinon vues ÷ 300.
+        shares: v.optional(v.number()),
       }),
     ),
   },
@@ -906,7 +908,7 @@ export const e2eSeedSignals = e2eMutation({
           views: s.views,
           likes: Math.round(s.views / 20),
           comments: Math.round(s.views / 500),
-          shares: Math.round(s.views / 300),
+          shares: s.shares ?? Math.round(s.views / 300),
           saves: Math.round(s.views / 200),
           ratio: ratioOf(s.views, s.fans),
           snapshots: s.snapshots ?? [{ at: now, views: s.views }],

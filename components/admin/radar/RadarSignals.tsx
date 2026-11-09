@@ -14,6 +14,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount } from "@/components/admin/radar/radar-format";
 import { ACCENT_LINK, ScoreBadge, SignalActions, SignalThumb, Sparkline, signalTitle, useAge, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
+import { sharesWell } from "@/convex/radarDisplay";
 import {
   PRESETS,
   SORTS,
@@ -358,6 +359,11 @@ function SignalRow({ s, now, onOpen, onStatus }: { s: RadarSignal; now: number; 
         {s.network && (
           <span className="truncate text-xs text-slate-500" title={tu("compteSuiviPourAide", { app: s.network })} data-testid="radar-reseau-seul">
             {tu("compteSuiviPour", { app: s.network })}
+          </span>
+        )}
+        {sharesWell(s) && (
+          <span className="text-xs font-medium text-slate-700" data-testid="radar-se-partage">
+            {tu("sePartage")}
           </span>
         )}
         {s.status !== "nouveau" && (
