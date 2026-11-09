@@ -50,6 +50,7 @@ import {
   setAssignmentPostWindowCore,
 } from "./assignments";
 import { deleteBricksCore, deleteCampaignCore, setBricksActiveCore, updateBrickCore } from "./scripts";
+import { classerCampagneCore } from "./pilote";
 import {
   changerStatutScenarioCore,
   creerScenarioCore,
@@ -158,6 +159,7 @@ export const OUTILS_DEFAISABLES: ReadonlySet<string> = new Set([
   "ajouter_flux_cta",
   "activer_briques",
   "modifier_briques",
+  "classer_campagne",
   "marquer_warmup",
   "deplacer_posts",
   "publier_sans_validation",
@@ -579,6 +581,14 @@ async function annuler(
         if (ids.length > 0) await setBricksActiveCore(ctx, { ids, active: etat });
       }
       return `${a.briques.length} brique(s) remise(s) dans leur état d'avant.`;
+    }
+    case "etageCampagne": {
+      const c = await ctx.db.get(a.campaignId);
+      if (!c) throw refus("Cette campagne a été supprimée depuis : rien à remettre.");
+      if ((c.funnelStage ?? null) !== a.apres) throw refus("Cette campagne a été reclassée depuis : rien n'a été écrasé.");
+      // Le cœur du sélecteur de l'écran Pilote.
+      await classerCampagneCore(ctx, a.campaignId, a.avant);
+      return a.avant === null ? "Campagne remise hors du pilote (non classée)." : `Campagne remise en ${a.avant === "tofu" ? "parlé" : "muet"}.`;
     }
     case "warmup": {
       const pub = await ctx.db.get(a.publicationId);

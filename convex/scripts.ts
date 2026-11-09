@@ -286,6 +286,16 @@ function pickCombosServer(
 
 // COMBO_FREEING_STATUSES : cf convex/comboFreeing.ts (partagé avec assignments.ts).
 
+/**
+ * Les combos tirables privés des HOOKS écartés pour cette créatrice (le Pilote :
+ * hooks ratés chez elle, cf convex/pilotePlan `hooksRates`). Retirés de l'offre
+ * et non ajoutés aux exclusions : un combo exclu compterait dans l'équilibre
+ * « least-used » (ses flux et légende passeraient pour plus servis).
+ */
+function sansHooks(combos: ServerCombo[], hooksExclus: ReadonlySet<string> | undefined): ServerCombo[] {
+  return hooksExclus && hooksExclus.size > 0 ? combos.filter((c) => !hooksExclus.has(c.hookBrickId)) : combos;
+}
+
 /** Notif figée d'une vidéo (cf schema assignments.scriptCombo). */
 export type NotifFields = { notifBrickId: Id<"scriptBricks">; notifText: string };
 
@@ -840,6 +850,8 @@ export async function previewCombosCore(
   ctx: ProjectQueryCtx,
   args: ObjectType<typeof previewCombosArgs>,
   lu: LecturesApercu = lecturesApercu(ctx),
+  /** `hooksExclus` : hooks à ne pas tirer pour elle — le même ensemble qu'à la création. */
+  options: { hooksExclus?: ReadonlySet<string> } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   await requireCreatorInScope(ctx, ctx.userId, ctx.projectId, args.creatorId);
@@ -879,7 +891,7 @@ export async function previewCombosCore(
   const projectRows = await lu.missionsDuProjet();
   const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
   const picked = pickForDates({
-    combos,
+    combos: sansHooks(combos, options.hooksExclus),
     lifetimeKeys,
     projectRows,
     postDates: args.postDates,
@@ -1675,7 +1687,13 @@ export const assignScriptCampaign = permissionMutation("assignments.manage")({
 export async function assignScriptCampaignCore(
   ctx: ProjectMutationCtx,
   args: AssignScriptCampaignArgs,
-  options: { email?: boolean; notif?: NotifFields; projectRows?: Doc<"assignments">[] } = {},
+  options: {
+    email?: boolean;
+    notif?: NotifFields;
+    projectRows?: Doc<"assignments">[];
+    /** Hooks à ne pas tirer pour elle (le Pilote) — ceux que l'aperçu a écartés. */
+    hooksExclus?: ReadonlySet<string>;
+  } = {},
 ) {
   const campaign = await requireCampaign(ctx, args.campaignId, ctx.projectId);
   if (campaign.status === "archived") {
@@ -1886,7 +1904,7 @@ export async function assignScriptCampaignCore(
     );
     const cooldownDays = await comboCooldownDaysFor(ctx, ctx.projectId);
     picked = pickForDates({
-      combos,
+      combos: sansHooks(combos, options.hooksExclus),
       lifetimeKeys,
       projectRows,
       postDates: args.postDates,

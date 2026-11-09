@@ -158,6 +158,25 @@ test.describe("MCP — défaire une modification", () => {
     expect((await defaire(P, "activer_briques")).erreur).toBe(false);
     expect((await bricks()).find((b) => b.label === "Hook bourse")!.active).toBe(true);
 
+    // ── Étage du Pilote : classée parlé puis remise non classée ; reclassée à
+    // l'écran depuis : rien n'est écrasé ─────────────────────────────────────
+    const etage = async () => (await admin.query(api.scripts.getCampaign, { id: campaignId }))!.funnelStage;
+    expect(await etage()).toBeUndefined();
+    const classee = await appel(P, "classer_campagne", { campagne, etage: "parle" });
+    expect(classee.erreur, classee.texte).toBe(false);
+    expect(await etage()).toBe("tofu");
+    expect((await appel(P, "classer_campagne", { campagne, etage: "parle" })).texte).toContain("rien n'a changé");
+    expect((await defaire(P, "classer_campagne")).erreur).toBe(false);
+    expect(await etage()).toBeUndefined();
+    expect((await appel(P, "classer_campagne", { campagne, etage: "muet" })).erreur).toBe(false);
+    expect(await etage()).toBe("bofu");
+    await admin.mutation(api.pilote.classerCampagne, { campaignId, etage: "tofu" });
+    const reclassee = await defaire(P, "classer_campagne");
+    expect(reclassee.erreur).toBe(true);
+    expect(reclassee.texte).toContain("reclassée depuis");
+    expect(await etage()).toBe("tofu");
+    expect((await appel(P, "classer_campagne", { campagne, etage: "plus tard" })).erreur).toBe(true);
+
     // ── Chauffe sur un post NON QUALIFIÉ : défaire rend l'absence, pas « promo »
     expect((await appel(P, "assigner_scripts", { campagne, createatrices: [nom], jours: [J8], bareme })).erreur).toBe(false);
     const videoId = ((BigInt(Math.floor(Date.now() / 1000)) << BigInt(32)) + BigInt(777)).toString();

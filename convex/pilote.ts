@@ -45,6 +45,8 @@ import type { Plateforme } from "./platforms";
 import {
   creneauId,
   ETAGES,
+  hooksRates,
+  medianesDe,
   PILOTE,
   planifier,
   type Etage,
@@ -79,6 +81,72 @@ const extrait = (t: string | undefined | null) => {
 
 const fenetreDe = (plage: PlageId): PostWindow =>
   POST_WINDOW_PRESETS.find((p) => p.id === plage)!.window;
+
+// ─── Les vidéos jugées ──────────────────────────────────────────────────────
+
+/** Les publications que le plan lit : sa fenêtre (30 jours) et 5 jours de marge. */
+const depuisPublications = (maintenant: number) => maintenant - (PILOTE.fenetreJours + 5) * JOUR_MS;
+
+/**
+ * La vidéo d'une mission promo — ses publications promo de la fenêtre — telle
+ * que le plan la juge ; `null` : abandonnée, sans script, ou rien de publié
+ * dans la fenêtre. Le plan et l'assignation (ses hooks ratés) passent par ici :
+ * mêmes vidéos, mêmes médianes, mêmes hooks écartés.
+ */
+function videoDe(
+  x: Doc<"assignments">,
+  pubDe: (id: Id<"publications">) => Doc<"publications"> | undefined,
+): VideoPassee | null {
+  if (x.status === "cancelled" || !x.scriptCombo || !x.comboKey) return null;
+  const publications = (x.targets ?? [])
+    .map((t) => (t.publicationId ? pubDe(t.publicationId) : undefined))
+    .filter((p): p is Doc<"publications"> => p !== undefined && isPromoPost({ isWarmup: p.isWarmup === true }));
+  if (publications.length === 0) return null;
+  return {
+    assignmentId: x._id,
+    creatorId: x.creatorId,
+    campaignId: x.scriptCombo.campaignId,
+    comboKey: x.comboKey,
+    hookId: x.scriptCombo.hookBrickId,
+    jour: parisDayKey(Math.min(...publications.map((p) => p.datePubli))),
+    publications: publications.map((p) => ({
+      plateforme: p.plateforme,
+      // Jamais relevée ≠ 0 vue.
+      vues: p.vuesLatest ?? null,
+      publieeA: p.datePubli,
+      lien: p.postUrl ?? null,
+    })),
+  };
+}
+
+/**
+ * Ses hooks ratés, relus en base pour l'assignation : le calcul du plan
+ * (`planifier` → `hooksRates`) sur ses seules missions. L'assignation écarte
+ * ainsi les hooks que l'aperçu a écartés, et tire les scripts qu'il a montrés.
+ */
+export async function hooksRatesDe(
+  ctx: ProjectQueryCtx,
+  sesMissions: readonly Doc<"assignments">[],
+  maintenant: number,
+): Promise<Set<string>> {
+  const depuis = depuisPublications(maintenant);
+  const pubs = new Map<string, Doc<"publications">>();
+  for (const x of sesMissions) {
+    if (x.status === "cancelled" || !x.scriptCombo || !x.comboKey) continue;
+    for (const t of x.targets ?? []) {
+      if (!t.publicationId || pubs.has(t.publicationId)) continue;
+      const p = await ctx.db.get(t.publicationId);
+      if (p && p.projectId === ctx.projectId && p.datePubli >= depuis) pubs.set(p._id, p);
+    }
+  }
+  const videos = sesMissions.flatMap((x) => videoDe(x, (id) => pubs.get(id)) ?? []);
+  const etages = new Map<string, Etage | null>();
+  for (const id of new Set(videos.map((v) => v.campaignId))) {
+    etages.set(id, (await ctx.db.get(id as Id<"scriptCampaigns">))?.funnelStage ?? null);
+  }
+  const etageDe = (id: string) => etages.get(id) ?? null;
+  return new Set(hooksRates(videos, medianesDe(videos, maintenant, etageDe), etageDe, maintenant));
+}
 
 // ─── Le contexte d'une créatrice : comptes, barème, qualification ───────────
 
@@ -170,7 +238,7 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
     ctx.db
       .query("publications")
       .withIndex("by_project_datePubli", (q) =>
-        q.eq("projectId", ctx.projectId).gte("datePubli", maintenant - (PILOTE.fenetreJours + 5) * JOUR_MS),
+        q.eq("projectId", ctx.projectId).gte("datePubli", depuisPublications(maintenant)),
       )
       .collect(),
     ctx.db
@@ -190,6 +258,7 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
   const campaignById = new Map(campaigns.map((c) => [c._id as string, c]));
   const assignmentById = new Map(assignments.map((x) => [x._id as string, x]));
   const pubById = new Map(pubs.map((p) => [p._id as string, p]));
+  const brickById = new Map(bricks.map((b) => [b._id as string, b]));
 
   const videos: VideoPassee[] = [];
   const missions: MissionExistante[] = [];
@@ -203,25 +272,8 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
         comboKey: x.comboKey ?? null,
       });
     }
-    if (!x.scriptCombo || !x.comboKey) continue;
-    const publications = (x.targets ?? [])
-      .map((t) => (t.publicationId ? pubById.get(t.publicationId) : undefined))
-      .filter((p): p is Doc<"publications"> => p !== undefined && isPromoPost({ isWarmup: p.isWarmup === true }));
-    if (publications.length === 0) continue;
-    videos.push({
-      assignmentId: x._id,
-      creatorId: x.creatorId,
-      campaignId: x.scriptCombo.campaignId,
-      comboKey: x.comboKey,
-      jour: parisDayKey(Math.min(...publications.map((p) => p.datePubli))),
-      publications: publications.map((p) => ({
-        plateforme: p.plateforme,
-        // Jamais relevée ≠ 0 vue.
-        vues: p.vuesLatest ?? null,
-        publieeA: p.datePubli,
-        lien: p.postUrl ?? null,
-      })),
-    });
+    const video = videoDe(x, (id) => pubById.get(id));
+    if (video) videos.push(video);
   }
 
   const plans = planifier({
@@ -263,7 +315,8 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
     const ctxCr = await contexteDe(ctx, creator, sesMissions, bareme);
 
     // Aperçu des nouveaux scripts : un tirage par campagne, dans l'ordre des
-    // créneaux — exactement l'appel que fera l'assignation.
+    // créneaux, sans ses hooks ratés — exactement l'appel que fera l'assignation.
+    const hooksExclus = new Set(plan.hooksRates);
     const apercus = new Map<string, { cle: string; texte: string } | null>();
     const parCampagne = new Map<string, typeof plan.creneaux>();
     for (const c of plan.creneaux) {
@@ -286,7 +339,7 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
             videosPerCreator: slots.length,
             postDates: slots.map((s) => parisDayStart(s.jour)!),
             ...(exclues.length > 0 ? { excludedComboKeys: exclues } : {}),
-          }, lu)
+          }, lu, { hooksExclus })
         ).combos;
       } catch {
         combos = [];
@@ -364,6 +417,11 @@ export async function planCore(ctx: ProjectQueryCtx, a: PlanArgs) {
       }),
       dejaPrevus: plan.dejaPrevus,
       nonClassees: plan.nonClassees.map((id) => ({ id: id as Id<"scriptCampaigns">, nom: nomCampagne(id) })),
+      // Ses hooks ratés, écartés de ses nouveaux scripts : le plan dit pourquoi.
+      hooksEcartes: plan.hooksRates.flatMap((id) => {
+        const b = brickById.get(id);
+        return b ? [{ id: b._id, libelle: b.label, campagne: nomCampagne(b.campaignId) }] : [];
+      }),
       creneaux,
     });
   }
@@ -441,6 +499,8 @@ export async function assignerCore(
     .withIndex("by_creator", (q) => q.eq("creatorId", creator._id))
     .collect();
   const c = await contexteDe(ctx, creator, sesMissions, await pricingResolver(ctx, ctx.projectId));
+  // Ses hooks ratés : écartés du tirage comme dans l'aperçu.
+  const hooksExclus = await hooksRatesDe(ctx, sesMissions, Date.now());
   if (c.targets.length === 0) {
     throw err(ERR.PILOTE_NO_ACCOUNT, `${creator.name} n'a aucun compte disponible : valide ou réactive un compte avant de piloter ses missions.`, { name: creator.name });
   }
@@ -488,7 +548,7 @@ export async function assignerCore(
         ...(exclues.length > 0 ? { excludedComboKeys: exclues } : {}),
         ...(await qualification(campaignId)),
       },
-      { email: false },
+      { email: false, hooksExclus },
     );
     for (const [i, id] of res.assignmentIds.entries()) {
       await setAssignmentDueDateCore(ctx, id, groupe[i].jour);
@@ -570,17 +630,34 @@ export const assigner = permissionMutation("assignments.manage")({
 
 // ─── L'étage d'une campagne ─────────────────────────────────────────────────
 
+/**
+ * Classe une campagne parlé (`tofu`), muet (`bofu`) ou hors du pilote (`null`)
+ * — le sélecteur de l'écran /pilote et l'outil MCP `classer_campagne`. Rend
+ * l'étage d'avant, que le journal garde pour `defaire`.
+ */
+export async function classerCampagneCore(
+  ctx: ProjectMutationCtx,
+  campaignId: Id<"scriptCampaigns">,
+  etage: Etage | null,
+): Promise<{ campaign: Doc<"scriptCampaigns">; avant: Etage | null }> {
+  const campaign = await ctx.db.get(campaignId);
+  if (!campaign || campaign.projectId !== ctx.projectId) {
+    throw err(ERR.CAMPAIGN_NOT_FOUND, "Campagne introuvable.");
+  }
+  const avant = campaign.funnelStage ?? null;
+  if (avant !== etage) {
+    await ctx.db.patch(campaignId, { funnelStage: etage ?? undefined, updatedAt: Date.now() });
+  }
+  return { campaign, avant };
+}
+
 export const classerCampagne = permissionMutation("scripts.manage")({
   args: {
     campaignId: v.id("scriptCampaigns"),
     etage: v.union(v.literal("tofu"), v.literal("bofu"), v.null()),
   },
   handler: async (ctx, a) => {
-    const campaign = await ctx.db.get(a.campaignId);
-    if (!campaign || campaign.projectId !== ctx.projectId) {
-      throw err(ERR.CAMPAIGN_NOT_FOUND, "Campagne introuvable.");
-    }
-    await ctx.db.patch(a.campaignId, { funnelStage: a.etage ?? undefined, updatedAt: Date.now() });
+    await classerCampagneCore(ctx, a.campaignId, a.etage);
   },
 });
 

@@ -27,6 +27,9 @@
  *  - USURE : un script dont le dernier passage mûr chez elle est sous sa
  *    médiane sort du lot ; un script ne revient pas chez elle avant 7 jours ;
  *    deux créatrices ne sortent pas le même script dans le délai du projet.
+ *    Un HOOK dont tous ses passages mûrs sont sous sa médiane est raté chez
+ *    elle (`hooksRates`) : plus de nouveau script ni de gagnant d'une autre
+ *    sur ce hook, quelle que soit la légende (08/11/2026).
  *  - EXPLORER : une part des créneaux (30 % par défaut) prend un NOUVEAU script
  *    de la campagne, par le tirage habituel (unicité à vie, délai) : sans
  *    exploration, plus aucun gagnant à rejouer dans trois semaines. Seulement
@@ -111,6 +114,8 @@ export type VideoPassee = {
   creatorId: string;
   campaignId: string;
   comboKey: string;
+  /** La brique hook de son script (`scriptCombo.hookBrickId`) : juge les hooks ratés. */
+  hookId?: string;
   /** Jour de Paris de sa première publication. */
   jour: string;
   publications: PublicationPassee[];
@@ -209,6 +214,11 @@ export type PlanCreatrice = {
   pool: string[];
   /** Les mêmes, non classées : hors du pilote. */
   nonClassees: string[];
+  /**
+   * Hooks RATÉS chez elle (`hooksRates`) : écartés de ses nouveaux scripts et
+   * des gagnants des autres qu'on lui proposerait.
+   */
+  hooksRates: string[];
 };
 
 export const creneauId = (creatorId: string, jour: string, plage: PlageId) =>
@@ -250,6 +260,40 @@ export function medianesDe(
     out[pf] = vals.length >= PILOTE.medianeMinPosts ? medianOf(vals) : null;
   }
   return out;
+}
+
+/**
+ * Hooks RATÉS chez elle : ceux dont TOUTES ses publications mûres (72 h,
+ * TikTok/Instagram, relevées) sont sous sa médiane, étage × plateforme — les
+ * médianes du plan (`medianesDe` de SES vidéos). Une publication sans médiane
+ * (moins de 3 vidéos mûres à cet étage sur cette plateforme) n'est pas « sous
+ * sa médiane » : le hook n'est pas raté, faute de pouvoir le dire.
+ *
+ * Par HOOK, pas par script : le délai de 7 jours et l'unicité du tirage se
+ * comptent par combinaison (hook + flux + légende), si bien qu'un hook raté
+ * revenait avec une autre légende (08/11/2026 : « Amigas, el contacto cero » et
+ * « Si fue él quien te dejó », tournés sous ses médianes, re-tirés chez la même
+ * créatrice). Retirer le créneau ne suffisait pas : le tirage suit l'ordre de
+ * création des hooks, le même retombait sur le créneau suivant.
+ */
+export function hooksRates(
+  sesVideos: readonly VideoPassee[],
+  medianes: Record<string, number | null>,
+  etageDe: (campaignId: string) => Etage | null,
+  maintenant: number,
+): string[] {
+  const rate = new Map<string, boolean>();
+  for (const v of sesVideos) {
+    if (!v.hookId) continue;
+    const etage = etageDe(v.campaignId);
+    for (const p of v.publications) {
+      if (p.vues === null || maintenant - p.publieeA < PILOTE.maturiteMs) continue;
+      if (!PILOTE.plateformes.includes(p.plateforme)) continue;
+      const m = medianes[cleMediane(etage, p.plateforme)] ?? null;
+      rate.set(v.hookId, (rate.get(v.hookId) ?? true) && m !== null && p.vues < m);
+    }
+  }
+  return [...rate].filter(([, r]) => r).map(([id]) => id).sort();
 }
 
 /** La vidéo jugée sur ses publications MÛRES ; `null` si aucune ne l'est. */
@@ -323,6 +367,8 @@ export function planifier(e: EntreePilote): PlanCreatrice[] {
     const sesMissions = missionsPar.get(cr.id) ?? [];
     const sesVideos = videosPar.get(cr.id) ?? [];
     const medianes = medianesDeCreatrice(cr.id);
+    const rates = hooksRates(sesVideos, medianes, etageDe, e.maintenant);
+    const hookRate = new Set(rates);
 
     // Ses campagnes : celles de ses missions des 30 derniers jours (et à venir).
     const recentes = new Map<string, number>();
@@ -363,10 +409,12 @@ export function planifier(e: EntreePilote): PlanCreatrice[] {
     }
     propres.sort((a, b) => forceSource(b) - forceSource(a));
 
-    // Les gagnants des autres, dans ses campagnes, scripts qu'elle n'a jamais eus.
+    // Les gagnants des autres, dans ses campagnes, scripts qu'elle n'a jamais
+    // eus — et pas sur un hook déjà raté chez elle.
     const autres = new Map<string, SourceRejeu>();
     for (const v of e.videos) {
       if (v.creatorId === cr.id || sesJours.has(v.comboKey)) continue;
+      if (v.hookId !== undefined && hookRate.has(v.hookId)) continue;
       if (v.jour < debutFenetre || !pool.includes(v.campaignId) || etageDe(v.campaignId) === null) continue;
       const m = mesurer(v, etageDe(v.campaignId), medianesDeCreatrice(v.creatorId), e.maintenant);
       if (m === null || m.vues < PILOTE.vuesGagnant || (m.ratio !== null && m.ratio < e.seuil)) continue;
@@ -456,7 +504,7 @@ export function planifier(e: EntreePilote): PlanCreatrice[] {
       };
     });
 
-    plans.push({ creatorId: cr.id, creneaux, dejaPrevus, medianes, pool, nonClassees });
+    plans.push({ creatorId: cr.id, creneaux, dejaPrevus, medianes, pool, nonClassees, hooksRates: rates });
   }
   return plans;
 }

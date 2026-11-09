@@ -54,6 +54,8 @@ import {
   setBricksActiveCore,
   updateBrickCore,
 } from "./scripts";
+import { classerCampagneCore } from "./pilote";
+import type { Etage } from "./pilotePlan";
 import { enDur, VARIABLES, variablesInconnues } from "./scenarioFiche";
 import { plierTexte } from "./mcpWriteArgs";
 import { hookIdentityKey, PROVEN_CAMPAIGN_NAME } from "./graduation";
@@ -286,7 +288,28 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
     },
     annotations: ECRIT,
   },
+  {
+    name: "classer_campagne",
+    title: "Classer une campagne parlé ou muet",
+    description:
+      "MODIFIE les scripts : classe une campagne pour le Pilote des missions (`piloter_missions`), comme le sélecteur de l'écran Pilote. « parle » = haut du tunnel, face caméra, le créneau de midi ; « muet » = réaction + démo, bas du tunnel, le créneau du soir ; « aucun » = hors du pilote. Une campagne non classée ne reçoit aucun créneau : ses créatrices restent vides de ce côté-là. Les missions déjà assignées ne bougent pas.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        projet: ARG_PROJET,
+        campagne: ARG_CAMPAGNE,
+        etage: { type: "string", enum: ["parle", "muet", "aucun"], description: "parle, muet, ou aucun (hors du pilote)." },
+      },
+      required: ["campagne", "etage"],
+      additionalProperties: false,
+    },
+    annotations: ECRIT,
+  },
 ];
+
+/** L'étage du Pilote, tel que Claude l'écrit (`parle`, `muet`, `aucun`) et tel qu'il se lit. */
+const ETAGE_MCP: Record<string, Etage | null> = { parle: "tofu", tofu: "tofu", muet: "bofu", bofu: "bofu", aucun: null };
+const nomEtage = (e: Etage | null) => (e === "tofu" ? "parlé" : e === "bofu" ? "muet" : "non classée");
 
 // ─── Désigner une campagne, une brique ──────────────────────────────────────
 
@@ -756,9 +779,33 @@ export const ecrireGraduation = mcpWriteMutation("scripts.manage", "scripts")({
   },
 });
 
+/** `classer_campagne` — l'étage d'une campagne pour le Pilote, journalisé et défaisable. */
+export const ecrireEtageCampagne = mcpWriteMutation("scripts.manage", "scripts")({
+  args: { campagne: v.string(), etage: v.union(v.literal("tofu"), v.literal("bofu"), v.null()) },
+  handler: async (ctx, a) => {
+    const campagne = await campagneDe(ctx, a.campagne);
+    const photos = await photographier(ctx, "scriptCampaigns", [campagne._id]);
+    const { avant } = await classerCampagneCore(ctx, campagne._id, a.etage);
+    if (avant === a.etage) {
+      return { summary: `« ${campagne.name} » était déjà ${nomEtage(a.etage)} : rien n'a changé.`, inchange: true };
+    }
+    const summary = `« ${campagne.name} » : ${nomEtage(avant)} → ${nomEtage(a.etage)} (Pilote)`;
+    await journaliser(ctx, {
+      tool: "classer_campagne",
+      summary,
+      section: "campaign",
+      path: "pilote",
+      annulation: { type: "etageCampagne", campaignId: campagne._id, avant, apres: a.etage },
+      etats: await etatsApres(ctx, photos),
+    });
+    return { summary, inchange: false };
+  },
+});
+
 // ─── L'appel d'un outil (action du serveur MCP) ─────────────────────────────
 
 const OU_DEFAIRE: Record<string, string> = {
+  classer_campagne: "`defaire`, ou l'écran Pilote › la campagne › son étage.",
   ajouter_flux_cta: "`defaire`, ou Scripts › la campagne › supprime les briques ajoutées (désactivées, elles ne sortent dans aucun tirage).",
   creer_campagne: "`defaire` (tant qu'aucune mission ne l'utilise), ou Scripts › la campagne › supprimer.",
   ajouter_hooks: "Scripts › la campagne › supprime les hooks ajoutés (désactivés, ils ne sortent dans aucun tirage).",
@@ -792,6 +839,16 @@ async function appelerEcritureScripts(
   }
   const campagne = texteArg(args, "campagne");
   if (campagne === "") throw new ToolError("« campagne » : le nom de la campagne (outil `scripts`).");
+  if (name === "classer_campagne") {
+    const mot = plierTexte(texteArg(args, "etage"));
+    if (!Object.prototype.hasOwnProperty.call(ETAGE_MCP, mot)) throw new ToolError("« etage » : parle, muet ou aucun (hors du pilote).");
+    const e = await ecrire(() =>
+      ctx.runMutation(internal.mcpWritesScripts.ecrireEtageCampagne, { ...cible, campagne, etage: ETAGE_MCP[mot] }),
+    );
+    return resultatEcriture(projet, e.summary, e.inchange ? "Rien n'a changé : rien à défaire." : OU_DEFAIRE[name], {
+      aSavoir: "Le prochain plan de `piloter_missions` en tient compte ; les missions déjà assignées ne bougent pas.",
+    });
+  }
   let r: { summary: string; doublons?: string[]; notifAllumee?: boolean };
   if (name === "ajouter_flux_cta") {
     const role = roleBriqueDepuis(args.role);
