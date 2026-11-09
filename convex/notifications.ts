@@ -82,6 +82,14 @@ import {
   freshWindow,
   WINDOW_MS,
 } from "./notificationWindow";
+import {
+  runDigestLoop,
+  runEveningLoop,
+  type DigestSummary,
+  type EveningSummary,
+} from "./notifyProjectLoop";
+
+export type { DigestSummary, EveningSummary };
 
 /**
  * NOTIFICATIONS hors-app (Telegram) — configuration et répartition.
@@ -99,6 +107,9 @@ import {
  * erreur métier. Ici, il n'y est jamais.
  *
  * Les actions ne jettent JAMAIS : elles loggent et retournent un statut.
+ * Seule exception, les crons MULTI-PROJETS (digest, bilan du soir) : un projet
+ * qui jette est isolé, puis le cron échoue en fin de boucle en le nommant, pour
+ * rester rouge dans le dashboard (convex/notifyProjectLoop.ts).
  *
  * DÉSACTIVATION : sans le jeton en env (nommé par `projects.notify.tokenEnvVar`)
  * ou sans APP_BASE_URL, `notifyConfig` rend null et tout devient no-op. C'est le
@@ -1272,7 +1283,6 @@ export async function collectDigestCore(ctx: QueryCtx, projectId: Id<"projects">
     };
 }
 
-/** Projets ayant une config de notification — seuls candidats au digest. */
 /** Heure de bilan par défaut, en heure de Paris. */
 export const DEFAULT_EVENING_HOUR_PARIS = 21;
 
@@ -1304,15 +1314,6 @@ export const collectEveningReports = internalQuery({
   },
 });
 
-export type EveningSummary = {
-  /** Projets dont l'heure de bilan correspond à MAINTENANT (Paris). */
-  projects: number;
-  /** Messages envoyés (un par créatrice concernée). */
-  sent: number;
-  /** Projets à l'heure du bilan mais sans rien à signaler. */
-  silent: number;
-};
-
 /**
  * Cron HORAIRE du bilan de fin de journée.
  *
@@ -1329,6 +1330,9 @@ export type EveningSummary = {
  *
  * UN MESSAGE PAR CRÉATRICE, comme demandé : chacun est actionnable et
  * transférable seul. Aucune créatrice sans post en attente n'en produit.
+ *
+ * Chaque projet est ISOLÉ (convex/notifyProjectLoop.ts) : un projet qui jette
+ * n'empêche pas les suivants, et le cron échoue ensuite en le nommant.
  */
 export const runEveningReports = internalAction({
   args: {},
@@ -1343,39 +1347,26 @@ export const runEveningReports = internalAction({
       return { projects: 0, sent: 0, silent: 0 };
     }
 
-    const projectIds = await ctx.runQuery(
-      internal.notifications.listNotifyProjects,
-      {},
-    );
-    let projects = 0;
-    let sent = 0;
-    let silent = 0;
-    for (const projectId of projectIds) {
-      const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
-        projectId,
-      });
-      const heureVoulue =
-        p?.notify?.eveningHourParis ?? DEFAULT_EVENING_HOUR_PARIS;
-      if (heureVoulue !== heureParis) continue;
-      projects += 1;
-
-      const nctx = await resolveNotifyContext(
-        ctx,
-        projectId,
-        "evening_unpublished",
-      );
-      if (nctx === null) continue;
-
-      const data = await ctx.runQuery(
-        internal.notifications.collectEveningReports,
-        { projectId },
-      );
-      if (data === null || data.reports.length === 0) {
-        silent += 1;
-        continue;
-      }
-      for (const r of data.reports) {
-        const text = buildEveningReportMessage({
+    return runEveningLoop(heureParis, {
+      listProjects: () =>
+        ctx.runQuery(internal.notifications.listNotifyProjects, {}),
+      eveningHour: async (projectId) => {
+        const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
+          projectId,
+        });
+        return p?.notify?.eveningHourParis ?? DEFAULT_EVENING_HOUR_PARIS;
+      },
+      channel: (projectId) =>
+        resolveNotifyContext(ctx, projectId, "evening_unpublished"),
+      collect: async (projectId) => {
+        const data = await ctx.runQuery(
+          internal.notifications.collectEveningReports,
+          { projectId },
+        );
+        return data === null ? null : data.reports;
+      },
+      compose: (r, nctx) =>
+        buildEveningReportMessage({
           ctx: {
             creatorName: r.creatorName,
             posts: r.posts,
@@ -1384,75 +1375,65 @@ export const runEveningReports = internalAction({
           appBaseUrl: nctx.cfg.appBaseUrl,
           projectSlug: nctx.projectSlug,
           creatorId: r.creatorId,
-        });
-        if (text === null) continue;
-        const res = await deliver(nctx.cfg, "bilan de fin de journée", text);
-        if (res.ok) sent += 1;
-      }
-    }
-    return { projects, sent, silent };
+        }),
+      send: (nctx, text) => deliver(nctx.cfg, "bilan de fin de journée", text),
+    });
   },
 });
 
+/**
+ * Projets ayant une config de notification — seuls candidats au digest et au
+ * bilan du soir, dans l'ordre de création. Le slug accompagne l'id pour que
+ * les journaux nomment le projet qui tombe.
+ */
 export const listNotifyProjects = internalQuery({
   args: {},
   handler: async (ctx) => {
     const projects = await ctx.db.query("projects").collect();
     return projects
       .filter((p) => p.notify !== undefined && p.status === "active")
-      .map((p) => p._id);
+      .map((p) => ({ projectId: p._id, slug: p.slug }));
   },
 });
-
-export type DigestSummary = {
-  projects: number;
-  sent: number;
-  silent: number;
-};
 
 /**
  * Cron quotidien. UN message par projet configuré — et AUCUN message quand il
  * n'y a rien à signaler (`buildDigestMessage` rend null sur trois sections
  * vides). Un digest « rien à signaler » quotidien apprendrait à ignorer le
  * canal ; c'est explicitement ce qu'on ne veut pas.
+ *
+ * Chaque projet est ISOLÉ (convex/notifyProjectLoop.ts) : du 04 au 08/11/2026,
+ * le digest de Snytch jetait (limite des 32 000 lectures) et BLUSH, qui le suit
+ * dans la boucle, ne recevait plus le sien. Un projet qui tombe est désormais
+ * journalisé avec son slug, les suivants passent, puis le cron échoue en
+ * listant les projets tombés.
  */
 export const runDailyDigest = internalAction({
   args: {},
   handler: async (ctx): Promise<DigestSummary> => {
-    const projectIds = await ctx.runQuery(
-      internal.notifications.listNotifyProjects,
-      {},
-    );
-    let sent = 0;
-    let silent = 0;
-    for (const projectId of projectIds) {
-      const data = await ctx.runQuery(internal.notifications.collectDigest, {
-        projectId,
-      });
-      if (data === null) continue;
+    return runDigestLoop({
+      listProjects: () =>
+        ctx.runQuery(internal.notifications.listNotifyProjects, {}),
+      collect: (projectId) =>
+        ctx.runQuery(internal.notifications.collectDigest, { projectId }),
       // Le canal est résolu par projet : un projet dont le jeton manque est
       // simplement sauté (log unique), sans interrompre les autres.
-      const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
-        projectId,
-      });
-      const cfg = p === null ? null : notifyConfig(p.notify, p.name);
-      if (cfg === null) {
-        warnDisabled("digest quotidien");
-        continue;
-      }
-      const text = buildDigestMessage({
-        sections: data.sections,
-        appBaseUrl: cfg.appBaseUrl,
-        projectSlug: data.projectSlug,
-      });
-      if (text === null) {
-        silent += 1;
-        continue;
-      }
-      const res = await deliver(cfg, "digest quotidien", text);
-      if (res.ok) sent += 1;
-    }
-    return { projects: projectIds.length, sent, silent };
+      channel: async (projectId) => {
+        const p = await ctx.runQuery(internal.notifications.getProjectNotify, {
+          projectId,
+        });
+        const cfg = p === null ? null : notifyConfig(p.notify, p.name);
+        if (cfg === null) warnDisabled("digest quotidien");
+        return cfg;
+      },
+      compose: (data, cfg) =>
+        buildDigestMessage({
+          sections: data.sections,
+          appBaseUrl: cfg.appBaseUrl,
+          projectSlug: data.projectSlug,
+        }),
+      send: (cfg, text) => deliver(cfg, "digest quotidien", text),
+    });
   },
 });
 
