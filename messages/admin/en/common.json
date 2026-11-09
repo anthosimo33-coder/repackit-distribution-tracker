@@ -811,7 +811,9 @@
   "Mesure": {
     "pending": "Waiting for the first reading",
     "failed": "Not measured",
-    "failedWithReason": "Not measured — {reason}"
+    "failedWithReason": "Not measured — {reason}",
+    "masked": "Fewer than {below} views — Snapchat hides the count below that",
+    "maskedCell": "< {below}"
   },
   "dayOffset": "D+{days}",
   "format": {

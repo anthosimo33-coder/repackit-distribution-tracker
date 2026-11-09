@@ -49,10 +49,9 @@
  *
  * Deux réponses de Snapchat qui ne sont PAS des vues, vues sur les posts de
  * Kelly le 09/11 :
- * - `viewCount: 0` sur des Spotlight aimés ~20 fois. Sur les 224 vidéos des
- *   pages lues, aucun compteur non nul sous 1 000 : HYPOTHÈSE non vérifiée,
- *   Snapchat masque les vues sous 1 000. Un zéro écrit serait faux (et payé
- *   zéro) ; on rend `hidden`, l'écran dit « non mesuré » avec le motif.
+ * - `viewCount: 0` sur des Spotlight aimés ~20 fois : Snapchat masque les vues
+ *   sous 1 000 (cf `SNAPCHAT_VIEWS_MASKED_BELOW`). Un zéro écrit serait faux
+ *   (et payé zéro) ; on rend `hidden` avec `viewsBelow`, l'écran dit « < 1 000 ».
  * - la page servie SANS la vidéo (composant principal sans `video`, og:title
  *   « Snapchat ») : Spotlight retiré ou pas encore public. `hidden` aussi.
  * Ni l'une ni l'autre n'alimente le coupe-circuit : la page a été servie.
@@ -92,9 +91,27 @@ export type SnapchatPageResult =
    * Spotlight (compteur à 0, ou vidéo absente de sa propre page). Un échec
    * motivé, pas un blocage : il ne fait pas avancer le coupe-circuit.
    */
-  | { kind: "hidden"; reason: string }
+  | {
+      kind: "hidden";
+      reason: string;
+      /**
+       * Compteur masqué : ce qu'on sait quand même, « moins de N vues »
+       * (`SNAPCHAT_VIEWS_MASKED_BELOW`). Absent quand la vidéo manque à sa page :
+       * là, on ne sait rien de ses vues.
+       */
+      viewsBelow?: number;
+    }
   /** Page illisible (blocage, réseau, payload absent ou cassé). */
   | { kind: "unreadable"; reason: string };
+
+/**
+ * Sous ce nombre de vues, Snapchat MASQUE le compteur d'un Spotlight : 0 sur sa
+ * page, -1 dans la liste du profil (`spotlightStoryMetadata`). Constaté le
+ * 09/11/2026 : sur les 33 posts Snapchat de la prod, le plus petit relevé est
+ * 1 036, et aucune des 224 vidéos des pages lues ne montre un compteur entre 1
+ * et 999. Un post masqué a donc moins de 1 000 vues — c'est tout ce qu'on sait.
+ */
+export const SNAPCHAT_VIEWS_MASKED_BELOW = 1000;
 
 const NEXT_DATA_RE =
   /<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/;
@@ -242,6 +259,7 @@ function parseSpotlightFlight(
         likes !== null && likes > 0
           ? `Snapchat masque les vues de ce Spotlight (0 affiché pour ${likes} j'aime)`
           : "Snapchat masque les vues de ce Spotlight (0 affiché)",
+      viewsBelow: SNAPCHAT_VIEWS_MASKED_BELOW,
     };
   }
   const handle = video.postingUsername;

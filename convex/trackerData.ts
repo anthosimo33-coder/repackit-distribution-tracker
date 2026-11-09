@@ -390,6 +390,8 @@ export async function listTrackerPostsCore(
         availability: collectAvailability(p),
         reason: p.lastCollectFailureReason ?? null,
         failureStreak: p.collectFailureStreak ?? 0,
+        // Compteur masqué (Snapchat < 1 000) : l'écran l'écrit au lieu du tiret.
+        maskedBelow: p.viewsMaskedBelow ?? null,
       },
       // SAVES — `null` et jamais 0 par défaut : Instagram/YouTube n'exposent
       // pas la métrique et les posts antérieurs à sa collecte n'en portent

@@ -193,13 +193,19 @@ describe("parseSnapchatSpotlightPage — forme RSC (servie depuis le 02/11/2026)
     if (r.kind !== "hidden") return;
     expect(r.reason).toContain("masque");
     expect(r.reason).toContain("21 j'aime");
+    // Ce qu'on sait quand même : moins de 1 000 vues.
+    expect(r.viewsBelow).toBe(1000);
   });
 
   it("page servie SANS la vidéo (Spotlight retiré ou pas public) : masquée, pas illisible", () => {
-    expect(parseSnapchatSpotlightPage(pageRsc({ video: null }), ID_KELLY)).toMatchObject({
+    const r = parseSnapchatSpotlightPage(pageRsc({ video: null }), ID_KELLY);
+    expect(r).toMatchObject({
       kind: "hidden",
       reason: expect.stringContaining("sans la vidéo"),
     });
+    // ABSENCE : rien ne dit qu'elle a moins de 1 000 vues — pas de seuil inventé.
+    if (r.kind !== "hidden") return;
+    expect(r.viewsBelow).toBeUndefined();
   });
 
   it("lien court suivi jusqu'à la page RSC : l'id relu dans l'URL finale", async () => {

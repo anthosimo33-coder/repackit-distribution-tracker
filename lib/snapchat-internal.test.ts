@@ -194,6 +194,20 @@ describe("collectSnapchatInternally", () => {
     expect(snapshots()).toHaveLength(0);
     expect(echecs()).toHaveLength(9);
     expect(String(echecs()[0].args.reason)).toContain("masque");
+    // L'écran dira « < 1 000 » : le seuil voyage avec l'échec.
+    expect(echecs()[0].args.viewsMaskedBelow).toBe(1000);
+  });
+
+  it("page servie sans la vidéo : échec SANS seuil (on ne sait rien de ses vues)", async () => {
+    const { ctx, echecs } = fakeCtx();
+    const { impl } = fetchParId({ [ID_KELLY]: () => new Response(pageRsc({ video: null })) });
+    await collectSnapchatInternally(ctx, [cible(ID_KELLY, "@thekellychapter")], 42, BREAKER_CLOSED, {
+      fetchImpl: impl,
+      ...sansPause,
+    });
+    expect(echecs()).toHaveLength(1);
+    expect(String(echecs()[0].args.reason)).toContain("sans la vidéo");
+    expect("viewsMaskedBelow" in echecs()[0].args).toBe(false);
   });
 
   it("DURÉE dépassée : le reste est NON TENTÉ, ni échec ni snapshot", async () => {

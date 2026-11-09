@@ -47,6 +47,32 @@ describe("collectAvailability", () => {
   });
 });
 
+describe("collectAvailability — compteur MASQUÉ par la plateforme", () => {
+  it("en échec AVEC un seuil connu → masqué (Snapchat sous 1 000)", () => {
+    expect(
+      collectAvailability({ collectFailureStreak: 1, viewsMaskedBelow: 1000 }),
+    ).toBe("masked");
+  });
+
+  it("masqué n'est PAS une mesure : pas de chiffre, la paie le compte non mesuré", () => {
+    expect(showsMetric("masked")).toBe(false);
+  });
+
+  it("un relevé réussi PRIME sur un vieux masque", () => {
+    expect(
+      collectAvailability({
+        latestSnapshotAt: 1_787_000_000_000,
+        collectFailureStreak: 2,
+        viewsMaskedBelow: 1000,
+      }),
+    ).toBe("measured");
+  });
+
+  it("un seuil sans échec en cours ne fabrique pas un masque", () => {
+    expect(collectAvailability({ viewsMaskedBelow: 1000 })).toBe("pending");
+  });
+});
+
 describe("collectAvailabilityLabel", () => {
   it("mesuré n'a pas de libellé — c'est le chiffre qui parle", () => {
     expect(collectAvailabilityLabel("measured")).toBeNull();
@@ -71,5 +97,20 @@ describe("collectAvailabilityLabel", () => {
   it("un échec sans motif reste lisible", () => {
     expect(collectAvailabilityLabel("failed")).toBe("Non mesuré");
     expect(collectAvailabilityLabel("failed", "   ")).toBe("Non mesuré");
+  });
+
+  it("masqué avec son seuil → « moins de N vues », pas « non mesuré »", () => {
+    expect(
+      collectAvailabilityLabel(
+        "masked",
+        "Snapchat masque les vues de ce Spotlight (0 affiché pour 21 j'aime)",
+        undefined,
+        "1 000",
+      ),
+    ).toBe("Moins de 1 000 vues — la plateforme masque le compteur en dessous");
+  });
+
+  it("masqué sans seuil fourni → retombe sur l'échec et son motif", () => {
+    expect(collectAvailabilityLabel("masked", "HTTP 429")).toBe("Non mesuré — HTTP 429");
   });
 });

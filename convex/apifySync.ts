@@ -259,12 +259,15 @@ async function upsertApifySnapshot(
     lastCollectFailureAt: undefined;
     collectFailureStreak: undefined;
     lastCollectFailureReason: undefined;
+    viewsMaskedBelow: undefined;
     foreignOwner: undefined;
   } = {
     lastApifySyncAt: args.capturedAt,
     lastCollectFailureAt: undefined,
     collectFailureStreak: undefined,
     lastCollectFailureReason: undefined,
+    // Une mesure remplace « moins de 1 000 » : le compteur est sorti du masque.
+    viewsMaskedBelow: undefined,
     foreignOwner: undefined,
   };
   if (typeof args.title === "string" && args.title.length > 0) {
@@ -434,8 +437,10 @@ export const recordCollectFailure = internalMutation({
     publicationId: v.id("publications"),
     at: v.number(),
     reason: v.string(),
+    /** Compteur masqué : « moins de N vues » (cf `publications.viewsMaskedBelow`). */
+    viewsMaskedBelow: v.optional(v.number()),
   },
-  handler: async (ctx, { publicationId, at, reason }) => {
+  handler: async (ctx, { publicationId, at, reason, viewsMaskedBelow }) => {
     const pub = await ctx.db.get(publicationId);
     if (!pub) return { streak: 0 };
     const streak = (pub.collectFailureStreak ?? 0) + 1;
@@ -444,6 +449,9 @@ export const recordCollectFailure = internalMutation({
       collectFailureStreak: streak,
       // Tronqué : un motif est une phrase, pas un dump de page.
       lastCollectFailureReason: reason.slice(0, 200),
+      // Chaque échec dit ce qu'IL sait : absent ici = on ne sait plus rien des
+      // vues (le champ est retiré), jamais un « < 1 000 » resté d'une autre nuit.
+      viewsMaskedBelow,
     });
     return { streak };
   },

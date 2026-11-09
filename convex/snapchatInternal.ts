@@ -124,6 +124,10 @@ export async function collectSnapchatInternally(
         publicationId: t.publicationId,
         at: capturedAt,
         reason: r.reason,
+        // Compteur masqué : l'écran dira « < 1 000 » au lieu d'un tiret.
+        ...(r.kind === "hidden" && r.viewsBelow !== undefined
+          ? { viewsMaskedBelow: r.viewsBelow }
+          : {}),
       });
       continue;
     }
