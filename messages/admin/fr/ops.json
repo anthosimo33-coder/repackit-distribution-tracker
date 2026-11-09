@@ -772,6 +772,97 @@
     "aucunePub": "Aucune pub de {app} dans les bibliothèques TikTok et Meta.",
     "aucunePubAide": "Elle mise sur ses comptes. Une pub qui tourne longtemps chez un concurrent apparaîtrait ici en premier.",
     "sesComptes": "Ses comptes",
-    "comptesAide": "{n, plural, =0 {aucun compte} one {# compte} other {# comptes}}, {actifs, plural, =0 {aucun relevé} one {# relevé} other {# relevés}} · les plus en forme d'abord"
+    "comptesAide": "{n, plural, =0 {aucun compte} one {# compte} other {# comptes}}, {actifs, plural, =0 {aucun relevé} one {# relevé} other {# relevés}} · les plus en forme d'abord",
+    "vueEnsemble": "Vue d'ensemble"
+  },
+  "RadarInsights": {
+    "titre": "Ce qui sort du lot chez tes concurrents",
+    "sousTitre": "{n} vidéos TikTok de leurs comptes, publiées il y a 2 à 14 jours. En moyenne, {pct} % font 3× la normale de leur compte.",
+    "pasEncore": "Pas encore calculé : le calcul passe toutes les 6 heures.",
+    "aucuneVideo": "Aucune vidéo de leurs comptes publiée il y a 2 à 14 jours.",
+    "titreRatio": "Les vidéos {best} sortent du lot {ratio} fois plus souvent que celles {worst}.",
+    "titreParts": "Les vidéos {best} sortent du lot le plus souvent ({bestPct} %), celles {worst} le moins ({worstPct} %).",
+    "faconPareille": "La façon de faire, elle, change peu.",
+    "enLangue": {
+      "fr": "en français",
+      "pt": "en portugais",
+      "es-am": "en espagnol d'Amérique",
+      "es-es": "en espagnol d'Espagne",
+      "en": "en anglais",
+      "autre": "dans les autres langues"
+    },
+    "parLangue": "Par langue",
+    "parConcurrent": "Par concurrent",
+    "parFacon": "Par façon de faire",
+    "pct": "{pct} %",
+    "tropPeu": "Moins de 20 vidéos par ligne pour l'instant.",
+    "pasEcart": "Pas d'écart",
+    "pasAssez": "Pas assez de vidéos",
+    "detail": "{a} {pa} % · {na} — {b} {pb} % · {nb}",
+    "attr": {
+      "texte": {
+        "nom": "Texte à l'écran",
+        "a": "avec",
+        "b": "sans",
+        "mieux": {
+          "a": "Avec texte +{pts} pts",
+          "b": "Sans texte +{pts} pts"
+        }
+      },
+      "son": {
+        "nom": "Musique ou son original",
+        "a": "musique",
+        "b": "son original",
+        "mieux": {
+          "a": "Musique +{pts} pts",
+          "b": "Son original +{pts} pts"
+        }
+      },
+      "longueur": {
+        "nom": "Longueur du hook",
+        "a": "plus de 8 mots",
+        "b": "8 mots ou moins",
+        "mieux": {
+          "a": "Les longs +{pts} pts",
+          "b": "Les courts +{pts} pts"
+        }
+      }
+    },
+    "note": "« Sortir du lot » : 3× la normale de son compte. Une langue ou une app s'affiche à partir de 20 vidéos ; une façon de faire se juge sur 30 vidéos de chaque côté, « pas d'écart » sous 3 points. Calculé {quand}."
+  },
+  "RadarAdaptations": {
+    "titre": "Tes adaptations",
+    "aide": "Chaque vidéo « à adapter » se relie à la campagne qui la reprend. Nos publications disent ensuite si le format marche chez nous, jugées comme le Pilote : à 72 h, gagnante à 1,5× la médiane de la créatrice et 2 000 vues.",
+    "aAdapter": "À adapter",
+    "aAdapterVide": "Rien en attente.",
+    "enTournage": "En tournage",
+    "enTournageVide": "Aucune campagne en cours.",
+    "resultats": "Résultats chez nous",
+    "resultatsVide": "Aucune vidéo mesurée pour l'instant.",
+    "echec": "La liaison n'a pas pu se faire.",
+    "aucuneCampagne": "Aucune campagne active dans ce projet.",
+    "relier": "Relier à une campagne",
+    "relierAria": "Relier la vidéo de @{handle} à une campagne",
+    "delier": "Délier",
+    "delierAria": "Délier la campagne {campagne}",
+    "dApres": "D'après « {hook} »",
+    "aucuneMission": "Aucune mission encore",
+    "missionsDuAu": "{n, plural, one {# mission} other {# missions}} du {du} au {au}",
+    "missionsLe": "{n, plural, one {# mission} other {# missions}} le {le}",
+    "missions": "{n, plural, one {# mission} other {# missions}}",
+    "publiees": "{n, plural, one {# publiée} other {# publiées}}",
+    "resultatsVers": "résultats vers le {le}",
+    "publieesLabel": "Vidéos publiées",
+    "gagnantesLabel": "Gagnantes",
+    "surMesurees": "{wins} sur {n}",
+    "medianeLabel": "× la médiane de la créatrice",
+    "vues": "{n} vues",
+    "chezConcurrent": "Chez le concurrent",
+    "verdict": {
+      "marche": "Marche chez nous",
+      "neMarchePas": "Ne prend pas chez nous",
+      "tropTot": "Trop tôt pour conclure"
+    },
+    "suiteVers": "Prochaine mesure vers le {le}"
   }
 }

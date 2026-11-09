@@ -108,6 +108,9 @@ const paymentLineItem = v.object({
   ),
 });
 
+/** Une ligne de « ce qui sort du lot » : vidéos jugées et celles à 3× la normale. */
+const insightBucketValidator = v.object({ key: v.string(), label: v.optional(v.string()), n: v.number(), wins: v.number() });
+
 export default defineSchema({
   // ─── Remédiation sécurité — tables Convex Auth ───────────────────────────
   // authSessions / authAccounts / authRefreshTokens / authVerificationCodes /
@@ -2882,6 +2885,8 @@ export default defineSchema({
     .index("by_project_status", ["projectId", "status"])
     // S2 — anti-coordination : (créateur, signature de combo).
     .index("by_creator_combo", ["creatorId", "comboKey"])
+    // Les missions d'une campagne (Radar › Tes adaptations), sans lire tout le projet.
+    .index("by_campaign", ["scriptCombo.campaignId"])
     // Défis — le score lit toutes les vidéos d'un défi, toutes créatrices.
     .index("by_challenge", ["challengeId"]),
 
@@ -4214,6 +4219,8 @@ export default defineSchema({
     projectId: v.id("projects"),
     signalId: v.id("radarSignals"),
     status: v.union(v.literal("enregistre"), v.literal("adapte"), v.literal("ignore")),
+    // « À adapter » : la campagne du projet qui la reprend (convex/radarAdaptations).
+    campaignId: v.optional(v.id("scriptCampaigns")),
     updatedAt: v.number(),
     updatedBy: v.id("users"),
   })
@@ -4364,6 +4371,28 @@ export default defineSchema({
     .index("by_key", ["kind", "key"])
     .index("by_shared", ["accountCount", "lastPostAt"])
     .index("by_last", ["lastPostAt"]),
+
+  // CE QUI SORT DU LOT chez les concurrents d'un projet (slug), tenu toutes les
+  // 6 h par convex/radarInsights : part des vidéos à 3× la normale de leur
+  // compte, par langue, par app et par façon de faire (convex/radarInsightsMath).
+  radarInsights: defineTable({
+    project: v.string(),
+    computedAt: v.number(),
+    n: v.number(),
+    wins: v.number(),
+    byLang: v.array(insightBucketValidator),
+    byApp: v.array(insightBucketValidator),
+    attrs: v.array(
+      v.object({
+        key: v.union(v.literal("texte"), v.literal("son"), v.literal("longueur")),
+        a: insightBucketValidator,
+        b: insightBucketValidator,
+        verdict: v.union(v.literal("ecart"), v.literal("pasEcart"), v.literal("pasAssez")),
+        better: v.union(v.literal("a"), v.literal("b"), v.null()),
+        gapPts: v.number(),
+      }),
+    ),
+  }).index("by_project", ["project"]),
 
   // Une pub d'une app suivie, relevée dans les bibliothèques TikTok et Meta. Une pub
   // qui tourne longtemps est un format que l'app paie pour pousser : gagnant prouvé.

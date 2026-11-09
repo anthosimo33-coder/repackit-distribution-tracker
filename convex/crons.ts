@@ -93,6 +93,8 @@ crons.interval("radar-ads", { hours: 6 }, internal.radarSources.runAdsSearch, {}
 crons.hourly("radar-instagram", { minuteUTC: 40 }, internal.radarSources.runInstaReads, {});
 crons.interval("radar-transcripts", { hours: 2 }, internal.radarSources.runTranscripts, {});
 crons.daily("radar-ads-purge", { hourUTC: 4, minuteUTC: 5 }, internal.radarSources.purgeAds, {});
+// Ce qui sort du lot chez les concurrents de chaque projet (Concurrents › Vue d'ensemble).
+crons.interval("radar-insights", { hours: 6 }, internal.radarInsights.refreshInsights, {});
 
 // Revenu Whop (rentabilité P2) — ingestion HORAIRE des paiements de chaque projet
 // configuré (projects.whop) via l'API Whop. Un délai ~1h est acceptable (pas de

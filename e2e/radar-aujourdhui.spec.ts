@@ -202,6 +202,72 @@ test.describe("Radar — Aujourd'hui, Regarder une par une, Concurrents", () => 
     }
   });
 
+  test("Concurrents s'ouvre sur ce qui sort du lot : par langue, par concurrent, par façon de faire", async ({ page }) => {
+    const ts = Date.now();
+    const p = `e2erxi${ts}`;
+    const rival = `E2E Rival ins ${ts}`;
+    // Publiées il y a 3 jours ; médiane du compte 1 000 : 5 000 vues = 5× sa normale (sort du lot).
+    const vids = (pre: string, n: number, wins: number, musicTitle: string, hook?: (i: number) => string) =>
+      Array.from({ length: n }, (_, i) => ({ videoId: `${pre}${i}`, ageH: 72, views: i < wins ? 5_000 : 500, musicTitle, ...(hook ? { hook: hook(i) } : {}) }));
+    await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
+      secret: E2E_SECRET,
+      apps: [{ slug: `${p}a`, name: rival, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] }],
+      accounts: [
+        // Espagnol d'Amérique, texte à l'écran court, son original : 25 sur 50 sortent du lot.
+        {
+          handle: `rxins1_${ts}`,
+          appSlug: `${p}a`,
+          fans: 5_000,
+          medianViews: 1_000,
+          posts7d: 5,
+          lang: "es-am",
+          // Trop jeune (10 h) : pas encore jugée.
+          videos: [...vids(`${p}x`, 50, 25, `original sound - rxins1_${ts}`, (i) => `Mira lo que encontré ${i}`), { videoId: `${p}jeune`, ageH: 10, views: 99_000 }],
+        },
+        // Portugais, sans texte, une musique : 3 sur 60.
+        {
+          handle: `rxins2_${ts}`,
+          appSlug: `${p}a`,
+          fans: 5_000,
+          medianViews: 1_000,
+          posts7d: 5,
+          lang: "pt",
+          // Trop vieille (20 jours) : hors de la fenêtre.
+          videos: [...vids(`${p}y`, 60, 3, "Espresso - Sabrina Carpenter"), { videoId: `${p}vieille`, ageH: 20 * 24, views: 99_000 }],
+        },
+      ],
+    });
+    await admin.mutation(api.radarInsights.e2eComputeInsights, { secret: E2E_SECRET, project: E2E_PROJECT_SLUG });
+    try {
+      await page.goto(adminPath("/radar?onglet=concurrents"));
+      await expect(page.getByRole("link", { name: "Vue d'ensemble" })).toHaveAttribute("aria-current", "page");
+      const vue = page.getByTestId("radar-vue-ensemble");
+      await expect(vue).toContainText("110 vidéos TikTok de leurs comptes, publiées il y a 2 à 14 jours. En moyenne, 25 % font 3× la normale de leur compte.");
+      await expect(page.getByTestId("radar-ensemble-titre")).toHaveText("Les vidéos en espagnol d'Amérique sortent du lot 10 fois plus souvent que celles en portugais.");
+      const langues = page.getByTestId("radar-ensemble-langues").getByTestId("radar-ensemble-ligne");
+      await expect(langues).toHaveCount(2);
+      await expect(langues.nth(0)).toContainText("Espagnol (Amérique) · 50");
+      await expect(langues.nth(0)).toContainText("50 %");
+      await expect(langues.nth(1)).toContainText("Portugais (Brésil) · 60");
+      await expect(langues.nth(1)).toContainText("5 %");
+      const facon = (nom: string) => page.getByTestId("radar-ensemble-attr").filter({ hasText: nom });
+      await expect(facon("Texte à l'écran")).toContainText("Avec texte +45 pts");
+      await expect(facon("Texte à l'écran")).toContainText("avec 50 % · 50 — sans 5 % · 60");
+      await expect(facon("Musique ou son original")).toContainText("Son original +45 pts");
+      await expect(facon("Longueur du hook")).toContainText("Pas assez de vidéos");
+      // Le concurrent mène à sa fiche.
+      const app = page.getByTestId("radar-ensemble-apps").getByTestId("radar-ensemble-ligne").filter({ hasText: rival });
+      await expect(app).toContainText(`${rival} · 110`);
+      await expect(app).toContainText("25 %");
+      await app.getByRole("link", { name: rival }).click();
+      await expect(page.getByTestId("radar-fiche-app").getByRole("heading", { name: rival })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Vue d'ensemble" })).not.toHaveAttribute("aria-current", "page");
+    } finally {
+      await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: p });
+      await admin.mutation(api.radarInsights.e2eComputeInsights, { secret: E2E_SECRET, project: E2E_PROJECT_SLUG });
+    }
+  });
+
   test("les adresses d'avant la refonte mènent à la nouvelle place", async ({ page }) => {
     const vue = (nom: RegExp) => page.getByRole("navigation", { name: "Ce qu'on explore" }).getByRole("link", { name: nom });
     await page.goto(adminPath("/radar?onglet=signaux"));

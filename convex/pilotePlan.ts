@@ -232,7 +232,7 @@ export const choixNouveau = (campaignId: string) => `${NOUVEAU}${campaignId}`;
 const ecartJours = (a: string, b: string) =>
   Math.round(Math.abs(Date.parse(a) - Date.parse(b)) / (24 * HEURE));
 
-type Mesure = { vues: number; plateforme: string; ratio: number | null; lien: string | null };
+export type Mesure = { vues: number; plateforme: string; ratio: number | null; lien: string | null };
 
 /** Clé d'une médiane : l'étage de la campagne (« autre » hors pilote) et la plateforme. */
 export const cleMediane = (etage: Etage | null, plateforme: string) => `${etage ?? "autre"}|${plateforme}`;
@@ -297,7 +297,7 @@ export function hooksRates(
 }
 
 /** La vidéo jugée sur ses publications MÛRES ; `null` si aucune ne l'est. */
-function mesurer(
+export function mesurer(
   v: VideoPassee,
   etage: Etage | null,
   medianes: Record<string, number | null>,
@@ -324,7 +324,7 @@ function force(m: Mesure): number {
  * Gagnant chez SA créatrice : au seuil de sa médiane. 10 000 vues ne suffisent
  * pas chez une créatrice dont la médiane est à 20 000 — c'est son ordinaire.
  */
-const estGagnant = (m: Mesure, seuil: number) =>
+export const estGagnant = (m: Mesure, seuil: number) =>
   m.ratio !== null ? m.ratio >= seuil && m.vues >= PILOTE.vuesMin : m.vues >= PILOTE.vuesGagnant;
 
 /** Le dernier passage a-t-il tenu ? Sa médiane, ou 10 000 sans médiane. */

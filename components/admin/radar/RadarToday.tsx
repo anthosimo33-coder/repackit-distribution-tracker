@@ -13,6 +13,7 @@ import { useIntlLocale } from "@/lib/use-intl-locale";
 import { formatCount, formatOutlierRatio } from "@/components/admin/radar/radar-format";
 import { ACCENT_LINK, AccentTag, ScoreBadge, SignalCard, SignalThumb, signalTitle, useFormatLabel, useNow, useSignalStatus, type RadarSignal } from "@/components/admin/radar/radar-ui";
 import { RadarViewer, type ViewerQueue } from "@/components/admin/radar/RadarViewer";
+import { RadarAdaptations } from "@/components/admin/radar/RadarAdaptations";
 import { appWeek, earlyHits, handledToday, todayQueue } from "@/convex/radarDisplay";
 import { applyFilters, defaultFilters, listSince } from "@/convex/radarSignalFilters";
 
@@ -130,6 +131,8 @@ export function RadarToday({ go }: { go: RadarGo }) {
           </div>
         </section>
       )}
+
+      <RadarAdaptations />
 
       <section aria-labelledby="radar-formats-titre" className="space-y-3.5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">

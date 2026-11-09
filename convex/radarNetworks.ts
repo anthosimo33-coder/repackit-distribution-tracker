@@ -1011,6 +1011,11 @@ export const e2eSeedNetwork = e2eMutation({
         igBest7d: v.optional(v.object({ code: v.string(), views: v.number(), multiplier: v.number() })),
         // Semé déjà mis en pause parce qu'il ne cite jamais l'app.
         offTopic: v.optional(v.boolean()),
+        lang: v.optional(v.string()),
+        // Ses vidéos relevées (radarTrackedVideos), pour « ce qui sort du lot ».
+        videos: v.optional(
+          v.array(v.object({ videoId: v.string(), ageH: v.number(), views: v.number(), hook: v.optional(v.string()), musicTitle: v.optional(v.string()) })),
+        ),
       }),
     ),
     // Formats : chaque membre désigne un compte semé ci-dessus par son pseudo.
@@ -1039,9 +1044,9 @@ export const e2eSeedNetwork = e2eMutation({
         await ctx.db.insert("radarApps", { ...a, weak: [], context: [], searches: a.strong, status: "active", source: "manual", networkSearchedAt: now, createdAt: now }),
       );
     }
-    for (const t of accounts) {
+    for (const { videos, ...t } of accounts) {
       const appId = ids.get(t.appSlug)!;
-      await ctx.db.insert("radarTracked", {
+      const accountId = await ctx.db.insert("radarTracked", {
         platform: "tiktok",
         handle: t.handle,
         appId,
@@ -1050,6 +1055,7 @@ export const e2eSeedNetwork = e2eMutation({
         matchedBy: "caption",
         fans: t.fans,
         ...(t.medianViews !== undefined ? { medianViews: t.medianViews } : {}),
+        ...(t.lang !== undefined ? { lang: t.lang } : {}),
         videosSeen: 9,
         posts7d: t.posts7d,
         ...(t.best7d ? { best7d: { ...t.best7d, url: videoUrl(t.handle, t.best7d.videoId) } } : {}),
@@ -1063,6 +1069,20 @@ export const e2eSeedNetwork = e2eMutation({
         readErrors: 0,
         addedAt: now,
       });
+      for (const vid of videos ?? []) {
+        const publishedAt = now - vid.ageH * 3_600_000;
+        await ctx.db.insert("radarTrackedVideos", {
+          accountId,
+          appId,
+          videoId: vid.videoId,
+          publishedAt,
+          views: vid.views,
+          snapshots: [{ at: now, views: vid.views }],
+          lastSeenAt: now,
+          ...(vid.hook !== undefined ? { hook: vid.hook } : {}),
+          ...(vid.musicTitle !== undefined ? { musicTitle: vid.musicTitle } : {}),
+        });
+      }
     }
     for (const f of formats ?? []) {
       const members: Member[] = [];

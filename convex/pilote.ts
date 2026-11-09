@@ -88,7 +88,7 @@ const extrait = (t: string | undefined | null) => {
 // ─── Les vidéos jugées ──────────────────────────────────────────────────────
 
 /** Les publications que le plan lit : sa fenêtre (30 jours) et 5 jours de marge. */
-const depuisPublications = (maintenant: number) => maintenant - (PILOTE.fenetreJours + 5) * JOUR_MS;
+export const depuisPublications = (maintenant: number) => maintenant - (PILOTE.fenetreJours + 5) * JOUR_MS;
 
 /**
  * La vidéo d'une mission promo — ses publications promo de la fenêtre — telle
@@ -96,7 +96,7 @@ const depuisPublications = (maintenant: number) => maintenant - (PILOTE.fenetreJ
  * dans la fenêtre. Le plan et l'assignation (ses hooks ratés) passent par ici :
  * mêmes vidéos, mêmes médianes, mêmes hooks écartés.
  */
-function videoDe(
+export function videoDe(
   x: Doc<"assignments">,
   pubDe: (id: Id<"publications">) => Doc<"publications"> | undefined,
 ): VideoPassee | null {
