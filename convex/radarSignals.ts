@@ -576,7 +576,7 @@ export async function maybeAlert(ctx: ActionCtx, now: number): Promise<void> {
     "budget radar",
     `📡 Radar : ${usd(b.spentUsd)} $ dépensés sur ${usd(st.budget.capUsd)} $ ce mois-ci (80 % du plafond).` +
       (b.cut.length ? ` Postes coupés pour tenir le plafond : ${b.cut.join(", ")}.` : "") +
-      `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar?onglet=budget">Ouvrir le budget</a>`,
+      `\n<a href="${cfg.appBaseUrl}/admin/${p.slug}/radar?onglet=reglages">Ouvrir le budget</a>`,
   );
 }
 
@@ -702,7 +702,7 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
     .query("radarSignalMarks")
     .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
     .collect();
-  const statusOf = new Map<Id<"radarSignals">, Doc<"radarSignalMarks">["status"]>(marks.map((m) => [m.signalId, m.status]));
+  const markOf = new Map<Id<"radarSignals">, Doc<"radarSignalMarks">>(marks.map((m) => [m.signalId, m]));
   return {
     truncated: rows.length === SIGNALS_LIST_CAP,
     signals: rows.map((r) => ({
@@ -733,7 +733,9 @@ export async function listSignalsCore(ctx: ProjectQueryCtx, { since }: { since: 
       competitor: competitorFor(r, slug),
       tracked: r.trackedAccountId !== undefined,
       inCurve: r.nextCheckAt !== undefined,
-      status: statusOf.get(r._id) ?? ("nouveau" as const),
+      status: markOf.get(r._id)?.status ?? ("nouveau" as const),
+      // Quand l'équipe l'a traitée : « N traitées aujourd'hui » (radarDisplay.handledToday).
+      markedAt: markOf.get(r._id)?.updatedAt ?? null,
     })),
   };
 }
@@ -856,6 +858,9 @@ export const e2eSeedSignals = e2eMutation({
         hook: v.optional(v.string()),
         transcript: v.optional(v.string()),
         platform: v.optional(v.literal("instagram")),
+        // L'app poussée, nommée directement (une app semée par e2eSeedNetwork) ;
+        // sinon reconnue dans la légende parmi les apps de départ.
+        app: v.optional(v.string()),
       }),
     ),
   },
@@ -864,7 +869,11 @@ export const e2eSeedSignals = e2eMutation({
     const ids: Id<"radarSignals">[] = [];
     for (const s of signals) {
       const seed = findApp(s.caption, s.handle, SEED_APPS);
-      const app = seed ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] } : {};
+      const app = s.app
+        ? { appName: s.app, appRivalOf: rivalProject ? [rivalProject] : [] }
+        : seed
+          ? { appName: seed.name, appRivalOf: [...seed.rivalOf, ...(rivalProject ? [rivalProject] : [])] }
+          : {};
       ids.push(
         await ctx.db.insert("radarSignals", {
           platform: s.platform ?? "tiktok",

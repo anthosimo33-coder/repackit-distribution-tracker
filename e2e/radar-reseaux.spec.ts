@@ -278,19 +278,23 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await page.goto(adminPath(`/radar?q=${m}`));
       const compte = page.getByTestId("radar-signaux-compte");
       await expect(compte).toHaveText("2 vidéos");
+      await page.getByRole("button", { name: /^App/ }).click();
       await page.getByRole("checkbox", { name: /^The Ick/ }).check();
+      await page.keyboard.press("Escape");
       await expect(compte).toHaveText("1 vidéo");
       await expect(page).toHaveURL(/[?&]a=The(\+|%20)Ick(&|$)/);
-      // Sur la carte, le texte à l'écran prend la place de la légende.
+      // Sur la ligne, le texte à l'écran prend la place de la légende, et le score
+      // est celui du compte suivi : 12× sa normale.
       const carte = page.getByTestId("radar-signal");
       await expect(carte).toContainText("he didn't know I could see who he follows");
       await expect(carte).not.toContainText("This is actually insane");
-      // Le détail donne le multiplicateur relevé dans le compte suivi.
-      await page.getByRole("button", { name: `Voir le détail de la vidéo de @ickfan_${ts}` }).click();
-      const detail = page.getByRole("dialog");
-      await expect(detail).toContainText("The Ick");
-      await expect(detail).toContainText("Vues ÷ médiane du compte12×");
-      await expect(detail).toContainText("Texte à l'écranhe didn't know I could see who he follows");
+      await expect(carte.getByTestId("radar-score")).toHaveText("12×");
+      // Regarder la vidéo : l'app concurrente, le score et ce qu'elle fait.
+      await page.getByRole("button", { name: `Regarder la vidéo de @ickfan_${ts}` }).click();
+      const detail = page.getByTestId("radar-viewer");
+      await expect(detail).toContainText("The Ick · concurrent");
+      await expect(detail).toContainText("12×sa normale");
+      await expect(detail).toContainText("Texte à l'écran« he didn't know I could see who he follows »");
     } finally {
       await admin.mutation(api.radarSignals.e2eClearSignals, { secret: E2E_SECRET, prefix: m });
       await admin.mutation(api.radarNetworks.e2eClearNetwork, { secret: E2E_SECRET, prefix: r.prefixe });
@@ -303,6 +307,8 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
     const r = reseau(ts);
     const p = r.prefixe;
     const son = `son original - e2e ${ts}`;
+    // À l'écran, un son original se lit « Son original de @… » (radarDisplay.originalSoundOf).
+    const sonAffiche = `Son original de @e2e ${ts}`;
     const cand = `@E2E Rx ${ts} cand`;
     await admin.mutation(api.radarNetworks.e2eSeedNetwork, {
       secret: E2E_SECRET,
@@ -389,13 +395,13 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await expect(hook).toContainText("jusqu'à 15× la médiane du compte");
       await expect(hook.getByRole("link", { name: `@${r.un}` })).toHaveAttribute("href", `https://www.tiktok.com/@${r.un}/video/${ts}1`);
       await expect(hook).toContainText(`${r.rival} · 46,5 k vues · 15×`);
-      const sonCarte = carte(son);
+      const sonCarte = carte(sonAffiche);
       await expect(sonCarte).toContainText("Même son");
       await expect(sonCarte).toContainText(`2 comptes · ${r.ailleurs}, ${r.autre}`);
       await expect(sonCarte).not.toContainText("Poussé par un concurrent");
       // Le plus vu d'abord, toutes apps confondues ; le format froid est caché.
       const textes = await page.getByTestId("radar-format").allTextContents();
-      expect(textes.findIndex((t) => t.includes(son))).toBeLessThan(textes.findIndex((t) => t.includes(HOOK)));
+      expect(textes.findIndex((t) => t.includes(sonAffiche))).toBeLessThan(textes.findIndex((t) => t.includes(HOOK)));
       const froid = carte(FROID);
       await expect(froid).toHaveCount(0);
       await expect(page.getByText(/1 format ne pète pas encore/)).toBeVisible();
@@ -518,17 +524,23 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await page.goto(adminPath(`/radar?q=${m}`));
       const compte = page.getByTestId("radar-signaux-compte");
       await expect(compte).toHaveText("2 vidéos");
+      // La plateforme est derrière « Plus de filtres ».
+      await page.getByRole("button", { name: /^Plus de filtres/ }).click();
       await page.getByRole("checkbox", { name: /^Instagram/ }).check();
+      await page.keyboard.press("Escape");
       await expect(compte).toHaveText("1 vidéo");
       await expect(page).toHaveURL(/[?&]p=instagram(&|$)/);
       const reel = page.getByTestId("radar-signal");
       await expect(reel).toContainText("Instagram");
       await expect(reel).toContainText("Quand ton mec te dit qu'il dort");
-      await page.getByRole("button", { name: `Voir le détail de la vidéo de @rxreel_${ts}` }).click();
-      await expect(page.getByRole("link", { name: "Voir le Reel sur Instagram" })).toHaveAttribute("href", `https://www.instagram.com/reel/${m}1/`);
+      await page.getByRole("button", { name: `Regarder la vidéo de @rxreel_${ts}` }).click();
+      await expect(page.getByRole("link", { name: "Ouvrir sur Instagram" })).toHaveAttribute("href", `https://www.instagram.com/reel/${m}1/`);
       await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: /^Plus de filtres/ }).click();
       await page.getByRole("checkbox", { name: /^Instagram/ }).uncheck();
-      await page.getByRole("button", { name: `Voir le détail de la vidéo de @rxtalk_${ts}` }).click();
+      await page.keyboard.press("Escape");
+      await expect(compte).toHaveText("2 vidéos");
+      await page.getByRole("button", { name: `Regarder la vidéo de @rxtalk_${ts}` }).click();
       await expect(page.getByTestId("radar-transcription")).toHaveText("o que você tá comendo hum comendo não");
       await page.keyboard.press("Escape");
 

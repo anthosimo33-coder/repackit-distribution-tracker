@@ -243,6 +243,7 @@ import type * as quadrantSync from "../quadrantSync.js";
 import type * as radar from "../radar.js";
 import type * as radarApi from "../radarApi.js";
 import type * as radarDiscoveryQueries from "../radarDiscoveryQueries.js";
+import type * as radarDisplay from "../radarDisplay.js";
 import type * as radarNetworkMath from "../radarNetworkMath.js";
 import type * as radarNetworkSearch from "../radarNetworkSearch.js";
 import type * as radarNetworks from "../radarNetworks.js";
@@ -570,6 +571,7 @@ declare const fullApi: ApiFromModules<{
   radar: typeof radar;
   radarApi: typeof radarApi;
   radarDiscoveryQueries: typeof radarDiscoveryQueries;
+  radarDisplay: typeof radarDisplay;
   radarNetworkMath: typeof radarNetworkMath;
   radarNetworkSearch: typeof radarNetworkSearch;
   radarNetworks: typeof radarNetworks;
