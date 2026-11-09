@@ -759,9 +759,10 @@ export default defineSchema({
     // Absent sur toute publication NON issue d'un script (interne, format) →
     // champ optionnel, 0 migration. Pas d'assembledScript ici (il reste figé
     // sur l'assignment) : seules les ids + comboKey + campaignId servent au join.
-    // Convex n'indexe pas les champs imbriqués → le filtrage par campagne se
-    // fait en mémoire après collect by_project (cf scriptAnalytics, idiome
-    // identique à dashboard/aggregateTimeseries).
+    // Les publications d'UNE campagne se lisent par l'index
+    // by_project_scriptCampaign (champ imbriqué `scriptCombo.campaignId`) : lire
+    // tout le projet pour filtrer en mémoire a dépassé la limite de 32 000
+    // documents lus le 2026-11-08 (cf scriptAnalytics.gatherCampaignViews).
     scriptCombo: v.optional(
       v.object({
         campaignId: v.id("scriptCampaigns"),
@@ -933,7 +934,9 @@ export default defineSchema({
     .index("by_project_carouselId", ["projectId", "carouselId"])
     .index("by_project_plateforme", ["projectId", "plateforme"])
     .index("by_project_hookId", ["projectId", "hookId"])
-    .index("by_project_parentCarouselId", ["projectId", "parentCarouselId"]),
+    .index("by_project_parentCarouselId", ["projectId", "parentCarouselId"])
+    // Analytics d'une campagne de scripts : ses seules publications.
+    .index("by_project_scriptCampaign", ["projectId", "scriptCombo.campaignId"]),
 
   // ─── Refactor métriques temporelles — historique de mesures par row ──────
   // Greenfield. 1 metricSnapshot = une relève de métriques à une date donnée
