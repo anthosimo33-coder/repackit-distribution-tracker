@@ -35,8 +35,22 @@ function reseau(ts: number) {
     seed: {
       apps: [
         { slug: `${p}a`, name: `E2E Rival ${ts}`, rivalOf: [E2E_PROJECT_SLUG], strong: [`${p}a`] },
-        { slug: `${p}b`, name: `E2E Ailleurs ${ts}`, rivalOf: ["snytch"], strong: [`${p}b`] },
-        { slug: `${p}c`, name: `E2E Autre ${ts}`, rivalOf: [], strong: [`${p}c`] },
+        // Une recherche de son réseau en cours : 2e recherche sur 5, un compte déjà trouvé.
+        {
+          slug: `${p}b`,
+          name: `E2E Ailleurs ${ts}`,
+          rivalOf: ["snytch"],
+          strong: [`${p}b`],
+          networkSearch: { requestedAt: Date.now() - 30_000, startedAt: Date.now() - 29_000, step: 2, steps: 5, attached: 1, signals: 0 },
+        },
+        // Sa dernière recherche, finie il y a 2 h : 3 comptes ajoutés.
+        {
+          slug: `${p}c`,
+          name: `E2E Autre ${ts}`,
+          rivalOf: [],
+          strong: [`${p}c`],
+          networkSearch: { requestedAt: Date.now() - 2 * 3_600_000 - 60_000, startedAt: Date.now() - 2 * 3_600_000 - 60_000, finishedAt: Date.now() - 2 * 3_600_000, step: 4, steps: 4, attached: 3, signals: 1, outcome: "done" as const },
+        },
       ],
       accounts: [
         {
@@ -121,6 +135,26 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
       await rival.getByRole("button", { name: "Suivre", exact: true }).click();
       await expect(page.getByText("Ce compte est déjà suivi.")).toBeVisible();
       await expect(lignes).toHaveCount(3);
+
+      // La recherche du réseau se voit sur la ligne : en cours (progression,
+      // comptes déjà trouvés, bouton occupé), puis ce qu'elle a ajouté.
+      const enCours = carte(r.ailleurs);
+      await expect(enCours.getByTestId("radar-recherche")).toHaveText("Recherche du réseau en cours · 2/5 · 1 nouveau compte");
+      await expect(enCours.getByRole("button", { name: "Recherche…" })).toBeDisabled();
+      await expect(enCours.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
+      await expect(carte(r.autre).getByTestId("radar-recherche")).toHaveText("Réseau cherché : il y a 2 h · 3 nouveaux comptes");
+      await expect(carte(r.autre).getByRole("progressbar")).toHaveCount(0);
+
+      // Chercher son réseau, à la main : le backend local n'a pas de clé
+      // ScrapeCreators, la recherche s'arrête aussitôt et la ligne dit pourquoi.
+      // Avant le 09/11, la date était effacée : « Réseau cherché : jamais ».
+      const statut = rival.getByTestId("radar-recherche");
+      await expect(statut).toHaveText("Réseau cherché : à l'instant");
+      await rival.getByRole("button", { name: "Chercher son réseau" }).click();
+      await expect(statut).toHaveText("Recherche impossible : pas de clé ScrapeCreators sur ce serveur");
+      await expect(page.getByText(`${r.rival} : Recherche impossible : pas de clé ScrapeCreators sur ce serveur`, { exact: true })).toBeVisible();
+      await expect(rival.getByRole("button", { name: "Chercher son réseau" })).toBeEnabled();
+      await expect(rival).not.toContainText("jamais");
 
       // Mettre l'app en pause : plus de recherche de son réseau.
       await rival.getByRole("button", { name: "Mettre en pause" }).click();
@@ -207,8 +241,18 @@ test.describe("Nouveau Radar — Comptes suivis", () => {
         publicationsSemaine: 4,
         meilleureSemaine: { compte: r.un, vues: 46_500, foisMediane: 15, lien: `https://www.tiktok.com/@${r.un}/video/${ts}1` },
       });
-      expect(tout.apps.find((a: { app: string }) => a.app === r.ailleurs)).toMatchObject({ groupe: "concurrente d'un autre projet", comptes: 1 });
-      expect(tout.apps.find((a: { app: string }) => a.app === r.autre)).toMatchObject({ groupe: "autre app", comptes: 0, meilleureSemaine: null });
+      expect(tout.apps.find((a: { app: string }) => a.app === r.ailleurs)).toMatchObject({
+        groupe: "concurrente d'un autre projet",
+        comptes: 1,
+        derniereRecherche: { issue: "en cours", comptesAjoutes: 1, fin: null },
+      });
+      expect(tout.apps.find((a: { app: string }) => a.app === r.autre)).toMatchObject({
+        groupe: "autre app",
+        comptes: 0,
+        meilleureSemaine: null,
+        derniereRecherche: { issue: "done", comptesAjoutes: 3 },
+      });
+      expect(tout.apps.find((a: { app: string }) => a.app === r.rival).derniereRecherche).toBeNull();
 
       // Une app par un bout de son nom : ses comptes, le plus en forme d'abord.
       const comptes = await lu("reseaux", { app: `rival ${ts}` });

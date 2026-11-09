@@ -376,6 +376,7 @@
     "convex/pyRandom.ts",
     "convex/quadrant.ts",
     "convex/quadrantSettings.ts",
+    "convex/radarNetworkSearch.ts",
     "convex/radarSignalFilters.ts",
     "convex/radarSignalsMath.ts",
     "convex/remunerate.ts",

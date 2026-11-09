@@ -52,6 +52,7 @@ import {
   searchKind,
   shouldPromote,
 } from "./radarNetworkMath";
+import { networkSearchOutcome, networkSearchOutcomeValidator, networkSearchPhase, networkSearchValidator } from "./radarNetworkSearch";
 import { RETENTION_DAYS, allowance, budgetState, cleanText, keepSignal, ratioOf, addSnapshot } from "./radarSignalsMath";
 import {
   appRef,
@@ -89,8 +90,21 @@ export const dueApps = internalQuery({
     const apps = await ctx.db.query("radarApps").withIndex("by_status", (q) => q.eq("status", "active")).collect();
     return apps
       .filter((a) => a.networkSearchedAt === undefined || now - a.networkSearchedAt >= networkRefreshMs(a.rivalOf.length > 0))
+      // Une recherche demandée à l'écran tourne déjà : la tâche ne la double pas.
+      .filter((a) => networkSearchPhase(a.networkSearch, now) !== "running")
       .sort((x, y) => Number(y.rivalOf.length > 0) - Number(x.rivalOf.length > 0) || (x.networkSearchedAt ?? 0) - (y.networkSearchedAt ?? 0))
       .map((a) => ({ id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0 }));
+  },
+});
+
+/** L'app dont la recherche a été demandée à l'écran : `null` si elle n'existe plus, `paused` si elle a été mise en pause entre-temps. */
+export const appToSearch = internalQuery({
+  args: { appId: v.id("radarApps") },
+  handler: async (ctx, { appId }): Promise<DueApp | "paused" | null> => {
+    const a = await ctx.db.get(appId);
+    if (!a) return null;
+    if (a.status !== "active") return "paused";
+    return { id: a._id, name: a.name, searches: a.searches, rival: a.rivalOf.length > 0 };
   },
 });
 
@@ -118,8 +132,8 @@ export const seedApps = internalMutation({
  * rattache son auteur au réseau, et entre dans Signaux si elle sort du lot.
  */
 export const attachFromSearch = internalMutation({
-  args: { appId: v.id("radarApps"), videos: v.array(signalInput), foundBy: v.string(), now: v.number() },
-  handler: async (ctx, { appId, videos, foundBy, now }): Promise<{ attached: number; signals: number }> => {
+  args: { appId: v.id("radarApps"), videos: v.array(signalInput), foundBy: v.string(), now: v.number(), step: v.optional(v.number()) },
+  handler: async (ctx, { appId, videos, foundBy, now, step }): Promise<{ attached: number; signals: number }> => {
     const app = await ctx.db.get(appId);
     if (!app) return { attached: 0, signals: 0 };
     const counter: TrackedCounter = {};
@@ -135,14 +149,44 @@ export const attachFromSearch = internalMutation({
       });
       if (r === "inserted") signals++;
     }
+    // La progression que l'écran affiche pendant la recherche.
+    const ns = app.networkSearch;
+    if (ns && ns.finishedAt === undefined) {
+      await ctx.db.patch(appId, { networkSearch: { ...ns, step: step ?? ns.step, attached: ns.attached + attached, signals: ns.signals + signals } });
+    }
     return { attached, signals };
   },
 });
 
-export const markNetworkSearched = internalMutation({
-  args: { appId: v.id("radarApps"), now: v.number() },
-  handler: async (ctx, { appId, now }): Promise<void> => {
-    await ctx.db.patch(appId, { networkSearchedAt: now });
+/** Début de la recherche du réseau d'une app : `steps` recherches à lire. Une demande faite à l'écran garde son heure. */
+export const startNetworkSearch = internalMutation({
+  args: { appId: v.id("radarApps"), now: v.number(), steps: v.number() },
+  handler: async (ctx, { appId, now, steps }): Promise<void> => {
+    const app = await ctx.db.get(appId);
+    if (!app) return;
+    const prev = app.networkSearch;
+    const requestedAt = prev && prev.finishedAt === undefined ? prev.requestedAt : now;
+    await ctx.db.patch(appId, { networkSearch: { requestedAt, startedAt: now, step: 0, steps, attached: 0, signals: 0 } });
+  },
+});
+
+/**
+ * Fin de la recherche du réseau d'une app, avec son issue. `searched` : toutes
+ * ses recherches ont été lues, elle ne revient qu'à son prochain tour (3 jours
+ * pour une concurrente, une semaine sinon) ; sinon elle reprend au passage suivant.
+ */
+export const finishNetworkSearch = internalMutation({
+  args: { appId: v.id("radarApps"), now: v.number(), outcome: networkSearchOutcomeValidator, error: v.optional(v.string()), searched: v.boolean() },
+  handler: async (ctx, { appId, now, outcome, error, searched }): Promise<void> => {
+    const app = await ctx.db.get(appId);
+    if (!app) return;
+    const p = app.networkSearch ?? { requestedAt: now, step: 0, steps: 0, attached: 0, signals: 0 };
+    // Recopié champ à champ : l'erreur d'une recherche d'avant ne survit pas.
+    const base = { requestedAt: p.requestedAt, step: p.step, steps: p.steps, attached: p.attached, signals: p.signals };
+    await ctx.db.patch(appId, {
+      networkSearch: { ...base, ...(p.startedAt !== undefined ? { startedAt: p.startedAt } : {}), finishedAt: now, outcome, ...(error ? { error: error.slice(0, 200) } : {}) },
+      ...(searched ? { networkSearchedAt: now } : {}),
+    });
   },
 });
 
@@ -386,55 +430,108 @@ export const markReadError = internalMutation({
 
 // ─── Tâches ──────────────────────────────────────────────────────────────────
 
-/** Réseau : les recherches des apps dues, dans la limite du budget. */
+/**
+ * Réseau : les recherches des apps dues, dans la limite du budget. Avec `appId`
+ * (bouton « Chercher son réseau », app ajoutée), cette app seule, tout de suite,
+ * sur ce qui reste du budget du jour. Chaque app cherchée note sa progression
+ * et son issue (radarApps.networkSearch) : l'écran les affiche.
+ */
 export const runNetworkSearch = internalAction({
-  args: {},
-  handler: async (ctx): Promise<RunResult> => {
+  args: { appId: v.optional(v.id("radarApps")) },
+  handler: async (ctx, { appId }): Promise<RunResult> => {
     const now = Date.now();
-    if (!scKeyPresent()) return { skipped: "no-key" };
+    if (!scKeyPresent()) {
+      if (appId) await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, { appId, now, outcome: "no-key", searched: false });
+      return { skipped: "no-key" };
+    }
     await ctx.runMutation(internal.radarNetworks.seedApps, {});
     const st: JobState = await ctx.runQuery(internal.radarSignals.jobState, { now });
     const b = budgetState(st.budget, st.usage);
-    const left = allowance(st.budget, b, "network", todayCredits(st, "network"), NETWORK_RUNS_PER_DAY);
-    const due: DueApp[] = await ctx.runQuery(internal.radarNetworks.dueApps, { now });
+    // Demandée à la main : tout ce qui reste du jour, pas la part d'un passage.
+    const left = allowance(st.budget, b, "network", todayCredits(st, "network"), appId ? 1 : NETWORK_RUNS_PER_DAY);
+    let due: DueApp[];
+    if (appId) {
+      const one = await ctx.runQuery(internal.radarNetworks.appToSearch, { appId });
+      if (one === "paused") await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, { appId, now, outcome: "paused", searched: false });
+      due = one && one !== "paused" ? [one] : [];
+    } else {
+      // Budget du passage déjà à zéro : aucune app touchée (sa dernière issue reste affichée).
+      due = left > 0 ? await ctx.runQuery(internal.radarNetworks.dueApps, { now }) : [];
+    }
     let credits = 0;
     let calls = 0;
     let errors = 0;
     let creditsRemaining: number | undefined;
     let lastError: string | undefined;
     let stop = false;
+    let attached = 0;
     for (const app of due) {
+      await ctx.runMutation(internal.radarNetworks.startNetworkSearch, { appId: app.id, now: Date.now(), steps: app.searches.length });
       let complete = true;
-      for (const raw of app.searches) {
-        const { kind, value } = searchKind(raw);
-        let cursor: number | undefined;
-        for (let page = 0; page < networkPages(app.rival); page++) {
-          if (credits >= left) {
-            stop = true;
-            complete = false;
-            break;
-          }
-          const r = await scNetworkPage(kind, value, cursor);
-          calls++;
-          credits += r.credits;
-          if (!r.ok) {
-            errors++;
-            lastError = r.error;
-            if (r.noCredits) {
+      let noCredits = false;
+      let appCalls = 0;
+      let appFailures = 0;
+      let appError: string | undefined;
+      let crashed = false;
+      let appAttached = 0;
+      try {
+        for (const [i, raw] of app.searches.entries()) {
+          const { kind, value } = searchKind(raw);
+          let cursor: number | undefined;
+          for (let page = 0; page < networkPages(app.rival); page++) {
+            if (credits >= left) {
               stop = true;
               complete = false;
+              break;
             }
-            break;
+            const r = await scNetworkPage(kind, value, cursor);
+            calls++;
+            appCalls++;
+            credits += r.credits;
+            if (!r.ok) {
+              errors++;
+              appFailures++;
+              lastError = r.error;
+              appError = r.error;
+              if (r.noCredits) {
+                stop = true;
+                complete = false;
+                noCredits = true;
+              }
+              break;
+            }
+            if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
+            const found: { attached: number } = await ctx.runMutation(internal.radarNetworks.attachFromSearch, {
+              appId: app.id,
+              videos: r.value.videos,
+              foundBy: `réseau ${app.name}`,
+              now,
+              step: i + 1,
+            });
+            appAttached += found.attached;
+            cursor = r.value.cursor;
+            if (cursor === undefined || r.value.videos.length === 0) break;
           }
-          if (r.creditsRemaining !== undefined) creditsRemaining = r.creditsRemaining;
-          await ctx.runMutation(internal.radarNetworks.attachFromSearch, { appId: app.id, videos: r.value.videos, foundBy: `réseau ${app.name}`, now });
-          cursor = r.value.cursor;
-          if (cursor === undefined || r.value.videos.length === 0) break;
+          if (stop) break;
         }
-        if (stop) break;
+      } catch (e) {
+        // Une page illisible ne laisse pas l'app « en cours » pour toujours : son issue est notée, la tâche continue.
+        crashed = true;
+        complete = false;
+        errors++;
+        appError = e instanceof Error ? e.message : String(e);
+        lastError = appError;
       }
       // Une app à moitié cherchée (budget du passage épuisé) reprend au suivant.
-      if (complete) await ctx.runMutation(internal.radarNetworks.markNetworkSearched, { appId: app.id, now });
+      const outcome = crashed ? "error" : networkSearchOutcome({ complete, noCredits, calls: appCalls, failures: appFailures });
+      await ctx.runMutation(internal.radarNetworks.finishNetworkSearch, {
+        appId: app.id,
+        now: Date.now(),
+        outcome,
+        searched: complete,
+        ...(outcome !== "done" && outcome !== "budget" && appError ? { error: appError } : {}),
+      });
+      attached += appAttached;
       if (stop) break;
     }
     await ctx.runMutation(internal.radarSignals.recordRun, {
@@ -447,6 +544,8 @@ export const runNetworkSearch = internalAction({
       ...(lastError ? { lastError } : {}),
     });
     if (calls) await maybeAlert(ctx, now);
+    // Les comptes trouvés à la demande sont relevés tout de suite, pas à l'heure suivante.
+    if (appId && attached) await ctx.scheduler.runAfter(0, internal.radarNetworks.runAccountReads, {});
     return { calls, credits, errors };
   },
 });
@@ -528,6 +627,7 @@ export async function listNetworksCore(ctx: ProjectQueryCtx) {
       posts7d: mine.reduce((s, t) => s + (t.posts7d ?? 0), 0),
       best,
       networkSearchedAt: a.networkSearchedAt ?? null,
+      networkSearch: a.networkSearch ?? null,
     };
   });
   const order = { rival: 0, otherRival: 1, other: 2 } as const;
@@ -654,6 +754,16 @@ export const listCandidates = permissionQuery("radar.use")({
   handler: (ctx) => listCandidatesCore(ctx),
 });
 
+/**
+ * Demande la recherche du réseau d'une app, tout de suite et pour elle seule :
+ * l'écran la montre « en cours » dès cet instant, la tâche y note sa progression
+ * puis son issue.
+ */
+async function requestNetworkSearch(ctx: MutationCtx, appId: Id<"radarApps">, steps: number, now: number): Promise<void> {
+  await ctx.db.patch(appId, { networkSearch: { requestedAt: now, step: 0, steps, attached: 0, signals: 0 } });
+  await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, { appId });
+}
+
 /** Crée une app suivie : ses motifs (cités dans une légende) font aussi ses recherches. */
 async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patterns: string[]): Promise<Doc<"radarApps">> {
   const clean = cleanText(name.trim(), 60);
@@ -663,6 +773,8 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
   if (await ctx.db.query("radarApps").withIndex("by_slug", (q) => q.eq("slug", slug)).first()) {
     throw err(ERR.RADAR_APP_ALREADY_FOLLOWED, `L'app « ${clean} » est déjà suivie.`, { name: clean });
   }
+  const searches = [...strong, ...strong.map((p) => `#${p.replace(/\.[a-z]+$/, "")}`)].filter((x, i, a) => a.indexOf(x) === i);
+  const now = Date.now();
   const id = await ctx.db.insert("radarApps", {
     slug,
     name: clean,
@@ -670,12 +782,12 @@ async function createApp(ctx: MutationCtx, name: string, rivalOf: string[], patt
     strong,
     weak: [],
     context: [],
-    searches: [...strong, ...strong.map((p) => `#${p.replace(/\.[a-z]+$/, "")}`)].filter((x, i, a) => a.indexOf(x) === i),
+    searches,
     status: "active",
     source: "manual",
-    createdAt: Date.now(),
+    createdAt: now,
   });
-  await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, {});
+  await requestNetworkSearch(ctx, id, searches.length, now);
   return (await ctx.db.get(id))!;
 }
 
@@ -723,13 +835,21 @@ export const setAppStatus = permissionMutation("radar.use")({
   },
 });
 
-/** Relance tout de suite la recherche du réseau d'une app (dans la limite du budget). */
+/**
+ * Cherche tout de suite le réseau d'une app, elle seule, sur ce qui reste du
+ * budget du jour. `running` : une recherche de cette app tourne déjà, rien
+ * n'est relancé. La date de la dernière recherche reste celle d'avant tant que
+ * la nouvelle n'a pas fini (avant le 09/11, elle était effacée : « jamais »).
+ */
 export const searchAppNow = permissionMutation("radar.use")({
   args: { appId: v.id("radarApps") },
-  handler: async (ctx, { appId }) => {
-    await ctx.db.patch(appId, { networkSearchedAt: undefined });
-    await ctx.scheduler.runAfter(0, internal.radarNetworks.runNetworkSearch, {});
-    return null;
+  handler: async (ctx, { appId }): Promise<"started" | "running"> => {
+    const app = await ctx.db.get(appId);
+    if (!app) throw err(ERR.RADAR_APP_NOT_FOUND, "App introuvable.");
+    const now = Date.now();
+    if (networkSearchPhase(app.networkSearch, now) === "running") return "running";
+    await requestNetworkSearch(ctx, appId, app.searches.length, now);
+    return "started";
   },
 });
 
@@ -780,7 +900,9 @@ export const purgeNetworks = internalMutation({
 /** E2E — sème des apps et leurs comptes (global : effacés par `e2eClearNetwork`). */
 export const e2eSeedNetwork = e2eMutation({
   args: {
-    apps: v.array(v.object({ slug: v.string(), name: v.string(), rivalOf: v.array(v.string()), strong: v.array(v.string()) })),
+    apps: v.array(
+      v.object({ slug: v.string(), name: v.string(), rivalOf: v.array(v.string()), strong: v.array(v.string()), networkSearch: v.optional(networkSearchValidator) }),
+    ),
     accounts: v.array(
       v.object({
         handle: v.string(),

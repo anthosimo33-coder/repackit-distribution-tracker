@@ -14,6 +14,7 @@ import { ARG_PROJET } from "./mcpWriteCommon";
 import { dayKeyParis } from "./dateFr";
 import { getRadarBudgetCore, listSignalsCore } from "./radarSignals";
 import { listAppAccountsCore, listCandidatesCore, listFormatsCore, listNetworksCore } from "./radarNetworks";
+import { networkSearchPhase } from "./radarNetworkSearch";
 import { listAdsCore } from "./radarSources";
 import { LANG_BUCKETS, viewsPerHour } from "./radarSignalsMath";
 import {
@@ -232,6 +233,7 @@ export async function appelerReseaux(
   lire: <T>(f: () => Promise<T>) => Promise<T>,
 ): Promise<ToolResult> {
   const jour = (t: number | null) => (t === null ? null : dayKeyParis(t));
+  const ISSUE_RECHERCHE: Partial<Record<ReturnType<typeof networkSearchPhase>, string>> = { running: "en cours", stale: "n'a pas abouti" };
   const vue = args.vue ?? "apps";
   if (vue !== "apps" && vue !== "formats" && vue !== "apps_reperees" && vue !== "pubs") throw new ToolError("« vue » : apps, formats, apps_reperees ou pubs.");
   if (vue === "pubs") {
@@ -327,6 +329,15 @@ export async function appelerReseaux(
             publicationsSemaine: a.posts7d,
             meilleureSemaine: a.best ? { compte: a.best.handle, vues: a.best.views, foisMediane: Math.round(a.best.multiplier * 10) / 10, lien: a.best.url } : null,
             reseauCherche: jour(a.networkSearchedAt),
+            // La recherche en cours, ou la dernière : son issue et les comptes qu'elle a ajoutés.
+            derniereRecherche: a.networkSearch
+              ? {
+                  issue: ISSUE_RECHERCHE[networkSearchPhase(a.networkSearch, Date.now())] ?? a.networkSearch.outcome ?? "done",
+                  comptesAjoutes: a.networkSearch.attached,
+                  fin: jour(a.networkSearch.finishedAt ?? null),
+                  ...(a.networkSearch.error ? { erreur: a.networkSearch.error } : {}),
+                }
+              : null,
           })),
         },
         null,

@@ -18,6 +18,7 @@ import {
   searchKind,
   shouldPromote,
 } from "../convex/radarNetworkMath";
+import { NETWORK_SEARCH_STALE_MS, networkSearchOutcome, networkSearchPhase } from "../convex/radarNetworkSearch";
 import { SEED_ACCOUNTS } from "../convex/radarSeedAccounts";
 import { cleanText, parseScVideo } from "../convex/radarSignalsMath";
 
@@ -116,6 +117,37 @@ describe("rythme des relevés", () => {
   it("« #thecringe » est une recherche de hashtag, le reste des mots-clés", () => {
     expect(searchKind("#thecringe")).toEqual({ kind: "hashtag", value: "thecringe" });
     expect(searchKind("theick tromperie")).toEqual({ kind: "keyword", value: "theick tromperie" });
+  });
+});
+
+describe("recherche du réseau d'une app, vue de l'écran (09/11/2026)", () => {
+  const base = { requestedAt: NOW, step: 0, steps: 6, attached: 0, signals: 0 };
+
+  it("en cours dès la demande, finie à son issue, et jamais en cours pour toujours", () => {
+    expect(networkSearchPhase(undefined, NOW)).toBe("idle");
+    expect(networkSearchPhase(null, NOW)).toBe("idle");
+    // Demandée, pas encore partie : déjà « en cours » (l'écran tourne dès le clic).
+    expect(networkSearchPhase(base, NOW + 1_000)).toBe("running");
+    expect(networkSearchPhase({ ...base, startedAt: NOW + 2_000, step: 3 }, NOW + 60_000)).toBe("running");
+    expect(networkSearchPhase({ ...base, startedAt: NOW, finishedAt: NOW + 40_000, outcome: "done" }, NOW + 50_000)).toBe("finished");
+    // Une tâche tombée en route : passé 15 min, on peut relancer.
+    expect(networkSearchPhase({ ...base, startedAt: NOW }, NOW + NETWORK_SEARCH_STALE_MS - 1)).toBe("running");
+    expect(networkSearchPhase({ ...base, startedAt: NOW }, NOW + NETWORK_SEARCH_STALE_MS)).toBe("stale");
+    // Jamais partie (planificateur perdu) : comptée depuis la demande.
+    expect(networkSearchPhase(base, NOW + NETWORK_SEARCH_STALE_MS)).toBe("stale");
+  });
+
+  it("l'issue dit pourquoi elle s'est arrêtée : crédits, budget, pages en échec", () => {
+    expect(networkSearchOutcome({ complete: true, noCredits: false, calls: 12, failures: 0 })).toBe("done");
+    // Quelques pages en échec n'empêchent pas une recherche d'aboutir.
+    expect(networkSearchOutcome({ complete: true, noCredits: false, calls: 12, failures: 3 })).toBe("done");
+    expect(networkSearchOutcome({ complete: true, noCredits: false, calls: 6, failures: 6 })).toBe("error");
+    expect(networkSearchOutcome({ complete: false, noCredits: false, calls: 4, failures: 0 })).toBe("budget");
+    // Budget épuisé avant le premier appel.
+    expect(networkSearchOutcome({ complete: false, noCredits: false, calls: 0, failures: 0 })).toBe("budget");
+    expect(networkSearchOutcome({ complete: false, noCredits: true, calls: 3, failures: 1 })).toBe("no-credits");
+    // Une app sans recherche (aucun motif) : rien à lire, c'est fini.
+    expect(networkSearchOutcome({ complete: true, noCredits: false, calls: 0, failures: 0 })).toBe("done");
   });
 });
 
