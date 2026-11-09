@@ -190,7 +190,7 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
   {
     name: "modifier_briques",
     title: "Modifier le texte de briques",
-    description: `MODIFIE les scripts : remplace le texte de briques EXISTANTES d'une campagne (hook, flux, cta, notif) — et, au besoin, leur consigne de tournage, leur libellé court, et pour un hook libre sa direction et ses autres exemples. Comme « Modifier » à l'écran : les statistiques restent attachées à la brique ; les missions DÉJÀ assignées gardent leur texte, les prochaines tirent le nouveau. Une brique se désigne par son libellé (outil \`scripts\`) ou par un morceau de son texte ; tout ou rien (une brique introuvable ou ambiguë : rien ne change). Variables permises, remplies avec la fiche de la conversation tirée : ${VARIABLES.map((x) => `{${x}}`).join(", ")}. La réponse signale une durée ou une relation encore écrite en dur. Se défait.`,
+    description: `MODIFIE les scripts : remplace le texte de briques EXISTANTES d'une campagne (hook, flux, cta, notif) — et, au besoin, leur consigne de tournage, leur libellé court, et pour un hook libre sa direction et ses autres exemples. Comme « Modifier » à l'écran : les statistiques restent attachées à la brique ; les missions DÉJÀ assignées gardent leur texte, les prochaines tirent le nouveau. Une brique se désigne par son libellé (outil \`scripts\`) ou par un morceau de son texte ; tout ou rien (une brique introuvable ou ambiguë : rien ne change). Elle peut aussi porter le dossier d'Assets qu'elle exige (« dossier » : la vidéo de fond d'un Collage), lié à chaque mission qui la tirera. Variables permises, remplies avec la fiche de la conversation tirée : ${VARIABLES.map((x) => `{${x}}`).join(", ")}. La réponse signale une durée ou une relation encore écrite en dur. Se défait.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -215,6 +215,11 @@ export const OUTILS_ECRITURE_SCRIPTS: readonly McpTool[] = [
                 description: `Hook libre : les autres formulations, ${MAX_AUTRES_EXEMPLES} au plus (remplace la liste ; [] la vide).`,
                 maxItems: MAX_AUTRES_EXEMPLES,
                 items: { type: "string" },
+              },
+              dossier: {
+                type: "string",
+                description:
+                  "Le dossier d'Assets (outil `assets`) que la brique EXIGE — p.ex. la vidéo de fond d'un flux de Collage « FOND C » : lié à chaque mission qui tirera la brique (pas aux missions déjà assignées). Nom exact ou un morceau qui n'en désigne qu'un ; remplace le dossier d'avant ; \"\" le retire.",
               },
             },
             required: ["brique"],
@@ -532,6 +537,7 @@ type EtatBrique = {
   libre: boolean;
   direction: string | null;
   autresExemples: string[];
+  dossiers: Id<"assetFolders">[];
 };
 const etatDe = (b: Doc<"scriptBricks">): EtatBrique => ({
   content: b.content,
@@ -540,6 +546,7 @@ const etatDe = (b: Doc<"scriptBricks">): EtatBrique => ({
   libre: b.libre === true,
   direction: b.direction ?? null,
   autresExemples: b.autresExemples ?? [],
+  dossiers: b.assetFolderIds ?? [],
 });
 
 export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scripts")({
@@ -554,18 +561,25 @@ export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scr
         libelle: v.optional(v.string()),
         direction: v.optional(v.string()),
         exemples: v.optional(v.array(v.string())),
+        dossier: v.optional(v.string()),
       }),
     ),
   },
   handler: async (ctx, a) => {
     const campagne = await campagneDe(ctx, a.campagne);
+    const dossiersDuProjet = a.briques.some((d) => d.dossier !== undefined)
+      ? await ctx.db
+          .query("assetFolders")
+          .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+          .collect()
+      : [];
     const toutes = await ctx.db
       .query("scriptBricks")
       .withIndex("by_campaign", (q) => q.eq("campaignId", campagne._id))
       .collect();
     // Tout ou rien : on désigne et on vérifie TOUT avant d'écrire.
     const problemes: string[] = [];
-    const choix: { brique: Doc<"scriptBricks">; demande: (typeof a.briques)[number] }[] = [];
+    const choix: { brique: Doc<"scriptBricks">; demande: (typeof a.briques)[number]; dossierId?: Id<"assetFolders"> }[] = [];
     for (const d of a.briques) {
       const r = briqueDe(d.role ? toutes.filter((b) => b.kind === d.role) : toutes, d.brique);
       if (!r.ok) {
@@ -576,8 +590,18 @@ export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scr
       else if (d.texte !== undefined && d.texte.trim() === "") problemes.push(`« ${d.brique} » : texte vide`);
       else if ((d.direction !== undefined || d.exemples !== undefined) && r.brique.kind !== "hook") {
         problemes.push(`« ${d.brique} » : direction et exemples ne valent que pour un hook`);
-      } else if ([d.texte, d.consigne, d.libelle, d.direction, d.exemples].every((x) => x === undefined)) {
+      } else if ([d.texte, d.consigne, d.libelle, d.direction, d.exemples, d.dossier].every((x) => x === undefined)) {
         problemes.push(`« ${d.brique} » : rien à modifier`);
+      } else if (d.dossier !== undefined && d.dossier.trim() !== "") {
+        const f = designer(dossiersDuProjet, (x) => x.name, d.dossier);
+        if (f.ok) choix.push({ brique: r.brique, demande: d, dossierId: f.item._id });
+        else {
+          problemes.push(
+            f.candidats.length === 0
+              ? `« ${d.brique} » : aucun dossier d'Assets « ${d.dossier} » (outil \`assets\`)`
+              : `« ${d.brique} » : dossier « ${d.dossier} » ambigu (${f.candidats.map((x) => `« ${x.name} »`).join(", ")})`,
+          );
+        }
       } else choix.push({ brique: r.brique, demande: d });
     }
     if (problemes.length > 0) {
@@ -589,7 +613,7 @@ export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scr
     const photos = await photographier(ctx, "scriptBricks", choix.map((c) => c.brique._id));
     const lignes: { brickId: Id<"scriptBricks">; avant: EtatBrique; apres: EtatBrique }[] = [];
     const alertes: string[] = [];
-    for (const { brique, demande } of choix) {
+    for (const { brique, demande, dossierId } of choix) {
       const direction = demande.direction?.trim();
       const exemples = demande.exemples?.map((e) => e.trim()).filter((e) => e !== "");
       // Une direction ou des exemples donnés rendent le hook libre (comme ajouter_hooks).
@@ -612,6 +636,8 @@ export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scr
         ...(direction !== undefined ? { direction: direction === "" ? null : direction } : {}),
         ...(exemples !== undefined ? { autresExemples: exemples } : {}),
         ...(devientLibre && !brique.libre ? { libre: true } : {}),
+        // « dossier » : celui-là seul (remplace) ; "" = aucun.
+        ...(demande.dossier !== undefined ? { assetFolderIds: dossierId ? [dossierId] : [] } : {}),
       });
       const apres = (await ctx.db.get(brique._id))!;
       if (jsonCanonique(etatDe(apres)) === jsonCanonique(etatDe(brique))) continue;
@@ -632,7 +658,14 @@ export const ecrireModificationBriques = mcpWriteMutation("scripts.manage", "scr
       lignes
         .map((l) => {
           const b = choix.find((c) => c.brique._id === l.brickId)!.brique;
-          return `${b.kind} « ${l.apres.label} »`;
+          // Le dossier exigé, quand il a changé : nommé, pour qu'on le relise.
+          const dossiers =
+            jsonCanonique(l.avant.dossiers) === jsonCanonique(l.apres.dossiers)
+              ? ""
+              : l.apres.dossiers.length === 0
+                ? " (plus de dossier d'Assets)"
+                : ` (dossier d'Assets ${l.apres.dossiers.map((id) => `« ${dossiersDuProjet.find((f) => f._id === id)?.name ?? "?"} »`).join(", ")})`;
+          return `${b.kind} « ${l.apres.label} »${dossiers}`;
         })
         .join(", ");
     await journaliser(ctx, {
@@ -918,6 +951,7 @@ async function appelerEcritureScripts(
         ...str("consigne"),
         ...str("libelle"),
         ...str("direction"),
+        ...str("dossier"),
         ...(Array.isArray(o.exemples) ? { exemples: o.exemples.filter((e): e is string => typeof e === "string") } : {}),
       };
     });

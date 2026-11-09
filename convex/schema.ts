@@ -3810,6 +3810,14 @@ export default defineSchema({
     libre: v.optional(v.boolean()),
     direction: v.optional(v.string()),
     autresExemples: v.optional(v.array(v.string())),
+    // DOSSIERS D'ASSETS que la brique EXIGE — le cas d'origine : le flux d'un
+    // Collage « FOND C. … la vidéo de Lorena passe en entier » ne se tourne pas
+    // sans cette vidéo de fond à télécharger. À l'ASSIGNATION, ils sont liés à
+    // chaque mission qui tire la brique (en plus des dossiers choisis à la main
+    // et de ceux de la mission source d'un rejeu) : la mission les porte ensuite
+    // comme n'importe quel lien, retirables à la main. Changer ceux de la brique
+    // ne touche pas les missions déjà assignées. Absent = aucun. 0 migration.
+    assetFolderIds: v.optional(v.array(v.id("assetFolders"))),
     active: v.boolean(),
     order: v.optional(v.number()),
     createdAt: v.number(),

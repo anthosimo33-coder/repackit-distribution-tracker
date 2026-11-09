@@ -25,6 +25,8 @@ const etatBrique = v.object({
   libre: v.boolean(),
   direction: v.union(v.string(), v.null()),
   autresExemples: v.array(v.string()),
+  /** Dossiers d'Assets exigés par la brique — absent des lignes écrites avant le 09/11/2026. */
+  dossiers: v.optional(v.array(v.id("assetFolders"))),
 });
 
 const part = v.object({

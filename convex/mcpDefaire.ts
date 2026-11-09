@@ -548,7 +548,9 @@ async function annuler(
     }
     case "briquesModifiees": {
       const docs = await Promise.all(a.briques.map((b) => ctx.db.get(b.brickId)));
-      const etat = (d: Doc<"scriptBricks">) =>
+      // Les dossiers n'entrent dans la comparaison que si la ligne les a notés
+      // (une ligne d'avant le 09/11/2026 ne les connaît pas).
+      const etat = (d: Doc<"scriptBricks">, avecDossiers: boolean) =>
         jsonCanonique({
           content: d.content,
           label: d.label,
@@ -556,8 +558,11 @@ async function annuler(
           libre: d.libre === true,
           direction: d.direction ?? null,
           autresExemples: d.autresExemples ?? [],
+          ...(avecDossiers ? { dossiers: d.assetFolderIds ?? [] } : {}),
         });
-      const changees = a.briques.filter((b, i) => docs[i] === null || etat(docs[i]!) !== jsonCanonique(b.apres));
+      const changees = a.briques.filter(
+        (b, i) => docs[i] === null || etat(docs[i]!, b.apres.dossiers !== undefined) !== jsonCanonique(b.apres),
+      );
       if (changees.length > 0) throw refus(`${changees.length} brique(s) supprimée(s) ou remodifiée(s) depuis : rien n'a été écrasé.`);
       for (const b of a.briques) {
         await updateBrickCore(ctx, {
@@ -568,6 +573,7 @@ async function annuler(
           libre: b.avant.libre,
           direction: b.avant.direction,
           autresExemples: b.avant.autresExemples,
+          ...(b.avant.dossiers !== undefined ? { assetFolderIds: b.avant.dossiers } : {}),
         });
       }
       return `${a.briques.length} brique(s) remise(s) dans leur texte d'avant.`;

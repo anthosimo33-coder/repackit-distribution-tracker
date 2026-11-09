@@ -162,6 +162,17 @@ export const deleteAssetFolder = permissionMutation("library.manage")({
       if (asg.assetFolderId === args.id) patch.assetFolderId = undefined;
       if (Object.keys(patch).length > 0) await ctx.db.patch(asg._id, patch);
     }
+    // …et les briques qui l'EXIGEAIENT (fond d'un Collage) : sans quoi chaque
+    // prochaine assignation chercherait un dossier disparu.
+    const briques = await ctx.db
+      .query("scriptBricks")
+      .withIndex("by_project", (q) => q.eq("projectId", ctx.projectId))
+      .collect();
+    for (const b of briques) {
+      if (!b.assetFolderIds?.includes(args.id)) continue;
+      const reste = b.assetFolderIds.filter((f) => f !== args.id);
+      await ctx.db.patch(b._id, { assetFolderIds: reste.length > 0 ? reste : undefined });
+    }
     await ctx.db.delete(args.id);
     return { deletedAssets: assets.length };
   },
